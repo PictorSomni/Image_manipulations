@@ -1,0 +1,217 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>640</width>
+    <height>643</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MainWindow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <property name="maximumSize">
+    <size>
+     <width>512</width>
+     <height>512</height>
+    </size>
+   </property>
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>0</number>
+    </property>
+    <property name="leftMargin">
+     <number>13</number>
+    </property>
+    <property name="topMargin">
+     <number>13</number>
+    </property>
+    <property name="rightMargin">
+     <number>13</number>
+    </property>
+    <property name="bottomMargin">
+     <number>13</number>
+    </property>
+    <item>
+     <widget class="QFrame" name="drop_shadow_frame">
+      <property name="font">
+       <font>
+        <family>Montserrat SemiBold</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QFrame {
+	background-color: #D1D8E0;
+	border-radius: 243px;
+}</string>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::NoFrame</enum>
+      </property>
+      <property name="frameShadow">
+       <enum>QFrame::Raised</enum>
+      </property>
+      <widget class="QLabel" name="label_description">
+       <property name="geometry">
+        <rect>
+         <x>0</x>
+         <y>210</y>
+         <width>481</width>
+         <height>61</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>Equinox Regular</family>
+         <pointsize>16</pointsize>
+         <weight>50</weight>
+         <bold>false</bold>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color:  #4B6584;
+background-color: rgba(255, 255, 255, 0);</string>
+       </property>
+       <property name="text">
+        <string notr="true">&lt;span &gt;Création de  fiches de commande&lt;/span&gt;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QProgressBar" name="progressBar">
+       <property name="geometry">
+        <rect>
+         <x>70</x>
+         <y>280</y>
+         <width>351</width>
+         <height>61</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>Equinox Bold</family>
+         <pointsize>16</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">QProgressBar {
+	height: 32px;
+	background-color: #4B6584;
+	color: #D1D8E0;
+	border-style: none;
+	border-radius: 30px;
+	text-align: center;
+}
+QProgressBar::chunk {
+	background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0  #A05CFC, stop:1 #D65CFC);
+	border-radius: 30px;
+}</string>
+       </property>
+       <property name="value">
+        <number>64</number>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_counter">
+       <property name="geometry">
+        <rect>
+         <x>80</x>
+         <y>370</y>
+         <width>321</width>
+         <height>41</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>Equinox Regular</family>
+         <pointsize>21</pointsize>
+         <weight>50</weight>
+         <bold>false</bold>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color: #a254f2;
+background-color: rgba(255, 255, 255, 0);</string>
+       </property>
+       <property name="text">
+        <string notr="true">En cours...</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QPushButton" name="pushButton">
+       <property name="geometry">
+        <rect>
+         <x>70</x>
+         <y>280</y>
+         <width>351</width>
+         <height>61</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>Equinox Bold</family>
+         <pointsize>21</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">QPushButton {
+	border-radius: 30px;
+	background-color: #D1D8E0;
+	border: 2px solid #00c3ff;
+	color: #4B6584;
+	text-align: center;
+}
+QPushButton:hover {
+	border: 2px solid #a254f2;
+}
+QPushButton:pressed {
+	color: #F50B9A;
+	border: 2px solid #F50B9A;
+}</string>
+       </property>
+       <property name="text">
+        <string notr="true">Démarrer</string>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_description_2">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>140</y>
+         <width>471</width>
+         <height>91</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>Equinox Regular</family>
+         <pointsize>58</pointsize>
+         <weight>50</weight>
+         <bold>false</bold>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color:  #00c3ff;
+background-color: rgba(255, 255, 255, 0);</string>
+       </property>
+       <property name="text">
+        <string notr="true">Studio &lt;strong&gt;C&lt;/strong&gt;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

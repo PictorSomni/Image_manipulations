@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindow</class>
+ <widget class="QMainWindow" name="MainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>640</width>
+    <height>640</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>MainWindow</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayout">
+    <property name="spacing">
+     <number>0</number>
+    </property>
+    <property name="leftMargin">
+     <number>13</number>
+    </property>
+    <property name="topMargin">
+     <number>13</number>
+    </property>
+    <property name="rightMargin">
+     <number>13</number>
+    </property>
+    <property name="bottomMargin">
+     <number>13</number>
+    </property>
+    <item>
+     <widget class="QFrame" name="drop_shadow_frame">
+      <property name="font">
+       <font>
+        <family>Montserrat SemiBold</family>
+       </font>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">QFrame {
+	background-color: #ccd1d9;
+	border-radius: 307px;
+}</string>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::NoFrame</enum>
+      </property>
+      <property name="frameShadow">
+       <enum>QFrame::Raised</enum>
+      </property>
+      <widget class="QLabel" name="label_title">
+       <property name="geometry">
+        <rect>
+         <x>70</x>
+         <y>120</y>
+         <width>471</width>
+         <height>101</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>Montserrat</family>
+         <pointsize>64</pointsize>
+         <weight>50</weight>
+         <bold>false</bold>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color: #434a54;</string>
+       </property>
+       <property name="text">
+        <string notr="true">&lt;span&gt;STUDIO&lt;strong&gt;C&lt;/strong&gt;&lt;/span&gt;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_description">
+       <property name="geometry">
+        <rect>
+         <x>30</x>
+         <y>220</y>
+         <width>551</width>
+         <height>71</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>Montserrat</family>
+         <pointsize>32</pointsize>
+         <weight>50</weight>
+         <bold>false</bold>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color:  #7366FF;</string>
+       </property>
+       <property name="text">
+        <string notr="true">&lt;span &gt;&lt;strong&gt;APP&lt;/strong&gt;DESCRIPTION&lt;/span&gt;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QProgressBar" name="progressBar">
+       <property name="geometry">
+        <rect>
+         <x>80</x>
+         <y>430</y>
+         <width>451</width>
+         <height>61</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>Open Sans</family>
+         <pointsize>16</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">QProgressBar {
+	height: 32px;
+	background-color: rgb(83, 86, 132);
+	color: rgb(200, 200, 200);
+	border-style: none;
+	border-radius: 30px;
+	text-align: center;
+}
+QProgressBar::chunk {
+	background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:1, y2:0, stop:0 rgba(110, 85, 250, 255), stop:1 rgba(197, 91, 251, 255));
+	border-radius: 30px;
+}</string>
+       </property>
+       <property name="value">
+        <number>24</number>
+       </property>
+      </widget>
+      <widget class="QLabel" name="label_counter">
+       <property name="geometry">
+        <rect>
+         <x>100</x>
+         <y>490</y>
+         <width>411</width>
+         <height>41</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>Montserrat</family>
+         <pointsize>21</pointsize>
+         <weight>50</weight>
+         <bold>false</bold>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">color: #6454F0;</string>
+       </property>
+       <property name="text">
+        <string notr="true">En cours...</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+      <widget class="QPushButton" name="pushButton">
+       <property name="geometry">
+        <rect>
+         <x>80</x>
+         <y>430</y>
+         <width>451</width>
+         <height>61</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>Montserrat</family>
+         <pointsize>21</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">QPushButton {
+	height: 32px;
+	background-color: qlineargradient(spread:pad, x1:0, y1:1, x2:0.95098, y2:0, stop:0 #5650DE, stop:1 #F869D5);
+	color: #ccd1d9;
+	border-radius: 30px;
+	text-align: center;
+}
+QPushButton:hover {
+	background-color : qlineargradient(spread:pad, x1:0, y1:1, x2:0.95098, y2:0, stop:0 #7366FF, stop:1 #FF6CAB);
+}
+QPushButton:pressed {
+	background-color: qlineargradient(spread:pad, x1:0, y1:1, x2:0.95098, y2:0, stop:0 #7D77FF, stop:1 #FF9482);
+	color: #443a54;
+}</string>
+       </property>
+       <property name="text">
+        <string notr="true">Démarrer</string>
+       </property>
+      </widget>
+      <widget class="QCheckBox" name="checkBox">
+       <property name="geometry">
+        <rect>
+         <x>190</x>
+         <y>360</y>
+         <width>231</width>
+         <height>51</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <family>Montserrat</family>
+         <pointsize>21</pointsize>
+        </font>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">QCheckBox {
+    border-radius: 25px;
+    padding-left: 21px;
+    min-width: 6em;
+	background-color: qlineargradient(spread:pad, x1:0, y1:1, x2:0.95098, y2:0, stop:0 #5650DE, stop:1 #F869D5);
+	color: #ccd1d9;
+	text-align: center;
+}
+QCheckBox:hover {
+	background-color:  qlineargradient(spread:pad, x1:0, y1:1, x2:0.95098, y2:0, stop:0 #7366FF, stop:1 #FF6CAB);
+}
+QCheckBox:checked {
+	background-color: qlineargradient(spread:pad, x1:0, y1:1, x2:0.95098, y2:0, stop:0 #7D77FF, stop:1 #FF9482);
+	color: #443a54;
+}</string>
+       </property>
+       <property name="text">
+        <string>CheckBox</string>
+       </property>
+      </widget>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

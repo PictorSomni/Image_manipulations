@@ -1,0 +1,1 @@
+Warhol_largeur x hauteur x seuil x distance seuil
