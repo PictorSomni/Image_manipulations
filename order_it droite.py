@@ -17,7 +17,7 @@ from rich.console import Console
 #                           PATH                            #
 #############################################################
 PATH = "J:\\it-HotFolder"
-DESTINATION = "Z:\\KIOSK\\KIOSK GAUCHE"
+DESTINATION = "Z:\\KIOSK\\KIOSK DROITE"
 
 ## --> DEBUG PATHS
 # PATH = "C:\\tmp\\Kiosk"
