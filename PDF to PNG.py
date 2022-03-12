@@ -15,7 +15,7 @@ os.chdir(PATH)
 FOLDER = [file for file in sorted(os.listdir()) if file.endswith(".pdf")]
 TOTAL = len(FOLDER)
 DPI = 300
-NAME = "PTP"
+NAME = "PDF"
 START = 1
 
 #############################################################
@@ -38,10 +38,12 @@ for index, pdf in enumerate(FOLDER) :
             xref = img[0]
             pix = fitz.Pixmap(doc, xref)
             if pix.n < 5:       # this is GRAY or RGB
-                pix.pillowWrite(f"{PATH}\\IMAGES\\{NAME}_{i+START:03}.png", dpi=(DPI, DPI), format='PNG', subsampling=0, quality=100)
+                # pix.pillowWrite(f"{PATH}\\IMAGES\\{NAME}_{i+START:03}.png", dpi=(DPI, DPI), format='PNG', subsampling=0, quality=100)
+                pix.pillowWrite(f"{PATH}\\IMAGES\\{index:02}_{i+START:03}.png", dpi=(DPI, DPI), format='PNG', subsampling=0, quality=100)
             else:               # CMYK: convert to RGB first
                 pix1 = fitz.Pixmap(fitz.csRGB, pix)
-                pix1.pillowWrite(f"{PATH}\\IMAGES\\{NAME}_{i+START:03}.png", dpi=(DPI, DPI), format='PNG', subsampling=0, quality=100)
+                # pix1.pillowWrite(f"{PATH}\\IMAGES\\{NAME}_{i+START:03}.png", dpi=(DPI, DPI), format='PNG', subsampling=0, quality=100)
+                pix1.pillowWrite(f"{PATH}\\IMAGES\\{index:02}_{i+START:03}.png", dpi=(DPI, DPI), format='PNG', subsampling=0, quality=100)
                 pix1 = None
             pix = None
 print("Terminé")
