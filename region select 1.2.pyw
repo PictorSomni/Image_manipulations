@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
+
 #############################################################
 #                          IMPORT                           #
 #############################################################
+
 from PyQt5 import QtCore, QtGui, QtWidgets
 import os
 import io
@@ -11,6 +13,7 @@ from PIL import ImageOps
 #############################################################
 #                           PATH                            #
 #############################################################
+
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
@@ -20,6 +23,7 @@ if not os.path.exists(PATH + f"\\WEB") :
 #############################################################
 #                         CONTENT                           #
 #############################################################
+
 EXTENSION = (".jpg", ".jpeg", ".png")
 FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
 

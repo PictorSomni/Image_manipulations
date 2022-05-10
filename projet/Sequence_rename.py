@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
+
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+
 import os
 import sys
 import re
@@ -12,16 +14,22 @@ from rich.console import Console
 #############################################################
 #                           PATH                            #
 #############################################################
+
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
+
 console = Console()
 
 EXTENSION = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
 FOLDER = [file for file in os.listdir() if file.endswith(EXTENSION) and not file == "watermark.png"]
+
+#############################################################
+#                         FUNCTIONS                         #
+#############################################################
 
 ## Clears the terminal
 def clear():
@@ -35,6 +43,7 @@ def wait(delay=1):
 #############################################################
 #                           MAIN                            #
 #############################################################
+
 clear()
 
 print(f"[deep_sky_blue1]Renommage des fichiers[/deep_sky_blue1]")

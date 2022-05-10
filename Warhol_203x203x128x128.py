@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
+
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+
 import os
 import sys
 import re
@@ -11,12 +13,14 @@ import numpy as np
 #############################################################
 #                           PATH                            #
 #############################################################
+
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
+
 EXTENSION = (".jpg", ".jpeg", ".png")
 FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
 TOTAL = len(FOLDER)
@@ -25,6 +29,7 @@ size = re.search(r"Warhol_(\d+)\s?x\s?(\d+)s?x\s?(\d+)s?x\s?(\d+).py",sys.argv[0
 #############################################################
 #                         VARIABLES                         #
 #############################################################
+
 WIDTH = int(size.group(1))
 HEIGHT = int(size.group(2))
 DPI = 300       # DPI
@@ -81,12 +86,14 @@ COLOR_SET = [
 #############################################################
 #               CONVERT MM 300DPI TO PIXELS                 #
 #############################################################
+
 WIDTH_DPI = round((float(WIDTH) / 25.4) * DPI)
 HEIGHT_DPI = round((float(HEIGHT) / 25.4) * DPI)
 
 #############################################################
 #                         FUNCTIONS                         #
 #############################################################
+
 ## Clears the terminal
 def clear():
     os.system("cls" if os.name == "nt" else "clear")
@@ -176,6 +183,7 @@ def warholify(image_file):
 #############################################################
 #                           MAIN                            #
 #############################################################
+
 clear()
 print("Warhol")
 print("#" * 30)

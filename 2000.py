@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 #############################################################
 #                          IMPORTS                          #
 #############################################################
@@ -37,8 +38,8 @@ else :
 #                           MAIN                            #
 #############################################################
 
-if not os.path.exists(PATH + f"\\{MAXSIZE[0]}px") :
-    os.makedirs(PATH + f"\\{MAXSIZE[0]}px")
+if not os.path.exists(PATH + f"/{MAXSIZE[0]}px") :
+    os.makedirs(PATH + f"/{MAXSIZE[0]}px")
 
 for i, file in enumerate(FOLDER):
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -53,8 +54,8 @@ for i, file in enumerate(FOLDER):
     else:
         base_image.thumbnail(MAXSIZE, Image.ANTIALIAS)
 
-        # base_image.save("{}\\{}px\\{:03}.jpg".format(PATH, MAXSIZE[0], i), format='JPEG', subsampling=0, quality=100)
-        base_image.save("{}\\{}px\\{}".format(PATH, MAXSIZE[0], file), format='JPEG', subsampling=0, quality=100)
+        # base_image.save("{}/{}px/{:03}.jpg".format(PATH, MAXSIZE[0], i), format='JPEG', subsampling=0, quality=100)
+        base_image.save("{}/{}px/{}".format(PATH, MAXSIZE[0], file), format='JPEG', subsampling=0, quality=100)
 
 print("Terminé !")
 # input("Terminé !\nAppuyez sur une touche pour fermer")

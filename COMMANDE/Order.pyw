@@ -2,8 +2,9 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+
 ## --> GUI
-from PySide2 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 from Order_data.ui_main import Ui_MainWindow
 
 ## --> GLOBAL IMPORTS
@@ -18,12 +19,14 @@ from numpy import linalg
 #############################################################
 #                           PATH                            #
 #############################################################
+
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 EXTENSION = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
@@ -37,9 +40,10 @@ PIXEL_SIZE = 720 ## Maximum pixel width if image is reduced before processing (l
 ## For this to work, the background image MUST have a bit of transparency !
 ## Here each backgroun have at least 1px thick transparent border (generally at the bottom)
 ############################################
+
 ###### FICHE ######
-FICHE = Image.open(f"{PATH}\\Order_data\\FICHE.png")
-WATERMARK = Image.open(f"{PATH}\\Order_data\\watermark.png")
+FICHE = Image.open(f"{PATH}/Order_data/FICHE.png")
+WATERMARK = Image.open(f"{PATH}/Order_data/watermark.png")
 THUMB_SIZE = 155 #px
 ORDER_X = int(FICHE.width * 0.016)
 ORDER_Y = int(FICHE.height * 0.94)
@@ -52,8 +56,8 @@ BIG_THUMB_RIGHT = int(FICHE.width * 0.66)
 BIG_THUMB_DOWN = int(FICHE.height * 0.98)
 
 ####### MUG #######
-MUG = Image.open(f"{PATH}\\Order_data\\MUG.png")
-MUG_ALPHA = Image.open(f"{PATH}\\Order_data\\MUG_ALPHA.png")
+MUG = Image.open(f"{PATH}/Order_data/MUG.png")
+MUG_ALPHA = Image.open(f"{PATH}/Order_data/MUG_ALPHA.png")
 MUG_LEFT = 100
 MUG_UP = 420
 MUG_RIGHT = 1510
@@ -62,8 +66,8 @@ MUG_THUMB_UP = int(FICHE.height * 0.45)
 MUG_THUMB_LEFT = int(FICHE.width * 0.35)
 
 ####### CALENDRIER #######
-CALENDRIER = Image.open(f"{PATH}\\Order_data\\CALENDRIER.png")
-CALENDRIER_ALPHA = Image.open(f"{PATH}\\Order_data\\CALENDRIER_ALPHA.png")
+CALENDRIER = Image.open(f"{PATH}/Order_data/CALENDRIER.png")
+CALENDRIER_ALPHA = Image.open(f"{PATH}/Order_data/CALENDRIER_ALPHA.png")
 CALENDRIER_LEFT = int(CALENDRIER.width * 0.03)
 CALENDRIER_UP = int(CALENDRIER.height * 0.02)
 CALENDRIER_RIGHT = int(CALENDRIER.width * 0.96)
@@ -72,8 +76,8 @@ CALENDRIER_THUMB_UP = int(FICHE.height * 0.18)
 CALENDRIER_THUMB_LEFT = int(FICHE.width * 0.675)
 
 ####### MAGNET #######
-MAGNET = Image.open(f"{PATH}\\Order_data\\MAGNET_ROND.png")
-MAGNET_ALPHA = Image.open(f"{PATH}\\Order_data\\MAGNET_ROND_ALPHA.png")
+MAGNET = Image.open(f"{PATH}/Order_data/MAGNET_ROND.png")
+MAGNET_ALPHA = Image.open(f"{PATH}/Order_data/MAGNET_ROND_ALPHA.png")
 MAGNET_LEFT = 78
 MAGNET_UP = 157
 MAGNET_RIGHT = 1708
@@ -82,8 +86,8 @@ MAGNET_THUMB_UP = int(FICHE.height * 0.15)
 MAGNET_THUMB_LEFT = int(FICHE.width * 0.35)
 
 ####### PORTE-CLEF #######
-ID = Image.open(f"{PATH}\\Order_data\\PORTE-CLEF.png")
-ID_ALPHA = Image.open(f"{PATH}\\Order_data\\PORTE-CLEF_ALPHA.png")
+ID = Image.open(f"{PATH}/Order_data/PORTE-CLEF.png")
+ID_ALPHA = Image.open(f"{PATH}/Order_data/PORTE-CLEF_ALPHA.png")
 ID_LEFT = 467
 ID_UP = 451
 ID_RIGHT = 1310
@@ -92,16 +96,16 @@ ID_THUMB_UP = int(FICHE.height * 0.3)
 ID_THUMB_LEFT = int(FICHE.width * 0.35)
 
 ####### PLUMIER #######
-PLUMIER = Image.open(f"{PATH}\\Order_data\\PLUMIER.png")
-PLUMIER_ALPHA = Image.open(f"{PATH}\\Order_data\\PLUMIER_ALPHA.png")
+PLUMIER = Image.open(f"{PATH}/Order_data/PLUMIER.png")
+PLUMIER_ALPHA = Image.open(f"{PATH}/Order_data/PLUMIER_ALPHA.png")
 PLUMIER_LEFT = 153
 PLUMIER_UP = 302
 PLUMIER_RIGHT = 1980
 PLUMIER_DOWN = 734
 
 ####### CADRE #######
-CADRE = Image.open(f"{PATH}\\Order_data\\CADRE.png")
-CADRE_ALPHA = Image.open(f"{PATH}\\Order_data\\CADRE_ALPHA.png")
+CADRE = Image.open(f"{PATH}/Order_data/CADRE.png")
+CADRE_ALPHA = Image.open(f"{PATH}/Order_data/CADRE_ALPHA.png")
 CADRE_LEFT = 575
 CADRE_UP = 390
 CADRE_RIGHT = 1585
@@ -110,8 +114,8 @@ CADRE_THUMB_UP = 1105
 CADRE_THUMB_LEFT = 107
 
 ####### PASSE #######
-PASSE = Image.open(f"{PATH}\\Order_data\\PASSE.png")
-PASSE_ALPHA = Image.open(f"{PATH}\\Order_data\\PASSE_ALPHA.png")
+PASSE = Image.open(f"{PATH}/Order_data/PASSE.png")
+PASSE_ALPHA = Image.open(f"{PATH}/Order_data/PASSE_ALPHA.png")
 PASSE_LEFT = 316
 PASSE_UP = 541
 PASSE_RIGHT = 1138
@@ -120,8 +124,8 @@ PASSE_THUMB_UP = 1916
 PASSE_THUMB_LEFT = 107
 
 ####### SUPPORT_BOIS #######
-BOIS = Image.open(f"{PATH}\\Order_data\\SUPPORT_BOIS.png")
-BOIS_ALPHA = Image.open(f"{PATH}\\Order_data\\SUPPORT_BOIS_ALPHA.png")
+BOIS = Image.open(f"{PATH}/Order_data/SUPPORT_BOIS.png")
+BOIS_ALPHA = Image.open(f"{PATH}/Order_data/SUPPORT_BOIS_ALPHA.png")
 BOIS_LEFT = 442
 BOIS_UP = 442
 BOIS_RIGHT = 1348
@@ -130,8 +134,8 @@ BOIS_THUMB_UP = 1510
 BOIS_THUMB_LEFT = 107
 
 ####### BOULE A NEIGE #######
-NEIGE = Image.open(f"{PATH}\\Order_data\\NEIGE.png")
-NEIGE_ALPHA = Image.open(f"{PATH}\\Order_data\\NEIGE_ALPHA.png")
+NEIGE = Image.open(f"{PATH}/Order_data/NEIGE.png")
+NEIGE_ALPHA = Image.open(f"{PATH}/Order_data/NEIGE_ALPHA.png")
 NEIGE_LEFT = 176
 NEIGE_UP = 235
 NEIGE_RIGHT = 1610
@@ -140,8 +144,8 @@ NEIGE_THUMB_UP = int(FICHE.height * 0.1)
 NEIGE_THUMB_LEFT = int(FICHE.width * 0.675)
 
 ####### VOEUX 01 #######
-VOEUX01 = Image.open(f"{PATH}\\Order_data\\VOEUX01.png")
-VOEUX01_ALPHA = Image.open(f"{PATH}\\Order_data\\VOEUX01_ALPHA.png")
+VOEUX01 = Image.open(f"{PATH}/Order_data/VOEUX01.png")
+VOEUX01_ALPHA = Image.open(f"{PATH}/Order_data/VOEUX01_ALPHA.png")
 VOEUX01_LEFT = 130
 VOEUX01_UP = 118
 VOEUX01_RIGHT = 1075
@@ -150,8 +154,8 @@ VOEUX01_THUMB_UP = int(FICHE.height * 0.25)
 VOEUX01_THUMB_LEFT = int(FICHE.width * 0.675)
 
 ###### VOEUX 02 #######
-VOEUX02 = Image.open(f"{PATH}\\Order_data\\VOEUX02.png")
-VOEUX02_ALPHA = Image.open(f"{PATH}\\Order_data\\VOEUX02_ALPHA.png")
+VOEUX02 = Image.open(f"{PATH}/Order_data/VOEUX02.png")
+VOEUX02_ALPHA = Image.open(f"{PATH}/Order_data/VOEUX02_ALPHA.png")
 VOEUX02_LEFT = int(VOEUX02.width * 0.06)
 VOEUX02_UP = int(VOEUX02.height * 0.09)
 VOEUX02_RIGHT = int(VOEUX02.width * 0.94)
@@ -160,8 +164,8 @@ VOEUX02_THUMB_UP = int(FICHE.height * 0.32)
 VOEUX02_THUMB_LEFT = int(FICHE.width * 0.675)
 
 # ####### GOURDE #######
-# GOURDE = Image.open(f"{PATH}\\Order_data\\GOURDE.png")
-# GOURDE_ALPHA = Image.open(f"{PATH}\\Order_data\\GOURDE_ALPHA.png")
+# GOURDE = Image.open(f"{PATH}/Order_data/GOURDE.png")
+# GOURDE_ALPHA = Image.open(f"{PATH}/Order_data/GOURDE_ALPHA.png")
 # GOURDE_LEFT = 613
 # GOURDE_UP = 910
 # GOURDE_RIGHT = 1538
@@ -170,8 +174,8 @@ VOEUX02_THUMB_LEFT = int(FICHE.width * 0.675)
 # GOURDE_THUMB_LEFT = int(FICHE.width * 0.675)
 
 # ####### PORTEFEUILLE #######
-# PORTEFEUILLE = Image.open(f"{PATH}\\Order_data\\PORTEFEUILLE.png")
-# PORTEFEUILLE_ALPHA = Image.open(f"{PATH}\\Order_data\\PORTEFEUILLE_ALPHA.png")
+# PORTEFEUILLE = Image.open(f"{PATH}/Order_data/PORTEFEUILLE.png")
+# PORTEFEUILLE_ALPHA = Image.open(f"{PATH}/Order_data/PORTEFEUILLE_ALPHA.png")
 # PORTEFEUILLE_LEFT = 280
 # PORTEFEUILLE_UP = 534
 # PORTEFEUILLE_RIGHT = 2023
@@ -183,6 +187,7 @@ VOEUX02_THUMB_LEFT = int(FICHE.width * 0.675)
 #############################################################
 #                        GUI CLASS                          #
 #############################################################
+
 class Order(QtWidgets.QMainWindow):
     def __init__(self):
         QtWidgets.QMainWindow.__init__(self)
@@ -353,7 +358,7 @@ class Order(QtWidgets.QMainWindow):
 
     def order_number(self, image, filename) :
         number_to_draw = ImageDraw.Draw(image)
-        myFont = ImageFont.truetype(f"{PATH}\\Order_data\\Montserrat-Regular.ttf", ORDER_FONT_SIZE)
+        myFont = ImageFont.truetype(f"{PATH}/Order_data/Montserrat-Regular.ttf", ORDER_FONT_SIZE)
         number_to_draw.text((ORDER_X, ORDER_Y), filename, font=myFont, fill=(0, 0, 0))
         return image
 
@@ -365,8 +370,8 @@ class Order(QtWidgets.QMainWindow):
         self.ui.pushButton.setVisible(False)
 
         ## Create a new folder for the order sheets to be saved on.
-        if not os.path.exists(PATH + "\\Fiches") :
-                os.makedirs(PATH + "\\Fiches")
+        if not os.path.exists(PATH + "/Fiches") :
+                os.makedirs(PATH + "/Fiches")
 
         for i, file in enumerate(FOLDER):
             base_image = Image.open(file)
@@ -522,7 +527,7 @@ class Order(QtWidgets.QMainWindow):
             self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
             QtWidgets.QApplication.processEvents()
             # current_fiche.show()
-            current_fiche.save(f"{PATH}\\Fiches\\{filename}.jpg", format='JPEG', subsampling=0, quality=100)
+            current_fiche.save(f"{PATH}/Fiches/{filename}.jpg", format='JPEG', subsampling=0, quality=100)
             ORDER_START + 1
 
         self.no_files("Terminé")
@@ -549,7 +554,7 @@ class Order(QtWidgets.QMainWindow):
             self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
             combined = self.combine_images(base_image, VOEUX02_LEFT, VOEUX02_UP, VOEUX02_RIGHT, VOEUX02_DOWN, VOEUX02, VOEUX02_ALPHA)
             combined = combined.convert("RGB")
-            combined.save(f"{PATH}\\V_{os.path.splitext(file)[0]}.jpg", format='JPEG', subsampling=0, quality=100)
+            combined.save(f"{PATH}/V_{os.path.splitext(file)[0]}.jpg", format='JPEG', subsampling=0, quality=100)
             # combined.show()
 
         self.no_files("Terminé")
@@ -557,6 +562,7 @@ class Order(QtWidgets.QMainWindow):
 #############################################################
 #                           MAIN                            #
 #############################################################
+
 if __name__ == '__main__':
     QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
     app = QtWidgets.QApplication(sys.argv)

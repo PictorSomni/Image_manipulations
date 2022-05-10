@@ -3,6 +3,7 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+
 import os
 import sys
 from PIL import Image, ImageOps, ImageFile
@@ -10,12 +11,14 @@ from PIL import Image, ImageOps, ImageFile
 #############################################################
 #                           PATH                            #
 #############################################################
+
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 EXTENSION = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
@@ -25,6 +28,7 @@ TOTAL = len(FOLDER)
 #############################################################
 #                           MAIN                            #
 #############################################################
+
 if not os.path.exists(PATH + "\\splitted") :
     os.makedirs(PATH + f"\\splitted")
 

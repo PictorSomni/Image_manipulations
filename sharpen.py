@@ -1,24 +1,26 @@
 # -*- coding: utf-8 -*-
+
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+
 import os
 import sys
 import re
 from time import sleep
 from PIL import Image, ImageFilter
 
-
-
 #############################################################
 #                           PATH                            #
 #############################################################
+
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
+
 EXTENSION = (".JPG", ".JPEG", ".PNG")
 FOLDER = [file for file in sorted(os.listdir()) if file.upper().endswith(EXTENSION) and not file == "watermark.png"]
 TOTAL = len(FOLDER)
@@ -28,10 +30,10 @@ def folder(folder) :
     if not os.path.exists(PATH + f"\\{folder}") :
         os.makedirs(PATH + f"\\{folder}")
 
-
 #############################################################
 #                           MAIN                            #
 #############################################################
+
 for i, file in enumerate(FOLDER):
     folder("NET")
     os.system('cls' if os.name == 'nt' else 'clear')

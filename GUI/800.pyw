@@ -3,8 +3,9 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+
 ## --> GUI
-from PySide2 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 from data.main_gui import Ui_MainWindow
 
 ## --> GLOBAL IMPORTS
@@ -16,12 +17,14 @@ from PIL import Image, ImageFile, ImageOps
 #############################################################
 #                           PATH                            #
 #############################################################
+
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 file_name = re.search(r"(\d+)\s?\w?.py", sys.argv[0])
@@ -39,6 +42,7 @@ else :
 #############################################################
 #                        GUI CLASS                          #
 #############################################################
+
 class GUI(QtWidgets.QMainWindow):
     def __init__(self):
         QtWidgets.QMainWindow.__init__(self)
@@ -140,6 +144,7 @@ class GUI(QtWidgets.QMainWindow):
 #############################################################
 #                           MAIN                            #
 #############################################################
+
 if __name__ == "__main__":
     # QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
     app = QtWidgets.QApplication(sys.argv)

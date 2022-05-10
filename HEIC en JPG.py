@@ -24,6 +24,7 @@ TOTAL = len(FOLDER)
 #############################################################
 #                           MAIN                            #
 #############################################################
+
 for i, file in enumerate(FOLDER) :
     filename, file_extension = os.path.splitext(file)
     try :

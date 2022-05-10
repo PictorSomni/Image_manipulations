@@ -3,6 +3,7 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+
 import os
 import sys
 from PIL import Image, ImageFile
@@ -13,6 +14,7 @@ from rich.console import Console
 #############################################################
 #                           PATH                            #
 #############################################################
+
 ## Set path to python file
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
@@ -20,6 +22,7 @@ os.chdir(PATH)
 #############################################################
 #                         CONTENT                           #
 #############################################################
+
 PREFIX = "NO2021_Mornimont_"
 
 console = Console()
@@ -28,6 +31,10 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 EXTENSION = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
 FOLDER = [Image.open(file) for file in sorted(os.listdir()) if file.endswith(EXTENSION) and not file == "watermark.png"]
 TOTAL = len(FOLDER)
+
+#############################################################
+#                         FUNCTIONS                         #
+#############################################################
 
 ## Clears the terminal
 def clear():
@@ -55,6 +62,7 @@ def wait(delay=1):
 #############################################################
 #                           MAIN                            #
 #############################################################
+
 clear()
 
 print(f"[deep_sky_blue1]Création d'un PDF à partir de [/deep_sky_blue1][violet]{TOTAL}[/violet] [deep_sky_blue1]images[/deep_sky_blue1]")

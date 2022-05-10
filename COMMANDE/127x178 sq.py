@@ -3,6 +3,7 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+
 import os
 import sys
 import re
@@ -21,12 +22,14 @@ ROTATED = False
 #############################################################
 #                           PATH                            #
 #############################################################
+
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
+
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 features = re.search(r"(\d+)\s?x\s?(\d+)\s?([\w\s]+)?.py", sys.argv[0]) # width x height  + options
@@ -48,6 +51,9 @@ EXTENSION = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
 FOLDER = [file for file in sorted(os.listdir()) if file.endswith(EXTENSION) and not file == "watermark.png"]
 TOTAL = len(FOLDER)
 
+#############################################################
+#                         FUNCTIONS                         #
+#############################################################
 
 def correct_round(number) :
     if number  == 89 :
@@ -74,6 +80,9 @@ def fit_in(max_size, primary_size, secondary_size):
     secondary_ratio = int((float(secondary_size)*float(primary_ratio)))
     return secondary_ratio
 
+#############################################################
+#                           SIZES                           #
+#############################################################
 
 WIDTH_DPI = mm_to_pixels(WIDTH, DPI)
 HEIGHT_DPI = mm_to_pixels(HEIGHT, DPI)
@@ -87,6 +96,7 @@ NAME_SQUARE = f"{HEIGHT}x{HEIGHT}"
 #############################################################
 #                           MAIN                            #
 #############################################################
+
 for i, file in enumerate(FOLDER) :
     os.system('cls' if os.name == 'nt' else 'clear')
     print(f"{WIDTH} x {HEIGHT} (ou {HEIGHT} x {HEIGHT})")

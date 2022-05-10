@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
+
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+
 import os
 import sys
 import re
@@ -16,12 +18,14 @@ QUALITY = 75
 #############################################################
 #                           PATH                            #
 #############################################################
+
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
+
 EXTENSION = (".JPG", ".JPEG", ".PNG", "GIF")
 FOLDER = [file for file in sorted(os.listdir()) if file.upper().endswith(EXTENSION) and not file == "watermark.png"]
 TOTAL = len(FOLDER)
@@ -42,6 +46,7 @@ def folder(folder) :
 #############################################################
 #                           MAIN                            #
 #############################################################
+
 for i, file in enumerate(FOLDER):
     os.system('cls' if os.name == 'nt' else 'clear')
     print(f"Conversion en {MAXSIZE}px + renommage ({file_name.group(1)}) + filigrane")
