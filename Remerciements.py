@@ -3,6 +3,7 @@
 #                          IMPORTS                          #
 #############################################################
 import os
+from pickle import FALSE
 import sys
 import re
 from PIL import Image, ImageOps, ImageFile
@@ -30,8 +31,8 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 EXTENSION = (".jpg", ".jpeg", ".png")
 FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
 IMAGES = []
-DUO = ["recto", "verso", "duo"]
-
+REQUIRED = ["recto", "verso", "duo"]
+FORBIDDEN = ["10x15", "projet"]
 
 #############################################################
 #               CONVERT MM 300DPI TO PIXELS                 #
@@ -42,18 +43,16 @@ HEIGHT_DPI = round((float(HEIGHT) / 25.4) * DPI)
 #############################################################
 #                           MAIN                            #
 #############################################################
-# os.system('cls' if os.name == 'nt' else 'clear')
-# print("Remerciements Funéraires")
-# print("#" * 30)
+os.system('cls' if os.name == 'nt' else 'clear')
+print("Remerciements Funéraires")
+print("#" * 30 + "\n")
 
 new_image = Image.new('RGB', (WIDTH_DPI * 2, HEIGHT_DPI))
 
 for file in FOLDER :
     file_name = re.search(r"([\w\s]+).\w+", file)
-    if any(key_name in file_name.group(1).lower() for key_name in DUO) == True and "projet" in file_name.group(1).lower() == False:
+    if any(required_name in file_name.group(1).lower() for required_name in REQUIRED) == True and any(forbidden_name in file_name.group(1).lower() for forbidden_name in FORBIDDEN) == FALSE :
         IMAGES.append(file)
-
-# print(IMAGES)
 
 for image in IMAGES :
     base_image = Image.open(image)
