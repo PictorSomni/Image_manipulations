@@ -50,7 +50,7 @@ new_image = Image.new('RGB', (WIDTH_DPI * 2, HEIGHT_DPI))
 
 for file in FOLDER :
     file_name = re.search(r"([\w\s]+).\w+", file)
-    if any(key_name in file_name.group(1).lower() for key_name in DUO) == True:
+    if any(key_name in file_name.group(1).lower() for key_name in DUO) == True and "projet" in file_name.group(1).lower() == False:
         IMAGES.append(file)
 
 # print(IMAGES)
