@@ -73,6 +73,6 @@ for index, image in enumerate(IMAGES) :
         position = POSITIONS.pop(0)
         canvas.paste(cropped, (round(canvas.width * position[0]), round(canvas.height * position[1])))
 
-    canvas.convert("RGB").save(f"{PATH}/P1_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+    canvas.convert("RGB").save(f"{PATH}\\P1_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
 print("Terminé !")
