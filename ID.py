@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 #############################################################
 #                          IMPORTS                          #
 #############################################################
@@ -50,9 +50,6 @@ CANVA_HEIGHT_DPI = mm_to_pixels(CANVA_HEIGHT, DPI)
 #############################################################
 #                           MAIN                            #
 #############################################################
-if not os.path.exists(PATH + "\\ID") :
-    os.makedirs(PATH + "\\ID")
-
 index = 1
 save_it = False
 x_offset = H_SPACE
@@ -88,7 +85,7 @@ while len(FOLDER) > 0:
 
     if save_it == True :
         counter += 1
-        canva.save('ID\\ID_{:03}.jpg'.format(counter), dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+        canva.save(f"{PATH}\\ID_{counter:03}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
         # canva.show()
         save_it = False
         canva = Image.new('RGB', (CANVA_WIDTH_DPI, CANVA_HEIGHT_DPI), BG_COLOR)
