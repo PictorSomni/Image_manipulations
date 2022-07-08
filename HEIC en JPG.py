@@ -4,9 +4,8 @@
 #                          IMPORTS                          #
 #############################################################
 import os
-from PIL import Image
-import pyheif
-
+from wand.image import Image
+ 
 #############################################################
 #                           PATH                            #
 #############################################################
@@ -16,32 +15,25 @@ os.chdir(PATH)
 #############################################################
 #                         CONTENT                           #
 #############################################################
-ImageFile.LOAD_TRUNCATED_IMAGES = True
-EXTENSION = (".heic", ".HEIC")
-FOLDER = [file for file in sorted(os.listdir()) if file.endswith(EXTENSION)]
+FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(".heic")]
 TOTAL = len(FOLDER)
 
 #############################################################
 #                           MAIN                            #
 #############################################################
-
 for i, file in enumerate(FOLDER) :
-    filename, file_extension = os.path.splitext(file)
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print("HEIC en JPG")
+    print("#" * 32 + "\n")
+    print(f"Image {i+1} sur {TOTAL}")
+
+    file_name, file_extension = os.path.splitext(file)
     try :
-        heif_file = pyheif.read(file)
+        heif_file = Image(filename =file)
     except Exception :
         print(Exception)
     else :
-        if not os.path.exists(PATH + "/JPG") :
-            os.makedirs(PATH + "/JPG")
+        image = heif_file.convert('jpg')
+        image.save(filename=f"{PATH}/{file_name}.jpg")
 
-        image = Image.frombytes(
-            heif_file.mode, 
-            heif_file.size, 
-            heif_file.data,
-            "raw",
-            heif_file.mode,
-            heif_file.stride,
-            )
-        image = image.convert("RGB")
-        image.save(f"{PATH}/JPG/{filename}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+print("Terminé")
