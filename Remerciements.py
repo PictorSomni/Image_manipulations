@@ -32,7 +32,9 @@ EXTENSION = (".jpg", ".jpeg", ".png")
 FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
 IMAGES = []
 REQUIRED = ["recto", "verso", "duo"]
+BIG = ["int", "ext"]
 FORBIDDEN = ["10x15", "projet"]
+duo = True
 
 #############################################################
 #               CONVERT MM 300DPI TO PIXELS                 #
@@ -53,6 +55,9 @@ for file in FOLDER :
     file_name = re.search(r"([\w\s]+).\w+", file)
     if any(required_name in file_name.group(1).lower() for required_name in REQUIRED) == True and not any(forbidden_name in file_name.group(1).lower() for forbidden_name in FORBIDDEN) == True :
         IMAGES.append(file)
+    elif any(big_name in file_name.group(1).lower() for big_name in BIG) == True and not any(forbidden_name in file_name.group(1).lower() for forbidden_name in FORBIDDEN) == True :
+        duo = False
+        IMAGES.append(file)
 
 for image in IMAGES :
     base_image = Image.open(image)
@@ -64,10 +69,11 @@ for image in IMAGES :
     project.convert("RGB").save(f"{PATH}\\Projet_{image}", format="JPEG", subsampling=0, quality=QUALITY)
     print(f"{image} : Projet OK")
 
-    cropped_image = ImageOps.fit(base_image, (WIDTH_DPI, HEIGHT_DPI))
-    new_image.paste(cropped_image, (0, 0))
-    new_image.paste(cropped_image, (WIDTH_DPI, 0))
-    new_image.save(f"{PATH}\\10x15_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
-    print(f"{image} : 2 en 1 OK")
+    if duo == True :
+        cropped_image = ImageOps.fit(base_image, (WIDTH_DPI, HEIGHT_DPI))
+        new_image.paste(cropped_image, (0, 0))
+        new_image.paste(cropped_image, (WIDTH_DPI, 0))
+        new_image.save(f"{PATH}\\10x15_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+        print(f"{image} : 2 en 1 OK")
 
 print("Terminé !")
