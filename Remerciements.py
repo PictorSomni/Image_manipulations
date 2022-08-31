@@ -3,11 +3,10 @@
 #                          IMPORTS                          #
 #############################################################
 import os
-from pickle import FALSE
-import sys
 import re
+from time import sleep
 from PIL import Image, ImageOps, ImageFile
-
+from time import sleep
 #############################################################
 #                           SIZE                            #
 #############################################################
@@ -30,6 +29,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 EXTENSION = (".jpg", ".jpeg", ".png")
 FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
+WATERMARK = "C:\\Users\\charl\\Documents\\PYTHON\\Image manipulation\\watermark.png" # Or just "watermark.png" if you copy it to the current folder.
 IMAGES = []
 REQUIRED = ["recto", "verso", "duo"]
 BIG = ["int", "ext"]
@@ -64,16 +64,20 @@ for image in IMAGES :
 
     project = base_image.copy()
     project.thumbnail((MAXSIZE,MAXSIZE))
-    watermark = Image.open("watermark.png")
+    watermark = Image.open(WATERMARK)
     project.paste(watermark, watermark)
     project.convert("RGB").save(f"{PATH}\\Projet_{image}", format="JPEG", subsampling=0, quality=QUALITY)
     print(f"{image} : Projet OK")
 
     if duo == True :
+        if base_image.width > base_image.height:
+            base_image = base_image.rotate(90, expand=True)
+
         cropped_image = ImageOps.fit(base_image, (WIDTH_DPI, HEIGHT_DPI))
         new_image.paste(cropped_image, (0, 0))
         new_image.paste(cropped_image, (WIDTH_DPI, 0))
-        new_image.save(f"{PATH}\\10x15_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+        new_image.convert("RGB").save(f"{PATH}\\10x15_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
         print(f"{image} : 2 en 1 OK")
 
 print("Terminé !")
+sleep(1)
