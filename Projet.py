@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
-
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-
 import os
 import sys
 import re
@@ -13,21 +11,20 @@ from PIL import Image
 PROJECT = False
 WATERMARK = False
 MAXSIZE = 512
-QUALITY = 75
+QUALITY = 80
 
 #############################################################
 #                           PATH                            #
 #############################################################
-
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
-
 EXTENSION = (".JPG", ".JPEG", ".PNG", "GIF")
 FOLDER = [file for file in sorted(os.listdir()) if file.upper().endswith(EXTENSION) and not file == "watermark.png"]
+WATERMARK = "C:\\Users\\charl\\Documents\\PYTHON\\Image manipulation\\watermark.png" # Or just "watermark.png" if you copy it to the current folder.
 TOTAL = len(FOLDER)
 
 file_name = re.search(r"([\w\s]+).py", sys.argv[0])
@@ -46,7 +43,6 @@ def folder(folder) :
 #############################################################
 #                           MAIN                            #
 #############################################################
-
 for i, file in enumerate(FOLDER):
     os.system('cls' if os.name == 'nt' else 'clear')
     print(f"Conversion en {MAXSIZE}px + renommage ({file_name.group(1)}) + filigrane")
@@ -62,7 +58,7 @@ for i, file in enumerate(FOLDER):
             folder("projet")
 
             if WATERMARK:
-                watermark = Image.open("watermark.png")
+                watermark = Image.open(WATERMARK)
                 base_image.paste(watermark, watermark)
 
             if PROJECT :
