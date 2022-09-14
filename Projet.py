@@ -48,23 +48,22 @@ for i, file in enumerate(FOLDER):
     print(f"Conversion en {MAXSIZE}px + renommage ({file_name.group(1)}) + filigrane")
     print("Image {} sur {}".format(i+1, TOTAL))
 
-    if file != "watermark.png":
-        try:
-            base_image = Image.open(file)
-        except Exception:
-            continue
-        else:
-            base_image.thumbnail((MAXSIZE,MAXSIZE), Image.LANCZOS)
-            folder("projet")
+    try:
+        base_image = Image.open(file)
+    except Exception:
+        continue
+    else:
+        base_image.thumbnail((MAXSIZE,MAXSIZE), Image.LANCZOS)
+        folder("projet")
 
-            if WATERMARK:
-                watermark = Image.open(WATERMARK)
-                base_image.paste(watermark, watermark)
+        if WATERMARK:
+            watermark = Image.open(WATERMARK)
+            base_image.paste(watermark, watermark)
 
-            if PROJECT :
-                base_image.convert("RGB").save(f"{PATH}\\projet\\Projet_{file}", format="JPEG", subsampling=0, quality=QUALITY)
-            else :
-                base_image.convert("RGB").save("{PATH}\\projet\\{file_name.group(1)}_{i:03}.jpg", format="JPEG", subsampling=0, quality=QUALITY)
+        if PROJECT :
+            base_image.convert("RGB").save(f"{PATH}\\projet\\Projet_{file}", format="JPEG", subsampling=0, quality=QUALITY)
+        else :
+            base_image.convert("RGB").save("{PATH}\\projet\\{file_name.group(1)}_{i:03}.jpg", format="JPEG", subsampling=0, quality=QUALITY)
 
 print("Terminé !")
 sleep(1)
