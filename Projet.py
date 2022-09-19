@@ -11,7 +11,7 @@ from PIL import Image
 PROJECT = False
 WATERMARK = False
 MAXSIZE = 512
-QUALITY = 80
+QUALITY = 70
 
 #############################################################
 #                           PATH                            #
@@ -24,7 +24,7 @@ os.chdir(PATH)
 #############################################################
 EXTENSION = (".JPG", ".JPEG", ".PNG", "GIF")
 FOLDER = [file for file in sorted(os.listdir()) if file.upper().endswith(EXTENSION) and not file == "watermark.png"]
-WATERMARK = "C:\\Users\\charl\\Documents\\PYTHON\\Image manipulation\\watermark.png" # Or just "watermark.png" if you copy it to the current folder.
+WATERMARK = "C:\\Users\\charl\\Documents\\PYTHON\\Image manipulation\\watermark2.png" # Or just "watermark.png" if you copy it to the current folder.
 TOTAL = len(FOLDER)
 
 file_name = re.search(r"([\w\s]+).py", sys.argv[0])
@@ -61,7 +61,7 @@ for i, file in enumerate(FOLDER):
             base_image.paste(watermark, watermark)
 
         if PROJECT :
-            base_image.convert("RGB").save(f"{PATH}\\projet\\Projet_{file}", format="JPEG", subsampling=0, quality=QUALITY)
+            base_image.convert("RGB").save(f"{PATH}\\projet\\{file}", format="JPEG", subsampling=0, quality=QUALITY)
         else :
             base_image.convert("RGB").save("{PATH}\\projet\\{file_name.group(1)}_{i:03}.jpg", format="JPEG", subsampling=0, quality=QUALITY)
 
