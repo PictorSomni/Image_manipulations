@@ -1,4 +1,6 @@
-
+#############################################################
+#                          IMPORTS                          #
+#############################################################
 import os
 from pdf2image import convert_from_path
 
@@ -20,18 +22,15 @@ os.chdir(PATH)
 #############################################################
 FOLDER = [file for file in sorted(os.listdir()) if file.endswith(".pdf")]
 TOTAL = len(FOLDER)
+
 #############################################################
 #                           MAIN                            #
 #############################################################
-if not os.path.exists(PATH + "\\IMAGES") :
-    os.makedirs(PATH + f"\\IMAGES")
-
-for index, pdf in enumerate(FOLDER) :
+for pdf in FOLDER :
     pages = convert_from_path(pdf, poppler_path=POPPLER_PATH)
 
     for i in range(len(pages)):
-
         # Save pages as images in the pdf
-        pages[i].save('page'+ str(i) +'.jpg', 'JPEG')
+        pages[i].save(f"page_{i+1:03}.jpg", "JPEG")
 
 print("Terminé")
