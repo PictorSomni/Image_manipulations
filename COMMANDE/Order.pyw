@@ -106,8 +106,8 @@ CADRE_LEFT = 575
 CADRE_UP = 390
 CADRE_RIGHT = 1585
 CADRE_DOWN = 1800
-CADRE_THUMB_UP = 1105
-CADRE_THUMB_LEFT = 107
+CADRE_THUMB_UP = int(FICHE.height * 0.55)
+CADRE_THUMB_LEFT = int(FICHE.width * 0.025)
 
 ####### PASSE #######
 PASSE = Image.open(f"{PATH}\\Order_data\\PASSE.png")
@@ -116,8 +116,8 @@ PASSE_LEFT = 316
 PASSE_UP = 541
 PASSE_RIGHT = 1138
 PASSE_DOWN = 1647
-PASSE_THUMB_UP = 1916
-PASSE_THUMB_LEFT = 107
+PASSE_THUMB_UP = int(FICHE.height * 0.75)
+PASSE_THUMB_LEFT = int(FICHE.width * 0.025)
 
 ####### SUPPORT_BOIS #######
 BOIS = Image.open(f"{PATH}\\Order_data\\SUPPORT_BOIS.png")
@@ -126,8 +126,8 @@ BOIS_LEFT = 442
 BOIS_UP = 442
 BOIS_RIGHT = 1348
 BOIS_DOWN = 1601
-BOIS_THUMB_UP = 1510
-BOIS_THUMB_LEFT = 107
+BOIS_THUMB_UP = int(FICHE.height * 0.8)
+BOIS_THUMB_LEFT = int(FICHE.width * 0.025)
 
 ####### BOULE A NEIGE #######
 NEIGE = Image.open(f"{PATH}\\Order_data\\NEIGE.png")
@@ -308,16 +308,16 @@ class Order(QtWidgets.QMainWindow):
         ## FIT -IN
         ##############
         if FIT == True :
-            cropped_image = IMAGE.resize((WIDTH, self.fit_in(WIDTH, IMAGE.width, IMAGE.height)), Image.LANCZOS)
+            cropped_image = IMAGE.resize((WIDTH, self.fit_in(WIDTH, IMAGE.width, IMAGE.height)), Image.Resampling.LANCZOS)
             if cropped_image.height > HEIGHT :
-                cropped_image = IMAGE.resize((self.fit_in(HEIGHT, IMAGE.height, IMAGE.width), HEIGHT), Image.LANCZOS)
+                cropped_image = IMAGE.resize((self.fit_in(HEIGHT, IMAGE.height, IMAGE.width), HEIGHT), Image.Resampling.LANCZOS)
 
         ## FILL-IN
         ##############
         else :
-            cropped_image = IMAGE.resize((self.fit_in(HEIGHT, IMAGE.height, IMAGE.width), HEIGHT), Image.LANCZOS)
+            cropped_image = IMAGE.resize((self.fit_in(HEIGHT, IMAGE.height, IMAGE.width), HEIGHT), Image.Resampling.LANCZOS)
             if cropped_image.width < WIDTH :
-                cropped_image = IMAGE.resize((WIDTH, self.fit_in(WIDTH, IMAGE.width, IMAGE.height)), Image.LANCZOS)
+                cropped_image = IMAGE.resize((WIDTH, self.fit_in(WIDTH, IMAGE.width, IMAGE.height)), Image.Resampling.LANCZOS)
 
         ## PERSPECTIVE
         ##############
@@ -334,13 +334,13 @@ class Order(QtWidgets.QMainWindow):
             (0, HEIGHT),
             )
             cropped_image = cropped_image.transform((cropped_image.width, cropped_image.height), method=Image.PERSPECTIVE, data=coeff)
-            cropped_image = IMAGE.resize((self.fit_in(HEIGHT, IMAGE.height, IMAGE.width), int(HEIGHT * height_multiplier)), Image.LANCZOS)
+            cropped_image = IMAGE.resize((self.fit_in(HEIGHT, IMAGE.height, IMAGE.width), int(HEIGHT * height_multiplier)), Image.Resampling.LANCZOS)
             
             if cropped_image.width < WIDTH :
-                cropped_image = IMAGE.resize((WIDTH, int(self.fit_in(WIDTH, IMAGE.width, IMAGE.height)  * height_multiplier)), Image.LANCZOS)
+                cropped_image = IMAGE.resize((WIDTH, int(self.fit_in(WIDTH, IMAGE.width, IMAGE.height)  * height_multiplier)), Image.Resampling.LANCZOS)
             
             # if cropped_image.height > HEIGHT :
-            #     cropped_image = IMAGE.resize((int(self.fit_in(HEIGHT, IMAGE.height, IMAGE.width)  * height_multiplier), HEIGHT), Image.LANCZOS)
+            #     cropped_image = IMAGE.resize((int(self.fit_in(HEIGHT, IMAGE.height, IMAGE.width)  * height_multiplier), HEIGHT), Image.Resampling.LANCZOS)
 
         offset = (result.width - cropped_image.width) // 2, (result.height - cropped_image.height) // Y_OFFSET
         result.paste(cropped_image, offset)
@@ -380,7 +380,7 @@ class Order(QtWidgets.QMainWindow):
             current_thumb = base_image
 
             ## --> COMMENT THIS LINE FOR FULL QUALITY (BUT SLOWER) RESULTS
-            current_thumb.thumbnail((PIXEL_SIZE, PIXEL_SIZE), Image.LANCZOS)
+            current_thumb.thumbnail((PIXEL_SIZE, PIXEL_SIZE), Image.Resampling.LANCZOS)
 
             base_image = current_thumb.convert("RGBA")
 
@@ -429,10 +429,10 @@ class Order(QtWidgets.QMainWindow):
             QtWidgets.QApplication.processEvents()
             current_passe = self.combine_images(base_image, PASSE_LEFT, PASSE_UP, PASSE_RIGHT, PASSE_DOWN, PASSE, PASSE_ALPHA, orientation=True)
         
-            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création support bois")
-            self.ui.progressBar.setValue(self.ui.progressBar.value() + 2)
-            QtWidgets.QApplication.processEvents()
-            current_bois = self.combine_images(base_image, BOIS_LEFT, BOIS_UP, BOIS_RIGHT, BOIS_DOWN, BOIS, BOIS_ALPHA, orientation=True)
+            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création support bois")
+            # self.ui.progressBar.setValue(self.ui.progressBar.value() + 2)
+            # QtWidgets.QApplication.processEvents()
+            # current_bois = self.combine_images(base_image, BOIS_LEFT, BOIS_UP, BOIS_RIGHT, BOIS_DOWN, BOIS, BOIS_ALPHA, orientation=True)
         
             # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création boule a neige")
             # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
@@ -461,10 +461,10 @@ class Order(QtWidgets.QMainWindow):
             QtWidgets.QApplication.processEvents()
             current_fiche = self.combine_images(current_cadre, CADRE_THUMB_LEFT, CADRE_THUMB_UP, CADRE_THUMB_LEFT+THUMB_SIZE, CADRE_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
             
-            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement support bois")
-            self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
-            QtWidgets.QApplication.processEvents()
-            current_fiche = self.combine_images(current_bois, BOIS_THUMB_LEFT, BOIS_THUMB_UP, BOIS_THUMB_LEFT+THUMB_SIZE, BOIS_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
+            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement support bois")
+            # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
+            # QtWidgets.QApplication.processEvents()
+            # current_fiche = self.combine_images(current_bois, BOIS_THUMB_LEFT, BOIS_THUMB_UP, BOIS_THUMB_LEFT+THUMB_SIZE, BOIS_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
             
             self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement passe partout")
             self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
@@ -525,7 +525,7 @@ class Order(QtWidgets.QMainWindow):
             filename = os.path.splitext(file)[0]
             current_fiche = self.order_number(current_fiche, filename)
             self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Enregistré !")
-            self.ui.progressBar.setValue(self.ui.progressBar.value() + 2)
+            self.ui.progressBar.setValue(self.ui.progressBar.value() + 4)
             QtWidgets.QApplication.processEvents()
             # current_fiche.show()
             current_fiche.save(f"{PATH}\\Fiches\\{filename}.jpg", format='JPEG', subsampling=0, quality=100)
@@ -547,7 +547,7 @@ class Order(QtWidgets.QMainWindow):
             current_thumb = base_image
 
             ### COMMENT THIS LINE FOR FULL QUALITY (BUT SLOWER) RESULTS
-            # current_thumb.thumbnail((PIXEL_SIZE, PIXEL_SIZE), Image.LANCZOS)
+            # current_thumb.thumbnail((PIXEL_SIZE, PIXEL_SIZE), Image.Resampling.LANCZOS)
 
             base_image = current_thumb.convert("RGBA")
 
@@ -568,4 +568,4 @@ if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     order = Order()
     order.show() 
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
