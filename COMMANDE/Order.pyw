@@ -38,7 +38,7 @@ PIXEL_SIZE = 720 ## Maximum pixel width if image is reduced before processing (l
 ## Here each backgroun have at least 1px thick transparent border (generally at the bottom)
 ############################################
 ###### FICHE ######
-FICHE = Image.open(f"{PATH}\\Order_data\\FICHE IND.png")
+FICHE = Image.open(f"{PATH}\\Order_data\\FICHE.png")
 WATERMARK = Image.open(f"{PATH}\\Order_data\\watermark.png")
 THUMB_SIZE = 200 #px
 ORDER_X = int(FICHE.width * 0.016)
@@ -46,9 +46,9 @@ ORDER_Y = int(FICHE.height * 0.92)
 ORDER_FONT_SIZE = 50
 ORDER_START = 1
 
-BIG_THUMB_LEFT = int(FICHE.width * 0.34)
-BIG_THUMB_UP = int(FICHE.height * 0.63)
-BIG_THUMB_RIGHT = int(FICHE.width * 0.76)
+BIG_THUMB_LEFT = int(FICHE.width * 0.35)
+BIG_THUMB_UP = int(FICHE.height * 0.64)
+BIG_THUMB_RIGHT = int(FICHE.width * 0.66)
 BIG_THUMB_DOWN = int(FICHE.height * 0.98)
 
 ####### MUG #######
@@ -106,7 +106,7 @@ CADRE_LEFT = 575
 CADRE_UP = 390
 CADRE_RIGHT = 1585
 CADRE_DOWN = 1800
-CADRE_THUMB_UP = int(FICHE.height * 0.55)
+CADRE_THUMB_UP = int(FICHE.height * 0.5)
 CADRE_THUMB_LEFT = int(FICHE.width * 0.025)
 
 ####### PASSE #######
@@ -126,7 +126,7 @@ BOIS_LEFT = 442
 BOIS_UP = 442
 BOIS_RIGHT = 1348
 BOIS_DOWN = 1601
-BOIS_THUMB_UP = int(FICHE.height * 0.8)
+BOIS_THUMB_UP = int(FICHE.height * 0.7)
 BOIS_THUMB_LEFT = int(FICHE.width * 0.025)
 
 ####### BOULE A NEIGE #######
@@ -136,28 +136,38 @@ NEIGE_LEFT = 176
 NEIGE_UP = 235
 NEIGE_RIGHT = 1610
 NEIGE_DOWN = 1483
-NEIGE_THUMB_UP = int(FICHE.height * 0.1)
+NEIGE_THUMB_UP = int(FICHE.height * 0.06)
 NEIGE_THUMB_LEFT = int(FICHE.width * 0.675)
 
 ####### VOEUX 01 #######
 VOEUX01 = Image.open(f"{PATH}\\Order_data\\VOEUX01.png")
 VOEUX01_ALPHA = Image.open(f"{PATH}\\Order_data\\VOEUX01_ALPHA.png")
-VOEUX01_LEFT = 130
-VOEUX01_UP = 118
-VOEUX01_RIGHT = 1075
-VOEUX01_DOWN = 1064
-VOEUX01_THUMB_UP = int(FICHE.height * 0.25)
+VOEUX01_LEFT = int(VOEUX01.width * 0.06)
+VOEUX01_UP = int(VOEUX01.height * 0.33)
+VOEUX01_RIGHT = int(VOEUX01.width * 0.94)
+VOEUX01_DOWN = int(VOEUX01.height * 0.93)
+VOEUX01_THUMB_UP = int(FICHE.height * 0.15)
 VOEUX01_THUMB_LEFT = int(FICHE.width * 0.675)
 
 ###### VOEUX 02 #######
 VOEUX02 = Image.open(f"{PATH}\\Order_data\\VOEUX02.png")
 VOEUX02_ALPHA = Image.open(f"{PATH}\\Order_data\\VOEUX02_ALPHA.png")
-VOEUX02_LEFT = int(VOEUX02.width * 0.06)
-VOEUX02_UP = int(VOEUX02.height * 0.09)
-VOEUX02_RIGHT = int(VOEUX02.width * 0.94)
-VOEUX02_DOWN = int(VOEUX02.height * 0.91)
-VOEUX02_THUMB_UP = int(FICHE.height * 0.32)
+VOEUX02_LEFT = 0
+VOEUX02_UP = 0
+VOEUX02_RIGHT = VOEUX02.width
+VOEUX02_DOWN = int(VOEUX02.height * 0.76)
+VOEUX02_THUMB_UP = int(FICHE.height * 0.25)
 VOEUX02_THUMB_LEFT = int(FICHE.width * 0.675)
+
+###### VOEUX 04 #######
+# VOEUX04 = Image.open(f"{PATH}\\Order_data\\VOEUX04.png")
+# VOEUX04_ALPHA = Image.open(f"{PATH}\\Order_data\\VOEUX04_ALPHA.png")
+# VOEUX04_LEFT = 130
+# VOEUX04_UP = 118
+# VOEUX04_RIGHT = 1075
+# VOEUX04_DOWN = 1064
+# VOEUX04_THUMB_UP = int(FICHE.height * 0.17)
+# VOEUX04_THUMB_LEFT = int(FICHE.width * 0.675)
 
 # ####### GOURDE #######
 # GOURDE = Image.open(f"{PATH}\\Order_data\\GOURDE.png")
@@ -357,6 +367,7 @@ class Order(QtWidgets.QMainWindow):
 
         return out
 
+
     def order_number(self, image, filename) :
         number_to_draw = ImageDraw.Draw(image)
         myFont = ImageFont.truetype(f"{PATH}\\Order_data\\Montserrat-Regular.ttf", ORDER_FONT_SIZE)
@@ -424,30 +435,30 @@ class Order(QtWidgets.QMainWindow):
             # QtWidgets.QApplication.processEvents()
             # current_gourde = self.combine_images(base_image, GOURDE_LEFT, GOURDE_UP, GOURDE_RIGHT, GOURDE_DOWN, GOURDE, GOURDE_ALPHA, FIT=True)
 
-            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création passe partout")
-            self.ui.progressBar.setValue(self.ui.progressBar.value() + 2)
-            QtWidgets.QApplication.processEvents()
-            current_passe = self.combine_images(base_image, PASSE_LEFT, PASSE_UP, PASSE_RIGHT, PASSE_DOWN, PASSE, PASSE_ALPHA, orientation=True)
-        
-            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création support bois")
+            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création passe partout")
             # self.ui.progressBar.setValue(self.ui.progressBar.value() + 2)
             # QtWidgets.QApplication.processEvents()
-            # current_bois = self.combine_images(base_image, BOIS_LEFT, BOIS_UP, BOIS_RIGHT, BOIS_DOWN, BOIS, BOIS_ALPHA, orientation=True)
+            # current_passe = self.combine_images(base_image, PASSE_LEFT, PASSE_UP, PASSE_RIGHT, PASSE_DOWN, PASSE, PASSE_ALPHA, orientation=True)
         
-            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création boule a neige")
-            # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
-            # QtWidgets.QApplication.processEvents()
-            # current_neige = self.combine_images(base_image, NEIGE_LEFT, NEIGE_UP, NEIGE_RIGHT, NEIGE_DOWN, NEIGE, NEIGE_ALPHA)
+            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création support bois")
+            self.ui.progressBar.setValue(self.ui.progressBar.value() + 2)
+            QtWidgets.QApplication.processEvents()
+            current_bois = self.combine_images(base_image, BOIS_LEFT, BOIS_UP, BOIS_RIGHT, BOIS_DOWN, BOIS, BOIS_ALPHA, orientation=True)
+        
+            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création boule a neige")
+            self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
+            QtWidgets.QApplication.processEvents()
+            current_neige = self.combine_images(base_image, NEIGE_LEFT, NEIGE_UP, NEIGE_RIGHT, NEIGE_DOWN, NEIGE, NEIGE_ALPHA)
 
-            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création carte de voeux 01")
-            # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
-            # QtWidgets.QApplication.processEvents()
-            # current_voeux01 = self.combine_images(base_image, VOEUX01_LEFT, VOEUX01_UP, VOEUX01_RIGHT, VOEUX01_DOWN, VOEUX01, VOEUX01_ALPHA)
+            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création carte de voeux 01")
+            self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
+            QtWidgets.QApplication.processEvents()
+            current_voeux01 = self.combine_images(base_image, VOEUX01_LEFT, VOEUX01_UP, VOEUX01_RIGHT, VOEUX01_DOWN, VOEUX01, VOEUX01_ALPHA)
 
-            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création carte de voeux 02")
-            # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
-            # QtWidgets.QApplication.processEvents()
-            # current_voeux02 = self.combine_images(base_image, VOEUX02_LEFT, VOEUX02_UP, VOEUX02_RIGHT, VOEUX02_DOWN, VOEUX02, VOEUX02_ALPHA)
+            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création carte de voeux 02")
+            self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
+            QtWidgets.QApplication.processEvents()
+            current_voeux02 = self.combine_images(base_image, VOEUX02_LEFT, VOEUX02_UP, VOEUX02_RIGHT, VOEUX02_DOWN, VOEUX02, VOEUX02_ALPHA)
         
             # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création portefeuille")
             # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
@@ -461,15 +472,15 @@ class Order(QtWidgets.QMainWindow):
             QtWidgets.QApplication.processEvents()
             current_fiche = self.combine_images(current_cadre, CADRE_THUMB_LEFT, CADRE_THUMB_UP, CADRE_THUMB_LEFT+THUMB_SIZE, CADRE_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
             
-            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement support bois")
-            # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
-            # QtWidgets.QApplication.processEvents()
-            # current_fiche = self.combine_images(current_bois, BOIS_THUMB_LEFT, BOIS_THUMB_UP, BOIS_THUMB_LEFT+THUMB_SIZE, BOIS_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
-            
-            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement passe partout")
+            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement support bois")
             self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
             QtWidgets.QApplication.processEvents()
-            current_fiche = self.combine_images(current_passe, PASSE_THUMB_LEFT, PASSE_THUMB_UP, PASSE_THUMB_LEFT+THUMB_SIZE, PASSE_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
+            current_fiche = self.combine_images(current_bois, BOIS_THUMB_LEFT, BOIS_THUMB_UP, BOIS_THUMB_LEFT+THUMB_SIZE, BOIS_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
+            
+            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement passe partout")
+            # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
+            # QtWidgets.QApplication.processEvents()
+            # current_fiche = self.combine_images(current_passe, PASSE_THUMB_LEFT, PASSE_THUMB_UP, PASSE_THUMB_LEFT+THUMB_SIZE, PASSE_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
             
             self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement magnet")
             self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
@@ -496,20 +507,20 @@ class Order(QtWidgets.QMainWindow):
             # QtWidgets.QApplication.processEvents()
             # current_fiche = self.combine_images(current_gourde, GOURDE_THUMB_LEFT, GOURDE_THUMB_UP, GOURDE_THUMB_LEFT+THUMB_SIZE, GOURDE_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
 
-            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement boule à neige")
-            # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
-            # QtWidgets.QApplication.processEvents()
-            # current_fiche = self.combine_images(current_neige, NEIGE_THUMB_LEFT, NEIGE_THUMB_UP, NEIGE_THUMB_LEFT+THUMB_SIZE, NEIGE_THUMB_UP+THUMB_SIZE, current_fiche)
+            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement boule à neige")
+            self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
+            QtWidgets.QApplication.processEvents()
+            current_fiche = self.combine_images(current_neige, NEIGE_THUMB_LEFT, NEIGE_THUMB_UP, NEIGE_THUMB_LEFT+THUMB_SIZE, NEIGE_THUMB_UP+THUMB_SIZE, current_fiche)
 
-            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement carte voeux 01")
-            # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
-            # QtWidgets.QApplication.processEvents()
-            # current_fiche = self.combine_images(current_voeux01, VOEUX01_THUMB_LEFT, VOEUX01_THUMB_UP, VOEUX01_THUMB_LEFT+THUMB_SIZE, VOEUX01_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
+            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement carte voeux 01")
+            self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
+            QtWidgets.QApplication.processEvents()
+            current_fiche = self.combine_images(current_voeux01, VOEUX01_THUMB_LEFT, VOEUX01_THUMB_UP, VOEUX01_THUMB_LEFT+THUMB_SIZE, VOEUX01_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
 
-            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement carte voeux 02")
-            # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
-            # QtWidgets.QApplication.processEvents()
-            # current_fiche = self.combine_images(current_voeux02, VOEUX02_THUMB_LEFT, VOEUX02_THUMB_UP, VOEUX02_THUMB_LEFT+THUMB_SIZE, VOEUX02_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
+            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement carte voeux 02")
+            self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
+            QtWidgets.QApplication.processEvents()
+            current_fiche = self.combine_images(current_voeux02, VOEUX02_THUMB_LEFT, VOEUX02_THUMB_UP, VOEUX02_THUMB_LEFT+THUMB_SIZE, VOEUX02_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
             
             # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement portefeuille")
             # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
@@ -547,16 +558,15 @@ class Order(QtWidgets.QMainWindow):
             current_thumb = base_image
 
             ### COMMENT THIS LINE FOR FULL QUALITY (BUT SLOWER) RESULTS
-            # current_thumb.thumbnail((PIXEL_SIZE, PIXEL_SIZE), Image.Resampling.LANCZOS)
-
+            current_thumb.thumbnail((PIXEL_SIZE, PIXEL_SIZE), Image.Resampling.LANCZOS)
+            
             base_image = current_thumb.convert("RGBA")
-
             self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création en cours...")
             self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
-            combined = self.combine_images(base_image, VOEUX02_LEFT, VOEUX02_UP, VOEUX02_RIGHT, VOEUX02_DOWN, VOEUX02, VOEUX02_ALPHA)
+            combined = self.combine_images(base_image, VOEUX01_LEFT, VOEUX01_UP, VOEUX01_RIGHT, VOEUX01_DOWN, VOEUX01, VOEUX01_ALPHA)
             combined = combined.convert("RGB")
-            combined.save(f"{PATH}\\V_{os.path.splitext(file)[0]}.jpg", format='JPEG', subsampling=0, quality=100)
-            # combined.show()
+            # combined.save(f"{PATH}\\V_{os.path.splitext(file)[0]}.jpg", format='JPEG', subsampling=0, quality=100)
+            combined.show()
 
         self.no_files("Terminé")
 
