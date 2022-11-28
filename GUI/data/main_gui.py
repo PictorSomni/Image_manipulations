@@ -42,6 +42,7 @@ class Ui_MainWindow(object):
         font1.setFamily(u"Equinox Regular")
         font1.setPointSize(16)
         font1.setBold(False)
+        font1.setWeight(QFont.Bold)
         self.label_description.setFont(font1)
         self.label_description.setStyleSheet(u"color:  #4B6584;\n"
 "background-color: rgba(255, 255, 255, 0);")
@@ -126,6 +127,7 @@ class Ui_MainWindow(object):
         font5.setFamily(u"Equinox Regular")
         font5.setPointSize(42)
         font5.setBold(False)
+        font5.setWeight(QFont.Bold)
         self.label_description_2.setFont(font5)
         self.label_description_2.setStyleSheet(u"color:  #00c3ff;\n"
 "background-color: rgba(255, 255, 255, 0);")

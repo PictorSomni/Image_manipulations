@@ -3,7 +3,6 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-
 ## --> GUI
 from PySide6 import QtCore, QtGui, QtWidgets
 from data.main_gui import Ui_MainWindow
@@ -17,14 +16,12 @@ from PIL import Image, ImageFile, ImageOps
 #############################################################
 #                           PATH                            #
 #############################################################
-
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
-
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 file_name = re.search(r"(\d+)\s?\w?.py", sys.argv[0])
@@ -35,14 +32,13 @@ except Exception :
     input("Erreur : Le nom de l'executable doit être un nombre.")
     sys.exit()
 else :
-    EXTENSION = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
-    FOLDER = [file for file in sorted(os.listdir()) if file.endswith(EXTENSION) and not file == "watermark.png"]
+    EXTENSION = (".jpg", ".jpeg", ".png")
+    FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
     TOTAL = len(FOLDER)
 
 #############################################################
 #                        GUI CLASS                          #
 #############################################################
-
 class GUI(QtWidgets.QMainWindow):
     def __init__(self):
         QtWidgets.QMainWindow.__init__(self)
@@ -144,7 +140,6 @@ class GUI(QtWidgets.QMainWindow):
 #############################################################
 #                           MAIN                            #
 #############################################################
-
 if __name__ == "__main__":
     # QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
     app = QtWidgets.QApplication(sys.argv)
