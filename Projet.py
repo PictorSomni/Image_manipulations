@@ -8,7 +8,7 @@ from PIL import Image
 
 PROJECT = False
 WATERMARK = False
-MAXSIZE = 640
+MAXSIZE = 512
 QUALITY = 85
 
 #############################################################

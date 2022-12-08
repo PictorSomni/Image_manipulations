@@ -29,7 +29,7 @@ FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSI
 TOTAL = len(FOLDER)
 DOUBLE = False
 IMAGE_NAME = ""
-PRINT_SIZE = (980, 2400)
+PRINT_SIZE = (1205, 2400)
 POSITION = 1200
 #############################################################
 #                           MAIN                            #

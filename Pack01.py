@@ -55,7 +55,8 @@ for index, image in enumerate(IMAGES) :
 
     raw = Image.open(image)
     size_dpi = (0,0)
-
+    filename, ext = os.path.splitext(image)
+    number = filename[-3:]
     for size in SIZES :
         if size == SIZES[0] :
             if raw.width > raw.height :
@@ -73,6 +74,7 @@ for index, image in enumerate(IMAGES) :
         position = POSITIONS.pop(0)
         canvas.paste(cropped, (round(canvas.width * position[0]), round(canvas.height * position[1])))
 
-    canvas.convert("RGB").save(f"{PATH}\\P1_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+    canvas.convert("RGB").save(f"{PATH}\\P1_{number}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+    print(f"{filename} --> P1_{number}.jpg\n")
 
 print("Terminé !")

@@ -55,6 +55,8 @@ for index, image in enumerate(IMAGES) :
 
     offset = 0
     raw = Image.open(image)
+    filename, ext = os.path.splitext(image)
+    number = filename[-3:]
     if raw.width < raw.height :
         landscape = raw.rotate(90, expand=True)
         portrait = raw.copy()
@@ -64,13 +66,14 @@ for index, image in enumerate(IMAGES) :
         portrait = raw.rotate(90, expand=True)
 
     big = ImageOps.fit(landscape, (PRINT_DPI)) # Full size (20x30cm)
-    big.convert("RGB").save(f"{PATH}\\P2_BIG_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+    big.convert("RGB").save(f"{PATH}\\P2_B_{number}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
     cropped = ImageOps.fit(portrait, (IMAGE_DPI)) # 2 side-by-side inside 20x30cm
     for instance in range(2) :
         canvas.paste(cropped, (offset, 0))
         offset += IMAGE_DPI[0]
 
-    canvas.save(f"{PATH}\\P2_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
-
+    canvas.save(f"{PATH}\\P2_{number}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+    print(f"{filename} --> P1_{number}.jpg\n")
+    
 print("Terminé !")
