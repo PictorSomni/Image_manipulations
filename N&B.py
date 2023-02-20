@@ -28,12 +28,13 @@ print("#" * 30)
 for i, file in enumerate(FOLDER) :
     print("Image {} sur {}".format(i+1, TOTAL))
     try :
-        base_image = cv2.imread(file, 0)
+        base_image = cv2.imread(f"{PATH}/{file}", 0)
+        print(f"{PATH}/{file}")
     except Exception as e :
         print(e)
     else :
         clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(4,4))
         result_image = clahe.apply(base_image)
-
+        cv2.imshow("CLAHE", result_image)
         cv2.imwrite(f"N&B_{file}",result_image)
 print("Terminé !")
