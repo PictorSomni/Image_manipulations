@@ -8,8 +8,9 @@ from PIL import Image
 
 PROJECT = False
 WATERMARK = False
-MAXSIZE = 512
+MAXSIZE = 1024
 QUALITY = 85
+ALPHA = 0.5
 
 #############################################################
 #                           PATH                            #
@@ -43,12 +44,18 @@ for i, file in enumerate(FOLDER):
 
     try:
         watermark = Image.open(WATERMARK)
+        if watermark.mode != "RGBA":
+            watermark = watermark.convert("RGBA")
+
+        r, g, b, a = watermark.split()
+        a = a.point(lambda i: i * ALPHA)
+        watermark = Image.merge("RGBA", (r, g, b, a))
     except Exception:
         watermark = Image.open("watermark.png")
         continue
     else :
         base_image.paste(watermark, watermark)
-        base_image.convert("RGB").save(f"{PATH}\\projet_{file}", format="JPEG", subsampling=0, quality=QUALITY)
+        base_image.convert("RGB").save(f"{PATH}\\Projet_{file}", format="JPEG", subsampling=0, quality=QUALITY)
 
 print("Terminé !")
 sleep(1)
