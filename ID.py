@@ -3,8 +3,6 @@
 #                          IMPORTS                          #
 #############################################################
 import os
-import sys
-import re
 from time import sleep
 from PIL import Image, ImageOps 
 
@@ -52,6 +50,7 @@ CANVA_HEIGHT_DPI = mm_to_pixels(CANVA_HEIGHT, DPI)
 #############################################################
 index = 1
 save_it = False
+running = False
 x_offset = H_SPACE
 counter = 0
 canva = Image.new('RGB', (CANVA_WIDTH_DPI, CANVA_HEIGHT_DPI), BG_COLOR)
@@ -61,18 +60,33 @@ while len(FOLDER) > 0:
     print("#" * 30)
     print(f"image restantes {len(FOLDER)}")
     print("-" * 13)
-    
 
-    current_image = FOLDER.pop()
-    image = Image.open(current_image)
+    running = True
+    
+    # UNCOMMENT FOR 2 IDENTICAL IDS
+    # -------------------------------------
+    # current_image = FOLDER.pop()
+    # image = Image.open(current_image)
+    # -------------------------------------
     
     y_offset = V_SPACE
 
     if index % 3 == 0 or len(FOLDER) == 0 :
         save_it = True
+        running = False
         print("Enregistrement image\n")
 
     for i in range(2):
+        # COMMENT FOR 2 IDENTICAL IDS
+        # -------------------------------------
+        try :
+            current_image = FOLDER.pop()
+        except IndexError :
+            print("Derniere image")
+        else :
+            image = Image.open(current_image)
+        # -------------------------------------
+        
         if image.width < image.height:
             image = image.rotate(90, expand=True)
 
@@ -92,5 +106,9 @@ while len(FOLDER) > 0:
         x_offset = H_SPACE
 
     index += 1
+    
+if save_it == False and running == True :
+    canva.save(f"{PATH}\\ID_{counter + 1:03}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
 print("Terminé !")
+sleep(1)

@@ -3,17 +3,17 @@
 #                          IMPORTS                          #
 #############################################################
 import os
-import sys
-import re
 from time import sleep
 from PIL import Image, ImageOps, ImageFile
 
 #############################################################
 #                           SIZE                            #
 #############################################################
-WIDTH = 76      # mm
-HEIGHT = 102    # mm
-DPI = 300       # DPI
+#-------------- size of each individual image --------------#
+WIDTH = 102        # mm -> will be doubled !
+HEIGHT = 152       # mm
+DPI = 300          # DPI
+START = 1         # Start number to count, if needed
 
 #############################################################
 #                           PATH                            #
@@ -26,8 +26,8 @@ os.chdir(PATH)
 #############################################################
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-EXTENSION = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
-FOLDER = [file for file in sorted(os.listdir()) if file.endswith(EXTENSION) and not file == "watermark.png"]
+EXTENSION = (".jpg", ".jpeg", ".png")
+FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
 TOTAL = len(FOLDER)
 DUO = ["recto", "verso", "duo"]
 DOUBLE = False
@@ -36,21 +36,21 @@ IMAGE_NAME = ""
 #############################################################
 #               CONVERT MM 300DPI TO PIXELS                 #
 #############################################################
-WIDTH_DPI = round((float(WIDTH) / 25.4) * DPI)
-HEIGHT_DPI = round((float(HEIGHT) / 25.4) * DPI)
+def mm_to_pixels(mm, dpi) :
+    return round((float(mm) / 25.4) * dpi)
+
+WIDTH_DPI = mm_to_pixels(WIDTH, DPI)
+HEIGHT_DPI = mm_to_pixels(HEIGHT, DPI)
 
 #############################################################
 #                           MAIN                            #
 #############################################################
-if not os.path.exists(f"{PATH}\\2 en 1") :
-    os.makedirs(f"{PATH}\\2 en 1")
-
 index = 1
 while len(FOLDER) > 0:
     os.system('cls' if os.name == 'nt' else 'clear')
-    print("2 images sur 10x15")
+    print("2 images sur 15x20")
     print("#" * 30)
-    print(f"image {index} sur {TOTAL}")
+    print(f"image {index} sur {TOTAL // 2}")
     print("-" * 13)
 
     
@@ -83,11 +83,12 @@ while len(FOLDER) > 0:
             x_offset += WIDTH_DPI
 
         if DOUBLE :
-            new_image.save(f"{PATH}\\2 en 1\\10x15_{IMAGE_NAME}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+            new_image.save(f"{PATH}\\{WIDTH * 2}x{HEIGHT}_{IMAGE_NAME}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
             DOUBLE = False
         else :
-            new_image.save(f"{PATH}\\2 en 1\\10x15_{index:03}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+            new_image.save(f"{PATH}\\{WIDTH * 2}x{HEIGHT}_{START:03}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
         index += 1
+        START += 1
 
 print("Terminé !")
