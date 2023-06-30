@@ -11,9 +11,11 @@ from PIL import Image, ImageOps , ImageFile
 #############################################################
 #                           SIZE                            #
 #############################################################
-WIDTH = 102      # mm
-HEIGHT = 76    # mm
-DPI = 300       # DPI
+#-------------- size of each individual image --------------#
+WIDTH = 102        # mm -> will be doubled !
+HEIGHT = 152       # mm
+DPI = 300          # DPI
+START = 1         # Start number to count, if needed
 
 #############################################################
 #                           PATH                            #
@@ -26,8 +28,8 @@ os.chdir(PATH)
 #############################################################
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-EXTENSION = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
-FOLDER = [file for file in sorted(os.listdir()) if file.endswith(EXTENSION) and not file == "watermark.png"]
+EXTENSION = (".jpg", ".jpeg", ".png")
+FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
 TOTAL = len(FOLDER)
 DUO = ["recto", "verso", "duo"]
 DOUBLE = False
@@ -36,8 +38,11 @@ IMAGE_NAME = ""
 #############################################################
 #               CONVERT MM 300DPI TO PIXELS                 #
 #############################################################
-WIDTH_DPI = round((float(WIDTH) / 25.4) * DPI)
-HEIGHT_DPI = round((float(HEIGHT) / 25.4) * DPI)
+def mm_to_pixels(mm, dpi) :
+    return round((float(mm) / 25.4) * dpi)
+
+WIDTH_DPI = mm_to_pixels(WIDTH, DPI)
+HEIGHT_DPI = mm_to_pixels(HEIGHT, DPI)
 
 #############################################################
 #                           MAIN                            #
@@ -66,30 +71,31 @@ while len(FOLDER) > 0:
             image2 = FOLDER.pop()
 
     images = map(Image.open, [image1, image2])
-    y_offset = 0
+    x_offset = 0
     try:
-        new_image = Image.new('RGB', (WIDTH_DPI, HEIGHT_DPI * 2), color=(255, 255, 255, 255))
+        new_image = Image.new('RGB', (WIDTH_DPI * 2, HEIGHT_DPI))
     except Exception:
         pass
     else:
         for image in images:
-            if image.width < image.height:
+            if image.width > image.height:
                 image = image.rotate(90, expand=True)
 
-            wpercent = (WIDTH_DPI/float(image.width))
-            hsize = int((float(image.height)*float(wpercent)))
-            cropped_image = image.resize((WIDTH_DPI, hsize), Image.LANCZOS)
+            hpercent = (HEIGHT_DPI/float(image.height))
+            wsize = int((float(image.width)*float(hpercent)))
+            cropped_image = image.resize((wsize, HEIGHT_DPI), Image.LANCZOS)
             
-            new_image.paste(cropped_image, (0, y_offset))
-            y_offset += HEIGHT_DPI
+            new_image.paste(cropped_image, (x_offset, 0))
+            x_offset += WIDTH_DPI
 
 
         if DOUBLE :
-            new_image.save(f"{PATH}\\2 en 1\\10x15_{IMAGE_NAME}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+            new_image.save(f"{PATH}\\2 en 1\\2-en-1_{IMAGE_NAME}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
             DOUBLE = False
         else :
-            new_image.save(f"{PATH}\\2 en 1\\10x15_{index:03}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+            new_image.save(f"{PATH}\\2 en 1\\2-en-1_{START:03}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
         index += 1
+        START += 1
 
 print("Terminé !")
