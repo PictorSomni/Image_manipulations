@@ -3,7 +3,6 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-
 import os
 import sys
 import re
@@ -14,14 +13,12 @@ from rich.console import Console
 #############################################################
 #                           PATH                            #
 #############################################################
-
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
-
 console = Console()
 
 EXTENSION = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
@@ -30,7 +27,6 @@ FOLDER = [file for file in os.listdir() if file.endswith(EXTENSION) and not file
 #############################################################
 #                         FUNCTIONS                         #
 #############################################################
-
 ## Clears the terminal
 def clear():
     os.system("cls" if os.name == "nt" else "clear")
@@ -40,10 +36,10 @@ def wait(delay=1):
     now = monotonic()
     while monotonic() <= (now + delay):
         pass
+    
 #############################################################
 #                           MAIN                            #
 #############################################################
-
 clear()
 
 print(f"[deep_sky_blue1]Renommage des fichiers[/deep_sky_blue1]")

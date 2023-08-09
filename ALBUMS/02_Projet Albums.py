@@ -16,6 +16,7 @@ PROJECT = False
 WATERMARK = False
 MAXSIZE = 640
 QUALITY = 85
+ALPHA = 0.5
 
 #############################################################
 #                           PATH                            #
@@ -53,8 +54,20 @@ with console.status("[bold blue]En cours...") as status:
         except Exception:
             continue
         else:
-            base_image.thumbnail((MAXSIZE,MAXSIZE), Image.LANCZOS)
+            base_image.thumbnail((MAXSIZE,MAXSIZE), Image.Resampling.LANCZOS)
+
+        try:
             watermark = Image.open(WATERMARK)
+            if watermark.mode != "RGBA":
+                watermark = watermark.convert("RGBA")
+
+            r, g, b, a = watermark.split()
+            a = a.point(lambda i: i * ALPHA)
+            watermark = Image.merge("RGBA", (r, g, b, a))
+        except Exception:
+            watermark = Image.open("watermark.png")
+            continue
+        else :
             base_image.paste(watermark, watermark)
             base_image.convert("RGB").save(f"{PATH}\\{file}", format="JPEG", subsampling=0, quality=QUALITY)
 

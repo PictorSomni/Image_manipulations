@@ -20,13 +20,13 @@ os.chdir(PATH)
 #############################################################
 #                         CONTENT                           #
 #############################################################
-PREFIX = "NO2021_Jemeppe_"
+PREFIX = "NO2023_Spy_"
 
 console = Console()
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-EXTENSION = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
-FOLDER = [Image.open(file) for file in sorted(os.listdir()) if file.endswith(EXTENSION) and not file == "watermark.png"]
+EXTENSION = (".jpg", ".jpeg", ".png")
+FOLDER = [Image.open(file.lower()) for file in sorted(os.listdir()) if file.endswith(EXTENSION) and not file == "watermark.png"]
 TOTAL = len(FOLDER)
 
 ## Clears the terminal
