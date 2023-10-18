@@ -79,6 +79,5 @@ for image in IMAGES :
         new_image.convert("RGB").save(f"{PATH}\\10x15_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
         print(f"{image} : 2 en 1 OK")
 
-input("Terminé !")
-# print("Terminé !")
+print("Terminé !")
 sleep(1)

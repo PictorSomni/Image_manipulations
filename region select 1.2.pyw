@@ -1,29 +1,41 @@
 # -*- coding: utf-8 -*-
-
 #############################################################
 #                          IMPORT                           #
 #############################################################
-
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 import os
 import io
 from PIL.ImageQt import ImageQt, Image, QImage
 from PIL import ImageOps
 
 #############################################################
+#                         VARIABLES                         #
+#############################################################
+DPI = 300
+WIDTH = 178
+HEIGHT = 127
+
+#############################################################
 #                           PATH                            #
 #############################################################
-
 PATH = os.path.dirname(os.path.abspath(__file__))
 os.chdir(PATH)
 
-if not os.path.exists(PATH + f"\\WEB") :
-    os.makedirs(PATH + f"\\WEB")
+if not os.path.exists(PATH + f"\\CROP") :
+    os.makedirs(PATH + f"\\CROP")
+
+#############################################################
+#               CONVERT MM 300DPI TO PIXELS                 #
+#############################################################
+def mm_to_pixels(mm, dpi) :
+    return round((float(mm) / 25.4) * dpi)
+
+WIDTH_DPI = mm_to_pixels(WIDTH, DPI)
+HEIGHT_DPI = mm_to_pixels(HEIGHT, DPI)
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
-
 EXTENSION = (".jpg", ".jpeg", ".png")
 FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
 
@@ -52,7 +64,7 @@ class ResizableRubberBand(QtWidgets.QWidget):
         self.show()
 
     def resizeEvent(self, event):
-        size = QtCore.QSize(1, 1)
+        size = QtCore.QSize(WIDTH, HEIGHT)
         size.scale(self.size(), QtCore.Qt.KeepAspectRatio)
         self.resize(size)
         self.rubberband.resize(self.size())
@@ -126,16 +138,22 @@ class Window(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout(self)
         self.next_button = QtWidgets.QPushButton("Next image")
         self.crop_button = QtWidgets.QPushButton("Crop !")
+        self.rotate_button = QtWidgets.QPushButton("Rotate 90")
         self.label = Label()
         # self.label.setStyleSheet("QLabel { background-color : red; }")
         layout.addWidget(self.label)
         self.band = ResizableRubberBand(self.label)
-        self.band.setGeometry(150, 150, 150, 150)
+        self.band.setGeometry(32, 32, WIDTH, HEIGHT)
         layout.addWidget(self.next_button)
         layout.addWidget(self.crop_button)
+        layout.addWidget(self.rotate_button)
         self.next_button.clicked.connect(self.showImage)
         self.crop_button.clicked.connect(self.cropImage)
+        self.rotate_button.clicked.connect(self.rotateImage)
         self.show() 
+
+    def rotateImage(self) :
+        pass
 
     def showImage(self):
         try :
@@ -150,6 +168,8 @@ class Window(QtWidgets.QWidget):
             sys.exit(app.exec_())
         else :
             self.label.setPixmap(QtGui.QPixmap(self.filename))
+            # if self.label.width() > self.label.height() :
+            #     self.label.
             sp = self.label.sizePolicy()
             sp.setHorizontalPolicy(QtWidgets.QSizePolicy.Maximum)
             self.label.setSizePolicy(sp)
@@ -172,8 +192,8 @@ class Window(QtWidgets.QWidget):
         buffer.open(QtCore.QBuffer.ReadWrite)
         img.save(buffer, "JPEG")
         pil_im = Image.open(io.BytesIO(buffer.data()))
-        result = ImageOps.fit(pil_im, (800, 800))
-        result.save(f"{PATH}\\WEB\\{self.filename}", dpi=(72, 72), format='JPEG', subsampling=0, quality=100)
+        result = ImageOps.fit(pil_im, (WIDTH_DPI, HEIGHT_DPI))
+        result.save(f"{PATH}\\WEB\\{self.filename}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
         self.showImage()
         

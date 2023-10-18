@@ -48,7 +48,7 @@ HEIGHT_DPI = mm_to_pixels(HEIGHT, DPI)
 index = 1
 while len(FOLDER) > 0:
     os.system('cls' if os.name == 'nt' else 'clear')
-    print("2 images sur 15x20")
+    print(f"2 images sur {WIDTH * 2}x{HEIGHT}")
     print("#" * 30)
     print(f"image {index} sur {TOTAL // 2}")
     print("-" * 13)
