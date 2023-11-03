@@ -50,7 +50,7 @@ while len(FOLDER) > 0:
     os.system('cls' if os.name == 'nt' else 'clear')
     print(f"2 images sur {WIDTH * 2}x{HEIGHT}")
     print("#" * 30)
-    print(f"image {index} sur {TOTAL // 2}")
+    print(f"image {index} sur {TOTAL // 2}") if TOTAL % 2 == 0 else print(f"image {index} sur {(TOTAL // 2) + 1}")
     print("-" * 13)
 
     
