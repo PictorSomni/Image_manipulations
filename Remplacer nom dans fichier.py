@@ -19,7 +19,8 @@ os.chdir(PATH)
 #                         CONTENT                           #
 #############################################################
 IMAGES = []
-new_name = ""
+old_name = "denuit"
+new_name = "Vercauteren"
 console = Console()
 
 EXTENSION = (".JPG", ".JPEG", ".PNG")
@@ -45,8 +46,8 @@ print("[violet]~[/violet]" * 23)
 with console.status("[bold blue]En cours...") as status:
     for file in FOLDER :
         file_name = re.search(r"([\w\s]+).\w+", file)
-        if "denuit" in file_name.group(1).lower() :
-            new_name = file.replace("Denuit", "Vercauteren")
+        if old_name in file_name.group(1) :
+            new_name = file.replace(old_name, new_name)
             os.rename(file, new_name)
 
 print("[bright_green]Terminé ![/bright_green]")

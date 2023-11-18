@@ -21,20 +21,18 @@ TOTAL = len(FOLDER)
 #############################################################
 #                           MAIN                            #
 #############################################################
-os.system('cls' if os.name == 'nt' else 'clear')
-print("Normalisation des images")
-print("#" * 30)
-
 for i, file in enumerate(FOLDER) :
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print("Normalisation des images")
+    print("#" * 30)
     print("Image {} sur {}".format(i+1, TOTAL))
     try :
-        base_image = cv2.imread(f"{PATH}/{file}", 0)
-        print(f"{PATH}/{file}")
+        base_image = cv2.imread(file, 0)
     except Exception as e :
         print(e)
     else :
         clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(4,4))
         result_image = clahe.apply(base_image)
-        cv2.imshow("CLAHE", result_image)
-        cv2.imwrite(f"N&B_{file}",result_image)
+        filename, ext = file.split(".")
+        cv2.imwrite(f"{filename}_N&B.{ext}",result_image)
 print("Terminé !")

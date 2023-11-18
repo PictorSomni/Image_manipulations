@@ -58,7 +58,7 @@ MUG_LEFT = 100
 MUG_UP = 420
 MUG_RIGHT = 1510
 MUG_DOWN = 2080
-MUG_THUMB_UP = int(FICHE.height * 0.45)
+MUG_THUMB_UP = int(FICHE.height * 0.48)
 MUG_THUMB_LEFT = int(FICHE.width * 0.35)
 
 ####### CALENDRIER #######
@@ -68,8 +68,8 @@ CALENDRIER_LEFT = int(CALENDRIER.width * 0.03)
 CALENDRIER_UP = int(CALENDRIER.height * 0.02)
 CALENDRIER_RIGHT = int(CALENDRIER.width * 0.96)
 CALENDRIER_DOWN = int(CALENDRIER.height * 0.42)
-CALENDRIER_THUMB_UP = int(FICHE.height * 0.18)
-CALENDRIER_THUMB_LEFT = int(FICHE.width * 0.675)
+CALENDRIER_THUMB_UP = int(FICHE.height * 0.13)
+CALENDRIER_THUMB_LEFT = int(FICHE.width * 0.35)
 
 ####### MAGNET #######
 MAGNET = Image.open(f"{PATH}\\Order_data\\MAGNET_ROND.png")
@@ -78,7 +78,7 @@ MAGNET_LEFT = 78
 MAGNET_UP = 157
 MAGNET_RIGHT = 1708
 MAGNET_DOWN = 1634
-MAGNET_THUMB_UP = int(FICHE.height * 0.15)
+MAGNET_THUMB_UP = int(FICHE.height * 0.25)
 MAGNET_THUMB_LEFT = int(FICHE.width * 0.35)
 
 ####### PORTE-CLEF #######
@@ -88,7 +88,7 @@ ID_LEFT = 467
 ID_UP = 451
 ID_RIGHT = 1310
 ID_DOWN = 1498
-ID_THUMB_UP = int(FICHE.height * 0.3)
+ID_THUMB_UP = int(FICHE.height * 0.35)
 ID_THUMB_LEFT = int(FICHE.width * 0.35)
 
 ####### PLUMIER #######
@@ -106,18 +106,18 @@ CADRE_LEFT = 575
 CADRE_UP = 390
 CADRE_RIGHT = 1585
 CADRE_DOWN = 1800
-CADRE_THUMB_UP = int(FICHE.height * 0.5)
+CADRE_THUMB_UP = int(FICHE.height * 0.56)
 CADRE_THUMB_LEFT = int(FICHE.width * 0.025)
 
 ####### PASSE #######
-PASSE = Image.open(f"{PATH}\\Order_data\\PASSE.png")
-PASSE_ALPHA = Image.open(f"{PATH}\\Order_data\\PASSE_ALPHA.png")
-PASSE_LEFT = 316
-PASSE_UP = 541
-PASSE_RIGHT = 1138
-PASSE_DOWN = 1647
-PASSE_THUMB_UP = int(FICHE.height * 0.75)
-PASSE_THUMB_LEFT = int(FICHE.width * 0.025)
+# PASSE = Image.open(f"{PATH}\\Order_data\\PASSE.png")
+# PASSE_ALPHA = Image.open(f"{PATH}\\Order_data\\PASSE_ALPHA.png")
+# PASSE_LEFT = 316
+# PASSE_UP = 541
+# PASSE_RIGHT = 1138
+# PASSE_DOWN = 1647
+# PASSE_THUMB_UP = int(FICHE.height * 0.75)
+# PASSE_THUMB_LEFT = int(FICHE.width * 0.025)
 
 ####### SUPPORT_BOIS #######
 BOIS = Image.open(f"{PATH}\\Order_data\\SUPPORT_BOIS.png")
@@ -140,14 +140,14 @@ NEIGE_THUMB_UP = int(FICHE.height * 0.06)
 NEIGE_THUMB_LEFT = int(FICHE.width * 0.675)
 
 ####### VOEUX 01 #######
-VOEUX01 = Image.open(f"{PATH}\\Order_data\\VOEUX01.png")
-VOEUX01_ALPHA = Image.open(f"{PATH}\\Order_data\\VOEUX01_ALPHA.png")
-VOEUX01_LEFT = int(VOEUX01.width * 0.06)
-VOEUX01_UP = int(VOEUX01.height * 0.33)
-VOEUX01_RIGHT = int(VOEUX01.width * 0.94)
-VOEUX01_DOWN = int(VOEUX01.height * 0.93)
-VOEUX01_THUMB_UP = int(FICHE.height * 0.15)
-VOEUX01_THUMB_LEFT = int(FICHE.width * 0.675)
+# VOEUX01 = Image.open(f"{PATH}\\Order_data\\VOEUX01.png")
+# VOEUX01_ALPHA = Image.open(f"{PATH}\\Order_data\\VOEUX01_ALPHA.png")
+# VOEUX01_LEFT = int(VOEUX01.width * 0.06)
+# VOEUX01_UP = int(VOEUX01.height * 0.33)
+# VOEUX01_RIGHT = int(VOEUX01.width * 0.94)
+# VOEUX01_DOWN = int(VOEUX01.height * 0.93)
+# VOEUX01_THUMB_UP = int(FICHE.height * 0.15)
+# VOEUX01_THUMB_LEFT = int(FICHE.width * 0.675)
 
 ###### VOEUX 02 #######
 VOEUX02 = Image.open(f"{PATH}\\Order_data\\VOEUX02.png")
@@ -168,6 +168,16 @@ VOEUX02_THUMB_LEFT = int(FICHE.width * 0.675)
 # VOEUX04_DOWN = 1064
 # VOEUX04_THUMB_UP = int(FICHE.height * 0.17)
 # VOEUX04_THUMB_LEFT = int(FICHE.width * 0.675)
+
+###### VOEUX 05 #######
+VOEUX05 = Image.open(f"{PATH}\\Order_data\\VOEUX05.png")
+VOEUX05_ALPHA = Image.open(f"{PATH}\\Order_data\\VOEUX05_ALPHA.png")
+VOEUX05_LEFT = int(VOEUX05.width * 0.08)
+VOEUX05_UP = int(VOEUX05.height * 0.05)
+VOEUX05_RIGHT = int(VOEUX05.width * 0.92)
+VOEUX05_DOWN = int(VOEUX05.height * 0.69)
+VOEUX05_THUMB_UP = int(FICHE.height * 0.15)
+VOEUX05_THUMB_LEFT = int(FICHE.width * 0.675)
 
 # ####### GOURDE #######
 # GOURDE = Image.open(f"{PATH}\\Order_data\\GOURDE.png")
@@ -425,10 +435,10 @@ class Order(QtWidgets.QMainWindow):
             QtWidgets.QApplication.processEvents()
             current_mug = self.combine_images(base_image, MUG_LEFT, MUG_UP, MUG_RIGHT, MUG_DOWN, MUG, MUG_ALPHA)
 
-            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création calendrier")
-            # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
-            # QtWidgets.QApplication.processEvents()
-            # current_cal = self.combine_images(base_image, CALENDRIER_LEFT, CALENDRIER_UP, CALENDRIER_RIGHT, CALENDRIER_DOWN, CALENDRIER, CALENDRIER_ALPHA, FIT=True)
+            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création calendrier")
+            self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
+            QtWidgets.QApplication.processEvents()
+            current_cal = self.combine_images(base_image, CALENDRIER_LEFT, CALENDRIER_UP, CALENDRIER_RIGHT, CALENDRIER_DOWN, CALENDRIER, CALENDRIER_ALPHA, FIT=True)
         
             # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création gourde") 
             # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
@@ -453,7 +463,7 @@ class Order(QtWidgets.QMainWindow):
             self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création carte de voeux 01")
             self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
             QtWidgets.QApplication.processEvents()
-            current_voeux01 = self.combine_images(base_image, VOEUX01_LEFT, VOEUX01_UP, VOEUX01_RIGHT, VOEUX01_DOWN, VOEUX01, VOEUX01_ALPHA)
+            current_voeux01 = self.combine_images(base_image, VOEUX05_LEFT, VOEUX05_UP, VOEUX05_RIGHT, VOEUX05_DOWN, VOEUX05, VOEUX05_ALPHA)
 
             self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création carte de voeux 02")
             self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
@@ -497,10 +507,10 @@ class Order(QtWidgets.QMainWindow):
             QtWidgets.QApplication.processEvents()
             current_fiche = self.combine_images(current_mug, MUG_THUMB_LEFT, MUG_THUMB_UP, MUG_THUMB_LEFT+THUMB_SIZE, MUG_THUMB_UP+THUMB_SIZE, current_fiche)
 
-            # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement calendrier")
-            # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
-            # QtWidgets.QApplication.processEvents()
-            # current_fiche = self.combine_images(current_cal, CALENDRIER_THUMB_LEFT, CALENDRIER_THUMB_UP, CALENDRIER_THUMB_LEFT+THUMB_SIZE, CALENDRIER_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
+            self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement calendrier")
+            self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
+            QtWidgets.QApplication.processEvents()
+            current_fiche = self.combine_images(current_cal, CALENDRIER_THUMB_LEFT, CALENDRIER_THUMB_UP, CALENDRIER_THUMB_LEFT+THUMB_SIZE, CALENDRIER_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
             
             # self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement gourde")
             # self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
@@ -515,7 +525,7 @@ class Order(QtWidgets.QMainWindow):
             self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement carte voeux 01")
             self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
             QtWidgets.QApplication.processEvents()
-            current_fiche = self.combine_images(current_voeux01, VOEUX01_THUMB_LEFT, VOEUX01_THUMB_UP, VOEUX01_THUMB_LEFT+THUMB_SIZE, VOEUX01_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
+            current_fiche = self.combine_images(current_voeux01, VOEUX05_THUMB_LEFT, VOEUX05_THUMB_UP, VOEUX05_THUMB_LEFT+THUMB_SIZE, VOEUX05_THUMB_UP+THUMB_SIZE, current_fiche, FIT=True)
 
             self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Placement carte voeux 02")
             self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
@@ -563,7 +573,7 @@ class Order(QtWidgets.QMainWindow):
             base_image = current_thumb.convert("RGBA")
             self.ui.label_counter.setText(f"{i+1} / {TOTAL} : Création en cours...")
             self.ui.progressBar.setValue(self.ui.progressBar.value() + 1)
-            combined = self.combine_images(base_image, VOEUX01_LEFT, VOEUX01_UP, VOEUX01_RIGHT, VOEUX01_DOWN, VOEUX01, VOEUX01_ALPHA)
+            combined = self.combine_images(base_image, VOEUX05_LEFT, VOEUX05_UP, VOEUX05_RIGHT, VOEUX05_DOWN, VOEUX05, VOEUX05_ALPHA)
             combined = combined.convert("RGB")
             # combined.save(f"{PATH}\\V_{os.path.splitext(file)[0]}.jpg", format='JPEG', subsampling=0, quality=100)
             combined.show()
