@@ -2,13 +2,10 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-from genericpath import isdir
-from lib2to3.pygram import pattern_grammar
 import os
 import sys
 import re
 from time import monotonic
-from unittest.mock import patch
 from rich import print
 from rich.console import Console
 
@@ -21,10 +18,13 @@ os.chdir(PATH)
 #############################################################
 #                         CONTENT                           #
 #############################################################
+START = 1
 console = Console()
 
-EXTENSION = (".JPG", ".JPEG", ".PNG", ".PSD", ".PSB")
-FOLDER = [file for file in os.listdir() if file.upper().endswith(EXTENSION) and not file == "watermark.png"]
+EXTENSION = (".jpg", ".jpeg", ".png")
+FOLDER = [file for file in os.listdir() if file.lower().endswith(EXTENSION) and not "NZ6" in file]
+
+file_name = re.search(r"([\w\s]+).py", sys.argv[0])
 
 ## Clears the terminal
 def clear():
@@ -44,24 +44,11 @@ print(f"[deep_sky_blue1]Renommage des fichiers[/deep_sky_blue1]")
 print("[violet]~[/violet]" * 23)
 
 with console.status("[bold blue]En cours...") as status:
-    # for folder in os.listdir() :
-    #     if os.path.isdir(folder) :
-            # for file in os.listdir(folder):
-    for file in FOLDER :
+    for index, file in enumerate(FOLDER):
         filename, ext = os.path.splitext(file)
-        times = re.search(r"\d{1}x", filename.lower())
-        name  = re.search(r"\d{3}", filename)
-
-        if name :
-            if times :
-                # os.rename(f"{PATH}\\{folder}\\{file}", f"{PATH}\\{folder}\\{times.group(0).upper()}_{name.group(0)}{ext}")
-                os.rename(file, f"{times.group(0).upper()}_{name.group(0)}{ext}")
-            else :
-                # os.rename(f"{PATH}\\{folder}\\{file}", f"{PATH}\\{folder}\\{name.group(0)}{ext}")
-                os.rename(file, f"{name.group(0)}{ext}")
+        os.rename(file, f"{file_name.group(1)}_{index + START:03}{ext}")
     
 print("[bright_green]Terminé ![/bright_green]")
-
-print("[deep_sky_blue1]Belle journée![/deep_sky_blue1]")
 wait(.5)
+print("[deep_sky_blue1]Belle journée![/deep_sky_blue1]")
 sys.exit(1)
