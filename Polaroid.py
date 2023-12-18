@@ -30,9 +30,9 @@ IMAGES = []
 #############################################################
 #                           MAIN                            #
 #############################################################
-PRINT_SIZE = (980, 1205)
-IMAGE_SIZE = 835
-POSITION = 73
+PRINT_SIZE = (1205, 1500)
+IMAGE_SIZE = 1063
+POSITION = 71
 
 canvas = Image.new('RGB', PRINT_SIZE, color=(255, 255, 255))
 

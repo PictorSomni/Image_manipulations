@@ -26,28 +26,34 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 EXTENSION = (".jpg", ".jpeg", ".png")
 FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION)]
-TOTAL = len(FOLDER)
 DOUBLE = False
 IMAGE_NAME = ""
-PRINT_SIZE = (1205, 2400)
+PRINT_SIZE = (2400, 1500)
 POSITION = 1200
+IMAGES = []
 #############################################################
 #                           MAIN                            #
 #############################################################
 index = 1
-while len(FOLDER) > 0:
+for file in FOLDER :
+    file_name = re.search(r"([\w\s]+).\w+", file)
+    if "POLA_" in file_name.group(1).upper() :
+        IMAGES.append(file)
+        print(file)
+
+for index, image in enumerate(IMAGES):
     os.system('cls' if os.name == 'nt' else 'clear')
-    print("2 images sur 10x15")
+    print("2 pola sur 10x15")
     print("#" * 30)
-    print(f"image {index} sur {TOTAL}")
+    print(f"Image : {index + 1} sur {len(IMAGES)}")
     print("-" * 13)
 
     
-    image1 = FOLDER.pop()
-    if len(FOLDER) < 1:
+    image1 = IMAGES.pop()
+    if len(IMAGES) < 1:
         image2 = image1
     else:
-        image2 = FOLDER.pop()
+        image2 = IMAGES.pop()
 
     images = map(Image.open, [image1, image2])
     offset = 0
@@ -57,7 +63,7 @@ while len(FOLDER) > 0:
         pass
     else:
         for image in images:
-            new_image.paste(image, (0, offset))
+            new_image.paste(image, (offset, 0))
             offset += POSITION
 
 
