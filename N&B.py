@@ -18,6 +18,10 @@ EXTENSION = (".jpg", ".jpeg", ".png")
 FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
 TOTAL = len(FOLDER)
 
+## Create a folder to save the new images to
+if not os.path.exists(f"{PATH}\\N&B") :
+    os.makedirs(f"{PATH}\\N&B")
+
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -34,5 +38,5 @@ for i, file in enumerate(FOLDER) :
         clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(4,4))
         result_image = clahe.apply(base_image)
         filename, ext = file.split(".")
-        cv2.imwrite(f"{filename}_N&B.{ext}",result_image)
+        cv2.imwrite(f"{PATH}\\N&B\\{filename}_N&B.{ext}",result_image)
 print("Terminé !")
