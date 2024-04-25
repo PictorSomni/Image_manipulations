@@ -9,7 +9,7 @@ from pdf2image import convert_from_path
 #############################################################
 # https://pypi.org/project/pdf2image/
 # https://github.com/oschwartz10612/poppler-windows/releases/
-POPPLER_PATH = r"C:\poppler-22.04.0\Library\bin"
+POPPLER_PATH = r"C:\poppler\Library\bin"
 
 #############################################################
 #                           PATH                            #
@@ -31,6 +31,10 @@ for pdf in FOLDER :
 
     for i in range(len(pages)):
         # Save pages as images in the pdf
-        pages[i].save(f"page_{i+1:03}.jpg", "JPEG")
+        try:
+            pages[i].save(f"page_{i+1:03}.jpg", "JPEG")
+        except Exception as e:
+            print(e)
+        continue
 
 print("Terminé")
