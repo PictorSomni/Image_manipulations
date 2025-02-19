@@ -87,6 +87,9 @@ NAME_SQUARE = f"{HEIGHT}x{HEIGHT}"
 #############################################################
 #                           MAIN                            #
 #############################################################
+if os.path.isdir(f"{PATH}\\{NAME_SIZE}") == False :
+    os.mkdir(f"{PATH}\\{NAME_SIZE}")
+
 for i, file in enumerate(FOLDER) :
     os.system('cls' if os.name == 'nt' else 'clear')
     print(f"{WIDTH} x {HEIGHT} (ou {HEIGHT} x {HEIGHT})")
@@ -119,12 +122,12 @@ for i, file in enumerate(FOLDER) :
                     result.paste(cropped_image, offset)
                     result = ImageOps.expand(result, border=BORDER_DPI // 2, fill="white")
                     result = result.convert("RGB")
-                    result.save(f"{PATH}\\{NAME_SIZE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                    result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SIZE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
                 else :
                     result = ImageOps.fit(base_image, (WIDTH_DPI, HEIGHT_DPI))
                     result = result.convert("RGB")
-                    result.save(f"{PATH}\\{NAME_SIZE}_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                    result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SIZE}_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
         if base_image.width == base_image.height :  # SQUARE IMAGE
             if OPTIONS : # OPTIONS ?
@@ -133,12 +136,12 @@ for i, file in enumerate(FOLDER) :
                     result = ImageOps.fit(base_image, (HEIGHT_DPI - BORDER_DPI, HEIGHT_DPI - BORDER_DPI))
                     result = ImageOps.expand(result, border=BORDER_DPI // 2, fill="white")
                     result = result.convert("RGB")
-                    result.save(f"{PATH}\\{NAME_SQUARE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                    result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SQUARE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
             else : # WITHOUT OPTION           
                 result = ImageOps.fit(base_image, (HEIGHT_DPI, HEIGHT_DPI))
                 result = result.convert("RGB")
-                result.save(f"{PATH}\\{NAME_SQUARE}_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SQUARE}_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
         else :                
             if OPTIONS:   # OPTIONS ?
@@ -159,7 +162,7 @@ for i, file in enumerate(FOLDER) :
                         if ROTATED == True :
                             result = result.rotate(270, expand=True)
 
-                        result.save(f"{PATH}\\{NAME_SIZE}_FIT_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                        result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SIZE}_FIT_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
                     else :   # WITHOUT BORDER
                         result = Image.new('RGB', (WIDTH_DPI, HEIGHT_DPI), (255, 255, 255, 255))
@@ -174,7 +177,7 @@ for i, file in enumerate(FOLDER) :
                         if ROTATED == True :
                             result = result.rotate(270, expand=True)
 
-                        result.save(f"{PATH}\\{NAME_SIZE}_FIT_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                        result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SIZE}_FIT_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
                 
                 elif "sq" in features.group(3).lower() : # FORCE SQUARE
                     print("SQUARE")
@@ -187,12 +190,12 @@ for i, file in enumerate(FOLDER) :
                         result.paste(cropped_image, offset)
                         result = ImageOps.expand(result, border=BORDER_DPI // 2, fill="white")
                         result = result.convert("RGB")
-                        result.save(f"{PATH}\\{NAME_SQUARE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                        result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SQUARE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
                     else :
                         result = ImageOps.fit(base_image, (HEIGHT_DPI, HEIGHT_DPI))
                         result = result.convert("RGB")
-                        result.save(f"{PATH}\\{NAME_SQUARE}_SQ_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                        result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SQUARE}_SQ_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
                 elif "bb" in features.group(3).lower() :  # WITH BORDER
                     print("BORD BLANC")
@@ -203,7 +206,7 @@ for i, file in enumerate(FOLDER) :
                     if ROTATED == True :
                             result = result.rotate(270, expand=True)
 
-                    result.save(f"{PATH}\\{NAME_SIZE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                    result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SIZE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
                 elif "bb" in features.group(3).lower() :  # WITH BORDER
                     print("BORD BLANC")
@@ -214,7 +217,7 @@ for i, file in enumerate(FOLDER) :
                     if ROTATED == True :
                             result = result.rotate(270, expand=True)
 
-                    result.save(f"{PATH}\\{NAME_SIZE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                    result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SIZE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
             else :  # WITHOUT OPTION (FILL-IN)
                 result = ImageOps.fit(base_image, (WIDTH_DPI, HEIGHT_DPI))
@@ -223,7 +226,7 @@ for i, file in enumerate(FOLDER) :
                 if ROTATED == True :
                     result = result.rotate(270, expand=True)
                             
-                result.save(f"{PATH}\\{NAME_SIZE}_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SIZE}_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
 print("Terminé !")
 # input("Terminé !\nAppuyez sur une touche pour fermer")
