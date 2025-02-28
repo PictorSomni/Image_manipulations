@@ -74,6 +74,10 @@ def fit_in(max_size, primary_size, secondary_size):
     secondary_ratio = int((float(secondary_size)*float(primary_ratio)))
     return secondary_ratio
 
+def new_dir(name) :
+    if os.path.isdir(f"{PATH}\\{name}") == False :
+        os.mkdir(f"{PATH}\\{name}")
+
 
 WIDTH_DPI = mm_to_pixels(WIDTH, DPI)
 HEIGHT_DPI = mm_to_pixels(HEIGHT, DPI)
@@ -87,8 +91,6 @@ NAME_SQUARE = f"{HEIGHT}x{HEIGHT}"
 #############################################################
 #                           MAIN                            #
 #############################################################
-if os.path.isdir(f"{PATH}\\{NAME_SIZE}") == False :
-    os.mkdir(f"{PATH}\\{NAME_SIZE}")
 
 for i, file in enumerate(FOLDER) :
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -113,6 +115,7 @@ for i, file in enumerate(FOLDER) :
         if OPTIONS :
             if "force" in features.group(3).lower() : # FORCE SIZE EVEN FOR SQUARE IMAGES
                 print("FORCE SIZE")
+                new_dir(NAME_SIZE)
                 if "bb" in features.group(3).lower() :  # WITH BORDER
                     print("BORD BLANC")
                     result = Image.new('RGB', (WIDTH_DPI - BORDER_DPI, HEIGHT_DPI - BORDER_DPI), (255, 255, 255, 255))
@@ -130,22 +133,24 @@ for i, file in enumerate(FOLDER) :
                     result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SIZE}_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
         if base_image.width == base_image.height :  # SQUARE IMAGE
+            new_dir(NAME_SQUARE)
             if OPTIONS : # OPTIONS ?
                 if "bb" in features.group(3).lower() :  # WITH BORDER
                     print("BORD BLANC")
                     result = ImageOps.fit(base_image, (HEIGHT_DPI - BORDER_DPI, HEIGHT_DPI - BORDER_DPI))
                     result = ImageOps.expand(result, border=BORDER_DPI // 2, fill="white")
                     result = result.convert("RGB")
-                    result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SQUARE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                    result.save(f"{PATH}\\{NAME_SQUARE}\\{NAME_SQUARE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
             else : # WITHOUT OPTION           
                 result = ImageOps.fit(base_image, (HEIGHT_DPI, HEIGHT_DPI))
                 result = result.convert("RGB")
-                result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SQUARE}_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                result.save(f"{PATH}\\{NAME_SQUARE}\\{NAME_SQUARE}_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
         else :                
             if OPTIONS:   # OPTIONS ?
                 if "fit" in features.group(3).lower() : # FIT-IN
+                    new_dir(NAME_SIZE)
                     print("FIT-IN")
                     if "bb" in features.group(3).lower() :  # WITH BORDER
                         print("BORD BLANC")
@@ -180,6 +185,7 @@ for i, file in enumerate(FOLDER) :
                         result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SIZE}_FIT_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
                 
                 elif "sq" in features.group(3).lower() : # FORCE SQUARE
+                    new_dir(NAME_SQUARE)
                     print("SQUARE")
                     if "bb" in features.group(3).lower() :  # WITH BORDER
                         print("BORD BLANC")
@@ -190,25 +196,15 @@ for i, file in enumerate(FOLDER) :
                         result.paste(cropped_image, offset)
                         result = ImageOps.expand(result, border=BORDER_DPI // 2, fill="white")
                         result = result.convert("RGB")
-                        result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SQUARE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                        result.save(f"{PATH}\\{NAME_SQUARE}\\{NAME_SQUARE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
                     else :
                         result = ImageOps.fit(base_image, (HEIGHT_DPI, HEIGHT_DPI))
                         result = result.convert("RGB")
-                        result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SQUARE}_SQ_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+                        result.save(f"{PATH}\\{NAME_SQUARE}\\{NAME_SQUARE}_SQ_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
                 elif "bb" in features.group(3).lower() :  # WITH BORDER
-                    print("BORD BLANC")
-                    result = ImageOps.fit(base_image, (WIDTH_DPI - BORDER_DPI, HEIGHT_DPI - BORDER_DPI))
-                    result = ImageOps.expand(result, border=BORDER_DPI // 2, fill="white")
-                    result = result.convert("RGB")
-
-                    if ROTATED == True :
-                            result = result.rotate(270, expand=True)
-
-                    result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SIZE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
-
-                elif "bb" in features.group(3).lower() :  # WITH BORDER
+                    new_dir(NAME_SIZE)
                     print("BORD BLANC")
                     result = ImageOps.fit(base_image, (WIDTH_DPI - BORDER_DPI, HEIGHT_DPI - BORDER_DPI))
                     result = ImageOps.expand(result, border=BORDER_DPI // 2, fill="white")
@@ -220,6 +216,7 @@ for i, file in enumerate(FOLDER) :
                     result.save(f"{PATH}\\{NAME_SIZE}\\{NAME_SIZE}_BB_{file}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
             else :  # WITHOUT OPTION (FILL-IN)
+                new_dir(NAME_SIZE)
                 result = ImageOps.fit(base_image, (WIDTH_DPI, HEIGHT_DPI))
                 result = result.convert("RGB")
 
