@@ -3,7 +3,7 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-
+from calendar import c
 import os
 import sys
 import re
@@ -17,9 +17,8 @@ from rich.console import Console
 #############################################################
 #                           PATH                            #
 #############################################################
-
 PATH = "K:\\it-HotFolder"
-DESTINATION = "Z:\\KIOSK\\KIOSK GAUCHE"
+DESTINATION = "W:\\KIOSK\\KIOSK GAUCHE"
 
 ## --> DEBUG PATHS
 # PATH = "C:\\tmp\\Kiosk"
@@ -30,7 +29,6 @@ DESTINATION = "Z:\\KIOSK\\KIOSK GAUCHE"
 #############################################################
 #                         CONTENT                           #
 #############################################################
-
 console = Console()
 
 FOLDERS = {}
@@ -39,7 +37,7 @@ FILES = {}
 DESTINATION_FOLDERS = []
 RESULT = {}
 filenames = []
-
+COPY_FILES = []
 
 ## Clears the terminal
 def clear():
@@ -65,7 +63,6 @@ def DEBUG(log, color="bright_red") :
 #############################################################
 #                           MAIN                            #
 #############################################################
-
 clear()
 
 ## Lists all the already sorted id folders at the destination.
@@ -125,26 +122,25 @@ for id in RESULT :
 
             ## Counts the files.
             counter = Counter(sorted(filenames))
-
-            ## Copy the file once every counts !
-            i = 0
-            
-            for name in names :
+            previous_filename = ""
+            for name in sorted(names) :
                 for key, value in counter.items() :
                     if key in name :
-                        if i % int(value) == 0 :
-                            filename = re.split("_", name)[-1]
-                            for original, corrected in files.items() :
-                                if filename in corrected :
+                        filename = re.split("_", name)[-1]
+                        for original, corrected in files.items() :
+                            if filename in corrected :
+                                if filename == previous_filename :
+                                    pass
+                                else :
                                     LOG(f"\t==>\t{original}", "gold1")
                                     LOG(f"\t\t⤷ {value}X_{filename}\n", "bright_green")
 
                                     copyfile(f"{PATH}\\{size}\\{original}",
-                                            f"{DESTINATION}\\{id}\\{size}\\{value}X_{filename}")
-
-                        i += 1    
-
+                                             f"{DESTINATION}\\{id}\\{size}\\{value}X_{filename}")
+                                previous_filename = filename
+                                
             filenames.clear()
+
 print("[deep_sky_blue1]C'est bon ![/deep_sky_blue1]")
 sleep(1)
 sys.exit(1)
