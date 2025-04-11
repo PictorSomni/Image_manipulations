@@ -23,7 +23,7 @@ os.chdir(PATH)
 #############################################################
 EXTENSION = (".JPG", ".JPEG", ".PNG", "GIF")
 FOLDER = [file for file in sorted(os.listdir()) if file.upper().endswith(EXTENSION) and not file == "watermark.png"]
-WATERMARK = "C:\\Users\\charl\\Documents\\PYTHON\\Image manipulation\\watermark.png" # Or just "watermark.png" if you copy it to the current folder.
+WATERMARK = "watermark.png"
 TOTAL = len(FOLDER)
 
 
@@ -55,7 +55,7 @@ for i, file in enumerate(FOLDER):
         continue
     else :
         base_image.paste(watermark, watermark)
-        base_image.convert("RGB").save(f"{PATH}\\Projet_{file}", format="JPEG", subsampling=0, quality=QUALITY)
+        base_image.convert("RGB").save(f"{PATH}/Projet_{file}", format="JPEG", subsampling=0, quality=QUALITY)
 
 print("Terminé !")
 sleep(1)
