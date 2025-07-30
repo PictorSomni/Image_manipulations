@@ -25,8 +25,8 @@ TOTAL = len(FOLDER)
 def mm_to_pixels(mm, dpi) :
     return round((float(mm) / 25.4) * dpi)
 
-PRINT_SIZE = (127, 152)
-CROP_SIZE = (102, 152)
+PRINT_SIZE = (127, 102)
+CROP_SIZE = (102, 102)
 PRINT_DPI = (mm_to_pixels(PRINT_SIZE[0], DPI)), (mm_to_pixels(PRINT_SIZE[1], DPI))
 CROP_DPI = (mm_to_pixels(CROP_SIZE[0], DPI)), (mm_to_pixels(CROP_SIZE[1], DPI))
 
@@ -58,9 +58,8 @@ for i, file in enumerate(FOLDER):
 
         print_size = Image.new("RGB", (PRINT_DPI[0], PRINT_DPI[1]), (255, 255, 255))
         print_size.paste(result)
-        filename = file.split(".")[0]
 
-        print_size.save(f"{PATH}\\13x15\\{filename}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+        print_size.save(f"{PATH}\\13x10\\{file}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 print("Terminé !")
 sleep(1)
 # input("Terminé !\nAppuyez sur une touche pour fermer")

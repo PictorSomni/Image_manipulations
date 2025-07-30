@@ -5,8 +5,14 @@
 import os
 import sys
 from time import sleep
+from token import NAME
 from rich import print
 from rich.console import Console
+
+#############################################################
+#                         CONSTANT                          #
+#############################################################
+NAME = "" #Optional, if you want to name your file before the iteration.
 
 #############################################################
 #                           PATH                            #
@@ -38,7 +44,11 @@ with console.status("[bold blue]En cours...") as status:
     for index, file in enumerate(FOLDER) :
         filename, ext = os.path.splitext(file)
         new_index = index + 1
-        new_name = f"{new_index:03}{ext}"
+        if NAME:
+            new_name = f"{NAME}_{new_index:03}{ext}"
+        else:
+            new_name = f"{new_index:03}{ext}"
+
         os.rename(file, new_name)
 
 print("[bright_green]Terminé ![/bright_green]")
