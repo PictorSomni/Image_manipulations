@@ -48,7 +48,7 @@ for i, file in enumerate(FOLDER):
     except Exception:
         print(Exception)
     else:
-        folder("13x15")
+        folder("13x10")
 
         if base_image.width > base_image.height : # IF LANDSCAPE, ROTATE 90 DEGREES
             base_image = base_image.rotate(90, expand=True)
