@@ -59,7 +59,8 @@ for i, file in enumerate(FOLDER):
         print_size = Image.new("RGB", (PRINT_DPI[0], PRINT_DPI[1]), (255, 255, 255))
         print_size.paste(result)
 
-        print_size.save(f"{PATH}\\13x10\\{file}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+        filename = file.split(".")[0]
+        print_size.save(f"{PATH}\\13x10\\{filename}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 print("Terminé !")
 sleep(1)
 # input("Terminé !\nAppuyez sur une touche pour fermer")

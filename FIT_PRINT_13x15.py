@@ -58,8 +58,8 @@ for i, file in enumerate(FOLDER):
 
         print_size = Image.new("RGB", (PRINT_DPI[0], PRINT_DPI[1]), (255, 255, 255))
         print_size.paste(result)
+        
         filename = file.split(".")[0]
-
         print_size.save(f"{PATH}\\13x15\\{filename}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 print("Terminé !")
 sleep(1)
