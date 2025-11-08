@@ -9,8 +9,8 @@ from PIL import Image
 PROJECT = False
 WATERMARK = False
 MAXSIZE = 640
-QUALITY = 85
-ALPHA = 0.75
+QUALITY = 80
+ALPHA = 0.35
 
 #############################################################
 #                           PATH                            #
@@ -23,9 +23,9 @@ os.chdir(PATH)
 #############################################################
 EXTENSION = (".JPG", ".JPEG", ".PNG", "GIF")
 FOLDER = [file for file in sorted(os.listdir()) if file.upper().endswith(EXTENSION) and not file == "watermark.png"]
-WATERMARK = "watermark.png"
+WATERMARK = "C:\\Users\\charl\\Documents\\PYTHON\\Image manipulation\\watermark.png" # Or just "watermark.png" if you copy it to the current folder.
 TOTAL = len(FOLDER)
-
+EXCEPTIONS = ("projet", "fogra29")
 
 #############################################################
 #                           MAIN                            #
@@ -34,6 +34,11 @@ for i, file in enumerate(FOLDER):
     os.system('cls' if os.name == 'nt' else 'clear')
     print(f"Conversion en {MAXSIZE}px + renommage + filigrane")
     print("Image {} sur {}".format(i+1, TOTAL))
+    
+    if any(exception_name in file.lower() for exception_name in EXCEPTIONS):
+        print("Image ignorée (exception)")
+        sleep(0.5)
+        continue
 
     try:
         base_image = Image.open(file)
@@ -55,7 +60,8 @@ for i, file in enumerate(FOLDER):
         continue
     else :
         base_image.paste(watermark, watermark)
-        base_image.convert("RGB").save(f"{PATH}/Projet_{file}", format="JPEG", subsampling=0, quality=QUALITY)
+        filename = file.split(".")[0]
+        base_image.convert("RGB").save(f"{PATH}\\Projet_{filename}.jpg", format="JPEG", subsampling=0, quality=QUALITY)
 
 print("Terminé !")
 sleep(1)
