@@ -50,8 +50,8 @@ with console.status("[bold blue]En cours...") as status:
         if digits:
             # Concatène tous les groupes de chiffres
             number = "".join(digits)
+            number = number[-4:]  # Limite aux 4 derniers chiffres
             os.rename(file, f"{number}{ext}")
-            # os.rename(file, f"{number[1:]}{ext}")
     
 print("[bright_green]Terminé ![/bright_green]")
 
