@@ -1,0 +1,20 @@
+import os
+
+PATH = os.path.dirname(os.path.abspath(__file__))
+os.chdir(PATH)
+
+EXTENSION = ".py"
+
+for root, dirs, files in os.walk(PATH):
+    for file in files:
+        if file.endswith(EXTENSION):
+            if file != "cleanup_python.py":
+                print(os.path.join(root, file))
+                try:
+                    os.remove(file)
+                    print(f"{file} has been deleted.")
+                except FileNotFoundError:
+                    print(f"{file} does not exist.")
+                except PermissionError:
+                    print(f"Permission denied to delete {file}.")
+
