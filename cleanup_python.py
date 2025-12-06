@@ -7,14 +7,12 @@ EXTENSION = ".py"
 
 for root, dirs, files in os.walk(PATH):
     for file in files:
-        if file.endswith(EXTENSION):
-            if file != "cleanup_python.py":
-                print(os.path.join(root, file))
-                try:
-                    os.remove(file)
-                    print(f"{file} has been deleted.")
-                except FileNotFoundError:
-                    print(f"{file} does not exist.")
-                except PermissionError:
-                    print(f"Permission denied to delete {file}.")
+        if file.endswith(EXTENSION) and file != "cleanup_python.py":
+            try:
+                os.remove(os.path.join(root, file))
+                print(f"{file} has been deleted.")
+            except FileNotFoundError:
+                print(f"{file} does not exist.")
+            except PermissionError:
+                print(f"Permission denied to delete {file}.")
 
