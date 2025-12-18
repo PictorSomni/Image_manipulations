@@ -10,7 +10,7 @@ PROJECT = False
 WATERMARK = False
 MAXSIZE = 640
 QUALITY = 80
-ALPHA = 0.35
+ALPHA = 0.5
 
 #############################################################
 #                           PATH                            #

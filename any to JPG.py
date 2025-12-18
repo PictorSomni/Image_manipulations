@@ -15,7 +15,8 @@ os.chdir(PATH)
 #############################################################
 #                         CONTENT                           #
 #############################################################
-FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(".avif")]
+EXTENSIONS = (".avif",".heic", ".webp", ".png", ".tiff", ".jpeg")
+FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSIONS)]
 TOTAL = len(FOLDER)
 
 #############################################################
@@ -29,11 +30,11 @@ for i, file in enumerate(FOLDER) :
 
     file_name, file_extension = os.path.splitext(file)
     try :
-        avif_file = Image(filename =file)
+        actual_file = Image(filename =file)
     except Exception :
         print(Exception)
     else :
-        image = avif_file.convert('jpg')
+        image = actual_file.convert('jpg')
         image.save(filename=f"{PATH}/{file_name}.jpg")
 
 print("Terminé")
