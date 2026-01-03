@@ -23,12 +23,14 @@ TOTAL = len(FOLDER)
 #                           MAIN                            #
 #############################################################
 for i, file in enumerate(FOLDER) :
+    file_name, file_extension = os.path.splitext(file)
+
     os.system('cls' if os.name == 'nt' else 'clear')
-    print("AVIF en JPG")
+    print(f"{file_extension} en JPG")
     print("#" * 32 + "\n")
     print(f"Image {i+1} sur {TOTAL}")
 
-    file_name, file_extension = os.path.splitext(file)
+    
     try :
         actual_file = Image(filename =file)
     except Exception :
