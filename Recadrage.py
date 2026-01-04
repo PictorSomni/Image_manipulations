@@ -5,7 +5,7 @@
 #############################################################
 import flet as ft
 import os
-from PIL import Image, ImageOps
+from PIL import Image
 
 # ===================== Configuration ===================== #
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
@@ -34,6 +34,7 @@ class PhotoCropper:
         self.canvas_is_portrait = True
         self.current_ratio = FORMATS["10x15 (102x152mm)"]
         self.current_format_label = "10x15 (102x152mm)"
+        self.border_13x15 = False
         self.canvas_w = 800  # Valeur initiale, ajustée au chargement
         self.canvas_h = self.canvas_w / self.current_ratio
 
@@ -47,21 +48,17 @@ class PhotoCropper:
             fit="contain",
             width=500,
             height=500,
-            top=0,
-            left=0,
         )
 
-        # On place l'image dans un Stack pour pouvoir la déplacer
-        self.image_stack = ft.Stack(
-            [self.image_display],
-            width=self.canvas_w,
-            height=self.canvas_h,
-        )
-
-        self.gesture_detector = ft.GestureDetector(
-            content=self.image_stack,
-            on_pan_update=self.on_pan_update,
-            drag_interval=10,
+        # InteractiveViewer pour gérer le zoom et le déplacement naturellement
+        self.interactive_viewer = ft.InteractiveViewer(
+            min_scale=0.1,
+            max_scale=15,
+            boundary_margin=ft.Margin.all(0),
+            on_interaction_start=self.on_interaction_start,
+            on_interaction_update=self.on_interaction_update,
+            on_interaction_end=self.on_interaction_end,
+            content=self.image_display,
         )
 
         # small label to show zoom percent
@@ -70,14 +67,15 @@ class PhotoCropper:
         self.status_text = ft.Text("")
         # action buttons (created here so main can reference them)
         self.validate_button = ft.Button(
-            "Valider & Suivant",
+            "Validate & Next",
             icon=ft.icons.Icons.CHECK,
             bgcolor=ft.Colors.GREEN_700,
             color=ft.Colors.WHITE,
             on_click=self.validate_and_next,
         )
+        self.border_switch = ft.Switch(label="13x15", value=False, visible=True if "10x15" in self.current_format_label else False, on_change=self.on_border_toggle)
         self.close_button = ft.Button(
-            "Fermer",
+            "Close",
             icon=ft.icons.Icons.CLOSE,
             bgcolor=ft.Colors.RED_700,
             color=ft.Colors.WHITE,
@@ -90,44 +88,34 @@ class PhotoCropper:
             pass
 
         self.canvas_container = ft.Container(
-            content=self.gesture_detector,
+            content=self.interactive_viewer,
             bgcolor=ft.Colors.BLACK,
-            clip_behavior=ft.ClipBehavior.HARD_EDGE, # Important pour le recadrage visuel
+            clip_behavior=ft.ClipBehavior.HARD_EDGE,
             width=self.canvas_w,
             height=self.canvas_h,
             border=ft.Border.all(1, ft.Colors.WHITE24),
         )
 
     def update_canvas_size(self):
-        """Calcule la taille optimale du canvas en fonction de l'espace disponible"""
-        # Espace disponible (fenêtre - contrôles - marges)
+        """Compute optimal canvas size based on available space"""
         available_width = min(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
         available_height = min(self.page.window.height - 80, MAX_CANVAS_SIZE) if self.page.window.height else 600
         
-        # Calcul selon l'orientation
         if self.canvas_is_portrait:
-            # Portrait : plus haut que large (ratio < 1)
-            # hauteur = largeur / ratio
             self.canvas_w = available_width
             self.canvas_h = self.canvas_w / self.current_ratio
-            # Si trop haut, réduire
             if self.canvas_h > available_height:
                 self.canvas_h = available_height
                 self.canvas_w = self.canvas_h * self.current_ratio
         else:
-            # Paysage : plus large que haut (on inverse le ratio)
-            # hauteur = largeur * ratio (ou largeur = hauteur / ratio)
             self.canvas_h = available_height
             self.canvas_w = self.canvas_h / self.current_ratio
-            # Si trop large, réduire
             if self.canvas_w > available_width:
                 self.canvas_w = available_width
                 self.canvas_h = self.canvas_w * self.current_ratio
             
         self.canvas_container.width = self.canvas_w
         self.canvas_container.height = self.canvas_h
-        self.image_stack.width = self.canvas_w
-        self.image_stack.height = self.canvas_h
         self.page.update()
 
     def load_image(self, preserve_orientation=False):
@@ -139,149 +127,108 @@ class PhotoCropper:
             self.zoom_label.value = "100%"
         except Exception:
             pass
-        try:
-            self.zoom_slider.value = 1.0
-        except Exception:
-            pass
         
         path = self.image_paths[self.current_index]
-        # Load original image with Pillow to compute precise crop mapping
         pil_img = Image.open(path)
-        # Apply EXIF orientation if present so width/height reflect display
-        try:
-            pil_img = ImageOps.exif_transpose(pil_img)
-        except Exception:
-            pass
         pil_img = pil_img.convert("RGBA")
         self.current_pil_image = pil_img
         self.orig_w, self.orig_h = pil_img.size
 
-        # Auto-orient canvas selon l'image, sauf si on veut préserver l'orientation utilisateur
         if not preserve_orientation:
             self.canvas_is_portrait = True if self.orig_h >= self.orig_w else False
 
-        # Compute canvas size (may have changed due to ratio / orientation)
         self.update_canvas_size()
-        # Compute base_scale to behave like CSS 'cover' (fill canvas)
-        scale = max(self.canvas_w / self.orig_w, self.canvas_h / self.orig_h)
+        scale = min(self.canvas_w / self.orig_w, self.canvas_h / self.orig_h)
         self.base_scale = scale
-        # apply zoom factor
         self.current_scale = self.base_scale * self.zoom_factor
         self.display_w = int(self.orig_w * self.current_scale)
         self.display_h = int(self.orig_h * self.current_scale)
 
-        # Initial position: center the image inside the canvas
         self.image_display.src = path
         self.image_display.width = self.display_w
         self.image_display.height = self.display_h
-        self.image_display.left = int((self.canvas_w - self.display_w) / 2)
-        self.image_display.top = int((self.canvas_h - self.display_h) / 2)
-
-        # record for crop calculations (already set above)
-
-        self.page.title = f"Recadrage : {os.path.basename(path)} ({self.current_index + 1}/{len(self.image_paths)})"
-        self.page.update()
-
-    def on_pan_update(self, e: ft.DragUpdateEvent):
-        """Gestion du déplacement de l'image par drag"""
-        # Extraction du delta (compatible avec différentes versions de Flet)
-        ld = getattr(e, 'local_delta', None)
-        if not ld:
-            return
-            
-        dx = ld[0] if isinstance(ld, (list, tuple)) else getattr(ld, 'x', 0)
-        dy = ld[1] if isinstance(ld, (list, tuple)) and len(ld) > 1 else getattr(ld, 'y', 0)
-
-        # Calcul des nouvelles positions
-        new_left = (self.image_display.left or 0) + dx
-        new_top = (self.image_display.top or 0) + dy
-        dw = self.display_w
-        dh = self.display_h
-
-        # Contraintes : centrer si trop petit, sinon limiter pour couvrir le canvas
-        if dw <= self.canvas_w:
-            new_left = int((self.canvas_w - dw) / 2)
-        else:
-            new_left = max(self.canvas_w - dw, min(0, new_left))
-
-        if dh <= self.canvas_h:
-            new_top = int((self.canvas_h - dh) / 2)
-        else:
-            new_top = max(self.canvas_h - dh, min(0, new_top))
-
-        self.image_display.left = new_left
-        self.image_display.top = new_top
-        self.page.update()
-
-    def validate_and_next(self, e):
-        # Guard against invalid index / no images to avoid IndexError
-        if not self.image_paths or self.current_index >= len(self.image_paths):
-            self.status_text.value = "Aucune image à traiter"
-            self.page.update()
-            return
 
         try:
-            left_on_display = self.image_display.left or 0
-            top_on_display = self.image_display.top or 0
-            crop_x = int(max(0, -left_on_display) / self.current_scale)
-            crop_y = int(max(0, -top_on_display) / self.current_scale)
-            crop_w = int(self.canvas_w / self.current_scale)
-            crop_h = int(self.canvas_h / self.current_scale)
-            self.status_text.value = "Enregistrement en cours..."
-            self.page.update()
+            if "10x15" in self.current_format_label:
+                self.border_switch.visible = True
+                self.border_switch.value = self.border_13x15
+            else:
+                self.border_switch.visible = False
         except Exception:
             pass
 
-        # Calcul de la zone visible dans les coordonnées de l'image originale
-        left = self.image_display.left or 0
-        top = self.image_display.top or 0
-        crop_x = int(max(0, -left) / self.current_scale)
-        crop_y = int(max(0, -top) / self.current_scale)
-        crop_w = int(self.canvas_w / self.current_scale)
-        crop_h = int(self.canvas_h / self.current_scale)
+        self.page.title = f"Crop: {os.path.basename(path)} ({self.current_index + 1}/{len(self.image_paths)})"
+        self.page.update()
 
-        # Limitation aux dimensions de l'image
+    def on_interaction_start(self, e):
+        pass
+
+    def on_interaction_update(self, e):
+        pass
+
+    def on_interaction_end(self, e):
+        pass
+
+    def validate_and_next(self, e):
+        if not self.image_paths or self.current_index >= len(self.image_paths):
+            self.status_text.value = "Toutes les images ont été traitées."
+            self.page.update()
+            return
+
+        self.status_text.value = "Enregistrement..."
+        self.page.update()
+
+        crop_x = 0
+        crop_y = 0
+        crop_w = int(self.orig_w * self.canvas_w / self.display_w) if self.display_w > 0 else self.orig_w
+        crop_h = int(self.orig_h * self.canvas_h / self.display_h) if self.display_h > 0 else self.orig_h
+        
         crop_x = max(0, min(self.orig_w - 1, crop_x))
         crop_y = max(0, min(self.orig_h - 1, crop_y))
         crop_w = max(1, min(self.orig_w - crop_x, crop_w))
         crop_h = max(1, min(self.orig_h - crop_y, crop_h))
 
-        # Recadrage et sauvegarde
         pil_crop = self.current_pil_image.crop((crop_x, crop_y, crop_x + crop_w, crop_y + crop_h))
         base = os.path.basename(self.image_paths[self.current_index])
         name, ext = os.path.splitext(base)
         fmt_short = self.current_format_label.split()[0]
+
+        if self.border_13x15 and "10x15" in fmt_short:
+            ratio_13_15 = 13 / 15
+            
+            if self.canvas_is_portrait:
+                target_w = int(pil_crop.height * ratio_13_15)
+                framed = Image.new("RGB", (target_w, pil_crop.height), "white")
+                framed.paste(pil_crop.convert("RGB"), (0, 0))
+            else:
+                target_h = int(pil_crop.width * ratio_13_15)
+                framed = Image.new("RGB", (pil_crop.width, target_h), "white")
+                framed.paste(pil_crop.convert("RGB"), (0, 0))
+            pil_crop = framed
+            fmt_short = "13x15"
+
         out_path = f"{fmt_short}_{name}_crop_{self.current_index + 1}{ext}"
         pil_crop.convert('RGB').save(out_path)
         self.status_text.value = f"✓ {os.path.basename(out_path)}"
         self.page.update()
 
-        # If in batch interactive mode, advance to next image instead of closing
         if self.batch_mode:
             self.current_index += 1
             if self.current_index < len(self.image_paths):
-                self.load_image()
+                self.load_image(preserve_orientation=True)
                 return
             else:
-                # finished batch interactive: clear image visual completely
                 self.batch_mode = False
-                self.image_display.src = ""
-                self.image_display.width = 0
-                self.image_display.height = 0
-                self.image_display.visible = False
-                self.image_stack.controls = []
                 self.canvas_container.visible = False
                 self.validate_button.visible = False
-                self.status_text.value = "✓ Toutes les images traitées !"
+                self.status_text.value = "✓ All images processed!"
                 self.page.update()
                 return
-                
 
-        # Close the window after saving the current crop (single image mode)
         try:
-            self.page.window_close()
+            import asyncio
+            asyncio.run(self.page.window.close())
         except Exception:
-            # fallback: force terminate the process if window_close unavailable
             try:
                 import os as _os
                 _os._exit(0)
@@ -290,81 +237,37 @@ class PhotoCropper:
 
     def change_ratio(self, e):
         self.current_ratio = FORMATS[e.control.value]
-        # remember the human-readable format label for naming
         try:
             self.current_format_label = e.control.value
         except Exception:
             pass
-        self.update_canvas_size()
-        # If an image is loaded, reload it to recompute display scale and clamp
-        if self.image_paths:
-            self.load_image()
-
-    def close_app(self, e=None):
-        # attempt graceful window close then schedule external kill to force termination
         try:
-            self.page.window_close()
+            if "10x15" in self.current_format_label:
+                self.border_switch.visible = True
+            else:
+                self.border_switch.visible = False
+                self.border_switch.value = False
+                self.border_13x15 = False
         except Exception:
             pass
+        self.update_canvas_size()
+        if self.image_paths:
+            self.load_image(preserve_orientation=True)
 
-    def on_zoom_change(self, e):
-        # slider value is the zoom multiplier (1.0 = base scale)
+    def on_border_toggle(self, e):
         try:
-            val = float(e.control.value)
+            self.border_13x15 = bool(e.control.value)
         except Exception:
-            return
-        # ensure zoom not below 1.0 (image must cover canvas)
-        if val < 1.0:
-            val = 1.0
-        self.zoom_factor = val
-        # if an image is loaded, recompute display sizes and preserve focal point (canvas center)
-        if getattr(self, 'orig_w', None) is not None:
-            old_scale = getattr(self, 'current_scale', self.base_scale)
-            old_left = getattr(self.image_display, 'left', 0) or 0
-            old_top = getattr(self.image_display, 'top', 0) or 0
-            # canvas center coordinates
-            cx = self.canvas_w / 2
-            cy = self.canvas_h / 2
-            # image coordinate (in original image space) under canvas center
-            img_x = (cx - old_left) / old_scale
-            img_y = (cy - old_top) / old_scale
+            self.border_13x15 = False
 
-            # new scale and display sizes
-            self.current_scale = self.base_scale * self.zoom_factor
-            self.display_w = int(self.orig_w * self.current_scale)
-            self.display_h = int(self.orig_h * self.current_scale)
-
-            # compute new left/top so the same image coord stays under canvas center
-            new_left = int(cx - img_x * self.current_scale)
-            new_top = int(cy - img_y * self.current_scale)
-
-            # clamp so image still covers canvas
-            if self.display_w <= self.canvas_w:
-                new_left = int((self.canvas_w - self.display_w) / 2)
-            else:
-                min_left = int(self.canvas_w - self.display_w)
-                new_left = max(min_left, min(0, new_left))
-
-            if self.display_h <= self.canvas_h:
-                new_top = int((self.canvas_h - self.display_h) / 2)
-            else:
-                min_top = int(self.canvas_h - self.display_h)
-                new_top = max(min_top, min(0, new_top))
-
-            self.image_display.width = self.display_w
-            self.image_display.height = self.display_h
-            self.image_display.left = new_left
-            self.image_display.top = new_top
-            self.page.update()
-        # update zoom label
+    def close_app(self, e=None):
         try:
-            self.zoom_label.value = f"{int(self.zoom_factor * 100)}%"
-            self.page.update()
+            import asyncio
+            asyncio.run(self.page.window.close())
         except Exception:
             pass
 
     def batch_process_interactive(self, e):
-        # Load all images from current folder and allow manual validation per image
         folder = os.getcwd()
         imgs = [f for f in os.listdir(folder) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
         if not imgs:
@@ -372,33 +275,40 @@ class PhotoCropper:
             self.page.update()
             return
 
-        # Prepare full paths and enter batch interactive mode
         self.image_paths = [os.path.join(folder, f) for f in imgs]
         self.current_index = 0
         self.batch_mode = True
         self.load_image()
 
     def toggle_orientation(self, e):
-        # Toggle between portrait and landscape canvas
         self.canvas_is_portrait = not self.canvas_is_portrait
         self.update_canvas_size()
         if self.image_paths:
             self.load_image(preserve_orientation=True)
+        try:
+            self.border_switch.visible = True if "10x15" in self.current_format_label else False
+        except Exception:
+            pass
 
 #############################################################
 #                           MAIN                            #
 #############################################################
 def main(page: ft.Page):
-    page.title = "Photo Cropper"
+    page.title = "Recadrage Photo"
     page.theme_mode = ft.ThemeMode.DARK
     page.window.maximized = True
 
     app = PhotoCropper(page)
-    # create zoom slider control instance so PhotoCropper can reset it
-    app.zoom_slider = ft.Slider(value=1.0, min=1.0, max=3.0, divisions=40, on_change=app.on_zoom_change)
+
+    def on_key(event: ft.KeyboardEvent):
+        if event.key == "Enter":
+            app.validate_and_next(event)
+        elif event.key == "Backspace":
+            app.toggle_orientation(event)
+    page.on_keyboard_event = on_key
 
     controls = ft.Column([
-        ft.Text("Formats Photos", size=20, weight="bold"),
+        ft.Text("Formats Photos", size=20, weight=ft.FontWeight.BOLD),
         ft.RadioGroup(
             content=ft.Column([
                 ft.Radio(value=fmt, label=fmt) for fmt in FORMATS.keys()
@@ -406,16 +316,15 @@ def main(page: ft.Page):
             value="10x15 (102x152mm)",
             on_change=app.change_ratio
         ),
+        app.border_switch,
         ft.Divider(),
-          ft.Text("Zoom", size=14),
-          ft.Row([app.zoom_label, ft.Container(width=8)]),
-          app.zoom_slider,
-        # Buttons for manual file/folder selection removed; app auto-starts batch
-          ft.Button("Orientation",
-              icon=ft.icons.Icons.SWAP_HORIZ,
-              on_click=app.toggle_orientation),
-          ft.Row([app.validate_button, app.close_button]),
-    ], width=250) # pyright: ignore[reportArgumentType]
+        ft.Text("Zoom (scroll)", size=14),
+        ft.Row([app.zoom_label, ft.Container(width=8)]),
+        ft.Button("Orientation",
+            icon=ft.icons.Icons.SWAP_HORIZ,
+            on_click=app.toggle_orientation),
+        ft.Row([app.validate_button, app.close_button]),
+    ], width=250)
 
     page.add(
         ft.Stack([
