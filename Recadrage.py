@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+
+#############################################################
+#                          IMPORTS                          #
+#############################################################
 import flet as ft
 import os
 from PIL import Image, ImageOps
@@ -14,6 +19,9 @@ FORMATS = {
     "20x30 (203x305mm)": 203 / 305,
 }
 
+#############################################################
+#                         CONTENT                           #
+#############################################################
 class PhotoCropper:
     def __init__(self, page: ft.Page):
         self.page = page
@@ -377,6 +385,9 @@ class PhotoCropper:
         if self.image_paths:
             self.load_image(preserve_orientation=True)
 
+#############################################################
+#                           MAIN                            #
+#############################################################
 def main(page: ft.Page):
     page.title = "Photo Cropper"
     page.theme_mode = ft.ThemeMode.DARK
@@ -404,7 +415,7 @@ def main(page: ft.Page):
               icon=ft.icons.Icons.SWAP_HORIZ,
               on_click=app.toggle_orientation),
           ft.Row([app.validate_button, app.close_button]),
-    ], width=250)
+    ], width=250) # pyright: ignore[reportArgumentType]
 
     page.add(
         ft.Stack([
