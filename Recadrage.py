@@ -42,6 +42,9 @@ class PhotoCropper:
         self.zoom_factor = 1.0
         self.base_scale = 1.0
 
+        # Option noir et blanc
+        self.is_bw = False
+
         # Image principale
         self.image_display = ft.Image(
             src="",
@@ -74,6 +77,7 @@ class PhotoCropper:
             on_click=self.validate_and_next,
         )
         self.border_switch = ft.Switch(label="13x15", value=False, visible=True if "10x15" in self.current_format_label else False, on_change=self.on_border_toggle)
+        self.bw_switch = ft.Switch(label="Noir et blanc", value=False, on_change=self.on_bw_toggle)
         self.close_button = ft.Button(
             "Close",
             icon=ft.icons.Icons.CLOSE,
@@ -100,20 +104,18 @@ class PhotoCropper:
         """Compute optimal canvas size based on available space"""
         available_width = min(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
         available_height = min(self.page.window.height - 80, MAX_CANVAS_SIZE) if self.page.window.height else 600
-        
+
         if self.canvas_is_portrait:
-            self.canvas_w = available_width
-            self.canvas_h = self.canvas_w / self.current_ratio
-            if self.canvas_h > available_height:
-                self.canvas_h = available_height
-                self.canvas_w = self.canvas_h * self.current_ratio
+            target_ratio = self.current_ratio
         else:
+            target_ratio = 1 / self.current_ratio
+
+        self.canvas_w = available_width
+        self.canvas_h = self.canvas_w / target_ratio
+        if self.canvas_h > available_height:
             self.canvas_h = available_height
-            self.canvas_w = self.canvas_h / self.current_ratio
-            if self.canvas_w > available_width:
-                self.canvas_w = available_width
-                self.canvas_h = self.canvas_w * self.current_ratio
-            
+            self.canvas_w = self.canvas_h * target_ratio
+
         self.canvas_container.width = self.canvas_w
         self.canvas_container.height = self.canvas_h
         self.page.update()
@@ -121,13 +123,9 @@ class PhotoCropper:
     def load_image(self, preserve_orientation=False):
         if not self.image_paths:
             return
-        # reset zoom to 100% for each new image
         self.zoom_factor = 1.0
-        try:
-            self.zoom_label.value = "100%"
-        except Exception:
-            pass
-        
+        self.zoom_label.value = "100%"
+
         path = self.image_paths[self.current_index]
         pil_img = Image.open(path)
         pil_img = pil_img.convert("RGBA")
@@ -148,14 +146,11 @@ class PhotoCropper:
         self.image_display.width = self.display_w
         self.image_display.height = self.display_h
 
-        try:
-            if "10x15" in self.current_format_label:
-                self.border_switch.visible = True
-                self.border_switch.value = self.border_13x15
-            else:
-                self.border_switch.visible = False
-        except Exception:
-            pass
+        if "10x15" in self.current_format_label:
+            self.border_switch.visible = True
+            self.border_switch.value = self.border_13x15
+        else:
+            self.border_switch.visible = False
 
         self.page.title = f"Crop: {os.path.basename(path)} ({self.current_index + 1}/{len(self.image_paths)})"
         self.page.update()
@@ -168,6 +163,10 @@ class PhotoCropper:
 
     def on_interaction_end(self, e):
         pass
+
+    def on_bw_toggle(self, e):
+        """Active/désactive le noir et blanc"""
+        self.is_bw = e.control.value
 
     def validate_and_next(self, e):
         if not self.image_paths or self.current_index >= len(self.image_paths):
@@ -189,6 +188,11 @@ class PhotoCropper:
         crop_h = max(1, min(self.orig_h - crop_y, crop_h))
 
         pil_crop = self.current_pil_image.crop((crop_x, crop_y, crop_x + crop_w, crop_y + crop_h))
+        
+        # Appliquer le noir et blanc si activé
+        if self.is_bw:
+            pil_crop = pil_crop.convert("L")
+        
         base = os.path.basename(self.image_paths[self.current_index])
         name, ext = os.path.splitext(base)
         fmt_short = self.current_format_label.split()[0]
@@ -229,11 +233,7 @@ class PhotoCropper:
             import asyncio
             asyncio.run(self.page.window.close())
         except Exception:
-            try:
-                import os as _os
-                _os._exit(0)
-            except Exception:
-                pass
+            pass
 
     def change_ratio(self, e):
         self.current_ratio = FORMATS[e.control.value]
@@ -241,24 +241,18 @@ class PhotoCropper:
             self.current_format_label = e.control.value
         except Exception:
             pass
-        try:
-            if "10x15" in self.current_format_label:
-                self.border_switch.visible = True
-            else:
-                self.border_switch.visible = False
-                self.border_switch.value = False
-                self.border_13x15 = False
-        except Exception:
-            pass
+        if "10x15" in self.current_format_label:
+            self.border_switch.visible = True
+        else:
+            self.border_switch.visible = False
+            self.border_switch.value = False
+            self.border_13x15 = False
         self.update_canvas_size()
         if self.image_paths:
             self.load_image(preserve_orientation=True)
 
     def on_border_toggle(self, e):
-        try:
-            self.border_13x15 = bool(e.control.value)
-        except Exception:
-            self.border_13x15 = False
+        self.border_13x15 = bool(e.control.value)
 
     def close_app(self, e=None):
         try:
@@ -318,11 +312,10 @@ def main(page: ft.Page):
         ),
         app.border_switch,
         ft.Divider(),
-        ft.Text("Zoom (scroll)", size=14),
-        ft.Row([app.zoom_label, ft.Container(width=8)]),
         ft.Button("Orientation",
             icon=ft.icons.Icons.SWAP_HORIZ,
             on_click=app.toggle_orientation),
+        app.bw_switch,
         ft.Row([app.validate_button, app.close_button]),
     ], width=250)
 
