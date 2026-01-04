@@ -7,7 +7,7 @@ import flet as ft
 import os
 from PIL import Image, ImageOps
 
-# === Configuration ===
+# ===================== Configuration ===================== #
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
 CONTROLS_WIDTH = 270    # Largeur de la colonne de contrôles
 
