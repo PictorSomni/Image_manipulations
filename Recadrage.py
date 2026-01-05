@@ -10,6 +10,7 @@ from PIL import Image
 # ===================== Configuration ===================== #
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
 CONTROLS_WIDTH = 270    # Largeur de la colonne de contrôles
+ZOOM_SENSIBILITY = 5000   # Sensibilité du zoom
 
 # Formats d'impression (ratio largeur/hauteur)
 FORMATS = {
@@ -57,6 +58,7 @@ class PhotoCropper:
         self.interactive_viewer = ft.InteractiveViewer(
             min_scale=0.1,
             max_scale=15,
+            scale_factor=ZOOM_SENSIBILITY,
             boundary_margin=ft.Margin.all(0),
             on_interaction_start=self.on_interaction_start,
             on_interaction_update=self.on_interaction_update,
@@ -93,7 +95,7 @@ class PhotoCropper:
 
         self.canvas_container = ft.Container(
             content=self.interactive_viewer,
-            bgcolor=ft.Colors.BLACK,
+            bgcolor=ft.Colors.WHITE,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             width=self.canvas_w,
             height=self.canvas_h,
@@ -193,6 +195,14 @@ class PhotoCropper:
         if self.is_bw:
             pil_crop = pil_crop.convert("L")
         
+        # Créer un fond blanc et coller l'image transparente dessus
+        if pil_crop.mode == "RGBA":
+            white_bg = Image.new("RGBA", pil_crop.size, (255, 255, 255, 255))
+            pil_crop = Image.alpha_composite(white_bg, pil_crop)
+            pil_crop = pil_crop.convert("RGB")
+        else:
+            pil_crop = pil_crop.convert("RGB")
+        
         base = os.path.basename(self.image_paths[self.current_index])
         name, ext = os.path.splitext(base)
         fmt_short = self.current_format_label.split()[0]
@@ -203,16 +213,17 @@ class PhotoCropper:
             if self.canvas_is_portrait:
                 target_w = int(pil_crop.height * ratio_13_15)
                 framed = Image.new("RGB", (target_w, pil_crop.height), "white")
-                framed.paste(pil_crop.convert("RGB"), (0, 0))
+                framed.paste(pil_crop, (0, 0))
             else:
                 target_h = int(pil_crop.width * ratio_13_15)
                 framed = Image.new("RGB", (pil_crop.width, target_h), "white")
-                framed.paste(pil_crop.convert("RGB"), (0, 0))
+                framed.paste(pil_crop, (0, 0))
             pil_crop = framed
             fmt_short = "13x15"
 
-        out_path = f"{fmt_short}_{name}_crop_{self.current_index + 1}{ext}"
-        pil_crop.convert('RGB').save(out_path)
+        os.makedirs(fmt_short, exist_ok=True)
+        out_path = os.path.join(fmt_short, base)
+        pil_crop.save(out_path)
         self.status_text.value = f"✓ {os.path.basename(out_path)}"
         self.page.update()
 
@@ -263,7 +274,7 @@ class PhotoCropper:
 
     def batch_process_interactive(self, e):
         folder = os.getcwd()
-        imgs = [f for f in os.listdir(folder) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        imgs = [f for f in os.listdir(folder) if f.lower().endswith(('.png', '.jpg', '.jpeg')) and not f == "watermark.png"]
         if not imgs:
             self.status_text.value = "Aucune image trouvée"
             self.page.update()
