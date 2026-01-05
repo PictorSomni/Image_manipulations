@@ -10,11 +10,7 @@ from PIL import Image
 # ===================== Configuration ===================== #
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
 CONTROLS_WIDTH = 270    # Largeur de la colonne de contrôles
-<<<<<<< HEAD
 ZOOM_SENSIBILITY = 5000   # Sensibilité du zoom
-=======
-ZOOM_SENSIBILITY = 700  # Sensibilité du zoom (plus élevé = moins sensible)
->>>>>>> 8056223887b1e25cc7fb229bbc112c48f14c1ff2
 
 # Formats d'impression (ratio largeur/hauteur)
 FORMATS = {
@@ -43,6 +39,10 @@ class PhotoCropper:
         self.canvas_w = 800  # Valeur initiale, ajustée au chargement
         self.canvas_h = self.canvas_w / self.current_ratio
 
+        # Gestion du zoom
+        self.zoom_factor = 1.0
+        self.base_scale = 1.0
+
         # Option noir et blanc
         self.is_bw = False
 
@@ -56,7 +56,7 @@ class PhotoCropper:
 
         # InteractiveViewer pour gérer le zoom et le déplacement naturellement
         self.interactive_viewer = ft.InteractiveViewer(
-            min_scale=0.02,
+            min_scale=0.1,
             max_scale=15,
             scale_factor=ZOOM_SENSIBILITY,
             boundary_margin=ft.Margin.all(0),
@@ -66,6 +66,8 @@ class PhotoCropper:
             content=self.image_display,
         )
 
+        # small label to show zoom percent
+        self.zoom_label = ft.Text("100%")
         # visible status fallback when SnackBar is not shown
         self.status_text = ft.Text("")
         # action buttons (created here so main can reference them)
@@ -102,8 +104,8 @@ class PhotoCropper:
 
     def update_canvas_size(self):
         """Compute optimal canvas size based on available space"""
-        available_width = max(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
-        available_height = max(self.page.window.height - 80, MAX_CANVAS_SIZE) if self.page.window.height else 600
+        available_width = min(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
+        available_height = min(self.page.window.height - 80, MAX_CANVAS_SIZE) if self.page.window.height else 600
 
         if self.canvas_is_portrait:
             target_ratio = self.current_ratio
@@ -123,6 +125,8 @@ class PhotoCropper:
     def load_image(self, preserve_orientation=False):
         if not self.image_paths:
             return
+        self.zoom_factor = 1.0
+        self.zoom_label.value = "100%"
 
         path = self.image_paths[self.current_index]
         pil_img = Image.open(path)
@@ -136,8 +140,9 @@ class PhotoCropper:
         self.update_canvas_size()
         scale = min(self.canvas_w / self.orig_w, self.canvas_h / self.orig_h)
         self.base_scale = scale
-        self.display_w = int(self.orig_w * self.base_scale)
-        self.display_h = int(self.orig_h * self.base_scale)
+        self.current_scale = self.base_scale * self.zoom_factor
+        self.display_w = int(self.orig_w * self.current_scale)
+        self.display_h = int(self.orig_h * self.current_scale)
 
         self.image_display.src = path
         self.image_display.width = self.display_w
@@ -184,13 +189,11 @@ class PhotoCropper:
         crop_w = max(1, min(self.orig_w - crop_x, crop_w))
         crop_h = max(1, min(self.orig_h - crop_y, crop_h))
 
-
         pil_crop = self.current_pil_image.crop((crop_x, crop_y, crop_x + crop_w, crop_y + crop_h))
-
+        
         # Appliquer le noir et blanc si activé
         if self.is_bw:
             pil_crop = pil_crop.convert("L")
-<<<<<<< HEAD
         
         # Créer un fond blanc et coller l'image transparente dessus
         if pil_crop.mode == "RGBA":
@@ -200,33 +203,14 @@ class PhotoCropper:
         else:
             pil_crop = pil_crop.convert("RGB")
         
-=======
-
->>>>>>> 8056223887b1e25cc7fb229bbc112c48f14c1ff2
         base = os.path.basename(self.image_paths[self.current_index])
         name, ext = os.path.splitext(base)
         fmt_short = self.current_format_label.split()[0]
 
-        # Taille cible = taille du canevas (en pixels)
-        target_w = int(self.canvas_w * self.orig_w / self.display_w)
-        target_h = int(self.canvas_h * self.orig_h / self.display_h)
-
-        # Créer une image blanche de la taille du canevas
-        if pil_crop.mode == "L":
-            background = Image.new("L", (target_w, target_h), 255)
-        else:
-            background = Image.new("RGB", (target_w, target_h), "white")
-
-        # Centrer l'image recadrée sur le fond
-        paste_x = (target_w - pil_crop.width) // 2
-        paste_y = (target_h - pil_crop.height) // 2
-        background.paste(pil_crop.convert(background.mode), (paste_x, paste_y))
-
-        # Gestion du bord 13x15
         if self.border_13x15 and "10x15" in fmt_short:
             ratio_13_15 = 13 / 15
+            
             if self.canvas_is_portrait:
-<<<<<<< HEAD
                 target_w = int(pil_crop.height * ratio_13_15)
                 framed = Image.new("RGB", (target_w, pil_crop.height), "white")
                 framed.paste(pil_crop, (0, 0))
@@ -240,24 +224,6 @@ class PhotoCropper:
         os.makedirs(fmt_short, exist_ok=True)
         out_path = os.path.join(fmt_short, base)
         pil_crop.save(out_path)
-=======
-                border_w = int(target_h * ratio_13_15)
-                framed = Image.new(background.mode, (border_w, target_h), 255 if background.mode == "L" else "white")
-                framed.paste(background, ((border_w - target_w) // 2, 0))
-            else:
-                border_h = int(target_w * ratio_13_15)
-                framed = Image.new(background.mode, (target_w, border_h), 255 if background.mode == "L" else "white")
-                framed.paste(background, (0, (border_h - target_h) // 2))
-            background = framed
-            fmt_short = "13x15"
-
-        # Créer le dossier de sortie dans le dossier courant, nommé selon fmt_short
-        out_dir = os.path.join(os.getcwd(), fmt_short)
-        os.makedirs(out_dir, exist_ok=True)
-        out_path = os.path.join(out_dir, f"{name}{self.current_index + 1}{ext}")
-
-        background.convert('RGB').save(out_path)
->>>>>>> 8056223887b1e25cc7fb229bbc112c48f14c1ff2
         self.status_text.value = f"✓ {os.path.basename(out_path)}"
         self.page.update()
 
