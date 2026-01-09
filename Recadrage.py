@@ -89,26 +89,24 @@ class PhotoCropper:
         self.status_text = ft.Text("")
         # action buttons (created here so main can reference them)
         self.validate_button = ft.Button(
-            "Validate & Next",
+            "Valider & Suivant",
             icon=ft.icons.Icons.CHECK,
             bgcolor=ft.Colors.GREEN_700,
             color=ft.Colors.WHITE,
             on_click=self.validate_and_next,
         )
-        self.border_switch = ft.Switch(label="13x15", value=False, visible=True if "10x15" in self.current_format_label else False, on_change=self.on_border_toggle)
-        self.bw_switch = ft.Switch(label="Noir et blanc", value=False, on_change=self.on_bw_toggle)
-        self.close_button = ft.Button(
-            "Close",
-            icon=ft.icons.Icons.CLOSE,
+
+        # Ignore button to skip current image
+        self.ignore_button = ft.Button(
+            "Ignorer Image",
+            icon=ft.icons.Icons.BLOCK,
             bgcolor=ft.Colors.RED_700,
             color=ft.Colors.WHITE,
-            on_click=self.close_app,
+            on_click=self.ignore_image,
         )
-        # hide close until needed
-        try:
-            self.close_button.visible = False
-        except Exception:
-            pass
+
+        self.border_switch = ft.Switch(label="13x15", value=False, visible=True if "10x15" in self.current_format_label else False, on_change=self.on_border_toggle)
+        self.bw_switch = ft.Switch(label="Noir et blanc", value=False, on_change=self.on_bw_toggle)
 
         self.canvas_container = ft.Container(
             content=self.gesture_detector,
@@ -374,12 +372,6 @@ class PhotoCropper:
                 self.page.update()
                 return
 
-        try:
-            import asyncio
-            asyncio.run(self.page.window.close())
-        except Exception:
-            pass
-
     def change_ratio(self, e):
         self.current_format = FORMATS[e.control.value]
         try:
@@ -398,13 +390,6 @@ class PhotoCropper:
 
     def on_border_toggle(self, e):
         self.border_13x15 = bool(e.control.value)
-
-    def close_app(self, e=None):
-        try:
-            import asyncio
-            asyncio.run(self.page.window.close())
-        except Exception:
-            pass
 
     def batch_process_interactive(self, e):
         folder = os.getcwd()
@@ -429,6 +414,17 @@ class PhotoCropper:
         except Exception:
             pass
 
+    def ignore_image(self, e):
+        if not self.image_paths or self.current_index >= len(self.image_paths):
+            self.status_text.value = "Toutes les images ont été traitées."
+            self.page.update()
+            return
+        
+        self.current_index += 1
+        self.status_text.value = "Image ignorée."
+        self.load_image(preserve_orientation=True)
+        self.page.update()
+
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -444,6 +440,8 @@ def main(page: ft.Page):
             app.validate_and_next(event)
         elif event.key == "Backspace":
             app.toggle_orientation(event)
+        elif event.key == " ":
+            app.ignore_image(event)
     page.on_keyboard_event = on_key
 
     controls = ft.Column([
@@ -461,7 +459,8 @@ def main(page: ft.Page):
             icon=ft.icons.Icons.SWAP_HORIZ,
             on_click=app.toggle_orientation),
         app.bw_switch,
-        ft.Row([app.validate_button, app.close_button]),
+        app.validate_button,
+        app.ignore_button
     ], width=250)
 
     page.add(
