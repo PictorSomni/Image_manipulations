@@ -5,7 +5,7 @@
 #############################################################
 import flet as ft
 import os
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ===================== Configuration ===================== #
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
@@ -152,6 +152,8 @@ class PhotoCropper:
 
         path = self.image_paths[self.current_index]
         pil_img = Image.open(path)
+        # Appliquer la rotation EXIF pour corriger l'orientation
+        pil_img = ImageOps.exif_transpose(pil_img)
         pil_img = pil_img.convert("RGBA")
         self.current_pil_image = pil_img
         self.orig_w, self.orig_h = pil_img.size
@@ -354,15 +356,16 @@ class PhotoCropper:
             fmt_short = "13x15"
 
         os.makedirs(fmt_short, exist_ok=True)
-        out_path = os.path.join(fmt_short, base)
-        pil_crop.save(out_path)
+        jpg = name + ".jpg"
+        out_path = os.path.join(fmt_short, jpg)
+        pil_crop.save(out_path, quality=100, format="JPEG", dpi=(DPI, DPI))
         self.status_text.value = f"✓ {os.path.basename(out_path)}"
         self.page.update()
 
         if self.batch_mode:
             self.current_index += 1
             if self.current_index < len(self.image_paths):
-                self.load_image(preserve_orientation=True)
+                self.load_image(preserve_orientation=False)
                 return
             else:
                 self.batch_mode = False
