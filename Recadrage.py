@@ -19,6 +19,7 @@ FORMATS = {
     "13x18 (127x178mm)": (127, 178),
     "15x20 (152x203mm)": (152, 203),
     "20x30 (203x305mm)": (203, 305),
+    "Carré (50x50mm)"  : (50, 50),
 }
 
 def mm_to_pixels(mm, dpi=DPI):
@@ -223,27 +224,88 @@ class PhotoCropper:
         self.drag_start_y = self.offset_y
 
     def on_pan_update(self, e: ft.DragUpdateEvent):
-        """Pendant le pan - déplacer l'image"""
-        self.offset_x += e.local_delta.x
-        self.offset_y += e.local_delta.y
+        """Pendant le pan - déplacer l'image avec limites aux bords du canvas"""
+        # Calculer la nouvelle position
+        new_offset_x = self.offset_x + e.local_delta.x
+        new_offset_y = self.offset_y + e.local_delta.y
+        
+        # Dimensions zoomées de l'image
+        zoomed_w = self.display_w * self.scale
+        zoomed_h = self.display_h * self.scale
+        
+        # Position théorique (centrée + offset)
+        left = (self.canvas_w - zoomed_w) / 2 + new_offset_x
+        top = (self.canvas_h - zoomed_h) / 2 + new_offset_y
+        
+        # Limiter le déplacement pour que l'image reste dans le canvas
+        # L'image ne doit pas laisser de blanc
+        if zoomed_w > self.canvas_w:
+            # L'image est plus large que le canvas
+            # left doit être <= 0 et left + zoomed_w >= canvas_w
+            max_left = 0
+            min_left = self.canvas_w - zoomed_w
+            left = max(min_left, min(max_left, left))
+            new_offset_x = left - (self.canvas_w - zoomed_w) / 2
+        else:
+            # L'image est plus petite que le canvas - la centrer
+            new_offset_x = 0
+        
+        if zoomed_h > self.canvas_h:
+            # L'image est plus haute que le canvas
+            max_top = 0
+            min_top = self.canvas_h - zoomed_h
+            top = max(min_top, min(max_top, top))
+            new_offset_y = top - (self.canvas_h - zoomed_h) / 2
+        else:
+            # L'image est plus petite que le canvas - la centrer
+            new_offset_y = 0
+        
+        self.offset_x = new_offset_x
+        self.offset_y = new_offset_y
         self._update_transform()
         self.page.update()
 
     def on_scroll(self, e: ft.ScrollEvent):
-        """Zoom avec la molette (centré sur le canvas)"""
+        """Zoom avec la molette (centré sur le canvas) avec limites"""
         # Récupérer le delta de scroll
         delta = e.scroll_delta.y
         
         # Calculer le nouveau scale
         zoom_factor = 1 - delta / ZOOM_SENSIBILITY
         old_scale = self.scale
-        self.scale = max(0.5, min(10, self.scale * zoom_factor))
+        # Scale minimum = 1.0 pour que l'image couvre toujours le canvas
+        self.scale = max(1.0, min(10, self.scale * zoom_factor))
         
         # Ajuster l'offset pour zoomer vers le centre du canvas
         if old_scale != self.scale:
             ratio = self.scale / old_scale
             self.offset_x *= ratio
             self.offset_y *= ratio
+        
+        # Appliquer les limites après le zoom
+        zoomed_w = self.display_w * self.scale
+        zoomed_h = self.display_h * self.scale
+        
+        # Calculer la position
+        left = (self.canvas_w - zoomed_w) / 2 + self.offset_x
+        top = (self.canvas_h - zoomed_h) / 2 + self.offset_y
+        
+        # Limiter le déplacement
+        if zoomed_w > self.canvas_w:
+            max_left = 0
+            min_left = self.canvas_w - zoomed_w
+            left = max(min_left, min(max_left, left))
+            self.offset_x = left - (self.canvas_w - zoomed_w) / 2
+        else:
+            self.offset_x = 0
+        
+        if zoomed_h > self.canvas_h:
+            max_top = 0
+            min_top = self.canvas_h - zoomed_h
+            top = max(min_top, min(max_top, top))
+            self.offset_y = top - (self.canvas_h - zoomed_h) / 2
+        else:
+            self.offset_y = 0
         
         self._update_transform()
         self.page.update()
