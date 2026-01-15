@@ -12,15 +12,24 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.DARK
     
     selected_folder = {"path": None}
-    current_browse_folder = {"path": None}  # Pour la navigation dans preview_list
-    local_apps = set()
-    
-    py_files = ["any to JPG.py", "1024.py", "Clean.py", "FIT_PRINT_13x15.py", "FIT_PRINT_13x10.py", "Recadrage.py",
-                "Renommer sequence.py", "order_it gauche.py", "order_it droite.py", "Copy remaining files.py", "Projet.py"]
+    current_browse_folder = {"path": None}
     cwd = os.path.dirname(os.path.abspath(__file__))
-    # py_files = [f.upper() for f in os.listdir(cwd) if f.endswith(".py") and f in py_files]
-    py_files = [f.upper() for f in os.listdir(cwd) if f in py_files]
-    # print(f"Fichiers détectés: {py_files}")
+    
+    # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
+    apps = {
+        "order_it gauche.py": True,
+        "any to JPG.py": False,
+        "order_it droite.py": True,
+        "1024.py": False,
+        "Clean.py": False,
+        "Renommer sequence.py": False,
+        "FIT_PRINT_13x15.py": False,
+        "FIT_PRINT_13x10.py": False,
+        "Projet.py": False,
+        "Recadrage.py": False,
+        "Copy remaining files.py": True,
+        
+    }
     
     folder_path = ft.TextField(
         label="Dossier sélectionné",
@@ -86,6 +95,8 @@ def main(page: ft.Page):
             # Ouvre le fichier avec l'application par défaut
             open_file_with_default_app(file_path)
     
+    file_count_text = ft.Text("", size=12, color=ft.Colors.GREY_400)
+    
     def refresh_preview():
         preview_list.controls.clear()
         folder_to_display = current_browse_folder["path"] or selected_folder["path"]
@@ -93,6 +104,8 @@ def main(page: ft.Page):
         if folder_to_display and os.path.isdir(folder_to_display):
             try:
                 files = os.listdir(folder_to_display)
+                file_count = sum(1 for f in files if not os.path.isdir(os.path.join(folder_to_display, f)))
+                file_count_text.value = f"({file_count} fichier{'s' if file_count > 1 else ''})"
                 if not files:
                     preview_list.controls.append(ft.Text("(dossier vide)", color="grey"))
                 else:
@@ -131,8 +144,12 @@ def main(page: ft.Page):
                         )
             except PermissionError:
                 preview_list.controls.append(ft.Text("⚠️ Accès refusé à ce dossier", color="red"))
+                file_count_text.value = ""
             except Exception as e:
                 preview_list.controls.append(ft.Text(f"⚠️ Erreur: {str(e)}", color="red"))
+                file_count_text.value = ""
+        else:
+            file_count_text.value = ""
         page.update()
     
     def launch_app(app_name, app_path, is_local):
@@ -180,18 +197,11 @@ def main(page: ft.Page):
     
     def refresh_apps():
         apps_list.controls.clear()
-        for app_name in sorted(py_files):
+        for app_name, is_local in apps.items():
             app_path = os.path.join(cwd, app_name)
-            is_local = app_name in local_apps
+            if not os.path.exists(app_path):
+                continue
             
-            def on_app_click(e, name=app_name, path=app_path, local=is_local):
-                launch_app(name, path, local)
-            
-            def on_long_press(e, name=app_name, path=app_path):
-                # Marquer en local et lancer immédiatement en mode local
-                local_apps.add(name)
-                launch_app(name, path, True)
-
             apps_list.controls.append(
                 ft.ListTile(
                     title=ft.Text(
@@ -203,8 +213,8 @@ def main(page: ft.Page):
                         max_lines=3,
                         margin=ft.Margin.all(3),
                     ),
-                    on_click=on_app_click,
-                    on_long_press=on_long_press,
+                    on_click=lambda e, name=app_name, path=app_path, local=is_local: launch_app(name, path, local),
+                    on_long_press=lambda e, name=app_name, path=app_path: launch_app(name, path, True),
                     bgcolor=ft.Colors.LIGHT_BLUE_900,
                     hover_color=ft.Colors.LIGHT_BLUE_700,
                     content_padding=ft.Padding(left=5, top=10, right=5, bottom=10),
@@ -284,6 +294,7 @@ def main(page: ft.Page):
                             icon_color=ft.Colors.AMBER_400,
                             icon_size=20,
                         ),
+                        file_count_text,
                     ]),
                     ft.Container(
                         content=preview_list,

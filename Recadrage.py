@@ -15,11 +15,12 @@ DPI = 300  # Résolution d'export
 
 # Formats d'impression (largeur_mm, hauteur_mm) - en portrait
 FORMATS = {
+    "10x10 (102x102mm)": (102, 102),
     "10x15 (102x152mm)": (102, 152),
     "13x18 (127x178mm)": (127, 178),
     "15x20 (152x203mm)": (152, 203),
+    "15x15 (152x152mm)": (152, 152),
     "20x30 (203x305mm)": (203, 305),
-    "Carré (50x50mm)"  : (50, 50),
 }
 
 def mm_to_pixels(mm, dpi=DPI):
@@ -59,6 +60,7 @@ class PhotoCropper:
         # Image principale
         self.image_display = ft.Image(
             src="",
+            fit="cover",  # string fallback pour compat flet sans ImageFit
         )
         
         # Container positionné dans un Stack avec scale pour le zoom
@@ -169,8 +171,9 @@ class PhotoCropper:
         scale_h = self.canvas_h / self.orig_h
         self.base_scale = max(scale_w, scale_h)
         
-        self.display_w = int(self.orig_w * self.base_scale)
-        self.display_h = int(self.orig_h * self.base_scale)
+        # S'assurer que le canvas est entièrement couvert même après l'arrondi
+        self.display_w = max(int(round(self.orig_w * self.base_scale)), int(self.canvas_w))
+        self.display_h = max(int(round(self.orig_h * self.base_scale)), int(self.canvas_h))
 
         self.image_display.src = path
         self.image_display.width = self.display_w
@@ -178,8 +181,9 @@ class PhotoCropper:
         
         # Réinitialiser le scale du container
         self.image_container.scale = 1.0
-        
-        # Appliquer la transformation initiale
+
+        # Appliquer la transformation initiale en forçant l'image à couvrir le canevas
+        self._clamp_offsets()
         self._update_transform()
 
         if "10x15" in self.current_format_label:
@@ -217,6 +221,23 @@ class PhotoCropper:
         self.image_container.top = center_y - self.display_h / 2
         
         self.zoom_label.value = f"{int(self.scale * 100)}%"
+
+    def _clamp_offsets(self):
+        """Contraint les offsets pour empêcher l'image de sortir du canevas"""
+        zoomed_w = self.display_w * self.scale
+        zoomed_h = self.display_h * self.scale
+
+        if zoomed_w <= self.canvas_w:
+            self.offset_x = 0
+        else:
+            max_offset_x = (zoomed_w - self.canvas_w) / 2
+            self.offset_x = min(max_offset_x, max(-max_offset_x, self.offset_x))
+
+        if zoomed_h <= self.canvas_h:
+            self.offset_y = 0
+        else:
+            max_offset_y = (zoomed_h - self.canvas_h) / 2
+            self.offset_y = min(max_offset_y, max(-max_offset_y, self.offset_y))
 
     def on_pan_start(self, e: ft.DragStartEvent):
         """Début du pan"""
@@ -262,6 +283,7 @@ class PhotoCropper:
         
         self.offset_x = new_offset_x
         self.offset_y = new_offset_y
+        self._clamp_offsets()
         self._update_transform()
         self.page.update()
 
@@ -306,7 +328,8 @@ class PhotoCropper:
             self.offset_y = top - (self.canvas_h - zoomed_h) / 2
         else:
             self.offset_y = 0
-        
+
+        self._clamp_offsets()
         self._update_transform()
         self.page.update()
 
@@ -458,7 +481,7 @@ class PhotoCropper:
 
     def batch_process_interactive(self, e):
         folder = os.getcwd()
-        imgs = [f for f in os.listdir(folder) if f.lower().endswith(('.png', '.jpg', '.jpeg')) and not f == "watermark.png"]
+        imgs = [f for f in os.listdir(folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.jpe', '.tif', '.tiff', '.bmp', '.dib', '.gif', '.webp', '.ico', '.pcx', '.tga', '.ppm', '.pgm', '.pbm', '.pnm')) and not f == "watermark.png"]
         if not imgs:
             self.status_text.value = "Aucune image trouvée"
             self.page.update()

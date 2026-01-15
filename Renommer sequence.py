@@ -12,7 +12,7 @@ from rich.console import Console
 #############################################################
 #                         CONSTANT                          #
 #############################################################
-NAME = "" #Optional, if you want to name your file before the iteration.
+NAME = "StudioC" #Optional, if you want to name your file before the iteration.
 
 #############################################################
 #                           PATH                            #
