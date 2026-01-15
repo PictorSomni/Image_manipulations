@@ -3,8 +3,6 @@ import os
 import subprocess
 import sys
 import platform
-from tkinter import filedialog
-import tkinter as tk
 import shutil
 
 def main(page: ft.Page):
@@ -28,7 +26,6 @@ def main(page: ft.Page):
         "Projet.py": False,
         "Recadrage.py": False,
         "Copy remaining files.py": True,
-        
     }
     
     folder_path = ft.TextField(
@@ -185,13 +182,17 @@ def main(page: ft.Page):
                         cwd=selected_folder["path"]
                     )
                 
-                # Attendre la fin du processus et supprimer le fichier
-                process.wait()
-                try:
-                    os.remove(dest_path)
-                    print(f"Fichier supprimé: {dest_path}")
-                except Exception as err:
-                    print(f"Erreur lors de la suppression du fichier: {err}")
+                # Supprimer le fichier en arrière-plan pour ne pas bloquer l'UI
+                def cleanup():
+                    process.wait()
+                    try:
+                        os.remove(dest_path)
+                        print(f"Fichier supprimé: {dest_path}")
+                    except Exception as err:
+                        print(f"Erreur lors de la suppression du fichier: {err}")
+                
+                import threading
+                threading.Thread(target=cleanup, daemon=True).start()
         except Exception as err:
             print(f"Erreur lors du lancement: {err}")
     
@@ -223,15 +224,11 @@ def main(page: ft.Page):
             )
         page.update()
     
-    def pick_folder(e):
-        root = tk.Tk()
-        root.withdraw()
-        root.wm_attributes('-topmost', 1)
-        folder = filedialog.askdirectory(master=root, title="Sélectionner un dossier contenant des images")
-        root.destroy()
+    async def pick_folder(e):
+        folder = await ft.FilePicker().get_directory_path(dialog_title="Sélectionner un dossier contenant des images")
         if folder:
             selected_folder["path"] = os.path.normpath(folder)
-            current_browse_folder["path"] = selected_folder["path"]  # Sync le dossier de navigation
+            current_browse_folder["path"] = selected_folder["path"]
             folder_path.value = selected_folder["path"]
             folder_path.update()
             refresh_preview()

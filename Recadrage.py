@@ -344,47 +344,23 @@ class PhotoCropper:
             return
 
         self.status_text.value = "Enregistrement..."
+        # Force immediate UI update to show "Enregistrement..." message
         self.page.update()
 
-        # ========== DEBUG ==========
-        # print(f"=== DEBUG CROP ===")
-        # print(f"orig_w={self.orig_w}, orig_h={self.orig_h}")
-        # print(f"canvas_w={self.canvas_w}, canvas_h={self.canvas_h}")
-        # print(f"display_w={self.display_w}, display_h={self.display_h}")
-        # print(f"scale={self.scale}")
-        # print(f"offset_x={self.offset_x}, offset_y={self.offset_y}")
-
         # ========== CALCUL PRÉCIS DU RECADRAGE ==========
-        # L'image est affichée à display_w * scale x display_h * scale pixels
-        # Elle est positionnée au centre du canvas + offset
-        
         zoomed_w = self.display_w * self.scale
         zoomed_h = self.display_h * self.scale
         
-        # Position du coin supérieur gauche de l'image dans le canvas
         img_left = (self.canvas_w - zoomed_w) / 2 + self.offset_x
         img_top = (self.canvas_h - zoomed_h) / 2 + self.offset_y
         
-        # print(f"zoomed_w={zoomed_w}, zoomed_h={zoomed_h}")
-        # print(f"img_left={img_left}, img_top={img_top}")
-        
-        # Ratio pour convertir pixels affichés -> pixels originaux
-        # zoomed_w pixels affichés = orig_w pixels originaux
         px_to_orig = self.orig_w / zoomed_w
         
-        # Le canvas montre une fenêtre de (0,0) à (canvas_w, canvas_h)
-        # On calcule quel rectangle de l'image originale est visible
-        # Si img_left > 0, il y a du blanc à gauche, donc crop_x = 0
-        # Si img_left < 0, l'image dépasse à gauche, crop_x = -img_left converti en pixels originaux
         crop_x = -img_left * px_to_orig
         crop_y = -img_top * px_to_orig
         crop_w = self.canvas_w * px_to_orig
         crop_h = self.canvas_h * px_to_orig
         
-        # print(f"px_to_orig={px_to_orig}")
-        # print(f"crop AVANT clamp: x={crop_x}, y={crop_y}, w={crop_w}, h={crop_h}")
-        
-        # S'assurer qu'on reste dans les limites de l'image
         crop_x = max(0, crop_x)
         crop_y = max(0, crop_y)
         crop_w = min(self.orig_w - crop_x, crop_w)
@@ -406,14 +382,11 @@ class PhotoCropper:
             target_w_px = mm_to_pixels(fmt_h_mm)
             target_h_px = mm_to_pixels(fmt_w_mm)
         
-        # Redimensionner pour obtenir les dimensions exactes en pixels à 300 DPI
         pil_crop = pil_crop.resize((target_w_px, target_h_px), Image.Resampling.LANCZOS)
         
-        # Appliquer le noir et blanc si activé
         if self.is_bw:
             pil_crop = pil_crop.convert("L")
         
-        # Créer un fond blanc et coller l'image transparente dessus
         if pil_crop.mode == "RGBA":
             white_bg = Image.new("RGBA", pil_crop.size, (255, 255, 255, 255))
             pil_crop = Image.alpha_composite(white_bg, pil_crop)
@@ -426,7 +399,6 @@ class PhotoCropper:
         fmt_short = self.current_format_label.split()[0]
 
         if self.border_13x15 and "10x15" in fmt_short:
-            # Le format 13x15 utilise 127mm x 152mm (comme le 13x18 en largeur)
             ratio_13_15 = 127 / 152
             
             if self.canvas_is_portrait:
@@ -444,6 +416,7 @@ class PhotoCropper:
         jpg = name + ".jpg"
         out_path = os.path.join(fmt_short, jpg)
         pil_crop.save(out_path, quality=100, format="JPEG", dpi=(DPI, DPI))
+        
         self.status_text.value = f"✓ {os.path.basename(out_path)}"
         self.page.update()
 

@@ -6,8 +6,6 @@
 import os
 from shutil import copy2
 import flet as ft
-import tkinter as tk
-from tkinter import filedialog
 
 #############################################################
 #                           MAIN                            #
@@ -30,12 +28,8 @@ def main(page: ft.Page):
     from_folder_path = ""
     to_folder_path = ""
     
-    def pick_from_folder(e):
-        root = tk.Tk()
-        root.withdraw()
-        root.wm_attributes('-topmost', 1)
-        folder = filedialog.askdirectory(master=root, title="Sélectionner un dossier source")
-        root.destroy()
+    async def pick_from_folder(e):
+        folder = await ft.FilePicker().get_directory_path(dialog_title="Sélectionner un dossier source")
         if folder:
             nonlocal from_folder_path
             from_folder_path = os.path.normpath(folder)
@@ -46,12 +40,8 @@ def main(page: ft.Page):
             status_text.value = ""
             status_text.update()
     
-    def pick_to_folder(e):
-        root = tk.Tk()
-        root.withdraw()
-        root.wm_attributes('-topmost', 1)
-        folder = filedialog.askdirectory(master=root, title="Sélectionner un dossier destination")
-        root.destroy()
+    async def pick_to_folder(e):
+        folder = await ft.FilePicker().get_directory_path(dialog_title="Sélectionner un dossier destination")
         if folder:
             nonlocal to_folder_path
             to_folder_path = os.path.normpath(folder)
