@@ -16,15 +16,15 @@ def main(page: ft.Page):
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
         "order_it gauche.py": True,
-        "any to JPG.py": False,
+        "Recadrage.py": False,
         "order_it droite.py": True,
         "1024.py": False,
         "Clean.py": False,
         "Renommer sequence.py": False,
         "FIT_PRINT_13x15.py": False,
         "FIT_PRINT_13x10.py": False,
+        "any to JPG.py": False,
         "Projet.py": False,
-        "Recadrage.py": False,
         "Copy remaining files.py": True,
     }
     
@@ -92,6 +92,41 @@ def main(page: ft.Page):
             # Ouvre le fichier avec l'application par défaut
             open_file_with_default_app(file_path)
     
+    def delete_item(file_path):
+        """Supprime un fichier ou dossier avec confirmation"""
+        def confirm_delete(e):
+            try:
+                if os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+                else:
+                    os.remove(file_path)
+                dialog.open = False
+                page.update()
+                refresh_preview()
+            except Exception as err:
+                print(f"Erreur lors de la suppression: {err}")
+                dialog.open = False
+                page.update()
+        
+        def cancel_delete(e):
+            dialog.open = False
+            page.update()
+        
+        item_type = "dossier" if os.path.isdir(file_path) else "fichier"
+        item_name = os.path.basename(file_path)
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text(f"Supprimer {item_type}?"),
+            content=ft.Text(f"Voulez-vous vraiment supprimer '{item_name}'?"),
+            actions=[
+                ft.TextButton("Annuler", on_click=cancel_delete),
+                ft.TextButton("Supprimer", on_click=confirm_delete, style=ft.ButtonStyle(color=ft.Colors.RED)),
+            ],
+        )
+        page.overlay.append(dialog)
+        dialog.open = True
+        page.update()
+    
     file_count_text = ft.Text("", size=12, color=ft.Colors.GREY_400)
     
     def refresh_preview():
@@ -134,6 +169,13 @@ def main(page: ft.Page):
                             ft.ListTile(
                                 leading=ft.Icon(icon, color=icon_color, size=20),
                                 title=ft.Text(file, size=12),
+                                trailing=ft.IconButton(
+                                    icon=ft.Icons.DELETE_OUTLINE,
+                                    icon_size=16,
+                                    icon_color=ft.Colors.RED_300,
+                                    tooltip="Supprimer",
+                                    on_click=lambda e, path=file_path: delete_item(path),
+                                ),
                                 on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
                                 hover_color=ft.Colors.BLUE_GREY_800,
                                 content_padding=ft.Padding(left=8, top=2, right=8, bottom=2),
