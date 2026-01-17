@@ -17,14 +17,8 @@ from rich.console import Console
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = "K:\\it-HotFolder"
-DESTINATION = "W:\\KIOSK\\KIOSK GAUCHE"
-
-## --> DEBUG PATHS
-# PATH = "C:\\tmp\\Kiosk"
-# DESTINATION = "C:\\tmp\\Destination"
-
-# os.chdir(os.path.dirname(os.path.abspath(__file__)))
+PATH = "\\\\studioc-kiosk1\\kiosk-data\\it-HotFolder"
+DESTINATION = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK GAUCHE"
 
 #############################################################
 #                         CONTENT                           #

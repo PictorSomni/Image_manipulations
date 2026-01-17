@@ -156,7 +156,7 @@ def main(page: ft.Page):
                 file_count = sum(1 for f in files if not os.path.isdir(os.path.join(folder_to_display, f)))
                 file_count_text.value = f"({file_count} fichier{'s' if file_count > 1 else ''})"
                 if not files:
-                    preview_list.controls.append(ft.Text("(dossier vide)", color="grey"))
+                    preview_list.controls.append(ft.Text("(dossier vide)", color=GREY))
                 else:
                     for file in sorted(files, key=lambda x: (not os.path.isdir(os.path.join(folder_to_display, x)), x.lower())):
                         file_path = os.path.join(folder_to_display, file)
@@ -194,7 +194,7 @@ def main(page: ft.Page):
                                     on_click=lambda e, path=file_path: delete_item(path),
                                 ),
                                 on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
-                                hover_color=ft.Colors.BLUE_GREY_800,
+                                hover_color=GREY,
                                 content_padding=ft.Padding(left=8, top=2, right=8, bottom=2),
                             )
                         )

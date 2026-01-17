@@ -16,8 +16,8 @@ from rich.console import Console
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = "J:\\it-HotFolder"
-DESTINATION = "W:\\KIOSK\\KIOSK DROITE"
+PATH = "\\\\studioc-kiosk2\\kiosk-data\\it-HotFolder"
+DESTINATION = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK DROITE"
 
 #############################################################
 #                         CONTENT                           #
