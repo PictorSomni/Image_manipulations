@@ -23,6 +23,19 @@ FORMATS = {
     "20x30 (203x305mm)": (203, 305),
 }
 
+# Colors
+DARK = "#23252a"
+BG = "#292c33"
+GREY = "#2f333c"
+LIGHT_GREY = "#62666f"
+BLUE = "#3183eb"
+GREEN = "#409b6c"
+DARK_ORANGE = "#2A1D18"
+ORANGE = "#e06331"
+RED = "#e17080"
+WHITE = "#adb2be"
+
+
 def mm_to_pixels(mm, dpi=DPI):
     """Convertit des millimètres en pixels à la résolution donnée"""
     return int(mm / 25.4 * dpi)
@@ -95,8 +108,8 @@ class PhotoCropper:
         self.validate_button = ft.Button(
             "Valider & Suivant",
             icon=ft.icons.Icons.CHECK,
-            bgcolor=ft.Colors.GREEN_700,
-            color=ft.Colors.WHITE,
+            bgcolor=GREEN,
+            color=DARK,
             on_click=self.validate_and_next,
         )
 
@@ -104,14 +117,14 @@ class PhotoCropper:
         self.ignore_button = ft.Button(
             "Ignorer Image",
             icon=ft.icons.Icons.BLOCK,
-            bgcolor=ft.Colors.RED_700,
-            color=ft.Colors.WHITE,
+            bgcolor=RED,
+            color=DARK,
             on_click=self.ignore_image,
         )
 
-        self.border_switch_13x15 = ft.Switch(label="13x15", value=False, visible=True if "10x15" in self.current_format_label else False, on_change=self.on_border_toggle_13x15)
-        self.border_switch_13x10 = ft.Switch(label="13x10", value=False, visible=True if "10x10" in self.current_format_label else False, on_change=self.on_border_toggle_13x10)
-        self.bw_switch = ft.Switch(label="Noir et blanc", value=False, on_change=self.on_bw_toggle)
+        self.border_switch_13x15 = ft.Switch(label="13x15", active_color=ORANGE, value=False, visible=True if "10x15" in self.current_format_label else False, on_change=self.on_border_toggle_13x15)
+        self.border_switch_13x10 = ft.Switch(label="13x10", active_color=ORANGE, value=False, visible=True if "10x10" in self.current_format_label else False, on_change=self.on_border_toggle_13x10)
+        self.bw_switch = ft.Switch(label="Noir et blanc", active_color=ORANGE, value=False, on_change=self.on_bw_toggle)
 
         self.canvas_container = ft.Container(
             content=self.gesture_detector,
@@ -531,6 +544,7 @@ def main(page: ft.Page):
     page.title = "Recadrage Photo"
     page.theme_mode = ft.ThemeMode.DARK
     page.window.maximized = True
+    page.bgcolor = BG
 
     app = PhotoCropper(page)
 
@@ -547,7 +561,7 @@ def main(page: ft.Page):
         ft.Text("Formats Photos", size=20, weight=ft.FontWeight.BOLD),
         ft.RadioGroup(
             content=ft.Column([
-                ft.Radio(value=fmt, label=fmt) for fmt in FORMATS.keys()
+                ft.Radio(value=fmt, label=fmt, fill_color=BLUE) for fmt in FORMATS.keys()
             ]),
             value="10x15 (102x152mm)",
             on_change=app.change_ratio
@@ -557,6 +571,8 @@ def main(page: ft.Page):
         ft.Divider(),
         ft.Button("Orientation",
             icon=ft.icons.Icons.SWAP_HORIZ,
+            color=BLUE,
+            bgcolor=DARK,
             on_click=app.toggle_orientation),
         app.bw_switch,
         app.validate_button,
@@ -576,7 +592,7 @@ def main(page: ft.Page):
             ], expand=True),
             ft.Container(
                 content=app.status_text,
-                bgcolor=ft.Colors.with_opacity(0.8, ft.Colors.BLUE_GREY_900),
+                bgcolor=DARK,
                 padding=10,
                 border_radius=8,
                 right=20,

@@ -8,13 +8,15 @@ import shutil
 
 def main(page: ft.Page):
     # Colors
-    DARK_BG = "#23252a"
+    DARK = "#23252a"
     BG = "#292c33"
     GREY = "#2f333c"
     LIGHT_GREY = "#62666f"
     BLUE = "#3183eb"
+    GREEN = "#409b6c"
     DARK_ORANGE = "#2A1D18"
     ORANGE = "#e06331"
+    RED = "#e17080"
     WHITE = "#adb2be"
 
     page.title = "Dashboard de Projets"
@@ -46,7 +48,7 @@ def main(page: ft.Page):
         label="Dossier sélectionné",
         hint_text="Cliquez sur Parcourir...",
         width=500,
-        bgcolor=DARK_BG,
+        bgcolor=DARK,
         border_color=ft.Colors.OUTLINE_VARIANT,
         read_only=True
     )
@@ -304,7 +306,7 @@ def main(page: ft.Page):
                 ft.Button(
                     "Parcourir",
                     icon=ft.Icons.FOLDER_OPEN,
-                    color=ORANGE,
+                    color=RED,
                     on_click=pick_folder,
                 ),
                 ft.Button(
@@ -327,7 +329,7 @@ def main(page: ft.Page):
                         expand=True,
                         border=ft.Border.all(1, ft.Colors.OUTLINE),
                         border_radius=8,
-                        bgcolor=DARK_BG,
+                        bgcolor=DARK,
                     )
                 ], expand=True, width=350),
                 
@@ -345,7 +347,7 @@ def main(page: ft.Page):
                             icon=ft.Icons.FOLDER_OPEN,
                             tooltip="Ouvrir dans l'explorateur",
                             on_click=lambda e: open_in_file_explorer(current_browse_folder["path"] or selected_folder["path"]),
-                            icon_color=ORANGE,
+                            icon_color=GREEN,
                             icon_size=20,
                         ),
                         file_count_text,
@@ -355,7 +357,7 @@ def main(page: ft.Page):
                         expand=True,
                         border=ft.Border.all(1, ft.Colors.OUTLINE),
                         border_radius=8,
-                        bgcolor=DARK_BG,
+                        bgcolor=DARK,
                     )
                 ], expand=True)
             ], expand=True),
