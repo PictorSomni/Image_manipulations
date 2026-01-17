@@ -1,3 +1,4 @@
+from turtle import bgcolor
 import flet as ft
 import os
 import subprocess
@@ -6,25 +7,38 @@ import platform
 import shutil
 
 def main(page: ft.Page):
+    # Colors
+    DARK_BG = "#23252a"
+    BG = "#292c33"
+    GREY = "#2f333c"
+    LIGHT_GREY = "#62666f"
+    BLUE = "#3183eb"
+    DARK_ORANGE = "#2A1D18"
+    ORANGE = "#e06331"
+    WHITE = "#adb2be"
+
     page.title = "Dashboard de Projets"
     page.theme_mode = ft.ThemeMode.DARK
+    page.bgcolor = BG
     
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
     cwd = os.path.dirname(os.path.abspath(__file__))
+
+    
+
     
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
         "order_it gauche.py": True,
         "Recadrage.py": False,
         "order_it droite.py": True,
-        "1024.py": False,
-        "Clean.py": False,
-        "Renommer sequence.py": False,
-        "FIT_PRINT_13x15.py": False,
-        "FIT_PRINT_13x10.py": False,
         "any to JPG.py": False,
+        "Renommer sequence.py": False,
         "Projet.py": False,
+        "sharpen.py": False,
+        "Clean.py": False,
+        "Renommer nombre photos.py": False,
         "Copy remaining files.py": True,
     }
     
@@ -32,6 +46,7 @@ def main(page: ft.Page):
         label="Dossier sélectionné",
         hint_text="Cliquez sur Parcourir...",
         width=500,
+        bgcolor=DARK_BG,
         border_color=ft.Colors.OUTLINE_VARIANT,
         read_only=True
     )
@@ -250,7 +265,7 @@ def main(page: ft.Page):
                     title=ft.Text(
                         app_name,
                         size=14,
-                        color=ft.Colors.BLUE_GREY_100,
+                        color=WHITE,
                         text_align=ft.TextAlign.CENTER,
                         weight=ft.FontWeight.W_500,
                         max_lines=3,
@@ -258,8 +273,8 @@ def main(page: ft.Page):
                     ),
                     on_click=lambda e, name=app_name, path=app_path, local=is_local: launch_app(name, path, local),
                     on_long_press=lambda e, name=app_name, path=app_path: launch_app(name, path, True),
-                    bgcolor=ft.Colors.LIGHT_BLUE_900,
-                    hover_color=ft.Colors.LIGHT_BLUE_700,
+                    bgcolor=GREY,
+                    hover_color=LIGHT_GREY,
                     content_padding=ft.Padding(left=5, top=10, right=5, bottom=10),
                     shape=ft.RoundedRectangleBorder(radius=4),
                 )
@@ -279,8 +294,8 @@ def main(page: ft.Page):
     
     page.add(
         ft.AppBar(
-            title=ft.Text("DASHBOARD", color=ft.Colors.LIGHT_BLUE),
-            bgcolor=ft.Colors.GREY_900,
+            title=ft.Text("DASHBOARD", color=WHITE),
+            bgcolor=BG,
             center_title=True,
         ),
         ft.Column([
@@ -289,13 +304,13 @@ def main(page: ft.Page):
                 ft.Button(
                     "Parcourir",
                     icon=ft.Icons.FOLDER_OPEN,
-                    color=ft.Colors.WHITE_70,
+                    color=ORANGE,
                     on_click=pick_folder,
                 ),
                 ft.Button(
                     "Rafraîchir",
                     icon=ft.Icons.REFRESH,
-                    color=ft.Colors.LIGHT_BLUE,
+                    color=BLUE,
                     on_click=lambda e: refresh_preview(),
                 ),
             ]),
@@ -304,7 +319,7 @@ def main(page: ft.Page):
             ft.Row([
                 ft.Column([
                     ft.Container(
-                        content=ft.Text("Applications disponibles", weight=ft.FontWeight.BOLD, size=14),
+                        content=ft.Text("Applications disponibles", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
                         height=40,  # Hauteur pour s'aligner avec le Row contenant les IconButtons
                     ),
                     ft.Container(
@@ -312,25 +327,25 @@ def main(page: ft.Page):
                         expand=True,
                         border=ft.Border.all(1, ft.Colors.OUTLINE),
                         border_radius=8,
-                        bgcolor=ft.Colors.BLACK_12,
+                        bgcolor=DARK_BG,
                     )
                 ], expand=True, width=350),
                 
                 ft.Column([
                     ft.Row([
-                        ft.Text("Contenu du dossier", weight=ft.FontWeight.BOLD, size=14),
+                        ft.Text("Contenu du dossier", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
                         ft.IconButton(
                             icon=ft.Icons.ARROW_UPWARD,
                             tooltip="Dossier parent",
                             on_click=go_to_parent_folder,
-                            icon_color=ft.Colors.LIGHT_BLUE,
+                            icon_color=BLUE,
                             icon_size=20,
                         ),
                         ft.IconButton(
                             icon=ft.Icons.FOLDER_OPEN,
                             tooltip="Ouvrir dans l'explorateur",
                             on_click=lambda e: open_in_file_explorer(current_browse_folder["path"] or selected_folder["path"]),
-                            icon_color=ft.Colors.AMBER_400,
+                            icon_color=ORANGE,
                             icon_size=20,
                         ),
                         file_count_text,
@@ -340,11 +355,11 @@ def main(page: ft.Page):
                         expand=True,
                         border=ft.Border.all(1, ft.Colors.OUTLINE),
                         border_radius=8,
-                        bgcolor=ft.Colors.BLACK_12,
+                        bgcolor=DARK_BG,
                     )
                 ], expand=True)
             ], expand=True),
-        ], expand=True, spacing=10,)
+        ], expand=True, spacing=10)
     )
 
 ft.run(main)

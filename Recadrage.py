@@ -43,6 +43,7 @@ class PhotoCropper:
         self.current_format = FORMATS["10x15 (102x152mm)"]
         self.current_format_label = "10x15 (102x152mm)"
         self.border_13x15 = False
+        self.border_13x10 = False
         self.canvas_w = 800  # Valeur initiale, ajustée au chargement
         self.canvas_h = self.canvas_w * self.current_format[1] / self.current_format[0]
 
@@ -108,7 +109,8 @@ class PhotoCropper:
             on_click=self.ignore_image,
         )
 
-        self.border_switch = ft.Switch(label="13x15", value=False, visible=True if "10x15" in self.current_format_label else False, on_change=self.on_border_toggle)
+        self.border_switch_13x15 = ft.Switch(label="13x15", value=False, visible=True if "10x15" in self.current_format_label else False, on_change=self.on_border_toggle_13x15)
+        self.border_switch_13x10 = ft.Switch(label="13x10", value=False, visible=True if "10x10" in self.current_format_label else False, on_change=self.on_border_toggle_13x10)
         self.bw_switch = ft.Switch(label="Noir et blanc", value=False, on_change=self.on_bw_toggle)
 
         self.canvas_container = ft.Container(
@@ -187,10 +189,16 @@ class PhotoCropper:
         self._update_transform()
 
         if "10x15" in self.current_format_label:
-            self.border_switch.visible = True
-            self.border_switch.value = self.border_13x15
+            self.border_switch_13x15.visible = True
+            self.border_switch_13x15.value = self.border_13x15
         else:
-            self.border_switch.visible = False
+            self.border_switch_13x15.visible = False
+
+        if "10x10" in self.current_format_label:
+            self.border_switch_13x10.visible = True
+            self.border_switch_13x10.value = self.border_13x10
+        else:
+            self.border_switch_13x10.visible = False
 
         self.page.title = f"Crop: {os.path.basename(path)} ({self.current_index + 1}/{len(self.image_paths)})"
         self.page.update()
@@ -412,6 +420,20 @@ class PhotoCropper:
             pil_crop = framed
             fmt_short = "13x15"
 
+        if self.border_13x10 and "10x10" in fmt_short:
+            ratio_13_10 = 127 / 102
+            
+            if self.canvas_is_portrait:
+                target_w = int(pil_crop.height * ratio_13_10)
+                framed = Image.new("RGB", (target_w, pil_crop.height), "white")
+                framed.paste(pil_crop, (0, 0))
+            else:
+                target_h = int(pil_crop.width * ratio_13_10)
+                framed = Image.new("RGB", (pil_crop.width, target_h), "white")
+                framed.paste(pil_crop, (0, 0))
+            pil_crop = framed
+            fmt_short = "13x10"
+
         os.makedirs(fmt_short, exist_ok=True)
         jpg = name + ".jpg"
         out_path = os.path.join(fmt_short, jpg)
@@ -440,17 +462,32 @@ class PhotoCropper:
         except Exception:
             pass
         if "10x15" in self.current_format_label:
-            self.border_switch.visible = True
-        else:
-            self.border_switch.visible = False
-            self.border_switch.value = False
+            self.border_switch_13x15.visible = True
+            self.border_switch_13x10.visible = False
+            self.border_switch_13x10.value = False
+            self.border_13x10 = False
+
+        elif "10x10" in self.current_format_label:
+            self.border_switch_13x10.visible = True
+            self.border_switch_13x15.visible = False
+            self.border_switch_13x15.value = False
             self.border_13x15 = False
+        else:
+            self.border_switch_13x15.visible = False
+            self.border_switch_13x15.value = False
+            self.border_13x15 = False
+            self.border_switch_13x10.visible = False
+            self.border_switch_13x10.value = False
+            self.border_13x10 = False
         self.update_canvas_size()
         if self.image_paths:
             self.load_image(preserve_orientation=True)
 
-    def on_border_toggle(self, e):
+    def on_border_toggle_13x15(self, e):
         self.border_13x15 = bool(e.control.value)
+
+    def on_border_toggle_13x10(self, e):
+        self.border_13x10 = bool(e.control.value)
 
     def batch_process_interactive(self, e):
         folder = os.getcwd()
@@ -470,10 +507,11 @@ class PhotoCropper:
         self.update_canvas_size()
         if self.image_paths:
             self.load_image(preserve_orientation=True)
-        try:
-            self.border_switch.visible = True if "10x15" in self.current_format_label else False
-        except Exception:
-            pass
+
+        self.border_switch_13x15.visible = True if "10x15" in self.current_format_label else False
+
+        self.border_switch_13x10.visible = True if "10x10" in self.current_format_label else False
+
 
     def ignore_image(self, e):
         if not self.image_paths or self.current_index >= len(self.image_paths):
@@ -514,7 +552,8 @@ def main(page: ft.Page):
             value="10x15 (102x152mm)",
             on_change=app.change_ratio
         ),
-        app.border_switch,
+        app.border_switch_13x15,
+        app.border_switch_13x10,
         ft.Divider(),
         ft.Button("Orientation",
             icon=ft.icons.Icons.SWAP_HORIZ,
