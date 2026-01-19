@@ -22,13 +22,13 @@ def main(page: ft.Page):
     page.title = "Dashboard de Projets"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG
+    # page.window.maximized = True
+    page.window.title_bar_hidden = True
+    page.window.title_bar_buttons_hidden = True
     
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
     cwd = os.path.dirname(os.path.abspath(__file__))
-
-    
-
     
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
@@ -291,17 +291,21 @@ def main(page: ft.Page):
             folder_path.value = selected_folder["path"]
             folder_path.update()
             refresh_preview()
+
+    async def close_window(e):
+        await page.window.close()
     
     refresh_apps()
     
     page.add(
-        ft.AppBar(
-            title=ft.Text("DASHBOARD", color=WHITE),
-            bgcolor=BG,
-            center_title=True,
-        ),
-        ft.Column([
+        ft.WindowDragArea(
             ft.Row([
+                ft.Container(
+                    ft.Text("DASHBOARD", color=WHITE),
+                    bgcolor=BG,
+                    padding=10,
+                ),
+                ft.Container(expand=True),
                 folder_path,
                 ft.Button(
                     "Parcourir",
@@ -315,14 +319,17 @@ def main(page: ft.Page):
                     color=BLUE,
                     on_click=lambda e: refresh_preview(),
                 ),
-            ]),
+                ft.Container(expand=True),
+                ft.IconButton(ft.Icons.CLOSE, on_click=close_window),
+            ])
+        ),
+        ft.Column([
             ft.Divider(),
-            
             ft.Row([
                 ft.Column([
                     ft.Container(
                         content=ft.Text("Applications disponibles", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
-                        height=40,  # Hauteur pour s'aligner avec le Row contenant les IconButtons
+                        margin=ft.Margin.only(top=10, bottom=10, left=10),
                     ),
                     ft.Container(
                         content=apps_list,
@@ -332,10 +339,9 @@ def main(page: ft.Page):
                         bgcolor=DARK,
                     )
                 ], expand=True, width=350),
-                
                 ft.Column([
                     ft.Row([
-                        ft.Text("Contenu du dossier", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
+                        ft.Text("Contenu du dossier", weight=ft.FontWeight.BOLD, size=14, color=WHITE, margin=ft.Margin.only(left=10)),
                         ft.IconButton(
                             icon=ft.Icons.ARROW_UPWARD,
                             tooltip="Dossier parent",
