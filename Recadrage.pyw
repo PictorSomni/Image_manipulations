@@ -21,6 +21,7 @@ FORMATS = {
     "15x20 (152x203mm)": (152, 203),
     "15x15 (152x152mm)": (152, 152),
     "20x30 (203x305mm)": (203, 305),
+    "ID (36x46mm)": (36, 46),
 }
 
 # Colors
@@ -28,8 +29,8 @@ DARK = "#23252a"
 BG = "#292c33"
 GREY = "#2f333c"
 LIGHT_GREY = "#62666f"
-BLUE = "#3183eb"
-GREEN = "#409b6c"
+BLUE = "#45B8F5"
+GREEN = "#49B76C"
 DARK_ORANGE = "#2A1D18"
 ORANGE = "#e06331"
 RED = "#e17080"
@@ -57,6 +58,8 @@ class PhotoCropper:
         self.current_format_label = "10x15 (102x152mm)"
         self.border_13x15 = False
         self.border_13x10 = False
+        self.border_id2 = False
+        self.border_id4 = False
         self.canvas_w = 800  # Valeur initiale, ajustée au chargement
         self.canvas_h = self.canvas_w * self.current_format[1] / self.current_format[0]
 
@@ -124,6 +127,8 @@ class PhotoCropper:
 
         self.border_switch_13x15 = ft.Switch(label="13x15", active_color=ORANGE, value=False, visible=True if "10x15" in self.current_format_label else False, on_change=self.on_border_toggle_13x15)
         self.border_switch_13x10 = ft.Switch(label="13x10", active_color=ORANGE, value=False, visible=True if "10x10" in self.current_format_label else False, on_change=self.on_border_toggle_13x10)
+        self.border_switch_ID2 = ft.Switch(label="ID X2", active_color=ORANGE, value=False, visible=True if "ID" in self.current_format_label else False, on_change=self.on_border_toggle_id2)
+        self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=ORANGE, value=False, visible=True if "ID" in self.current_format_label else False, on_change=self.on_border_toggle_id4)
         self.bw_switch = ft.Switch(label="Noir et blanc", active_color=ORANGE, value=False, on_change=self.on_bw_toggle)
 
         self.canvas_container = ft.Container(
@@ -212,6 +217,15 @@ class PhotoCropper:
             self.border_switch_13x10.value = self.border_13x10
         else:
             self.border_switch_13x10.visible = False
+
+        if "ID" in self.current_format_label:
+            self.border_switch_ID2.visible = True
+            self.border_switch_ID2.value = self.border_id2
+            self.border_switch_ID4.visible = True
+            self.border_switch_ID4.value = self.border_id4
+        else:
+            self.border_switch_ID2.visible = False
+            self.border_switch_ID4.visible = False
 
         self.page.title = f"Crop: {os.path.basename(path)} ({self.current_index + 1}/{len(self.image_paths)})"
         self.page.update()
@@ -447,6 +461,65 @@ class PhotoCropper:
             pil_crop = framed
             fmt_short = "13x10"
 
+        # Gestion des layouts ID : ID X4 prioritaire sur ID X2
+        if self.border_id4 and "ID" in self.current_format_label:
+            # 4 images ID (36x46mm chacune) sur un canvas de 127x102mm
+            # Layout: grille 2x2
+            CANVA_WIDTH_PX = mm_to_pixels(127)
+            CANVA_HEIGHT_PX = mm_to_pixels(102)
+            SPACE_PX = mm_to_pixels(5)
+            
+            framed = Image.new("RGB", (CANVA_WIDTH_PX, CANVA_HEIGHT_PX), "white")
+            
+            # Rotation si nécessaire pour que l'image soit en portrait
+            img = pil_crop
+            if img.width > img.height:
+                img = img.rotate(90, expand=True)
+            
+            # Calculer les positions pour centrer le bloc de 4 images
+            total_width = img.width * 2 + SPACE_PX
+            total_height = img.height * 2 + SPACE_PX
+            start_x = (CANVA_WIDTH_PX - total_width) // 2
+            start_y = (CANVA_HEIGHT_PX - total_height) // 2
+            
+            # Placer les 4 images en grille 2x2
+            for row in range(2):
+                for col in range(2):
+                    x_pos = start_x + col * (img.width + SPACE_PX)
+                    y_pos = start_y + row * (img.height + SPACE_PX)
+                    framed.paste(img, (x_pos, y_pos))
+            
+            pil_crop = framed
+            fmt_short = "ID_X4"
+
+        elif self.border_id2 and "ID" in self.current_format_label:
+            # 2 images ID (36x46mm chacune) sur un canvas de 102x102mm
+            # Layout: 2 lignes, 1 colonne
+            CANVA_WIDTH_PX = mm_to_pixels(102)
+            CANVA_HEIGHT_PX = mm_to_pixels(102)
+            SPACE_PX = mm_to_pixels(5)
+            
+            framed = Image.new("RGB", (CANVA_WIDTH_PX, CANVA_HEIGHT_PX), "white")
+            
+            # Rotation si nécessaire pour que l'image soit en portrait
+            img = pil_crop
+            if img.width > img.height:
+                img = img.rotate(90, expand=True)
+            
+            # Position centrée horizontalement
+            x_offset = (CANVA_WIDTH_PX - img.width) // 2
+            
+            # Première image en haut
+            y_offset_1 = SPACE_PX
+            framed.paste(img, (x_offset, y_offset_1))
+            
+            # Deuxième image en bas
+            y_offset_2 = CANVA_HEIGHT_PX - img.height - SPACE_PX
+            framed.paste(img, (x_offset, y_offset_2))
+            
+            pil_crop = framed
+            fmt_short = "ID_X2"
+
         os.makedirs(fmt_short, exist_ok=True)
         jpg = name + ".jpg"
         out_path = os.path.join(fmt_short, jpg)
@@ -479,12 +552,29 @@ class PhotoCropper:
             self.border_switch_13x10.visible = False
             self.border_switch_13x10.value = False
             self.border_13x10 = False
+            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.value = False
+            self.border_switch_ID4.visible = False
+            self.border_switch_ID4.value = False
 
         elif "10x10" in self.current_format_label:
             self.border_switch_13x10.visible = True
             self.border_switch_13x15.visible = False
             self.border_switch_13x15.value = False
             self.border_13x15 = False
+            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.value = False
+            self.border_switch_ID4.visible = False
+            self.border_switch_ID4.value = False
+        elif "ID" in self.current_format_label:
+            self.border_switch_ID2.visible = True
+            self.border_switch_ID4.visible = True
+            self.border_switch_13x15.visible = False
+            self.border_switch_13x15.value = False
+            self.border_13x15 = False
+            self.border_switch_13x10.visible = False
+            self.border_switch_13x10.value = False
+            self.border_13x10 = False
         else:
             self.border_switch_13x15.visible = False
             self.border_switch_13x15.value = False
@@ -492,6 +582,10 @@ class PhotoCropper:
             self.border_switch_13x10.visible = False
             self.border_switch_13x10.value = False
             self.border_13x10 = False
+            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.value = False
+            self.border_switch_ID4.visible = False
+            self.border_switch_ID4.value = False
         self.update_canvas_size()
         if self.image_paths:
             self.load_image(preserve_orientation=True)
@@ -501,6 +595,22 @@ class PhotoCropper:
 
     def on_border_toggle_13x10(self, e):
         self.border_13x10 = bool(e.control.value)
+    
+    def on_border_toggle_id2(self, e):
+        self.border_id2 = bool(e.control.value)
+        # Désactiver ID X4 si ID X2 est activé
+        if self.border_id2:
+            self.border_id4 = False
+            self.border_switch_ID4.value = False
+            self.page.update()
+
+    def on_border_toggle_id4(self, e):
+        self.border_id4 = bool(e.control.value)
+        # Désactiver ID X2 si ID X4 est activé
+        if self.border_id4:
+            self.border_id2 = False
+            self.border_switch_ID2.value = False
+            self.page.update()
 
     def batch_process_interactive(self, e):
         folder = os.getcwd()
@@ -524,6 +634,10 @@ class PhotoCropper:
         self.border_switch_13x15.visible = True if "10x15" in self.current_format_label else False
 
         self.border_switch_13x10.visible = True if "10x10" in self.current_format_label else False
+
+        self.border_switch_ID2.visible = True if "ID" in self.current_format_label else False
+
+        self.border_switch_ID4.visible = True if "ID" in self.current_format_label else False
 
 
     def ignore_image(self, e):
@@ -568,6 +682,8 @@ def main(page: ft.Page):
         ),
         app.border_switch_13x15,
         app.border_switch_13x10,
+        app.border_switch_ID2,
+        app.border_switch_ID4,
         ft.Divider(),
         ft.Button("Orientation",
             icon=ft.icons.Icons.SWAP_HORIZ,

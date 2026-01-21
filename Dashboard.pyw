@@ -1,4 +1,3 @@
-from turtle import bgcolor
 import flet as ft
 import os
 import subprocess
@@ -12,8 +11,8 @@ def main(page: ft.Page):
     BG = "#292c33"
     GREY = "#2f333c"
     LIGHT_GREY = "#62666f"
-    BLUE = "#17AFFE"
-    GREEN = "#41C46A"
+    BLUE = "#45B8F5"
+    GREEN = "#49B76C"
     DARK_ORANGE = "#2A1D18"
     ORANGE = "#e06331"
     RED = "#e17080"
@@ -22,18 +21,20 @@ def main(page: ft.Page):
     page.title = "Dashboard de Projets"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG
-    # page.window.maximized = True
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
     
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
     cwd = os.path.dirname(os.path.abspath(__file__))
+
+    
+
     
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
         "order_it gauche.py": True,
-        "Recadrage.py": False,
+        "Recadrage.pyw": False,
         "order_it droite.py": True,
         "any to JPG.py": False,
         "Renommer sequence.py": False,
@@ -42,6 +43,10 @@ def main(page: ft.Page):
         "Clean.py": False,
         "Renommer nombre photos.py": False,
         "Copy remaining files.py": True,
+        "Remerciements.py": False,
+        "jpeg 2 jpg.py": False,
+        "Polaroid.py": False,
+        
     }
     
     folder_path = ft.TextField(
@@ -291,7 +296,9 @@ def main(page: ft.Page):
             folder_path.value = selected_folder["path"]
             folder_path.update()
             refresh_preview()
-
+    
+    refresh_apps()
+    
     async def close_window(e):
         await page.window.close()
     

@@ -17,7 +17,7 @@ os.chdir(PATH)
 #############################################################
 #                         CONTENT                           #
 #############################################################
-EXTENSION = (".JPG", ".JPEG", ".PNG")
+EXTENSION = (".JPG", ".JPEG", ".PNG", ".DNG")
 FOLDER = [file for file in sorted(os.listdir()) if file.upper().endswith(EXTENSION) and not file == "watermark.png"]
 TOTAL = len(FOLDER)
 
@@ -30,13 +30,12 @@ for i, file in enumerate(FOLDER):
     print("Image {} sur {}".format(i+1, TOTAL))
 
     filename = file.split(".")[0]
-    if file != "watermark.png":
-        try:
-            base_image = Image.open(file)
-        except Exception:
-            continue
-        else:
-            base_image.convert("RGB").save(f"{PATH}\\{filename}.jpg", format="JPEG", subsampling=0, quality=100)
+    try:
+        base_image = Image.open(file)
+    except Exception:
+        continue
+    else:
+        base_image.convert("RGB").save(f"{PATH}\\{filename}.jpg", format="JPEG", subsampling=0, quality=100)
 
 print("Terminé !")
 sleep(1)
