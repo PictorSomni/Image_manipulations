@@ -263,7 +263,7 @@ def main(page: ft.Page):
     def refresh_apps():
         apps_list.controls.clear()
         for app_name, is_local in apps.items():
-            app_path = os.path.join(cwd, app_name)
+            app_path = os.path.join(cwd, "data", app_name)
             if not os.path.exists(app_path):
                 continue
             
