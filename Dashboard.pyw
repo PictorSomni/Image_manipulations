@@ -4,6 +4,7 @@ import subprocess
 import sys
 import platform
 import shutil
+import threading
 
 def main(page: ft.Page):
     # Colors
@@ -23,13 +24,12 @@ def main(page: ft.Page):
     page.bgcolor = BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
+    page.window.width = 1200
+    page.window.height = 520
     
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
     cwd = os.path.dirname(os.path.abspath(__file__))
-
-    
-
     
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
@@ -54,7 +54,7 @@ def main(page: ft.Page):
         hint_text="Cliquez sur Parcourir...",
         width=500,
         bgcolor=DARK,
-        border_color=ft.Colors.OUTLINE_VARIANT,
+        border_color=GREY,
         read_only=True
     )
     
@@ -93,10 +93,14 @@ def main(page: ft.Page):
         except Exception as e:
             print(f"Erreur lors de l'ouverture du fichier: {e}")
     
-    def navigate_to_folder(folder_path):
+    def navigate_to_folder(new_path):
         """Navigue vers un dossier dans la preview"""
-        if folder_path and os.path.isdir(folder_path):
-            current_browse_folder["path"] = folder_path
+        if new_path and os.path.isdir(new_path):
+            current_browse_folder["path"] = new_path
+            selected_folder["path"] = new_path
+            # Update the folder_path TextField label to the new path
+            folder_path.value = new_path
+            folder_path.update()
             refresh_preview()
     
     def go_to_parent_folder(e):
@@ -255,7 +259,6 @@ def main(page: ft.Page):
                     except Exception as err:
                         print(f"Erreur lors de la suppression du fichier: {err}")
                 
-                import threading
                 threading.Thread(target=cleanup, daemon=True).start()
         except Exception as err:
             print(f"Erreur lors du lancement: {err}")
@@ -263,7 +266,7 @@ def main(page: ft.Page):
     def refresh_apps():
         apps_list.controls.clear()
         for app_name, is_local in apps.items():
-            app_path = os.path.join(cwd, "data", app_name)
+            app_path = os.path.join(cwd, "Data", app_name)
             if not os.path.exists(app_path):
                 continue
             
@@ -341,7 +344,7 @@ def main(page: ft.Page):
                     ft.Container(
                         content=apps_list,
                         expand=True,
-                        border=ft.Border.all(1, ft.Colors.OUTLINE),
+                        border=ft.Border.all(1, GREY),
                         border_radius=8,
                         bgcolor=DARK,
                     )
@@ -368,7 +371,7 @@ def main(page: ft.Page):
                     ft.Container(
                         content=preview_list,
                         expand=True,
-                        border=ft.Border.all(1, ft.Colors.OUTLINE),
+                        border=ft.Border.all(1, GREY),
                         border_radius=8,
                         bgcolor=DARK,
                     )
