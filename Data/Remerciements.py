@@ -30,8 +30,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 EXTENSION = (".jpg", ".jpeg", ".png")
 FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
-WATERMARK = "C:\\Users\\charl\\Documents\\PYTHON\\Image manipulation\\watermark.png" # Or just "watermark.png" if you copy it to the current folder.
-IMAGES = []
+WATERMARK = "C:\\Users\\charl\\Documents\\PYTHON\\Image manipulation\\Data\\watermark.png"
 REQUIRED = ["recto", "verso", "duo"]
 BIG = ["int", "ext"]
 FORBIDDEN = ["10x15", "13x18", "projet"]

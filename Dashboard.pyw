@@ -24,8 +24,7 @@ def main(page: ft.Page):
     page.bgcolor = BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width = 1200
-    page.window.height = 520
+
     
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
@@ -46,7 +45,9 @@ def main(page: ft.Page):
         "Remerciements.py": False,
         "jpeg 2 jpg.py": False,
         "Polaroid.py": False,
-        
+        "FIT_PRINT_13X10.py": False,
+        "2-in-1.py": False,
+        "FIT_PRINT_13X15.py": False,
     }
     
     folder_path = ft.TextField(
@@ -226,7 +227,7 @@ def main(page: ft.Page):
                 if platform.system() == "Windows":
                     subprocess.Popen(
                         [sys.executable, app_path],
-                        creationflags=subprocess.CREATE_NEW_CONSOLE
+                        # creationflags=subprocess.CREATE_NEW_CONSOLE
                     )
                 else:
                     subprocess.Popen([sys.executable, app_path])
