@@ -27,6 +27,10 @@ WATERMARK = "C:\\Users\\charl\\Documents\\PYTHON\\Image manipulation\\Data\\wate
 TOTAL = len(FOLDER)
 EXCEPTIONS = ("projet", "fogra29")
 
+def folder(folder) :
+    if not os.path.exists(PATH + f"\\{folder}") :
+        os.makedirs(PATH + f"\\{folder}")
+
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -34,7 +38,7 @@ for i, file in enumerate(FOLDER):
     os.system('cls' if os.name == 'nt' else 'clear')
     print(f"Conversion en {MAXSIZE}px + renommage + filigrane")
     print("Image {} sur {}".format(i+1, TOTAL))
-    
+    folder("Projet")
     if any(exception_name in file.lower() for exception_name in EXCEPTIONS):
         print("Image ignorée (exception)")
         sleep(0.5)
@@ -61,7 +65,7 @@ for i, file in enumerate(FOLDER):
     else :
         base_image.paste(watermark, watermark)
         filename = file.split(".")[0]
-        base_image.convert("RGB").save(f"{PATH}\\Projet_{filename}.jpg", format="JPEG", subsampling=0, quality=QUALITY)
+        base_image.convert("RGB").save(f"{PATH}\\Projet\\{filename}.jpg", format="JPEG", subsampling=0, quality=QUALITY)
 
 print("Terminé !")
 sleep(1)

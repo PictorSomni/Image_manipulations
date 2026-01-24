@@ -19,7 +19,7 @@ os.chdir(PATH)
 #                         CONTENT                           #
 #############################################################
 console = Console()
-FOLDER = [file for file in os.listdir() if file.lower().endswith("jpeg")]
+FOLDER = [file for file in os.listdir() if file.lower().endswith(".jpeg")]
 
 ## Clears the terminal
 def clear():
@@ -40,8 +40,12 @@ print("[violet]~[/violet]" * 23)
 
 with console.status("[bold blue]En cours...") as status:
     for file in FOLDER:
-        filename  = os.path.splitext(file)[0]
-        os.rename(file, f"{filename}.jpg")
+        try:
+            filename  = os.path.splitext(file)[0]
+            os.rename(file, f"{filename}.jpg")
+        except FileExistsError:
+            print(f"[red]Erreur:[/red] Le fichier [yellow]{filename}.jpg[/yellow] existe déjà.")
+            pass
     
 print("[bright_green]Terminé ![/bright_green]")
 

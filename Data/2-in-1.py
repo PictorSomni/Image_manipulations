@@ -42,6 +42,10 @@ def mm_to_pixels(mm, dpi) :
 WIDTH_DPI = mm_to_pixels(WIDTH, DPI)
 HEIGHT_DPI = mm_to_pixels(HEIGHT, DPI)
 
+def folder(folder) :
+    if not os.path.exists(PATH + f"\\{folder}") :
+        os.makedirs(PATH + f"\\{folder}")
+
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -53,7 +57,7 @@ while len(FOLDER) > 0:
     print(f"image {index} sur {TOTAL // 2}") if TOTAL % 2 == 0 else print(f"image {index} sur {(TOTAL // 2) + 1}")
     print("-" * 13)
 
-    
+    folder(f"{WIDTH * 2}x{HEIGHT}")
     image1 = FOLDER.pop()
     if any(key_name in image1.lower() for key_name in DUO) == True:
         IMAGE_NAME = image1
@@ -83,10 +87,10 @@ while len(FOLDER) > 0:
             x_offset += WIDTH_DPI
 
         if DOUBLE :
-            new_image.save(f"{PATH}\\{WIDTH * 2}x{HEIGHT}_{IMAGE_NAME}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+            new_image.save(f"{PATH}\\{WIDTH * 2}x{HEIGHT}\\{IMAGE_NAME}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
             DOUBLE = False
         else :
-            new_image.save(f"{PATH}\\{WIDTH * 2}x{HEIGHT}_{START:03}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+            new_image.save(f"{PATH}\\{WIDTH * 2}x{HEIGHT}\\{START:03}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
         index += 1
         START += 1
