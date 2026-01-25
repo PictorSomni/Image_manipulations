@@ -3,8 +3,6 @@
 #                          IMPORTS                          #
 #############################################################
 from pathlib import Path
-import os
-from time import sleep
 from PIL import Image
 
 #############################################################
@@ -23,8 +21,6 @@ TOTAL = len(FOLDER)
 #                           MAIN                            #
 #############################################################
 for i, file in enumerate(FOLDER):
-    os.system('cls' if os.name == 'nt' else 'clear')
-    print(f"Aurevoir EXIFS !")
     print("Image {} sur {}".format(i+1, TOTAL))
 
     filename = Path(file).stem
@@ -36,4 +32,3 @@ for i, file in enumerate(FOLDER):
         base_image.convert("RGB").save(str(PATH / f"{filename}.jpg"), format="JPEG", subsampling=0, quality=100)
 
 print("Terminé !")
-sleep(1)

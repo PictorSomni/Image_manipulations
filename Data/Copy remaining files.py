@@ -3,7 +3,7 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-import os
+from pathlib import Path
 from shutil import copy2
 import flet as ft
 
@@ -32,7 +32,7 @@ def main(page: ft.Page):
         folder = await ft.FilePicker().get_directory_path(dialog_title="Sélectionner un dossier source")
         if folder:
             nonlocal from_folder_path
-            from_folder_path = os.path.normpath(folder)
+            from_folder_path = Path(folder)
             from_folder_text.value = f"Source: {from_folder_path}"
             from_folder_text.color = ft.Colors.GREEN_400
             from_folder_text.update()
@@ -44,7 +44,7 @@ def main(page: ft.Page):
         folder = await ft.FilePicker().get_directory_path(dialog_title="Sélectionner un dossier destination")
         if folder:
             nonlocal to_folder_path
-            to_folder_path = os.path.normpath(folder)
+            to_folder_path = Path(folder)
             to_folder_text.value = f"Destination: {to_folder_path}"
             to_folder_text.color = ft.Colors.GREEN_400
             to_folder_text.update()
@@ -59,11 +59,12 @@ def main(page: ft.Page):
     def get_files_list(folder_path):
         """Retourne la liste de tous les fichiers dans un dossier et ses sous-dossiers"""
         files_set = set()
-        for root, dirs, files in os.walk(folder_path):
-            for file in files:
+        folder_path = Path(folder_path)
+        for file_path in folder_path.rglob('*'):
+            if file_path.is_file():
                 # Chemin relatif par rapport au dossier de base
-                rel_path = os.path.relpath(os.path.join(root, file), folder_path)
-                files_set.add(rel_path)
+                rel_path = file_path.relative_to(folder_path)
+                files_set.add(str(rel_path))
         return files_set
     
     def copy_missing_files(e):
@@ -107,13 +108,11 @@ def main(page: ft.Page):
             # Copier les fichiers manquants
             copied_count = 0
             for i, file_rel_path in enumerate(missing_files):
-                source_file = os.path.join(from_folder_path, file_rel_path)
-                dest_file = os.path.join(to_folder_path, file_rel_path)
+                source_file = Path(from_folder_path) / file_rel_path
+                dest_file = Path(to_folder_path) / file_rel_path
                 
                 # Créer le dossier de destination si nécessaire
-                dest_dir = os.path.dirname(dest_file)
-                if not os.path.exists(dest_dir):
-                    os.makedirs(dest_dir)
+                dest_file.parent.mkdir(parents=True, exist_ok=True)
                 
                 # Copier le fichier
                 copy2(source_file, dest_file)
@@ -121,7 +120,7 @@ def main(page: ft.Page):
                 
                 # Mettre à jour la barre de progression
                 progress_bar.value = (i + 1) / len(missing_files)
-                status_text.value = f"Copie: {copied_count}/{len(missing_files)} - {os.path.basename(file_rel_path)}"
+                status_text.value = f"Copie: {copied_count}/{len(missing_files)} - {Path(file_rel_path).name}"
                 progress_bar.update()
                 status_text.update()
             

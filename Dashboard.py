@@ -5,6 +5,8 @@ import sys
 import platform
 import shutil
 import threading
+import re
+from queue import Queue
 
 def main(page: ft.Page):
     # Colors
@@ -24,6 +26,8 @@ def main(page: ft.Page):
     page.bgcolor = BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
+    page.window.width = 1200
+    page.window.height = 740
 
     
     selected_folder = {"path": None}
@@ -37,18 +41,21 @@ def main(page: ft.Page):
         "order_it droite.py": True,
         "any to JPG.py": False,
         "Renommer sequence.py": False,
-        "Projet.py": False,
         "sharpen.py": False,
+        "Remerciements.py": False,
         "Clean.py": False,
         "Renommer nombre photos.py": False,
         "Copy remaining files.py": True,
-        "Remerciements.py": False,
+        "Resize_watermark.py": False,
         "jpeg 2 jpg.py": False,
-        "Polaroid.py": False,
+        "Resize.py": False,
         "FIT_PRINT_13x10.py": False,
         "2-in-1.py": False,
         "FIT_PRINT_13x15.py": False,
     }
+    
+    resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
+    resize_watermark_size = {"value": "640"}  # Taille par défaut pour le redimensionnement avec watermark
     
     folder_path = ft.TextField(
         label="Dossier sélectionné",
@@ -61,6 +68,65 @@ def main(page: ft.Page):
     
     apps_list = ft.GridView(expand=True, max_extent=250, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.0)
     preview_list = ft.ListView(expand=True, spacing=2, auto_scroll=False)
+    terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
+    
+    # Queue pour les messages du terminal (thread-safe)
+    terminal_queue = Queue()
+    
+    def process_terminal_queue():
+        """Traite les messages en attente dans la queue"""
+        updated = False
+        while not terminal_queue.empty():
+            try:
+                message, color = terminal_queue.get_nowait()
+                terminal_output.controls.append(
+                    ft.Text(message, size=11, color=color, font_family="monospace")
+                )
+                # Garder seulement les 200 dernières lignes
+                if len(terminal_output.controls) > 200:
+                    terminal_output.controls.pop(0)
+                updated = True
+            except:
+                break
+        if updated:
+            page.update()
+    
+    def on_terminal_message(topic, message):
+        """Callback pour les messages pubsub"""
+        msg, color = message
+        terminal_output.controls.append(
+            ft.Text(msg, size=13, color=color, font_family="monospace")
+        )
+        if len(terminal_output.controls) > 200:
+            terminal_output.controls.pop(0)
+        page.update()
+    
+    # S'abonner au canal terminal
+    page.pubsub.subscribe_topic("terminal", on_terminal_message)
+    
+    def on_refresh_preview(topic, message):
+        """Callback pour rafraîchir la preview depuis un thread"""
+        refresh_preview()
+    
+    # S'abonner au canal refresh
+    page.pubsub.subscribe_topic("refresh", on_refresh_preview)
+    
+    def request_refresh():
+        """Demande un rafraîchissement de la preview (thread-safe)"""
+        page.pubsub.send_all_on_topic("refresh", None)
+    
+    def log_to_terminal(message, color=WHITE):
+        """Ajoute un message au terminal intégré"""
+        # Supprimer les codes ANSI d'échappement (clear screen, colors, etc.)
+        ansi_escape = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\[\?[0-9;]*[a-zA-Z]')
+        clean_message = ansi_escape.sub('', message).strip()
+        if clean_message:  # N'afficher que si le message n'est pas vide après nettoyage
+            page.pubsub.send_all_on_topic("terminal", (clean_message, color))
+    
+    def clear_terminal(e):
+        """Efface le contenu du terminal"""
+        terminal_output.controls.clear()
+        page.update()
     
     def open_in_file_explorer(folder_path):
         """Ouvre le dossier dans l'explorateur de fichiers natif"""
@@ -223,17 +289,41 @@ def main(page: ft.Page):
             return
         
         try:
+            log_to_terminal(f"▶ Lancement de {app_name}...", BLUE)
+            
             if is_local:
                 if platform.system() == "Windows":
-                    subprocess.Popen(
-                        [sys.executable, app_path],
-                        # creationflags=subprocess.CREATE_NEW_CONSOLE
+                    process = subprocess.Popen(
+                        [sys.executable, "-u", app_path],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True
                     )
                 else:
-                    subprocess.Popen([sys.executable, app_path])
+                    process = subprocess.Popen(
+                        [sys.executable, "-u", app_path],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True
+                    )
+                
+                # Lire la sortie en temps réel
+                def read_output(pipe, color):
+                    for line in iter(pipe.readline, ''):
+                        if line:
+                            log_to_terminal(line.rstrip(), color)
+                    pipe.close()
+                
+                threading.Thread(target=read_output, args=(process.stdout, WHITE), daemon=True).start()
+                threading.Thread(target=read_output, args=(process.stderr, RED), daemon=True).start()
+                
             else:
                 if not os.access(selected_folder["path"], os.W_OK):
-                    print(f"Erreur: Pas d'accès en écriture au dossier {selected_folder['path']}")
+                    log_to_terminal(f"✗ Erreur: Pas d'accès en écriture au dossier {selected_folder['path']}", RED)
                     return
                 
                 dest_path = os.path.join(selected_folder["path"], app_name)
@@ -243,59 +333,165 @@ def main(page: ft.Page):
                 env = os.environ.copy()
                 env["DATA_PATH"] = os.path.join(cwd, "Data")
                 
+                # Ajouter la taille de redimensionnement pour Resize.py
+                if app_name == "Resize.py":
+                    env["RESIZE_SIZE"] = resize_size["value"]
+                
+                # Ajouter la taille de redimensionnement avec watermark pour Resize_watermark.py
+                if app_name == "Resize_watermark.py":
+                    env["RESIZE_WATERMARK_SIZE"] = resize_watermark_size["value"]
+                
                 if platform.system() == "Windows":
                     process = subprocess.Popen(
-                        [sys.executable, app_name],
+                        [sys.executable, "-u", app_name],
                         cwd=selected_folder["path"],
                         env=env,
-                        creationflags=subprocess.CREATE_NEW_CONSOLE
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True
                     )
                 else:
                     process = subprocess.Popen(
-                        [sys.executable, app_name],
+                        [sys.executable, "-u", app_name],
                         cwd=selected_folder["path"],
-                        env=env
+                        env=env,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        bufsize=1,
+                        universal_newlines=True
                     )
+                
+                # Lire la sortie en temps réel
+                def read_output(pipe, color):
+                    for line in iter(pipe.readline, ''):
+                        if line:
+                            log_to_terminal(line.rstrip(), color)
+                    pipe.close()
+                
+                threading.Thread(target=read_output, args=(process.stdout, WHITE), daemon=True).start()
+                threading.Thread(target=read_output, args=(process.stderr, RED), daemon=True).start()
                 
                 # Supprimer le fichier en arrière-plan pour ne pas bloquer l'UI
                 def cleanup():
                     process.wait()
                     try:
                         os.remove(dest_path)
-                        print(f"Fichier supprimé: {dest_path}")
+                        log_to_terminal(f"✓ {app_name} terminé", GREEN)
                     except Exception as err:
-                        print(f"Erreur lors de la suppression du fichier: {err}")
+                        log_to_terminal(f"✗ Erreur lors de la suppression du fichier: {err}", RED)
+                    # Rafraîchir la preview pour afficher les nouveaux dossiers/fichiers créés
+                    request_refresh()
                 
                 threading.Thread(target=cleanup, daemon=True).start()
         except Exception as err:
             print(f"Erreur lors du lancement: {err}")
     
+    # Widget personnalisé pour Resize
+    resize_input = ft.TextField(
+        value="640",
+        width=80,
+        height=35,
+        text_size=13,
+        text_align=ft.TextAlign.CENTER,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        border_color=BLUE,
+        content_padding=ft.Padding(5, 5, 5, 5),
+    )
+    
+    def on_resize_input_change(e):
+        resize_size["value"] = e.control.value
+    
+    resize_input.on_change = on_resize_input_change
+    
+    def launch_resize(e):
+        app_path = os.path.join(cwd, "Data", "Resize.py")
+        if os.path.exists(app_path):
+            launch_app("Resize.py", app_path, False)
+    
+    # Widget personnalisé pour Resize_watermark
+    resize_watermark_input = ft.TextField(
+        value="640",
+        width=80,
+        height=35,
+        text_size=13,
+        text_align=ft.TextAlign.CENTER,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        border_color=ORANGE,
+        content_padding=ft.Padding(5, 5, 5, 5),
+    )
+    
+    def on_resize_watermark_input_change(e):
+        resize_watermark_size["value"] = e.control.value
+    
+    resize_watermark_input.on_change = on_resize_watermark_input_change
+    
+    def launch_resize_watermark(e):
+        app_path = os.path.join(cwd, "Data", "Resize_watermark.py")
+        if os.path.exists(app_path):
+            launch_app("Resize_watermark.py", app_path, False)
+    
     def refresh_apps():
         apps_list.controls.clear()
+        
         for app_name, is_local in apps.items():
             app_path = os.path.join(cwd, "Data", app_name)
             if not os.path.exists(app_path):
                 continue
             
-            apps_list.controls.append(
-                ft.ListTile(
-                    title=ft.Text(
-                        app_name,
-                        size=14,
-                        color=WHITE,
-                        text_align=ft.TextAlign.CENTER,
-                        weight=ft.FontWeight.W_500,
-                        max_lines=3,
-                        margin=ft.Margin.all(3),
-                    ),
-                    on_click=lambda e, name=app_name, path=app_path, local=is_local: launch_app(name, path, local),
-                    on_long_press=lambda e, name=app_name, path=app_path: launch_app(name, path, True),
-                    bgcolor=GREY,
-                    hover_color=LIGHT_GREY,
-                    content_padding=ft.Padding(left=5, top=10, right=5, bottom=10),
-                    shape=ft.RoundedRectangleBorder(radius=4),
+            # Widget spécial pour Resize.py
+            if app_name == "Resize.py":
+                apps_list.controls.append(
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text("Redimensionnement", size=13, color=WHITE, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                            resize_input,
+                            ft.Text("px", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
+                        bgcolor=GREY,
+                        padding=ft.Padding(5, 8, 5, 8),
+                        border_radius=4,
+                        on_click=launch_resize,
+                        ink=True,
+                    )
                 )
-            )
+            # Widget spécial pour Resize_watermark.py
+            elif app_name == "Resize_watermark.py":
+                apps_list.controls.append(
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text("Projet", size=12, color=WHITE, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                            resize_watermark_input,
+                            ft.Text("px", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
+                        bgcolor=GREY,
+                        padding=ft.Padding(5, 8, 5, 8),
+                        border_radius=4,
+                        on_click=launch_resize_watermark,
+                        ink=True,
+                    )
+                )
+            else:
+                apps_list.controls.append(
+                    ft.Container(
+                        content=ft.Text(
+                            app_name,
+                            size=14,
+                            color=WHITE,
+                            text_align=ft.TextAlign.CENTER,
+                            weight=ft.FontWeight.W_500,
+                            max_lines=3,
+                        ),
+                        alignment=ft.alignment.Alignment(0, 0),
+                        on_click=lambda e, name=app_name, path=app_path, local=is_local: launch_app(name, path, local),
+                        bgcolor=GREY,
+                        padding=ft.Padding(10, 10, 10, 10),
+                        border_radius=4,
+                        ink=True,
+                    )
+                )
         page.update()
     
     async def pick_folder(e):
@@ -366,12 +562,13 @@ def main(page: ft.Page):
                             icon_color=BLUE,
                             icon_size=20,
                         ),
-                        ft.IconButton(
+                        ft.ElevatedButton(
+                            "Ouvrir l'explorateur",
                             icon=ft.Icons.FOLDER_OPEN,
-                            tooltip="Ouvrir dans l'explorateur",
                             on_click=lambda e: open_in_file_explorer(current_browse_folder["path"] or selected_folder["path"]),
-                            icon_color=GREEN,
-                            icon_size=20,
+                            bgcolor=GREY,
+                            color=GREEN,
+                            height=35,
                         ),
                         file_count_text,
                     ]),
@@ -383,8 +580,32 @@ def main(page: ft.Page):
                         bgcolor=DARK,
                     )
                 ], expand=True)
-            ], expand=True),
-        ], expand=True, spacing=10)
+            ], expand=True, height=400),
+            ft.Divider(height=1, color=GREY),
+            ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Text("Terminal", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
+                        ft.IconButton(
+                            icon=ft.Icons.CLEAR_ALL,
+                            tooltip="Effacer le terminal",
+                            on_click=clear_terminal,
+                            icon_color=RED,
+                            icon_size=18,
+                        ),
+                    ], spacing=5),
+                    ft.Container(
+                        content=terminal_output,
+                        expand=True,
+                        border=ft.Border.all(1, GREY),
+                        border_radius=8,
+                        bgcolor=DARK,
+                        padding=5,
+                    )
+                ], spacing=5),
+                height=120,
+            ),
+        ], expand=True, spacing=5)
     )
 
 ft.run(main)

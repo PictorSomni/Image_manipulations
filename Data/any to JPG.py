@@ -3,11 +3,9 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-import os
-import shutil
 from pathlib import Path
 from wand.image import Image
- 
+
 #############################################################
 #                           PATH                            #
 #############################################################
@@ -27,14 +25,10 @@ def folder(folder_name):
 #############################################################
 #                           MAIN                            #
 #############################################################
-
+print(f"Conversion en JPG")
 for i, file in enumerate(FOLDER):
     file_name = file.stem
-    file_extension = file.suffix
-
-    os.system('cls' if os.name == 'nt' else 'clear')
-    print(f"{file_extension} en JPG")
-    print("#" * 32 + "\n")
+    file_extension = file.suffix.lower()
     print(f"Image {i+1} sur {TOTAL}")
     folder(f"{file_extension[1:]}")
 
@@ -47,6 +41,6 @@ for i, file in enumerate(FOLDER):
         jpg_path = PATH / f"{file_name}.jpg"
         image.save(filename=str(jpg_path))
         dest_folder = PATH / f"{file_extension[1:]}"
-        shutil.move(str(file), str(dest_folder / file.name))
+        file.rename(dest_folder / file.name)
 
 print("Terminé")

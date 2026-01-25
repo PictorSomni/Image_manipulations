@@ -5,7 +5,6 @@
 from pathlib import Path
 import os
 import re
-from time import sleep
 from PIL import Image, ImageOps, ImageFile
 #############################################################
 #                           SIZE                            #
@@ -48,13 +47,12 @@ HEIGHT_DPI = round((float(HEIGHT) / 25.4) * DPI)
 #############################################################
 #                           MAIN                            #
 #############################################################
-os.system('cls' if os.name == 'nt' else 'clear')
-print("Remerciements Funéraires")
-print("#" * 30 + "\n")
-
+IMAGES = []  # Initialiser la liste des images
 new_image = Image.new('RGB', (WIDTH_DPI * 2, HEIGHT_DPI))
 
-for file in FOLDER :
+for i, file in enumerate(FOLDER) :
+    print(f"Image {i+1} sur {len(FOLDER)}")
+    print(file)
     file_name = re.search(r"([\w\s]+).\w+", file)
 
     if any(required_name in file_name.group(1).lower() for required_name in REQUIRED) == True and not any(forbidden_name in file_name.group(1).lower() for forbidden_name in FORBIDDEN) == True :
@@ -82,7 +80,7 @@ for image in IMAGES :
         continue
     else :
         project.paste(watermark, watermark)
-        project.convert("RGB").save(f"{PATH}\\Projet_{image}", format="JPEG", subsampling=0, quality=QUALITY)
+        project.convert("RGB").save(PATH / f"Projet_{image}", format="JPEG", subsampling=0, quality=QUALITY)
         print(f"{image} : Projet OK")
 
     if duo == True :
@@ -92,8 +90,7 @@ for image in IMAGES :
         cropped_image = ImageOps.fit(base_image, (WIDTH_DPI, HEIGHT_DPI))
         new_image.paste(cropped_image, (0, 0))
         new_image.paste(cropped_image, (WIDTH_DPI, 0))
-        new_image.convert("RGB").save(f"{PATH}\\10x15_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+        new_image.convert("RGB").save(PATH / f"10x15_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
         print(f"{image} : 2 en 1 OK")
 
 print("Terminé !")
-sleep(1)

@@ -3,8 +3,6 @@
 #                          IMPORTS                          #
 #############################################################
 from pathlib import Path
-import os
-from time import sleep
 from PIL import Image, ImageFile, ImageOps
 
 DPI = 300
@@ -40,14 +38,13 @@ def folder(folder) :
 #                           MAIN                            #
 #############################################################
 for i, file in enumerate(FOLDER):
-    os.system('cls' if os.name == 'nt' else 'clear')
     print("Image {} sur {}".format(i+1, TOTAL))
 
     try:
         file_path = PATH / file
         base_image = Image.open(file_path)
-    except Exception:
-        print(Exception)
+    except Exception as e:
+        print(e)
     else:
         folder("13x15")
 
@@ -64,5 +61,4 @@ for i, file in enumerate(FOLDER):
         output_folder = PATH / "13x15"
         print_size.save(str(output_folder / f"{filename}.jpg"), dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 print("Terminé !")
-sleep(1)
 # input("Terminé !\nAppuyez sur une touche pour fermer")

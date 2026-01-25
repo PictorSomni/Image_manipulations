@@ -3,12 +3,7 @@
 #                          IMPORTS                          #
 #############################################################
 from pathlib import Path
-import sys
-import re
-from time import sleep
 from PIL import Image, ImageFilter
-
-
 
 #############################################################
 #                           PATH                            #
@@ -27,14 +22,11 @@ def folder(folder) :
     folder_path = PATH / folder
     folder_path.mkdir(exist_ok=True)
 
-
 #############################################################
 #                           MAIN                            #
 #############################################################
 for i, file in enumerate(FOLDER):
     folder("NET")
-    os.system('cls' if os.name == 'nt' else 'clear')
-    print(f"Renforcement netteté")
     print("Image {} sur {}".format(i+1, TOTAL))
 
     if file != "watermark.png":
@@ -53,5 +45,3 @@ for i, file in enumerate(FOLDER):
             base_image.save(str(output_folder / file), format="JPEG", subsampling=0, quality=100)
 
 print("Terminé !")
-sleep(1)
-# input("Terminé !\nAppuyez sur une touche pour fermer")

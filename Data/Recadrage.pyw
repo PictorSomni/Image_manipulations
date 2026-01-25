@@ -20,6 +20,7 @@ FORMATS = {
     "13x18 (127x178mm)": (127, 178),
     "15x20 (152x203mm)": (152, 203),
     "15x15 (152x152mm)": (152, 152),
+    "18x24 (178x240mm)": (178, 240),
     "20x30 (203x305mm)": (203, 305),
     "ID (36x46mm)": (36, 46),
 }
@@ -57,7 +58,9 @@ class PhotoCropper:
         self.current_format = FORMATS["10x15 (102x152mm)"]
         self.current_format_label = "10x15 (102x152mm)"
         self.border_13x15 = False
+        self.border_20x24 = False
         self.border_13x10 = False
+        self.border_polaroid = False
         self.border_id2 = False
         self.border_id4 = False
         self.canvas_w = 800  # Valeur initiale, ajustée au chargement
@@ -126,7 +129,9 @@ class PhotoCropper:
         )
 
         self.border_switch_13x15 = ft.Switch(label="13x15", active_color=ORANGE, value=False, visible=True if "10x15" in self.current_format_label else False, on_change=self.on_border_toggle_13x15)
+        self.border_switch_20x24 = ft.Switch(label="20x24", active_color=ORANGE, value=False, visible=True if "18x24" in self.current_format_label else False, on_change=self.on_border_toggle_20x24)
         self.border_switch_13x10 = ft.Switch(label="13x10", active_color=ORANGE, value=False, visible=True if "10x10" in self.current_format_label else False, on_change=self.on_border_toggle_13x10)
+        self.border_switch_polaroid = ft.Switch(label="Polaroid", active_color=ORANGE, value=False, visible=True if "10x10" in self.current_format_label else False, on_change=self.on_border_toggle_polaroid)
         self.border_switch_ID2 = ft.Switch(label="ID X2", active_color=ORANGE, value=False, visible=True if "ID" in self.current_format_label else False, on_change=self.on_border_toggle_id2)
         self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=ORANGE, value=False, visible=True if "ID" in self.current_format_label else False, on_change=self.on_border_toggle_id4)
         self.bw_switch = ft.Switch(label="Noir et blanc", active_color=ORANGE, value=False, on_change=self.on_bw_toggle)
@@ -212,11 +217,20 @@ class PhotoCropper:
         else:
             self.border_switch_13x15.visible = False
 
+        if "18x24" in self.current_format_label:
+            self.border_switch_20x24.visible = True
+            self.border_switch_20x24.value = self.border_20x24
+        else:
+            self.border_switch_20x24.visible = False
+
         if "10x10" in self.current_format_label:
             self.border_switch_13x10.visible = True
             self.border_switch_13x10.value = self.border_13x10
+            self.border_switch_polaroid.visible = True
+            self.border_switch_polaroid.value = self.border_polaroid
         else:
             self.border_switch_13x10.visible = False
+            self.border_switch_polaroid.visible = False
 
         if "ID" in self.current_format_label:
             self.border_switch_ID2.visible = True
@@ -447,6 +461,20 @@ class PhotoCropper:
             pil_crop = framed
             fmt_short = "13x15"
 
+        if self.border_20x24 and "18x24" in fmt_short:
+            ratio_20_24 = 203 / 240
+            
+            if self.canvas_is_portrait:
+                target_w = int(pil_crop.height * ratio_20_24)
+                framed = Image.new("RGB", (target_w, pil_crop.height), "white")
+                framed.paste(pil_crop, (0, 0))
+            else:
+                target_h = int(pil_crop.width * ratio_20_24)
+                framed = Image.new("RGB", (pil_crop.width, target_h), "white")
+                framed.paste(pil_crop, (0, 0))
+            pil_crop = framed
+            fmt_short = "20x24"
+
         if self.border_13x10 and "10x10" in fmt_short:
             ratio_13_10 = 127 / 102
             
@@ -460,6 +488,19 @@ class PhotoCropper:
                 framed.paste(pil_crop, (0, 0))
             pil_crop = framed
             fmt_short = "13x10"
+
+        if self.border_polaroid and "10x10" in fmt_short:
+            # Image 102x102mm dans un format 127x152mm (polaroid)
+            POLAROID_WIDTH_PX = mm_to_pixels(127)
+            POLAROID_HEIGHT_PX = mm_to_pixels(152)
+            
+            framed = Image.new("RGB", (POLAROID_WIDTH_PX, POLAROID_HEIGHT_PX), "white")
+            # Centrer l'image 102x102 dans le cadre 127x152
+            x_offset = (POLAROID_WIDTH_PX - pil_crop.width) // 2
+            y_offset = x_offset  # Même espace en haut que sur les côtés
+            framed.paste(pil_crop, (x_offset, y_offset))
+            pil_crop = framed
+            fmt_short = "Polaroid"
 
         # Gestion des layouts ID : ID X4 prioritaire sur ID X2
         if self.border_id4 and "ID" in self.current_format_label:
@@ -549,6 +590,9 @@ class PhotoCropper:
             pass
         if "10x15" in self.current_format_label:
             self.border_switch_13x15.visible = True
+            self.border_switch_20x24.visible = False
+            self.border_switch_20x24.value = False
+            self.border_20x24 = False
             self.border_switch_13x10.visible = False
             self.border_switch_13x10.value = False
             self.border_13x10 = False
@@ -557,8 +601,25 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
 
+        elif "18x24" in self.current_format_label:
+            self.border_switch_20x24.visible = True
+            self.border_switch_13x15.visible = False
+            self.border_switch_13x15.value = False
+            self.border_13x15 = False
+            self.border_switch_13x10.visible = False
+            self.border_switch_13x10.value = False
+            self.border_13x10 = False
+            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.value = False
+            self.border_switch_ID4.visible = False
+            self.border_switch_ID4.value = False
+            self.border_switch_polaroid.visible = False
+            self.border_switch_polaroid.value = False
+            self.border_polaroid = False
+
         elif "10x10" in self.current_format_label:
             self.border_switch_13x10.visible = True
+            self.border_switch_polaroid.visible = True
             self.border_switch_13x15.visible = False
             self.border_switch_13x15.value = False
             self.border_13x15 = False
@@ -575,10 +636,16 @@ class PhotoCropper:
             self.border_switch_13x10.visible = False
             self.border_switch_13x10.value = False
             self.border_13x10 = False
+            self.border_switch_polaroid.visible = False
+            self.border_switch_polaroid.value = False
+            self.border_polaroid = False
         else:
             self.border_switch_13x15.visible = False
             self.border_switch_13x15.value = False
             self.border_13x15 = False
+            self.border_switch_20x24.visible = False
+            self.border_switch_20x24.value = False
+            self.border_20x24 = False
             self.border_switch_13x10.visible = False
             self.border_switch_13x10.value = False
             self.border_13x10 = False
@@ -586,6 +653,9 @@ class PhotoCropper:
             self.border_switch_ID2.value = False
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
+            self.border_switch_polaroid.visible = False
+            self.border_switch_polaroid.value = False
+            self.border_polaroid = False
         self.update_canvas_size()
         if self.image_paths:
             self.load_image(preserve_orientation=True)
@@ -593,9 +663,25 @@ class PhotoCropper:
     def on_border_toggle_13x15(self, e):
         self.border_13x15 = bool(e.control.value)
 
+    def on_border_toggle_20x24(self, e):
+        self.border_20x24 = bool(e.control.value)
+
     def on_border_toggle_13x10(self, e):
         self.border_13x10 = bool(e.control.value)
+        # Désactiver Polaroid si 13x10 est activé
+        if self.border_13x10:
+            self.border_polaroid = False
+            self.border_switch_polaroid.value = False
+            self.page.update()
     
+    def on_border_toggle_polaroid(self, e):
+        self.border_polaroid = bool(e.control.value)
+        # Désactiver 13x10 si Polaroid est activé
+        if self.border_polaroid:
+            self.border_13x10 = False
+            self.border_switch_13x10.value = False
+            self.page.update()
+
     def on_border_toggle_id2(self, e):
         self.border_id2 = bool(e.control.value)
         # Désactiver ID X4 si ID X2 est activé
@@ -634,6 +720,8 @@ class PhotoCropper:
         self.border_switch_13x15.visible = True if "10x15" in self.current_format_label else False
 
         self.border_switch_13x10.visible = True if "10x10" in self.current_format_label else False
+
+        self.border_switch_polaroid.visible = True if "10x10" in self.current_format_label else False
 
         self.border_switch_ID2.visible = True if "ID" in self.current_format_label else False
 
@@ -681,7 +769,9 @@ def main(page: ft.Page):
             on_change=app.change_ratio
         ),
         app.border_switch_13x15,
+        app.border_switch_20x24,
         app.border_switch_13x10,
+        app.border_switch_polaroid,
         app.border_switch_ID2,
         app.border_switch_ID4,
         ft.Divider(),

@@ -4,7 +4,6 @@
 #############################################################
 from pathlib import Path
 import os
-from time import sleep
 from PIL import Image
 
 PROJECT = False
@@ -38,14 +37,11 @@ def folder(folder) :
 #############################################################
 #                           MAIN                            #
 #############################################################
+folder("Projet")
 for i, file in enumerate(FOLDER):
-    os.system('cls' if os.name == 'nt' else 'clear')
-    print(f"Conversion en {MAXSIZE}px + renommage + filigrane")
-    print("Image {} sur {}".format(i+1, TOTAL))
-    folder("Projet")
+    print(f"Image {i+1} sur {TOTAL}")
     if any(exception_name in file.lower() for exception_name in EXCEPTIONS):
         print("Image ignorée (exception)")
-        sleep(0.5)
         continue
 
     try:
@@ -74,5 +70,3 @@ for i, file in enumerate(FOLDER):
         base_image.convert("RGB").save(str(output_folder / f"{filename}.jpg"), format="JPEG", subsampling=0, quality=QUALITY)
 
 print("Terminé !")
-sleep(1)
-# input("Terminé !\nAppuyez sur une touche pour fermer")
