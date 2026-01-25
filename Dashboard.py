@@ -45,9 +45,9 @@ def main(page: ft.Page):
         "Remerciements.py": False,
         "jpeg 2 jpg.py": False,
         "Polaroid.py": False,
-        "FIT_PRINT_13X10.py": False,
+        "FIT_PRINT_13x10.py": False,
         "2-in-1.py": False,
-        "FIT_PRINT_13X15.py": False,
+        "FIT_PRINT_13x15.py": False,
     }
     
     folder_path = ft.TextField(
@@ -239,16 +239,22 @@ def main(page: ft.Page):
                 dest_path = os.path.join(selected_folder["path"], app_name)
                 shutil.copy(app_path, dest_path)
                 
+                # Préparer l'environnement avec le chemin du dossier Data
+                env = os.environ.copy()
+                env["DATA_PATH"] = os.path.join(cwd, "Data")
+                
                 if platform.system() == "Windows":
                     process = subprocess.Popen(
                         [sys.executable, app_name],
                         cwd=selected_folder["path"],
+                        env=env,
                         creationflags=subprocess.CREATE_NEW_CONSOLE
                     )
                 else:
                     process = subprocess.Popen(
                         [sys.executable, app_name],
-                        cwd=selected_folder["path"]
+                        cwd=selected_folder["path"],
+                        env=env
                     )
                 
                 # Supprimer le fichier en arrière-plan pour ne pas bloquer l'UI

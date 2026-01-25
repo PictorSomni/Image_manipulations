@@ -2,8 +2,8 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+from pathlib import Path
 import os
-from time import sleep
 from PIL import Image, ImageOps, ImageFile
 
 #############################################################
@@ -18,8 +18,8 @@ START = 1          # Start number to count, if needed
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = os.path.dirname(os.path.abspath(__file__))
-os.chdir(PATH)
+PATH = Path(__file__).resolve().parent
+
 
 #############################################################
 #                         CONTENT                           #
@@ -27,7 +27,7 @@ os.chdir(PATH)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 EXTENSION = (".jpg", ".jpeg", ".png")
-FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
+FOLDER = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png"]
 TOTAL = len(FOLDER)
 DUO = ["recto", "verso", "duo"]
 DOUBLE = False
@@ -42,9 +42,9 @@ def mm_to_pixels(mm, dpi) :
 WIDTH_DPI = mm_to_pixels(WIDTH, DPI)
 HEIGHT_DPI = mm_to_pixels(HEIGHT, DPI)
 
-def folder(folder) :
-    if not os.path.exists(PATH + f"\\{folder}") :
-        os.makedirs(PATH + f"\\{folder}")
+def folder(folder_name):
+    folder_path = PATH / folder_name
+    folder_path.mkdir(exist_ok=True)
 
 #############################################################
 #                           MAIN                            #
@@ -86,11 +86,12 @@ while len(FOLDER) > 0:
             new_image.paste(cropped_image, (x_offset, 0))
             x_offset += WIDTH_DPI
 
-        if DOUBLE :
-            new_image.save(f"{PATH}\\{WIDTH * 2}x{HEIGHT}\\{IMAGE_NAME}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+        output_folder = PATH / f"{WIDTH * 2}x{HEIGHT}"
+        if DOUBLE:
+            new_image.save(str(output_folder / IMAGE_NAME), dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
             DOUBLE = False
-        else :
-            new_image.save(f"{PATH}\\{WIDTH * 2}x{HEIGHT}\\{START:03}.jpg", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+        else:
+            new_image.save(str(output_folder / f"{START:03}.jpg"), dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 
         index += 1
         START += 1

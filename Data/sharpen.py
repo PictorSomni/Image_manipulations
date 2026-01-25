@@ -2,7 +2,7 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-import os
+from pathlib import Path
 import sys
 import re
 from time import sleep
@@ -13,20 +13,19 @@ from PIL import Image, ImageFilter
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = os.path.dirname(os.path.abspath(__file__))
-os.chdir(PATH)
+PATH = Path(__file__).resolve().parent
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
 EXTENSION = (".JPG", ".JPEG", ".PNG")
-FOLDER = [file for file in sorted(os.listdir()) if file.upper().endswith(EXTENSION) and not file == "watermark.png"]
+FOLDER = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.upper() in EXTENSION and file.name != "watermark.png"]
 TOTAL = len(FOLDER)
 
 
 def folder(folder) :
-    if not os.path.exists(PATH + f"\\{folder}") :
-        os.makedirs(PATH + f"\\{folder}")
+    folder_path = PATH / folder
+    folder_path.mkdir(exist_ok=True)
 
 
 #############################################################
@@ -49,7 +48,9 @@ for i, file in enumerate(FOLDER):
             base_image = base_image.filter(ImageFilter.UnsharpMask(radius=4, percent=42, threshold=0))
             base_image = base_image.filter(ImageFilter.UnsharpMask(radius=2, percent=42, threshold=0))
             # base_image = base_image.filter(ImageFilter.SHARPEN)
-            base_image.save(f"{PATH}\\NET\\{file}", format="JPEG", subsampling=0, quality=100)
+            output_folder = PATH / "NET"
+            output_folder.mkdir(exist_ok=True)
+            base_image.save(str(output_folder / file), format="JPEG", subsampling=0, quality=100)
 
 print("Terminé !")
 sleep(1)

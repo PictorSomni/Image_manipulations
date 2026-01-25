@@ -2,6 +2,7 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+from pathlib import Path
 import os
 from time import sleep
 from PIL import Image
@@ -15,21 +16,24 @@ ALPHA = 0.35
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = os.path.dirname(os.path.abspath(__file__))
-os.chdir(PATH)
+PATH = Path(__file__).resolve().parent
+
+# Récupère le chemin du dossier Data depuis l'environnement (si lancé via Dashboard)
+# Sinon utilise le dossier parent du script
+DATA_PATH = Path(os.environ.get("DATA_PATH", PATH))
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
-EXTENSION = (".JPG", ".JPEG", ".PNG", "GIF")
-FOLDER = [file for file in sorted(os.listdir()) if file.upper().endswith(EXTENSION) and not file == "watermark.png"]
-WATERMARK = "C:\\Users\\charl\\Documents\\PYTHON\\Image manipulation\\Data\\watermark.png"
+EXTENSION = (".JPG", ".JPEG", ".PNG", ".GIF")
+FOLDER = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.upper() in EXTENSION and file.name != "watermark.png"]
+WATERMARK = str(DATA_PATH / "watermark.png")
 TOTAL = len(FOLDER)
 EXCEPTIONS = ("projet", "fogra29")
 
 def folder(folder) :
-    if not os.path.exists(PATH + f"\\{folder}") :
-        os.makedirs(PATH + f"\\{folder}")
+    folder_path = PATH / folder
+    folder_path.mkdir(exist_ok=True)
 
 #############################################################
 #                           MAIN                            #
@@ -64,8 +68,10 @@ for i, file in enumerate(FOLDER):
         continue
     else :
         base_image.paste(watermark, watermark)
-        filename = file.split(".")[0]
-        base_image.convert("RGB").save(f"{PATH}\\Projet\\{filename}.jpg", format="JPEG", subsampling=0, quality=QUALITY)
+        filename = Path(file).stem
+        output_folder = PATH / "Projet"
+        output_folder.mkdir(exist_ok=True)
+        base_image.convert("RGB").save(str(output_folder / f"{filename}.jpg"), format="JPEG", subsampling=0, quality=QUALITY)
 
 print("Terminé !")
 sleep(1)

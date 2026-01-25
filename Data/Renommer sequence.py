@@ -2,7 +2,7 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-import os
+from pathlib import Path
 import sys
 from time import sleep
 from token import NAME
@@ -17,8 +17,7 @@ NAME = "StudioC" #Optional, if you want to name your file before the iteration.
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = os.path.dirname(os.path.abspath(__file__))
-os.chdir(PATH)
+PATH = Path(__file__).resolve().parent
 
 #############################################################
 #                         CONTENT                           #
@@ -26,7 +25,7 @@ os.chdir(PATH)
 console = Console()
 
 EXTENSION = (".JPG", ".JPEG", ".PNG")
-FOLDER = [file for file in os.listdir() if file.upper().endswith(EXTENSION) and not file == "watermark.png"]
+FOLDER = [file.name for file in PATH.iterdir() if file.is_file() and file.suffix.upper() in EXTENSION and file.name != "watermark.png"]
 
 ## Clears the terminal
 def clear():

@@ -2,9 +2,9 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+from pathlib import Path
 import os
 import sys
-import re
 from time import monotonic
 from rich import print
 from rich.console import Console
@@ -12,14 +12,13 @@ from rich.console import Console
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = os.path.dirname(os.path.abspath(__file__))
-os.chdir(PATH)
+PATH = Path(__file__).resolve().parent
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
 console = Console()
-FOLDER = [file for file in os.listdir() if file.lower().endswith(".jpeg")]
+FOLDER = [file.name for file in PATH.iterdir() if file.is_file() and file.suffix.lower() == ".jpeg"]
 
 ## Clears the terminal
 def clear():
@@ -41,8 +40,10 @@ print("[violet]~[/violet]" * 23)
 with console.status("[bold blue]En cours...") as status:
     for file in FOLDER:
         try:
-            filename  = os.path.splitext(file)[0]
-            os.rename(file, f"{filename}.jpg")
+            file_path = PATH / file
+            filename = file_path.stem
+            new_file = file_path.with_suffix('.jpg')
+            file_path.rename(new_file)
         except FileExistsError:
             print(f"[red]Erreur:[/red] Le fichier [yellow]{filename}.jpg[/yellow] existe déjà.")
             pass

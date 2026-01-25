@@ -2,11 +2,11 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+from pathlib import Path
 import os
 import re
 from time import sleep
 from PIL import Image, ImageOps, ImageFile
-from time import sleep
 #############################################################
 #                           SIZE                            #
 #############################################################
@@ -20,8 +20,11 @@ ALPHA = 0.42
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = os.path.dirname(os.path.abspath(__file__))
-os.chdir(PATH)
+PATH = Path(__file__).resolve().parent
+
+# Récupère le chemin du dossier Data depuis l'environnement (si lancé via Dashboard)
+# Sinon utilise le dossier parent du script
+DATA_PATH = Path(os.environ.get("DATA_PATH", PATH))
 
 #############################################################
 #                         CONTENT                           #
@@ -29,8 +32,8 @@ os.chdir(PATH)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 EXTENSION = (".jpg", ".jpeg", ".png")
-FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
-WATERMARK = "C:\\Users\\charl\\Documents\\PYTHON\\Image manipulation\\Data\\watermark.png"
+FOLDER = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png"]
+WATERMARK = str(DATA_PATH / "watermark.png")
 REQUIRED = ["recto", "verso", "duo"]
 BIG = ["int", "ext"]
 FORBIDDEN = ["10x15", "13x18", "projet"]

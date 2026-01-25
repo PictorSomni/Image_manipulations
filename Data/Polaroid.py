@@ -2,7 +2,7 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-import os
+from pathlib import Path
 import sys
 import re
 from PIL import Image, ImageOps, ImageFile
@@ -15,8 +15,7 @@ DPI = 300       # DPI
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = os.path.dirname(os.path.abspath(__file__))
-os.chdir(PATH)
+PATH = Path(__file__).resolve().parent
 
 #############################################################
 #                         CONTENT                           #
@@ -24,7 +23,7 @@ os.chdir(PATH)
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 EXTENSION = (".jpg", ".jpeg", ".png")
-FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
+FOLDER = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png"]
 IMAGES = []
 
 #############################################################

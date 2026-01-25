@@ -12,7 +12,6 @@ from wand.image import Image
 #                           PATH                            #
 #############################################################
 PATH = Path(__file__).resolve().parent
-os.chdir(PATH)
 
 #############################################################
 #                         CONTENT                           #

@@ -2,23 +2,21 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+from pathlib import Path
 import os
-import sys
-import re
 from time import sleep
 from PIL import Image
 
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = os.path.dirname(os.path.abspath(__file__))
-os.chdir(PATH)
+PATH = Path(__file__).resolve().parent
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
 EXTENSION = (".JPG", ".JPEG", ".PNG", ".DNG")
-FOLDER = [file for file in sorted(os.listdir()) if file.upper().endswith(EXTENSION) and not file == "watermark.png"]
+FOLDER = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.upper() in EXTENSION and file.name != "watermark.png"]
 TOTAL = len(FOLDER)
 
 #############################################################
@@ -29,13 +27,13 @@ for i, file in enumerate(FOLDER):
     print(f"Aurevoir EXIFS !")
     print("Image {} sur {}".format(i+1, TOTAL))
 
-    filename = file.split(".")[0]
+    filename = Path(file).stem
     try:
-        base_image = Image.open(file)
+        base_image = Image.open(PATH / file)
     except Exception:
         continue
     else:
-        base_image.convert("RGB").save(f"{PATH}\\{filename}.jpg", format="JPEG", subsampling=0, quality=100)
+        base_image.convert("RGB").save(str(PATH / f"{filename}.jpg"), format="JPEG", subsampling=0, quality=100)
 
 print("Terminé !")
 sleep(1)
