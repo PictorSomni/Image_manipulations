@@ -1,0 +1,12 @@
+# Dashboard Image Manipulation - Dependencies
+# Compatible: Windows, macOS, Linux
+
+# Interface graphique
+flet>=0.80.0
+
+# Traitement d'images
+Pillow>=10.0.0
+Wand>=0.6.11
+
+# Interface console améliorée
+rich>=13.0.0
