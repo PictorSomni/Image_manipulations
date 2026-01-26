@@ -73,6 +73,7 @@ class PhotoCropper:
         self.base_scale = 1.0
         self.drag_start_x = 0.0
         self.drag_start_y = 0.0
+        self.pinch_start_scale = 1.0  # Scale au début du pinch
 
         # Option noir et blanc
         self.is_bw = False
@@ -103,6 +104,8 @@ class PhotoCropper:
             on_pan_start=self.on_pan_start,
             on_pan_update=self.on_pan_update,
             on_scroll=self.on_scroll,
+            on_scale_start=self.on_scale_start,
+            on_scale_update=self.on_scale_update,
             drag_interval=10,
         )
 
@@ -346,6 +349,51 @@ class PhotoCropper:
         old_scale = self.scale
         # Scale minimum = 1.0 pour que l'image couvre toujours le canvas
         self.scale = max(1.0, min(10, self.scale * zoom_factor))
+        
+        # Ajuster l'offset pour zoomer vers le centre du canvas
+        if old_scale != self.scale:
+            ratio = self.scale / old_scale
+            self.offset_x *= ratio
+            self.offset_y *= ratio
+        
+        # Appliquer les limites après le zoom
+        zoomed_w = self.display_w * self.scale
+        zoomed_h = self.display_h * self.scale
+        
+        # Calculer la position
+        left = (self.canvas_w - zoomed_w) / 2 + self.offset_x
+        top = (self.canvas_h - zoomed_h) / 2 + self.offset_y
+        
+        # Limiter le déplacement
+        if zoomed_w > self.canvas_w:
+            max_left = 0
+            min_left = self.canvas_w - zoomed_w
+            left = max(min_left, min(max_left, left))
+            self.offset_x = left - (self.canvas_w - zoomed_w) / 2
+        else:
+            self.offset_x = 0
+        
+        if zoomed_h > self.canvas_h:
+            max_top = 0
+            min_top = self.canvas_h - zoomed_h
+            top = max(min_top, min(max_top, top))
+            self.offset_y = top - (self.canvas_h - zoomed_h) / 2
+        else:
+            self.offset_y = 0
+
+        self._clamp_offsets()
+        self._update_transform()
+        self.page.update()
+
+    def on_scale_start(self, e: ft.ScaleStartEvent):
+        """Début du pinch-to-zoom (trackpad)"""
+        self.pinch_start_scale = self.scale
+
+    def on_scale_update(self, e: ft.ScaleUpdateEvent):
+        """Pendant le pinch-to-zoom (trackpad)"""
+        old_scale = self.scale
+        # Scale minimum = 1.0 pour que l'image couvre toujours le canvas
+        self.scale = max(1.0, min(10, self.pinch_start_scale * e.scale))
         
         # Ajuster l'offset pour zoomer vers le centre du canvas
         if old_scale != self.scale:
