@@ -3,7 +3,6 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-from calendar import c
 import sys
 import re
 from collections import Counter
@@ -19,7 +18,7 @@ try:
 except ImportError:
     SMB_AVAILABLE = False
     if platform.system() != "Windows":
-        print("[yellow]Note: Installez smbprotocol pour l'accès SMB automatique: pip install smbprotocol[/yellow]")
+        print("Note: Installez smbprotocol pour l'accès SMB automatique: pip install smbprotocol")
 
 #############################################################
 #                           PATH                            #
@@ -112,6 +111,10 @@ def folder(folder_path):
 #############################################################
 #                           MAIN                            #
 #############################################################
+print("Demarrage de order-it gauche...", flush=True)
+print(f"Source: {PATH}", flush=True)
+print(f"Destination: {DESTINATION}", flush=True)
+
 ## Lists all the already sorted id folders at the destination.
 try:
     DESTINATION_FOLDERS = sorted([name for name in list_dir(DESTINATION) if is_dir(join_path(DESTINATION, name))])
@@ -167,14 +170,14 @@ for id in KIOSK_FOLDERS:
 
 ## Browse the sorted dictionnary and copy the right file in the right place.
 for id in RESULT :
-    print(f"\nCommande : {id}")
-    print("~" * 21)
+    print(f"\nCommande : {id}", flush=True)
+    print("~" * 21, flush=True)
     folder(join_path(DESTINATION, id))
 
     for size, files in RESULT[id].items():
         if files :
-            print(f"\n\t{size}")
-            print(f"\t" + "-" * 51)
+            print(f"\n\t{size}", flush=True)
+            print(f"\t" + "-" * 51, flush=True)
             folder(join_path(DESTINATION, id, size))            
 
             ## Isolate the end of the name of each file and puts them on a new list to count them.
@@ -203,4 +206,6 @@ for id in RESULT :
                                 previous_filename = filename
                                 
             filenames.clear()
-sys.exit(1)
+
+print("Termine !", flush=True)
+sys.exit(0)

@@ -108,4 +108,4 @@ for i, file in enumerate(FOLDER):
         print(f"Erreur lors du traitement : {e}")
         continue
 
-print("✓ Terminé !")
+print("Termine !")

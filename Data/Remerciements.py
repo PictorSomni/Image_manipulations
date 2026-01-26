@@ -51,8 +51,6 @@ IMAGES = []  # Initialiser la liste des images
 new_image = Image.new('RGB', (WIDTH_DPI * 2, HEIGHT_DPI))
 
 for i, file in enumerate(FOLDER) :
-    print(f"Image {i+1} sur {len(FOLDER)}")
-    print(file)
     file_name = re.search(r"([\w\s]+).\w+", file)
 
     if any(required_name in file_name.group(1).lower() for required_name in REQUIRED) == True and not any(forbidden_name in file_name.group(1).lower() for forbidden_name in FORBIDDEN) == True :

@@ -5,6 +5,7 @@
 
 import os
 import sys
+from pathlib import Path
 from PIL import Image, ImageFile, ImageOps
 
 #############################################################
@@ -64,4 +65,4 @@ for i, file in enumerate(FOLDER):
         base_image.save(output_path, format='JPEG', subsampling=0, quality=100)
         base_image.close()
         
-print("✓ Terminé !")
+print("Termine !")
