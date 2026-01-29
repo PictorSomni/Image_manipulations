@@ -19,14 +19,29 @@ DEFAULT_SOURCE = Path.home() / "Downloads"
 DEFAULT_DEST = Path(os.environ.get("DEST_FOLDER", "Z:/temp"))
 LAUNCHED_FROM_DASHBOARD = os.environ.get("LAUNCHED_FROM_DASHBOARD") == "1"
 
+# Colors
+DARK = "#23252a"
+BG = "#292c33"
+GREY = "#2f333c"
+LIGHT_GREY = "#62666f"
+BLUE = "#45B8F5"
+GREEN = "#49B76C"
+DARK_ORANGE = "#2A1D18"
+ORANGE = "#e06331"
+RED = "#e17080"
+WHITE = "#adb2be"
+
 #############################################################
 #                           MAIN                            #
 #############################################################
 def main(page: ft.Page):
     page.title = "Copy remaining files"
     page.theme_mode = ft.ThemeMode.DARK
-    page.window.width = 700
-    page.window.height = 400
+    page.bgcolor = BG
+    page.window.title_bar_hidden = True
+    page.window.title_bar_buttons_hidden = True
+    page.window.width = 512
+    page.window.height = 360
     page.window.resizable = False
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.vertical_alignment = ft.MainAxisAlignment.START
@@ -37,25 +52,25 @@ def main(page: ft.Page):
     
     from_folder_text = ft.Text(
         f"Source: {from_folder_path}" if from_folder_path else "Aucun dossier sélectionné",
-        color=ft.Colors.GREEN_400 if from_folder_path else ft.Colors.GREY_400,
+        color=GREEN if from_folder_path else LIGHT_GREY,
         size=12
     )
     to_folder_text = ft.Text(
         f"Destination: {to_folder_path}" if to_folder_path else "Aucun dossier sélectionné",
-        color=ft.Colors.GREEN_400 if to_folder_path else ft.Colors.GREY_400,
+        color=GREEN if to_folder_path else LIGHT_GREY,
         size=12
     )
     status_text = ft.Text(
         "Copie en cours..." if LAUNCHED_FROM_DASHBOARD else "",
-        color=ft.Colors.BLUE if LAUNCHED_FROM_DASHBOARD else ft.Colors.WHITE,
+        color=BLUE if LAUNCHED_FROM_DASHBOARD else WHITE,
         size=14
     )
-    progress_bar = ft.ProgressBar(width=400, color="amber", bgcolor="#eeeeee", visible=LAUNCHED_FROM_DASHBOARD)
+    progress_bar = ft.ProgressBar(width=400, color=ORANGE, bgcolor=LIGHT_GREY, visible=LAUNCHED_FROM_DASHBOARD)
     copy_button = ft.Button(
         "Lancer la copie",
         icon=ft.Icons.COPY,
-        color=ft.Colors.WHITE,
-        bgcolor=ft.Colors.BLUE,
+        color=DARK,
+        bgcolor=BLUE,
         style=ft.ButtonStyle(
             padding=20,
             text_style=ft.TextStyle(size=18, weight=ft.FontWeight.BOLD),
@@ -80,7 +95,7 @@ def main(page: ft.Page):
     open_folder_button = ft.Button(
         "Ouvrir destination",
         icon=ft.Icons.FOLDER,
-        color=ft.Colors.ORANGE,
+        color= ORANGE,
         on_click=open_dest_folder,
         disabled=not to_folder_path,
         visible=not LAUNCHED_FROM_DASHBOARD  # Cacher si lancé depuis Dashboard
@@ -92,7 +107,7 @@ def main(page: ft.Page):
             nonlocal from_folder_path
             from_folder_path = Path(folder)
             from_folder_text.value = f"Source: {from_folder_path}"
-            from_folder_text.color = ft.Colors.GREEN_400
+            from_folder_text.color = GREEN
             from_folder_text.update()
             update_copy_button_state()
             status_text.value = ""
@@ -104,7 +119,7 @@ def main(page: ft.Page):
             nonlocal to_folder_path
             to_folder_path = Path(folder)
             to_folder_text.value = f"Destination: {to_folder_path}"
-            to_folder_text.color = ft.Colors.GREEN_400
+            to_folder_text.color = GREEN
             to_folder_text.update()
             update_copy_button_state()
             status_text.value = ""
@@ -233,16 +248,25 @@ def main(page: ft.Page):
     
     copy_button.on_click = copy_missing_files
     
+    async def close_window(e):
+        await page.window.close()
+
     # Lancer automatiquement la copie si lancé depuis Dashboard
     if LAUNCHED_FROM_DASHBOARD and from_folder_path and to_folder_path:
         page.run_task(copy_missing_files, None)
 
 
     page.add(
-        ft.AppBar(
-            title=ft.Text("Copier fichiers manquants", color=ft.Colors.LIGHT_BLUE),
-            bgcolor=ft.Colors.GREY_900,
-            center_title=True,
+        ft.WindowDragArea(
+            ft.Row([
+                ft.Container(
+                    ft.Text("Copier fichiers", color=WHITE),
+                    bgcolor=BG,
+                    padding=10,
+                ),
+                ft.Container(expand=True),
+                ft.IconButton(ft.Icons.CLOSE, on_click=close_window),
+            ])
         ),
         ft.Container(
             content=ft.Column([
@@ -252,7 +276,7 @@ def main(page: ft.Page):
                             ft.Button(
                                 "Dossier source",
                                 icon=ft.Icons.FOLDER_OPEN,
-                                color=ft.Colors.RED,
+                                color=RED,
                                 on_click=pick_from_folder,
                             ),
                             from_folder_text,
@@ -261,7 +285,7 @@ def main(page: ft.Page):
                             ft.Button(
                                 "Dossier destination",
                                 icon=ft.Icons.FOLDER_OPEN,
-                                color=ft.Colors.GREEN,
+                                color=GREEN,
                                 on_click=pick_to_folder,
                             ),
                             to_folder_text,
