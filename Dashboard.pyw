@@ -27,7 +27,7 @@ def main(page: ft.Page):
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
     page.window.width = 1200
-    page.window.height = 800
+    page.window.height = 820
 
     
     selected_folder = {"path": None}
@@ -37,15 +37,15 @@ def main(page: ft.Page):
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
         "order_it gauche.py": True,
-        "Recadrage.pyw": False,
         "order_it droite.py": True,
-        "any to JPG.py": False,
+        "Transfert vers TEMP.py": True,
         "Renommer sequence.py": False,
         "sharpen.py": False,
+        "any to JPG.py": False,
         "Remerciements.py": False,
         "Clean.py": False,
+        "Recadrage.pyw": False,
         "Renommer nombre photos.py": False,
-        "Copy remaining files.py": True,
         "Resize_watermark.py": False,
         "jpeg 2 jpg.py": False,
         "Resize.py": False,
@@ -110,6 +110,14 @@ def main(page: ft.Page):
     
     # S'abonner au canal refresh
     page.pubsub.subscribe_topic("refresh", on_refresh_preview)
+    
+    def on_navigate_request(topic, folder_path):
+        """Callback pour naviguer vers un dossier depuis un thread"""
+        if folder_path and os.path.isdir(folder_path):
+            navigate_to_folder(folder_path)
+    
+    # S'abonner au canal navigate
+    page.pubsub.subscribe_topic("navigate", on_navigate_request)
     
     def request_refresh():
         """Demande un rafraîchissement de la preview (thread-safe)"""
@@ -292,9 +300,22 @@ def main(page: ft.Page):
             log_to_terminal(f"▶ Lancement de {app_name}...", BLUE)
             
             if is_local:
+                # Préparer l'environnement pour les apps locales
+                env = os.environ.copy()
+                env["DATA_PATH"] = os.path.join(cwd, "Data")
+                
+                # Ajouter le dossier destination pour Transfert vers TEMP.py
+                if app_name == "Transfert vers TEMP.py":
+                    if platform.system() == "Windows":
+                        env["DEST_FOLDER"] = "\\\\diskstation\\travaux en cours\\Z2026\\TEMP"
+                    else:
+                        env["DEST_FOLDER"] = "/Volumes/TRAVAUX EN COURS/Z2026/TEMP"
+                    env["LAUNCHED_FROM_DASHBOARD"] = "1"
+                
                 if platform.system() == "Windows":
                     process = subprocess.Popen(
                         [sys.executable, "-u", app_path],
+                        env=env,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True,
@@ -304,6 +325,7 @@ def main(page: ft.Page):
                 else:
                     process = subprocess.Popen(
                         [sys.executable, "-u", app_path],
+                        env=env,
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
                         text=True,
@@ -313,10 +335,25 @@ def main(page: ft.Page):
                 
                 # Lire la sortie en temps réel
                 def read_output(pipe, color):
-                    for line in iter(pipe.readline, ''):
-                        if line:
-                            log_to_terminal(line.rstrip(), color)
-                    pipe.close()
+                    try:
+                        for line in iter(pipe.readline, ''):
+                            if line:
+                                line_stripped = line.rstrip()
+                                # Ignorer les messages de fermeture de session Flet
+                                if "Session closed" in line_stripped or "session" in line_stripped.lower() and "closed" in line_stripped.lower():
+                                    continue
+                                # Détecter la commande de navigation
+                                if line_stripped.startswith("NAVIGATE_TO:"):
+                                    folder_to_navigate = line_stripped[12:]  # Enlever "NAVIGATE_TO:"
+                                    if os.path.isdir(folder_to_navigate):
+                                        # Utiliser pubsub pour mettre à jour l'UI depuis un thread
+                                        page.pubsub.send_all_on_topic("navigate", folder_to_navigate)
+                                else:
+                                    log_to_terminal(line_stripped, color)
+                    except:
+                        pass
+                    finally:
+                        pipe.close()
                 
                 threading.Thread(target=read_output, args=(process.stdout, WHITE), daemon=True).start()
                 threading.Thread(target=read_output, args=(process.stderr, RED), daemon=True).start()
@@ -333,6 +370,18 @@ def main(page: ft.Page):
                 env = os.environ.copy()
                 env["DATA_PATH"] = os.path.join(cwd, "Data")
                 
+                # Ajouter les chemins ImageMagick pour Wand (Homebrew sur macOS)
+                if platform.system() == "Darwin":
+                    # Chemins Homebrew pour Apple Silicon et Intel
+                    homebrew_paths = ["/opt/homebrew", "/usr/local"]
+                    for brew_path in homebrew_paths:
+                        magick_lib = os.path.join(brew_path, "lib")
+                        if os.path.exists(magick_lib):
+                            env["MAGICK_HOME"] = brew_path
+                            env["DYLD_LIBRARY_PATH"] = magick_lib + ":" + env.get("DYLD_LIBRARY_PATH", "")
+                            env["PATH"] = os.path.join(brew_path, "bin") + ":" + env.get("PATH", "")
+                            break
+                
                 # Ajouter la taille de redimensionnement pour Resize.py
                 if app_name == "Resize.py":
                     env["RESIZE_SIZE"] = resize_size["value"]
@@ -340,6 +389,13 @@ def main(page: ft.Page):
                 # Ajouter la taille de redimensionnement avec watermark pour Resize_watermark.py
                 if app_name == "Resize_watermark.py":
                     env["RESIZE_WATERMARK_SIZE"] = resize_watermark_size["value"]
+                
+                # Ajouter le dossier destination pour Transfert vers TEMP.py
+                if app_name == "Transfert vers TEMP.py":
+                    if platform.system() == "Windows":
+                        env["DEST_FOLDER"] = "Z:/temp"
+                    else:
+                        env["DEST_FOLDER"] = "/Volumes/TRAVAUX EN COURS/Z2026/TEMP"
                 
                 if platform.system() == "Windows":
                     process = subprocess.Popen(

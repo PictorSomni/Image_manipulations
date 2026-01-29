@@ -26,21 +26,27 @@ def folder(folder_name):
 #                           MAIN                            #
 #############################################################
 print(f"Conversion en JPG")
-for i, file in enumerate(FOLDER):
-    file_name = file.stem
-    file_extension = file.suffix.lower()
-    print(f"Image {i+1} sur {TOTAL}")
-    folder(f"{file_extension[1:]}")
+print(f"Dossier de travail: {PATH}")
+print(f"Fichiers trouvés: {TOTAL}")
 
-    try:
-        actual_file = Image(filename=str(file))
-    except Exception:
-        print(Exception)
-    else:
-        image = actual_file.convert('jpg')
-        jpg_path = PATH / f"{file_name}.jpg"
-        image.save(filename=str(jpg_path))
-        dest_folder = PATH / f"{file_extension[1:]}"
-        file.rename(dest_folder / file.name)
+if TOTAL == 0:
+    print("Aucun fichier à convertir trouvé.")
+else:
+    for i, file in enumerate(FOLDER):
+        file_name = file.stem
+        file_extension = file.suffix.lower()
+        print(f"Image {i+1} sur {TOTAL}: {file.name}")
+        folder(f"{file_extension[1:]}")
+
+        try:
+            with Image(filename=str(file)) as actual_file:
+                image = actual_file.convert('jpg')
+                jpg_path = PATH / f"{file_name}.jpg"
+                image.save(filename=str(jpg_path))
+            dest_folder = PATH / f"{file_extension[1:]}"
+            file.rename(dest_folder / file.name)
+            print(f"  [OK] Converti: {file_name}.jpg")
+        except Exception as e:
+            print(f"  [X] Erreur pour {file.name}: {e}")
 
 print("Terminé")
