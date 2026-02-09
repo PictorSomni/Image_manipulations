@@ -33,7 +33,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 EXTENSION = (".jpg", ".jpeg", ".png")
 FOLDER = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png"]
 WATERMARK = str(DATA_PATH / "watermark.png")
-REQUIRED = ["recto", "verso", "duo"]
+REQUIRED = ["recto", "verso", "duo", "_1", "_2"]
 BIG = ["int", "ext"]
 FORBIDDEN = ["10x15", "13x18", "projet"]
 duo = True
@@ -62,7 +62,7 @@ for i, file in enumerate(FOLDER) :
 
 for image in IMAGES :
     base_image = Image.open(image)
-
+        
     project = base_image.copy()
     project.thumbnail((MAXSIZE,MAXSIZE))
     try:
