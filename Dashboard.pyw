@@ -143,8 +143,6 @@ def main(page: ft.Page):
     def copy_terminal_to_clipboard():
         """Copie tout le contenu du terminal dans le presse-papiers"""
         if not terminal_output.controls:
-            page.snack_bar = ft.SnackBar(ft.Text("Le terminal est vide"), bgcolor=ORANGE)
-            page.snack_bar.open = True
             page.update()
             return
         
@@ -166,36 +164,27 @@ def main(page: ft.Page):
                 except FileNotFoundError:
                     process = subprocess.Popen(['xsel', '--clipboard', '--input'], stdin=subprocess.PIPE)
                     process.communicate(terminal_text.encode('utf-8'))
-            
-            # Afficher une confirmation
-            page.snack_bar = ft.SnackBar(
-                ft.Text(f"✓ {len(terminal_output.controls)} lignes copiées dans le presse-papiers"),
-                bgcolor=GREEN
-            )
-            page.snack_bar.open = True
         except Exception as e:
-            page.snack_bar = ft.SnackBar(
-                ft.Text(f"✗ Erreur lors de la copie: {str(e)}"),
-                bgcolor=RED
-            )
-            page.snack_bar.open = True
+            log_to_terminal(f"[ERREUR] Erreur lors de la copie dans le presse-papiers: {e}", RED)
         
         page.update()
     
     def open_in_file_explorer(folder_path):
         """Ouvre le dossier dans l'explorateur de fichiers natif"""
         if not folder_path or not os.path.isdir(folder_path):
+            log_to_terminal("Aucun dossier sélectionné", RED)
             return
         
         try:
             if platform.system() == "Windows":
-                os.startfile(folder_path)
+                subprocess.Popen(f'explorer "{folder_path}"')
             elif platform.system() == "Darwin":  # macOS
                 subprocess.Popen(["open", folder_path])
             else:  # Linux
                 subprocess.Popen(["xdg-open", folder_path])
+            log_to_terminal(f"[OK] Ouverture du dossier: {os.path.basename(folder_path)}", GREEN)
         except Exception as e:
-            print(f"Erreur lors de l'ouverture de l'explorateur: {e}")
+            log_to_terminal(f"[ERREUR] Erreur lors de l'ouverture de l'explorateur: {e}", RED)
     
     def open_file_with_default_app(file_path):
         """Ouvre un fichier avec l'application par défaut du système en premier plan"""
@@ -212,7 +201,7 @@ def main(page: ft.Page):
             else:  # Linux
                 subprocess.Popen(["xdg-open", file_path])
         except Exception as e:
-            print(f"Erreur lors de l'ouverture du fichier: {e}")
+            log_to_terminal(f"[ERREUR] Erreur lors de l'ouverture du fichier: {e}", RED)
     
     def navigate_to_folder(new_path):
         """Navigue vers un dossier dans la preview"""
@@ -250,8 +239,9 @@ def main(page: ft.Page):
                 dialog.open = False
                 page.update()
                 refresh_preview()
+                log_to_terminal(f"[OK] Supprimé: {os.path.basename(file_path)}", GREEN)
             except Exception as err:
-                print(f"Erreur lors de la suppression: {err}")
+                log_to_terminal(f"[ERREUR] Erreur lors de la suppression: {err}", RED)
                 dialog.open = False
                 page.update()
         
@@ -406,7 +396,7 @@ def main(page: ft.Page):
                 
             else:
                 if not os.access(selected_folder["path"], os.W_OK):
-                    log_to_terminal(f"✗ Erreur: Pas d'accès en écriture au dossier {selected_folder['path']}", RED)
+                    log_to_terminal(f"[ERREUR] Erreur: Pas d'accès en écriture au dossier {selected_folder['path']}", RED)
                     return
                 
                 dest_path = os.path.join(selected_folder["path"], app_name)
@@ -481,15 +471,15 @@ def main(page: ft.Page):
                     process.wait()
                     try:
                         os.remove(dest_path)
-                        log_to_terminal(f"✓ {app_name} terminé", GREEN)
+                        log_to_terminal(f"[OK] {app_name} terminé", GREEN)
                     except Exception as err:
-                        log_to_terminal(f"✗ Erreur lors de la suppression du fichier: {err}", RED)
+                        log_to_terminal(f"[ERREUR] Erreur lors de la suppression du fichier: {err}", RED)
                     # Rafraîchir la preview pour afficher les nouveaux dossiers/fichiers créés
                     request_refresh()
                 
                 threading.Thread(target=cleanup, daemon=True).start()
         except Exception as err:
-            print(f"Erreur lors du lancement: {err}")
+            log_to_terminal(f"[ERREUR] Erreur lors du lancement: {err}", RED)
     
     # Widget personnalisé pour Resize
     resize_input = ft.TextField(

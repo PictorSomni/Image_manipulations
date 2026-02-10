@@ -781,9 +781,20 @@ class PhotoCropper:
         if not self.image_paths or self.current_index >= len(self.image_paths):
             self.status_text.value = "Toutes les images ont été traitées."
             self.page.update()
+            import asyncio
+            asyncio.create_task(self.close_window())
             return
         
         self.current_index += 1
+        
+        # Vérifier si on a atteint la fin après l'incrémentation
+        if self.current_index >= len(self.image_paths):
+            self.status_text.value = "Toutes les images ont été traitées."
+            self.page.update()
+            import asyncio
+            asyncio.create_task(self.close_window())
+            return
+            
         self.status_text.value = "Image ignorée."
         self.load_image(preserve_orientation=True)
         self.page.update()
