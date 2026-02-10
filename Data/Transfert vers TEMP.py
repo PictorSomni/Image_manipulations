@@ -40,7 +40,7 @@ def main(page: ft.Page):
     page.bgcolor = BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width = 512
+    page.window.width = 640
     page.window.height = 360
     page.window.resizable = False
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER

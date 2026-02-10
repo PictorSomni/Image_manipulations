@@ -93,13 +93,17 @@ def main(page: ft.Page):
     
     def on_terminal_message(topic, message):
         """Callback pour les messages pubsub"""
-        msg, color = message
-        terminal_output.controls.append(
-            ft.Text(msg, size=13, color=color, font_family="monospace")
-        )
-        if len(terminal_output.controls) > 200:
-            terminal_output.controls.pop(0)
-        page.update()
+        try:
+            msg, color = message
+            terminal_output.controls.append(
+                ft.Text(msg, size=13, color=color, font_family="monospace")
+            )
+            if len(terminal_output.controls) > 200:
+                terminal_output.controls.pop(0)
+            page.update()
+        except Exception:
+            # Ignore errors if page is closing or already destroyed
+            pass
     
     # S'abonner au canal terminal
     page.pubsub.subscribe_topic("terminal", on_terminal_message)
@@ -134,6 +138,48 @@ def main(page: ft.Page):
     def clear_terminal(e):
         """Efface le contenu du terminal"""
         terminal_output.controls.clear()
+        page.update()
+    
+    def copy_terminal_to_clipboard():
+        """Copie tout le contenu du terminal dans le presse-papiers"""
+        if not terminal_output.controls:
+            page.snack_bar = ft.SnackBar(ft.Text("Le terminal est vide"), bgcolor=ORANGE)
+            page.snack_bar.open = True
+            page.update()
+            return
+        
+        # Extraire le texte de chaque contrôle Text
+        terminal_text = "\n".join([ctrl.value for ctrl in terminal_output.controls if hasattr(ctrl, 'value')])
+        
+        # Copier dans le presse-papiers en utilisant les commandes système
+        try:
+            if platform.system() == "Darwin":  # macOS
+                process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
+                process.communicate(terminal_text.encode('utf-8'))
+            elif platform.system() == "Windows":
+                process = subprocess.Popen(['clip'], stdin=subprocess.PIPE)
+                process.communicate(terminal_text.encode('utf-16'))
+            else:  # Linux
+                try:
+                    process = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE)
+                    process.communicate(terminal_text.encode('utf-8'))
+                except FileNotFoundError:
+                    process = subprocess.Popen(['xsel', '--clipboard', '--input'], stdin=subprocess.PIPE)
+                    process.communicate(terminal_text.encode('utf-8'))
+            
+            # Afficher une confirmation
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"✓ {len(terminal_output.controls)} lignes copiées dans le presse-papiers"),
+                bgcolor=GREEN
+            )
+            page.snack_bar.open = True
+        except Exception as e:
+            page.snack_bar = ft.SnackBar(
+                ft.Text(f"✗ Erreur lors de la copie: {str(e)}"),
+                bgcolor=RED
+            )
+            page.snack_bar.open = True
+        
         page.update()
     
     def open_in_file_explorer(folder_path):
@@ -642,6 +688,13 @@ def main(page: ft.Page):
                 content=ft.Column([
                     ft.Row([
                         ft.Text("Terminal", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
+                        ft.IconButton(
+                            icon=ft.Icons.COPY_ALL,
+                            tooltip="Copier le terminal",
+                            on_click=lambda e: copy_terminal_to_clipboard(),
+                            icon_color=BLUE,
+                            icon_size=18,
+                        ),
                         ft.IconButton(
                             icon=ft.Icons.CLEAR_ALL,
                             tooltip="Effacer le terminal",

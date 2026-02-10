@@ -628,9 +628,11 @@ class PhotoCropper:
                 self.validate_button.visible = False
                 self.status_text.value = "✓ All images processed!"
                 self.page.update()
+                import asyncio
+                asyncio.create_task(self.close_window())
                 return
 
-    def change_ratio(self, e):
+    def change_ratio(self, e=None):
         self.current_format = FORMATS[e.control.value]
         try:
             self.current_format_label = e.control.value
@@ -775,7 +777,6 @@ class PhotoCropper:
 
         self.border_switch_ID4.visible = True if "ID" in self.current_format_label else False
 
-
     def ignore_image(self, e):
         if not self.image_paths or self.current_index >= len(self.image_paths):
             self.status_text.value = "Toutes les images ont été traitées."
@@ -786,6 +787,9 @@ class PhotoCropper:
         self.status_text.value = "Image ignorée."
         self.load_image(preserve_orientation=True)
         self.page.update()
+
+    async def close_window(self, e=None):
+        await self.page.window.destroy()
 
 #############################################################
 #                           MAIN                            #
