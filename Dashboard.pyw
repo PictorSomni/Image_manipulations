@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+
+#############################################################
+#                          IMPORTS                          #
+#############################################################
 import flet as ft
 import os
 import subprocess
@@ -9,7 +14,11 @@ import re
 from queue import Queue
 
 def main(page: ft.Page):
-    # Colors
+#############################################################
+#                         CONTENT                           #
+#############################################################
+
+# ===================== COLORS ===================== #
     DARK = "#23252a"
     BG = "#292c33"
     GREY = "#2f333c"
@@ -21,6 +30,7 @@ def main(page: ft.Page):
     RED = "#e17080"
     WHITE = "#adb2be"
 
+# ===================== PROPERTIES ===================== #
     page.title = "Dashboard de Projets"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG
@@ -57,6 +67,7 @@ def main(page: ft.Page):
     resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
     resize_watermark_size = {"value": "640"}  # Taille par défaut pour le redimensionnement avec watermark
     
+# ===================== UI ELEMENTS ===================== #
     folder_path = ft.TextField(
         label="Dossier sélectionné",
         hint_text="Cliquez sur Parcourir...",
@@ -72,7 +83,8 @@ def main(page: ft.Page):
     
     # Queue pour les messages du terminal (thread-safe)
     terminal_queue = Queue()
-    
+
+# ===================== METHODS ===================== #
     def process_terminal_queue():
         """Traite les messages en attente dans la queue"""
         updated = False
@@ -264,7 +276,7 @@ def main(page: ft.Page):
         dialog.open = True
         page.update()
     
-    file_count_text = ft.Text("", size=12, color=ft.Colors.GREY_400)
+    file_count_text = ft.Text("", size=12, color=LIGHT_GREY)
     
     def refresh_preview():
         preview_list.controls.clear()
@@ -601,7 +613,8 @@ def main(page: ft.Page):
         await page.window.close()
     
     refresh_apps()
-    
+
+# ===================== FLET UI ===================== #
     page.add(
         ft.WindowDragArea(
             ft.Row([
@@ -707,4 +720,7 @@ def main(page: ft.Page):
         ], expand=True, spacing=5)
     )
 
+#############################################################
+#                            RUN                            #
+#############################################################
 ft.run(main)
