@@ -796,7 +796,7 @@ class PhotoCropper:
             return
             
         self.status_text.value = "Image ignorée."
-        self.load_image(preserve_orientation=True)
+        self.load_image(preserve_orientation=False)
         self.page.update()
 
     async def close_window(self, e=None):
