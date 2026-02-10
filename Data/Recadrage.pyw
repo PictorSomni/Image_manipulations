@@ -71,8 +71,6 @@ class PhotoCropper:
         self.offset_x = 0.0       # Offset X en pixels
         self.offset_y = 0.0       # Offset Y en pixels
         self.base_scale = 1.0
-        self.drag_start_x = 0.0
-        self.drag_start_y = 0.0
         self.pinch_start_scale = 1.0  # Scale au début du pinch
 
         # Option noir et blanc
@@ -101,7 +99,6 @@ class PhotoCropper:
         # GestureDetector pour gérer le pan et zoom manuellement
         self.gesture_detector = ft.GestureDetector(
             content=self.image_stack,
-            on_pan_start=self.on_pan_start,
             on_pan_update=self.on_pan_update,
             on_scroll=self.on_scroll,
             on_scale_start=self.on_scale_start,
@@ -109,8 +106,6 @@ class PhotoCropper:
             drag_interval=10,
         )
 
-        # small label to show zoom percent
-        self.zoom_label = ft.Text("100%")
         # visible status fallback when SnackBar is not shown
         self.status_text = ft.Text("")
         # action buttons (created here so main can reference them)
@@ -179,7 +174,6 @@ class PhotoCropper:
         self.scale = 1.0
         self.offset_x = 0.0
         self.offset_y = 0.0
-        self.zoom_label.value = "100%"
 
         path = self.image_paths[self.current_index]
         pil_img = Image.open(path)
@@ -271,8 +265,6 @@ class PhotoCropper:
         # Le container a les dimensions display_w x display_h
         self.image_container.left = center_x - self.display_w / 2
         self.image_container.top = center_y - self.display_h / 2
-        
-        self.zoom_label.value = f"{int(self.scale * 100)}%"
 
     def _clamp_offsets(self):
         """Contraint les offsets pour empêcher l'image de sortir du canevas"""
@@ -290,11 +282,6 @@ class PhotoCropper:
         else:
             max_offset_y = (zoomed_h - self.canvas_h) / 2
             self.offset_y = min(max_offset_y, max(-max_offset_y, self.offset_y))
-
-    def on_pan_start(self, e: ft.DragStartEvent):
-        """Début du pan"""
-        self.drag_start_x = self.offset_x
-        self.drag_start_y = self.offset_y
 
     def on_pan_update(self, e: ft.DragUpdateEvent):
         """Pendant le pan - déplacer l'image avec limites aux bords du canvas"""
@@ -614,7 +601,7 @@ class PhotoCropper:
         out_path = os.path.join(fmt_short, jpg)
         pil_crop.save(out_path, quality=100, format="JPEG", dpi=(DPI, DPI))
         
-        self.status_text.value = f"✓ {os.path.basename(out_path)}"
+        self.status_text.value = f"[OK] {os.path.basename(out_path)}"
         self.page.update()
 
         if self.batch_mode:
@@ -626,7 +613,7 @@ class PhotoCropper:
                 self.batch_mode = False
                 self.canvas_container.visible = False
                 self.validate_button.visible = False
-                self.status_text.value = "✓ All images processed!"
+                self.status_text.value = "[OK] Toutes les images sont traitées !"
                 self.page.update()
                 import asyncio
                 asyncio.create_task(self.close_window())

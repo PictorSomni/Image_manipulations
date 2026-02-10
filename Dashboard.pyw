@@ -11,7 +11,6 @@ import platform
 import shutil
 import threading
 import re
-from queue import Queue
 
 def main(page: ft.Page):
 #############################################################
@@ -25,7 +24,6 @@ def main(page: ft.Page):
     LIGHT_GREY = "#62666f"
     BLUE = "#45B8F5"
     GREEN = "#49B76C"
-    DARK_ORANGE = "#2A1D18"
     ORANGE = "#e06331"
     RED = "#e17080"
     WHITE = "#adb2be"
@@ -50,17 +48,17 @@ def main(page: ft.Page):
         "order_it droite.py": True,
         "Transfert vers TEMP.py": True,
         "Renommer sequence.py": False,
-        "sharpen.py": False,
+        "Sharpen.py": False,
         "any to JPG.py": False,
         "Remerciements.py": False,
         "Clean.py": False,
         "Recadrage.pyw": False,
         "Renommer nombre photos.py": False,
         "Resize_watermark.py": False,
-        "jpeg 2 jpg.py": False,
+        "Images en PDF.py": False,
         "Resize.py": False,
         "FIT_PRINT_13x10.py": False,
-        "2-in-1.py": False,
+        "2 en 1.py": False,
         "FIT_PRINT_13x15.py": False,
     }
     
@@ -80,29 +78,8 @@ def main(page: ft.Page):
     apps_list = ft.GridView(expand=True, max_extent=250, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.0)
     preview_list = ft.ListView(expand=True, spacing=2, auto_scroll=False)
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
-    
-    # Queue pour les messages du terminal (thread-safe)
-    terminal_queue = Queue()
 
 # ===================== METHODS ===================== #
-    def process_terminal_queue():
-        """Traite les messages en attente dans la queue"""
-        updated = False
-        while not terminal_queue.empty():
-            try:
-                message, color = terminal_queue.get_nowait()
-                terminal_output.controls.append(
-                    ft.Text(message, size=11, color=color, font_family="monospace")
-                )
-                # Garder seulement les 200 dernières lignes
-                if len(terminal_output.controls) > 200:
-                    terminal_output.controls.pop(0)
-                updated = True
-            except:
-                break
-        if updated:
-            page.update()
-    
     def on_terminal_message(topic, message):
         """Callback pour les messages pubsub"""
         try:
@@ -606,8 +583,6 @@ def main(page: ft.Page):
             folder_path.value = selected_folder["path"]
             folder_path.update()
             refresh_preview()
-    
-    refresh_apps()
     
     async def close_window(e):
         await page.window.close()

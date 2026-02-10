@@ -15,7 +15,7 @@ PATH = Path(__file__).resolve().parent
 #############################################################
 #                         CONTENT                           #
 #############################################################
-EXTENSION = (".JPG", ".JPEG", ".PNG", ".PSD", ".PSB")
+EXTENSION = (".JPG", ".JPEG", ".PNG", ".PSD", ".PSB", ".AF", ".NEF", ".CR2", ".ARW", ".DNG", ".TIFF", ".TIF")
 FOLDER = [file.name for file in PATH.iterdir() if file.is_file() and file.suffix.upper() in EXTENSION and file.name != "watermark.png"]
 
 #############################################################

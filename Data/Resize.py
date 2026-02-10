@@ -2,7 +2,6 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-
 import os
 import sys
 from pathlib import Path
@@ -17,7 +16,6 @@ os.chdir(PATH)
 #############################################################
 #                         CONTENT                           #
 #############################################################
-
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Récupérer la taille depuis la variable d'environnement
@@ -35,7 +33,6 @@ TOTAL = len(FOLDER)
 #############################################################
 #                           MAIN                            #
 #############################################################
-
 if TOTAL == 0:
     print("Aucune image trouvée dans le dossier.")
     sys.exit()

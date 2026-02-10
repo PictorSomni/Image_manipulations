@@ -62,7 +62,9 @@ for i, file in enumerate(FOLDER) :
 
 for image in IMAGES :
     base_image = Image.open(image)
-        
+    print(f"{image} : Trouvée")
+    if "_1" in image.lower() or "_2" in image.lower() :
+        image = image.replace("_1", "_recto").replace("_2", "_verso")
     project = base_image.copy()
     project.thumbnail((MAXSIZE,MAXSIZE))
     try:
