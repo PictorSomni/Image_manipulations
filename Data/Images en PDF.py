@@ -68,5 +68,5 @@ if len(rgb_images) > 1:
 else:
     first.save(str(pdf_path), "PDF", resolution=100.0)
 
-print(f"✓ PDF créé avec succès: {PDF_NAME}.pdf")
+print(f"[OK] PDF créé avec succès: {PDF_NAME}.pdf")
 print(f"  Nombre d'images: {len(rgb_images)}")
