@@ -36,7 +36,8 @@ if TOTAL == 0:
 
 # Charger toutes les images
 images = []
-for img_file in IMAGE_FILES:
+for index, img_file in enumerate(IMAGE_FILES, start=1):
+    print(f"Image {index}/{TOTAL}: {img_file.name}...")
     try:
         images.append(Image.open(img_file))
     except Exception as e:
@@ -69,4 +70,3 @@ else:
     first.save(str(pdf_path), "PDF", resolution=100.0)
 
 print(f"[OK] PDF créé avec succès: {PDF_NAME}.pdf")
-print(f"  Nombre d'images: {len(rgb_images)}")
