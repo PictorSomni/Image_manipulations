@@ -26,8 +26,13 @@ except ValueError:
     print("Erreur : La variable d'environnement RESIZE_SIZE doit être un nombre.")
     sys.exit()
 
+# Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
+selected_files_str = os.environ.get("SELECTED_FILES", "")
+selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
+
 EXTENSION = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp")
-FOLDER = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
+all_files = [file for file in sorted(os.listdir()) if file.lower().endswith(EXTENSION) and not file == "watermark.png"]
+FOLDER = [f for f in all_files if f in selected_files_set] if selected_files_set else all_files
 TOTAL = len(FOLDER)
 
 #############################################################

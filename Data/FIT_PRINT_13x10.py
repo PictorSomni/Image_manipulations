@@ -2,6 +2,7 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+import os
 from pathlib import Path
 from PIL import Image, ImageFile, ImageOps
 
@@ -16,8 +17,13 @@ PATH = Path(__file__).resolve().parent
 #############################################################
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
+# Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
+selected_files_str = os.environ.get("SELECTED_FILES", "")
+selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
+
 EXTENSION = (".jpg", ".jpeg", ".png")
-FOLDER = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png"]
+all_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png"]
+FOLDER = [f for f in all_files if f in selected_files_set] if selected_files_set else all_files
 TOTAL = len(FOLDER)
 
 def mm_to_pixels(mm, dpi) :

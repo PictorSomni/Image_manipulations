@@ -2,6 +2,7 @@
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+import os
 from pathlib import Path
 import sys
 
@@ -13,8 +14,13 @@ PATH = Path(__file__).resolve().parent
 #############################################################
 #                         CONTENT                           #
 #############################################################
+# Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
+selected_files_str = os.environ.get("SELECTED_FILES", "")
+selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
+
 EXTENSION = (".JPG", ".JPEG", ".PNG")
-FOLDER = [file.name for file in PATH.iterdir() if file.is_file() and file.suffix.upper() in EXTENSION and file.name != "watermark.png"]
+all_files = [file.name for file in PATH.iterdir() if file.is_file() and file.suffix.upper() in EXTENSION and file.name != "watermark.png"]
+FOLDER = [f for f in all_files if f in selected_files_set] if selected_files_set else all_files
 
 #############################################################
 #                           MAIN                            #

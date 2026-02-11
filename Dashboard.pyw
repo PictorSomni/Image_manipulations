@@ -12,11 +12,10 @@ import shutil
 import threading
 import re
 
+#############################################################
+#                           MAIN                            #
+#############################################################
 def main(page: ft.Page):
-#############################################################
-#                         CONTENT                           #
-#############################################################
-
 # ===================== COLORS ===================== #
     DARK = "#23252a"
     BG = "#292c33"
@@ -34,13 +33,14 @@ def main(page: ft.Page):
     page.bgcolor = BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width = 1200
-    page.window.height = 820
+    page.window.width = 1800
+    page.window.height = 900
 
     
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
     cwd = os.path.dirname(os.path.abspath(__file__))
+    selected_files = set()  # Ensemble des fichiers sélectionnés
     
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
@@ -75,8 +75,8 @@ def main(page: ft.Page):
         read_only=True
     )
     
-    apps_list = ft.GridView(expand=True, max_extent=250, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.0)
-    preview_list = ft.ListView(expand=True, spacing=2, auto_scroll=False)
+    apps_list = ft.GridView(expand=True, max_extent=300, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.62)
+    preview_list = ft.ListView(expand=True, auto_scroll=False)
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
 
 # ===================== METHODS ===================== #
@@ -255,6 +255,75 @@ def main(page: ft.Page):
     
     file_count_text = ft.Text("", size=12, color=LIGHT_GREY)
     
+    def on_checkbox_change(e, file_path):
+        """Gère le changement d'état d'une checkbox"""
+        if e.control.value:
+            selected_files.add(file_path)
+        else:
+            selected_files.discard(file_path)
+        page.update()
+    
+    def clear_selection(e):
+        """Désélectionne tous les fichiers et dossiers"""
+        selected_files.clear()
+        refresh_preview()
+        log_to_terminal("[OK] Sélection effacée", GREEN)
+    
+    def delete_selected_files(e):
+        """Supprime tous les fichiers et dossiers sélectionnés avec confirmation"""
+        if not selected_files:
+            log_to_terminal("[ATTENTION] Aucun élément sélectionné", ORANGE)
+            return
+        
+        def confirm_delete_multiple(e):
+            deleted_files = 0
+            deleted_folders = 0
+            errors = []
+            for item_path in list(selected_files):
+                try:
+                    if os.path.isdir(item_path):
+                        shutil.rmtree(item_path)
+                        deleted_folders += 1
+                    elif os.path.isfile(item_path):
+                        os.remove(item_path)
+                        deleted_files += 1
+                except Exception as err:
+                    errors.append(f"{os.path.basename(item_path)}: {err}")
+            
+            selected_files.clear()
+            dialog.open = False
+            page.update()
+            refresh_preview()
+            
+            if deleted_files > 0 or deleted_folders > 0:
+                msg_parts = []
+                if deleted_files > 0:
+                    msg_parts.append(f"{deleted_files} fichier(s)")
+                if deleted_folders > 0:
+                    msg_parts.append(f"{deleted_folders} dossier(s)")
+                log_to_terminal(f"[OK] Supprimé: {' et '.join(msg_parts)}", GREEN)
+            if errors:
+                for error in errors:
+                    log_to_terminal(f"[ERREUR] {error}", RED)
+        
+        def cancel_delete_multiple(e):
+            dialog.open = False
+            page.update()
+        
+        item_count = len(selected_files)
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text(f"Supprimer {item_count} élément(s)?"),
+            content=ft.Text(f"Voulez-vous vraiment supprimer les {item_count} élément(s) sélectionné(s)?"),
+            actions=[
+                ft.TextButton("Annuler", on_click=cancel_delete_multiple),
+                ft.TextButton("Supprimer", on_click=confirm_delete_multiple, style=ft.ButtonStyle(color=ft.Colors.RED)),
+            ],
+        )
+        page.overlay.append(dialog)
+        dialog.open = True
+        page.update()
+    
     def refresh_preview():
         preview_list.controls.clear()
         folder_to_display = current_browse_folder["path"] or selected_folder["path"]
@@ -291,10 +360,20 @@ def main(page: ft.Page):
                                 icon = ft.Icons.INSERT_DRIVE_FILE
                                 icon_color = ft.Colors.BLUE_GREY_400
                         
+                        # Ajouter une checkbox pour tous les éléments (fichiers et dossiers)
+                        checkbox = ft.Checkbox(
+                            border_side = ft.BorderSide(color=BLUE),
+                            value=file_path in selected_files,
+                            on_change=lambda e, path=file_path: on_checkbox_change(e, path),
+                        )
+                        
                         preview_list.controls.append(
                             ft.ListTile(
-                                leading=ft.Icon(icon, color=icon_color, size=20),
-                                title=ft.Text(file, size=12),
+                                leading=ft.Row([
+                                    checkbox,
+                                    ft.Icon(icon, color=icon_color, size=18),
+                                ], spacing=2, tight=True),
+                                title=ft.Text(file, size=12, color=WHITE),
                                 trailing=ft.IconButton(
                                     icon=ft.Icons.DELETE_OUTLINE,
                                     icon_size=16,
@@ -304,7 +383,8 @@ def main(page: ft.Page):
                                 ),
                                 on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
                                 hover_color=GREY,
-                                content_padding=ft.Padding(left=8, top=2, right=8, bottom=2),
+                                dense=True,
+                                content_padding=ft.Padding(left=5, top=0, right=5, bottom=0),
                             )
                         )
             except PermissionError:
@@ -421,6 +501,10 @@ def main(page: ft.Page):
                         env["DEST_FOLDER"] = "Z:/temp"
                     else:
                         env["DEST_FOLDER"] = "/Volumes/TRAVAUX EN COURS/Z2026/TEMP"
+                
+                # Ajouter les fichiers sélectionnés (si aucun n'est sélectionné, la variable sera vide)
+                if selected_files:
+                    env["SELECTED_FILES"] = "|".join(os.path.basename(f) for f in selected_files)
                 
                 if platform.system() == "Windows":
                     process = subprocess.Popen(
@@ -558,7 +642,7 @@ def main(page: ft.Page):
                 apps_list.controls.append(
                     ft.Container(
                         content=ft.Text(
-                            app_name,
+                            app_name[:-4] if app_name.endswith(".pyw") else app_name[:-3],
                             size=14,
                             color=WHITE,
                             text_align=ft.TextAlign.CENTER,
@@ -643,11 +727,27 @@ def main(page: ft.Page):
                             icon_size=20,
                         ),
                         ft.Button(
+                            "Désélectionner",
+                            icon=ft.Icons.DESELECT,
+                            on_click=clear_selection,
+                            bgcolor=GREY,
+                            color=ORANGE,
+                            height=35,
+                        ),
+                        ft.Button(
                             "Ouvrir l'explorateur",
                             icon=ft.Icons.FOLDER_OPEN,
                             on_click=lambda e: open_in_file_explorer(current_browse_folder["path"] or selected_folder["path"]),
                             bgcolor=GREY,
                             color=GREEN,
+                            height=35,
+                        ),
+                        ft.Button(
+                            "Supprimer",
+                            icon=ft.Icons.DELETE_SWEEP,
+                            on_click=delete_selected_files,
+                            bgcolor=GREY,
+                            color=RED,
                             height=35,
                         ),
                         file_count_text,
