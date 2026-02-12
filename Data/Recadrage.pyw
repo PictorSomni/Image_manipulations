@@ -6,6 +6,7 @@
 import flet as ft
 import os
 from PIL import Image, ImageOps
+import asyncio
 
 # ===================== Configuration ===================== #
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
@@ -15,6 +16,7 @@ DPI = 300  # Résolution d'export
 
 # Formats d'impression (largeur_mm, hauteur_mm) - en portrait
 FORMATS = {
+    "ID (36x46mm)": (36, 46),
     "10x10 (102x102mm)": (102, 102),
     "10x15 (102x152mm)": (102, 152),
     "13x18 (127x178mm)": (127, 178),
@@ -22,7 +24,14 @@ FORMATS = {
     "15x15 (152x152mm)": (152, 152),
     "18x24 (178x240mm)": (178, 240),
     "20x30 (203x305mm)": (203, 305),
-    "ID (36x46mm)": (36, 46),
+    "30x40 (305x405mm)": (305, 405),
+    "30x45 (305x455mm)": (305, 455),
+    "40x50 (405x505mm)": (405, 505),
+    "40x60 (405x605mm)": (405, 605),
+    "50x70 (505x705mm)": (505, 705),
+    "60x80 (605x805mm)": (605, 805),
+    "60x90 (605x905mm)": (605, 905),
+    "70x100 (705x1005mm)": (705, 1005)
 }
 
 # Colors
@@ -79,7 +88,7 @@ class PhotoCropper:
         # Image principale
         self.image_display = ft.Image(
             src="",
-            fit="cover",  # string fallback pour compat flet sans ImageFit
+            fit=ft.BoxFit.COVER,
         )
         
         # Container positionné dans un Stack avec scale pour le zoom
@@ -615,7 +624,6 @@ class PhotoCropper:
                 self.validate_button.visible = False
                 self.status_text.value = "[OK] Toutes les images sont traitées !"
                 self.page.update()
-                import asyncio
                 asyncio.create_task(self.close_window())
                 return
 
@@ -768,7 +776,6 @@ class PhotoCropper:
         if not self.image_paths or self.current_index >= len(self.image_paths):
             self.status_text.value = "Toutes les images ont été traitées."
             self.page.update()
-            import asyncio
             asyncio.create_task(self.close_window())
             return
         
@@ -778,7 +785,6 @@ class PhotoCropper:
         if self.current_index >= len(self.image_paths):
             self.status_text.value = "Toutes les images ont été traitées."
             self.page.update()
-            import asyncio
             asyncio.create_task(self.close_window())
             return
             
@@ -787,7 +793,7 @@ class PhotoCropper:
         self.page.update()
 
     async def close_window(self, e=None):
-        await self.page.window.destroy()
+        await self.page.window.close()
 
 #############################################################
 #                           MAIN                            #
@@ -811,12 +817,19 @@ def main(page: ft.Page):
 
     controls = ft.Column([
         ft.Text("Formats Photos", size=20, weight=ft.FontWeight.BOLD),
-        ft.RadioGroup(
-            content=ft.Column([
-                ft.Radio(value=fmt, label=fmt, fill_color=BLUE) for fmt in FORMATS.keys()
-            ]),
-            value="10x15 (102x152mm)",
-            on_change=app.change_ratio
+        ft.Container(
+            content=ft.RadioGroup(
+                content=ft.Column(
+                    [ft.Radio(value=fmt, label=fmt, fill_color=BLUE) for fmt in FORMATS.keys()],
+                    scroll=ft.ScrollMode.AUTO,
+                ),
+                value="10x15 (102x152mm)",
+                on_change=app.change_ratio
+            ),
+            height=500,
+            border=ft.Border.all(1, LIGHT_GREY),
+            border_radius=8,
+            padding=5,
         ),
         app.border_switch_13x15,
         app.border_switch_20x24,
