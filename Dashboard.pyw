@@ -678,7 +678,7 @@ def main(page: ft.Page):
         ft.WindowDragArea(
             ft.Row([
                 ft.Container(
-                    ft.Text("DASHBOARD", color=WHITE),
+                    ft.Text("DASHBOARD 1.5", size=24, color=WHITE),
                     bgcolor=BG,
                     padding=10,
                 ),
