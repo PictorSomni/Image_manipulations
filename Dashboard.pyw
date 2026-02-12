@@ -33,8 +33,8 @@ def main(page: ft.Page):
     page.bgcolor = BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width = 1800
-    page.window.height = 900
+    page.window.width = 1400
+    page.window.height = 800
 
     
     selected_folder = {"path": None}
@@ -75,7 +75,7 @@ def main(page: ft.Page):
         read_only=True
     )
     
-    apps_list = ft.GridView(expand=True, max_extent=300, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.62)
+    apps_list = ft.GridView(expand=True, max_extent=250, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.35)
     preview_list = ft.ListView(expand=True, auto_scroll=False)
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
 
@@ -696,6 +696,14 @@ def main(page: ft.Page):
                     color=BLUE,
                     on_click=lambda e: refresh_preview(),
                 ),
+                ft.Button(
+                    "Ouvrir l'explorateur",
+                    icon=ft.Icons.FOLDER_OPEN,
+                    on_click=lambda e: open_in_file_explorer(current_browse_folder["path"] or selected_folder["path"]),
+                    bgcolor=GREY,
+                    color=GREEN,
+                    height=35,
+                ),
                 ft.Container(expand=True),
                 ft.IconButton(ft.Icons.CLOSE, on_click=close_window),
             ])
@@ -732,14 +740,6 @@ def main(page: ft.Page):
                             on_click=clear_selection,
                             bgcolor=GREY,
                             color=ORANGE,
-                            height=35,
-                        ),
-                        ft.Button(
-                            "Ouvrir l'explorateur",
-                            icon=ft.Icons.FOLDER_OPEN,
-                            on_click=lambda e: open_in_file_explorer(current_browse_folder["path"] or selected_folder["path"]),
-                            bgcolor=GREY,
-                            color=GREEN,
                             height=35,
                         ),
                         ft.Button(
