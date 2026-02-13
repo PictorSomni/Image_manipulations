@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.1"
+__version__ = "1.6.2"
 
 #############################################################
 #                          IMPORTS                          #
@@ -296,7 +296,7 @@ def main(page: ft.Page):
                     log_to_terminal(f"[ERREUR] Le dossier '{folder_name}' existe déjà", RED)
                 else:
                     os.makedirs(new_folder_path)
-                    log_to_terminal(f"[OK] Dossier créé: {folder_name}", GREEN)
+                    log_to_terminal(f"[OK] Dossier créé: {folder_name}", BLUE)
                     dialog.open = False
                     page.update()
                     refresh_preview()
@@ -335,7 +335,7 @@ def main(page: ft.Page):
         
         clipboard["files"] = list(selected_files)
         count = len(clipboard["files"])
-        log_to_terminal(f"[OK] {count} élément(s) copié(s)", GREEN)
+        log_to_terminal(f"[OK] {count} élément(s) copié(s)", BLUE)
     
     def paste_files(e):
         """Colle les fichiers du presse-papiers dans le dossier actuel"""
@@ -378,7 +378,7 @@ def main(page: ft.Page):
                 errors.append(f"{os.path.basename(source_path)}: {err}")
         
         if copied_count > 0:
-            log_to_terminal(f"[OK] {copied_count} élément(s) collé(s)", GREEN)
+            log_to_terminal(f"[OK] {copied_count} élément(s) collé(s)", BLUE)
         
         if errors:
             for error in errors:

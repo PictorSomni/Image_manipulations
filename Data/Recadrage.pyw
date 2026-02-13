@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.1"
+__version__ = "1.6.2"
 
 #############################################################
 #                          IMPORTS                          #
@@ -187,12 +187,32 @@ class PhotoCropper:
         self.offset_y = 0.0
 
         path = self.image_paths[self.current_index]
-        pil_img = Image.open(path)
-        # Appliquer la rotation EXIF pour corriger l'orientation
-        pil_img = ImageOps.exif_transpose(pil_img)
-        pil_img = pil_img.convert("RGBA")
-        self.current_pil_image = pil_img
-        self.orig_w, self.orig_h = pil_img.size
+        
+        # Vérifier que le fichier existe et est accessible
+        if not os.path.isfile(path) or not os.access(path, os.R_OK):
+            self.status_text.value = f"Fichier inaccessible: {os.path.basename(path)}"
+            self.page.update()
+            # Passer à l'image suivante automatiquement
+            self.current_index += 1
+            if self.current_index < len(self.image_paths):
+                self.load_image(preserve_orientation)
+            return
+        
+        try:
+            pil_img = Image.open(path)
+            # Appliquer la rotation EXIF pour corriger l'orientation
+            pil_img = ImageOps.exif_transpose(pil_img)
+            pil_img = pil_img.convert("RGBA")
+            self.current_pil_image = pil_img
+            self.orig_w, self.orig_h = pil_img.size
+        except Exception as e:
+            self.status_text.value = f"Erreur lors du chargement: {os.path.basename(path)} - {str(e)}"
+            self.page.update()
+            # Passer à l'image suivante automatiquement
+            self.current_index += 1
+            if self.current_index < len(self.image_paths):
+                self.load_image(preserve_orientation)
+            return
 
         if not preserve_orientation:
             self.canvas_is_portrait = True if self.orig_h >= self.orig_w else False
@@ -746,24 +766,71 @@ class PhotoCropper:
             self.page.update()
 
     def batch_process_interactive(self, e):
+        import time
+        
         folder = os.getcwd()
+        
+        # Délai plus long pour s'assurer que tous les fichiers sont complètement copiés
+        # (évite les problèmes de timing si on lance juste après un copier/coller)
+        time.sleep(0.3)
         
         # Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
         selected_files_str = os.environ.get("SELECTED_FILES", "")
         selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
         
-        imgs = [f for f in os.listdir(folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.jpe', '.tif', '.tiff', '.bmp', '.dib', '.gif', '.webp', '.ico', '.pcx', '.tga', '.ppm', '.pgm', '.pbm', '.pnm')) and not f == "watermark.png"]
+        # Lister tous les fichiers du dossier
+        try:
+            all_files = os.listdir(folder)
+        except Exception as e:
+            self.status_text.value = f"Erreur lors de la lecture du dossier: {e}"
+            self.page.update()
+            return
+        
+        # Filtrer pour ne garder que les images
+        imgs = [f for f in all_files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.jpe', '.tif', '.tiff', '.bmp', '.dib', '.gif', '.webp', '.ico', '.pcx', '.tga', '.ppm', '.pgm', '.pbm', '.pnm')) and not f == "watermark.png"]
+        
+        # Message de diagnostic
+        total_images_found = len(imgs)
         
         # Filtrer par les fichiers sélectionnés si applicable
         if selected_files_set:
             imgs = [f for f in imgs if f in selected_files_set]
+            # Message d'erreur détaillé si rien ne correspond
+            if not imgs and total_images_found > 0:
+                self.status_text.value = f"{total_images_found} image(s) trouvée(s) mais aucune ne correspond aux fichiers sélectionnés"
+                self.page.update()
+                return
         
         if not imgs:
-            self.status_text.value = "Aucune image trouvée"
+            # Message d'erreur détaillé selon le contexte
+            if len(all_files) == 0:
+                self.status_text.value = "Le dossier est vide"
+            else:
+                self.status_text.value = f"Aucune image valide trouvée dans le dossier ({len(all_files)} fichier(s) présent(s))"
             self.page.update()
             return
 
-        self.image_paths = [os.path.join(folder, f) for f in imgs]
+        # Vérifier que les fichiers sont accessibles et valides
+        valid_paths = []
+        for img_file in imgs:
+            img_path = os.path.join(folder, img_file)
+            # Vérifier que le fichier existe et est accessible
+            if os.path.isfile(img_path) and os.access(img_path, os.R_OK):
+                try:
+                    # Essayer d'ouvrir l'image pour vérifier qu'elle est valide
+                    with Image.open(img_path) as test_img:
+                        test_img.verify()
+                    valid_paths.append(img_path)
+                except Exception:
+                    # Fichier corrompu ou inaccessible, ignorer
+                    pass
+        
+        if not valid_paths:
+            self.status_text.value = f"{len(imgs)} image(s) trouvée(s) mais aucune n'est accessible ou valide"
+            self.page.update()
+            return
+
+        self.image_paths = valid_paths
         self.current_index = 0
         self.batch_mode = True
         self.load_image()
