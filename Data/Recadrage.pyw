@@ -560,7 +560,7 @@ class PhotoCropper:
             
             # Rotation si nécessaire pour que l'image soit en portrait
             img = pil_crop
-            if img.width > img.height:
+            if img.height > img.width:
                 img = img.rotate(90, expand=True)
             
             # Calculer les positions pour centrer le bloc de 4 images
