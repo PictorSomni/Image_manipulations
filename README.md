@@ -3,7 +3,8 @@
 Application de gestion et manipulation d'images avec interface graphique.  
 Compatible **Windows**, **macOS** et **Linux**.
 
-![Dashboard Screenshot](screenshots/dashboard.png)
+![Dashboard Screenshot](screenshots/dashboard01.png)
+![Recadrage Screenshot](screenshots/dashboard02.png)
 
 ---
 
