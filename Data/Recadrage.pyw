@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+__version__ = "1.6.0"
+
 #############################################################
 #                          IMPORTS                          #
 #############################################################
@@ -745,7 +747,17 @@ class PhotoCropper:
 
     def batch_process_interactive(self, e):
         folder = os.getcwd()
+        
+        # Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
+        selected_files_str = os.environ.get("SELECTED_FILES", "")
+        selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
+        
         imgs = [f for f in os.listdir(folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.jpe', '.tif', '.tiff', '.bmp', '.dib', '.gif', '.webp', '.ico', '.pcx', '.tga', '.ppm', '.pgm', '.pbm', '.pnm')) and not f == "watermark.png"]
+        
+        # Filtrer par les fichiers sélectionnés si applicable
+        if selected_files_set:
+            imgs = [f for f in imgs if f in selected_files_set]
+        
         if not imgs:
             self.status_text.value = "Aucune image trouvée"
             self.page.update()
@@ -870,11 +882,28 @@ def main(page: ft.Page):
         ], expand=True)
     )
 
-    # Start directly in interactive batch mode on launch
-    try:
-        app.batch_process_interactive(None)
-    except Exception:
-        pass
+    # Gestionnaire de redimensionnement de la fenêtre
+    def on_window_resize(e):
+        app.update_canvas_size()
+        if app.image_paths:
+            app._update_transform()
+    
+    page.on_resize = on_window_resize
+
+    # Start directly in interactive batch mode on launch (avec délai pour s'assurer que la fenêtre est initialisée)
+    async def delayed_start():
+        await asyncio.sleep(0.3)  # Attendre que la fenêtre soit maximisée
+        try:
+            app.batch_process_interactive(None)
+            # Forcer un recalcul après le premier chargement pour s'assurer des bonnes dimensions
+            await asyncio.sleep(0.1)
+            if app.image_paths:
+                app.update_canvas_size()
+                app.load_image(preserve_orientation=True)
+        except Exception:
+            pass
+    
+    asyncio.create_task(delayed_start())
 
 # Utilisation de la syntaxe recommandée pour éviter le DeprecationWarning
 if __name__ == "__main__":

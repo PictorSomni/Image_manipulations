@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 
+__version__ = "1.6.0"
+
 #############################################################
 #                          IMPORTS                          #
 #############################################################
@@ -33,8 +35,8 @@ def main(page: ft.Page):
     page.bgcolor = BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width = 1400
-    page.window.height = 800
+    page.window.width = 1200
+    page.window.height = 796
 
     
     selected_folder = {"path": None}
@@ -69,14 +71,14 @@ def main(page: ft.Page):
     folder_path = ft.TextField(
         label="Dossier sélectionné",
         hint_text="Cliquez sur Parcourir...",
-        width=500,
+        width=300,
         bgcolor=DARK,
         border_color=GREY,
         read_only=True
     )
     
-    apps_list = ft.GridView(expand=True, max_extent=250, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.35)
-    preview_list = ft.ListView(expand=True, auto_scroll=False)
+    apps_list = ft.GridView(expand=True, runs_count=3, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.1)
+    preview_list = ft.ListView(expand=True, auto_scroll=False, spacing=4)
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
 
 # ===================== METHODS ===================== #
@@ -253,7 +255,7 @@ def main(page: ft.Page):
         dialog.open = True
         page.update()
     
-    file_count_text = ft.Text("", size=12, color=LIGHT_GREY)
+    file_count_text = ft.Text("", size=14, color=WHITE, text_align=ft.TextAlign.RIGHT)
     
     def on_checkbox_change(e, file_path):
         """Gère le changement d'état d'une checkbox"""
@@ -341,24 +343,27 @@ def main(page: ft.Page):
                         is_dir = os.path.isdir(file_path)
                         
                         # Détection des icônes selon le type de fichier
+                        ext = os.path.splitext(file)[1].lower()
+                        is_image = ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.ico', '.tiff', '.tif']
+                        
                         if is_dir:
                             icon = ft.Icons.FOLDER
                             icon_color = ft.Colors.AMBER_400
+                        elif is_image:
+                            icon = ft.Icons.IMAGE
+                            icon_color = ft.Colors.GREEN_400
+                        elif ext in ['.pdf']:
+                            icon = ft.Icons.PICTURE_AS_PDF
+                            icon_color = ft.Colors.RED_400
+                        elif ext in ['.txt', '.md', '.log']:
+                            icon = ft.Icons.DESCRIPTION
+                            icon_color = ft.Colors.BLUE_GREY_400
+                        elif ext in [".af", ".afphoto", ".afdesign", ".afpub", ".psd", ".psb", ".svg", ".eps", ".ai"]:
+                            icon = ft.Icons.ADOBE
+                            icon_color = GREEN
                         else:
-                            # Détection du type d'image
-                            ext = os.path.splitext(file)[1].lower()
-                            if ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.ico', '.tiff', '.tif']:
-                                icon = ft.Icons.IMAGE
-                                icon_color = ft.Colors.GREEN_400
-                            elif ext in ['.pdf']:
-                                icon = ft.Icons.PICTURE_AS_PDF
-                                icon_color = ft.Colors.RED_400
-                            elif ext in ['.txt', '.md', '.log']:
-                                icon = ft.Icons.DESCRIPTION
-                                icon_color = ft.Colors.BLUE_GREY_400
-                            else:
-                                icon = ft.Icons.INSERT_DRIVE_FILE
-                                icon_color = ft.Colors.BLUE_GREY_400
+                            icon = ft.Icons.INSERT_DRIVE_FILE
+                            icon_color = ft.Colors.BLUE_GREY_400
                         
                         # Ajouter une checkbox pour tous les éléments (fichiers et dossiers)
                         checkbox = ft.Checkbox(
@@ -367,12 +372,24 @@ def main(page: ft.Page):
                             on_change=lambda e, path=file_path: on_checkbox_change(e, path),
                         )
                         
+                        # Créer le visuel (thumbnail pour images, icône pour le reste)
+                        if is_image:
+                            visual = ft.Container(
+                                content=ft.Image(src=file_path, fit=ft.BoxFit.COVER, error_content=ft.Icon(icon, color=icon_color, size=18)),
+                                width=40,
+                                height=40,
+                                border_radius=4,
+                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                            )
+                        else:
+                            visual = ft.Icon(icon, color=icon_color, size=18)
+                        
                         preview_list.controls.append(
                             ft.ListTile(
                                 leading=ft.Row([
                                     checkbox,
-                                    ft.Icon(icon, color=icon_color, size=18),
-                                ], spacing=2, tight=True),
+                                    visual,
+                                ], spacing=8, tight=True),
                                 title=ft.Text(file, size=12, color=WHITE),
                                 trailing=ft.IconButton(
                                     icon=ft.Icons.DELETE_OUTLINE,
@@ -670,6 +687,9 @@ def main(page: ft.Page):
     
     async def close_window(e):
         await page.window.close()
+
+    def minimize_window(e):
+        page.window.minimized = True
     
     refresh_apps()
 
@@ -678,7 +698,7 @@ def main(page: ft.Page):
         ft.WindowDragArea(
             ft.Row([
                 ft.Container(
-                    ft.Text("DASHBOARD 1.5", size=24, color=WHITE),
+                    ft.Text(f"DASHBOARD {__version__}", size=24, color=WHITE),
                     bgcolor=BG,
                     padding=10,
                 ),
@@ -705,6 +725,8 @@ def main(page: ft.Page):
                     height=35,
                 ),
                 ft.Container(expand=True),
+                ft.IconButton(
+                    icon=ft.Icons.MINIMIZE, on_click=minimize_window,),
                 ft.IconButton(ft.Icons.CLOSE, on_click=close_window),
             ])
         ),
@@ -750,7 +772,6 @@ def main(page: ft.Page):
                             color=RED,
                             height=35,
                         ),
-                        file_count_text,
                     ]),
                     ft.Container(
                         content=preview_list,
@@ -761,7 +782,6 @@ def main(page: ft.Page):
                     )
                 ], expand=True)
             ], expand=True, height=400),
-            ft.Divider(height=1, color=GREY),
             ft.Container(
                 content=ft.Column([
                     ft.Row([
@@ -780,7 +800,9 @@ def main(page: ft.Page):
                             icon_color=RED,
                             icon_size=18,
                         ),
-                    ], spacing=5),
+                        ft.Container(expand=True),
+                        file_count_text
+                    ], spacing=5, margin=ft.Margin.only(left=8, right=8)),
                     ft.Container(
                         content=terminal_output,
                         expand=True,

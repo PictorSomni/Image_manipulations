@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+
+__version__ = "1.6.0"
+
 #############################################################
 #                          IMPORTS                          #
 #############################################################
@@ -34,8 +37,11 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 selected_files_str = os.environ.get("SELECTED_FILES", "")
 selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
 
+# Déterminer le dossier de travail (cwd si lancé depuis Dashboard, sinon PATH)
+WORK_DIR = Path.cwd() if Path.cwd() != PATH else PATH
+
 EXTENSION = (".jpg", ".jpeg", ".png")
-all_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png"]
+all_files = [file.name for file in sorted(WORK_DIR.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png"]
 FOLDER = [f for f in all_files if f in selected_files_set] if selected_files_set else all_files
 WATERMARK = str(DATA_PATH / "watermark.png")
 REQUIRED = ["recto", "verso", "duo", "_1", "_2"]
