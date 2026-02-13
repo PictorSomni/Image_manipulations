@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.0"
+__version__ = "1.6.1"
 
 #############################################################
 #                          IMPORTS                          #
@@ -43,6 +43,7 @@ def main(page: ft.Page):
     current_browse_folder = {"path": None}
     cwd = os.path.dirname(os.path.abspath(__file__))
     selected_files = set()  # Ensemble des fichiers sélectionnés
+    clipboard = {"files": []}  # Presse-papiers pour copier/coller des fichiers
     
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
@@ -117,6 +118,25 @@ def main(page: ft.Page):
     def request_refresh():
         """Demande un rafraîchissement de la preview (thread-safe)"""
         page.pubsub.send_all_on_topic("refresh", None)
+    
+    def on_keyboard_event(e: ft.KeyboardEvent):
+        """Gestionnaire des événements clavier pour les raccourcis"""
+        # Détection de Ctrl (Windows/Linux) ou Cmd (macOS)
+        ctrl_pressed = e.ctrl or e.meta
+        
+        if ctrl_pressed:
+            if e.key == "C":
+                # Ctrl/Cmd + C : Copier les fichiers sélectionnés
+                copy_selected_files(None)
+            elif e.key == "V":
+                # Ctrl/Cmd + V : Coller les fichiers
+                paste_files(None)
+            elif e.key == "N":
+                # Ctrl/Cmd + N : Créer un nouveau dossier
+                create_new_folder(None)
+    
+    # Activer la gestion des événements clavier
+    page.on_keyboard_event = on_keyboard_event
     
     def log_to_terminal(message, color=WHITE):
         """Ajoute un message au terminal intégré"""
@@ -256,6 +276,115 @@ def main(page: ft.Page):
         page.update()
     
     file_count_text = ft.Text("", size=14, color=WHITE, text_align=ft.TextAlign.RIGHT)
+    
+    def create_new_folder(e):
+        """Crée un nouveau dossier dans le dossier actuel"""
+        target_folder = current_browse_folder["path"] or selected_folder["path"]
+        if not target_folder:
+            log_to_terminal("[ERREUR] Aucun dossier sélectionné", RED)
+            return
+        
+        def confirm_create(e):
+            folder_name = folder_name_input.value.strip()
+            if not folder_name:
+                log_to_terminal("[ERREUR] Le nom du dossier ne peut pas être vide", RED)
+                return
+            
+            new_folder_path = os.path.join(target_folder, folder_name)
+            try:
+                if os.path.exists(new_folder_path):
+                    log_to_terminal(f"[ERREUR] Le dossier '{folder_name}' existe déjà", RED)
+                else:
+                    os.makedirs(new_folder_path)
+                    log_to_terminal(f"[OK] Dossier créé: {folder_name}", GREEN)
+                    dialog.open = False
+                    page.update()
+                    refresh_preview()
+            except Exception as err:
+                log_to_terminal(f"[ERREUR] Erreur lors de la création du dossier: {err}", RED)
+                dialog.open = False
+                page.update()
+        
+        def cancel_create(e):
+            dialog.open = False
+            page.update()
+        
+        folder_name_input = ft.TextField(
+            label="Nom du dossier",
+            autofocus=True,
+            on_submit=confirm_create,
+        )
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text("Créer un nouveau dossier"),
+            content=folder_name_input,
+            actions=[
+                ft.TextButton("Annuler", on_click=cancel_create),
+                ft.TextButton("Créer", on_click=confirm_create),
+            ],
+        )
+        page.overlay.append(dialog)
+        dialog.open = True
+        page.update()
+    
+    def copy_selected_files(e):
+        """Copie les fichiers sélectionnés dans le presse-papiers"""
+        if not selected_files:
+            log_to_terminal("[ATTENTION] Aucun fichier sélectionné", ORANGE)
+            return
+        
+        clipboard["files"] = list(selected_files)
+        count = len(clipboard["files"])
+        log_to_terminal(f"[OK] {count} élément(s) copié(s)", GREEN)
+    
+    def paste_files(e):
+        """Colle les fichiers du presse-papiers dans le dossier actuel"""
+        target_folder = current_browse_folder["path"] or selected_folder["path"]
+        if not target_folder:
+            log_to_terminal("[ERREUR] Aucun dossier de destination sélectionné", RED)
+            return
+        
+        if not clipboard["files"]:
+            log_to_terminal("[ATTENTION] Presse-papiers vide", ORANGE)
+            return
+        
+        copied_count = 0
+        errors = []
+        
+        for source_path in clipboard["files"]:
+            if not os.path.exists(source_path):
+                errors.append(f"{os.path.basename(source_path)}: fichier source introuvable")
+                continue
+            
+            dest_path = os.path.join(target_folder, os.path.basename(source_path))
+            
+            # Si le fichier existe déjà, ajouter un suffixe
+            if os.path.exists(dest_path):
+                base_name = os.path.basename(source_path)
+                name, ext = os.path.splitext(base_name)
+                counter = 1
+                while os.path.exists(dest_path):
+                    new_name = f"{name} ({counter}){ext}"
+                    dest_path = os.path.join(target_folder, new_name)
+                    counter += 1
+            
+            try:
+                if os.path.isdir(source_path):
+                    shutil.copytree(source_path, dest_path)
+                else:
+                    shutil.copy2(source_path, dest_path)
+                copied_count += 1
+            except Exception as err:
+                errors.append(f"{os.path.basename(source_path)}: {err}")
+        
+        if copied_count > 0:
+            log_to_terminal(f"[OK] {copied_count} élément(s) collé(s)", GREEN)
+        
+        if errors:
+            for error in errors:
+                log_to_terminal(f"[ERREUR] {error}", RED)
+        
+        refresh_preview()
     
     def on_checkbox_change(e, file_path):
         """Gère le changement d'état d'une checkbox"""
@@ -785,6 +914,7 @@ def main(page: ft.Page):
             ft.Container(
                 content=ft.Column([
                     ft.Row([
+                        ft.Container(width=8),  # Espacement à gauche du titre
                         ft.Text("Terminal", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
                         ft.IconButton(
                             icon=ft.Icons.COPY_ALL,
@@ -801,8 +931,29 @@ def main(page: ft.Page):
                             icon_size=18,
                         ),
                         ft.Container(expand=True),
-                        file_count_text
-                    ], spacing=5, margin=ft.Margin.only(left=8, right=8)),
+                        file_count_text,
+                        ft.IconButton(
+                            icon=ft.Icons.CREATE_NEW_FOLDER,
+                            tooltip="Créer un nouveau dossier",
+                            on_click=create_new_folder,
+                            icon_color=GREEN,
+                            icon_size=18,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.CONTENT_COPY,
+                            tooltip="Copier les fichiers sélectionnés",
+                            on_click=copy_selected_files,
+                            icon_color=BLUE,
+                            icon_size=18,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.CONTENT_PASTE,
+                            tooltip="Coller les fichiers",
+                            on_click=paste_files,
+                            icon_color=ORANGE,
+                            icon_size=18,
+                        ),
+                    ], spacing=5, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     ft.Container(
                         content=terminal_output,
                         expand=True,
