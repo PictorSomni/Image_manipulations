@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.2"
+__version__ = "1.6.3"
 
 #############################################################
 #                          IMPORTS                          #
@@ -13,6 +13,7 @@ import platform
 import shutil
 import threading
 import re
+
 
 #############################################################
 #                           MAIN                            #
@@ -48,7 +49,7 @@ def main(page: ft.Page):
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
         "order_it gauche.py": True,
-        "order_it droite.py": True,
+        "N&B.py": False,
         "Transfert vers TEMP.py": True,
         "Renommer sequence.py": False,
         "Sharpen.py": False,
@@ -77,10 +78,12 @@ def main(page: ft.Page):
         border_color=GREY,
         read_only=True
     )
-    
+
     apps_list = ft.GridView(expand=True, runs_count=3, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.1)
     preview_list = ft.ListView(expand=True, auto_scroll=False, spacing=4)
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
+    file_count_text = ft.Text("", size=14, color=WHITE, text_align=ft.TextAlign.RIGHT)
+    selection_count_text = ft.Text(f"", size=14, color=BLUE, text_align=ft.TextAlign.RIGHT)
 
 # ===================== METHODS ===================== #
     def on_terminal_message(topic, message):
@@ -274,9 +277,7 @@ def main(page: ft.Page):
         page.overlay.append(dialog)
         dialog.open = True
         page.update()
-    
-    file_count_text = ft.Text("", size=14, color=WHITE, text_align=ft.TextAlign.RIGHT)
-    
+        
     def create_new_folder(e):
         """Crée un nouveau dossier dans le dossier actuel"""
         target_folder = current_browse_folder["path"] or selected_folder["path"]
@@ -392,12 +393,15 @@ def main(page: ft.Page):
             selected_files.add(file_path)
         else:
             selected_files.discard(file_path)
+        selection_count_text.value = f"{len(selected_files)} fichier(s) sélectionné(s)" if len(selected_files) > 0 else ""
         page.update()
     
     def clear_selection(e):
         """Désélectionne tous les fichiers et dossiers"""
         selected_files.clear()
         refresh_preview()
+        selection_count_text.value = f"{len(selected_files)} fichier(s) sélectionné(s)" if len(selected_files) > 0 else ""
+        page.update()
         log_to_terminal("[OK] Sélection effacée", GREEN)
     
     def delete_selected_files(e):
@@ -863,10 +867,29 @@ def main(page: ft.Page):
             ft.Divider(),
             ft.Row([
                 ft.Column([
-                    ft.Container(
-                        content=ft.Text("Applications disponibles", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
-                        margin=ft.Margin.only(top=10, bottom=10, left=10),
-                    ),
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Text("Applications disponibles", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
+                            margin=ft.Margin.only(top=10, bottom=10, left=10),
+                        ),
+                        ft.Container(width=48),  # Espacement entre le titre et les boutons
+                        ft.IconButton(
+                            icon=ft.Icons.ARROW_LEFT,
+                            tooltip="Kiosk gauche",
+                            on_click=lambda e: log_to_terminal("Kiosk gauche (non implémenté)"),
+                            icon_color=BLUE,
+                            bgcolor=GREY,
+                            icon_size=18,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.ARROW_RIGHT,
+                            tooltip="Kiosk droite",
+                            on_click=lambda e: log_to_terminal("Kiosk droite (non implémenté)"),
+                            icon_color=BLUE,
+                            bgcolor=GREY,
+                            icon_size=18,
+                        ),
+                    ]),
                     ft.Container(
                         content=apps_list,
                         expand=True,
@@ -931,6 +954,8 @@ def main(page: ft.Page):
                             icon_size=18,
                         ),
                         ft.Container(expand=True),
+                        selection_count_text,
+                        ft.Container(width=190),
                         file_count_text,
                         ft.IconButton(
                             icon=ft.Icons.CREATE_NEW_FOLDER,
