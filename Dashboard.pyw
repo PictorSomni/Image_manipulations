@@ -48,7 +48,7 @@ def main(page: ft.Page):
     
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
-        "order_it gauche.py": True,
+        "Fichiers manquants.py": False,
         "N&B.py": False,
         "Transfert vers TEMP.py": True,
         "Renommer sequence.py": False,
@@ -656,28 +656,17 @@ def main(page: ft.Page):
                 if selected_files:
                     env["SELECTED_FILES"] = "|".join(os.path.basename(f) for f in selected_files)
                 
-                if platform.system() == "Windows":
-                    process = subprocess.Popen(
-                        [sys.executable, "-u", app_name],
-                        cwd=selected_folder["path"],
-                        env=env,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True
-                    )
-                else:
-                    process = subprocess.Popen(
-                        [sys.executable, "-u", app_name],
-                        cwd=selected_folder["path"],
-                        env=env,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True
-                    )
+                process = subprocess.Popen(
+                    [sys.executable, "-u", app_name],
+                    cwd=selected_folder["path"],
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True
+                )
+
                 
                 # Lire la sortie en temps réel
                 def read_output(pipe, color):
@@ -875,16 +864,16 @@ def main(page: ft.Page):
                         ft.Container(width=48),  # Espacement entre le titre et les boutons
                         ft.IconButton(
                             icon=ft.Icons.ARROW_LEFT,
-                            tooltip="Kiosk gauche",
-                            on_click=lambda e: log_to_terminal("Kiosk gauche (non implémenté)"),
+                            tooltip="Order-it gauche",
+                            on_click=lambda e: launch_app("order_it gauche.py", os.path.join(cwd, "Data", "order_it gauche.py"), False),
                             icon_color=BLUE,
                             bgcolor=GREY,
                             icon_size=18,
                         ),
                         ft.IconButton(
                             icon=ft.Icons.ARROW_RIGHT,
-                            tooltip="Kiosk droite",
-                            on_click=lambda e: log_to_terminal("Kiosk droite (non implémenté)"),
+                            tooltip="Order-it droite",
+                            on_click=lambda e: launch_app("order_it droite.py", os.path.join(cwd, "Data", "order_it droite.py"), False),
                             icon_color=BLUE,
                             bgcolor=GREY,
                             icon_size=18,
