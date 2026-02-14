@@ -113,7 +113,7 @@ Dashboard-Image-Manipulation/
 - **Interface graphique moderne** avec Flet
 - **Navigation dans les dossiers** avec prévisualisation
 - **Lancement rapide d'applications** de traitement d'images
-- **Gestion des fichiers** (suppression, ouverture)
+- **Gestion des fichiers** (sélection, suppression, ouverture, création de dossiers, copier/coller...)
 - **Support multi-plateforme** (Windows, macOS, Linux)
 - **Applications portables** : les apps sont copiées temporairement dans le dossier de travail
 
@@ -123,9 +123,10 @@ Dashboard-Image-Manipulation/
 
 1. Lancez le Dashboard avec `run.bat` (Windows) ou `./run.sh` (Linux/macOS)
 2. Sélectionnez un dossier contenant vos images avec le bouton **Parcourir**
-3. Cliquez sur une application dans la liste pour la lancer
-4. L'application sera copiée dans le dossier sélectionné et lancée automatiquement
-5. Une fois terminée, le fichier temporaire est supprimé automatiquement
+3. Vous pouvez soit selectionner les images a utiliser, soit ne rien selectionner, auquel cas, tous les fichiers image du dossiers seront utilisés
+4. Cliquez sur une application dans la liste pour la lancer
+5. L'application sera copiée dans le dossier sélectionné et lancée automatiquement
+6. Une fois terminée, le fichier temporaire est supprimé automatiquement
 
 ---
 
