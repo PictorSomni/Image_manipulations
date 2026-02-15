@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.3"
+__version__ = "1.6.4"
 
 #############################################################
 #                          IMPORTS                          #
@@ -13,7 +13,6 @@ import platform
 import shutil
 import threading
 import re
-
 
 #############################################################
 #                           MAIN                            #
@@ -225,6 +224,8 @@ def main(page: ft.Page):
             # Update the folder_path TextField label to the new path
             folder_path.value = new_path
             folder_path.update()
+            selected_files.clear()
+            selection_count_text.value = ""
             refresh_preview()
     
     def go_to_parent_folder(e):
@@ -805,6 +806,7 @@ def main(page: ft.Page):
             current_browse_folder["path"] = selected_folder["path"]
             folder_path.value = selected_folder["path"]
             folder_path.update()
+            selected_files.clear()
             refresh_preview()
     
     async def close_window(e):
