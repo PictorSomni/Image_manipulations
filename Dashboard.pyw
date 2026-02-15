@@ -394,14 +394,14 @@ def main(page: ft.Page):
             selected_files.add(file_path)
         else:
             selected_files.discard(file_path)
-        selection_count_text.value = f"{len(selected_files)} fichier(s) sélectionné(s)" if len(selected_files) > 0 else ""
+        selection_count_text.value = f"{len(selected_files)} fichier{'s' if len(selected_files) > 1 else ''} sélectionné{'s' if len(selected_files) > 1 else ''}" if len(selected_files) > 0 else ""
         page.update()
     
     def clear_selection(e):
         """Désélectionne tous les fichiers et dossiers"""
         selected_files.clear()
         refresh_preview()
-        selection_count_text.value = f"{len(selected_files)} fichier(s) sélectionné(s)" if len(selected_files) > 0 else ""
+        selection_count_text.value = f"{len(selected_files)} fichier{'s' if len(selected_files) > 1 else ''} sélectionné{'s' if len(selected_files) > 1 else ''}" if len(selected_files) > 0 else ""
         page.update()
         log_to_terminal("[OK] Sélection effacée", GREEN)
     
