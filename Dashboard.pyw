@@ -550,6 +550,7 @@ def main(page: ft.Page):
     
     def launch_app(app_name, app_path, is_local):
         if not is_local and not selected_folder["path"]:
+            log_to_terminal("[ERREUR] Veuillez sélectionner un dossier avant de lancer cette application", RED)
             return
         
         try:
@@ -867,7 +868,7 @@ def main(page: ft.Page):
                         ft.IconButton(
                             icon=ft.Icons.ARROW_LEFT,
                             tooltip="Order-it gauche",
-                            on_click=lambda e: launch_app("order_it gauche.py", os.path.join(cwd, "Data", "order_it gauche.py"), False),
+                            on_click=lambda e: launch_app("order_it gauche.py", os.path.join(cwd, "Data", "order_it gauche.py"), True),
                             icon_color=BLUE,
                             bgcolor=GREY,
                             icon_size=18,
@@ -875,7 +876,7 @@ def main(page: ft.Page):
                         ft.IconButton(
                             icon=ft.Icons.ARROW_RIGHT,
                             tooltip="Order-it droite",
-                            on_click=lambda e: launch_app("order_it droite.py", os.path.join(cwd, "Data", "order_it droite.py"), False),
+                            on_click=lambda e: launch_app("order_it droite.py", os.path.join(cwd, "Data", "order_it droite.py"), True),
                             icon_color=BLUE,
                             bgcolor=GREY,
                             icon_size=18,
