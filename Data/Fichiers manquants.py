@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.4"
+__version__ = "1.6.6"
+
+ENV_SELECTED_FILES_KEY = "SELECTED_FILES"
+OUTPUT_SELECTED_FILES_PREFIX = "SELECTED_FILES:"
 
 #############################################################
 #                          IMPORTS                          #
@@ -29,6 +32,9 @@ if dest_dir:
     print(f"{len(missing_files)} fichier(s) manquant(s) dans le dossier {dest_dir} :")
     for file in missing_files:
         print(f"- {file}")
+    missing_files_str = "|".join(os.path.basename(f) for f in missing_files)
+    os.environ[ENV_SELECTED_FILES_KEY] = missing_files_str
+    print(f"{OUTPUT_SELECTED_FILES_PREFIX}{missing_files_str}")
 else:
     print("Sélectionnez un dossier de destination valide.")
 

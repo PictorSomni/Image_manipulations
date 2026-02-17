@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.4"
+__version__ = "1.6.6"
 
 #############################################################
 #                          IMPORTS                          #
@@ -13,6 +13,7 @@ import platform
 import shutil
 import threading
 import re
+from time import sleep
 
 #############################################################
 #                           MAIN                            #
@@ -67,6 +68,7 @@ def main(page: ft.Page):
     
     resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
     resize_watermark_size = {"value": "640"}  # Taille par défaut pour le redimensionnement avec watermark
+    sort_by_date = {"value": False}  # False = alphabétique, True = par date de modification
     
 # ===================== UI ELEMENTS ===================== #
     folder_path = ft.TextField(
@@ -83,6 +85,14 @@ def main(page: ft.Page):
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
     file_count_text = ft.Text("", size=14, color=WHITE, text_align=ft.TextAlign.RIGHT)
     selection_count_text = ft.Text(f"", size=14, color=BLUE, text_align=ft.TextAlign.RIGHT)
+    sort_switch = ft.Switch(
+        label="Trier par date",
+        value=False,
+        label_position=ft.LabelPosition.LEFT,
+        active_color=BLUE,
+        tooltip="Basculer entre tri alphabétique et tri par date de modification",
+    )
+    selected_files_prefix = "SELECTED_FILES:"
 
 # ===================== METHODS ===================== #
     def on_terminal_message(topic, message):
@@ -116,6 +126,13 @@ def main(page: ft.Page):
     
     # S'abonner au canal navigate
     page.pubsub.subscribe_topic("navigate", on_navigate_request)
+
+    def on_select_files_request(topic, selected_names_str):
+        """Callback pour sélectionner des fichiers depuis la sortie d'un script"""
+        apply_selected_files_by_name(selected_names_str)
+
+    # S'abonner au canal select-files
+    page.pubsub.subscribe_topic("select_files", on_select_files_request)
     
     def request_refresh():
         """Demande un rafraîchissement de la preview (thread-safe)"""
@@ -459,6 +476,28 @@ def main(page: ft.Page):
         page.overlay.append(dialog)
         dialog.open = True
         page.update()
+
+    def apply_selected_files_by_name(selected_names_str):
+        """Sélectionne dans la preview les éléments correspondant aux noms fournis"""
+        folder_to_display = current_browse_folder["path"] or selected_folder["path"]
+        if not folder_to_display or not os.path.isdir(folder_to_display):
+            return
+
+        names = [name for name in selected_names_str.split("|") if name]
+        names_set = set(names)
+
+        selected_files.clear()
+        if names_set:
+            for item_name in os.listdir(folder_to_display):
+                if item_name in names_set:
+                    selected_files.add(os.path.join(folder_to_display, item_name))
+
+        selection_count_text.value = f"{len(selected_files)} fichier{'s' if len(selected_files) > 1 else ''} sélectionné{'s' if len(selected_files) > 1 else ''}" if len(selected_files) > 0 else ""
+        sleep(0.2)
+        refresh_preview()
+
+        if names_set and not selected_files:
+            log_to_terminal("[ATTENTION] Aucun fichier correspondant trouvé dans la preview", ORANGE)
     
     def refresh_preview():
         preview_list.controls.clear()
@@ -472,7 +511,21 @@ def main(page: ft.Page):
                 if not files:
                     preview_list.controls.append(ft.Text("(dossier vide)", color=GREY))
                 else:
-                    for file in sorted(files, key=lambda x: (not os.path.isdir(os.path.join(folder_to_display, x)), x.lower())):
+                    # Tri des fichiers selon le mode sélectionné
+                    if sort_by_date["value"]:
+                        # Tri par date de modification (plus récent en haut), dossiers d'abord
+                        sorted_files = sorted(files, key=lambda x: (
+                            not os.path.isdir(os.path.join(folder_to_display, x)),
+                            -os.path.getmtime(os.path.join(folder_to_display, x))
+                        ))
+                    else:
+                        # Tri alphabétique, dossiers d'abord
+                        sorted_files = sorted(files, key=lambda x: (
+                            not os.path.isdir(os.path.join(folder_to_display, x)),
+                            x.lower()
+                        ))
+                    
+                    for file in sorted_files:
                         file_path = os.path.join(folder_to_display, file)
                         is_dir = os.path.isdir(file_path)
                         
@@ -548,6 +601,14 @@ def main(page: ft.Page):
             file_count_text.value = ""
         page.update()
     
+    def on_sort_change(e):
+        """Change le mode de tri et rafraîchit la preview"""
+        sort_by_date["value"] = e.control.value
+        refresh_preview()
+    
+    # Attacher le callback au switch
+    sort_switch.on_change = on_sort_change
+    
     def launch_app(app_name, app_path, is_local):
         if not is_local and not selected_folder["path"]:
             log_to_terminal("[ERREUR] Veuillez sélectionner un dossier avant de lancer cette application", RED)
@@ -560,6 +621,27 @@ def main(page: ft.Page):
                 # Préparer l'environnement pour les apps locales
                 env = os.environ.copy()
                 env["DATA_PATH"] = os.path.join(cwd, "Data")
+                
+                # Naviguer vers le PATH pour order_it gauche/droite
+                if app_name == "order_it gauche.py":
+                    if platform.system() == "Windows":
+                        order_path = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK GAUCHE"
+                    else:
+                        order_path = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE"
+                    if os.path.isdir(order_path):
+                        navigate_to_folder(order_path)
+                    else:
+                        log_to_terminal(f"[AVERTISSEMENT] Le dossier {order_path} n'est pas accessible", ORANGE)
+                
+                elif app_name == "order_it droite.py":
+                    if platform.system() == "Windows":
+                        order_path = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK DROITE"
+                    else:
+                        order_path = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE"
+                    if os.path.isdir(order_path):
+                        navigate_to_folder(order_path)
+                    else:
+                        log_to_terminal(f"[AVERTISSEMENT] Le dossier {order_path} n'est pas accessible", ORANGE)
                 
                 # Ajouter le dossier destination pour Transfert vers TEMP.py
                 if app_name == "Transfert vers TEMP.py":
@@ -674,7 +756,12 @@ def main(page: ft.Page):
                 def read_output(pipe, color):
                     for line in iter(pipe.readline, ''):
                         if line:
-                            log_to_terminal(line.rstrip(), color)
+                            line_stripped = line.rstrip()
+                            if line_stripped.startswith(selected_files_prefix):
+                                selected_names = line_stripped[len(selected_files_prefix):]
+                                page.pubsub.send_all_on_topic("select_files", selected_names)
+                            else:
+                                log_to_terminal(line_stripped, color)
                     pipe.close()
                 
                 threading.Thread(target=read_output, args=(process.stdout, WHITE), daemon=True).start()
@@ -947,8 +1034,11 @@ def main(page: ft.Page):
                         ),
                         ft.Container(expand=True),
                         selection_count_text,
-                        ft.Container(width=190),
+                        ft.Container(width=10),
                         file_count_text,
+                        ft.Container(width=10),
+                        sort_switch,
+                        ft.Container(width=10),
                         ft.IconButton(
                             icon=ft.Icons.CREATE_NEW_FOLDER,
                             tooltip="Créer un nouveau dossier",
