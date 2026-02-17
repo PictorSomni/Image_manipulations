@@ -27,7 +27,7 @@ dest_dir = Path(selected_dir_str) if os.path.isdir(selected_dir_str) else None
 if dest_dir:
     # Déterminer le dossier de travail (cwd si lancé depuis Dashboard, sinon PATH)
     all_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file()]
-    copied_files = [file.name for file in sorted(dest_dir.iterdir()) if file.is_file()] if dest_dir else []
+    copied_files = [file.name for file in sorted(dest_dir.iterdir()) if file.is_file()]
     missing_files = [file for file in all_files if file not in copied_files and not file.startswith('.') and not file.endswith('.py')]
     print(f"{len(missing_files)} fichier(s) manquant(s) dans le dossier {dest_dir} :")
     for file in missing_files:
