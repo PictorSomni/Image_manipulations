@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.6"
+__version__ = "1.6.7"
 
 #############################################################
 #                          IMPORTS                          #
@@ -12,16 +12,15 @@ from pathlib import Path
 import platform
 from shutil import copyfile
 
-
 #############################################################
 #                           PATH                            #
 #############################################################
 if platform.system() == "Windows":
-    PATH = "\\\\studioc-kiosk1\\kiosk-data\\it-HotFolder"
-    DESTINATION = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK GAUCHE"
+    PATH = "\\\\studioc-kiosk2\\kiosk-data\\it-HotFolder"
+    DESTINATION = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK DROITE"
 else :
-    PATH = "/Volumes/kiosk-data/it-HotFolder"
-    DESTINATION = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE"
+    PATH = "/Volumes/kiosk-data-1/it-HotFolder"
+    DESTINATION = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE"
 
 PATH = Path(PATH)
 DESTINATION = Path(DESTINATION)
@@ -37,18 +36,16 @@ RESULT = {}
 filenames = []
 COPY_FILES = []
 
-
 ## Creates folder if it doesn't exists
 def folder(folder_path):
     Path(folder_path).mkdir(parents=True, exist_ok=True)
 
-
 #############################################################
 #                           MAIN                            #
 #############################################################
-print("Demarrage de order-it gauche...")
-print(f"Source: {PATH}")
-print(f"Destination: {DESTINATION}")
+print("Demarrage de order-it droite...", flush=True)
+print(f"Source: {PATH}", flush=True)
+print(f"Destination: {DESTINATION}", flush=True)
 
 ## Lists all the already sorted id folders at the destination.
 try:
@@ -57,16 +54,16 @@ try:
         list(dict.fromkeys(DESTINATION_FOLDERS)))  ## -> Delete doubles !
     DESTINATION_FOLDERS = [name for name in DESTINATION_FOLDERS]
 except Exception as e:
-    print(f"Erreur d'accès à la destination: {e}")
+    print(f"Érreur d'accès à la destination: {e}")
     DESTINATION_FOLDERS = []
 
 ## Creates 2 lists, the first containing every files of every folders, the second containing the ID to finds them later.
 try:
     dir_list = [f.name for f in PATH.iterdir() if f.is_dir()]
 except (FileNotFoundError, OSError, Exception) as e:
+    print(f"\n⚠️  Impossible d'accéder au dossier source")
     print(f"Erreur: {e}")
     print(f"\nVérifiez que:")
-    print(f"\n⚠️  Impossible d'accéder au dossier source")
     print("  • Le chemin est correct")
     print("  • Vous avez les permissions nécessaires\n")
     sys.exit(1)
@@ -82,7 +79,7 @@ for dir_name in sorted(dir_list):
         folder_name = id_name[10:]
 
         ## -> Filters the already transfered folders to speed up the process.
-        if folder_name not in DESTINATION_FOLDERS:
+        if folder_name in DESTINATION_FOLDERS:
             KIOSK_FOLDERS.append(id_name)
             FILES[f"{file}"] = f"{id_name}_{new_name[1]}_{order_counter:03}_{new_name[-1]}"
     files.sort()
@@ -104,14 +101,14 @@ for id in KIOSK_FOLDERS:
 
 ## Browse the sorted dictionnary and copy the right file in the right place.
 for id in RESULT :
-    print(f"\nCommande : {id}")
-    print("~" * 21)
+    print(f"\nCommande : {id}", flush=True)
+    print("~" * 21, flush=True)
     folder(DESTINATION / id)
 
     for size, files in RESULT[id].items():
         if files :
-            print(f"\n\t{size}")
-            print(f"\t" + "-" * 51)
+            print(f"\n\t{size}", flush=True)
+            print(f"\t" + "-" * 51, flush=True)
             folder(DESTINATION / id / size)            
 
             ## Isolate the end of the name of each file and puts them on a new list to count them.
@@ -132,14 +129,14 @@ for id in RESULT :
                                 if filename == previous_filename :
                                     pass
                                 else :
-                                    print(f"\t->\t{original}")
-                                    print(f"\t\t-->{value}X_{filename}\n")
+                                    print(f"\t==>\t{original}")
+                                    print(f"\t\t⤷ {value}X_{filename}\n")
 
                                     copyfile(PATH / size / original,
-                                            DESTINATION / id / size / f"{value}X_{filename}")
+                                             DESTINATION / id / size / f"{value}X_{filename}")
                                 previous_filename = filename
-                                 
+                                
             filenames.clear()
 
-print("Termine !")
+print("Termine !", flush=True)
 sys.exit(0)

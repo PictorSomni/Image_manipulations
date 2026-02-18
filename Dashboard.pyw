@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.6"
+__version__ = "1.6.7"
 
 #############################################################
 #                          IMPORTS                          #
@@ -52,18 +52,17 @@ def main(page: ft.Page):
         "N&B.py": False,
         "Transfert vers TEMP.py": True,
         "Renommer sequence.py": False,
-        "Sharpen.py": False,
+        "Ameliorer nettete.py": False,
         "Conversion JPG.py": False,
         "Remerciements.py": False,
-        "Clean.py": False,
+        "Nettoyer metadonnees.py": False,
         "Recadrage.pyw": False,
-        "Renommer nombre photos.py": False,
-        "Resize_watermark.py": False,
+        "Redimensionner filigrane.py": False,
         "Images en PDF.py": False,
-        "Resize.py": False,
-        "FIT_PRINT_13x10.py": False,
+        "Redimensionner.py": False,
+        "Format 13x10.py": False,
         "2 en 1.py": False,
-        "FIT_PRINT_13x15.py": False,
+        "Format 13x15.py": False,
     }
     
     resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
@@ -615,7 +614,8 @@ def main(page: ft.Page):
             return
         
         try:
-            log_to_terminal(f"▶ Lancement de {app_name}...", BLUE)
+            display_name = app_name[:-4] if app_name.endswith(".pyw") else app_name[:-3]
+            log_to_terminal(f"▶ Lancement de {display_name}...", BLUE)
             
             if is_local:
                 # Préparer l'environnement pour les apps locales
@@ -623,7 +623,7 @@ def main(page: ft.Page):
                 env["DATA_PATH"] = os.path.join(cwd, "Data")
                 
                 # Naviguer vers le PATH pour order_it gauche/droite
-                if app_name == "order_it gauche.py":
+                if app_name == "Kiosk gauche.py":
                     if platform.system() == "Windows":
                         order_path = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK GAUCHE"
                     else:
@@ -633,7 +633,7 @@ def main(page: ft.Page):
                     else:
                         log_to_terminal(f"[AVERTISSEMENT] Le dossier {order_path} n'est pas accessible", ORANGE)
                 
-                elif app_name == "order_it droite.py":
+                elif app_name == "Kiosk droite.py":
                     if platform.system() == "Windows":
                         order_path = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK DROITE"
                     else:
@@ -721,12 +721,12 @@ def main(page: ft.Page):
                             env["PATH"] = os.path.join(brew_path, "bin") + ":" + env.get("PATH", "")
                             break
                 
-                # Ajouter la taille de redimensionnement pour Resize.py
-                if app_name == "Resize.py":
+                # Ajouter la taille de redimensionnement pour Redimensionner.py
+                if app_name == "Redimensionner.py":
                     env["RESIZE_SIZE"] = resize_size["value"]
                 
-                # Ajouter la taille de redimensionnement avec watermark pour Resize_watermark.py
-                if app_name == "Resize_watermark.py":
+                # Ajouter la taille de redimensionnement avec watermark pour Redimensionner filigrane.py
+                if app_name == "Redimensionner filigrane.py":
                     env["RESIZE_WATERMARK_SIZE"] = resize_watermark_size["value"]
                 
                 # Ajouter le dossier destination pour Transfert vers TEMP.py
@@ -800,9 +800,9 @@ def main(page: ft.Page):
     resize_input.on_change = on_resize_input_change
     
     def launch_resize(e):
-        app_path = os.path.join(cwd, "Data", "Resize.py")
+        app_path = os.path.join(cwd, "Data", "Redimensionner.py")
         if os.path.exists(app_path):
-            launch_app("Resize.py", app_path, False)
+            launch_app("Redimensionner.py", app_path, False)
     
     # Widget personnalisé pour Resize_watermark
     resize_watermark_input = ft.TextField(
@@ -822,9 +822,9 @@ def main(page: ft.Page):
     resize_watermark_input.on_change = on_resize_watermark_input_change
     
     def launch_resize_watermark(e):
-        app_path = os.path.join(cwd, "Data", "Resize_watermark.py")
+        app_path = os.path.join(cwd, "Data", "Redimensionner filigrane.py")
         if os.path.exists(app_path):
-            launch_app("Resize_watermark.py", app_path, False)
+            launch_app("Redimensionner filigrane.py", app_path, False)
     
     def refresh_apps():
         apps_list.controls.clear()
@@ -834,12 +834,12 @@ def main(page: ft.Page):
             if not os.path.exists(app_path):
                 continue
             
-            # Widget spécial pour Resize.py
-            if app_name == "Resize.py":
+            # Widget spécial pour Redimensionner.py
+            if app_name == "Redimensionner.py":
                 apps_list.controls.append(
                     ft.Container(
                         content=ft.Column([
-                            ft.Text("Redimensionnement", size=13, color=WHITE, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                            ft.Text("Redimensionner", size=13, color=WHITE, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
                             resize_input,
                             ft.Text("px", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
@@ -850,12 +850,12 @@ def main(page: ft.Page):
                         ink=True,
                     )
                 )
-            # Widget spécial pour Resize_watermark.py
-            elif app_name == "Resize_watermark.py":
+            # Widget spécial pour Redimensionner filigrane.py
+            elif app_name == "Redimensionner filigrane.py":
                 apps_list.controls.append(
                     ft.Container(
                         content=ft.Column([
-                            ft.Text("Projet", size=12, color=WHITE, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                            ft.Text("Redimensionner + filigrane", size=12, color=WHITE, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
                             resize_watermark_input,
                             ft.Text("px", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
@@ -954,16 +954,16 @@ def main(page: ft.Page):
                         ft.Container(width=48),  # Espacement entre le titre et les boutons
                         ft.IconButton(
                             icon=ft.Icons.ARROW_LEFT,
-                            tooltip="Order-it gauche",
-                            on_click=lambda e: launch_app("order_it gauche.py", os.path.join(cwd, "Data", "order_it gauche.py"), True),
+                            tooltip="Kiosk gauche",
+                            on_click=lambda e: launch_app("Kiosk gauche.py", os.path.join(cwd, "Data", "Kiosk gauche.py"), True),
                             icon_color=BLUE,
                             bgcolor=GREY,
                             icon_size=18,
                         ),
                         ft.IconButton(
                             icon=ft.Icons.ARROW_RIGHT,
-                            tooltip="Order-it droite",
-                            on_click=lambda e: launch_app("order_it droite.py", os.path.join(cwd, "Data", "order_it droite.py"), True),
+                            tooltip="Kiosk droite",
+                            on_click=lambda e: launch_app("Kiosk droite.py", os.path.join(cwd, "Data", "Kiosk droite.py"), True),
                             icon_color=BLUE,
                             bgcolor=GREY,
                             icon_size=18,

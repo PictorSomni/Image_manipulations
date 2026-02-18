@@ -17,7 +17,7 @@ install.bat
 
 ### Linux / macOS
 ```bash
-chmod +x install.sh run.sh
+chmod +x install.sh run.sh update.sh
 ./install.sh
 ```
 
@@ -39,12 +39,33 @@ run.bat
 
 ### Méthode 2 : Python direct
 ```bash
-python Dashboard.py
+python Dashboard.pyw
 ```
 *ou*
 ```bash
-python3 Dashboard.py
+python3 Dashboard.pyw
 ```
+
+---
+
+## 🔄 Mise à jour du projet (Git)
+
+### Windows
+```cmd
+update.bat
+```
+
+### Linux / macOS
+```bash
+./update.sh
+```
+
+Ces scripts font `git pull` **uniquement si** :
+- le dossier est un dépôt Git valide,
+- le script est lancé depuis la racine du dépôt,
+- le remote `origin` correspond à l'adresse attendue du projet.
+
+Sinon, ils s'arrêtent avec un message d'erreur explicite.
 
 ---
 
@@ -79,31 +100,36 @@ pip install -r requirements.txt
 
 ```
 Dashboard-Image-Manipulation/
-├── Dashboard.py          # Application principale
+├── Dashboard.pyw         # Application principale
 ├── run.py                # Lanceur universel Python
 ├── run.sh                # Lanceur Linux/macOS
 ├── run.bat               # Lanceur Windows
+├── update.sh             # Mise à jour Git Linux/macOS
+├── update.bat            # Mise à jour Git Windows
 ├── install.sh            # Installation Linux/macOS
 ├── install.bat           # Installation Windows
 ├── requirements.txt      # Dépendances Python
 ├── README.md             # Ce fichier
 └── Data/                 # Applications et ressources
     ├── watermark.png     # Filigrane utilisé par certaines apps
-    ├── 2-in-1.py
-    ├── Clean.py
-    ├── FIT_PRINT_13x10.py
-    ├── FIT_PRINT_13x15.py
-    ├── Polaroid.py
-    ├── Projet.py
+   ├── 2 en 1.py
+   ├── Ameliorer nettete.py
+   ├── Conversion JPG.py
+   ├── Fichiers manquants.py
+   ├── Format 13x10.py
+   ├── Format 13x15.py
+   ├── Images en PDF.py
+   ├── Kiosk droite.py
+   ├── Kiosk gauche.py
+   ├── N&B.py
+   ├── Nettoyer metadonnees.py
     ├── Remerciements.py
-    ├── sharpen.py
-    ├── any to JPG.py
-    ├── jpeg 2 jpg.py
+   ├── Redimensionner.py
+   ├── Redimensionner filigrane.py
+   ├── Recadrage.pyw
     ├── Renommer sequence.py
     ├── renommer nombre photo.py
-    ├── order_it droite.py
-    ├── order_it gauche.py
-    └── Copy remaining files.py
+   └── Transfert vers TEMP.py
 ```
 
 ---
@@ -132,23 +158,26 @@ Dashboard-Image-Manipulation/
 
 ## 📝 Applications disponibles
 
-| Application | Description | Nécessite un dossier |
-|------------|-------------|---------------------|
-| `2-in-1.py` | Combine deux images côte à côte | ✅ |
-| `Clean.py` | Supprime les métadonnées EXIF | ✅ |
-| `FIT_PRINT_13x10.py` | Recadre en format 13x10 cm | ✅ |
-| `FIT_PRINT_13x15.py` | Recadre en format 13x15 cm | ✅ |
-| `Polaroid.py` | Crée un effet Polaroid | ✅ |
-| `Projet.py` | Redimensionne et ajoute un filigrane | ✅ |
-| `Remerciements.py` | Génère des cartes de remerciement | ✅ |
-| `sharpen.py` | Améliore la netteté des images | ✅ |
-| `any to JPG.py` | Convertit divers formats en JPG | ✅ |
-| `jpeg 2 jpg.py` | Renomme .jpeg en .jpg | ✅ |
-| `Renommer sequence.py` | Renomme en séquence numérotée | ✅ |
-| `renommer nombre photo.py` | Renomme selon un pattern | ✅ |
-| `order_it droite.py` | Organise les fichiers kiosk droite | ❌ |
-| `order_it gauche.py` | Organise les fichiers kiosk gauche | ❌ |
-| `Copy remaining files.py` | Copie les fichiers manquants | ❌ |
+| Nom affiché (Dashboard) | Script | Description | Nécessite un dossier |
+|-------------------------|--------|-------------|---------------------|
+| 2 en 1 | `2 en 1.py` | Combine deux images côte à côte | ✅ |
+| Nettoyer les métadonnées | `Nettoyer metadonnees.py` | Supprime les métadonnées EXIF | ✅ |
+| Conversion en JPG | `Conversion JPG.py` | Convertit les images en JPG | ✅ |
+| Fichiers manquants | `Fichiers manquants.py` | Détecte les fichiers manquants | ✅ |
+| Format 13x10 | `Format 13x10.py` | Recadre en format 13x10 cm | ✅ |
+| Format 13x15 | `Format 13x15.py` | Recadre en format 13x15 cm | ✅ |
+| Images en PDF | `Images en PDF.py` | Génère un PDF à partir d'images | ✅ |
+| Noir et blanc | `N&B.py` | Conversion noir et blanc | ✅ |
+| Recadrage | `Recadrage.pyw` | Outil de recadrage interactif | ✅ |
+| Remerciements | `Remerciements.py` | Génère des cartes de remerciement | ✅ |
+| Redimensionner | `Redimensionner.py` | Redimensionne les images (taille paramétrable) | ✅ |
+| Redimensionner + filigrane | `Redimensionner filigrane.py` | Redimensionne avec filigrane (taille paramétrable) | ✅ |
+| Renommer nombre photo | `renommer nombre photo.py` | Renomme selon un pattern | ✅ |
+| Renommer en séquence | `Renommer sequence.py` | Renomme en séquence numérotée | ✅ |
+| Améliorer la netteté | `Ameliorer nettete.py` | Améliore la netteté des images | ✅ |
+| Transfert vers TEMP | `Transfert vers TEMP.py` | Envoie des fichiers vers un dossier TEMP prédéfini | ❌ |
+| Kiosk droite | `Kiosk droite.py` | Organise les fichiers kiosque droite | ❌ |
+| Kiosk gauche | `Kiosk gauche.py` | Organise les fichiers kiosque gauche | ❌ |
 
 ---
 
@@ -162,6 +191,9 @@ Pour distribuer l'application sur une autre machine :
    ```
 
 2. **Décompresser sur la machine cible**
+
+   ⚠️ Si vous voulez utiliser `update.bat` / `update.sh`, copiez aussi le dossier caché `.git`
+   (ou faites un `git clone` sur la machine cible).
 
 3. **Lancer l'installation** :
    - Windows : double-clic sur `install.bat`
@@ -185,14 +217,18 @@ Pour distribuer l'application sur une autre machine :
 
 ### "ImageMagick introuvable"
 → ImageMagick n'est pas installé (optionnel)  
-→ L'app "any to JPG" ne fonctionnera pas  
+→ Les apps de conversion JPG peuvent ne pas fonctionner  
 → Installez ImageMagick depuis les liens ci-dessus
 
 ### Les scripts .sh ne se lancent pas (Linux/macOS)
 → Rendez-les exécutables :
 ```bash
-chmod +x install.sh run.sh
+chmod +x install.sh run.sh update.sh
 ```
+
+### "[ERREUR] Mauvais depot distant configure" avec update
+→ Le remote `origin` ne correspond pas au dépôt attendu
+→ Vérifiez avec `git remote -v` puis corrigez si besoin
 
 ---
 
