@@ -46,7 +46,7 @@ def main():
     missing = check_dependencies()
     
     if missing:
-        print("❌ Dépendances manquantes:", ", ".join(missing))
+        print("[ERREUR] Dépendances manquantes:", ", ".join(missing))
         print()
         print("Installez-les avec:")
         if os.name == 'nt':  # Windows
@@ -61,25 +61,25 @@ def main():
     # Vérifier que Dashboard.py existe
     dashboard_path = Path(__file__).parent / "Dashboard.py"
     if not dashboard_path.exists():
-        print("❌ Fichier Dashboard.py introuvable dans le dossier courant")
+        print("[ERREUR] Fichier Dashboard.py introuvable dans le dossier courant")
         sys.exit(1)
     
     # Vérifier que le dossier Data existe
     data_path = Path(__file__).parent / "Data"
     if not data_path.exists():
-        print("⚠️  Dossier Data introuvable - certaines applications pourraient ne pas fonctionner")
+        print("[WARN] Dossier Data introuvable - certaines applications pourraient ne pas fonctionner")
     
-    print("✓ Toutes les dépendances sont installées")
-    print("✓ Lancement du Dashboard...")
+    print("[OK] Toutes les dépendances sont installées")
+    print("[OK] Lancement du Dashboard...")
     print()
     
     # Lancer Dashboard.py
     try:
         subprocess.run([sys.executable, str(dashboard_path)], check=True)
     except KeyboardInterrupt:
-        print("\n✓ Dashboard fermé")
+        print("\n[OK] Dashboard fermé")
     except Exception as e:
-        print(f"❌ Erreur lors du lancement: {e}")
+        print(f"[ERREUR] Erreur lors du lancement: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":

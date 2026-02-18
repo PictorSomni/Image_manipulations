@@ -21,7 +21,7 @@ PATH = Path(__file__).resolve().parent
 selected_files_str = os.environ.get("SELECTED_FILES", "")
 selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
 
-EXTENSIONS = (".avif",".heic", ".webp", ".png", ".tiff", ".jpeg")
+EXTENSIONS = (".avif",".heic", ".webp", ".png", ".tiff", ".jpeg", ".bmp", ".gif", ".psd", ".svg", ".ico", ".jfif", ".jpe", ".jif", ".jfi")
 all_files = [file for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSIONS]
 FOLDER = [f for f in all_files if f.name in selected_files_set] if selected_files_set else all_files
 TOTAL = len(FOLDER)

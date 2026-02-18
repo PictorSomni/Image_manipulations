@@ -53,7 +53,7 @@ def main(page: ft.Page):
         "Transfert vers TEMP.py": True,
         "Renommer sequence.py": False,
         "Sharpen.py": False,
-        "any to JPG.py": False,
+        "Conversion JPG.py": False,
         "Remerciements.py": False,
         "Clean.py": False,
         "Recadrage.pyw": False,
@@ -506,7 +506,7 @@ def main(page: ft.Page):
         if folder_to_display and os.path.isdir(folder_to_display):
             try:
                 files = os.listdir(folder_to_display)
-                file_count = sum(1 for f in files if not os.path.isdir(os.path.join(folder_to_display, f)))
+                file_count = sum(1 for f in files if not f.startswith(".") and not os.path.isdir(os.path.join(folder_to_display, f)))
                 file_count_text.value = f"({file_count} fichier{'s' if file_count > 1 else ''})"
                 if not files:
                     preview_list.controls.append(ft.Text("(dossier vide)", color=GREY))
