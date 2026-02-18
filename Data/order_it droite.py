@@ -19,7 +19,7 @@ if platform.system() == "Windows":
     PATH = "\\\\studioc-kiosk2\\kiosk-data\\it-HotFolder"
     DESTINATION = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK DROITE"
 else :
-    PATH = "/Volumes/kiosk-data/it-HotFolder"
+    PATH = "/Volumes/kiosk-data-1/it-HotFolder"
     DESTINATION = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE"
 
 PATH = Path(PATH)
