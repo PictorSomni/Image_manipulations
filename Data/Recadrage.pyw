@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.7"
+__version__ = "1.6.8"
 
 #############################################################
 #                          IMPORTS                          #
@@ -9,6 +9,7 @@ import flet as ft
 import os
 from PIL import Image, ImageOps
 import asyncio
+import math
 
 # ===================== Configuration ===================== #
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
@@ -87,6 +88,17 @@ class PhotoCropper:
         # Option noir et blanc
         self.is_bw = False
 
+        # Rotation
+        self.rotation = 0.0
+        self.rotation_slider = ft.Slider(
+            value=self.rotation,
+            min=-5.0,
+            max=5.0,
+            divisions=100,
+            label=f"{self.rotation:.1f}°",
+            on_change=self.on_rotation_update,
+        )
+
         # Image principale
         self.image_display = ft.Image(
             src="",
@@ -102,7 +114,8 @@ class PhotoCropper:
         
         # Stack pour positionner l'image
         self.image_stack = ft.Stack(
-            controls=[self.image_container],
+            controls=[
+                self.image_container],
             width=self.canvas_w,
             height=self.canvas_h,
         )
@@ -285,6 +298,7 @@ class PhotoCropper:
         # Appliquer le scale via la propriété scale du container
         # Le scale s'applique depuis le centre, donc on ajuste la position
         self.image_container.scale = self.scale
+        self.image_container.rotate = math.radians(self.rotation)
         
         # Position du centre du container (avant scale)
         # Avec scale depuis le centre, on doit positionner le coin supérieur gauche
@@ -297,10 +311,20 @@ class PhotoCropper:
         self.image_container.left = center_x - self.display_w / 2
         self.image_container.top = center_y - self.display_h / 2
 
+    def _get_transformed_bounds(self):
+        """Retourne la boîte englobante (w, h) de l'image après scale + rotation."""
+        scaled_w = self.display_w * self.scale
+        scaled_h = self.display_h * self.scale
+        theta = math.radians(self.rotation)
+        cos_t = abs(math.cos(theta))
+        sin_t = abs(math.sin(theta))
+        bound_w = scaled_w * cos_t + scaled_h * sin_t
+        bound_h = scaled_w * sin_t + scaled_h * cos_t
+        return bound_w, bound_h
+
     def _clamp_offsets(self):
         """Contraint les offsets pour empêcher l'image de sortir du canevas"""
-        zoomed_w = self.display_w * self.scale
-        zoomed_h = self.display_h * self.scale
+        zoomed_w, zoomed_h = self._get_transformed_bounds()
 
         if zoomed_w <= self.canvas_w:
             self.offset_x = 0
@@ -314,45 +338,29 @@ class PhotoCropper:
             max_offset_y = (zoomed_h - self.canvas_h) / 2
             self.offset_y = min(max_offset_y, max(-max_offset_y, self.offset_y))
 
+    def on_rotation_update(self, e):
+        """Pendant la rotation - faire pivoter l'image avec limites aux bords du canvas"""
+        self.rotation = e.control.value
+        e.control.label = f"{self.rotation:.2f}°"
+        e.control.update()
+        self._clamp_offsets()
+        self._update_transform()
+        self.page.update()
+
+    def reset_rotation(self, e):
+        """Réinitialise la rotation à 0°"""
+        self.rotation = 0.0
+        self.rotation_slider.value = self.rotation
+        self.rotation_slider.label = f"{self.rotation:.2f}°"
+        self.rotation_slider.update()
+        self._clamp_offsets()
+        self._update_transform()
+        self.page.update()
+
     def on_pan_update(self, e: ft.DragUpdateEvent):
         """Pendant le pan - déplacer l'image avec limites aux bords du canvas"""
-        # Calculer la nouvelle position
-        new_offset_x = self.offset_x + e.local_delta.x
-        new_offset_y = self.offset_y + e.local_delta.y
-        
-        # Dimensions zoomées de l'image
-        zoomed_w = self.display_w * self.scale
-        zoomed_h = self.display_h * self.scale
-        
-        # Position théorique (centrée + offset)
-        left = (self.canvas_w - zoomed_w) / 2 + new_offset_x
-        top = (self.canvas_h - zoomed_h) / 2 + new_offset_y
-        
-        # Limiter le déplacement pour que l'image reste dans le canvas
-        # L'image ne doit pas laisser de blanc
-        if zoomed_w > self.canvas_w:
-            # L'image est plus large que le canvas
-            # left doit être <= 0 et left + zoomed_w >= canvas_w
-            max_left = 0
-            min_left = self.canvas_w - zoomed_w
-            left = max(min_left, min(max_left, left))
-            new_offset_x = left - (self.canvas_w - zoomed_w) / 2
-        else:
-            # L'image est plus petite que le canvas - la centrer
-            new_offset_x = 0
-        
-        if zoomed_h > self.canvas_h:
-            # L'image est plus haute que le canvas
-            max_top = 0
-            min_top = self.canvas_h - zoomed_h
-            top = max(min_top, min(max_top, top))
-            new_offset_y = top - (self.canvas_h - zoomed_h) / 2
-        else:
-            # L'image est plus petite que le canvas - la centrer
-            new_offset_y = 0
-        
-        self.offset_x = new_offset_x
-        self.offset_y = new_offset_y
+        self.offset_x += e.local_delta.x
+        self.offset_y += e.local_delta.y
         self._clamp_offsets()
         self._update_transform()
         self.page.update()
@@ -374,31 +382,6 @@ class PhotoCropper:
             self.offset_x *= ratio
             self.offset_y *= ratio
         
-        # Appliquer les limites après le zoom
-        zoomed_w = self.display_w * self.scale
-        zoomed_h = self.display_h * self.scale
-        
-        # Calculer la position
-        left = (self.canvas_w - zoomed_w) / 2 + self.offset_x
-        top = (self.canvas_h - zoomed_h) / 2 + self.offset_y
-        
-        # Limiter le déplacement
-        if zoomed_w > self.canvas_w:
-            max_left = 0
-            min_left = self.canvas_w - zoomed_w
-            left = max(min_left, min(max_left, left))
-            self.offset_x = left - (self.canvas_w - zoomed_w) / 2
-        else:
-            self.offset_x = 0
-        
-        if zoomed_h > self.canvas_h:
-            max_top = 0
-            min_top = self.canvas_h - zoomed_h
-            top = max(min_top, min(max_top, top))
-            self.offset_y = top - (self.canvas_h - zoomed_h) / 2
-        else:
-            self.offset_y = 0
-
         self._clamp_offsets()
         self._update_transform()
         self.page.update()
@@ -419,31 +402,6 @@ class PhotoCropper:
             self.offset_x *= ratio
             self.offset_y *= ratio
         
-        # Appliquer les limites après le zoom
-        zoomed_w = self.display_w * self.scale
-        zoomed_h = self.display_h * self.scale
-        
-        # Calculer la position
-        left = (self.canvas_w - zoomed_w) / 2 + self.offset_x
-        top = (self.canvas_h - zoomed_h) / 2 + self.offset_y
-        
-        # Limiter le déplacement
-        if zoomed_w > self.canvas_w:
-            max_left = 0
-            min_left = self.canvas_w - zoomed_w
-            left = max(min_left, min(max_left, left))
-            self.offset_x = left - (self.canvas_w - zoomed_w) / 2
-        else:
-            self.offset_x = 0
-        
-        if zoomed_h > self.canvas_h:
-            max_top = 0
-            min_top = self.canvas_h - zoomed_h
-            top = max(min_top, min(max_top, top))
-            self.offset_y = top - (self.canvas_h - zoomed_h) / 2
-        else:
-            self.offset_y = 0
-
         self._clamp_offsets()
         self._update_transform()
         self.page.update()
@@ -462,32 +420,6 @@ class PhotoCropper:
         # Force immediate UI update to show "Enregistrement..." message
         self.page.update()
 
-        # ========== CALCUL PRÉCIS DU RECADRAGE ==========
-        zoomed_w = self.display_w * self.scale
-        zoomed_h = self.display_h * self.scale
-        
-        img_left = (self.canvas_w - zoomed_w) / 2 + self.offset_x
-        img_top = (self.canvas_h - zoomed_h) / 2 + self.offset_y
-        
-        px_to_orig = self.orig_w / zoomed_w
-        
-        crop_x = -img_left * px_to_orig
-        crop_y = -img_top * px_to_orig
-        crop_w = self.canvas_w * px_to_orig
-        crop_h = self.canvas_h * px_to_orig
-        
-        crop_x = max(0, crop_x)
-        crop_y = max(0, crop_y)
-        crop_w = min(self.orig_w - crop_x, crop_w)
-        crop_h = min(self.orig_h - crop_y, crop_h)
-        
-        crop_x = int(crop_x)
-        crop_y = int(crop_y)
-        crop_w = int(max(1, crop_w))
-        crop_h = int(max(1, crop_h))
-
-        pil_crop = self.current_pil_image.crop((crop_x, crop_y, crop_x + crop_w, crop_y + crop_h))
-        
         # ========== DIMENSIONS FINALES EN MM À 300 DPI ==========
         fmt_w_mm, fmt_h_mm = self.current_format
         if self.canvas_is_portrait:
@@ -496,8 +428,51 @@ class PhotoCropper:
         else:
             target_w_px = mm_to_pixels(fmt_h_mm)
             target_h_px = mm_to_pixels(fmt_w_mm)
-        
-        pil_crop = pil_crop.resize((target_w_px, target_h_px), Image.Resampling.LANCZOS)
+
+        # ========== REPROJECTION AVEC SCALE + PAN + ROTATION ==========
+        angle = math.radians(self.rotation)
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+
+        total_scale = self.base_scale * self.scale
+        if total_scale <= 0:
+            total_scale = 1e-6
+
+        canvas_cx = self.canvas_w / 2 + self.offset_x
+        canvas_cy = self.canvas_h / 2 + self.offset_y
+        orig_cx = self.orig_w / 2
+        orig_cy = self.orig_h / 2
+
+        # p_canvas = A * p_orig + t, avec A = total_scale * R(angle)
+        ax_cx = total_scale * (cos_a * orig_cx - sin_a * orig_cy)
+        ay_cy = total_scale * (sin_a * orig_cx + cos_a * orig_cy)
+        tx = canvas_cx - ax_cx
+        ty = canvas_cy - ay_cy
+
+        # Passage des pixels de sortie -> coordonnées canvas
+        sx = self.canvas_w / target_w_px
+        sy = self.canvas_h / target_h_px
+
+        inv_scale = 1.0 / total_scale
+
+        # Coefficients affine PIL: x_in = a*x + b*y + c ; y_in = d*x + e*y + f
+        a = inv_scale * cos_a * sx
+        b = inv_scale * sin_a * sy
+        d = inv_scale * -sin_a * sx
+        e_m = inv_scale * cos_a * sy
+
+        inv_tx = inv_scale * (cos_a * tx + sin_a * ty)
+        inv_ty = inv_scale * (-sin_a * tx + cos_a * ty)
+        c = -inv_tx
+        f = -inv_ty
+
+        pil_crop = self.current_pil_image.transform(
+            (target_w_px, target_h_px),
+            Image.Transform.AFFINE,
+            (a, b, c, d, e_m, f),
+            resample=Image.Resampling.BICUBIC,
+            fillcolor=(255, 255, 255, 0),
+        )
         
         if self.is_bw:
             pil_crop = pil_crop.convert("L")
@@ -931,9 +906,37 @@ def main(page: ft.Page):
         ft.Stack([
             ft.Row([
                 ft.Container(
-                    content=app.canvas_container,
+                    content=ft.Column(
+                        [   
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Container(
+                                        content=ft.Text("Rotation", size=14, weight=ft.FontWeight.W_500),
+                                        alignment=ft.Alignment.CENTER,
+                                        width=320,
+                                    ),
+                                    app.rotation_slider,
+                                    ft.Container(
+                                        content=ft.Button("Reset Rotation", on_click=app.reset_rotation, width=180, bgcolor=WHITE, color=DARK),
+                                        alignment=ft.Alignment.CENTER,
+                                    ),
+                                ],
+                                spacing=8),
+                                width=320,
+                                padding=ft.Padding.only(top=24, bottom=8),
+                                alignment=ft.Alignment.CENTER,
+                            ),
+                            ft.Container(
+                                content=app.canvas_container,
+                                expand=True,
+                                alignment=ft.Alignment.CENTER,
+                            ),
+                        ],
+                        spacing=0,
+                        expand=True,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
                     expand=True,
-                    alignment=ft.Alignment.CENTER,
                 ),
                 ft.VerticalDivider(width=1),
                 controls
