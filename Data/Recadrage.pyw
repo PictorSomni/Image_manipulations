@@ -92,9 +92,9 @@ class PhotoCropper:
         self.rotation = 0.0
         self.rotation_slider = ft.Slider(
             value=self.rotation,
-            min=-5.0,
-            max=5.0,
-            divisions=100,
+            min=-15.0,
+            max=15.0,
+            divisions=300,
             label=f"{self.rotation:.1f}°",
             on_change=self.on_rotation_update,
         )
@@ -487,6 +487,8 @@ class PhotoCropper:
         base = os.path.basename(self.image_paths[self.current_index])
         name, ext = os.path.splitext(base)
         fmt_short = self.current_format_label.split()[0]
+        jpg = name + ".jpg"
+
 
         if self.border_13x15 and "10x15" in fmt_short:
             ratio_13_15 = 127 / 152
@@ -573,6 +575,7 @@ class PhotoCropper:
             
             pil_crop = framed
             fmt_short = "ID_X4"
+            jpg = f"ID{self.current_index + 1:02}.jpg"
 
         elif self.border_id2 and "ID" in self.current_format_label:
             # 2 images ID (36x46mm chacune) sur un canvas de 102x102mm
@@ -601,9 +604,9 @@ class PhotoCropper:
             
             pil_crop = framed
             fmt_short = "ID_X2"
+            jpg = f"ID{self.current_index + 1:02}.jpg"
 
         os.makedirs(fmt_short, exist_ok=True)
-        jpg = name + ".jpg"
         out_path = os.path.join(fmt_short, jpg)
         pil_crop.save(out_path, quality=100, format="JPEG", dpi=(DPI, DPI))
         
@@ -917,7 +920,7 @@ def main(page: ft.Page):
                                     ),
                                     app.rotation_slider,
                                     ft.Container(
-                                        content=ft.Button("Reset Rotation", on_click=app.reset_rotation, width=180, bgcolor=WHITE, color=DARK),
+                                        content=ft.Button("Remettre à 0°", on_click=app.reset_rotation, width=180, bgcolor=WHITE, color=DARK),
                                         alignment=ft.Alignment.CENTER,
                                     ),
                                 ],
