@@ -7,6 +7,7 @@ __version__ = "1.6.8"
 #############################################################
 import flet as ft
 import os
+import platform
 from PIL import Image, ImageOps
 import asyncio
 import math
@@ -74,7 +75,8 @@ class PhotoCropper:
         self.border_13x10 = False
         self.border_polaroid = False
         self.border_id2 = False
-        self.border_id4 = False
+        self.border_id4 = True
+        self.save_to_network = True  # Sauvegarder les ID X4 sur le réseau par défaut
         self.canvas_w = 800  # Valeur initiale, ajustée au chargement
         self.canvas_h = self.canvas_w * self.current_format[1] / self.current_format[0]
 
@@ -155,7 +157,8 @@ class PhotoCropper:
         self.border_switch_13x10 = ft.Switch(label="13x10", active_color=ORANGE, value=False, visible=True if "10x10" in self.current_format_label else False, on_change=self.on_border_toggle_13x10)
         self.border_switch_polaroid = ft.Switch(label="Polaroid", active_color=ORANGE, value=False, visible=True if "10x10" in self.current_format_label else False, on_change=self.on_border_toggle_polaroid)
         self.border_switch_ID2 = ft.Switch(label="ID X2", active_color=ORANGE, value=False, visible=True if "ID" in self.current_format_label else False, on_change=self.on_border_toggle_id2)
-        self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=ORANGE, value=False, visible=True if "ID" in self.current_format_label else False, on_change=self.on_border_toggle_id4)
+        self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=ORANGE, value=True, visible=True if "ID" in self.current_format_label else False, on_change=self.on_border_toggle_id4)
+        self.network_switch = ft.Switch(label="Sauver sur réseau", active_color=GREEN, value=True, visible=True if "ID" in self.current_format_label else False, on_change=self.on_network_toggle)
         self.bw_switch = ft.Switch(label="Noir et blanc", active_color=ORANGE, value=False, on_change=self.on_bw_toggle)
 
         self.canvas_container = ft.Container(
@@ -170,7 +173,7 @@ class PhotoCropper:
     def update_canvas_size(self):
         """Compute optimal canvas size based on available space"""
         available_width = min(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
-        available_height = min(self.page.window.height - 80, MAX_CANVAS_SIZE) if self.page.window.height else 600
+        available_height = min(self.page.window.height - 240, MAX_CANVAS_SIZE) if self.page.window.height else 600
 
         # Calculer le ratio du format choisi
         fmt_w, fmt_h = self.current_format
@@ -278,9 +281,12 @@ class PhotoCropper:
             self.border_switch_ID2.value = self.border_id2
             self.border_switch_ID4.visible = True
             self.border_switch_ID4.value = self.border_id4
+            self.network_switch.visible = True
+            self.network_switch.value = self.save_to_network
         else:
             self.border_switch_ID2.visible = False
             self.border_switch_ID4.visible = False
+            self.network_switch.visible = False
 
         self.page.title = f"Crop: {os.path.basename(path)} ({self.current_index + 1}/{len(self.image_paths)})"
         self.page.update()
@@ -575,7 +581,7 @@ class PhotoCropper:
             
             pil_crop = framed
             fmt_short = "ID_X4"
-            jpg = f"ID{self.current_index + 1:02}.jpg"
+            jpg = f"ID {self.current_index + 1:02}.jpg"
 
         elif self.border_id2 and "ID" in self.current_format_label:
             # 2 images ID (36x46mm chacune) sur un canvas de 102x102mm
@@ -604,10 +610,19 @@ class PhotoCropper:
             
             pil_crop = framed
             fmt_short = "ID_X2"
-            jpg = f"ID{self.current_index + 1:02}.jpg"
+            jpg = f"ID {self.current_index + 1:02}.jpg"
 
-        os.makedirs(fmt_short, exist_ok=True)
-        out_path = os.path.join(fmt_short, jpg)
+        # Destination spéciale pour ID X4 si le switch réseau est activé
+        if fmt_short == "ID_X4" and self.save_to_network:
+            if platform.system() == "Windows":
+                base_dir = "\\\\Diskstation\\travaux en cours\\z2026"
+            else:
+                base_dir = "/Volumes/TRAVAUX EN COURS/Z2026"
+        else:
+            base_dir = fmt_short
+        
+        os.makedirs(base_dir, exist_ok=True)
+        out_path = os.path.join(base_dir, jpg)
         pil_crop.save(out_path, quality=100, format="JPEG", dpi=(DPI, DPI))
         
         self.status_text.value = f"[OK] {os.path.basename(out_path)}"
@@ -675,6 +690,7 @@ class PhotoCropper:
         elif "ID" in self.current_format_label:
             self.border_switch_ID2.visible = True
             self.border_switch_ID4.visible = True
+            self.network_switch.visible = True
             self.border_switch_13x15.visible = False
             self.border_switch_13x15.value = False
             self.border_13x15 = False
@@ -698,6 +714,7 @@ class PhotoCropper:
             self.border_switch_ID2.value = False
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
+            self.network_switch.visible = False
             self.border_switch_polaroid.visible = False
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
@@ -742,6 +759,9 @@ class PhotoCropper:
             self.border_id2 = False
             self.border_switch_ID2.value = False
             self.page.update()
+
+    def on_network_toggle(self, e):
+        self.save_to_network = bool(e.control.value)
 
     def batch_process_interactive(self, e):
         import time
@@ -829,6 +849,8 @@ class PhotoCropper:
 
         self.border_switch_ID4.visible = True if "ID" in self.current_format_label else False
 
+        self.network_switch.visible = True if "ID" in self.current_format_label else False
+
     def ignore_image(self, e):
         if not self.image_paths or self.current_index >= len(self.image_paths):
             self.status_text.value = "Toutes les images ont été traitées."
@@ -883,7 +905,7 @@ def main(page: ft.Page):
                 value="10x15 (102x152mm)",
                 on_change=app.change_ratio
             ),
-            height=500,
+            height=400,
             border=ft.Border.all(1, LIGHT_GREY),
             border_radius=8,
             padding=5,
@@ -894,6 +916,7 @@ def main(page: ft.Page):
         app.border_switch_polaroid,
         app.border_switch_ID2,
         app.border_switch_ID4,
+        app.network_switch,
         ft.Divider(),
         ft.Button("Orientation",
             icon=ft.icons.Icons.SWAP_HORIZ,
