@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.8"
+__version__ = "1.6.9"
 
 #############################################################
 #                          IMPORTS                          #
@@ -68,8 +68,8 @@ class PhotoCropper:
         
         # Configuration du canvas (calculé dynamiquement)
         self.canvas_is_portrait = True
-        self.current_format = FORMATS["10x15 (102x152mm)"]
-        self.current_format_label = "10x15 (102x152mm)"
+        self.current_format = FORMATS["ID (36x46mm)"]
+        self.current_format_label = "ID (36x46mm)"
         self.border_13x15 = False
         self.border_20x24 = False
         self.border_13x10 = False
@@ -152,6 +152,7 @@ class PhotoCropper:
             on_click=self.ignore_image,
         )
 
+        self.two_in_one_switch = ft.Switch(label="2 en 1", active_color=BLUE, value=False, visible=True if any(fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]) else False, on_change=self.is_two_in_one_enabled)
         self.border_switch_13x15 = ft.Switch(label="13x15", active_color=ORANGE, value=False, visible=True if "10x15" in self.current_format_label else False, on_change=self.on_border_toggle_13x15)
         self.border_switch_20x24 = ft.Switch(label="20x24", active_color=ORANGE, value=False, visible=True if "18x24" in self.current_format_label else False, on_change=self.on_border_toggle_20x24)
         self.border_switch_13x10 = ft.Switch(label="13x10", active_color=ORANGE, value=False, visible=True if "10x10" in self.current_format_label else False, on_change=self.on_border_toggle_13x10)
@@ -416,6 +417,61 @@ class PhotoCropper:
         """Active/désactive le noir et blanc"""
         self.is_bw = e.control.value
 
+    def is_two_in_one_enabled(self):
+        return bool(self.two_in_one_switch.value) and any(
+            fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]
+        )
+
+    def _force_portrait(self, image):
+        """Tourne l'image de 90° si elle est en paysage."""
+        if image.width > image.height:
+            return image.rotate(90, expand=True)
+        return image
+
+    def _build_two_in_one_image(self, first_image, target_w_px, target_h_px):
+        """Construit une planche 2 en 1 en divisant le côté le plus long en 2."""
+        split_on_width = target_w_px >= target_h_px
+
+        if split_on_width:
+            panel_w = target_w_px // 2
+            panel_h = target_h_px
+            first_pos = (0, 0)
+            second_pos = (panel_w, 0)
+        else:
+            panel_w = target_w_px
+            panel_h = target_h_px // 2
+            first_pos = (0, 0)
+            second_pos = (0, panel_h)
+
+        first_image = self._force_portrait(first_image.convert("RGB"))
+        first_panel = ImageOps.fit(first_image, (panel_w, panel_h), method=Image.Resampling.BICUBIC)
+
+        second_panel = first_panel.copy()
+
+        composed = Image.new("RGB", (target_w_px, target_h_px), "white")
+        composed.paste(first_panel, first_pos)
+        composed.paste(second_panel, second_pos)
+        return composed
+
+    def _build_two_in_one_10x15_to_13x15(self, first_image):
+        """2 x (76x102) dans 152x102, puis remise en 152x127 avec fond blanc."""
+        panel_w = mm_to_pixels(76)
+        panel_h = mm_to_pixels(102)
+        base_w = mm_to_pixels(152)
+        base_h = mm_to_pixels(102)
+        final_h = mm_to_pixels(127)
+
+        first_image = self._force_portrait(first_image.convert("RGB"))
+        panel = ImageOps.fit(first_image, (panel_w, panel_h), method=Image.Resampling.BICUBIC)
+
+        base = Image.new("RGB", (base_w, base_h), "white")
+        base.paste(panel, (0, 0))
+        base.paste(panel, (panel_w, 0))
+
+        framed = Image.new("RGB", (base_w, final_h), "white")
+        framed.paste(base, (0, 0))
+        return framed
+
     def validate_and_next(self, e):
         if not self.image_paths or self.current_index >= len(self.image_paths):
             self.status_text.value = "Toutes les images ont été traitées."
@@ -427,8 +483,9 @@ class PhotoCropper:
         self.page.update()
 
         # ========== DIMENSIONS FINALES EN MM À 300 DPI ==========
+        export_is_portrait = self.canvas_h >= self.canvas_w
         fmt_w_mm, fmt_h_mm = self.current_format
-        if self.canvas_is_portrait:
+        if export_is_portrait:
             target_w_px = mm_to_pixels(fmt_w_mm)
             target_h_px = mm_to_pixels(fmt_h_mm)
         else:
@@ -491,29 +548,45 @@ class PhotoCropper:
             pil_crop = pil_crop.convert("RGB")
         
         base = os.path.basename(self.image_paths[self.current_index])
-        name, ext = os.path.splitext(base)
+        name, _ = os.path.splitext(base)
         fmt_short = self.current_format_label.split()[0]
         jpg = name + ".jpg"
 
 
-        if self.border_13x15 and "10x15" in fmt_short:
-            ratio_13_15 = 127 / 152
-            
-            if self.canvas_is_portrait:
-                target_w = int(pil_crop.height * ratio_13_15)
-                framed = Image.new("RGB", (target_w, pil_crop.height), "white")
-                framed.paste(pil_crop, (0, 0))
+        two_in_one_applied = False
+        if self.is_two_in_one_enabled():
+            if self.border_13x15 and "10x15" in fmt_short:
+                pil_crop = self._build_two_in_one_10x15_to_13x15(pil_crop)
+                fmt_short = "13x15"
             else:
-                target_h = int(pil_crop.width * ratio_13_15)
-                framed = Image.new("RGB", (pil_crop.width, target_h), "white")
-                framed.paste(pil_crop, (0, 0))
+                pil_crop = self._build_two_in_one_image(
+                    pil_crop,
+                    target_w_px,
+                    target_h_px,
+                )
+            two_in_one_applied = True
+
+        if (not two_in_one_applied) and self.border_13x15 and "10x15" in fmt_short:
+            pil_crop = self._force_portrait(pil_crop)
+            source_is_landscape = self.orig_w > self.orig_h
+
+            if source_is_landscape:
+                src_w, src_h = mm_to_pixels(152), mm_to_pixels(102)
+                out_w, out_h = mm_to_pixels(152), mm_to_pixels(127)
+            else:
+                src_w, src_h = mm_to_pixels(102), mm_to_pixels(152)
+                out_w, out_h = mm_to_pixels(127), mm_to_pixels(152)
+
+            base_10x15 = ImageOps.fit(pil_crop, (src_w, src_h), method=Image.Resampling.BICUBIC)
+            framed = Image.new("RGB", (out_w, out_h), "white")
+            framed.paste(base_10x15, (0, 0))
             pil_crop = framed
             fmt_short = "13x15"
 
-        if self.border_20x24 and "18x24" in fmt_short:
+        if (not two_in_one_applied) and self.border_20x24 and "18x24" in fmt_short:
             ratio_20_24 = 203 / 240
             
-            if self.canvas_is_portrait:
+            if export_is_portrait:
                 target_w = int(pil_crop.height * ratio_20_24)
                 framed = Image.new("RGB", (target_w, pil_crop.height), "white")
                 framed.paste(pil_crop, (0, 0))
@@ -524,10 +597,10 @@ class PhotoCropper:
             pil_crop = framed
             fmt_short = "20x24"
 
-        if self.border_13x10 and "10x10" in fmt_short:
+        if (not two_in_one_applied) and self.border_13x10 and "10x10" in fmt_short:
             ratio_13_10 = 127 / 102
             
-            if self.canvas_is_portrait:
+            if export_is_portrait:
                 target_w = int(pil_crop.height * ratio_13_10)
                 framed = Image.new("RGB", (target_w, pil_crop.height), "white")
                 framed.paste(pil_crop, (0, 0))
@@ -538,7 +611,7 @@ class PhotoCropper:
             pil_crop = framed
             fmt_short = "13x10"
 
-        if self.border_polaroid and "10x10" in fmt_short:
+        if (not two_in_one_applied) and self.border_polaroid and "10x10" in fmt_short:
             # Image 102x102mm dans un format 127x152mm (polaroid)
             POLAROID_WIDTH_PX = mm_to_pixels(127)
             POLAROID_HEIGHT_PX = mm_to_pixels(152)
@@ -552,7 +625,7 @@ class PhotoCropper:
             fmt_short = "Polaroid"
 
         # Gestion des layouts ID : ID X4 prioritaire sur ID X2
-        if self.border_id4 and "ID" in self.current_format_label:
+        if (not two_in_one_applied) and self.border_id4 and "ID" in self.current_format_label:
             # 4 images ID (36x46mm chacune) sur un canvas de 127x102mm
             # Layout: grille 2x2
             CANVA_WIDTH_PX = mm_to_pixels(127)
@@ -583,7 +656,7 @@ class PhotoCropper:
             fmt_short = "ID_X4"
             jpg = f"ID {self.current_index + 1:02}.jpg"
 
-        elif self.border_id2 and "ID" in self.current_format_label:
+        elif (not two_in_one_applied) and self.border_id2 and "ID" in self.current_format_label:
             # 2 images ID (36x46mm chacune) sur un canvas de 102x102mm
             # Layout: 2 lignes, 1 colonne
             CANVA_WIDTH_PX = mm_to_pixels(102)
@@ -649,7 +722,25 @@ class PhotoCropper:
         except Exception:
             pass
         if "10x15" in self.current_format_label:
+            self.two_in_one_switch.visible = True
+            self.two_in_one_switch.value = False
             self.border_switch_13x15.visible = True
+            self.border_switch_20x24.visible = False
+            self.border_switch_20x24.value = False
+            self.border_20x24 = False
+            self.border_switch_13x10.visible = False
+            self.border_switch_13x10.value = False
+            self.border_13x10 = False
+            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.value = False
+            self.border_switch_ID4.visible = False
+            self.border_switch_ID4.value = False
+        elif "13x18" in self.current_format_label or "15x20" in self.current_format_label:
+            self.two_in_one_switch.visible = True
+            self.two_in_one_switch.value = False
+            self.border_switch_13x15.visible = False
+            self.border_switch_13x15.value = False
+            self.border_13x15 = False
             self.border_switch_20x24.visible = False
             self.border_switch_20x24.value = False
             self.border_20x24 = False
@@ -662,6 +753,7 @@ class PhotoCropper:
             self.border_switch_ID4.value = False
 
         elif "18x24" in self.current_format_label:
+            self.two_in_one_switch.visible = False
             self.border_switch_20x24.visible = True
             self.border_switch_13x15.visible = False
             self.border_switch_13x15.value = False
@@ -678,6 +770,7 @@ class PhotoCropper:
             self.border_polaroid = False
 
         elif "10x10" in self.current_format_label:
+            self.two_in_one_switch.visible = False
             self.border_switch_13x10.visible = True
             self.border_switch_polaroid.visible = True
             self.border_switch_13x15.visible = False
@@ -688,6 +781,7 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
         elif "ID" in self.current_format_label:
+            self.two_in_one_switch.visible = False
             self.border_switch_ID2.visible = True
             self.border_switch_ID4.visible = True
             self.network_switch.visible = True
@@ -701,6 +795,7 @@ class PhotoCropper:
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
         else:
+            self.two_in_one_switch.visible = False
             self.border_switch_13x15.visible = False
             self.border_switch_13x15.value = False
             self.border_13x15 = False
@@ -735,7 +830,7 @@ class PhotoCropper:
             self.border_polaroid = False
             self.border_switch_polaroid.value = False
             self.page.update()
-    
+
     def on_border_toggle_polaroid(self, e):
         self.border_polaroid = bool(e.control.value)
         # Désactiver 13x10 si Polaroid est activé
@@ -838,6 +933,8 @@ class PhotoCropper:
         self.update_canvas_size()
         if self.image_paths:
             self.load_image(preserve_orientation=True)
+        
+        self.two_in_one_switch.visible = True if (any(fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"])) else False
 
         self.border_switch_13x15.visible = True if "10x15" in self.current_format_label else False
 
@@ -902,7 +999,7 @@ def main(page: ft.Page):
                     [ft.Radio(value=fmt, label=fmt, fill_color=BLUE) for fmt in FORMATS.keys()],
                     scroll=ft.ScrollMode.AUTO,
                 ),
-                value="10x15 (102x152mm)",
+                value="ID (36x46mm)",
                 on_change=app.change_ratio
             ),
             height=400,
@@ -910,6 +1007,7 @@ def main(page: ft.Page):
             border_radius=8,
             padding=5,
         ),
+        app.two_in_one_switch,
         app.border_switch_13x15,
         app.border_switch_20x24,
         app.border_switch_13x10,

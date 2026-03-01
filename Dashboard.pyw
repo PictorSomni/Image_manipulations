@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.8"
+__version__ = "1.6.9"
 
 #############################################################
 #                          IMPORTS                          #
@@ -38,7 +38,6 @@ def main(page: ft.Page):
     page.window.title_bar_buttons_hidden = True
     page.window.width = 1200
     page.window.height = 796
-
     
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
