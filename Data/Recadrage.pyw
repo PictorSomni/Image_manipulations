@@ -567,15 +567,13 @@ class PhotoCropper:
             two_in_one_applied = True
 
         if (not two_in_one_applied) and self.border_13x15 and "10x15" in fmt_short:
-            pil_crop = self._force_portrait(pil_crop)
-            source_is_landscape = self.orig_w > self.orig_h
-
-            if source_is_landscape:
-                src_w, src_h = mm_to_pixels(152), mm_to_pixels(102)
-                out_w, out_h = mm_to_pixels(152), mm_to_pixels(127)
-            else:
+            # Respecter l'orientation du canvas (landscape ou portrait)
+            if export_is_portrait:
                 src_w, src_h = mm_to_pixels(102), mm_to_pixels(152)
                 out_w, out_h = mm_to_pixels(127), mm_to_pixels(152)
+            else:
+                src_w, src_h = mm_to_pixels(152), mm_to_pixels(102)
+                out_w, out_h = mm_to_pixels(152), mm_to_pixels(127)
 
             base_10x15 = ImageOps.fit(pil_crop, (src_w, src_h), method=Image.Resampling.BICUBIC)
             framed = Image.new("RGB", (out_w, out_h), "white")
