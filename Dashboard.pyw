@@ -23,12 +23,12 @@ def main(page: ft.Page):
     DARK = "#23252a"
     BG = "#292c33"
     GREY = "#2f333c"
-    LIGHT_GREY = "#62666f"
+    LIGHT_GREY = "#9399A6"
     BLUE = "#45B8F5"
     GREEN = "#49B76C"
-    ORANGE = "#e06331"
-    RED = "#e17080"
-    WHITE = "#adb2be"
+    ORANGE = "#f07342"
+    RED = "#e8697a"
+    WHITE = "#c7ccd8"
 
 # ===================== PROPERTIES ===================== #
     page.title = "Dashboard de Projets"
@@ -47,21 +47,21 @@ def main(page: ft.Page):
     
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
-        "Fichiers manquants.py": False,
-        "N&B.py": False,
-        "Transfert vers TEMP.py": True,
-        "Renommer sequence.py": False,
-        "Ameliorer nettete.py": False,
-        "Conversion JPG.py": False,
-        "Remerciements.py": False,
-        "Nettoyer metadonnees.py": False,
-        "Recadrage.pyw": False,
-        "Redimensionner filigrane.py": False,
-        "Images en PDF.py": False,
-        "Redimensionner.py": False,
-        "Format 13x10.py": False,
-        "2 en 1.py": False,
-        "Format 13x15.py": False,
+        "Fichiers manquants.py": [False, RED],
+        "N&B.py": [False, RED],
+        "Transfert vers TEMP.py": [True, BLUE],
+        "Renommer sequence.py": [False, BLUE],
+        "Ameliorer nettete.py": [False, ORANGE],
+        "Conversion JPG.py": [False, BLUE],
+        "Remerciements.py": [False, ORANGE],
+        "Nettoyer metadonnees.py": [False, GREEN],
+        "Recadrage.pyw": [False, BLUE],
+        "Redimensionner filigrane.py": [False, WHITE],
+        "Images en PDF.py": [False, GREEN],
+        "Redimensionner.py": [False, WHITE],
+        "Format 13x10.py": [False, WHITE],
+        "2 en 1.py": [False, WHITE],
+        "Format 13x15.py": [False, WHITE],
     }
     
     resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
@@ -828,7 +828,9 @@ def main(page: ft.Page):
     def refresh_apps():
         apps_list.controls.clear()
         
-        for app_name, is_local in apps.items():
+        for app_name, app_config in apps.items():
+            is_local = app_config[0]
+            app_color = app_config[1]
             app_path = os.path.join(cwd, "Data", app_name)
             if not os.path.exists(app_path):
                 continue
@@ -838,11 +840,12 @@ def main(page: ft.Page):
                 apps_list.controls.append(
                     ft.Container(
                         content=ft.Column([
-                            ft.Text("Redimensionner", size=13, color=WHITE, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                            ft.Text("Redimensionner", size=13, color=app_color, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
                             resize_input,
                             ft.Text("px", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
                         bgcolor=GREY,
+                        border=ft.Border.all(1, app_color),
                         padding=ft.Padding(5, 8, 5, 8),
                         border_radius=4,
                         on_click=launch_resize,
@@ -854,11 +857,12 @@ def main(page: ft.Page):
                 apps_list.controls.append(
                     ft.Container(
                         content=ft.Column([
-                            ft.Text("Redimensionner + filigrane", size=12, color=WHITE, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                            ft.Text("Redimensionner + filigrane", size=12, color=app_color, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
                             resize_watermark_input,
                             ft.Text("px", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
                         bgcolor=GREY,
+                        border=ft.Border.all(1, app_color),
                         padding=ft.Padding(5, 8, 5, 8),
                         border_radius=4,
                         on_click=launch_resize_watermark,
@@ -871,7 +875,7 @@ def main(page: ft.Page):
                         content=ft.Text(
                             app_name[:-4] if app_name.endswith(".pyw") else app_name[:-3],
                             size=14,
-                            color=WHITE,
+                            color=app_color,
                             text_align=ft.TextAlign.CENTER,
                             weight=ft.FontWeight.W_500,
                             max_lines=3,
@@ -879,6 +883,7 @@ def main(page: ft.Page):
                         alignment=ft.alignment.Alignment(0, 0),
                         on_click=lambda e, name=app_name, path=app_path, local=is_local: launch_app(name, path, local),
                         bgcolor=GREY,
+                        border=ft.Border.all(1, app_color),
                         padding=ft.Padding(10, 10, 10, 10),
                         border_radius=4,
                         ink=True,
