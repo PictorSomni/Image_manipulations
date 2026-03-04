@@ -425,9 +425,7 @@ class PhotoCropper:
             "is_bw": self.is_bw,
             "two_in_one": bool(self.two_in_one_switch.value),
         }
-        # Permettre le même format en deux orientations différentes
-        if not any(s["label"] == label and s["is_portrait"] == is_portrait for s in self.extra_formats):
-            self.extra_formats.append(snapshot)
+        self.extra_formats.append(snapshot)
         self._update_extra_formats_display()
         # Remettre le compteur d'exemplaires à 1 et le N&B à off pour le prochain format
         self.copies_count = 1
@@ -450,7 +448,8 @@ class PhotoCropper:
                 copies = s.get("copies", 1)
                 prefix = f"{copies}X "
                 bw = " N&B" if s.get("is_bw", False) else ""
-                parts.append(f"{prefix}{lbl} {orient}{bw}")
+                deux = " 2en1" if s.get("two_in_one", False) else ""
+                parts.append(f"{prefix}{lbl} {orient}{deux}{bw}")
             self.extra_formats_display.value = " + ".join(parts)
         else:
             self.extra_formats_display.value = "—"
@@ -707,6 +706,22 @@ class PhotoCropper:
         # Force immediate UI update to show "Enregistrement..." message
         self.page.update()
 
+        # Suivi des chemins utilisés pour éviter les écrasements
+        used_paths = set()
+
+        def unique_path(path):
+            if path not in used_paths:
+                used_paths.add(path)
+                return path
+            base, ext = os.path.splitext(path)
+            i = 2
+            while True:
+                candidate = f"{base}_{i}{ext}"
+                if candidate not in used_paths:
+                    used_paths.add(candidate)
+                    return candidate
+                i += 1
+
         # ========== DIMENSIONS FINALES EN MM À 300 DPI ==========
         export_is_portrait = self.canvas_h >= self.canvas_w
         fmt_w_mm, fmt_h_mm = self.current_format
@@ -867,7 +882,7 @@ class PhotoCropper:
             base_dir = fmt_short
         
         os.makedirs(base_dir, exist_ok=True)
-        out_path = os.path.join(base_dir, jpg)
+        out_path = unique_path(os.path.join(base_dir, jpg))
         pil_crop.save(out_path, quality=100, format="JPEG", dpi=(DPI, DPI))
 
         # ========== EXPORTS FORMATS SUPPLÉMENTAIRES ==========
@@ -915,7 +930,7 @@ class PhotoCropper:
             ex_copies = snapshot.get("copies", 1)
             ex_prefix = f"{ex_copies}X_"
             ex_jpg = ex_prefix + name + ".jpg"
-            ex_path = os.path.join(ex_short, ex_jpg)
+            ex_path = unique_path(os.path.join(ex_short, ex_jpg))
             ex_crop.save(ex_path, quality=100, format="JPEG", dpi=(DPI, DPI))
 
         self.status_text.value = f"[OK] {os.path.basename(out_path)}"
