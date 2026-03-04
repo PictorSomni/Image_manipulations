@@ -423,6 +423,7 @@ class PhotoCropper:
             "copies": self.copies_count,
             "border_13x15": self.border_13x15,
             "is_bw": self.is_bw,
+            "two_in_one": bool(self.two_in_one_switch.value),
         }
         # Permettre le même format en deux orientations différentes
         if not any(s["label"] == label and s["is_portrait"] == is_portrait for s in self.extra_formats):
@@ -876,8 +877,28 @@ class PhotoCropper:
             ex_short = ex_label.split()[0]
             ex_is_portrait = snapshot["is_portrait"]
 
-            # Appliquer la bordure 13x15 si elle était active au moment du snapshot
-            if snapshot.get("border_13x15", False) and "10x15" in ex_short:
+            # Dimensions cibles en pixels pour ce format
+            ex_dims = snapshot["dims"]
+            ex_fmt_w_mm, ex_fmt_h_mm = ex_dims
+            if ex_is_portrait:
+                ex_target_w_px = mm_to_pixels(ex_fmt_w_mm)
+                ex_target_h_px = mm_to_pixels(ex_fmt_h_mm)
+            else:
+                ex_target_w_px = mm_to_pixels(ex_fmt_h_mm)
+                ex_target_h_px = mm_to_pixels(ex_fmt_w_mm)
+
+            ex_two_in_one_applied = False
+            # Appliquer le 2 en 1 si il était actif au moment du snapshot
+            if snapshot.get("two_in_one", False):
+                if snapshot.get("border_13x15", False) and "10x15" in ex_short:
+                    ex_crop = self._build_two_in_one_10x15_to_13x15(ex_crop)
+                    ex_short = "13x15"
+                else:
+                    ex_crop = self._build_two_in_one_image(ex_crop, ex_target_w_px, ex_target_h_px)
+                ex_two_in_one_applied = True
+
+            # Appliquer la bordure 13x15 si elle était active au moment du snapshot (sans 2en1)
+            if (not ex_two_in_one_applied) and snapshot.get("border_13x15", False) and "10x15" in ex_short:
                 if ex_is_portrait:
                     src_w, src_h = mm_to_pixels(102), mm_to_pixels(152)
                     out_w, out_h = mm_to_pixels(127), mm_to_pixels(152)
