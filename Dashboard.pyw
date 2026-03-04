@@ -607,7 +607,84 @@ def main(page: ft.Page):
     # Attacher le callback au switch
     sort_switch.on_change = on_sort_change
     
-    def launch_app(app_name, app_path, is_local):
+    def launch_app(app_name, app_path, is_local, series_name=None):
+        # Pour Renommer sequence.py, demander le nom de la série avant de lancer
+        if app_name == "Images en PDF.py" and series_name is None:
+            pdf_name_input = ft.TextField(
+                label="Nom du PDF",
+                hint_text="Ex: Album_Mariage",
+                autofocus=True,
+                width=320,
+                bgcolor=DARK,
+                border_color=GREY,
+            )
+
+            def on_confirm_pdf(e):
+                name = pdf_name_input.value.strip() if pdf_name_input.value else ""
+                pdf_dialog.open = False
+                page.update()
+                if name:
+                    launch_app(app_name, app_path, is_local, series_name=name)
+
+            def on_cancel_pdf(e):
+                pdf_dialog.open = False
+                page.update()
+
+            pdf_name_input.on_submit = on_confirm_pdf
+
+            pdf_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Nom du PDF"),
+                content=pdf_name_input,
+                actions=[
+                    ft.TextButton("Annuler", on_click=on_cancel_pdf),
+                    ft.TextButton("OK", on_click=on_confirm_pdf),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.overlay.append(pdf_dialog)
+            pdf_dialog.open = True
+            page.update()
+            return
+
+        if app_name == "Renommer sequence.py" and series_name is None:
+            series_input = ft.TextField(
+                label="Nom de la série",
+                hint_text="Ex: Mariage_Martin",
+                autofocus=True,
+                width=320,
+                bgcolor=DARK,
+                border_color=GREY,
+            )
+
+            def on_confirm_series(e):
+                name = series_input.value.strip() if series_input.value else ""
+                series_dialog.open = False
+                page.update()
+                if name:
+                    launch_app(app_name, app_path, is_local, series_name=name)
+
+            def on_cancel_series(e):
+                series_dialog.open = False
+                page.update()
+
+            series_input.on_submit = on_confirm_series
+
+            series_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Renommer la série"),
+                content=series_input,
+                actions=[
+                    ft.TextButton("Annuler", on_click=on_cancel_series),
+                    ft.TextButton("OK", on_click=on_confirm_series),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.overlay.append(series_dialog)
+            series_dialog.open = True
+            page.update()
+            return
+
         if not is_local and not selected_folder["path"]:
             log_to_terminal("[ERREUR] Veuillez sélectionner un dossier avant de lancer cette application", RED)
             return
@@ -735,6 +812,14 @@ def main(page: ft.Page):
                     else:
                         env["DEST_FOLDER"] = "/Volumes/TRAVAUX EN COURS/Z2026/TEMP"
                 
+                # Ajouter le nom de la série pour Renommer sequence.py
+                if app_name == "Renommer sequence.py" and series_name:
+                    env["SERIES_NAME"] = series_name
+
+                # Ajouter le nom du PDF pour Images en PDF.py
+                if app_name == "Images en PDF.py" and series_name:
+                    env["PDF_NAME"] = series_name
+
                 # Ajouter les fichiers sélectionnés (si aucun n'est sélectionné, la variable sera vide)
                 if selected_files:
                     env["SELECTED_FILES"] = "|".join(os.path.basename(f) for f in selected_files)
