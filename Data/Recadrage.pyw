@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.6.9"
+__version__ = "1.7.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -100,6 +100,35 @@ class PhotoCropper:
             label=f"{self.rotation:.1f}°",
             on_change=self.on_rotation_update,
         )
+
+        # Nombre d'exemplaires
+        self.copies_count = 1
+        self.copies_text = ft.Text(
+            "1",
+            size=22,
+            weight=ft.FontWeight.BOLD,
+            text_align=ft.TextAlign.CENTER,
+            width=36,
+            color=WHITE,
+        )
+        self.copies_minus_btn = ft.IconButton(
+            icon=ft.icons.Icons.REMOVE,
+            icon_color=WHITE,
+            icon_size=20,
+            on_click=self.decrement_copies,
+            tooltip="Moins",
+        )
+        self.copies_plus_btn = ft.IconButton(
+            icon=ft.icons.Icons.ADD,
+            icon_color=BLUE,
+            icon_size=20,
+            on_click=self.increment_copies,
+            tooltip="Plus",
+        )
+
+        # Formats multiples
+        self.extra_formats = []  # list of snapshot dicts with full view state
+        self.extra_formats_display = ft.Text("—", size=11, color=LIGHT_GREY)
 
         # Image principale
         self.image_display = ft.Image(
@@ -364,6 +393,67 @@ class PhotoCropper:
         self._update_transform()
         self.page.update()
 
+    def increment_copies(self, e):
+        self.copies_count += 1
+        self.copies_text.value = str(self.copies_count)
+        self.page.update()
+
+    def decrement_copies(self, e):
+        if self.copies_count > 1:
+            self.copies_count -= 1
+        self.copies_text.value = str(self.copies_count)
+        self.page.update()
+
+    def add_extra_format(self, e):
+        label = self.current_format_label
+        dims = self.current_format
+        is_portrait = self.canvas_is_portrait
+        # Snapshot complet de l'état de la vue au moment de l'ajout
+        snapshot = {
+            "label": label,
+            "dims": dims,
+            "is_portrait": is_portrait,
+            "canvas_w": self.canvas_w,
+            "canvas_h": self.canvas_h,
+            "base_scale": self.base_scale,
+            "scale": self.scale,
+            "offset_x": self.offset_x,
+            "offset_y": self.offset_y,
+            "rotation": self.rotation,
+            "copies": self.copies_count,
+            "border_13x15": self.border_13x15,
+            "is_bw": self.is_bw,
+        }
+        # Permettre le même format en deux orientations différentes
+        if not any(s["label"] == label and s["is_portrait"] == is_portrait for s in self.extra_formats):
+            self.extra_formats.append(snapshot)
+        self._update_extra_formats_display()
+        # Remettre le compteur d'exemplaires à 1 et le N&B à off pour le prochain format
+        self.copies_count = 1
+        self.copies_text.value = "1"
+        self.is_bw = False
+        self.bw_switch.value = False
+        self.page.update()
+
+    def clear_extra_formats(self, e):
+        self.extra_formats.clear()
+        self._update_extra_formats_display()
+        self.page.update()
+
+    def _update_extra_formats_display(self):
+        if self.extra_formats:
+            parts = []
+            for s in self.extra_formats:
+                lbl = s["label"].split()[0]
+                orient = "P" if s["is_portrait"] else "L"
+                copies = s.get("copies", 1)
+                prefix = f"{copies}X "
+                bw = " N&B" if s.get("is_bw", False) else ""
+                parts.append(f"{prefix}{lbl} {orient}{bw}")
+            self.extra_formats_display.value = " + ".join(parts)
+        else:
+            self.extra_formats_display.value = "—"
+
     def on_pan_update(self, e: ft.DragUpdateEvent):
         """Pendant le pan - déplacer l'image avec limites aux bords du canvas"""
         self.offset_x += e.local_delta.x
@@ -472,6 +562,140 @@ class PhotoCropper:
         framed.paste(base, (0, 0))
         return framed
 
+    def _compute_crop(self, target_w_px, target_h_px):
+        """Calcule le recadrage affine de l'image courante aux dimensions données (canvas principal)."""
+        return self._compute_crop_with_canvas(
+            target_w_px, target_h_px,
+            self.canvas_w, self.canvas_h,
+            self.base_scale, self.offset_x, self.offset_y,
+        )
+
+    def _compute_crop_for_format(self, fmt_w_mm, fmt_h_mm, is_portrait):
+        """Calcule le recadrage pour un format donné avec son orientation propre.
+        Construit un canvas virtuel au ratio du format, centré sur le même point que le canvas principal.
+        """
+        if is_portrait:
+            target_w_px = mm_to_pixels(fmt_w_mm)
+            target_h_px = mm_to_pixels(fmt_h_mm)
+        else:
+            target_w_px = mm_to_pixels(fmt_h_mm)
+            target_h_px = mm_to_pixels(fmt_w_mm)
+
+        fmt_ratio = target_w_px / target_h_px
+        avail_w = self.canvas_w
+        avail_h = self.canvas_h
+        if avail_w / avail_h > fmt_ratio:
+            virt_h = avail_h
+            virt_w = avail_h * fmt_ratio
+        else:
+            virt_w = avail_w
+            virt_h = avail_w / fmt_ratio
+
+        # Nouveau base_scale pour ce canvas virtuel
+        virt_base_scale = max(virt_w / self.orig_w, virt_h / self.orig_h)
+
+        # Convertir l'offset du canvas principal en pixels image, puis reprojeter dans le canvas virtuel
+        if self.base_scale > 0:
+            off_img_x = self.offset_x / (self.base_scale * self.scale)
+            off_img_y = self.offset_y / (self.base_scale * self.scale)
+        else:
+            off_img_x = off_img_y = 0.0
+        virt_offset_x = off_img_x * virt_base_scale * self.scale
+        virt_offset_y = off_img_y * virt_base_scale * self.scale
+
+        return self._compute_crop_with_canvas(
+            target_w_px, target_h_px,
+            virt_w, virt_h,
+            virt_base_scale, virt_offset_x, virt_offset_y,
+        )
+
+    def _compute_crop_from_snapshot(self, snapshot):
+        """Calcule le recadrage à partir d'un snapshot complet de l'état de la vue."""
+        dims = snapshot["dims"]
+        is_portrait = snapshot["is_portrait"]
+        fmt_w_mm, fmt_h_mm = dims
+        if is_portrait:
+            target_w_px = mm_to_pixels(fmt_w_mm)
+            target_h_px = mm_to_pixels(fmt_h_mm)
+        else:
+            target_w_px = mm_to_pixels(fmt_h_mm)
+            target_h_px = mm_to_pixels(fmt_w_mm)
+
+        # Utiliser l'état de rotation et N&B du snapshot
+        saved_rotation = self.rotation
+        saved_bw = self.is_bw
+        self.rotation = snapshot["rotation"]
+        self.is_bw = snapshot.get("is_bw", False)
+
+        result = self._compute_crop_with_canvas(
+            target_w_px, target_h_px,
+            snapshot["canvas_w"], snapshot["canvas_h"],
+            snapshot["base_scale"], snapshot["offset_x"], snapshot["offset_y"],
+            scale_override=snapshot["scale"],
+        )
+
+        self.rotation = saved_rotation
+        self.is_bw = saved_bw
+        return result
+
+    def _compute_crop_with_canvas(self, target_w_px, target_h_px,
+                                   canvas_w, canvas_h, base_scale, offset_x, offset_y,
+                                   scale_override=None):
+        """Calcule le recadrage affine avec les paramètres de canvas explicites."""
+        angle = math.radians(self.rotation)
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+
+        scale = scale_override if scale_override is not None else self.scale
+        total_scale = base_scale * scale
+        if total_scale <= 0:
+            total_scale = 1e-6
+
+        canvas_cx = canvas_w / 2 + offset_x
+        canvas_cy = canvas_h / 2 + offset_y
+        orig_cx = self.orig_w / 2
+        orig_cy = self.orig_h / 2
+
+        ax_cx = total_scale * (cos_a * orig_cx - sin_a * orig_cy)
+        ay_cy = total_scale * (sin_a * orig_cx + cos_a * orig_cy)
+        tx = canvas_cx - ax_cx
+        ty = canvas_cy - ay_cy
+
+        sx = canvas_w / target_w_px
+        sy = canvas_h / target_h_px
+
+        inv_scale = 1.0 / total_scale
+
+        a = inv_scale * cos_a * sx
+        b = inv_scale * sin_a * sy
+        d = inv_scale * -sin_a * sx
+        e_m = inv_scale * cos_a * sy
+
+        inv_tx = inv_scale * (cos_a * tx + sin_a * ty)
+        inv_ty = inv_scale * (-sin_a * tx + cos_a * ty)
+        c = -inv_tx
+        f = -inv_ty
+
+        pil_crop = self.current_pil_image.transform(
+            (target_w_px, target_h_px),
+            Image.Transform.AFFINE,
+            (a, b, c, d, e_m, f),
+            resample=Image.Resampling.BICUBIC,
+            fillcolor=(255, 255, 255, 0),
+        )
+
+        if self.is_bw:
+            pil_crop = pil_crop.convert("L")
+
+        if pil_crop.mode == "RGBA":
+            white_bg = Image.new("RGBA", pil_crop.size, (255, 255, 255, 255))
+            pil_crop = Image.alpha_composite(white_bg, pil_crop)
+            pil_crop = pil_crop.convert("RGB")
+        else:
+            pil_crop = pil_crop.convert("RGB")
+
+        return pil_crop
+
     def validate_and_next(self, e):
         if not self.image_paths or self.current_index >= len(self.image_paths):
             self.status_text.value = "Toutes les images ont été traitées."
@@ -493,64 +717,13 @@ class PhotoCropper:
             target_h_px = mm_to_pixels(fmt_w_mm)
 
         # ========== REPROJECTION AVEC SCALE + PAN + ROTATION ==========
-        angle = math.radians(self.rotation)
-        cos_a = math.cos(angle)
-        sin_a = math.sin(angle)
+        pil_crop = self._compute_crop(target_w_px, target_h_px)
 
-        total_scale = self.base_scale * self.scale
-        if total_scale <= 0:
-            total_scale = 1e-6
-
-        canvas_cx = self.canvas_w / 2 + self.offset_x
-        canvas_cy = self.canvas_h / 2 + self.offset_y
-        orig_cx = self.orig_w / 2
-        orig_cy = self.orig_h / 2
-
-        # p_canvas = A * p_orig + t, avec A = total_scale * R(angle)
-        ax_cx = total_scale * (cos_a * orig_cx - sin_a * orig_cy)
-        ay_cy = total_scale * (sin_a * orig_cx + cos_a * orig_cy)
-        tx = canvas_cx - ax_cx
-        ty = canvas_cy - ay_cy
-
-        # Passage des pixels de sortie -> coordonnées canvas
-        sx = self.canvas_w / target_w_px
-        sy = self.canvas_h / target_h_px
-
-        inv_scale = 1.0 / total_scale
-
-        # Coefficients affine PIL: x_in = a*x + b*y + c ; y_in = d*x + e*y + f
-        a = inv_scale * cos_a * sx
-        b = inv_scale * sin_a * sy
-        d = inv_scale * -sin_a * sx
-        e_m = inv_scale * cos_a * sy
-
-        inv_tx = inv_scale * (cos_a * tx + sin_a * ty)
-        inv_ty = inv_scale * (-sin_a * tx + cos_a * ty)
-        c = -inv_tx
-        f = -inv_ty
-
-        pil_crop = self.current_pil_image.transform(
-            (target_w_px, target_h_px),
-            Image.Transform.AFFINE,
-            (a, b, c, d, e_m, f),
-            resample=Image.Resampling.BICUBIC,
-            fillcolor=(255, 255, 255, 0),
-        )
-        
-        if self.is_bw:
-            pil_crop = pil_crop.convert("L")
-        
-        if pil_crop.mode == "RGBA":
-            white_bg = Image.new("RGBA", pil_crop.size, (255, 255, 255, 255))
-            pil_crop = Image.alpha_composite(white_bg, pil_crop)
-            pil_crop = pil_crop.convert("RGB")
-        else:
-            pil_crop = pil_crop.convert("RGB")
-        
         base = os.path.basename(self.image_paths[self.current_index])
         name, _ = os.path.splitext(base)
         fmt_short = self.current_format_label.split()[0]
-        jpg = name + ".jpg"
+        copies_prefix = f"{self.copies_count}X_"
+        jpg = copies_prefix + name + ".jpg"
 
 
         two_in_one_applied = False
@@ -652,7 +825,7 @@ class PhotoCropper:
             
             pil_crop = framed
             fmt_short = "ID_X4"
-            jpg = f"ID {self.current_index + 1:02}.jpg"
+            jpg = f"{copies_prefix}ID {self.current_index + 1:02}.jpg"
 
         elif (not two_in_one_applied) and self.border_id2 and "ID" in self.current_format_label:
             # 2 images ID (36x46mm chacune) sur un canvas de 102x102mm
@@ -681,7 +854,7 @@ class PhotoCropper:
             
             pil_crop = framed
             fmt_short = "ID_X2"
-            jpg = f"ID {self.current_index + 1:02}.jpg"
+            jpg = f"{copies_prefix}ID {self.current_index + 1:02}.jpg"
 
         # Destination spéciale pour ID X4 si le switch réseau est activé
         if fmt_short == "ID_X4" and self.save_to_network:
@@ -695,8 +868,43 @@ class PhotoCropper:
         os.makedirs(base_dir, exist_ok=True)
         out_path = os.path.join(base_dir, jpg)
         pil_crop.save(out_path, quality=100, format="JPEG", dpi=(DPI, DPI))
-        
+
+        # ========== EXPORTS FORMATS SUPPLÉMENTAIRES ==========
+        for snapshot in self.extra_formats:
+            ex_crop = self._compute_crop_from_snapshot(snapshot)
+            ex_label = snapshot["label"]
+            ex_short = ex_label.split()[0]
+            ex_is_portrait = snapshot["is_portrait"]
+
+            # Appliquer la bordure 13x15 si elle était active au moment du snapshot
+            if snapshot.get("border_13x15", False) and "10x15" in ex_short:
+                if ex_is_portrait:
+                    src_w, src_h = mm_to_pixels(102), mm_to_pixels(152)
+                    out_w, out_h = mm_to_pixels(127), mm_to_pixels(152)
+                else:
+                    src_w, src_h = mm_to_pixels(152), mm_to_pixels(102)
+                    out_w, out_h = mm_to_pixels(152), mm_to_pixels(127)
+                base_fit = ImageOps.fit(ex_crop, (src_w, src_h), method=Image.Resampling.BICUBIC)
+                framed = Image.new("RGB", (out_w, out_h), "white")
+                framed.paste(base_fit, (0, 0))
+                ex_crop = framed
+                ex_short = "13x15"
+
+            os.makedirs(ex_short, exist_ok=True)
+            ex_copies = snapshot.get("copies", 1)
+            ex_prefix = f"{ex_copies}X_"
+            ex_jpg = ex_prefix + name + ".jpg"
+            ex_path = os.path.join(ex_short, ex_jpg)
+            ex_crop.save(ex_path, quality=100, format="JPEG", dpi=(DPI, DPI))
+
         self.status_text.value = f"[OK] {os.path.basename(out_path)}"
+        self.page.update()
+
+        # Réinitialiser les extras et les copies pour la photo suivante
+        self.extra_formats.clear()
+        self._update_extra_formats_display()
+        self.copies_count = 1
+        self.copies_text.value = "1"
         self.page.update()
 
         if self.batch_mode:
@@ -723,6 +931,7 @@ class PhotoCropper:
             self.two_in_one_switch.visible = True
             self.two_in_one_switch.value = False
             self.border_switch_13x15.visible = True
+            self.border_switch_13x15.value = self.border_13x15
             self.border_switch_20x24.visible = False
             self.border_switch_20x24.value = False
             self.border_20x24 = False
@@ -737,8 +946,6 @@ class PhotoCropper:
             self.two_in_one_switch.visible = True
             self.two_in_one_switch.value = False
             self.border_switch_13x15.visible = False
-            self.border_switch_13x15.value = False
-            self.border_13x15 = False
             self.border_switch_20x24.visible = False
             self.border_switch_20x24.value = False
             self.border_20x24 = False
@@ -754,8 +961,6 @@ class PhotoCropper:
             self.two_in_one_switch.visible = False
             self.border_switch_20x24.visible = True
             self.border_switch_13x15.visible = False
-            self.border_switch_13x15.value = False
-            self.border_13x15 = False
             self.border_switch_13x10.visible = False
             self.border_switch_13x10.value = False
             self.border_13x10 = False
@@ -772,8 +977,6 @@ class PhotoCropper:
             self.border_switch_13x10.visible = True
             self.border_switch_polaroid.visible = True
             self.border_switch_13x15.visible = False
-            self.border_switch_13x15.value = False
-            self.border_13x15 = False
             self.border_switch_ID2.visible = False
             self.border_switch_ID2.value = False
             self.border_switch_ID4.visible = False
@@ -784,8 +987,6 @@ class PhotoCropper:
             self.border_switch_ID4.visible = True
             self.network_switch.visible = True
             self.border_switch_13x15.visible = False
-            self.border_switch_13x15.value = False
-            self.border_13x15 = False
             self.border_switch_13x10.visible = False
             self.border_switch_13x10.value = False
             self.border_13x10 = False
@@ -795,8 +996,6 @@ class PhotoCropper:
         else:
             self.two_in_one_switch.visible = False
             self.border_switch_13x15.visible = False
-            self.border_switch_13x15.value = False
-            self.border_13x15 = False
             self.border_switch_20x24.visible = False
             self.border_switch_20x24.value = False
             self.border_20x24 = False
@@ -963,6 +1162,10 @@ class PhotoCropper:
             return
             
         self.status_text.value = "Image ignorée."
+        self.extra_formats.clear()
+        self._update_extra_formats_display()
+        self.copies_count = 1
+        self.copies_text.value = "1"
         self.load_image(preserve_orientation=False)
         self.page.update()
 
@@ -1013,6 +1216,25 @@ def main(page: ft.Page):
         app.border_switch_ID2,
         app.border_switch_ID4,
         app.network_switch,
+        ft.Divider(height=8),
+        ft.Text("Formats multiples", size=12, color=LIGHT_GREY, weight=ft.FontWeight.W_500),
+        ft.Row([
+            ft.IconButton(
+                icon=ft.icons.Icons.ADD_CIRCLE_OUTLINE,
+                icon_color=BLUE,
+                tooltip="Ajouter le format courant à la liste",
+                on_click=app.add_extra_format,
+                icon_size=20,
+            ),
+            app.extra_formats_display,
+            ft.IconButton(
+                icon=ft.icons.Icons.CLEAR,
+                icon_color=RED,
+                tooltip="Vider la liste",
+                on_click=app.clear_extra_formats,
+                icon_size=16,
+            ),
+        ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ft.Divider(),
         ft.Button("Orientation",
             icon=ft.icons.Icons.SWAP_HORIZ,
@@ -1031,28 +1253,40 @@ def main(page: ft.Page):
                     content=ft.Column(
                         [   
                             ft.Container(
-                                content=ft.Column([
-                                    ft.Container(
-                                        content=ft.Text("Rotation", size=14, weight=ft.FontWeight.W_500),
-                                        alignment=ft.Alignment.CENTER,
-                                        width=320,
-                                    ),
-                                    app.rotation_slider,
-                                    ft.Container(
-                                        content=ft.Button("Remettre à 0°", on_click=app.reset_rotation, width=180, bgcolor=WHITE, color=DARK),
-                                        alignment=ft.Alignment.CENTER,
-                                    ),
-                                ],
-                                spacing=8),
-                                width=320,
-                                padding=ft.Padding.only(top=24, bottom=8),
+                                content=ft.Row([
+                                    ft.Column([
+                                        ft.Container(
+                                            content=ft.Text("Rotation", size=14, weight=ft.FontWeight.W_500),
+                                            alignment=ft.Alignment.CENTER,
+                                        ),
+                                        app.rotation_slider,
+                                        ft.Container(
+                                            content=ft.Button("Remettre à 0°", on_click=app.reset_rotation, width=180, bgcolor=WHITE, color=DARK),
+                                            alignment=ft.Alignment.CENTER,
+                                        ),
+                                    ], spacing=8, width=600, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                    ft.VerticalDivider(width=1, color=LIGHT_GREY),
+                                    ft.Column([
+                                        ft.Text("Exemplaires", size=12, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                                        ft.Row([
+                                            app.copies_minus_btn,
+                                            app.copies_text,
+                                            app.copies_plus_btn,
+                                        ], alignment=ft.MainAxisAlignment.CENTER, spacing=0),
+                                    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=250),
+                                ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=32, alignment=ft.MainAxisAlignment.CENTER),
+                                padding=ft.Padding.only(top=16, bottom=8, left=32, right=32),
                                 alignment=ft.Alignment.CENTER,
+                                bgcolor=DARK,
+                                border_radius=8,
                             ),
+                            ft.Divider(),
                             ft.Container(
                                 content=app.canvas_container,
                                 expand=True,
                                 alignment=ft.Alignment.CENTER,
                             ),
+
                         ],
                         spacing=0,
                         expand=True,
