@@ -1254,23 +1254,21 @@ def main(page: ft.Page):
         app.network_switch,
         ft.Divider(height=8),
         ft.Text("Formats multiples", size=12, color=LIGHT_GREY, weight=ft.FontWeight.W_500),
-        ft.Row([
-            ft.IconButton(
-                icon=ft.icons.Icons.ADD_CIRCLE_OUTLINE,
-                icon_color=BLUE,
-                tooltip="Ajouter le format courant à la liste",
-                on_click=app.add_extra_format,
-                icon_size=20,
-            ),
-            app.extra_formats_display,
-            ft.IconButton(
-                icon=ft.icons.Icons.CLEAR,
-                icon_color=RED,
-                tooltip="Vider la liste",
-                on_click=app.clear_extra_formats,
-                icon_size=16,
-            ),
-        ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ft.IconButton(
+            icon=ft.icons.Icons.ADD_CIRCLE_OUTLINE,
+            icon_color=BLUE,
+            tooltip="Ajouter le format courant à la liste",
+            on_click=app.add_extra_format,
+            icon_size=20,
+        ),
+        app.extra_formats_display,
+        ft.IconButton(
+            icon=ft.icons.Icons.CLEAR,
+            icon_color=RED,
+            tooltip="Vider la liste",
+            on_click=app.clear_extra_formats,
+            icon_size=16,
+        ),
         ft.Divider(),
         ft.Button("Orientation",
             icon=ft.icons.Icons.SWAP_HORIZ,
@@ -1315,6 +1313,7 @@ def main(page: ft.Page):
                                 alignment=ft.Alignment.CENTER,
                                 bgcolor=DARK,
                                 border_radius=8,
+                                border=ft.Border.all(1, LIGHT_GREY)
                             ),
                             ft.Divider(),
                             ft.Container(
