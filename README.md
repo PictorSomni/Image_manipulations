@@ -93,6 +93,7 @@ pip install -r requirements.txt
 - `Pillow` : Traitement d'images
 - `Wand` : Conversion d'images (requiert ImageMagick)
 - `rich` : Interface console améliorée
+- `PyMuPDF` : Conversion de PDF en images
 
 ---
 

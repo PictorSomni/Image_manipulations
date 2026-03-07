@@ -10,3 +10,6 @@ Wand>=0.6.11
 
 # Interface console améliorée
 rich>=13.0.0
+
+# Conversion PDF en images
+PyMuPDF>=1.23.0
