@@ -8,7 +8,7 @@ __version__ = "1.7.0"
 import flet as ft
 import os
 import platform
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageFilter
 import asyncio
 import math
 
@@ -838,7 +838,9 @@ class PhotoCropper:
                     x_pos = start_x + col * (img.width + SPACE_PX)
                     y_pos = start_y + row * (img.height + SPACE_PX)
                     framed.paste(img, (x_pos, y_pos))
-            
+            framed = framed.filter(ImageFilter.UnsharpMask(radius=4, percent=42, threshold=0))
+            framed = framed.filter(ImageFilter.UnsharpMask(radius=2, percent=42, threshold=0))
+            # framed = framed.filter(ImageFilter.SHARPEN)
             pil_crop = framed
             fmt_short = "ID_X4"
             jpg = f"{copies_prefix}ID {self.current_index + 1:02}.jpg"
