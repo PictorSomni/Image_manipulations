@@ -371,7 +371,7 @@ class PhotoCropper:
             self.border_switch_ID4.value = self.border_id4
             self.network_switch.visible = True
             self.network_switch.value = self.save_to_network
-            self.sharpen_switch.value = self.is_sharpen
+            self.sharpen_switch.value = True
         else:
             self.border_switch_ID2.visible = False
             self.border_switch_ID4.visible = False
@@ -1070,8 +1070,8 @@ class PhotoCropper:
 
         if self.is_sharpen:
             _r = max(1.0, max(pil_crop.size) / 375)
-            pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=_r * 2, percent=42, threshold=0))
-            pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=_r, percent=42, threshold=0))
+            pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=_r * 2, percent=50, threshold=0))
+            pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=_r, percent=50, threshold=0))
 
         os.makedirs(base_dir, exist_ok=True)
         out_path = unique_path(os.path.join(base_dir, jpg))
