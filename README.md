@@ -168,7 +168,7 @@ Dashboard-Image-Manipulation/
 | Format 13x15 | `Format 13x15.py` | Recadre en format 13x15 cm | ✅ |
 | Images en PDF | `Images en PDF.py` | Génère un PDF à partir d'images | ✅ |
 | Noir et blanc | `N&B.py` | Conversion noir et blanc | ✅ |
-| Recadrage | `Recadrage.pyw` | Outil de recadrage interactif | ✅ |
+| Recadrage | `Recadrage.pyw` | Recadrage interactif avec 16 formats d'impression (ID, 10x15, 13x18, 20x30…), mode batch, zoom/pan/rotation, 2 en 1, planches ID x2/x4, formats multiples par image, exemplaires, noir et blanc, netteté | ✅ |
 | Remerciements | `Remerciements.py` | Génère des cartes de remerciement | ✅ |
 | Redimensionner | `Redimensionner.py` | Redimensionne les images (taille paramétrable) | ✅ |
 | Redimensionner + filigrane | `Redimensionner filigrane.py` | Redimensionne avec filigrane (taille paramétrable) | ✅ |

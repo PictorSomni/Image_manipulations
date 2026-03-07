@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.7.0"
+__version__ = "1.7.1"
 
 #############################################################
 #                          IMPORTS                          #
@@ -128,7 +128,7 @@ class PhotoCropper:
 
         # Formats multiples
         self.extra_formats = []  # list of snapshot dicts with full view state
-        self.extra_formats_display = ft.Text("—", size=11, color=LIGHT_GREY)
+        self.extra_formats_display = ft.Text("—", size=11, color=LIGHT_GREY, max_lines=1, text_align=ft.TextAlign.LEFT, no_wrap=True)
 
         # Image principale
         self.image_display = ft.Image(
@@ -189,6 +189,8 @@ class PhotoCropper:
         self.border_switch_ID2 = ft.Switch(label="ID X2", active_color=ORANGE, value=False, visible=True if "ID" in self.current_format_label else False, on_change=self.on_border_toggle_id2)
         self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=ORANGE, value=True, visible=True if "ID" in self.current_format_label else False, on_change=self.on_border_toggle_id4)
         self.network_switch = ft.Switch(label="Sauver sur réseau", active_color=GREEN, value=True, visible=True if "ID" in self.current_format_label else False, on_change=self.on_network_toggle)
+        self.sharpen_switch = ft.Switch(label="Netteté", active_color=BLUE, value=True, visible=True, on_change=self.on_sharpen_toggle)
+        self.is_sharpen = True
         self.bw_switch = ft.Switch(label="Noir et blanc", active_color=ORANGE, value=False, on_change=self.on_bw_toggle)
 
         self.canvas_container = ft.Container(
@@ -199,6 +201,10 @@ class PhotoCropper:
             height=self.canvas_h,
             border=ft.Border.all(1, ft.Colors.WHITE24),
         )
+
+    # ================================================================ #
+    #                    CANVAS & TRANSFORMATIONS                      #
+    # ================================================================ #
 
     def update_canvas_size(self):
         """Compute optimal canvas size based on available space"""
@@ -223,6 +229,58 @@ class PhotoCropper:
         self.image_stack.width = self.canvas_w
         self.image_stack.height = self.canvas_h
         self.page.update()
+
+    def _update_transform(self):
+        """Applique scale et offset au container de l'image"""
+        # Dimensions zoomées
+        zoomed_w = self.display_w * self.scale
+        zoomed_h = self.display_h * self.scale
+
+        # Position pour centrer l'image + offset utilisateur
+        left = (self.canvas_w - zoomed_w) / 2 + self.offset_x
+        top = (self.canvas_h - zoomed_h) / 2 + self.offset_y
+
+        # Le scale s'applique depuis le centre, donc on positionne le container
+        # de sorte que son centre soit au bon endroit une fois le scale appliqué
+        self.image_container.scale = self.scale
+        self.image_container.rotate = math.radians(self.rotation)
+
+        center_x = left + zoomed_w / 2
+        center_y = top + zoomed_h / 2
+
+        self.image_container.left = center_x - self.display_w / 2
+        self.image_container.top = center_y - self.display_h / 2
+
+    def _get_transformed_bounds(self):
+        """Retourne la boîte englobante (w, h) de l'image après scale + rotation."""
+        scaled_w = self.display_w * self.scale
+        scaled_h = self.display_h * self.scale
+        theta = math.radians(self.rotation)
+        cos_t = abs(math.cos(theta))
+        sin_t = abs(math.sin(theta))
+        bound_w = scaled_w * cos_t + scaled_h * sin_t
+        bound_h = scaled_w * sin_t + scaled_h * cos_t
+        return bound_w, bound_h
+
+    def _clamp_offsets(self):
+        """Contraint les offsets pour empêcher l'image de sortir du canevas"""
+        zoomed_w, zoomed_h = self._get_transformed_bounds()
+
+        if zoomed_w <= self.canvas_w:
+            self.offset_x = 0
+        else:
+            max_offset_x = (zoomed_w - self.canvas_w) / 2
+            self.offset_x = min(max_offset_x, max(-max_offset_x, self.offset_x))
+
+        if zoomed_h <= self.canvas_h:
+            self.offset_y = 0
+        else:
+            max_offset_y = (zoomed_h - self.canvas_h) / 2
+            self.offset_y = min(max_offset_y, max(-max_offset_y, self.offset_y))
+
+    # ================================================================ #
+    #                     CHARGEMENT DES IMAGES                        #
+    # ================================================================ #
 
     def load_image(self, preserve_orientation=False):
         if not self.image_paths:
@@ -313,254 +371,76 @@ class PhotoCropper:
             self.border_switch_ID4.value = self.border_id4
             self.network_switch.visible = True
             self.network_switch.value = self.save_to_network
+            self.sharpen_switch.value = self.is_sharpen
         else:
             self.border_switch_ID2.visible = False
             self.border_switch_ID4.visible = False
             self.network_switch.visible = False
+            self.sharpen_switch.value = False
 
         self.page.title = f"Crop: {os.path.basename(path)} ({self.current_index + 1}/{len(self.image_paths)})"
         self.page.update()
     
-    def _update_transform(self):
-        """Applique scale et offset au container de l'image"""
-        # Dimensions zoomées
-        zoomed_w = self.display_w * self.scale
-        zoomed_h = self.display_h * self.scale
-        
-        # Position pour centrer l'image + offset utilisateur
-        left = (self.canvas_w - zoomed_w) / 2 + self.offset_x
-        top = (self.canvas_h - zoomed_h) / 2 + self.offset_y
-        
-        # Appliquer le scale via la propriété scale du container
-        # Le scale s'applique depuis le centre, donc on ajuste la position
-        self.image_container.scale = self.scale
-        self.image_container.rotate = math.radians(self.rotation)
-        
-        # Position du centre du container (avant scale)
-        # Avec scale depuis le centre, on doit positionner le coin supérieur gauche
-        # tel que le centre de l'image scalée soit au bon endroit
-        center_x = left + zoomed_w / 2
-        center_y = top + zoomed_h / 2
-        
-        # left/top sont pour le coin supérieur gauche du container AVANT scale
-        # Le container a les dimensions display_w x display_h
-        self.image_container.left = center_x - self.display_w / 2
-        self.image_container.top = center_y - self.display_h / 2
+    def batch_process_interactive(self, e):
+        import time
 
-    def _get_transformed_bounds(self):
-        """Retourne la boîte englobante (w, h) de l'image après scale + rotation."""
-        scaled_w = self.display_w * self.scale
-        scaled_h = self.display_h * self.scale
-        theta = math.radians(self.rotation)
-        cos_t = abs(math.cos(theta))
-        sin_t = abs(math.sin(theta))
-        bound_w = scaled_w * cos_t + scaled_h * sin_t
-        bound_h = scaled_w * sin_t + scaled_h * cos_t
-        return bound_w, bound_h
+        folder = os.getcwd()
 
-    def _clamp_offsets(self):
-        """Contraint les offsets pour empêcher l'image de sortir du canevas"""
-        zoomed_w, zoomed_h = self._get_transformed_bounds()
+        # Délai pour s'assurer que tous les fichiers sont complètement copiés
+        time.sleep(0.3)
 
-        if zoomed_w <= self.canvas_w:
-            self.offset_x = 0
-        else:
-            max_offset_x = (zoomed_w - self.canvas_w) / 2
-            self.offset_x = min(max_offset_x, max(-max_offset_x, self.offset_x))
+        selected_files_str = os.environ.get("SELECTED_FILES", "")
+        selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
 
-        if zoomed_h <= self.canvas_h:
-            self.offset_y = 0
-        else:
-            max_offset_y = (zoomed_h - self.canvas_h) / 2
-            self.offset_y = min(max_offset_y, max(-max_offset_y, self.offset_y))
+        try:
+            all_files = os.listdir(folder)
+        except Exception as e:
+            self.status_text.value = f"Erreur lors de la lecture du dossier: {e}"
+            self.page.update()
+            return
 
-    def on_rotation_update(self, e):
-        """Pendant la rotation - faire pivoter l'image avec limites aux bords du canvas"""
-        self.rotation = e.control.value
-        e.control.label = f"{self.rotation:.2f}°"
-        e.control.update()
-        self._clamp_offsets()
-        self._update_transform()
-        self.page.update()
+        imgs = [f for f in all_files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.jpe', '.tif', '.tiff', '.bmp', '.dib', '.gif', '.webp', '.ico', '.pcx', '.tga', '.ppm', '.pgm', '.pbm', '.pnm')) and not f == "watermark.png"]
+        total_images_found = len(imgs)
 
-    def reset_rotation(self, e):
-        """Réinitialise la rotation à 0°"""
-        self.rotation = 0.0
-        self.rotation_slider.value = self.rotation
-        self.rotation_slider.label = f"{self.rotation:.2f}°"
-        self.rotation_slider.update()
-        self._clamp_offsets()
-        self._update_transform()
-        self.page.update()
+        if selected_files_set:
+            imgs = [f for f in imgs if f in selected_files_set]
+            if not imgs and total_images_found > 0:
+                self.status_text.value = f"{total_images_found} image(s) trouvée(s) mais aucune ne correspond aux fichiers sélectionnés"
+                self.page.update()
+                return
 
-    def increment_copies(self, e):
-        self.copies_count += 1
-        self.copies_text.value = str(self.copies_count)
-        self.page.update()
+        if not imgs:
+            if len(all_files) == 0:
+                self.status_text.value = "Le dossier est vide"
+            else:
+                self.status_text.value = f"Aucune image valide trouvée dans le dossier ({len(all_files)} fichier(s) présent(s))"
+            self.page.update()
+            return
 
-    def decrement_copies(self, e):
-        if self.copies_count > 1:
-            self.copies_count -= 1
-        self.copies_text.value = str(self.copies_count)
-        self.page.update()
+        valid_paths = []
+        for img_file in imgs:
+            img_path = os.path.join(folder, img_file)
+            if os.path.isfile(img_path) and os.access(img_path, os.R_OK):
+                try:
+                    with Image.open(img_path) as test_img:
+                        test_img.verify()
+                    valid_paths.append(img_path)
+                except Exception:
+                    pass
 
-    def add_extra_format(self, e):
-        label = self.current_format_label
-        dims = self.current_format
-        is_portrait = self.canvas_is_portrait
-        # Snapshot complet de l'état de la vue au moment de l'ajout
-        snapshot = {
-            "label": label,
-            "dims": dims,
-            "is_portrait": is_portrait,
-            "canvas_w": self.canvas_w,
-            "canvas_h": self.canvas_h,
-            "base_scale": self.base_scale,
-            "scale": self.scale,
-            "offset_x": self.offset_x,
-            "offset_y": self.offset_y,
-            "rotation": self.rotation,
-            "copies": self.copies_count,
-            "border_13x15": self.border_13x15,
-            "is_bw": self.is_bw,
-            "two_in_one": bool(self.two_in_one_switch.value),
-        }
-        self.extra_formats.append(snapshot)
-        self._update_extra_formats_display()
-        # Remettre le compteur d'exemplaires à 1 et le N&B à off pour le prochain format
-        self.copies_count = 1
-        self.copies_text.value = "1"
-        self.is_bw = False
-        self.bw_switch.value = False
-        self.page.update()
+        if not valid_paths:
+            self.status_text.value = f"{len(imgs)} image(s) trouvée(s) mais aucune n'est accessible ou valide"
+            self.page.update()
+            return
 
-    def clear_extra_formats(self, e):
-        self.extra_formats.clear()
-        self._update_extra_formats_display()
-        self.page.update()
+        self.image_paths = valid_paths
+        self.current_index = 0
+        self.batch_mode = True
+        self.load_image()
 
-    def _update_extra_formats_display(self):
-        if self.extra_formats:
-            parts = []
-            for s in self.extra_formats:
-                lbl = s["label"].split()[0]
-                orient = "P" if s["is_portrait"] else "L"
-                copies = s.get("copies", 1)
-                prefix = f"{copies}X "
-                bw = " N&B" if s.get("is_bw", False) else ""
-                deux = " 2en1" if s.get("two_in_one", False) else ""
-                parts.append(f"{prefix}{lbl} {orient}{deux}{bw}")
-            self.extra_formats_display.value = " + ".join(parts)
-        else:
-            self.extra_formats_display.value = "—"
-
-    def on_pan_update(self, e: ft.DragUpdateEvent):
-        """Pendant le pan - déplacer l'image avec limites aux bords du canvas"""
-        self.offset_x += e.local_delta.x
-        self.offset_y += e.local_delta.y
-        self._clamp_offsets()
-        self._update_transform()
-        self.page.update()
-
-    def on_scroll(self, e: ft.ScrollEvent):
-        """Zoom avec la molette (centré sur le canvas) avec limites"""
-        # Récupérer le delta de scroll
-        delta = e.scroll_delta.y
-        
-        # Calculer le nouveau scale
-        zoom_factor = 1 - delta / ZOOM_SENSIBILITY
-        old_scale = self.scale
-        # Scale minimum = 1.0 pour que l'image couvre toujours le canvas
-        self.scale = max(1.0, min(10, self.scale * zoom_factor))
-        
-        # Ajuster l'offset pour zoomer vers le centre du canvas
-        if old_scale != self.scale:
-            ratio = self.scale / old_scale
-            self.offset_x *= ratio
-            self.offset_y *= ratio
-        
-        self._clamp_offsets()
-        self._update_transform()
-        self.page.update()
-
-    def on_scale_start(self, e: ft.ScaleStartEvent):
-        """Début du pinch-to-zoom (trackpad)"""
-        self.pinch_start_scale = self.scale
-
-    def on_scale_update(self, e: ft.ScaleUpdateEvent):
-        """Pendant le pinch-to-zoom (trackpad)"""
-        old_scale = self.scale
-        # Scale minimum = 1.0 pour que l'image couvre toujours le canvas
-        self.scale = max(1.0, min(10, self.pinch_start_scale * e.scale))
-        
-        # Ajuster l'offset pour zoomer vers le centre du canvas
-        if old_scale != self.scale:
-            ratio = self.scale / old_scale
-            self.offset_x *= ratio
-            self.offset_y *= ratio
-        
-        self._clamp_offsets()
-        self._update_transform()
-        self.page.update()
-
-    def on_bw_toggle(self, e):
-        """Active/désactive le noir et blanc"""
-        self.is_bw = e.control.value
-
-    def is_two_in_one_enabled(self):
-        return bool(self.two_in_one_switch.value) and any(
-            fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]
-        )
-
-    def _force_portrait(self, image):
-        """Tourne l'image de 90° si elle est en paysage."""
-        if image.width > image.height:
-            return image.rotate(90, expand=True)
-        return image
-
-    def _build_two_in_one_image(self, first_image, target_w_px, target_h_px):
-        """Construit une planche 2 en 1 en divisant le côté le plus long en 2."""
-        split_on_width = target_w_px >= target_h_px
-
-        if split_on_width:
-            panel_w = target_w_px // 2
-            panel_h = target_h_px
-            first_pos = (0, 0)
-            second_pos = (panel_w, 0)
-        else:
-            panel_w = target_w_px
-            panel_h = target_h_px // 2
-            first_pos = (0, 0)
-            second_pos = (0, panel_h)
-
-        first_image = self._force_portrait(first_image.convert("RGB"))
-        first_panel = ImageOps.fit(first_image, (panel_w, panel_h), method=Image.Resampling.BICUBIC)
-
-        second_panel = first_panel.copy()
-
-        composed = Image.new("RGB", (target_w_px, target_h_px), "white")
-        composed.paste(first_panel, first_pos)
-        composed.paste(second_panel, second_pos)
-        return composed
-
-    def _build_two_in_one_10x15_to_13x15(self, first_image):
-        """2 x (76x102) dans 152x102, puis remise en 152x127 avec fond blanc."""
-        panel_w = mm_to_pixels(76)
-        panel_h = mm_to_pixels(102)
-        base_w = mm_to_pixels(152)
-        base_h = mm_to_pixels(102)
-        final_h = mm_to_pixels(127)
-
-        first_image = self._force_portrait(first_image.convert("RGB"))
-        panel = ImageOps.fit(first_image, (panel_w, panel_h), method=Image.Resampling.BICUBIC)
-
-        base = Image.new("RGB", (base_w, base_h), "white")
-        base.paste(panel, (0, 0))
-        base.paste(panel, (panel_w, 0))
-
-        framed = Image.new("RGB", (base_w, final_h), "white")
-        framed.paste(base, (0, 0))
-        return framed
+    # ================================================================ #
+    #                      CALCUL DU RECADRAGE                         #
+    # ================================================================ #
 
     def _compute_crop(self, target_w_px, target_h_px):
         """Calcule le recadrage affine de l'image courante aux dimensions données (canvas principal)."""
@@ -591,10 +471,8 @@ class PhotoCropper:
             virt_w = avail_w
             virt_h = avail_w / fmt_ratio
 
-        # Nouveau base_scale pour ce canvas virtuel
         virt_base_scale = max(virt_w / self.orig_w, virt_h / self.orig_h)
 
-        # Convertir l'offset du canvas principal en pixels image, puis reprojeter dans le canvas virtuel
         if self.base_scale > 0:
             off_img_x = self.offset_x / (self.base_scale * self.scale)
             off_img_y = self.offset_y / (self.base_scale * self.scale)
@@ -621,7 +499,6 @@ class PhotoCropper:
             target_w_px = mm_to_pixels(fmt_h_mm)
             target_h_px = mm_to_pixels(fmt_w_mm)
 
-        # Utiliser l'état de rotation et N&B du snapshot
         saved_rotation = self.rotation
         saved_bw = self.is_bw
         self.rotation = snapshot["rotation"]
@@ -696,6 +573,356 @@ class PhotoCropper:
 
         return pil_crop
 
+    # ================================================================ #
+    #                    CONSTRUCTION DES PLANCHES                     #
+    # ================================================================ #
+
+    def is_two_in_one_enabled(self):
+        return bool(self.two_in_one_switch.value) and any(
+            fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]
+        )
+
+    def _force_portrait(self, image):
+        """Tourne l'image de 90° si elle est en paysage."""
+        if image.width > image.height:
+            return image.rotate(90, expand=True)
+        return image
+
+    def _build_two_in_one_image(self, first_image, target_w_px, target_h_px):
+        """Construit une planche 2 en 1 en divisant le côté le plus long en 2."""
+        split_on_width = target_w_px >= target_h_px
+
+        if split_on_width:
+            panel_w = target_w_px // 2
+            panel_h = target_h_px
+            first_pos = (0, 0)
+            second_pos = (panel_w, 0)
+        else:
+            panel_w = target_w_px
+            panel_h = target_h_px // 2
+            first_pos = (0, 0)
+            second_pos = (0, panel_h)
+
+        first_image = self._force_portrait(first_image.convert("RGB"))
+        first_panel = ImageOps.fit(first_image, (panel_w, panel_h), method=Image.Resampling.BICUBIC)
+
+        second_panel = first_panel.copy()
+
+        composed = Image.new("RGB", (target_w_px, target_h_px), "white")
+        composed.paste(first_panel, first_pos)
+        composed.paste(second_panel, second_pos)
+        return composed
+
+    def _build_two_in_one_10x15_to_13x15(self, first_image):
+        """2 x (76x102) dans 152x102, puis remise en 152x127 avec fond blanc."""
+        panel_w = mm_to_pixels(76)
+        panel_h = mm_to_pixels(102)
+        base_w = mm_to_pixels(152)
+        base_h = mm_to_pixels(102)
+        final_h = mm_to_pixels(127)
+
+        first_image = self._force_portrait(first_image.convert("RGB"))
+        panel = ImageOps.fit(first_image, (panel_w, panel_h), method=Image.Resampling.BICUBIC)
+
+        base = Image.new("RGB", (base_w, base_h), "white")
+        base.paste(panel, (0, 0))
+        base.paste(panel, (panel_w, 0))
+
+        framed = Image.new("RGB", (base_w, final_h), "white")
+        framed.paste(base, (0, 0))
+        return framed
+
+    # ================================================================ #
+    #                  NAVIGATION (PAN, ZOOM, ROTATION)                #
+    # ================================================================ #
+
+    def on_pan_update(self, e: ft.DragUpdateEvent):
+        self.offset_x += e.local_delta.x
+        self.offset_y += e.local_delta.y
+        self._clamp_offsets()
+        self._update_transform()
+        self.page.update()
+
+    def on_scroll(self, e: ft.ScrollEvent):
+        delta = e.scroll_delta.y
+        zoom_factor = 1 - delta / ZOOM_SENSIBILITY
+        old_scale = self.scale
+        self.scale = max(1.0, min(10, self.scale * zoom_factor))
+
+        if old_scale != self.scale:
+            ratio = self.scale / old_scale
+            self.offset_x *= ratio
+            self.offset_y *= ratio
+
+        self._clamp_offsets()
+        self._update_transform()
+        self.page.update()
+
+    def on_scale_start(self, e: ft.ScaleStartEvent):
+        """Début du pinch-to-zoom (trackpad)"""
+        self.pinch_start_scale = self.scale
+
+    def on_scale_update(self, e: ft.ScaleUpdateEvent):
+        """Pendant le pinch-to-zoom (trackpad)"""
+        old_scale = self.scale
+        self.scale = max(1.0, min(10, self.pinch_start_scale * e.scale))
+
+        if old_scale != self.scale:
+            ratio = self.scale / old_scale
+            self.offset_x *= ratio
+            self.offset_y *= ratio
+
+        self._clamp_offsets()
+        self._update_transform()
+        self.page.update()
+
+    def on_rotation_update(self, e):
+        self.rotation = e.control.value
+        e.control.label = f"{self.rotation:.2f}°"
+        e.control.update()
+        self._clamp_offsets()
+        self._update_transform()
+        self.page.update()
+
+    def reset_rotation(self, e):
+        self.rotation = 0.0
+        self.rotation_slider.value = self.rotation
+        self.rotation_slider.label = f"{self.rotation:.2f}°"
+        self.rotation_slider.update()
+        self._clamp_offsets()
+        self._update_transform()
+        self.page.update()
+
+    # ================================================================ #
+    #                        TOGGLES & SWITCHES                        #
+    # ================================================================ #
+
+    def on_bw_toggle(self, e):
+        self.is_bw = e.control.value
+
+    def on_sharpen_toggle(self, e):
+        self.is_sharpen = bool(e.control.value)
+
+    def on_network_toggle(self, e):
+        self.save_to_network = bool(e.control.value)
+
+    def on_border_toggle_13x15(self, e):
+        self.border_13x15 = bool(e.control.value)
+
+    def on_border_toggle_20x24(self, e):
+        self.border_20x24 = bool(e.control.value)
+
+    def on_border_toggle_13x10(self, e):
+        self.border_13x10 = bool(e.control.value)
+        if self.border_13x10:
+            self.border_polaroid = False
+            self.border_switch_polaroid.value = False
+            self.page.update()
+
+    def on_border_toggle_polaroid(self, e):
+        self.border_polaroid = bool(e.control.value)
+        if self.border_polaroid:
+            self.border_13x10 = False
+            self.border_switch_13x10.value = False
+            self.page.update()
+
+    def on_border_toggle_id2(self, e):
+        self.border_id2 = bool(e.control.value)
+        if self.border_id2:
+            self.border_id4 = False
+            self.border_switch_ID4.value = False
+            self.page.update()
+
+    def on_border_toggle_id4(self, e):
+        self.border_id4 = bool(e.control.value)
+        if self.border_id4:
+            self.border_id2 = False
+            self.border_switch_ID2.value = False
+            self.page.update()
+
+    def change_ratio(self, e=None):
+        self.current_format = FORMATS[e.control.value]
+        try:
+            self.current_format_label = e.control.value
+        except Exception:
+            pass
+        if "10x15" in self.current_format_label:
+            self.two_in_one_switch.visible = True
+            self.two_in_one_switch.value = False
+            self.border_switch_13x15.visible = True
+            self.border_switch_13x15.value = self.border_13x15
+            self.border_switch_20x24.visible = False
+            self.border_switch_20x24.value = False
+            self.border_20x24 = False
+            self.border_switch_13x10.visible = False
+            self.border_switch_13x10.value = False
+            self.border_13x10 = False
+            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.value = False
+            self.border_switch_ID4.visible = False
+            self.border_switch_ID4.value = False
+            self.network_switch.visible = False
+            self.sharpen_switch.value = False
+        elif "13x18" in self.current_format_label or "15x20" in self.current_format_label:
+            self.two_in_one_switch.visible = True
+            self.two_in_one_switch.value = False
+            self.border_switch_13x15.visible = False
+            self.border_switch_20x24.visible = False
+            self.border_switch_20x24.value = False
+            self.border_20x24 = False
+            self.border_switch_13x10.visible = False
+            self.border_switch_13x10.value = False
+            self.border_13x10 = False
+            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.value = False
+            self.border_switch_ID4.visible = False
+            self.border_switch_ID4.value = False
+            self.network_switch.visible = False
+            self.sharpen_switch.value = False
+        elif "18x24" in self.current_format_label:
+            self.two_in_one_switch.visible = False
+            self.border_switch_20x24.visible = True
+            self.border_switch_13x15.visible = False
+            self.border_switch_13x10.visible = False
+            self.border_switch_13x10.value = False
+            self.border_13x10 = False
+            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.value = False
+            self.border_switch_ID4.visible = False
+            self.border_switch_ID4.value = False
+            self.network_switch.visible = False
+            self.sharpen_switch.value = False
+            self.border_switch_polaroid.visible = False
+            self.border_switch_polaroid.value = False
+            self.border_polaroid = False
+        elif "10x10" in self.current_format_label:
+            self.two_in_one_switch.visible = False
+            self.border_switch_13x10.visible = True
+            self.border_switch_polaroid.visible = True
+            self.border_switch_13x15.visible = False
+            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.value = False
+            self.border_switch_ID4.visible = False
+            self.border_switch_ID4.value = False
+            self.network_switch.visible = False
+            self.sharpen_switch.value = False
+        elif "ID" in self.current_format_label:
+            self.two_in_one_switch.visible = False
+            self.border_switch_ID2.visible = True
+            self.border_switch_ID4.visible = True
+            self.network_switch.visible = True
+            self.sharpen_switch.value = True
+            self.border_switch_13x15.visible = False
+            self.border_switch_13x10.visible = False
+            self.border_switch_13x10.value = False
+            self.border_13x10 = False
+            self.border_switch_polaroid.visible = False
+            self.border_switch_polaroid.value = False
+            self.border_polaroid = False
+        else:
+            self.two_in_one_switch.visible = False
+            self.border_switch_13x15.visible = False
+            self.border_switch_20x24.visible = False
+            self.border_switch_20x24.value = False
+            self.border_20x24 = False
+            self.border_switch_13x10.visible = False
+            self.border_switch_13x10.value = False
+            self.border_13x10 = False
+            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.value = False
+            self.border_switch_ID4.visible = False
+            self.border_switch_ID4.value = False
+            self.network_switch.visible = False
+            self.sharpen_switch.value = False
+            self.border_switch_polaroid.visible = False
+            self.border_switch_polaroid.value = False
+            self.border_polaroid = False
+        self.update_canvas_size()
+        if self.image_paths:
+            self.load_image(preserve_orientation=True)
+
+    def toggle_orientation(self, e):
+        self.canvas_is_portrait = not self.canvas_is_portrait
+        self.update_canvas_size()
+        if self.image_paths:
+            self.load_image(preserve_orientation=True)
+
+        self.two_in_one_switch.visible = True if (any(fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"])) else False
+        self.border_switch_13x15.visible = True if "10x15" in self.current_format_label else False
+        self.border_switch_13x10.visible = True if "10x10" in self.current_format_label else False
+        self.border_switch_polaroid.visible = True if "10x10" in self.current_format_label else False
+        self.border_switch_ID2.visible = True if "ID" in self.current_format_label else False
+        self.border_switch_ID4.visible = True if "ID" in self.current_format_label else False
+        self.network_switch.visible = True if "ID" in self.current_format_label else False
+
+    # ================================================================ #
+    #                  FORMATS MULTIPLES & EXEMPLAIRES                 #
+    # ================================================================ #
+
+    def increment_copies(self, e):
+        self.copies_count += 1
+        self.copies_text.value = str(self.copies_count)
+        self.page.update()
+
+    def decrement_copies(self, e):
+        if self.copies_count > 1:
+            self.copies_count -= 1
+        self.copies_text.value = str(self.copies_count)
+        self.page.update()
+
+    def add_extra_format(self, e):
+        label = self.current_format_label
+        dims = self.current_format
+        is_portrait = self.canvas_is_portrait
+        snapshot = {
+            "label": label,
+            "dims": dims,
+            "is_portrait": is_portrait,
+            "canvas_w": self.canvas_w,
+            "canvas_h": self.canvas_h,
+            "base_scale": self.base_scale,
+            "scale": self.scale,
+            "offset_x": self.offset_x,
+            "offset_y": self.offset_y,
+            "rotation": self.rotation,
+            "copies": self.copies_count,
+            "border_13x15": self.border_13x15,
+            "is_bw": self.is_bw,
+            "two_in_one": bool(self.two_in_one_switch.value),
+        }
+        self.extra_formats.append(snapshot)
+        self._update_extra_formats_display()
+        # Remettre le compteur d'exemplaires à 1 et le N&B à off pour le prochain format
+        self.copies_count = 1
+        self.copies_text.value = "1"
+        self.is_bw = False
+        self.bw_switch.value = False
+        self.page.update()
+
+    def clear_extra_formats(self, e):
+        self.extra_formats.clear()
+        self._update_extra_formats_display()
+        self.page.update()
+
+    def _update_extra_formats_display(self):
+        if self.extra_formats:
+            parts = []
+            for s in self.extra_formats:
+                lbl = s["label"].split()[0]
+                orient = "P" if s["is_portrait"] else "L"
+                copies = s.get("copies", 1)
+                prefix = f"{copies}X "
+                bw = " N&B" if s.get("is_bw", False) else ""
+                deux = " 2en1" if s.get("two_in_one", False) else ""
+                parts.append(f"{prefix}{lbl} {orient}{deux}{bw}")
+            self.extra_formats_display.value = " + ".join(parts)
+        else:
+            self.extra_formats_display.value = "—"
+
+    # ================================================================ #
+    #                            ACTIONS                               #
+    # ================================================================ #
+
     def validate_and_next(self, e):
         if not self.image_paths or self.current_index >= len(self.image_paths):
             self.status_text.value = "Toutes les images ont été traitées."
@@ -703,10 +930,8 @@ class PhotoCropper:
             return
 
         self.status_text.value = "Enregistrement..."
-        # Force immediate UI update to show "Enregistrement..." message
         self.page.update()
 
-        # Suivi des chemins utilisés pour éviter les écrasements
         used_paths = set()
 
         def unique_path(path):
@@ -722,7 +947,6 @@ class PhotoCropper:
                     return candidate
                 i += 1
 
-        # ========== DIMENSIONS FINALES EN MM À 300 DPI ==========
         export_is_portrait = self.canvas_h >= self.canvas_w
         fmt_w_mm, fmt_h_mm = self.current_format
         if export_is_portrait:
@@ -732,7 +956,6 @@ class PhotoCropper:
             target_w_px = mm_to_pixels(fmt_h_mm)
             target_h_px = mm_to_pixels(fmt_w_mm)
 
-        # ========== REPROJECTION AVEC SCALE + PAN + ROTATION ==========
         pil_crop = self._compute_crop(target_w_px, target_h_px)
 
         base = os.path.basename(self.image_paths[self.current_index])
@@ -741,29 +964,22 @@ class PhotoCropper:
         copies_prefix = f"{self.copies_count}X_"
         jpg = copies_prefix + name + ".jpg"
 
-
         two_in_one_applied = False
         if self.is_two_in_one_enabled():
             if self.border_13x15 and "10x15" in fmt_short:
                 pil_crop = self._build_two_in_one_10x15_to_13x15(pil_crop)
                 fmt_short = "13x15"
             else:
-                pil_crop = self._build_two_in_one_image(
-                    pil_crop,
-                    target_w_px,
-                    target_h_px,
-                )
+                pil_crop = self._build_two_in_one_image(pil_crop, target_w_px, target_h_px)
             two_in_one_applied = True
 
         if (not two_in_one_applied) and self.border_13x15 and "10x15" in fmt_short:
-            # Respecter l'orientation du canvas (landscape ou portrait)
             if export_is_portrait:
                 src_w, src_h = mm_to_pixels(102), mm_to_pixels(152)
                 out_w, out_h = mm_to_pixels(127), mm_to_pixels(152)
             else:
                 src_w, src_h = mm_to_pixels(152), mm_to_pixels(102)
                 out_w, out_h = mm_to_pixels(152), mm_to_pixels(127)
-
             base_10x15 = ImageOps.fit(pil_crop, (src_w, src_h), method=Image.Resampling.BICUBIC)
             framed = Image.new("RGB", (out_w, out_h), "white")
             framed.paste(base_10x15, (0, 0))
@@ -772,7 +988,6 @@ class PhotoCropper:
 
         if (not two_in_one_applied) and self.border_20x24 and "18x24" in fmt_short:
             ratio_20_24 = 203 / 240
-            
             if export_is_portrait:
                 target_w = int(pil_crop.height * ratio_20_24)
                 framed = Image.new("RGB", (target_w, pil_crop.height), "white")
@@ -786,7 +1001,6 @@ class PhotoCropper:
 
         if (not two_in_one_applied) and self.border_13x10 and "10x10" in fmt_short:
             ratio_13_10 = 127 / 102
-            
             if export_is_portrait:
                 target_w = int(pil_crop.height * ratio_13_10)
                 framed = Image.new("RGB", (target_w, pil_crop.height), "white")
@@ -799,82 +1013,53 @@ class PhotoCropper:
             fmt_short = "13x10"
 
         if (not two_in_one_applied) and self.border_polaroid and "10x10" in fmt_short:
-            # Image 102x102mm dans un format 127x152mm (polaroid)
             POLAROID_WIDTH_PX = mm_to_pixels(127)
             POLAROID_HEIGHT_PX = mm_to_pixels(152)
-            
             framed = Image.new("RGB", (POLAROID_WIDTH_PX, POLAROID_HEIGHT_PX), "white")
-            # Centrer l'image 102x102 dans le cadre 127x152
             x_offset = (POLAROID_WIDTH_PX - pil_crop.width) // 2
-            y_offset = x_offset  # Même espace en haut que sur les côtés
+            y_offset = x_offset
             framed.paste(pil_crop, (x_offset, y_offset))
             pil_crop = framed
             fmt_short = "Polaroid"
 
-        # Gestion des layouts ID : ID X4 prioritaire sur ID X2
         if (not two_in_one_applied) and self.border_id4 and "ID" in self.current_format_label:
-            # 4 images ID (36x46mm chacune) sur un canvas de 127x102mm
-            # Layout: grille 2x2
             CANVA_WIDTH_PX = mm_to_pixels(127)
             CANVA_HEIGHT_PX = mm_to_pixels(102)
             SPACE_PX = mm_to_pixels(5)
-            
             framed = Image.new("RGB", (CANVA_WIDTH_PX, CANVA_HEIGHT_PX), "white")
-            
-            # Rotation si nécessaire pour que l'image soit en portrait
             img = pil_crop
             if img.height > img.width:
                 img = img.rotate(90, expand=True)
-            
-            # Calculer les positions pour centrer le bloc de 4 images
             total_width = img.width * 2 + SPACE_PX
             total_height = img.height * 2 + SPACE_PX
             start_x = (CANVA_WIDTH_PX - total_width) // 2
             start_y = (CANVA_HEIGHT_PX - total_height) // 2
-            
-            # Placer les 4 images en grille 2x2
             for row in range(2):
                 for col in range(2):
                     x_pos = start_x + col * (img.width + SPACE_PX)
                     y_pos = start_y + row * (img.height + SPACE_PX)
                     framed.paste(img, (x_pos, y_pos))
-            framed = framed.filter(ImageFilter.UnsharpMask(radius=4, percent=42, threshold=0))
-            framed = framed.filter(ImageFilter.UnsharpMask(radius=2, percent=42, threshold=0))
-            # framed = framed.filter(ImageFilter.SHARPEN)
             pil_crop = framed
             fmt_short = "ID_X4"
             jpg = f"{copies_prefix}ID {self.current_index + 1:02}.jpg"
 
         elif (not two_in_one_applied) and self.border_id2 and "ID" in self.current_format_label:
-            # 2 images ID (36x46mm chacune) sur un canvas de 102x102mm
-            # Layout: 2 lignes, 1 colonne
             CANVA_WIDTH_PX = mm_to_pixels(102)
             CANVA_HEIGHT_PX = mm_to_pixels(102)
             SPACE_PX = mm_to_pixels(5)
-            
             framed = Image.new("RGB", (CANVA_WIDTH_PX, CANVA_HEIGHT_PX), "white")
-            
-            # Rotation si nécessaire pour que l'image soit en portrait
             img = pil_crop
             if img.width > img.height:
                 img = img.rotate(90, expand=True)
-            
-            # Position centrée horizontalement
             x_offset = (CANVA_WIDTH_PX - img.width) // 2
-            
-            # Première image en haut
             y_offset_1 = SPACE_PX
             framed.paste(img, (x_offset, y_offset_1))
-            
-            # Deuxième image en bas
             y_offset_2 = CANVA_HEIGHT_PX - img.height - SPACE_PX
             framed.paste(img, (x_offset, y_offset_2))
-            
             pil_crop = framed
             fmt_short = "ID_X2"
             jpg = f"{copies_prefix}ID {self.current_index + 1:02}.jpg"
 
-        # Destination spéciale pour ID X4 si le switch réseau est activé
         if fmt_short == "ID_X4" and self.save_to_network:
             if platform.system() == "Windows":
                 base_dir = "\\\\Diskstation\\travaux en cours\\z2026"
@@ -882,19 +1067,23 @@ class PhotoCropper:
                 base_dir = "/Volumes/TRAVAUX EN COURS/Z2026"
         else:
             base_dir = fmt_short
-        
+
+        if self.is_sharpen:
+            _r = max(1.0, max(pil_crop.size) / 375)
+            pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=_r * 2, percent=42, threshold=0))
+            pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=_r, percent=42, threshold=0))
+
         os.makedirs(base_dir, exist_ok=True)
         out_path = unique_path(os.path.join(base_dir, jpg))
         pil_crop.save(out_path, quality=100, format="JPEG", dpi=(DPI, DPI))
 
-        # ========== EXPORTS FORMATS SUPPLÉMENTAIRES ==========
+        # Exports formats supplémentaires
         for snapshot in self.extra_formats:
             ex_crop = self._compute_crop_from_snapshot(snapshot)
             ex_label = snapshot["label"]
             ex_short = ex_label.split()[0]
             ex_is_portrait = snapshot["is_portrait"]
 
-            # Dimensions cibles en pixels pour ce format
             ex_dims = snapshot["dims"]
             ex_fmt_w_mm, ex_fmt_h_mm = ex_dims
             if ex_is_portrait:
@@ -905,7 +1094,6 @@ class PhotoCropper:
                 ex_target_h_px = mm_to_pixels(ex_fmt_w_mm)
 
             ex_two_in_one_applied = False
-            # Appliquer le 2 en 1 si il était actif au moment du snapshot
             if snapshot.get("two_in_one", False):
                 if snapshot.get("border_13x15", False) and "10x15" in ex_short:
                     ex_crop = self._build_two_in_one_10x15_to_13x15(ex_crop)
@@ -914,7 +1102,6 @@ class PhotoCropper:
                     ex_crop = self._build_two_in_one_image(ex_crop, ex_target_w_px, ex_target_h_px)
                 ex_two_in_one_applied = True
 
-            # Appliquer la bordure 13x15 si elle était active au moment du snapshot (sans 2en1)
             if (not ex_two_in_one_applied) and snapshot.get("border_13x15", False) and "10x15" in ex_short:
                 if ex_is_portrait:
                     src_w, src_h = mm_to_pixels(102), mm_to_pixels(152)
@@ -938,7 +1125,6 @@ class PhotoCropper:
         self.status_text.value = f"[OK] {os.path.basename(out_path)}"
         self.page.update()
 
-        # Réinitialiser les extras et les copies pour la photo suivante
         self.extra_formats.clear()
         self._update_extra_formats_display()
         self.copies_count = 1
@@ -959,246 +1145,21 @@ class PhotoCropper:
                 asyncio.create_task(self.close_window())
                 return
 
-    def change_ratio(self, e=None):
-        self.current_format = FORMATS[e.control.value]
-        try:
-            self.current_format_label = e.control.value
-        except Exception:
-            pass
-        if "10x15" in self.current_format_label:
-            self.two_in_one_switch.visible = True
-            self.two_in_one_switch.value = False
-            self.border_switch_13x15.visible = True
-            self.border_switch_13x15.value = self.border_13x15
-            self.border_switch_20x24.visible = False
-            self.border_switch_20x24.value = False
-            self.border_20x24 = False
-            self.border_switch_13x10.visible = False
-            self.border_switch_13x10.value = False
-            self.border_13x10 = False
-            self.border_switch_ID2.visible = False
-            self.border_switch_ID2.value = False
-            self.border_switch_ID4.visible = False
-            self.border_switch_ID4.value = False
-        elif "13x18" in self.current_format_label or "15x20" in self.current_format_label:
-            self.two_in_one_switch.visible = True
-            self.two_in_one_switch.value = False
-            self.border_switch_13x15.visible = False
-            self.border_switch_20x24.visible = False
-            self.border_switch_20x24.value = False
-            self.border_20x24 = False
-            self.border_switch_13x10.visible = False
-            self.border_switch_13x10.value = False
-            self.border_13x10 = False
-            self.border_switch_ID2.visible = False
-            self.border_switch_ID2.value = False
-            self.border_switch_ID4.visible = False
-            self.border_switch_ID4.value = False
-
-        elif "18x24" in self.current_format_label:
-            self.two_in_one_switch.visible = False
-            self.border_switch_20x24.visible = True
-            self.border_switch_13x15.visible = False
-            self.border_switch_13x10.visible = False
-            self.border_switch_13x10.value = False
-            self.border_13x10 = False
-            self.border_switch_ID2.visible = False
-            self.border_switch_ID2.value = False
-            self.border_switch_ID4.visible = False
-            self.border_switch_ID4.value = False
-            self.border_switch_polaroid.visible = False
-            self.border_switch_polaroid.value = False
-            self.border_polaroid = False
-
-        elif "10x10" in self.current_format_label:
-            self.two_in_one_switch.visible = False
-            self.border_switch_13x10.visible = True
-            self.border_switch_polaroid.visible = True
-            self.border_switch_13x15.visible = False
-            self.border_switch_ID2.visible = False
-            self.border_switch_ID2.value = False
-            self.border_switch_ID4.visible = False
-            self.border_switch_ID4.value = False
-        elif "ID" in self.current_format_label:
-            self.two_in_one_switch.visible = False
-            self.border_switch_ID2.visible = True
-            self.border_switch_ID4.visible = True
-            self.network_switch.visible = True
-            self.border_switch_13x15.visible = False
-            self.border_switch_13x10.visible = False
-            self.border_switch_13x10.value = False
-            self.border_13x10 = False
-            self.border_switch_polaroid.visible = False
-            self.border_switch_polaroid.value = False
-            self.border_polaroid = False
-        else:
-            self.two_in_one_switch.visible = False
-            self.border_switch_13x15.visible = False
-            self.border_switch_20x24.visible = False
-            self.border_switch_20x24.value = False
-            self.border_20x24 = False
-            self.border_switch_13x10.visible = False
-            self.border_switch_13x10.value = False
-            self.border_13x10 = False
-            self.border_switch_ID2.visible = False
-            self.border_switch_ID2.value = False
-            self.border_switch_ID4.visible = False
-            self.border_switch_ID4.value = False
-            self.network_switch.visible = False
-            self.border_switch_polaroid.visible = False
-            self.border_switch_polaroid.value = False
-            self.border_polaroid = False
-        self.update_canvas_size()
-        if self.image_paths:
-            self.load_image(preserve_orientation=True)
-
-    def on_border_toggle_13x15(self, e):
-        self.border_13x15 = bool(e.control.value)
-
-    def on_border_toggle_20x24(self, e):
-        self.border_20x24 = bool(e.control.value)
-
-    def on_border_toggle_13x10(self, e):
-        self.border_13x10 = bool(e.control.value)
-        # Désactiver Polaroid si 13x10 est activé
-        if self.border_13x10:
-            self.border_polaroid = False
-            self.border_switch_polaroid.value = False
-            self.page.update()
-
-    def on_border_toggle_polaroid(self, e):
-        self.border_polaroid = bool(e.control.value)
-        # Désactiver 13x10 si Polaroid est activé
-        if self.border_polaroid:
-            self.border_13x10 = False
-            self.border_switch_13x10.value = False
-            self.page.update()
-
-    def on_border_toggle_id2(self, e):
-        self.border_id2 = bool(e.control.value)
-        # Désactiver ID X4 si ID X2 est activé
-        if self.border_id2:
-            self.border_id4 = False
-            self.border_switch_ID4.value = False
-            self.page.update()
-
-    def on_border_toggle_id4(self, e):
-        self.border_id4 = bool(e.control.value)
-        # Désactiver ID X2 si ID X4 est activé
-        if self.border_id4:
-            self.border_id2 = False
-            self.border_switch_ID2.value = False
-            self.page.update()
-
-    def on_network_toggle(self, e):
-        self.save_to_network = bool(e.control.value)
-
-    def batch_process_interactive(self, e):
-        import time
-        
-        folder = os.getcwd()
-        
-        # Délai plus long pour s'assurer que tous les fichiers sont complètement copiés
-        # (évite les problèmes de timing si on lance juste après un copier/coller)
-        time.sleep(0.3)
-        
-        # Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
-        selected_files_str = os.environ.get("SELECTED_FILES", "")
-        selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
-        
-        # Lister tous les fichiers du dossier
-        try:
-            all_files = os.listdir(folder)
-        except Exception as e:
-            self.status_text.value = f"Erreur lors de la lecture du dossier: {e}"
-            self.page.update()
-            return
-        
-        # Filtrer pour ne garder que les images
-        imgs = [f for f in all_files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.jpe', '.tif', '.tiff', '.bmp', '.dib', '.gif', '.webp', '.ico', '.pcx', '.tga', '.ppm', '.pgm', '.pbm', '.pnm')) and not f == "watermark.png"]
-        
-        # Message de diagnostic
-        total_images_found = len(imgs)
-        
-        # Filtrer par les fichiers sélectionnés si applicable
-        if selected_files_set:
-            imgs = [f for f in imgs if f in selected_files_set]
-            # Message d'erreur détaillé si rien ne correspond
-            if not imgs and total_images_found > 0:
-                self.status_text.value = f"{total_images_found} image(s) trouvée(s) mais aucune ne correspond aux fichiers sélectionnés"
-                self.page.update()
-                return
-        
-        if not imgs:
-            # Message d'erreur détaillé selon le contexte
-            if len(all_files) == 0:
-                self.status_text.value = "Le dossier est vide"
-            else:
-                self.status_text.value = f"Aucune image valide trouvée dans le dossier ({len(all_files)} fichier(s) présent(s))"
-            self.page.update()
-            return
-
-        # Vérifier que les fichiers sont accessibles et valides
-        valid_paths = []
-        for img_file in imgs:
-            img_path = os.path.join(folder, img_file)
-            # Vérifier que le fichier existe et est accessible
-            if os.path.isfile(img_path) and os.access(img_path, os.R_OK):
-                try:
-                    # Essayer d'ouvrir l'image pour vérifier qu'elle est valide
-                    with Image.open(img_path) as test_img:
-                        test_img.verify()
-                    valid_paths.append(img_path)
-                except Exception:
-                    # Fichier corrompu ou inaccessible, ignorer
-                    pass
-        
-        if not valid_paths:
-            self.status_text.value = f"{len(imgs)} image(s) trouvée(s) mais aucune n'est accessible ou valide"
-            self.page.update()
-            return
-
-        self.image_paths = valid_paths
-        self.current_index = 0
-        self.batch_mode = True
-        self.load_image()
-
-    def toggle_orientation(self, e):
-        self.canvas_is_portrait = not self.canvas_is_portrait
-        self.update_canvas_size()
-        if self.image_paths:
-            self.load_image(preserve_orientation=True)
-        
-        self.two_in_one_switch.visible = True if (any(fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"])) else False
-
-        self.border_switch_13x15.visible = True if "10x15" in self.current_format_label else False
-
-        self.border_switch_13x10.visible = True if "10x10" in self.current_format_label else False
-
-        self.border_switch_polaroid.visible = True if "10x10" in self.current_format_label else False
-
-        self.border_switch_ID2.visible = True if "ID" in self.current_format_label else False
-
-        self.border_switch_ID4.visible = True if "ID" in self.current_format_label else False
-
-        self.network_switch.visible = True if "ID" in self.current_format_label else False
-
     def ignore_image(self, e):
         if not self.image_paths or self.current_index >= len(self.image_paths):
             self.status_text.value = "Toutes les images ont été traitées."
             self.page.update()
             asyncio.create_task(self.close_window())
             return
-        
+
         self.current_index += 1
-        
-        # Vérifier si on a atteint la fin après l'incrémentation
+
         if self.current_index >= len(self.image_paths):
             self.status_text.value = "Toutes les images ont été traitées."
             self.page.update()
             asyncio.create_task(self.close_window())
             return
-            
+
         self.status_text.value = "Image ignorée."
         self.extra_formats.clear()
         self._update_extra_formats_display()
@@ -1243,41 +1204,25 @@ def main(page: ft.Page):
             ),
             height=400,
             border=ft.Border.all(1, LIGHT_GREY),
+            bgcolor=DARK,
             border_radius=8,
             padding=5,
         ),
-        app.two_in_one_switch,
-        app.border_switch_13x15,
-        app.border_switch_20x24,
-        app.border_switch_13x10,
-        app.border_switch_polaroid,
-        app.border_switch_ID2,
-        app.border_switch_ID4,
-        app.network_switch,
+        ft.Container(
+            content=ft.Column([
+                app.two_in_one_switch,
+                app.border_switch_13x15,
+                app.border_switch_20x24,
+                app.border_switch_13x10,
+                app.border_switch_polaroid,
+                app.border_switch_ID2,
+                app.border_switch_ID4,
+                app.network_switch,
+                app.sharpen_switch,
+            ], spacing=0),
+            height=150,
+        ),
         ft.Divider(height=8),
-        ft.Text("Formats multiples", size=12, color=LIGHT_GREY, weight=ft.FontWeight.W_500),
-        ft.IconButton(
-            icon=ft.icons.Icons.ADD_CIRCLE_OUTLINE,
-            icon_color=BLUE,
-            tooltip="Ajouter le format courant à la liste",
-            on_click=app.add_extra_format,
-            icon_size=20,
-        ),
-        app.extra_formats_display,
-        ft.IconButton(
-            icon=ft.icons.Icons.CLEAR,
-            icon_color=RED,
-            tooltip="Vider la liste",
-            on_click=app.clear_extra_formats,
-            icon_size=16,
-        ),
-        ft.Divider(),
-        ft.Button("Orientation",
-            icon=ft.icons.Icons.SWAP_HORIZ,
-            color=BLUE,
-            bgcolor=DARK,
-            on_click=app.toggle_orientation),
-        app.bw_switch,
         app.validate_button,
         app.ignore_button
     ], width=250)
@@ -1288,6 +1233,8 @@ def main(page: ft.Page):
                 ft.Container(
                     content=ft.Column(
                         [   
+                            ft.Text("Opérations", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Container(height=11),  # Espacement en bas du titre
                             ft.Container(
                                 content=ft.Row([
                                     ft.Column([
@@ -1303,13 +1250,43 @@ def main(page: ft.Page):
                                     ], spacing=8, width=600, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                                     ft.VerticalDivider(width=1, color=LIGHT_GREY),
                                     ft.Column([
-                                        ft.Text("Exemplaires", size=12, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                                        ft.Text("Exemplaires", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
                                         ft.Row([
                                             app.copies_minus_btn,
                                             app.copies_text,
                                             app.copies_plus_btn,
                                         ], alignment=ft.MainAxisAlignment.CENTER, spacing=0),
                                     ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=250),
+                                    ft.Column([
+                                        ft.Text("Formats multiples", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                                        ft.Row([
+                                            ft.IconButton(
+                                                icon=ft.icons.Icons.CLEAR,
+                                                icon_color=RED,
+                                                tooltip="Vider la liste",
+                                                on_click=app.clear_extra_formats,
+                                                icon_size=24,
+                                            ),
+                                            ft.IconButton(
+                                                icon=ft.icons.Icons.ADD_CIRCLE_OUTLINE,
+                                                icon_color=BLUE,
+                                                tooltip="Ajouter le format courant à la liste",
+                                                on_click=app.add_extra_format,
+                                                icon_size=24,
+                                            ),
+                                            ft.Row([
+                                                app.extra_formats_display,
+                                            ], scroll=ft.ScrollMode.AUTO, width=128, height=32, alignment=ft.MainAxisAlignment.START),
+                                        ], width=250, alignment=ft.MainAxisAlignment.START, spacing=8),
+                                    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=250),
+                                    ft.Column([
+                                        ft.Button("Orientation",
+                                            icon=ft.icons.Icons.SWAP_HORIZ,
+                                            color=BLUE,
+                                            bgcolor=DARK,
+                                            on_click=app.toggle_orientation),
+                                        app.bw_switch,
+                                    ])
                                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=32, alignment=ft.MainAxisAlignment.CENTER),
                                 padding=ft.Padding.only(top=16, bottom=8, left=32, right=32),
                                 alignment=ft.Alignment.CENTER,
@@ -1323,7 +1300,6 @@ def main(page: ft.Page):
                                 expand=True,
                                 alignment=ft.Alignment.CENTER,
                             ),
-
                         ],
                         spacing=0,
                         expand=True,

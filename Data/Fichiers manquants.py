@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.7.0"
+__version__ = "1.7.1"
 
 ENV_SELECTED_FILES_KEY = "SELECTED_FILES"
 OUTPUT_SELECTED_FILES_PREFIX = "SELECTED_FILES:"
