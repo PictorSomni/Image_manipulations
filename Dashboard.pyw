@@ -93,6 +93,9 @@ def main(page: ft.Page):
     selected_files_prefix = "SELECTED_FILES:"
 
 # ===================== METHODS ===================== #
+    # ================================================================ #
+    #                    PUBSUB & ÉVÉNEMENTS                           #
+    # ================================================================ #
     def on_terminal_message(topic, message):
         """Callback pour les messages pubsub"""
         try:
@@ -154,7 +157,10 @@ def main(page: ft.Page):
     
     # Activer la gestion des événements clavier
     page.on_keyboard_event = on_keyboard_event
-    
+
+    # ================================================================ #
+    #                          TERMINAL                                #
+    # ================================================================ #
     def log_to_terminal(message, color=WHITE):
         """Ajoute un message au terminal intégré"""
         # Supprimer les codes ANSI d'échappement (clear screen, colors, etc.)
@@ -196,7 +202,10 @@ def main(page: ft.Page):
             log_to_terminal(f"[ERREUR] Erreur lors de la copie dans le presse-papiers: {e}", RED)
         
         page.update()
-    
+
+    # ================================================================ #
+    #                   NAVIGATION & FICHIERS                          #
+    # ================================================================ #
     def open_in_file_explorer(folder_path):
         """Ouvre le dossier dans l'explorateur de fichiers natif"""
         if not folder_path or not os.path.isdir(folder_path):
@@ -257,7 +266,10 @@ def main(page: ft.Page):
         else:
             # Ouvre le fichier avec l'application par défaut
             open_file_with_default_app(file_path)
-    
+
+    # ================================================================ #
+    #                  OPÉRATIONS SUR FICHIERS                         #
+    # ================================================================ #
     def delete_item(file_path):
         """Supprime un fichier ou dossier avec confirmation"""
         def confirm_delete(e):
@@ -402,7 +414,10 @@ def main(page: ft.Page):
                 log_to_terminal(f"[ERREUR] {error}", RED)
         
         refresh_preview()
-    
+
+    # ================================================================ #
+    #                          SÉLECTION                               #
+    # ================================================================ #
     def on_checkbox_change(e, file_path):
         """Gère le changement d'état d'une checkbox"""
         if e.control.value:
@@ -496,7 +511,10 @@ def main(page: ft.Page):
 
         if names_set and not selected_files:
             log_to_terminal("[ATTENTION] Aucun fichier correspondant trouvé dans la preview", ORANGE)
-    
+
+    # ================================================================ #
+    #                           PREVIEW                                #
+    # ================================================================ #
     def refresh_preview():
         preview_list.controls.clear()
         folder_to_display = current_browse_folder["path"] or selected_folder["path"]
@@ -606,7 +624,10 @@ def main(page: ft.Page):
     
     # Attacher le callback au switch
     sort_switch.on_change = on_sort_change
-    
+
+    # ================================================================ #
+    #                LANCEMENT D'APPLICATIONS                          #
+    # ================================================================ #
     def launch_app(app_name, app_path, is_local, series_name=None):
         # Pour Renommer sequence.py, demander le nom de la série avant de lancer
         if app_name == "Images en PDF.py" and series_name is None:
@@ -661,8 +682,7 @@ def main(page: ft.Page):
                 name = series_input.value.strip() if series_input.value else ""
                 series_dialog.open = False
                 page.update()
-                if name:
-                    launch_app(app_name, app_path, is_local, series_name=name)
+                launch_app(app_name, app_path, is_local, series_name=name)
 
             def on_cancel_series(e):
                 series_dialog.open = False
@@ -975,7 +995,10 @@ def main(page: ft.Page):
                     )
                 )
         page.update()
-    
+
+    # ================================================================ #
+    #                       ACTIONS FENÊTRE                            #
+    # ================================================================ #
     async def pick_folder(e):
         folder = await ft.FilePicker().get_directory_path(dialog_title="Sélectionner un dossier contenant des images")
         if folder:
