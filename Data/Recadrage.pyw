@@ -376,7 +376,7 @@ class PhotoCropper:
             self.border_switch_ID2.visible = False
             self.border_switch_ID4.visible = False
             self.network_switch.visible = False
-            self.sharpen_switch.value = False
+            self.sharpen_switch.value = self.sharpen_switch.value
 
         self.page.title = f"Crop: {os.path.basename(path)} ({self.current_index + 1}/{len(self.image_paths)})"
         self.page.update()
@@ -762,7 +762,7 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
-            self.sharpen_switch.value = False
+            self.sharpen_switch.value = self.sharpen_switch.value
         elif "13x18" in self.current_format_label or "15x20" in self.current_format_label:
             self.two_in_one_switch.visible = True
             self.two_in_one_switch.value = False
@@ -778,7 +778,7 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
-            self.sharpen_switch.value = False
+            self.sharpen_switch.value = self.sharpen_switch.value
         elif "18x24" in self.current_format_label:
             self.two_in_one_switch.visible = False
             self.border_switch_20x24.visible = True
@@ -791,7 +791,7 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
-            self.sharpen_switch.value = False
+            self.sharpen_switch.value = self.sharpen_switch.value
             self.border_switch_polaroid.visible = False
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
@@ -805,7 +805,7 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
-            self.sharpen_switch.value = False
+            self.sharpen_switch.value = self.sharpen_switch.value
         elif "ID" in self.current_format_label:
             self.two_in_one_switch.visible = False
             self.border_switch_ID2.visible = True
@@ -833,7 +833,7 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
-            self.sharpen_switch.value = False
+            self.sharpen_switch.value = self.sharpen_switch.value
             self.border_switch_polaroid.visible = False
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
@@ -1069,9 +1069,9 @@ class PhotoCropper:
             base_dir = fmt_short
 
         if self.is_sharpen:
-            _r = max(1.0, max(pil_crop.size) / 375)
-            pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=_r * 2, percent=50, threshold=0))
-            pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=_r, percent=50, threshold=0))
+
+            pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
+            pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
 
         os.makedirs(base_dir, exist_ok=True)
         out_path = unique_path(os.path.join(base_dir, jpg))
