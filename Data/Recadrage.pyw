@@ -11,6 +11,7 @@ import platform
 from PIL import Image, ImageOps, ImageFilter
 import asyncio
 import math
+import numpy as np
 
 # ===================== Configuration ===================== #
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
@@ -77,6 +78,7 @@ class PhotoCropper:
         self.border_id2 = False
         self.border_id4 = True
         self.save_to_network = True  # Sauvegarder les ID X4 sur le réseau par défaut
+        self.enhance_toggle = False  # Éclaircissement adaptatif
         self.canvas_w = 800  # Valeur initiale, ajustée au chargement
         self.canvas_h = self.canvas_w * self.current_format[1] / self.current_format[0]
 
@@ -192,6 +194,7 @@ class PhotoCropper:
         self.sharpen_switch = ft.Switch(label="Netteté", active_color=BLUE, value=True, visible=True, on_change=self.on_sharpen_toggle)
         self.is_sharpen = True
         self.bw_switch = ft.Switch(label="Noir et blanc", active_color=ORANGE, value=False, on_change=self.on_bw_toggle)
+        self.enhance_switch = ft.Switch(label="Éclaircir", active_color=BLUE, value=False, visible=True, on_change=self.on_enhance_toggle)
 
         self.canvas_container = ft.Container(
             content=self.gesture_detector,
@@ -632,6 +635,35 @@ class PhotoCropper:
         framed.paste(base, (0, 0))
         return framed
 
+    def _adaptive_enhance(self, img):
+        """Éclaircit et améliore le contraste des images sombres en travaillant
+        uniquement sur la luminance (YCbCr), sans toucher aux couleurs."""
+        ycbcr = img.convert("YCbCr")
+        y, cb, cr = ycbcr.split()
+        y_arr = np.array(y, dtype=np.float32)
+        mean_y = y_arr.mean()
+
+        # Ne rien faire si l'image est déjà bien exposée
+        if mean_y >= 148:
+            return img
+
+        # Correction gamma : ramène la moyenne vers 148 sans dépasser +35 unités
+        target_y = min(148.0, mean_y + 35.0)
+        gamma = math.log(target_y / 255.0) / math.log(max(mean_y, 1.0) / 255.0)
+        gamma = max(0.60, min(0.92, gamma))  # Bornes de sécurité
+
+        y_enhanced = np.power(y_arr / 255.0, gamma) * 255.0
+
+        # Léger étirement des contrastes (coupe 0.5 % à chaque extrémité)
+        p_low = np.percentile(y_enhanced, 0.5)
+        p_high = np.percentile(y_enhanced, 99.5)
+        if p_high > p_low:
+            y_enhanced = (y_enhanced - p_low) * 255.0 / (p_high - p_low)
+        y_enhanced = np.clip(y_enhanced, 0, 255).astype(np.uint8)
+
+        y_new = Image.fromarray(y_enhanced, "L")
+        return Image.merge("YCbCr", (y_new, cb, cr)).convert("RGB")
+
     # ================================================================ #
     #                  NAVIGATION (PAN, ZOOM, ROTATION)                #
     # ================================================================ #
@@ -739,6 +771,9 @@ class PhotoCropper:
             self.border_id2 = False
             self.border_switch_ID2.value = False
             self.page.update()
+
+    def on_enhance_toggle(self, e):
+        self.enhance_toggle = bool(e.control.value)
 
     def change_ratio(self, e=None):
         self.current_format = FORMATS[e.control.value]
@@ -889,14 +924,18 @@ class PhotoCropper:
             "border_13x15": self.border_13x15,
             "is_bw": self.is_bw,
             "two_in_one": bool(self.two_in_one_switch.value),
+            "is_sharpen": self.is_sharpen,
+            "enhance_toggle": self.enhance_toggle,
         }
         self.extra_formats.append(snapshot)
         self._update_extra_formats_display()
-        # Remettre le compteur d'exemplaires à 1 et le N&B à off pour le prochain format
+        # Remettre le compteur d'exemplaires à 1 et les filtres à off pour le prochain format
         self.copies_count = 1
         self.copies_text.value = "1"
         self.is_bw = False
         self.bw_switch.value = False
+        self.enhance_toggle = False
+        self.enhance_switch.value = False
         self.page.update()
 
     def clear_extra_formats(self, e):
@@ -913,8 +952,9 @@ class PhotoCropper:
                 copies = s.get("copies", 1)
                 prefix = f"{copies}X "
                 bw = " N&B" if s.get("is_bw", False) else ""
+                enh = " ☀" if s.get("enhance_toggle", False) else ""
                 deux = " 2en1" if s.get("two_in_one", False) else ""
-                parts.append(f"{prefix}{lbl} {orient}{deux}{bw}")
+                parts.append(f"{prefix}{lbl} {orient}{deux}{bw}{enh}")
             self.extra_formats_display.value = " + ".join(parts)
         else:
             self.extra_formats_display.value = "—"
@@ -1069,16 +1109,20 @@ class PhotoCropper:
             base_dir = fmt_short
 
         if self.is_sharpen:
-
             pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
             pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
 
-        os.makedirs(base_dir, exist_ok=True)
-        out_path = unique_path(os.path.join(base_dir, jpg))
-        pil_crop.save(out_path, quality=100, format="JPEG", dpi=(DPI, DPI))
+        if self.enhance_toggle:
+            pil_crop = self._adaptive_enhance(pil_crop)
 
-        # Exports formats supplémentaires
-        for snapshot in self.extra_formats:
+        out_path = None
+        if not self.extra_formats:
+            os.makedirs(base_dir, exist_ok=True)
+            out_path = unique_path(os.path.join(base_dir, jpg))
+            pil_crop.save(out_path, quality=100, format="JPEG", dpi=(DPI, DPI))
+
+        # Exports formats supplémentaires (ou tous les exports si extra_formats non vide)
+        for idx, snapshot in enumerate(self.extra_formats, start=1):
             ex_crop = self._compute_crop_from_snapshot(snapshot)
             ex_label = snapshot["label"]
             ex_short = ex_label.split()[0]
@@ -1109,7 +1153,7 @@ class PhotoCropper:
                 else:
                     src_w, src_h = mm_to_pixels(152), mm_to_pixels(102)
                     out_w, out_h = mm_to_pixels(152), mm_to_pixels(127)
-                base_fit = ImageOps.fit(ex_crop, (src_w, src_h), method=Image.Resampling.BICUBIC)
+                base_fit = ImageOps.fit(ex_crop, (src_w, src_h), method=Image.Resampling.LANCZOS)
                 framed = Image.new("RGB", (out_w, out_h), "white")
                 framed.paste(base_fit, (0, 0))
                 ex_crop = framed
@@ -1118,9 +1162,18 @@ class PhotoCropper:
             os.makedirs(ex_short, exist_ok=True)
             ex_copies = snapshot.get("copies", 1)
             ex_prefix = f"{ex_copies}X_"
-            ex_jpg = ex_prefix + name + ".jpg"
+            ex_jpg = ex_prefix + name + f"_{idx}.jpg"
             ex_path = unique_path(os.path.join(ex_short, ex_jpg))
+
+            if snapshot.get("is_sharpen", self.is_sharpen):
+                ex_crop = ex_crop.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
+                ex_crop = ex_crop.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
+
+            if snapshot.get("enhance_toggle", False):
+                ex_crop = self._adaptive_enhance(ex_crop)
+
             ex_crop.save(ex_path, quality=100, format="JPEG", dpi=(DPI, DPI))
+            out_path = ex_path
 
         self.status_text.value = f"[OK] {os.path.basename(out_path)}"
         self.page.update()
@@ -1283,9 +1336,11 @@ def main(page: ft.Page):
                                         ft.Button("Orientation",
                                             icon=ft.icons.Icons.SWAP_HORIZ,
                                             color=BLUE,
-                                            bgcolor=DARK,
                                             on_click=app.toggle_orientation),
                                         app.bw_switch,
+                                    ]),
+                                    ft.Column([
+                                        app.enhance_switch,
                                     ])
                                 ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=32, alignment=ft.MainAxisAlignment.CENTER),
                                 padding=ft.Padding.only(top=16, bottom=8, left=32, right=32),
