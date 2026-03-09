@@ -8,7 +8,7 @@ __version__ = "1.7.1"
 import flet as ft
 import os
 import platform
-from PIL import Image, ImageOps, ImageFilter
+from PIL import Image, ImageOps, ImageFilter, ImageEnhance
 import asyncio
 import math
 import numpy as np
@@ -194,7 +194,7 @@ class PhotoCropper:
         self.sharpen_switch = ft.Switch(label="Netteté", active_color=BLUE, value=True, visible=True, on_change=self.on_sharpen_toggle)
         self.is_sharpen = True
         self.bw_switch = ft.Switch(label="Noir et blanc", active_color=ORANGE, value=False, on_change=self.on_bw_toggle)
-        self.enhance_switch = ft.Switch(label="Éclaircir", active_color=BLUE, value=False, visible=True, on_change=self.on_enhance_toggle)
+        self.enhance_switch = ft.Switch(label="Améliorer", active_color=BLUE, value=False, visible=True, on_change=self.on_enhance_toggle)
 
         self.canvas_container = ft.Container(
             content=self.gesture_detector,
@@ -212,7 +212,7 @@ class PhotoCropper:
     def update_canvas_size(self):
         """Compute optimal canvas size based on available space"""
         available_width = min(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
-        available_height = min(self.page.window.height - 240, MAX_CANVAS_SIZE) if self.page.window.height else 600
+        available_height = min(self.page.window.height - 300, MAX_CANVAS_SIZE) if self.page.window.height else 600
 
         # Calculer le ratio du format choisi
         fmt_w, fmt_h = self.current_format
@@ -637,20 +637,20 @@ class PhotoCropper:
 
     def _adaptive_enhance(self, img):
         """Éclaircit et améliore le contraste des images sombres en travaillant
-        uniquement sur la luminance (YCbCr), sans toucher aux couleurs."""
+        sur la luminance (YCbCr) et augmente la saturation des couleurs de 32%."""
         ycbcr = img.convert("YCbCr")
         y, cb, cr = ycbcr.split()
         y_arr = np.array(y, dtype=np.float32)
         mean_y = y_arr.mean()
 
-        # Ne rien faire si l'image est déjà bien exposée
+        # Saturation toujours boostée, correction luminosité uniquement si image sombre
         if mean_y >= 148:
-            return img
+            return ImageEnhance.Color(img).enhance(1.32)
 
-        # Correction gamma : ramène la moyenne vers 148 sans dépasser +35 unités
-        target_y = min(148.0, mean_y + 35.0)
+        # Correction gamma : ramène la moyenne vers 148 sans dépasser +42 unités
+        target_y = min(148.0, mean_y + 42.0)
         gamma = math.log(target_y / 255.0) / math.log(max(mean_y, 1.0) / 255.0)
-        gamma = max(0.60, min(0.92, gamma))  # Bornes de sécurité
+        gamma = max(0.60, min(0.95, gamma))  # Bornes de sécurité
 
         y_enhanced = np.power(y_arr / 255.0, gamma) * 255.0
 
@@ -662,7 +662,8 @@ class PhotoCropper:
         y_enhanced = np.clip(y_enhanced, 0, 255).astype(np.uint8)
 
         y_new = Image.fromarray(y_enhanced, "L")
-        return Image.merge("YCbCr", (y_new, cb, cr)).convert("RGB")
+        result = Image.merge("YCbCr", (y_new, cb, cr)).convert("RGB")
+        return ImageEnhance.Color(result).enhance(1.42)
 
     # ================================================================ #
     #                  NAVIGATION (PAN, ZOOM, ROTATION)                #
@@ -1273,7 +1274,6 @@ def main(page: ft.Page):
                 app.network_switch,
                 app.sharpen_switch,
             ], spacing=0),
-            height=150,
         ),
         ft.Divider(height=8),
         app.validate_button,
@@ -1300,7 +1300,7 @@ def main(page: ft.Page):
                                             content=ft.Button("Remettre à 0°", on_click=app.reset_rotation, width=180, bgcolor=WHITE, color=DARK),
                                             alignment=ft.Alignment.CENTER,
                                         ),
-                                    ], spacing=8, width=600, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                    ], spacing=8, width=400, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                                     ft.VerticalDivider(width=1, color=LIGHT_GREY),
                                     ft.Column([
                                         ft.Text("Exemplaires", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
@@ -1330,8 +1330,8 @@ def main(page: ft.Page):
                                             ft.Row([
                                                 app.extra_formats_display,
                                             ], scroll=ft.ScrollMode.AUTO, width=128, height=32, alignment=ft.MainAxisAlignment.START),
-                                        ], width=250, alignment=ft.MainAxisAlignment.START, spacing=8),
-                                    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=250),
+                                        ], width=150, alignment=ft.MainAxisAlignment.START, spacing=8),
+                                    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=200),
                                     ft.Column([
                                         ft.Button("Orientation",
                                             icon=ft.icons.Icons.SWAP_HORIZ,
@@ -1342,8 +1342,8 @@ def main(page: ft.Page):
                                     ft.Column([
                                         app.enhance_switch,
                                     ])
-                                ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=32, alignment=ft.MainAxisAlignment.CENTER),
-                                padding=ft.Padding.only(top=16, bottom=8, left=32, right=32),
+                                ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=32, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=144),
+                                padding=ft.Padding.only(top=6, bottom=4, left=12, right=12),
                                 alignment=ft.Alignment.CENTER,
                                 bgcolor=DARK,
                                 border_radius=8,
