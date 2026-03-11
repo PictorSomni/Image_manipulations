@@ -158,26 +158,26 @@ Dashboard-Image-Manipulation/
 
 ## 📝 Applications disponibles
 
-| Nom affiché (Dashboard) | Script | Description | Nécessite un dossier |
-|-------------------------|--------|-------------|---------------------|
-| 2 en 1 | `2 en 1.py` | Combine deux images côte à côte | ✅ |
-| Nettoyer les métadonnées | `Nettoyer metadonnees.py` | Supprime les métadonnées EXIF | ✅ |
-| Conversion en JPG | `Conversion JPG.py` | Convertit les images en JPG | ✅ |
-| Fichiers manquants | `Fichiers manquants.py` | Détecte les fichiers manquants | ✅ |
-| Format 13x10 | `Format 13x10.py` | Recadre en format 13x10 cm | ✅ |
-| Format 13x15 | `Format 13x15.py` | Recadre en format 13x15 cm | ✅ |
-| Images en PDF | `Images en PDF.py` | Génère un PDF à partir d'images | ✅ |
-| Noir et blanc | `N&B.py` | Conversion noir et blanc | ✅ |
-| Recadrage | `Recadrage.pyw` | Recadrage interactif avec 16 formats d'impression (ID, 10x15, 13x18, 20x30…), mode batch, zoom/pan/rotation, 2 en 1, planches ID x2/x4, formats multiples par image, exemplaires, noir et blanc, netteté | ✅ |
-| Remerciements | `Remerciements.py` | Génère des cartes de remerciement | ✅ |
-| Redimensionner | `Redimensionner.py` | Redimensionne les images (taille paramétrable) | ✅ |
-| Redimensionner + filigrane | `Redimensionner filigrane.py` | Redimensionne avec filigrane (taille paramétrable) | ✅ |
-| Renommer nombre photo | `renommer nombre photo.py` | Renomme selon un pattern | ✅ |
-| Renommer en séquence | `Renommer sequence.py` | Renomme en séquence numérotée | ✅ |
-| Améliorer la netteté | `Ameliorer nettete.py` | Améliore la netteté des images | ✅ |
-| Transfert vers TEMP | `Transfert vers TEMP.py` | Envoie des fichiers vers un dossier TEMP prédéfini | ❌ |
-| Kiosk droite | `Kiosk droite.py` | Organise les fichiers kiosque droite | ❌ |
-| Kiosk gauche | `Kiosk gauche.py` | Organise les fichiers kiosque gauche | ❌ |
+| Nom affiché (Dashboard) | Script | Description |
+|-------------------------|--------|-------------|
+| 2 en 1 | `2 en 1.py` | Combine deux images côte à côte |
+| Nettoyer les métadonnées | `Nettoyer metadonnees.py` | Supprime les métadonnées EXIF |
+| Conversion en JPG | `Conversion JPG.py` | Convertit les images en JPG |
+| Fichiers manquants | `Fichiers manquants.py` | Détecte les fichiers manquants |
+| Format 13x10 | `Format 13x10.py` | Recadre en format 13x10 cm |
+| Format 13x15 | `Format 13x15.py` | Recadre en format 13x15 cm |
+| Images en PDF | `Images en PDF.py` | Génère un PDF à partir d'images |
+| Noir et blanc | `N&B.py` | Conversion noir et blanc |
+| Recadrage | `Recadrage.pyw` | Recadrage interactif avec 16 formats d'impression (ID, 10x15, 13x18, 20x30…), mode batch, zoom/pan/rotation, 2 en 1, planches ID x2/x4, formats multiples par image, exemplaires, noir et blanc, netteté |
+| Remerciements | `Remerciements.py` | Génère des cartes de remerciement |
+| Redimensionner | `Redimensionner.py` | Redimensionne les images (taille paramétrable) |
+| Redimensionner + filigrane | `Redimensionner filigrane.py` | Redimensionne avec filigrane (taille paramétrable) |
+| Renommer nombre photo | `renommer nombre photo.py` | Renomme selon un pattern |
+| Renommer en séquence | `Renommer sequence.py` | Renomme en séquence numérotée |
+| Améliorer la netteté | `Ameliorer nettete.py` | Améliore la netteté des images |
+| Transfert vers TEMP | `Transfert vers TEMP.py` | Envoie des fichiers vers un dossier TEMP prédéfini |
+| Kiosk droite | `Kiosk droite.py` | Organise les fichiers kiosque droite |
+| Kiosk gauche | `Kiosk gauche.py` | Organise les fichiers kiosque gauche |
 
 ---
 
