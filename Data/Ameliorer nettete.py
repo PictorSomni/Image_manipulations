@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.7.1"
+__version__ = "1.7.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -12,7 +12,7 @@ from PIL import Image, ImageFilter
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = Path(__file__).resolve().parent
+PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 
 #############################################################
 #                         CONTENT                           #
@@ -40,7 +40,7 @@ for i, file in enumerate(FOLDER):
 
     if file != "watermark.png":
         try:
-            base_image = Image.open(file)
+            base_image = Image.open(PATH / file)
         except Exception:
             continue
         else:

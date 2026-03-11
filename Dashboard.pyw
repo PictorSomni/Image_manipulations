@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.7.1"
+__version__ = "1.7.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -794,16 +794,10 @@ def main(page: ft.Page):
                 threading.Thread(target=read_output, args=(process.stderr, RED), daemon=True).start()
                 
             else:
-                if not os.access(selected_folder["path"], os.W_OK):
-                    log_to_terminal(f"[ERREUR] Erreur: Pas d'accès en écriture au dossier {selected_folder['path']}", RED)
-                    return
-                
-                dest_path = os.path.join(selected_folder["path"], app_name)
-                shutil.copy(app_path, dest_path)
-                
                 # Préparer l'environnement avec le chemin du dossier Data
                 env = os.environ.copy()
                 env["DATA_PATH"] = os.path.join(cwd, "Data")
+                env["FOLDER_PATH"] = selected_folder["path"]
                 
                 # Ajouter les chemins ImageMagick pour Wand (Homebrew sur macOS)
                 if platform.system() == "Darwin":
@@ -845,8 +839,8 @@ def main(page: ft.Page):
                     env["SELECTED_FILES"] = "|".join(os.path.basename(f) for f in selected_files)
                 
                 process = subprocess.Popen(
-                    [sys.executable, "-u", app_name],
-                    cwd=selected_folder["path"],
+                    [sys.executable, "-u", app_path],
+                    cwd=os.path.join(cwd, "Data"),
                     env=env,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -871,18 +865,14 @@ def main(page: ft.Page):
                 threading.Thread(target=read_output, args=(process.stdout, WHITE), daemon=True).start()
                 threading.Thread(target=read_output, args=(process.stderr, RED), daemon=True).start()
                 
-                # Supprimer le fichier en arrière-plan pour ne pas bloquer l'UI
-                def cleanup():
+                # Attendre la fin et rafraîchir la preview
+                def done():
                     process.wait()
-                    try:
-                        os.remove(dest_path)
-                        log_to_terminal(f"[OK] {app_name} terminé", GREEN)
-                    except Exception as err:
-                        log_to_terminal(f"[ERREUR] Erreur lors de la suppression du fichier: {err}", RED)
+                    log_to_terminal(f"[OK] {display_name} terminé", GREEN)
                     # Rafraîchir la preview pour afficher les nouveaux dossiers/fichiers créés
                     request_refresh()
                 
-                threading.Thread(target=cleanup, daemon=True).start()
+                threading.Thread(target=done, daemon=True).start()
         except Exception as err:
             log_to_terminal(f"[ERREUR] Erreur lors du lancement: {err}", RED)
     

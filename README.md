@@ -92,7 +92,7 @@ pip install -r requirements.txt
 - `flet` : Interface graphique
 - `Pillow` : Traitement d'images
 - `Wand` : Conversion d'images (requiert ImageMagick)
-- `rich` : Interface console améliorée
+- `numpy` : Calculs vectoriels (exposition, ombres, hautes lumières)
 - `PyMuPDF` : Conversion de PDF en images
 
 ---
@@ -142,7 +142,7 @@ Dashboard-Image-Manipulation/
 - **Lancement rapide d'applications** de traitement d'images
 - **Gestion des fichiers** (sélection, suppression, ouverture, création de dossiers, copier/coller...)
 - **Support multi-plateforme** (Windows, macOS, Linux)
-- **Applications portables** : les apps sont copiées temporairement dans le dossier de travail
+- **Applications portables** : les apps sont lancées directement depuis le dossier du projet
 
 ---
 
@@ -152,8 +152,7 @@ Dashboard-Image-Manipulation/
 2. Sélectionnez un dossier contenant vos images avec le bouton **Parcourir**
 3. Vous pouvez soit selectionner les images a utiliser, soit ne rien selectionner, auquel cas, tous les fichiers image du dossiers seront utilisés
 4. Cliquez sur une application dans la liste pour la lancer
-5. L'application sera copiée dans le dossier sélectionné et lancée automatiquement
-6. Une fois terminée, le fichier temporaire est supprimé automatiquement
+5. L'application est lancée directement depuis le dossier du projet avec le dossier sélectionné comme contexte
 
 ---
 

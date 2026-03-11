@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.7.1"
+__version__ = "1.7.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -11,6 +11,7 @@ import platform
 from PIL import Image, ImageOps, ImageFilter, ImageEnhance
 import asyncio
 import math
+import shutil
 import numpy as np
 
 # ===================== Configuration ===================== #
@@ -22,6 +23,7 @@ DPI = 300  # Résolution d'export
 # Formats d'impression (largeur_mm, hauteur_mm) - en portrait
 FORMATS = {
     "ID (36x46mm)": (36, 46),
+    "9x13 (89x127mm)": (89, 127),
     "10x10 (102x102mm)": (102, 102),
     "10x15 (102x152mm)": (102, 152),
     "13x18 (127x178mm)": (127, 178),
@@ -66,6 +68,11 @@ class PhotoCropper:
         self.image_paths = []
         self.current_index = 0
         self.batch_mode = False
+        self.source_folder = os.environ.get("FOLDER_PATH", os.getcwd())
+        # Dossier local pour les fichiers de prévisualisation temporaires
+        self._preview_tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".preview_cache")
+        os.makedirs(self._preview_tmp_dir, exist_ok=True)
+        self._preview_counter = 0
         
         # Configuration du canvas (calculé dynamiquement)
         self.canvas_is_portrait = True
@@ -78,7 +85,7 @@ class PhotoCropper:
         self.border_id2 = False
         self.border_id4 = True
         self.save_to_network = True  # Sauvegarder les ID X4 sur le réseau par défaut
-        self.enhance_toggle = False  # Éclaircissement adaptatif
+        self.enhance_toggle = False  # Retro-compat snapshots anciens
         self.canvas_w = 800  # Valeur initiale, ajustée au chargement
         self.canvas_h = self.canvas_w * self.current_format[1] / self.current_format[0]
 
@@ -101,6 +108,30 @@ class PhotoCropper:
             divisions=300,
             label=f"{self.rotation:.1f}°",
             on_change=self.on_rotation_update,
+        )
+
+        # Ombres (Shadows — similaire à Camera Raw)
+        self.shadows = 0.0
+        self.shadows_slider = ft.Slider(
+            value=self.shadows,
+            min=-100,
+            max=100,
+            divisions=20,
+            label="0",
+            on_change=self.on_shadows_label,
+            on_change_end=self.on_shadows_end,
+        )
+
+        # Hautes lumières (Highlights — similaire à Camera Raw)
+        self.highlights = 0.0
+        self.highlights_slider = ft.Slider(
+            value=self.highlights,
+            min=-100,
+            max=100,
+            divisions=20,
+            label="0",
+            on_change=self.on_highlights_label,
+            on_change_end=self.on_highlights_end,
         )
 
         # Nombre d'exemplaires
@@ -134,8 +165,9 @@ class PhotoCropper:
 
         # Image principale
         self.image_display = ft.Image(
-            src="",
+            src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
             fit=ft.BoxFit.COVER,
+            gapless_playback=True,
         )
         
         # Container positionné dans un Stack avec scale pour le zoom
@@ -194,7 +226,26 @@ class PhotoCropper:
         self.sharpen_switch = ft.Switch(label="Netteté", active_color=BLUE, value=True, visible=True, on_change=self.on_sharpen_toggle)
         self.is_sharpen = True
         self.bw_switch = ft.Switch(label="Noir et blanc", active_color=ORANGE, value=False, on_change=self.on_bw_toggle)
-        self.enhance_switch = ft.Switch(label="Améliorer", active_color=BLUE, value=False, visible=True, on_change=self.on_enhance_toggle)
+
+        # Sliders de réglages (panneau gauche)
+        self.contrast = 0.0
+        self.contrast_slider = ft.Slider(
+            value=0, min=-20, max=20, divisions=40, label="0",
+            on_change=self.on_contrast_label,
+            on_change_end=self.on_contrast_end,
+        )
+        self.saturation = 0.0
+        self.saturation_slider = ft.Slider(
+            value=0, min=-100, max=100, divisions=20, label="0",
+            on_change=self.on_saturation_label,
+            on_change_end=self.on_saturation_end,
+        )
+        self.exposure = 0.0
+        self.exposure_slider = ft.Slider(
+            value=0, min=-100, max=100, divisions=20, label="0",
+            on_change=self.on_exposure_label,
+            on_change_end=self.on_exposure_end,
+        )
 
         self.canvas_container = ft.Container(
             content=self.gesture_detector,
@@ -335,10 +386,10 @@ class PhotoCropper:
         self.display_w = max(int(round(self.orig_w * self.base_scale)), int(self.canvas_w))
         self.display_h = max(int(round(self.orig_h * self.base_scale)), int(self.canvas_h))
 
-        self.image_display.src = path
         self.image_display.width = self.display_w
         self.image_display.height = self.display_h
-        
+        self._render_preview()
+
         # Réinitialiser le scale du container
         self.image_container.scale = 1.0
 
@@ -387,7 +438,7 @@ class PhotoCropper:
     def batch_process_interactive(self, e):
         import time
 
-        folder = os.getcwd()
+        folder = self.source_folder
 
         # Délai pour s'assurer que tous les fichiers sont complètement copiés
         time.sleep(0.3)
@@ -665,6 +716,96 @@ class PhotoCropper:
         result = Image.merge("YCbCr", (y_new, cb, cr)).convert("RGB")
         return ImageEnhance.Color(result).enhance(1.42)
 
+    def _apply_adjustments(self, img):
+        """Applique exposition, contraste et saturation (valeurs -100..+100)."""
+        img = img.convert("RGB")
+        if self.exposure != 0:
+            # Exposition : gamma inverse (+ = plus clair, - = plus sombre)
+            # +100 multiplie la lumière x2, -100 la divise par 2
+            factor = 2 ** (self.exposure / 100.0)
+            lut = np.clip(np.arange(256, dtype=np.float32) * factor, 0, 255).astype(np.uint8)
+            arr = np.array(img, dtype=np.uint8)
+            img = Image.fromarray(lut[arr], "RGB")
+        if self.contrast != 0:
+            img = ImageEnhance.Contrast(img).enhance(1.0 + self.contrast / 100.0)
+        if self.saturation != 0:
+            img = ImageEnhance.Color(img).enhance(max(0.0, 1.0 + self.saturation / 100.0))
+        return img
+
+    def _apply_shadows(self, img, value):
+        """Ajuste les ombres (similaire au slider Shadows de Camera Raw/Lightroom).
+        value : -100 … +100. Positif = éclaircit les ombres, négatif = les assombrit.
+        La courbe est nulle aux noirs purs (v=0), maximale vers v=96 et nulle dès les
+        demi-tons (v≥192), ce qui préserve les noirs et les hautes lumières."""
+        if value == 0:
+            return img
+        s = value / 100.0
+        v_arr = np.arange(256, dtype=np.float32)
+        # Courbe sinusoïdale : sin(π·v/192) — zéro en 0, pic à 96, zéro à 192+
+        t = v_arr / 192.0
+        weight = np.where(t <= 1.0, np.sin(np.pi * t), 0.0)
+        strength = 60  # amplitude max en niveaux d'intensité
+        lut = np.clip(v_arr + s * strength * weight, 0, 255).astype(np.uint8)
+        img_rgb = img.convert("RGB")
+        img_arr = np.array(img_rgb, dtype=np.uint8)
+        return Image.fromarray(lut[img_arr], "RGB")
+
+    def _apply_highlights(self, img, value):
+        """Ajuste les hautes lumières (miroir des ombres).
+        value : -100 … +100. Positif = éclaircit les hautes lumières, négatif = les assombrit.
+        Courbe nulle sous v=64, pic vers v=192, nulle aux blancs purs (v=255)."""
+        if value == 0:
+            return img
+        s = value / 100.0
+        v_arr = np.arange(256, dtype=np.float32)
+        # Courbe : sin(π·(v-64)/192) pour v dans [64, 255], zéro ailleurs
+        t = (v_arr - 64.0) / 192.0
+        weight = np.where((t >= 0.0) & (t <= 1.0), np.sin(np.pi * t), 0.0)
+        strength = 60
+        lut = np.clip(v_arr + s * strength * weight, 0, 255).astype(np.uint8)
+        img_rgb = img.convert("RGB")
+        img_arr = np.array(img_rgb, dtype=np.uint8)
+        return Image.fromarray(lut[img_arr], "RGB")
+
+    def _render_preview(self):
+        """Génère une prévisualisation de l'image avec tous les filtres actifs."""
+        if not hasattr(self, 'current_pil_image') or self.current_pil_image is None:
+            return
+        if not hasattr(self, 'display_w'):
+            return
+        # Aplatir l'alpha sur fond blanc
+        preview = self.current_pil_image.copy()
+        if preview.mode == "RGBA":
+            bg = Image.new("RGBA", preview.size, (255, 255, 255, 255))
+            preview = Image.alpha_composite(bg, preview).convert("RGB")
+        else:
+            preview = preview.convert("RGB")
+        # Redimensionner à la taille d'affichage pour la performance
+        pw = max(1, int(self.display_w))
+        ph = max(1, int(self.display_h))
+        preview = preview.resize((pw, ph), Image.Resampling.BILINEAR)
+        # Noir et blanc
+        if self.is_bw:
+            preview = ImageOps.grayscale(preview).convert("RGB")
+        # Contraste, saturation, exposition
+        preview = self._apply_adjustments(preview)
+        # Ombres
+        if self.shadows != 0:
+            preview = self._apply_shadows(preview, self.shadows)
+        # Hautes lumières
+        if self.highlights != 0:
+            preview = self._apply_highlights(preview, self.highlights)
+        # Netteté
+        if self.is_sharpen:
+            preview = preview.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
+            preview = preview.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
+        # Nom unique à chaque rendu : cache Flutter jamais touché
+        self._preview_counter += 1
+        tmp_path = os.path.join(self._preview_tmp_dir, f"_rc_{self._preview_counter}.jpg")
+        preview.save(tmp_path, format="JPEG", quality=88)
+        self.image_display.src_base64 = None
+        self.image_display.src = tmp_path
+
     # ================================================================ #
     #                  NAVIGATION (PAN, ZOOM, ROTATION)                #
     # ================================================================ #
@@ -732,9 +873,13 @@ class PhotoCropper:
 
     def on_bw_toggle(self, e):
         self.is_bw = e.control.value
+        self._render_preview()
+        self.page.update()
 
     def on_sharpen_toggle(self, e):
         self.is_sharpen = bool(e.control.value)
+        self._render_preview()
+        self.page.update()
 
     def on_network_toggle(self, e):
         self.save_to_network = bool(e.control.value)
@@ -774,7 +919,110 @@ class PhotoCropper:
             self.page.update()
 
     def on_enhance_toggle(self, e):
+        # Conservé pour compatibilité snapshots mais plus exposé en UI
         self.enhance_toggle = bool(e.control.value)
+        self._render_preview()
+        self.page.update()
+
+    # Label uniquement (pendant le glissement)
+    def on_shadows_label(self, e):
+        self.shadows = e.control.value
+        e.control.label = str(int(self.shadows))
+        e.control.update()
+
+    # Rendu au relâchement
+    def on_shadows_end(self, e):
+        self.shadows = e.control.value
+        self._render_preview()
+        self.page.update()
+
+    def on_shadows_update(self, e):  # alias pour compatibilité
+        self.on_shadows_label(e)
+
+    def on_highlights_label(self, e):
+        self.highlights = e.control.value
+        e.control.label = str(int(self.highlights))
+        e.control.update()
+
+    def on_highlights_end(self, e):
+        self.highlights = e.control.value
+        self._render_preview()
+        self.page.update()
+
+    def on_contrast_label(self, e):
+        self.contrast = e.control.value
+        e.control.label = str(int(self.contrast))
+        e.control.update()
+
+    def on_contrast_end(self, e):
+        self.contrast = e.control.value
+        self._render_preview()
+        self.page.update()
+
+    def on_contrast_update(self, e):  # alias
+        self.on_contrast_label(e)
+
+    def on_saturation_label(self, e):
+        self.saturation = e.control.value
+        e.control.label = str(int(self.saturation))
+        e.control.update()
+
+    def on_saturation_end(self, e):
+        self.saturation = e.control.value
+        self._render_preview()
+        self.page.update()
+
+    def on_saturation_update(self, e):  # alias
+        self.on_saturation_label(e)
+
+    def on_exposure_label(self, e):
+        self.exposure = e.control.value
+        e.control.label = str(int(self.exposure))
+        e.control.update()
+
+    def on_exposure_end(self, e):
+        self.exposure = e.control.value
+        self._render_preview()
+        self.page.update()
+
+    def on_exposure_update(self, e):  # alias
+        self.on_exposure_label(e)
+
+    def reset_shadows(self, e):
+        self.shadows = 0.0
+        self.shadows_slider.value = 0.0
+        self.shadows_slider.label = "0"
+        self.shadows_slider.update()
+        self.highlights = 0.0
+        self.highlights_slider.value = 0.0
+        self.highlights_slider.label = "0"
+        self.highlights_slider.update()
+        self._render_preview()
+        self.page.update()
+
+    def reset_adjustments(self, e):
+        self.contrast = 0.0
+        self.contrast_slider.value = 0.0
+        self.contrast_slider.label = "0"
+        self.contrast_slider.update()
+        self.saturation = 0.0
+        self.saturation_slider.value = 0.0
+        self.saturation_slider.label = "0"
+        self.saturation_slider.update()
+        self.exposure = 0.0
+        self.exposure_slider.value = 0.0
+        self.exposure_slider.label = "0"
+        self.exposure_slider.update()
+        self.shadows = 0.0
+        self.shadows_slider.value = 0.0
+        self.shadows_slider.label = "0"
+        self.shadows_slider.update()
+        self.highlights = 0.0
+        self.highlights_slider.value = 0.0
+        self.highlights_slider.label = "0"
+        self.highlights_slider.update()
+        self._render_preview()
+        self.page.update()
 
     def change_ratio(self, e=None):
         self.current_format = FORMATS[e.control.value]
@@ -926,7 +1174,12 @@ class PhotoCropper:
             "is_bw": self.is_bw,
             "two_in_one": bool(self.two_in_one_switch.value),
             "is_sharpen": self.is_sharpen,
-            "enhance_toggle": self.enhance_toggle,
+            "enhance_toggle": False,
+            "shadows": self.shadows,
+            "highlights": self.highlights,
+            "contrast": self.contrast,
+            "saturation": self.saturation,
+            "exposure": self.exposure,
         }
         self.extra_formats.append(snapshot)
         self._update_extra_formats_display()
@@ -936,7 +1189,22 @@ class PhotoCropper:
         self.is_bw = False
         self.bw_switch.value = False
         self.enhance_toggle = False
-        self.enhance_switch.value = False
+        self.shadows = 0.0
+        self.shadows_slider.value = 0.0
+        self.shadows_slider.label = "0"
+        self.highlights = 0.0
+        self.highlights_slider.value = 0.0
+        self.highlights_slider.label = "0"
+        self.contrast = 0.0
+        self.contrast_slider.value = 0.0
+        self.contrast_slider.label = "0"
+        self.saturation = 0.0
+        self.saturation_slider.value = 0.0
+        self.saturation_slider.label = "0"
+        self.exposure = 0.0
+        self.exposure_slider.value = 0.0
+        self.exposure_slider.label = "0"
+        self._render_preview()
         self.page.update()
 
     def clear_extra_formats(self, e):
@@ -955,7 +1223,17 @@ class PhotoCropper:
                 bw = " N&B" if s.get("is_bw", False) else ""
                 enh = " ☀" if s.get("enhance_toggle", False) else ""
                 deux = " 2en1" if s.get("two_in_one", False) else ""
-                parts.append(f"{prefix}{lbl} {orient}{deux}{bw}{enh}")
+                shd_v = s.get("shadows", 0)
+                shd = f" S{int(shd_v):+d}" if shd_v != 0 else ""
+                hl_v = s.get("highlights", 0)
+                hl = f" HL{int(hl_v):+d}" if hl_v != 0 else ""
+                con_v = s.get("contrast", 0)
+                con = f" C{int(con_v):+d}" if con_v != 0 else ""
+                sat_v = s.get("saturation", 0)
+                sat = f" Sat{int(sat_v):+d}" if sat_v != 0 else ""
+                exp_v = s.get("exposure", 0)
+                exp = f" E{int(exp_v):+d}" if exp_v != 0 else ""
+                parts.append(f"{prefix}{lbl} {orient}{deux}{bw}{shd}{hl}{con}{sat}{exp}")
             self.extra_formats_display.value = " + ".join(parts)
         else:
             self.extra_formats_display.value = "—"
@@ -1107,14 +1385,19 @@ class PhotoCropper:
             else:
                 base_dir = "/Volumes/TRAVAUX EN COURS/Z2026"
         else:
-            base_dir = fmt_short
+            base_dir = os.path.join(self.source_folder, fmt_short)
 
         if self.is_sharpen:
             pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
             pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
 
-        if self.enhance_toggle:
-            pil_crop = self._adaptive_enhance(pil_crop)
+        pil_crop = self._apply_adjustments(pil_crop)
+
+        if self.shadows != 0:
+            pil_crop = self._apply_shadows(pil_crop, self.shadows)
+
+        if self.highlights != 0:
+            pil_crop = self._apply_highlights(pil_crop, self.highlights)
 
         out_path = None
         if not self.extra_formats:
@@ -1164,14 +1447,27 @@ class PhotoCropper:
             ex_copies = snapshot.get("copies", 1)
             ex_prefix = f"{ex_copies}X_"
             ex_jpg = ex_prefix + name + f"_{idx}.jpg"
-            ex_path = unique_path(os.path.join(ex_short, ex_jpg))
+            ex_dir = os.path.join(self.source_folder, ex_short)
+            os.makedirs(ex_dir, exist_ok=True)
+            ex_path = unique_path(os.path.join(ex_dir, ex_jpg))
 
             if snapshot.get("is_sharpen", self.is_sharpen):
                 ex_crop = ex_crop.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
                 ex_crop = ex_crop.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
 
-            if snapshot.get("enhance_toggle", False):
-                ex_crop = self._adaptive_enhance(ex_crop)
+            # Appliquer les réglages du snapshot
+            saved_contrast, saved_saturation, saved_exposure = self.contrast, self.saturation, self.exposure
+            self.contrast = snapshot.get("contrast", 0)
+            self.saturation = snapshot.get("saturation", 0)
+            self.exposure = snapshot.get("exposure", 0)
+            ex_crop = self._apply_adjustments(ex_crop)
+            self.contrast, self.saturation, self.exposure = saved_contrast, saved_saturation, saved_exposure
+
+            if snapshot.get("shadows", 0) != 0:
+                ex_crop = self._apply_shadows(ex_crop, snapshot["shadows"])
+
+            if snapshot.get("highlights", 0) != 0:
+                ex_crop = self._apply_highlights(ex_crop, snapshot["highlights"])
 
             ex_crop.save(ex_path, quality=100, format="JPEG", dpi=(DPI, DPI))
             out_path = ex_path
@@ -1223,6 +1519,11 @@ class PhotoCropper:
         self.page.update()
 
     async def close_window(self, e=None):
+        # Nettoyer le dossier de prévisualisation temporaire
+        try:
+            shutil.rmtree(self._preview_tmp_dir, ignore_errors=True)
+        except Exception:
+            pass
         await self.page.window.close()
 
 #############################################################
@@ -1272,7 +1573,6 @@ def main(page: ft.Page):
                 app.border_switch_ID2,
                 app.border_switch_ID4,
                 app.network_switch,
-                app.sharpen_switch,
             ], spacing=0),
         ),
         ft.Divider(height=8),
@@ -1283,25 +1583,51 @@ def main(page: ft.Page):
     page.add(
         ft.Stack([
             ft.Row([
+                # ── Panneau gauche : réglages sliders ──────────────────────
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("Réglages", size=16, weight=ft.FontWeight.BOLD, color=WHITE),
+                        ft.Divider(height=4),
+                        ft.Text("Rotation", size=12, color=LIGHT_GREY),
+                        app.rotation_slider,
+                        ft.Container(
+                            content=ft.Button("0°", on_click=app.reset_rotation, width=120, bgcolor=GREY, color=WHITE),
+                            alignment=ft.Alignment.CENTER,
+                        ),
+                        ft.Divider(height=4),
+                        ft.Text("Exposition", size=12, color=LIGHT_GREY),
+                        app.exposure_slider,
+                        ft.Divider(height=4),
+                        ft.Text("Hautes lumières", size=12, color=LIGHT_GREY),
+                        app.highlights_slider,
+                        ft.Divider(height=4),
+                        ft.Text("Ombres", size=12, color=LIGHT_GREY),
+                        app.shadows_slider,
+                        ft.Divider(height=4),
+                        ft.Text("Contraste", size=12, color=LIGHT_GREY),
+                        app.contrast_slider,
+                        ft.Divider(height=4),
+                        ft.Text("Saturation", size=12, color=LIGHT_GREY),
+                        app.saturation_slider,
+                        ft.Container(
+                            content=ft.Button("Réinit. réglages", on_click=app.reset_adjustments, width=160, bgcolor=GREY, color=WHITE),
+                            alignment=ft.Alignment.CENTER,
+                        ),
+                        ft.Divider(height=4),
+                        app.sharpen_switch,
+                    ], spacing=2, scroll=ft.ScrollMode.AUTO),
+                    width=200,
+                    bgcolor=DARK,
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=12),
+                    border=ft.Border(right=ft.BorderSide(1, LIGHT_GREY)),
+                ),
                 ft.Container(
                     content=ft.Column(
-                        [   
+                        [
                             ft.Text("Opérations", size=20, weight=ft.FontWeight.BOLD),
-                            ft.Container(height=11),  # Espacement en bas du titre
+                            ft.Container(height=11),
                             ft.Container(
                                 content=ft.Row([
-                                    ft.Column([
-                                        ft.Container(
-                                            content=ft.Text("Rotation", size=14, weight=ft.FontWeight.W_500),
-                                            alignment=ft.Alignment.CENTER,
-                                        ),
-                                        app.rotation_slider,
-                                        ft.Container(
-                                            content=ft.Button("Remettre à 0°", on_click=app.reset_rotation, width=180, bgcolor=WHITE, color=DARK),
-                                            alignment=ft.Alignment.CENTER,
-                                        ),
-                                    ], spacing=8, width=400, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                                    ft.VerticalDivider(width=1, color=LIGHT_GREY),
                                     ft.Column([
                                         ft.Text("Exemplaires", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
                                         ft.Row([
@@ -1309,7 +1635,8 @@ def main(page: ft.Page):
                                             app.copies_text,
                                             app.copies_plus_btn,
                                         ], alignment=ft.MainAxisAlignment.CENTER, spacing=0),
-                                    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=250),
+                                    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=200),
+                                    ft.VerticalDivider(width=1, color=LIGHT_GREY),
                                     ft.Column([
                                         ft.Text("Formats multiples", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
                                         ft.Row([
@@ -1332,6 +1659,7 @@ def main(page: ft.Page):
                                             ], scroll=ft.ScrollMode.AUTO, width=128, height=32, alignment=ft.MainAxisAlignment.START),
                                         ], width=150, alignment=ft.MainAxisAlignment.START, spacing=8),
                                     ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=200),
+                                    ft.VerticalDivider(width=1, color=LIGHT_GREY),
                                     ft.Column([
                                         ft.Button("Orientation",
                                             icon=ft.icons.Icons.SWAP_HORIZ,
@@ -1339,10 +1667,7 @@ def main(page: ft.Page):
                                             on_click=app.toggle_orientation),
                                         app.bw_switch,
                                     ]),
-                                    ft.Column([
-                                        app.enhance_switch,
-                                    ])
-                                ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=32, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=144),
+                                ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=32, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=100),
                                 padding=ft.Padding.only(top=6, bottom=4, left=12, right=12),
                                 alignment=ft.Alignment.CENTER,
                                 bgcolor=DARK,

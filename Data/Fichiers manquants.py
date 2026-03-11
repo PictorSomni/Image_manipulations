@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.7.1"
+__version__ = "1.7.5"
 
 ENV_SELECTED_FILES_KEY = "SELECTED_FILES"
 OUTPUT_SELECTED_FILES_PREFIX = "SELECTED_FILES:"
@@ -14,7 +14,7 @@ import os
 #############################################################
 #                          CONTENT                          #
 #############################################################
-PATH = Path(__file__).resolve().parent
+PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 
 # Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
 selected_dir_str = os.environ.get("SELECTED_FILES", "")

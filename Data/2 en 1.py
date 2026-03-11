@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.7.1"
+__version__ = "1.7.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -21,7 +21,7 @@ START = 1          # Start number to count, if needed
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = Path(__file__).resolve().parent
+PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 
 #############################################################
 #                         CONTENT                           #
@@ -76,7 +76,7 @@ while len(FOLDER) > 0:
         else:
             image2 = FOLDER.pop()
 
-    images = map(Image.open, [image1, image2])
+    images = map(Image.open, [PATH / image1, PATH / image2])
     x_offset = 0
     try:
         new_image = Image.new('RGB', (WIDTH_DPI * 2, HEIGHT_DPI))

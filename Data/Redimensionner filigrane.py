@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.7.1"
+__version__ = "1.7.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -13,11 +13,11 @@ from PIL import Image, ImageFile, ImageOps
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = Path(__file__).resolve().parent
+PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 os.chdir(PATH)
 
 # Récupère le chemin du dossier Data depuis l'environnement (si lancé via Dashboard)
-DATA_PATH = Path(os.environ.get("DATA_PATH", PATH))
+DATA_PATH = Path(os.environ.get("DATA_PATH", str(Path(__file__).resolve().parent)))
 
 #############################################################
 #                         CONTENT                           #
