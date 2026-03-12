@@ -1,4 +1,16 @@
 # -*- coding: utf-8 -*-
+"""
+Recadre et positionne des images au format portrait 10×15 cm sur un canvas 13×15 cm.
+
+Chaque image portrait est recadrée à 102×152 mm puis centrée sur un canvas blanc
+127×152 mm à 300 DPI. Le résultat est sauvegardé dans ``13x15/``.
+
+Variables d'environnement :
+  FOLDER_PATH     — dossier source (défaut : répertoire du script).
+  SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
+
+Dépendances : Pillow (PIL)
+"""
 
 __version__ = "1.7.6"
 
@@ -30,6 +42,7 @@ FOLDER = [f for f in all_files if f in selected_files_set] if selected_files_set
 TOTAL = len(FOLDER)
 
 def mm_to_pixels(mm, dpi) :
+    """Convertit des millimètres en pixels entiers pour un DPI donné."""
     return round((float(mm) / 25.4) * dpi)
 
 PRINT_SIZE = (127, 152)
@@ -39,6 +52,7 @@ CROP_DPI = (mm_to_pixels(CROP_SIZE[0], DPI)), (mm_to_pixels(CROP_SIZE[1], DPI))
 
 
 def folder(folder) :
+    """Crée le sous-dossier ``folder`` dans PATH s'il n'existe pas encore."""
     folder_path = PATH / folder
     folder_path.mkdir(exist_ok=True)
 

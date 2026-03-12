@@ -1,4 +1,18 @@
 # -*- coding: utf-8 -*-
+"""
+Assemble deux photos portrait côte à côte sur une seule image JPEG prête à imprimer.
+
+Chaque paire d'images est recadrée au format ``WIDTH × HEIGHT`` mm à 300 DPI
+puis collée horizontalement pour obtenir un tirage ``(WIDTH×2) × HEIGHT``.
+Si un nom de fichier contient un mot-clé "recto", "verso" ou "duo", les deux
+faces sont issues de la même image (duplication).
+
+Variables d'environnement :
+  FOLDER_PATH     — dossier source des images (défaut : répertoire du script).
+  SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
+
+Dépendances : Pillow (PIL)
+"""
 
 __version__ = "1.7.6"
 
@@ -44,12 +58,14 @@ IMAGE_NAME = ""
 #               CONVERT MM 300DPI TO PIXELS                 #
 #############################################################
 def mm_to_pixels(mm, dpi) :
+    """Convertit des millimètres en pixels entiers pour un DPI donné."""
     return round((float(mm) / 25.4) * dpi)
 
 WIDTH_DPI = mm_to_pixels(WIDTH, DPI)
 HEIGHT_DPI = mm_to_pixels(HEIGHT, DPI)
 
 def folder(folder_name):
+    """Crée le sous-dossier ``folder_name`` dans PATH s'il n'existe pas encore."""
     folder_path = PATH / folder_name
     folder_path.mkdir(exist_ok=True)
 

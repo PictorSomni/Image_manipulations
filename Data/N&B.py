@@ -1,4 +1,16 @@
 # -*- coding: utf-8 -*-
+"""
+Convertit un lot d'images en niveaux de gris (noir et blanc) et les sauvegarde en JPEG.
+
+Utilise le mode ``"L"`` de Pillow pour la conversion. Les fichiers résultants
+sont enregistrés dans un sous-dossier ``N&B/`` avec le même nom de base.
+
+Variables d'environnement :
+  FOLDER_PATH     — dossier source (défaut : répertoire du script).
+  SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
+
+Dépendances : Pillow (PIL)
+"""
 
 __version__ = "1.7.6"
 
@@ -27,6 +39,7 @@ FOLDER = [f for f in all_files if f in selected_files_set] if selected_files_set
 TOTAL = len(FOLDER)
 
 def folder(folder) :
+    """Crée le sous-dossier ``folder`` dans PATH s'il n'existe pas encore."""
     folder_path = PATH / folder
     folder_path.mkdir(exist_ok=True)
 

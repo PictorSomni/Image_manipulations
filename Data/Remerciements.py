@@ -1,4 +1,22 @@
 # -*- coding: utf-8 -*-
+"""
+Génère des visuels de remerciements : miniatures projet avec filigrane et tirages 2-en-1.
+
+Pour chaque image dont le nom contient un mot-clé REQUIRED (recto, verso, duo, _1, _2),
+le script produit :
+  1. Une miniature projet ``Projet_<nom>`` avec filigrane (qualité medium).
+  2. Un tirage "2 en 1" ``10x15_<nom>`` recadré au format 76×102 mm @ 300 DPI
+     (uniquement pour les images en mode duo).
+
+Les images contenant un mot-clé FORBIDDEN (10x15, 13x18, projet) sont ignorées.
+
+Variables d'environnement :
+  FOLDER_PATH     — dossier source (défaut : répertoire du script).
+  DATA_PATH       — chemin du dossier Data (pour trouver watermark.png).
+  SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
+
+Dépendances : Pillow (PIL), re
+"""
 
 __version__ = "1.7.6"
 

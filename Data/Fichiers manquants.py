@@ -1,4 +1,17 @@
 # -*- coding: utf-8 -*-
+"""
+Compare deux répertoires et identifie les fichiers présents à la source mais absents
+de la destination.
+
+Lorsque lancé depuis le Dashboard, ``SELECTED_FILES`` doit contenir le chemin du
+dossier de destination (passé en tant que sélection de dossier unique). Le script
+affiche les fichiers manquants et les sélectionne automatiquement dans la preview
+via le préfixe ``SELECTED_FILES:``.
+
+Variables d'environnement :
+  FOLDER_PATH     — dossier source (défaut : répertoire du script).
+  SELECTED_FILES  — chemin du dossier de destination (fichier/dossier sélectionné).
+"""
 
 __version__ = "1.7.6"
 

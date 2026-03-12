@@ -1,4 +1,18 @@
 # -*- coding: utf-8 -*-
+"""
+Transfère et renomme les commandes photo du kiosk 1 (gauche) vers le NAS du studio.
+
+Même logique que ``Kiosk droite.py``, mais filtre les commandes **nouvelles** :
+seules les commandes absentes de ``DESTINATION`` sont transférées (logique inverse
+du kiosk droit qui traite les commandes déjà présentes).
+
+Chemins :
+  Source      : \\\\studioc-kiosk1\\kiosk-data\\it-HotFolder (Windows)
+                /Volumes/kiosk-data/it-HotFolder              (macOS)
+  Destination : NAS TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE.
+
+Dépendances : modules standard (sys, re, collections, pathlib, platform, shutil)
+"""
 
 __version__ = "1.7.6"
 
@@ -40,6 +54,7 @@ COPY_FILES = []
 
 ## Creates folder if it doesn't exists
 def folder(folder_path):
+    """Crée récursivement le dossier ``folder_path`` s'il n'existe pas encore."""
     Path(folder_path).mkdir(parents=True, exist_ok=True)
 
 

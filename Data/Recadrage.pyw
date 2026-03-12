@@ -1,4 +1,46 @@
 # -*- coding: utf-8 -*-
+"""
+Recadrage.pyw — Outil de recadrage photo interactif (Flet / PIL)
+================================================================
+
+Application de bureau multi-plateforme permettant de recadrer des photos
+en lot selon des formats d'impression standards (tirages argentiques, photos
+d'identité, etc.).
+
+Fonctionnalités principales
+----------------------------
+* Recadrage interactif par glisser-déposer, zoom molette et pinch-to-zoom.
+* Rotation fine (−15° … +15°) avec rendu aperçu en temps réel.
+* Mode « Fit-in » : l'image entière tient dans le format (bords blancs).
+* Noir & blanc, exposition, contraste, saturation, ombres, hautes lumières.
+* Mise en page automatique : 2-en-1, ID ×2 / ×4, Polaroid, border 13x15,
+  border 20x24, border 13x10.
+* Formats multiples par image (plusieurs cadrages distincts sauvegardés
+  en un seul clic via la liste « Formats multiples »).
+* Mode batch interactif : toutes les images d'un dossier sont proposées
+  l'une après l'autre ; l'opérateur valide ou ignore chaque photo.
+* Export JPEG 300 dpi, espace colorimétrique sRGB avec profil ICC embarqué.
+
+Dépendances
+-----------
+* flet    — interface graphique (widgets, événements, rendu)
+* Pillow  — traitement d'image (recadrage, filtres, conversion couleur)
+* numpy   — calculs LUT rapides (courbes ombres, hautes lumières, exposition)
+
+Variables d'environnement reconnues
+------------------------------------
+FOLDER_PATH      : dossier source des images (défaut : répertoire courant)
+SELECTED_FILES   : liste de noms de fichiers séparés par « | » à traiter
+                   en priorité dans le dossier source
+
+Raccourcis clavier
+------------------
+Entrée     : valider et passer à l'image suivante
+Backspace  : basculer l'orientation portrait / paysage
+Espace     : ignorer l'image courante et passer à la suivante
+
+Version : voir __version__
+"""
 
 __version__ = "1.7.6"
 
@@ -55,7 +97,26 @@ WHITE = "#adb2be"
 
 
 def mm_to_pixels(mm, dpi=DPI):
-    """Convertit des millimètres en pixels à la résolution donnée"""
+    """
+    Convertit une dimension en millimètres en nombre de pixels entiers.
+
+    Parameters
+    ----------
+    mm : float
+        Dimension à convertir en millimètres.
+    dpi : int, optional
+        Résolution cible en points par pouce (défaut : DPI = 300).
+
+    Returns
+    -------
+    int
+        Nombre de pixels correspondant (arrondi à l'entier inférieur).
+
+    Exemple
+    -------
+    >>> mm_to_pixels(102, 300)  # 102 mm à 300 dpi ≈ 1205 px
+    1205
+    """
     return int(mm / 25.4 * dpi)
 
 # Profil sRGB pré-construit (réutilisé pour chaque export)
@@ -63,8 +124,33 @@ _SRGB_PROFILE = ImageCms.createProfile("sRGB")
 _SRGB_ICC = ImageCms.ImageCmsProfile(_SRGB_PROFILE).tobytes()
 
 def convert_to_srgb(img: Image.Image, icc_profile: bytes | None) -> Image.Image:
-    """Convertit l'image vers sRGB. Si un profil ICC source est fourni, la
-    conversion est colorémétriquement correcte. Sinon, on suppose sRGB."""
+    """
+    Convertit une image PIL vers l'espace colorimétrique sRGB.
+
+    Si un profil ICC source est fourni (lu depuis les métadonnées de
+    l'image originale), la conversion est colorimétrique correcte via
+    ImageCms avec l'intention de rendu PERCEPTUAL. Sans profil, l'image
+    est supposée déjà en sRGB et est retournée telle quelle.
+
+    Cette fonction est appelée systématiquement :
+      - lors de la génération de la prévisualisation (_render_preview)
+      - lors de l'export final (validate_and_next) pour garantir que le
+        JPEG sauvegardé est conforme sRGB quel que soit l'espace source
+        (AdobeRGB, ProPhoto, etc.).
+
+    Parameters
+    ----------
+    img : PIL.Image.Image
+        Image source à convertir (mode RGB ou RGBA attendu).
+    icc_profile : bytes or None
+        Profil ICC brut de l'image source (img.info.get('icc_profile')).
+        None si aucun profil n'est disponible.
+
+    Returns
+    -------
+    PIL.Image.Image
+        Image en mode RGB dans l'espace colorimétrique sRGB.
+    """
     if not icc_profile:
         return img  # déjà sRGB par défaut
     try:
@@ -82,7 +168,57 @@ def convert_to_srgb(img: Image.Image, icc_profile: bytes | None) -> Image.Image:
 #                         CONTENT                           #
 #############################################################
 class PhotoCropper:
+    """
+    Logique principale de l'application de recadrage photo.
+
+    Cette classe centralise l'état de l'application, la construction des
+    widgets Flet et toutes les méthodes de traitement d'image. Elle reçoit
+    la `page` Flet fournie par le runtime et construit elle-même tous les
+    contrôles (sliders, switches, boutons, canvas) qui sont ensuite montés
+    dans la mise en page de la fonction `main`.
+
+    Organisation interne
+    --------------------
+    État du batch
+        image_paths, current_index, batch_mode, source_folder
+    Configuration du canevas
+        current_format, canvas_is_portrait, canvas_w, canvas_h
+    Transformation interactive
+        scale, offset_x, offset_y, base_scale, rotation
+    Filtres actifs
+        is_bw, is_sharpen, fit_in, contrast, saturation, exposure,
+        shadows, highlights, enhance_toggle
+    Mise en page / planches
+        border_13x15, border_20x24, border_13x10, border_polaroid,
+        border_id2, border_id4, copies_count, extra_formats
+    Cache prévisualisation
+        _preview_tmp_dir, _preview_counter, _prev_preview_path
+    """
+
     def __init__(self, page: ft.Page):
+        """
+        Initialise l'application et construit tous les widgets Flet.
+
+        La méthode réalise dans l'ordre :
+          1. Création du répertoire de cache pour les prévisualisations
+             temporaires (`.preview_cache`) et nettoyage des éventuels
+             résidus d'une session précédente.
+          2. Initialisation de toutes les variables d'état (voir attributs
+             listés dans la docstring de la classe).
+          3. Instanciation de chaque widget Flet (sliders, switches, boutons,
+             GestureDetector, Stack, Container canvas).
+
+          Les widgets ne sont PAS ajoutés à la page ici ; c'est la fonction
+          `main` qui les monte dans la mise en page finale.
+
+        Parameters
+        ----------
+        page : ft.Page
+            La page Flet fournie par `ft.run(main)`.  Elle sert à :
+            - déclencher les rafraîchissements visuels (page.update())
+            - lire les dimensions courantes de la fenêtre
+            - modifier le titre de la fenêtre
+        """
         self.page = page
         # État du batch
         self.image_paths = []
@@ -286,7 +422,19 @@ class PhotoCropper:
     # ================================================================ #
 
     def update_canvas_size(self):
-        """Compute optimal canvas size based on available space"""
+        """
+        Recalcule et applique les dimensions optimales du canevas.
+
+        Le canevas doit à la fois :
+          - S'inscrire dans l'espace disponible (fenêtre − panneaux latéraux).
+          - Respecter le ratio du format d'impression sélectionné et
+            l'orientation courante (portrait / paysage).
+          - Ne pas dépasser MAX_CANVAS_SIZE dans l'une ou l'autre dimension.
+
+        Après le calcul, les attributs `canvas_w`, `canvas_h` sont mis à
+        jour ainsi que les propriétés `width` / `height` des widgets
+        `canvas_container` et `image_stack`.
+        """
         available_width = min(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
         available_height = min(self.page.window.height - 300, MAX_CANVAS_SIZE) if self.page.window.height else 600
 
@@ -310,7 +458,18 @@ class PhotoCropper:
         self.page.update()
 
     def _update_transform(self):
-        """Applique scale et offset au container de l'image"""
+        """
+        Applique la transformation affine courante (scale, pan, rotation)
+        au container de l'image dans le Stack.
+
+        Le container est positionné de sorte que son **centre** reste aligné
+        sur le centre optique du canevas décalé par (offset_x, offset_y).
+        Le scale et la rotation sont appliqués à partir du centre du container
+        grâce aux propriétés `scale` et `rotate` de Flet.
+
+        Cette méthode ne rafraîchit pas la page ; l'appelant doit invoquer
+        `self.page.update()` si nécessaire.
+        """
         # Dimensions zoomées
         zoomed_w = self.display_w * self.scale
         zoomed_h = self.display_h * self.scale
@@ -331,7 +490,19 @@ class PhotoCropper:
         self.image_container.top = center_y - self.display_h / 2
 
     def _get_transformed_bounds(self):
-        """Retourne la boîte englobante (w, h) de l'image après scale + rotation."""
+        """
+        Retourne les dimensions de la boîte englobante de l'image après
+        l'application du scale et de la rotation courante.
+
+        La boîte englobante est calculée analytiquement (pas de rendu) :
+          bound_w = scaled_w · |cos θ| + scaled_h · |sin θ|
+          bound_h = scaled_w · |sin θ| + scaled_h · |cos θ|
+
+        Returns
+        -------
+        tuple[float, float]
+            (bound_w, bound_h) en pixels écran.
+        """
         scaled_w = self.display_w * self.scale
         scaled_h = self.display_h * self.scale
         theta = math.radians(self.rotation)
@@ -342,7 +513,17 @@ class PhotoCropper:
         return bound_w, bound_h
 
     def _clamp_offsets(self):
-        """Contraint les offsets pour empêcher l'image de sortir du canevas"""
+        """
+        Contraint offset_x et offset_y pour qu'aucune bordure de l'image
+        n'apparaisse à l'intérieur du canevas.
+
+        Règles appliquées :
+          - Si l'image (après scale + rotation) est plus petite que le
+            canevas dans un axe, l'offset est forcé à 0 sur cet axe (l'image
+            reste centrée et ne peut pas être déplacée).
+          - Sinon, l'offset est borné symétriquement entre -(débordement/2)
+            et +(débordement/2) où le débordement vaut bound_dim − canvas_dim.
+        """
         zoomed_w, zoomed_h = self._get_transformed_bounds()
 
         if zoomed_w <= self.canvas_w:
@@ -362,6 +543,36 @@ class PhotoCropper:
     # ================================================================ #
 
     def load_image(self, preserve_orientation=False):
+        """
+        Charge l'image courante (image_paths[current_index]) et prépare
+        l'affichage.
+
+        Étapes réalisées
+        ------------------
+        1. Réinitialisation des transformations (scale, offset).
+        2. Vérification de l'accessibilité du fichier (existence + droits).
+        3. Ouverture PIL : extraction du profil ICC, correction de
+           l'orientation EXIF (`ImageOps.exif_transpose`), conversion RGBA.
+        4. Détection automatique de l'orientation portrait / paysage
+           (sauf si `preserve_orientation=True`).
+        5. Calcul du `base_scale` pour que l'image « couvre » le canevas
+           (mode crop) ou « tienne » dedans (mode fit-in).
+        6. Génération de la prévisualisation via `_render_preview`.
+        7. Mise à jour de la visibilité des switches (border, ID, etc.)
+           selon le format actif.
+        8. Mise à jour du titre de la fenêtre.
+
+        En cas d'erreur (fichier invalide, exception PIL), le message est
+        affiché dans `status_text` et l'application passe automatiquement
+        à l'image suivante.
+
+        Parameters
+        ----------
+        preserve_orientation : bool, optional
+            Si True, l'orientation portrait/paysage du canevas n'est pas
+            recalculée depuis les dimensions de l'image (utile lors d'un
+            changement de format ou d'une bascule manuelle). Défaut : False.
+        """
         if not self.image_paths:
             return
         if self.current_index >= len(self.image_paths):
@@ -465,6 +676,32 @@ class PhotoCropper:
         self.page.update()
     
     def batch_process_interactive(self, e):
+        """
+        Initialise le batch interactif en listant les images du dossier source.
+
+        Vérifications successives
+        --------------------------
+        1. Attente de 0,3 s pour s'assurer que les fichiers sont bien écrits
+           sur le disque avant d'être lus.
+        2. Lecture de FOLDER_PATH (dossier source) et optionnellement de
+           SELECTED_FILES (liste de fichiers à prioriser).
+        3. Filtrage des fichiers par extension image valide ; exclusion de
+           `watermark.png`.
+        4. Vérification d'intégrité de chaque image via `Image.verify()`.
+        5. Si des images valides sont trouvées, `image_paths` et
+           `current_index` sont initialisés et la première image est
+           chargée.
+
+        Ce flux est déclenché automatiquement 0,3 s après l'ouverture de
+        la fenêtre (via `delayed_start` dans `main`) et peut aussi être
+        appelé manuellement depuis un bouton.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent or None
+            Événement Flet (non utilisé directement). Peut être None lors
+            de l'appel programmatique depuis `delayed_start`.
+        """
         import time
 
         folder = self.source_folder
@@ -526,7 +763,25 @@ class PhotoCropper:
     # ================================================================ #
 
     def _compute_crop(self, target_w_px, target_h_px):
-        """Calcule le recadrage affine de l'image courante aux dimensions données (canvas principal)."""
+        """
+        Calcule le recadrage de l'image courante pour le canevas principal.
+
+        Raccourci vers `_compute_crop_with_canvas` en utilisant les
+        paramètres du canevas principal (canvas_w, canvas_h, base_scale,
+        offset_x, offset_y, scale).
+
+        Parameters
+        ----------
+        target_w_px : int
+            Largeur de l'image de sortie en pixels (résolution DPI).
+        target_h_px : int
+            Hauteur de l'image de sortie en pixels (résolution DPI).
+
+        Returns
+        -------
+        PIL.Image.Image
+            Image recadrée en mode RGB aux dimensions demandées.
+        """
         return self._compute_crop_with_canvas(
             target_w_px, target_h_px,
             self.canvas_w, self.canvas_h,
@@ -534,8 +789,30 @@ class PhotoCropper:
         )
 
     def _compute_crop_for_format(self, fmt_w_mm, fmt_h_mm, is_portrait):
-        """Calcule le recadrage pour un format donné avec son orientation propre.
-        Construit un canvas virtuel au ratio du format, centré sur le même point que le canvas principal.
+        """
+        Calcule le recadrage pour un format donné avec son propre ratio.
+
+        Construit un canevas **virtuel** qui respecte le ratio du format
+        cible tout en étant centré sur le même point de l'image que le
+        canevas principal. Les offsets sont recalculés proportionnellement.
+
+        Utilisé par la fonctionnalité « Formats multiples » pour exporter
+        simultanément plusieurs formats différents depuis un seul point de
+        vue « métier » (le centre de l'image vu à l'écran).
+
+        Parameters
+        ----------
+        fmt_w_mm : float
+            Largeur du format cible en mm.
+        fmt_h_mm : float
+            Hauteur du format cible en mm.
+        is_portrait : bool
+            True si l'export doit être en orientation portrait.
+
+        Returns
+        -------
+        PIL.Image.Image
+            Image recadrée en mode RGB aux dimensions du format cible (DPI).
         """
         if is_portrait:
             target_w_px = mm_to_pixels(fmt_w_mm)
@@ -571,7 +848,31 @@ class PhotoCropper:
         )
 
     def _compute_crop_from_snapshot(self, snapshot):
-        """Calcule le recadrage à partir d'un snapshot complet de l'état de la vue."""
+        """
+        Calcule le recadrage à partir d'un snapshot complet de l'état de la vue.
+
+        Un snapshot est un dictionnaire sauvegardé par `add_extra_format`.
+        Il contient toutes les informations nécessaires pour reproduire le
+        cadrage exact tel qu'il était au moment de l'ajout :
+        dimensions du canevas virtuel, base_scale, scale, offsets, rotation,
+        format (dims), orientation, réglages actifs (is_bw, shadows, etc.).
+
+        La méthode écrase temporairement `self.rotation` et `self.is_bw`
+        avec les valeurs du snapshot puis les restaure après le calcul.
+
+        Parameters
+        ----------
+        snapshot : dict
+            Dictionnaire produit par `add_extra_format`. Clés utilisées :
+            ``dims``, ``is_portrait``, ``rotation``, ``is_bw``,
+            ``canvas_w``, ``canvas_h``, ``base_scale``, ``scale``,
+            ``offset_x``, ``offset_y``.
+
+        Returns
+        -------
+        PIL.Image.Image
+            Image recadrée en mode RGB aux dimensions du format du snapshot.
+        """
         dims = snapshot["dims"]
         is_portrait = snapshot["is_portrait"]
         fmt_w_mm, fmt_h_mm = dims
@@ -601,7 +902,40 @@ class PhotoCropper:
     def _compute_crop_with_canvas(self, target_w_px, target_h_px,
                                    canvas_w, canvas_h, base_scale, offset_x, offset_y,
                                    scale_override=None):
-        """Calcule le recadrage affine avec les paramètres de canvas explicites."""
+        """
+        Noyau du recadrage : calcule la transformation affine et l'applique.
+
+        Algorithme
+        ----------
+        1. Calcule la transformation affine inverse (canvas → image source)
+           en tenant compte du scale total, de la rotation et des offsets.
+           La matrice affine 2×3 (à 6 paramètres) est passée directement à
+           `Image.transform(..., Image.Transform.AFFINE, ...)` avec
+           rééchantillonnage BICUBIC.
+        2. Sur le résultat, applique la conversion N&B (`is_bw`).
+        3. Aplatit le canal alpha sur fond blanc et retourne une image RGB.
+
+        Note : les zones en dehors de l'image source apparaissent en blanc
+        (fillcolor=(255,255,255,0) puis alpha composite à blanc).
+
+        Parameters
+        ----------
+        target_w_px, target_h_px : int
+            Dimensions de l'image de sortie en pixels.
+        canvas_w, canvas_h : float
+            Dimensions du canevas de référence en pixels écran.
+        base_scale : float
+            Scale de base calculé au chargement pour couvrir ce canevas.
+        offset_x, offset_y : float
+            Décalage de pan utilisateur en pixels écran.
+        scale_override : float or None, optional
+            Si fourni, écrase `self.scale` (utile pour les snapshots).
+
+        Returns
+        -------
+        PIL.Image.Image
+            Image recadrée en mode RGB.
+        """
         angle = math.radians(self.rotation)
         cos_a = math.cos(angle)
         sin_a = math.sin(angle)
@@ -661,18 +995,69 @@ class PhotoCropper:
     # ================================================================ #
 
     def is_two_in_one_enabled(self):
+        """
+        Indique si le mode « 2 en 1 » est actif pour le format courant.
+
+        Returns
+        -------
+        bool
+            True si le switch « 2 en 1 » est coché ET que le format
+            courant est compatible (10x15, 13x18 ou 15x20).
+        """
         return bool(self.two_in_one_switch.value) and any(
             fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]
         )
 
     def _force_portrait(self, image):
-        """Tourne l'image de 90° si elle est en paysage."""
+        """
+        Tourne l'image de 90° (sens antihoraire) si elle est en paysage.
+
+        Utilisé avant d'assembler les panneaux 2-en-1 pour s'assurer que
+        chaque vignette est en orientation portrait, quel que soit le sens
+        de l'image source.
+
+        Parameters
+        ----------
+        image : PIL.Image.Image
+            Image à normaliser.
+
+        Returns
+        -------
+        PIL.Image.Image
+            Image en orientation portrait (height ≥ width).
+        """
         if image.width > image.height:
             return image.rotate(90, expand=True)
         return image
 
     def _build_two_in_one_image(self, first_image, target_w_px, target_h_px):
-        """Construit une planche 2 en 1 en divisant le côté le plus long en 2."""
+        """
+        Assemble une planche « 2 en 1 » en divisant le côté le plus long
+        du format en deux panneaux égaux.
+
+        Logique de découpage
+        ---------------------
+        Si target_w_px ≥ target_h_px (format paysage) : les deux copies
+        sont posées côte à côte, chacune sur la moitié de la largeur.
+        Sinon (format portrait) : les deux copies sont empilées, chacune
+        sur la moitié de la hauteur.
+
+        Chaque panneau utilise `ImageOps.fit` (recadrage centré) pour
+        s'ajuster exactement aux dimensions du demi-format.
+
+        Parameters
+        ----------
+        first_image : PIL.Image.Image
+            Image recadrée représentant un exemplaire (produit par
+            `_compute_crop` / `_compute_fit_in`).
+        target_w_px, target_h_px : int
+            Dimensions totales de la planche finale en pixels.
+
+        Returns
+        -------
+        PIL.Image.Image
+            Planche 2-en-1 en mode RGB aux dimensions (target_w_px, target_h_px).
+        """
         split_on_width = target_w_px >= target_h_px
 
         if split_on_width:
@@ -697,7 +1082,26 @@ class PhotoCropper:
         return composed
 
     def _build_two_in_one_10x15_to_13x15(self, first_image):
-        """2 x (76x102) dans 152x102, puis remise en 152x127 avec fond blanc."""
+        """
+        Cas particulier 2-en-1 pour le format 10x15 avec bord 13x15.
+
+        Composition :
+          - Deux panneaux de 76×102 mm (moitié de la largeur 10x15 arrondie)
+            assemblés côte à côte sur une base de 152×102 mm.
+          - La base est ensuite étendue à 152×127 mm avec du blanc en bas
+            pour correspondre au format 13x15 (127 mm de hauteur).
+
+        Parameters
+        ----------
+        first_image : PIL.Image.Image
+            Image recadrée 10x15 (un exemplaire).
+
+        Returns
+        -------
+        PIL.Image.Image
+            Planche 13x15 en mode RGB avec les deux copies en haut et la
+            marge blanche en bas.
+        """
         panel_w = mm_to_pixels(76)
         panel_h = mm_to_pixels(102)
         base_w = mm_to_pixels(152)
@@ -716,8 +1120,34 @@ class PhotoCropper:
         return framed
 
     def _adaptive_enhance(self, img):
-        """Éclaircit et améliore le contraste des images sombres en travaillant
-        sur la luminance (YCbCr) et augmente la saturation des couleurs de 32%."""
+        """
+        Améliore automatiquement les images sous-exposées ou ternes.
+
+        Stratégie
+        ---------
+        1. Conversion en YCbCr pour travailler uniquement sur la luminance Y.
+        2. Calcul de la luminance moyenne (`mean_y`).
+        3. **Si l'image est déjà bien exposée** (mean_y ≥ 148) : seule la
+           saturation est boostée de +32 % (ImageEnhance.Color × 1.32).
+        4. **Sinon** :
+           a. Correction gamma : exposant calculé pour ramener mean_y vers
+              148 sans jamais dépasser +42 niveaux (limité à 0.60–0.95).
+           b. Léger étirement des contrastes (percentiles 0.5 % / 99.5 %).
+           c. Saturation boostée de +42 % (ImageEnhance.Color × 1.42).
+
+        Note : cette méthode n'est plus exposée directement dans l'UI mais
+        reste accessible pour compatibilité avec d'anciens snapshots.
+
+        Parameters
+        ----------
+        img : PIL.Image.Image
+            Image RGB à améliorer.
+
+        Returns
+        -------
+        PIL.Image.Image
+            Image RGB améliorée.
+        """
         ycbcr = img.convert("YCbCr")
         y, cb, cr = ycbcr.split()
         y_arr = np.array(y, dtype=np.float32)
@@ -746,7 +1176,33 @@ class PhotoCropper:
         return ImageEnhance.Color(result).enhance(1.42)
 
     def _apply_adjustments(self, img):
-        """Applique exposition, contraste et saturation (valeurs -100..+100)."""
+        """
+        Applique les réglages d'exposition, contraste et saturation.
+
+        Les trois curseurs sont appliqués successivement dans l'ordre
+        exposition → contraste → saturation.
+
+        Exposition
+            Implémentée via une LUT gamma-like (table de correspondance 256
+            valeurs) : factor = 2^(exposure/100). +100 ≙ ×2 lumière,
+            -100 ≙ ÷2 lumière. Application via numpy pour la performance.
+        Contraste
+            `ImageEnhance.Contrast(img).enhance(1.0 + contrast/100)` :
+            0 = neutre, +20 = 1.2×, -20 = 0.8×.
+        Saturation
+            `ImageEnhance.Color(img).enhance(max(0, 1.0 + saturation/100))` :
+            0 = image désaturée (gris), 100 = saturation doublée.
+
+        Parameters
+        ----------
+        img : PIL.Image.Image
+            Image en mode RGB ou convertible en RGB.
+
+        Returns
+        -------
+        PIL.Image.Image
+            Image RGB ajustée.
+        """
         img = img.convert("RGB")
         if self.exposure != 0:
             # Exposition : gamma inverse (+ = plus clair, - = plus sombre)
@@ -797,7 +1253,31 @@ class PhotoCropper:
         return Image.fromarray(lut[img_arr], "RGB")
 
     def _render_preview(self):
-        """Génère une prévisualisation de l'image avec tous les filtres actifs."""
+        """
+        Génère et affiche la prévisualisation dans le canvas Flet.
+
+        Pipeline de rendu
+        -----------------
+        1. Copie et aplatissement de l'alpha de `current_pil_image`.
+        2. Redimensionnement rapide (BILINEAR) à `display_w` × `display_h`
+           pour limiter la charge CPU lors des interactions.
+        3. Conversion N&B si `is_bw` est actif.
+        4. Application de `_apply_adjustments` (expo, contraste, saturation).
+        5. Application des courbes ombres et hautes lumières si non nulles.
+        6. Netteté via deux passes d'UnsharpMask si `is_sharpen` est actif.
+        7. Conversion sRGB via `convert_to_srgb` (alignement colorimétrique
+           avec l'export final).
+        8. Sauvegarde JPEG qualité 88 dans un fichier temporaire nommé
+           `_rc_<compteur>.jpg` dans `_preview_tmp_dir`.
+           Un nom unique est nécessaire pour invalider le cache image de
+           Flutter/Flet (le chemin doit changer à chaque mise à jour).
+        9. Suppression du fichier précédent pour ne garder qu'un seul
+           fichier sur disque à tout instant.
+
+        Cette méthode est appelée à chaque modification d'un filtre ou
+        lors du chargement d'une nouvelle image. Elle NE rafraîchit PAS
+        `self.page` ; l'appelant le fait si nécessaire.
+        """
         if not hasattr(self, 'current_pil_image') or self.current_pil_image is None:
             return
         if not hasattr(self, 'display_w'):
@@ -846,6 +1326,19 @@ class PhotoCropper:
     # ================================================================ #
 
     def on_pan_update(self, e: ft.DragUpdateEvent):
+        """
+        Gestionnaire de glisser (drag) sur le canvas.
+
+        Accumule les déltas de déplacement dans offset_x / offset_y
+        puis contraint les offsets (clamp) et applique la transformation.
+        Déclenché à chaque tick du GestureDetector (intervalle 10 ms).
+
+        Parameters
+        ----------
+        e : ft.DragUpdateEvent
+            Contient `local_delta.x` et `local_delta.y` (déplacement
+            depuis le dernier événement, en pixels écran).
+        """
         self.offset_x += e.local_delta.x
         self.offset_y += e.local_delta.y
         self._clamp_offsets()
@@ -853,6 +1346,23 @@ class PhotoCropper:
         self.page.update()
 
     def on_scroll(self, e: ft.ScrollEvent):
+        """
+        Gestionnaire de la molette de défilement pour le zoom.
+
+        Calcule un facteur de zoom depuis `scroll_delta_y` et l'applique
+        à `scale` (borné entre 1.0 et 10.0). Les offsets sont mis à
+        l'échelle proportionnellement au changement de scale pour que le
+        point présent sous le curseur reste fixe visuellement.
+
+        La sensibilité du zoom est contrôlée par la constante
+        `ZOOM_SENSIBILITY` (défaut : 5000).
+
+        Parameters
+        ----------
+        e : ft.ScrollEvent
+            Contient `scroll_delta.y` (positif = zoom avant sur macOS /
+            négatif selon la plateforme).
+        """
         delta = e.scroll_delta.y
         zoom_factor = 1 - delta / ZOOM_SENSIBILITY
         old_scale = self.scale
@@ -886,6 +1396,19 @@ class PhotoCropper:
         self.page.update()
 
     def on_rotation_update(self, e):
+        """
+        Gestionnaire du slider de rotation (pendant le glissement).
+
+        Met à jour `self.rotation`, le label du slider, recalcule les
+        offsets (clamp) et applique la transformation affine sans
+        re-générer la prévisualisation (pour la fluidité).
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement Flet du slider ; `e.control.value` contient la
+            valeur numérique courante en degrés.
+        """
         self.rotation = e.control.value
         e.control.label = f"{self.rotation:.2f}°"
         e.control.update()
@@ -894,6 +1417,17 @@ class PhotoCropper:
         self.page.update()
 
     def reset_rotation(self, e):
+        """
+        Remet la rotation à zéro (0°).
+
+        Remet à jour le slider, l'état interne, la transformation affine
+        et rafraîchit la page.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement Flet du bouton « 0° » (non utilisé directement).
+        """
         self.rotation = 0.0
         self.rotation_slider.value = self.rotation
         self.rotation_slider.label = f"{self.rotation:.2f}°"
@@ -907,25 +1441,95 @@ class PhotoCropper:
     # ================================================================ #
 
     def on_bw_toggle(self, e):
+        """
+        Active ou désactive le mode noir et blanc.
+
+        Met à jour `is_bw` puis regénère la prévisualisation.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du Switch « Noir et blanc » ; `e.control.value` = bool.
+        """
         self.is_bw = e.control.value
         self._render_preview()
         self.page.update()
 
     def on_sharpen_toggle(self, e):
+        """
+        Active ou désactive le filtre de netteté (UnsharpMask).
+
+        Le filtre est appliqué en deux passes (radius 4 puis radius 2) à
+        la fois sur la prévisualisation et lors de l'export final.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du Switch « Netteté ».
+        """
         self.is_sharpen = bool(e.control.value)
         self._render_preview()
         self.page.update()
 
     def on_network_toggle(self, e):
+        """
+        Active ou désactive la sauvegarde des planches ID ×4 sur le réseau.
+
+        Quand activé, les planches ID ×4 sont sauvegardées dans le dossier
+        réseau `z2026` (NAS DiskStation) plutôt que dans le dossier source.
+        Le chemin réseau est adapté automatiquement selon le système
+        d'exploitation (Windows : UNC, macOS/Linux : point de montage).
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du Switch « Sauver sur réseau ».
+        """
         self.save_to_network = bool(e.control.value)
 
     def on_border_toggle_13x15(self, e):
+        """
+        Active / désactive l'ajout d'une bordure blanche pour passer du
+        format 10x15 au format 13x15.
+
+        Quand activé, la photo 10x15 est collée sur un fond blanc de
+        127×152 mm (portrait) ou 152×127 mm (paysage).
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du Switch « 13x15 ».
+        """
         self.border_13x15 = bool(e.control.value)
 
     def on_border_toggle_20x24(self, e):
+        """
+        Active / désactive l'ajout d'une bordure blanche pour passer du
+        format 18x24 au format 20x24.
+
+        La largeur de l'image 18x24 est agrandie avec du blanc pour
+        atteindre le ratio 203÷240 (20x24).
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du Switch « 20x24 ».
+        """
         self.border_20x24 = bool(e.control.value)
 
     def on_border_toggle_13x10(self, e):
+        """
+        Active / désactive l'ajout d'une bordure blanche pour passer du
+        format 10x10 au format 13x10.
+
+        Mutuellement exclusif avec le mode Polaroid : activer 13x10
+        désactive automatiquement Polaroid.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du Switch « 13x10 ».
+        """
         self.border_13x10 = bool(e.control.value)
         if self.border_13x10:
             self.border_polaroid = False
@@ -933,6 +1537,18 @@ class PhotoCropper:
             self.page.update()
 
     def on_border_toggle_polaroid(self, e):
+        """
+        Active / désactive le cadre Polaroid.
+
+        Place la photo 10x10 centrée avec des marges blanches égales
+        sur un fond 127×152 mm (format Polaroid classique).
+        Mutuellement exclusif avec le mode 13x10.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du Switch « Polaroid ».
+        """
         self.border_polaroid = bool(e.control.value)
         if self.border_polaroid:
             self.border_13x10 = False
@@ -940,6 +1556,18 @@ class PhotoCropper:
             self.page.update()
 
     def on_border_toggle_id2(self, e):
+        """
+        Active / désactive la planche ID ×2 (deux photos d'identité
+        sur un tirage 10x10).
+
+        Mutuellement exclusif avec la planche ID ×4 : activer ID X2
+        désactive automatiquement ID X4.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du Switch « ID X2 ».
+        """
         self.border_id2 = bool(e.control.value)
         if self.border_id2:
             self.border_id4 = False
@@ -947,6 +1575,18 @@ class PhotoCropper:
             self.page.update()
 
     def on_border_toggle_id4(self, e):
+        """
+        Active / désactive la planche ID ×4 (quatre photos d'identité
+        sur un tirage 10x13, espacées de 5 mm).
+
+        Mutuellement exclusif avec la planche ID ×2 : activer ID X4
+        désactive automatiquement ID X2.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du Switch « ID X4 ».
+        """
         self.border_id4 = bool(e.control.value)
         if self.border_id4:
             self.border_id2 = False
@@ -954,6 +1594,18 @@ class PhotoCropper:
             self.page.update()
 
     def on_enhance_toggle(self, e):
+        """
+        Active / désactive l'amélioration automatique (enhance_toggle).
+
+        Ce switch n'est plus affiché dans l'interface (supprimé de l'UI)
+        mais la méthode est conservée pour la compatibilité ascendante avec
+        d'anciens snapshots qui peuvent référencer ce réglage.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du Switch.
+        """
         # Conservé pour compatibilité snapshots mais plus exposé en UI
         self.enhance_toggle = bool(e.control.value)
         self._render_preview()
@@ -961,69 +1613,173 @@ class PhotoCropper:
 
     # Label uniquement (pendant le glissement)
     def on_shadows_label(self, e):
+        """
+        Mise à jour du label du slider Ombres pendant le glissement.
+
+        Met à jour `self.shadows` et le label affiché sur le slider
+        sans regénérer la prévisualisation (pour la fluidité du drag).
+        Le rendu n'est déclenché qu'au relâchement via `on_shadows_end`.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement Flet du slider.
+        """
         self.shadows = e.control.value
         e.control.label = str(int(self.shadows))
         e.control.update()
 
     # Rendu au relâchement
     def on_shadows_end(self, e):
+        """
+        Rendu complet de la prévisualisation au relâchement du slider Ombres.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement de fin de glissement (`on_change_end`).
+        """
         self.shadows = e.control.value
         self._render_preview()
         self.page.update()
 
     def on_shadows_update(self, e):  # alias pour compatibilité
+        """Alias de `on_shadows_label`, maintenu pour la compatibilité
+        avec d'anciennes versions du code qui utilisaient ce nom."""
         self.on_shadows_label(e)
 
     def on_highlights_label(self, e):
+        """
+        Mise à jour du label du slider Hautes Lumières pendant le glissement.
+
+        Même logique que `on_shadows_label` : mise à jour visuelle seule,
+        pas de rendu.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement Flet du slider.
+        """
         self.highlights = e.control.value
         e.control.label = str(int(self.highlights))
         e.control.update()
 
     def on_highlights_end(self, e):
+        """
+        Rendu complet de la prévisualisation au relâchement du slider
+        Hautes Lumières.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement de fin de glissement (`on_change_end`).
+        """
         self.highlights = e.control.value
         self._render_preview()
         self.page.update()
 
     def on_contrast_label(self, e):
+        """
+        Mise à jour du label du slider Contraste pendant le glissement.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement Flet du slider.
+        """
         self.contrast = e.control.value
         e.control.label = str(int(self.contrast))
         e.control.update()
 
     def on_contrast_end(self, e):
+        """
+        Rendu complet de la prévisualisation au relâchement du slider Contraste.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement de fin de glissement.
+        """
         self.contrast = e.control.value
         self._render_preview()
         self.page.update()
 
     def on_contrast_update(self, e):  # alias
+        """Alias de `on_contrast_label` pour compatibilité ascendante."""
         self.on_contrast_label(e)
 
     def on_saturation_label(self, e):
+        """
+        Mise à jour du label du slider Saturation pendant le glissement.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement Flet du slider.
+        """
         self.saturation = e.control.value
         e.control.label = str(int(self.saturation))
         e.control.update()
 
     def on_saturation_end(self, e):
+        """
+        Rendu complet de la prévisualisation au relâchement du slider Saturation.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement de fin de glissement.
+        """
         self.saturation = e.control.value
         self._render_preview()
         self.page.update()
 
     def on_saturation_update(self, e):  # alias
+        """Alias de `on_saturation_label` pour compatibilité ascendante."""
         self.on_saturation_label(e)
 
     def on_exposure_label(self, e):
+        """
+        Mise à jour du label du slider Exposition pendant le glissement.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement Flet du slider.
+        """
         self.exposure = e.control.value
         e.control.label = str(int(self.exposure))
         e.control.update()
 
     def on_exposure_end(self, e):
+        """
+        Rendu complet de la prévisualisation au relâchement du slider Exposition.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement de fin de glissement.
+        """
         self.exposure = e.control.value
         self._render_preview()
         self.page.update()
 
     def on_exposure_update(self, e):  # alias
+        """Alias de `on_exposure_label` pour compatibilité ascendante."""
         self.on_exposure_label(e)
 
     def reset_shadows(self, e):
+        """
+        Réinitialise simultanément les sliders Ombres et Hautes Lumières à 0.
+
+        Remet à jour les valeurs internes, les labels affichés et les
+        valeurs des widgets Flet, puis regénère la prévisualisation.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du bouton de réinitialisation (non utilisé directement).
+        """
         self.shadows = 0.0
         self.shadows_slider.value = 0.0
         self.shadows_slider.label = "0"
@@ -1036,6 +1792,18 @@ class PhotoCropper:
         self.page.update()
 
     def reset_adjustments(self, e):
+        """
+        Réinitialise tous les réglages (exposition, contraste, saturation,
+        ombres, hautes lumières) à leurs valeurs neutres.
+
+        Met à jour les valeurs internes, les labels et les valeurs des
+        widgets Flet, puis regénère la prévisualisation.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du bouton « Réinit. réglages » (non utilisé directement).
+        """
         self.contrast = 0.0
         self.contrast_slider.value = 0.0
         self.contrast_slider.label = "0"
@@ -1060,6 +1828,22 @@ class PhotoCropper:
         self.page.update()
 
     def change_ratio(self, e=None):
+        """
+        Change le format d'impression actif et met à jour l'interface.
+
+        Déclenché par le RadioGroup de sélection du format. Cette méthode :
+          1. Met à jour `current_format` et `current_format_label`.
+          2. Affiche / masque les switches de bordure et planches spéciales
+             (13x15, 20x24, 13x10, Polaroid, ID X2, ID X4, réseau) selon
+             le format choisi.
+          3. Recalcule la taille du canevas.
+          4. Recharge l'image courante en préservant l'orientation.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent or None
+            Événement du RadioGroup ; `e.control.value` = clé du dict FORMATS.
+        """
         self.current_format = FORMATS[e.control.value]
         try:
             self.current_format_label = e.control.value
@@ -1161,6 +1945,20 @@ class PhotoCropper:
             self.load_image(preserve_orientation=True)
 
     def toggle_orientation(self, e):
+        """
+        Bascule l'orientation du canevas entre portrait et paysage.
+
+        Inverse `canvas_is_portrait`, recalcule les dimensions du canevas
+        et recharge l'image courante. Met à jour la visibilité des switches
+        selon le format actif.
+
+        Raccourci clavier : Backspace.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent or ft.KeyboardEvent
+            Événement déclencheur (bouton ou clavier).
+        """
         self.canvas_is_portrait = not self.canvas_is_portrait
         self.update_canvas_size()
         if self.image_paths:
@@ -1179,17 +1977,61 @@ class PhotoCropper:
     # ================================================================ #
 
     def increment_copies(self, e):
+        """
+        Incrémente le compteur d'exemplaires (à l'infini).
+
+        Chaque exemplaire produit un fichier supplémentaire lors de
+        l'export (préfixe ``NX_`` dans le nom du fichier où N est le
+        nombre d'exemplaires).
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du bouton « + ».
+        """
         self.copies_count += 1
         self.copies_text.value = str(self.copies_count)
         self.page.update()
 
     def decrement_copies(self, e):
+        """
+        Décrémente le compteur d'exemplaires (minimum 1).
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du bouton « − ».
+        """
         if self.copies_count > 1:
             self.copies_count -= 1
         self.copies_text.value = str(self.copies_count)
         self.page.update()
 
     def add_extra_format(self, e):
+        """
+        Enregistre un snapshot du cadrage courant dans la liste des formats
+        multiples (`extra_formats`).
+
+        Un snapshot est un dictionnaire qui capture l'état complet de la
+        vue à cet instant : format, orientation, dimensions du canevas,
+        base_scale, scale, offsets, rotation, réglages actifs (N&B, netteté,
+        ombres, hautes lumières, contraste, saturation, exposition, etc.).
+
+        Après l'ajout :
+          - L'affichage de la liste des formats est mis à jour.
+          - Le compteur d'exemplaires est remis à 1.
+          - Tous les filtres (N&B, ombres, hautes lumières, contraste,
+            saturation, exposition) sont remis à zéro pour préparer le
+            prochain cadrage.
+
+        À la validation (`validate_and_next`), tous les snapshots de
+        `extra_formats` seront exportés en plus du cadrage principal.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du bouton « Ajouter le format courant ».
+        """
         label = self.current_format_label
         dims = self.current_format
         is_portrait = self.canvas_is_portrait
@@ -1243,11 +2085,32 @@ class PhotoCropper:
         self.page.update()
 
     def clear_extra_formats(self, e):
+        """
+        Vide la liste des formats multiples (extra_formats).
+
+        Met à jour l'affichage de la liste et rafraîchit la page.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du bouton « Vider la liste ».
+        """
         self.extra_formats.clear()
         self._update_extra_formats_display()
         self.page.update()
 
     def _update_extra_formats_display(self):
+        """
+        Met à jour le texte récapitulatif des formats multiples.
+
+        Pour chaque snapshot de `extra_formats`, génère une chaîne courte
+        du type ``2X 10x15 P 2en1 N&B S+20 HL-10 C+5 Sat+30 E+15``
+        indiquant le nombre d'exemplaires, le format, l'orientation, et les
+        réglages non nuls actifs. Les snapshots sont joints par « + ».
+
+        Met à jour `extra_formats_display.value` (affiché dans l'UI).
+        Si la liste est vide, affiche « — ».
+        """
         if self.extra_formats:
             parts = []
             for s in self.extra_formats:
@@ -1278,6 +2141,44 @@ class PhotoCropper:
     # ================================================================ #
 
     def validate_and_next(self, e):
+        """
+        Exporte l'image courante et passe à la suivante.
+
+        Pipeline d'export
+        -----------------
+        1. Calcul du recadrage principal via `_compute_crop` (ou
+           `_compute_fit_in` en mode Fit-in).
+        2. Application des mises en page spéciales dans l'ordre :
+             a. 2-en-1 (split en deux panneaux identiques)
+             b. Bordure 13x15 (10x15 → 13x15)
+             c. Bordure 20x24 (18x24 → 20x24)
+             d. Bordure 13x10 (10x10 → 13x10)
+             e. Polaroid (10x10 centré sur 127×152 mm)
+             f. ID ×4 (grille 2×2 sur 127×102 mm, espacement 5 mm)
+             g. ID ×2 (pile verticale sur 102×102 mm)
+        3. Détermination du dossier de destination :
+             - Planches ID ×4 avec switch réseau activé → partage NAS
+             - Tous les autres formats → sous-dossier du dossier source
+        4. Application du filtre de netteté (UnsharpMask ×2), des réglages
+           (exposition, contraste, saturation, ombres, hautes lumières).
+        5. Conversion sRGB avec profil ICC embarqué.
+        6. Sauvegarde JPEG qualité 100, 300 dpi.
+        7. Export de chaque snapshot `extra_formats` (formats multiples)
+           dans leur propre sous-dossier, avec leurs réglages propres.
+        8. Réinitialisation de l'état (compteur, filtres, formats multiples).
+        9. En mode batch : chargement de l'image suivante.
+           Quand toutes les images sont traitées, fermeture de la fenêtre.
+
+        Les noms de fichiers sont dédoublés automatiquement si un fichier
+        du même nom existe déjà (suffixe `_2`, `_3`, etc.).
+
+        Raccourci clavier : Entrée.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent or ft.KeyboardEvent
+            Événement déclencheur (bouton « Valider & Suivant » ou clavier).
+        """
         if not self.image_paths or self.current_index >= len(self.image_paths):
             self.status_text.value = "Toutes les images ont été traitées."
             self.page.update()
@@ -1289,6 +2190,26 @@ class PhotoCropper:
         used_paths = set()
 
         def unique_path(path):
+            """
+            Retourne un chemin de fichier unique en ajoutant un suffixe
+            numérique (_2, _3, …) si le chemin est déjà réservé dans la
+            session d'export courante.
+
+            Utilise le set ``used_paths`` (fermé sur la session d'export
+            de l'image courante) pour tracer les chemins déjà attribués.
+
+            Parameters
+            ----------
+            path : str
+                Chemin candidat (peut être déjà dans used_paths).
+
+            Returns
+            -------
+            str
+                Chemin garanti unique dans la session : identique à
+                ``path`` s'il n'y a pas de conflit, sinon
+                ``<base>_2<ext>``, ``<base>_3<ext>``…
+            """
             if path not in used_paths:
                 used_paths.add(path)
                 return path
@@ -1539,6 +2460,20 @@ class PhotoCropper:
                 return
 
     def ignore_image(self, e):
+        """
+        Ignore l'image courante sans l'exporter et passe à la suivante.
+
+        Réinitialise les formats multiples et le compteur d'exemplaires,
+        puis charge l'image suivante. Si toutes les images ont été ignorées
+        ou traitées, ferme la fenêtre.
+
+        Raccourci clavier : Espace.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent or ft.KeyboardEvent
+            Événement déclencheur (bouton « Ignorer Image » ou espace clavier).
+        """
         if not self.image_paths or self.current_index >= len(self.image_paths):
             self.status_text.value = "Toutes les images ont été traitées."
             self.page.update()
@@ -1562,6 +2497,21 @@ class PhotoCropper:
         self.page.update()
 
     async def close_window(self, e=None):
+        """
+        Ferme la fenêtre de l'application en toute sécurité.
+
+        Utilise un verrou interne (`_closing`) pour éviter les appels
+        multiples simultanés (double-validation rapide, fermeture système).
+
+        Tente d'abord de masquer la fenêtre visuellement (`window.visible =
+        False`) avant d'appeler `window.destroy()`, ce qui produit une
+        fermeture plus fluide sur macOS et Windows.
+
+        Parameters
+        ----------
+        e : optional
+            Événement déclencheur (non utilisé). Peut être None.
+        """
         if getattr(self, '_closing', False):
             return
         self._closing = True
@@ -1579,6 +2529,36 @@ class PhotoCropper:
 #                           MAIN                            #
 #############################################################
 def main(page: ft.Page):
+    """
+    Point d'entrée de l'application Flet.
+
+    Cette fonction est passée à `ft.run(main)` et reçoit en paramètre
+    la page Flet créée par le runtime.
+
+    Elle réalise :
+      1. Configuration de la fenêtre (titre, thème sombre, maximisée,
+         couleur de fond).
+      2. Instanciation de `PhotoCropper`.
+      3. Attachement du gestionnaire de clavier (`on_keyboard_event`) :
+           - Entrée    → validate_and_next
+           - Backspace → toggle_orientation
+           - Espace    → ignore_image
+      4. Construction de la mise en page complète :
+           - Panneau gauche  : sliders de réglages (rotation, exposition,
+             hautes lumières, ombres, contraste, saturation, netteté).
+           - Zone centrale   : barre d'opérations (exemplaires, formats
+             multiples, N&B, Fit-in, orientation) + canvas interactif.
+           - Panneau droit   : sélecteur de format et boutons d'action.
+           - Overlay bas-droit : texte de statut.
+      5. Gestionnaire de redimensionnement de la fenêtre.
+      6. Lancement différé du batch (0,3 s) via `asyncio.create_task`
+         pour laisser le temps à la fenêtre de s'initialiser complètement.
+
+    Parameters
+    ----------
+    page : ft.Page
+        Page Flet fournie par le runtime.
+    """
     page.title = "Recadrage Photo"
     page.theme_mode = ft.ThemeMode.DARK
     page.window.maximized = True
@@ -1587,6 +2567,23 @@ def main(page: ft.Page):
     app = PhotoCropper(page)
 
     def on_key(event: ft.KeyboardEvent):
+        """
+        Gestionnaire global des raccourcis clavier de la page.
+
+        Raccourcis pris en charge :
+          - ``Entrée``    → :meth:`validate_and_next`  – valider et passer
+            à l'image suivante.
+          - ``Backspace`` → :meth:`toggle_orientation` – basculer
+            portrait / paysage.
+          - ``Espace``    → :meth:`ignore_image`       – ignorer l'image
+            courante sans l'exporter.
+
+        Parameters
+        ----------
+        event : ft.KeyboardEvent
+            Événement clavier Flet exposant ``event.key`` (nom textuel
+            de la touche, p. ex. ``"Enter"``, ``"Backspace"``, ``" "``).
+        """
         if event.key == "Enter":
             app.validate_and_next(event)
         elif event.key == "Backspace":
@@ -1752,6 +2749,21 @@ def main(page: ft.Page):
 
     # Gestionnaire de redimensionnement de la fenêtre
     def on_window_resize(e):
+        """
+        Gestionnaire de redimensionnement de la fenêtre principale.
+
+        Recalcule les dimensions du canevas en fonction de la nouvelle
+        taille de fenêtre, puis réapplique la transformation affine
+        courante (pan / zoom / rotation) pour que l'image reste
+        correctement positionnée après le redimensionnement.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement de redimensionnement émis par Flet (attributs
+            ``width`` et ``height`` disponibles mais non utilisés
+            directement ici).
+        """
         app.update_canvas_size()
         if app.image_paths:
             app._update_transform()
@@ -1760,6 +2772,24 @@ def main(page: ft.Page):
 
     # Start directly in interactive batch mode on launch (avec délai pour s'assurer que la fenêtre est initialisée)
     async def delayed_start():
+        """
+        Coroutine de démarrage différé du mode batch interactif.
+
+        Attend 0,3 s après l'ouverture de la fenêtre pour laisser le
+        temps à Flet de maximiser la fenêtre et d'initialiser les
+        dimensions du canevas, puis démarre
+        :meth:`batch_process_interactive`. Un second délai de 0,1 s
+        force un recalcul des dimensions après le premier chargement
+        d'image.
+
+        Planifiée via ``asyncio.create_task(delayed_start())`` dans
+        :func:`main`.
+
+        Notes
+        -----
+        Les exceptions sont silencieusement ignorées afin d'éviter un
+        crash au démarrage si aucun fichier n'est sélectionné.
+        """
         await asyncio.sleep(0.3)  # Attendre que la fenêtre soit maximisée
         try:
             app.batch_process_interactive(None)

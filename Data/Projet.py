@@ -1,4 +1,19 @@
 # -*- coding: utf-8 -*-
+"""
+Génère des miniatures de projet avec filigrane semi-transparent.
+
+Réduit chaque image à ``MAXSIZE × MAXSIZE`` px maximum (en conservant le ratio),
+puis applique le filigrane ``watermark.png`` avec une opacité de 35 %.
+Les images dont le nom contient un mot-clé de la liste ``EXCEPTIONS`` sont ignorées.
+Les résultats sont sauvegardés dans ``Projet/``.
+
+Variables d'environnement :
+  FOLDER_PATH     — dossier source (défaut : répertoire du script).
+  DATA_PATH       — chemin du dossier Data (pour trouver watermark.png).
+  SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
+
+Dépendances : Pillow (PIL)
+"""
 
 __version__ = "1.7.6"
 
@@ -38,6 +53,7 @@ TOTAL = len(FOLDER)
 EXCEPTIONS = ("projet", "fogra29")
 
 def folder(folder) :
+    """Crée le sous-dossier ``folder`` dans PATH s'il n'existe pas encore."""
     folder_path = PATH / folder
     folder_path.mkdir(exist_ok=True)
 

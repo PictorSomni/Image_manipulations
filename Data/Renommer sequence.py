@@ -1,4 +1,19 @@
 # -*- coding: utf-8 -*-
+"""
+Renomme séquentiellement toutes les images d'un dossier (001.jpg, 002.jpg…).
+
+Les fichiers sont triés alphabétiquement, puis renommés avec un index
+à trois chiffres complété de zéros (``f"{index:03}{ext}"``). Un nom de série
+optionnel peut être injecté via ``SERIES_NAME`` (non utilisé dans la version
+actuelle du script, réservé pour usage futur).
+
+Variables d'environnement :
+  FOLDER_PATH     — dossier source (défaut : répertoire du script).
+  SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
+  SERIES_NAME     — préfixe de série (optionnel, non utilisé actuellement).
+
+Dépendances : modules standard (os, pathlib, sys)
+"""
 
 __version__ = "1.7.6"
 

@@ -1,4 +1,19 @@
 # -*- coding: utf-8 -*-
+"""
+Redimensionne des images à une dimension maximale en appliquant un filigrane.
+
+Utilise ``Image.thumbnail`` pour conserver le ratio d'aspect, corrige l'orientation
+EXIF via ``ImageOps.exif_transpose``, puis applique ``watermark.png`` avec une
+opacité de 35 %. Les résultats sont enregistrés dans ``Projet_<N>px/``.
+
+Variables d'environnement :
+  FOLDER_PATH            — dossier source (défaut : répertoire du script).
+  DATA_PATH              — chemin du dossier Data (pour trouver watermark.png).
+  RESIZE_WATERMARK_SIZE  — dimension maximale en pixels (défaut : 640).
+  SELECTED_FILES         — liste de noms séparés par ``|`` (filtre optionnel).
+
+Dépendances : Pillow (PIL)
+"""
 
 __version__ = "1.7.6"
 

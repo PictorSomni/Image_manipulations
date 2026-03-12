@@ -1,4 +1,27 @@
 # -*- coding: utf-8 -*-
+"""
+Tableau de bord principal de l'application Image Manipulations.
+
+Ce module fournit une interface graphique Flet permettant de :
+  - Sélectionner un dossier de travail et parcourir son contenu
+    dans un panneau de prévisualisation avec chargement paresseux des miniatures.
+  - Lancer les scripts de traitement d'images du répertoire ``Data/``
+    en tant que sous-processus Python isolés, avec injection automatique des
+    variables d'environnement requises (``FOLDER_PATH``, ``DATA_PATH``, etc.).
+  - Afficher la sortie standard / erreur de chaque script dans un terminal
+    intégré mis à jour en temps réel.
+  - Effectuer des opérations sur fichiers : sélection par checkbox, copier/
+    coller, suppression avec confirmation, création de dossier.
+
+Raccourcis clavier :
+  Ctrl/Cmd+C  — copier les fichiers sélectionnés dans le presse-papiers interne.
+  Ctrl/Cmd+V  — coller dans le dossier actuel.
+  Ctrl/Cmd+N  — créer un nouveau dossier.
+
+Dépendances :
+  flet >= 0.80, modules standard (os, subprocess, sys, platform, shutil,
+  threading, re).
+"""
 
 __version__ = "1.7.6"
 
@@ -19,6 +42,21 @@ from time import sleep
 #                           MAIN                            #
 #############################################################
 def main(page: ft.Page):
+    """
+    Point d'entrée Flet du Dashboard.
+
+    Configure la fenêtre principale (titre, thème, dimensions, barre de titre
+    personnalisée), initialise toutes les variables d'état, enregistre les
+    canaux PubSub et construit l'interface avec trois zones :
+      - Grille « Applications disponibles » (gauche).
+      - Panneau de prévisualisation du contenu du dossier sélectionné (centre).
+      - Terminal intégré affichant la sortie des scripts (bas).
+
+    Parameters
+    ----------
+    page : ft.Page
+        Objet page Flet injecté automatiquement par ``ft.run(main)``.
+    """
 # ===================== COLORS ===================== #
     DARK = "#23252a"
     BG = "#292c33"
@@ -281,6 +319,12 @@ def main(page: ft.Page):
     def delete_item(file_path):
         """Supprime un fichier ou dossier avec confirmation"""
         def confirm_delete(e):
+            """
+            Exécute la suppression confirmée du fichier ou dossier.
+
+            Appelée par le bouton « Supprimer » de la boîte de dialogue
+            de confirmation. Ferme la dialog et rafraîchit la preview.
+            """
             try:
                 if os.path.isdir(file_path):
                     shutil.rmtree(file_path)
@@ -296,6 +340,7 @@ def main(page: ft.Page):
                 page.update()
         
         def cancel_delete(e):
+            """Annule la suppression et ferme la boîte de dialogue."""
             dialog.open = False
             page.update()
         
@@ -322,6 +367,12 @@ def main(page: ft.Page):
             return
         
         def confirm_create(e):
+            """
+            Valide la création du nouveau dossier.
+
+            Lit le nom saisi, crée le dossier via ``os.makedirs``,
+            ferme la dialog et rafraîchit la preview.
+            """
             folder_name = folder_name_input.value.strip()
             if not folder_name:
                 log_to_terminal("[ERREUR] Le nom du dossier ne peut pas être vide", RED)
@@ -343,6 +394,7 @@ def main(page: ft.Page):
                 page.update()
         
         def cancel_create(e):
+            """Annule la création du dossier et ferme la boîte de dialogue."""
             dialog.open = False
             page.update()
         
@@ -450,6 +502,12 @@ def main(page: ft.Page):
             return
         
         def confirm_delete_multiple(e):
+            """
+            Supprime tous les éléments sélectionnés après confirmation.
+
+            Itère sur ``selected_files``, supprime fichiers et dossiers,
+            reporte le nombre de suppressions réussies dans le terminal.
+            """
             deleted_files = 0
             deleted_folders = 0
             errors = []
@@ -481,6 +539,7 @@ def main(page: ft.Page):
                     log_to_terminal(f"[ERREUR] {error}", RED)
         
         def cancel_delete_multiple(e):
+            """Annule la suppression multiple et ferme la boîte de dialogue."""
             dialog.open = False
             page.update()
         
@@ -538,6 +597,7 @@ def main(page: ft.Page):
                         image_ctrl.update()
 
     def on_preview_scroll(e):
+        """Déclenche le chargement paresseux des miniatures lors du défilement de la liste."""
         _set_visible_images(e.pixels, e.viewport_dimension)
 
     def on_preview_ready(topic, payload):
@@ -557,6 +617,14 @@ def main(page: ft.Page):
 
     page.pubsub.subscribe_topic("preview_ready", on_preview_ready)
     def refresh_preview():
+        """
+        Déclenche un rafraîchissement asynchrone du panneau de prévisualisation.
+
+        Incrémente le jeton de rafraîchissement (annulant tout rafraîchissement
+        précédent en cours), vide la liste courante, affiche un indicateur de
+        chargement, puis lance un thread de fond ``_bg()`` qui scanne le dossier
+        courant et envoie les nouveaux contrôles via PubSub.
+        """
         _refresh_token["v"] += 1
         my_token = _refresh_token["v"]
         preview_list.on_scroll = None
@@ -568,6 +636,15 @@ def main(page: ft.Page):
         page.update()
 
         def _bg():
+            """
+            Thread de fond : scanne le dossier et construit les contrôles ListView.
+
+            Lit le contenu du dossier courant, trie les entrées (dossiers en
+            premier, puis alphabétique ou par date selon ``sort_by_date``),
+            construit les ``ListTile`` avec checkboxes et boutons de suppression,
+            prépare la liste paresseuse pour les images, puis envoie le résultat
+            au thread Flet via ``pubsub.send_all_on_topic("preview_ready", ...)``.
+            """
             new_controls = []
             new_lazy = []
             new_file_count_text = ""
@@ -669,6 +746,34 @@ def main(page: ft.Page):
     #                LANCEMENT D'APPLICATIONS                          #
     # ================================================================ #
     def launch_app(app_name, app_path, is_local, series_name=None):
+        """
+        Lance un script Data/ en tant que sous-processus Python avec les variables
+        d'environnement appropriées.
+
+        Pour certains scripts (``Renommer sequence.py``, ``Images en PDF.py``),
+        affiche d'abord une boîte de dialogue pour recueillir un paramètre
+        (nom de série / nom du PDF) avant de relancer la fonction.
+
+        Pour les scripts « locaux » (is_local=True, ex. Kiosk, Transfert),
+        lit stdout/stderr en temps réel, interprète les commandes spéciales
+        ``NAVIGATE_TO:<path>`` et filtre les messages de fermeture Flet.
+        Pour les scripts « dossier » (is_local=False), injecte ``FOLDER_PATH``,
+        ``SELECTED_FILES``, ``RESIZE_SIZE``, etc. et rafraîchit la preview
+        à la fin du processus.
+
+        Parameters
+        ----------
+        app_name : str
+            Nom du fichier script (ex. ``"Recadrage.pyw"``).
+        app_path : str
+            Chemin absolu vers le script.
+        is_local : bool
+            ``True`` si le script fonctionne sans dossier utilisateur sélectionné
+            (ex. Kiosk, Transfert vers TEMP).
+        series_name : str or None, optional
+            Paramètre textuel à transmettre via ``SERIES_NAME`` ou ``PDF_NAME``
+            (renseigné par le dialog affiché au premier appel).
+        """
         # Pour Renommer sequence.py, demander le nom de la série avant de lancer
         if app_name == "Images en PDF.py" and series_name is None:
             pdf_name_input = ft.TextField(
@@ -681,6 +786,7 @@ def main(page: ft.Page):
             )
 
             def on_confirm_pdf(e):
+                """Valide le nom du PDF et relance launch_app avec series_name renseigné."""
                 name = pdf_name_input.value.strip() if pdf_name_input.value else ""
                 pdf_dialog.open = False
                 page.update()
@@ -688,6 +794,7 @@ def main(page: ft.Page):
                     launch_app(app_name, app_path, is_local, series_name=name)
 
             def on_cancel_pdf(e):
+                """Annule la saisie du nom du PDF et ferme la boîte de dialogue."""
                 pdf_dialog.open = False
                 page.update()
 
@@ -719,12 +826,14 @@ def main(page: ft.Page):
             )
 
             def on_confirm_series(e):
+                """Valide le nom de la série et relance launch_app avec series_name renseigné."""
                 name = series_input.value.strip() if series_input.value else ""
                 series_dialog.open = False
                 page.update()
                 launch_app(app_name, app_path, is_local, series_name=name)
 
             def on_cancel_series(e):
+                """Annule la saisie du nom de la série et ferme la boîte de dialogue."""
                 series_dialog.open = False
                 page.update()
 
@@ -810,6 +919,20 @@ def main(page: ft.Page):
                 
                 # Lire la sortie en temps réel
                 def read_output(pipe, color):
+                    """
+                    Lit en temps réel une pipe stdout ou stderr du sous-processus
+                    local (Flet) et envoie chaque ligne non vide au terminal.
+
+                    Filtre les messages de fermeture de session Flet et interprète
+                    les commandes ``NAVIGATE_TO:<path>`` pour naviguer dans la preview.
+
+                    Parameters
+                    ----------
+                    pipe : IO
+                        Pipe stdout ou stderr du subprocess.
+                    color : str
+                        Couleur hexadécimale pour l'affichage dans le terminal.
+                    """
                     try:
                         for line in iter(pipe.readline, ''):
                             if line:
@@ -892,6 +1015,21 @@ def main(page: ft.Page):
                 
                 # Lire la sortie en temps réel
                 def read_output(pipe, color):
+                    """
+                    Lit en temps réel une pipe stdout ou stderr du sous-processus
+                    et envoie chaque ligne au terminal.
+
+                    Détecte les lignes préfixées par ``SELECTED_FILES:`` pour
+                    resélectionner des fichiers dans la preview après exécution
+                    du script.
+
+                    Parameters
+                    ----------
+                    pipe : IO
+                        Pipe stdout ou stderr du subprocess.
+                    color : str
+                        Couleur hexadécimale pour l'affichage dans le terminal.
+                    """
                     for line in iter(pipe.readline, ''):
                         if line:
                             line_stripped = line.rstrip()
@@ -907,6 +1045,10 @@ def main(page: ft.Page):
                 
                 # Attendre la fin et rafraîchir la preview
                 def done():
+                    """
+                    Attend la fin du sous-processus, journalise le résultat,
+                    puis demande un rafraîchissement de la preview.
+                    """
                     process.wait()
                     log_to_terminal(f"[OK] {display_name} terminé", GREEN)
                     # Rafraîchir la preview pour afficher les nouveaux dossiers/fichiers créés
@@ -929,11 +1071,13 @@ def main(page: ft.Page):
     )
     
     def on_resize_input_change(e):
+        """Met à jour la taille de redimensionnement cible en pixels."""
         resize_size["value"] = e.control.value
     
     resize_input.on_change = on_resize_input_change
     
     def launch_resize(e):
+        """Lance Redimensionner.py avec la taille saisie dans resize_input."""
         app_path = os.path.join(cwd, "Data", "Redimensionner.py")
         if os.path.exists(app_path):
             launch_app("Redimensionner.py", app_path, False)
@@ -951,16 +1095,25 @@ def main(page: ft.Page):
     )
     
     def on_resize_watermark_input_change(e):
+        """Met à jour la taille de redimensionnement+filigrane cible en pixels."""
         resize_watermark_size["value"] = e.control.value
     
     resize_watermark_input.on_change = on_resize_watermark_input_change
     
     def launch_resize_watermark(e):
+        """Lance Redimensionner filigrane.py avec la taille saisie dans resize_watermark_input."""
         app_path = os.path.join(cwd, "Data", "Redimensionner filigrane.py")
         if os.path.exists(app_path):
             launch_app("Redimensionner filigrane.py", app_path, False)
     
     def refresh_apps():
+        """
+        Reconstruit la grille des applications disponibles.
+
+        Filtre les scripts présents sur disque, crée des widgets spéciaux
+        (champ numérique + bouton) pour ``Redimensionner.py`` et
+        ``Redimensionner filigrane.py``, et des boutons simples pour les autres.
+        """
         apps_list.controls.clear()
         
         for app_name, app_config in apps.items():
@@ -1030,6 +1183,12 @@ def main(page: ft.Page):
     #                       ACTIONS FENÊTRE                            #
     # ================================================================ #
     async def pick_folder(e):
+        """
+        Ouvre le sélecteur de dossier natif et navigue vers le dossier choisi.
+
+        Appelle ``ft.FilePicker.get_directory_path`` de façon asynchrone,
+        normalise le chemin résultant et déclenche un rafraîchissement de la preview.
+        """
         folder = await ft.FilePicker().get_directory_path(dialog_title="Sélectionner un dossier contenant des images")
         if folder:
             selected_folder["path"] = os.path.normpath(folder)
@@ -1040,9 +1199,11 @@ def main(page: ft.Page):
             refresh_preview()
     
     async def close_window(e):
+        """Ferme la fenêtre principale de l'application de façon asynchrone."""
         await page.window.close()
 
     def minimize_window(e):
+        """Réduit la fenêtre dans la barre des tâches."""
         page.window.minimized = True
     
     refresh_apps()

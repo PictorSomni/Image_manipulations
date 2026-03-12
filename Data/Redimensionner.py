@@ -1,4 +1,18 @@
 # -*- coding: utf-8 -*-
+"""
+Redimensionne des images à une dimension maximale en conservant le ratio d'aspect.
+
+Utilise ``Image.thumbnail`` (ne grossit jamais les petites images), corrige
+l'orientation EXIF via ``ImageOps.exif_transpose``, et sauvegarde en JPEG
+qualité 100 dans ``<N>px/``.
+
+Variables d'environnement :
+  FOLDER_PATH     — dossier source (défaut : répertoire du script).
+  RESIZE_SIZE     — dimension maximale en pixels (défaut : 640).
+  SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
+
+Dépendances : Pillow (PIL)
+"""
 
 __version__ = "1.7.6"
 

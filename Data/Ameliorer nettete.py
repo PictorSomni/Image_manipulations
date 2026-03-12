@@ -1,4 +1,17 @@
 # -*- coding: utf-8 -*-
+"""
+Améliore la netteté d'un lot d'images par filtre UnsharpMask en deux passes.
+
+Applique ``ImageFilter.UnsharpMask`` (radius=4, percent=42) puis
+(radius=2, percent=42) à chaque image et sauvegarde le résultat en JPEG
+qualité maximale dans un sous-dossier ``NET/``.
+
+Variables d'environnement :
+  FOLDER_PATH     — dossier source (défaut : répertoire du script).
+  SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
+
+Dépendances : Pillow (PIL)
+"""
 
 __version__ = "1.7.6"
 
@@ -28,6 +41,7 @@ TOTAL = len(FOLDER)
 
 
 def folder(folder) :
+    """Crée le sous-dossier ``folder`` dans PATH s'il n'existe pas encore."""
     folder_path = PATH / folder
     folder_path.mkdir(exist_ok=True)
 

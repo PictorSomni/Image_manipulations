@@ -1,4 +1,19 @@
 # -*- coding: utf-8 -*-
+"""
+Transfère et renomme les commandes photo du kiosk 2 (droit) vers le NAS du studio.
+
+Lit le HotFolder du kiosk (``PATH``), filtre les commandes déjà présentes dans
+``DESTINATION``, regroupe les fichiers par identifiant de commande et taille,
+puis copie chaque fichier en ajoutant le préfixe de quantité (``NX_``)
+dans la structure ``DESTINATION/CommandeID/Taille/``.
+
+Chemins :
+  Source      : \\\\studioc-kiosk2\\kiosk-data\\it-HotFolder (Windows)
+                /Volumes/kiosk-data-1/it-HotFolder              (macOS)
+  Destination : NAS TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE.
+
+Dépendances : modules standard (sys, re, collections, pathlib, platform, shutil)
+"""
 
 __version__ = "1.7.6"
 
@@ -38,6 +53,7 @@ COPY_FILES = []
 
 ## Creates folder if it doesn't exists
 def folder(folder_path):
+    """Crée récursivement le dossier ``folder_path`` s'il n'existe pas encore."""
     Path(folder_path).mkdir(parents=True, exist_ok=True)
 
 #############################################################

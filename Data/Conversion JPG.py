@@ -1,4 +1,17 @@
 # -*- coding: utf-8 -*-
+"""
+Convertit un lot de fichiers images (HEIC, WEBP, AVIF, PNG, TIFF, PDF…) en JPEG.
+
+Utilise ImageMagick via ``wand`` pour les formats bitmap et PyMuPDF (``fitz``)
+pour les PDF (une image par page à 300 DPI). Les fichiers originaux sont déplacés
+dans un sous-dossier portant leur extension d'origine.
+
+Variables d'environnement :
+  FOLDER_PATH     — dossier source (défaut : répertoire du script).
+  SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
+
+Dépendances : Wand (ImageMagick), PyMuPDF (fitz)
+"""
 
 __version__ = "1.7.6"
 
@@ -28,6 +41,7 @@ FOLDER = [f for f in all_files if f.name in selected_files_set] if selected_file
 TOTAL = len(FOLDER)
 
 def folder(folder_name):
+    """Crée le sous-dossier ``folder_name`` dans PATH s'il n'existe pas encore."""
     folder_path = PATH / folder_name
     folder_path.mkdir(exist_ok=True)
 

@@ -1,4 +1,16 @@
 # -*- coding: utf-8 -*-
+"""
+Supprime les métadonnées EXIF des images en les re-sauvegardant via Pillow.
+
+Ouvre chaque image, la convertit en RGB (ce qui efface les métadonnées), puis
+l'écrase sur place au format JPEG qualité maximale. Aucun sous-dossier n'est créé.
+
+Variables d'environnement :
+  FOLDER_PATH     — dossier source (défaut : répertoire du script).
+  SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
+
+Dépendances : Pillow (PIL)
+"""
 
 __version__ = "1.7.6"
 

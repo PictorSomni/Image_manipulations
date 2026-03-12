@@ -1,4 +1,22 @@
 # -*- coding: utf-8 -*-
+"""
+Interface graphique Flet pour copier des fichiers vers un dossier TEMP daté/séquentiel.
+
+Copie tous les fichiers du dossier source vers un sous-dossier de destination
+de la forme ``DEST/YYYY-MM-DD/NN/`` (date du jour + séquence automatique),
+puis supprime les fichiers sources après copie réussie.
+
+Lorsque lancé depuis le Dashboard (``LAUNCHED_FROM_DASHBOARD=1``), la copie
+démarre automatiquement avec les chemins par défaut (Downloads → TEMP) et
+la fenêtre se ferme à la fin. En utilisation standalone, un formulaire permet
+de choisir les dossiers source et destination.
+
+Variables d'environnement :
+  DEST_FOLDER              — chemin du dossier destination (défaut : Z:/temp).
+  LAUNCHED_FROM_DASHBOARD  — ``"1"`` si lancé via le Dashboard.
+
+Dépendances : flet >= 0.21, modules standard (pathlib, shutil, datetime)
+"""
 
 __version__ = "1.7.6"
 
@@ -37,6 +55,19 @@ WHITE = "#adb2be"
 #                           MAIN                            #
 #############################################################
 def main(page: ft.Page):
+    """
+    Point d'entrée Flet de l'outil de transfert vers TEMP.
+
+    Configure la fenêtre (titre, dimensions, thème), initialise les chemins
+    source/destination par défaut, construit l'interface et, si
+    ``LAUNCHED_FROM_DASHBOARD`` est actif, déclenche automatiquement la copie
+    au démarrage via ``page.run_task``.
+
+    Parameters
+    ----------
+    page : ft.Page
+        Objet page Flet injecté automatiquement par ``ft.run(main)``.
+    """
     page.title = "Copy remaining files"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG
@@ -104,6 +135,7 @@ def main(page: ft.Page):
     )
     
     async def pick_from_folder(e):
+        """Ouvre le sélecteur de dossier natif et met à jour le chemin source."""
         folder = await ft.FilePicker().get_directory_path(dialog_title="Sélectionner un dossier source")
         if folder:
             nonlocal from_folder_path
@@ -116,6 +148,7 @@ def main(page: ft.Page):
             status_text.update()
     
     async def pick_to_folder(e):
+        """Ouvre le sélecteur de dossier natif et met à jour le chemin destination."""
         folder = await ft.FilePicker().get_directory_path(dialog_title="Sélectionner un dossier destination")
         if folder:
             nonlocal to_folder_path
@@ -128,6 +161,7 @@ def main(page: ft.Page):
             status_text.update()
     
     def update_copy_button_state():
+        """Active ou désactive les boutons Copier et Ouvrir selon l'état des chemins."""
         copy_button.disabled = not (from_folder_path and to_folder_path)
         copy_button.update()
         open_folder_button.disabled = not to_folder_path
@@ -158,6 +192,14 @@ def main(page: ft.Page):
             seq_num += 1
 
     async def copy_missing_files(e):
+        """
+        Copie tous les fichiers du dossier source vers un dossier destination séquentiel.
+
+        Crée un sous-dossier ``DEST/YYYY-MM-DD/NN/`` via ``get_next_sequence_folder``,
+        copie chaque fichier avec ``shutil.copy2``, met à jour la barre de progression,
+        puis supprime les originaux. Envoie ``NAVIGATE_TO:<dest>`` au Dashboard.
+        Ferme automatiquement la fenêtre si ``LAUNCHED_FROM_DASHBOARD`` est actif.
+        """
         nonlocal from_folder_path, to_folder_path
         if not from_folder_path or not to_folder_path:
             status_text.value = "Veuillez sélectionner les deux dossiers"
@@ -251,6 +293,7 @@ def main(page: ft.Page):
     copy_button.on_click = copy_missing_files
     
     async def close_window(e):
+        """Ferme la fenêtre de l'application de façon asynchrone."""
         await page.window.close()
 
     # Lancer automatiquement la copie si lancé depuis Dashboard

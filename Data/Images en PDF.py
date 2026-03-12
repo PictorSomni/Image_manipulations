@@ -1,4 +1,18 @@
 # -*- coding: utf-8 -*-
+"""
+Assemble un lot d'images en un seul fichier PDF multi-pages.
+
+Le PDF résultant est nommé d'après le dossier parent (ou ``PDF_NAME`` si
+fourni par le Dashboard) et enregistré dans le dossier source. Les images RGBA
+sont composées sur fond blanc avant conversion en RGB.
+
+Variables d'environnement :
+  FOLDER_PATH     — dossier source (défaut : répertoire du script).
+  SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
+  PDF_NAME        — nom du fichier PDF sans extension (optionnel).
+
+Dépendances : Pillow (PIL)
+"""
 
 __version__ = "1.7.6"
 
