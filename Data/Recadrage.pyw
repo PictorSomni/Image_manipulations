@@ -387,6 +387,8 @@ class PhotoCropper:
         self.sharpen_switch = ft.Switch(label="Netteté", active_color=BLUE, value=True, visible=True, on_change=self.on_sharpen_toggle)
         self.is_sharpen = True
         self.bw_switch = ft.Switch(label="Noir et blanc", active_color=ORANGE, value=False, on_change=self.on_bw_toggle)
+        self.is_fit_in = False
+        self.fit_in_switch = ft.Switch(label="Fit-in", active_color=GREEN, value=False, on_change=self.on_fit_in_toggle)
 
         # Sliders de réglages (panneau gauche)
         self.contrast = 0.0
@@ -617,14 +619,19 @@ class PhotoCropper:
 
         self.update_canvas_size()
         
-        # Calculer la taille de base pour que l'image COUVRE le canvas (cover)
+        # Calculer la taille de base : COVER en mode normal, CONTAIN en mode Fit-in
         scale_w = self.canvas_w / self.orig_w
         scale_h = self.canvas_h / self.orig_h
-        self.base_scale = max(scale_w, scale_h)
+        if self.is_fit_in:
+            self.base_scale = min(scale_w, scale_h)
+        else:
+            self.base_scale = max(scale_w, scale_h)
         
-        # S'assurer que le canvas est entièrement couvert même après l'arrondi
-        self.display_w = max(int(round(self.orig_w * self.base_scale)), int(self.canvas_w))
-        self.display_h = max(int(round(self.orig_h * self.base_scale)), int(self.canvas_h))
+        self.display_w = int(round(self.orig_w * self.base_scale))
+        self.display_h = int(round(self.orig_h * self.base_scale))
+        if not self.is_fit_in:
+            self.display_w = max(self.display_w, int(self.canvas_w))
+            self.display_h = max(self.display_h, int(self.canvas_h))
 
         self.image_display.width = self.display_w
         self.image_display.height = self.display_h
@@ -989,6 +996,45 @@ class PhotoCropper:
             pil_crop = pil_crop.convert("RGB")
 
         return pil_crop
+
+    def _compute_fit_in(self, target_w_px, target_h_px):
+        """
+        Calcule l'image entière redimensionnée pour tenir dans le format
+        cible, avec des bords blancs sur les 2 côtés les plus courts.
+
+        Contrairement à `_compute_crop` (mode crop / remplissage), cette
+        méthode utilise un scale ``min`` pour que l'image entière soit
+        visible. La rotation est toujours 0 (ignorée).
+
+        Parameters
+        ----------
+        target_w_px : int
+            Largeur de l'image de sortie en pixels.
+        target_h_px : int
+            Hauteur de l'image de sortie en pixels.
+
+        Returns
+        -------
+        PIL.Image.Image
+            Image redimensionnée collée sur fond blanc RGB.
+        """
+        img = self.current_pil_image
+        if img.mode == "RGBA":
+            bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+            img = Image.alpha_composite(bg, img).convert("RGB")
+        else:
+            img = img.convert("RGB")
+        fit_scale = min(target_w_px / self.orig_w, target_h_px / self.orig_h)
+        new_w = max(1, int(round(self.orig_w * fit_scale)))
+        new_h = max(1, int(round(self.orig_h * fit_scale)))
+        resized = img.resize((new_w, new_h), Image.Resampling.BICUBIC)
+        result = Image.new("RGB", (target_w_px, target_h_px), "white")
+        x_offset = (target_w_px - new_w) // 2
+        y_offset = (target_h_px - new_h) // 2
+        result.paste(resized, (x_offset, y_offset))
+        if self.is_bw:
+            result = result.convert("L").convert("RGB")
+        return result
 
     # ================================================================ #
     #                    CONSTRUCTION DES PLANCHES                     #
@@ -1453,6 +1499,30 @@ class PhotoCropper:
         """
         self.is_bw = e.control.value
         self._render_preview()
+        self.page.update()
+
+    def on_fit_in_toggle(self, e):
+        """
+        Active ou désactive le mode Fit-in.
+
+        En mode Fit-in, l'image entière tient dans le format choisi avec
+        des bords blancs sur 2 côtés. La rotation est forcée à 0.
+        Le pan et le zoom sont désactivés (l'image est trop petite pour
+        déborder du canevas).
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du Switch « Fit-in » ; `e.control.value` = bool.
+        """
+        self.is_fit_in = bool(e.control.value)
+        if self.is_fit_in:
+            self.rotation = 0.0
+            self.rotation_slider.value = 0.0
+            self.rotation_slider.label = "0.00°"
+            self.rotation_slider.update()
+        if self.image_paths:
+            self.load_image(preserve_orientation=True)
         self.page.update()
 
     def on_sharpen_toggle(self, e):
@@ -2052,6 +2122,7 @@ class PhotoCropper:
             "two_in_one": bool(self.two_in_one_switch.value),
             "is_sharpen": self.is_sharpen,
             "enhance_toggle": False,
+            "fit_in": self.is_fit_in,
             "shadows": self.shadows,
             "highlights": self.highlights,
             "contrast": self.contrast,
@@ -2231,7 +2302,10 @@ class PhotoCropper:
             target_w_px = mm_to_pixels(fmt_h_mm)
             target_h_px = mm_to_pixels(fmt_w_mm)
 
-        pil_crop = self._compute_crop(target_w_px, target_h_px)
+        if self.is_fit_in:
+            pil_crop = self._compute_fit_in(target_w_px, target_h_px)
+        else:
+            pil_crop = self._compute_crop(target_w_px, target_h_px)
 
         base = os.path.basename(self.image_paths[self.current_index])
         name, _ = os.path.splitext(base)
@@ -2368,7 +2442,6 @@ class PhotoCropper:
 
         # Exports formats supplémentaires (ou tous les exports si extra_formats non vide)
         for idx, snapshot in enumerate(self.extra_formats, start=1):
-            ex_crop = self._compute_crop_from_snapshot(snapshot)
             ex_label = snapshot["label"]
             ex_short = ex_label.split()[0]
             ex_is_portrait = snapshot["is_portrait"]
@@ -2381,6 +2454,14 @@ class PhotoCropper:
             else:
                 ex_target_w_px = mm_to_pixels(ex_fmt_h_mm)
                 ex_target_h_px = mm_to_pixels(ex_fmt_w_mm)
+
+            if snapshot.get("fit_in", False):
+                saved_bw = self.is_bw
+                self.is_bw = snapshot.get("is_bw", False)
+                ex_crop = self._compute_fit_in(ex_target_w_px, ex_target_h_px)
+                self.is_bw = saved_bw
+            else:
+                ex_crop = self._compute_crop_from_snapshot(snapshot)
 
             ex_two_in_one_applied = False
             if snapshot.get("two_in_one", False):
@@ -2623,6 +2704,7 @@ def main(page: ft.Page):
                 app.border_switch_ID4,
                 app.network_switch,
             ], spacing=0),
+            height=150,
         ),
         ft.Divider(height=8),
         app.validate_button,
@@ -2641,7 +2723,7 @@ def main(page: ft.Page):
                         app.rotation_slider,
                         ft.Container(
                             content=ft.Button("0°", on_click=app.reset_rotation, width=120, bgcolor=GREY, color=WHITE),
-                            alignment=ft.Alignment.CENTER,
+                            alignment=ft.Alignment.CENTER, padding=ft.Padding.only(top=4, bottom=12)
                         ),
                         ft.Divider(height=4),
                         ft.Text("Exposition", size=12, color=LIGHT_GREY),
@@ -2660,7 +2742,7 @@ def main(page: ft.Page):
                         app.saturation_slider,
                         ft.Container(
                             content=ft.Button("Réinit. réglages", on_click=app.reset_adjustments, width=160, bgcolor=GREY, color=WHITE),
-                            alignment=ft.Alignment.CENTER,
+                            alignment=ft.Alignment.CENTER,padding=ft.Padding.only(top=4, bottom=12)
                         ),
                         ft.Divider(height=4),
                         app.sharpen_switch,
@@ -2676,7 +2758,7 @@ def main(page: ft.Page):
                         [
                             ft.Container(
                                 content=ft.Column([
-                                    ft.Text("Opérations", size=16, weight=ft.FontWeight.BOLD, color=WHITE),
+                                    ft.Text("Opérations", size=16, weight=ft.FontWeight.BOLD, color=WHITE, text_align=ft.TextAlign.CENTER),
                                     ft.Divider(height=4),
                                     ft.Row([
                                         ft.Column([
@@ -2707,19 +2789,23 @@ def main(page: ft.Page):
                                                 ),
                                                 ft.Row([
                                                     app.extra_formats_display,
-                                                ], scroll=ft.ScrollMode.AUTO, width=128, height=32, alignment=ft.MainAxisAlignment.START),
-                                            ], width=150, alignment=ft.MainAxisAlignment.START, spacing=8),
-                                        ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=200),
+                                                ], scroll=ft.ScrollMode.AUTO, width=100, height=32, alignment=ft.MainAxisAlignment.START),
+                                            ], width=210, alignment=ft.MainAxisAlignment.START, spacing=8),
+                                        ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=210),
+                                        ft.VerticalDivider(width=1, color=LIGHT_GREY),
+                                        ft.Column([
+                                            app.bw_switch,
+                                            app.fit_in_switch,
+                                        ], horizontal_alignment=ft.CrossAxisAlignment.START, spacing=4),
                                         ft.VerticalDivider(width=1, color=LIGHT_GREY),
                                         ft.Column([
                                             ft.Button("Orientation",
                                                 icon=ft.icons.Icons.SWAP_HORIZ,
                                                 color=BLUE,
                                                 on_click=app.toggle_orientation),
-                                            app.bw_switch,
-                                        ]),
-                                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=32, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=100),
-                                ]),
+                                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=100),
+                                ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                                 padding=ft.Padding.only(top=6, bottom=4, left=12, right=12),
                                 alignment=ft.Alignment.CENTER,
                                 bgcolor=DARK,
