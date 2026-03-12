@@ -8,10 +8,11 @@ __version__ = "1.7.5"
 import flet as ft
 import os
 import platform
-from PIL import Image, ImageOps, ImageFilter, ImageEnhance
+from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageCms
 import asyncio
 import math
 import shutil
+import io
 import numpy as np
 
 # ===================== Configuration ===================== #
@@ -58,6 +59,26 @@ def mm_to_pixels(mm, dpi=DPI):
     """Convertit des millimètres en pixels à la résolution donnée"""
     return int(mm / 25.4 * dpi)
 
+# Profil sRGB pré-construit (réutilisé pour chaque export)
+_SRGB_PROFILE = ImageCms.createProfile("sRGB")
+_SRGB_ICC = ImageCms.ImageCmsProfile(_SRGB_PROFILE).tobytes()
+
+def convert_to_srgb(img: Image.Image, icc_profile: bytes | None) -> Image.Image:
+    """Convertit l'image vers sRGB. Si un profil ICC source est fourni, la
+    conversion est colorémétriquement correcte. Sinon, on suppose sRGB."""
+    if not icc_profile:
+        return img  # déjà sRGB par défaut
+    try:
+        src_profile = ImageCms.ImageCmsProfile(io.BytesIO(icc_profile))
+        img_rgb = img.convert("RGB")
+        return ImageCms.profileToProfile(
+            img_rgb, src_profile, _SRGB_PROFILE,
+            renderingIntent=ImageCms.Intent.PERCEPTUAL,
+            outputMode="RGB",
+        )
+    except Exception:
+        return img
+
 #############################################################
 #                         CONTENT                           #
 #############################################################
@@ -71,6 +92,9 @@ class PhotoCropper:
         self.source_folder = os.environ.get("FOLDER_PATH", os.getcwd())
         # Dossier local pour les fichiers de prévisualisation temporaires
         self._preview_tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".preview_cache")
+        # Vider le cache au démarrage (évite l'accumulation entre sessions)
+        if os.path.exists(self._preview_tmp_dir):
+            shutil.rmtree(self._preview_tmp_dir, ignore_errors=True)
         os.makedirs(self._preview_tmp_dir, exist_ok=True)
         self._preview_counter = 0
         
@@ -339,6 +363,8 @@ class PhotoCropper:
     def load_image(self, preserve_orientation=False):
         if not self.image_paths:
             return
+        if self.current_index >= len(self.image_paths):
+            return
         # Réinitialiser les valeurs de transformation
         self.scale = 1.0
         self.offset_x = 0.0
@@ -358,6 +384,8 @@ class PhotoCropper:
         
         try:
             pil_img = Image.open(path)
+            # Conserver le profil ICC avant toute conversion
+            self.icc_profile = pil_img.info.get('icc_profile', None)
             # Appliquer la rotation EXIF pour corriger l'orientation
             pil_img = ImageOps.exif_transpose(pil_img)
             pil_img = pil_img.convert("RGBA")
@@ -799,6 +827,8 @@ class PhotoCropper:
         if self.is_sharpen:
             preview = preview.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
             preview = preview.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
+        # Conversion sRGB : aligner le preview sur l'image enregistrée
+        preview = convert_to_srgb(preview, getattr(self, 'icc_profile', None))
         # Nom unique à chaque rendu : cache Flutter jamais touché
         self._preview_counter += 1
         tmp_path = os.path.join(self._preview_tmp_dir, f"_rc_{self._preview_counter}.jpg")
@@ -1399,11 +1429,16 @@ class PhotoCropper:
         if self.highlights != 0:
             pil_crop = self._apply_highlights(pil_crop, self.highlights)
 
+        # Conversion vers sRGB (correction colorimétrique)
+        pil_crop = convert_to_srgb(pil_crop, getattr(self, 'icc_profile', None))
+
+        save_kwargs = {"quality": 100, "format": "JPEG", "dpi": (DPI, DPI), "icc_profile": _SRGB_ICC}
+
         out_path = None
         if not self.extra_formats:
             os.makedirs(base_dir, exist_ok=True)
             out_path = unique_path(os.path.join(base_dir, jpg))
-            pil_crop.save(out_path, quality=100, format="JPEG", dpi=(DPI, DPI))
+            pil_crop.save(out_path, **save_kwargs)
 
         # Exports formats supplémentaires (ou tous les exports si extra_formats non vide)
         for idx, snapshot in enumerate(self.extra_formats, start=1):
@@ -1469,7 +1504,10 @@ class PhotoCropper:
             if snapshot.get("highlights", 0) != 0:
                 ex_crop = self._apply_highlights(ex_crop, snapshot["highlights"])
 
-            ex_crop.save(ex_path, quality=100, format="JPEG", dpi=(DPI, DPI))
+            # Conversion vers sRGB (correction colorimétrique)
+            ex_crop = convert_to_srgb(ex_crop, getattr(self, 'icc_profile', None))
+
+            ex_crop.save(ex_path, **save_kwargs)
             out_path = ex_path
 
         self.status_text.value = f"[OK] {os.path.basename(out_path)}"
@@ -1519,12 +1557,17 @@ class PhotoCropper:
         self.page.update()
 
     async def close_window(self, e=None):
-        # Nettoyer le dossier de prévisualisation temporaire
+        # Garde contre les appels multiples
+        if getattr(self, '_closing', False):
+            return
+        self._closing = True
+        # Envoyer destroy() sans attendre la réponse, puis quitter après 150ms
         try:
-            shutil.rmtree(self._preview_tmp_dir, ignore_errors=True)
+            asyncio.create_task(self.page.window.destroy())
         except Exception:
             pass
-        await self.page.window.close()
+        await asyncio.sleep(0.15)
+        os._exit(0)
 
 #############################################################
 #                           MAIN                            #
@@ -1711,7 +1754,7 @@ def main(page: ft.Page):
 
     # Nettoyer le cache à la fermeture de la fenêtre (bouton X)
     def on_window_event(e):
-        if e.data == "close":
+        if e.type == ft.WindowEventType.CLOSE:
             asyncio.create_task(app.close_window())
 
     page.window.prevent_close = True
@@ -1724,7 +1767,7 @@ def main(page: ft.Page):
             app.batch_process_interactive(None)
             # Forcer un recalcul après le premier chargement pour s'assurer des bonnes dimensions
             await asyncio.sleep(0.1)
-            if app.image_paths:
+            if app.image_paths and app.batch_mode and app.current_index < len(app.image_paths):
                 app.update_canvas_size()
                 app.load_image(preserve_orientation=True)
         except Exception:

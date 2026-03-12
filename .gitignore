@@ -3,3 +3,5 @@
 COMMANDE/.DS_Store
 .DS_Store
 __pycache__/
+.preview_cache
+_rc*
