@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-__version__ = "1.7.5"
+__version__ = "1.7.6"
 
 #############################################################
 #                          IMPORTS                          #
@@ -67,6 +67,7 @@ def main(page: ft.Page):
     resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
     resize_watermark_size = {"value": "640"}  # Taille par défaut pour le redimensionnement avec watermark
     sort_by_date = {"value": False}  # False = alphabétique, True = par date de modification
+    lazy_images = []  # [(list_index, file_path, image_ctrl)] pour le chargement paresseux
     
 # ===================== UI ELEMENTS ===================== #
     folder_path = ft.TextField(
@@ -80,6 +81,15 @@ def main(page: ft.Page):
 
     apps_list = ft.GridView(expand=True, runs_count=3, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.1)
     preview_list = ft.ListView(expand=True, auto_scroll=False, spacing=4)
+    preview_loading = ft.Container(
+        content=ft.Row([
+            ft.ProgressRing(width=16, height=16, stroke_width=2, color=BLUE),
+            ft.Text("Chargement...", size=12, color=LIGHT_GREY),
+        ], spacing=8, alignment=ft.MainAxisAlignment.CENTER),
+        alignment=ft.Alignment(0, 0),
+        expand=True,
+        visible=False,
+    )
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
     file_count_text = ft.Text("", size=14, color=WHITE, text_align=ft.TextAlign.RIGHT)
     selection_count_text = ft.Text(f"", size=14, color=BLUE, text_align=ft.TextAlign.RIGHT)
@@ -242,15 +252,14 @@ def main(page: ft.Page):
     
     def navigate_to_folder(new_path):
         """Navigue vers un dossier dans la preview"""
-        if new_path and os.path.isdir(new_path):
-            current_browse_folder["path"] = new_path
-            selected_folder["path"] = new_path
-            # Update the folder_path TextField label to the new path
-            folder_path.value = new_path
-            folder_path.update()
-            selected_files.clear()
-            selection_count_text.value = ""
-            refresh_preview()
+        if not new_path:
+            return
+        current_browse_folder["path"] = new_path
+        selected_folder["path"] = new_path
+        folder_path.value = new_path
+        selected_files.clear()
+        selection_count_text.value = ""
+        refresh_preview()
     
     def go_to_parent_folder(e):
         """Remonte au dossier parent"""
@@ -264,7 +273,6 @@ def main(page: ft.Page):
         if is_dir:
             navigate_to_folder(file_path)
         else:
-            # Ouvre le fichier avec l'application par défaut
             open_file_with_default_app(file_path)
 
     # ================================================================ #
@@ -515,107 +523,139 @@ def main(page: ft.Page):
     # ================================================================ #
     #                           PREVIEW                                #
     # ================================================================ #
-    def refresh_preview():
+    ITEM_HEIGHT = 44  # hauteur approx. d'un ListTile dense avec thumbnail 40px
+    _refresh_token = {"v": 0}  # incrémenté à chaque refresh pour annuler les anciens threads
+
+    def _set_visible_images(scroll_pixels, viewport_height, do_update=True):
+        """Applique src aux images dans la zone visible + buffer."""
+        buffer_px = 3 * ITEM_HEIGHT
+        for (list_idx, file_path, image_ctrl) in lazy_images:
+            item_top = list_idx * ITEM_HEIGHT
+            if item_top < scroll_pixels + viewport_height + buffer_px and (item_top + ITEM_HEIGHT) > scroll_pixels - buffer_px:
+                if image_ctrl.src is None:
+                    image_ctrl.src = file_path
+                    if do_update:
+                        image_ctrl.update()
+
+    def on_preview_scroll(e):
+        _set_visible_images(e.pixels, e.viewport_dimension)
+
+    def on_preview_ready(topic, payload):
+        """Reçoit le résultat du thread bg et applique la mise à jour sur le thread Flet."""
+        token, new_controls, new_lazy, new_file_count_text, has_images = payload
+        if _refresh_token["v"] != token:
+            return
         preview_list.controls.clear()
-        folder_to_display = current_browse_folder["path"] or selected_folder["path"]
-        
-        if folder_to_display and os.path.isdir(folder_to_display):
-            try:
-                files = os.listdir(folder_to_display)
-                file_count = sum(1 for f in files if not f.startswith(".") and not os.path.isdir(os.path.join(folder_to_display, f)))
-                file_count_text.value = f"({file_count} fichier{'s' if file_count > 1 else ''})"
-                if not files:
-                    preview_list.controls.append(ft.Text("(dossier vide)", color=GREY))
-                else:
-                    # Tri des fichiers selon le mode sélectionné
-                    if sort_by_date["value"]:
-                        # Tri par date de modification (plus récent en haut), dossiers d'abord
-                        sorted_files = sorted(files, key=lambda x: (
-                            not os.path.isdir(os.path.join(folder_to_display, x)),
-                            -os.path.getmtime(os.path.join(folder_to_display, x))
-                        ))
-                    else:
-                        # Tri alphabétique, dossiers d'abord
-                        sorted_files = sorted(files, key=lambda x: (
-                            not os.path.isdir(os.path.join(folder_to_display, x)),
-                            x.lower()
-                        ))
-                    
-                    for file in sorted_files:
-                        file_path = os.path.join(folder_to_display, file)
-                        is_dir = os.path.isdir(file_path)
-                        
-                        # Détection des icônes selon le type de fichier
-                        ext = os.path.splitext(file)[1].lower()
-                        is_image = ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.ico', '.tiff', '.tif']
-                        
-                        if is_dir:
-                            icon = ft.Icons.FOLDER
-                            icon_color = ft.Colors.AMBER_400
-                        elif is_image:
-                            icon = ft.Icons.IMAGE
-                            icon_color = ft.Colors.GREEN_400
-                        elif ext in ['.pdf']:
-                            icon = ft.Icons.PICTURE_AS_PDF
-                            icon_color = ft.Colors.RED_400
-                        elif ext in ['.txt', '.md', '.log']:
-                            icon = ft.Icons.DESCRIPTION
-                            icon_color = ft.Colors.BLUE_GREY_400
-                        elif ext in [".af", ".afphoto", ".afdesign", ".afpub", ".psd", ".psb", ".svg", ".eps", ".ai"]:
-                            icon = ft.Icons.ADOBE
-                            icon_color = GREEN
-                        else:
-                            icon = ft.Icons.INSERT_DRIVE_FILE
-                            icon_color = ft.Colors.BLUE_GREY_400
-                        
-                        # Ajouter une checkbox pour tous les éléments (fichiers et dossiers)
-                        checkbox = ft.Checkbox(
-                            border_side = ft.BorderSide(color=BLUE),
-                            value=file_path in selected_files,
-                            on_change=lambda e, path=file_path: on_checkbox_change(e, path),
-                        )
-                        
-                        # Créer le visuel (thumbnail pour images, icône pour le reste)
-                        if is_image:
-                            visual = ft.Container(
-                                content=ft.Image(src=file_path, fit=ft.BoxFit.COVER, error_content=ft.Icon(icon, color=icon_color, size=18)),
-                                width=40,
-                                height=40,
-                                border_radius=4,
-                                clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                            )
-                        else:
-                            visual = ft.Icon(icon, color=icon_color, size=18)
-                        
-                        preview_list.controls.append(
-                            ft.ListTile(
-                                leading=ft.Row([
-                                    checkbox,
-                                    visual,
-                                ], spacing=8, tight=True),
-                                title=ft.Text(file, size=12, color=WHITE),
-                                trailing=ft.IconButton(
-                                    icon=ft.Icons.DELETE_OUTLINE,
-                                    icon_size=16,
-                                    icon_color=ft.Colors.RED_300,
-                                    tooltip="Supprimer",
-                                    on_click=lambda e, path=file_path: delete_item(path),
-                                ),
-                                on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
-                                hover_color=GREY,
-                                dense=True,
-                                content_padding=ft.Padding(left=5, top=0, right=5, bottom=0),
-                            )
-                        )
-            except PermissionError:
-                preview_list.controls.append(ft.Text("⚠️ Accès refusé à ce dossier", color="red"))
-                file_count_text.value = ""
-            except Exception as e:
-                preview_list.controls.append(ft.Text(f"⚠️ Erreur: {str(e)}", color="red"))
-                file_count_text.value = ""
-        else:
-            file_count_text.value = ""
+        lazy_images.clear()
+        preview_list.controls.extend(new_controls)
+        lazy_images.extend(new_lazy)
+        file_count_text.value = new_file_count_text
+        preview_list.on_scroll = on_preview_scroll if has_images else None
+        preview_loading.visible = False
+        _set_visible_images(0, page.height or 700, do_update=False)
         page.update()
+
+    page.pubsub.subscribe_topic("preview_ready", on_preview_ready)
+    def refresh_preview():
+        _refresh_token["v"] += 1
+        my_token = _refresh_token["v"]
+        preview_list.on_scroll = None
+        preview_list.controls.clear()
+        lazy_images.clear()
+        file_count_text.value = ""
+        folder_to_display = current_browse_folder["path"] or selected_folder["path"]
+        preview_loading.visible = bool(folder_to_display)
+        page.update()
+
+        def _bg():
+            new_controls = []
+            new_lazy = []
+            new_file_count_text = ""
+            has_images = False
+
+            if folder_to_display:
+                try:
+                    with os.scandir(folder_to_display) as it:
+                        entries = list(it)
+
+                    file_count = sum(1 for e in entries if not e.name.startswith(".") and not e.is_dir())
+                    new_file_count_text = f"({file_count} fichier{'s' if file_count > 1 else ''})"
+
+                    if not entries:
+                        new_controls.append(ft.Text("(dossier vide)", color=GREY))
+                    else:
+                        if sort_by_date["value"]:
+                            sorted_entries = sorted(entries, key=lambda e: (not e.is_dir(), -e.stat().st_mtime))
+                        else:
+                            sorted_entries = sorted(entries, key=lambda e: (not e.is_dir(), e.name.lower()))
+
+                        for entry in sorted_entries:
+                            file = entry.name
+                            file_path = entry.path
+                            is_dir = entry.is_dir()
+                            ext = os.path.splitext(file)[1].lower()
+                            is_image = ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.ico', '.tiff', '.tif']
+
+                            if is_dir:
+                                icon = ft.Icons.FOLDER
+                                icon_color = ft.Colors.AMBER_400
+                            elif is_image:
+                                icon = ft.Icons.IMAGE
+                                icon_color = ft.Colors.GREEN_400
+                            elif ext in ['.pdf']:
+                                icon = ft.Icons.PICTURE_AS_PDF
+                                icon_color = ft.Colors.RED_400
+                            elif ext in ['.txt', '.md', '.log']:
+                                icon = ft.Icons.DESCRIPTION
+                                icon_color = ft.Colors.BLUE_GREY_400
+                            elif ext in [".af", ".afphoto", ".afdesign", ".afpub", ".psd", ".psb", ".svg", ".eps", ".ai"]:
+                                icon = ft.Icons.ADOBE
+                                icon_color = GREEN
+                            else:
+                                icon = ft.Icons.INSERT_DRIVE_FILE
+                                icon_color = ft.Colors.BLUE_GREY_400
+
+                            checkbox = ft.Checkbox(
+                                border_side=ft.BorderSide(color=BLUE),
+                                value=file_path in selected_files,
+                                on_change=lambda e, path=file_path: on_checkbox_change(e, path),
+                            )
+
+                            if is_image:
+                                has_images = True
+                                image_ctrl = ft.Image(src=None, fit=ft.BoxFit.COVER, error_content=ft.Icon(icon, color=icon_color, size=18))
+                                new_lazy.append((len(new_controls), file_path, image_ctrl))
+                                visual = ft.Container(
+                                    content=image_ctrl, width=40, height=40,
+                                    border_radius=4, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                                )
+                            else:
+                                visual = ft.Icon(icon, color=icon_color, size=18)
+
+                            new_controls.append(
+                                ft.ListTile(
+                                    leading=ft.Row([checkbox, visual], spacing=8, tight=True),
+                                    title=ft.Text(file, size=12, color=WHITE),
+                                    trailing=ft.IconButton(
+                                        icon=ft.Icons.DELETE_OUTLINE, icon_size=16,
+                                        icon_color=ft.Colors.RED_300, tooltip="Supprimer",
+                                        on_click=lambda e, path=file_path: delete_item(path),
+                                    ),
+                                    on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
+                                    hover_color=GREY, dense=True,
+                                    content_padding=ft.Padding(left=5, top=0, right=5, bottom=0),
+                                )
+                            )
+
+                except PermissionError:
+                    new_controls.append(ft.Text("⚠️ Accès refusé à ce dossier", color="red"))
+                except Exception as ex:
+                    new_controls.append(ft.Text(f"⚠️ Erreur: {str(ex)}", color="red"))
+
+            # Envoyer résultat via pubsub → appliqué sur le thread Flet (pas depuis un thread Python brut)
+            page.pubsub.send_all_on_topic("preview_ready", (my_token, new_controls, new_lazy, new_file_count_text, has_images))
+
+        threading.Thread(target=_bg, daemon=True).start()
     
     def on_sort_change(e):
         """Change le mode de tri et rafraîchit la preview"""
@@ -1107,7 +1147,10 @@ def main(page: ft.Page):
                         ),
                     ]),
                     ft.Container(
-                        content=preview_list,
+                        content=ft.Stack([
+                            preview_list,
+                            preview_loading,
+                        ]),
                         expand=True,
                         border=ft.Border.all(1, GREY),
                         border_radius=8,
