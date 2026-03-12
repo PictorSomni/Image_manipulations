@@ -544,7 +544,7 @@ class PhotoCropper:
     #                     CHARGEMENT DES IMAGES                        #
     # ================================================================ #
 
-    def load_image(self, preserve_orientation=False):
+    def load_image(self, preserve_orientation=True):
         """
         Charge l'image courante (image_paths[current_index]) et prépare
         l'affichage.
@@ -763,7 +763,7 @@ class PhotoCropper:
         self.image_paths = valid_paths
         self.current_index = 0
         self.batch_mode = True
-        self.load_image()
+        self.load_image(preserve_orientation=False)
 
     # ================================================================ #
     #                      CALCUL DU RECADRAGE                         #
@@ -2131,28 +2131,9 @@ class PhotoCropper:
         }
         self.extra_formats.append(snapshot)
         self._update_extra_formats_display()
-        # Remettre le compteur d'exemplaires à 1 et les filtres à off pour le prochain format
+        # Remettre uniquement le compteur d'exemplaires à 1 pour le prochain format
         self.copies_count = 1
         self.copies_text.value = "1"
-        self.is_bw = False
-        self.bw_switch.value = False
-        self.enhance_toggle = False
-        self.shadows = 0.0
-        self.shadows_slider.value = 0.0
-        self.shadows_slider.label = "0"
-        self.highlights = 0.0
-        self.highlights_slider.value = 0.0
-        self.highlights_slider.label = "0"
-        self.contrast = 0.0
-        self.contrast_slider.value = 0.0
-        self.contrast_slider.label = "0"
-        self.saturation = 0.0
-        self.saturation_slider.value = 0.0
-        self.saturation_slider.label = "0"
-        self.exposure = 0.0
-        self.exposure_slider.value = 0.0
-        self.exposure_slider.label = "0"
-        self._render_preview()
         self.page.update()
 
     def clear_extra_formats(self, e):
@@ -2186,23 +2167,8 @@ class PhotoCropper:
             parts = []
             for s in self.extra_formats:
                 lbl = s["label"].split()[0]
-                orient = "P" if s["is_portrait"] else "L"
                 copies = s.get("copies", 1)
-                prefix = f"{copies}X "
-                bw = " N&B" if s.get("is_bw", False) else ""
-                enh = " ☀" if s.get("enhance_toggle", False) else ""
-                deux = " 2en1" if s.get("two_in_one", False) else ""
-                shd_v = s.get("shadows", 0)
-                shd = f" S{int(shd_v):+d}" if shd_v != 0 else ""
-                hl_v = s.get("highlights", 0)
-                hl = f" HL{int(hl_v):+d}" if hl_v != 0 else ""
-                con_v = s.get("contrast", 0)
-                con = f" C{int(con_v):+d}" if con_v != 0 else ""
-                sat_v = s.get("saturation", 0)
-                sat = f" Sat{int(sat_v):+d}" if sat_v != 0 else ""
-                exp_v = s.get("exposure", 0)
-                exp = f" E{int(exp_v):+d}" if exp_v != 0 else ""
-                parts.append(f"{prefix}{lbl} {orient}{deux}{bw}{shd}{hl}{con}{sat}{exp}")
+                parts.append(f"{copies}X {lbl}")
             self.extra_formats_display.value = " + ".join(parts)
         else:
             self.extra_formats_display.value = "—"
@@ -2293,7 +2259,7 @@ class PhotoCropper:
                     return candidate
                 i += 1
 
-        export_is_portrait = self.canvas_h >= self.canvas_w
+        export_is_portrait = self.canvas_is_portrait
         fmt_w_mm, fmt_h_mm = self.current_format
         if export_is_portrait:
             target_w_px = mm_to_pixels(fmt_w_mm)
@@ -2351,12 +2317,12 @@ class PhotoCropper:
         if (not two_in_one_applied) and self.border_13x10 and "10x10" in fmt_short:
             ratio_13_10 = 127 / 102
             if export_is_portrait:
-                target_w = int(pil_crop.height * ratio_13_10)
-                framed = Image.new("RGB", (target_w, pil_crop.height), "white")
-                framed.paste(pil_crop, (0, 0))
-            else:
                 target_h = int(pil_crop.width * ratio_13_10)
                 framed = Image.new("RGB", (pil_crop.width, target_h), "white")
+                framed.paste(pil_crop, (0, 0))
+            else:
+                target_w = int(pil_crop.height * ratio_13_10)
+                framed = Image.new("RGB", (target_w, pil_crop.height), "white")
                 framed.paste(pil_crop, (0, 0))
             pil_crop = framed
             fmt_short = "13x10"
@@ -2520,25 +2486,33 @@ class PhotoCropper:
         self.status_text.value = f"[OK] {os.path.basename(out_path)}"
         self.page.update()
 
-        self.extra_formats.clear()
-        self._update_extra_formats_display()
-        self.copies_count = 1
-        self.copies_text.value = "1"
-        self.page.update()
-
         if self.batch_mode:
             self.current_index += 1
+            self.extra_formats.clear()
+            self._update_extra_formats_display()
+            self.copies_count = 1
+            self.copies_text.value = "1"
             if self.current_index < len(self.image_paths):
                 self.load_image(preserve_orientation=False)
                 return
             else:
                 self.batch_mode = False
+                self.extra_formats.clear()
+                self._update_extra_formats_display()
+                self.copies_count = 1
+                self.copies_text.value = "1"
                 self.canvas_container.visible = False
                 self.validate_button.visible = False
                 self.status_text.value = "[OK] Toutes les images sont traitées !"
                 self.page.update()
                 asyncio.create_task(self.close_window())
                 return
+        else:
+            self.extra_formats.clear()
+            self._update_extra_formats_display()
+            self.copies_count = 1
+            self.copies_text.value = "1"
+            self.page.update()
 
     def ignore_image(self, e):
         """
@@ -2803,7 +2777,7 @@ def main(page: ft.Page):
                                                 icon=ft.icons.Icons.SWAP_HORIZ,
                                                 color=BLUE,
                                                 on_click=app.toggle_orientation),
-                                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER),
                                     ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=100),
                                 ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                                 padding=ft.Padding.only(top=6, bottom=4, left=12, right=12),
