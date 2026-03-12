@@ -2593,21 +2593,24 @@ def main(page: ft.Page):
     page.on_keyboard_event = on_key
 
     controls = ft.Column([
-        ft.Text("Formats Photos", size=20, weight=ft.FontWeight.BOLD),
         ft.Container(
-            content=ft.RadioGroup(
-                content=ft.Column(
-                    [ft.Radio(value=fmt, label=fmt, fill_color=BLUE) for fmt in FORMATS.keys()],
-                    scroll=ft.ScrollMode.AUTO,
+            content=ft.Column([
+                ft.Text("Formats Photos", size=16, weight=ft.FontWeight.BOLD, color=WHITE),
+                ft.Divider(height=4),
+                ft.RadioGroup(
+                    content=ft.Column(
+                        [ft.Radio(value=fmt, label=fmt, fill_color=BLUE) for fmt in FORMATS.keys()],
+                        scroll=ft.ScrollMode.AUTO,
+                    ),
+                    value="ID (36x46mm)",
+                    on_change=app.change_ratio
                 ),
-                value="ID (36x46mm)",
-                on_change=app.change_ratio
-            ),
+            ]),
             height=400,
             border=ft.Border.all(1, LIGHT_GREY),
             bgcolor=DARK,
             border_radius=8,
-            padding=5,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=12),
         ),
         ft.Container(
             content=ft.Column([
@@ -2665,62 +2668,64 @@ def main(page: ft.Page):
                     width=200,
                     bgcolor=DARK,
                     padding=ft.Padding.symmetric(horizontal=10, vertical=12),
-                    border=ft.Border(right=ft.BorderSide(1, LIGHT_GREY)),
+                    border=ft.Border.all(1, LIGHT_GREY),
+                    border_radius=8,
                 ),
                 ft.Container(
                     content=ft.Column(
                         [
-                            ft.Text("Opérations", size=20, weight=ft.FontWeight.BOLD),
-                            ft.Container(height=11),
                             ft.Container(
-                                content=ft.Row([
-                                    ft.Column([
-                                        ft.Text("Exemplaires", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
-                                        ft.Row([
-                                            app.copies_minus_btn,
-                                            app.copies_text,
-                                            app.copies_plus_btn,
-                                        ], alignment=ft.MainAxisAlignment.CENTER, spacing=0),
-                                    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=200),
-                                    ft.VerticalDivider(width=1, color=LIGHT_GREY),
-                                    ft.Column([
-                                        ft.Text("Formats multiples", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
-                                        ft.Row([
-                                            ft.IconButton(
-                                                icon=ft.icons.Icons.CLEAR,
-                                                icon_color=RED,
-                                                tooltip="Vider la liste",
-                                                on_click=app.clear_extra_formats,
-                                                icon_size=24,
-                                            ),
-                                            ft.IconButton(
-                                                icon=ft.icons.Icons.ADD_CIRCLE_OUTLINE,
-                                                icon_color=BLUE,
-                                                tooltip="Ajouter le format courant à la liste",
-                                                on_click=app.add_extra_format,
-                                                icon_size=24,
-                                            ),
+                                content=ft.Column([
+                                    ft.Text("Opérations", size=16, weight=ft.FontWeight.BOLD, color=WHITE),
+                                    ft.Divider(height=4),
+                                    ft.Row([
+                                        ft.Column([
+                                            ft.Text("Exemplaires", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
                                             ft.Row([
-                                                app.extra_formats_display,
-                                            ], scroll=ft.ScrollMode.AUTO, width=128, height=32, alignment=ft.MainAxisAlignment.START),
-                                        ], width=150, alignment=ft.MainAxisAlignment.START, spacing=8),
-                                    ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=200),
-                                    ft.VerticalDivider(width=1, color=LIGHT_GREY),
-                                    ft.Column([
-                                        ft.Button("Orientation",
-                                            icon=ft.icons.Icons.SWAP_HORIZ,
-                                            color=BLUE,
-                                            on_click=app.toggle_orientation),
-                                        app.bw_switch,
-                                    ]),
-                                ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=32, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=100),
+                                                app.copies_minus_btn,
+                                                app.copies_text,
+                                                app.copies_plus_btn,
+                                            ], alignment=ft.MainAxisAlignment.CENTER, spacing=0),
+                                        ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=200),
+                                        ft.VerticalDivider(width=1, color=LIGHT_GREY),
+                                        ft.Column([
+                                            ft.Text("Formats multiples", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                                            ft.Row([
+                                                ft.IconButton(
+                                                    icon=ft.icons.Icons.CLEAR,
+                                                    icon_color=RED,
+                                                    tooltip="Vider la liste",
+                                                    on_click=app.clear_extra_formats,
+                                                    icon_size=24,
+                                                ),
+                                                ft.IconButton(
+                                                    icon=ft.icons.Icons.ADD_CIRCLE_OUTLINE,
+                                                    icon_color=BLUE,
+                                                    tooltip="Ajouter le format courant à la liste",
+                                                    on_click=app.add_extra_format,
+                                                    icon_size=24,
+                                                ),
+                                                ft.Row([
+                                                    app.extra_formats_display,
+                                                ], scroll=ft.ScrollMode.AUTO, width=128, height=32, alignment=ft.MainAxisAlignment.START),
+                                            ], width=150, alignment=ft.MainAxisAlignment.START, spacing=8),
+                                        ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=200),
+                                        ft.VerticalDivider(width=1, color=LIGHT_GREY),
+                                        ft.Column([
+                                            ft.Button("Orientation",
+                                                icon=ft.icons.Icons.SWAP_HORIZ,
+                                                color=BLUE,
+                                                on_click=app.toggle_orientation),
+                                            app.bw_switch,
+                                        ]),
+                                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=32, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=100),
+                                ]),
                                 padding=ft.Padding.only(top=6, bottom=4, left=12, right=12),
                                 alignment=ft.Alignment.CENTER,
                                 bgcolor=DARK,
                                 border_radius=8,
-                                border=ft.Border.all(1, LIGHT_GREY)
+                                border=ft.Border.all(1, LIGHT_GREY),
                             ),
-                            ft.Divider(),
                             ft.Container(
                                 content=app.canvas_container,
                                 expand=True,
