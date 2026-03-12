@@ -1709,6 +1709,14 @@ def main(page: ft.Page):
     
     page.on_resize = on_window_resize
 
+    # Nettoyer le cache à la fermeture de la fenêtre (bouton X)
+    def on_window_event(e):
+        if e.data == "close":
+            asyncio.create_task(app.close_window())
+
+    page.window.prevent_close = True
+    page.window.on_event = on_window_event
+
     # Start directly in interactive batch mode on launch (avec délai pour s'assurer que la fenêtre est initialisée)
     async def delayed_start():
         await asyncio.sleep(0.3)  # Attendre que la fenêtre soit maximisée
