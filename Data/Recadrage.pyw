@@ -11,7 +11,6 @@ import platform
 from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageCms
 import asyncio
 import math
-import shutil
 import io
 import numpy as np
 
@@ -90,14 +89,16 @@ class PhotoCropper:
         self.current_index = 0
         self.batch_mode = False
         self.source_folder = os.environ.get("FOLDER_PATH", os.getcwd())
-        # Dossier local pour les fichiers de prévisualisation temporaires
+        # Dossier de prévisualisation temporaire (au plus 1 fichier à la fois)
         self._preview_tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".preview_cache")
-        # Vider le cache au démarrage (évite l'accumulation entre sessions)
-        if os.path.exists(self._preview_tmp_dir):
-            shutil.rmtree(self._preview_tmp_dir, ignore_errors=True)
         os.makedirs(self._preview_tmp_dir, exist_ok=True)
+        # Vider les éventuels résidus d'une session précédente
+        for _f in os.listdir(self._preview_tmp_dir):
+            try: os.remove(os.path.join(self._preview_tmp_dir, _f))
+            except OSError: pass
         self._preview_counter = 0
-        
+        self._prev_preview_path = None
+
         # Configuration du canvas (calculé dynamiquement)
         self.canvas_is_portrait = True
         self.current_format = FORMATS["ID (36x46mm)"]
@@ -829,12 +830,16 @@ class PhotoCropper:
             preview = preview.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
         # Conversion sRGB : aligner le preview sur l'image enregistrée
         preview = convert_to_srgb(preview, getattr(self, 'icc_profile', None))
-        # Nom unique à chaque rendu : cache Flutter jamais touché
+        # Écrire dans un nouveau fichier (nom unique = cache Flutter invalidé)
         self._preview_counter += 1
         tmp_path = os.path.join(self._preview_tmp_dir, f"_rc_{self._preview_counter}.jpg")
         preview.save(tmp_path, format="JPEG", quality=88)
-        self.image_display.src_base64 = None
         self.image_display.src = tmp_path
+        # Supprimer l'ancien fichier — au plus 1 fichier sur disque à tout moment
+        if self._prev_preview_path:
+            try: os.remove(self._prev_preview_path)
+            except OSError: pass
+        self._prev_preview_path = tmp_path
 
     # ================================================================ #
     #                  NAVIGATION (PAN, ZOOM, ROTATION)                #
@@ -1557,17 +1562,18 @@ class PhotoCropper:
         self.page.update()
 
     async def close_window(self, e=None):
-        # Garde contre les appels multiples
         if getattr(self, '_closing', False):
             return
         self._closing = True
-        # Envoyer destroy() sans attendre la réponse, puis quitter après 150ms
         try:
-            asyncio.create_task(self.page.window.destroy())
+            self.page.window.visible = False
+            self.page.update()
         except Exception:
             pass
-        await asyncio.sleep(0.15)
-        os._exit(0)
+        try:
+            await self.page.window.destroy()
+        except Exception:
+            pass
 
 #############################################################
 #                           MAIN                            #
@@ -1751,14 +1757,6 @@ def main(page: ft.Page):
             app._update_transform()
     
     page.on_resize = on_window_resize
-
-    # Nettoyer le cache à la fermeture de la fenêtre (bouton X)
-    def on_window_event(e):
-        if e.type == ft.WindowEventType.CLOSE:
-            asyncio.create_task(app.close_window())
-
-    page.window.prevent_close = True
-    page.window.on_event = on_window_event
 
     # Start directly in interactive batch mode on launch (avec délai pour s'assurer que la fenêtre est initialisée)
     async def delayed_start():
