@@ -76,7 +76,7 @@ def main(page: ft.Page):
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
     page.window.width = 1200
-    page.window.height = 796
+    page.window.height = 800
     # page.window.maximized = True
     
     selected_folder = {"path": None}
@@ -1403,7 +1403,7 @@ def main(page: ft.Page):
                         padding=5,
                     )
                 ], spacing=5),
-                height=200,
+                height=150,
             ),
         ], expand=True, spacing=5)
     )
