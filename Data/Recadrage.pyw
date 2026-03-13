@@ -42,7 +42,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Version : voir __version__
 """
 
-__version__ = "1.7.6"
+__version__ = "1.7.7"
 
 #############################################################
 #                          IMPORTS                          #
@@ -55,6 +55,17 @@ import asyncio
 import math
 import io
 import numpy as np
+# Ensure wand can locate the ImageMagick shared library (Homebrew on Apple Silicon / Intel)
+if not os.environ.get("MAGICK_HOME"):
+    import subprocess, shutil
+    _brew = shutil.which("brew")
+    if _brew:
+        try:
+            _prefix = subprocess.check_output([_brew, "--prefix"], text=True).strip()
+            os.environ["MAGICK_HOME"] = _prefix
+        except Exception:
+            pass
+from wand import color
 
 # ===================== Configuration ===================== #
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
@@ -84,16 +95,15 @@ FORMATS = {
 }
 
 # Colors
-DARK = "#23252a"
-BG = "#292c33"
-GREY = "#2f333c"
-LIGHT_GREY = "#62666f"
+DARK = "#222429"
+BG = "#373d4a"
+GREY = "#2C3038"
+LIGHT_GREY = "#9399A6"
 BLUE = "#45B8F5"
 GREEN = "#49B76C"
-DARK_ORANGE = "#2A1D18"
-ORANGE = "#e06331"
-RED = "#e17080"
-WHITE = "#adb2be"
+ORANGE = "#e18b69"
+RED = "#e8697a"
+WHITE = "#c7ccd8"
 
 
 def mm_to_pixels(mm, dpi=DPI):
@@ -268,6 +278,7 @@ class PhotoCropper:
             max=15.0,
             divisions=300,
             label=f"{self.rotation:.1f}°",
+            active_color=BLUE,
             on_change=self.on_rotation_update,
         )
 
@@ -279,6 +290,7 @@ class PhotoCropper:
             max=100,
             divisions=20,
             label="0",
+            active_color=BLUE,
             on_change=self.on_shadows_label,
             on_change_end=self.on_shadows_end,
         )
@@ -291,6 +303,7 @@ class PhotoCropper:
             max=100,
             divisions=20,
             label="0",
+            active_color=BLUE,
             on_change=self.on_highlights_label,
             on_change_end=self.on_highlights_end,
         )
@@ -394,18 +407,21 @@ class PhotoCropper:
         self.contrast = 0.0
         self.contrast_slider = ft.Slider(
             value=0, min=-20, max=20, divisions=40, label="0",
+            active_color=BLUE,
             on_change=self.on_contrast_label,
             on_change_end=self.on_contrast_end,
         )
         self.saturation = 0.0
         self.saturation_slider = ft.Slider(
             value=0, min=-100, max=100, divisions=20, label="0",
+            active_color=BLUE,
             on_change=self.on_saturation_label,
             on_change_end=self.on_saturation_end,
         )
         self.exposure = 0.0
         self.exposure_slider = ft.Slider(
             value=0, min=-100, max=100, divisions=20, label="0",
+            active_color=BLUE,
             on_change=self.on_exposure_label,
             on_change_end=self.on_exposure_end,
         )
@@ -416,7 +432,7 @@ class PhotoCropper:
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             width=self.canvas_w,
             height=self.canvas_h,
-            border=ft.Border.all(1, ft.Colors.WHITE24),
+            border=ft.Border.all(1, GREY),
         )
 
     # ================================================================ #
@@ -2617,7 +2633,7 @@ def main(page: ft.Page):
     page.title = "Recadrage Photo"
     page.theme_mode = ft.ThemeMode.DARK
     page.window.maximized = True
-    page.bgcolor = BG
+    page.bgcolor = GREY
 
     app = PhotoCropper(page)
 
@@ -2662,7 +2678,7 @@ def main(page: ft.Page):
                 ),
             ]),
             height=400,
-            border=ft.Border.all(1, LIGHT_GREY),
+            border=ft.Border.all(1, GREY),
             bgcolor=DARK,
             border_radius=8,
             padding=ft.Padding.symmetric(horizontal=10, vertical=12),
@@ -2696,7 +2712,7 @@ def main(page: ft.Page):
                         ft.Text("Rotation", size=12, color=LIGHT_GREY),
                         app.rotation_slider,
                         ft.Container(
-                            content=ft.Button("0°", on_click=app.reset_rotation, width=120, bgcolor=GREY, color=WHITE),
+                            content=ft.Button("0°", on_click=app.reset_rotation, width=120, bgcolor=BG, color=WHITE),
                             alignment=ft.Alignment.CENTER, padding=ft.Padding.only(top=4, bottom=12)
                         ),
                         ft.Divider(height=4),
@@ -2715,7 +2731,7 @@ def main(page: ft.Page):
                         ft.Text("Saturation", size=12, color=LIGHT_GREY),
                         app.saturation_slider,
                         ft.Container(
-                            content=ft.Button("Réinit. réglages", on_click=app.reset_adjustments, width=160, bgcolor=GREY, color=WHITE),
+                            content=ft.Button("Réinit. réglages", on_click=app.reset_adjustments, width=160, bgcolor=BG, color=WHITE),
                             alignment=ft.Alignment.CENTER,padding=ft.Padding.only(top=4, bottom=12)
                         ),
                         ft.Divider(height=4),
@@ -2724,7 +2740,7 @@ def main(page: ft.Page):
                     width=200,
                     bgcolor=DARK,
                     padding=ft.Padding.symmetric(horizontal=10, vertical=12),
-                    border=ft.Border.all(1, LIGHT_GREY),
+                    border=ft.Border.all(1, GREY),
                     border_radius=8,
                 ),
                 ft.Container(
@@ -2784,7 +2800,7 @@ def main(page: ft.Page):
                                 alignment=ft.Alignment.CENTER,
                                 bgcolor=DARK,
                                 border_radius=8,
-                                border=ft.Border.all(1, LIGHT_GREY),
+                                border=ft.Border.all(1, GREY),
                             ),
                             ft.Container(
                                 content=app.canvas_container,

@@ -23,7 +23,7 @@ Dépendances :
   threading, re).
 """
 
-__version__ = "1.7.6"
+__version__ = "1.7.7"
 
 #############################################################
 #                          IMPORTS                          #
@@ -59,13 +59,13 @@ def main(page: ft.Page):
         Objet page Flet injecté automatiquement par ``ft.run(main)``.
     """
 # ===================== COLORS ===================== #
-    DARK = "#23252a"
-    BG = "#292c33"
-    GREY = "#2f333c"
+    DARK = "#222429"
+    BG = "#373d4a"
+    GREY = "#2C3038"
     LIGHT_GREY = "#9399A6"
     BLUE = "#45B8F5"
     GREEN = "#49B76C"
-    ORANGE = "#f07342"
+    ORANGE = "#e18b69"
     RED = "#e8697a"
     WHITE = "#c7ccd8"
 
@@ -76,7 +76,7 @@ def main(page: ft.Page):
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
     page.window.width = 1200
-    page.window.height = 800
+    page.window.height = 840
     # page.window.maximized = True
     
     selected_folder = {"path": None}
@@ -312,6 +312,7 @@ def main(page: ft.Page):
         """Décompresse un .zip avec détection de dossier racine unique"""
         dest_dir = os.path.dirname(file_path)
         zip_name = os.path.splitext(os.path.basename(file_path))[0]
+        
         try:
             with zipfile.ZipFile(file_path, 'r') as zf:
                 names = zf.namelist()
@@ -322,6 +323,7 @@ def main(page: ft.Page):
                 else:
                     extract_to = os.path.join(dest_dir, zip_name)
                     os.makedirs(extract_to, exist_ok=True)
+
                 zf.extractall(extract_to)
             log_to_terminal(f"[OK] Décompressé: {os.path.basename(file_path)}", GREEN)
             refresh_preview()
@@ -333,6 +335,7 @@ def main(page: ft.Page):
         if is_dir:
             navigate_to_folder(file_path)
         elif os.path.splitext(file_path)[1].lower() == ".zip":
+            log_to_terminal(f"Extraction: {os.path.splitext(os.path.basename(file_path))[0]}", BLUE)
             extract_zip(file_path)
         else:
             open_file_with_default_app(file_path)
@@ -1249,12 +1252,14 @@ def main(page: ft.Page):
                 ft.Button(
                     "Parcourir",
                     icon=ft.Icons.FOLDER_OPEN,
+                    bgcolor=GREY,
                     color=RED,
                     on_click=pick_folder,
                 ),
                 ft.Button(
                     "Rafraîchir",
                     icon=ft.Icons.REFRESH,
+                    bgcolor=GREY,
                     color=BLUE,
                     on_click=lambda e: refresh_preview(),
                 ),
@@ -1403,7 +1408,7 @@ def main(page: ft.Page):
                         padding=5,
                     )
                 ], spacing=5),
-                height=150,
+                height=160,
             ),
         ], expand=True, spacing=5)
     )
