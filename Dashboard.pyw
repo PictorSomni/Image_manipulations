@@ -36,6 +36,7 @@ import platform
 import shutil
 import threading
 import re
+import zipfile
 from time import sleep
 
 #############################################################
@@ -76,6 +77,7 @@ def main(page: ft.Page):
     page.window.title_bar_buttons_hidden = True
     page.window.width = 1200
     page.window.height = 796
+    # page.window.maximized = True
     
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
@@ -306,10 +308,32 @@ def main(page: ft.Page):
             if parent and parent != current_browse_folder["path"]:
                 navigate_to_folder(parent)
     
+    def extract_zip(file_path):
+        """Décompresse un .zip avec détection de dossier racine unique"""
+        dest_dir = os.path.dirname(file_path)
+        zip_name = os.path.splitext(os.path.basename(file_path))[0]
+        try:
+            with zipfile.ZipFile(file_path, 'r') as zf:
+                names = zf.namelist()
+                top_levels = {n.split('/')[0] for n in names if n}
+                # Si tout le contenu est sous un seul dossier racine, extraire directement
+                if len(top_levels) == 1 and any('/' in n for n in names):
+                    extract_to = dest_dir
+                else:
+                    extract_to = os.path.join(dest_dir, zip_name)
+                    os.makedirs(extract_to, exist_ok=True)
+                zf.extractall(extract_to)
+            log_to_terminal(f"[OK] Décompressé: {os.path.basename(file_path)}", GREEN)
+            refresh_preview()
+        except Exception as err:
+            log_to_terminal(f"[ERREUR] Décompression: {err}", RED)
+
     def on_file_click(file_path, is_dir):
         """Gère le clic sur un fichier ou dossier dans la preview"""
         if is_dir:
             navigate_to_folder(file_path)
+        elif os.path.splitext(file_path)[1].lower() == ".zip":
+            extract_zip(file_path)
         else:
             open_file_with_default_app(file_path)
 
@@ -682,6 +706,9 @@ def main(page: ft.Page):
                             elif ext in ['.pdf']:
                                 icon = ft.Icons.PICTURE_AS_PDF
                                 icon_color = ft.Colors.RED_400
+                            elif ext == '.zip':
+                                icon = ft.Icons.FOLDER_ZIP
+                                icon_color = ORANGE
                             elif ext in ['.txt', '.md', '.log']:
                                 icon = ft.Icons.DESCRIPTION
                                 icon_color = ft.Colors.BLUE_GREY_400
@@ -1376,7 +1403,7 @@ def main(page: ft.Page):
                         padding=5,
                     )
                 ], spacing=5),
-                height=120,
+                height=200,
             ),
         ], expand=True, spacing=5)
     )
