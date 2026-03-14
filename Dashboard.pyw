@@ -64,6 +64,7 @@ def main(page: ft.Page):
     GREY = "#2C3038"
     LIGHT_GREY = "#9399A6"
     BLUE = "#45B8F5"
+    VIOLET = "#b195ff"
     GREEN = "#49B76C"
     ORANGE = "#e18b69"
     RED = "#e8697a"
@@ -87,14 +88,14 @@ def main(page: ft.Page):
     
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
-        "Fichiers manquants.py": [False, RED],
-        "N&B.py": [False, RED],
+        "N&B.py": [False, WHITE],
+        "Fichiers manquants.py": [False, ORANGE],
         "Transfert vers TEMP.py": [True, BLUE],
+        "Ameliorer nettete.py": [False, WHITE],
         "Renommer sequence.py": [False, BLUE],
-        "Ameliorer nettete.py": [False, ORANGE],
         "Conversion JPG.py": [False, BLUE],
-        "Remerciements.py": [False, ORANGE],
-        "Nettoyer metadonnees.py": [False, GREEN],
+        "Nettoyer metadonnees.py": [False, WHITE],
+        "Remerciements.py": [False, VIOLET],
         "Recadrage.pyw": [False, BLUE],
         "Redimensionner filigrane.py": [False, WHITE],
         "Images en PDF.py": [False, GREEN],

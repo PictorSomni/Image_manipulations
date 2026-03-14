@@ -31,8 +31,15 @@ PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 
 # Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
 selected_dir_str = os.environ.get("SELECTED_FILES", "")
-selected_dir_set = set(selected_dir_str.split("|")) if selected_dir_str else None
-dest_dir = Path(selected_dir_str) if os.path.isdir(selected_dir_str) else None
+# Le Dashboard transmet uniquement le nom de base du dossier sélectionné ;
+# on reconstruit le chemin absolu en le résolvant par rapport à PATH.
+dest_dir = None
+if selected_dir_str:
+    first_item = selected_dir_str.split("|")[0]
+    if os.path.isdir(first_item):          # chemin absolu (cas rare)
+        dest_dir = Path(first_item)
+    elif os.path.isdir(PATH / first_item): # nom de base relatif à PATH
+        dest_dir = PATH / first_item
 
 #############################################################
 #                           MAIN                            #
