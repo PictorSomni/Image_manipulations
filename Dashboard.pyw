@@ -23,7 +23,7 @@ Dépendances :
   threading, re).
 """
 
-__version__ = "1.7.7"
+__version__ = "1.7.8"
 
 #############################################################
 #                          IMPORTS                          #
@@ -94,7 +94,7 @@ def main(page: ft.Page):
         "Ameliorer nettete.py": [False, WHITE],
         "Renommer sequence.py": [False, BLUE],
         "Conversion JPG.py": [False, BLUE],
-        "Nettoyer metadonnees.py": [False, WHITE],
+        "Nettoyer metadonnees.py": [False, RED],
         "Remerciements.py": [False, VIOLET],
         "Recadrage.pyw": [False, BLUE],
         "Redimensionner filigrane.py": [False, WHITE],
@@ -109,6 +109,9 @@ def main(page: ft.Page):
     resize_watermark_size = {"value": "640"}  # Taille par défaut pour le redimensionnement avec watermark
     sort_by_date = {"value": False}  # False = alphabétique, True = par date de modification
     lazy_images = []  # [(list_index, file_path, image_ctrl)] pour le chargement paresseux
+    PAGE_SIZE = 100             # Nb d'éléments max par page dans la prévisualisation
+    preview_page = {"value": 0}  # Page courante (0-indexé)
+    all_entries_data = {"list": [], "error": ""}  # Données brutes du dernier scan
     
 # ===================== UI ELEMENTS ===================== #
     folder_path = ft.TextField(
@@ -141,6 +144,15 @@ def main(page: ft.Page):
         active_color=BLUE,
         tooltip="Basculer entre tri alphabétique et tri par date de modification",
     )
+    prev_page_btn = ft.IconButton(
+        icon=ft.Icons.CHEVRON_LEFT, icon_size=18, icon_color=BLUE, bgcolor=GREY,
+        tooltip="Page précédente", visible=False,
+    )
+    next_page_btn = ft.IconButton(
+        icon=ft.Icons.CHEVRON_RIGHT, icon_size=18, icon_color=BLUE, bgcolor=GREY,
+        tooltip="Page suivante", visible=False,
+    )
+    page_indicator_text = ft.Text("", size=12, color=LIGHT_GREY)
     selected_files_prefix = "SELECTED_FILES:"
 
 # ===================== METHODS ===================== #
@@ -300,6 +312,7 @@ def main(page: ft.Page):
         folder_path.value = new_path
         selected_files.clear()
         selection_count_text.value = ""
+        preview_page["value"] = 0
         refresh_preview()
     
     def go_to_parent_folder(e):
@@ -628,20 +641,111 @@ def main(page: ft.Page):
         """Déclenche le chargement paresseux des miniatures lors du défilement de la liste."""
         _set_visible_images(e.pixels, e.viewport_dimension)
 
+    def _render_current_page():
+        """
+        Construit et affiche les contrôles ListView pour la page courante.
+        Appelée depuis on_preview_ready et go_to_page (thread UI uniquement).
+        Toutes les miniatures de la page sont chargées immédiatement (pas de lazy loading).
+        """
+        try:
+            entries = all_entries_data["list"]
+            total = len(entries)
+            total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
+            current_pg = min(preview_page["value"], total_pages - 1)
+            preview_page["value"] = current_pg
+
+            new_controls = []
+
+            if all_entries_data["error"]:
+                new_controls.append(ft.Text(all_entries_data["error"], color="red"))
+            elif not entries:
+                folder_to_display = current_browse_folder["path"] or selected_folder["path"]
+                if folder_to_display:
+                    new_controls.append(ft.Text("(dossier vide)", color=GREY))
+            else:
+                start = current_pg * PAGE_SIZE
+                end = min(start + PAGE_SIZE, total)
+                for list_idx, (file, file_path, is_dir, is_image, ext) in enumerate(entries[start:end]):
+                    if is_dir:
+                        icon = ft.Icons.FOLDER
+                        icon_color = ft.Colors.AMBER_400
+                    elif is_image:
+                        icon = ft.Icons.IMAGE
+                        icon_color = ft.Colors.GREEN_400
+                    elif ext in [".pdf"]:
+                        icon = ft.Icons.PICTURE_AS_PDF
+                        icon_color = ft.Colors.RED_400
+                    elif ext == ".zip":
+                        icon = ft.Icons.FOLDER_ZIP
+                        icon_color = ORANGE
+                    elif ext in [".txt", ".md", ".log"]:
+                        icon = ft.Icons.DESCRIPTION
+                        icon_color = ft.Colors.BLUE_GREY_400
+                    elif ext in [".af", ".afphoto", ".afdesign", ".afpub", ".psd", ".psb", ".svg", ".eps", ".ai"]:
+                        icon = ft.Icons.ADOBE
+                        icon_color = GREEN
+                    else:
+                        icon = ft.Icons.INSERT_DRIVE_FILE
+                        icon_color = ft.Colors.BLUE_GREY_400
+
+                    checkbox = ft.Checkbox(
+                        border_side=ft.BorderSide(color=BLUE),
+                        value=file_path in selected_files,
+                        on_change=lambda e, path=file_path: on_checkbox_change(e, path),
+                    )
+
+                    if is_image:
+                        visual = ft.Container(
+                            content=ft.Image(src=file_path, fit=ft.BoxFit.COVER, error_content=ft.Icon(icon, color=icon_color, size=18)),
+                            width=40, height=40,
+                            border_radius=4, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                        )
+                    else:
+                        visual = ft.Icon(icon, color=icon_color, size=18)
+
+                    new_controls.append(
+                        ft.ListTile(
+                            leading=ft.Row([checkbox, visual], spacing=8, tight=True),
+                            title=ft.Text(file, size=12, color=WHITE),
+                            trailing=ft.IconButton(
+                                icon=ft.Icons.DELETE_OUTLINE, icon_size=16,
+                                icon_color=ft.Colors.RED_300, tooltip="Supprimer",
+                                on_click=lambda e, path=file_path: delete_item(path),
+                            ),
+                            on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
+                            hover_color=GREY, dense=True,
+                            content_padding=ft.Padding(left=5, top=0, right=5, bottom=0),
+                        )
+                    )
+
+            preview_list.controls.clear()
+            preview_list.controls.extend(new_controls)
+            preview_list.on_scroll = None
+            preview_loading.visible = False
+
+            # Contrôles de pagination
+            if total > PAGE_SIZE:
+                prev_page_btn.visible = current_pg > 0
+                next_page_btn.visible = current_pg < total_pages - 1
+                page_indicator_text.value = f"{current_pg * PAGE_SIZE + 1}-{min((current_pg + 1) * PAGE_SIZE, total)}/{total}"
+            else:
+                prev_page_btn.visible = False
+                next_page_btn.visible = False
+                page_indicator_text.value = ""
+
+            page.update()
+        except Exception as ex:
+            log_to_terminal(f"[ERREUR] Rendu preview: {ex}", RED)
+
     def on_preview_ready(topic, payload):
-        """Reçoit le résultat du thread bg et applique la mise à jour sur le thread Flet."""
-        token, new_controls, new_lazy, new_file_count_text, has_images = payload
+        """Reçoit les données brutes du thread bg et déclenche le rendu de la page courante."""
+        token, entries_data, new_file_count_text, error_text = payload
         if _refresh_token["v"] != token:
             return
-        preview_list.controls.clear()
-        lazy_images.clear()
-        preview_list.controls.extend(new_controls)
-        lazy_images.extend(new_lazy)
+        all_entries_data["list"] = entries_data
+        all_entries_data["error"] = error_text
         file_count_text.value = new_file_count_text
-        preview_list.on_scroll = on_preview_scroll if has_images else None
-        preview_loading.visible = False
-        _set_visible_images(0, page.height or 700, do_update=False)
-        page.update()
+        _render_current_page()
 
     page.pubsub.subscribe_topic("preview_ready", on_preview_ready)
     def refresh_preview():
@@ -653,6 +757,7 @@ def main(page: ft.Page):
         chargement, puis lance un thread de fond ``_bg()`` qui scanne le dossier
         courant et envoie les nouveaux contrôles via PubSub.
         """
+        preview_page["value"] = 0
         _refresh_token["v"] += 1
         my_token = _refresh_token["v"]
         preview_list.on_scroll = None
@@ -665,103 +770,45 @@ def main(page: ft.Page):
 
         def _bg():
             """
-            Thread de fond : scanne le dossier et construit les contrôles ListView.
+            Thread de fond : scanne le dossier et stocke des tuples de données brutes.
 
-            Lit le contenu du dossier courant, trie les entrées (dossiers en
-            premier, puis alphabétique ou par date selon ``sort_by_date``),
-            construit les ``ListTile`` avec checkboxes et boutons de suppression,
-            prépare la liste paresseuse pour les images, puis envoie le résultat
-            au thread Flet via ``pubsub.send_all_on_topic("preview_ready", ...)``.
+            Ne crée aucun widget Flet — la construction des contrôles est déléguée
+            à _render_current_page() (thread UI), ce qui évite de sérialiser des
+            centaines de widgets en un seul page.update().
             """
-            new_controls = []
-            new_lazy = []
+            entries_data = []
             new_file_count_text = ""
-            has_images = False
+            error_text = ""
 
             if folder_to_display:
                 try:
                     with os.scandir(folder_to_display) as it:
-                        entries = list(it)
+                        raw = list(it)
 
-                    file_count = sum(1 for e in entries if not e.name.startswith(".") and not e.is_dir())
+                    file_count = sum(1 for e in raw if not e.name.startswith(".") and not e.is_dir())
                     new_file_count_text = f"({file_count} fichier{'s' if file_count > 1 else ''})"
 
-                    if not entries:
-                        new_controls.append(ft.Text("(dossier vide)", color=GREY))
-                    else:
+                    if raw:
                         if sort_by_date["value"]:
-                            sorted_entries = sorted(entries, key=lambda e: (not e.is_dir(), -e.stat().st_mtime))
+                            sorted_entries = sorted(raw, key=lambda e: (not e.is_dir(), -e.stat().st_mtime))
                         else:
-                            sorted_entries = sorted(entries, key=lambda e: (not e.is_dir(), e.name.lower()))
+                            sorted_entries = sorted(raw, key=lambda e: (not e.is_dir(), e.name.lower()))
 
                         for entry in sorted_entries:
-                            file = entry.name
-                            file_path = entry.path
+                            name = entry.name
+                            path = entry.path
                             is_dir = entry.is_dir()
-                            ext = os.path.splitext(file)[1].lower()
-                            is_image = ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.ico', '.tiff', '.tif']
-
-                            if is_dir:
-                                icon = ft.Icons.FOLDER
-                                icon_color = ft.Colors.AMBER_400
-                            elif is_image:
-                                icon = ft.Icons.IMAGE
-                                icon_color = ft.Colors.GREEN_400
-                            elif ext in ['.pdf']:
-                                icon = ft.Icons.PICTURE_AS_PDF
-                                icon_color = ft.Colors.RED_400
-                            elif ext == '.zip':
-                                icon = ft.Icons.FOLDER_ZIP
-                                icon_color = ORANGE
-                            elif ext in ['.txt', '.md', '.log']:
-                                icon = ft.Icons.DESCRIPTION
-                                icon_color = ft.Colors.BLUE_GREY_400
-                            elif ext in [".af", ".afphoto", ".afdesign", ".afpub", ".psd", ".psb", ".svg", ".eps", ".ai"]:
-                                icon = ft.Icons.ADOBE
-                                icon_color = GREEN
-                            else:
-                                icon = ft.Icons.INSERT_DRIVE_FILE
-                                icon_color = ft.Colors.BLUE_GREY_400
-
-                            checkbox = ft.Checkbox(
-                                border_side=ft.BorderSide(color=BLUE),
-                                value=file_path in selected_files,
-                                on_change=lambda e, path=file_path: on_checkbox_change(e, path),
-                            )
-
-                            if is_image:
-                                has_images = True
-                                image_ctrl = ft.Image(src=None, fit=ft.BoxFit.COVER, error_content=ft.Icon(icon, color=icon_color, size=18))
-                                new_lazy.append((len(new_controls), file_path, image_ctrl))
-                                visual = ft.Container(
-                                    content=image_ctrl, width=40, height=40,
-                                    border_radius=4, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                                )
-                            else:
-                                visual = ft.Icon(icon, color=icon_color, size=18)
-
-                            new_controls.append(
-                                ft.ListTile(
-                                    leading=ft.Row([checkbox, visual], spacing=8, tight=True),
-                                    title=ft.Text(file, size=12, color=WHITE),
-                                    trailing=ft.IconButton(
-                                        icon=ft.Icons.DELETE_OUTLINE, icon_size=16,
-                                        icon_color=ft.Colors.RED_300, tooltip="Supprimer",
-                                        on_click=lambda e, path=file_path: delete_item(path),
-                                    ),
-                                    on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
-                                    hover_color=GREY, dense=True,
-                                    content_padding=ft.Padding(left=5, top=0, right=5, bottom=0),
-                                )
-                            )
+                            ext = os.path.splitext(name)[1].lower()
+                            is_image = ext in [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"]
+                            entries_data.append((name, path, is_dir, is_image, ext))
 
                 except PermissionError:
-                    new_controls.append(ft.Text("⚠️ Accès refusé à ce dossier", color="red"))
+                    error_text = "⚠️ Accès refusé à ce dossier"
                 except Exception as ex:
-                    new_controls.append(ft.Text(f"⚠️ Erreur: {str(ex)}", color="red"))
+                    error_text = f"⚠️ Erreur: {str(ex)}"
 
-            # Envoyer résultat via pubsub → appliqué sur le thread Flet (pas depuis un thread Python brut)
-            page.pubsub.send_all_on_topic("preview_ready", (my_token, new_controls, new_lazy, new_file_count_text, has_images))
+            # Envoyer tuples de données brutes — le rendu des widgets se fait sur le thread UI
+            page.pubsub.send_all_on_topic("preview_ready", (my_token, entries_data, new_file_count_text, error_text))
 
         threading.Thread(target=_bg, daemon=True).start()
     
@@ -772,6 +819,19 @@ def main(page: ft.Page):
     
     # Attacher le callback au switch
     sort_switch.on_change = on_sort_change
+
+    def go_to_page(delta):
+        """Navigue de ±1 page sans rescanner le dossier."""
+        entries = all_entries_data["list"]
+        total_pages = max(1, (len(entries) + PAGE_SIZE - 1) // PAGE_SIZE)
+        new_pg = max(0, min(preview_page["value"] + delta, total_pages - 1))
+        if new_pg == preview_page["value"]:
+            return
+        preview_page["value"] = new_pg
+        _render_current_page()
+
+    prev_page_btn.on_click = lambda e: go_to_page(-1)
+    next_page_btn.on_click = lambda e: go_to_page(+1)
 
     # ================================================================ #
     #                LANCEMENT D'APPLICATIONS                          #
@@ -1227,6 +1287,7 @@ def main(page: ft.Page):
             folder_path.value = selected_folder["path"]
             folder_path.update()
             selected_files.clear()
+            preview_page["value"] = 0
             refresh_preview()
     
     async def close_window(e):
@@ -1292,7 +1353,7 @@ def main(page: ft.Page):
                             icon=ft.Icons.ARROW_LEFT,
                             tooltip="Kiosk gauche",
                             on_click=lambda e: launch_app("Kiosk gauche.py", os.path.join(cwd, "Data", "Kiosk gauche.py"), True),
-                            icon_color=BLUE,
+                            icon_color=VIOLET,
                             bgcolor=GREY,
                             icon_size=18,
                         ),
@@ -1300,7 +1361,7 @@ def main(page: ft.Page):
                             icon=ft.Icons.ARROW_RIGHT,
                             tooltip="Kiosk droite",
                             on_click=lambda e: launch_app("Kiosk droite.py", os.path.join(cwd, "Data", "Kiosk droite.py"), True),
-                            icon_color=BLUE,
+                            icon_color=VIOLET,
                             bgcolor=GREY,
                             icon_size=18,
                         ),
@@ -1375,9 +1436,12 @@ def main(page: ft.Page):
                         selection_count_text,
                         ft.Container(width=10),
                         file_count_text,
-                        ft.Container(width=10),
+                        ft.Container(width=4),
+                        prev_page_btn,
+                        page_indicator_text,
+                        next_page_btn,
+                        ft.Container(width=4),
                         sort_switch,
-                        ft.Container(width=10),
                         ft.IconButton(
                             icon=ft.Icons.CREATE_NEW_FOLDER,
                             tooltip="Créer un nouveau dossier",

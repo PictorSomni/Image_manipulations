@@ -42,7 +42,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Version : voir __version__
 """
 
-__version__ = "1.7.7"
+__version__ = "1.7.8"
 
 #############################################################
 #                          IMPORTS                          #
