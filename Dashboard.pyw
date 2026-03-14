@@ -28,6 +28,8 @@ __version__ = "1.7.8"
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+from tkinter import Y
+
 import flet as ft
 import os
 import subprocess
@@ -64,10 +66,12 @@ def main(page: ft.Page):
     GREY = "#2C3038"
     LIGHT_GREY = "#9399A6"
     BLUE = "#45B8F5"
-    VIOLET = "#b195ff"
+    VIOLET = "#AC92EC"
     GREEN = "#49B76C"
-    ORANGE = "#e18b69"
-    RED = "#e8697a"
+    YELLOW = "#FBCD5F"
+    HOVER_YELLOW = "#F9BA4E"
+    ORANGE = "#FFA071"
+    RED = "#F17171"
     WHITE = "#c7ccd8"
 
 # ===================== PROPERTIES ===================== #
@@ -145,12 +149,12 @@ def main(page: ft.Page):
         tooltip="Basculer entre tri alphabétique et tri par date de modification",
     )
     prev_page_btn = ft.IconButton(
-        icon=ft.Icons.CHEVRON_LEFT, icon_size=18, icon_color=DARK, bgcolor=BLUE,
-        tooltip="Page précédente", visible=False,
+        icon=ft.Icons.CHEVRON_LEFT, icon_size=18, icon_color=DARK, bgcolor=YELLOW,
+        tooltip="Page précédente", visible=False, hover_color=HOVER_YELLOW
     )
     next_page_btn = ft.IconButton(
-        icon=ft.Icons.CHEVRON_RIGHT, icon_size=18, icon_color=DARK, bgcolor=BLUE,
-        tooltip="Page suivante", visible=False,
+        icon=ft.Icons.CHEVRON_RIGHT, icon_size=18, icon_color=DARK, bgcolor=YELLOW,
+        tooltip="Page suivante", visible=False, hover_color=HOVER_YELLOW
     )
     page_indicator_text = ft.Text("", size=12, color=LIGHT_GREY)
     selected_files_prefix = "SELECTED_FILES:"

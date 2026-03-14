@@ -100,9 +100,11 @@ BG = "#373d4a"
 GREY = "#2C3038"
 LIGHT_GREY = "#9399A6"
 BLUE = "#45B8F5"
+VIOLET = "#AC92EC"
 GREEN = "#49B76C"
-ORANGE = "#e18b69"
-RED = "#e8697a"
+YELLOW = "#EECB6D"
+ORANGE = "#FFA071"
+RED = "#F17171"
 WHITE = "#c7ccd8"
 
 
@@ -399,9 +401,9 @@ class PhotoCropper:
         self.network_switch = ft.Switch(label="Sauver sur réseau", active_color=GREEN, value=True, visible=True if "ID" in self.current_format_label else False, on_change=self.on_network_toggle)
         self.sharpen_switch = ft.Switch(label="Netteté", active_color=BLUE, value=True, visible=True, on_change=self.on_sharpen_toggle)
         self.is_sharpen = True
-        self.bw_switch = ft.Switch(label="Noir et blanc", active_color=ORANGE, value=False, on_change=self.on_bw_toggle)
+        self.bw_switch = ft.Switch(label="Noir et blanc", active_color=YELLOW, value=False, on_change=self.on_bw_toggle)
         self.is_fit_in = False
-        self.fit_in_switch = ft.Switch(label="Fit-in", active_color=GREEN, value=False, on_change=self.on_fit_in_toggle)
+        self.fit_in_switch = ft.Switch(label="Fit-in", active_color=VIOLET, value=False, on_change=self.on_fit_in_toggle)
 
         # Sliders de réglages (panneau gauche)
         self.contrast = 0.0
