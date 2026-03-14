@@ -145,11 +145,11 @@ def main(page: ft.Page):
         tooltip="Basculer entre tri alphabétique et tri par date de modification",
     )
     prev_page_btn = ft.IconButton(
-        icon=ft.Icons.CHEVRON_LEFT, icon_size=18, icon_color=BLUE, bgcolor=GREY,
+        icon=ft.Icons.CHEVRON_LEFT, icon_size=18, icon_color=DARK, bgcolor=BLUE,
         tooltip="Page précédente", visible=False,
     )
     next_page_btn = ft.IconButton(
-        icon=ft.Icons.CHEVRON_RIGHT, icon_size=18, icon_color=BLUE, bgcolor=GREY,
+        icon=ft.Icons.CHEVRON_RIGHT, icon_size=18, icon_color=DARK, bgcolor=BLUE,
         tooltip="Page suivante", visible=False,
     )
     page_indicator_text = ft.Text("", size=12, color=LIGHT_GREY)
