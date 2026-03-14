@@ -2676,7 +2676,7 @@ def main(page: ft.Page):
                     value="ID (36x46mm)",
                     on_change=app.change_ratio
                 ),
-            ]),
+            ], scroll=ft.ScrollMode.AUTO),
             height=400,
             border=ft.Border.all(1, GREY),
             bgcolor=DARK,
