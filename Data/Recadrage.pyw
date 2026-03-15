@@ -42,7 +42,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Version : voir __version__
 """
 
-__version__ = "1.7.8"
+__version__ = "1.8.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -50,11 +50,20 @@ __version__ = "1.7.8"
 import flet as ft
 import os
 import platform
+import threading
 from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageCms
 import asyncio
+import contextlib
 import math
 import io
 import numpy as np
+
+os.environ.setdefault("ORT_LOGGING_LEVEL", "3")  # Suppress onnxruntime performance warnings
+try:
+    from rembg import remove as _rembg_remove, new_session as _rembg_new_session
+    REMBG_AVAILABLE = True
+except ImportError:
+    REMBG_AVAILABLE = False
 # Ensure wand can locate the ImageMagick shared library (Homebrew on Apple Silicon / Intel)
 if not os.environ.get("MAGICK_HOME"):
     import subprocess, shutil
@@ -341,7 +350,7 @@ class PhotoCropper:
 
         # Image principale
         self.image_display = ft.Image(
-            src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+            src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=", #1x1 pixel transparent GIF, plus léger que les placeholders de PIL
             fit=ft.BoxFit.COVER,
             gapless_playback=True,
         )
@@ -353,10 +362,17 @@ class PhotoCropper:
             top=0,
         )
         
+        # Lignes de grille des tiers (fixées au canevas, pas à l'image)
+        _gc = ft.Colors.with_opacity(0.5, "#707070")
+        self._grid_lines = [
+            ft.Container(bgcolor=_gc, left=self.canvas_w / 3,     top=0,                    width=1,             height=self.canvas_h, visible=False),
+            ft.Container(bgcolor=_gc, left=2 * self.canvas_w / 3, top=0,                    width=1,             height=self.canvas_h, visible=False),
+            ft.Container(bgcolor=_gc, left=0,                     top=self.canvas_h / 3,    width=self.canvas_w, height=1,             visible=False),
+            ft.Container(bgcolor=_gc, left=0,                     top=2 * self.canvas_h / 3,width=self.canvas_w, height=1,             visible=False),
+        ]
         # Stack pour positionner l'image
         self.image_stack = ft.Stack(
-            controls=[
-                self.image_container],
+            controls=[self.image_container, *self._grid_lines],
             width=self.canvas_w,
             height=self.canvas_h,
         )
@@ -404,6 +420,54 @@ class PhotoCropper:
         self.bw_switch = ft.Switch(label="Noir et blanc", active_color=YELLOW, value=False, on_change=self.on_bw_toggle)
         self.is_fit_in = False
         self.fit_in_switch = ft.Switch(label="Fit-in", active_color=VIOLET, value=False, on_change=self.on_fit_in_toggle)
+        self.show_grid = False
+        self.grid_switch = ft.Switch(label="Grille", active_color=BLUE, value=False, on_change=self.on_grid_toggle)
+        # Suppression fond IA
+        self._rembg_session = [None]
+        self._rembg_original = None   # sauvegarde avant suppression du fond
+        self.rembg_bg_white = True
+        self.rembg_precise = False
+        self.rembg_precise_btn = ft.Switch(
+            label="Précis",
+            active_color=VIOLET,
+            value=False,
+            on_change=self.on_rembg_precise_toggle,
+        )
+        self.rembg_human_seg = True
+        self._rembg_bg_label = ft.Text("Fond blanc", size=12, color=DARK)
+        self.rembg_bg_btn = ft.Button(
+            content=self._rembg_bg_label,
+            bgcolor=ft.Colors.GREY_200,
+            on_click=self.on_rembg_bg_toggle,
+            style=ft.ButtonStyle(
+                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                shape=ft.RoundedRectangleBorder(radius=6),
+            ),
+            height=30,
+            tooltip="Fond blanc / Fond gris",
+        )
+        self._rembg_model_label = ft.Text("Humain", size=12, color=DARK)
+        self.rembg_model_btn = ft.Button(
+            content=self._rembg_model_label,
+            bgcolor=VIOLET,
+            on_click=self.on_rembg_model_toggle,
+            style=ft.ButtonStyle(
+                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                shape=ft.RoundedRectangleBorder(radius=6),
+            ),
+            height=30,
+            tooltip="u2net_human_seg (portrait) / u2net (généraliste)" if REMBG_AVAILABLE else "",
+        )
+        self.rembg_btn = ft.IconButton(
+            icon=ft.Icons.AUTO_FIX_HIGH,
+            selected_icon=ft.Icons.AUTO_FIX_HIGH,
+            selected=False,
+            icon_color=LIGHT_GREY,
+            selected_icon_color=VIOLET,
+            tooltip="Supprimer le fond par IA (rembg)" if REMBG_AVAILABLE else "pip install rembg onnxruntime",
+            on_click=self.on_rembg,
+            style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+        )
 
         # Sliders de réglages (panneau gauche)
         self.contrast = 0.0
@@ -456,7 +520,7 @@ class PhotoCropper:
         `canvas_container` et `image_stack`.
         """
         available_width = min(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
-        available_height = min(self.page.window.height - 300, MAX_CANVAS_SIZE) if self.page.window.height else 600
+        available_height = min(self.page.window.height - 310, MAX_CANVAS_SIZE) if self.page.window.height else 600
 
         # Calculer le ratio du format choisi
         fmt_w, fmt_h = self.current_format
@@ -475,6 +539,16 @@ class PhotoCropper:
         self.canvas_container.height = self.canvas_h
         self.image_stack.width = self.canvas_w
         self.image_stack.height = self.canvas_h
+        # Repositionner les lignes de grille
+        if hasattr(self, '_grid_lines'):
+            self._grid_lines[0].left   = self.canvas_w / 3
+            self._grid_lines[1].left   = 2 * self.canvas_w / 3
+            self._grid_lines[0].height = self.canvas_h
+            self._grid_lines[1].height = self.canvas_h
+            self._grid_lines[2].top    = self.canvas_h / 3
+            self._grid_lines[2].width  = self.canvas_w
+            self._grid_lines[3].top    = 2 * self.canvas_h / 3
+            self._grid_lines[3].width  = self.canvas_w
         self.page.update()
 
     def _update_transform(self):
@@ -622,6 +696,8 @@ class PhotoCropper:
             pil_img = ImageOps.exif_transpose(pil_img)
             pil_img = pil_img.convert("RGBA")
             self.current_pil_image = pil_img
+            self._rembg_original = None
+            self.rembg_btn.selected = False
             self.orig_w, self.orig_h = pil_img.size
         except Exception as e:
             self.status_text.value = f"Erreur lors du chargement: {os.path.basename(path)} - {str(e)}"
@@ -1346,10 +1422,11 @@ class PhotoCropper:
             return
         if not hasattr(self, 'display_w'):
             return
-        # Aplatir l'alpha sur fond blanc
+        # Aplatir l'alpha sur le fond choisi (blanc ou gris clair)
         preview = self.current_pil_image.copy()
         if preview.mode == "RGBA":
-            bg = Image.new("RGBA", preview.size, (255, 255, 255, 255))
+            bg_color = (255, 255, 255, 255) if getattr(self, 'rembg_bg_white', True) else (220, 220, 220, 255)
+            bg = Image.new("RGBA", preview.size, bg_color)
             preview = Image.alpha_composite(bg, preview).convert("RGB")
         else:
             preview = preview.convert("RGB")
@@ -1379,6 +1456,7 @@ class PhotoCropper:
         tmp_path = os.path.join(self._preview_tmp_dir, f"_rc_{self._preview_counter}.jpg")
         preview.save(tmp_path, format="JPEG", quality=88)
         self.image_display.src = tmp_path
+        self.image_display.update()
         # Supprimer l'ancien fichier — au plus 1 fichier sur disque à tout moment
         if self._prev_preview_path:
             try: os.remove(self._prev_preview_path)
@@ -1504,6 +1582,13 @@ class PhotoCropper:
     #                        TOGGLES & SWITCHES                        #
     # ================================================================ #
 
+    def on_grid_toggle(self, e):
+        """Active ou désactive la grille des tiers fixée au canevas."""
+        self.show_grid = bool(e.control.value)
+        for line in self._grid_lines:
+            line.visible = self.show_grid
+        self.page.update()
+
     def on_bw_toggle(self, e):
         """
         Active ou désactive le mode noir et blanc.
@@ -1558,6 +1643,167 @@ class PhotoCropper:
         self.is_sharpen = bool(e.control.value)
         self._render_preview()
         self.page.update()
+
+    def on_rembg_precise_toggle(self, e):
+        """
+        Active ou désactive le mode de détourage précis (alpha matting).
+
+        **Mode rapide** (défaut, switch OFF) : rembg utilise uniquement le
+        masque brut produit par le modèle ``u2net_human_seg``. Très rapide
+        (~1–2 s) mais peut laisser un halo semi-transparent sur les bords
+        fins (cheveux, lunettes).
+
+        **Mode précis** (switch ON) : rembg applique en plus l'algorithme de
+        matting ``pymatting`` qui affine la transition sujet/fond pixel par
+        pixel. Nettement meilleur sur les bords complexes, mais
+        2–3× plus lent. Nécessite ``pip install pymatting``.
+
+        Paramètres de matting utilisés :
+          - ``alpha_matting_foreground_threshold`` = 240
+          - ``alpha_matting_background_threshold`` = 10
+          - ``alpha_matting_erode_size`` = 10
+
+        Ce switch est lu au moment du clic sur le bouton « Fond IA » et
+        n'a aucun effet sur une suppression déjà effectuée.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du Switch « Précis ».
+        """
+        self.rembg_precise = bool(e.control.value)
+
+    def on_rembg_model_toggle(self, e):
+        """Bascule entre u2net (Général) et u2net_human_seg (Humain)."""
+        self.rembg_human_seg = not self.rembg_human_seg
+        self._rembg_session[0] = None  # forcer le rechargement du modèle
+        if self.rembg_human_seg:
+            self._rembg_model_label.value = "Humain"
+            self.rembg_model_btn.bgcolor = VIOLET
+        else:
+            self._rembg_model_label.value = "Général"
+            self.rembg_model_btn.bgcolor = BLUE
+        self.rembg_model_btn.update()
+
+    def on_rembg_bg_toggle(self, e):
+        """Bascule fond blanc (GREY_200) ↔ fond gris (GREY_600)."""
+        self.rembg_bg_white = not self.rembg_bg_white
+        if self.rembg_bg_white:
+            self._rembg_bg_label.value = "Fond blanc"
+            self._rembg_bg_label.color = DARK
+            self.rembg_bg_btn.bgcolor = ft.Colors.GREY_200
+        else:
+            self._rembg_bg_label.value = "Fond gris"
+            self._rembg_bg_label.color = WHITE
+            self.rembg_bg_btn.bgcolor = ft.Colors.GREY_600
+        self.rembg_bg_btn.update()
+        self._render_preview()
+        self.page.update()
+
+    async def on_rembg(self, e):
+        """
+        Bouton toggle de suppression du fond par IA (rembg).
+
+        Comportement toggle
+        -------------------
+        * **Premier clic** (icône grise → violette) :
+            Sauvegarde ``current_pil_image`` dans ``_rembg_original``, lance
+            le traitement IA et remplace ``current_pil_image`` par le résultat
+            RGBA. Le statut affiche ``[OK] Fond supprimé — recliquer pour
+            restaurer``.
+        * **Deuxième clic** (icône violette → grise) :
+            Restaure ``_rembg_original`` dans ``current_pil_image`` sans
+            relancer rembg. Rapide et réversible à tout moment.
+        * Au chargement d'une nouvelle image, ``_rembg_original`` est remis
+          à ``None`` et le bouton repasse en gris.
+
+        Pipeline asynchrone
+        -------------------
+        Le calcul rembg (bloquant) est délégué à un thread pool via
+        ``asyncio.to_thread(_do_rembg)``. Les mises à jour UI (``_render_preview``,
+        ``page.update``) s'exécutent ensuite sur la boucle asyncio principale
+        de Flet, garantissant un rafraîchissement immédiat sans avoir à
+        utiliser des threads secondaires ou des callbacks explicites.
+
+        Modèle IA
+        ---------
+        ``u2net_human_seg`` — modèle spécialisé sujets humains, téléchargé
+        automatiquement dans ``~/.u2net/`` (~175 Mo) à la première utilisation.
+        La session est mise en cache dans ``self._rembg_session[0]`` pour
+        éviter de recharger le modèle à chaque clic.
+
+        Mode précis
+        -----------
+        Si ``self.rembg_precise`` est ``True`` (switch « Précis » activé),
+        ``alpha_matting=True`` est passé à ``rembg_remove`` avec les
+        seuils ``foreground=240``, ``background=10``, ``erode_size=10``.
+        Voir ``on_rembg_precise_toggle`` pour la description complète.
+
+        Fond de remplacement
+        --------------------
+        ``current_pil_image`` reste en mode RGBA après traitement. L'aplatissement
+        sur fond blanc (255,255,255) ou gris clair (220,220,220) est
+        effectué à la volée dans ``_render_preview`` et à l'export, selon
+        ``self.rembg_bg_white`` (switch « Fond blanc »).
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du bouton icône (``on_click``).
+        """
+        if not REMBG_AVAILABLE:
+            self.status_text.value = "[ERREUR] rembg non installé — pip install rembg onnxruntime"
+            self.page.update()
+            return
+        if self.current_pil_image is None:
+            self.status_text.value = "Aucune image chargée."
+            self.page.update()
+            return
+
+        # Deuxième clic : restaurer l'image originale
+        if self.rembg_btn.selected and self._rembg_original is not None:
+            self.current_pil_image = self._rembg_original
+            self._rembg_original = None
+            self.rembg_btn.selected = False
+            self.status_text.value = "Fond restauré"
+            self._render_preview()
+            self.page.update()
+            return
+
+        self.rembg_btn.disabled = True
+        self.status_text.value = "Suppression du fond en cours…"
+        self.page.update()
+
+        def _do_rembg():
+            if self._rembg_session[0] is None:
+                model_name = "u2net_human_seg" if self.rembg_human_seg else "u2net"
+                self._rembg_session[0] = _rembg_new_session(model_name)
+            buf = io.BytesIO()
+            self.current_pil_image.convert("RGB").save(buf, format="PNG")
+            kwargs = {"session": self._rembg_session[0]}
+            if self.rembg_precise:
+                kwargs.update({
+                    "alpha_matting": True,
+                    "alpha_matting_foreground_threshold": 240,
+                    "alpha_matting_background_threshold": 10,
+                    "alpha_matting_erode_size": 10,
+                })
+            with contextlib.redirect_stderr(io.StringIO()):
+                result_bytes = _rembg_remove(buf.getvalue(), **kwargs)
+            return Image.open(io.BytesIO(result_bytes)).convert("RGBA")
+
+        try:
+            result = await asyncio.to_thread(_do_rembg)
+            self._rembg_original = self.current_pil_image
+            self.current_pil_image = result
+            self.rembg_btn.selected = True
+            self.status_text.value = "[OK] Fond supprimé — recliquer pour restaurer"
+        except Exception as ex:
+            self.status_text.value = f"[ERREUR] rembg : {ex}"
+        finally:
+            self.rembg_btn.disabled = False
+            self._render_preview()
+            self.page.update()
 
     def on_network_toggle(self, e):
         """
@@ -2667,6 +2913,7 @@ def main(page: ft.Page):
 
     controls = ft.Column([
         ft.Container(
+            # ── Panneau droite : Choix des dimensions des photos ──────────────────────
             content=ft.Column([
                 ft.Text("Formats Photos", size=16, weight=ft.FontWeight.BOLD, color=WHITE),
                 ft.Divider(height=4),
@@ -2746,6 +2993,7 @@ def main(page: ft.Page):
                     border_radius=8,
                 ),
                 ft.Container(
+                # ── Panneau du dessus : Opérations ──────────────────────
                     content=ft.Column(
                         [
                             ft.Container(
@@ -2789,21 +3037,40 @@ def main(page: ft.Page):
                                             app.bw_switch,
                                             app.fit_in_switch,
                                         ], horizontal_alignment=ft.CrossAxisAlignment.START, spacing=4),
+                                        ft.VerticalDivider(width=1, color=LIGHT_GREY),                                            
+                                        ft.Column([
+                                            ft.Text("Fond IA", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                                            ft.Row([app.rembg_btn, app.rembg_precise_btn], spacing=4),
+                                            ft.Row([app.rembg_bg_btn, app.rembg_model_btn], spacing=4),
+                                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
                                         ft.VerticalDivider(width=1, color=LIGHT_GREY),
                                         ft.Column([
-                                            ft.Button("Orientation",
-                                                icon=ft.icons.Icons.SWAP_HORIZ,
-                                                color=BLUE,
-                                                on_click=app.toggle_orientation),
-                                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER),
-                                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=100),
+                                            ft.Button(
+                                                content=ft.Row([
+                                                    ft.Icon(ft.icons.Icons.SWAP_HORIZ, size=16, color=BLUE),
+                                                    ft.Text("Orientation", size=14, color=BLUE),
+                                                ], spacing=4, tight=True),
+                                                bgcolor=BG,
+                                                on_click=app.toggle_orientation,
+                                                style=ft.ButtonStyle(
+                                                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                                                    shape=ft.RoundedRectangleBorder(radius=6),
+                                                ),
+                                                height=30,
+                                            ),
+                                            app.grid_switch,
+                                        ], horizontal_alignment=ft.CrossAxisAlignment.START, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
+                                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=110),
                                 ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                                 padding=ft.Padding.only(top=6, bottom=4, left=12, right=12),
                                 alignment=ft.Alignment.CENTER,
                                 bgcolor=DARK,
                                 border_radius=8,
+                                height=210,
+                                width=1200,
                                 border=ft.Border.all(1, GREY),
                             ),
+                            # ── Zone centrale : Canevas de l'image ──────────────────────
                             ft.Container(
                                 content=app.canvas_container,
                                 expand=True,

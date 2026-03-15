@@ -11,3 +11,7 @@ numpy>=1.24.0
 
 # Conversion PDF en images
 PyMuPDF>=1.23.0
+
+# Suppression de fond par IA (optionnel — requis par Recadrage.pyw)
+rembg>=2.0.0
+onnxruntime>=1.16.0

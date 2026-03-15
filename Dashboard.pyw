@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "1.7.8"
+__version__ = "1.8.0"
 
 #############################################################
 #                          IMPORTS                          #

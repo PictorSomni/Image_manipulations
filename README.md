@@ -94,6 +94,8 @@ pip install -r requirements.txt
 - `Wand` : Conversion d'images (requiert ImageMagick)
 - `numpy` : Calculs vectoriels (exposition, ombres, hautes lumières)
 - `PyMuPDF` : Conversion de PDF en images
+- `rembg` *(optionnel)* : Suppression de fond par IA dans Recadrage.pyw (requiert `onnxruntime`)
+- `onnxruntime` *(optionnel)* : Moteur d'inférence pour rembg
 
 ---
 
@@ -139,6 +141,8 @@ Dashboard-Image-Manipulation/
 
 - **Interface graphique moderne** avec Flet
 - **Navigation dans les dossiers** avec prévisualisation
+- **Pagination** : affichage par tranches de 100 fichiers avec boutons Précédent / Suivant et indicateur de position (pour les dossiers volumineux)
+- **Décompression ZIP** : cliquer sur un fichier `.zip` l'extrait automatiquement dans son dossier courant (détection de racine unique)
 - **Lancement rapide d'applications** de traitement d'images
 - **Gestion des fichiers** (sélection, suppression, ouverture, création de dossiers, copier/coller...)
 - **Support multi-plateforme** (Windows, macOS, Linux)
@@ -168,7 +172,7 @@ Dashboard-Image-Manipulation/
 | Format 13x15 | `Format 13x15.py` | Recadre en format 13x15 cm |
 | Images en PDF | `Images en PDF.py` | Génère un PDF à partir d'images |
 | Noir et blanc | `N&B.py` | Conversion noir et blanc |
-| Recadrage | `Recadrage.pyw` | Recadrage interactif avec 16 formats d'impression (ID, 10x15, 13x18, 20x30…), mode batch, zoom/pan/rotation, 2 en 1, planches ID x2/x4, formats multiples par image, exemplaires, noir et blanc, netteté |
+| Recadrage | `Recadrage.pyw` | Recadrage interactif avec 16 formats d'impression (ID, 10x15, 13x18, 20x30…), mode batch, zoom/pan/rotation, 2 en 1, planches ID x2/x4, formats multiples par image, exemplaires, noir et blanc, netteté, **grille des tiers** (overlay activable), **suppression de fond par IA** (rembg : fond blanc/gris, modèle humain/généraliste, mode précis) |
 | Remerciements | `Remerciements.py` | Génère des cartes de remerciement |
 | Redimensionner | `Redimensionner.py` | Redimensionne les images (taille paramétrable) |
 | Redimensionner + filigrane | `Redimensionner filigrane.py` | Redimensionne avec filigrane (taille paramétrable) |
