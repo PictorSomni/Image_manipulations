@@ -330,14 +330,14 @@ class PhotoCropper:
             color=WHITE,
         )
         self.copies_minus_btn = ft.IconButton(
-            icon=ft.icons.Icons.REMOVE,
+            icon=ft.Icons.REMOVE,
             icon_color=WHITE,
             icon_size=20,
             on_click=self.decrement_copies,
             tooltip="Moins",
         )
         self.copies_plus_btn = ft.IconButton(
-            icon=ft.icons.Icons.ADD,
+            icon=ft.Icons.ADD,
             icon_color=BLUE,
             icon_size=20,
             on_click=self.increment_copies,
@@ -392,7 +392,7 @@ class PhotoCropper:
         # action buttons (created here so main can reference them)
         self.validate_button = ft.Button(
             "Valider & Suivant",
-            icon=ft.icons.Icons.CHECK,
+            icon=ft.Icons.CHECK,
             bgcolor=GREEN,
             color=DARK,
             on_click=self.validate_and_next,
@@ -401,7 +401,7 @@ class PhotoCropper:
         # Ignore button to skip current image
         self.ignore_button = ft.Button(
             "Ignorer Image",
-            icon=ft.icons.Icons.BLOCK,
+            icon=ft.Icons.BLOCK,
             bgcolor=RED,
             color=DARK,
             on_click=self.ignore_image,
@@ -3014,14 +3014,14 @@ def main(page: ft.Page):
                                             ft.Text("Formats multiples", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
                                             ft.Row([
                                                 ft.IconButton(
-                                                    icon=ft.icons.Icons.CLEAR,
+                                                    icon=ft.Icons.CLEAR,
                                                     icon_color=RED,
                                                     tooltip="Vider la liste",
                                                     on_click=app.clear_extra_formats,
                                                     icon_size=24,
                                                 ),
                                                 ft.IconButton(
-                                                    icon=ft.icons.Icons.ADD_CIRCLE_OUTLINE,
+                                                    icon=ft.Icons.ADD_CIRCLE_OUTLINE,
                                                     icon_color=BLUE,
                                                     tooltip="Ajouter le format courant à la liste",
                                                     on_click=app.add_extra_format,
@@ -3047,7 +3047,7 @@ def main(page: ft.Page):
                                         ft.Column([
                                             ft.Button(
                                                 content=ft.Row([
-                                                    ft.Icon(ft.icons.Icons.SWAP_HORIZ, size=16, color=BLUE),
+                                                    ft.Icon(ft.Icons.SWAP_HORIZ, size=16, color=BLUE),
                                                     ft.Text("Orientation", size=14, color=BLUE),
                                                 ], spacing=4, tight=True),
                                                 bgcolor=BG,

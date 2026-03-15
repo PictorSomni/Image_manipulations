@@ -28,8 +28,6 @@ __version__ = "1.8.0"
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-from tkinter import Y
-
 import flet as ft
 import os
 import subprocess
