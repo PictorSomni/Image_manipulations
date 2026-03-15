@@ -112,7 +112,7 @@ def main(page: ft.Page):
         "Images en PDF.py": [False, GREEN],
         "Redimensionner.py": [False, WHITE],
         "Format 13x10.py": [False, WHITE],
-        "2 en 1.py": [False, WHITE],
+        "Augmentation IA.py": [False, VIOLET],
         "Format 13x15.py": [False, WHITE],
     }
     
