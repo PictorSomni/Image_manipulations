@@ -20,7 +20,7 @@ Raccourcis clavier :
 
 Dépendances :
   flet >= 0.80, modules standard (os, subprocess, sys, platform, shutil,
-  threading, re).
+  threading, re, zipfile, time).
 """
 
 __version__ = "1.7.8"
@@ -52,13 +52,22 @@ def main(page: ft.Page):
     personnalisée), initialise toutes les variables d'état, enregistre les
     canaux PubSub et construit l'interface avec trois zones :
       - Grille « Applications disponibles » (gauche).
-      - Panneau de prévisualisation du contenu du dossier sélectionné (centre).
+      - Panneau de prévisualisation du contenu du dossier sélectionné (droite).
       - Terminal intégré affichant la sortie des scripts (bas).
 
     Parameters
     ----------
     page : ft.Page
         Objet page Flet injecté automatiquement par ``ft.run(main)``.
+
+    ---
+    PubSub (publish/subscribe) est un système de messagerie interne
+    qui permet la communication thread-safe entre les threads de fond
+    (scan, lecture de processus) et le thread UI de Flet :
+    les threads publient des messages sur des "canaux" nommés
+    (ex. "terminal", "refresh", "navigate"), et les callbacks abonnés les reçoivent
+    et mettent à jour l'interface.
+    ---
     """
 # ===================== COLORS ===================== #
     DARK = "#222429"
