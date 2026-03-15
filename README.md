@@ -166,7 +166,7 @@ Dashboard-Image-Manipulation/
 |-------------------------|--------|-------------|
 | 2 en 1 | `2 en 1.py` | Combine deux images côte à côte |
 | Nettoyer les métadonnées | `Nettoyer metadonnees.py` | Supprime les métadonnées EXIF |
-| Conversion en JPG | `Conversion JPG.py` | Convertit les images en JPG |
+| Conversion en JPG | `Conversion JPG.py` | Convertit les images (et les fichiers PDF !) en JPG |
 | Fichiers manquants | `Fichiers manquants.py` | Détecte les fichiers manquants |
 | Format 13x10 | `Format 13x10.py` | Recadre en format 13x10 cm |
 | Format 13x15 | `Format 13x15.py` | Recadre en format 13x15 cm |
