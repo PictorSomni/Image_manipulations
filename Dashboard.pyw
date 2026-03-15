@@ -793,10 +793,26 @@ def main(page: ft.Page):
             new_file_count_text = ""
             error_text = ""
 
+            # Fichiers système à ignorer (macOS, Windows, Linux)
+            OS_JUNK = {
+                ".ds_store", "thumbs.db", "thumbs.db:encryptable",
+                "ehthumbs.db", "ehthumbs_vista.db", "desktop.ini",
+                ".directory", ".spotlight-v100", ".trashes",
+            }
+
+            def _is_os_junk(entry):
+                name_lower = entry.name.lower()
+                return (
+                    name_lower in OS_JUNK
+                    or name_lower.startswith("._")
+                    or entry.name == "$RECYCLE.BIN"
+                    or (entry.name.startswith(".Trash-") and entry.is_dir())
+                )
+
             if folder_to_display:
                 try:
                     with os.scandir(folder_to_display) as it:
-                        raw = list(it)
+                        raw = [e for e in it if not _is_os_junk(e)]
 
                     file_count = sum(1 for e in raw if not e.name.startswith(".") and not e.is_dir())
                     new_file_count_text = f"({file_count} fichier{'s' if file_count > 1 else ''})"

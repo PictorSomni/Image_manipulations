@@ -1,7 +1,28 @@
 
 *.pyc
-COMMANDE/.DS_Store
-.DS_Store
 __pycache__/
 .preview_cache
 _rc*
+
+# macOS
+.DS_Store
+.DS_Store?
+COMMANDE/.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+.directory
+.Trash-*
