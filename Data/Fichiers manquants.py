@@ -23,6 +23,16 @@ OUTPUT_SELECTED_FILES_PREFIX = "SELECTED_FILES:"
 #############################################################
 from pathlib import Path
 import os
+import re
+
+#############################################################
+#                         HELPERS                           #
+#############################################################
+_COPIES_PREFIX_RE = re.compile(r'^\d+X_', re.IGNORECASE)
+
+def strip_copies_prefix(name: str) -> str:
+    """Supprime le préfixe de compteur d'impression (ex: '3X_') si présent."""
+    return _COPIES_PREFIX_RE.sub('', name)
 
 #############################################################
 #                          CONTENT                          #
@@ -48,7 +58,10 @@ if dest_dir:
     # Déterminer le dossier de travail (cwd si lancé depuis Dashboard, sinon PATH)
     all_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file()]
     copied_files = [file.name for file in sorted(dest_dir.iterdir()) if file.is_file()]
-    missing_files = [file for file in all_files if file not in copied_files and not file.startswith('.') and not file.endswith('.py')]
+    # Construire un ensemble des noms présents dans la destination en ignorant
+    # le préfixe de compteur d'impression ajouté par Recadrage.pyw (ex: "3X_").
+    copied_basenames = {strip_copies_prefix(f) for f in copied_files}
+    missing_files = [file for file in all_files if file not in copied_basenames and not file.startswith('.') and not file.endswith('.py')]
     print(f"{len(missing_files)} fichier(s) manquant(s) dans le dossier {dest_dir} :")
     for file in missing_files:
         print(f"- {file}")
