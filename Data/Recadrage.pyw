@@ -79,7 +79,6 @@ from wand import color
 # ===================== Configuration ===================== #
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
 CONTROLS_WIDTH = 270    # Largeur de la colonne de contrôles
-ZOOM_SENSIBILITY = 5000   # Sensibilité du zoom
 DPI = 300  # Résolution d'export
 
 # Formats d'impression (largeur_mm, hauteur_mm) - en portrait
@@ -270,8 +269,10 @@ class PhotoCropper:
         self.enhance_toggle = False  # Retro-compat snapshots anciens
         self.canvas_w = 800  # Valeur initiale, ajustée au chargement
         self.canvas_h = self.canvas_w * self.current_format[1] / self.current_format[0]
+        self.display_w = int(self.canvas_w)   # initialisé avant tout chargement d'image
+        self.display_h = int(self.canvas_h)   # pour éviter AttributeError dans _clamp_offsets
 
-        # Gestion du zoom et transformation (contrôlées manuellement)
+        # Gestion du zoom et transformation
         self.scale = 1.0          # Scale actuel
         self.offset_x = 0.0       # Offset X en pixels
         self.offset_y = 0.0       # Offset Y en pixels
@@ -355,13 +356,13 @@ class PhotoCropper:
             gapless_playback=True,
         )
         
-        # Container positionné dans un Stack avec scale pour le zoom
+        # Container positionné dans un Stack avec scale/rotate pour le zoom et la rotation
         self.image_container = ft.Container(
             content=self.image_display,
             left=0,
             top=0,
         )
-        
+
         # Lignes de grille des tiers (fixées au canevas, pas à l'image)
         _gc = ft.Colors.with_opacity(0.5, "#707070")
         self._grid_lines = [
@@ -377,7 +378,7 @@ class PhotoCropper:
             height=self.canvas_h,
         )
 
-        # GestureDetector pour gérer le pan et zoom manuellement
+        # GestureDetector pour gérer le pan et zoom
         self.gesture_detector = ft.GestureDetector(
             content=self.image_stack,
             on_pan_update=self.on_pan_update,
@@ -556,24 +557,15 @@ class PhotoCropper:
         Applique la transformation affine courante (scale, pan, rotation)
         au container de l'image dans le Stack.
 
-        Le container est positionné de sorte que son **centre** reste aligné
-        sur le centre optique du canevas décalé par (offset_x, offset_y).
-        Le scale et la rotation sont appliqués à partir du centre du container
-        grâce aux propriétés `scale` et `rotate` de Flet.
-
-        Cette méthode ne rafraîchit pas la page ; l'appelant doit invoquer
-        `self.page.update()` si nécessaire.
+        Appelle uniquement `.update()` sur le container (pas `page.update()`)
+        pour minimiser le coût de rendu lors du pan/zoom interactif.
         """
-        # Dimensions zoomées
         zoomed_w = self.display_w * self.scale
         zoomed_h = self.display_h * self.scale
 
-        # Position pour centrer l'image + offset utilisateur
         left = (self.canvas_w - zoomed_w) / 2 + self.offset_x
         top = (self.canvas_h - zoomed_h) / 2 + self.offset_y
 
-        # Le scale s'applique depuis le centre, donc on positionne le container
-        # de sorte que son centre soit au bon endroit une fois le scale appliqué
         self.image_container.scale = self.scale
         self.image_container.rotate = math.radians(self.rotation)
 
@@ -581,7 +573,8 @@ class PhotoCropper:
         center_y = top + zoomed_h / 2
 
         self.image_container.left = center_x - self.display_w / 2
-        self.image_container.top = center_y - self.display_h / 2
+        self.image_container.top  = center_y - self.display_h / 2
+        self.image_container.update()
 
     def _get_transformed_bounds(self):
         """
@@ -734,7 +727,7 @@ class PhotoCropper:
         # Réinitialiser le scale du container
         self.image_container.scale = 1.0
 
-        # Appliquer la transformation initiale en forçant l'image à couvrir le canevas
+        # Appliquer la transformation initiale
         self._clamp_offsets()
         self._update_transform()
 
@@ -1468,74 +1461,39 @@ class PhotoCropper:
     # ================================================================ #
 
     def on_pan_update(self, e: ft.DragUpdateEvent):
-        """
-        Gestionnaire de glisser (drag) sur le canvas.
-
-        Accumule les déltas de déplacement dans offset_x / offset_y
-        puis contraint les offsets (clamp) et applique la transformation.
-        Déclenché à chaque tick du GestureDetector (intervalle 10 ms).
-
-        Parameters
-        ----------
-        e : ft.DragUpdateEvent
-            Contient `local_delta.x` et `local_delta.y` (déplacement
-            depuis le dernier événement, en pixels écran).
-        """
+        """Gestionnaire de glisser (drag) sur le canvas."""
         self.offset_x += e.local_delta.x
         self.offset_y += e.local_delta.y
         self._clamp_offsets()
         self._update_transform()
-        self.page.update()
 
     def on_scroll(self, e: ft.ScrollEvent):
-        """
-        Gestionnaire de la molette de défilement pour le zoom.
-
-        Calcule un facteur de zoom depuis `scroll_delta_y` et l'applique
-        à `scale` (borné entre 1.0 et 10.0). Les offsets sont mis à
-        l'échelle proportionnellement au changement de scale pour que le
-        point présent sous le curseur reste fixe visuellement.
-
-        La sensibilité du zoom est contrôlée par la constante
-        `ZOOM_SENSIBILITY` (défaut : 5000).
-
-        Parameters
-        ----------
-        e : ft.ScrollEvent
-            Contient `scroll_delta.y` (positif = zoom avant sur macOS /
-            négatif selon la plateforme).
-        """
+        """Zoom molette : zoom centré sur le curseur."""
         delta = e.scroll_delta.y
-        zoom_factor = 1 - delta / ZOOM_SENSIBILITY
+        zoom_factor = 1 - delta / 5000
         old_scale = self.scale
-        self.scale = max(1.0, min(10, self.scale * zoom_factor))
-
+        self.scale = max(1.0, min(10.0, self.scale * zoom_factor))
         if old_scale != self.scale:
             ratio = self.scale / old_scale
             self.offset_x *= ratio
             self.offset_y *= ratio
-
         self._clamp_offsets()
         self._update_transform()
-        self.page.update()
 
     def on_scale_start(self, e: ft.ScaleStartEvent):
-        """Début du pinch-to-zoom (trackpad)"""
+        """Début du pinch-to-zoom (trackpad)."""
         self.pinch_start_scale = self.scale
 
     def on_scale_update(self, e: ft.ScaleUpdateEvent):
-        """Pendant le pinch-to-zoom (trackpad)"""
+        """Pendant le pinch-to-zoom (trackpad)."""
         old_scale = self.scale
-        self.scale = max(1.0, min(10, self.pinch_start_scale * e.scale))
-
+        self.scale = max(1.0, min(10.0, self.pinch_start_scale * e.scale))
         if old_scale != self.scale:
             ratio = self.scale / old_scale
             self.offset_x *= ratio
             self.offset_y *= ratio
-
         self._clamp_offsets()
         self._update_transform()
-        self.page.update()
 
     def on_rotation_update(self, e):
         """
@@ -1556,7 +1514,6 @@ class PhotoCropper:
         e.control.update()
         self._clamp_offsets()
         self._update_transform()
-        self.page.update()
 
     def reset_rotation(self, e):
         """
@@ -1576,7 +1533,6 @@ class PhotoCropper:
         self.rotation_slider.update()
         self._clamp_offsets()
         self._update_transform()
-        self.page.update()
 
     # ================================================================ #
     #                        TOGGLES & SWITCHES                        #
@@ -3106,17 +3062,13 @@ def main(page: ft.Page):
         """
         Gestionnaire de redimensionnement de la fenêtre principale.
 
-        Recalcule les dimensions du canevas en fonction de la nouvelle
-        taille de fenêtre, puis réapplique la transformation affine
-        courante (pan / zoom / rotation) pour que l'image reste
-        correctement positionnée après le redimensionnement.
+        Recalcule les dimensions du canevas puis réapplique la transformation
+        affine courante (pan / zoom / rotation).
 
         Parameters
         ----------
         e : ft.ControlEvent
-            Événement de redimensionnement émis par Flet (attributs
-            ``width`` et ``height`` disponibles mais non utilisés
-            directement ici).
+            Événement de redimensionnement émis par Flet.
         """
         app.update_canvas_size()
         if app.image_paths:
