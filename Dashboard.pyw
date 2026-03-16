@@ -620,7 +620,16 @@ def main(page: ft.Page):
         names_set = set(names)
 
         selected_files.clear()
-        if names_set:
+        # Utilise all_entries_data pour garantir que les chemins dans selected_files
+        # sont identiques (même objet str) à ceux utilisés par _render_current_page(),
+        # évitant toute divergence de normalisation Unicode NFD/NFC sur macOS.
+        entries = all_entries_data["list"]
+        if names_set and entries:
+            for file_name, file_path, is_dir, is_image, ext in entries:
+                if file_name in names_set:
+                    selected_files.add(file_path)
+        elif names_set:
+            # Fallback si entries pas encore peuplées
             for item_name in os.listdir(folder_to_display):
                 if item_name in names_set:
                     selected_files.add(os.path.join(folder_to_display, item_name))
@@ -629,7 +638,6 @@ def main(page: ft.Page):
 
         # Naviguer vers la première page contenant au moins un fichier sélectionné
         # (évite que les fichiers au-delà de PAGE_SIZE soient invisibles)
-        entries = all_entries_data["list"]
         if selected_files and entries:
             for idx, (file, file_path, is_dir, is_image, ext) in enumerate(entries):
                 if file_path in selected_files:
@@ -1151,8 +1159,9 @@ def main(page: ft.Page):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     bufsize=1,
-                    universal_newlines=True
                 )
 
                 
@@ -1173,17 +1182,21 @@ def main(page: ft.Page):
                     color : str
                         Couleur hexadécimale pour l'affichage dans le terminal.
                     """
-                    for line in iter(pipe.readline, ''):
-                        if line:
-                            line_stripped = line.rstrip()
-                            if line_stripped.startswith(selected_files_prefix):
-                                selected_names = line_stripped[len(selected_files_prefix):]
-                                # Stocker pour que on_preview_ready l'applique
-                                # avec les données fraîches du prochain scan.
-                                _pending_selection["names"] = selected_names
-                            else:
-                                log_to_terminal(line_stripped, color)
-                    pipe.close()
+                    try:
+                        for line in iter(pipe.readline, ''):
+                            if line:
+                                line_stripped = line.rstrip()
+                                if line_stripped.startswith(selected_files_prefix):
+                                    selected_names = line_stripped[len(selected_files_prefix):]
+                                    # Stocker pour que on_preview_ready l'applique
+                                    # avec les données fraîches du prochain scan.
+                                    _pending_selection["names"] = selected_names
+                                else:
+                                    log_to_terminal(line_stripped, color)
+                    except Exception as read_err:
+                        log_to_terminal(f"[ERREUR] Lecture sortie script: {read_err}", RED)
+                    finally:
+                        pipe.close()
                 
                 t_stdout = threading.Thread(target=read_output, args=(process.stdout, WHITE), daemon=True)
                 t_stderr = threading.Thread(target=read_output, args=(process.stderr, RED), daemon=True)

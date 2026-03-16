@@ -68,9 +68,3 @@ if dest_dir:
     print(f"{OUTPUT_SELECTED_FILES_PREFIX}{missing_files_str}")
 else:
     print("Sélectionnez un dossier de destination valide.")
-
-
-#############################################################
-#                           MAIN                            #
-#############################################################
-
