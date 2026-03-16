@@ -1790,7 +1790,11 @@ class PhotoCropper:
                 })
             with contextlib.redirect_stderr(io.StringIO()):
                 result_bytes = _rembg_remove(buf.getvalue(), **kwargs)
-            return Image.open(io.BytesIO(result_bytes)).convert("RGBA")
+            img = Image.open(io.BytesIO(result_bytes)).convert("RGBA")
+            # Érosion du canal alpha pour supprimer le liseré semi-transparent
+            r, g, b, a = img.split()
+            a = a.filter(ImageFilter.MinFilter(5))
+            return Image.merge("RGBA", (r, g, b, a))
 
         try:
             result = await asyncio.to_thread(_do_rembg)
