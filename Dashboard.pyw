@@ -123,6 +123,7 @@ def main(page: ft.Page):
     PAGE_SIZE = 100             # Nb d'éléments max par page dans la prévisualisation
     preview_page = {"value": 0}  # Page courante (0-indexé)
     all_entries_data = {"list": [], "error": ""}  # Données brutes du dernier scan
+    _pending_selection = {"names": None}  # Noms à sélectionner après le prochain scan
     
 # ===================== UI ELEMENTS ===================== #
     folder_path = ft.TextField(
@@ -189,7 +190,7 @@ def main(page: ft.Page):
     
     def on_refresh_preview(topic, message):
         """Callback pour rafraîchir la preview depuis un thread"""
-        refresh_preview()
+        refresh_preview(reset_page=False)
     
     # S'abonner au canal refresh
     page.pubsub.subscribe_topic("refresh", on_refresh_preview)
@@ -625,8 +626,18 @@ def main(page: ft.Page):
                     selected_files.add(os.path.join(folder_to_display, item_name))
 
         selection_count_text.value = f"{len(selected_files)} fichier{'s' if len(selected_files) > 1 else ''} sélectionné{'s' if len(selected_files) > 1 else ''}" if len(selected_files) > 0 else ""
-        sleep(0.2)
-        refresh_preview()
+
+        # Naviguer vers la première page contenant au moins un fichier sélectionné
+        # (évite que les fichiers au-delà de PAGE_SIZE soient invisibles)
+        entries = all_entries_data["list"]
+        if selected_files and entries:
+            for idx, (file, file_path, is_dir, is_image, ext) in enumerate(entries):
+                if file_path in selected_files:
+                    preview_page["value"] = idx // PAGE_SIZE
+                    break
+
+        # Re-rendu immédiat sans nouveau scan (le script ne modifie aucun fichier)
+        _render_current_page()
 
         if names_set and not selected_files:
             log_to_terminal("[ATTENTION] Aucun fichier correspondant trouvé dans la preview", ORANGE)
@@ -756,10 +767,18 @@ def main(page: ft.Page):
         all_entries_data["list"] = entries_data
         all_entries_data["error"] = error_text
         file_count_text.value = new_file_count_text
-        _render_current_page()
+        # Appliquer la sélection en attente si un script l'a demandé
+        # (ex: Fichiers manquants). On le fait ICI avec les données fraîches
+        # pour éviter tout race condition entre threads.
+        if _pending_selection["names"] is not None:
+            names_to_apply = _pending_selection["names"]
+            _pending_selection["names"] = None
+            apply_selected_files_by_name(names_to_apply)
+        else:
+            _render_current_page()
 
     page.pubsub.subscribe_topic("preview_ready", on_preview_ready)
-    def refresh_preview():
+    def refresh_preview(reset_page=True):
         """
         Déclenche un rafraîchissement asynchrone du panneau de prévisualisation.
 
@@ -767,8 +786,14 @@ def main(page: ft.Page):
         précédent en cours), vide la liste courante, affiche un indicateur de
         chargement, puis lance un thread de fond ``_bg()`` qui scanne le dossier
         courant et envoie les nouveaux contrôles via PubSub.
+
+        Parameters
+        ----------
+        reset_page : bool
+            Si True (défaut), revient à la page 0. Si False, conserve la page courante.
         """
-        preview_page["value"] = 0
+        if reset_page:
+            preview_page["value"] = 0
         _refresh_token["v"] += 1
         my_token = _refresh_token["v"]
         preview_list.on_scroll = None
@@ -1153,20 +1178,28 @@ def main(page: ft.Page):
                             line_stripped = line.rstrip()
                             if line_stripped.startswith(selected_files_prefix):
                                 selected_names = line_stripped[len(selected_files_prefix):]
-                                page.pubsub.send_all_on_topic("select_files", selected_names)
+                                # Stocker pour que on_preview_ready l'applique
+                                # avec les données fraîches du prochain scan.
+                                _pending_selection["names"] = selected_names
                             else:
                                 log_to_terminal(line_stripped, color)
                     pipe.close()
                 
-                threading.Thread(target=read_output, args=(process.stdout, WHITE), daemon=True).start()
-                threading.Thread(target=read_output, args=(process.stderr, RED), daemon=True).start()
+                t_stdout = threading.Thread(target=read_output, args=(process.stdout, WHITE), daemon=True)
+                t_stderr = threading.Thread(target=read_output, args=(process.stderr, RED), daemon=True)
+                t_stdout.start()
+                t_stderr.start()
                 
                 # Attendre la fin et rafraîchir la preview
                 def done():
                     """
-                    Attend la fin du sous-processus, journalise le résultat,
-                    puis demande un rafraîchissement de la preview.
+                    Attend la fin du sous-processus ET la lecture complète des pipes,
+                    puis journalise le résultat et demande un rafraîchissement de la preview.
+                    On attend les threads de lecture pour s'assurer que SELECTED_FILES:
+                    a bien été traité avant de déclencher le refresh.
                     """
+                    t_stdout.join()
+                    t_stderr.join()
                     process.wait()
                     log_to_terminal(f"[OK] {display_name} terminé", GREEN)
                     # Rafraîchir la preview pour afficher les nouveaux dossiers/fichiers créés
@@ -1508,4 +1541,28 @@ def main(page: ft.Page):
 #############################################################
 #                            RUN                            #
 #############################################################
+import asyncio
+import sys
+
+# Neutralise l'erreur asyncio Windows "ConnectionResetError: [WinError 10054]"
+# qui apparaît lors de la fermeture des pipes des sous-processus.
+# C'est un bug connu de la boucle ProactorEventLoop sous Windows — sans impact fonctionnel.
+if sys.platform == "win32":
+    _original_exception_handler = None
+
+    def _silence_proactor_pipe_errors(loop, context):
+        exc = context.get("exception")
+        if isinstance(exc, (ConnectionResetError, BrokenPipeError)):
+            return
+        if _original_exception_handler:
+            _original_exception_handler(loop, context)
+        else:
+            loop.default_exception_handler(context)
+
+    import asyncio
+    _loop = asyncio.new_event_loop()
+    _original_exception_handler = _loop.get_exception_handler()
+    _loop.set_exception_handler(_silence_proactor_pipe_errors)
+    asyncio.set_event_loop(_loop)
+
 ft.run(main)

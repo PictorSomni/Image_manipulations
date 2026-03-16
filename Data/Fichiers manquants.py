@@ -62,9 +62,7 @@ if dest_dir:
     # le préfixe de compteur d'impression ajouté par Recadrage.pyw (ex: "3X_").
     copied_basenames = {strip_copies_prefix(f) for f in copied_files}
     missing_files = [file for file in all_files if file not in copied_basenames and not file.startswith('.') and not file.endswith('.py')]
-    print(f"{len(missing_files)} fichier(s) manquant(s) dans le dossier {dest_dir} :")
-    for file in missing_files:
-        print(f"- {file}")
+    print(f"{len(missing_files)} fichier(s) manquant(s) dans le dossier {dest_dir}.")
     missing_files_str = "|".join(os.path.basename(f) for f in missing_files)
     os.environ[ENV_SELECTED_FILES_KEY] = missing_files_str
     print(f"{OUTPUT_SELECTED_FILES_PREFIX}{missing_files_str}")
