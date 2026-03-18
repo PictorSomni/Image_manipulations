@@ -294,6 +294,17 @@ class PhotoCropper:
             on_change=self.on_rotation_update,
         )
 
+        # Zoom
+        self.zoom_slider = ft.Slider(
+            value=1.0,
+            min=1.0,
+            max=2.0,
+            divisions=50,
+            label="1.00×",
+            active_color=BLUE,
+            on_change=self.on_zoom_update,
+        )
+
         # Ombres (Shadows — similaire à Camera Raw)
         self.shadows = 0.0
         self.shadows_slider = ft.Slider(
@@ -383,8 +394,8 @@ class PhotoCropper:
             content=self.image_stack,
             on_pan_update=self.on_pan_update,
             on_scroll=self.on_scroll,
-            on_scale_start=self.on_scale_start,
-            on_scale_update=self.on_scale_update,
+            # on_scale_start=self.on_scale_start,   # pinch trackpad macOS — désactivé (trop sensible)
+            # on_scale_update=self.on_scale_update,  # pinch trackpad macOS — désactivé (trop sensible)
             drag_interval=10,
         )
 
@@ -445,7 +456,7 @@ class PhotoCropper:
                 shape=ft.RoundedRectangleBorder(radius=6),
             ),
             height=30,
-            tooltip="Fond blanc / Fond gris",
+            tooltip="Fond blanc / Fond flou",
         )
         self._rembg_model_label = ft.Text("Humain", size=12, color=DARK)
         self.rembg_model_btn = ft.Button(
@@ -668,6 +679,9 @@ class PhotoCropper:
         self.scale = 1.0
         self.offset_x = 0.0
         self.offset_y = 0.0
+        if hasattr(self, 'zoom_slider'):
+            self.zoom_slider.value = 1.0
+            self.zoom_slider.label = "1.00×"
 
         path = self.image_paths[self.current_index]
         
@@ -1076,9 +1090,24 @@ class PhotoCropper:
             pil_crop = pil_crop.convert("L")
 
         if pil_crop.mode == "RGBA":
-            white_bg = Image.new("RGBA", pil_crop.size, (255, 255, 255, 255))
-            pil_crop = Image.alpha_composite(white_bg, pil_crop)
-            pil_crop = pil_crop.convert("RGB")
+            if getattr(self, 'rembg_bg_white', True):
+                bg = Image.new("RGBA", pil_crop.size, (255, 255, 255, 255))
+            else:
+                orig_for_blur = self._rembg_original if self._rembg_original is not None else None
+                if orig_for_blur is not None:
+                    orig_crop = orig_for_blur.convert("RGB").transform(
+                        (target_w_px, target_h_px),
+                        Image.Transform.AFFINE,
+                        (a, b, c, d, e_m, f),
+                        resample=Image.Resampling.BICUBIC,
+                        fillcolor=(255, 255, 255),
+                    )
+                    blurred_rgb = orig_crop.filter(ImageFilter.GaussianBlur(radius=64))
+                else:
+                    white = Image.new("RGBA", pil_crop.size, (255, 255, 255, 255))
+                    blurred_rgb = Image.alpha_composite(white, pil_crop).convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
+                bg = blurred_rgb.convert("RGBA")
+            pil_crop = Image.alpha_composite(bg, pil_crop).convert("RGB")
         else:
             pil_crop = pil_crop.convert("RGB")
 
@@ -1107,7 +1136,16 @@ class PhotoCropper:
         """
         img = self.current_pil_image
         if img.mode == "RGBA":
-            bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+            if getattr(self, 'rembg_bg_white', True):
+                bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+            else:
+                orig_for_blur = self._rembg_original if self._rembg_original is not None else None
+                if orig_for_blur is not None:
+                    blurred_rgb = orig_for_blur.convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
+                else:
+                    white = Image.new("RGBA", img.size, (255, 255, 255, 255))
+                    blurred_rgb = Image.alpha_composite(white, img).convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
+                bg = blurred_rgb.convert("RGBA")
             img = Image.alpha_composite(bg, img).convert("RGB")
         else:
             img = img.convert("RGB")
@@ -1418,8 +1456,18 @@ class PhotoCropper:
         # Aplatir l'alpha sur le fond choisi (blanc ou gris clair)
         preview = self.current_pil_image.copy()
         if preview.mode == "RGBA":
-            bg_color = (255, 255, 255, 255) if getattr(self, 'rembg_bg_white', True) else (220, 220, 220, 255)
-            bg = Image.new("RGBA", preview.size, bg_color)
+            if getattr(self, 'rembg_bg_white', True):
+                bg = Image.new("RGBA", preview.size, (255, 255, 255, 255))
+            else:
+                # Use original (opaque) image as blur source to avoid black bleed
+                # from transparent pixels (alpha=0 → black in RGBA→RGB conversion)
+                blur_src = self._rembg_original if self._rembg_original is not None else None
+                if blur_src is not None:
+                    blurred_rgb = blur_src.convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
+                else:
+                    white = Image.new("RGBA", preview.size, (255, 255, 255, 255))
+                    blurred_rgb = Image.alpha_composite(white, preview).convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
+                bg = blurred_rgb.convert("RGBA")
             preview = Image.alpha_composite(bg, preview).convert("RGB")
         else:
             preview = preview.convert("RGB")
@@ -1477,23 +1525,26 @@ class PhotoCropper:
             ratio = self.scale / old_scale
             self.offset_x *= ratio
             self.offset_y *= ratio
+            self.zoom_slider.value = self.scale
+            self.zoom_slider.label = f"{self.scale:.2f}×"
+            self.zoom_slider.update()
         self._clamp_offsets()
         self._update_transform()
 
-    def on_scale_start(self, e: ft.ScaleStartEvent):
-        """Début du pinch-to-zoom (trackpad)."""
-        self.pinch_start_scale = self.scale
+    # def on_scale_start(self, e: ft.ScaleStartEvent):
+    #     """Début du pinch-to-zoom (trackpad macOS — désactivé)."""
+    #     self.pinch_start_scale = self.scale
 
-    def on_scale_update(self, e: ft.ScaleUpdateEvent):
-        """Pendant le pinch-to-zoom (trackpad)."""
-        old_scale = self.scale
-        self.scale = max(1.0, min(10.0, self.pinch_start_scale * e.scale))
-        if old_scale != self.scale:
-            ratio = self.scale / old_scale
-            self.offset_x *= ratio
-            self.offset_y *= ratio
-        self._clamp_offsets()
-        self._update_transform()
+    # def on_scale_update(self, e: ft.ScaleUpdateEvent):
+    #     """Pendant le pinch-to-zoom (trackpad macOS — désactivé)."""
+    #     old_scale = self.scale
+    #     self.scale = max(1.0, min(10.0, self.pinch_start_scale * e.scale))
+    #     if old_scale != self.scale:
+    #         ratio = self.scale / old_scale
+    #         self.offset_x *= ratio
+    #         self.offset_y *= ratio
+    #     self._clamp_offsets()
+    #     self._update_transform()
 
     def on_rotation_update(self, e):
         """
@@ -1511,6 +1562,20 @@ class PhotoCropper:
         """
         self.rotation = e.control.value
         e.control.label = f"{self.rotation:.2f}°"
+        e.control.update()
+        self._clamp_offsets()
+        self._update_transform()
+
+    def on_zoom_update(self, e):
+        """Gestionnaire du slider de zoom."""
+        new_scale = e.control.value
+        old_scale = self.scale
+        self.scale = new_scale
+        if old_scale != self.scale:
+            ratio = self.scale / old_scale
+            self.offset_x *= ratio
+            self.offset_y *= ratio
+        e.control.label = f"{self.scale:.2f}×"
         e.control.update()
         self._clamp_offsets()
         self._update_transform()
@@ -1642,16 +1707,16 @@ class PhotoCropper:
         self.rembg_model_btn.update()
 
     def on_rembg_bg_toggle(self, e):
-        """Bascule fond blanc (GREY_200) ↔ fond gris (GREY_600)."""
+        """Bascule fond blanc (GREY_200) ↔ fond flou (BLUE)."""
         self.rembg_bg_white = not self.rembg_bg_white
         if self.rembg_bg_white:
             self._rembg_bg_label.value = "Fond blanc"
             self._rembg_bg_label.color = DARK
             self.rembg_bg_btn.bgcolor = ft.Colors.GREY_200
         else:
-            self._rembg_bg_label.value = "Fond gris"
-            self._rembg_bg_label.color = WHITE
-            self.rembg_bg_btn.bgcolor = ft.Colors.GREY_600
+            self._rembg_bg_label.value = "Fond flou"
+            self._rembg_bg_label.color = DARK
+            self.rembg_bg_btn.bgcolor = BLUE
         self.rembg_bg_btn.update()
         self._render_preview()
         self.page.update()
@@ -1748,8 +1813,9 @@ class PhotoCropper:
                 result_bytes = _rembg_remove(buf.getvalue(), **kwargs)
             img = Image.open(io.BytesIO(result_bytes)).convert("RGBA")
             # Érosion du canal alpha pour supprimer le liseré semi-transparent
+            # MinFilter exige une taille impaire
             r, g, b, a = img.split()
-            a = a.filter(ImageFilter.MinFilter(5))
+            a = a.filter(ImageFilter.MinFilter(7))
             return Image.merge("RGBA", (r, g, b, a))
 
         try:
@@ -2924,6 +2990,8 @@ def main(page: ft.Page):
                             content=ft.Button("0°", on_click=app.reset_rotation, width=120, bgcolor=BG, color=WHITE),
                             alignment=ft.Alignment.CENTER, padding=ft.Padding.only(top=4, bottom=12)
                         ),
+                        ft.Text("Zoom", size=12, color=LIGHT_GREY),
+                        app.zoom_slider,
                         ft.Divider(height=4),
                         ft.Text("Exposition", size=12, color=LIGHT_GREY),
                         app.exposure_slider,
