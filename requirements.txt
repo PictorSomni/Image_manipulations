@@ -14,4 +14,8 @@ PyMuPDF>=1.23.0
 
 # Suppression de fond par IA (optionnel — requis par Recadrage.pyw)
 rembg>=2.0.0
-onnxruntime>=1.16.0
+onnxruntime-gpu>=1.16.0
+
+# Amélioration par IA (optionnel — requis par Augmentation IA.py)
+spandrel>=0.3.0
+torch>=2.0.0

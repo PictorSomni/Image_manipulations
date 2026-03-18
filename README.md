@@ -96,6 +96,8 @@ pip install -r requirements.txt
 - `PyMuPDF` : Conversion de PDF en images
 - `rembg` *(optionnel)* : Suppression de fond par IA dans Recadrage.pyw (requiert `onnxruntime`)
 - `onnxruntime` *(optionnel)* : Moteur d'inférence pour rembg
+- `spandrel` *(optionnel)* : Super-résolution ×2/×4 et restauration visage dans Augmentation IA.py (requiert `torch`)
+- `torch` *(optionnel)* : Moteur d'inférence PyTorch requis par spandrel
 
 ---
 
