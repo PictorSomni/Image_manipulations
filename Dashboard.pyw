@@ -1047,26 +1047,21 @@ def main(page: ft.Page):
                         env["DEST_FOLDER"] = "/Volumes/TRAVAUX EN COURS/Z2026/TEMP"
                     env["LAUNCHED_FROM_DASHBOARD"] = "1"
                 
+                process = subprocess.Popen(
+                    [sys.executable, "-u", app_path],
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    bufsize=1,
+                    universal_newlines=True
+                )
                 if platform.system() == "Windows":
-                    process = subprocess.Popen(
-                        [sys.executable, "-u", app_path],
-                        env=env,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True
-                    )
-                else:
-                    process = subprocess.Popen(
-                        [sys.executable, "-u", app_path],
-                        env=env,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        bufsize=1,
-                        universal_newlines=True
-                    )
+                    try:
+                        import ctypes
+                        ctypes.windll.user32.AllowSetForegroundWindow(process.pid)
+                    except Exception:
+                        pass
                 
                 # Lire la sortie en temps réel
                 def read_output(pipe, color):
@@ -1163,6 +1158,12 @@ def main(page: ft.Page):
                     errors="replace",
                     bufsize=1,
                 )
+                if platform.system() == "Windows":
+                    try:
+                        import ctypes
+                        ctypes.windll.user32.AllowSetForegroundWindow(process.pid)
+                    except Exception:
+                        pass
 
                 
                 # Lire la sortie en temps réel

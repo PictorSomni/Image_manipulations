@@ -58,6 +58,7 @@ __version__ = "1.2.0"
 ###############################################################
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
+warnings.filterwarnings("ignore", message=".*torch.meshgrid.*indexing.*", category=UserWarning)
 
 import flet as ft
 import os
@@ -95,12 +96,12 @@ os.makedirs(_MODELS_DIR, exist_ok=True)
 
 
 def _list_pth_models() -> list[str]:
-    """Retourne les noms de fichiers .pth trouvés dans _MODELS_DIR, triés."""
+    """Retourne les noms de fichiers .pth / .safetensors trouvés dans _MODELS_DIR, triés."""
     if not os.path.isdir(_MODELS_DIR):
         return []
     return sorted(
         e.name for e in os.scandir(_MODELS_DIR)
-        if e.name.lower().endswith(".pth")
+        if e.name.lower().endswith((".pth", ".safetensors"))
     )
 
 
@@ -395,7 +396,7 @@ async def main(page: ft.Page) -> None:
     def _build_model_options() -> list[ft.dropdown.Option]:
         names = _list_pth_models()
         if not names:
-            return [ft.dropdown.Option(key="", text="Aucun modèle (.pth) dans models/")]
+            return [ft.dropdown.Option(key="", text="Aucun modèle (.pth / .safetensors) dans models/")]
         return [ft.dropdown.Option(key=n, text=n) for n in names]
 
     model_dropdown = ft.Dropdown(
@@ -510,7 +511,7 @@ async def main(page: ft.Page) -> None:
         page.update()
 
     async def on_run_model(e) -> None:
-        """Exécute le modèle .pth sélectionné via spandrel sur l'image courante."""
+        """Exécute le modèle .pth/.safetensors sélectionné via spandrel sur l'image courante."""
         base = state["processed"] if state["processed"] is not None else state["orig_img"]
         model_name = model_dropdown.value
         if base is None or state["enhancing"] or not model_name:
@@ -522,16 +523,20 @@ async def main(page: ft.Page) -> None:
 
         state["enhancing"]            = True
         _set_all_ia_btns(True)
-        enhance_progress_bar.value   = 0.0
+        enhance_progress_bar.value   = None  # indéterminé jusqu'au début des tuiles
         enhance_progress_bar.visible = True
-        enhance_status.value         = f"Traitement avec {model_name}…"
+        enhance_status.value         = f"Chargement de {model_name}…"
         page.update()
-
-        _stop_enh = asyncio.Event()
-        enh_task  = asyncio.create_task(_animate_progress(enhance_progress_bar, _stop_enh))
 
         has_alpha = (base.mode == "RGBA")
         alpha     = base.split()[3] if has_alpha else None
+
+        def _progress_cb(value: "float | None", label: str = "") -> None:
+            """Met à jour la barre et le label depuis le thread d'inférence."""
+            enhance_progress_bar.value = value
+            if label:
+                enhance_status.value = label
+            page.update()
 
         def _do_run():
             model_path = os.path.join(_MODELS_DIR, model_name)
@@ -542,6 +547,8 @@ async def main(page: ft.Page) -> None:
                     _dev = "mps"
                 else:
                     _dev = "cpu"
+                # Barre indéterminée pendant le chargement du modèle
+                _progress_cb(None, f"Chargement de {model_name}…")
                 desc = _ModelLoader().load_from_file(model_path)
                 desc.to(_dev)
                 desc.model.eval()
@@ -599,6 +606,10 @@ async def main(page: ft.Page) -> None:
             if h <= TILE and w <= TILE:
                 ys, xs = [0], [0]
 
+            total_tiles = len(ys) * len(xs)
+            done_tiles  = 0
+            _progress_cb(0.0, f"Traitement avec {model_name} — tuile 0/{total_tiles}")
+
             with _torch.inference_mode():
                 for y0 in ys:
                     y1 = min(y0 + TILE, h)
@@ -617,6 +628,11 @@ async def main(page: ft.Page) -> None:
                         w_tile = _make_weight(out_tile_np.shape[0], out_tile_np.shape[1])
                         out_np_full[oy0:oy1, ox0:ox1] += out_tile_np * w_tile
                         weight_map  [oy0:oy1, ox0:ox1] += w_tile
+                        done_tiles += 1
+                        _progress_cb(
+                            done_tiles / total_tiles,
+                            f"Traitement avec {model_name} — tuile {done_tiles}/{total_tiles}",
+                        )
 
             out_np = ((out_np_full / np.maximum(weight_map, 1e-6)).clip(0, 1) * 255).astype(np.uint8)
             out = Image.fromarray(out_np)
@@ -632,11 +648,12 @@ async def main(page: ft.Page) -> None:
         except Exception as ex:
             enhance_status.value = f"[ERREUR] {model_name} : {ex}"
         finally:
-            _stop_enh.set()
-            await enh_task
+            enhance_progress_bar.value   = 1.0
+            enhance_progress_bar.visible = False
             state["enhancing"]     = False
             _set_all_ia_btns(False)
             run_model_btn.disabled = not _list_pth_models()
+            page.update()
             _render_preview()
 
     def on_blur_toggle(e) -> None:
