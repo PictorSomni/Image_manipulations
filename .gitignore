@@ -4,6 +4,11 @@ __pycache__/
 .preview_cache
 _rc*
 
+# Modèles IA (fichiers lourds)
+Data/models/
+*.pth
+*.safetensors
+
 # macOS
 .DS_Store
 .DS_Store?
