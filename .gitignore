@@ -5,9 +5,9 @@ __pycache__/
 _rc*
 
 # Modèles IA (fichiers lourds)
-Data/models/
-*.pth
-*.safetensors
+# Data/models/
+# *.pth
+# *.safetensors
 
 # macOS
 .DS_Store
