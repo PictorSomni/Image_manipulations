@@ -42,7 +42,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Version : voir __version__
 """
 
-__version__ = "1.8.0"
+__version__ = "1.8.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -298,8 +298,8 @@ class PhotoCropper:
         self.zoom_slider = ft.Slider(
             value=1.0,
             min=1.0,
-            max=2.0,
-            divisions=50,
+            max=3.0,
+            divisions=60,
             label="1.00×",
             active_color=BLUE,
             on_change=self.on_zoom_update,
@@ -1815,7 +1815,7 @@ class PhotoCropper:
             # Érosion du canal alpha pour supprimer le liseré semi-transparent
             # MinFilter exige une taille impaire
             r, g, b, a = img.split()
-            a = a.filter(ImageFilter.MinFilter(7))
+            a = a.filter(ImageFilter.MinFilter(13))
             return Image.merge("RGBA", (r, g, b, a))
 
         try:

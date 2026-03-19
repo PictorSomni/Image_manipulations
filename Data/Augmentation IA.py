@@ -48,10 +48,10 @@ Au premier lancement, rembg télécharge automatiquement le modèle u2net_human_
 (~175 Mo) dans ``~/.u2net/``. Les modèles spandrel (RealESRGAN, FaceUpSharpDAT)
 sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au total).
 
-Version : 1.2.0
+Version : 1.8.5
 """
 
-__version__ = "1.2.0"
+__version__ = "1.8.5"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -66,6 +66,7 @@ import io
 import contextlib
 import base64
 import asyncio
+import threading
 import math
 import urllib.request
 from PIL import Image, ImageFilter
@@ -108,7 +109,7 @@ def _list_pth_models() -> list[str]:
 # Couleurs de fond disponibles (nom affiché → valeur RGB)
 BG_COLORS: dict[str, tuple[int, int, int]] = {
     "Blanc": (255, 255, 255),
-    "Noir":  (0, 0, 0),
+    "Gris":  (200, 200, 200),
 }
 
 # Extensions d'images acceptées
@@ -283,14 +284,17 @@ async def main(page: ft.Page) -> None:
         )
 
     state: dict = {
-        "index":     0,      # Indice de l'image affichée dans all_images
-        "orig_img":  None,   # PIL.Image chargée depuis le disque
-        "processed": None,   # PIL.Image RGBA retournée par rembg (ou None)
-        "bg_color":  "Blanc",
-        "bg_blur":   False,  # True = fond flou (remplace la couleur de fond)
-        "precise":   False,  # True = alpha matting précis pour rembg
-        "working":   False,  # True pendant l'exécution de rembg
-        "enhancing": False,  # True pendant face SR ou ESRGAN
+        "index":           0,      # Indice de l'image affichée dans all_images
+        "orig_img":        None,   # PIL.Image chargée depuis le disque
+        "processed":       None,   # PIL.Image RGBA retournée par rembg (ou None)
+        "bg_color":        "Blanc",
+        "bg_blur":         False,  # True = fond flou (remplace la couleur de fond)
+        "precise":         False,  # True = alpha matting précis pour rembg
+        "working":         False,  # True pendant l'exécution de rembg
+        "enhancing":       False,  # True pendant face SR ou ESRGAN
+        "rembg_applied":   False,  # True après suppression du fond par rembg
+        "current_task":    None,   # asyncio.Task en cours (rembg ou modèle)
+        "cancel_requested": False, # Annulation demandée (boucle de tuiles)
     }
 
     # Session rembg partagée
@@ -331,12 +335,6 @@ async def main(page: ft.Page) -> None:
         bgcolor=DARK,
     )
 
-    blur_switch = ft.Switch(
-        label="Fond flou",
-        active_color=BLUE,
-        value=False,
-        tooltip="Fond flou gaussien — recliquer pour annuler",
-    )
     precise_switch = ft.Switch(
         label="Précis",
         active_color=VIOLET,
@@ -347,7 +345,8 @@ async def main(page: ft.Page) -> None:
 
     bg_radio = ft.RadioGroup(
         content=ft.Column(
-            [ft.Radio(value=k, label=k, fill_color=BLUE) for k in BG_COLORS],
+            [ft.Radio(value=k, label=k, fill_color=BLUE) for k in BG_COLORS]
+            + [ft.Radio(value="Flou", label="Flou", fill_color=BLUE)],
             spacing=4,
         ),
         value="Blanc",
@@ -391,6 +390,18 @@ async def main(page: ft.Page) -> None:
 
     enhance_progress_bar = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
     enhance_status = ft.Text("", size=11, color=LIGHT_GREY)
+
+    cancel_btn = ft.FilledButton(
+        "Annuler",
+        icon=ft.Icons.CANCEL_OUTLINED,
+        style=ft.ButtonStyle(
+            bgcolor=ft.Colors.with_opacity(0.15, RED),
+            color=RED,
+            side=ft.BorderSide(1, RED),
+        ),
+        visible=False,
+        tooltip="Annuler le traitement en cours",
+    )
 
     # ---- Sélecteur de modèle personnalisé ---- #
     def _build_model_options() -> list[ft.dropdown.Option]:
@@ -481,16 +492,19 @@ async def main(page: ft.Page) -> None:
             if img.mode not in ("RGB", "RGBA"):
                 img = img.convert("RGB")
 
-            state["orig_img"]  = img
-            state["processed"] = None
-            state["index"]     = index
+            state["orig_img"]      = img
+            state["processed"]    = None
+            state["index"]        = index
+            state["rembg_applied"] = False
 
-            image_label.value  = os.path.basename(path)
-            counter_text.value = f"{index + 1} / {len(all_images)}"
-            prev_btn.disabled  = index == 0
-            next_btn.disabled  = index == len(all_images) - 1
-            save_btn.disabled  = True
-            status_text.value  = ""
+            process_btn.text    = "Supprimer le fond (IA)"
+            process_btn.bgcolor = VIOLET if REMBG_AVAILABLE else GREY
+            image_label.value   = os.path.basename(path)
+            counter_text.value  = f"{index + 1} / {len(all_images)}"
+            prev_btn.disabled   = index == 0
+            next_btn.disabled   = index == len(all_images) - 1
+            save_btn.disabled   = True
+            status_text.value   = ""
 
             _render_preview()
 
@@ -521,10 +535,12 @@ async def main(page: ft.Page) -> None:
             run_model_btn.disabled  = disabled
             refresh_btn.disabled    = disabled
 
-        state["enhancing"]            = True
+        state["enhancing"]           = True
+        state["cancel_requested"]    = False
         _set_all_ia_btns(True)
         enhance_progress_bar.value   = None  # indéterminé jusqu'au début des tuiles
         enhance_progress_bar.visible = True
+        cancel_btn.visible           = True
         enhance_status.value         = f"Chargement de {model_name}…"
         page.update()
 
@@ -629,6 +645,8 @@ async def main(page: ft.Page) -> None:
                         out_np_full[oy0:oy1, ox0:ox1] += out_tile_np * w_tile
                         weight_map  [oy0:oy1, ox0:ox1] += w_tile
                         done_tiles += 1
+                        if state.get("cancel_requested"):
+                            raise InterruptedError("Annulé par l'utilisateur")
                         _progress_cb(
                             done_tiles / total_tiles,
                             f"Traitement avec {model_name} — tuile {done_tiles}/{total_tiles}",
@@ -641,25 +659,35 @@ async def main(page: ft.Page) -> None:
                 out.putalpha(alpha.resize(out.size, Image.Resampling.LANCZOS))
             return out
 
+        model_task = asyncio.create_task(asyncio.to_thread(_do_run))
+        state["current_task"] = model_task
         try:
-            result = await asyncio.to_thread(_do_run)
+            result = await model_task
             state["processed"] = result
             enhance_status.value = f"[OK] {model_name} → {result.width}×{result.height} px"
+        except asyncio.CancelledError:
+            enhance_status.value = "Traitement annulé"
+        except InterruptedError:
+            enhance_status.value = "Traitement annulé"
         except Exception as ex:
             enhance_status.value = f"[ERREUR] {model_name} : {ex}"
         finally:
             enhance_progress_bar.value   = 1.0
             enhance_progress_bar.visible = False
-            state["enhancing"]     = False
+            state["enhancing"]      = False
+            state["current_task"]   = None
+            cancel_btn.visible      = False
             _set_all_ia_btns(False)
-            run_model_btn.disabled = not _list_pth_models()
+            run_model_btn.disabled  = not _list_pth_models()
             page.update()
             _render_preview()
 
-    def on_blur_toggle(e) -> None:
-        """Active/annule le fond flou."""
-        state["bg_blur"] = bool(e.control.value)
-        _render_preview()
+    async def on_cancel(e) -> None:
+        """Annule le traitement IA en cours (rembg ou modèle)."""
+        state["cancel_requested"] = True
+        task = state.get("current_task")
+        if task and not task.done():
+            task.cancel()
 
     def on_precise_toggle(e) -> None:
         """Active/désactive le mode précis (alpha matting) pour rembg."""
@@ -667,7 +695,12 @@ async def main(page: ft.Page) -> None:
 
     def on_bg_change(e) -> None:
         """Met à jour la couleur de fond sélectionnée et rafraîchit la preview."""
-        state["bg_color"] = e.control.value
+        val = e.control.value
+        if val == "Flou":
+            state["bg_blur"] = True
+        else:
+            state["bg_blur"]  = False
+            state["bg_color"] = val
         _render_preview()
 
     def on_prev(e) -> None:
@@ -700,12 +733,25 @@ async def main(page: ft.Page) -> None:
         if state["orig_img"] is None or state["working"]:
             return
 
-        state["working"]     = True
-        process_btn.disabled = True
-        save_btn.disabled    = True
-        progress_bar.value   = 0.0
-        progress_bar.visible = True
-        status_text.value    = "Traitement IA en cours…"
+        # Toggle : recliquer annule le masque et restaure l'original
+        if state["rembg_applied"]:
+            state["processed"]    = None
+            state["rembg_applied"] = False
+            process_btn.text      = "Supprimer le fond (IA)"
+            process_btn.bgcolor   = VIOLET
+            save_btn.disabled     = True
+            status_text.value     = "Masque annulé"
+            _render_preview()
+            return
+
+        state["working"]          = True
+        state["cancel_requested"]  = False
+        process_btn.disabled       = True
+        save_btn.disabled          = True
+        progress_bar.value         = 0.0
+        progress_bar.visible       = True
+        cancel_btn.visible         = True
+        status_text.value          = "Traitement IA en cours…"
         page.update()
 
         _stop_anim = asyncio.Event()
@@ -728,23 +774,34 @@ async def main(page: ft.Page) -> None:
             with contextlib.redirect_stderr(io.StringIO()):
                 result_bytes = rembg_remove(buf.getvalue(), **kwargs)
             img = Image.open(io.BytesIO(result_bytes)).convert("RGBA")
-            if state["precise"]:
+            if not state["precise"]:
+                # Érosion du canal alpha pour supprimer le liseré semi-transparent
+                # MinFilter exige une taille impaire
                 r, g, b, a = img.split()
-                a = a.filter(ImageFilter.MinFilter(7))
+                a = a.filter(ImageFilter.MinFilter(13))
                 img = Image.merge("RGBA", (r, g, b, a))
             return img
 
+        rembg_task = asyncio.create_task(asyncio.to_thread(_do_rembg))
+        state["current_task"] = rembg_task
         try:
-            result = await asyncio.to_thread(_do_rembg)
-            state["processed"] = result
-            status_text.value  = "[OK] Fond supprimé"
+            result = await rembg_task
+            state["processed"]    = result
+            state["rembg_applied"] = True
+            process_btn.text      = "Annuler le masque"
+            process_btn.bgcolor   = ORANGE
+            status_text.value     = "[OK] Fond supprimé — recliquer pour annuler"
+        except asyncio.CancelledError:
+            status_text.value = "Traitement annulé"
         except Exception as ex:
             status_text.value = f"[ERREUR] rembg : {ex}"
         finally:
             _stop_anim.set()
             await anim_task
-            state["working"]     = False
-            process_btn.disabled = False
+            state["working"]       = False
+            state["current_task"]  = None
+            cancel_btn.visible     = False
+            process_btn.disabled   = False
             _render_preview()
 
     def on_save(e) -> None:
@@ -786,7 +843,6 @@ async def main(page: ft.Page) -> None:
             page.update()
 
     # Attacher les callbacks
-    blur_switch.on_change      = on_blur_toggle
     precise_switch.on_change   = on_precise_toggle
     bg_radio.on_change         = on_bg_change
     prev_btn.on_click          = on_prev
@@ -795,6 +851,7 @@ async def main(page: ft.Page) -> None:
     run_model_btn.on_click     = on_run_model
     refresh_btn.on_click       = on_refresh_models
     save_btn.on_click          = on_save
+    cancel_btn.on_click        = on_cancel
 
     # ------------------------------------------------------------------ #
     #                           MISE EN PAGE                              #
@@ -804,7 +861,6 @@ async def main(page: ft.Page) -> None:
             # Fond
             ft.Text("Couleur de fond", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
             bg_radio,
-            blur_switch,
             ft.Divider(color=GREY),
             # Actions rembg
             ft.Row([process_btn, precise_switch], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -819,6 +875,7 @@ async def main(page: ft.Page) -> None:
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             enhance_progress_bar,
+            cancel_btn,
             enhance_status,
             ft.Divider(color=GREY),
             save_btn,
