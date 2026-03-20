@@ -8,6 +8,9 @@ _rc*
 # Data/models/
 # *.pth
 # *.safetensors
+4xFaceUpDAT.pth
+4xFaceUpLDAT.pth
+4xFaceUpSharpDAT.pth
 
 # macOS
 .DS_Store

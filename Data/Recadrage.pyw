@@ -42,7 +42,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Version : voir __version__
 """
 
-__version__ = "1.8.5"
+__version__ = "1.9.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -306,13 +306,13 @@ class PhotoCropper:
         )
 
         # Ombres (Shadows — similaire à Camera Raw)
-        self.shadows = 0.0
+        self.shadows = 20.0
         self.shadows_slider = ft.Slider(
             value=self.shadows,
             min=-100,
             max=100,
             divisions=20,
-            label="0",
+            label="20",
             active_color=BLUE,
             on_change=self.on_shadows_label,
             on_change_end=self.on_shadows_end,
@@ -489,16 +489,16 @@ class PhotoCropper:
             on_change=self.on_contrast_label,
             on_change_end=self.on_contrast_end,
         )
-        self.saturation = 0.0
+        self.saturation = 20.0
         self.saturation_slider = ft.Slider(
-            value=0, min=-100, max=100, divisions=20, label="0",
+            value=20, min=-100, max=100, divisions=20, label="20",
             active_color=BLUE,
             on_change=self.on_saturation_label,
             on_change_end=self.on_saturation_end,
         )
-        self.exposure = 0.0
+        self.exposure = 10.0
         self.exposure_slider = ft.Slider(
-            value=0, min=-100, max=100, divisions=20, label="0",
+            value=10, min=-100, max=100, divisions=20, label="10",
             active_color=BLUE,
             on_change=self.on_exposure_label,
             on_change_end=self.on_exposure_end,

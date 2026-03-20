@@ -39,6 +39,7 @@ Dépendances
 * numpy        — manipulations d'images basses couches
 * spandrel     — super-résolution et restauration visage (``pip install spandrel``)
 * torch        — moteur d'inférence PyTorch requis par spandrel
+* torch        — moteur d'inférence requis par le LaMa inpainting intégré
 
 Variables d'environnement reconnues
 -------------------------------------
@@ -51,7 +52,7 @@ Au premier lancement, rembg télécharge automatiquement le modèle u2net_human_
 (~175 Mo) dans ``~/.u2net/``. Les modèles spandrel (RealESRGAN, FaceUpSharpDAT)
 sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au total).
 
-Version : 1.8.5
+Version : 1.9.0
 """
 
 __version__ = "1.9.0"
@@ -64,6 +65,7 @@ warnings.filterwarnings("ignore", category=UserWarning, module="torchvision")
 warnings.filterwarnings("ignore", message=".*torch.meshgrid.*indexing.*", category=UserWarning)
 
 import flet as ft
+import flet.canvas as _ftcv
 import os
 import io
 import contextlib
@@ -88,8 +90,58 @@ try:
 except Exception:
     ESRGAN_AVAILABLE = False
 
+# ---- LaMa inpainting (implémentation directe, sans simple_lama_inpainting) ----
+# Remplace le package simple_lama_inpainting qui impose numpy<2.0 incompatible
+# avec Python 3.14+.  Seul torch (déjà requis par spandrel) est nécessaire.
+_LAMA_MODEL_URL = (
+    "https://github.com/enesmsahin/simple-lama-inpainting"
+    "/releases/download/v0.1.0/big-lama.pt"
+)
+_LAMA_MODEL_CACHE = os.path.join(
+    os.path.expanduser("~"), ".cache", "simple-lama", "big-lama.pt"
+)
+
+
+class _SimpleLama:
+    """Wrapper LaMa minimal — remplace simple_lama_inpainting (numpy-version-agnostic)."""
+
+    def __init__(self) -> None:
+        import torch as _t
+        if not os.path.exists(_LAMA_MODEL_CACHE):
+            os.makedirs(os.path.dirname(_LAMA_MODEL_CACHE), exist_ok=True)
+            urllib.request.urlretrieve(_LAMA_MODEL_URL, _LAMA_MODEL_CACHE)
+        self._model = _t.jit.load(_LAMA_MODEL_CACHE, map_location="cpu")
+        self._model.eval()
+
+    @staticmethod
+    def _pad(img_t, msk_t, factor: int = 8):
+        """Padde H et W au multiple de `factor` le plus proche (requis par LaMa)."""
+        import torch as _t
+        _, _, h, w = img_t.shape
+        ph = (factor - h % factor) % factor
+        pw = (factor - w % factor) % factor
+        if ph or pw:
+            img_t = _t.nn.functional.pad(img_t, (0, pw, 0, ph), mode="reflect")
+            msk_t = _t.nn.functional.pad(msk_t, (0, pw, 0, ph), mode="reflect")
+        return img_t, msk_t, h, w
+
+    def __call__(self, image: Image.Image, mask: Image.Image) -> Image.Image:
+        import torch as _t
+        img = np.array(image.convert("RGB")).astype(np.float32) / 255.0
+        msk = np.array(mask.convert("L")).astype(np.float32) / 255.0
+        img_t = _t.from_numpy(img).permute(2, 0, 1).unsqueeze(0)           # [1,3,H,W]
+        msk_t = (_t.from_numpy(msk) > 0).float().unsqueeze(0).unsqueeze(0) # [1,1,H,W]
+        img_t, msk_t, orig_h, orig_w = self._pad(img_t, msk_t)
+        with _t.no_grad():
+            # La signature JIT est forward(Image: Tensor, mask: Tensor) -> Tensor
+            out = self._model(img_t, msk_t)
+        # Recadrer au format original si un padding a été ajouté
+        res = out[0, :, :orig_h, :orig_w].permute(1, 2, 0).cpu().numpy()
+        return Image.fromarray(np.clip(res * 255, 0, 255).astype(np.uint8))
+
+
 try:
-    from simple_lama_inpainting import SimpleLama as _SimpleLama
+    import torch as _torch_lama_check  # noqa: F401
     LAMA_AVAILABLE = True
 except ImportError:
     LAMA_AVAILABLE = False
@@ -306,9 +358,11 @@ async def main(page: ft.Page) -> None:
         # --- LaMa inpainting ---
         "mask_img":        None,   # PIL.Image "L" du masque courant (blanc = zone à effacer)
         "mask_mode":       False,  # True = mode dessin de masque actif
-        "brush_size":      30,     # rayon du pinceau en pixels (espace image affichée)
+        "brush_size":      30,     # rayon du pinceau en pixels (espace widget)
         "pen_x":           0.0,    # position X courante du pointeur (espace widget)
         "pen_y":           0.0,    # position Y courante du pointeur (espace widget)
+        "_last_stroke_x":  -9999.0, # position X du dernier cercle peint (espacement)
+        "_last_stroke_y":  -9999.0, # position Y du dernier cercle peint (espacement)
         "container_w":       0.0,    # largeur réelle du conteneur image (mise à jour par on_size_change)
         "container_h":       0.0,    # hauteur réelle du conteneur image
         "_last_render_t":    0.0,    # horodatage du dernier rendu pinceau (throttle)
@@ -337,14 +391,9 @@ async def main(page: ft.Page) -> None:
         visible=False,
     )
 
-    # Overlay du masque LaMa (PNG RGBA, mis à jour uniquement pendant le dessin)
-    mask_overlay_img = ft.Image(
-        src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
-        fit=ft.BoxFit.CONTAIN,
-        expand=True,
-        visible=False,
-        gapless_playback=True,
-    )
+    # Overlay du masque LaMa : ft.canvas.Canvas — cercles vectoriels dessinés directement,
+    # sans aucun encodage PIL/PNG/base64 → fluide même à haute fréquence de pointeur.
+    mask_canvas = _ftcv.Canvas(shapes=[], expand=True)
 
     preview_placeholder = ft.Container(
         content=ft.Column(
@@ -533,33 +582,17 @@ async def main(page: ft.Page) -> None:
         preview_placeholder.visible = False
         save_btn.disabled = state["processed"] is None
         # Mettre à jour l'overlay si un masque existe déjà
-        if state.get("mask_img") is not None:
-            _refresh_mask_overlay()
-        else:
-            mask_overlay_img.visible = False
+        if state.get("mask_img") is None:
+            mask_canvas.shapes.clear()
+        # (si mask_img existe, mask_canvas a déjà les cercles — rien à faire)
         page.update()
 
     def _refresh_mask_overlay() -> None:
-        """Encode le masque en PNG RGBA sparse et met à jour mask_overlay_img.
-        Très rapide car : pas de recomposite, PNG sparse compresse en ~5 ms.
+        """Rafraîchit l'overlay masque. Avec ft.canvas.Canvas, les cercles sont déjà
+        présents depuis le dessin — aucune re-encodage nécessaire.
         """
-        mask = state.get("mask_img")
-        cache = state.get("_preview_base")
-        if mask is None or cache is None:
-            mask_overlay_img.visible = False
-            return
-        tw, th = cache.size  # dimensions du thumbnail en cache
-        m_small = mask.resize((tw, th), Image.Resampling.NEAREST)
-        m_arr = np.array(m_small)
-        overlay_arr = np.zeros((th, tw, 4), dtype=np.uint8)
-        painted = m_arr > 0
-        overlay_arr[painted, 0] = 220
-        overlay_arr[painted, 1] = 50
-        overlay_arr[painted, 2] = 50
-        overlay_arr[painted, 3] = 140
-        overlay = Image.fromarray(overlay_arr, "RGBA")
-        mask_overlay_img.src = f"data:image/png;base64,{image_to_b64(overlay, fmt='PNG')}"
-        mask_overlay_img.visible = True
+        # No-op : mask_canvas.shapes est la source de vérité, toujours à jour.
+        pass
 
     def _apply_mask_overlay(base_thumb: Image.Image, mask: Image.Image) -> Image.Image:
         """Compose l'overlay rouge du masque sur le thumbnail (utilisé dans les autres contextes)."""
@@ -571,13 +604,8 @@ async def main(page: ft.Page) -> None:
         return Image.fromarray(d_arr.clip(0, 255).astype(np.uint8), "RGB")
 
     async def _render_preview_fast() -> None:
-        """Render rapide pendant le pinceau : met à jour uniquement l'overlay masque (PNG sparse)."""
-        cache = state.get("_preview_base")
-        if cache is None:
-            _render_preview()
-            return
-        _refresh_mask_overlay()
-        page.update()
+        """Render rapide pendant le pinceau : met à jour le canvas vectoriel (aucun encodage image)."""
+        mask_canvas.update()
 
     # ------------------------------------------------------------------ #
     #                       CHARGEMENT D'IMAGE                            #
@@ -613,7 +641,7 @@ async def main(page: ft.Page) -> None:
             state["mask_img"]      = None
             state["mask_mode"]     = False
             state["_preview_base"] = None  # invalider le cache
-            mask_overlay_img.visible = False
+            mask_canvas.shapes.clear()
 
             process_btn.text    = "Supprimer le fond (IA)"
             process_btn.bgcolor = VIOLET if REMBG_AVAILABLE else GREY
@@ -967,49 +995,83 @@ async def main(page: ft.Page) -> None:
     # Cache du modèle LaMa (chargé une seule fois)
     _lama_model: list = [None]
 
-    def _image_coords_from_pointer(local_x: float, local_y: float) -> "tuple[int, int] | None":
+    def _thumb_coords_from_pointer(local_x: float, local_y: float) -> "tuple[int, int] | None":
         """
-        Convertit les coordonées du pointeur (relatives au GestureDetector) en pixels PIL.
-        ft.Image avec fit=CONTAIN et expand=True aligne l'image en haut à gauche (pas centrée).
+        Convertit les coordonnées du pointeur en pixels du masque thumbnail.
+        Travaille à la résolution du cache _preview_base (≤700px) pour la fluidité.
         """
-        base = state["processed"] if state["processed"] is not None else state["orig_img"]
-        if base is None:
+        cache = state.get("_preview_base")
+        if cache is None:
             return None
         pw = state["container_w"]
         ph = state["container_h"]
         if pw < 10 or ph < 10:
             pw = max((page.window.width  or 1024) - 410, 200)
             ph = max((page.window.height or  720) - 100, 200)
-        iw, ih = base.size
-        ratio  = min(pw / iw, ph / ih)
-        disp_w = iw * ratio
-        disp_h = ih * ratio
-        # ft.Image aligne en haut-gauche → pas d'offset
-        px = local_x / disp_w * iw
-        py = local_y / disp_h * ih
-        if not (0 <= px < iw and 0 <= py < ih):
+        tw, th = cache.size
+        ratio  = min(pw / tw, ph / th)
+        disp_w = tw * ratio
+        disp_h = th * ratio
+        px = local_x / disp_w * tw
+        py = local_y / disp_h * th
+        if not (0 <= px < tw and 0 <= py < th):
             return None
         return int(px), int(py)
 
-    def _paint_stroke(img_x: int, img_y: int, force_render: bool = False) -> bool:
-        """Dessine un cercle blanc sur le masque PIL. Retourne True si un rendu est dû."""
-        base = state["processed"] if state["processed"] is not None else state["orig_img"]
-        if base is None:
+    def _paint_stroke(widget_x: float, widget_y: float, force_render: bool = False) -> bool:
+        """
+        Dessine un trait de pinceau :
+        - Sur le canvas vectoriel (widget coords) → rendu immédiat, zéro encodage.
+        - Sur le masque PIL basse résolution (thumbnail coords) → pour l'inférence LaMa.
+        """
+        cache = state.get("_preview_base")
+        if cache is None:
             return False
-        iw, ih = base.size
-        if state["mask_img"] is None:
-            state["mask_img"] = Image.new("L", (iw, ih), 0)
+        tw, th = cache.size
+        # Coordonnées dans l'espace thumbnail (vérification des bornes incluse)
         pw = state["container_w"]
         ph = state["container_h"]
         if pw < 10 or ph < 10:
             pw = max((page.window.width  or 1024) - 410, 200)
             ph = max((page.window.height or  720) - 100, 200)
-        ratio  = min(pw / iw, ph / ih)
-        radius = max(3, int(state["brush_size"] / ratio))
+        ratio  = min(pw / tw, ph / th)
+        disp_w = tw * ratio
+        disp_h = th * ratio
+        px = widget_x / disp_w * tw
+        py = widget_y / disp_h * th
+        if not (0 <= px < tw and 0 <= py < th):
+            return False  # hors image : ne rien dessiner
+        brush_r = state["brush_size"]
+        # Espacement : ne peindre un nouveau cercle que si le pointeur a avancé
+        # d'au moins la moitié du rayon depuis le dernier coup de pinceau.
+        min_dist = max(2.0, brush_r * 0.5)
+        dx = widget_x - state["_last_stroke_x"]
+        dy = widget_y - state["_last_stroke_y"]
+        if not force_render and (dx * dx + dy * dy) < min_dist * min_dist:
+            return False
+        state["_last_stroke_x"] = widget_x
+        state["_last_stroke_y"] = widget_y
+        # 1. Canvas vectoriel : cercle en coordonnées widget — aucun encodage
+        mask_canvas.shapes.append(
+            _ftcv.Circle(
+                x=widget_x, y=widget_y, radius=brush_r,
+                paint=ft.Paint(
+                    color=ft.Colors.with_opacity(0.55, "#DC3232"),
+                    style=ft.PaintingStyle.FILL,
+                ),
+            )
+        )
+        # 2. Masque PIL (thumbnail resolution) : pour l'inférence LaMa
+        if state["mask_img"] is None:
+            state["mask_img"] = Image.new("L", (tw, th), 0)
+        elif state["mask_img"].size != (tw, th):
+            state["mask_img"] = state["mask_img"].resize((tw, th), Image.Resampling.NEAREST)
+        radius_pil = max(2, int(brush_r * tw / disp_w))
         from PIL import ImageDraw
         draw = ImageDraw.Draw(state["mask_img"])
         draw.ellipse(
-            [img_x - radius, img_y - radius, img_x + radius, img_y + radius],
+            [int(px) - radius_pil, int(py) - radius_pil,
+             int(px) + radius_pil, int(py) + radius_pil],
             fill=255,
         )
         lama_run_btn.disabled   = False
@@ -1052,7 +1114,8 @@ async def main(page: ft.Page) -> None:
         lama_run_btn.disabled    = True
         lama_clear_btn.disabled  = True
         lama_status.value        = "Masque effacé"
-        mask_overlay_img.visible = False
+        mask_canvas.shapes.clear()
+        mask_canvas.update()
         _render_preview()
 
     async def on_preview_pan_down(e: ft.DragDownEvent) -> None:
@@ -1067,8 +1130,10 @@ async def main(page: ft.Page) -> None:
     async def on_preview_pan_start(e: ft.DragStartEvent) -> None:
         if not state["mask_mode"]:
             return
-        coords = _image_coords_from_pointer(state["pen_x"], state["pen_y"])
-        if coords and _paint_stroke(*coords):
+        # Réinitialiser la position du dernier cercle pour peindre dès le premier point
+        state["_last_stroke_x"] = -9999.0
+        state["_last_stroke_y"] = -9999.0
+        if _paint_stroke(state["pen_x"], state["pen_y"]):
             await _render_preview_fast()
 
     async def on_preview_pan_update(e: ft.DragUpdateEvent) -> None:
@@ -1081,8 +1146,7 @@ async def main(page: ft.Page) -> None:
         elif e.local_delta:
             state["pen_x"] += e.local_delta.x
             state["pen_y"] += e.local_delta.y
-        coords = _image_coords_from_pointer(state["pen_x"], state["pen_y"])
-        if coords and _paint_stroke(*coords):
+        if _paint_stroke(state["pen_x"], state["pen_y"]):
             await _render_preview_fast()
 
     async def on_preview_pan_end(e) -> None:
@@ -1098,10 +1162,12 @@ async def main(page: ft.Page) -> None:
         lx, ly = e.local_position.x, e.local_position.y
         state["pen_x"] = lx
         state["pen_y"] = ly
-        coords = _image_coords_from_pointer(lx, ly)
+        coords = _thumb_coords_from_pointer(lx, ly)
         if coords:
             state["_last_render_t"] = 0.0
-            _paint_stroke(*coords, force_render=True)
+            state["_last_stroke_x"] = -9999.0
+            state["_last_stroke_y"] = -9999.0
+            _paint_stroke(lx, ly, force_render=True)
             await _render_preview_fast()
         else:
             lama_status.value = (
@@ -1140,9 +1206,10 @@ async def main(page: ft.Page) -> None:
             # Étape 2 : prétraitement
             _set_status("Prétraitement de l'image…")
             rgb_img = base.convert("RGB")
+            # Le masque est stocké à la résolution du thumbnail — upscaler à la pleine résolution
             m = mask.convert("L")
             if m.size != rgb_img.size:
-                m = m.resize(rgb_img.size, Image.Resampling.NEAREST)
+                m = m.resize(rgb_img.size, Image.Resampling.LANCZOS)
             # Étape 3 : inférence (unique forward pass — durée variable selon taille)
             _set_status(f"Reconstruction IA ({rgb_img.width}×{rgb_img.height} px)…")
             result = _lama_model[0](rgb_img, m)
@@ -1157,6 +1224,7 @@ async def main(page: ft.Page) -> None:
             state["processed"]       = result
             state["mask_img"]       = None
             state["mask_mode"]      = False
+            mask_canvas.shapes.clear()
             lama_mask_btn.text      = "Dessiner le masque"
             lama_mask_btn.icon      = ft.Icons.BRUSH
             lama_clear_btn.disabled = True
@@ -1241,7 +1309,7 @@ async def main(page: ft.Page) -> None:
             ),
             ft.Container(
                 content=ft.GestureDetector(
-                    content=ft.Stack([preview_placeholder, preview_img, mask_overlay_img]),
+                    content=ft.Stack([preview_placeholder, preview_img, mask_canvas]),
                     on_pan_down=on_preview_pan_down,
                     on_pan_start=on_preview_pan_start,
                     on_pan_update=on_preview_pan_update,
