@@ -118,7 +118,7 @@ Dashboard-Image-Manipulation/
 ├── README.md             # Ce fichier
 └── Data/                 # Applications et ressources
     ├── watermark.png     # Filigrane utilisé par certaines apps
-   ├── 2 en 1.py
+   ├── Augmentation IA.py
    ├── Ameliorer nettete.py
    ├── Conversion JPG.py
    ├── Fichiers manquants.py
@@ -167,7 +167,7 @@ Dashboard-Image-Manipulation/
 
 | Nom affiché (Dashboard) | Script | Description |
 |-------------------------|--------|-------------|
-| 2 en 1 | `2 en 1.py` | Combine deux images côte à côte |
+| Augmentation IA | `Augmentation IA.py` | Super-résolution, effacer des éléments dans une image et restauration de visage par IA |
 | Nettoyer les métadonnées | `Nettoyer metadonnees.py` | Supprime les métadonnées EXIF |
 | Conversion en JPG | `Conversion JPG.py` | Convertit les images (et les fichiers PDF !) en JPG |
 | Fichiers manquants | `Fichiers manquants.py` | Détecte les fichiers manquants |
