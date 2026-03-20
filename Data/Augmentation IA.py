@@ -5,6 +5,9 @@ Preparation ID.py — Préparation IA de photos d'identité
 
 Application Flet de préparation de photos d'identité :
 
+  - Inpainting par IA (LaMa — Large Mask inpainting) : reconstruction cohérente
+    des zones masquées au pinceau directement sur l'image (effacement d'objets,
+    nettoyage de fond, suppression de filigranes…).
   - Suppression automatique du fond par IA (rembg / modèle ``u2net_human_seg``).
   - Restauration du visage par IA (spandrel + 4xFaceUpSharpDAT) :
     amélioration des détails du visage ×4, compatible Python 3.14+.
@@ -51,7 +54,7 @@ sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au t
 Version : 1.8.5
 """
 
-__version__ = "1.8.5"
+__version__ = "1.9.0"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -66,8 +69,8 @@ import io
 import contextlib
 import base64
 import asyncio
-import threading
 import math
+import time
 import urllib.request
 from PIL import Image, ImageFilter
 import numpy as np
@@ -84,6 +87,12 @@ try:
     ESRGAN_AVAILABLE = True
 except Exception:
     ESRGAN_AVAILABLE = False
+
+try:
+    from simple_lama_inpainting import SimpleLama as _SimpleLama
+    LAMA_AVAILABLE = True
+except ImportError:
+    LAMA_AVAILABLE = False
 
 ###############################################################
 #                       CONFIGURATION                         #
@@ -254,9 +263,7 @@ async def main(page: ft.Page) -> None:
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG_UI
     page.window.width = 1024
-    page.window.height = 640
-    page.window.min_width = 720
-    page.window.min_height = 560
+    page.window.height = 720
 
     # ------------------------------------------------------------------ #
     #                            ÉTAT                                     #
@@ -292,9 +299,20 @@ async def main(page: ft.Page) -> None:
         "precise":         False,  # True = alpha matting précis pour rembg
         "working":         False,  # True pendant l'exécution de rembg
         "enhancing":       False,  # True pendant face SR ou ESRGAN
+        "lama_running":    False,  # True pendant l'exécution de LaMa
         "rembg_applied":   False,  # True après suppression du fond par rembg
         "current_task":    None,   # asyncio.Task en cours (rembg ou modèle)
         "cancel_requested": False, # Annulation demandée (boucle de tuiles)
+        # --- LaMa inpainting ---
+        "mask_img":        None,   # PIL.Image "L" du masque courant (blanc = zone à effacer)
+        "mask_mode":       False,  # True = mode dessin de masque actif
+        "brush_size":      30,     # rayon du pinceau en pixels (espace image affichée)
+        "pen_x":           0.0,    # position X courante du pointeur (espace widget)
+        "pen_y":           0.0,    # position Y courante du pointeur (espace widget)
+        "container_w":       0.0,    # largeur réelle du conteneur image (mise à jour par on_size_change)
+        "container_h":       0.0,    # hauteur réelle du conteneur image
+        "_last_render_t":    0.0,    # horodatage du dernier rendu pinceau (throttle)
+        "_preview_base":     None,   # PIL RGB thumbnail (≤700×700) sans masque — cache rapide
     }
 
     # Session rembg partagée
@@ -318,6 +336,16 @@ async def main(page: ft.Page) -> None:
         gapless_playback=True,
         visible=False,
     )
+
+    # Overlay du masque LaMa (PNG RGBA, mis à jour uniquement pendant le dessin)
+    mask_overlay_img = ft.Image(
+        src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+        fit=ft.BoxFit.CONTAIN,
+        expand=True,
+        visible=False,
+        gapless_playback=True,
+    )
+
     preview_placeholder = ft.Container(
         content=ft.Column(
             [
@@ -403,6 +431,45 @@ async def main(page: ft.Page) -> None:
         tooltip="Annuler le traitement en cours",
     )
 
+    # ---- LaMa inpainting ---- #
+    lama_mask_btn = ft.FilledButton(
+        "Dessiner le masque",
+        icon=ft.Icons.BRUSH,
+        style=ft.ButtonStyle(
+            bgcolor=ORANGE if LAMA_AVAILABLE else GREY,
+            color=DARK,
+        ),
+        disabled=not LAMA_AVAILABLE,
+        tooltip="Activer/désactiver le mode pinceau pour marquer les zones à reconstruire",
+    )
+    lama_clear_btn = ft.IconButton(
+        icon=ft.Icons.LAYERS_CLEAR,
+        icon_color=WHITE,
+        bgcolor=GREY,
+        tooltip="Effacer le masque",
+        disabled=True,
+    )
+    lama_run_btn = ft.FilledButton(
+        "Reconstruire (LaMa)",
+        icon=ft.Icons.AUTO_FIX_HIGH,
+        style=ft.ButtonStyle(
+            bgcolor=GREEN if LAMA_AVAILABLE else GREY,
+            color=DARK,
+        ),
+        disabled=True,
+        tooltip="Reconstruire les zones masquées avec LaMa",
+    )
+    brush_slider = ft.Slider(
+        min=5, max=120, value=30, divisions=23,
+        active_color=ORANGE,
+        inactive_color=GREY,
+        label="{value}px",
+        expand=True,
+        disabled=not LAMA_AVAILABLE,
+    )
+    lama_status = ft.Text("", size=11, color=LIGHT_GREY)
+    lama_progress_bar = ft.ProgressBar(color=ORANGE, bgcolor=GREY, visible=False)
+
     # ---- Sélecteur de modèle personnalisé ---- #
     def _build_model_options() -> list[ft.dropdown.Option]:
         names = _list_pth_models()
@@ -451,7 +518,7 @@ async def main(page: ft.Page) -> None:
 
     # ------------------------------------------------------------------ #
     def _render_preview() -> None:
-        """Génère l'image (fond appliqué) et actualise la prévisualisation."""
+        """Render complet : applique le fond + thumbnail + cache. Ne bake pas le masque."""
         base = state["processed"] if state["processed"] is not None else state["orig_img"]
         if base is None:
             return
@@ -459,10 +526,57 @@ async def main(page: ft.Page) -> None:
         rgb = apply_background(base, bg_rgb, state["orig_img"])
         display = rgb.copy()
         display.thumbnail((700, 700), Image.Resampling.BILINEAR)
+        # Mettre en cache le thumbnail propre pour les renders rapides du masque
+        state["_preview_base"] = display.copy()
         preview_img.src = f"data:image/jpeg;base64,{image_to_b64(display)}"
         preview_img.visible = True
         preview_placeholder.visible = False
         save_btn.disabled = state["processed"] is None
+        # Mettre à jour l'overlay si un masque existe déjà
+        if state.get("mask_img") is not None:
+            _refresh_mask_overlay()
+        else:
+            mask_overlay_img.visible = False
+        page.update()
+
+    def _refresh_mask_overlay() -> None:
+        """Encode le masque en PNG RGBA sparse et met à jour mask_overlay_img.
+        Très rapide car : pas de recomposite, PNG sparse compresse en ~5 ms.
+        """
+        mask = state.get("mask_img")
+        cache = state.get("_preview_base")
+        if mask is None or cache is None:
+            mask_overlay_img.visible = False
+            return
+        tw, th = cache.size  # dimensions du thumbnail en cache
+        m_small = mask.resize((tw, th), Image.Resampling.NEAREST)
+        m_arr = np.array(m_small)
+        overlay_arr = np.zeros((th, tw, 4), dtype=np.uint8)
+        painted = m_arr > 0
+        overlay_arr[painted, 0] = 220
+        overlay_arr[painted, 1] = 50
+        overlay_arr[painted, 2] = 50
+        overlay_arr[painted, 3] = 140
+        overlay = Image.fromarray(overlay_arr, "RGBA")
+        mask_overlay_img.src = f"data:image/png;base64,{image_to_b64(overlay, fmt='PNG')}"
+        mask_overlay_img.visible = True
+
+    def _apply_mask_overlay(base_thumb: Image.Image, mask: Image.Image) -> Image.Image:
+        """Compose l'overlay rouge du masque sur le thumbnail (utilisé dans les autres contextes)."""
+        m = mask.resize(base_thumb.size, Image.Resampling.NEAREST).convert("L")
+        m_arr = np.array(m).astype(np.float32) / 255.0
+        d_arr = np.array(base_thumb.convert("RGB")).astype(np.float32)
+        alpha = m_arr[..., np.newaxis] * 0.55
+        d_arr = d_arr * (1.0 - alpha) + np.array([220, 50, 50], dtype=np.float32) * alpha
+        return Image.fromarray(d_arr.clip(0, 255).astype(np.uint8), "RGB")
+
+    async def _render_preview_fast() -> None:
+        """Render rapide pendant le pinceau : met à jour uniquement l'overlay masque (PNG sparse)."""
+        cache = state.get("_preview_base")
+        if cache is None:
+            _render_preview()
+            return
+        _refresh_mask_overlay()
         page.update()
 
     # ------------------------------------------------------------------ #
@@ -492,10 +606,14 @@ async def main(page: ft.Page) -> None:
             if img.mode not in ("RGB", "RGBA"):
                 img = img.convert("RGB")
 
-            state["orig_img"]      = img
-            state["processed"]    = None
-            state["index"]        = index
+            state["orig_img"]       = img
+            state["processed"]     = None
+            state["index"]         = index
             state["rembg_applied"] = False
+            state["mask_img"]      = None
+            state["mask_mode"]     = False
+            state["_preview_base"] = None  # invalider le cache
+            mask_overlay_img.visible = False
 
             process_btn.text    = "Supprimer le fond (IA)"
             process_btn.bgcolor = VIOLET if REMBG_AVAILABLE else GREY
@@ -842,6 +960,218 @@ async def main(page: ft.Page) -> None:
             status_text.value = f"[ERREUR] {ex}"
             page.update()
 
+    # ------------------------------------------------------------------ #
+    #                        LAMA INPAINTING                              #
+    # ------------------------------------------------------------------ #
+
+    # Cache du modèle LaMa (chargé une seule fois)
+    _lama_model: list = [None]
+
+    def _image_coords_from_pointer(local_x: float, local_y: float) -> "tuple[int, int] | None":
+        """
+        Convertit les coordonées du pointeur (relatives au GestureDetector) en pixels PIL.
+        ft.Image avec fit=CONTAIN et expand=True aligne l'image en haut à gauche (pas centrée).
+        """
+        base = state["processed"] if state["processed"] is not None else state["orig_img"]
+        if base is None:
+            return None
+        pw = state["container_w"]
+        ph = state["container_h"]
+        if pw < 10 or ph < 10:
+            pw = max((page.window.width  or 1024) - 410, 200)
+            ph = max((page.window.height or  720) - 100, 200)
+        iw, ih = base.size
+        ratio  = min(pw / iw, ph / ih)
+        disp_w = iw * ratio
+        disp_h = ih * ratio
+        # ft.Image aligne en haut-gauche → pas d'offset
+        px = local_x / disp_w * iw
+        py = local_y / disp_h * ih
+        if not (0 <= px < iw and 0 <= py < ih):
+            return None
+        return int(px), int(py)
+
+    def _paint_stroke(img_x: int, img_y: int, force_render: bool = False) -> bool:
+        """Dessine un cercle blanc sur le masque PIL. Retourne True si un rendu est dû."""
+        base = state["processed"] if state["processed"] is not None else state["orig_img"]
+        if base is None:
+            return False
+        iw, ih = base.size
+        if state["mask_img"] is None:
+            state["mask_img"] = Image.new("L", (iw, ih), 0)
+        pw = state["container_w"]
+        ph = state["container_h"]
+        if pw < 10 or ph < 10:
+            pw = max((page.window.width  or 1024) - 410, 200)
+            ph = max((page.window.height or  720) - 100, 200)
+        ratio  = min(pw / iw, ph / ih)
+        radius = max(3, int(state["brush_size"] / ratio))
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(state["mask_img"])
+        draw.ellipse(
+            [img_x - radius, img_y - radius, img_x + radius, img_y + radius],
+            fill=255,
+        )
+        lama_run_btn.disabled   = False
+        lama_clear_btn.disabled = False
+        now = time.monotonic()
+        if force_render or (now - state["_last_render_t"] >= 0.03):
+            state["_last_render_t"] = now
+            return True
+        return False
+
+    def on_brush_size_change(e) -> None:
+        state["brush_size"] = int(e.control.value)
+
+    def on_lama_toggle_mask(e) -> None:
+        """Active / désactive le mode pinceau."""
+        if not LAMA_AVAILABLE:
+            return
+        base = state["processed"] if state["processed"] is not None else state["orig_img"]
+        if base is None:
+            lama_status.value = "Chargez d'abord une image."
+            page.update()
+            return
+        state["mask_mode"] = not state["mask_mode"]
+        if state["mask_mode"]:
+            lama_mask_btn.text = "Arrêter le pinceau"
+            lama_mask_btn.icon = ft.Icons.STOP_CIRCLE_OUTLINED
+            lama_status.value  = "Mode pinceau actif — cliquez/glissez sur l'image"
+        else:
+            lama_mask_btn.text = "Dessiner le masque"
+            lama_mask_btn.icon = ft.Icons.BRUSH
+            lama_status.value  = ""
+        page.update()
+
+    def on_lama_clear_mask(e) -> None:
+        """Efface le masque courant."""
+        state["mask_img"]        = None
+        state["mask_mode"]       = False
+        lama_mask_btn.text       = "Dessiner le masque"
+        lama_mask_btn.icon       = ft.Icons.BRUSH
+        lama_run_btn.disabled    = True
+        lama_clear_btn.disabled  = True
+        lama_status.value        = "Masque effacé"
+        mask_overlay_img.visible = False
+        _render_preview()
+
+    async def on_preview_pan_down(e: ft.DragDownEvent) -> None:
+        """Capture la position initiale du stylo/doigt (avant le pan)."""
+        if not state["mask_mode"]:
+            return
+        lp = getattr(e, "local_position", None)
+        if lp is not None:
+            state["pen_x"] = float(lp.x)
+            state["pen_y"] = float(lp.y)
+
+    async def on_preview_pan_start(e: ft.DragStartEvent) -> None:
+        if not state["mask_mode"]:
+            return
+        coords = _image_coords_from_pointer(state["pen_x"], state["pen_y"])
+        if coords and _paint_stroke(*coords):
+            await _render_preview_fast()
+
+    async def on_preview_pan_update(e: ft.DragUpdateEvent) -> None:
+        if not state["mask_mode"]:
+            return
+        lp = getattr(e, "local_position", None)
+        if lp is not None:
+            state["pen_x"] = float(lp.x)
+            state["pen_y"] = float(lp.y)
+        elif e.local_delta:
+            state["pen_x"] += e.local_delta.x
+            state["pen_y"] += e.local_delta.y
+        coords = _image_coords_from_pointer(state["pen_x"], state["pen_y"])
+        if coords and _paint_stroke(*coords):
+            await _render_preview_fast()
+
+    async def on_preview_pan_end(e) -> None:
+        """Fin du glisser : rendu final forcé."""
+        if not state["mask_mode"] or state["mask_img"] is None:
+            return
+        state["_last_render_t"] = 0.0
+        await _render_preview_fast()
+
+    async def on_preview_tap(e: ft.TapEvent) -> None:
+        if not state["mask_mode"]:
+            return
+        lx, ly = e.local_position.x, e.local_position.y
+        state["pen_x"] = lx
+        state["pen_y"] = ly
+        coords = _image_coords_from_pointer(lx, ly)
+        if coords:
+            state["_last_render_t"] = 0.0
+            _paint_stroke(*coords, force_render=True)
+            await _render_preview_fast()
+        else:
+            lama_status.value = (
+                f"clic ({lx:.0f},{ly:.0f}) hors image "
+                f"(container {state['container_w']:.0f}×{state['container_h']:.0f})"
+            )
+            page.update()
+
+    async def on_run_lama(e) -> None:
+        """Lance la reconstruction LaMa sur les zones masquées."""
+        base = state["processed"] if state["processed"] is not None else state["orig_img"]
+        mask = state["mask_img"]
+        if base is None or mask is None or state["lama_running"]:
+            return
+
+        state["lama_running"]     = True
+        lama_run_btn.disabled     = True
+        lama_mask_btn.disabled    = True
+        lama_clear_btn.disabled   = True
+        lama_progress_bar.value   = None
+        lama_progress_bar.visible = True
+        lama_status.value         = "Préparation…"
+        page.update()
+
+        _t0 = time.monotonic()
+
+        def _set_status(msg: str) -> None:
+            lama_status.value = msg
+            page.update()
+
+        def _do_lama():
+            # Étape 1 : chargement du modèle (si premier lancement)
+            if _lama_model[0] is None:
+                _set_status("Chargement du modèle LaMa…")
+                _lama_model[0] = _SimpleLama()
+            # Étape 2 : prétraitement
+            _set_status("Prétraitement de l'image…")
+            rgb_img = base.convert("RGB")
+            m = mask.convert("L")
+            if m.size != rgb_img.size:
+                m = m.resize(rgb_img.size, Image.Resampling.NEAREST)
+            # Étape 3 : inférence (unique forward pass — durée variable selon taille)
+            _set_status(f"Reconstruction IA ({rgb_img.width}×{rgb_img.height} px)…")
+            result = _lama_model[0](rgb_img, m)
+            return result
+
+        lama_task = asyncio.create_task(asyncio.to_thread(_do_lama))
+        try:
+            result = await lama_task
+            if base.mode == "RGBA":
+                result = result.convert("RGBA")
+                result.putalpha(base.split()[3])
+            state["processed"]       = result
+            state["mask_img"]       = None
+            state["mask_mode"]      = False
+            lama_mask_btn.text      = "Dessiner le masque"
+            lama_mask_btn.icon      = ft.Icons.BRUSH
+            lama_clear_btn.disabled = True
+            lama_run_btn.disabled   = True
+            lama_status.value       = f"[OK] Reconstruction terminée ({time.monotonic() - _t0:.1f} s)"
+            save_btn.disabled       = False
+        except Exception as ex:
+            lama_status.value = f"[ERREUR] LaMa : {ex}"
+        finally:
+            lama_progress_bar.visible = False
+            state["lama_running"]     = False
+            lama_mask_btn.disabled    = not LAMA_AVAILABLE
+            page.update()
+            _render_preview()
+
     # Attacher les callbacks
     precise_switch.on_change   = on_precise_toggle
     bg_radio.on_change         = on_bg_change
@@ -852,6 +1182,10 @@ async def main(page: ft.Page) -> None:
     refresh_btn.on_click       = on_refresh_models
     save_btn.on_click          = on_save
     cancel_btn.on_click        = on_cancel
+    lama_mask_btn.on_click     = on_lama_toggle_mask
+    lama_clear_btn.on_click    = on_lama_clear_mask
+    lama_run_btn.on_click      = on_run_lama
+    brush_slider.on_change     = on_brush_size_change
 
     # ------------------------------------------------------------------ #
     #                           MISE EN PAGE                              #
@@ -878,6 +1212,19 @@ async def main(page: ft.Page) -> None:
             cancel_btn,
             enhance_status,
             ft.Divider(color=GREY),
+            # Inpainting LaMa
+            ft.Text("Inpainting LaMa", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
+            ft.Text("Pinceau → Taille", size=10, color=LIGHT_GREY),
+            ft.Row([brush_slider], spacing=4),
+            ft.Row(
+                [lama_mask_btn, lama_clear_btn],
+                spacing=4,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            lama_progress_bar,
+            lama_run_btn,
+            lama_status,
+            ft.Divider(color=GREY),
             save_btn,
             ft.Container(expand=True),
             status_text,
@@ -893,10 +1240,21 @@ async def main(page: ft.Page) -> None:
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
             ft.Container(
-                content=ft.Stack([preview_placeholder, preview_img]),
+                content=ft.GestureDetector(
+                    content=ft.Stack([preview_placeholder, preview_img, mask_overlay_img]),
+                    on_pan_down=on_preview_pan_down,
+                    on_pan_start=on_preview_pan_start,
+                    on_pan_update=on_preview_pan_update,
+                    on_pan_end=on_preview_pan_end,
+                    on_tap_down=on_preview_tap,
+                ),
                 expand=True,
                 border_radius=8,
                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                on_size_change=lambda e: state.update({
+                    "container_w": float(e.width  or state["container_w"]),
+                    "container_h": float(e.height or state["container_h"]),
+                }),
             ),
             ft.Row(
                 [prev_btn, ft.Container(expand=True), next_btn],
