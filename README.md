@@ -167,7 +167,7 @@ Dashboard-Image-Manipulation/
 
 | Nom affiché (Dashboard) | Script | Description |
 |-------------------------|--------|-------------|
-| Augmentation IA | `Augmentation IA.py` | Super-résolution, effacer des éléments dans une image et restauration de visage par IA |
+| Augmentation IA | `Augmentation IA.py` | Super-résolution, effacer des éléments dans une image (inpainting) et restauration de visage par IA |
 | Nettoyer les métadonnées | `Nettoyer metadonnees.py` | Supprime les métadonnées EXIF |
 | Conversion en JPG | `Conversion JPG.py` | Convertit les images (et les fichiers PDF !) en JPG |
 | Fichiers manquants | `Fichiers manquants.py` | Détecte les fichiers manquants |
@@ -175,7 +175,7 @@ Dashboard-Image-Manipulation/
 | Format 13x15 | `Format 13x15.py` | Recadre en format 13x15 cm |
 | Images en PDF | `Images en PDF.py` | Génère un PDF à partir d'images |
 | Noir et blanc | `N&B.py` | Conversion noir et blanc |
-| Recadrage | `Recadrage.pyw` | Recadrage interactif avec 16 formats d'impression (ID, 10x15, 13x18, 20x30…), mode batch, zoom/pan/rotation, 2 en 1, planches ID x2/x4, formats multiples par image, exemplaires, noir et blanc, netteté, **grille des tiers** (overlay activable), **suppression de fond par IA** (rembg : fond blanc/gris, modèle humain/généraliste, mode précis) |
+| Recadrage | `Recadrage.pyw` | Recadrage interactif avec 16 formats d'impression (ID, 10x15, 13x18, 20x30…), mode batch, zoom/pan/rotation, 2 en 1, planches ID x2/x4, formats multiples par image, exemplaires, noir et blanc, netteté, **grille des tiers** (overlay activable), **suppression de fond par IA** (rembg : fond blanc/flouté, modèle humain/généraliste, mode précis) |
 | Remerciements | `Remerciements.py` | Génère des cartes de remerciement |
 | Redimensionner | `Redimensionner.py` | Redimensionne les images (taille paramétrable) |
 | Redimensionner + filigrane | `Redimensionner filigrane.py` | Redimensionne avec filigrane (taille paramétrable) |
