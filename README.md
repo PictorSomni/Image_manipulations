@@ -5,6 +5,7 @@ Compatible **Windows**, **macOS** et **Linux**.
 
 ![Dashboard Screenshot](screenshots/dashboard01.jpg)
 ![Recadrage Screenshot](screenshots/dashboard02.jpg)
+![Augmentation IA Screenshot](screenshots/dashboard03.jpg)
 
 ---
 
