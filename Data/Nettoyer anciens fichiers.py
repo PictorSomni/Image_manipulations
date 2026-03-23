@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Supprime les fichiers vieux de plus de 80 jours dans les dossiers
+Supprime les fichiers vieux de plus de 60 jours dans les dossiers
 KIOSK GAUCHE, KIOSK DROITE et TEMP.
 
 Chemins :
@@ -26,7 +26,7 @@ from datetime import datetime, timedelta
 #############################################################
 #                         CONSTANTS                         #
 #############################################################
-DAYS = 80
+DAYS = 60
 
 if platform.system() == "Windows":
     FOLDERS = [
