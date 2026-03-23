@@ -73,7 +73,7 @@ def main(page: ft.Page):
     GREY = "#2C3038"
     LIGHT_GREY = "#9399A6"
     BLUE = "#45B8F5"
-    VIOLET = "#AC92EC"
+    VIOLET = "#B587FE"
     GREEN = "#49B76C"
     YELLOW = "#FBCD5F"
     HOVER_YELLOW = "#F9BA4E"
@@ -112,7 +112,7 @@ def main(page: ft.Page):
         "Images en PDF.py": [False, GREEN],
         "Redimensionner.py": [False, WHITE],
         "Format 13x10.py": [False, WHITE],
-        "Augmentation IA.py": [False, VIOLET],
+        "Augmentation IA.py": [False, GREEN],
         "Format 13x15.py": [False, WHITE],
     }
     
@@ -1424,24 +1424,24 @@ def main(page: ft.Page):
                         ),
                         ft.Container(width=48),  # Espacement entre le titre et les boutons
                         ft.IconButton(
-                            icon=ft.Icons.ARROW_LEFT,
+                            icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT_SHARP,
                             tooltip="Kiosk gauche",
                             on_click=lambda e: launch_app("Kiosk gauche.py", os.path.join(cwd, "Data", "Kiosk gauche.py"), True),
                             icon_color=VIOLET,
-                            bgcolor=GREY,
+                            bgcolor=DARK,
                             icon_size=18,
                         ),
                         ft.IconButton(
-                            icon=ft.Icons.ARROW_RIGHT,
+                            icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_RIGHT_SHARP,
                             tooltip="Kiosk droite",
                             on_click=lambda e: launch_app("Kiosk droite.py", os.path.join(cwd, "Data", "Kiosk droite.py"), True),
                             icon_color=VIOLET,
-                            bgcolor=GREY,
+                            bgcolor=DARK,
                             icon_size=18,
                         ),
                         ft.IconButton(
-                            icon=ft.Icons.DELETE_SWEEP,
-                            tooltip="Nettoyer anciens fichiers (> 80 jours)",
+                            icon=ft.Icons.AUTO_DELETE,
+                            tooltip="Nettoyer anciens fichiers (> 60 jours)",
                             on_click=lambda e: launch_app("Nettoyer anciens fichiers.py", os.path.join(cwd, "Data", "Nettoyer anciens fichiers.py"), True),
                             icon_color=ORANGE,
                             bgcolor=GREY,
