@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "1.9.0"
+__version__ = "1.9.1"
 
 #############################################################
 #                          IMPORTS                          #
@@ -1436,6 +1436,14 @@ def main(page: ft.Page):
                             tooltip="Kiosk droite",
                             on_click=lambda e: launch_app("Kiosk droite.py", os.path.join(cwd, "Data", "Kiosk droite.py"), True),
                             icon_color=VIOLET,
+                            bgcolor=GREY,
+                            icon_size=18,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.DELETE_SWEEP,
+                            tooltip="Nettoyer anciens fichiers (> 80 jours)",
+                            on_click=lambda e: launch_app("Nettoyer anciens fichiers.py", os.path.join(cwd, "Data", "Nettoyer anciens fichiers.py"), True),
+                            icon_color=ORANGE,
                             bgcolor=GREY,
                             icon_size=18,
                         ),
