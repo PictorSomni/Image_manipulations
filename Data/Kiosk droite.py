@@ -15,7 +15,7 @@ Chemins :
 Dépendances : modules standard (sys, re, collections, pathlib, platform, shutil)
 """
 
-__version__ = "1.9.1"
+__version__ = "1.9.2"
 
 #############################################################
 #                          IMPORTS                          #
@@ -64,13 +64,14 @@ print(f"Source: {PATH}", flush=True)
 print(f"Destination: {DESTINATION}", flush=True)
 
 ## Lists all the already sorted id folders at the destination.
+## Only folders that contain at least one sub-directory are considered complete.
 try:
-    DESTINATION_FOLDERS = sorted([f.name for f in DESTINATION.iterdir() if f.is_dir()])
-    DESTINATION_FOLDERS = sorted(
-        list(dict.fromkeys(DESTINATION_FOLDERS)))  ## -> Delete doubles !
-    DESTINATION_FOLDERS = [name for name in DESTINATION_FOLDERS]
+    DESTINATION_FOLDERS = sorted([
+        f.name for f in DESTINATION.iterdir()
+        if f.is_dir() and any(sf.is_dir() for sf in f.iterdir())])
+    DESTINATION_FOLDERS = list(dict.fromkeys(DESTINATION_FOLDERS))
 except Exception as e:
-    print(f"Érreur d'accès à la destination: {e}")
+    print(f"Érreur d'accès à la destination: {e}", flush=True)
     DESTINATION_FOLDERS = []
 
 ## Creates 2 lists, the first containing every files of every folders, the second containing the ID to finds them later.
@@ -86,7 +87,7 @@ except (FileNotFoundError, OSError, Exception) as e:
 
 for dir_name in sorted(dir_list):
     directory = PATH / dir_name
-    files = [f.name for f in directory.iterdir() if f.is_file() and f.name != "Thumbs.db"]
+    files = [f.name for f in directory.iterdir() if f.is_file() and f.name != "Thumbs.db" and not f.name.startswith("._")]
     
     for file in files:
         new_name = re.split(r"_", file)
@@ -116,16 +117,16 @@ for id in KIOSK_FOLDERS:
                 RESULT[id][size][file] = FILES[file]
 
 ## Browse the sorted dictionnary and copy the right file in the right place.
+total_orders = 0
+total_files = 0
+
 for id in RESULT :
-    print(f"\nCommande : {id}", flush=True)
-    print("~" * 21, flush=True)
+    files_copied = 0
     folder(DESTINATION / id)
 
     for size, files in RESULT[id].items():
         if files :
-            print(f"\n\t{size}", flush=True)
-            print(f"\t" + "-" * 51, flush=True)
-            folder(DESTINATION / id / size)            
+            folder(DESTINATION / id / size)
 
             ## Isolate the end of the name of each file and puts them on a new list to count them.
             names = []
@@ -145,14 +146,17 @@ for id in RESULT :
                                 if filename == previous_filename :
                                     pass
                                 else :
-                                    print(f"\t==>\t{original}")
-                                    print(f"\t\t⤷ {value}X_{filename}\n")
-
                                     copyfile(PATH / size / original,
                                              DESTINATION / id / size / f"{value}X_{filename}")
+                                    files_copied += 1
                                 previous_filename = filename
-                                
+
             filenames.clear()
 
-print("Termine !", flush=True)
+    if files_copied > 0:
+        print(f"Commande {id} : {files_copied} fichier(s) copie(s)", flush=True)
+        total_orders += 1
+        total_files += files_copied
+
+print(f"Termine ! {total_orders} commande(s), {total_files} fichier(s).", flush=True)
 sys.exit(0)
