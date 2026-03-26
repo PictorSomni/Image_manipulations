@@ -56,6 +56,7 @@ import asyncio
 import contextlib
 import math
 import io
+import base64
 import numpy as np
 
 os.environ.setdefault("ORT_LOGGING_LEVEL", "3")  # Suppress onnxruntime performance warnings
@@ -1492,17 +1493,11 @@ class PhotoCropper:
             preview = preview.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
         # Conversion sRGB : aligner le preview sur l'image enregistrée
         preview = convert_to_srgb(preview, getattr(self, 'icc_profile', None))
-        # Écrire dans un nouveau fichier (nom unique = cache Flutter invalidé)
-        self._preview_counter += 1
-        tmp_path = os.path.join(self._preview_tmp_dir, f"_rc_{self._preview_counter}.jpg")
-        preview.save(tmp_path, format="JPEG", quality=88)
-        self.image_display.src = tmp_path
+        # Encoder en mémoire — élimine l'I/O disque, invalide le cache Flutter via données uniques
+        _buf = io.BytesIO()
+        preview.save(_buf, format="JPEG", quality=70)
+        self.image_display.src = "data:image/jpeg;base64," + base64.b64encode(_buf.getvalue()).decode()
         self.image_display.update()
-        # Supprimer l'ancien fichier — au plus 1 fichier sur disque à tout moment
-        if self._prev_preview_path:
-            try: os.remove(self._prev_preview_path)
-            except OSError: pass
-        self._prev_preview_path = tmp_path
 
     # ================================================================ #
     #                  NAVIGATION (PAN, ZOOM, ROTATION)                #
