@@ -55,7 +55,7 @@ sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au t
 Version : 1.9.0
 """
 
-__version__ = "1.9.1"
+__version__ = "1.9.2"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -73,6 +73,7 @@ import base64
 import asyncio
 import math
 import time
+import json
 import urllib.request
 from PIL import Image, ImageFilter
 import numpy as np
@@ -168,9 +169,9 @@ def _list_pth_models() -> list[str]:
 
 
 # Couleurs de fond disponibles (nom affiché → valeur RGB)
+# "Transparent" est géré séparément (export PNG, damier en prévisualisation).
 BG_COLORS: dict[str, tuple[int, int, int]] = {
     "Blanc": (255, 255, 255),
-    "Gris":  (200, 200, 200),
 }
 
 # Extensions d'images acceptées
@@ -191,6 +192,20 @@ WHITE      = "#c7ccd8"
 ###############################################################
 #                       UTILITAIRES                           #
 ###############################################################
+
+def _make_checkerboard(size: tuple, square: int = 16) -> Image.Image:
+    """Génère un fond damier gris/blanc pour visualiser la transparence."""
+    w, h = size
+    xs = np.arange(w) // square
+    ys = np.arange(h) // square
+    grid = (xs[np.newaxis, :] + ys[:, np.newaxis]) % 2
+    arr = np.where(
+        grid[..., np.newaxis],
+        np.array([245, 245, 245, 255], dtype=np.uint8),
+        np.array([200, 200, 200, 255], dtype=np.uint8),
+    ).astype(np.uint8)
+    return Image.fromarray(arr, "RGBA")
+
 
 def image_to_b64(img: Image.Image, fmt: str = "JPEG") -> str:
     """
@@ -315,7 +330,7 @@ async def main(page: ft.Page) -> None:
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG_UI
     page.window.width = 1024
-    page.window.height = 800
+    page.window.height = 1024
 
     # ------------------------------------------------------------------ #
     #                            ÉTAT                                     #
@@ -348,11 +363,14 @@ async def main(page: ft.Page) -> None:
         "processed":       None,   # PIL.Image RGBA retournée par rembg (ou None)
         "bg_color":        "Blanc",
         "bg_blur":         False,  # True = fond flou (remplace la couleur de fond)
+        "bg_transparent":  False,  # True = fond transparent (export PNG)
         "precise":         False,  # True = alpha matting précis pour rembg
+        "rembg_human_seg": True,   # True = u2net_human_seg, False = u2net général
         "working":         False,  # True pendant l'exécution de rembg
         "enhancing":       False,  # True pendant face SR ou ESRGAN
         "lama_running":    False,  # True pendant l'exécution de LaMa
         "rembg_applied":   False,  # True après suppression du fond par rembg
+        "history":         [],     # Pile d'annulation (max 5)
         "current_task":    None,   # asyncio.Task en cours (rembg ou modèle)
         "cancel_requested": False, # Annulation demandée (boucle de tuiles)
         # --- LaMa inpainting ---
@@ -369,8 +387,9 @@ async def main(page: ft.Page) -> None:
         "_preview_base":     None,   # PIL RGB thumbnail (≤700×700) sans masque — cache rapide
     }
 
-    # Session rembg partagée
-    _session: list = [None]
+    # Sessions rembg (une par modèle pour éviter le rechargement)
+    _session: list = [None]          # u2net_human_seg
+    _session_general: list = [None]  # u2net généraliste
     # Modèles spandrel : cache par nom de fichier
     _custom_model_cache: dict = {}  # {nom_fichier: desc}
 
@@ -423,23 +442,40 @@ async def main(page: ft.Page) -> None:
     bg_radio = ft.RadioGroup(
         content=ft.Column(
             [ft.Radio(value=k, label=k, fill_color=BLUE) for k in BG_COLORS]
-            + [ft.Radio(value="Flou", label="Flou", fill_color=BLUE)],
+            + [
+                ft.Radio(value="Transparent", label="Transparent (PNG)", fill_color=BLUE),
+                ft.Radio(value="Flou",        label="Flou",             fill_color=BLUE),
+            ],
             spacing=4,
         ),
         value="Blanc",
     )
 
-    prev_btn = ft.IconButton(
-        icon=ft.Icons.CHEVRON_LEFT,
-        icon_color=DARK, bgcolor=ORANGE,
-        tooltip="Image précédente",
+    # Bascule modèle rembg : humain / général
+    model_toggle_btn = ft.Button(
+        "Humain",
+        icon=ft.Icons.PERSON,
+        bgcolor=VIOLET if REMBG_AVAILABLE else GREY,
+        color=DARK,
+        disabled=not REMBG_AVAILABLE,
+        tooltip="Basculer entre u2net_human_seg (portraits) et u2net (généraliste)",
+    )
+
+    # Bouton Annuler la dernière modification
+    undo_btn = ft.IconButton(
+        icon=ft.Icons.UNDO,
+        icon_color=WHITE,
+        bgcolor=GREY,
+        tooltip="Annuler la dernière modification",
         disabled=True,
     )
-    next_btn = ft.IconButton(
-        icon=ft.Icons.CHEVRON_RIGHT,
-        icon_color=DARK, bgcolor=ORANGE,
-        tooltip="Image suivante",
-        disabled=True,
+
+    # Bouton Ignorer (passer à l'image suivante sans enregistrer)
+    ignore_btn = ft.Button(
+        "Ignorer",
+        icon=ft.Icons.SKIP_NEXT,
+        bgcolor=GREY,
+        color=ORANGE,
     )
 
     process_btn = ft.Button(
@@ -450,7 +486,7 @@ async def main(page: ft.Page) -> None:
         disabled=not REMBG_AVAILABLE,
     )
     save_btn = ft.Button(
-        "Enregistrer",
+        "Valider et enregistrer",
         icon=ft.Icons.SAVE,
         style=ft.ButtonStyle(
             bgcolor={
@@ -571,9 +607,15 @@ async def main(page: ft.Page) -> None:
         base = state["processed"] if state["processed"] is not None else state["orig_img"]
         if base is None:
             return
-        bg_rgb = None if state["bg_blur"] else BG_COLORS[state["bg_color"]]
-        rgb = apply_background(base, bg_rgb, state["orig_img"])
-        display = rgb.copy()
+        if state["bg_blur"]:
+            display = apply_background(base, None, state["orig_img"])
+        elif state["bg_transparent"]:
+            # Damier pour visualiser la transparence
+            rgba = base.convert("RGBA")
+            chk  = _make_checkerboard(rgba.size)
+            display = Image.alpha_composite(chk, rgba).convert("RGB")
+        else:
+            display = apply_background(base, BG_COLORS[state["bg_color"]], state["orig_img"])
         display.thumbnail((700, 700), Image.Resampling.BILINEAR)
         # Mettre en cache le thumbnail propre pour les renders rapides du masque
         state["_preview_base"] = display.copy()
@@ -641,15 +683,15 @@ async def main(page: ft.Page) -> None:
             state["mask_img"]      = None
             state["mask_mode"]     = False
             state["_preview_base"] = None  # invalider le cache
+            state["history"].clear()
             mask_canvas.shapes.clear()
 
             process_btn.text    = "Supprimer le fond (IA)"
             process_btn.bgcolor = VIOLET if REMBG_AVAILABLE else GREY
             image_label.value   = os.path.basename(path)
             counter_text.value  = f"{index + 1} / {len(all_images)}"
-            prev_btn.disabled   = index == 0
-            next_btn.disabled   = index == len(all_images) - 1
             save_btn.disabled   = True
+            undo_btn.disabled   = True
             status_text.value   = ""
 
             _render_preview()
@@ -683,6 +725,7 @@ async def main(page: ft.Page) -> None:
 
         state["enhancing"]           = True
         state["cancel_requested"]    = False
+        _push_history()
         _set_all_ia_btns(True)
         enhance_progress_bar.value   = None  # indéterminé jusqu'au début des tuiles
         enhance_progress_bar.visible = True
@@ -820,11 +863,13 @@ async def main(page: ft.Page) -> None:
         finally:
             enhance_progress_bar.value   = 1.0
             enhance_progress_bar.visible = False
-            state["enhancing"]      = False
+            state["enhancing"] = False
             state["current_task"]   = None
             cancel_btn.visible      = False
             _set_all_ia_btns(False)
             run_model_btn.disabled  = not _list_pth_models()
+            if state["processed"] is not None:
+                save_btn.disabled = False
             page.update()
             _render_preview()
 
@@ -843,10 +888,16 @@ async def main(page: ft.Page) -> None:
         """Met à jour la couleur de fond sélectionnée et rafraîchit la preview."""
         val = e.control.value
         if val == "Flou":
-            state["bg_blur"] = True
+            state["bg_blur"]         = True
+            state["bg_transparent"]  = False
+        elif val == "Transparent":
+            state["bg_blur"]         = False
+            state["bg_transparent"]  = True
+            state["bg_color"]        = "Blanc"  # fallback interne
         else:
-            state["bg_blur"]  = False
-            state["bg_color"] = val
+            state["bg_blur"]         = False
+            state["bg_transparent"]  = False
+            state["bg_color"]        = val
         _render_preview()
 
     def on_prev(e) -> None:
@@ -881,6 +932,8 @@ async def main(page: ft.Page) -> None:
 
         # Toggle : recliquer annule le masque et restaure l'original
         if state["rembg_applied"]:
+            # Pousser dans l'historique avant d'annuler
+            _push_history()
             state["processed"]    = None
             state["rembg_applied"] = False
             process_btn.text      = "Supprimer le fond (IA)"
@@ -892,6 +945,7 @@ async def main(page: ft.Page) -> None:
 
         state["working"]          = True
         state["cancel_requested"]  = False
+        _push_history()
         process_btn.disabled       = True
         save_btn.disabled          = True
         progress_bar.value         = 0.0
@@ -904,22 +958,31 @@ async def main(page: ft.Page) -> None:
         anim_task  = asyncio.create_task(_animate_progress(progress_bar, _stop_anim))
 
         def _do_rembg():
-            if _session[0] is None:
-                _session[0] = new_session("u2net_human_seg")
+            use_human = state["rembg_human_seg"]
+            if use_human:
+                if _session[0] is None:
+                    _session[0] = new_session("u2net_human_seg")
+                sess = _session[0]
+            else:
+                if _session_general[0] is None:
+                    _session_general[0] = new_session("u2net")
+                sess = _session_general[0]
             buf = io.BytesIO()
             state["orig_img"].save(buf, format="PNG")
             buf.seek(0)
-            kwargs = {"session": _session[0]}
-            if state["precise"]:
-                kwargs.update({
-                    "alpha_matting": True,
-                    "alpha_matting_foreground_threshold": 240,
-                    "alpha_matting_background_threshold": 10,
-                    "alpha_matting_erode_size": 10,
-                })
+            raw = buf.getvalue()
             with contextlib.redirect_stderr(io.StringIO()):
-                result_bytes = rembg_remove(buf.getvalue(), **kwargs)
-            img = Image.open(io.BytesIO(result_bytes)).convert("RGBA")
+                if state["precise"]:
+                    result_bytes = rembg_remove(
+                        raw, session=sess,
+                        alpha_matting=True,
+                        alpha_matting_foreground_threshold=240,
+                        alpha_matting_background_threshold=10,
+                        alpha_matting_erode_size=10,
+                    )
+                else:
+                    result_bytes = rembg_remove(raw, session=sess)
+            img = Image.open(io.BytesIO(result_bytes)).convert("RGBA")  # type: ignore[arg-type]
             if not state["precise"]:
                 # Érosion du canal alpha pour supprimer le liseré semi-transparent
                 # MinFilter exige une taille impaire
@@ -950,43 +1013,110 @@ async def main(page: ft.Page) -> None:
             process_btn.disabled   = False
             _render_preview()
 
-    def on_save(e) -> None:
-        """Exporte l'image traitée (fond appliqué) dans un sous-dossier OK."""
+    async def _close_after_delay() -> None:
+        await asyncio.sleep(1.5)
+        await page.window.close()
+
+    async def on_save(e) -> None:
+        """Exporte l'image traitée dans un sous-dossier OK. PNG si fond transparent, JPEG sinon."""
         if state["processed"] is None:
             status_text.value = "[ATTENTION] Appliquez d'abord une amélioration IA avant d'enregistrer"
             page.update()
             return
 
-        bg_rgb    = None if state["bg_blur"] else BG_COLORS[state["bg_color"]]
-        final_img = apply_background(state["processed"], bg_rgb, state["orig_img"])
+        use_transparent = state["bg_transparent"]
+        if use_transparent:
+            final_img   = state["processed"].convert("RGBA")
+            ext         = ".png"
+            fmt         = "PNG"
+            save_kwargs = {}
+        else:
+            bg_rgb    = None if state["bg_blur"] else BG_COLORS[state["bg_color"]]
+            final_img = apply_background(state["processed"], bg_rgb, state["orig_img"])
+            ext         = ".jpg"
+            fmt         = "JPEG"
+            save_kwargs = {"dpi": (DPI, DPI), "quality": 100}
 
         src_path = all_images[state["index"]]
         stem     = os.path.splitext(os.path.basename(src_path))[0]
         base_dir = os.path.join(os.path.dirname(src_path), "OK")
-        filename = f"OK_{stem}.jpg"
+        filename = f"OK_{stem}{ext}"
 
         try:
             os.makedirs(base_dir, exist_ok=True)
             out_path = os.path.join(base_dir, filename)
-            # Éviter l'écrasement : suffixe _2, _3…
             if os.path.exists(out_path):
-                name, ext = os.path.splitext(filename)
+                name, e2 = os.path.splitext(filename)
                 i = 2
-                while os.path.exists(os.path.join(base_dir, f"{name}_{i}{ext}")):
+                while os.path.exists(os.path.join(base_dir, f"{name}_{i}{e2}")):
                     i += 1
-                out_path = os.path.join(base_dir, f"{name}_{i}{ext}")
+                out_path = os.path.join(base_dir, f"{name}_{i}{e2}")
 
-            final_img.save(out_path, format="JPEG", dpi=(DPI, DPI), quality=100)
-            status_text.value = f"[OK] OK → {os.path.basename(out_path)}"
+            final_img.save(out_path, format=fmt, **save_kwargs)
+            state["history"].clear()
+            undo_btn.disabled = True
 
-            if state["index"] + 1 < len(all_images):
-                _load_image(state["index"] + 1)
+            next_idx = state["index"] + 1
+            if next_idx < len(all_images):
+                status_text.value = f"[OK] OK → {os.path.basename(out_path)}"
+                _load_image(next_idx)
             else:
+                status_text.value = f"[OK] OK → {os.path.basename(out_path)}  —  Toutes les images traitées !"
                 page.update()
+                await asyncio.sleep(1.5)
+                await page.window.close()
 
         except Exception as ex:
             status_text.value = f"[ERREUR] {ex}"
             page.update()
+
+    def on_ignore(e) -> None:
+        """Passe à l'image suivante sans enregistrer."""
+        next_idx = state["index"] + 1
+        if next_idx < len(all_images):
+            _load_image(next_idx)
+        else:
+            status_text.value = "Toutes les images ont été parcourues."
+            page.update()
+            asyncio.create_task(_close_after_delay())
+
+    def _push_history() -> None:
+        """Empile l'état courant dans l'historique (max 5 crans)."""
+        state["history"].append({
+            "processed":    state["processed"],
+            "rembg_applied": state["rembg_applied"],
+        })
+        if len(state["history"]) > 5:
+            state["history"].pop(0)
+        undo_btn.disabled = False
+
+    def on_undo(e) -> None:
+        """Annule la dernière modification (rembg, modèle, LaMa)."""
+        if not state["history"]:
+            return
+        snap = state["history"].pop()
+        state["processed"]    = snap["processed"]
+        state["rembg_applied"] = snap["rembg_applied"]
+        if state["processed"] is None:
+            process_btn.text    = "Supprimer le fond (IA)"
+            process_btn.bgcolor = VIOLET if REMBG_AVAILABLE else GREY
+            save_btn.disabled   = True
+        else:
+            save_btn.disabled   = False
+        undo_btn.disabled = len(state["history"]) == 0
+        _render_preview()
+        page.update()
+
+    def on_rembg_model_toggle(e) -> None:
+        """Bascule entre u2net_human_seg (Humain) et u2net (Général)."""
+        state["rembg_human_seg"] = not state["rembg_human_seg"]
+        if state["rembg_human_seg"]:
+            model_toggle_btn.text   = "Humain"
+            model_toggle_btn.bgcolor = VIOLET if REMBG_AVAILABLE else GREY
+        else:
+            model_toggle_btn.text   = "Général"
+            model_toggle_btn.bgcolor = BLUE if REMBG_AVAILABLE else GREY
+        model_toggle_btn.update()
 
     # ------------------------------------------------------------------ #
     #                        LAMA INPAINTING                              #
@@ -1184,6 +1314,7 @@ async def main(page: ft.Page) -> None:
             return
 
         state["lama_running"]     = True
+        _push_history()
         lama_run_btn.disabled     = True
         lama_mask_btn.disabled    = True
         lama_clear_btn.disabled   = True
@@ -1243,8 +1374,9 @@ async def main(page: ft.Page) -> None:
     # Attacher les callbacks
     precise_switch.on_change   = on_precise_toggle
     bg_radio.on_change         = on_bg_change
-    prev_btn.on_click          = on_prev
-    next_btn.on_click          = on_next
+    model_toggle_btn.on_click  = on_rembg_model_toggle
+    undo_btn.on_click          = on_undo
+    ignore_btn.on_click        = on_ignore
     process_btn.on_click       = on_process
     run_model_btn.on_click     = on_run_model
     refresh_btn.on_click       = on_refresh_models
@@ -1266,6 +1398,7 @@ async def main(page: ft.Page) -> None:
             ft.Divider(color=GREY),
             # Actions rembg
             ft.Row([process_btn, precise_switch], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            model_toggle_btn,
             progress_bar,
             ft.Divider(color=GREY),
             # Amélioration IA
@@ -1279,6 +1412,7 @@ async def main(page: ft.Page) -> None:
             enhance_progress_bar,
             cancel_btn,
             enhance_status,
+            undo_btn,
             ft.Divider(color=GREY),
             # Inpainting LaMa
             ft.Text("Inpainting LaMa", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
@@ -1293,7 +1427,7 @@ async def main(page: ft.Page) -> None:
             lama_run_btn,
             lama_status,
             ft.Divider(color=GREY),
-            save_btn,
+            ft.Row([save_btn, ignore_btn], spacing=8),
             ft.Container(expand=True),
             status_text,
         ],
@@ -1323,10 +1457,6 @@ async def main(page: ft.Page) -> None:
                     "container_w": float(e.width  or state["container_w"]),
                     "container_h": float(e.height or state["container_h"]),
                 }),
-            ),
-            ft.Row(
-                [prev_btn, ft.Container(expand=True), next_btn],
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
         ],
         expand=True,
@@ -1366,6 +1496,88 @@ async def main(page: ft.Page) -> None:
     else:
         status_text.value = f"Aucune image trouvée dans : {source_folder}"
         page.update()
+
+    # ─── MODE PRÉ-CHARGÉ (lancé par Dashboard avec START_HIDDEN=1) ────────────
+    _ctrl_path_ia = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".augmentation_ia_ctrl.json")
+    )
+    if os.environ.get("START_HIDDEN", "0") == "1":
+        page.window.visible = False
+        page.update()
+
+    async def _poll_ctrl() -> None:
+        """Surveille le fichier de contrôle du Dashboard pour recharger sans redémarrer."""
+        nonlocal source_folder, all_images
+        # Initialiser last_trigger avec le trigger déjà présent dans le fichier de contrôle
+        # pour éviter de recharger une ancienne image au démarrage d'un nouveau processus.
+        last_trigger = None
+        try:
+            if os.path.exists(_ctrl_path_ia):
+                with open(_ctrl_path_ia, "r", encoding="utf-8") as _f_init:
+                    _init_data = json.load(_f_init)
+                last_trigger = _init_data.get("trigger")
+        except Exception:
+            pass
+        while True:
+            await asyncio.sleep(0.4)
+            try:
+                if not os.path.exists(_ctrl_path_ia):
+                    continue
+                with open(_ctrl_path_ia, "r", encoding="utf-8") as _f:
+                    data = json.load(_f)
+                trigger = data.get("trigger")
+                action  = data.get("action", "")
+                if action == "show":
+                    # Juste rendre la fenêtre visible sans recharger
+                    if trigger != last_trigger:
+                        last_trigger = trigger
+                        page.window.visible = True
+                        page.update()
+                    continue
+                if trigger == last_trigger:
+                    continue
+                last_trigger = trigger
+                folder = data.get("folder", "")
+                sel = data.get("selected_files", "")
+                if not folder or not os.path.isdir(folder):
+                    continue
+                source_folder = folder
+                preferred = set(sel.split("|")) if sel else set()
+                all_images = sorted(
+                    [
+                        e.path
+                        for e in os.scandir(source_folder)
+                        if os.path.splitext(e.name)[1].lower() in IMAGE_EXTENSIONS
+                        and (not preferred or os.path.basename(e.path) in preferred)
+                    ],
+                    key=lambda p: os.path.basename(p).lower(),
+                )
+                state["orig_img"]         = None
+                state["processed"]        = None
+                state["mask_img"]         = None
+                state["mask_mode"]        = False
+                state["lama_running"]     = False
+                state["enhancing"]        = False
+                state["cancel_requested"] = False
+                state["rembg_applied"]    = False
+                state["_preview_base"]    = None
+                state["history"].clear()
+                state["rembg_human_seg"]  = True
+                model_toggle_btn.text     = "Humain"
+                model_toggle_btn.bgcolor  = VIOLET if REMBG_AVAILABLE else GREY
+                undo_btn.disabled         = True
+                mask_canvas.shapes.clear()
+                page.window.visible = True
+                page.update()
+                if all_images:
+                    _load_image(0)
+                else:
+                    status_text.value = f"Aucune image trouvée dans : {source_folder}"
+                    page.update()
+            except Exception:
+                pass
+
+    asyncio.create_task(_poll_ctrl())
 
 
 ###############################################################
