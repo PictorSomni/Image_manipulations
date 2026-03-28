@@ -533,7 +533,7 @@ class PhotoCropper:
         `canvas_container` et `image_stack`.
         """
         available_width = min(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
-        available_height = min(self.page.window.height - 310, MAX_CANVAS_SIZE) if self.page.window.height else 600
+        available_height = min(self.page.window.height - 350, MAX_CANVAS_SIZE) if self.page.window.height else 600
 
         # Calculer le ratio du format choisi
         fmt_w, fmt_h = self.current_format

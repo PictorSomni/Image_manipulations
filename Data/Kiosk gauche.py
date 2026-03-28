@@ -2,9 +2,9 @@
 """
 Transfère et renomme les commandes photo du kiosk 1 (gauche) vers le NAS du studio.
 
-Même logique que ``Kiosk droite.py``, mais filtre les commandes **nouvelles** :
-seules les commandes absentes de ``DESTINATION`` sont transférées (logique inverse
-du kiosk droit qui traite les commandes déjà présentes).
+Même logique que ``Kiosk droite.py`` : seules les commandes absentes de
+``DESTINATION`` sont transférées, et les fichiers déjà présents ne sont pas
+ré-copiés.
 
 Chemins :
   Source      : \\\\studioc-kiosk1\\kiosk-data\\it-HotFolder (Windows)
@@ -147,9 +147,10 @@ for id in RESULT :
                                 if filename == previous_filename :
                                     pass
                                 else :
-                                    copyfile(PATH / size / original,
-                                            DESTINATION / id / size / f"{value}X_{filename}")
-                                    files_copied += 1
+                                    dest_file = DESTINATION / id / size / f"{value}X_{filename}"
+                                    if not dest_file.exists():
+                                        copyfile(PATH / size / original, dest_file)
+                                        files_copied += 1
                                 previous_filename = filename
 
             filenames.clear()

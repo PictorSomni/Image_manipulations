@@ -96,7 +96,7 @@ for dir_name in sorted(dir_list):
         folder_name = id_name[10:]
 
         ## -> Filters the already transfered folders to speed up the process.
-        if folder_name in DESTINATION_FOLDERS:
+        if folder_name not in DESTINATION_FOLDERS:
             KIOSK_FOLDERS.append(id_name)
             FILES[f"{file}"] = f"{id_name}_{new_name[1]}_{order_counter:03}_{new_name[-1]}"
     files.sort()
@@ -146,9 +146,10 @@ for id in RESULT :
                                 if filename == previous_filename :
                                     pass
                                 else :
-                                    copyfile(PATH / size / original,
-                                             DESTINATION / id / size / f"{value}X_{filename}")
-                                    files_copied += 1
+                                    dest_file = DESTINATION / id / size / f"{value}X_{filename}"
+                                    if not dest_file.exists():
+                                        copyfile(PATH / size / original, dest_file)
+                                        files_copied += 1
                                 previous_filename = filename
 
             filenames.clear()

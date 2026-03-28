@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eu
+(set -o pipefail) 2>/dev/null && set -o pipefail
 
 EXPECTED_ORIGIN="https://github.com/PictorSomni/Image_manipulations.git"
 
@@ -9,6 +10,10 @@ cd "$SCRIPT_DIR"
 if ! REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
 	echo "[ERREUR] Ce dossier n'est pas un depot Git valide."
 	echo "[INFO] Dossier courant: $SCRIPT_DIR"
+	echo "[INFO] Pour utiliser update.sh, ce dossier doit provenir d'un git clone."
+	echo "[INFO] Solution 1: cloner le depot dans un nouveau dossier :"
+	echo "[INFO]   git clone $EXPECTED_ORIGIN"
+	echo "[INFO] Solution 2: recopier le dossier cache .git depuis la machine source."
 	exit 1
 fi
 
