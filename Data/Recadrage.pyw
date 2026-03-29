@@ -59,24 +59,10 @@ import math
 import io
 import base64
 import numpy as np
+import importlib.util
 
 os.environ.setdefault("ORT_LOGGING_LEVEL", "3")  # Suppress onnxruntime performance warnings
-try:
-    from rembg import remove as _rembg_remove, new_session as _rembg_new_session
-    REMBG_AVAILABLE = True
-except ImportError:
-    REMBG_AVAILABLE = False
-# Ensure wand can locate the ImageMagick shared library (Homebrew on Apple Silicon / Intel)
-if not os.environ.get("MAGICK_HOME"):
-    import subprocess, shutil
-    _brew = shutil.which("brew")
-    if _brew:
-        try:
-            _prefix = subprocess.check_output([_brew, "--prefix"], text=True).strip()
-            os.environ["MAGICK_HOME"] = _prefix
-        except Exception:
-            pass
-from wand import color
+REMBG_AVAILABLE = importlib.util.find_spec("rembg") is not None
 
 # ===================== Configuration ===================== #
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
@@ -246,7 +232,7 @@ class PhotoCropper:
         self.image_paths = []
         self.current_index = 0
         self.batch_mode = False
-        self._preloaded = os.environ.get("START_HIDDEN", "0") == "1"
+        self._preloaded = False
         self.source_folder = os.environ.get("FOLDER_PATH", os.getcwd())
         # Dossier de prévisualisation temporaire (au plus 1 fichier à la fois)
         self._preview_tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".preview_cache")
@@ -1793,6 +1779,7 @@ class PhotoCropper:
         self.page.update()
 
         def _do_rembg():
+            from rembg import remove as _rembg_remove, new_session as _rembg_new_session
             if self._rembg_session[0] is None:
                 model_name = "u2net_human_seg" if self.rembg_human_seg else "u2net"
                 self._rembg_session[0] = _rembg_new_session(model_name)
@@ -2862,14 +2849,10 @@ class PhotoCropper:
             self.page.update()
         except Exception:
             pass
-        if not getattr(self, '_preloaded', False):
-            try:
-                await self.page.window.destroy()
-            except Exception:
-                pass
-        else:
-            # Mode pré-chargé : rester ouvert et prêt pour la prochaine utilisation
-            self._closing = False
+        try:
+            await self.page.window.destroy()
+        except Exception:
+            pass
 
 #############################################################
 #                           MAIN                            #
@@ -3177,63 +3160,6 @@ def main(page: ft.Page):
             pass
     
     asyncio.create_task(delayed_start())
-
-    # ─── MODE PRÉ-CHARGÉ (lancé par Dashboard avec START_HIDDEN=1) ────────────
-    _ctrl_path_recadrage = os.path.normpath(
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".recadrage_ctrl.json")
-    )
-    if os.environ.get("START_HIDDEN", "0") == "1":
-        page.window.visible = False
-        page.update()
-
-    async def _poll_ctrl():
-        """Surveille le fichier de contrôle du Dashboard pour recharger sans redémarrer."""
-        last_trigger = None
-        while True:
-            await asyncio.sleep(0.4)
-            try:
-                if not os.path.exists(_ctrl_path_recadrage):
-                    continue
-                with open(_ctrl_path_recadrage, "r", encoding="utf-8") as _f:
-                    data = json.load(_f)
-                trigger = data.get("trigger")
-                action  = data.get("action", "")
-                if action == "show":
-                    # Juste rendre la fenêtre visible sans recharger
-                    if trigger != last_trigger:
-                        last_trigger = trigger
-                        page.window.visible = True
-                        page.update()
-                    continue
-                if trigger == last_trigger:
-                    continue
-                last_trigger = trigger
-                folder = data.get("folder", "")
-                sel = data.get("selected_files", "")
-                if not folder or not os.path.isdir(folder):
-                    continue
-                app.source_folder = folder
-                os.environ["FOLDER_PATH"] = folder
-                os.environ["SELECTED_FILES"] = sel
-                app.image_paths = []
-                app.current_index = 0
-                app.batch_mode = False
-                app._closing = False
-                app.canvas_container.visible = True
-                app.validate_button.visible = True
-                app.status_text.value = "Chargement..."
-                page.window.visible = True
-                page.update()
-                app.batch_process_interactive(None)
-                await asyncio.sleep(0.1)
-                if app.image_paths and app.batch_mode:
-                    app.update_canvas_size()
-                    app.load_image(preserve_orientation=True)
-                    page.update()
-            except Exception:
-                pass
-
-    asyncio.create_task(_poll_ctrl())
 
 # Utilisation de la syntaxe recommandée pour éviter le DeprecationWarning
 if __name__ == "__main__":

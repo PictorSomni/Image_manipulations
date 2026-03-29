@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "1.9.2"
+__version__ = "1.9.3"
 
 #############################################################
 #                          IMPORTS                          #
@@ -125,7 +125,6 @@ def main(page: ft.Page):
     preview_page = {"value": 0}  # Page courante (0-indexé)
     all_entries_data = {"list": [], "error": ""}  # Données brutes du dernier scan
     _pending_selection = {"names": None}  # Noms à sélectionner après le prochain scan
-    _preloaded_procs = {}  # app_name -> Popen pour les apps pré-chargées
     
 # ===================== UI ELEMENTS ===================== #
     folder_path = ft.TextField(
@@ -1011,43 +1010,6 @@ def main(page: ft.Page):
             log_to_terminal("[ERREUR] Veuillez sélectionner un dossier avant de lancer cette application", RED)
             return
 
-        # ─── Instance pré-chargée disponible ? ────────────────────────────────
-        _PRELOAD_CTRL = {
-            "Recadrage.pyw":      os.path.join(cwd, ".recadrage_ctrl.json"),
-            "Augmentation IA.py": os.path.join(cwd, ".augmentation_ia_ctrl.json"),
-        }
-        if app_name in _PRELOAD_CTRL:
-            proc = _preloaded_procs.get(app_name)
-            if proc is not None and proc.poll() is None:
-                _dname = app_name[:-4] if app_name.endswith(".pyw") else app_name[:-3]
-                payload = {
-                    "folder": selected_folder["path"] or "",
-                    "selected_files": "|".join(os.path.basename(f) for f in selected_files) if selected_files else "",
-                    "trigger": time.time(),
-                }
-                try:
-                    with open(_PRELOAD_CTRL[app_name], "w", encoding="utf-8") as _f:
-                        json.dump(payload, _f)
-                    log_to_terminal(f"↩ {_dname} rechargé (démarrage instantané)", BLUE)
-                    threading.Thread(
-                        target=lambda n=app_name, p=app_path: _preload_flet_app(n, p),
-                        daemon=True
-                    ).start()
-                    # Rafraîchir la preview quand l'instance se ferme
-                    _proc_snap = _preloaded_procs.get(app_name)
-                    def _wait_and_refresh(proc=_proc_snap, dname=display_name):
-                        if proc is not None:
-                            try:
-                                proc.wait()
-                            except Exception:
-                                pass
-                        log_to_terminal(f"[OK] {dname} terminé", GREEN)
-                        request_refresh()
-                    threading.Thread(target=_wait_and_refresh, daemon=True).start()
-                    return
-                except Exception as _e:
-                    log_to_terminal(f"[AVERTISSEMENT] Fallback vers lancement normal: {_e}", ORANGE)
-
         try:
             display_name = app_name[:-4] if app_name.endswith(".pyw") else app_name[:-3]
             log_to_terminal(f"▶ Lancement de {display_name}...", BLUE)
@@ -1262,66 +1224,6 @@ def main(page: ft.Page):
         except Exception as err:
             log_to_terminal(f"[ERREUR] Erreur lors du lancement: {err}", RED)
 
-    def _preload_flet_app(app_name, app_path):
-        """Lance l'app Flet en mode caché pour un démarrage instantané au prochain clic.
-        Enregistre le PID dans .preloaded_pids.json pour retrouver l'instance au relancement.
-        """
-        if app_name in _preloaded_procs:
-            if _preloaded_procs[app_name].poll() is None:
-                return  # Instance déjà vivante
-        # Effacer le fichier ctrl pour éviter qu'une vieille commande "show"
-        # ne rende visible la nouvelle instance cachée dès son démarrage
-        _ctrl_to_clear = {
-            "Recadrage.pyw":      os.path.join(cwd, ".recadrage_ctrl.json"),
-            "Augmentation IA.py": os.path.join(cwd, ".augmentation_ia_ctrl.json"),
-        }.get(app_name)
-        if _ctrl_to_clear:
-            try:
-                with open(_ctrl_to_clear, "w", encoding="utf-8") as _cf:
-                    json.dump({}, _cf)
-            except Exception:
-                pass
-        env = os.environ.copy()
-        env["DATA_PATH"] = os.path.join(cwd, "Data")
-        env["START_HIDDEN"] = "1"
-        env["FOLDER_PATH"] = "__preload__"
-        env["SELECTED_FILES"] = ""
-        if platform.system() == "Darwin":
-            for brew_path in ["/opt/homebrew", "/usr/local"]:
-                if os.path.exists(os.path.join(brew_path, "lib")):
-                    env["MAGICK_HOME"] = brew_path
-                    env["DYLD_LIBRARY_PATH"] = os.path.join(brew_path, "lib") + ":" + env.get("DYLD_LIBRARY_PATH", "")
-                    env["PATH"] = os.path.join(brew_path, "bin") + ":" + env.get("PATH", "")
-                    break
-        try:
-            proc = subprocess.Popen(
-                [sys.executable, "-u", app_path],
-                cwd=os.path.join(cwd, "Data"),
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            _preloaded_procs[app_name] = proc
-            # Sauvegarder le PID pour le retrouver après un relancement du Dashboard
-            _pid_file = os.path.join(cwd, ".preloaded_pids.json")
-            try:
-                pids = {}
-                if os.path.exists(_pid_file):
-                    with open(_pid_file, "r", encoding="utf-8") as _f:
-                        pids = json.load(_f)
-                pids[app_name] = proc.pid
-                with open(_pid_file, "w", encoding="utf-8") as _f:
-                    json.dump(pids, _f)
-            except Exception:
-                pass
-            # Sentinelle : bloque sur la fin du processus (0 CPU), puis relance
-            def _sentinel(p=proc, n=app_name, path=app_path):
-                p.wait()
-                _preload_flet_app(n, path)
-            threading.Thread(target=_sentinel, daemon=True).start()
-        except Exception:
-            pass
-
     # Widget personnalisé pour Resize
     resize_input = ft.TextField(
         value="640",
@@ -1472,59 +1374,6 @@ def main(page: ft.Page):
         page.window.minimized = True
     
     refresh_apps()
-
-    # ── Détecter les instances pré-chargées survivantes d'un précédent lancement ──
-    def _is_pid_alive(pid: int) -> bool:
-        """Teste si un processus est encore actif via son PID."""
-        if platform.system() == "Windows":
-            try:
-                import ctypes
-                PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-                handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-                if not handle:
-                    return False
-                import ctypes.wintypes
-                exit_code = ctypes.wintypes.DWORD()
-                ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
-                ctypes.windll.kernel32.CloseHandle(handle)
-                return exit_code.value == 259  # STILL_ACTIVE
-            except Exception:
-                return False
-        else:
-            try:
-                os.kill(pid, 0)
-                return True
-            except (OSError, ProcessLookupError):
-                return False
-
-    class _PidProxy:
-        """Représente un processus pré-chargé existant (retrouvé par son PID)."""
-        def __init__(self, pid): self._pid = pid
-        def poll(self): return None if _is_pid_alive(self._pid) else 1
-
-    _pid_file = os.path.join(cwd, ".preloaded_pids.json")
-    if os.path.exists(_pid_file):
-        try:
-            with open(_pid_file, "r", encoding="utf-8") as _f:
-                _saved_pids = json.load(_f)
-            for _pname, _ppid in _saved_pids.items():
-                if _is_pid_alive(_ppid) and _pname not in _preloaded_procs:
-                    # Réenregistrer silencieusement le proxy (sans envoyer de signal "show" :
-                    # les fenêtres visibles restent visibles d'elles-mêmes, les cachées restent cachées)
-                    _preloaded_procs[_pname] = _PidProxy(_ppid)
-        except Exception:
-            pass
-
-    # Pré-charger Recadrage et Augmentation IA en arrière-plan dès le démarrage
-    for _pname, _ppath in [
-        ("Recadrage.pyw",      os.path.join(cwd, "Data", "Recadrage.pyw")),
-        ("Augmentation IA.py", os.path.join(cwd, "Data", "Augmentation IA.py")),
-    ]:
-        if os.path.exists(_ppath):
-            threading.Thread(
-                target=lambda n=_pname, p=_ppath: _preload_flet_app(n, p),
-                daemon=True
-            ).start()
 
 
 # ===================== FLET UI ===================== #
