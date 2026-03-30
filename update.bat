@@ -6,6 +6,7 @@ cd /d "%~dp0"
 set "EXPECTED_ORIGIN=https://github.com/PictorSomni/Image_manipulations.git"
 
 for /f "usebackq delims=" %%i in (`git rev-parse --show-toplevel 2^>nul`) do set "REPO_ROOT=%%i"
+if defined REPO_ROOT set "REPO_ROOT=%REPO_ROOT:/=\%"
 
 if not defined REPO_ROOT (
     echo [ERREUR] Ce dossier n'est pas un depot Git valide.
