@@ -48,7 +48,7 @@ Au premier lancement, rembg télécharge automatiquement le modèle birefnet-por
 (~450 Mo) dans ``~/.u2net/``. Les modèles spandrel (RealESRGAN, FaceUpSharpDAT)
 sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au total).
 
-Version : 1.9.3
+Version : 1.9.4
 """
 
 __version__ = "1.9.4"
@@ -225,6 +225,35 @@ def _ensure_model(urls: "str | list[str]", path: str) -> None:
     )
 
 
+def _erode_alpha(img: Image.Image, radius: int) -> Image.Image:
+    """
+    Érode le canal alpha d'une image RGBA d'environ ``radius`` pixels.
+
+    Utilise un filtre morphologique Min (ImageFilter.MinFilter) sur le
+    canal alpha pour supprimer les franges résiduelles (halo coloré) en
+    bordure de masque, fréquentes après une suppression de fond par IA.
+
+    Parameters
+    ----------
+    img : PIL.Image.Image
+        Image en mode RGBA à traiter.
+    radius : int
+        Rayon d'érosion en pixels (1–15). 0 ou négatif = pas d'érosion.
+
+    Returns
+    -------
+    PIL.Image.Image
+        Image RGBA avec le canal alpha érodé.
+    """
+    if img.mode != "RGBA" or radius <= 0:
+        return img
+    r, g, b, a = img.split()
+    # MinFilter(3) appliqué radius fois : coût O(9 × radius × N pixels)
+    # bien plus rapide que MinFilter(2*radius+1) en O((2r+1)² × N).
+    for _ in range(radius):
+        a = a.filter(ImageFilter.MinFilter(3))
+    return Image.merge("RGBA", (r, g, b, a))
+
 
 ###############################################################
 #                        INTERFACE                            #
@@ -264,7 +293,7 @@ async def main(page: ft.Page) -> None:
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG_UI
     page.window.width = 1024
-    page.window.height = 640
+    page.window.height = 720
 
     # ------------------------------------------------------------------ #
     #                            ÉTAT                                     #
@@ -305,6 +334,7 @@ async def main(page: ft.Page) -> None:
         "history":         [],     # Pile d'annulation (max 5)
         "current_task":    None,   # asyncio.Task en cours (rembg ou modèle)
         "cancel_requested": False, # Annulation demandée (boucle de tuiles)
+        "erosion_radius":  0,      # Rayon d'érosion en pixels (0 = désactivé)
     }
 
     # Sessions rembg (une par modèle pour éviter le rechargement)
@@ -423,6 +453,18 @@ async def main(page: ft.Page) -> None:
         tooltip="Annuler le traitement en cours",
     )
 
+    # ---- Érosion du masque ---- #
+    erosion_slider = ft.Slider(
+        value=0,
+        min=0,
+        max=15,
+        divisions=15,
+        label="{value} px",
+        active_color=ORANGE,
+        disabled=not REMBG_AVAILABLE,
+        expand=True,
+    )
+
     # ---- Sélecteur de modèle personnalisé ---- #
     def _build_model_options() -> list[ft.dropdown.Option]:
         names = _list_pth_models()
@@ -475,16 +517,30 @@ async def main(page: ft.Page) -> None:
         base = state["processed"] if state["processed"] is not None else state["orig_img"]
         if base is None:
             return
+        # Pour l'érosion : réduire à ~1/3 de la résolution (max 2000px) afin que
+        # le rayon mis à l'échelle ait assez de granularité pour refléter
+        # fidèlement l'effet pleine résolution. On downscale ensuite à 700px.
+        erode_size = min(2000, max(700, base.width // 3))
+        thumb = base.copy()
+        thumb.thumbnail((erode_size, erode_size), Image.Resampling.BILINEAR)
+        # Érosion au format d'affichage (ne modifie pas state["processed"])
+        if state["erosion_radius"] > 0 and state["processed"] is not None and thumb.mode == "RGBA":
+            scale = thumb.width / base.width
+            scaled_radius = round(state["erosion_radius"] * scale)
+            if scaled_radius > 0:
+                thumb = _erode_alpha(thumb, scaled_radius)
+        # Downscale final pour l'affichage
+        if thumb.width > 700 or thumb.height > 700:
+            thumb.thumbnail((700, 700), Image.Resampling.BILINEAR)
         if state["bg_blur"]:
-            display = apply_background(base, None, state["orig_img"])
+            display = apply_background(thumb, None, state["orig_img"])
         elif state["bg_transparent"]:
             # Damier pour visualiser la transparence
-            rgba = base.convert("RGBA")
-            chk  = _make_checkerboard(rgba.size)
+            rgba = thumb.convert("RGBA")
+            chk = _make_checkerboard(rgba.size)
             display = Image.alpha_composite(chk, rgba).convert("RGB")
         else:
-            display = apply_background(base, BG_COLORS[state["bg_color"]], state["orig_img"])
-        display.thumbnail((700, 700), Image.Resampling.BILINEAR)
+            display = apply_background(thumb, BG_COLORS[state["bg_color"]], state["orig_img"])
         preview_img.src = f"data:image/jpeg;base64,{image_to_b64(display)}"
         preview_img.visible = True
         preview_placeholder.visible = False
@@ -720,6 +776,16 @@ async def main(page: ft.Page) -> None:
         if task and not task.done():
             task.cancel()
 
+    def on_erosion_slider_change(e) -> None:
+        """Met à jour le rayon en temps réel (label uniquement pendant le drag)."""
+        state["erosion_radius"] = int(e.control.value)
+
+    def on_erosion_slider_end(e) -> None:
+        """Regénère la preview au relâchement du slider."""
+        state["erosion_radius"] = int(e.control.value)
+        if state["processed"] is not None:
+            _render_preview()
+
     def on_bg_change(e) -> None:
         """Met à jour la couleur de fond sélectionnée et rafraîchit la preview."""
         val = e.control.value
@@ -845,25 +911,50 @@ async def main(page: ft.Page) -> None:
             page.update()
             return
 
-        use_transparent = state["bg_transparent"]
-        if use_transparent:
-            final_img   = state["processed"].convert("RGBA")
-            ext         = ".png"
-            fmt         = "PNG"
-            save_kwargs = {}
+        # Désactiver le bouton pendant l'export pour éviter les double-clics
+        save_btn.disabled = True
+        has_erosion = state["erosion_radius"] > 0 and state["processed"].mode == "RGBA"
+        if has_erosion:
+            status_text.value = f"Érosion {state['erosion_radius']} px en cours…"
+            progress_bar.value = None  # indéterminée
+            progress_bar.visible = True
         else:
-            bg_rgb    = None if state["bg_blur"] else BG_COLORS[state["bg_color"]]
-            final_img = apply_background(state["processed"], bg_rgb, state["orig_img"])
-            ext         = ".jpg"
-            fmt         = "JPEG"
-            save_kwargs = {"dpi": (DPI, DPI), "quality": 100}
+            status_text.value = "Enregistrement…"
+        page.update()
 
-        src_path = all_images[state["index"]]
-        stem     = os.path.splitext(os.path.basename(src_path))[0]
-        base_dir = os.path.join(os.path.dirname(src_path), "OK")
-        filename = f"OK_{stem}{ext}"
+        use_transparent = state["bg_transparent"]
+        snap_processed  = state["processed"]
+        snap_orig       = state["orig_img"]
+        erosion_radius  = state["erosion_radius"]
+        bg_blur         = state["bg_blur"]
+        bg_color        = BG_COLORS.get(state["bg_color"])
+
+        def _do_export():
+            proc = snap_processed
+            # Érosion pleine résolution (potentiellement long sur grandes images)
+            if erosion_radius > 0 and proc is not None and proc.mode == "RGBA":
+                proc = _erode_alpha(proc, erosion_radius)
+            if use_transparent:
+                return proc.convert("RGBA"), ".png", "PNG", {}
+            else:
+                bg_rgb = None if bg_blur else bg_color
+                img = apply_background(proc, bg_rgb, snap_orig)
+                return img, ".jpg", "JPEG", {"dpi": (DPI, DPI), "quality": 100}
 
         try:
+            final_img, ext, fmt, save_kwargs = await asyncio.to_thread(_do_export)
+
+            if has_erosion:
+                progress_bar.value   = 1.0
+                progress_bar.visible = False
+                status_text.value    = "Enregistrement…"
+                page.update()
+
+            src_path = all_images[state["index"]]
+            stem     = os.path.splitext(os.path.basename(src_path))[0]
+            base_dir = os.path.join(os.path.dirname(src_path), "OK")
+            filename = f"OK_{stem}{ext}"
+
             os.makedirs(base_dir, exist_ok=True)
             out_path = os.path.join(base_dir, filename)
             if os.path.exists(out_path):
@@ -873,7 +964,7 @@ async def main(page: ft.Page) -> None:
                     i += 1
                 out_path = os.path.join(base_dir, f"{name}_{i}{e2}")
 
-            final_img.save(out_path, format=fmt, **save_kwargs)
+            await asyncio.to_thread(final_img.save, out_path, format=fmt, **save_kwargs)
             state["history"].clear()
             undo_btn.disabled = True
 
@@ -888,7 +979,9 @@ async def main(page: ft.Page) -> None:
                 await page.window.close()
 
         except Exception as ex:
+            progress_bar.visible = False
             status_text.value = f"[ERREUR] {ex}"
+            save_btn.disabled = False
             page.update()
 
     async def on_ignore(e) -> None:
@@ -948,7 +1041,9 @@ async def main(page: ft.Page) -> None:
     run_model_btn.on_click     = on_run_model
     refresh_btn.on_click       = on_refresh_models
     save_btn.on_click          = on_save
-    cancel_btn.on_click        = on_cancel
+    cancel_btn.on_click          = on_cancel
+    erosion_slider.on_change     = on_erosion_slider_change
+    erosion_slider.on_change_end = on_erosion_slider_end
     # ------------------------------------------------------------------ #
     #                           MISE EN PAGE                              #
     # ------------------------------------------------------------------ #
@@ -961,6 +1056,15 @@ async def main(page: ft.Page) -> None:
             # Actions rembg
             process_btn,
             model_toggle_btn,
+            # Érosion du masque
+            ft.Row(
+                [
+                    ft.Text("Érosion", size=12, color=LIGHT_GREY),
+                    erosion_slider,
+                ],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
             progress_bar,
             ft.Divider(color=GREY),
             # Amélioration IA

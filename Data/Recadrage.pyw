@@ -172,6 +172,37 @@ def convert_to_srgb(img: Image.Image, icc_profile: bytes | None) -> Image.Image:
     except Exception:
         return img
 
+
+def _erode_alpha(img: Image.Image, radius: int) -> Image.Image:
+    """
+    Érode le canal alpha d'une image RGBA d'environ ``radius`` pixels.
+
+    Utilise un filtre morphologique Min (ImageFilter.MinFilter) sur le
+    canal alpha pour supprimer les franges résiduelles (halo coloré) en
+    bordure de masque après suppression de fond par IA.
+
+    Parameters
+    ----------
+    img : PIL.Image.Image
+        Image en mode RGBA.
+    radius : int
+        Rayon d'érosion en pixels. 0 ou négatif = pas d'érosion.
+
+    Returns
+    -------
+    PIL.Image.Image
+        Image RGBA avec le canal alpha érodé.
+    """
+    if img.mode != "RGBA" or radius <= 0:
+        return img
+    r, g, b, a = img.split()
+    # MinFilter(3) appliqué radius fois : coût O(9 × radius × N pixels)
+    # bien plus rapide que MinFilter(2*radius+1) en O((2r+1)² × N).
+    for _ in range(radius):
+        a = a.filter(ImageFilter.MinFilter(3))
+    return Image.merge("RGBA", (r, g, b, a))
+
+
 #############################################################
 #                         CONTENT                           #
 #############################################################
@@ -451,6 +482,19 @@ class PhotoCropper:
             ),
             height=30,
             tooltip="birefnet-portrait (portrait) / birefnet-general (généraliste)" if REMBG_AVAILABLE else "",
+        )
+        # Érosion du masque — slider 0–8 px (0 = désactivé)
+        self.rembg_erosion_radius = 0
+        self.rembg_erosion_slider = ft.Slider(
+            value=0,
+            min=0,
+            max=8,
+            divisions=8,
+            label="{value} px",
+            active_color=ORANGE,
+            on_change=self.on_rembg_erosion_change,
+            on_change_end=self.on_rembg_erosion_end,
+            width=130,
         )
         self.rembg_btn = ft.IconButton(
             icon=ft.Icons.AUTO_FIX_HIGH,
@@ -1072,6 +1116,9 @@ class PhotoCropper:
             pil_crop = pil_crop.convert("L")
 
         if pil_crop.mode == "RGBA":
+            # Érosion du canal alpha (suppression des franges résiduelles)
+            if getattr(self, 'rembg_erosion_radius', 0) > 0:
+                pil_crop = _erode_alpha(pil_crop, self.rembg_erosion_radius)
             if getattr(self, 'rembg_bg_white', True):
                 bg = Image.new("RGBA", pil_crop.size, (255, 255, 255, 255))
             else:
@@ -1118,6 +1165,9 @@ class PhotoCropper:
         """
         img = self.current_pil_image
         if img.mode == "RGBA":
+            # Érosion du canal alpha (suppression des franges résiduelles)
+            if getattr(self, 'rembg_erosion_radius', 0) > 0:
+                img = _erode_alpha(img.copy(), self.rembg_erosion_radius)
             if getattr(self, 'rembg_bg_white', True):
                 bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
             else:
@@ -1435,9 +1485,18 @@ class PhotoCropper:
             return
         if not hasattr(self, 'display_w'):
             return
-        # Aplatir l'alpha sur le fond choisi (blanc ou gris clair)
-        preview = self.current_pil_image.copy()
+        # Réduire à la taille d'affichage EN PREMIER — toutes les opérations
+        # suivantes (érosion, composite, filtres) travaillent sur le petit canvas.
+        pw = max(1, int(self.display_w))
+        ph = max(1, int(self.display_h))
+        preview = self.current_pil_image.resize((pw, ph), Image.Resampling.BILINEAR)
         if preview.mode == "RGBA":
+            # Érosion au format réduit — beaucoup plus rapide qu'à pleine résolution.
+            # Le rayon est mis à l'échelle pour que la preview corresponde au résultat final.
+            if getattr(self, 'rembg_erosion_radius', 0) > 0:
+                scale = pw / self.orig_w
+                scaled_radius = max(1, round(self.rembg_erosion_radius * scale))
+                preview = _erode_alpha(preview, scaled_radius)
             if getattr(self, 'rembg_bg_white', True):
                 bg = Image.new("RGBA", preview.size, (255, 255, 255, 255))
             else:
@@ -1445,18 +1504,14 @@ class PhotoCropper:
                 # from transparent pixels (alpha=0 → black in RGBA→RGB conversion)
                 blur_src = self._rembg_original if self._rembg_original is not None else None
                 if blur_src is not None:
-                    blurred_rgb = blur_src.convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
+                    blurred_rgb = blur_src.convert("RGB").resize((pw, ph), Image.Resampling.BILINEAR).filter(ImageFilter.GaussianBlur(radius=30))
                 else:
                     white = Image.new("RGBA", preview.size, (255, 255, 255, 255))
-                    blurred_rgb = Image.alpha_composite(white, preview).convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
+                    blurred_rgb = Image.alpha_composite(white, preview).convert("RGB").filter(ImageFilter.GaussianBlur(radius=30))
                 bg = blurred_rgb.convert("RGBA")
             preview = Image.alpha_composite(bg, preview).convert("RGB")
         else:
             preview = preview.convert("RGB")
-        # Redimensionner à la taille d'affichage pour la performance
-        pw = max(1, int(self.display_w))
-        ph = max(1, int(self.display_h))
-        preview = preview.resize((pw, ph), Image.Resampling.BILINEAR)
         # Noir et blanc
         if self.is_bw:
             preview = ImageOps.grayscale(preview).convert("RGB")
@@ -1652,6 +1707,16 @@ class PhotoCropper:
             self._rembg_model_label.value = "Général"
             self.rembg_model_btn.bgcolor = BLUE
         self.rembg_model_btn.update()
+
+    def on_rembg_erosion_change(self, e):
+        """Met à jour le rayon d'érosion pendant le drag (pas de rendu)."""
+        self.rembg_erosion_radius = int(e.control.value)
+
+    def on_rembg_erosion_end(self, e):
+        """Regénère la preview au relâchement du slider d'érosion."""
+        self.rembg_erosion_radius = int(e.control.value)
+        self._render_preview()
+        self.page.update()
 
     def on_rembg_bg_toggle(self, e):
         """Bascule fond blanc (GREY_200) ↔ fond flou (BLUE)."""
@@ -3002,10 +3067,14 @@ def main(page: ft.Page):
                                         ], horizontal_alignment=ft.CrossAxisAlignment.START, spacing=4),
                                         ft.VerticalDivider(width=1, color=LIGHT_GREY),                                            
                                         ft.Column([
-                                            ft.Text("Fond IA", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                                            ft.Text("Fond IA", size=12, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
                                             app.rembg_btn,
                                             ft.Row([app.rembg_bg_btn, app.rembg_model_btn], spacing=4),
-                                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
+                                            ft.Row([
+                                                ft.Text("Ér.", size=11, color=LIGHT_GREY),
+                                                app.rembg_erosion_slider,
+                                            ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=2),
                                         ft.VerticalDivider(width=1, color=LIGHT_GREY),
                                         ft.Column([
                                             ft.Button(

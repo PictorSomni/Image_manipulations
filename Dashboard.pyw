@@ -136,7 +136,7 @@ def main(page: ft.Page):
         read_only=True
     )
 
-    apps_list = ft.GridView(expand=True, runs_count=3, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=1.97)
+    apps_list = ft.GridView(expand=True, runs_count=3, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.1)
     preview_list = ft.ListView(expand=True, auto_scroll=False, spacing=4)
     preview_loading = ft.Container(
         content=ft.Row([
