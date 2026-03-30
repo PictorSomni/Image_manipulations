@@ -5,7 +5,7 @@ Preparation ID.py — Préparation IA de photos d'identité
 
 Application Flet de préparation de photos d'identité :
 
-  - Suppression automatique du fond par IA (rembg / modèle ``u2net_human_seg``).
+  - Suppression automatique du fond par IA (rembg / modèle ``birefnet-portrait``).
   - Restauration du visage par IA (spandrel + 4xFaceUpSharpDAT) :
     amélioration des détails du visage ×4, compatible Python 3.14+.
   - Agrandissement ×2 / ×4 par super-résolution (spandrel + modèles RealESRGAN) :
@@ -44,14 +44,14 @@ SELECTED_FILES : noms de fichiers séparés par « | » à traiter en priorité
 
 Notes
 -----
-Au premier lancement, rembg télécharge automatiquement le modèle u2net_human_seg
-(~175 Mo) dans ``~/.u2net/``. Les modèles spandrel (RealESRGAN, FaceUpSharpDAT)
+Au premier lancement, rembg télécharge automatiquement le modèle birefnet-portrait
+(~450 Mo) dans ``~/.u2net/``. Les modèles spandrel (RealESRGAN, FaceUpSharpDAT)
 sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au total).
 
 Version : 1.9.3
 """
 
-__version__ = "1.9.3"
+__version__ = "1.9.4"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -298,8 +298,7 @@ async def main(page: ft.Page) -> None:
         "bg_color":        "Blanc",
         "bg_blur":         False,  # True = fond flou (remplace la couleur de fond)
         "bg_transparent":  False,  # True = fond transparent (export PNG)
-        "precise":         False,  # True = alpha matting précis pour rembg
-        "rembg_human_seg": True,   # True = u2net_human_seg, False = u2net général
+        "rembg_human_seg": True,   # True = birefnet-portrait, False = birefnet-general
         "working":         False,  # True pendant l'exécution de rembg
         "enhancing":       False,  # True pendant face SR ou ESRGAN
         "rembg_applied":   False,  # True après suppression du fond par rembg
@@ -309,8 +308,8 @@ async def main(page: ft.Page) -> None:
     }
 
     # Sessions rembg (une par modèle pour éviter le rechargement)
-    _session: list = [None]          # u2net_human_seg
-    _session_general: list = [None]  # u2net généraliste
+    _session: list = [None]          # birefnet-portrait
+    _session_general: list = [None]  # birefnet-general
     # Modèles spandrel : cache par nom de fichier
     _custom_model_cache: dict = {}  # {nom_fichier: desc}
 
@@ -348,14 +347,6 @@ async def main(page: ft.Page) -> None:
         bgcolor=DARK,
     )
 
-    precise_switch = ft.Switch(
-        label="Précis",
-        active_color=VIOLET,
-        value=False,
-        tooltip="Alpha matting précis (plus lent, meilleur détourage sur cheveux/bords fins)",
-        disabled=not REMBG_AVAILABLE,
-    )
-
     bg_radio = ft.RadioGroup(
         content=ft.Column(
             [ft.Radio(value=k, label=k, fill_color=BLUE) for k in BG_COLORS]
@@ -369,13 +360,12 @@ async def main(page: ft.Page) -> None:
     )
 
     # Bascule modèle rembg : humain / général
+    _model_toggle_label = ft.Text("Humain", size=12, color=DARK)
     model_toggle_btn = ft.Button(
-        "Humain",
-        icon=ft.Icons.PERSON,
+        content=_model_toggle_label,
         bgcolor=VIOLET if REMBG_AVAILABLE else GREY,
-        color=DARK,
         disabled=not REMBG_AVAILABLE,
-        tooltip="Basculer entre u2net_human_seg (portraits) et u2net (généraliste)",
+        tooltip="Basculer entre birefnet-portrait (portraits) et birefnet-general (généraliste)",
     )
 
     # Bouton Annuler la dernière modification
@@ -730,10 +720,6 @@ async def main(page: ft.Page) -> None:
         if task and not task.done():
             task.cancel()
 
-    def on_precise_toggle(e) -> None:
-        """Active/désactive le mode précis (alpha matting) pour rembg."""
-        state["precise"] = bool(e.control.value)
-
     def on_bg_change(e) -> None:
         """Met à jour la couleur de fond sélectionnée et rafraîchit la preview."""
         val = e.control.value
@@ -812,35 +798,19 @@ async def main(page: ft.Page) -> None:
             use_human = state["rembg_human_seg"]
             if use_human:
                 if _session[0] is None:
-                    _session[0] = new_session("u2net_human_seg")
+                    _session[0] = new_session("birefnet-portrait")
                 sess = _session[0]
             else:
                 if _session_general[0] is None:
-                    _session_general[0] = new_session("u2net")
+                    _session_general[0] = new_session("birefnet-general")
                 sess = _session_general[0]
             buf = io.BytesIO()
             state["orig_img"].save(buf, format="PNG")
             buf.seek(0)
             raw = buf.getvalue()
             with contextlib.redirect_stderr(io.StringIO()):
-                if state["precise"]:
-                    result_bytes = rembg_remove(
-                        raw, session=sess,
-                        alpha_matting=True,
-                        alpha_matting_foreground_threshold=240,
-                        alpha_matting_background_threshold=10,
-                        alpha_matting_erode_size=10,
-                    )
-                else:
-                    result_bytes = rembg_remove(raw, session=sess)
-            img = Image.open(io.BytesIO(result_bytes)).convert("RGBA")  # type: ignore[arg-type]
-            if not state["precise"]:
-                # Érosion du canal alpha pour supprimer le liseré semi-transparent
-                # MinFilter exige une taille impaire
-                r, g, b, a = img.split()
-                a = a.filter(ImageFilter.MinFilter(13))
-                img = Image.merge("RGBA", (r, g, b, a))
-            return img
+                result_bytes = rembg_remove(raw, session=sess)
+            return Image.open(io.BytesIO(result_bytes)).convert("RGBA")  # type: ignore[arg-type]
 
         rembg_task = asyncio.create_task(asyncio.to_thread(_do_rembg))
         state["current_task"] = rembg_task
@@ -959,18 +929,17 @@ async def main(page: ft.Page) -> None:
         page.update()
 
     def on_rembg_model_toggle(e) -> None:
-        """Bascule entre u2net_human_seg (Humain) et u2net (Général)."""
+        """Bascule entre birefnet-portrait (Humain) et birefnet-general (Général)."""
         state["rembg_human_seg"] = not state["rembg_human_seg"]
         if state["rembg_human_seg"]:
-            model_toggle_btn.text   = "Humain"
-            model_toggle_btn.bgcolor = VIOLET if REMBG_AVAILABLE else GREY
+            _model_toggle_label.value = "Humain"
+            model_toggle_btn.bgcolor  = VIOLET if REMBG_AVAILABLE else GREY
         else:
-            model_toggle_btn.text   = "Général"
-            model_toggle_btn.bgcolor = BLUE if REMBG_AVAILABLE else GREY
+            _model_toggle_label.value = "Général"
+            model_toggle_btn.bgcolor  = BLUE if REMBG_AVAILABLE else GREY
         model_toggle_btn.update()
 
     # Attacher les callbacks
-    precise_switch.on_change   = on_precise_toggle
     bg_radio.on_change         = on_bg_change
     model_toggle_btn.on_click  = on_rembg_model_toggle
     undo_btn.on_click          = on_undo
@@ -990,7 +959,7 @@ async def main(page: ft.Page) -> None:
             bg_radio,
             ft.Divider(color=GREY),
             # Actions rembg
-            ft.Row([process_btn, precise_switch], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            process_btn,
             model_toggle_btn,
             progress_bar,
             ft.Divider(color=GREY),

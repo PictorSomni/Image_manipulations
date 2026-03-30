@@ -427,13 +427,6 @@ class PhotoCropper:
         self._rembg_session = [None]
         self._rembg_original = None   # sauvegarde avant suppression du fond
         self.rembg_bg_white = True
-        self.rembg_precise = False
-        self.rembg_precise_btn = ft.Switch(
-            label="Précis",
-            active_color=VIOLET,
-            value=False,
-            on_change=self.on_rembg_precise_toggle,
-        )
         self.rembg_human_seg = True
         self._rembg_bg_label = ft.Text("Fond blanc", size=12, color=DARK)
         self.rembg_bg_btn = ft.Button(
@@ -457,7 +450,7 @@ class PhotoCropper:
                 shape=ft.RoundedRectangleBorder(radius=6),
             ),
             height=30,
-            tooltip="u2net_human_seg (portrait) / u2net (généraliste)" if REMBG_AVAILABLE else "",
+            tooltip="birefnet-portrait (portrait) / birefnet-general (généraliste)" if REMBG_AVAILABLE else "",
         )
         self.rembg_btn = ft.IconButton(
             icon=ft.Icons.AUTO_FIX_HIGH,
@@ -1648,37 +1641,8 @@ class PhotoCropper:
         self._render_preview()
         self.page.update()
 
-    def on_rembg_precise_toggle(self, e):
-        """
-        Active ou désactive le mode de détourage précis (alpha matting).
-
-        **Mode rapide** (défaut, switch OFF) : rembg utilise uniquement le
-        masque brut produit par le modèle ``u2net_human_seg``. Très rapide
-        (~1–2 s) mais peut laisser un halo semi-transparent sur les bords
-        fins (cheveux, lunettes).
-
-        **Mode précis** (switch ON) : rembg applique en plus l'algorithme de
-        matting ``pymatting`` qui affine la transition sujet/fond pixel par
-        pixel. Nettement meilleur sur les bords complexes, mais
-        2–3× plus lent. Nécessite ``pip install pymatting``.
-
-        Paramètres de matting utilisés :
-          - ``alpha_matting_foreground_threshold`` = 240
-          - ``alpha_matting_background_threshold`` = 10
-          - ``alpha_matting_erode_size`` = 10
-
-        Ce switch est lu au moment du clic sur le bouton « Fond IA » et
-        n'a aucun effet sur une suppression déjà effectuée.
-
-        Parameters
-        ----------
-        e : ft.ControlEvent
-            Événement du Switch « Précis ».
-        """
-        self.rembg_precise = bool(e.control.value)
-
     def on_rembg_model_toggle(self, e):
-        """Bascule entre u2net (Général) et u2net_human_seg (Humain)."""
+        """Bascule entre birefnet-general (Général) et birefnet-portrait (Humain)."""
         self.rembg_human_seg = not self.rembg_human_seg
         self._rembg_session[0] = None  # forcer le rechargement du modèle
         if self.rembg_human_seg:
@@ -1731,8 +1695,8 @@ class PhotoCropper:
 
         Modèle IA
         ---------
-        ``u2net_human_seg`` — modèle spécialisé sujets humains, téléchargé
-        automatiquement dans ``~/.u2net/`` (~175 Mo) à la première utilisation.
+        ``birefnet-portrait`` — modèle spécialisé sujets humains, téléchargé
+        automatiquement dans ``~/.u2net/`` (~450 Mo) à la première utilisation.
         La session est mise en cache dans ``self._rembg_session[0]`` pour
         éviter de recharger le modèle à chaque clic.
 
@@ -1781,26 +1745,13 @@ class PhotoCropper:
         def _do_rembg():
             from rembg import remove as _rembg_remove, new_session as _rembg_new_session
             if self._rembg_session[0] is None:
-                model_name = "u2net_human_seg" if self.rembg_human_seg else "u2net"
+                model_name = "birefnet-portrait" if self.rembg_human_seg else "birefnet-general"
                 self._rembg_session[0] = _rembg_new_session(model_name)
             buf = io.BytesIO()
             self.current_pil_image.convert("RGB").save(buf, format="PNG")
-            kwargs = {"session": self._rembg_session[0]}
-            if self.rembg_precise:
-                kwargs.update({
-                    "alpha_matting": True,
-                    "alpha_matting_foreground_threshold": 240,
-                    "alpha_matting_background_threshold": 10,
-                    "alpha_matting_erode_size": 10,
-                })
             with contextlib.redirect_stderr(io.StringIO()):
-                result_bytes = _rembg_remove(buf.getvalue(), **kwargs)
-            img = Image.open(io.BytesIO(result_bytes)).convert("RGBA")
-            # Érosion du canal alpha pour supprimer le liseré semi-transparent
-            # MinFilter exige une taille impaire
-            r, g, b, a = img.split()
-            a = a.filter(ImageFilter.MinFilter(13))
-            return Image.merge("RGBA", (r, g, b, a))
+                result_bytes = _rembg_remove(buf.getvalue(), session=self._rembg_session[0])
+            return Image.open(io.BytesIO(result_bytes)).convert("RGBA")
 
         try:
             result = await asyncio.to_thread(_do_rembg)
@@ -3052,7 +3003,7 @@ def main(page: ft.Page):
                                         ft.VerticalDivider(width=1, color=LIGHT_GREY),                                            
                                         ft.Column([
                                             ft.Text("Fond IA", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
-                                            ft.Row([app.rembg_btn, app.rembg_precise_btn], spacing=4),
+                                            app.rembg_btn,
                                             ft.Row([app.rembg_bg_btn, app.rembg_model_btn], spacing=4),
                                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
                                         ft.VerticalDivider(width=1, color=LIGHT_GREY),
