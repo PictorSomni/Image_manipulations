@@ -37,5 +37,6 @@ if [ "$ORIGIN_URL" != "$EXPECTED_ORIGIN" ]; then
 fi
 
 echo "[INFO] Mise a jour du depot Git..."
-git pull
+git fetch origin
+git rebase --autostash origin/main
 echo "[OK] Depot mis a jour."

@@ -40,10 +40,18 @@ if /I not "%ORIGIN_URL%"=="%EXPECTED_ORIGIN%" (
 )
 
 echo [INFO] Mise a jour du depot Git...
-git pull
+git fetch origin
 
 if %ERRORLEVEL% neq 0 (
-    echo [ERREUR] Echec du git pull.
+    echo [ERREUR] Echec du git fetch.
+    pause
+    exit /b %ERRORLEVEL%
+)
+
+git rebase --autostash origin/main
+
+if %ERRORLEVEL% neq 0 (
+    echo [ERREUR] Echec du rebase. Resolvez les conflits manuellement.
     pause
     exit /b %ERRORLEVEL%
 )

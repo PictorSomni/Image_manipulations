@@ -455,10 +455,12 @@ class PhotoCropper:
         self.show_grid = False
         self.grid_switch = ft.Switch(label="Grille", active_color=BLUE, value=False, on_change=self.on_grid_toggle)
         # Suppression fond IA
-        self._rembg_session = [None]
+        self._rembg_session = [None]        # birefnet-portrait / birefnet-general
+        self._rembg_session_u2net = [None]  # u2net_human_seg / u2net
         self._rembg_original = None   # sauvegarde avant suppression du fond
         self.rembg_bg_white = True
         self.rembg_human_seg = True
+        self.rembg_precise = False  # False = rapide (u2net), True = précis (birefnet)
         self._rembg_bg_label = ft.Text("Fond blanc", size=12, color=DARK)
         self.rembg_bg_btn = ft.Button(
             content=self._rembg_bg_label,
@@ -481,7 +483,20 @@ class PhotoCropper:
                 shape=ft.RoundedRectangleBorder(radius=6),
             ),
             height=30,
-            tooltip="birefnet-portrait (portrait) / birefnet-general (généraliste)" if REMBG_AVAILABLE else "",
+            tooltip="Portrait / Généraliste" if REMBG_AVAILABLE else "",
+        )
+        self._rembg_precise_label = ft.Text("Rapide", size=12, color=DARK)
+        self.rembg_precise_btn = ft.Button(
+            content=self._rembg_precise_label,
+            bgcolor=BLUE if REMBG_AVAILABLE else GREY,
+            on_click=self.on_rembg_precise_toggle,
+            style=ft.ButtonStyle(
+                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+                shape=ft.RoundedRectangleBorder(radius=6),
+            ),
+            height=30,
+            disabled=not REMBG_AVAILABLE,
+            tooltip="Rapide : u2net / Précis : birefnet" if REMBG_AVAILABLE else "",
         )
         # Érosion du masque — slider 0–8 px (0 = désactivé)
         self.rembg_erosion_radius = 0
@@ -1697,9 +1712,11 @@ class PhotoCropper:
         self.page.update()
 
     def on_rembg_model_toggle(self, e):
-        """Bascule entre birefnet-general (Général) et birefnet-portrait (Humain)."""
+        """Bascule entre portrait et général."""
         self.rembg_human_seg = not self.rembg_human_seg
-        self._rembg_session[0] = None  # forcer le rechargement du modèle
+        # Invalider toutes les sessions pour forcer le rechargement
+        self._rembg_session[0] = None
+        self._rembg_session_u2net[0] = None
         if self.rembg_human_seg:
             self._rembg_model_label.value = "Humain"
             self.rembg_model_btn.bgcolor = VIOLET
@@ -1707,6 +1724,17 @@ class PhotoCropper:
             self._rembg_model_label.value = "Général"
             self.rembg_model_btn.bgcolor = BLUE
         self.rembg_model_btn.update()
+
+    def on_rembg_precise_toggle(self, e):
+        """Bascule entre mode rapide (u2net) et mode précis (birefnet)."""
+        self.rembg_precise = not self.rembg_precise
+        if self.rembg_precise:
+            self._rembg_precise_label.value = "Précis"
+            self.rembg_precise_btn.bgcolor = VIOLET
+        else:
+            self._rembg_precise_label.value = "Rapide"
+            self.rembg_precise_btn.bgcolor = BLUE
+        self.rembg_precise_btn.update()
 
     def on_rembg_erosion_change(self, e):
         """Met à jour le rayon d'érosion pendant le drag (pas de rendu)."""
@@ -1809,13 +1837,22 @@ class PhotoCropper:
 
         def _do_rembg():
             from rembg import remove as _rembg_remove, new_session as _rembg_new_session
-            if self._rembg_session[0] is None:
-                model_name = "birefnet-portrait" if self.rembg_human_seg else "birefnet-general"
-                self._rembg_session[0] = _rembg_new_session(model_name)
+            if self.rembg_precise:
+                # Mode précis : birefnet
+                if self._rembg_session[0] is None:
+                    model_name = "birefnet-portrait" if self.rembg_human_seg else "birefnet-general"
+                    self._rembg_session[0] = _rembg_new_session(model_name)
+                sess = self._rembg_session[0]
+            else:
+                # Mode rapide : u2net
+                if self._rembg_session_u2net[0] is None:
+                    model_name = "u2net_human_seg" if self.rembg_human_seg else "u2net"
+                    self._rembg_session_u2net[0] = _rembg_new_session(model_name)
+                sess = self._rembg_session_u2net[0]
             buf = io.BytesIO()
             self.current_pil_image.convert("RGB").save(buf, format="PNG")
             with contextlib.redirect_stderr(io.StringIO()):
-                result_bytes = _rembg_remove(buf.getvalue(), session=self._rembg_session[0])
+                result_bytes = _rembg_remove(buf.getvalue(), session=sess)
             return Image.open(io.BytesIO(result_bytes)).convert("RGBA")
 
         try:
@@ -3069,7 +3106,7 @@ def main(page: ft.Page):
                                         ft.Column([
                                             ft.Text("Fond IA", size=12, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
                                             app.rembg_btn,
-                                            ft.Row([app.rembg_bg_btn, app.rembg_model_btn], spacing=4),
+                                            ft.Row([app.rembg_bg_btn, app.rembg_model_btn, app.rembg_precise_btn], spacing=4),
                                             ft.Row([
                                                 ft.Text("Ér.", size=11, color=LIGHT_GREY),
                                                 app.rembg_erosion_slider,
