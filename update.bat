@@ -48,7 +48,8 @@ if %ERRORLEVEL% neq 0 (
     exit /b %ERRORLEVEL%
 )
 
-git rebase --autostash origin/main
+git reset --hard
+git rebase origin/main
 
 if %ERRORLEVEL% neq 0 (
     echo [ERREUR] Echec du rebase. Resolvez les conflits manuellement.

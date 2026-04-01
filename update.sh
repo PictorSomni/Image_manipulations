@@ -38,5 +38,6 @@ fi
 
 echo "[INFO] Mise a jour du depot Git..."
 git fetch origin
-git rebase --autostash origin/main
+git reset --hard
+git rebase origin/main
 echo "[OK] Depot mis a jour."
