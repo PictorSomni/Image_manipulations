@@ -573,7 +573,7 @@ class PhotoCropper:
         `canvas_container` et `image_stack`.
         """
         available_width = min(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
-        available_height = min(self.page.window.height - 350, MAX_CANVAS_SIZE) if self.page.window.height else 600
+        available_height = min(self.page.window.height - 380, MAX_CANVAS_SIZE) if self.page.window.height else 600
 
         # Calculer le ratio du format choisi
         fmt_w, fmt_h = self.current_format
@@ -3131,11 +3131,11 @@ def main(page: ft.Page):
                                         ], horizontal_alignment=ft.CrossAxisAlignment.START, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
                                     ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=110),
                                 ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                                padding=ft.Padding.only(top=6, bottom=4, left=12, right=12),
+                                padding=ft.Padding.only(top=6, bottom=6, left=12, right=12),
                                 alignment=ft.Alignment.CENTER,
                                 bgcolor=DARK,
                                 border_radius=8,
-                                height=210,
+                                height=250,
                                 width=1200,
                                 border=ft.Border.all(1, GREY),
                             ),
