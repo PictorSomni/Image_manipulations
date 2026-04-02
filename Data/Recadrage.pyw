@@ -499,9 +499,9 @@ class PhotoCropper:
             tooltip="Rapide : u2net / Précis : birefnet" if REMBG_AVAILABLE else "",
         )
         # Érosion du masque — slider 0–8 px (0 = désactivé)
-        self.rembg_erosion_radius = 0
+        self.rembg_erosion_radius = 5
         self.rembg_erosion_slider = ft.Slider(
-            value=0,
+            value=5,
             min=0,
             max=8,
             divisions=8,

@@ -335,7 +335,7 @@ async def main(page: ft.Page) -> None:
         "history":         [],     # Pile d'annulation (max 5)
         "current_task":    None,   # asyncio.Task en cours (rembg ou modèle)
         "cancel_requested": False, # Annulation demandée (boucle de tuiles)
-        "erosion_radius":  0,      # Rayon d'érosion en pixels (0 = désactivé)
+        "erosion_radius":  5,      # Rayon d'érosion en pixels (0 = désactivé)
     }
 
     # Sessions rembg (une par modèle pour éviter le rechargement)
@@ -467,7 +467,7 @@ async def main(page: ft.Page) -> None:
 
     # ---- Érosion du masque ---- #
     erosion_slider = ft.Slider(
-        value=0,
+        value=5,
         min=0,
         max=15,
         divisions=15,
