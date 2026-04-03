@@ -51,7 +51,7 @@ sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au t
 Version : 1.9.4
 """
 
-__version__ = "1.9.4"
+__version__ = "1.9.5"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -210,7 +210,10 @@ def _ensure_model(urls: "str | list[str]", path: str) -> None:
     for url in url_list:
         tmp = path + ".part"
         try:
-            urllib.request.urlretrieve(url, tmp)
+            with urllib.request.urlopen(url, timeout=120) as response:  # nosec
+                with open(tmp, "wb") as f:
+                    while chunk := response.read(65536):
+                        f.write(chunk)
             os.rename(tmp, path)
             return
         except Exception as e:
@@ -336,13 +339,12 @@ async def main(page: ft.Page) -> None:
         "current_task":    None,   # asyncio.Task en cours (rembg ou modèle)
         "cancel_requested": False, # Annulation demandée (boucle de tuiles)
         "erosion_radius":  5,      # Rayon d'érosion en pixels (0 = désactivé)
+        "show_before":     False,  # Comparaison avant/après
+        "batch_running":   False,  # True pendant le batch automatique
     }
 
     # Sessions rembg (une par modèle pour éviter le rechargement)
-    _session: list = [None]               # birefnet-portrait
-    _session_general: list = [None]       # birefnet-general
-    _session_u2net: list = [None]         # u2net_human_seg
-    _session_u2net_gen: list = [None]     # u2net
+    _rembg_sessions: dict = {}  # {model_name: session}
     # Modèles spandrel : cache par nom de fichier
     _custom_model_cache: dict = {}  # {nom_fichier: desc}
 
@@ -450,6 +452,39 @@ async def main(page: ft.Page) -> None:
         disabled=True,
     )
 
+    # Bouton Avant / Après
+    before_after_btn = ft.Button(
+        "Avant",
+        icon=ft.Icons.COMPARE,
+        bgcolor=GREY,
+        color=WHITE,
+        tooltip="Maintenir pour voir l'original, relâcher pour voir le résultat",
+    )
+
+    # Batch automatique
+    batch_btn = ft.Button(
+        "Batch auto",
+        icon=ft.Icons.BATCH_PREDICTION,
+        bgcolor=GREY,
+        color=BLUE,
+        tooltip="Traiter toutes les images restantes avec les paramètres actuels",
+        disabled=not REMBG_AVAILABLE,
+    )
+    batch_progress_text = ft.Text("", size=11, color=LIGHT_GREY)
+
+    # Couleur personnalisée (hex)
+    custom_color_field = ft.TextField(
+        label="Hex (#RRGGBB)",
+        hint_text="#FFFFFF",
+        width=130,
+        height=40,
+        text_size=12,
+        border_color=LIGHT_GREY,
+        bgcolor=GREY,
+        color=WHITE,
+    )
+    custom_color_preview = ft.Container(width=30, height=30, bgcolor="#FFFFFF", border_radius=4, border=ft.Border.all(1, LIGHT_GREY))
+
     enhance_progress_bar = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
     enhance_status = ft.Text("", size=11, color=LIGHT_GREY)
 
@@ -525,8 +560,14 @@ async def main(page: ft.Page) -> None:
 
     # ------------------------------------------------------------------ #
     def _render_preview() -> None:
-        """Render complet : applique le fond + thumbnail."""
-        base = state["processed"] if state["processed"] is not None else state["orig_img"]
+        """Render complet : applique le fond + thumbnail.
+        En mode ``show_before``, affiche toujours l'original sans traitement.
+        """
+        # Avant/après : en mode "avant", montrer l'original brut
+        if state["show_before"] and state["orig_img"] is not None:
+            base = state["orig_img"]
+        else:
+            base = state["processed"] if state["processed"] is not None else state["orig_img"]
         if base is None:
             return
         # Pour l'érosion : réduire à ~1/3 de la résolution (max 2000px) afin que
@@ -544,7 +585,10 @@ async def main(page: ft.Page) -> None:
         # Downscale final pour l'affichage
         if thumb.width > 700 or thumb.height > 700:
             thumb.thumbnail((700, 700), Image.Resampling.BILINEAR)
-        if state["bg_blur"]:
+        # Mode "avant" : afficher l'original brut sans fond ni traitement
+        if state["show_before"] or (state["bg_blur"] and thumb.mode != "RGBA"):
+            display = thumb.convert("RGB")
+        elif state["bg_blur"]:
             display = apply_background(thumb, None, state["orig_img"])
         elif state["bg_transparent"]:
             # Damier pour visualiser la transparence
@@ -875,33 +919,19 @@ async def main(page: ft.Page) -> None:
             from rembg import remove as rembg_remove, new_session
             use_human  = state["rembg_human_seg"]
             use_precise = state["rembg_precise"]
-            if use_precise:
-                # Mode précis : birefnet
-                if use_human:
-                    if _session[0] is None:
-                        _session[0] = new_session("birefnet-portrait")
-                    sess = _session[0]
-                else:
-                    if _session_general[0] is None:
-                        _session_general[0] = new_session("birefnet-general")
-                    sess = _session_general[0]
-            else:
-                # Mode rapide : u2net
-                if use_human:
-                    if _session_u2net[0] is None:
-                        _session_u2net[0] = new_session("u2net_human_seg")
-                    sess = _session_u2net[0]
-                else:
-                    if _session_u2net_gen[0] is None:
-                        _session_u2net_gen[0] = new_session("u2net")
-                    sess = _session_u2net_gen[0]
-            buf = io.BytesIO()
-            state["orig_img"].save(buf, format="PNG")
-            buf.seek(0)
-            raw = buf.getvalue()
+            _model_key_map = {
+                (True,  True):  "birefnet-portrait",
+                (True,  False): "birefnet-general",
+                (False, True):  "u2net_human_seg",
+                (False, False): "u2net",
+            }
+            model_key = _model_key_map[(use_precise, use_human)]
+            if model_key not in _rembg_sessions:
+                _rembg_sessions[model_key] = new_session(model_key)
+            sess = _rembg_sessions[model_key]
             with contextlib.redirect_stderr(io.StringIO()):
-                result_bytes = rembg_remove(raw, session=sess)
-            return Image.open(io.BytesIO(result_bytes)).convert("RGBA")  # type: ignore[arg-type]
+                result = rembg_remove(state["orig_img"].convert("RGB"), session=sess)
+            return result.convert("RGBA")
 
         rembg_task = asyncio.create_task(asyncio.to_thread(_do_rembg))
         state["current_task"] = rembg_task
@@ -1050,10 +1080,7 @@ async def main(page: ft.Page) -> None:
         """Bascule entre portrait et général."""
         state["rembg_human_seg"] = not state["rembg_human_seg"]
         # Invalider les sessions pour forcer le rechargement avec le bon modèle
-        _session[0] = None
-        _session_general[0] = None
-        _session_u2net[0] = None
-        _session_u2net_gen[0] = None
+        _rembg_sessions.clear()
         if state["rembg_human_seg"]:
             _model_toggle_label.value = "Humain"
             model_toggle_btn.bgcolor  = VIOLET if REMBG_AVAILABLE else GREY
@@ -1086,6 +1113,119 @@ async def main(page: ft.Page) -> None:
     cancel_btn.on_click          = on_cancel
     erosion_slider.on_change     = on_erosion_slider_change
     erosion_slider.on_change_end = on_erosion_slider_end
+
+    def on_before_after_press(e) -> None:
+        """Active le mode 'avant' pendant qu'on maintient le bouton."""
+        state["show_before"] = True
+        before_after_btn.text = "Après"
+        before_after_btn.update()
+        _render_preview()
+
+    def on_before_after_release(e) -> None:
+        """Revient au mode 'après' au relâchement."""
+        state["show_before"] = False
+        before_after_btn.text = "Avant"
+        before_after_btn.update()
+        _render_preview()
+
+    before_after_btn.on_click = on_before_after_press
+    # Simuler le relâchement via un second clic (toggle)
+    # (Flet ne supporte pas on_long_press_end de façon portable — on utilise toggle)
+    def _toggle_before_after(e) -> None:
+        state["show_before"] = not state["show_before"]
+        before_after_btn.text = "Avant" if not state["show_before"] else "Après"
+        before_after_btn.update()
+        _render_preview()
+    before_after_btn.on_click = _toggle_before_after
+
+    def on_custom_color_submit(e) -> None:
+        """Applique la couleur hexadécimale saisie dans le champ."""
+        raw = custom_color_field.value.strip().lstrip("#")
+        if len(raw) == 6:
+            try:
+                r = int(raw[0:2], 16)
+                g = int(raw[2:4], 16)
+                b = int(raw[4:6], 16)
+                BG_COLORS["Personnalisée"] = (r, g, b)
+                # Ajouter l'option au RadioGroup si absente
+                existing_keys = [opt.value for opt in bg_radio.content.controls]
+                if "Personnalisée" not in existing_keys:
+                    bg_radio.content.controls.insert(-2, ft.Radio(value="Personnalisée", label="Personnalisée", fill_color=BLUE))
+                custom_color_preview.bgcolor = f"#{raw.upper()}"
+                custom_color_preview.update()
+                state["bg_blur"] = False
+                state["bg_transparent"] = False
+                state["bg_color"] = "Personnalisée"
+                bg_radio.value = "Personnalisée"
+                bg_radio.update()
+                _render_preview()
+            except ValueError:
+                pass
+
+    custom_color_field.on_submit = on_custom_color_submit
+
+    async def on_batch(e) -> None:
+        """Traite toutes les images restantes avec les paramètres rembg actuels."""
+        if not REMBG_AVAILABLE or state["batch_running"]:
+            return
+        state["batch_running"] = True
+        batch_btn.disabled = True
+        batch_btn.update()
+
+        total = len(all_images)
+        start = state["index"]
+        for idx in range(start, total):
+            if not state["batch_running"]:
+                break
+            batch_progress_text.value = f"Batch : {idx - start + 1}/{total - start}"
+            page.update()
+
+            # Charger l'image
+            await _load_image(idx)
+
+            # Supprimer le fond si pas encore fait
+            if state["orig_img"] is not None and not state["rembg_applied"]:
+                def _do_rembg_batch():
+                    from rembg import remove as rembg_remove, new_session
+                    use_human   = state["rembg_human_seg"]
+                    use_precise = state["rembg_precise"]
+                    _model_key_map = {
+                        (True,  True):  "birefnet-portrait",
+                        (True,  False): "birefnet-general",
+                        (False, True):  "u2net_human_seg",
+                        (False, False): "u2net",
+                    }
+                    model_key = _model_key_map[(use_precise, use_human)]
+                    if model_key not in _rembg_sessions:
+                        _rembg_sessions[model_key] = new_session(model_key)
+                    sess = _rembg_sessions[model_key]
+                    import contextlib, io as _io
+                    with contextlib.redirect_stderr(_io.StringIO()):
+                        result = rembg_remove(state["orig_img"].convert("RGB"), session=sess)
+                    return result.convert("RGBA")
+
+                try:
+                    result = await asyncio.to_thread(_do_rembg_batch)
+                    state["processed"]    = result
+                    state["rembg_applied"] = True
+                    save_btn.disabled = False
+                except Exception as ex:
+                    batch_progress_text.value = f"[ERREUR] image {idx + 1} : {ex}"
+                    page.update()
+                    continue
+
+            # Sauvegarder
+            if state["processed"] is not None:
+                await on_save(None)
+
+        state["batch_running"] = False
+        batch_btn.disabled = False
+        batch_progress_text.value = "Batch terminé !"
+        batch_btn.update()
+        page.update()
+
+    batch_btn.on_click = on_batch
+
     # ------------------------------------------------------------------ #
     #                           MISE EN PAGE                              #
     # ------------------------------------------------------------------ #
@@ -1094,6 +1234,14 @@ async def main(page: ft.Page) -> None:
             # Fond
             ft.Text("Couleur de fond", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
             bg_radio,
+            ft.Row(
+                [custom_color_field, custom_color_preview],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Divider(color=GREY),
+            # Avant/Après
+            before_after_btn,
             ft.Divider(color=GREY),
             # Actions rembg
             process_btn,
@@ -1123,6 +1271,11 @@ async def main(page: ft.Page) -> None:
             undo_btn,
             ft.Divider(color=GREY),
             ft.Row([save_btn, ignore_btn], spacing=8),
+            ft.Divider(color=GREY),
+            # Batch automatique
+            ft.Text("Traitement en lot", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
+            batch_btn,
+            batch_progress_text,
             ft.Container(expand=True),
             status_text,
         ],

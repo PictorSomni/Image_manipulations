@@ -49,9 +49,11 @@ __version__ = "1.9.0"
 #############################################################
 import flet as ft
 import os
+import shutil
 import platform
 import threading
 import json
+import time
 from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageCms
 import asyncio
 import contextlib
@@ -298,6 +300,10 @@ class PhotoCropper:
         self.offset_y = 0.0       # Offset Y en pixels
         self.base_scale = 1.0
         self.pinch_start_scale = 1.0  # Scale au début du pinch
+        self._last_pan_render = 0.0   # Throttle pan : horodatage du dernier update
+        self._last_rotation_render = 0.0  # Throttle rotation
+        self._last_zoom_render = 0.0      # Throttle zoom
+        self._bounds_cache: tuple | None = None  # Cache (scale, rotation, (bw, bh))
 
         # Option noir et blanc
         self.is_bw = False
@@ -333,7 +339,7 @@ class PhotoCropper:
             max=100,
             divisions=20,
             label="20",
-            active_color=BLUE,
+            active_color=YELLOW,
             on_change=self.on_shadows_label,
             on_change_end=self.on_shadows_end,
         )
@@ -346,7 +352,7 @@ class PhotoCropper:
             max=100,
             divisions=20,
             label="0",
-            active_color=BLUE,
+            active_color=YELLOW,
             on_change=self.on_highlights_label,
             on_change_end=self.on_highlights_end,
         )
@@ -439,14 +445,14 @@ class PhotoCropper:
             on_click=self.ignore_image,
         )
 
-        self.two_in_one_switch = ft.Switch(label="2 en 1", active_color=BLUE, value=False, visible=True if any(fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]) else False, on_change=self.is_two_in_one_enabled)
-        self.border_switch_13x15 = ft.Switch(label="13x15", active_color=ORANGE, value=False, visible=True if "10x15" in self.current_format_label else False, on_change=self.on_border_toggle_13x15)
-        self.border_switch_20x24 = ft.Switch(label="20x24", active_color=ORANGE, value=False, visible=True if "18x24" in self.current_format_label else False, on_change=self.on_border_toggle_20x24)
-        self.border_switch_13x10 = ft.Switch(label="13x10", active_color=ORANGE, value=False, visible=True if "10x10" in self.current_format_label else False, on_change=self.on_border_toggle_13x10)
-        self.border_switch_polaroid = ft.Switch(label="Polaroid", active_color=ORANGE, value=False, visible=True if "10x10" in self.current_format_label else False, on_change=self.on_border_toggle_polaroid)
-        self.border_switch_ID2 = ft.Switch(label="ID X2", active_color=ORANGE, value=False, visible=True if "ID" in self.current_format_label else False, on_change=self.on_border_toggle_id2)
-        self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=ORANGE, value=True, visible=True if "ID" in self.current_format_label else False, on_change=self.on_border_toggle_id4)
-        self.network_switch = ft.Switch(label="Sauver sur réseau", active_color=GREEN, value=True, visible=True if "ID" in self.current_format_label else False, on_change=self.on_network_toggle)
+        self.two_in_one_switch = ft.Switch(label="2 en 1", active_color=BLUE, value=False, visible=any(fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]), on_change=self.is_two_in_one_enabled)
+        self.border_switch_13x15 = ft.Switch(label="13x15", active_color=ORANGE, value=False, visible="10x15" in self.current_format_label, on_change=self.on_border_toggle_13x15)
+        self.border_switch_20x24 = ft.Switch(label="20x24", active_color=ORANGE, value=False, visible="18x24" in self.current_format_label, on_change=self.on_border_toggle_20x24)
+        self.border_switch_13x10 = ft.Switch(label="13x10", active_color=ORANGE, value=False, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_13x10)
+        self.border_switch_polaroid = ft.Switch(label="Polaroid", active_color=ORANGE, value=False, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_polaroid)
+        self.border_switch_ID2 = ft.Switch(label="ID X2", active_color=ORANGE, value=False, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id2)
+        self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=ORANGE, value=True, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id4)
+        self.network_switch = ft.Switch(label="Sauver sur réseau", active_color=GREEN, value=True, visible="ID" in self.current_format_label, on_change=self.on_network_toggle)
         self.sharpen_switch = ft.Switch(label="Netteté", active_color=BLUE, value=True, visible=True, on_change=self.on_sharpen_toggle)
         self.is_sharpen = True
         self.bw_switch = ft.Switch(label="Noir et blanc", active_color=YELLOW, value=False, on_change=self.on_bw_toggle)
@@ -458,6 +464,7 @@ class PhotoCropper:
         self._rembg_session = [None]        # birefnet-portrait / birefnet-general
         self._rembg_session_u2net = [None]  # u2net_human_seg / u2net
         self._rembg_original = None   # sauvegarde avant suppression du fond
+        self._rembg_composite_cache = None  # (cache_key, PIL.Image RGB) — composite bg+mask à taille affichage
         self.rembg_bg_white = True
         self.rembg_human_seg = True
         self.rembg_precise = False  # False = rapide (u2net), True = précis (birefnet)
@@ -526,23 +533,50 @@ class PhotoCropper:
         self.contrast = 0.0
         self.contrast_slider = ft.Slider(
             value=0, min=-20, max=20, divisions=40, label="0",
-            active_color=BLUE,
+            active_color=YELLOW,
             on_change=self.on_contrast_label,
             on_change_end=self.on_contrast_end,
         )
         self.saturation = 20.0
         self.saturation_slider = ft.Slider(
             value=20, min=-100, max=100, divisions=20, label="20",
-            active_color=BLUE,
+            active_color=VIOLET,
             on_change=self.on_saturation_label,
             on_change_end=self.on_saturation_end,
         )
         self.exposure = 10.0
         self.exposure_slider = ft.Slider(
             value=10, min=-100, max=100, divisions=20, label="10",
-            active_color=BLUE,
+            active_color=YELLOW,
             on_change=self.on_exposure_label,
             on_change_end=self.on_exposure_end,
+        )
+
+        # Teinte (Hue)
+        self.hue = 0.0
+        self.hue_slider = ft.Slider(
+            value=0, min=-180, max=180, divisions=36, label="0",
+            active_color=VIOLET,
+            on_change=self.on_hue_label,
+            on_change_end=self.on_hue_end,
+        )
+
+        # Balance des blancs (temperature : - = froid/bleu, + = chaud/jaune)
+        self.white_balance = 0.0
+        self.white_balance_slider = ft.Slider(
+            value=0, min=-100, max=100, divisions=20, label="0",
+            active_color=VIOLET,
+            on_change=self.on_wb_label,
+            on_change_end=self.on_wb_end,
+        )
+
+        # Histogramme miniature
+        self.histogram_image = ft.Image(
+            src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+            width=170,
+            height=64,
+            fit=ft.BoxFit.FILL,
+            gapless_playback=True,
         )
 
         self.canvas_container = ft.Container(
@@ -637,11 +671,18 @@ class PhotoCropper:
           bound_w = scaled_w · |cos θ| + scaled_h · |sin θ|
           bound_h = scaled_w · |sin θ| + scaled_h · |cos θ|
 
+        Résultat mis en cache : le calcul trigonométrique n'est refait que
+        lorsque scale ou rotation ont changé depuis le dernier appel.
+
         Returns
         -------
         tuple[float, float]
             (bound_w, bound_h) en pixels écran.
         """
+        if self._bounds_cache is not None:
+            cs, cr, result = self._bounds_cache
+            if cs == self.scale and cr == self.rotation:
+                return result
         scaled_w = self.display_w * self.scale
         scaled_h = self.display_h * self.scale
         theta = math.radians(self.rotation)
@@ -649,7 +690,9 @@ class PhotoCropper:
         sin_t = abs(math.sin(theta))
         bound_w = scaled_w * cos_t + scaled_h * sin_t
         bound_h = scaled_w * sin_t + scaled_h * cos_t
-        return bound_w, bound_h
+        result = (bound_w, bound_h)
+        self._bounds_cache = (self.scale, self.rotation, result)
+        return result
 
     def _clamp_offsets(self):
         """
@@ -1433,6 +1476,10 @@ class PhotoCropper:
             img = ImageEnhance.Contrast(img).enhance(1.0 + self.contrast / 100.0)
         if self.saturation != 0:
             img = ImageEnhance.Color(img).enhance(max(0.0, 1.0 + self.saturation / 100.0))
+        if self.hue != 0:
+            img = self._apply_hue(img, self.hue)
+        if self.white_balance != 0:
+            img = self._apply_white_balance(img, self.white_balance)
         return img
 
     def _apply_shadows(self, img, value):
@@ -1470,6 +1517,75 @@ class PhotoCropper:
         img_arr = np.array(img_rgb, dtype=np.uint8)
         return Image.fromarray(lut[img_arr], "RGB")
 
+    def _apply_hue(self, img, value):
+        """Teinte : décale vers vert (négatif) ou magenta (positif), comme Lightroom.
+
+        value dans [-180, +180] ; effet max ±30 % sur R/G/B via LUT.
+        """
+        if value == 0:
+            return img
+        t = value / 180.0          # [-1, +1]
+        strength = abs(t) * 0.30   # force max 30 %
+        lut = np.arange(256, dtype=np.float32)
+        if t > 0:
+            # Magenta : boost R et B, atténuer G
+            lut_r = np.clip(lut * (1.0 + strength),        0, 255).astype(np.uint8)
+            lut_g = np.clip(lut * (1.0 - strength),        0, 255).astype(np.uint8)
+            lut_b = np.clip(lut * (1.0 + strength * 0.7),  0, 255).astype(np.uint8)
+        else:
+            # Vert : boost G, atténuer R et B
+            lut_r = np.clip(lut * (1.0 - strength),        0, 255).astype(np.uint8)
+            lut_g = np.clip(lut * (1.0 + strength),        0, 255).astype(np.uint8)
+            lut_b = np.clip(lut * (1.0 - strength * 0.7),  0, 255).astype(np.uint8)
+        arr = np.array(img.convert("RGB"), dtype=np.uint8)
+        result = np.stack([
+            lut_r[arr[:, :, 0]],
+            lut_g[arr[:, :, 1]],
+            lut_b[arr[:, :, 2]],
+        ], axis=2)
+        return Image.fromarray(result, "RGB")
+
+    def _apply_white_balance(self, img, value):
+        """Balance des blancs : -100 = froid (bleu), +100 = chaud (jaune/orange).\n\n        Applique une correction per-canal (R, G, B) proportionnelle à ``value``.
+        """
+        if value == 0:
+            return img
+        strength = abs(value) / 100.0 * 0.20  # max ±20 % par canal
+        arr = np.array(img.convert("RGB"), dtype=np.float32)
+        if value > 0:  # chaud : +R, léger +G, -B
+            arr[..., 0] = np.clip(arr[..., 0] * (1.0 + strength), 0, 255)
+            arr[..., 1] = np.clip(arr[..., 1] * (1.0 + strength * 0.2), 0, 255)
+            arr[..., 2] = np.clip(arr[..., 2] * (1.0 - strength), 0, 255)
+        else:          # froid : -R, G neutre, +B
+            arr[..., 0] = np.clip(arr[..., 0] * (1.0 - strength), 0, 255)
+            arr[..., 2] = np.clip(arr[..., 2] * (1.0 + strength), 0, 255)
+        return Image.fromarray(arr.astype(np.uint8), "RGB")
+
+    def _render_histogram(self, preview_img):
+        """Génère un histogramme RGB 160×60 et met à jour ``self.histogram_image``."""
+        W, H = 170, 64
+        arr = np.array(preview_img.convert("RGB"), dtype=np.uint8)
+        arr = arr[::4, ::4]  # sous-échantillonnage pour la vitesse
+        canvas = np.full((H, W, 3), (30, 30, 38), dtype=np.int32)
+        ch_colors = np.array([[80, 20, 20], [20, 70, 20], [20, 20, 80]], dtype=np.int32)
+        row_indices = np.arange(H)[:, np.newaxis]  # (H, 1)
+        for ch_idx in range(3):
+            counts, _ = np.histogram(arr[..., ch_idx], bins=W, range=(0, 256))
+            max_c = max(int(counts.max()), 1)
+            heights = np.clip((counts * H // max_c), 0, H).astype(int)
+            threshold = H - heights[np.newaxis, :]  # (1, W)
+            mask = row_indices >= threshold          # (H, W)
+            canvas += mask[:, :, np.newaxis] * ch_colors[ch_idx]
+        canvas = np.clip(canvas, 0, 255).astype(np.uint8)
+        hist_img = Image.fromarray(canvas, "RGB")
+        buf = io.BytesIO()
+        hist_img.save(buf, format="PNG")
+        self.histogram_image.src = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        try:
+            self.histogram_image.update()
+        except Exception:
+            pass
+
     def _render_preview(self):
         """
         Génère et affiche la prévisualisation dans le canvas Flet.
@@ -1506,25 +1622,36 @@ class PhotoCropper:
         ph = max(1, int(self.display_h))
         preview = self.current_pil_image.resize((pw, ph), Image.Resampling.BILINEAR)
         if preview.mode == "RGBA":
-            # Érosion au format réduit — beaucoup plus rapide qu'à pleine résolution.
-            # Le rayon est mis à l'échelle pour que la preview corresponde au résultat final.
-            if getattr(self, 'rembg_erosion_radius', 0) > 0:
-                scale = pw / self.orig_w
-                scaled_radius = max(1, round(self.rembg_erosion_radius * scale))
-                preview = _erode_alpha(preview, scaled_radius)
-            if getattr(self, 'rembg_bg_white', True):
-                bg = Image.new("RGBA", preview.size, (255, 255, 255, 255))
+            # Clé de cache : image source + taille d'affichage + paramètres de composition
+            _cache_key = (
+                id(self.current_pil_image), pw, ph,
+                getattr(self, 'rembg_erosion_radius', 0),
+                getattr(self, 'rembg_bg_white', True),
+            )
+            if self._rembg_composite_cache is not None and self._rembg_composite_cache[0] == _cache_key:
+                # Cache valide : réutiliser le composite sans recalculer
+                preview = self._rembg_composite_cache[1].copy()
             else:
-                # Use original (opaque) image as blur source to avoid black bleed
-                # from transparent pixels (alpha=0 → black in RGBA→RGB conversion)
-                blur_src = self._rembg_original if self._rembg_original is not None else None
-                if blur_src is not None:
-                    blurred_rgb = blur_src.convert("RGB").resize((pw, ph), Image.Resampling.BILINEAR).filter(ImageFilter.GaussianBlur(radius=30))
+                # Érosion au format réduit — beaucoup plus rapide qu'à pleine résolution.
+                # Le rayon est mis à l'échelle pour que la preview corresponde au résultat final.
+                if getattr(self, 'rembg_erosion_radius', 0) > 0:
+                    scale = pw / self.orig_w
+                    scaled_radius = max(1, round(self.rembg_erosion_radius * scale))
+                    preview = _erode_alpha(preview, scaled_radius)
+                if getattr(self, 'rembg_bg_white', True):
+                    bg = Image.new("RGBA", preview.size, (255, 255, 255, 255))
                 else:
-                    white = Image.new("RGBA", preview.size, (255, 255, 255, 255))
-                    blurred_rgb = Image.alpha_composite(white, preview).convert("RGB").filter(ImageFilter.GaussianBlur(radius=30))
-                bg = blurred_rgb.convert("RGBA")
-            preview = Image.alpha_composite(bg, preview).convert("RGB")
+                    # Use original (opaque) image as blur source to avoid black bleed
+                    # from transparent pixels (alpha=0 → black in RGBA→RGB conversion)
+                    blur_src = self._rembg_original if self._rembg_original is not None else None
+                    if blur_src is not None:
+                        blurred_rgb = blur_src.convert("RGB").resize((pw, ph), Image.Resampling.BILINEAR).filter(ImageFilter.GaussianBlur(radius=30))
+                    else:
+                        white = Image.new("RGBA", preview.size, (255, 255, 255, 255))
+                        blurred_rgb = Image.alpha_composite(white, preview).convert("RGB").filter(ImageFilter.GaussianBlur(radius=30))
+                    bg = blurred_rgb.convert("RGBA")
+                preview = Image.alpha_composite(bg, preview).convert("RGB")
+                self._rembg_composite_cache = (_cache_key, preview.copy())
         else:
             preview = preview.convert("RGB")
         # Noir et blanc
@@ -1549,15 +1676,36 @@ class PhotoCropper:
         preview.save(_buf, format="JPEG", quality=70)
         self.image_display.src = "data:image/jpeg;base64," + base64.b64encode(_buf.getvalue()).decode()
         self.image_display.update()
+        self._render_histogram(preview)
 
     # ================================================================ #
     #                  NAVIGATION (PAN, ZOOM, ROTATION)                #
     # ================================================================ #
 
     def on_pan_update(self, e: ft.DragUpdateEvent):
-        """Gestionnaire de glisser (drag) sur le canvas."""
+        """
+        Gestionnaire de glisser (drag) sur le canvas.
+
+        Les deltas de position sont accumulés dans `offset_x` / `offset_y`
+        à chaque événement (potentiellement 200+ Hz selon le système).
+        Le rendu vers Flutter (`_clamp_offsets` + `_update_transform`) est
+        limité à 60 fps via `_last_pan_render` pour éviter de saturer la
+        file de messages Flet sur les machines lentes.
+
+        Parameters
+        ----------
+        e : ft.DragUpdateEvent
+            Événement Flet ; `e.local_delta` contient le déplacement
+            en pixels depuis le dernier événement.
+        """
         self.offset_x += e.local_delta.x
         self.offset_y += e.local_delta.y
+        # Throttle : on limite les appels à _update_transform à 60 fps max.
+        # Les deltas sont toujours accumulés ; seul l'envoi à Flutter est différé.
+        now = time.monotonic()
+        if now - self._last_pan_render < 1 / 60:
+            return
+        self._last_pan_render = now
         self._clamp_offsets()
         self._update_transform()
 
@@ -1596,9 +1744,11 @@ class PhotoCropper:
         """
         Gestionnaire du slider de rotation (pendant le glissement).
 
-        Met à jour `self.rotation`, le label du slider, recalcule les
-        offsets (clamp) et applique la transformation affine sans
-        re-générer la prévisualisation (pour la fluidité).
+        Met à jour `self.rotation` et le label du slider immédiatement
+        (opération légère, synchrone). Le rendu affine (`_clamp_offsets`
+        + `_update_transform`) est limité à 60 fps via `_last_rotation_render`
+        pour éviter de saturer la file de messages Flet sur les machines
+        lentes. La prévisualisation PIL n'est pas re-générée ici.
 
         Parameters
         ----------
@@ -1609,11 +1759,28 @@ class PhotoCropper:
         self.rotation = e.control.value
         e.control.label = f"{self.rotation:.2f}°"
         e.control.update()
+        now = time.monotonic()
+        if now - self._last_rotation_render < 1 / 60:
+            return
+        self._last_rotation_render = now
         self._clamp_offsets()
         self._update_transform()
 
     def on_zoom_update(self, e):
-        """Gestionnaire du slider de zoom."""
+        """
+        Gestionnaire du slider de zoom (pendant le glissement).
+
+        Met à jour `self.scale`, corrige les offsets proportionnellement
+        et rafraîchit le label immédiatement. Le rendu affine est limité
+        à 60 fps via `_last_zoom_render` pour éviter de saturer la file
+        de messages Flet sur les machines lentes.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement Flet du slider ; `e.control.value` contient le
+            facteur de zoom cible.
+        """
         new_scale = e.control.value
         old_scale = self.scale
         self.scale = new_scale
@@ -1623,6 +1790,10 @@ class PhotoCropper:
             self.offset_y *= ratio
         e.control.label = f"{self.scale:.2f}×"
         e.control.update()
+        now = time.monotonic()
+        if now - self._last_zoom_render < 1 / 60:
+            return
+        self._last_zoom_render = now
         self._clamp_offsets()
         self._update_transform()
 
@@ -1644,6 +1815,26 @@ class PhotoCropper:
         self.rotation_slider.update()
         self._clamp_offsets()
         self._update_transform()
+
+    def reset_zoom(self, e):
+        """Remet le zoom à 1× par double-clic sur le slider."""
+        self.scale = 1.0
+        self.offset_x = 0.0
+        self.offset_y = 0.0
+        self.zoom_slider.value = 1.0
+        self.zoom_slider.label = "1.00×"
+        self.zoom_slider.update()
+        self._clamp_offsets()
+        self._update_transform()
+
+    def _reset_slider(self, slider, attr, default_val, label_str):
+        """Remet un slider de réglage à sa valeur par défaut et redéclenche le rendu."""
+        setattr(self, attr, default_val)
+        slider.value = default_val
+        slider.label = label_str
+        slider.update()
+        self._render_preview()
+        self.page.update()
 
     # ================================================================ #
     #                        TOGGLES & SWITCHES                        #
@@ -1849,11 +2040,9 @@ class PhotoCropper:
                     model_name = "u2net_human_seg" if self.rembg_human_seg else "u2net"
                     self._rembg_session_u2net[0] = _rembg_new_session(model_name)
                 sess = self._rembg_session_u2net[0]
-            buf = io.BytesIO()
-            self.current_pil_image.convert("RGB").save(buf, format="PNG")
             with contextlib.redirect_stderr(io.StringIO()):
-                result_bytes = _rembg_remove(buf.getvalue(), session=sess)
-            return Image.open(io.BytesIO(result_bytes)).convert("RGBA")
+                result = _rembg_remove(self.current_pil_image.convert("RGB"), session=sess)
+            return result.convert("RGBA")
 
         try:
             result = await asyncio.to_thread(_do_rembg)
@@ -2165,6 +2354,30 @@ class PhotoCropper:
         """Alias de `on_exposure_label` pour compatibilité ascendante."""
         self.on_exposure_label(e)
 
+    def on_hue_label(self, e):
+        """Mise à jour du label du slider Teinte pendant le glissement."""
+        self.hue = e.control.value
+        e.control.label = str(int(self.hue))
+        e.control.update()
+
+    def on_hue_end(self, e):
+        """Rendu complet au relâchement du slider Teinte."""
+        self.hue = e.control.value
+        self._render_preview()
+        self.page.update()
+
+    def on_wb_label(self, e):
+        """Mise à jour du label du slider Balance des blancs pendant le glissement."""
+        self.white_balance = e.control.value
+        e.control.label = str(int(self.white_balance))
+        e.control.update()
+
+    def on_wb_end(self, e):
+        """Rendu complet au relâchement du slider Balance des blancs."""
+        self.white_balance = e.control.value
+        self._render_preview()
+        self.page.update()
+
     def reset_shadows(self, e):
         """
         Réinitialise simultanément les sliders Ombres et Hautes Lumières à 0.
@@ -2221,6 +2434,14 @@ class PhotoCropper:
         self.highlights_slider.value = 0.0
         self.highlights_slider.label = "0"
         self.highlights_slider.update()
+        self.hue = 0.0
+        self.hue_slider.value = 0.0
+        self.hue_slider.label = "0"
+        self.hue_slider.update()
+        self.white_balance = 0.0
+        self.white_balance_slider.value = 0.0
+        self.white_balance_slider.label = "0"
+        self.white_balance_slider.update()
         self._render_preview()
         self.page.update()
 
@@ -2455,6 +2676,8 @@ class PhotoCropper:
             "contrast": self.contrast,
             "saturation": self.saturation,
             "exposure": self.exposure,
+            "hue": self.hue,
+            "white_balance": self.white_balance,
         }
         self.extra_formats.append(snapshot)
         self._update_extra_formats_display()
@@ -2792,11 +3015,15 @@ class PhotoCropper:
 
             # Appliquer les réglages du snapshot
             saved_contrast, saved_saturation, saved_exposure = self.contrast, self.saturation, self.exposure
+            saved_hue, saved_wb = self.hue, self.white_balance
             self.contrast = snapshot.get("contrast", 0)
             self.saturation = snapshot.get("saturation", 0)
             self.exposure = snapshot.get("exposure", 0)
+            self.hue = snapshot.get("hue", 0)
+            self.white_balance = snapshot.get("white_balance", 0)
             ex_crop = self._apply_adjustments(ex_crop)
             self.contrast, self.saturation, self.exposure = saved_contrast, saved_saturation, saved_exposure
+            self.hue, self.white_balance = saved_hue, saved_wb
 
             if snapshot.get("shadows", 0) != 0:
                 ex_crop = self._apply_shadows(ex_crop, snapshot["shadows"])
@@ -2897,6 +3124,12 @@ class PhotoCropper:
         if getattr(self, '_closing', False):
             return
         self._closing = True
+        # Nettoyer le dossier de cache de prévisualisation
+        try:
+            if os.path.isdir(self._preview_tmp_dir):
+                shutil.rmtree(self._preview_tmp_dir, ignore_errors=True)
+        except Exception:
+            pass
         try:
             self.page.window.visible = False
             self.page.update()
@@ -3009,6 +3242,9 @@ def main(page: ft.Page):
             height=150,
         ),
         ft.Divider(height=8),
+        ft.Text("Histogramme", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
+        app.histogram_image,
+        ft.Divider(height=4),
         app.validate_button,
         app.ignore_button
     ], width=250)
@@ -3021,35 +3257,69 @@ def main(page: ft.Page):
                     content=ft.Column([
                         ft.Text("Réglages", size=16, weight=ft.FontWeight.BOLD, color=WHITE),
                         ft.Divider(height=4),
-                        ft.Text("Rotation", size=12, color=LIGHT_GREY),
-                        app.rotation_slider,
+                        # ── Géométrie ──────────────────────────────────────
                         ft.Container(
-                            content=ft.Button("0°", on_click=app.reset_rotation, width=120, bgcolor=BG, color=WHITE),
-                            alignment=ft.Alignment.CENTER, padding=ft.Padding.only(top=4, bottom=12)
+                            content=ft.Column([
+                                ft.Text("GÉOMÉTRIE", size=10, color=BLUE, weight=ft.FontWeight.BOLD),
+                                ft.Text("Rotation", size=12, color=LIGHT_GREY),
+                                ft.GestureDetector(content=app.rotation_slider, on_double_tap=lambda e: app.reset_rotation(e)),
+                                ft.Text("Zoom", size=12, color=LIGHT_GREY),
+                                ft.GestureDetector(content=app.zoom_slider, on_double_tap=lambda e: app.reset_zoom(e)),
+                            ], spacing=2),
+                            bgcolor=DARK, border_radius=6,
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                            border=ft.Border.all(1, BLUE),
                         ),
-                        ft.Text("Zoom", size=12, color=LIGHT_GREY),
-                        app.zoom_slider,
-                        ft.Divider(height=4),
-                        ft.Text("Exposition", size=12, color=LIGHT_GREY),
-                        app.exposure_slider,
-                        ft.Divider(height=4),
-                        ft.Text("Hautes lumières", size=12, color=LIGHT_GREY),
-                        app.highlights_slider,
-                        ft.Divider(height=4),
-                        ft.Text("Ombres", size=12, color=LIGHT_GREY),
-                        app.shadows_slider,
-                        ft.Divider(height=4),
-                        ft.Text("Contraste", size=12, color=LIGHT_GREY),
-                        app.contrast_slider,
-                        ft.Divider(height=4),
-                        ft.Text("Saturation", size=12, color=LIGHT_GREY),
-                        app.saturation_slider,
+                        ft.Divider(height=6),
+                        # ── Luminosité ────────────────────────────────────
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Text("LUMINOSITÉ", size=10, color=YELLOW, weight=ft.FontWeight.BOLD),
+                                ft.Text("Exposition", size=12, color=LIGHT_GREY),
+                                ft.GestureDetector(content=app.exposure_slider, on_double_tap=lambda e: app._reset_slider(app.exposure_slider, 'exposure', 0.0, '0')),
+                                ft.Text("Hautes lumières", size=12, color=LIGHT_GREY),
+                                ft.GestureDetector(content=app.highlights_slider, on_double_tap=lambda e: app._reset_slider(app.highlights_slider, 'highlights', 0.0, '0')),
+                                ft.Text("Ombres", size=12, color=LIGHT_GREY),
+                                ft.GestureDetector(content=app.shadows_slider, on_double_tap=lambda e: app._reset_slider(app.shadows_slider, 'shadows', 0.0, '0')),
+                                ft.Text("Contraste", size=12, color=LIGHT_GREY),
+                                ft.GestureDetector(content=app.contrast_slider, on_double_tap=lambda e: app._reset_slider(app.contrast_slider, 'contrast', 0.0, '0')),
+                            ], spacing=2),
+                            bgcolor=DARK, border_radius=6,
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                            border=ft.Border.all(1, YELLOW),
+                        ),
+                        ft.Divider(height=6),
+                        # ── Couleur ───────────────────────────────────────
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Text("COULEUR", size=10, color=VIOLET, weight=ft.FontWeight.BOLD),
+                                ft.Text("Saturation", size=12, color=LIGHT_GREY),
+                                ft.GestureDetector(content=app.saturation_slider, on_double_tap=lambda e: app._reset_slider(app.saturation_slider, 'saturation', 0.0, '0')),
+                                ft.Text("Teinte  (−vert / +magenta)", size=12, color=LIGHT_GREY),
+                                ft.GestureDetector(content=app.hue_slider, on_double_tap=lambda e: app._reset_slider(app.hue_slider, 'hue', 0.0, '0')),
+                                ft.Text("Balance des blancs  (−froid / +chaud)", size=12, color=LIGHT_GREY),
+                                ft.GestureDetector(content=app.white_balance_slider, on_double_tap=lambda e: app._reset_slider(app.white_balance_slider, 'white_balance', 0.0, '0')),
+                            ], spacing=2),
+                            bgcolor=DARK, border_radius=6,
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                            border=ft.Border.all(1, VIOLET),
+                        ),
+                        ft.Divider(height=6),
+                        # ── Netteté ───────────────────────────────────────
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Text("NETTETÉ", size=10, color=GREEN, weight=ft.FontWeight.BOLD),
+                                app.sharpen_switch,
+                            ], spacing=2),
+                            bgcolor=DARK, border_radius=6,
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                            border=ft.Border.all(1, GREEN),
+                        ),
+                        ft.Divider(height=6),
                         ft.Container(
                             content=ft.Button("Réinit. réglages", on_click=app.reset_adjustments, width=160, bgcolor=BG, color=WHITE),
-                            alignment=ft.Alignment.CENTER,padding=ft.Padding.only(top=4, bottom=12)
+                            alignment=ft.Alignment.CENTER, padding=ft.Padding.only(top=4, bottom=4)
                         ),
-                        ft.Divider(height=4),
-                        app.sharpen_switch,
                     ], spacing=2, scroll=ft.ScrollMode.AUTO),
                     width=200,
                     bgcolor=DARK,
@@ -3129,13 +3399,13 @@ def main(page: ft.Page):
                                             ),
                                             app.grid_switch,
                                         ], horizontal_alignment=ft.CrossAxisAlignment.START, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
-                                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=110),
-                                ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                                        ft.VerticalDivider(width=1, color=LIGHT_GREY),
+                                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=130),
+                                ], alignment=ft.MainAxisAlignment.START, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                                 padding=ft.Padding.only(top=6, bottom=6, left=12, right=12),
-                                alignment=ft.Alignment.CENTER,
+                                alignment=ft.Alignment(0, -1),
                                 bgcolor=DARK,
                                 border_radius=8,
-                                height=250,
                                 width=1200,
                                 border=ft.Border.all(1, GREY),
                             ),

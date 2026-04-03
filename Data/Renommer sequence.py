@@ -15,7 +15,7 @@ Variables d'environnement :
 Dépendances : modules standard (os, pathlib, sys)
 """
 
-__version__ = "1.9.4"
+__version__ = "1.9.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -28,6 +28,7 @@ import sys
 #                           PATH                            #
 #############################################################
 PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
+SERIES_NAME = os.environ.get("SERIES_NAME", "").strip()
 
 #############################################################
 #                         CONTENT                           #
@@ -51,7 +52,10 @@ for index, file in enumerate(FOLDER) :
     ext = file_path.suffix
     new_index = index + 1
 
-    new_name = f"{new_index:03}{ext}"
+    if SERIES_NAME:
+        new_name = f"{SERIES_NAME}_{new_index:03}{ext}"
+    else:
+        new_name = f"{new_index:03}{ext}"
 
     file_path.rename(PATH / new_name)
 sys.exit(1)

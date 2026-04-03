@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "1.9.4"
+__version__ = "1.9.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -88,8 +88,8 @@ def main(page: ft.Page):
     page.bgcolor = BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width = 1200
-    page.window.height = 840
+    page.window.width = 1280
+    page.window.height = 870
     # page.window.maximized = True
     
     selected_folder = {"path": None}
@@ -97,24 +97,50 @@ def main(page: ft.Page):
     cwd = os.path.dirname(os.path.abspath(__file__))
     selected_files = set()  # Ensemble des fichiers sélectionnés
     clipboard = {"files": []}  # Presse-papiers pour copier/coller des fichiers
+
+    # ── Dossiers récents ──────────────────────────────────────────────
+    _recent_path = os.path.join(cwd, ".recent_folders.json")
+
+    def _load_recent() -> list:
+        try:
+            with open(_recent_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return [p for p in data if os.path.isdir(p)]
+        except Exception:
+            return []
+
+    def _save_recent(folders: list) -> None:
+        try:
+            with open(_recent_path, "w", encoding="utf-8") as f:
+                json.dump(folders[:10], f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _add_to_recent(path: str) -> None:
+        path = os.path.normpath(path)
+        recent = _load_recent()
+        if path in recent:
+            recent.remove(path)
+        recent.insert(0, path)
+        _save_recent(recent[:10])
     
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
-        "N&B.py": [False, WHITE],
-        "Fichiers manquants.py": [False, ORANGE],
-        "Transfert vers TEMP.py": [True, BLUE],
-        "Ameliorer nettete.py": [False, WHITE],
-        "Renommer sequence.py": [False, BLUE],
-        "Conversion JPG.py": [False, BLUE],
-        "Nettoyer metadonnees.py": [False, RED],
-        "Remerciements.py": [False, VIOLET],
-        "Recadrage.pyw": [False, BLUE],
-        "Redimensionner filigrane.py": [False, WHITE],
-        "Images en PDF.py": [False, GREEN],
-        "Redimensionner.py": [False, WHITE],
-        "Format 13x10.py": [False, WHITE],
-        "Augmentation IA.py": [False, GREEN],
-        "Format 13x15.py": [False, WHITE],
+        "N&B.py": (False, WHITE),
+        "Fichiers manquants.py": (False, ORANGE),
+        "Transfert vers TEMP.py": (True, BLUE),
+        "Ameliorer nettete.py": (False, WHITE),
+        "Renommer sequence.py": (False, BLUE),
+        "Conversion JPG.py": (False, BLUE),
+        "Nettoyer metadonnees.py": (False, RED),
+        "Remerciements.py": (False, VIOLET),
+        "Recadrage.pyw": (False, BLUE),
+        "Redimensionner filigrane.py": (False, WHITE),
+        "Images en PDF.py": (False, GREEN),
+        "Redimensionner.py": (False, WHITE),
+        "Format 13x10.py": (False, WHITE),
+        "Augmentation IA.py": (False, GREEN),
+        "Format 13x15.py": (False, WHITE),
     }
     
     resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
@@ -135,6 +161,37 @@ def main(page: ft.Page):
         border_color=GREY,
         read_only=True
     )
+
+    recent_folders_btn = ft.PopupMenuButton(
+        icon=ft.Icons.HISTORY,
+        icon_color=LIGHT_GREY,
+        tooltip="Dossiers récents",
+        items=[],
+    )
+
+    def _refresh_recent_btn():
+        recent = _load_recent()
+        if not recent:
+            recent_folders_btn.items = [
+                ft.PopupMenuItem(content=ft.Text("Aucun dossier récent"))
+            ]
+        else:
+            recent_folders_btn.items = [
+                ft.PopupMenuItem(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.FOLDER, size=16),
+                        ft.Text(os.path.basename(p) or p),
+                    ], spacing=8, tight=True),
+                    on_click=lambda e, folder=p: navigate_to_folder(folder),
+                )
+                for p in recent
+            ]
+        try:
+            recent_folders_btn.update()
+        except Exception:
+            pass
+
+    _refresh_recent_btn()
 
     apps_list = ft.GridView(expand=True, runs_count=3, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.1)
     preview_list = ft.ListView(expand=True, auto_scroll=False, spacing=4)
@@ -253,31 +310,25 @@ def main(page: ft.Page):
     def copy_terminal_to_clipboard():
         """Copie tout le contenu du terminal dans le presse-papiers"""
         if not terminal_output.controls:
-            page.update()
             return
-        
-        # Extraire le texte de chaque contrôle Text
         terminal_text = "\n".join([ctrl.value for ctrl in terminal_output.controls if hasattr(ctrl, 'value')])
-        
-        # Copier dans le presse-papiers en utilisant les commandes système
         try:
-            if platform.system() == "Darwin":  # macOS
+            if platform.system() == "Darwin":
                 process = subprocess.Popen(['pbcopy'], stdin=subprocess.PIPE)
                 process.communicate(terminal_text.encode('utf-8'))
             elif platform.system() == "Windows":
                 process = subprocess.Popen(['clip'], stdin=subprocess.PIPE)
                 process.communicate(terminal_text.encode('utf-16'))
-            else:  # Linux
+            else:
                 try:
                     process = subprocess.Popen(['xclip', '-selection', 'clipboard'], stdin=subprocess.PIPE)
                     process.communicate(terminal_text.encode('utf-8'))
                 except FileNotFoundError:
                     process = subprocess.Popen(['xsel', '--clipboard', '--input'], stdin=subprocess.PIPE)
                     process.communicate(terminal_text.encode('utf-8'))
+            log_to_terminal("[OK] Terminal copié dans le presse-papiers", GREEN)
         except Exception as e:
-            log_to_terminal(f"[ERREUR] Erreur lors de la copie dans le presse-papiers: {e}", RED)
-        
-        page.update()
+            log_to_terminal(f"[ERREUR] Copie presse-papiers: {e}", RED)
 
     # ================================================================ #
     #                   NAVIGATION & FICHIERS                          #
@@ -309,8 +360,7 @@ def main(page: ft.Page):
                 # Utilise 'start' avec '' pour ouvrir en premier plan
                 subprocess.Popen(f'start "" "{file_path}"', shell=True)
             elif platform.system() == "Darwin":  # macOS
-                # -a pour activer l'application
-                subprocess.Popen(["open", "-a", "Preview", file_path])
+                subprocess.Popen(["open", file_path])
             else:  # Linux
                 subprocess.Popen(["xdg-open", file_path])
         except Exception as e:
@@ -326,6 +376,8 @@ def main(page: ft.Page):
         selected_files.clear()
         selection_count_text.value = ""
         preview_page["value"] = 0
+        _add_to_recent(new_path)
+        _refresh_recent_btn()
         refresh_preview()
     
     def go_to_parent_folder(e):
@@ -436,6 +488,8 @@ def main(page: ft.Page):
             try:
                 if os.path.exists(new_folder_path):
                     log_to_terminal(f"[ERREUR] Le dossier '{folder_name}' existe déjà", RED)
+                    dialog.open = False
+                    page.update()
                 else:
                     os.makedirs(new_folder_path)
                     log_to_terminal(f"[OK] Dossier créé: {folder_name}", BLUE)
@@ -532,20 +586,28 @@ def main(page: ft.Page):
     # ================================================================ #
     #                          SÉLECTION                               #
     # ================================================================ #
+    def _selection_label():
+        """Retourne le libellé de sélection affiché dans la barre d'état."""
+        n = len(selected_files)
+        if n == 0:
+            return ""
+        s = "s" if n > 1 else ""
+        return f"{n} fichier{s} sélectionné{s}"
+
     def on_checkbox_change(e, file_path):
         """Gère le changement d'état d'une checkbox"""
         if e.control.value:
             selected_files.add(file_path)
         else:
             selected_files.discard(file_path)
-        selection_count_text.value = f"{len(selected_files)} fichier{'s' if len(selected_files) > 1 else ''} sélectionné{'s' if len(selected_files) > 1 else ''}" if len(selected_files) > 0 else ""
+        selection_count_text.value = _selection_label()
         page.update()
     
     def clear_selection(e):
         """Désélectionne tous les fichiers et dossiers"""
         selected_files.clear()
         refresh_preview()
-        selection_count_text.value = f"{len(selected_files)} fichier{'s' if len(selected_files) > 1 else ''} sélectionné{'s' if len(selected_files) > 1 else ''}" if len(selected_files) > 0 else ""
+        selection_count_text.value = _selection_label()
         page.update()
         log_to_terminal("[OK] Sélection effacée", GREEN)
     
@@ -635,7 +697,7 @@ def main(page: ft.Page):
                 if item_name in names_set:
                     selected_files.add(os.path.join(folder_to_display, item_name))
 
-        selection_count_text.value = f"{len(selected_files)} fichier{'s' if len(selected_files) > 1 else ''} sélectionné{'s' if len(selected_files) > 1 else ''}" if len(selected_files) > 0 else ""
+        selection_count_text.value = _selection_label()
 
         # Naviguer vers la première page contenant au moins un fichier sélectionné
         # (évite que les fichiers au-delà de PAGE_SIZE soient invisibles)
@@ -1363,6 +1425,8 @@ def main(page: ft.Page):
             folder_path.update()
             selected_files.clear()
             preview_page["value"] = 0
+            _add_to_recent(selected_folder["path"])
+            _refresh_recent_btn()
             refresh_preview()
     
     async def close_window(e):
@@ -1387,6 +1451,7 @@ def main(page: ft.Page):
                 ),
                 ft.Container(expand=True),
                 folder_path,
+                recent_folders_btn,
                 ft.Button(
                     "Parcourir",
                     icon=ft.Icons.FOLDER_OPEN,
