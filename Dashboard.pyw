@@ -1436,7 +1436,48 @@ def main(page: ft.Page):
     def minimize_window(e):
         """Réduit la fenêtre dans la barre des tâches."""
         page.window.minimized = True
-    
+
+    def update_app(e):
+        """Stash les changements locaux, git pull --rebase, puis supprime le stash."""
+        page.pubsub.send_all_on_topic("terminal", ("Mise à jour en cours…", YELLOW))
+        def _run():
+            def run_git(*args):
+                return subprocess.run(
+                    ["git", *args],
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+            try:
+                # Stash les changements locaux s'il y en a
+                stash_result = run_git("stash")
+                stashed = "No local changes" not in stash_result.stdout
+
+                # Pull --rebase
+                result = run_git("pull", "--rebase", "origin")
+                output = (result.stdout + result.stderr).strip()
+
+                if result.returncode == 0:
+                    # Supprimer le stash (changements locaux abandonnés)
+                    if stashed:
+                        run_git("stash", "drop")
+                    if "Already up to date" in output or "Déjà à jour" in output or output == "":
+                        msg = ("✔ Déjà à jour.", GREEN)
+                    else:
+                        msg = (f"✔ Mise à jour réussie.\n{output}", GREEN)
+                else:
+                    # Restaurer le stash en cas d'échec du rebase
+                    if stashed:
+                        run_git("rebase", "--abort")
+                        run_git("stash", "pop")
+                    msg = (f"✖ Erreur lors de la mise à jour.\n{output}", RED)
+            except Exception as exc:
+                msg = (f"✖ [ERREUR] {exc}", RED)
+            page.pubsub.send_all_on_topic("terminal", msg)
+        threading.Thread(target=_run, daemon=True).start()
+
     refresh_apps()
 
 
@@ -1448,6 +1489,14 @@ def main(page: ft.Page):
                     ft.Text(f"DASHBOARD {__version__}", size=24, color=WHITE),
                     bgcolor=BG,
                     padding=10,
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.SYSTEM_UPDATE_ALT,
+                    tooltip="Mettre à jour (git pull --rebase)",
+                    on_click=update_app,
+                    icon_color=LIGHT_GREY,
+                    bgcolor=DARK,
+                    icon_size=18,
                 ),
                 ft.Container(expand=True),
                 folder_path,
