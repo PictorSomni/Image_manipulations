@@ -48,7 +48,7 @@ Au premier lancement, rembg télécharge automatiquement le modèle birefnet-por
 (~450 Mo) dans ``~/.u2net/``. Les modèles spandrel (RealESRGAN, FaceUpSharpDAT)
 sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au total).
 
-Version : 1.9.4
+Version : 1.9.5
 """
 
 __version__ = "1.9.5"
@@ -296,7 +296,7 @@ async def main(page: ft.Page) -> None:
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG_UI
     page.window.width = 1024
-    page.window.height = 768
+    page.window.height = 1024
 
     # ------------------------------------------------------------------ #
     #                            ÉTAT                                     #
