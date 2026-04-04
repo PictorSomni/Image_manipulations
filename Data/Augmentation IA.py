@@ -296,7 +296,7 @@ async def main(page: ft.Page) -> None:
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG_UI
     page.window.width = 1024
-    page.window.height = 720
+    page.window.height = 768
 
     # ------------------------------------------------------------------ #
     #                            ÉTAT                                     #
