@@ -295,8 +295,9 @@ async def main(page: ft.Page) -> None:
     page.title = f"Augmentation IA  v{__version__}"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG_UI
-    page.window.width = 1024
-    page.window.height = 1024
+    # page.window.width = 1024
+    # page.window.height = 1024
+    page.window.maximized = True
 
     # ------------------------------------------------------------------ #
     #                            ÉTAT                                     #

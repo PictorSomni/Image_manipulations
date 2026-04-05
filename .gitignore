@@ -34,3 +34,4 @@ $RECYCLE.BIN/
 # Linux
 .directory
 .Trash-*
+.recent_folders.json

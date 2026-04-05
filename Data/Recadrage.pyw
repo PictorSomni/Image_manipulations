@@ -106,6 +106,11 @@ ORANGE = "#FFA071"
 RED = "#F17171"
 WHITE = "#c7ccd8"
 
+# ===================== Layout ===================== #
+LEFT_COL_WIDTH   = 200   # Largeur de la colonne de gauche (réglages sliders)
+RIGHT_COL_WIDTH  = 250   # Largeur de la colonne de droite (formats + histogramme + boutons)
+HISTOGRAM_HEIGHT = 85    # Hauteur de l'histogramme en pixels
+
 
 def mm_to_pixels(mm, dpi=DPI):
     """
@@ -319,6 +324,7 @@ class PhotoCropper:
             label=f"{self.rotation:.1f}°",
             active_color=BLUE,
             on_change=self.on_rotation_update,
+            on_change_end=self.on_rotation_end,
         )
 
         # Zoom
@@ -330,6 +336,7 @@ class PhotoCropper:
             label="1.00×",
             active_color=BLUE,
             on_change=self.on_zoom_update,
+            on_change_end=self.on_zoom_end,
         )
 
         # Ombres (Shadows — similaire à Camera Raw)
@@ -420,10 +427,11 @@ class PhotoCropper:
         self.gesture_detector = ft.GestureDetector(
             content=self.image_stack,
             on_pan_update=self.on_pan_update,
+            on_pan_end=self.on_pan_end,
             on_scroll=self.on_scroll,
             # on_scale_start=self.on_scale_start,   # pinch trackpad macOS — désactivé (trop sensible)
             # on_scale_update=self.on_scale_update,  # pinch trackpad macOS — désactivé (trop sensible)
-            drag_interval=10,
+            drag_interval=33,
         )
 
         # visible status fallback when SnackBar is not shown
@@ -574,8 +582,8 @@ class PhotoCropper:
         # Histogramme miniature
         self.histogram_image = ft.Image(
             src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
-            width=170,
-            height=64,
+            width=RIGHT_COL_WIDTH,
+            height=HISTOGRAM_HEIGHT,
             fit=ft.BoxFit.FILL,
             gapless_playback=True,
         )
@@ -1563,8 +1571,8 @@ class PhotoCropper:
         return Image.fromarray(arr.astype(np.uint8), "RGB")
 
     def _render_histogram(self, preview_img):
-        """Génère un histogramme RGB 160×60 et met à jour ``self.histogram_image``."""
-        W, H = 170, 64
+        """Génère un histogramme RGB et met à jour ``self.histogram_image``."""
+        W, H = RIGHT_COL_WIDTH, HISTOGRAM_HEIGHT
         arr = np.array(preview_img.convert("RGB"), dtype=np.uint8)
         arr = arr[::4, ::4]  # sous-échantillonnage pour la vitesse
         canvas = np.full((H, W, 3), (30, 30, 38), dtype=np.int32)
@@ -1704,14 +1712,28 @@ class PhotoCropper:
         # Throttle : on limite les appels à _update_transform à 60 fps max.
         # Les deltas sont toujours accumulés ; seul l'envoi à Flutter est différé.
         now = time.monotonic()
-        if now - self._last_pan_render < 1 / 60:
+        if now - self._last_pan_render < 1 / 30:
             return
         self._last_pan_render = now
         self._clamp_offsets()
         self._update_transform()
 
+    def on_pan_end(self, e: ft.DragEndEvent):
+        """Rafraîchit la prévisualisation et l'histogramme après la fin du pan."""
+        self._clamp_offsets()
+        self._render_preview()
+        self.page.update()
+
     def on_scroll(self, e: ft.ScrollEvent):
         """Zoom molette : zoom centré sur le curseur."""
+        now = time.monotonic()
+        if now - self._last_zoom_render < 1 / 30:
+            # Accumuler quand même le delta pour ne pas perdre de ticks
+            delta = e.scroll_delta.y
+            zoom_factor = 1 - delta / 5000
+            self.scale = max(1.0, min(10.0, self.scale * zoom_factor))
+            return
+        self._last_zoom_render = now
         delta = e.scroll_delta.y
         zoom_factor = 1 - delta / 5000
         old_scale = self.scale
@@ -1761,11 +1783,16 @@ class PhotoCropper:
         e.control.label = f"{self.rotation:.2f}°"
         e.control.update()
         now = time.monotonic()
-        if now - self._last_rotation_render < 1 / 60:
+        if now - self._last_rotation_render < 1 / 30:
             return
         self._last_rotation_render = now
         self._clamp_offsets()
         self._update_transform()
+
+    def on_rotation_end(self, e):
+        """Rafraîchit la prévisualisation et l'histogramme après la fin de la rotation."""
+        self._render_preview()
+        self.page.update()
 
     def on_zoom_update(self, e):
         """
@@ -1792,11 +1819,17 @@ class PhotoCropper:
         e.control.label = f"{self.scale:.2f}×"
         e.control.update()
         now = time.monotonic()
-        if now - self._last_zoom_render < 1 / 60:
+        if now - self._last_zoom_render < 1 / 30:
             return
         self._last_zoom_render = now
         self._clamp_offsets()
         self._update_transform()
+
+    def on_zoom_end(self, e):
+        """Rafraîchit la prévisualisation et l'histogramme après la fin du zoom."""
+        self._clamp_offsets()
+        self._render_preview()
+        self.page.update()
 
     def reset_rotation(self, e):
         """
@@ -3248,7 +3281,7 @@ def main(page: ft.Page):
         ft.Divider(height=4),
         app.validate_button,
         app.ignore_button
-    ], width=250)
+    ], width=RIGHT_COL_WIDTH)
 
     page.add(
         ft.Stack([
@@ -3322,7 +3355,7 @@ def main(page: ft.Page):
                             alignment=ft.Alignment.CENTER, padding=ft.Padding.only(top=4, bottom=4)
                         ),
                     ], spacing=2, scroll=ft.ScrollMode.AUTO),
-                    width=200,
+                    width=LEFT_COL_WIDTH,
                     bgcolor=DARK,
                     padding=ft.Padding.symmetric(horizontal=10, vertical=12),
                     border=ft.Border.all(1, GREY),
