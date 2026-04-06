@@ -88,6 +88,54 @@ SAM2_AVAILABLE = (
 CV2_AVAILABLE   = importlib.util.find_spec("cv2")     is not None
 IOPAINT_AVAILABLE = importlib.util.find_spec("iopaint") is not None
 
+
+def _pick_torch_device() -> str:
+    """Détecte le meilleur device PyTorch disponible et configure torch au premier appel.
+
+    Effets de bord (premier appel uniquement) :
+      • cudnn.benchmark = True            — autotune cuDNN (gain 10-30 % CUDA)
+      • set_float32_matmul_precision      — TF32 sur Ampere+, accélère aussi MPS
+      • mps fallback pour ops manquantes  — évite les NotImplementedError sur MPS
+    """
+    import torch as _t
+    if not hasattr(_pick_torch_device, "_configured"):
+        if hasattr(_t, "set_float32_matmul_precision"):
+            _t.set_float32_matmul_precision("high")
+        try:
+            _t.backends.cudnn.benchmark = True
+        except Exception:
+            pass
+        try:
+            _t.backends.mps.enable_fallback_for_not_implemented_ops(True)
+        except Exception:
+            pass
+        _pick_torch_device._configured = True
+    if _t.cuda.is_available():
+        return "cuda"
+    if getattr(_t.backends, "mps", None) and _t.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def _rembg_providers() -> list:
+    """Retourne les providers onnxruntime les plus rapides disponibles sur ce système.
+
+    Ordre de priorité :
+      CUDA (Windows/Linux + GPU NVIDIA)  → CUDAExecutionProvider
+      CoreML (macOS, CPU/ANE)            → CoreMLExecutionProvider
+      CPU (fallback universel)           → CPUExecutionProvider
+    """
+    try:
+        import onnxruntime as _ort
+        available = set(_ort.get_available_providers())
+        for preferred in ("CUDAExecutionProvider", "CoreMLExecutionProvider"):
+            if preferred in available:
+                return [preferred, "CPUExecutionProvider"]
+    except Exception:
+        pass
+    return ["CPUExecutionProvider"]
+
+
 # Checkpoints SAM2 disponibles : (nom_fichier, config_yaml, url_téléchargement)
 _SAM2_MODELS: dict = {
     "S":  ("sam2.1_hiera_small.pt",
@@ -112,6 +160,33 @@ DPI = 300  # Résolution d'export (points par pouce)
 _MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 os.makedirs(_MODELS_DIR, exist_ok=True)
 
+# ---- Cache de compilation torch.compile ----
+# Stocké dans models/_torch_cache/ → survit à git reset --hard (dossier non suivi).
+# Le cache Inductor (kernels JIT) est redirigé ici via la variable d'environnement.
+_COMPILE_CACHE_DIR     = os.path.join(_MODELS_DIR, "_torch_cache")
+_COMPILE_MANIFEST_PATH = os.path.join(_COMPILE_CACHE_DIR, "manifest.json")
+os.makedirs(_COMPILE_CACHE_DIR, exist_ok=True)
+os.environ.setdefault("TORCHINDUCTOR_CACHE_DIR",
+                      os.path.join(_COMPILE_CACHE_DIR, "inductor"))
+
+
+def _read_compile_manifest() -> dict:
+    import json
+    if os.path.exists(_COMPILE_MANIFEST_PATH):
+        try:
+            with open(_COMPILE_MANIFEST_PATH, encoding="utf-8") as _f:
+                return json.load(_f)
+        except Exception:
+            pass
+    return {}
+
+
+def _write_compile_manifest(manifest: dict) -> None:
+    import json
+    os.makedirs(_COMPILE_CACHE_DIR, exist_ok=True)
+    with open(_COMPILE_MANIFEST_PATH, "w", encoding="utf-8") as _f:
+        json.dump(manifest, _f, indent=2)
+
 
 def _list_pth_models() -> list[str]:
     """Retourne les noms de fichiers .pth / .safetensors trouvés dans _MODELS_DIR, triés."""
@@ -126,7 +201,10 @@ def _list_pth_models() -> list[str]:
 # Couleurs de fond disponibles (nom affiché → valeur RGB)
 # "Transparent" est géré séparément (export PNG, damier en prévisualisation).
 BG_COLORS: dict[str, tuple[int, int, int]] = {
-    "Blanc": (255, 255, 255),
+    "Blanc":      (255, 255, 255),
+    "Gris clair": (192, 192, 192),
+    "Gris foncé": (64,  64,  64),
+    "Noir":       (0,   0,   0),
 }
 
 # Extensions d'images acceptées
@@ -352,7 +430,7 @@ async def main(page: ft.Page) -> None:
         "orig_img":        None,   # PIL.Image chargée depuis le disque
         "processed":       None,   # PIL.Image RGBA retournée par rembg (ou None)
         "bg_color":        "Blanc",
-        "bg_blur":         False,  # True = fond flou (remplace la couleur de fond)
+        "bg_blur":         True,  # True = fond flou (remplace la couleur de fond)
         "bg_transparent":  False,  # True = fond transparent (export PNG)
         "rembg_human_seg": True,   # True = portrait, False = général
         "rembg_precise":   False,  # True = birefnet (précis), False = u2net (rapide)
@@ -363,7 +441,6 @@ async def main(page: ft.Page) -> None:
         "current_task":    None,   # asyncio.Task en cours (rembg ou modèle)
         "cancel_requested": False, # Annulation demandée (boucle de tuiles)
         "erosion_radius":  5,      # Rayon d'érosion en pixels (0 = désactivé)
-        "show_before":     False,  # Comparaison avant/après
         "batch_running":   False,  # True pendant le batch automatique
         # SAM2
         "sam2_points":       [],     # [(x, y, label), ...] coords image originale
@@ -372,6 +449,9 @@ async def main(page: ft.Page) -> None:
         "sam2_preview_mask": None,   # bool ndarray (H, W) — aperçu masque avant application
         "sam2_model":        "S",     # clé dans _SAM2_MODELS (S / B+ / L)
         "sam2_threshold":    0.0,     # seuil de binarisation du masque
+        # Inpainting
+        "inpaint_dilation":  0,        # Dilatation du masque avant inpainting (% de la plus petite dimension)
+        "inpaint_radius":    20,        # Rayon TELEA (inpaintRadius)
     }
 
     # Sessions rembg (une par modèle pour éviter le rechargement)
@@ -380,6 +460,8 @@ async def main(page: ft.Page) -> None:
     _custom_model_cache: dict = {}  # {nom_fichier: desc}
     # Cache SAM2 : un predictor par taille de modèle
     _sam2_predictor_cache: dict = {}  # {model_key: predictor}
+    # Cache IOPaint : un ModelManager par nom de modèle
+    _iopaint_mgr_cache: dict = {}  # {model_name: ModelManager}
     # Tâche d'aperçu SAM2 en cours (annulable)
     _sam2_preview_task: list = []     # [task] ou [] si aucun aperçu en cours
 
@@ -481,14 +563,16 @@ async def main(page: ft.Page) -> None:
             ckpt_path = os.path.join(_MODELS_DIR, ckpt_name)
             _ensure_model(ckpt_url, ckpt_path)
             if snap_model not in _sam2_predictor_cache:
-                if _torch.cuda.is_available():
-                    _dev = "cuda"
-                elif getattr(_torch.backends, "mps", None) and _torch.backends.mps.is_available():
-                    _dev = "mps"
-                else:
-                    _dev = "cpu"
+                _dev = _pick_torch_device()
                 model = build_sam2(cfg_name, ckpt_path, device=_dev)
                 predictor = SAM2ImagePredictor(model)
+                if hasattr(_torch, "compile") and _dev != "mps":
+                    try:
+                        predictor.model.image_encoder = _torch.compile(
+                            predictor.model.image_encoder, mode="reduce-overhead"
+                        )
+                    except Exception:
+                        pass
                 _sam2_predictor_cache[snap_model] = predictor
             predictor = _sam2_predictor_cache[snap_model]
             predictor.mask_threshold = snap_thresh
@@ -566,15 +650,17 @@ async def main(page: ft.Page) -> None:
     )
 
     bg_segment = ft.CupertinoSlidingSegmentedButton(
-        selected_index=0,
+        selected_index=5,
         bgcolor=GREY,
         thumb_color=BG_UI,
         proportional_width=True,
         controls=[
-            ft.Text("Blanc",   size=11, color=WHITE),
-            ft.Text("Transp.", size=11, color=WHITE),
-            ft.Text("Flou",    size=11, color=WHITE),
-            ft.Text("Pers.",   size=11, color=WHITE),
+            ft.Text("Blanc",      size=11, color=WHITE),
+            ft.Text("Gris clair", size=11, color=WHITE),
+            ft.Text("Gris foncé", size=11, color=WHITE),
+            ft.Text("Noir",       size=11, color=WHITE),
+            ft.Text("Transp.",    size=11, color=WHITE),
+            ft.Text("Flou",       size=11, color=WHITE),
         ],
     )
 
@@ -636,15 +722,6 @@ async def main(page: ft.Page) -> None:
         disabled=True,
     )
 
-    # Bouton Avant / Après
-    before_after_btn = ft.Button(
-        "Avant",
-        icon=ft.Icons.COMPARE,
-        bgcolor=GREY,
-        color=WHITE,
-        tooltip="Maintenir pour voir l'original, relâcher pour voir le résultat",
-    )
-
     # Batch automatique
     batch_btn = ft.Button(
         "Batch auto",
@@ -657,18 +734,6 @@ async def main(page: ft.Page) -> None:
     batch_progress_text = ft.Text("", size=11, color=LIGHT_GREY)
 
     # Couleur personnalisée (hex)
-    custom_color_field = ft.TextField(
-        label="Hex (#RRGGBB)",
-        hint_text="#FFFFFF",
-        width=130,
-        height=40,
-        text_size=12,
-        border_color=LIGHT_GREY,
-        bgcolor=GREY,
-        color=WHITE,
-    )
-    custom_color_preview = ft.Container(width=30, height=30, bgcolor="#FFFFFF", border_radius=4, border=ft.Border.all(1, LIGHT_GREY))
-
     enhance_progress_bar = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
     enhance_status = ft.Text("", size=11, color=LIGHT_GREY)
 
@@ -733,6 +798,28 @@ async def main(page: ft.Page) -> None:
     )
     sam2_status = ft.Text("", size=11, color=LIGHT_GREY)
     sam2_progress_bar = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
+
+    # ---- Inpainting : dilatation du masque et rayon TELEA ---- #
+    sam2_inpaint_dilation_slider = ft.Slider(
+        value=0,
+        min=0,
+        max=5,
+        divisions=10,
+        label="{value} %",
+        active_color=ORANGE,
+        expand=True,
+        disabled=not (SAM2_AVAILABLE and (CV2_AVAILABLE or IOPAINT_AVAILABLE)),
+    )
+    sam2_inpaint_radius_slider = ft.Slider(
+        value=20,
+        min=1,
+        max=20,
+        divisions=19,
+        label="{value}",
+        active_color=BLUE,
+        expand=True,
+        disabled=not (SAM2_AVAILABLE and CV2_AVAILABLE),
+    )
 
     # Sélecteur de modèle SAM2 (S = small ~40 Mo, B+ = base+ ~120 Mo, L = large ~230 Mo)
     sam2_model_segment = ft.CupertinoSlidingSegmentedButton(
@@ -818,14 +905,9 @@ async def main(page: ft.Page) -> None:
 
     # ------------------------------------------------------------------ #
     def _render_preview() -> None:
-        """Render complet : applique le fond + thumbnail.
-        En mode ``show_before``, affiche toujours l'original sans traitement.
-        """
-        # Avant/après : en mode "avant", montrer l'original brut
-        if state["show_before"] and state["orig_img"] is not None:
-            base = state["orig_img"]
-        else:
-            base = state["processed"] if state["processed"] is not None else state["orig_img"]
+        """Render complet : applique le fond + thumbnail."""
+        # Afficher le résultat traité
+        base = state["processed"] if state["processed"] is not None else state["orig_img"]
         if base is None:
             return
         # Pour l'érosion : réduire à ~1/3 de la résolution (max 2000px) afin que
@@ -843,8 +925,8 @@ async def main(page: ft.Page) -> None:
         # Downscale final pour l'affichage
         if thumb.width > 700 or thumb.height > 700:
             thumb.thumbnail((700, 700), Image.Resampling.BILINEAR)
-        # Mode "avant" : afficher l'original brut sans fond ni traitement
-        if state["show_before"] or (state["bg_blur"] and thumb.mode != "RGBA"):
+        # Mode "avant" retiré
+        if state["bg_blur"] and thumb.mode != "RGBA":
             display = thumb.convert("RGB")
         elif state["bg_blur"]:
             display = apply_background(thumb, None, state["orig_img"])
@@ -856,10 +938,16 @@ async def main(page: ft.Page) -> None:
         else:
             display = apply_background(thumb, BG_COLORS[state["bg_color"]], state["orig_img"])
         # Superposition du masque SAM2 en aperçu (bleu semi-transparent)
-        if state.get("sam2_preview_mask") is not None and not state["show_before"]:
+        if state.get("sam2_preview_mask") is not None:
             mask = state["sam2_preview_mask"]
             mask_img = Image.fromarray((mask * 255).astype(np.uint8), "L")
             mask_resized = mask_img.resize(display.size, Image.Resampling.BILINEAR)
+            # Dilatation visuelle : montre en temps réel l'expansion du masque
+            dil = state.get("inpaint_dilation", 0)
+            if dil > 0:
+                display_dil = max(1, round(min(display.size) * dil / 100))
+                for _ in range(display_dil):
+                    mask_resized = mask_resized.filter(ImageFilter.MaxFilter(3))
             overlay_rgba = Image.new("RGBA", display.size, (69, 184, 245, 180))
             mask_alpha = mask_resized.point(lambda p: int(p * 180 // 255))
             overlay_rgba.putalpha(mask_alpha)
@@ -974,17 +1062,18 @@ async def main(page: ft.Page) -> None:
             from spandrel import ModelLoader as _ModelLoader
             model_path = os.path.join(_MODELS_DIR, model_name)
             if model_name not in _custom_model_cache:
-                if _torch.cuda.is_available():
-                    _dev = "cuda"
-                elif getattr(_torch.backends, "mps", None) and _torch.backends.mps.is_available():
-                    _dev = "mps"
-                else:
-                    _dev = "cpu"
+                _dev = _pick_torch_device()
                 # Barre indéterminée pendant le chargement du modèle
                 _progress_cb(None, f"Chargement de {model_name}…")
                 desc = _ModelLoader().load_from_file(model_path)
                 desc.to(_dev)
                 desc.model.eval()
+                # torch.compile : accélère les inférences suivantes via le cache Inductor
+                if hasattr(_torch, "compile") and _dev != "mps":
+                    try:
+                        desc.model = _torch.compile(desc.model, mode="reduce-overhead")
+                    except Exception:
+                        pass
                 _custom_model_cache[model_name] = desc
             desc = _custom_model_cache[model_name]
             _dev = next(iter(desc.model.parameters())).device
@@ -1121,21 +1210,18 @@ async def main(page: ft.Page) -> None:
     def on_bg_change(e) -> None:
         """Met à jour la couleur de fond sélectionnée et rafraîchit la preview."""
         idx = e.control.selected_index
-        if idx == 2:  # Flou
+        _color_map = ["Blanc", "Gris clair", "Gris foncé", "Noir"]
+        if idx == 5:  # Flou
             state["bg_blur"]        = True
             state["bg_transparent"] = False
-        elif idx == 1:  # Transparent
+        elif idx == 4:  # Transparent
             state["bg_blur"]        = False
             state["bg_transparent"] = True
             state["bg_color"]       = "Blanc"  # fallback interne
-        elif idx == 3:  # Personnalisée
+        else:  # 0-3 : couleur fixe
             state["bg_blur"]        = False
             state["bg_transparent"] = False
-            # bg_color déjà mis à jour par on_custom_color_submit
-        else:  # idx == 0 : Blanc
-            state["bg_blur"]        = False
-            state["bg_transparent"] = False
-            state["bg_color"]       = "Blanc"
+            state["bg_color"]       = _color_map[idx]
         _render_preview()
 
     async def on_prev(e) -> None:
@@ -1207,7 +1293,7 @@ async def main(page: ft.Page) -> None:
             }
             model_key = _model_key_map[(use_precise, use_human)]
             if model_key not in _rembg_sessions:
-                _rembg_sessions[model_key] = new_session(model_key)
+                _rembg_sessions[model_key] = new_session(model_key, providers=_rembg_providers())
             sess = _rembg_sessions[model_key]
             with contextlib.redirect_stderr(io.StringIO()):
                 result = rembg_remove(state["orig_img"].convert("RGB"), session=sess)
@@ -1272,8 +1358,14 @@ async def main(page: ft.Page) -> None:
             if use_transparent:
                 return proc.convert("RGBA"), ".png", "PNG", {}
             else:
-                bg_rgb = None if bg_blur else bg_color
-                img = apply_background(proc, bg_rgb, snap_orig)
+                # Le fond flou n'a de sens que si l'image a une couche alpha.
+                # Sans transparence (ex : après inpainting), on exporte directement.
+                if bg_blur and proc.mode == "RGBA":
+                    img = apply_background(proc, None, snap_orig)
+                elif proc.mode == "RGBA":
+                    img = apply_background(proc, bg_color, snap_orig)
+                else:
+                    img = proc.convert("RGB")
                 return img, ".jpg", "JPEG", {"dpi": (DPI, DPI), "quality": 100}
 
         try:
@@ -1427,14 +1519,16 @@ async def main(page: ft.Page) -> None:
 
             # Chargement (mis en cache par modèle)
             if snap_model not in _sam2_predictor_cache:
-                if _torch.cuda.is_available():
-                    _dev = "cuda"
-                elif getattr(_torch.backends, "mps", None) and _torch.backends.mps.is_available():
-                    _dev = "mps"
-                else:
-                    _dev = "cpu"
+                _dev = _pick_torch_device()
                 model = build_sam2(cfg_name, ckpt_path, device=_dev)
                 predictor = SAM2ImagePredictor(model)
+                if hasattr(_torch, "compile") and _dev != "mps":
+                    try:
+                        predictor.model.image_encoder = _torch.compile(
+                            predictor.model.image_encoder, mode="reduce-overhead"
+                        )
+                    except Exception:
+                        pass
                 _sam2_predictor_cache[snap_model] = predictor
 
             predictor = _sam2_predictor_cache[snap_model]
@@ -1534,16 +1628,32 @@ async def main(page: ft.Page) -> None:
         sam2_status.value = f"Inpainting {_engine_label}…"
         page.update()
 
+        snap_dilation = state["inpaint_dilation"]
+        snap_inpaint_radius = state["inpaint_radius"]
+
         def _do_inpaint():
             mask_np = ((prob > 0.1) * 255).astype(np.uint8)
+
+            # Dilatation du masque pour englober les bords de la sélection
+            if snap_dilation > 0:
+                import cv2 as _cv2_d
+                dil_px = max(1, round(min(mask_np.shape[:2]) * snap_dilation / 100))
+                kernel = np.ones((dil_px * 2 + 1, dil_px * 2 + 1), np.uint8)
+                mask_np[:] = _cv2_d.dilate(mask_np, kernel, iterations=1)
 
             if engine.startswith("iopaint:"):
                 _model_name = engine.split(":")[1]
                 from iopaint.model_manager import ModelManager
                 from iopaint.schema import InpaintRequest, HDStrategy
                 import torch as _torch
-                _dev = "cuda" if _torch.cuda.is_available() else "mps" if (getattr(_torch.backends, "mps", None) and _torch.backends.mps.is_available()) else "cpu"
-                mgr = ModelManager(name=_model_name, device=_torch.device(_dev))
+                # LaMa et MAT ne supportent pas MPS — on passe directement CPU sur macOS
+                _raw_dev = _pick_torch_device()
+                _io_dev = "cpu" if _raw_dev == "mps" else _raw_dev
+                if _model_name not in _iopaint_mgr_cache:
+                    _iopaint_mgr_cache[_model_name] = ModelManager(
+                        name=_model_name, device=_torch.device(_io_dev)
+                    )
+                mgr = _iopaint_mgr_cache[_model_name]
                 import cv2 as _cv2_io
                 img_np     = np.array(src_img)                                   # uint8 RGB — IOPaint attend RGB
                 req        = InpaintRequest(hd_strategy=HDStrategy.ORIGINAL)
@@ -1563,7 +1673,42 @@ async def main(page: ft.Page) -> None:
                 result = img_bgr.copy()
                 alg.inpaint(img_bgr, mask_d, result)
             else:
-                result = _cv2.inpaint(img_bgr, mask_np, inpaintRadius=4, flags=_cv2.INPAINT_TELEA)
+                # Pyramide multi-échelle : TELEA ne voit JAMAIS le masque complet en pleine résolution.
+                # À chaque niveau, le centre est déjà rempli par le niveau précédent ;
+                # TELEA ne traite qu'un anneau de bordure fin → aucune traînée visible.
+                h_f, w_f = img_bgr.shape[:2]
+                scales   = [0.0625, 0.125, 0.25, 0.5, 1.0]
+                guide    = None
+                for sc in scales:
+                    sw    = max(4, round(w_f * sc))
+                    sh    = max(4, round(h_f * sc))
+                    r     = max(1, round(snap_inpaint_radius * sc))
+                    img_s = _cv2.resize(img_bgr, (sw, sh), interpolation=_cv2.INTER_AREA)
+                    msk_s = _cv2.resize(mask_np, (sw, sh), interpolation=_cv2.INTER_NEAREST)
+                    _, msk_s = _cv2.threshold(msk_s, 1, 255, _cv2.THRESH_BINARY)
+                    if guide is not None:
+                        # Injecter le guide du niveau précédent dans la zone masquée
+                        g_up  = _cv2.resize(guide, (sw, sh), interpolation=_cv2.INTER_CUBIC)
+                        m3    = msk_s[:, :, np.newaxis].astype(np.float32) / 255.0
+                        img_s = (img_s.astype(np.float32) * (1.0 - m3)
+                                 + g_up.astype(np.float32) * m3).astype(np.uint8)
+                        # TELEA uniquement sur l'anneau de bordure à ce niveau
+                        k_e   = np.ones((r * 2 + 1, r * 2 + 1), np.uint8)
+                        inner = _cv2.erode(msk_s, k_e, iterations=1)
+                        ring  = msk_s.copy()
+                        ring[inner > 0] = 0
+                        guide = (_cv2.inpaint(img_s, ring, inpaintRadius=r, flags=_cv2.INPAINT_TELEA)
+                                 if ring.max() > 0 else img_s)
+                    else:
+                        # Premier niveau (6 %) : zone minuscule → TELEA lisse sans artefacts
+                        guide = _cv2.inpaint(img_s, msk_s, inpaintRadius=r, flags=_cv2.INPAINT_TELEA)
+                result = guide
+                # Feathering gaussien sur les bords du masque
+                blur_r    = max(3, snap_inpaint_radius * 4 + 1) | 1
+                mask_soft = _cv2.GaussianBlur(mask_np.astype(np.float32) / 255.0,
+                                              (blur_r, blur_r), 0)[:, :, np.newaxis]
+                result    = (img_bgr.astype(np.float32) * (1.0 - mask_soft)
+                             + result.astype(np.float32) * mask_soft).astype(np.uint8)
 
             return Image.fromarray(_cv2.cvtColor(result, _cv2.COLOR_BGR2RGB))
 
@@ -1616,137 +1761,116 @@ async def main(page: ft.Page) -> None:
     sam2_model_segment.on_change    = on_sam2_model_change
     sam2_threshold_slider.on_change = on_sam2_threshold_change
 
-    def on_before_after_press(e) -> None:
-        """Active le mode 'avant' pendant qu'on maintient le bouton."""
-        state["show_before"] = True
-        before_after_btn.text = "Après"
-        before_after_btn.update()
-        _render_preview()
+    def on_inpaint_dilation_change(e) -> None:
+        state["inpaint_dilation"] = round(e.control.value, 1)
+        if state.get("sam2_preview_mask") is not None:
+            _render_preview()
 
-    def on_before_after_release(e) -> None:
-        """Revient au mode 'après' au relâchement."""
-        state["show_before"] = False
-        before_after_btn.text = "Avant"
-        before_after_btn.update()
-        _render_preview()
+    def on_inpaint_radius_change(e) -> None:
+        state["inpaint_radius"] = int(e.control.value)
 
-    before_after_btn.on_click = on_before_after_press
-    # Simuler le relâchement via un second clic (toggle)
-    # (Flet ne supporte pas on_long_press_end de façon portable — on utilise toggle)
-    def _toggle_before_after(e) -> None:
-        state["show_before"] = not state["show_before"]
-        before_after_btn.text = "Avant" if not state["show_before"] else "Après"
-        before_after_btn.update()
-        _render_preview()
-    before_after_btn.on_click = _toggle_before_after
+    def on_sam2_inpaint_engine_change(e) -> None:
+        idx = e.control.selected_index or 0
+        engine = _inpaint_engines[idx] if _inpaint_engines and idx < len(_inpaint_engines) else "telea"
+        _quality_row.visible = (engine == "telea")
+        _quality_row.update()
 
-    def on_custom_color_submit(e) -> None:
-        """Applique la couleur hexadécimale saisie dans le champ."""
-        raw = custom_color_field.value.strip().lstrip("#")
-        if len(raw) == 6:
-            try:
-                r = int(raw[0:2], 16)
-                g = int(raw[2:4], 16)
-                b = int(raw[4:6], 16)
-                BG_COLORS["Personnalisée"] = (r, g, b)
-                custom_color_preview.bgcolor = f"#{raw.upper()}"
-                custom_color_preview.update()
-                state["bg_blur"] = False
-                state["bg_transparent"] = False
-                state["bg_color"] = "Personnalisée"
-                bg_segment.selected_index = 3
-                bg_segment.update()
-                _render_preview()
-            except ValueError:
-                pass
+    sam2_inpaint_dilation_slider.on_change = on_inpaint_dilation_change
+    sam2_inpaint_radius_slider.on_change   = on_inpaint_radius_change
+    sam2_inpaint_segment.on_change         = on_sam2_inpaint_engine_change
 
-    custom_color_field.on_submit = on_custom_color_submit
+    # async def on_batch(e) -> None:
+    #     """Traite toutes les images restantes avec les paramètres rembg actuels."""
+    #     if not REMBG_AVAILABLE or state["batch_running"]:
+    #         return
+    #     state["batch_running"] = True
+    #     batch_btn.disabled = True
+    #     batch_btn.update()
+    #
+    #     total = len(all_images)
+    #     start = state["index"]
+    #     for idx in range(start, total):
+    #         if not state["batch_running"]:
+    #             break
+    #         batch_progress_text.value = f"Batch : {idx - start + 1}/{total - start}"
+    #         page.update()
+    #
+    #         # Charger l'image
+    #         await _load_image(idx)
+    #
+    #         # Supprimer le fond si pas encore fait
+    #         if state["orig_img"] is not None and not state["rembg_applied"]:
+    #             def _do_rembg_batch():
+    #                 from rembg import remove as rembg_remove, new_session
+    #                 use_human   = state["rembg_human_seg"]
+    #                 use_precise = state["rembg_precise"]
+    #                 _model_key_map = {
+    #                     (True,  True):  "birefnet-portrait",
+    #                     (True,  False): "birefnet-general",
+    #                     (False, True):  "u2net_human_seg",
+    #                     (False, False): "u2net",
+    #                 }
+    #                 model_key = _model_key_map[(use_precise, use_human)]
+    #                 if model_key not in _rembg_sessions:
+    #                     _rembg_sessions[model_key] = new_session(model_key)
+    #                 sess = _rembg_sessions[model_key]
+    #                 import contextlib, io as _io
+    #                 with contextlib.redirect_stderr(_io.StringIO()):
+    #                     result = rembg_remove(state["orig_img"].convert("RGB"), session=sess)
+    #                 return result.convert("RGBA")
+    #
+    #             try:
+    #                 result = await asyncio.to_thread(_do_rembg_batch)
+    #                 state["processed"]    = result
+    #                 state["rembg_applied"] = True
+    #                 save_btn.disabled = False
+    #             except Exception as ex:
+    #                 batch_progress_text.value = f"[ERREUR] image {idx + 1} : {ex}"
+    #                 page.update()
+    #                 continue
+    #
+    #         # Sauvegarder
+    #         if state["processed"] is not None:
+    #             await on_save(None)
+    #
+    #     state["batch_running"] = False
+    #     batch_btn.disabled = False
+    #     batch_progress_text.value = "Batch terminé !"
+    #     batch_btn.update()
+    #     page.update()
 
-    async def on_batch(e) -> None:
-        """Traite toutes les images restantes avec les paramètres rembg actuels."""
-        if not REMBG_AVAILABLE or state["batch_running"]:
-            return
-        state["batch_running"] = True
-        batch_btn.disabled = True
-        batch_btn.update()
-
-        total = len(all_images)
-        start = state["index"]
-        for idx in range(start, total):
-            if not state["batch_running"]:
-                break
-            batch_progress_text.value = f"Batch : {idx - start + 1}/{total - start}"
-            page.update()
-
-            # Charger l'image
-            await _load_image(idx)
-
-            # Supprimer le fond si pas encore fait
-            if state["orig_img"] is not None and not state["rembg_applied"]:
-                def _do_rembg_batch():
-                    from rembg import remove as rembg_remove, new_session
-                    use_human   = state["rembg_human_seg"]
-                    use_precise = state["rembg_precise"]
-                    _model_key_map = {
-                        (True,  True):  "birefnet-portrait",
-                        (True,  False): "birefnet-general",
-                        (False, True):  "u2net_human_seg",
-                        (False, False): "u2net",
-                    }
-                    model_key = _model_key_map[(use_precise, use_human)]
-                    if model_key not in _rembg_sessions:
-                        _rembg_sessions[model_key] = new_session(model_key)
-                    sess = _rembg_sessions[model_key]
-                    import contextlib, io as _io
-                    with contextlib.redirect_stderr(_io.StringIO()):
-                        result = rembg_remove(state["orig_img"].convert("RGB"), session=sess)
-                    return result.convert("RGBA")
-
-                try:
-                    result = await asyncio.to_thread(_do_rembg_batch)
-                    state["processed"]    = result
-                    state["rembg_applied"] = True
-                    save_btn.disabled = False
-                except Exception as ex:
-                    batch_progress_text.value = f"[ERREUR] image {idx + 1} : {ex}"
-                    page.update()
-                    continue
-
-            # Sauvegarder
-            if state["processed"] is not None:
-                await on_save(None)
-
-        state["batch_running"] = False
-        batch_btn.disabled = False
-        batch_progress_text.value = "Batch terminé !"
-        batch_btn.update()
-        page.update()
-
-    batch_btn.on_click = on_batch
+    # batch_btn.on_click = on_batch
 
     # ------------------------------------------------------------------ #
     #                           MISE EN PAGE                              #
     # ------------------------------------------------------------------ #
+    _quality_row = ft.Row(
+        [ft.Text("Qualité", size=11, color=LIGHT_GREY, width=46), sam2_inpaint_radius_slider],
+        spacing=6,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        visible=not _inpaint_engines or _inpaint_engines[0] == "telea",
+    )
+
     left_panel = ft.Column(
         [
             # Fond
-            ft.Text("Couleur de fond", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
-            bg_segment,
             ft.Row(
-                [custom_color_field, custom_color_preview],
-                spacing=6,
+                [
+                    ft.Text("Couleur de fond", size=13, weight=ft.FontWeight.BOLD, color=WHITE, expand=True),
+                    undo_btn,
+                ],
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
+            bg_segment,
             ft.Divider(color=GREY),
-            # Avant/Après + bascules modèle alignées sur une ligne
-            ft.Row([before_after_btn, model_toggle_btn, precise_toggle_btn], spacing=6),
+            ft.Row([model_toggle_btn, precise_toggle_btn], spacing=6),
             # Supprimer le fond
             process_btn,
             # SAM2
             ft.Divider(color=GREY),
             ft.Text("Sélection", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
             ft.Text(
-                "Clic gauche : ajouter un point  /  clic droit : retirer le dernier point\nPuis cliquez Appliquer.",
+                "Clic gauche : sélectionner  /  clic droit : retirer",
                 size=11,
                 color=LIGHT_GREY,
             ) if SAM2_AVAILABLE else ft.Text(
@@ -1769,6 +1893,12 @@ async def main(page: ft.Page) -> None:
                 spacing=6,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
+            ft.Row(
+                [ft.Text("Dilat.", size=11, color=LIGHT_GREY, width=46), sam2_inpaint_dilation_slider],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            _quality_row,
             ft.Row([sam2_apply_btn, sam2_inpaint_btn], spacing=6),
             sam2_progress_bar,
             sam2_status,
@@ -1797,16 +1927,16 @@ async def main(page: ft.Page) -> None:
             enhance_status,
             ft.Divider(color=GREY),
             ft.Row([save_btn, ignore_btn], spacing=8),
-            ft.Divider(color=GREY),
-            # Batch automatique
-            ft.Text("Traitement en lot", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
-            ft.Row([batch_btn, undo_btn], spacing=150),
-            batch_progress_text,
+            # ft.Divider(color=GREY),
+            # ft.Text("Traitement en lot", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
+            # ft.Row([batch_btn], spacing=150),
+            # batch_progress_text,
             ft.Container(expand=True),
             status_text,
         ],
         width=350,
         spacing=10,
+        scroll=ft.ScrollMode.AUTO,
     )
 
     center_panel = ft.Column(
@@ -1848,6 +1978,122 @@ async def main(page: ft.Page) -> None:
     )
 
     # ------------------------------------------------------------------ #
+    #               COMPILATION DES MODÈLES (1ère utilisation)           #
+    # ------------------------------------------------------------------ #
+    async def _run_compile_warmup() -> None:
+        """Compile tous les modèles IA présents sur disque et non encore compilés.
+
+        Utilise torch.compile(mode="reduce-overhead") + une passe factice pour
+        générer et mettre en cache les kernels Inductor dans
+        models/_torch_cache/inductor/.  Un manifeste JSON retient le mtime et la
+        taille de chaque modèle : on ne recompile que si le fichier a changé.
+        MPS (Apple Silicon GPU) est exclu : torch.compile y est instable.
+        """
+        manifest   = _read_compile_manifest()
+        to_compile: list = []
+
+        # ── Modèles spandrel (.pth / .safetensors) ──────────────────────
+        if ESRGAN_AVAILABLE:
+            for name in _list_pth_models():
+                path = os.path.join(_MODELS_DIR, name)
+                try:
+                    st = os.stat(path)
+                except OSError:
+                    continue
+                mkey = f"spandrel:{name}"
+                rec  = manifest.get(mkey, {})
+                if rec.get("mtime") != st.st_mtime or rec.get("size") != st.st_size:
+                    to_compile.append(("spandrel", name, path, mkey, st))
+
+        # ── Modèles SAM2 déjà téléchargés ───────────────────────────────
+        if SAM2_AVAILABLE:
+            for model_key, (ckpt_name, _cfg, _url) in _SAM2_MODELS.items():
+                path = os.path.join(_MODELS_DIR, ckpt_name)
+                if not os.path.exists(path):
+                    continue
+                try:
+                    st = os.stat(path)
+                except OSError:
+                    continue
+                mkey = f"sam2:{model_key}"
+                rec  = manifest.get(mkey, {})
+                if rec.get("mtime") != st.st_mtime or rec.get("size") != st.st_size:
+                    to_compile.append(("sam2", model_key, path, mkey, st))
+
+        if not to_compile:
+            return
+
+        total = len(to_compile)
+        enhance_progress_bar.value   = 0.0
+        enhance_progress_bar.visible = True
+        page.update()
+
+        def _compile_one(kind: str, name: str, path: str) -> None:
+            """Chargement + compilation + passe de chauffe (dans un thread worker)."""
+            import torch as _t
+            _dev = _pick_torch_device()
+            use_compile = hasattr(_t, "compile") and _dev != "mps"
+
+            if kind == "spandrel" and name not in _custom_model_cache:
+                from spandrel import ModelLoader as _ML
+                desc = _ML().load_from_file(path)
+                desc.to(_dev)
+                desc.model.eval()
+                if use_compile:
+                    try:
+                        desc.model = _t.compile(desc.model, mode="reduce-overhead")
+                    except Exception:
+                        pass
+                tile  = 512 if _dev == "cuda" else 384 if _dev == "mps" else 256
+                dummy = _t.zeros(1, 3, tile, tile, device=_dev)
+                try:
+                    with _t.inference_mode():
+                        _ = desc.model(dummy)
+                except Exception:
+                    pass
+                _custom_model_cache[name] = desc
+
+            elif kind == "sam2" and name not in _sam2_predictor_cache:
+                from sam2.build_sam import build_sam2 as _bs2
+                from sam2.sam2_image_predictor import SAM2ImagePredictor as _Pred
+                _cfg_name = _SAM2_MODELS[name][1]
+                model     = _bs2(_cfg_name, path, device=_dev)
+                predictor = _Pred(model)
+                if use_compile:
+                    try:
+                        predictor.model.image_encoder = _t.compile(
+                            predictor.model.image_encoder, mode="reduce-overhead"
+                        )
+                    except Exception:
+                        pass
+                dummy_img = np.zeros((224, 224, 3), dtype=np.uint8)
+                try:
+                    with _t.inference_mode():
+                        predictor.set_image(dummy_img)
+                except Exception:
+                    pass
+                _sam2_predictor_cache[name] = predictor
+
+        for i, (kind, name, path, mkey, st) in enumerate(to_compile):
+            label = name if kind == "spandrel" else f"SAM2 {name}"
+            enhance_status.value       = f"Compilation {i + 1}/{total} — {label}…"
+            enhance_progress_bar.value = i / total
+            page.update()
+            try:
+                await asyncio.to_thread(_compile_one, kind, name, path)
+                manifest[mkey] = {"mtime": st.st_mtime, "size": st.st_size}
+                _write_compile_manifest(manifest)
+            except Exception as ex:
+                enhance_status.value = f"[AVERT.] {label} : {ex}"
+                page.update()
+                await asyncio.sleep(1.5)
+
+        enhance_progress_bar.value   = 1.0
+        enhance_progress_bar.visible = False
+        enhance_status.value         = f"[OK] {total} modèle(s) compilé(s) — prêt"
+        page.update()
+
+    # ------------------------------------------------------------------ #
     #                         INITIALISATION                              #
     # ------------------------------------------------------------------ #
     if not REMBG_AVAILABLE:
@@ -1857,6 +2103,10 @@ async def main(page: ft.Page) -> None:
         enhance_status.value = "spandrel non installé — pip install spandrel"
     if not SAM2_AVAILABLE:
         sam2_status.value = "sam2 non installé"
+
+    # Compilation JIT au premier démarrage (ne bloque pas si tous les modèles
+    # sont déjà dans le cache Inductor ou si aucun modèle n'est présent).
+    await _run_compile_warmup()
 
     if all_images:
         asyncio.create_task(_load_image(0))

@@ -14,6 +14,7 @@ _rc*
 Data/models/sam2.1_hiera_large.pt
 Data/models/sam2.1_hiera_small.pt
 Data/models/sam2.1_hiera_base_plus.pt
+Data/models/_torch_cache/
 
 # macOS
 .DS_Store
