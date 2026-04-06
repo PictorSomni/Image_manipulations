@@ -3212,6 +3212,7 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.DARK
     page.window.maximized = True
     page.bgcolor = GREY
+    page.run_task(page.window.to_front)
 
     app = PhotoCropper(page)
 

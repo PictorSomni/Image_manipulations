@@ -6,6 +6,8 @@ Preparation ID.py — Préparation IA de photos d'identité
 Application Flet de préparation de photos d'identité :
 
   - Suppression automatique du fond par IA (rembg / modèle ``birefnet-portrait``).
+  - Sélection interactive par clic via SAM2 (Segment Anything Model 2) :
+    clics positifs / négatifs — peut remplacer rembg pour une découpe précise.
   - Restauration du visage par IA (spandrel + 4xFaceUpSharpDAT) :
     amélioration des détails du visage ×4, compatible Python 3.14+.
   - Agrandissement ×2 / ×4 par super-résolution (spandrel + modèles RealESRGAN) :
@@ -51,7 +53,7 @@ sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au t
 Version : 1.9.5
 """
 
-__version__ = "1.9.5"
+__version__ = "1.9.6"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -79,6 +81,25 @@ ESRGAN_AVAILABLE = (
     importlib.util.find_spec("torch")    is not None
     and importlib.util.find_spec("spandrel") is not None
 )
+SAM2_AVAILABLE = (
+    importlib.util.find_spec("torch")   is not None
+    and importlib.util.find_spec("sam2") is not None
+)
+CV2_AVAILABLE   = importlib.util.find_spec("cv2")     is not None
+IOPAINT_AVAILABLE = importlib.util.find_spec("iopaint") is not None
+
+# Checkpoints SAM2 disponibles : (nom_fichier, config_yaml, url_téléchargement)
+_SAM2_MODELS: dict = {
+    "S":  ("sam2.1_hiera_small.pt",
+           "configs/sam2.1/sam2.1_hiera_s.yaml",
+           "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt"),
+    "B+": ("sam2.1_hiera_base_plus.pt",
+           "configs/sam2.1/sam2.1_hiera_b+.yaml",
+           "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_base_plus.pt"),
+    "L":  ("sam2.1_hiera_large.pt",
+           "configs/sam2.1/sam2.1_hiera_l.yaml",
+           "https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt"),
+}
 
 
 ###############################################################
@@ -298,6 +319,8 @@ async def main(page: ft.Page) -> None:
     # page.window.width = 1024
     # page.window.height = 1024
     page.window.maximized = True
+    page.update()
+    await page.window.to_front()
 
     # ------------------------------------------------------------------ #
     #                            ÉTAT                                     #
@@ -342,12 +365,23 @@ async def main(page: ft.Page) -> None:
         "erosion_radius":  5,      # Rayon d'érosion en pixels (0 = désactivé)
         "show_before":     False,  # Comparaison avant/après
         "batch_running":   False,  # True pendant le batch automatique
+        # SAM2
+        "sam2_points":       [],     # [(x, y, label), ...] coords image originale
+        "sam2_working":      False,  # True pendant l'inférence SAM2
+        "sam2_preview_size": None,   # (w, h) de l'image affichée dans preview_img
+        "sam2_preview_mask": None,   # bool ndarray (H, W) — aperçu masque avant application
+        "sam2_model":        "S",     # clé dans _SAM2_MODELS (S / B+ / L)
+        "sam2_threshold":    0.0,     # seuil de binarisation du masque
     }
 
     # Sessions rembg (une par modèle pour éviter le rechargement)
     _rembg_sessions: dict = {}  # {model_name: session}
     # Modèles spandrel : cache par nom de fichier
     _custom_model_cache: dict = {}  # {nom_fichier: desc}
+    # Cache SAM2 : un predictor par taille de modèle
+    _sam2_predictor_cache: dict = {}  # {model_key: predictor}
+    # Tâche d'aperçu SAM2 en cours (annulable)
+    _sam2_preview_task: list = []     # [task] ou [] si aucun aperçu en cours
 
     # ------------------------------------------------------------------ #
     #                        ÉLÉMENTS UI                                  #
@@ -360,10 +394,158 @@ async def main(page: ft.Page) -> None:
     # ---- Zone de prévisualisation ---- #
     preview_img = ft.Image(
         src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
-        fit=ft.BoxFit.CONTAIN,
-        expand=True,
+        fit=ft.BoxFit.FILL,    # taille fixe contrôlée par width/height
         gapless_playback=True,
         visible=False,
+    )
+
+    def _place_sam2_point(e, label: int) -> None:
+        """Enregistre un point SAM2 positif (label=1) et lance l'aperçu."""
+        if not SAM2_AVAILABLE:
+            sam2_status.value = "sam2 non disponible"
+            page.update()
+            return
+        if state["sam2_working"] or state["orig_img"] is None:
+            return
+        preview_size = state.get("sam2_preview_size")
+        if preview_size is None:
+            sam2_status.value = "Attendez que l'image soit chargée"
+            page.update()
+            return
+        orig = state["orig_img"]
+        pw, ph = preview_size
+        _pos = getattr(e, "local_position", None)
+        if _pos is None:
+            sam2_status.value = "⚠️ Événement invalide — réessayez"
+            page.update()
+            return
+        ox, oy = _pos.x, _pos.y
+        img_x = int(ox / pw * orig.width)
+        img_y = int(oy / ph * orig.height)
+        img_x = max(0, min(img_x, orig.width  - 1))
+        img_y = max(0, min(img_y, orig.height - 1))
+        state["sam2_points"].append((img_x, img_y, label))
+        n = len(state["sam2_points"])
+        sam2_status.value = f"{n} point(s) placé(s) — clic gauche positif / clic droit négatif — calcul aperçu…"
+        page.update()
+        # Annuler l'aperçu précédent si encore en cours, puis relancer
+        if _sam2_preview_task:
+            _sam2_preview_task[0].cancel()
+            _sam2_preview_task.clear()
+        task = asyncio.create_task(_sam2_live_preview())
+        _sam2_preview_task.append(task)
+
+    def _remove_last_sam2_point() -> None:
+        """Retire le dernier point placé."""
+        if not state["sam2_points"]:
+            sam2_status.value = "Aucun point à retirer"
+            page.update()
+            return
+        state["sam2_points"].pop()
+        if _sam2_preview_task:
+            _sam2_preview_task[0].cancel()
+            _sam2_preview_task.clear()
+        if not state["sam2_points"]:
+            state["sam2_preview_mask"] = None
+            sam2_status.value = "Tous les points effacés"
+            _render_preview()
+        else:
+            n = len(state["sam2_points"])
+            sam2_status.value = f"{n} point(s) restant(s) — calcul aperçu…"
+            page.update()
+            task = asyncio.create_task(_sam2_live_preview())
+            _sam2_preview_task.append(task)
+
+    def _on_preview_tap(e) -> None:
+        """Clic gauche = point SAM2 positif."""
+        _place_sam2_point(e, 1)
+
+    def _on_preview_secondary_tap(e) -> None:
+        """Clic droit = point SAM2 négatif."""
+        _place_sam2_point(e, 0)
+
+    async def _sam2_live_preview() -> None:
+        """Calcule et affiche un aperçu du masque SAM2 sans modifier state['processed']."""
+        if not state["sam2_points"] or state["orig_img"] is None:
+            return
+        snap_img    = state["orig_img"].convert("RGB")
+        snap_points = list(state["sam2_points"])
+        snap_model  = state["sam2_model"]
+        snap_thresh = state["sam2_threshold"]
+
+        def _do_preview():
+            import torch as _torch
+            from sam2.build_sam import build_sam2
+            from sam2.sam2_image_predictor import SAM2ImagePredictor
+            ckpt_name, cfg_name, ckpt_url = _SAM2_MODELS[snap_model]
+            ckpt_path = os.path.join(_MODELS_DIR, ckpt_name)
+            _ensure_model(ckpt_url, ckpt_path)
+            if snap_model not in _sam2_predictor_cache:
+                if _torch.cuda.is_available():
+                    _dev = "cuda"
+                elif getattr(_torch.backends, "mps", None) and _torch.backends.mps.is_available():
+                    _dev = "mps"
+                else:
+                    _dev = "cpu"
+                model = build_sam2(cfg_name, ckpt_path, device=_dev)
+                predictor = SAM2ImagePredictor(model)
+                _sam2_predictor_cache[snap_model] = predictor
+            predictor = _sam2_predictor_cache[snap_model]
+            predictor.mask_threshold = snap_thresh
+            img_np = np.array(snap_img)
+            multimask = len(snap_points) == 1
+            with _torch.inference_mode():
+                predictor.set_image(img_np)
+                points_np = np.array([[x, y] for x, y, _ in snap_points], dtype=np.float32)
+                labels_np = np.array([l for _, _, l in snap_points], dtype=np.int32)
+                masks, scores, low_res = predictor.predict(
+                    point_coords=points_np,
+                    point_labels=labels_np,
+                    multimask_output=multimask,
+                    return_logits=True,
+                )
+                best_idx = int(np.argmax(scores))
+                # # Passe de raffinement : réinjecter le meilleur masque pour affiner les contours
+                # masks, scores, _ = predictor.predict(
+                #     point_coords=points_np,
+                #     point_labels=labels_np,
+                #     mask_input=low_res[best_idx : best_idx + 1],
+                #     multimask_output=False,
+                # )
+            logits = masks[best_idx].astype(np.float32)
+            prob = 1.0 / (1.0 + np.exp(-logits))
+            prob = np.clip((prob - 0.05) / (0.95 - 0.05), 0.0, 1.0)
+            return prob  # float array [0,1] — bords adoucis
+
+        try:
+            mask = await asyncio.to_thread(_do_preview)
+            state["sam2_preview_mask"] = mask
+            n_pos = sum(1 for _, _, l in state["sam2_points"] if l == 1)
+            n_neg = sum(1 for _, _, l in state["sam2_points"] if l == 0)
+            sam2_status.value = f"{n_pos} point(s) +, {n_neg} − — aperçu masque visible"
+            _render_preview()
+        except asyncio.CancelledError:
+            pass  # Nouveau clic arrivé, on abandonne cet aperçu
+        except Exception as ex:
+            sam2_status.value = f"[aperçu] {ex}"
+            page.update()
+        finally:
+            current = asyncio.current_task()
+            if current in _sam2_preview_task:
+                _sam2_preview_task.remove(current)
+
+    preview_gesture = ft.GestureDetector(
+        content=preview_img,
+        on_tap_down=_on_preview_tap,
+        on_secondary_tap_down=_on_preview_secondary_tap,
+        mouse_cursor=ft.MouseCursor.CELL if SAM2_AVAILABLE else ft.MouseCursor.BASIC,
+    )
+    # Wrapper centré : expand=True pour remplir le panneau,
+    # alignment pour centrer le gesture (thumbnail-sized) dans l'espace disponible.
+    preview_centered = ft.Container(
+        content=preview_gesture,
+        expand=True,
+        alignment=ft.Alignment(0, 0),
     )
 
     preview_placeholder = ft.Container(
@@ -383,16 +565,17 @@ async def main(page: ft.Page) -> None:
         bgcolor=DARK,
     )
 
-    bg_radio = ft.RadioGroup(
-        content=ft.Column(
-            [ft.Radio(value=k, label=k, fill_color=BLUE) for k in BG_COLORS]
-            + [
-                ft.Radio(value="Transparent", label="Transparent (PNG)", fill_color=BLUE),
-                ft.Radio(value="Flou",        label="Flou",             fill_color=BLUE),
-            ],
-            spacing=4,
-        ),
-        value="Blanc",
+    bg_segment = ft.CupertinoSlidingSegmentedButton(
+        selected_index=0,
+        bgcolor=GREY,
+        thumb_color=BG_UI,
+        proportional_width=True,
+        controls=[
+            ft.Text("Blanc",   size=11, color=WHITE),
+            ft.Text("Transp.", size=11, color=WHITE),
+            ft.Text("Flou",    size=11, color=WHITE),
+            ft.Text("Pers.",   size=11, color=WHITE),
+        ],
     )
 
     # Bascule modèle rembg : humain / général
@@ -416,8 +599,8 @@ async def main(page: ft.Page) -> None:
     # Bouton Annuler la dernière modification
     undo_btn = ft.IconButton(
         icon=ft.Icons.UNDO,
-        icon_color=WHITE,
-        bgcolor=GREY,
+        icon_color=DARK,
+        bgcolor=RED,
         tooltip="Annuler la dernière modification",
         disabled=True,
     )
@@ -499,6 +682,80 @@ async def main(page: ft.Page) -> None:
         ),
         visible=False,
         tooltip="Annuler le traitement en cours",
+    )
+
+    # ---- SAM2 ---- #
+    sam2_clear_btn = ft.Button(
+        "Effacer points",
+        icon=ft.Icons.CLEAR,
+        bgcolor=GREY,
+        color=ORANGE,
+        disabled=not SAM2_AVAILABLE,
+        tooltip="Effacer tous les points SAM2 et recommencer",
+    )
+    sam2_apply_btn = ft.Button(
+        "Appliquer masque",
+        icon=ft.Icons.CONTENT_CUT,
+        bgcolor=BLUE if SAM2_AVAILABLE else GREY,
+        color=DARK,
+        disabled=not SAM2_AVAILABLE,
+    )
+    sam2_inpaint_btn = ft.Button(
+        "Remplissage",
+        icon=ft.Icons.AUTO_FIX_HIGH,
+        bgcolor=ORANGE if (SAM2_AVAILABLE and (CV2_AVAILABLE or IOPAINT_AVAILABLE)) else GREY,
+        color=DARK,
+        disabled=not (SAM2_AVAILABLE and (CV2_AVAILABLE or IOPAINT_AVAILABLE)),
+        tooltip=(
+            "IOPaint — meilleure qualité" if IOPAINT_AVAILABLE
+            else "ShiftMap (opencv-contrib) — synthèse par patches" if CV2_AVAILABLE
+            else "Installez opencv-contrib-python ou iopaint"
+        ),
+    )
+    # Sélecteur de moteur d'inpainting — ordre : telea, lama, mat
+    _inpaint_engines = []
+    if CV2_AVAILABLE:
+        _inpaint_engines.append("telea")
+    if IOPAINT_AVAILABLE:
+        from iopaint.download import scan_models as _sm
+        _io_available = [m.name for m in _sm()]
+        for _m in ["lama", "mat"]:
+            if _m in _io_available:
+                _inpaint_engines.append(_m)
+    if not _inpaint_engines:
+        _inpaint_engines = ["telea"]
+    sam2_inpaint_segment = ft.CupertinoSlidingSegmentedButton(
+        selected_index=0,  # telea par défaut
+        bgcolor=GREY,
+        thumb_color=ORANGE,
+        controls=[ft.Text(e, size=10, color=BG_UI) for e in _inpaint_engines],
+        disabled=not (SAM2_AVAILABLE and (CV2_AVAILABLE or IOPAINT_AVAILABLE)),
+    )
+    sam2_status = ft.Text("", size=11, color=LIGHT_GREY)
+    sam2_progress_bar = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
+
+    # Sélecteur de modèle SAM2 (S = small ~40 Mo, B+ = base+ ~120 Mo, L = large ~230 Mo)
+    sam2_model_segment = ft.CupertinoSlidingSegmentedButton(
+        selected_index=0,  # S par défaut
+        bgcolor=GREY,
+        thumb_color=BLUE,
+        controls=[
+            ft.Text("S",  size=11, color=BG_UI),
+            ft.Text("B+", size=11, color=BG_UI),
+            ft.Text("L",  size=11, color=BG_UI),
+        ],
+        disabled=not SAM2_AVAILABLE,
+    )
+    # Seuil de binarisation : < 0 = masque plus large, > 0 = masque plus strict
+    sam2_threshold_slider = ft.Slider(
+        value=0.0,
+        min=-2.0,
+        max=2.0,
+        divisions=40,
+        label="0.0",
+        active_color=BLUE,
+        expand=True,
+        disabled=not SAM2_AVAILABLE,
     )
 
     # ---- Érosion du masque ---- #
@@ -598,7 +855,22 @@ async def main(page: ft.Page) -> None:
             display = Image.alpha_composite(chk, rgba).convert("RGB")
         else:
             display = apply_background(thumb, BG_COLORS[state["bg_color"]], state["orig_img"])
+        # Superposition du masque SAM2 en aperçu (bleu semi-transparent)
+        if state.get("sam2_preview_mask") is not None and not state["show_before"]:
+            mask = state["sam2_preview_mask"]
+            mask_img = Image.fromarray((mask * 255).astype(np.uint8), "L")
+            mask_resized = mask_img.resize(display.size, Image.Resampling.BILINEAR)
+            overlay_rgba = Image.new("RGBA", display.size, (69, 184, 245, 180))
+            mask_alpha = mask_resized.point(lambda p: int(p * 180 // 255))
+            overlay_rgba.putalpha(mask_alpha)
+            display = Image.alpha_composite(display.convert("RGBA"), overlay_rgba).convert("RGB")
         preview_img.src = f"data:image/jpeg;base64,{image_to_b64(display)}"
+        # Taille explicite : le GestureDetector aura exactement ces dimensions,
+        # donc e.local_position est directement en pixels thumbnail.
+        tw, th = display.size
+        preview_img.width  = tw
+        preview_img.height = th
+        state["sam2_preview_size"] = display.size  # (w, h) identique
         preview_img.visible = True
         preview_placeholder.visible = False
         save_btn.disabled = state["processed"] is None
@@ -636,6 +908,9 @@ async def main(page: ft.Page) -> None:
             state["index"]         = index
             state["rembg_applied"] = False
             state["history"].clear()
+            state["sam2_points"].clear()
+            state["sam2_preview_size"] = None
+            state["sam2_preview_mask"] = None
 
             process_btn.text    = "Supprimer le fond (IA)"
             process_btn.bgcolor = VIOLET if REMBG_AVAILABLE else GREY
@@ -845,18 +1120,22 @@ async def main(page: ft.Page) -> None:
 
     def on_bg_change(e) -> None:
         """Met à jour la couleur de fond sélectionnée et rafraîchit la preview."""
-        val = e.control.value
-        if val == "Flou":
-            state["bg_blur"]         = True
-            state["bg_transparent"]  = False
-        elif val == "Transparent":
-            state["bg_blur"]         = False
-            state["bg_transparent"]  = True
-            state["bg_color"]        = "Blanc"  # fallback interne
-        else:
-            state["bg_blur"]         = False
-            state["bg_transparent"]  = False
-            state["bg_color"]        = val
+        idx = e.control.selected_index
+        if idx == 2:  # Flou
+            state["bg_blur"]        = True
+            state["bg_transparent"] = False
+        elif idx == 1:  # Transparent
+            state["bg_blur"]        = False
+            state["bg_transparent"] = True
+            state["bg_color"]       = "Blanc"  # fallback interne
+        elif idx == 3:  # Personnalisée
+            state["bg_blur"]        = False
+            state["bg_transparent"] = False
+            # bg_color déjà mis à jour par on_custom_color_submit
+        else:  # idx == 0 : Blanc
+            state["bg_blur"]        = False
+            state["bg_transparent"] = False
+            state["bg_color"]       = "Blanc"
         _render_preview()
 
     async def on_prev(e) -> None:
@@ -1101,8 +1380,217 @@ async def main(page: ft.Page) -> None:
             precise_toggle_btn.bgcolor  = BLUE if REMBG_AVAILABLE else GREY
         precise_toggle_btn.update()
 
+    def on_sam2_clear(e) -> None:
+        """Efface tous les points SAM2."""
+        if _sam2_preview_task:
+            _sam2_preview_task[0].cancel()
+            _sam2_preview_task.clear()
+        state["sam2_points"].clear()
+        state["sam2_preview_mask"] = None
+        sam2_status.value = "Points effacés"
+        _render_preview()
+
+    async def on_sam2_apply(e) -> None:
+        """Lance l'inférence SAM2 sur les points collectés."""
+        if not SAM2_AVAILABLE:
+            return
+        if not state["sam2_points"]:
+            sam2_status.value = "⚠️ Cliquez d'abord sur l'image pour placer des points"
+            page.update()
+            return
+        if state["sam2_working"] or state["orig_img"] is None:
+            return
+
+        state["sam2_working"] = True
+        _push_history()
+        sam2_apply_btn.disabled = True
+        sam2_clear_btn.disabled = True
+        sam2_progress_bar.value   = None
+        sam2_progress_bar.visible = True
+        sam2_status.value = "SAM2 — inférence en cours…"
+        page.update()
+
+        snap_img    = state["orig_img"].convert("RGB")
+        snap_points = list(state["sam2_points"])
+        snap_model  = state["sam2_model"]
+        snap_thresh = state["sam2_threshold"]
+
+        def _do_sam2():
+            import torch as _torch
+            from sam2.build_sam import build_sam2
+            from sam2.sam2_image_predictor import SAM2ImagePredictor
+
+            # Checkpoint dans models/
+            ckpt_name, cfg_name, ckpt_url = _SAM2_MODELS[snap_model]
+            ckpt_path = os.path.join(_MODELS_DIR, ckpt_name)
+            _ensure_model(ckpt_url, ckpt_path)
+
+            # Chargement (mis en cache par modèle)
+            if snap_model not in _sam2_predictor_cache:
+                if _torch.cuda.is_available():
+                    _dev = "cuda"
+                elif getattr(_torch.backends, "mps", None) and _torch.backends.mps.is_available():
+                    _dev = "mps"
+                else:
+                    _dev = "cpu"
+                model = build_sam2(cfg_name, ckpt_path, device=_dev)
+                predictor = SAM2ImagePredictor(model)
+                _sam2_predictor_cache[snap_model] = predictor
+
+            predictor = _sam2_predictor_cache[snap_model]
+            predictor.mask_threshold = snap_thresh
+            img_np = np.array(snap_img)
+            multimask = len(snap_points) == 1
+
+            with _torch.inference_mode():
+                predictor.set_image(img_np)
+                points_np = np.array([[x, y] for x, y, _ in snap_points], dtype=np.float32)
+                labels_np = np.array([l for _, _, l in snap_points], dtype=np.int32)
+                masks, scores, low_res = predictor.predict(
+                    point_coords=points_np,
+                    point_labels=labels_np,
+                    multimask_output=multimask,
+                    return_logits=True,
+                )
+                best_idx = int(np.argmax(scores))
+                # # Passe de raffinement : réinjecter le meilleur masque pour affiner les contours
+                # masks, scores, _ = predictor.predict(
+                #     point_coords=points_np,
+                #     point_labels=labels_np,
+                #     mask_input=low_res[best_idx : best_idx + 1],
+                #     multimask_output=False,
+                # )
+
+            # Masque final avec bords adoucis (logits → sigmoid → alpha)
+            logits = masks[best_idx].astype(np.float32)
+            prob = 1.0 / (1.0 + np.exp(-logits))
+            prob = np.clip((prob - 0.05) / (0.95 - 0.05), 0.0, 1.0)
+
+            # Construire image RGBA avec alpha proportionnel (bords doux)
+            rgba = snap_img.convert("RGBA")
+            alpha_arr = (prob * 255).astype(np.uint8)
+            rgba.putalpha(Image.fromarray(alpha_arr, "L"))
+            return rgba
+
+        try:
+            result = await asyncio.to_thread(_do_sam2)
+            state["processed"]        = result
+            state["rembg_applied"]     = False  # marqué différemment
+            state["sam2_preview_mask"] = None   # remplacé par le résultat final
+            process_btn.text      = "Supprimer le fond (IA)"
+            process_btn.bgcolor   = VIOLET if REMBG_AVAILABLE else GREY
+            save_btn.disabled     = False
+            sam2_status.value     = f"[OK] SAM2 — masque appliqué ({len(snap_points)} point(s))"
+            _render_preview()
+        except Exception as ex:
+            sam2_status.value = f"[ERREUR] SAM2 : {ex}"
+            page.update()
+        finally:
+            state["sam2_working"]    = False
+            sam2_apply_btn.disabled  = not SAM2_AVAILABLE
+            sam2_clear_btn.disabled  = not SAM2_AVAILABLE
+            sam2_progress_bar.value   = 1.0
+            sam2_progress_bar.visible = False
+            page.update()
+
+    sam2_clear_btn.on_click   = on_sam2_clear
+    sam2_apply_btn.on_click   = on_sam2_apply
+
+    async def on_sam2_inpaint(e) -> None:
+        """Reconstruit la zone sélectionnée par SAM2 via OpenCV INPAINT_TELEA."""
+        if not CV2_AVAILABLE:
+            sam2_status.value = "⚠️ opencv-python requis — pip install opencv-python"
+            page.update()
+            return
+        if state["sam2_preview_mask"] is None:
+            sam2_status.value = "⚠️ Placez des points SAM2 d'abord"
+            page.update()
+            return
+        if state["sam2_working"] or state["orig_img"] is None:
+            return
+
+        state["sam2_working"] = True
+        _push_history()
+        sam2_inpaint_btn.disabled = True
+        sam2_apply_btn.disabled   = True
+        sam2_clear_btn.disabled   = True
+        sam2_progress_bar.value   = None
+        sam2_progress_bar.visible = True
+
+        # Travailler sur l'image courante (processed si existe, sinon orig)
+        src_img = (state["processed"] or state["orig_img"]).convert("RGB")
+        prob    = state["sam2_preview_mask"]  # float [0,1] (H, W) — taille orig_img
+
+        # Choisir le moteur selon la sélection de l'utilisateur
+        _sel_idx = sam2_inpaint_segment.selected_index or 0
+        engine = (_inpaint_engines[_sel_idx] if _inpaint_engines and _sel_idx < len(_inpaint_engines) else "telea")
+        if engine in ("lama", "mat"):
+            engine = f"iopaint:{engine}"  # normalise pour la suite
+
+        _engine_label = {
+            "shiftmap": "ShiftMap",
+            "telea":    "TELEA",
+        }.get(engine, f"IOPaint ({engine.split(':')[1]})" if engine.startswith("iopaint:") else engine)
+        sam2_status.value = f"Inpainting {_engine_label}…"
+        page.update()
+
+        def _do_inpaint():
+            mask_np = ((prob > 0.1) * 255).astype(np.uint8)
+
+            if engine.startswith("iopaint:"):
+                _model_name = engine.split(":")[1]
+                from iopaint.model_manager import ModelManager
+                from iopaint.schema import InpaintRequest, HDStrategy
+                import torch as _torch
+                _dev = "cuda" if _torch.cuda.is_available() else "mps" if (getattr(_torch.backends, "mps", None) and _torch.backends.mps.is_available()) else "cpu"
+                mgr = ModelManager(name=_model_name, device=_torch.device(_dev))
+                import cv2 as _cv2_io
+                img_np     = np.array(src_img)                                   # uint8 RGB — IOPaint attend RGB
+                req        = InpaintRequest(hd_strategy=HDStrategy.ORIGINAL)
+                result_bgr = mgr(img_np, mask_np, req)                           # retourne BGR
+                result_rgb = _cv2_io.cvtColor(result_bgr.astype(np.uint8), _cv2_io.COLOR_BGR2RGB)
+                return Image.fromarray(result_rgb)
+
+            import cv2 as _cv2
+            img_np  = np.array(src_img)
+            img_bgr = _cv2.cvtColor(img_np, _cv2.COLOR_RGB2BGR)
+
+            if engine == "shiftmap":
+                # Dilater le masque pour couvrir les bords
+                kernel = np.ones((5, 5), np.uint8)
+                mask_d = _cv2.dilate(mask_np, kernel, iterations=2)
+                alg = _cv2.xphoto.createInpainter(_cv2.xphoto.SHIFTMAP)
+                result = img_bgr.copy()
+                alg.inpaint(img_bgr, mask_d, result)
+            else:
+                result = _cv2.inpaint(img_bgr, mask_np, inpaintRadius=4, flags=_cv2.INPAINT_TELEA)
+
+            return Image.fromarray(_cv2.cvtColor(result, _cv2.COLOR_BGR2RGB))
+
+        try:
+            result = await asyncio.to_thread(_do_inpaint)
+            state["processed"]        = result
+            state["sam2_preview_mask"] = None
+            state["sam2_points"].clear()
+            save_btn.disabled = False
+            sam2_status.value = "[OK] Inpainting terminé"
+            _render_preview()
+        except Exception as ex:
+            sam2_status.value = f"[ERREUR] Inpainting : {ex}"
+            page.update()
+        finally:
+            state["sam2_working"]      = False
+            sam2_inpaint_btn.disabled  = not (SAM2_AVAILABLE and (CV2_AVAILABLE or IOPAINT_AVAILABLE))
+            sam2_apply_btn.disabled    = not SAM2_AVAILABLE
+            sam2_clear_btn.disabled    = not SAM2_AVAILABLE
+            sam2_progress_bar.value    = 1.0
+            sam2_progress_bar.visible  = False
+            page.update()
+
+    sam2_inpaint_btn.on_click = on_sam2_inpaint
+
     # Attacher les callbacks
-    bg_radio.on_change         = on_bg_change
+    bg_segment.on_change       = on_bg_change
     model_toggle_btn.on_click   = on_rembg_model_toggle
     precise_toggle_btn.on_click = on_rembg_precise_toggle
     undo_btn.on_click          = on_undo
@@ -1114,6 +1602,19 @@ async def main(page: ft.Page) -> None:
     cancel_btn.on_click          = on_cancel
     erosion_slider.on_change     = on_erosion_slider_change
     erosion_slider.on_change_end = on_erosion_slider_end
+
+    def on_sam2_model_change(e) -> None:
+        """Change le modèle SAM2 actif (S / B+ / L)."""
+        state["sam2_model"] = ["S", "B+", "L"][e.control.selected_index]
+
+    def on_sam2_threshold_change(e) -> None:
+        """Met à jour le seuil de binarisation du masque SAM2 en temps réel."""
+        state["sam2_threshold"] = round(e.control.value, 2)
+        e.control.label = f"{e.control.value:.1f}"
+        e.control.update()
+
+    sam2_model_segment.on_change    = on_sam2_model_change
+    sam2_threshold_slider.on_change = on_sam2_threshold_change
 
     def on_before_after_press(e) -> None:
         """Active le mode 'avant' pendant qu'on maintient le bouton."""
@@ -1148,17 +1649,13 @@ async def main(page: ft.Page) -> None:
                 g = int(raw[2:4], 16)
                 b = int(raw[4:6], 16)
                 BG_COLORS["Personnalisée"] = (r, g, b)
-                # Ajouter l'option au RadioGroup si absente
-                existing_keys = [opt.value for opt in bg_radio.content.controls]
-                if "Personnalisée" not in existing_keys:
-                    bg_radio.content.controls.insert(-2, ft.Radio(value="Personnalisée", label="Personnalisée", fill_color=BLUE))
                 custom_color_preview.bgcolor = f"#{raw.upper()}"
                 custom_color_preview.update()
                 state["bg_blur"] = False
                 state["bg_transparent"] = False
                 state["bg_color"] = "Personnalisée"
-                bg_radio.value = "Personnalisée"
-                bg_radio.update()
+                bg_segment.selected_index = 3
+                bg_segment.update()
                 _render_preview()
             except ValueError:
                 pass
@@ -1234,19 +1731,48 @@ async def main(page: ft.Page) -> None:
         [
             # Fond
             ft.Text("Couleur de fond", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
-            bg_radio,
+            bg_segment,
             ft.Row(
                 [custom_color_field, custom_color_preview],
                 spacing=6,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
             ft.Divider(color=GREY),
-            # Avant/Après
-            before_after_btn,
-            ft.Divider(color=GREY),
-            # Actions rembg
+            # Avant/Après + bascules modèle alignées sur une ligne
+            ft.Row([before_after_btn, model_toggle_btn, precise_toggle_btn], spacing=6),
+            # Supprimer le fond
             process_btn,
-            ft.Row([model_toggle_btn, precise_toggle_btn], spacing=6),
+            # SAM2
+            ft.Divider(color=GREY),
+            ft.Text("Sélection", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
+            ft.Text(
+                "Clic gauche : ajouter un point  /  clic droit : retirer le dernier point\nPuis cliquez Appliquer.",
+                size=11,
+                color=LIGHT_GREY,
+            ) if SAM2_AVAILABLE else ft.Text(
+                "sam2 non installé — pip install -e git+https://github.com/facebookresearch/sam2",
+                size=10,
+                color=RED,
+            ),
+            ft.Row(
+                [ft.Text("Modèle", size=11, color=LIGHT_GREY, width=46), sam2_model_segment, sam2_clear_btn],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Row(
+                [ft.Text("Seuil", size=11, color=LIGHT_GREY, width=46), sam2_threshold_slider],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Row(
+                [ft.Text("Moteur", size=11, color=LIGHT_GREY, width=46), sam2_inpaint_segment],
+                spacing=6,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Row([sam2_apply_btn, sam2_inpaint_btn], spacing=6),
+            sam2_progress_bar,
+            sam2_status,
+            ft.Divider(color=GREY),
             # Érosion du masque
             ft.Row(
                 [
@@ -1269,18 +1795,17 @@ async def main(page: ft.Page) -> None:
             enhance_progress_bar,
             cancel_btn,
             enhance_status,
-            undo_btn,
             ft.Divider(color=GREY),
             ft.Row([save_btn, ignore_btn], spacing=8),
             ft.Divider(color=GREY),
             # Batch automatique
             ft.Text("Traitement en lot", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
-            batch_btn,
+            ft.Row([batch_btn, undo_btn], spacing=150),
             batch_progress_text,
             ft.Container(expand=True),
             status_text,
         ],
-        width=340,
+        width=350,
         spacing=10,
     )
 
@@ -1291,7 +1816,9 @@ async def main(page: ft.Page) -> None:
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
             ),
             ft.Container(
-                content=ft.Stack([preview_placeholder, preview_img]),
+                content=ft.Stack(
+                    [preview_placeholder, preview_centered],
+                ),
                 expand=True,
                 border_radius=8,
                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
@@ -1328,6 +1855,8 @@ async def main(page: ft.Page) -> None:
         page.update()
     if not ESRGAN_AVAILABLE:
         enhance_status.value = "spandrel non installé — pip install spandrel"
+    if not SAM2_AVAILABLE:
+        sam2_status.value = "sam2 non installé"
 
     if all_images:
         asyncio.create_task(_load_image(0))

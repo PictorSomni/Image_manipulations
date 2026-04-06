@@ -11,6 +11,9 @@ _rc*
 4xFaceUpDAT.pth
 4xFaceUpLDAT.pth
 4xFaceUpSharpDAT.pth
+Data/models/sam2.1_hiera_large.pt
+Data/models/sam2.1_hiera_small.pt
+Data/models/sam2.1_hiera_base_plus.pt
 
 # macOS
 .DS_Store

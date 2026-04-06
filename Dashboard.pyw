@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "1.9.5"
+__version__ = "1.9.6"
 
 #############################################################
 #                          IMPORTS                          #
@@ -39,6 +39,7 @@ import re
 import zipfile
 import time
 import json
+import math
 
 #############################################################
 #                           MAIN                            #
@@ -193,7 +194,7 @@ def main(page: ft.Page):
 
     _refresh_recent_btn()
 
-    apps_list = ft.GridView(expand=True, runs_count=3, padding=8, spacing=8, run_spacing=8, child_aspect_ratio=2.1)
+    apps_list = ft.Column(expand=True, spacing=8)
     preview_list = ft.ListView(expand=True, auto_scroll=False, spacing=4)
     preview_loading = ft.Container(
         content=ft.Row([
@@ -1333,7 +1334,7 @@ def main(page: ft.Page):
         app_path = os.path.join(cwd, "Data", "Redimensionner filigrane.py")
         if os.path.exists(app_path):
             launch_app("Redimensionner filigrane.py", app_path, False)
-    
+
     def refresh_apps():
         """
         Reconstruit la grille des applications disponibles.
@@ -1342,24 +1343,24 @@ def main(page: ft.Page):
         (champ numérique + bouton) pour ``Redimensionner.py`` et
         ``Redimensionner filigrane.py``, et des boutons simples pour les autres.
         """
-        apps_list.controls.clear()
-        
+        items = []
+
         for app_name, app_config in apps.items():
             is_local = app_config[0]
             app_color = app_config[1]
             app_path = os.path.join(cwd, "Data", app_name)
             if not os.path.exists(app_path):
                 continue
-            
-            # Widget spécial pour Redimensionner.py
+
             if app_name == "Redimensionner.py":
-                apps_list.controls.append(
+                items.append(
                     ft.Container(
                         content=ft.Column([
                             ft.Text("Redimensionner", size=13, color=app_color, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
                             resize_input,
                             ft.Text("px", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
+                        expand=True,
                         bgcolor=GREY,
                         border=ft.Border.all(1, app_color),
                         padding=ft.Padding(5, 8, 5, 8),
@@ -1368,15 +1369,15 @@ def main(page: ft.Page):
                         ink=True,
                     )
                 )
-            # Widget spécial pour Redimensionner filigrane.py
             elif app_name == "Redimensionner filigrane.py":
-                apps_list.controls.append(
+                items.append(
                     ft.Container(
                         content=ft.Column([
                             ft.Text("Redimensionner + filigrane", size=12, color=app_color, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
                             resize_watermark_input,
                             ft.Text("px", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=3),
+                        expand=True,
                         bgcolor=GREY,
                         border=ft.Border.all(1, app_color),
                         padding=ft.Padding(5, 8, 5, 8),
@@ -1386,7 +1387,7 @@ def main(page: ft.Page):
                     )
                 )
             else:
-                apps_list.controls.append(
+                items.append(
                     ft.Container(
                         content=ft.Text(
                             app_name[:-4] if app_name.endswith(".pyw") else app_name[:-3],
@@ -1396,6 +1397,7 @@ def main(page: ft.Page):
                             weight=ft.FontWeight.W_500,
                             max_lines=3,
                         ),
+                        expand=True,
                         alignment=ft.alignment.Alignment(0, 0),
                         on_click=lambda e, name=app_name, path=app_path, local=is_local: launch_app(name, path, local),
                         bgcolor=GREY,
@@ -1405,6 +1407,17 @@ def main(page: ft.Page):
                         ink=True,
                     )
                 )
+
+        # Grouper en rangées de 3 avec padding uniforme
+        apps_list.controls.clear()
+        for i in range(0, len(items), 3):
+            row_items = items[i:i + 3]
+            # Compléter la dernière rangée si incomplète
+            while len(row_items) < 3:
+                row_items.append(ft.Container(expand=True))
+            apps_list.controls.append(
+                ft.Row(controls=row_items, expand=True, spacing=8)
+            )
         page.update()
 
     # ================================================================ #
@@ -1570,8 +1583,9 @@ def main(page: ft.Page):
                         border=ft.Border.all(1, GREY),
                         border_radius=8,
                         bgcolor=DARK,
+                        padding=8,
                     )
-                ], expand=True, width=350),
+                ], expand=True),
                 ft.Column([
                     ft.Row([
                         ft.Text("Contenu du dossier", weight=ft.FontWeight.BOLD, size=14, color=WHITE, margin=ft.Margin.only(left=10)),
@@ -1610,7 +1624,7 @@ def main(page: ft.Page):
                         bgcolor=DARK,
                     )
                 ], expand=True)
-            ], expand=True, height=400),
+            ], expand=True),
             ft.Container(
                 content=ft.Column([
                     ft.Row([

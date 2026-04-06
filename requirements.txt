@@ -18,4 +18,20 @@ onnxruntime-gpu>=1.16.0 #onnxruntime>=1.16.0 sous macOS
 
 # Amélioration par IA (optionnel — requis par Augmentation IA.py)
 spandrel>=0.3.0
-torch>=2.0.0
+torch>=2.5.1
+
+# Segmentation interactive SAM2 (optionnel — requis par Augmentation IA.py)
+# Installation :
+#   pip install git+https://github.com/facebookresearch/sam2.git
+# sam2  # pas disponible sur PyPI
+
+# Inpainting IA (optionnel — requis par Augmentation IA.py)
+iopaint>=1.6.0
+# Après installation, télécharger les modèles :
+#   iopaint download --model lama   (~100 MB, déjà inclus)
+#   iopaint download --model mat    (~400 MB, meilleur pour objets/personnes)
+
+# Synthèse par patches sans IA (optionnel — requis par Augmentation IA.py)
+# Remplace opencv-python si déjà installé :
+#   pip uninstall opencv-python && pip install opencv-contrib-python
+opencv-contrib-python>=4.8.0
