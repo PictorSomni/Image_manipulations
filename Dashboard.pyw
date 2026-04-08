@@ -1482,7 +1482,7 @@ def main(page: ft.Page):
                     if stashed:
                         run_git("rebase", "--abort")
                         run_git("stash", "pop")
-                    pub(f"✖ Erreur lors de la mise à jour.\n{output}", RED)
+                    pub(f"[ERREUR] Erreur lors de la mise à jour.\n{output}", RED)
                     return
 
                 # Supprimer le stash (changements locaux abandonnés)
@@ -1490,9 +1490,9 @@ def main(page: ft.Page):
                     run_git("stash", "drop")
 
                 if "Already up to date" in output or "Déjà à jour" in output or output == "":
-                    pub("✔ Déjà à jour.", GREEN)
+                    pub("[OK] Déjà à jour.", GREEN)
                 else:
-                    pub(f"✔ Code mis à jour.\n{output}", GREEN)
+                    pub(f"[OK] Code mis à jour.\n{output}", GREEN)
 
                 # ── Installation des dépendances ──────────────────────────
                 req_path = os.path.join(cwd, "requirements.txt")
@@ -1515,9 +1515,9 @@ def main(page: ft.Page):
                             pub(line)
                     pip_proc.wait()
                     if pip_proc.returncode == 0:
-                        pub("✔ Dépendances installées.", GREEN)
+                        pub("[OK] Dépendances installées.", GREEN)
                     else:
-                        pub(f"⚠ pip a terminé avec le code {pip_proc.returncode}.", YELLOW)
+                        pub(f"pip a terminé avec le code {pip_proc.returncode}.", YELLOW)
 
                 # ── Redémarrage automatique ───────────────────────────────
                 pub("🔄 Redémarrage du Dashboard…", BLUE)
@@ -1534,7 +1534,7 @@ def main(page: ft.Page):
                 page.window.close()
 
             except Exception as exc:
-                page.pubsub.send_all_on_topic("terminal", (f"✖ [ERREUR] {exc}", RED))
+                page.pubsub.send_all_on_topic("terminal", (f"[ERREUR] [ERREUR] {exc}", RED))
 
         threading.Thread(target=_run, daemon=True).start()
 
