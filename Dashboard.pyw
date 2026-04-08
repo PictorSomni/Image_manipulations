@@ -268,7 +268,18 @@ def main(page: ft.Page):
 
     # S'abonner au canal select-files
     page.pubsub.subscribe_topic("select_files", on_select_files_request)
-    
+
+    def on_quit_request(topic, message):
+        """Callback pour fermer la fenêtre depuis un thread de fond (thread-safe)"""
+        page.window.close()
+
+    # S'abonner au canal quit
+    page.pubsub.subscribe_topic("quit", on_quit_request)
+
+    def request_quit():
+        """Ferme la fenêtre principale de façon thread-safe via pubsub"""
+        page.pubsub.send_all_on_topic("quit", None)
+
     def request_refresh():
         """Demande un rafraîchissement de la preview (thread-safe)"""
         page.pubsub.send_all_on_topic("refresh", None)
@@ -1531,7 +1542,7 @@ def main(page: ft.Page):
                     ],
                     close_fds=True,
                 )
-                page.window.close()
+                request_quit()
 
             except Exception as exc:
                 page.pubsub.send_all_on_topic("terminal", (f"[ERREUR] [ERREUR] {exc}", RED))
