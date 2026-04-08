@@ -50,10 +50,10 @@ Au premier lancement, rembg télécharge automatiquement le modèle birefnet-por
 (~450 Mo) dans ``~/.u2net/``. Les modèles spandrel (RealESRGAN, FaceUpSharpDAT)
 sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au total).
 
-Version : 1.9.5
+Version : 1.9.8
 """
 
-__version__ = "1.9.7"
+__version__ = "1.9.8"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -394,8 +394,6 @@ async def main(page: ft.Page) -> None:
     page.title = f"Augmentation IA  v{__version__}"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG_UI
-    # page.window.width = 1024
-    # page.window.height = 1024
     page.window.maximized = True
     page.update()
     await page.window.to_front()
@@ -546,6 +544,68 @@ async def main(page: ft.Page) -> None:
         """Clic droit = point SAM2 négatif."""
         _place_sam2_point(e, 0)
 
+    def _run_sam2_inference(snap_img, snap_points, snap_model, snap_thresh):
+        """
+        Exécute l'inférence SAM2 et retourne un masque de probabilité doux.
+
+        Charge le predictor SAM2 (mis en cache par clé de modèle), applique
+        les points fournis sur l'image et retourne un tableau float32 [0, 1]
+        de la même résolution que `snap_img`, avec des bords adoucis via
+        la passe sigmoid + clip.
+
+        Parameters
+        ----------
+        snap_img : PIL.Image
+            Image RGB source (snapshot pris avant le thread).
+        snap_points : list of (x, y, label)
+            Points SAM2 : label 1 = positif, 0 = négatif.
+        snap_model : str
+            Clé dans `_SAM2_MODELS` identifiant le checkpoint.
+        snap_thresh : float
+            Seuil de masque transmis à `predictor.mask_threshold`.
+
+        Returns
+        -------
+        numpy.ndarray
+            Tableau float32 (H, W) de valeurs dans [0, 1].
+        """
+        import torch as _torch
+        from sam2.build_sam import build_sam2
+        from sam2.sam2_image_predictor import SAM2ImagePredictor
+        ckpt_name, cfg_name, ckpt_url = _SAM2_MODELS[snap_model]
+        ckpt_path = os.path.join(_MODELS_DIR, ckpt_name)
+        _ensure_model(ckpt_url, ckpt_path)
+        if snap_model not in _sam2_predictor_cache:
+            _dev = _pick_torch_device()
+            model = build_sam2(cfg_name, ckpt_path, device=_dev)
+            predictor = SAM2ImagePredictor(model)
+            if hasattr(_torch, "compile") and _dev != "mps":
+                try:
+                    predictor.model.image_encoder = _torch.compile(
+                        predictor.model.image_encoder, mode="reduce-overhead"
+                    )
+                except Exception:
+                    pass
+            _sam2_predictor_cache[snap_model] = predictor
+        predictor = _sam2_predictor_cache[snap_model]
+        predictor.mask_threshold = snap_thresh
+        img_np = np.array(snap_img)
+        multimask = len(snap_points) == 1
+        with _torch.inference_mode():
+            predictor.set_image(img_np)
+            points_np = np.array([[x, y] for x, y, _ in snap_points], dtype=np.float32)
+            labels_np = np.array([l for _, _, l in snap_points], dtype=np.int32)
+            masks, scores, _ = predictor.predict(
+                point_coords=points_np,
+                point_labels=labels_np,
+                multimask_output=multimask,
+                return_logits=True,
+            )
+            best_idx = int(np.argmax(scores))
+        logits = masks[best_idx].astype(np.float32)
+        prob = 1.0 / (1.0 + np.exp(-logits))
+        return np.clip((prob - 0.05) / (0.95 - 0.05), 0.0, 1.0)
+
     async def _sam2_live_preview() -> None:
         """Calcule et affiche un aperçu du masque SAM2 sans modifier state['processed']."""
         if not state["sam2_points"] or state["orig_img"] is None:
@@ -556,50 +616,7 @@ async def main(page: ft.Page) -> None:
         snap_thresh = state["sam2_threshold"]
 
         def _do_preview():
-            import torch as _torch
-            from sam2.build_sam import build_sam2
-            from sam2.sam2_image_predictor import SAM2ImagePredictor
-            ckpt_name, cfg_name, ckpt_url = _SAM2_MODELS[snap_model]
-            ckpt_path = os.path.join(_MODELS_DIR, ckpt_name)
-            _ensure_model(ckpt_url, ckpt_path)
-            if snap_model not in _sam2_predictor_cache:
-                _dev = _pick_torch_device()
-                model = build_sam2(cfg_name, ckpt_path, device=_dev)
-                predictor = SAM2ImagePredictor(model)
-                if hasattr(_torch, "compile") and _dev != "mps":
-                    try:
-                        predictor.model.image_encoder = _torch.compile(
-                            predictor.model.image_encoder, mode="reduce-overhead"
-                        )
-                    except Exception:
-                        pass
-                _sam2_predictor_cache[snap_model] = predictor
-            predictor = _sam2_predictor_cache[snap_model]
-            predictor.mask_threshold = snap_thresh
-            img_np = np.array(snap_img)
-            multimask = len(snap_points) == 1
-            with _torch.inference_mode():
-                predictor.set_image(img_np)
-                points_np = np.array([[x, y] for x, y, _ in snap_points], dtype=np.float32)
-                labels_np = np.array([l for _, _, l in snap_points], dtype=np.int32)
-                masks, scores, low_res = predictor.predict(
-                    point_coords=points_np,
-                    point_labels=labels_np,
-                    multimask_output=multimask,
-                    return_logits=True,
-                )
-                best_idx = int(np.argmax(scores))
-                # # Passe de raffinement : réinjecter le meilleur masque pour affiner les contours
-                # masks, scores, _ = predictor.predict(
-                #     point_coords=points_np,
-                #     point_labels=labels_np,
-                #     mask_input=low_res[best_idx : best_idx + 1],
-                #     multimask_output=False,
-                # )
-            logits = masks[best_idx].astype(np.float32)
-            prob = 1.0 / (1.0 + np.exp(-logits))
-            prob = np.clip((prob - 0.05) / (0.95 - 0.05), 0.0, 1.0)
-            return prob  # float array [0,1] — bords adoucis
+            return _run_sam2_inference(snap_img, snap_points, snap_model, snap_thresh)
 
         try:
             mask = await asyncio.to_thread(_do_preview)
@@ -759,17 +776,6 @@ async def main(page: ft.Page) -> None:
         ),
         disabled=True,
     )
-
-    # Batch automatique
-    batch_btn = ft.Button(
-        "Batch auto",
-        icon=ft.Icons.BATCH_PREDICTION,
-        bgcolor=GREY,
-        color=BLUE,
-        tooltip="Traiter toutes les images restantes avec les paramètres actuels",
-        disabled=not REMBG_AVAILABLE,
-    )
-    batch_progress_text = ft.Text("", size=11, color=LIGHT_GREY)
 
     # Couleur personnalisée (hex)
     enhance_progress_bar = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
@@ -1604,57 +1610,7 @@ async def main(page: ft.Page) -> None:
         snap_thresh = state["sam2_threshold"]
 
         def _do_sam2():
-            import torch as _torch
-            from sam2.build_sam import build_sam2
-            from sam2.sam2_image_predictor import SAM2ImagePredictor
-
-            # Checkpoint dans models/
-            ckpt_name, cfg_name, ckpt_url = _SAM2_MODELS[snap_model]
-            ckpt_path = os.path.join(_MODELS_DIR, ckpt_name)
-            _ensure_model(ckpt_url, ckpt_path)
-
-            # Chargement (mis en cache par modèle)
-            if snap_model not in _sam2_predictor_cache:
-                _dev = _pick_torch_device()
-                model = build_sam2(cfg_name, ckpt_path, device=_dev)
-                predictor = SAM2ImagePredictor(model)
-                if hasattr(_torch, "compile") and _dev != "mps":
-                    try:
-                        predictor.model.image_encoder = _torch.compile(
-                            predictor.model.image_encoder, mode="reduce-overhead"
-                        )
-                    except Exception:
-                        pass
-                _sam2_predictor_cache[snap_model] = predictor
-
-            predictor = _sam2_predictor_cache[snap_model]
-            predictor.mask_threshold = snap_thresh
-            img_np = np.array(snap_img)
-            multimask = len(snap_points) == 1
-
-            with _torch.inference_mode():
-                predictor.set_image(img_np)
-                points_np = np.array([[x, y] for x, y, _ in snap_points], dtype=np.float32)
-                labels_np = np.array([l for _, _, l in snap_points], dtype=np.int32)
-                masks, scores, low_res = predictor.predict(
-                    point_coords=points_np,
-                    point_labels=labels_np,
-                    multimask_output=multimask,
-                    return_logits=True,
-                )
-                best_idx = int(np.argmax(scores))
-                # # Passe de raffinement : réinjecter le meilleur masque pour affiner les contours
-                # masks, scores, _ = predictor.predict(
-                #     point_coords=points_np,
-                #     point_labels=labels_np,
-                #     mask_input=low_res[best_idx : best_idx + 1],
-                #     multimask_output=False,
-                # )
-
-            # Masque final avec bords adoucis (logits → sigmoid → alpha)
-            logits = masks[best_idx].astype(np.float32)
-            prob = 1.0 / (1.0 + np.exp(-logits))
-            prob = np.clip((prob - 0.05) / (0.95 - 0.05), 0.0, 1.0)
+            prob = _run_sam2_inference(snap_img, snap_points, snap_model, snap_thresh)
 
             # Construire image RGBA avec alpha proportionnel (bords doux)
             rgba = snap_img.convert("RGBA")
@@ -1926,68 +1882,6 @@ async def main(page: ft.Page) -> None:
 
     inpaint_install_btn.on_click = on_inpaint_install
 
-    # async def on_batch(e) -> None:
-    #     """Traite toutes les images restantes avec les paramètres rembg actuels."""
-    #     if not REMBG_AVAILABLE or state["batch_running"]:
-    #         return
-    #     state["batch_running"] = True
-    #     batch_btn.disabled = True
-    #     batch_btn.update()
-    #
-    #     total = len(all_images)
-    #     start = state["index"]
-    #     for idx in range(start, total):
-    #         if not state["batch_running"]:
-    #             break
-    #         batch_progress_text.value = f"Batch : {idx - start + 1}/{total - start}"
-    #         page.update()
-    #
-    #         # Charger l'image
-    #         await _load_image(idx)
-    #
-    #         # Supprimer le fond si pas encore fait
-    #         if state["orig_img"] is not None and not state["rembg_applied"]:
-    #             def _do_rembg_batch():
-    #                 from rembg import remove as rembg_remove, new_session
-    #                 use_human   = state["rembg_human_seg"]
-    #                 use_precise = state["rembg_precise"]
-    #                 _model_key_map = {
-    #                     (True,  True):  "birefnet-portrait",
-    #                     (True,  False): "birefnet-general",
-    #                     (False, True):  "u2net_human_seg",
-    #                     (False, False): "u2net",
-    #                 }
-    #                 model_key = _model_key_map[(use_precise, use_human)]
-    #                 if model_key not in _rembg_sessions:
-    #                     _rembg_sessions[model_key] = new_session(model_key)
-    #                 sess = _rembg_sessions[model_key]
-    #                 import contextlib, io as _io
-    #                 with contextlib.redirect_stderr(_io.StringIO()):
-    #                     result = rembg_remove(state["orig_img"].convert("RGB"), session=sess)
-    #                 return result.convert("RGBA")
-    #
-    #             try:
-    #                 result = await asyncio.to_thread(_do_rembg_batch)
-    #                 state["processed"]    = result
-    #                 state["rembg_applied"] = True
-    #                 save_btn.disabled = False
-    #             except Exception as ex:
-    #                 batch_progress_text.value = f"[ERREUR] image {idx + 1} : {ex}"
-    #                 page.update()
-    #                 continue
-    #
-    #         # Sauvegarder
-    #         if state["processed"] is not None:
-    #             await on_save(None)
-    #
-    #     state["batch_running"] = False
-    #     batch_btn.disabled = False
-    #     batch_progress_text.value = "Batch terminé !"
-    #     batch_btn.update()
-    #     page.update()
-
-    # batch_btn.on_click = on_batch
-
     # ------------------------------------------------------------------ #
     #                           MISE EN PAGE                              #
     # ------------------------------------------------------------------ #
@@ -2078,10 +1972,6 @@ async def main(page: ft.Page) -> None:
             enhance_status,
             ft.Divider(color=GREY),
             ft.Row([save_btn, ignore_btn], spacing=8),
-            # ft.Divider(color=GREY),
-            # ft.Text("Traitement en lot", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
-            # ft.Row([batch_btn], spacing=150),
-            # batch_progress_text,
             ft.Container(expand=True),
             status_text,
         ],

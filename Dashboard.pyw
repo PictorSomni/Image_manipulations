@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "1.9.7"
+__version__ = "1.9.8"
 
 #############################################################
 #                          IMPORTS                          #
@@ -40,6 +40,7 @@ import zipfile
 import time
 import json
 import math
+import asyncio
 
 #############################################################
 #                           MAIN                            #
@@ -207,7 +208,7 @@ def main(page: ft.Page):
     )
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
     file_count_text = ft.Text("", size=14, color=WHITE, text_align=ft.TextAlign.RIGHT)
-    selection_count_text = ft.Text(f"", size=14, color=BLUE, text_align=ft.TextAlign.RIGHT)
+    selection_count_text = ft.Text("", size=14, color=BLUE, text_align=ft.TextAlign.RIGHT)
     sort_switch = ft.Switch(
         label="Trier par date",
         value=False,
@@ -421,6 +422,186 @@ def main(page: ft.Page):
         except Exception as err:
             log_to_terminal(f"[ERREUR] Décompression: {err}", RED)
 
+    _IMAGE_VIEWER_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"}
+
+    def open_image_viewer(start_path):
+        """Affiche un lecteur d'image plein écran avec navigation prev/next (page.views)."""
+        entries = all_entries_data["list"]
+        image_paths = [fp for (_, fp, is_d, is_img, _ext) in entries if is_img and not is_d]
+        if not image_paths:
+            image_paths = [start_path]
+        try:
+            current_idx = {"v": image_paths.index(start_path)}
+        except ValueError:
+            current_idx = {"v": 0}
+            image_paths = [start_path]
+
+        prev_kb = page.on_keyboard_event
+
+        viewer_image = ft.Image(
+            src=image_paths[current_idx["v"]],
+            fit=ft.BoxFit.CONTAIN,
+            expand=True,
+            error_content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=ft.Colors.WHITE54),
+        )
+        filename_text = ft.Text(
+            os.path.basename(image_paths[current_idx["v"]]),
+            size=13,
+            color=ft.Colors.WHITE,
+            weight=ft.FontWeight.W_500,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+        )
+        counter_text = ft.Text(
+            f"{current_idx['v'] + 1} / {len(image_paths)}",
+            size=12,
+            color=ft.Colors.WHITE70,
+        )
+
+        def _update():
+            idx = current_idx["v"]
+            viewer_image.src = image_paths[idx]
+            filename_text.value = os.path.basename(image_paths[idx])
+            counter_text.value = f"{idx + 1} / {len(image_paths)}"
+            page.update()
+
+        def go_prev(e):
+            if len(image_paths) > 1:
+                current_idx["v"] = (current_idx["v"] - 1) % len(image_paths)
+                _update()
+
+        def go_next(e):
+            if len(image_paths) > 1:
+                current_idx["v"] = (current_idx["v"] + 1) % len(image_paths)
+                _update()
+
+        def close_viewer(e):
+            page.on_keyboard_event = prev_kb
+            page.theme = ft.Theme(
+                page_transitions=ft.PageTransitionsTheme(
+                    macos=ft.PageTransitionTheme.NONE,
+                    windows=ft.PageTransitionTheme.NONE,
+                    linux=ft.PageTransitionTheme.NONE,
+                )
+            )
+            if len(page.views) > 1:
+                page.views.pop()
+            page.update()
+
+        def on_key(e: ft.KeyboardEvent):
+            if e.key in ("Arrow Right", "ArrowRight"):
+                go_next(None)
+            elif e.key in ("Arrow Left", "ArrowLeft"):
+                go_prev(None)
+            elif e.key in ("Escape", " "):
+                close_viewer(None)
+
+        page.on_keyboard_event = on_key
+
+        page.theme = ft.Theme(
+            page_transitions=ft.PageTransitionsTheme(
+                macos=ft.PageTransitionTheme.OPEN_UPWARDS,
+                windows=ft.PageTransitionTheme.OPEN_UPWARDS,
+                linux=ft.PageTransitionTheme.OPEN_UPWARDS,
+            )
+        )
+
+        btn_style = ft.ButtonStyle(
+            overlay_color=ft.Colors.with_opacity(0.15, ft.Colors.WHITE),
+        )
+
+        bar_bg = ft.Colors.with_opacity(0.60, "#0d0d0d")
+
+        top_bar = ft.Row(
+            [
+                ft.Container(
+                    content=ft.Column(
+                        [filename_text, counter_text],
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=2,
+                    ),
+                    bgcolor=bar_bg,
+                    padding=ft.Padding.symmetric(horizontal=24, vertical=10),
+                    border_radius=16,
+                    width=320,
+                ),
+            ],
+            alignment=ft.MainAxisAlignment.CENTER,
+        )
+
+        nav_bar = ft.Container(
+            content=ft.Row(
+                [
+                    ft.IconButton(
+                        icon=ft.Icons.ARROW_BACK_IOS_NEW_ROUNDED,
+                        icon_color=ft.Colors.WHITE,
+                        icon_size=26,
+                        tooltip="Image précédente",
+                        on_click=go_prev,
+                        style=btn_style,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE_ROUNDED,
+                        icon_color=ft.Colors.WHITE,
+                        icon_size=24,
+                        tooltip="Fermer",
+                        on_click=close_viewer,
+                        style=btn_style,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.ARROW_FORWARD_IOS_ROUNDED,
+                        icon_color=ft.Colors.WHITE,
+                        icon_size=26,
+                        tooltip="Image suivante",
+                        on_click=go_next,
+                        style=btn_style,
+                    ),
+                ],
+                alignment=ft.MainAxisAlignment.CENTER,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                tight=True,
+            ),
+            bgcolor=bar_bg,
+            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+            border_radius=16,
+        )
+
+        nav_bar_row = ft.Row(
+            [nav_bar],
+            alignment=ft.MainAxisAlignment.CENTER,
+        )
+
+        viewer_view = ft.View(
+            route="/image_viewer",
+            bgcolor="#000000",
+            padding=0,
+            controls=[
+                ft.Stack(
+                    [
+                        ft.Container(
+                            content=viewer_image,
+                            expand=True,
+                            alignment=ft.Alignment(0, 0),
+                        ),
+                        ft.Column(
+                            [
+                                ft.Container(content=top_bar, padding=ft.Padding(0, 12, 0, 0)),
+                                ft.Container(expand=True),
+                                ft.Container(content=nav_bar_row, padding=ft.Padding(0, 0, 0, 16)),
+                            ],
+                            spacing=0,
+                            expand=True,
+                            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                        ),
+                    ],
+                    expand=True,
+                )
+            ],
+        )
+        page.views.append(viewer_view)
+        page.update()
+
+
     def on_file_click(file_path, is_dir):
         """Gère le clic sur un fichier ou dossier dans la preview"""
         if is_dir:
@@ -428,6 +609,8 @@ def main(page: ft.Page):
         elif os.path.splitext(file_path)[1].lower() == ".zip":
             log_to_terminal(f"Extraction: {os.path.splitext(os.path.basename(file_path))[0]}", BLUE)
             extract_zip(file_path)
+        elif os.path.splitext(file_path)[1].lower() in _IMAGE_VIEWER_EXTS:
+            open_image_viewer(file_path)
         else:
             open_file_with_default_app(file_path)
 
@@ -1558,7 +1741,7 @@ def main(page: ft.Page):
                             max_lines=3,
                         ),
                         expand=True,
-                        alignment=ft.alignment.Alignment(0, 0),
+                        alignment=ft.Alignment(0, 0),
                         on_click=lambda e, name=app_name, path=app_path, local=is_local: launch_app(name, path, local),
                         bgcolor=GREY,
                         border=ft.Border.all(1, app_color),
@@ -1899,9 +2082,6 @@ def main(page: ft.Page):
 #############################################################
 #                            RUN                            #
 #############################################################
-import asyncio
-import sys
-
 # Neutralise l'erreur asyncio Windows "ConnectionResetError: [WinError 10054]"
 # qui apparaît lors de la fermeture des pipes des sous-processus.
 # C'est un bug connu de la boucle ProactorEventLoop sous Windows — sans impact fonctionnel.
@@ -1917,7 +2097,6 @@ if sys.platform == "win32":
         else:
             loop.default_exception_handler(context)
 
-    import asyncio
     _loop = asyncio.new_event_loop()
     _original_exception_handler = _loop.get_exception_handler()
     _loop.set_exception_handler(_silence_proactor_pipe_errors)

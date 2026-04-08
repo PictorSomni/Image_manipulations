@@ -826,8 +826,11 @@ class PhotoCropper:
         self.display_w = int(round(self.orig_w * self.base_scale))
         self.display_h = int(round(self.orig_h * self.base_scale))
         if not self.is_fit_in:
-            self.display_w = max(self.display_w, math.ceil(self.canvas_w))
-            self.display_h = max(self.display_h, math.ceil(self.canvas_h))
+            # +4 px garantit un débordement minimum même quand le ratio de l'image
+            # correspond exactement à celui du format d'impression (ex. photo 2:3 en 10×15).
+            # Sans ce surplus, overflow = 0 → _clamp_offsets bloque le pan à scale = 1.0.
+            self.display_w = max(self.display_w, math.ceil(self.canvas_w) + 4)
+            self.display_h = max(self.display_h, math.ceil(self.canvas_h) + 4)
 
         self.image_display.width = self.display_w
         self.image_display.height = self.display_h
@@ -1633,9 +1636,10 @@ class PhotoCropper:
         ph = max(1, int(self.display_h))
         preview = self.current_pil_image.resize((pw, ph), Image.Resampling.BILINEAR)
         if preview.mode == "RGBA":
-            # Clé de cache : image source + taille d'affichage + paramètres de composition
+            # Clé de cache : image source + taille d'affichage + format + paramètres de composition
             _cache_key = (
                 id(self.current_pil_image), pw, ph,
+                round(self.canvas_w), self.canvas_is_portrait,
                 getattr(self, 'rembg_erosion_radius', 0),
                 getattr(self, 'rembg_bg_white', True),
             )
@@ -1645,8 +1649,15 @@ class PhotoCropper:
             else:
                 # Érosion au format réduit — beaucoup plus rapide qu'à pleine résolution.
                 # Le rayon est mis à l'échelle pour que la preview corresponde au résultat final.
+                # L'échelle correcte est canvas_w / target_w_px (affichage → export),
+                # et non display_w / orig_w (qui sous-estime fortement pour les petits formats).
                 if getattr(self, 'rembg_erosion_radius', 0) > 0:
-                    scale = pw / self.orig_w
+                    fmt_w_mm, fmt_h_mm = self.current_format
+                    if self.canvas_is_portrait:
+                        target_w_px_preview = round(fmt_w_mm / 25.4 * DPI)
+                    else:
+                        target_w_px_preview = round(fmt_h_mm / 25.4 * DPI)
+                    scale = self.canvas_w / max(1, target_w_px_preview)
                     scaled_radius = max(1, round(self.rembg_erosion_radius * scale))
                     preview = _erode_alpha(preview, scaled_radius)
                 if getattr(self, 'rembg_bg_white', True):
@@ -1749,21 +1760,6 @@ class PhotoCropper:
             self.zoom_slider.update()
         self._clamp_offsets()
         self._update_transform()
-
-    # def on_scale_start(self, e: ft.ScaleStartEvent):
-    #     """Début du pinch-to-zoom (trackpad macOS — désactivé)."""
-    #     self.pinch_start_scale = self.scale
-
-    # def on_scale_update(self, e: ft.ScaleUpdateEvent):
-    #     """Pendant le pinch-to-zoom (trackpad macOS — désactivé)."""
-    #     old_scale = self.scale
-    #     self.scale = max(1.0, min(10.0, self.pinch_start_scale * e.scale))
-    #     if old_scale != self.scale:
-    #         ratio = self.scale / old_scale
-    #         self.offset_x *= ratio
-    #         self.offset_y *= ratio
-    #     self._clamp_offsets()
-    #     self._update_transform()
 
     def on_rotation_update(self, e):
         """
@@ -2215,24 +2211,6 @@ class PhotoCropper:
             self.border_switch_ID2.value = False
             self.page.update()
 
-    def on_enhance_toggle(self, e):
-        """
-        Active / désactive l'amélioration automatique (enhance_toggle).
-
-        Ce switch n'est plus affiché dans l'interface (supprimé de l'UI)
-        mais la méthode est conservée pour la compatibilité ascendante avec
-        d'anciens snapshots qui peuvent référencer ce réglage.
-
-        Parameters
-        ----------
-        e : ft.ControlEvent
-            Événement du Switch.
-        """
-        # Conservé pour compatibilité snapshots mais plus exposé en UI
-        self.enhance_toggle = bool(e.control.value)
-        self._render_preview()
-        self.page.update()
-
     # Label uniquement (pendant le glissement)
     def on_shadows_label(self, e):
         """
@@ -2264,11 +2242,6 @@ class PhotoCropper:
         self.shadows = e.control.value
         self._render_preview()
         self.page.update()
-
-    def on_shadows_update(self, e):  # alias pour compatibilité
-        """Alias de `on_shadows_label`, maintenu pour la compatibilité
-        avec d'anciennes versions du code qui utilisaient ce nom."""
-        self.on_shadows_label(e)
 
     def on_highlights_label(self, e):
         """
@@ -2326,10 +2299,6 @@ class PhotoCropper:
         self._render_preview()
         self.page.update()
 
-    def on_contrast_update(self, e):  # alias
-        """Alias de `on_contrast_label` pour compatibilité ascendante."""
-        self.on_contrast_label(e)
-
     def on_saturation_label(self, e):
         """
         Mise à jour du label du slider Saturation pendant le glissement.
@@ -2356,10 +2325,6 @@ class PhotoCropper:
         self._render_preview()
         self.page.update()
 
-    def on_saturation_update(self, e):  # alias
-        """Alias de `on_saturation_label` pour compatibilité ascendante."""
-        self.on_saturation_label(e)
-
     def on_exposure_label(self, e):
         """
         Mise à jour du label du slider Exposition pendant le glissement.
@@ -2385,10 +2350,6 @@ class PhotoCropper:
         self.exposure = e.control.value
         self._render_preview()
         self.page.update()
-
-    def on_exposure_update(self, e):  # alias
-        """Alias de `on_exposure_label` pour compatibilité ascendante."""
-        self.on_exposure_label(e)
 
     def on_hue_label(self, e):
         """Mise à jour du label du slider Teinte pendant le glissement."""
@@ -2519,7 +2480,6 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
-            self.sharpen_switch.value = self.sharpen_switch.value
         elif "13x18" in self.current_format_label or "15x20" in self.current_format_label:
             self.two_in_one_switch.visible = True
             self.two_in_one_switch.value = False
@@ -2535,7 +2495,6 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
-            self.sharpen_switch.value = self.sharpen_switch.value
         elif "18x24" in self.current_format_label:
             self.two_in_one_switch.visible = False
             self.border_switch_20x24.visible = True
@@ -2548,7 +2507,6 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
-            self.sharpen_switch.value = self.sharpen_switch.value
             self.border_switch_polaroid.visible = False
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
@@ -2562,7 +2520,6 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
-            self.sharpen_switch.value = self.sharpen_switch.value
         elif "ID" in self.current_format_label:
             self.two_in_one_switch.visible = False
             self.border_switch_ID2.visible = True
@@ -2590,7 +2547,6 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
-            self.sharpen_switch.value = self.sharpen_switch.value
             self.border_switch_polaroid.visible = False
             self.border_switch_polaroid.value = False
             self.border_polaroid = False

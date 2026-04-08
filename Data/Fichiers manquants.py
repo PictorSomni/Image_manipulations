@@ -13,7 +13,7 @@ Variables d'environnement :
   SELECTED_FILES  — chemin du dossier de destination (fichier/dossier sélectionné).
 """
 
-__version__ = "1.9.7"
+__version__ = "1.9.8"
 
 ENV_SELECTED_FILES_KEY = "SELECTED_FILES"
 OUTPUT_SELECTED_FILES_PREFIX = "SELECTED_FILES:"
