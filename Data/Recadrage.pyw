@@ -717,16 +717,18 @@ class PhotoCropper:
         """
         zoomed_w, zoomed_h = self._get_transformed_bounds()
 
-        if zoomed_w <= self.canvas_w:
+        overflow_x = zoomed_w - self.canvas_w
+        if overflow_x < 0.5:
             self.offset_x = 0
         else:
-            max_offset_x = (zoomed_w - self.canvas_w) / 2
+            max_offset_x = overflow_x / 2
             self.offset_x = min(max_offset_x, max(-max_offset_x, self.offset_x))
 
-        if zoomed_h <= self.canvas_h:
+        overflow_y = zoomed_h - self.canvas_h
+        if overflow_y < 0.5:
             self.offset_y = 0
         else:
-            max_offset_y = (zoomed_h - self.canvas_h) / 2
+            max_offset_y = overflow_y / 2
             self.offset_y = min(max_offset_y, max(-max_offset_y, self.offset_y))
 
     # ================================================================ #
@@ -824,8 +826,8 @@ class PhotoCropper:
         self.display_w = int(round(self.orig_w * self.base_scale))
         self.display_h = int(round(self.orig_h * self.base_scale))
         if not self.is_fit_in:
-            self.display_w = max(self.display_w, int(self.canvas_w))
-            self.display_h = max(self.display_h, int(self.canvas_h))
+            self.display_w = max(self.display_w, math.ceil(self.canvas_w))
+            self.display_h = max(self.display_h, math.ceil(self.canvas_h))
 
         self.image_display.width = self.display_w
         self.image_display.height = self.display_h

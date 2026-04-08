@@ -63,7 +63,7 @@ output_folder = PATH / f"{MAXSIZE[0]}px"
 output_folder.mkdir(exist_ok=True)
 
 for i, file in enumerate(FOLDER):
-    print(f"Image {i+1} sur {TOTAL}")
+    print(f"{i+1}/{TOTAL}")
 
     try:
         base_image = Image.open(file)

@@ -91,8 +91,7 @@ output_folder = PATH / f"Projet_{MAXSIZE[0]}px"
 output_folder.mkdir(exist_ok=True)
 
 for i, file in enumerate(FOLDER):
-    print(f"Image {i+1} sur {TOTAL}")
-    print(f"Fichier : {file}")
+    print(f"{i+1}/{TOTAL}")
 
     try:
         base_image = Image.open(file)
@@ -122,7 +121,6 @@ for i, file in enumerate(FOLDER):
         output_path = output_folder / f"{filename}.jpg"
         base_image.save(output_path, format='JPEG', subsampling=0, quality=QUALITY)
         
-        print(f"  {original_size[0]}x{original_size[1]} -> {new_size[0]}x{new_size[1]}")
     except Exception as e:
         print(f"Erreur lors du traitement : {e}")
         continue

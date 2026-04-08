@@ -649,6 +649,44 @@ async def main(page: ft.Page) -> None:
         bgcolor=DARK,
     )
 
+    # ---- Overlay de compilation ---- #
+    _compile_overlay_label = ft.Text(
+        "Compilation des modèles…",
+        size=15,
+        weight=ft.FontWeight.BOLD,
+        color=WHITE,
+        text_align=ft.TextAlign.CENTER,
+    )
+    _compile_overlay_sub = ft.Text(
+        "",
+        size=12,
+        color=LIGHT_GREY,
+        text_align=ft.TextAlign.CENTER,
+    )
+    _compile_overlay_bar = ft.ProgressBar(
+        width=260,
+        color=BLUE,
+        bgcolor=GREY,
+    )
+    compile_overlay = ft.Container(
+        content=ft.Column(
+            [
+                ft.ProgressRing(color=BLUE, stroke_width=3),
+                _compile_overlay_label,
+                _compile_overlay_sub,
+                _compile_overlay_bar,
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            alignment=ft.MainAxisAlignment.CENTER,
+            spacing=14,
+        ),
+        expand=True,
+        alignment=ft.Alignment(0, 0),
+        bgcolor=ft.Colors.with_opacity(0.72, BG_UI),
+        border_radius=8,
+        visible=False,
+    )
+
     bg_segment = ft.CupertinoSlidingSegmentedButton(
         selected_index=5,
         bgcolor=GREY,
@@ -799,6 +837,16 @@ async def main(page: ft.Page) -> None:
         controls=_inpaint_controls,
         disabled=not (SAM2_AVAILABLE and (CV2_AVAILABLE or IOPAINT_AVAILABLE)),
     )
+
+    # ---- Bouton d'installation IOPaint ---- #
+    inpaint_install_btn = ft.FilledButton(
+        "Installer IOPaint",
+        icon=ft.Icons.DOWNLOAD,
+        visible=not IOPAINT_AVAILABLE,
+        tooltip="pip install iopaint  (ajoute les moteurs lama et mat)",
+    )
+    inpaint_install_status = ft.Text("", size=11, color=LIGHT_GREY, visible=not IOPAINT_AVAILABLE)
+
     sam2_status = ft.Text("", size=11, color=LIGHT_GREY)
     sam2_progress_bar = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
 
@@ -847,6 +895,15 @@ async def main(page: ft.Page) -> None:
         expand=True,
         disabled=not SAM2_AVAILABLE,
     )
+
+    # ---- Bouton d'installation SAM2 ---- #
+    sam2_install_btn = ft.FilledButton(
+        "Installer SAM2",
+        icon=ft.Icons.DOWNLOAD,
+        visible=not SAM2_AVAILABLE,
+        tooltip="pip install -e git+https://github.com/facebookresearch/sam2",
+    )
+    sam2_install_status = ft.Text("", size=11, color=LIGHT_GREY, visible=not SAM2_AVAILABLE)
 
     # ---- Érosion du masque ---- #
     erosion_slider = ft.Slider(
@@ -1485,6 +1542,42 @@ async def main(page: ft.Page) -> None:
         sam2_status.value = "Points effacés"
         _render_preview()
 
+    async def on_sam2_install(e) -> None:
+        """Installe le paquet sam2 via pip dans un sous-processus."""
+        global SAM2_AVAILABLE
+        sam2_install_btn.disabled = True
+        sam2_install_status.value = "Installation en cours…"
+        sam2_install_status.color = LIGHT_GREY
+        page.update()
+        import sys
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "pip", "install", "-q",
+            "git+https://github.com/facebookresearch/sam2",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _stdout, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            import importlib as _il
+            _il.invalidate_caches()
+            SAM2_AVAILABLE = importlib.util.find_spec("sam2") is not None
+            if SAM2_AVAILABLE:
+                sam2_install_status.value = "SAM2 installé — relancez l'application"
+                sam2_install_status.color = ft.Colors.GREEN_400
+                sam2_install_btn.visible  = False
+            else:
+                sam2_install_status.value = "Installé — redémarrez pour activer SAM2"
+                sam2_install_status.color = ft.Colors.AMBER_400
+                sam2_install_btn.disabled = False
+        else:
+            err_msg = stderr.decode(errors="replace").strip().splitlines()
+            sam2_install_status.value = err_msg[-1] if err_msg else "Erreur d'installation"
+            sam2_install_status.color = RED
+            sam2_install_btn.disabled = False
+        page.update()
+
+    sam2_install_btn.on_click = on_sam2_install
+
     async def on_sam2_apply(e) -> None:
         """Lance l'inférence SAM2 sur les points collectés."""
         if not SAM2_AVAILABLE:
@@ -1782,6 +1875,57 @@ async def main(page: ft.Page) -> None:
     sam2_inpaint_radius_slider.on_change   = on_inpaint_radius_change
     sam2_inpaint_segment.on_change         = on_sam2_inpaint_engine_change
 
+    async def on_inpaint_install(e) -> None:
+        """Installe iopaint via pip et rafraîchit la liste des moteurs."""
+        global IOPAINT_AVAILABLE
+        inpaint_install_btn.disabled      = True
+        inpaint_install_status.value      = "Installation en cours…"
+        inpaint_install_status.color      = LIGHT_GREY
+        inpaint_install_status.visible    = True
+        page.update()
+        import sys
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "pip", "install", "-q", "iopaint",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _stdout, stderr = await proc.communicate()
+        if proc.returncode == 0:
+            import importlib as _il
+            _il.invalidate_caches()
+            IOPAINT_AVAILABLE = importlib.util.find_spec("iopaint") is not None
+            if IOPAINT_AVAILABLE:
+                # Reconstruire la liste des moteurs
+                from iopaint.download import scan_models as _sm2
+                _io_available = [m.name for m in _sm2()]
+                for _m in ["lama", "mat"]:
+                    if _m in _io_available and _m not in _inpaint_engines:
+                        _inpaint_engines.append(_m)
+                # Reconstruire les contrôles du segmented button
+                _new_controls = [ft.Text(e, size=10, color=BG_UI) for e in _inpaint_engines]
+                if len(_new_controls) < 2:
+                    _new_controls.append(ft.Text("—", size=10, color=GREY))
+                sam2_inpaint_segment.controls = _new_controls
+                sam2_inpaint_segment.disabled = not SAM2_AVAILABLE
+                sam2_inpaint_btn.disabled     = not SAM2_AVAILABLE
+                sam2_inpaint_btn.bgcolor      = ORANGE if SAM2_AVAILABLE else GREY
+                sam2_inpaint_dilation_slider.disabled = not SAM2_AVAILABLE
+                inpaint_install_status.value  = "IOPaint installé — moteurs lama et mat disponibles"
+                inpaint_install_status.color  = ft.Colors.GREEN_400
+                inpaint_install_btn.visible   = False
+            else:
+                inpaint_install_status.value  = "Installé — redémarrez pour activer IOPaint"
+                inpaint_install_status.color  = ft.Colors.AMBER_400
+                inpaint_install_btn.disabled  = False
+        else:
+            err_msg = stderr.decode(errors="replace").strip().splitlines()
+            inpaint_install_status.value  = err_msg[-1] if err_msg else "Erreur d'installation"
+            inpaint_install_status.color  = RED
+            inpaint_install_btn.disabled  = False
+        page.update()
+
+    inpaint_install_btn.on_click = on_inpaint_install
+
     # async def on_batch(e) -> None:
     #     """Traite toutes les images restantes avec les paramètres rembg actuels."""
     #     if not REMBG_AVAILABLE or state["batch_running"]:
@@ -1877,10 +2021,12 @@ async def main(page: ft.Page) -> None:
                 size=11,
                 color=LIGHT_GREY,
             ) if SAM2_AVAILABLE else ft.Text(
-                "sam2 non installé — pip install -e git+https://github.com/facebookresearch/sam2",
+                "sam2 non installé",
                 size=10,
                 color=RED,
             ),
+            sam2_install_btn,
+            sam2_install_status,
             ft.Row(
                 [ft.Text("Modèle", size=11, color=LIGHT_GREY, width=46), sam2_model_segment, sam2_clear_btn],
                 spacing=6,
@@ -1896,6 +2042,8 @@ async def main(page: ft.Page) -> None:
                 spacing=6,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
+            inpaint_install_btn,
+            inpaint_install_status,
             ft.Row(
                 [ft.Text("Dilat.", size=11, color=LIGHT_GREY, width=46), sam2_inpaint_dilation_slider],
                 spacing=6,
@@ -1950,7 +2098,7 @@ async def main(page: ft.Page) -> None:
             ),
             ft.Container(
                 content=ft.Stack(
-                    [preview_placeholder, preview_centered],
+                    [preview_placeholder, preview_centered, compile_overlay],
                 ),
                 expand=True,
                 border_radius=8,
@@ -2027,8 +2175,11 @@ async def main(page: ft.Page) -> None:
             return
 
         total = len(to_compile)
-        enhance_progress_bar.value   = 0.0
-        enhance_progress_bar.visible = True
+        enhance_progress_bar.value    = 0.0
+        enhance_progress_bar.visible  = True
+        _compile_overlay_sub.value    = ""
+        _compile_overlay_bar.value    = 0.0
+        compile_overlay.visible       = True
         page.update()
 
         def _compile_one(kind: str, name: str, path: str) -> None:
@@ -2079,21 +2230,25 @@ async def main(page: ft.Page) -> None:
 
         for i, (kind, name, path, mkey, st) in enumerate(to_compile):
             label = name if kind == "spandrel" else f"SAM2 {name}"
-            enhance_status.value       = f"Compilation {i + 1}/{total} — {label}…"
-            enhance_progress_bar.value = i / total
+            enhance_status.value         = f"Compilation {i + 1}/{total} — {label}…"
+            enhance_progress_bar.value   = i / total
+            _compile_overlay_sub.value   = f"{i + 1} / {total} — {label}…"
+            _compile_overlay_bar.value   = i / total
             page.update()
             try:
                 await asyncio.to_thread(_compile_one, kind, name, path)
                 manifest[mkey] = {"mtime": st.st_mtime, "size": st.st_size}
                 _write_compile_manifest(manifest)
             except Exception as ex:
-                enhance_status.value = f"[AVERT.] {label} : {ex}"
+                enhance_status.value       = f"[AVERT.] {label} : {ex}"
+                _compile_overlay_sub.value = f"⚠️ {ex}"
                 page.update()
                 await asyncio.sleep(1.5)
 
-        enhance_progress_bar.value   = 1.0
-        enhance_progress_bar.visible = False
-        enhance_status.value         = f"[OK] {total} modèle(s) compilé(s) — prêt"
+        enhance_progress_bar.value    = 1.0
+        enhance_progress_bar.visible  = False
+        enhance_status.value          = f"[OK] {total} modèle(s) compilé(s) — prêt"
+        compile_overlay.visible       = False
         page.update()
 
     # ------------------------------------------------------------------ #

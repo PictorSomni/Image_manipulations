@@ -595,6 +595,111 @@ def main(page: ft.Page):
         
         refresh_preview()
 
+    def _open_numpad(file_path):
+        """Affiche un pavé numérique en sur-impression pour définir le nombre d'impressions."""
+        basename = os.path.basename(file_path)
+        m = re.match(r'^(\d+)X_', basename)
+        numpad_value = {"text": m.group(1) if m else ""}
+
+        display = ft.Text(
+            numpad_value["text"] or "—",
+            size=32, weight=ft.FontWeight.BOLD,
+            color=YELLOW, text_align=ft.TextAlign.CENTER,
+        )
+
+        def _refresh_display():
+            display.value = numpad_value["text"] or "—"
+            display.update()
+
+        def _press(d):
+            if len(numpad_value["text"]) < 3:
+                numpad_value["text"] += str(d)
+            _refresh_display()
+
+        def _backspace(e):
+            numpad_value["text"] = numpad_value["text"][:-1]
+            _refresh_display()
+
+        def _confirm(e):
+            val = numpad_value["text"]
+            if not val or not val.isdigit() or int(val) < 1:
+                log_to_terminal("[ERREUR] Nombre invalide", RED)
+                return
+            n = int(val)
+            numpad_dialog.open = False
+            page.update()
+            folder = os.path.dirname(file_path)
+            clean = re.sub(r'^\d+X_', '', basename)
+            new_name = f"{n}X_{clean}"
+            new_path = os.path.join(folder, new_name)
+            if new_path != file_path:
+                try:
+                    os.rename(file_path, new_path)
+                    log_to_terminal(f"[OK] {basename} → {new_name}", GREEN)
+                    if file_path in selected_files:
+                        selected_files.discard(file_path)
+                        selected_files.add(new_path)
+                except Exception as err:
+                    log_to_terminal(f"[ERREUR] {err}", RED)
+            refresh_preview(reset_page=False)
+
+        def _cancel(e):
+            numpad_dialog.open = False
+            page.update()
+
+        def _btn(label, on_click, color=GREY, text_color=WHITE):
+            return ft.Container(
+                content=ft.Text(str(label), size=18, weight=ft.FontWeight.BOLD,
+                                color=text_color, text_align=ft.TextAlign.CENTER),
+                width=60, height=52,
+                bgcolor=color, border_radius=6,
+                alignment=ft.Alignment(0, 0),
+                on_click=on_click, ink=True,
+            )
+
+        numpad_grid = ft.Column([
+            ft.Container(
+                content=display,
+                bgcolor=DARK, border_radius=6,
+                padding=ft.Padding(12, 8, 12, 8),
+                alignment=ft.Alignment(0, 0),
+                width=210,
+            ),
+            ft.Row([_btn(7, lambda e: _press(7)), _btn(8, lambda e: _press(8)), _btn(9, lambda e: _press(9))], spacing=6, tight=True),
+            ft.Row([_btn(4, lambda e: _press(4)), _btn(5, lambda e: _press(5)), _btn(6, lambda e: _press(6))], spacing=6, tight=True),
+            ft.Row([_btn(1, lambda e: _press(1)), _btn(2, lambda e: _press(2)), _btn(3, lambda e: _press(3))], spacing=6, tight=True),
+            ft.Row([_btn("⌫", _backspace, GREY, ORANGE), _btn(0, lambda e: _press(0)), _btn("✓", _confirm, GREEN, DARK)], spacing=6, tight=True),
+        ], spacing=6, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+
+        numpad_dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Nombre d'impressions"),
+            content=numpad_grid,
+            actions=[ft.TextButton("Annuler", on_click=_cancel)],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.overlay.append(numpad_dialog)
+        numpad_dialog.open = True
+        page.update()
+
+    def _remove_print_prefix(file_path):
+        """Retire le préfixe NX_ d'un fichier."""
+        basename = os.path.basename(file_path)
+        folder = os.path.dirname(file_path)
+        clean = re.sub(r'^\d+X_', '', basename)
+        if clean == basename:
+            return
+        new_path = os.path.join(folder, clean)
+        try:
+            os.rename(file_path, new_path)
+            log_to_terminal(f"[OK] Compteur retiré : {clean}", GREEN)
+            if file_path in selected_files:
+                selected_files.discard(file_path)
+                selected_files.add(new_path)
+        except Exception as err:
+            log_to_terminal(f"[ERREUR] {err}", RED)
+        refresh_preview(reset_page=False)
+
     # ================================================================ #
     #                          SÉLECTION                               #
     # ================================================================ #
@@ -808,15 +913,57 @@ def main(page: ft.Page):
                     else:
                         visual = ft.Icon(icon, color=icon_color, size=18)
 
+                    delete_btn = ft.IconButton(
+                        icon=ft.Icons.DELETE_OUTLINE, icon_size=16,
+                        icon_color=ft.Colors.RED_300, tooltip="Supprimer",
+                        on_click=lambda e, path=file_path: delete_item(path),
+                        style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                    )
+                    if is_dir:
+                        trailing = delete_btn
+                    else:
+                        pm = re.match(r'^(\d+)X_', file)
+                        p_count = int(pm.group(1)) if pm else None
+                        if p_count is not None:
+                            count_chip = ft.Container(
+                                content=ft.Text(f"{p_count}×", size=11,
+                                                color=YELLOW, weight=ft.FontWeight.BOLD),
+                                bgcolor=GREY, border_radius=4,
+                                padding=ft.Padding(5, 2, 5, 2),
+                                tooltip="Modifier le nombre d'impressions",
+                                on_click=lambda e, p=file_path: _open_numpad(p),
+                                ink=True,
+                            )
+                            remove_btn = ft.IconButton(
+                                icon=ft.Icons.CLOSE, icon_size=13,
+                                icon_color=LIGHT_GREY, tooltip="Retirer le compteur",
+                                on_click=lambda e, p=file_path: _remove_print_prefix(p),
+                                style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                            )
+                            trailing = ft.Row(
+                                [count_chip, remove_btn, delete_btn],
+                                spacing=0, tight=True,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            )
+                        else:
+                            print_btn = ft.IconButton(
+                                icon=ft.Icons.PRINT_OUTLINED, icon_size=14,
+                                icon_color=LIGHT_GREY,
+                                tooltip="Définir le nombre d'impressions",
+                                on_click=lambda e, p=file_path: _open_numpad(p),
+                                style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                            )
+                            trailing = ft.Row(
+                                [print_btn, delete_btn],
+                                spacing=0, tight=True,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                            )
+
                     new_controls.append(
                         ft.ListTile(
                             leading=ft.Row([checkbox, visual], spacing=8, tight=True),
                             title=ft.Text(file, size=12, color=WHITE),
-                            trailing=ft.IconButton(
-                                icon=ft.Icons.DELETE_OUTLINE, icon_size=16,
-                                icon_color=ft.Colors.RED_300, tooltip="Supprimer",
-                                on_click=lambda e, path=file_path: delete_item(path),
-                            ),
+                            trailing=trailing,
                             on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
                             hover_color=GREY, dense=True,
                             content_padding=ft.Padding(left=5, top=0, right=5, bottom=0),
@@ -1733,6 +1880,7 @@ def main(page: ft.Page):
                             icon_color=ORANGE,
                             icon_size=18,
                         ),
+
                     ], spacing=5, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     ft.Container(
                         content=terminal_output,
