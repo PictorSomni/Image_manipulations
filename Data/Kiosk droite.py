@@ -15,7 +15,7 @@ Chemins :
 Dépendances : modules standard (sys, re, collections, pathlib, platform, shutil)
 """
 
-__version__ = "1.9.6"
+__version__ = "1.9.7"
 
 #############################################################
 #                          IMPORTS                          #

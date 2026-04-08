@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "1.9.6"
+__version__ = "1.9.7"
 
 #############################################################
 #                          IMPORTS                          #
@@ -1453,9 +1453,12 @@ def main(page: ft.Page):
         page.window.minimized = True
 
     def update_app(e):
-        """Stash les changements locaux, git pull --rebase, puis supprime le stash."""
+        """Stash les changements locaux, git pull --rebase, pip install -r requirements.txt, relance."""
         page.pubsub.send_all_on_topic("terminal", ("Mise à jour en cours…", YELLOW))
         def _run():
+            def pub(msg, color=LIGHT_GREY):
+                page.pubsub.send_all_on_topic("terminal", (msg, color))
+
             def run_git(*args):
                 return subprocess.run(
                     ["git", *args],
@@ -1474,23 +1477,65 @@ def main(page: ft.Page):
                 result = run_git("pull", "--rebase", "origin")
                 output = (result.stdout + result.stderr).strip()
 
-                if result.returncode == 0:
-                    # Supprimer le stash (changements locaux abandonnés)
-                    if stashed:
-                        run_git("stash", "drop")
-                    if "Already up to date" in output or "Déjà à jour" in output or output == "":
-                        msg = ("✔ Déjà à jour.", GREEN)
-                    else:
-                        msg = (f"✔ Mise à jour réussie.\n{output}", GREEN)
-                else:
+                if result.returncode != 0:
                     # Restaurer le stash en cas d'échec du rebase
                     if stashed:
                         run_git("rebase", "--abort")
                         run_git("stash", "pop")
-                    msg = (f"✖ Erreur lors de la mise à jour.\n{output}", RED)
+                    pub(f"✖ Erreur lors de la mise à jour.\n{output}", RED)
+                    return
+
+                # Supprimer le stash (changements locaux abandonnés)
+                if stashed:
+                    run_git("stash", "drop")
+
+                if "Already up to date" in output or "Déjà à jour" in output or output == "":
+                    pub("✔ Déjà à jour.", GREEN)
+                else:
+                    pub(f"✔ Code mis à jour.\n{output}", GREEN)
+
+                # ── Installation des dépendances ──────────────────────────
+                req_path = os.path.join(cwd, "requirements.txt")
+                if not os.path.isfile(req_path):
+                    pub("⚠ requirements.txt introuvable, installation ignorée.", YELLOW)
+                else:
+                    pub("📦 Installation des dépendances (requirements.txt)…", YELLOW)
+                    pip_proc = subprocess.Popen(
+                        [sys.executable, "-m", "pip", "install", "-r", req_path, "--upgrade"],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        cwd=cwd,
+                    )
+                    for line in pip_proc.stdout:
+                        line = line.rstrip()
+                        if line:
+                            pub(line)
+                    pip_proc.wait()
+                    if pip_proc.returncode == 0:
+                        pub("✔ Dépendances installées.", GREEN)
+                    else:
+                        pub(f"⚠ pip a terminé avec le code {pip_proc.returncode}.", YELLOW)
+
+                # ── Redémarrage automatique ───────────────────────────────
+                pub("🔄 Redémarrage du Dashboard…", BLUE)
+                script = os.path.abspath(__file__)
+                # Petit processus détaché : attend 2 s puis relance le dashboard
+                subprocess.Popen(
+                    [
+                        sys.executable, "-c",
+                        f"import time, subprocess, sys; time.sleep(2); "
+                        f"subprocess.Popen([sys.executable, r'{script}'])",
+                    ],
+                    close_fds=True,
+                )
+                page.window.close()
+
             except Exception as exc:
-                msg = (f"✖ [ERREUR] {exc}", RED)
-            page.pubsub.send_all_on_topic("terminal", msg)
+                page.pubsub.send_all_on_topic("terminal", (f"✖ [ERREUR] {exc}", RED))
+
         threading.Thread(target=_run, daemon=True).start()
 
     refresh_apps()

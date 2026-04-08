@@ -53,7 +53,7 @@ sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au t
 Version : 1.9.5
 """
 
-__version__ = "1.9.6"
+__version__ = "1.9.7"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -789,11 +789,14 @@ async def main(page: ft.Page) -> None:
                 _inpaint_engines.append(_m)
     if not _inpaint_engines:
         _inpaint_engines = ["telea"]
+    _inpaint_controls = [ft.Text(e, size=10, color=BG_UI) for e in _inpaint_engines]
+    if len(_inpaint_controls) < 2:
+        _inpaint_controls.append(ft.Text("—", size=10, color=GREY))
     sam2_inpaint_segment = ft.CupertinoSlidingSegmentedButton(
         selected_index=0,  # telea par défaut
         bgcolor=GREY,
         thumb_color=ORANGE,
-        controls=[ft.Text(e, size=10, color=BG_UI) for e in _inpaint_engines],
+        controls=_inpaint_controls,
         disabled=not (SAM2_AVAILABLE and (CV2_AVAILABLE or IOPAINT_AVAILABLE)),
     )
     sam2_status = ft.Text("", size=11, color=LIGHT_GREY)
