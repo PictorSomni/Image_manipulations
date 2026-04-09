@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : flet >= 0.21, modules standard (pathlib, shutil, datetime)
 """
 
-__version__ = "1.9.8"
+__version__ = "1.9.9"
 
 #############################################################
 #                          IMPORTS                          #
@@ -38,6 +38,17 @@ import flet as ft
 DEFAULT_SOURCE = Path.home() / "Downloads"
 DEFAULT_DEST = Path(os.environ.get("DEST_FOLDER", "Z:/temp"))
 LAUNCHED_FROM_DASHBOARD = os.environ.get("LAUNCHED_FROM_DASHBOARD") == "1"
+
+# Fichiers/dossiers spécifiques passés par le Dashboard (chemins complets séparés par |)
+_SOURCE_FILES_ENV = os.environ.get("SOURCE_FILES", "")
+SOURCE_FILES_FROM_DASHBOARD: list = []
+if _SOURCE_FILES_ENV:
+    for _p in _SOURCE_FILES_ENV.split("|"):
+        _path = Path(_p)
+        if _path.is_dir():
+            SOURCE_FILES_FROM_DASHBOARD.extend(f for f in _path.iterdir() if f.is_file())
+        elif _path.is_file():
+            SOURCE_FILES_FROM_DASHBOARD.append(_path)
 
 # Colors
 DARK = "#23252a"
@@ -216,8 +227,11 @@ def main(page: ft.Page):
             status_text.color = ft.Colors.BLUE
             status_text.update()
             
-            # Obtenir la liste des fichiers dans le dossier source
-            source_files = get_files_list(from_folder_path)
+            # Utiliser les fichiers passés par le Dashboard si disponibles
+            if SOURCE_FILES_FROM_DASHBOARD:
+                source_files = SOURCE_FILES_FROM_DASHBOARD
+            else:
+                source_files = get_files_list(from_folder_path)
             
             if not source_files:
                 print("Aucun fichier à copier dans le dossier source", flush=True)

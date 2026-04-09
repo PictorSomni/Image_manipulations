@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "1.9.8"
+__version__ = "1.9.9"
 
 #############################################################
 #                          IMPORTS                          #
@@ -1465,6 +1465,8 @@ def main(page: ft.Page):
                     else:
                         env["DEST_FOLDER"] = "/Volumes/TRAVAUX EN COURS/Z2026/TEMP"
                     env["LAUNCHED_FROM_DASHBOARD"] = "1"
+                    if selected_files:
+                        env["SOURCE_FILES"] = "|".join(str(f) for f in selected_files)
                 
                 process = subprocess.Popen(
                     [sys.executable, "-u", app_path],
@@ -1807,6 +1809,11 @@ def main(page: ft.Page):
         """Réduit la fenêtre dans la barre des tâches."""
         page.window.minimized = True
 
+    def toggle_maximize_window(e):
+        """Bascule entre fenêtre maximisée et taille normale."""
+        page.window.maximized = not page.window.maximized
+        page.update()
+
     def update_app(e):
         """Stash les changements locaux, git pull --rebase, pip install -r requirements.txt, relance."""
         page.pubsub.send_all_on_topic("terminal", ("Mise à jour en cours…", YELLOW))
@@ -1941,6 +1948,11 @@ def main(page: ft.Page):
                 ft.Container(expand=True),
                 ft.IconButton(
                     icon=ft.Icons.MINIMIZE, on_click=minimize_window,),
+                ft.IconButton(
+                    icon=ft.Icons.FULLSCREEN,
+                    on_click=toggle_maximize_window,
+                    tooltip="Maximiser / Restaurer",
+                ),
                 ft.IconButton(ft.Icons.CLOSE, on_click=close_window),
             ])
         ),

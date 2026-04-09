@@ -50,10 +50,9 @@ Au premier lancement, rembg télécharge automatiquement le modèle birefnet-por
 (~450 Mo) dans ``~/.u2net/``. Les modèles spandrel (RealESRGAN, FaceUpSharpDAT)
 sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au total).
 
-Version : 1.9.8
 """
 
-__version__ = "1.9.8"
+__version__ = "1.9.9"
 
 ###############################################################
 #                         IMPORTS                             #
