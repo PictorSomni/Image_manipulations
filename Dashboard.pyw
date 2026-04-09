@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "1.9.9"
+__version__ = "2.0.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -41,6 +41,10 @@ import time
 import json
 import math
 import asyncio
+try:
+    from PIL import Image as _PILImage
+except ImportError:
+    _PILImage = None
 
 #############################################################
 #                           MAIN                            #
@@ -445,7 +449,7 @@ def main(page: ft.Page):
     _IMAGE_VIEWER_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"}
 
     def open_image_viewer(start_path):
-        """Affiche un lecteur d'image plein écran avec navigation prev/next (page.views)."""
+        """Affiche un lecteur d'image plein écran avec navigation prev/next, zoom et déplacement (InteractiveViewer)."""
         entries = all_entries_data["list"]
         image_paths = [fp for (_, fp, is_d, is_img, _ext) in entries if is_img and not is_d]
         if not image_paths:
@@ -458,12 +462,17 @@ def main(page: ft.Page):
 
         prev_kb = page.on_keyboard_event
 
-        viewer_image = ft.Image(
-            src=image_paths[current_idx["v"]],
-            fit=ft.BoxFit.CONTAIN,
-            expand=True,
-            error_content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=ft.Colors.WHITE54),
-        )
+        # ── Helpers ──────────────────────────────────────────────────────
+        def _get_resolution(path):
+            if _PILImage:
+                try:
+                    with _PILImage.open(path) as _im:
+                        return f"{_im.width} × {_im.height}"
+                except Exception:
+                    pass
+            return ""
+
+        # ── Contrôles texte ───────────────────────────────────────────────
         filename_text = ft.Text(
             os.path.basename(image_paths[current_idx["v"]]),
             size=13,
@@ -477,29 +486,67 @@ def main(page: ft.Page):
             size=12,
             color=ft.Colors.WHITE70,
         )
-
+        resolution_text = ft.Text(
+            _get_resolution(image_paths[current_idx["v"]]),
+            size=12,
+            color=ft.Colors.WHITE54,
+        )
         viewer_checkbox = ft.Checkbox(
             value=image_paths[current_idx["v"]] in selected_files,
             on_change=lambda e: on_checkbox_change(e, image_paths[current_idx["v"]]),
         )
 
-        def _update():
-            idx = current_idx["v"]
-            viewer_image.src = image_paths[idx]
-            filename_text.value = os.path.basename(image_paths[idx])
-            counter_text.value = f"{idx + 1} / {len(image_paths)}"
-            viewer_checkbox.value = image_paths[idx] in selected_files
+        # ── InteractiveViewer ─────────────────────────────────────────────
+        # On recrée l'InteractiveViewer à chaque changement d'image pour
+        # remettre le zoom et le pan à zéro.
+        _iv_key = {"n": 0}
+
+        def _make_iv(path):
+            _iv_key["n"] += 1
+            vw = page.window.width or 1280
+            vh = page.window.height or 800
+            return ft.InteractiveViewer(
+                key=str(_iv_key["n"]),
+                content=ft.Image(
+                    src=path,
+                    width=vw,
+                    height=vh,
+                    fit=ft.BoxFit.CONTAIN,
+                    error_content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=ft.Colors.WHITE54),
+                ),
+                min_scale=0.5,
+                max_scale=10.0,
+                pan_enabled=True,
+                scale_enabled=True,
+                width=vw,
+                height=vh,
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            )
+
+        iv_container = ft.Container(
+            content=_make_iv(image_paths[current_idx["v"]]),
+            expand=True,
+            alignment=ft.Alignment(0, 0),
+        )
+
+        # ── Navigation image ──────────────────────────────────────────────
+        def _load_image(path):
+            iv_container.content   = _make_iv(path)
+            filename_text.value    = os.path.basename(path)
+            counter_text.value     = f"{current_idx['v'] + 1} / {len(image_paths)}"
+            resolution_text.value  = _get_resolution(path)
+            viewer_checkbox.value  = path in selected_files
             page.update()
 
         def go_prev(e):
             if len(image_paths) > 1:
                 current_idx["v"] = (current_idx["v"] - 1) % len(image_paths)
-                _update()
+                _load_image(image_paths[current_idx["v"]])
 
         def go_next(e):
             if len(image_paths) > 1:
                 current_idx["v"] = (current_idx["v"] + 1) % len(image_paths)
-                _update()
+                _load_image(image_paths[current_idx["v"]])
 
         def close_viewer(e):
             page.on_keyboard_event = prev_kb
@@ -543,7 +590,14 @@ def main(page: ft.Page):
             [
                 ft.Container(
                     content=ft.Column(
-                        [filename_text, counter_text],
+                        [
+                            filename_text,
+                            ft.Row(
+                                [counter_text, ft.Text("·", size=12, color=ft.Colors.WHITE38), resolution_text],
+                                alignment=ft.MainAxisAlignment.CENTER,
+                                spacing=6,
+                            ),
+                        ],
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=2,
                     ),
@@ -607,25 +661,28 @@ def main(page: ft.Page):
 
         viewer_view = ft.View(
             route="/image_viewer",
-            bgcolor="#000000",
+            bgcolor="#3c3c3c",
             padding=0,
             controls=[
                 ft.Stack(
                     [
+                        iv_container,
+                        # Barre supérieure — positionnée absolument pour ne pas intercepter
+                        # les gestes au centre de l'écran
                         ft.Container(
-                            content=viewer_image,
-                            expand=True,
+                            content=top_bar,
+                            top=12,
+                            left=0,
+                            right=0,
                             alignment=ft.Alignment(0, 0),
                         ),
-                        ft.Column(
-                            [
-                                ft.Container(content=top_bar, padding=ft.Padding(0, 12, 0, 0)),
-                                ft.Container(expand=True),
-                                ft.Container(content=nav_bar_row, padding=ft.Padding(0, 0, 0, 16)),
-                            ],
-                            spacing=0,
-                            expand=True,
-                            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+                        # Barre de navigation inférieure
+                        ft.Container(
+                            content=nav_bar_row,
+                            bottom=16,
+                            left=0,
+                            right=0,
+                            alignment=ft.Alignment(0, 0),
                         ),
                     ],
                     expand=True,

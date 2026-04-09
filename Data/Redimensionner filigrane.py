@@ -15,7 +15,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "1.9.9"
+__version__ = "2.0.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -112,8 +112,13 @@ for i, file in enumerate(FOLDER):
         if base_image.mode != "RGBA":
             base_image = base_image.convert("RGBA")
         
-        # Appliquer le watermark
-        base_image.paste(watermark, (0, 0), watermark)
+        # Appliquer le watermark (étiré proportionnellement pour couvrir toute l'image si > 2000 px)
+        wm = watermark
+        if new_size[0] > 2000 or new_size[1] > 2000:
+            scale = max(new_size[0] / watermark.width, new_size[1] / watermark.height)
+            wm_size = (int(watermark.width * scale), int(watermark.height * scale))
+            wm = watermark.resize(wm_size, Image.Resampling.LANCZOS)
+        base_image.paste(wm, (0, 0), wm)
         
         # Convertir en RGB pour la sauvegarde JPEG
         base_image = base_image.convert("RGB")
