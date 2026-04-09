@@ -458,11 +458,17 @@ def main(page: ft.Page):
             color=ft.Colors.WHITE70,
         )
 
+        viewer_checkbox = ft.Checkbox(
+            value=image_paths[current_idx["v"]] in selected_files,
+            on_change=lambda e: on_checkbox_change(e, image_paths[current_idx["v"]]),
+        )
+
         def _update():
             idx = current_idx["v"]
             viewer_image.src = image_paths[idx]
             filename_text.value = os.path.basename(image_paths[idx])
             counter_text.value = f"{idx + 1} / {len(image_paths)}"
+            viewer_checkbox.value = image_paths[idx] in selected_files
             page.update()
 
         def go_prev(e):
@@ -486,6 +492,7 @@ def main(page: ft.Page):
             )
             if len(page.views) > 1:
                 page.views.pop()
+            refresh_preview()
             page.update()
 
         def on_key(e: ft.KeyboardEvent):
@@ -525,8 +532,15 @@ def main(page: ft.Page):
                     border_radius=16,
                     width=320,
                 ),
+                ft.Container(
+                    content=viewer_checkbox,
+                    bgcolor=bar_bg,
+                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
+                    border_radius=16,
+                ),
             ],
             alignment=ft.MainAxisAlignment.CENTER,
+            spacing=8,
         )
 
         nav_bar = ft.Container(
