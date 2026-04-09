@@ -90,7 +90,7 @@ def main(page: ft.Page):
     page.bgcolor = BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width = 1280
+    page.window.width = 1320
     page.window.height = 870
     # page.window.maximized = True
     
