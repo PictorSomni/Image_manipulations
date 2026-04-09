@@ -2117,6 +2117,8 @@ async def main(page: ft.Page) -> None:
                     pass
                 _sam2_predictor_cache[name] = predictor
 
+        ok_count   = 0
+        fail_count = 0
         for i, (kind, name, path, mkey, st) in enumerate(to_compile):
             label = name if kind == "spandrel" else f"SAM2 {name}"
             enhance_status.value         = f"Compilation {i + 1}/{total} — {label}…"
@@ -2128,15 +2130,27 @@ async def main(page: ft.Page) -> None:
                 await asyncio.to_thread(_compile_one, kind, name, path)
                 manifest[mkey] = {"mtime": st.st_mtime, "size": st.st_size}
                 _write_compile_manifest(manifest)
+                ok_count += 1
             except Exception as ex:
+                # Enregistrer l'échec dans le manifest (mtime+size identiques) pour
+                # ne pas retenter à chaque lancement si le fichier n'a pas changé.
+                manifest[mkey] = {"mtime": st.st_mtime, "size": st.st_size, "error": str(ex)}
+                _write_compile_manifest(manifest)
                 enhance_status.value       = f"[AVERT.] {label} : {ex}"
                 _compile_overlay_sub.value = f"⚠️ {ex}"
                 page.update()
+                fail_count += 1
                 await asyncio.sleep(1.5)
 
         enhance_progress_bar.value    = 1.0
         enhance_progress_bar.visible  = False
-        enhance_status.value          = f"[OK] {total} modèle(s) compilé(s) — prêt"
+        if fail_count:
+            enhance_status.value = (
+                f"[OK] {ok_count} modèle(s) compilé(s)"
+                f" — {fail_count} non supporté(s) par spandrel (ignoré(s))"
+            )
+        else:
+            enhance_status.value = f"[OK] {total} modèle(s) compilé(s) — prêt"
         compile_overlay.visible       = False
         page.update()
 

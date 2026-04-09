@@ -37,14 +37,33 @@ import shutil
 import threading
 import re
 import zipfile
-import time
 import json
-import math
 import asyncio
 try:
     from PIL import Image as _PILImage
 except ImportError:
     _PILImage = None
+
+#############################################################
+#                         CONSTANTS                         #
+#############################################################
+_IMAGE_VIEWER_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"}
+
+_OS_JUNK = {
+    ".ds_store", "thumbs.db", "thumbs.db:encryptable",
+    "ehthumbs.db", "ehthumbs_vista.db", "desktop.ini",
+    ".directory", ".spotlight-v100", ".trashes",
+}
+
+def _is_os_junk(entry):
+    """Retourne True si l'entrée est un fichier système à ignorer."""
+    name_lower = entry.name.lower()
+    return (
+        name_lower in _OS_JUNK
+        or name_lower.startswith("._")
+        or entry.name == "$RECYCLE.BIN"
+        or (entry.name.startswith(".Trash-") and entry.is_dir())
+    )
 
 #############################################################
 #                           MAIN                            #
@@ -89,15 +108,13 @@ def main(page: ft.Page):
     WHITE = "#c7ccd8"
 
 # ===================== PROPERTIES ===================== #
-    page.title = "Dashboard de Projets"
+    page.title = "Dashboard - Image Manipulations"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
     page.window.width = 1320
     page.window.height = 870
-    # page.window.maximized = True
-    
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
     cwd = os.path.dirname(os.path.abspath(__file__))
@@ -157,7 +174,9 @@ def main(page: ft.Page):
     preview_page = {"value": 0}  # Page courante (0-indexé)
     all_entries_data = {"list": [], "error": ""}  # Données brutes du dernier scan
     _pending_selection = {"names": None}  # Noms à sélectionner après le prochain scan
-    
+    ITEM_HEIGHT = 44             # hauteur approx. d'un ListTile dense avec thumbnail 40px
+    _refresh_token = {"v": 0}   # incrémenté à chaque refresh pour annuler les anciens threads
+
 # ===================== UI ELEMENTS ===================== #
     folder_path = ft.TextField(
         label="Dossier sélectionné",
@@ -166,59 +185,12 @@ def main(page: ft.Page):
         bgcolor=DARK,
         border_color=GREY,
     )
-
-    def on_folder_path_submit(e):
-        """Charge un dossier collé/saisi manuellement dans le champ."""
-        raw = (folder_path.value or "").strip().strip('"').strip("'")
-        raw = raw.replace("\\", os.sep).replace("/", os.sep)
-        if raw and os.path.isdir(raw):
-            folder_path.error_text = None
-            navigate_to_folder(raw)
-        else:
-            folder_path.error_text = "Dossier introuvable"
-            folder_path.value = selected_folder.get("path", "") or ""
-            folder_path.update()
-
-    def on_folder_path_blur(e):
-        """Restaure le chemin courant si le champ est laissé invalide."""
-        folder_path.error_text = None
-        folder_path.value = selected_folder.get("path", "") or ""
-        folder_path.update()
-
-    folder_path.on_submit = on_folder_path_submit
-    folder_path.on_blur = on_folder_path_blur
-
     recent_folders_btn = ft.PopupMenuButton(
         icon=ft.Icons.HISTORY,
         icon_color=LIGHT_GREY,
         tooltip="Dossiers récents",
         items=[],
     )
-
-    def _refresh_recent_btn():
-        recent = _load_recent()
-        if not recent:
-            recent_folders_btn.items = [
-                ft.PopupMenuItem(content=ft.Text("Aucun dossier récent"))
-            ]
-        else:
-            recent_folders_btn.items = [
-                ft.PopupMenuItem(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.FOLDER, size=16),
-                        ft.Text(os.path.basename(p) or p),
-                    ], spacing=8, tight=True),
-                    on_click=lambda e, folder=p: navigate_to_folder(folder),
-                )
-                for p in recent
-            ]
-        try:
-            recent_folders_btn.update()
-        except Exception:
-            pass
-
-    _refresh_recent_btn()
-
     apps_list = ft.Column(expand=True, spacing=8)
     preview_list = ft.ListView(expand=True, auto_scroll=False, spacing=4)
     preview_loading = ft.Container(
@@ -250,6 +222,28 @@ def main(page: ft.Page):
     )
     page_indicator_text = ft.Text("", size=12, color=LIGHT_GREY)
     selected_files_prefix = "SELECTED_FILES:"
+
+    # ── Champs de saisie Redimensionner ──────────────────────────────
+    resize_input = ft.TextField(
+        value="640",
+        width=80,
+        height=35,
+        text_size=13,
+        text_align=ft.TextAlign.CENTER,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        border_color=BLUE,
+        content_padding=ft.Padding(5, 5, 5, 5),
+    )
+    resize_watermark_input = ft.TextField(
+        value="640",
+        width=80,
+        height=35,
+        text_size=13,
+        text_align=ft.TextAlign.CENTER,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        border_color=ORANGE,
+        content_padding=ft.Padding(5, 5, 5, 5),
+    )
 
 # ===================== METHODS ===================== #
     # ================================================================ #
@@ -300,6 +294,27 @@ def main(page: ft.Page):
 
     # S'abonner au canal quit
     page.pubsub.subscribe_topic("quit", on_quit_request)
+
+    def on_preview_ready(topic, payload):
+        """Reçoit les données brutes du thread bg et déclenche le rendu de la page courante."""
+        token, entries_data, new_file_count_text, error_text = payload
+        if _refresh_token["v"] != token:
+            return
+        all_entries_data["list"] = entries_data
+        all_entries_data["error"] = error_text
+        file_count_text.value = new_file_count_text
+        # Appliquer la sélection en attente si un script l'a demandé
+        # (ex: Fichiers manquants). On le fait ICI avec les données fraîches
+        # pour éviter tout race condition entre threads.
+        if _pending_selection["names"] is not None:
+            names_to_apply = _pending_selection["names"]
+            _pending_selection["names"] = None
+            apply_selected_files_by_name(names_to_apply)
+        else:
+            _render_current_page()
+
+    # S'abonner au canal preview_ready
+    page.pubsub.subscribe_topic("preview_ready", on_preview_ready)
 
     def request_quit():
         """Ferme la fenêtre principale de façon thread-safe via pubsub"""
@@ -370,6 +385,47 @@ def main(page: ft.Page):
     # ================================================================ #
     #                   NAVIGATION & FICHIERS                          #
     # ================================================================ #
+    def on_folder_path_submit(e):
+        """Charge un dossier collé/saisi manuellement dans le champ."""
+        raw = (folder_path.value or "").strip().strip('"').strip("'")
+        raw = raw.replace("\\", os.sep).replace("/", os.sep)
+        if raw and os.path.isdir(raw):
+            folder_path.error_text = None
+            navigate_to_folder(raw)
+        else:
+            folder_path.error_text = "Dossier introuvable"
+            folder_path.value = selected_folder.get("path", "") or ""
+            folder_path.update()
+
+    def on_folder_path_blur(e):
+        """Restaure le chemin courant si le champ est laissé invalide."""
+        folder_path.error_text = None
+        folder_path.value = selected_folder.get("path", "") or ""
+        folder_path.update()
+
+    def _refresh_recent_btn():
+        """Reconstruit les items du bouton dossiers récents."""
+        recent = _load_recent()
+        if not recent:
+            recent_folders_btn.items = [
+                ft.PopupMenuItem(content=ft.Text("Aucun dossier récent"))
+            ]
+        else:
+            recent_folders_btn.items = [
+                ft.PopupMenuItem(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.FOLDER, size=16),
+                        ft.Text(os.path.basename(p) or p),
+                    ], spacing=8, tight=True),
+                    on_click=lambda e, folder=p: navigate_to_folder(folder),
+                )
+                for p in recent
+            ]
+        try:
+            recent_folders_btn.update()
+        except Exception:
+            pass
+
     def open_in_file_explorer(folder_path):
         """Ouvre le dossier dans l'explorateur de fichiers natif"""
         if not folder_path or not os.path.isdir(folder_path):
@@ -445,8 +501,6 @@ def main(page: ft.Page):
             refresh_preview()
         except Exception as err:
             log_to_terminal(f"[ERREUR] Décompression: {err}", RED)
-
-    _IMAGE_VIEWER_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"}
 
     def open_image_viewer(start_path):
         """Affiche un lecteur d'image plein écran avec navigation prev/next, zoom et déplacement (InteractiveViewer)."""
@@ -584,7 +638,7 @@ def main(page: ft.Page):
             overlay_color=ft.Colors.with_opacity(0.15, ft.Colors.WHITE),
         )
 
-        bar_bg = ft.Colors.with_opacity(0.60, "#0d0d0d")
+        bar_bg = ft.Colors.with_opacity(0.72, GREY)
 
         top_bar = ft.Row(
             [
@@ -1107,9 +1161,6 @@ def main(page: ft.Page):
     # ================================================================ #
     #                           PREVIEW                                #
     # ================================================================ #
-    ITEM_HEIGHT = 44  # hauteur approx. d'un ListTile dense avec thumbnail 40px
-    _refresh_token = {"v": 0}  # incrémenté à chaque refresh pour annuler les anciens threads
-
     def _set_visible_images(scroll_pixels, viewport_height, do_update=True):
         """Applique src aux images dans la zone visible + buffer."""
         buffer_px = 3 * ITEM_HEIGHT
@@ -1263,25 +1314,6 @@ def main(page: ft.Page):
         except Exception as ex:
             log_to_terminal(f"[ERREUR] Rendu preview: {ex}", RED)
 
-    def on_preview_ready(topic, payload):
-        """Reçoit les données brutes du thread bg et déclenche le rendu de la page courante."""
-        token, entries_data, new_file_count_text, error_text = payload
-        if _refresh_token["v"] != token:
-            return
-        all_entries_data["list"] = entries_data
-        all_entries_data["error"] = error_text
-        file_count_text.value = new_file_count_text
-        # Appliquer la sélection en attente si un script l'a demandé
-        # (ex: Fichiers manquants). On le fait ICI avec les données fraîches
-        # pour éviter tout race condition entre threads.
-        if _pending_selection["names"] is not None:
-            names_to_apply = _pending_selection["names"]
-            _pending_selection["names"] = None
-            apply_selected_files_by_name(names_to_apply)
-        else:
-            _render_current_page()
-
-    page.pubsub.subscribe_topic("preview_ready", on_preview_ready)
     def refresh_preview(reset_page=True):
         """
         Déclenche un rafraîchissement asynchrone du panneau de prévisualisation.
@@ -1320,22 +1352,6 @@ def main(page: ft.Page):
             new_file_count_text = ""
             error_text = ""
 
-            # Fichiers système à ignorer (macOS, Windows, Linux)
-            OS_JUNK = {
-                ".ds_store", "thumbs.db", "thumbs.db:encryptable",
-                "ehthumbs.db", "ehthumbs_vista.db", "desktop.ini",
-                ".directory", ".spotlight-v100", ".trashes",
-            }
-
-            def _is_os_junk(entry):
-                name_lower = entry.name.lower()
-                return (
-                    name_lower in OS_JUNK
-                    or name_lower.startswith("._")
-                    or entry.name == "$RECYCLE.BIN"
-                    or (entry.name.startswith(".Trash-") and entry.is_dir())
-                )
-
             if folder_to_display:
                 try:
                     with os.scandir(folder_to_display) as it:
@@ -1372,9 +1388,6 @@ def main(page: ft.Page):
         """Change le mode de tri et rafraîchit la preview"""
         sort_by_date["value"] = e.control.value
         refresh_preview()
-    
-    # Attacher le callback au switch
-    sort_switch.on_change = on_sort_change
 
     def go_to_page(delta):
         """Navigue de ±1 page sans rescanner le dossier."""
@@ -1385,9 +1398,6 @@ def main(page: ft.Page):
             return
         preview_page["value"] = new_pg
         _render_current_page()
-
-    prev_page_btn.on_click = lambda e: go_to_page(-1)
-    next_page_btn.on_click = lambda e: go_to_page(+1)
 
     # ================================================================ #
     #                LANCEMENT D'APPLICATIONS                          #
@@ -1721,48 +1731,21 @@ def main(page: ft.Page):
         except Exception as err:
             log_to_terminal(f"[ERREUR] Erreur lors du lancement: {err}", RED)
 
-    # Widget personnalisé pour Resize
-    resize_input = ft.TextField(
-        value="640",
-        width=80,
-        height=35,
-        text_size=13,
-        text_align=ft.TextAlign.CENTER,
-        keyboard_type=ft.KeyboardType.NUMBER,
-        border_color=BLUE,
-        content_padding=ft.Padding(5, 5, 5, 5),
-    )
-    
+    # ── Handlers des champs Redimensionner ───────────────────────────
     def on_resize_input_change(e):
         """Met à jour la taille de redimensionnement cible en pixels."""
         resize_size["value"] = e.control.value
-    
-    resize_input.on_change = on_resize_input_change
-    
+
     def launch_resize(e):
         """Lance Redimensionner.py avec la taille saisie dans resize_input."""
         app_path = os.path.join(cwd, "Data", "Redimensionner.py")
         if os.path.exists(app_path):
             launch_app("Redimensionner.py", app_path, False)
-    
-    # Widget personnalisé pour Resize_watermark
-    resize_watermark_input = ft.TextField(
-        value="640",
-        width=80,
-        height=35,
-        text_size=13,
-        text_align=ft.TextAlign.CENTER,
-        keyboard_type=ft.KeyboardType.NUMBER,
-        border_color=ORANGE,
-        content_padding=ft.Padding(5, 5, 5, 5),
-    )
-    
+
     def on_resize_watermark_input_change(e):
         """Met à jour la taille de redimensionnement+filigrane cible en pixels."""
         resize_watermark_size["value"] = e.control.value
-    
-    resize_watermark_input.on_change = on_resize_watermark_input_change
-    
+
     def launch_resize_watermark(e):
         """Lance Redimensionner filigrane.py avec la taille saisie dans resize_watermark_input."""
         app_path = os.path.join(cwd, "Data", "Redimensionner filigrane.py")
@@ -1977,8 +1960,23 @@ def main(page: ft.Page):
 
         threading.Thread(target=_run, daemon=True).start()
 
-    refresh_apps()
+# ===================== UI WIRING ===================== #
+    # ── Champ dossier ────────────────────────────────────────────────
+    folder_path.on_submit = on_folder_path_submit
+    folder_path.on_blur = on_folder_path_blur
 
+    # ── Preview ───────────────────────────────────────────────────────
+    sort_switch.on_change = on_sort_change
+    prev_page_btn.on_click = lambda e: go_to_page(-1)
+    next_page_btn.on_click = lambda e: go_to_page(+1)
+
+    # ── Redimensionnement ─────────────────────────────────────────────
+    resize_input.on_change = on_resize_input_change
+    resize_watermark_input.on_change = on_resize_watermark_input_change
+
+    # ── Initialisation ────────────────────────────────────────────────
+    _refresh_recent_btn()
+    refresh_apps()
 
 # ===================== FLET UI ===================== #
     page.add(
@@ -2181,6 +2179,13 @@ def main(page: ft.Page):
             ),
         ], expand=True, spacing=5)
     )
+
+    # ── Mettre la fenêtre en plein écran ────────────────────────────────────────────────
+    async def _maximize():
+        page.window.maximized = True
+        page.update()
+
+    page.run_task(_maximize)
 
 #############################################################
 #                            RUN                            #

@@ -1094,12 +1094,22 @@ class PhotoCropper:
         self.rotation = snapshot["rotation"]
         self.is_bw = snapshot.get("is_bw", False)
 
+        # Si rembg n'était pas actif lors du snapshot mais l'est maintenant,
+        # utiliser l'image originale (avant suppression du fond) pour ce format.
+        saved_pil_image = None
+        if not snapshot.get("rembg_active", False) and self.current_pil_image.mode == "RGBA" and self._rembg_original is not None:
+            saved_pil_image = self.current_pil_image
+            self.current_pil_image = self._rembg_original
+
         result = self._compute_crop_with_canvas(
             target_w_px, target_h_px,
             snapshot["canvas_w"], snapshot["canvas_h"],
             snapshot["base_scale"], snapshot["offset_x"], snapshot["offset_y"],
             scale_override=snapshot["scale"],
         )
+
+        if saved_pil_image is not None:
+            self.current_pil_image = saved_pil_image
 
         self.rotation = saved_rotation
         self.is_bw = saved_bw
@@ -1184,9 +1194,6 @@ class PhotoCropper:
             fillcolor=(255, 255, 255, 0),
         )
 
-        if self.is_bw:
-            pil_crop = pil_crop.convert("L")
-
         if pil_crop.mode == "RGBA":
             # Érosion du canal alpha (suppression des franges résiduelles)
             if getattr(self, 'rembg_erosion_radius', 0) > 0:
@@ -1211,6 +1218,9 @@ class PhotoCropper:
             pil_crop = Image.alpha_composite(bg, pil_crop).convert("RGB")
         else:
             pil_crop = pil_crop.convert("RGB")
+
+        if self.is_bw:
+            pil_crop = pil_crop.convert("L").convert("RGB")
 
         return pil_crop
 
@@ -2670,6 +2680,7 @@ class PhotoCropper:
             "exposure": self.exposure,
             "hue": self.hue,
             "white_balance": self.white_balance,
+            "rembg_active": self.rembg_btn.selected,
         }
         self.extra_formats.append(snapshot)
         self._update_extra_formats_display()
@@ -2966,7 +2977,15 @@ class PhotoCropper:
             if snapshot.get("fit_in", False):
                 saved_bw = self.is_bw
                 self.is_bw = snapshot.get("is_bw", False)
+                # Si rembg n'était pas actif lors du snapshot mais l'est maintenant,
+                # utiliser l'image originale pour ce format fit-in.
+                saved_pil_fit = None
+                if not snapshot.get("rembg_active", False) and self.current_pil_image.mode == "RGBA" and self._rembg_original is not None:
+                    saved_pil_fit = self.current_pil_image
+                    self.current_pil_image = self._rembg_original
                 ex_crop = self._compute_fit_in(ex_target_w_px, ex_target_h_px)
+                if saved_pil_fit is not None:
+                    self.current_pil_image = saved_pil_fit
                 self.is_bw = saved_bw
             else:
                 ex_crop = self._compute_crop_from_snapshot(snapshot)
