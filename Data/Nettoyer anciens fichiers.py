@@ -19,6 +19,7 @@ __version__ = "1.9.9"
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+import sys
 import platform
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -65,18 +66,29 @@ for folder in FOLDERS:
     deleted = 0
     size = 0
 
+    # Collecter d'abord les fichiers à supprimer pour afficher index/total
+    to_delete = []
     for item in sorted(folder.rglob("*")):
         if item.is_file():
             try:
                 mtime = datetime.fromtimestamp(item.stat().st_mtime)
                 if mtime < limit:
-                    file_size = item.stat().st_size
-                    item.unlink()
-                    print(f"  - {item.name}  ({mtime.strftime('%Y-%m-%d')})", flush=True)
-                    deleted += 1
-                    size += file_size
-            except Exception as e:
-                print(f"  [ERREUR] {item.name} : {e}", flush=True)
+                    to_delete.append((item, mtime))
+            except Exception:
+                pass
+
+    total_to_delete = len(to_delete)
+    for i, (item, mtime) in enumerate(to_delete, 1):
+        try:
+            file_size = item.stat().st_size
+            item.unlink()
+            print(f"\r  {i}/{total_to_delete}", end="", flush=True)
+            deleted += 1
+            size += file_size
+        except Exception as e:
+            print(f"\n  [ERREUR] {item.name} : {e}".encode(sys.stdout.encoding or 'utf-8', errors='replace').decode(sys.stdout.encoding or 'utf-8'), flush=True)
+    if total_to_delete > 0:
+        print(flush=True)  # saut de ligne après la progression
 
     # Supprimer les sous-dossiers vides après le nettoyage des fichiers
     # (sauf pour les HotFolders dont les sous-dossiers fixes doivent être conservés)

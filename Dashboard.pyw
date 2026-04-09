@@ -157,12 +157,32 @@ def main(page: ft.Page):
 # ===================== UI ELEMENTS ===================== #
     folder_path = ft.TextField(
         label="Dossier sélectionné",
-        hint_text="Cliquez sur Parcourir...",
+        hint_text="Cliquez sur Parcourir... ou collez un chemin",
         width=300,
         bgcolor=DARK,
         border_color=GREY,
-        read_only=True
     )
+
+    def on_folder_path_submit(e):
+        """Charge un dossier collé/saisi manuellement dans le champ."""
+        raw = (folder_path.value or "").strip().strip('"').strip("'")
+        raw = raw.replace("\\", os.sep).replace("/", os.sep)
+        if raw and os.path.isdir(raw):
+            folder_path.error_text = None
+            navigate_to_folder(raw)
+        else:
+            folder_path.error_text = "Dossier introuvable"
+            folder_path.value = selected_folder.get("path", "") or ""
+            folder_path.update()
+
+    def on_folder_path_blur(e):
+        """Restaure le chemin courant si le champ est laissé invalide."""
+        folder_path.error_text = None
+        folder_path.value = selected_folder.get("path", "") or ""
+        folder_path.update()
+
+    folder_path.on_submit = on_folder_path_submit
+    folder_path.on_blur = on_folder_path_blur
 
     recent_folders_btn = ft.PopupMenuButton(
         icon=ft.Icons.HISTORY,
