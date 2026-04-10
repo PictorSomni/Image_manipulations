@@ -43,3 +43,4 @@ $RECYCLE.BIN/
 .recent_folders.json
 .favorites.json
 .pip_cache.json
+.DS_Store

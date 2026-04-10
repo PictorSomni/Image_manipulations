@@ -296,7 +296,7 @@ def main(page: ft.Page):
         tooltip="Filtrer les fichiers par type",
     )
     # ── Section favoris ──────────────────────────────────────────────
-    _favorites_list_col = ft.Column(spacing=2, scroll=ft.ScrollMode.AUTO)
+    _favorites_list_col = ft.ListView(expand=True, spacing=2, auto_scroll=False, padding=ft.Padding(0, 0, 12, 0))
     _favorites_container = ft.Container(
         content=ft.Column([
             ft.Row([
@@ -314,15 +314,15 @@ def main(page: ft.Page):
                 ),
             ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             _favorites_list_col,
-        ], spacing=4),
+        ], spacing=4, expand=True),
         bgcolor=GREY,
         border=ft.Border.all(1, BLUE),
         border_radius=6,
-        padding=ft.Padding(8, 6, 8, 6),
+        padding=ft.Padding(12, 6, 12, 6),
         expand=True,
     )
     # ── Section périphériques amovibles ──────────────────────────────
-    _drives_column = ft.Column(spacing=4)
+    _drives_column = ft.ListView(expand=True, spacing=4, auto_scroll=False, padding=ft.Padding(12, 6, 12, 6))
     _drives_container = ft.Container(
         content=ft.Column([
             ft.Row([
@@ -331,11 +331,11 @@ def main(page: ft.Page):
                         weight=ft.FontWeight.BOLD),
             ], spacing=6, tight=True),
             _drives_column,
-        ], spacing=4),
+        ], spacing=4, expand=True),
         bgcolor=GREY,
         border=ft.Border.all(1, VIOLET),
         border_radius=6,
-        padding=ft.Padding(8, 6, 8, 6),
+        padding=ft.Padding(12, 6, 12, 6),
         expand=True,
         visible=False,
     )
@@ -2742,7 +2742,7 @@ def main(page: ft.Page):
                     ft.Row([
                         _favorites_container,
                         _drives_container,
-                    ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.START),
+                    ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
                 ], spacing=8, expand=True),
                 height=150,
             ),
