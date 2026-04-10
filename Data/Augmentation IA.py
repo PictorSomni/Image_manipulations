@@ -435,7 +435,7 @@ async def main(page: ft.Page) -> None:
         "history":         [],     # Pile d'annulation (max 5)
         "current_task":    None,   # asyncio.Task en cours (rembg ou modèle)
         "cancel_requested": False, # Annulation demandée (boucle de tuiles)
-        "erosion_radius":  5,      # Rayon d'érosion en pixels (0 = désactivé)
+        "morph_pct":       0.0,    # % morphologique unifié : <0 = érosion, >0 = dilatation (−5…+5)
         "batch_running":   False,  # True pendant le batch automatique
         # SAM2
         "sam2_points":       [],     # [(x, y, label), ...] coords image originale
@@ -445,7 +445,6 @@ async def main(page: ft.Page) -> None:
         "sam2_model":        "S",     # clé dans _SAM2_MODELS (S / B+ / L)
         "sam2_threshold":    0.0,     # seuil de binarisation du masque
         # Inpainting
-        "inpaint_dilation":  0,        # Dilatation du masque avant inpainting (% de la plus petite dimension)
         "inpaint_radius":    20,        # Rayon TELEA (inpaintRadius)
     }
 
@@ -859,17 +858,7 @@ async def main(page: ft.Page) -> None:
     sam2_status = ft.Text("", size=11, color=LIGHT_GREY)
     sam2_progress_bar = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
 
-    # ---- Inpainting : dilatation du masque et rayon TELEA ---- #
-    sam2_inpaint_dilation_slider = ft.Slider(
-        value=0,
-        min=0,
-        max=5,
-        divisions=10,
-        label="{value} %",
-        active_color=ORANGE,
-        expand=True,
-        disabled=not SAM2_AVAILABLE,
-    )
+    # ---- Inpainting : rayon TELEA ---- #
     sam2_inpaint_radius_slider = ft.Slider(
         value=20,
         min=1,
@@ -914,13 +903,13 @@ async def main(page: ft.Page) -> None:
     )
     sam2_install_status = ft.Text("", size=11, color=LIGHT_GREY, visible=not SAM2_AVAILABLE)
 
-    # ---- Érosion du masque ---- #
-    erosion_slider = ft.Slider(
-        value=5,
-        min=0,
-        max=15,
-        divisions=15,
-        label="{value} px",
+    # ---- Slider morphologique unifié : négatif = érosion, positif = dilatation ---- #
+    morph_slider = ft.Slider(
+        value=0,
+        min=-5,
+        max=5,
+        divisions=20,
+        label="{value} %",
         active_color=ORANGE,
         disabled=not REMBG_AVAILABLE,
         expand=True,
@@ -993,9 +982,10 @@ async def main(page: ft.Page) -> None:
         thumb = base.copy()
         thumb.thumbnail((erode_size, erode_size), Image.Resampling.BILINEAR)
         # Érosion au format d'affichage (ne modifie pas state["processed"])
-        if state["erosion_radius"] > 0 and state["processed"] is not None and thumb.mode == "RGBA":
+        morph = state["morph_pct"]
+        if morph < 0 and state["processed"] is not None and thumb.mode == "RGBA":
             scale = thumb.width / base.width
-            scaled_radius = round(state["erosion_radius"] * scale)
+            scaled_radius = round(min(thumb.size) * abs(morph) / 100 * scale)
             if scaled_radius > 0:
                 thumb = _erode_alpha(thumb, scaled_radius)
         # Downscale final pour l'affichage
@@ -1021,7 +1011,7 @@ async def main(page: ft.Page) -> None:
             mask_img = Image.fromarray(mask_binary, "L")
             mask_resized = mask_img.resize(display.size, Image.Resampling.NEAREST)
             # Dilatation visuelle : montre en temps réel l'expansion du masque
-            dil = state.get("inpaint_dilation", 0)
+            dil = max(0.0, state.get("morph_pct", 0))
             if dil > 0:
                 display_dil = max(1, round(min(display.size) * dil / 100))
                 for _ in range(display_dil):
@@ -1291,14 +1281,14 @@ async def main(page: ft.Page) -> None:
         if task and not task.done():
             task.cancel()
 
-    def on_erosion_slider_change(e) -> None:
-        """Met à jour le rayon en temps réel (label uniquement pendant le drag)."""
-        state["erosion_radius"] = int(e.control.value)
+    def on_morph_slider_change(e) -> None:
+        """Met à jour le % morphologique en temps réel (label pendant le drag)."""
+        state["morph_pct"] = round(e.control.value, 1)
 
-    def on_erosion_slider_end(e) -> None:
+    def on_morph_slider_end(e) -> None:
         """Regénère la preview au relâchement du slider."""
-        state["erosion_radius"] = int(e.control.value)
-        if state["processed"] is not None:
+        state["morph_pct"] = round(e.control.value, 1)
+        if state["processed"] is not None or state.get("sam2_preview_mask") is not None:
             _render_preview()
 
     def on_bg_change(e) -> None:
@@ -1428,9 +1418,10 @@ async def main(page: ft.Page) -> None:
 
         # Désactiver le bouton pendant l'export pour éviter les double-clics
         save_btn.disabled = True
-        has_erosion = state["erosion_radius"] > 0 and state["processed"].mode == "RGBA"
+        has_erosion = state["morph_pct"] < 0 and state["processed"].mode == "RGBA"
         if has_erosion:
-            status_text.value = f"Érosion {state['erosion_radius']} px en cours…"
+            erosion_pct = abs(state["morph_pct"])
+            status_text.value = f"Érosion {erosion_pct:.1f} % en cours…"
             progress_bar.value = None  # indéterminée
             progress_bar.visible = True
         else:
@@ -1440,15 +1431,17 @@ async def main(page: ft.Page) -> None:
         use_transparent = state["bg_transparent"]
         snap_processed  = state["processed"]
         snap_orig       = state["orig_img"]
-        erosion_radius  = state["erosion_radius"]
+        morph_pct       = state["morph_pct"]
         bg_blur         = state["bg_blur"]
         bg_color        = BG_COLORS.get(state["bg_color"])
 
         def _do_export():
             proc = snap_processed
             # Érosion pleine résolution (potentiellement long sur grandes images)
-            if erosion_radius > 0 and proc is not None and proc.mode == "RGBA":
-                proc = _erode_alpha(proc, erosion_radius)
+            if morph_pct < 0 and proc is not None and proc.mode == "RGBA":
+                radius_px = round(min(proc.size) * abs(morph_pct) / 100)
+                if radius_px > 0:
+                    proc = _erode_alpha(proc, radius_px)
             if use_transparent:
                 return proc.convert("RGBA"), ".png", "PNG", {}
             else:
@@ -1708,7 +1701,7 @@ async def main(page: ft.Page) -> None:
         sam2_status.value = f"Inpainting {_engine_label}…"
         page.update()
 
-        snap_dilation = state["inpaint_dilation"]
+        snap_dilation = max(0.0, state["morph_pct"])
         snap_inpaint_radius = state["inpaint_radius"]
 
         def _do_inpaint():
@@ -1824,10 +1817,10 @@ async def main(page: ft.Page) -> None:
     run_model_btn.on_click     = on_run_model
     refresh_btn.on_click       = on_refresh_models
     recompile_btn.on_click     = on_force_recompile
-    save_btn.on_click          = on_save
+    save_btn.on_click            = on_save
     cancel_btn.on_click          = on_cancel
-    erosion_slider.on_change     = on_erosion_slider_change
-    erosion_slider.on_change_end = on_erosion_slider_end
+    morph_slider.on_change       = on_morph_slider_change
+    morph_slider.on_change_end   = on_morph_slider_end
 
     def on_sam2_model_change(e) -> None:
         """Change le modèle SAM2 actif (S / B+ / L)."""
@@ -1842,11 +1835,6 @@ async def main(page: ft.Page) -> None:
     sam2_model_segment.on_change    = on_sam2_model_change
     sam2_threshold_slider.on_change = on_sam2_threshold_change
 
-    def on_inpaint_dilation_change(e) -> None:
-        state["inpaint_dilation"] = round(e.control.value, 1)
-        if state.get("sam2_preview_mask") is not None:
-            _render_preview()
-
     def on_inpaint_radius_change(e) -> None:
         state["inpaint_radius"] = int(e.control.value)
 
@@ -1856,7 +1844,6 @@ async def main(page: ft.Page) -> None:
         _quality_row.visible = (engine == "telea")
         _quality_row.update()
 
-    sam2_inpaint_dilation_slider.on_change = on_inpaint_dilation_change
     sam2_inpaint_radius_slider.on_change   = on_inpaint_radius_change
     sam2_inpaint_segment.on_change         = on_sam2_inpaint_engine_change
 
@@ -1894,7 +1881,7 @@ async def main(page: ft.Page) -> None:
                 sam2_inpaint_segment.disabled = not SAM2_AVAILABLE
                 sam2_inpaint_btn.disabled     = not SAM2_AVAILABLE
                 sam2_inpaint_btn.bgcolor      = ORANGE if SAM2_AVAILABLE else GREY
-                sam2_inpaint_dilation_slider.disabled = not SAM2_AVAILABLE
+                morph_slider.disabled         = not (REMBG_AVAILABLE or SAM2_AVAILABLE)
                 inpaint_install_status.value  = "IOPaint installé — moteurs lama et mat disponibles"
                 inpaint_install_status.color  = ft.Colors.GREEN_400
                 inpaint_install_btn.visible   = False
@@ -1967,21 +1954,16 @@ async def main(page: ft.Page) -> None:
             ),
             inpaint_install_btn,
             inpaint_install_status,
-            ft.Row(
-                [ft.Text("Dilat.", size=11, color=LIGHT_GREY, width=46), sam2_inpaint_dilation_slider],
-                spacing=6,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
             _quality_row,
             ft.Row([sam2_apply_btn, sam2_inpaint_btn], spacing=6),
             sam2_progress_bar,
             sam2_status,
             ft.Divider(color=GREY),
-            # Érosion du masque
+            # Morphologie du masque (érosion / dilatation)
             ft.Row(
                 [
-                    ft.Text("Érosion", size=12, color=LIGHT_GREY),
-                    erosion_slider,
+                    ft.Text("Morpho.", size=12, color=LIGHT_GREY),
+                    morph_slider,
                 ],
                 spacing=6,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,

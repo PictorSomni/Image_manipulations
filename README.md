@@ -3,9 +3,32 @@
 Application de gestion et manipulation d'images avec interface graphique.  
 Compatible **Windows**, **macOS** et **Linux**.
 
-![Dashboard Screenshot](screenshots/dashboard01.jpg)
-![Recadrage Screenshot](screenshots/dashboard02.jpg)
-![Augmentation IA Screenshot](screenshots/dashboard03.jpg)
+![Dashboard](screenshots/dashboard01.jpg)
+![Visionneuse plein écran](screenshots/dashboard02.jpg)
+![Augmentation IA](screenshots/dashboard03.jpg)
+![Recadrage](screenshots/dashboard04.jpg)
+
+---
+
+## 🆕 Nouveautés
+
+### Dashboard (v2.0)
+- **Visionneuse plein écran** : ouvrir n'importe quelle image en plein écran depuis le panneau de fichiers, avec navigation au clavier (flèches), possibilité de **sélectionner ou supprimer** le fichier affiché depuis la visionneuse.
+- **Tri des dossiers** : tri alphabétique A → Z, Z → A ou par **Date** via les boutons dédiés dans la barre de contenu.
+- **Bouton Mise à jour** intégré directement dans l'interface (équivalent de `update.bat` / `update.sh`).
+- **Nettoyage des anciens fichiers** : suppression en un clic des fichiers de plus de 60 jours dans des dossiers cibles prédéfinis.
+
+### Augmentation IA (v2.0)
+- **Sélection SAM2** : découpe interactive par clics positifs / négatifs en complément de rembg — modèles S, B+ et L téléchargeables à la demande.
+- **Inpainting** : suppression d'éléments par inpainting avec choix du moteur :
+  - **TELEA** (intégré, sans dépendance supplémentaire)
+  - **LaMa** et **MAT** via [IOPaint](https://github.com/Sanster/IOPaint) (`pip install iopaint`)
+- **Slider morphologique unifié** (−5 % … +5 %) : valeur négative = érosion du masque rembg, valeur positive = dilatation du masque SAM2 avant inpainting.
+
+### Recadrage (v2.0)
+- **Interface repensée** avec des sections colorées (Géométrie, Luminosité, Couleur, Netteté) pour une navigation plus lisible.
+- **Balance des blancs** : curseur froid / chaud ajustable en temps réel.
+- **Histogramme** : aperçu de la distribution des tons directement dans le panneau de droite.
 
 ---
 
@@ -95,10 +118,13 @@ pip install -r requirements.txt
 - `Wand` : Conversion d'images (requiert ImageMagick)
 - `numpy` : Calculs vectoriels (exposition, ombres, hautes lumières)
 - `PyMuPDF` : Conversion de PDF en images
-- `rembg` *(optionnel)* : Suppression de fond par IA dans Recadrage.pyw (requiert `onnxruntime`)
+- `rembg` *(optionnel)* : Suppression de fond par IA (requiert `onnxruntime`)
 - `onnxruntime` *(optionnel)* : Moteur d'inférence pour rembg
 - `spandrel` *(optionnel)* : Super-résolution ×2/×4 et restauration visage dans Augmentation IA.py (requiert `torch`)
-- `torch` *(optionnel)* : Moteur d'inférence PyTorch requis par spandrel
+- `torch` *(optionnel)* : Moteur d'inférence PyTorch requis par spandrel et SAM2
+- `sam2` *(optionnel)* : Sélection interactive par clics (Segment Anything Model 2) dans Augmentation IA.py
+- `opencv-python` *(optionnel)* : Inpainting TELEA dans Augmentation IA.py
+- `iopaint` *(optionnel)* : Inpainting LaMa / MAT dans Augmentation IA.py (`pip install iopaint`)
 
 ---
 
@@ -143,11 +169,14 @@ Dashboard-Image-Manipulation/
 ## 🎯 Fonctionnalités
 
 - **Interface graphique moderne** avec Flet
-- **Navigation dans les dossiers** avec prévisualisation
+- **Navigation dans les dossiers** avec prévisualisation et **tri A-Z / Z-A / Date**
+- **Visionneuse plein écran** : affichage plein écran avec navigation clavier, sélection et suppression depuis la visionneuse
 - **Pagination** : affichage par tranches de 100 fichiers avec boutons Précédent / Suivant et indicateur de position (pour les dossiers volumineux)
 - **Décompression ZIP** : cliquer sur un fichier `.zip` l'extrait automatiquement dans son dossier courant (détection de racine unique)
 - **Lancement rapide d'applications** de traitement d'images
 - **Gestion des fichiers** (sélection, suppression, ouverture, création de dossiers, copier/coller...)
+- **Mise à jour Git intégrée** depuis le bouton de l'interface
+- **Nettoyage automatique** des fichiers de plus de 60 jours dans des dossiers prédéfinis
 - **Support multi-plateforme** (Windows, macOS, Linux)
 - **Applications portables** : les apps sont lancées directement depuis le dossier du projet
 
@@ -167,7 +196,7 @@ Dashboard-Image-Manipulation/
 
 | Nom affiché (Dashboard) | Script | Description |
 |-------------------------|--------|-------------|
-| Augmentation IA | `Augmentation IA.py` | Super-résolution, effacer des éléments dans une image (inpainting) et restauration de visage par IA |
+| Augmentation IA | `Augmentation IA.py` | Super-résolution ×2/×4, restauration de visage par IA, **suppression de fond (rembg)**, **sélection interactive SAM2** (clics positifs/négatifs), **inpainting** (TELEA, LaMa, MAT via IOPaint), slider morphologique érosion/dilatation du masque |
 | Nettoyer les métadonnées | `Nettoyer metadonnees.py` | Supprime les métadonnées EXIF |
 | Conversion en JPG | `Conversion JPG.py` | Convertit les images (et les fichiers PDF !) en JPG |
 | Fichiers manquants | `Fichiers manquants.py` | Détecte les fichiers manquants |
@@ -175,7 +204,7 @@ Dashboard-Image-Manipulation/
 | Format 13x15 | `Format 13x15.py` | Recadre en format 13x15 cm |
 | Images en PDF | `Images en PDF.py` | Génère un PDF à partir d'images |
 | Noir et blanc | `N&B.py` | Conversion noir et blanc |
-| Recadrage | `Recadrage.pyw` | Recadrage interactif avec 16 formats d'impression (ID, 10x15, 13x18, 20x30…), mode batch, zoom/pan/rotation, 2 en 1, planches ID x2/x4, formats multiples par image, exemplaires, noir et blanc, netteté, **grille des tiers** (overlay activable), **suppression de fond par IA** (rembg : fond blanc/flouté, modèle humain/généraliste, mode précis) |
+| Recadrage | `Recadrage.pyw` | Recadrage interactif avec 16 formats d'impression (ID, 10x15, 13x18, 20x30…), mode batch, zoom/pan/rotation, 2 en 1, planches ID x2/x4, formats multiples par image, exemplaires, noir et blanc, netteté, grille des tiers, suppression de fond par IA (rembg) ; **interface repensée** avec sections colorées (Géométrie / Luminosité / Couleur / Netteté), **balance des blancs** et **histogramme** |
 | Remerciements | `Remerciements.py` | Génère des cartes de remerciement |
 | Redimensionner | `Redimensionner.py` | Redimensionne les images (taille paramétrable) |
 | Redimensionner + filigrane | `Redimensionner filigrane.py` | Redimensionne avec filigrane (taille paramétrable) |
