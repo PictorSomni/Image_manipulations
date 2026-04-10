@@ -1160,6 +1160,12 @@ class PhotoCropper:
         total_scale = base_scale * scale
         if total_scale <= 0:
             total_scale = 1e-6
+        # Nudge total_scale so BICUBIC kernel never samples outside source image bounds.
+        # When image ratio exactly matches format ratio at default zoom, border output pixels
+        # map to src coords 0.0 / orig_w exactly, so BICUBIC would need pixels at index -1
+        # which PIL fills with (255,255,255,0) → thin white fringe after alpha compositing.
+        if self.orig_w > 4 and self.orig_h > 4:
+            total_scale *= 1.0 + 2.0 / min(self.orig_w, self.orig_h)
 
         canvas_cx = canvas_w / 2 + offset_x
         canvas_cy = canvas_h / 2 + offset_y
@@ -2832,6 +2838,14 @@ class PhotoCropper:
         copies_prefix = f"{self.copies_count}X_"
         jpg = copies_prefix + name + ".jpg"
 
+        # Appliquer les réglages couleur sur la photo AVANT l'ajout des bordures/marges,
+        # pour que les zones blanches (13x15, Polaroid, ID grille…) restent blanc pur.
+        pil_crop = self._apply_adjustments(pil_crop)
+        if self.shadows != 0:
+            pil_crop = self._apply_shadows(pil_crop, self.shadows)
+        if self.highlights != 0:
+            pil_crop = self._apply_highlights(pil_crop, self.highlights)
+
         two_in_one_applied = False
         if self.is_two_in_one_enabled():
             if self.border_13x15 and "10x15" in fmt_short:
@@ -2940,14 +2954,6 @@ class PhotoCropper:
             pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
             pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
 
-        pil_crop = self._apply_adjustments(pil_crop)
-
-        if self.shadows != 0:
-            pil_crop = self._apply_shadows(pil_crop, self.shadows)
-
-        if self.highlights != 0:
-            pil_crop = self._apply_highlights(pil_crop, self.highlights)
-
         # Conversion vers sRGB (correction colorimétrique)
         pil_crop = convert_to_srgb(pil_crop, getattr(self, 'icc_profile', None))
 
@@ -2991,6 +2997,24 @@ class PhotoCropper:
                 ex_crop = self._compute_crop_from_snapshot(snapshot)
 
             ex_two_in_one_applied = False
+
+            # Appliquer les réglages couleur AVANT les bordures pour que les
+            # zones blanches ajoutées (13x15, Polaroid…) restent blanc pur.
+            saved_contrast, saved_saturation, saved_exposure = self.contrast, self.saturation, self.exposure
+            saved_hue, saved_wb = self.hue, self.white_balance
+            self.contrast = snapshot.get("contrast", 0)
+            self.saturation = snapshot.get("saturation", 0)
+            self.exposure = snapshot.get("exposure", 0)
+            self.hue = snapshot.get("hue", 0)
+            self.white_balance = snapshot.get("white_balance", 0)
+            ex_crop = self._apply_adjustments(ex_crop)
+            self.contrast, self.saturation, self.exposure = saved_contrast, saved_saturation, saved_exposure
+            self.hue, self.white_balance = saved_hue, saved_wb
+            if snapshot.get("shadows", 0) != 0:
+                ex_crop = self._apply_shadows(ex_crop, snapshot["shadows"])
+            if snapshot.get("highlights", 0) != 0:
+                ex_crop = self._apply_highlights(ex_crop, snapshot["highlights"])
+
             if snapshot.get("two_in_one", False):
                 if snapshot.get("border_13x15", False) and "10x15" in ex_short:
                     ex_crop = self._build_two_in_one_10x15_to_13x15(ex_crop)
@@ -3023,24 +3047,6 @@ class PhotoCropper:
             if snapshot.get("is_sharpen", self.is_sharpen):
                 ex_crop = ex_crop.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
                 ex_crop = ex_crop.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
-
-            # Appliquer les réglages du snapshot
-            saved_contrast, saved_saturation, saved_exposure = self.contrast, self.saturation, self.exposure
-            saved_hue, saved_wb = self.hue, self.white_balance
-            self.contrast = snapshot.get("contrast", 0)
-            self.saturation = snapshot.get("saturation", 0)
-            self.exposure = snapshot.get("exposure", 0)
-            self.hue = snapshot.get("hue", 0)
-            self.white_balance = snapshot.get("white_balance", 0)
-            ex_crop = self._apply_adjustments(ex_crop)
-            self.contrast, self.saturation, self.exposure = saved_contrast, saved_saturation, saved_exposure
-            self.hue, self.white_balance = saved_hue, saved_wb
-
-            if snapshot.get("shadows", 0) != 0:
-                ex_crop = self._apply_shadows(ex_crop, snapshot["shadows"])
-
-            if snapshot.get("highlights", 0) != 0:
-                ex_crop = self._apply_highlights(ex_crop, snapshot["highlights"])
 
             # Conversion vers sRGB (correction colorimétrique)
             ex_crop = convert_to_srgb(ex_crop, getattr(self, 'icc_profile', None))

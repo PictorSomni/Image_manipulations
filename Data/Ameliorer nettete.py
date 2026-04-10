@@ -49,7 +49,7 @@ def folder(folder) :
 #                           MAIN                            #
 #############################################################
 for i, file in enumerate(FOLDER):
-    folder("NET")
+    folder("NETTES")
     print("Image {} sur {}".format(i+1, TOTAL))
 
     if file != "watermark.png":
@@ -63,7 +63,7 @@ for i, file in enumerate(FOLDER):
             base_image = base_image.filter(ImageFilter.UnsharpMask(radius=4, percent=42, threshold=0))
             base_image = base_image.filter(ImageFilter.UnsharpMask(radius=2, percent=42, threshold=0))
             # base_image = base_image.filter(ImageFilter.SHARPEN)
-            output_folder = PATH / "NET"
+            output_folder = PATH / "NETTES"
             output_folder.mkdir(exist_ok=True)
             base_image.save(str(output_folder / file), format="JPEG", subsampling=0, quality=100)
 
