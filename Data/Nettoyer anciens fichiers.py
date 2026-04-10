@@ -65,6 +65,7 @@ for folder in FOLDERS:
 
     deleted = 0
     size = 0
+    deleted_dirs = 0
 
     # Collecter d'abord les fichiers à supprimer pour afficher index/total
     to_delete = []
@@ -96,16 +97,21 @@ for folder in FOLDERS:
         for subdir in sorted(folder.rglob("*"), key=lambda p: len(p.parts), reverse=True):
             if subdir.is_dir():
                 try:
-                    if not any(subdir.iterdir()):
-                        subdir.rmdir()
-                        print(f"  [Dossier vide supprimé] {subdir.name}", flush=True)
-                except Exception:
-                    pass
+                    subdir.rmdir()  # Échoue automatiquement si non vide
+                    print(f"  [Dossier supprimé] {subdir.name}", flush=True)
+                    deleted_dirs += 1
+                except OSError:
+                    pass  # Dossier non vide ou inaccessible, on laisse
+                except Exception as e:
+                    print(f"  [ERREUR dossier] {subdir.name} : {e}", flush=True)
 
-    if deleted == 0:
+    if deleted == 0 and deleted_dirs == 0:
         print("  Aucun fichier a supprimer.", flush=True)
     else:
-        print(f"\n  -> {deleted} fichier(s) supprimé(s) — {size / 1024 / 1024:.1f} Mo liberes", flush=True)
+        if deleted > 0:
+            print(f"\n  -> {deleted} fichier(s) supprimé(s) — {size / 1024 / 1024:.1f} Mo liberes", flush=True)
+        if deleted_dirs > 0:
+            print(f"  -> {deleted_dirs} dossier(s) vide(s) supprimé(s)", flush=True)
 
     total_deleted += deleted
     total_size += size

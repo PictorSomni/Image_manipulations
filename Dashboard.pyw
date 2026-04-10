@@ -168,7 +168,7 @@ def main(page: ft.Page):
     
     resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
     resize_watermark_size = {"value": "640"}  # Taille par défaut pour le redimensionnement avec watermark
-    sort_by_date = {"value": False}  # False = alphabétique, True = par date de modification
+    sort_mode = {"value": 0}  # 0 = A→Z, 1 = Z→A, 2 = par date de modification
     lazy_images = []  # [(list_index, file_path, image_ctrl)] pour le chargement paresseux
     PAGE_SIZE = 100             # Nb d'éléments max par page dans la prévisualisation
     preview_page = {"value": 0}  # Page courante (0-indexé)
@@ -205,12 +205,16 @@ def main(page: ft.Page):
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
     file_count_text = ft.Text("", size=14, color=WHITE, text_align=ft.TextAlign.RIGHT)
     selection_count_text = ft.Text("", size=14, color=BLUE, text_align=ft.TextAlign.RIGHT)
-    sort_switch = ft.Switch(
-        label="Trier par date",
-        value=False,
-        label_position=ft.LabelPosition.LEFT,
-        active_color=BLUE,
-        tooltip="Basculer entre tri alphabétique et tri par date de modification",
+    sort_segment = ft.CupertinoSlidingSegmentedButton(
+        selected_index=0,
+        bgcolor=GREY,
+        thumb_color=DARK,
+        controls=[
+            ft.Text("A→Z",  size=11, color=WHITE),
+            ft.Text("Z→A",  size=11, color=WHITE),
+            ft.Text("Date", size=11, color=WHITE),
+        ],
+        tooltip="Tri alphabétique (A→Z / Z→A) ou par date de modification",
     )
     prev_page_btn = ft.IconButton(
         icon=ft.Icons.CHEVRON_LEFT, icon_size=18, icon_color=DARK, bgcolor=YELLOW,
@@ -616,6 +620,51 @@ def main(page: ft.Page):
             refresh_preview()
             page.update()
 
+        def delete_current_image(e):
+            path = image_paths[current_idx["v"]]
+            fname = os.path.basename(path)
+
+            def _confirm(e2):
+                page.on_keyboard_event = on_key
+                dlg.open = False
+                page.update()
+                try:
+                    os.remove(path)
+                    image_paths.pop(current_idx["v"])
+                    log_to_terminal(f"[OK] Supprimé: {fname}", GREEN)
+                except Exception as err:
+                    log_to_terminal(f"[ERREUR] {err}", RED)
+                    return
+                if not image_paths:
+                    close_viewer(None)
+                    return
+                current_idx["v"] = min(current_idx["v"], len(image_paths) - 1)
+                _load_image(image_paths[current_idx["v"]])
+
+            def _cancel(e2):
+                page.on_keyboard_event = on_key
+                dlg.open = False
+                page.update()
+
+            def _on_key_dialog(e2: ft.KeyboardEvent):
+                if e2.key == "Escape":
+                    _cancel(None)
+                elif e2.key == "Enter":
+                    _confirm(None)
+
+            dlg = ft.AlertDialog(
+                title=ft.Text("Supprimer l'image ?"),
+                content=ft.Text(f"'{fname}' sera définitivement supprimé."),
+                actions=[
+                    ft.TextButton("Annuler", on_click=_cancel),
+                    ft.TextButton("Supprimer", on_click=_confirm, style=ft.ButtonStyle(color=ft.Colors.RED)),
+                ],
+            )
+            page.overlay.append(dlg)
+            dlg.open = True
+            page.on_keyboard_event = _on_key_dialog
+            page.update()
+
         def on_key(e: ft.KeyboardEvent):
             if e.key in ("Arrow Right", "ArrowRight"):
                 go_next(None)
@@ -623,6 +672,8 @@ def main(page: ft.Page):
                 go_prev(None)
             elif e.key == "Escape":
                 close_viewer(None)
+            elif e.key in ("Delete", "Backspace"):
+                delete_current_image(None)
 
         page.on_keyboard_event = on_key
 
@@ -660,15 +711,23 @@ def main(page: ft.Page):
                     border_radius=16,
                     width=320,
                 ),
-                ft.Container(
-                    content=viewer_checkbox,
-                    bgcolor=bar_bg,
-                    padding=ft.Padding.symmetric(horizontal=12, vertical=8),
-                    border_radius=16,
-                ),
             ],
             alignment=ft.MainAxisAlignment.CENTER,
             spacing=8,
+        )
+
+        # Bouton fermer — coin supérieur droit
+        close_btn_top = ft.Container(
+            content=ft.IconButton(
+                icon=ft.Icons.CLOSE_ROUNDED,
+                icon_color=ft.Colors.WHITE,
+                icon_size=24,
+                tooltip="Fermer (Échap)",
+                on_click=close_viewer,
+                style=btn_style,
+            ),
+            bgcolor=bar_bg,
+            border_radius=20,
         )
 
         nav_bar = ft.Container(
@@ -682,12 +741,16 @@ def main(page: ft.Page):
                         on_click=go_prev,
                         style=btn_style,
                     ),
+                    ft.Container(
+                        content=viewer_checkbox,
+                        padding=ft.Padding.symmetric(horizontal=4, vertical=0),
+                    ),
                     ft.IconButton(
-                        icon=ft.Icons.CLOSE_ROUNDED,
-                        icon_color=ft.Colors.WHITE,
-                        icon_size=24,
-                        tooltip="Fermer",
-                        on_click=close_viewer,
+                        icon=ft.Icons.DELETE_ROUNDED,
+                        icon_color=ft.Colors.RED_300,
+                        icon_size=22,
+                        tooltip="Supprimer l'image (Suppr / ⌫)",
+                        on_click=delete_current_image,
                         style=btn_style,
                     ),
                     ft.IconButton(
@@ -721,14 +784,19 @@ def main(page: ft.Page):
                 ft.Stack(
                     [
                         iv_container,
-                        # Barre supérieure — positionnée absolument pour ne pas intercepter
-                        # les gestes au centre de l'écran
+                        # Barre supérieure — centrée
                         ft.Container(
                             content=top_bar,
                             top=12,
                             left=0,
                             right=0,
                             alignment=ft.Alignment(0, 0),
+                        ),
+                        # Bouton fermer — coin supérieur droit
+                        ft.Container(
+                            content=close_btn_top,
+                            top=10,
+                            right=12,
                         ),
                         # Barre de navigation inférieure
                         ft.Container(
@@ -1361,8 +1429,10 @@ def main(page: ft.Page):
                     new_file_count_text = f"({file_count} fichier{'s' if file_count > 1 else ''})"
 
                     if raw:
-                        if sort_by_date["value"]:
+                        if sort_mode["value"] == 2:
                             sorted_entries = sorted(raw, key=lambda e: (not e.is_dir(), -e.stat().st_mtime))
+                        elif sort_mode["value"] == 1:
+                            sorted_entries = sorted(raw, key=lambda e: (not e.is_dir(), e.name.lower()), reverse=True)
                         else:
                             sorted_entries = sorted(raw, key=lambda e: (not e.is_dir(), e.name.lower()))
 
@@ -1386,7 +1456,7 @@ def main(page: ft.Page):
     
     def on_sort_change(e):
         """Change le mode de tri et rafraîchit la preview"""
-        sort_by_date["value"] = e.control.value
+        sort_mode["value"] = e.control.selected_index
         refresh_preview()
 
     def go_to_page(delta):
@@ -1966,7 +2036,7 @@ def main(page: ft.Page):
     folder_path.on_blur = on_folder_path_blur
 
     # ── Preview ───────────────────────────────────────────────────────
-    sort_switch.on_change = on_sort_change
+    sort_segment.on_change = on_sort_change
     prev_page_btn.on_click = lambda e: go_to_page(-1)
     next_page_btn.on_click = lambda e: go_to_page(+1)
 
@@ -2142,7 +2212,7 @@ def main(page: ft.Page):
                         page_indicator_text,
                         next_page_btn,
                         ft.Container(width=4),
-                        sort_switch,
+                        sort_segment,
                         ft.IconButton(
                             icon=ft.Icons.CREATE_NEW_FOLDER,
                             tooltip="Créer un nouveau dossier",

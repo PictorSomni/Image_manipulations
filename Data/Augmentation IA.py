@@ -393,8 +393,6 @@ async def main(page: ft.Page) -> None:
     page.title = f"Augmentation IA  v{__version__}"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG_UI
-    page.window.maximized = True
-    page.update()
     await page.window.to_front()
 
     # ------------------------------------------------------------------ #
@@ -578,13 +576,8 @@ async def main(page: ft.Page) -> None:
             _dev = _pick_torch_device()
             model = build_sam2(cfg_name, ckpt_path, device=_dev)
             predictor = SAM2ImagePredictor(model)
-            if hasattr(_torch, "compile") and _dev != "mps":
-                try:
-                    predictor.model.image_encoder = _torch.compile(
-                        predictor.model.image_encoder, mode="reduce-overhead"
-                    )
-                except Exception:
-                    pass
+            # torch.compile désactivé pour SAM2 : les transforms torchvision internes
+            # (Resize) provoquent "Can't redefine method: forward" à la 2ème utilisation
             _sam2_predictor_cache[snap_model] = predictor
         predictor = _sam2_predictor_cache[snap_model]
         predictor.mask_threshold = snap_thresh
@@ -594,13 +587,24 @@ async def main(page: ft.Page) -> None:
             predictor.set_image(img_np)
             points_np = np.array([[x, y] for x, y, _ in snap_points], dtype=np.float32)
             labels_np = np.array([l for _, _, l in snap_points], dtype=np.int32)
-            masks, scores, _ = predictor.predict(
+            # Premier passage — multimask pour choisir le meilleur candidat
+            masks, scores, logits_out = predictor.predict(
                 point_coords=points_np,
                 point_labels=labels_np,
                 multimask_output=multimask,
                 return_logits=True,
             )
             best_idx = int(np.argmax(scores))
+            # Second passage — réinjection des logits comme mask_input pour affiner
+            # et supprimer les artefacts rectangulaires liés aux patches de l'encodeur
+            masks, scores, _ = predictor.predict(
+                point_coords=points_np,
+                point_labels=labels_np,
+                mask_input=logits_out[best_idx : best_idx + 1],
+                multimask_output=False,
+                return_logits=True,
+            )
+            best_idx = 0
         logits = masks[best_idx].astype(np.float32)
         prob = 1.0 / (1.0 + np.exp(-logits))
         return np.clip((prob - 0.05) / (0.95 - 0.05), 0.0, 1.0)
@@ -864,7 +868,7 @@ async def main(page: ft.Page) -> None:
         label="{value} %",
         active_color=ORANGE,
         expand=True,
-        disabled=not (SAM2_AVAILABLE and (CV2_AVAILABLE or IOPAINT_AVAILABLE)),
+        disabled=not SAM2_AVAILABLE,
     )
     sam2_inpaint_radius_slider = ft.Slider(
         value=20,
@@ -953,6 +957,13 @@ async def main(page: ft.Page) -> None:
         bgcolor=GREY,
         tooltip="Rafraîchir la liste des modèles",
     )
+    recompile_btn = ft.IconButton(
+        icon=ft.Icons.SYNC_ROUNDED,
+        icon_color=DARK,
+        bgcolor=BLUE if ESRGAN_AVAILABLE else GREY,
+        tooltip="Forcer la recompilation (torch.compile)\nEfface le manifeste et recompile tous les modèles",
+        disabled=not ESRGAN_AVAILABLE,
+    )
     # ------------------------------------------------------------------ #
     async def _animate_progress(bar: ft.ProgressBar, stop_event: asyncio.Event) -> None:
         """Anime la barre de progression de 0 % jusqu'à ~90 % puis saute à 100 %."""
@@ -1005,8 +1016,10 @@ async def main(page: ft.Page) -> None:
         # Superposition du masque SAM2 en aperçu (bleu semi-transparent)
         if state.get("sam2_preview_mask") is not None:
             mask = state["sam2_preview_mask"]
-            mask_img = Image.fromarray((mask * 255).astype(np.uint8), "L")
-            mask_resized = mask_img.resize(display.size, Image.Resampling.BILINEAR)
+            # Binarisation à 0.5 : évite l'affichage des zones à faible probabilité
+            mask_binary = ((mask >= 0.5) * 255).astype(np.uint8)
+            mask_img = Image.fromarray(mask_binary, "L")
+            mask_resized = mask_img.resize(display.size, Image.Resampling.NEAREST)
             # Dilatation visuelle : montre en temps réel l'expansion du masque
             dil = state.get("inpaint_dilation", 0)
             if dil > 0:
@@ -1014,7 +1027,7 @@ async def main(page: ft.Page) -> None:
                 for _ in range(display_dil):
                     mask_resized = mask_resized.filter(ImageFilter.MaxFilter(3))
             overlay_rgba = Image.new("RGBA", display.size, (69, 184, 245, 180))
-            mask_alpha = mask_resized.point(lambda p: int(p * 180 // 255))
+            mask_alpha = mask_resized.point(lambda p: 180 if p > 0 else 0)
             overlay_rgba.putalpha(mask_alpha)
             display = Image.alpha_composite(display.convert("RGBA"), overlay_rgba).convert("RGB")
         preview_img.src = f"data:image/jpeg;base64,{image_to_b64(display)}"
@@ -1091,6 +1104,22 @@ async def main(page: ft.Page) -> None:
         run_model_btn.disabled = not ESRGAN_AVAILABLE or not names
         page.update()
 
+    async def on_force_recompile(e) -> None:
+        """Efface le manifeste de compilation et relance _run_compile_warmup."""
+        if state.get("enhancing"):
+            return
+        # Vider le manifeste → tous les modèles seront recompilés
+        _write_compile_manifest({})
+        # Vider uniquement le cache spandrel — SAM2 ne peut pas être recompilé
+        # dans la même session Python (torch.compile interdit de redéfinir forward)
+        _custom_model_cache.clear()
+        enhance_status.value = "Manifeste effacé — recompilation en cours…"
+        recompile_btn.disabled = True
+        page.update()
+        await _run_compile_warmup()
+        recompile_btn.disabled = not ESRGAN_AVAILABLE
+        page.update()
+
     async def on_run_model(e) -> None:
         """Exécute le modèle .pth/.safetensors sélectionné via spandrel sur l'image courante."""
         base = state["processed"] if state["processed"] is not None else state["orig_img"]
@@ -1134,7 +1163,7 @@ async def main(page: ft.Page) -> None:
                 desc.to(_dev)
                 desc.model.eval()
                 # torch.compile : accélère les inférences suivantes via le cache Inductor
-                if hasattr(_torch, "compile") and _dev != "mps":
+                if hasattr(_torch, "compile") and _dev != "mps" and sys.platform != "win32":
                     try:
                         desc.model = _torch.compile(desc.model, mode="reduce-overhead")
                     except Exception:
@@ -1794,6 +1823,7 @@ async def main(page: ft.Page) -> None:
     process_btn.on_click       = on_process
     run_model_btn.on_click     = on_run_model
     refresh_btn.on_click       = on_refresh_models
+    recompile_btn.on_click     = on_force_recompile
     save_btn.on_click          = on_save
     cancel_btn.on_click          = on_cancel
     erosion_slider.on_change     = on_erosion_slider_change
@@ -1961,8 +1991,21 @@ async def main(page: ft.Page) -> None:
             # Amélioration IA
             ft.Text("Amélioration IA", size=13, weight=ft.FontWeight.BOLD, color=WHITE),
             ft.Text("📂 Data/models/", size=10, color=LIGHT_GREY),
+            # Lien MSVC — visible uniquement sur Windows (torch.compile désactivé sans cl.exe)
+            *(
+                [
+                    ft.TextButton(
+                        "⚡ Activer torch.compile (MSVC requis)",
+                        url="https://visualstudio.microsoft.com/fr/visual-cpp-build-tools/",
+                        style=ft.ButtonStyle(color=LIGHT_GREY),
+                        tooltip="Ouvre la page de téléchargement des Build Tools Visual Studio\n"
+                                "(nécessaire pour torch.compile sous Windows — gain ~15-30% sur GPU)",
+                    )
+                ]
+                if sys.platform == "win32" else []
+            ),
             ft.Row(
-                [model_dropdown, refresh_btn, run_model_btn],
+                [model_dropdown, refresh_btn, recompile_btn, run_model_btn],
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
@@ -2075,7 +2118,7 @@ async def main(page: ft.Page) -> None:
             """Chargement + compilation + passe de chauffe (dans un thread worker)."""
             import torch as _t
             _dev = _pick_torch_device()
-            use_compile = hasattr(_t, "compile") and _dev != "mps"
+            use_compile = hasattr(_t, "compile") and _dev != "mps" and sys.platform != "win32"
 
             if kind == "spandrel" and name not in _custom_model_cache:
                 from spandrel import ModelLoader as _ML
@@ -2102,13 +2145,7 @@ async def main(page: ft.Page) -> None:
                 _cfg_name = _SAM2_MODELS[name][1]
                 model     = _bs2(_cfg_name, path, device=_dev)
                 predictor = _Pred(model)
-                if use_compile:
-                    try:
-                        predictor.model.image_encoder = _t.compile(
-                            predictor.model.image_encoder, mode="reduce-overhead"
-                        )
-                    except Exception:
-                        pass
+                # torch.compile désactivé pour SAM2 (cf. _run_sam2_inference)
                 dummy_img = np.zeros((224, 224, 3), dtype=np.uint8)
                 try:
                     with _t.inference_mode():
@@ -2176,7 +2213,12 @@ async def main(page: ft.Page) -> None:
         page.update()
 
 
+    # ── Mettre la fenêtre en plein écran ────────────────────────────────────────────────
+    async def _maximize():
+        page.window.maximized = True
+        page.update()
 
+    page.run_task(_maximize)
 
 ###############################################################
 #                        POINT D'ENTRÉE                       #
