@@ -23,11 +23,12 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.0.0"
+__version__ = "2.0.1"
 
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+from cycler import V
 import flet as ft
 import os
 import subprocess
@@ -39,6 +40,8 @@ import re
 import zipfile
 import json
 import asyncio
+import time
+import hashlib
 try:
     from PIL import Image as _PILImage
 except ImportError:
@@ -48,6 +51,13 @@ except ImportError:
 #                         CONSTANTS                         #
 #############################################################
 _IMAGE_VIEWER_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"}
+
+_FILTER_CATEGORIES = {
+    "images": {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif", ".raw", ".cr2", ".nef", ".arw", ".dng"},
+    "videos": {".mp4", ".mov", ".avi", ".mkv", ".mts", ".m2ts", ".wmv", ".mpg", ".mpeg"},
+    "zip":    {".zip", ".rar", ".7z", ".tar", ".gz"},
+    "docs":   {".pdf",".txt", ".md", ".log", ".csv", ".xml", ".json", ".odt", ".docx", ".xlsx", ".pptx", ".doc", ".xls", ".ppt"},
+}
 
 _OS_JUNK = {
     ".ds_store", "thumbs.db", "thumbs.db:encryptable",
@@ -113,13 +123,13 @@ def main(page: ft.Page):
     page.bgcolor = BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width = 1320
-    page.window.height = 870
+    page.window.width = 1600
+    page.window.height = 900
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
     cwd = os.path.dirname(os.path.abspath(__file__))
     selected_files = set()  # Ensemble des fichiers sélectionnés
-    clipboard = {"files": []}  # Presse-papiers pour copier/coller des fichiers
+    clipboard = {"files": [], "cut": False}  # Presse-papiers pour copier/coller/couper des fichiers
 
     # ── Dossiers récents ──────────────────────────────────────────────
     _recent_path = os.path.join(cwd, ".recent_folders.json")
@@ -146,7 +156,24 @@ def main(page: ft.Page):
             recent.remove(path)
         recent.insert(0, path)
         _save_recent(recent[:10])
-    
+
+    # ── Dossiers favoris ──────────────────────────────────────────────
+    _favorites_path = os.path.join(cwd, ".favorites.json")
+
+    def _load_favorites() -> list:
+        try:
+            with open(_favorites_path, "r", encoding="utf-8") as f:
+                return [p for p in json.load(f) if isinstance(p, str)]
+        except Exception:
+            return []
+
+    def _save_favorites(folders: list) -> None:
+        try:
+            with open(_favorites_path, "w", encoding="utf-8") as f:
+                json.dump(folders, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
         "N&B.py": (False, WHITE),
@@ -169,6 +196,8 @@ def main(page: ft.Page):
     resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
     resize_watermark_size = {"value": "640"}  # Taille par défaut pour le redimensionnement avec watermark
     sort_mode = {"value": 0}  # 0 = A→Z, 1 = Z→A, 2 = par date de modification
+    filter_type = {"value": "all"}  # "all", "images", "videos", "zip", "docs", "other"
+    _removable_drives = {"list": []}  # [(name, path), ...]
     lazy_images = []  # [(list_index, file_path, image_ctrl)] pour le chargement paresseux
     PAGE_SIZE = 100             # Nb d'éléments max par page dans la prévisualisation
     preview_page = {"value": 0}  # Page courante (0-indexé)
@@ -205,6 +234,12 @@ def main(page: ft.Page):
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
     file_count_text = ft.Text("", size=14, color=WHITE, text_align=ft.TextAlign.RIGHT)
     selection_count_text = ft.Text("", size=14, color=BLUE, text_align=ft.TextAlign.RIGHT)
+    _select_toggle_btn = ft.IconButton(
+        icon=ft.Icons.SELECT_ALL,
+        icon_color=VIOLET,
+        icon_size=22,
+        tooltip="Tout sélectionner",
+    )
     sort_segment = ft.CupertinoSlidingSegmentedButton(
         selected_index=0,
         bgcolor=GREY,
@@ -247,6 +282,62 @@ def main(page: ft.Page):
         keyboard_type=ft.KeyboardType.NUMBER,
         border_color=ORANGE,
         content_padding=ft.Padding(5, 5, 5, 5),
+    )
+    # ── Filtre de types de fichiers ──────────────────────────────────
+    _FILTER_LABELS = ["Tous", "Images", "ZIP", "Docs", "Autres"]
+    _FILTER_KEYS   = ["all",  "images", "zip", "docs", "other"]
+    filter_segment = ft.CupertinoSlidingSegmentedButton(
+        selected_index=0,
+        bgcolor=GREY,
+        thumb_color=DARK,
+        controls=[
+            ft.Text(lbl, size=11, color=WHITE) for lbl in ["Tous", "Images", "ZIP", "Docs", "Autres"]
+        ],
+        tooltip="Filtrer les fichiers par type",
+    )
+    # ── Section favoris ──────────────────────────────────────────────
+    _favorites_list_col = ft.Column(spacing=2, scroll=ft.ScrollMode.AUTO)
+    _favorites_container = ft.Container(
+        content=ft.Column([
+            ft.Row([
+                ft.Icon(ft.Icons.STAR, size=14, color=BLUE),
+                ft.Text("Favoris", size=14, color=BLUE, weight=ft.FontWeight.BOLD),
+                ft.Container(expand=True),
+                ft.Container(
+                    content=ft.Icon(ft.Icons.ADD, size=13, color=DARK),
+                    bgcolor=BLUE,
+                    border_radius=10,
+                    padding=ft.Padding(3, 1, 3, 1),
+                    tooltip="Ajouter le dossier courant aux favoris",
+                    on_click=lambda e: _add_favorite_current(),
+                    ink=True,
+                ),
+            ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            _favorites_list_col,
+        ], spacing=4),
+        bgcolor=GREY,
+        border=ft.Border.all(1, BLUE),
+        border_radius=6,
+        padding=ft.Padding(8, 6, 8, 6),
+        expand=True,
+    )
+    # ── Section périphériques amovibles ──────────────────────────────
+    _drives_column = ft.Column(spacing=4)
+    _drives_container = ft.Container(
+        content=ft.Column([
+            ft.Row([
+                ft.Icon(ft.Icons.USB, size=14, color=VIOLET),
+                ft.Text("Périphériques détectés", size=14, color=VIOLET,
+                        weight=ft.FontWeight.BOLD),
+            ], spacing=6, tight=True),
+            _drives_column,
+        ], spacing=4),
+        bgcolor=GREY,
+        border=ft.Border.all(1, VIOLET),
+        border_radius=6,
+        padding=ft.Padding(8, 6, 8, 6),
+        expand=True,
+        visible=False,
     )
 
 # ===================== METHODS ===================== #
@@ -335,13 +426,12 @@ def main(page: ft.Page):
         
         if ctrl_pressed:
             if e.key == "C":
-                # Ctrl/Cmd + C : Copier les fichiers sélectionnés
                 copy_selected_files(None)
+            elif e.key == "X":
+                cut_selected_files(None)
             elif e.key == "V":
-                # Ctrl/Cmd + V : Coller les fichiers
                 paste_files(None)
             elif e.key == "N":
-                # Ctrl/Cmd + N : Créer un nouveau dossier
                 create_new_folder(None)
     
     # Activer la gestion des événements clavier
@@ -830,6 +920,55 @@ def main(page: ft.Page):
     # ================================================================ #
     #                  OPÉRATIONS SUR FICHIERS                         #
     # ================================================================ #
+    def _rename_item(file_path):
+        """Renomme un fichier ou un dossier via une boîte de dialogue."""
+        current_name = os.path.basename(file_path)
+        parent_dir = os.path.dirname(file_path)
+        stem, ext = os.path.splitext(current_name)
+
+        name_input = ft.TextField(
+            value=stem if ext else current_name,
+            suffix=ft.Text(ext, color=LIGHT_GREY) if ext else None,
+            autofocus=True,
+            width=360,
+            bgcolor=DARK,
+            border_color=GREY,
+            on_submit=lambda e: _do_rename(e),
+        )
+
+        def _do_rename(e):
+            new_stem = name_input.value.strip() if name_input.value else ""
+            if not new_stem:
+                return
+            new_name = new_stem + ext
+            new_path = os.path.join(parent_dir, new_name)
+            rename_dialog.open = False
+            page.update()
+            if new_name == current_name:
+                return
+            try:
+                os.rename(file_path, new_path)
+                log_to_terminal(f"[OK] Renommé: {current_name} → {new_name}", GREEN)
+                refresh_preview(reset_page=False)
+            except Exception as err:
+                log_to_terminal(f"[ERREUR] Renommage: {err}", RED)
+
+        def _cancel_rename(e):
+            rename_dialog.open = False
+            page.update()
+
+        rename_dialog = ft.AlertDialog(
+            title=ft.Text("Renommer"),
+            content=name_input,
+            actions=[
+                ft.TextButton("Annuler", on_click=_cancel_rename),
+                ft.TextButton("Renommer", on_click=_do_rename),
+            ],
+        )
+        page.overlay.append(rename_dialog)
+        rename_dialog.open = True
+        page.update()
+
     def delete_item(file_path):
         """Supprime un fichier ou dossier avec confirmation"""
         def confirm_delete(e):
@@ -937,11 +1076,63 @@ def main(page: ft.Page):
         if not selected_files:
             log_to_terminal("[ATTENTION] Aucun fichier sélectionné", ORANGE)
             return
-        
         clipboard["files"] = list(selected_files)
+        clipboard["cut"] = False
         count = len(clipboard["files"])
         log_to_terminal(f"[OK] {count} élément(s) copié(s)", BLUE)
-    
+
+    def cut_selected_files(e):
+        """Coupe les fichiers sélectionnés (déplacement à la destination)"""
+        if not selected_files:
+            log_to_terminal("[ATTENTION] Aucun fichier sélectionné", ORANGE)
+            return
+        clipboard["files"] = list(selected_files)
+        clipboard["cut"] = True
+        count = len(clipboard["files"])
+        log_to_terminal(f"[OK] {count} élément(s) coupé(s) — collé avec Ctrl+V", ORANGE)
+
+    def select_by_filter(e):
+        """Sélectionne tous les fichiers correspondant au filtre actif dans la page courante."""
+        entries = all_entries_data["list"]
+        if filter_type["value"] != "all":
+            entries = [en for en in entries if _match_filter(en)]
+        added = 0
+        for _name, fpath, is_dir, _is_img, _ext in entries:
+            if not is_dir:
+                selected_files.add(fpath)
+                added += 1
+        selection_count_text.value = _selection_label()
+        _render_current_page()
+        _sync_toggle_btn()
+        if added:
+            filt = filter_type["value"]
+            label = filt if filt != "all" else "tous types"
+            log_to_terminal(f"[OK] {added} fichier(s) sélectionné(s) — {label}", BLUE)
+        else:
+            log_to_terminal("[ATTENTION] Aucun fichier à sélectionner avec ce filtre", ORANGE)
+
+    def _sync_toggle_btn():
+        """Met à jour l'apparence du bouton sélectionner/désélectionner."""
+        if selected_files:
+            _select_toggle_btn.icon = ft.Icons.DESELECT
+            _select_toggle_btn.icon_color = ORANGE
+            _select_toggle_btn.tooltip = "Désélectionner tout"
+        else:
+            _select_toggle_btn.icon = ft.Icons.SELECT_ALL
+            _select_toggle_btn.icon_color = VIOLET
+            _select_toggle_btn.tooltip = "Tout sélectionner"
+        try:
+            _select_toggle_btn.update()
+        except Exception:
+            pass
+
+    def toggle_select_all(e):
+        """Sélectionne tout si rien sélectionné, sinon désélectionne tout."""
+        if selected_files:
+            clear_selection(e)
+        else:
+            select_by_filter(e)
+
     def paste_files(e):
         """Colle les fichiers du presse-papiers dans le dossier actuel"""
         target_folder = current_browse_folder["path"] or selected_folder["path"]
@@ -979,11 +1170,26 @@ def main(page: ft.Page):
                 else:
                     shutil.copy2(source_path, dest_path)
                 copied_count += 1
+                # Si mode couper : supprimer la source après copie réussie
+                if clipboard["cut"]:
+                    try:
+                        if os.path.isdir(source_path):
+                            shutil.rmtree(source_path)
+                        else:
+                            os.remove(source_path)
+                        selected_files.discard(source_path)
+                    except Exception as del_err:
+                        errors.append(f"Suppression source {os.path.basename(source_path)}: {del_err}")
             except Exception as err:
                 errors.append(f"{os.path.basename(source_path)}: {err}")
         
         if copied_count > 0:
-            log_to_terminal(f"[OK] {copied_count} élément(s) collé(s)", BLUE)
+            action = "déplacé" if clipboard["cut"] else "collé"
+            log_to_terminal(f"[OK] {copied_count} élément(s) {action}(s)", BLUE)
+            if clipboard["cut"]:
+                clipboard["files"] = []
+                clipboard["cut"] = False
+                selection_count_text.value = _selection_label()
         
         if errors:
             for error in errors:
@@ -1114,6 +1320,7 @@ def main(page: ft.Page):
         else:
             selected_files.discard(file_path)
         selection_count_text.value = _selection_label()
+        _sync_toggle_btn()
         page.update()
     
     def clear_selection(e):
@@ -1227,6 +1434,212 @@ def main(page: ft.Page):
             log_to_terminal("[ATTENTION] Aucun fichier correspondant trouvé dans la preview", ORANGE)
 
     # ================================================================ #
+    #                    FILTRAGE & PÉRIPHÉRIQUES                      #
+    # ================================================================ #
+    def _match_filter(entry_tuple):
+        """Retourne True si l'entrée correspond au filtre actif."""
+        _name, _path, is_dir, is_image, ext = entry_tuple
+        fval = filter_type["value"]
+        if fval == "all":
+            return True
+        if is_dir:
+            return True  # Dossiers toujours visibles pour la navigation
+        if fval == "images":
+            return is_image
+        if fval in _FILTER_CATEGORIES:
+            return ext in _FILTER_CATEGORIES[fval]
+        if fval == "other":
+            for cat_exts in _FILTER_CATEGORIES.values():
+                if ext in cat_exts:
+                    return False
+            return True
+        return True
+
+    def _filter_chip_ctrl(label, key):
+        pass  # remplacé par CupertinoSlidingSegmentedButton
+
+    def _refresh_filter_chips():
+        """Synchronise l'index du segment avec filter_type."""
+        try:
+            filter_segment.selected_index = _FILTER_KEYS.index(filter_type["value"])
+            filter_segment.update()
+        except Exception:
+            pass
+
+    def _set_filter(key):
+        """Bascule le filtre actif et re-rend la page courante."""
+        filter_type["value"] = key
+        preview_page["value"] = 0
+        _render_current_page()
+
+    def on_filter_segment_change(e):
+        """Callback du CupertinoSlidingSegmentedButton de filtre."""
+        idx = e.control.selected_index
+        _set_filter(_FILTER_KEYS[idx])
+
+    def _get_removable_drives():
+        """Détecte les périphériques amovibles (cross-platform, sans dépendance externe)."""
+        drives = []
+        try:
+            if platform.system() == "Darwin":
+                _sys_vols = {
+                    "Macintosh HD", "Macintosh HD - Data",
+                    "com.apple.TimeMachine.localsnapshots",
+                    "Recovery", "Preboot", "VM", "Update",
+                }
+                for entry in os.scandir("/Volumes"):
+                    if entry.is_dir() and entry.name not in _sys_vols and not entry.name.startswith("."):
+                        drives.append((entry.name, entry.path))
+            elif platform.system() == "Windows":
+                import ctypes
+                DRIVE_REMOVABLE, DRIVE_CDROM = 2, 5
+                vol_buf = ctypes.create_unicode_buffer(261)
+                for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+                    path = f"{letter}:\\"
+                    dtype = ctypes.windll.kernel32.GetDriveTypeW(path)
+                    if dtype in (DRIVE_REMOVABLE, DRIVE_CDROM) and os.path.exists(path):
+                        ctypes.windll.kernel32.GetVolumeInformationW(
+                            path, vol_buf, 261, None, None, None, None, 0)
+                        label = vol_buf.value or letter
+                        drives.append((f"{label} ({letter}:)", path))
+            else:  # Linux
+                for base in ("/media", "/run/media"):
+                    if not os.path.isdir(base):
+                        continue
+                    for entry in os.scandir(base):
+                        if not entry.is_dir():
+                            continue
+                        if os.path.ismount(entry.path):
+                            drives.append((entry.name, entry.path))
+                        else:
+                            try:
+                                for sub in os.scandir(entry.path):
+                                    if sub.is_dir() and os.path.ismount(sub.path):
+                                        drives.append((sub.name, sub.path))
+                            except PermissionError:
+                                pass
+        except Exception:
+            pass
+        return drives
+
+    def _refresh_favorites_ui():
+        """Reconstruit la liste des favoris dans le conteneur."""
+        favs = _load_favorites()
+        _favorites_list_col.controls.clear()
+        if not favs:
+            _favorites_list_col.controls.append(
+                ft.Text("Aucun favori — cliquez sur + pour ajouter", size=10,
+                        color=LIGHT_GREY, italic=True)
+            )
+        else:
+            for p in favs:
+                name = os.path.basename(p) or p
+                def _nav(e, path=p):
+                    if os.path.isdir(path):
+                        navigate_to_folder(path)
+                    else:
+                        log_to_terminal(f"[ERREUR] Dossier introuvable : {path}", RED)
+                def _remove(e, path=p):
+                    favs2 = _load_favorites()
+                    if path in favs2:
+                        favs2.remove(path)
+                    _save_favorites(favs2)
+                    _refresh_favorites_ui()
+                    try:
+                        _favorites_list_col.update()
+                    except Exception:
+                        pass
+                _favorites_list_col.controls.append(
+                    ft.Row([
+                        ft.Icon(ft.Icons.FOLDER, size=16, color=BLUE),
+                        ft.Container(
+                            content=ft.Text(name, size=16, color=WHITE,
+                                            overflow=ft.TextOverflow.ELLIPSIS, max_lines=1),
+                            expand=True,
+                            on_click=_nav,
+                            tooltip=p,
+                            ink=True,
+                        ),
+                        ft.Container(
+                            content=ft.Icon(ft.Icons.CLOSE, size=16, color=LIGHT_GREY),
+                            on_click=_remove,
+                            tooltip="Retirer des favoris",
+                            ink=True,
+                            border_radius=8,
+                            padding=ft.Padding(3, 2, 3, 2),
+                        ),
+                    ], spacing=4, tight=True, height=32, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                )
+        try:
+            _favorites_list_col.update()
+        except Exception:
+            pass
+
+    def _add_favorite_current():
+        """Ajoute le dossier courant aux favoris."""
+        path = current_browse_folder.get("path") or selected_folder.get("path")
+        if not path or not os.path.isdir(path):
+            log_to_terminal("[ATTENTION] Aucun dossier sélectionné à ajouter en favori", ORANGE)
+            return
+        path = os.path.normpath(path)
+        favs = _load_favorites()
+        if path not in favs:
+            favs.append(path)
+            _save_favorites(favs)
+            _refresh_favorites_ui()
+            log_to_terminal(f"[OK] Favori ajouté : {os.path.basename(path)}", YELLOW)
+        else:
+            log_to_terminal("[INFO] Ce dossier est déjà dans les favoris", LIGHT_GREY)
+
+    def _refresh_drives_ui(drives):
+        """Met à jour la section périphériques (appelée depuis le callback pubsub)."""
+        _drives_column.controls.clear()
+        for name, path in drives:
+            def _nav(e, p=path):
+                navigate_to_folder(p)
+            _drives_column.controls.append(
+                ft.Row([
+                    ft.Icon(ft.Icons.STORAGE, size=16, color=LIGHT_GREY),
+                    ft.Text(name, size=16, color=WHITE, expand=True,
+                            overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Container(
+                        content=ft.Text("Naviguer", size=16, color=DARK,
+                                        weight=ft.FontWeight.W_600),
+                        bgcolor=VIOLET,
+                        border_radius=4,
+                        padding=ft.Padding(7, 4, 7, 4),
+                        on_click=_nav,
+                        ink=True,
+                    ),
+                ], spacing=6, tight=True, height=34, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            )
+        _drives_container.visible = bool(drives)
+        try:
+            _drives_container.update()
+        except Exception:
+            pass
+
+    def _on_drives_changed(topic, drives):
+        """Callback pubsub : met à jour l'UI périphériques depuis le thread de fond."""
+        _refresh_drives_ui(drives)
+
+    page.pubsub.subscribe_topic("drives_changed", _on_drives_changed)
+
+    def _drives_polling_thread():
+        """Thread de fond : détecte les changements de périphériques toutes les 3 s."""
+        prev_drives = []
+        while True:
+            time.sleep(3)
+            try:
+                drives = _get_removable_drives()
+                if drives != prev_drives:
+                    prev_drives = drives
+                    _removable_drives["list"] = drives
+                    page.pubsub.send_all_on_topic("drives_changed", drives)
+            except Exception:
+                pass
+
+    # ================================================================ #
     #                           PREVIEW                                #
     # ================================================================ #
     def _set_visible_images(scroll_pixels, viewport_height, do_update=True):
@@ -1252,6 +1665,9 @@ def main(page: ft.Page):
         """
         try:
             entries = all_entries_data["list"]
+            # Appliquer le filtre actif
+            if filter_type["value"] != "all":
+                entries = [e for e in entries if _match_filter(e)]
             total = len(entries)
             total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
             current_pg = min(preview_page["value"], total_pages - 1)
@@ -1299,55 +1715,65 @@ def main(page: ft.Page):
 
                     if is_image:
                         visual = ft.Container(
-                            content=ft.Image(src=file_path, fit=ft.BoxFit.COVER, error_content=ft.Icon(icon, color=icon_color, size=18)),
-                            width=40, height=40,
+                            content=ft.Image(src=file_path, fit=ft.BoxFit.COVER, error_content=ft.Icon(icon, color=icon_color, size=22)),
+                            width=50, height=50,
                             border_radius=4, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                         )
                     else:
-                        visual = ft.Icon(icon, color=icon_color, size=18)
+                        visual = ft.Icon(icon, color=icon_color, size=22)
 
                     delete_btn = ft.IconButton(
-                        icon=ft.Icons.DELETE_OUTLINE, icon_size=16,
+                        icon=ft.Icons.DELETE_OUTLINE, icon_size=18,
                         icon_color=ft.Colors.RED_300, tooltip="Supprimer",
                         on_click=lambda e, path=file_path: delete_item(path),
-                        style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                        style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+                    )
+                    rename_btn = ft.IconButton(
+                        icon=ft.Icons.EDIT_OUTLINED, icon_size=17,
+                        icon_color=LIGHT_GREY, tooltip="Renommer",
+                        on_click=lambda e, path=file_path: _rename_item(path),
+                        style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                     )
                     if is_dir:
-                        trailing = delete_btn
+                        trailing = ft.Row(
+                            [rename_btn, delete_btn],
+                            spacing=0, tight=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        )
                     else:
                         pm = re.match(r'^(\d+)X_', file)
                         p_count = int(pm.group(1)) if pm else None
                         if p_count is not None:
                             count_chip = ft.Container(
-                                content=ft.Text(f"{p_count}×", size=11,
+                                content=ft.Text(f"{p_count}×", size=12,
                                                 color=YELLOW, weight=ft.FontWeight.BOLD),
                                 bgcolor=GREY, border_radius=4,
-                                padding=ft.Padding(5, 2, 5, 2),
+                                padding=ft.Padding(6, 3, 6, 3),
                                 tooltip="Modifier le nombre d'impressions",
                                 on_click=lambda e, p=file_path: _open_numpad(p),
                                 ink=True,
                             )
                             remove_btn = ft.IconButton(
-                                icon=ft.Icons.CLOSE, icon_size=13,
+                                icon=ft.Icons.CLOSE, icon_size=15,
                                 icon_color=LIGHT_GREY, tooltip="Retirer le compteur",
                                 on_click=lambda e, p=file_path: _remove_print_prefix(p),
-                                style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                                style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                             )
                             trailing = ft.Row(
-                                [count_chip, remove_btn, delete_btn],
+                                [count_chip, remove_btn, rename_btn, delete_btn],
                                 spacing=0, tight=True,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             )
                         else:
                             print_btn = ft.IconButton(
-                                icon=ft.Icons.PRINT_OUTLINED, icon_size=14,
+                                icon=ft.Icons.PRINT_OUTLINED, icon_size=17,
                                 icon_color=LIGHT_GREY,
                                 tooltip="Définir le nombre d'impressions",
                                 on_click=lambda e, p=file_path: _open_numpad(p),
-                                style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                                style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                             )
                             trailing = ft.Row(
-                                [print_btn, delete_btn],
+                                [print_btn, rename_btn, delete_btn],
                                 spacing=0, tight=True,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             )
@@ -1355,11 +1781,12 @@ def main(page: ft.Page):
                     new_controls.append(
                         ft.ListTile(
                             leading=ft.Row([checkbox, visual], spacing=8, tight=True),
-                            title=ft.Text(file, size=12, color=WHITE),
+                            title=ft.Text(file, size=13, color=WHITE),
                             trailing=trailing,
                             on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
-                            hover_color=GREY, dense=True,
-                            content_padding=ft.Padding(left=5, top=0, right=5, bottom=0),
+                            hover_color=GREY, dense=False,
+                            content_padding=ft.Padding(left=5, top=2, right=5, bottom=2),
+                            min_leading_width=0,
                         )
                     )
 
@@ -1378,6 +1805,13 @@ def main(page: ft.Page):
                 next_page_btn.visible = False
                 page_indicator_text.value = ""
 
+            # Mettre à jour le compteur si un filtre est actif
+            if filter_type["value"] != "all":
+                n_files = sum(1 for e in entries if not e[2])
+                n_total = sum(1 for e in all_entries_data["list"] if not e[2])
+                file_count_text.value = f"({n_files}/{n_total})"
+
+            _sync_toggle_btn()
             page.update()
         except Exception as ex:
             log_to_terminal(f"[ERREUR] Rendu preview: {ex}", RED)
@@ -1945,7 +2379,7 @@ def main(page: ft.Page):
         page.update()
 
     def update_app(e):
-        """Stash les changements locaux, git pull --rebase, pip install -r requirements.txt, relance."""
+        """Sauvegarde les fichiers utilisateur, git pull --rebase, vérifie les dépendances si requirements a changé, relance."""
         page.pubsub.send_all_on_topic("terminal", ("Mise à jour en cours…", YELLOW))
         def _run():
             def pub(msg, color=LIGHT_GREY):
@@ -1960,6 +2394,28 @@ def main(page: ft.Page):
                     encoding="utf-8",
                     errors="replace",
                 )
+
+            # ── Sauvegarde mémoire des fichiers utilisateur avant git ─
+            _user_files = [".recent_folders.json", ".favorites.json", ".pip_cache.json"]
+            _backups = {}
+            for fname in _user_files:
+                fpath = os.path.join(cwd, fname)
+                if os.path.isfile(fpath):
+                    try:
+                        with open(fpath, "r", encoding="utf-8") as f:
+                            _backups[fname] = f.read()
+                    except Exception:
+                        pass
+
+            def _restore_user_files():
+                for fname, content in _backups.items():
+                    fpath = os.path.join(cwd, fname)
+                    try:
+                        with open(fpath, "w", encoding="utf-8") as f:
+                            f.write(content)
+                    except Exception:
+                        pass
+
             try:
                 # Stash les changements locaux s'il y en a
                 stash_result = run_git("stash")
@@ -1970,51 +2426,76 @@ def main(page: ft.Page):
                 output = (result.stdout + result.stderr).strip()
 
                 if result.returncode != 0:
-                    # Restaurer le stash en cas d'échec du rebase
                     if stashed:
                         run_git("rebase", "--abort")
                         run_git("stash", "pop")
+                    _restore_user_files()
                     pub(f"[ERREUR] Erreur lors de la mise à jour.\n{output}", RED)
                     return
 
-                # Supprimer le stash (changements locaux abandonnés)
+                # Supprimer le stash (changements de code locaux non désirés)
                 if stashed:
                     run_git("stash", "drop")
+
+                # Restaurer systématiquement les fichiers utilisateur
+                _restore_user_files()
 
                 if "Already up to date" in output or "Déjà à jour" in output or output == "":
                     pub("[OK] Déjà à jour.", GREEN)
                 else:
                     pub(f"[OK] Code mis à jour.\n{output}", GREEN)
 
-                # ── Installation des dépendances ──────────────────────────
+                # ── Dépendances : pip uniquement si requirements.txt a changé ──
                 req_path = os.path.join(cwd, "requirements.txt")
+                pip_cache_path = os.path.join(cwd, ".pip_cache.json")
                 if not os.path.isfile(req_path):
                     pub("⚠ requirements.txt introuvable, installation ignorée.", YELLOW)
                 else:
-                    pub("📦 Installation des dépendances (requirements.txt)…", YELLOW)
-                    pip_proc = subprocess.Popen(
-                        [sys.executable, "-m", "pip", "install", "-r", req_path, "--upgrade"],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        cwd=cwd,
-                    )
-                    for line in pip_proc.stdout:
-                        line = line.rstrip()
-                        if line:
-                            pub(line)
-                    pip_proc.wait()
-                    if pip_proc.returncode == 0:
-                        pub("[OK] Dépendances installées.", GREEN)
+                    with open(req_path, "rb") as f:
+                        req_hash = hashlib.sha256(f.read()).hexdigest()
+
+                    cached_hash = None
+                    try:
+                        with open(pip_cache_path, "r", encoding="utf-8") as f:
+                            cached_hash = json.load(f).get("req_hash")
+                    except Exception:
+                        pass
+
+                    if cached_hash == req_hash:
+                        pub("[OK] Dépendances inchangées, installation ignorée.", GREEN)
                     else:
-                        pub(f"pip a terminé avec le code {pip_proc.returncode}.", YELLOW)
+                        pub("📦 Nouvelles dépendances détectées, installation en cours…", YELLOW)
+                        pip_proc = subprocess.Popen(
+                            [sys.executable, "-m", "pip", "install", "-r", req_path, "--upgrade"],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            encoding="utf-8",
+                            errors="replace",
+                            cwd=cwd,
+                        )
+                        for line in pip_proc.stdout:
+                            line = line.rstrip()
+                            if line:
+                                pub(line)
+                        pip_proc.wait()
+                        if pip_proc.returncode == 0:
+                            pub("[OK] Dépendances installées.", GREEN)
+                            try:
+                                with open(pip_cache_path, "w", encoding="utf-8") as f:
+                                    json.dump(
+                                        {"req_hash": req_hash,
+                                         "updated_at": time.strftime("%Y-%m-%d %H:%M")},
+                                        f, ensure_ascii=False, indent=2,
+                                    )
+                            except Exception:
+                                pass
+                        else:
+                            pub(f"pip a terminé avec le code {pip_proc.returncode}.", YELLOW)
 
                 # ── Redémarrage automatique ───────────────────────────────
                 pub("🔄 Redémarrage du Dashboard…", BLUE)
                 script = os.path.abspath(__file__)
-                # Petit processus détaché : attend 2 s puis relance le dashboard
                 subprocess.Popen(
                     [
                         sys.executable, "-c",
@@ -2026,7 +2507,8 @@ def main(page: ft.Page):
                 request_quit()
 
             except Exception as exc:
-                page.pubsub.send_all_on_topic("terminal", (f"[ERREUR] [ERREUR] {exc}", RED))
+                _restore_user_files()
+                page.pubsub.send_all_on_topic("terminal", (f"[ERREUR] {exc}", RED))
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -2037,6 +2519,8 @@ def main(page: ft.Page):
 
     # ── Preview ───────────────────────────────────────────────────────
     sort_segment.on_change = on_sort_change
+    filter_segment.on_change = on_filter_segment_change
+    _select_toggle_btn.on_click = toggle_select_all
     prev_page_btn.on_click = lambda e: go_to_page(-1)
     next_page_btn.on_click = lambda e: go_to_page(+1)
 
@@ -2047,6 +2531,12 @@ def main(page: ft.Page):
     # ── Initialisation ────────────────────────────────────────────────
     _refresh_recent_btn()
     refresh_apps()
+    _refresh_favorites_ui()
+    _initial_drives = _get_removable_drives()
+    if _initial_drives:
+        _removable_drives["list"] = _initial_drives
+        _refresh_drives_ui(_initial_drives)
+    threading.Thread(target=_drives_polling_thread, daemon=True).start()
 
 # ===================== FLET UI ===================== #
     page.add(
@@ -2143,7 +2633,7 @@ def main(page: ft.Page):
                         border_radius=8,
                         bgcolor=DARK,
                         padding=8,
-                    )
+                    ),
                 ], expand=True),
                 ft.Column([
                     ft.Row([
@@ -2155,23 +2645,56 @@ def main(page: ft.Page):
                             icon_color=BLUE,
                             icon_size=20,
                         ),
-                        ft.Button(
-                            "Désélectionner",
-                            icon=ft.Icons.DESELECT,
-                            on_click=clear_selection,
-                            bgcolor=GREY,
-                            color=ORANGE,
-                            height=35,
-                        ),
-                        ft.Button(
-                            "Supprimer",
+                        _select_toggle_btn,
+                        ft.IconButton(
                             icon=ft.Icons.DELETE_SWEEP,
+                            tooltip="Supprimer les fichiers sélectionnés",
                             on_click=delete_selected_files,
-                            bgcolor=GREY,
-                            color=RED,
-                            height=35,
+                            icon_color=RED,
+                            icon_size=20,
                         ),
-                    ]),
+                        ft.Container(expand=True),
+                        selection_count_text,
+                        ft.Container(width=6),
+                        file_count_text,
+                        ft.Container(width=4),
+                        prev_page_btn,
+                        page_indicator_text,
+                        next_page_btn,
+                    ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ft.Row([
+                        filter_segment,
+                        ft.Container(expand=True),
+                        ft.IconButton(
+                            icon=ft.Icons.CONTENT_COPY,
+                            tooltip="Copier les fichiers sélectionnés (Ctrl+C)",
+                            on_click=copy_selected_files,
+                            icon_color=BLUE,
+                            icon_size=18,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.CONTENT_CUT,
+                            tooltip="Couper les fichiers sélectionnés (Ctrl+X)",
+                            on_click=cut_selected_files,
+                            icon_color=ORANGE,
+                            icon_size=18,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.CONTENT_PASTE,
+                            tooltip="Coller les fichiers (Ctrl+V)",
+                            on_click=paste_files,
+                            icon_color=YELLOW,
+                            icon_size=18,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.CREATE_NEW_FOLDER,
+                            tooltip="Créer un nouveau dossier (Ctrl+N)",
+                            on_click=create_new_folder,
+                            icon_color=GREEN,
+                            icon_size=18,
+                        ),
+                        sort_segment
+                    ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                     ft.Container(
                         content=ft.Stack([
                             preview_list,
@@ -2183,71 +2706,47 @@ def main(page: ft.Page):
                         bgcolor=DARK,
                     )
                 ], expand=True)
-            ], expand=True),
+            ], expand=True, spacing=8),
             ft.Container(
-                content=ft.Column([
+                content=ft.Row([
+                    # ── Terminal (gauche) ────────────────────────────
+                    ft.Column([
+                        ft.Row([
+                            ft.Container(width=8),
+                            ft.Text("Terminal", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
+                            ft.IconButton(
+                                icon=ft.Icons.COPY_ALL,
+                                tooltip="Copier le terminal",
+                                on_click=lambda e: copy_terminal_to_clipboard(),
+                                icon_color=BLUE,
+                                icon_size=18,
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.CLEAR_ALL,
+                                tooltip="Effacer le terminal",
+                                on_click=clear_terminal,
+                                icon_color=RED,
+                                icon_size=18,
+                            ),
+                        ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        ft.Container(
+                            content=terminal_output,
+                            expand=True,
+                            border=ft.Border.all(1, GREY),
+                            border_radius=8,
+                            bgcolor=DARK,
+                            padding=5,
+                        ),
+                    ], expand=True, spacing=5),
+                    # ── Favoris & Périphériques (droite) ─────────────
                     ft.Row([
-                        ft.Container(width=8),  # Espacement à gauche du titre
-                        ft.Text("Terminal", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
-                        ft.IconButton(
-                            icon=ft.Icons.COPY_ALL,
-                            tooltip="Copier le terminal",
-                            on_click=lambda e: copy_terminal_to_clipboard(),
-                            icon_color=BLUE,
-                            icon_size=18,
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.CLEAR_ALL,
-                            tooltip="Effacer le terminal",
-                            on_click=clear_terminal,
-                            icon_color=RED,
-                            icon_size=18,
-                        ),
-                        ft.Container(expand=True),
-                        selection_count_text,
-                        ft.Container(width=10),
-                        file_count_text,
-                        ft.Container(width=4),
-                        prev_page_btn,
-                        page_indicator_text,
-                        next_page_btn,
-                        ft.Container(width=4),
-                        sort_segment,
-                        ft.IconButton(
-                            icon=ft.Icons.CREATE_NEW_FOLDER,
-                            tooltip="Créer un nouveau dossier",
-                            on_click=create_new_folder,
-                            icon_color=GREEN,
-                            icon_size=18,
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.CONTENT_COPY,
-                            tooltip="Copier les fichiers sélectionnés",
-                            on_click=copy_selected_files,
-                            icon_color=BLUE,
-                            icon_size=18,
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.CONTENT_PASTE,
-                            tooltip="Coller les fichiers",
-                            on_click=paste_files,
-                            icon_color=ORANGE,
-                            icon_size=18,
-                        ),
-
-                    ], spacing=5, alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    ft.Container(
-                        content=terminal_output,
-                        expand=True,
-                        border=ft.Border.all(1, GREY),
-                        border_radius=8,
-                        bgcolor=DARK,
-                        padding=5,
-                    )
-                ], spacing=5),
-                height=160,
+                        _favorites_container,
+                        _drives_container,
+                    ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.START),
+                ], spacing=8, expand=True),
+                height=150,
             ),
-        ], expand=True, spacing=5)
+        ], expand=True, spacing=8)
     )
 
     # ── Mettre la fenêtre en plein écran ────────────────────────────────────────────────

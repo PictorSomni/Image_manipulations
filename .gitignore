@@ -38,7 +38,8 @@ $RECYCLE.BIN/
 # Linux
 .directory
 .Trash-*
+
+# Fichiers utilisateur locaux (favoris, historique, cache pip) — ne jamais versionner
 .recent_folders.json
-.recent_folders.json
-.recent_folders.json
-.recent_folders.json
+.favorites.json
+.pip_cache.json
