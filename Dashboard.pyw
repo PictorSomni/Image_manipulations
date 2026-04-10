@@ -621,7 +621,7 @@ def main(page: ft.Page):
                 go_next(None)
             elif e.key in ("Arrow Left", "ArrowLeft"):
                 go_prev(None)
-            elif e.key in ("Escape", " "):
+            elif e.key == "Escape":
                 close_viewer(None)
 
         page.on_keyboard_event = on_key
