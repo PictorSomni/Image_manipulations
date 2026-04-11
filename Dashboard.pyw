@@ -1613,27 +1613,57 @@ def main(page: ft.Page):
         else:
             log_to_terminal("[INFO] Ce dossier est déjà dans les favoris", LIGHT_GREY)
 
+    def _eject_drive(path):
+        """Démonte/éjecte un périphérique amovible selon le système d'exploitation."""
+        try:
+            sys_name = platform.system()
+            if sys_name == "Windows":
+                drive_letter = os.path.splitdrive(path)[0]  # ex: "E:"
+                ps_cmd = (
+                    f"(New-Object -comObject Shell.Application)"
+                    f".Namespace(17).ParseName('{drive_letter}').InvokeVerb('Eject')"
+                )
+                subprocess.Popen(["powershell", "-Command", ps_cmd],
+                                 creationflags=subprocess.CREATE_NO_WINDOW)
+            elif sys_name == "Darwin":
+                subprocess.Popen(["diskutil", "eject", path])
+            else:  # Linux
+                subprocess.Popen(["umount", path])
+            log_to_terminal(f"[OK] Éjection demandée : {path}", VIOLET)
+        except Exception as ex:
+            log_to_terminal(f"[ERREUR] Éjection impossible : {ex}", RED)
+
     def _refresh_drives_ui(drives):
         """Met à jour la section périphériques (appelée depuis le callback pubsub)."""
         _drives_column.controls.clear()
         for name, path in drives:
             def _nav(e, p=path):
-                navigate_to_folder(p)
+                if os.path.isdir(p):
+                    navigate_to_folder(p)
+                else:
+                    log_to_terminal(f"[ERREUR] Périphérique introuvable : {p}", RED)
+            def _eject(e, p=path):
+                _eject_drive(p)
             _drives_column.controls.append(
                 ft.Row([
-                    ft.Icon(ft.Icons.STORAGE, size=16, color=LIGHT_GREY),
-                    ft.Text(name, size=16, color=WHITE, expand=True,
-                            overflow=ft.TextOverflow.ELLIPSIS),
+                    ft.Icon(ft.Icons.STORAGE, size=16, color=VIOLET),
                     ft.Container(
-                        content=ft.Text("Naviguer", size=16, color=DARK,
-                                        weight=ft.FontWeight.W_600),
-                        bgcolor=VIOLET,
-                        border_radius=4,
-                        padding=ft.Padding(7, 4, 7, 4),
+                        content=ft.Text(name, size=16, color=WHITE,
+                                        overflow=ft.TextOverflow.ELLIPSIS, max_lines=1),
+                        expand=True,
                         on_click=_nav,
+                        tooltip=path,
                         ink=True,
                     ),
-                ], spacing=6, tight=True, height=34, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+                    ft.Container(
+                        content=ft.Icon(ft.Icons.EJECT, size=16, color=LIGHT_GREY),
+                        on_click=_eject,
+                        tooltip="Éjecter le périphérique",
+                        ink=True,
+                        border_radius=8,
+                        padding=ft.Padding(3, 2, 3, 2),
+                    ),
+                ], spacing=4, tight=True, height=32, vertical_alignment=ft.CrossAxisAlignment.CENTER)
             )
         _drives_container.visible = bool(drives)
         try:
