@@ -2715,7 +2715,7 @@ def main(page: ft.Page):
                         prev_page_btn,
                         page_indicator_text,
                         next_page_btn,
-                    ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER, height=36),
                     ft.Row([
                         filter_segment,
                         ft.Container(expand=True),
