@@ -514,14 +514,14 @@ class PhotoCropper:
             disabled=not REMBG_AVAILABLE,
             tooltip="Rapide : u2net / Précis : birefnet" if REMBG_AVAILABLE else "",
         )
-        # Érosion du masque — slider 0–8 px (0 = désactivé)
-        self.rembg_erosion_radius = 5
+        # Érosion du masque — slider 0–2 % par tranche de 0,1 % (0 = désactivé)
+        self.rembg_erosion_pct = 0.0
         self.rembg_erosion_slider = ft.Slider(
-            value=5,
+            value=0,
             min=0,
-            max=8,
-            divisions=8,
-            label="{value} px",
+            max=2,
+            divisions=20,
+            label="{value} %",
             active_color=ORANGE,
             on_change=self.on_rembg_erosion_change,
             on_change_end=self.on_rembg_erosion_end,
@@ -1202,8 +1202,9 @@ class PhotoCropper:
 
         if pil_crop.mode == "RGBA":
             # Érosion du canal alpha (suppression des franges résiduelles)
-            if getattr(self, 'rembg_erosion_radius', 0) > 0:
-                pil_crop = _erode_alpha(pil_crop, self.rembg_erosion_radius)
+            if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
+                _er = max(1, round(min(pil_crop.size) * self.rembg_erosion_pct / 100))
+                pil_crop = _erode_alpha(pil_crop, _er)
             if getattr(self, 'rembg_bg_white', True):
                 bg = Image.new("RGBA", pil_crop.size, (255, 255, 255, 255))
             else:
@@ -1254,8 +1255,9 @@ class PhotoCropper:
         img = self.current_pil_image
         if img.mode == "RGBA":
             # Érosion du canal alpha (suppression des franges résiduelles)
-            if getattr(self, 'rembg_erosion_radius', 0) > 0:
-                img = _erode_alpha(img.copy(), self.rembg_erosion_radius)
+            if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
+                _er = max(1, round(min(img.size) * self.rembg_erosion_pct / 100))
+                img = _erode_alpha(img.copy(), _er)
             if getattr(self, 'rembg_bg_white', True):
                 bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
             else:
@@ -1656,7 +1658,7 @@ class PhotoCropper:
             _cache_key = (
                 id(self.current_pil_image), pw, ph,
                 round(self.canvas_w), self.canvas_is_portrait,
-                getattr(self, 'rembg_erosion_radius', 0),
+                getattr(self, 'rembg_erosion_pct', 0.0),
                 getattr(self, 'rembg_bg_white', True),
             )
             if self._rembg_composite_cache is not None and self._rembg_composite_cache[0] == _cache_key:
@@ -1667,14 +1669,8 @@ class PhotoCropper:
                 # Le rayon est mis à l'échelle pour que la preview corresponde au résultat final.
                 # L'échelle correcte est canvas_w / target_w_px (affichage → export),
                 # et non display_w / orig_w (qui sous-estime fortement pour les petits formats).
-                if getattr(self, 'rembg_erosion_radius', 0) > 0:
-                    fmt_w_mm, fmt_h_mm = self.current_format
-                    if self.canvas_is_portrait:
-                        target_w_px_preview = round(fmt_w_mm / 25.4 * DPI)
-                    else:
-                        target_w_px_preview = round(fmt_h_mm / 25.4 * DPI)
-                    scale = self.canvas_w / max(1, target_w_px_preview)
-                    scaled_radius = max(1, round(self.rembg_erosion_radius * scale))
+                if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
+                    scaled_radius = max(1, round(min(preview.size) * self.rembg_erosion_pct / 100))
                     preview = _erode_alpha(preview, scaled_radius)
                 if getattr(self, 'rembg_bg_white', True):
                     bg = Image.new("RGBA", preview.size, (255, 255, 255, 255))
@@ -1976,12 +1972,12 @@ class PhotoCropper:
         self.rembg_precise_btn.update()
 
     def on_rembg_erosion_change(self, e):
-        """Met à jour le rayon d'érosion pendant le drag (pas de rendu)."""
-        self.rembg_erosion_radius = int(e.control.value)
+        """Met à jour le % d'érosion pendant le drag (pas de rendu)."""
+        self.rembg_erosion_pct = round(e.control.value, 1)
 
     def on_rembg_erosion_end(self, e):
         """Regénère la preview au relâchement du slider d'érosion."""
-        self.rembg_erosion_radius = int(e.control.value)
+        self.rembg_erosion_pct = round(e.control.value, 1)
         self._render_preview()
         self.page.update()
 

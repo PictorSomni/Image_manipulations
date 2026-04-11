@@ -906,10 +906,10 @@ async def main(page: ft.Page) -> None:
     # ---- Slider morphologique unifié : négatif = érosion, positif = dilatation ---- #
     morph_slider = ft.Slider(
         value=0,
-        min=-5,
+        min=-2,
         max=5,
-        divisions=20,
-        label="{value} %",
+        divisions=140,
+        label="0.00 %",
         active_color=ORANGE,
         disabled=not REMBG_AVAILABLE,
         expand=True,
@@ -975,22 +975,15 @@ async def main(page: ft.Page) -> None:
         base = state["processed"] if state["processed"] is not None else state["orig_img"]
         if base is None:
             return
-        # Pour l'érosion : réduire à ~1/3 de la résolution (max 2000px) afin que
-        # le rayon mis à l'échelle ait assez de granularité pour refléter
-        # fidèlement l'effet pleine résolution. On downscale ensuite à 700px.
-        erode_size = min(2000, max(700, base.width // 3))
+        max_px = state.get("preview_max_px", 700)
         thumb = base.copy()
-        thumb.thumbnail((erode_size, erode_size), Image.Resampling.BILINEAR)
+        thumb.thumbnail((max_px, max_px), Image.Resampling.BILINEAR)
         # Érosion au format d'affichage (ne modifie pas state["processed"])
         morph = state["morph_pct"]
         if morph < 0 and state["processed"] is not None and thumb.mode == "RGBA":
-            scale = thumb.width / base.width
-            scaled_radius = round(min(thumb.size) * abs(morph) / 100 * scale)
+            scaled_radius = round(min(thumb.size) * abs(morph) / 100)
             if scaled_radius > 0:
                 thumb = _erode_alpha(thumb, scaled_radius)
-        # Downscale final pour l'affichage
-        if thumb.width > 700 or thumb.height > 700:
-            thumb.thumbnail((700, 700), Image.Resampling.BILINEAR)
         # Mode "avant" retiré
         if state["bg_blur"] and thumb.mode != "RGBA":
             display = thumb.convert("RGB")
@@ -1283,11 +1276,24 @@ async def main(page: ft.Page) -> None:
 
     def on_morph_slider_change(e) -> None:
         """Met à jour le % morphologique en temps réel (label pendant le drag)."""
-        state["morph_pct"] = round(e.control.value, 1)
+        v = round(e.control.value, 2)
+        state["morph_pct"] = v
+        morph_slider.label = f"{v:.2f} %"
 
     def on_morph_slider_end(e) -> None:
         """Regénère la preview au relâchement du slider."""
-        state["morph_pct"] = round(e.control.value, 1)
+        v = round(e.control.value, 2)
+        state["morph_pct"] = v
+        morph_slider.label = f"{v:.2f} %"
+        if state["processed"] is not None or state.get("sam2_preview_mask") is not None:
+            _render_preview()
+
+    def on_morph_slider_reset(e) -> None:
+        """Double-clic : remet le slider à 0."""
+        morph_slider.value = 0
+        morph_slider.label = "0.00 %"
+        morph_slider.update()
+        state["morph_pct"] = 0.0
         if state["processed"] is not None or state.get("sam2_preview_mask") is not None:
             _render_preview()
 
@@ -1963,7 +1969,11 @@ async def main(page: ft.Page) -> None:
             ft.Row(
                 [
                     ft.Text("Morpho.", size=12, color=LIGHT_GREY),
-                    morph_slider,
+                    ft.GestureDetector(
+                        content=morph_slider,
+                        on_double_tap=on_morph_slider_reset,
+                        expand=True,
+                    ),
                 ],
                 spacing=6,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -2041,6 +2051,20 @@ async def main(page: ft.Page) -> None:
             vertical_alignment=ft.CrossAxisAlignment.START,
         )
     )
+
+    def _on_page_resize(e=None) -> None:
+        """Recalcule la taille max de la preview selon l'espace disponible."""
+        # e.width/e.height sont fournis par Flet lors d'un resize réel
+        w = int(getattr(e, 'width', None) or page.width or 1200)
+        h = int(getattr(e, 'height', None) or page.height or 800)
+        new_max = max(400, min(w - 320, h - 100))
+        state["preview_max_px"] = new_max
+        if state["orig_img"] is not None:
+            _render_preview()
+            page.update()
+
+    page.on_resized = _on_page_resize
+    _on_page_resize()  # valeur initiale (fenoêtre non encore maximisée)
 
     # ------------------------------------------------------------------ #
     #               COMPILATION DES MODÈLES (1ère utilisation)           #
@@ -2199,6 +2223,8 @@ async def main(page: ft.Page) -> None:
     async def _maximize():
         page.window.maximized = True
         page.update()
+        await asyncio.sleep(0.25)  # laisse le layout se stabiliser
+        _on_page_resize()  # recalcule et re-rend la preview à la bonne taille
 
     page.run_task(_maximize)
 
