@@ -356,6 +356,33 @@ def _erode_alpha(img: Image.Image, radius: int) -> Image.Image:
     return Image.merge("RGBA", (r, g, b, a))
 
 
+def _dilate_alpha(img: Image.Image, radius: int) -> Image.Image:
+    """
+    Dilate le canal alpha d'une image RGBA d'environ ``radius`` pixels.
+
+    Utilise un filtre morphologique Max (ImageFilter.MaxFilter) sur le
+    canal alpha pour étendre le masque vers l'extérieur.
+
+    Parameters
+    ----------
+    img : PIL.Image.Image
+        Image en mode RGBA à traiter.
+    radius : int
+        Rayon de dilatation en pixels (1–15). 0 ou négatif = pas de dilatation.
+
+    Returns
+    -------
+    PIL.Image.Image
+        Image RGBA avec le canal alpha dilaté.
+    """
+    if img.mode != "RGBA" or radius <= 0:
+        return img
+    r, g, b, a = img.split()
+    for _ in range(radius):
+        a = a.filter(ImageFilter.MaxFilter(3))
+    return Image.merge("RGBA", (r, g, b, a))
+
+
 ###############################################################
 #                        INTERFACE                            #
 ###############################################################
@@ -978,12 +1005,16 @@ async def main(page: ft.Page) -> None:
         max_px = state.get("preview_max_px", 700)
         thumb = base.copy()
         thumb.thumbnail((max_px, max_px), Image.Resampling.BILINEAR)
-        # Érosion au format d'affichage (ne modifie pas state["processed"])
+        # Érosion / dilatation au format d'affichage (ne modifie pas state["processed"])
         morph = state["morph_pct"]
         if morph < 0 and state["processed"] is not None and thumb.mode == "RGBA":
             scaled_radius = round(min(thumb.size) * abs(morph) / 100)
             if scaled_radius > 0:
                 thumb = _erode_alpha(thumb, scaled_radius)
+        elif morph > 0 and state["processed"] is not None and thumb.mode == "RGBA" and state.get("sam2_preview_mask") is None:
+            scaled_radius = round(min(thumb.size) * morph / 100)
+            if scaled_radius > 0:
+                thumb = _dilate_alpha(thumb, scaled_radius)
         # Mode "avant" retiré
         if state["bg_blur"] and thumb.mode != "RGBA":
             display = thumb.convert("RGB")
@@ -1424,10 +1455,13 @@ async def main(page: ft.Page) -> None:
 
         # Désactiver le bouton pendant l'export pour éviter les double-clics
         save_btn.disabled = True
-        has_erosion = state["morph_pct"] < 0 and state["processed"].mode == "RGBA"
-        if has_erosion:
-            erosion_pct = abs(state["morph_pct"])
-            status_text.value = f"Érosion {erosion_pct:.1f} % en cours…"
+        has_morpho = state["morph_pct"] != 0 and state["processed"].mode == "RGBA"
+        if has_morpho:
+            morpho_pct = state["morph_pct"]
+            if morpho_pct < 0:
+                status_text.value = f"Érosion {abs(morpho_pct):.1f} % en cours…"
+            else:
+                status_text.value = f"Dilatation {morpho_pct:.1f} % en cours…"
             progress_bar.value = None  # indéterminée
             progress_bar.visible = True
         else:
@@ -1443,11 +1477,15 @@ async def main(page: ft.Page) -> None:
 
         def _do_export():
             proc = snap_processed
-            # Érosion pleine résolution (potentiellement long sur grandes images)
+            # Érosion / dilatation pleine résolution
             if morph_pct < 0 and proc is not None and proc.mode == "RGBA":
                 radius_px = round(min(proc.size) * abs(morph_pct) / 100)
                 if radius_px > 0:
                     proc = _erode_alpha(proc, radius_px)
+            elif morph_pct > 0 and proc is not None and proc.mode == "RGBA":
+                radius_px = round(min(proc.size) * morph_pct / 100)
+                if radius_px > 0:
+                    proc = _dilate_alpha(proc, radius_px)
             if use_transparent:
                 return proc.convert("RGBA"), ".png", "PNG", {}
             else:
@@ -1464,7 +1502,7 @@ async def main(page: ft.Page) -> None:
         try:
             final_img, ext, fmt, save_kwargs = await asyncio.to_thread(_do_export)
 
-            if has_erosion:
+            if has_morpho:
                 progress_bar.value   = 1.0
                 progress_bar.visible = False
                 status_text.value    = "Enregistrement…"
