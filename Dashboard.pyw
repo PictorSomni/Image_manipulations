@@ -23,12 +23,11 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-from cycler import V
 import flet as ft
 import os
 import subprocess
@@ -239,6 +238,12 @@ def main(page: ft.Page):
         icon_color=VIOLET,
         icon_size=22,
         tooltip="Tout sélectionner",
+    )
+    _invert_selection_btn = ft.IconButton(
+        icon=ft.Icons.PUBLISHED_WITH_CHANGES,
+        icon_color=VIOLET,
+        icon_size=22,
+        tooltip="Inverser la sélection",
     )
     sort_segment = ft.CupertinoSlidingSegmentedButton(
         selected_index=0,
@@ -1132,6 +1137,23 @@ def main(page: ft.Page):
             clear_selection(e)
         else:
             select_by_filter(e)
+
+    def invert_selection(e):
+        """Inverse la sélection : sélectionne les non-sélectionnés, désélectionne les sélectionnés."""
+        entries = all_entries_data["list"]
+        if filter_type["value"] != "all":
+            entries = [en for en in entries if _match_filter(en)]
+        for _name, fpath, is_dir, _is_img, _ext in entries:
+            if is_dir:
+                continue
+            if fpath in selected_files:
+                selected_files.discard(fpath)
+            else:
+                selected_files.add(fpath)
+        selection_count_text.value = _selection_label()
+        _render_current_page()
+        _sync_toggle_btn()
+        log_to_terminal(f"[OK] Sélection inversée — {len(selected_files)} fichier(s) sélectionné(s)", BLUE)
 
     def paste_files(e):
         """Colle les fichiers du presse-papiers dans le dossier actuel"""
@@ -2521,6 +2543,7 @@ def main(page: ft.Page):
     sort_segment.on_change = on_sort_change
     filter_segment.on_change = on_filter_segment_change
     _select_toggle_btn.on_click = toggle_select_all
+    _invert_selection_btn.on_click = invert_selection
     prev_page_btn.on_click = lambda e: go_to_page(-1)
     next_page_btn.on_click = lambda e: go_to_page(+1)
 
@@ -2646,6 +2669,7 @@ def main(page: ft.Page):
                             icon_size=20,
                         ),
                         _select_toggle_btn,
+                        _invert_selection_btn,
                         ft.IconButton(
                             icon=ft.Icons.DELETE_SWEEP,
                             tooltip="Supprimer les fichiers sélectionnés",

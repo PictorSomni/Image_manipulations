@@ -13,7 +13,7 @@ Variables d'environnement :
 Dépendances : Wand (ImageMagick), PyMuPDF (fitz)
 """
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 
 #############################################################
 #                          IMPORTS                          #

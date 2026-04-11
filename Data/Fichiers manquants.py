@@ -13,7 +13,7 @@ Variables d'environnement :
   SELECTED_FILES  — chemin du dossier de destination (fichier/dossier sélectionné).
 """
 
-__version__ = "2.0.1"
+__version__ = "2.0.2"
 
 ENV_SELECTED_FILES_KEY = "SELECTED_FILES"
 OUTPUT_SELECTED_FILES_PREFIX = "SELECTED_FILES:"
@@ -67,4 +67,16 @@ if dest_dir:
     os.environ[ENV_SELECTED_FILES_KEY] = missing_files_str
     print(f"{OUTPUT_SELECTED_FILES_PREFIX}{missing_files_str}")
 else:
-    print("Sélectionnez un dossier de destination valide.")
+    # Aucun dossier sélectionné : comparer le dossier courant au dossier parent.
+    # On sélectionne les fichiers du dossier courant qui ne sont PAS dans le parent.
+    parent_dir = PATH.parent
+    if parent_dir == PATH or not parent_dir.is_dir():
+        print("Impossible de déterminer le dossier parent.")
+    else:
+        current_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file()]
+        parent_files = {strip_copies_prefix(file.name) for file in parent_dir.iterdir() if file.is_file()}
+        extra_files = [f for f in current_files if strip_copies_prefix(f) not in parent_files and not f.startswith('.') and not f.endswith('.py')]
+        print(f"{len(extra_files)} fichier(s) absent(s) du dossier parent ({parent_dir.name}).")
+        extra_files_str = "|".join(extra_files)
+        os.environ[ENV_SELECTED_FILES_KEY] = extra_files_str
+        print(f"{OUTPUT_SELECTED_FILES_PREFIX}{extra_files_str}")
