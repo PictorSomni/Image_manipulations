@@ -51,8 +51,7 @@ import flet as ft
 import os
 import shutil
 import platform
-import threading
-import json
+import re
 import time
 from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageCms
 import asyncio
@@ -714,8 +713,27 @@ class PhotoCropper:
             reste centrée et ne peut pas être déplacée).
           - Sinon, l'offset est borné symétriquement entre -(débordement/2)
             et +(débordement/2) où le débordement vaut bound_dim − canvas_dim.
+
+        La couverture est calculée depuis base_scale × orig (avec le même
+        nudge appliqué à l'export) plutôt que depuis display_w/h (qui contient
+        un surplus de +4 px). Cela garantit que le clamping correspond
+        exactement à ce que l'export peut produire, évitant tout bord blanc.
         """
-        zoomed_w, zoomed_h = self._get_transformed_bounds()
+        # Couverture réelle en pixels écran — identique à l'export (_compute_crop_with_canvas)
+        nudge = (1.0 + 2.0 / min(self.orig_w, self.orig_h)
+                 if (self.orig_w > 4 and self.orig_h > 4) else 1.0)
+        actual_w = self.base_scale * self.orig_w * self.scale * nudge
+        actual_h = self.base_scale * self.orig_h * self.scale * nudge
+
+        if self.rotation != 0:
+            theta = math.radians(self.rotation)
+            cos_t = abs(math.cos(theta))
+            sin_t = abs(math.sin(theta))
+            zoomed_w = actual_w * cos_t + actual_h * sin_t
+            zoomed_h = actual_w * sin_t + actual_h * cos_t
+        else:
+            zoomed_w = actual_w
+            zoomed_h = actual_h
 
         overflow_x = zoomed_w - self.canvas_w
         if overflow_x < 0.5:
@@ -779,7 +797,16 @@ class PhotoCropper:
             self.zoom_slider.label = "1.00×"
 
         path = self.image_paths[self.current_index]
-        
+
+        # Pré-remplir copies_count depuis le préfixe NX_ du nom de fichier
+        _m = re.match(r'^(\d+)X_', os.path.basename(path))
+        if _m:
+            self.copies_count = int(_m.group(1))
+        else:
+            self.copies_count = 1
+        if hasattr(self, 'copies_text'):
+            self.copies_text.value = str(self.copies_count)
+
         # Vérifier que le fichier existe et est accessible
         if not os.path.isfile(path) or not os.access(path, os.R_OK):
             self.status_text.value = f"Fichier inaccessible: {os.path.basename(path)}"
@@ -2830,6 +2857,7 @@ class PhotoCropper:
 
         base = os.path.basename(self.image_paths[self.current_index])
         name, _ = os.path.splitext(base)
+        name = re.sub(r'^\d+X_', '', name)  # retirer le préfixe NX_ existant pour ne pas le doubler
         fmt_short = self.current_format_label.split()[0]
         copies_prefix = f"{self.copies_count}X_"
         jpg = copies_prefix + name + ".jpg"

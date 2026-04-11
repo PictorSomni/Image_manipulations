@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.0.2"
+__version__ = "2.0.3"
 
 #############################################################
 #                          IMPORTS                          #
@@ -1253,6 +1253,16 @@ def main(page: ft.Page):
             numpad_dialog.open = False
             page.update()
             folder = os.path.dirname(file_path)
+
+            # Vérifier si le dossier ne contient aucun préfixe NX_ AVANT ce renommage
+            # (on exclut le fichier courant lui-même)
+            _print_prefix_re = re.compile(r'^\d+X_')
+            others_have_prefix = any(
+                _print_prefix_re.match(f)
+                for f in os.listdir(folder)
+                if f != basename and os.path.isfile(os.path.join(folder, f))
+            )
+
             clean = re.sub(r'^\d+X_', '', basename)
             new_name = f"{n}X_{clean}"
             new_path = os.path.join(folder, new_name)
@@ -1265,6 +1275,31 @@ def main(page: ft.Page):
                         selected_files.add(new_path)
                 except Exception as err:
                     log_to_terminal(f"[ERREUR] {err}", RED)
+
+            # Si aucun autre fichier n'avait de préfixe, on ajoute "1X_" aux autres
+            if not others_have_prefix:
+                renamed_count = 0
+                for fname in os.listdir(folder):
+                    fpath = os.path.join(folder, fname)
+                    if not os.path.isfile(fpath):
+                        continue
+                    if fname == new_name:
+                        continue
+                    if _print_prefix_re.match(fname):
+                        continue
+                    new_fname = f"1X_{fname}"
+                    new_fpath = os.path.join(folder, new_fname)
+                    try:
+                        os.rename(fpath, new_fpath)
+                        if fpath in selected_files:
+                            selected_files.discard(fpath)
+                            selected_files.add(new_fpath)
+                        renamed_count += 1
+                    except Exception as err:
+                        log_to_terminal(f"[ERREUR] {fname}: {err}", RED)
+                if renamed_count:
+                    log_to_terminal(f"[OK] {renamed_count} fichier(s) renommé(s) avec le préfixe 1X_", GREEN)
+
             refresh_preview(reset_page=False)
 
         def _cancel(e):

@@ -52,7 +52,7 @@ sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au t
 
 """
 
-__version__ = "2.0.2"
+__version__ = "2.0.3"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -907,8 +907,8 @@ async def main(page: ft.Page) -> None:
     morph_slider = ft.Slider(
         value=0,
         min=-2,
-        max=5,
-        divisions=140,
+        max=2,
+        divisions=100,
         label="0.00 %",
         active_color=ORANGE,
         disabled=not REMBG_AVAILABLE,
