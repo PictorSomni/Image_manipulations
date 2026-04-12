@@ -301,7 +301,7 @@ def main(page: ft.Page):
         tooltip="Filtrer les fichiers par type",
     )
     # ── Section favoris ──────────────────────────────────────────────
-    _favorites_list_col = ft.ListView(expand=True, spacing=2, auto_scroll=False, padding=ft.Padding(0, 0, 12, 0))
+    _favorites_list_col = ft.ReorderableListView(expand=True, spacing=2, auto_scroll=False, padding=ft.Padding(12, 6, 12, 6), show_default_drag_handles=False)
     _favorites_container = ft.Container(
         content=ft.Column([
             ft.Row([
@@ -327,7 +327,7 @@ def main(page: ft.Page):
         expand=True,
     )
     # ── Section périphériques amovibles ──────────────────────────────
-    _drives_column = ft.ListView(expand=True, spacing=4, auto_scroll=False, padding=ft.Padding(12, 6, 12, 6))
+    _drives_column = ft.ReorderableListView(expand=True, spacing=4, auto_scroll=False, padding=ft.Padding(12, 6, 12, 6), show_default_drag_handles=False)
     _drives_container = ft.Container(
         content=ft.Column([
             ft.Row([
@@ -1608,6 +1608,10 @@ def main(page: ft.Page):
                         pass
                 _favorites_list_col.controls.append(
                     ft.Row([
+                        ft.ReorderableDragHandle(
+                            content=ft.Icon(ft.Icons.DRAG_INDICATOR, size=16, color=LIGHT_GREY),
+                            mouse_cursor=ft.MouseCursor.GRAB,
+                        ),
                         ft.Icon(ft.Icons.FOLDER, size=16, color=BLUE),
                         ft.Container(
                             content=ft.Text(name, size=16, color=WHITE,
@@ -1681,6 +1685,10 @@ def main(page: ft.Page):
                 _eject_drive(p)
             _drives_column.controls.append(
                 ft.Row([
+                    ft.ReorderableDragHandle(
+                        content=ft.Icon(ft.Icons.DRAG_INDICATOR, size=16, color=LIGHT_GREY),
+                        mouse_cursor=ft.MouseCursor.GRAB,
+                    ),
                     ft.Icon(ft.Icons.STORAGE, size=16, color=VIOLET),
                     ft.Container(
                         content=ft.Text(name, size=16, color=WHITE,
