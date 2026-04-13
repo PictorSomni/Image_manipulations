@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.0.3"
+__version__ = "2.0.4"
 
 #############################################################
 #                          IMPORTS                          #
@@ -158,6 +158,8 @@ def main(page: ft.Page):
 
     # ── Dossiers favoris ──────────────────────────────────────────────
     _favorites_path = os.path.join(cwd, ".favorites.json")
+    # ── Programmes "Ouvrir avec" ──────────────────────────────────────
+    _open_with_config_path = os.path.join(cwd, "open_with.json")
 
     def _load_favorites() -> list:
         try:
@@ -557,7 +559,186 @@ def main(page: ft.Page):
                 subprocess.Popen(["xdg-open", file_path])
         except Exception as e:
             log_to_terminal(f"[ERREUR] Erreur lors de l'ouverture du fichier: {e}", RED)
-    
+
+    # ── Ouvrir avec (menu clic-droit) ─────────────────────────────────
+    def _load_open_with_programs() -> list:
+        """Charge la liste des programmes depuis open_with.json."""
+        try:
+            with open(_open_with_config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return [p for p in data if isinstance(p, dict) and "label" in p and "exe" in p]
+        except Exception:
+            return []
+
+    def _open_files_with(prog: dict, files: list):
+        """Ouvre une liste de fichiers avec le programme spécifié."""
+        exe = prog.get("exe", "")
+        if not exe:
+            return
+        try:
+            if platform.system() == "Darwin":
+                subprocess.Popen(["open", "-a", exe] + files)
+            else:
+                subprocess.Popen([exe] + files)
+            names = ", ".join(os.path.basename(f) for f in files[:3])
+            suffix = f" (+{len(files) - 3})" if len(files) > 3 else ""
+            log_to_terminal(f"[OK] Ouvert avec {prog['label']}: {names}{suffix}", GREEN)
+        except Exception as err:
+            log_to_terminal(f"[ERREUR] {prog['label']}: {err}", RED)
+
+    def _save_open_with_programs(programs: list):
+        """Sauvegarde la liste des programmes dans open_with.json."""
+        try:
+            with open(_open_with_config_path, "w", encoding="utf-8") as f:
+                json.dump(programs, f, ensure_ascii=False, indent=2)
+        except Exception as err:
+            log_to_terminal(f"[ERREUR] Sauvegarde open_with.json : {err}", RED)
+
+    def _show_ctx_menu(files: list):
+        """Affiche le dialog 'Ouvrir avec' pour les fichiers sélectionnés."""
+
+        header_label = (
+            os.path.basename(files[0]) if len(files) == 1
+            else f"{len(files)} fichier(s) sélectionné(s)"
+        )
+
+        # Champs du formulaire d'ajout
+        add_label_field = ft.TextField(
+            hint_text="Nom affiché (ex : Affinity Photo)",
+            border_color=BLUE, text_size=13, height=40,
+            content_padding=ft.Padding(8, 4, 8, 4), expand=True,
+        )
+        add_exe_field = ft.TextField(
+            hint_text="Chemin exe (ex : C:\\...\\Photo.exe)",
+            border_color=BLUE, text_size=13, height=40,
+            content_padding=ft.Padding(8, 4, 8, 4), expand=True,
+        )
+        add_form = ft.Container(
+            content=ft.Column([
+                ft.Divider(height=8, color=GREY),
+                ft.Text("Ajouter un programme", size=12, color=LIGHT_GREY),
+                ft.Row([add_label_field], tight=True),
+                ft.Row([add_exe_field], tight=True),
+            ], spacing=6, tight=True),
+            visible=False,
+        )
+
+        items_rlv = ft.ReorderableListView(padding=0, show_default_drag_handles=False)
+        dlg = ft.AlertDialog(
+            title=ft.Row([
+                ft.Text(header_label, size=13, color=LIGHT_GREY,
+                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                ft.Container(
+                    content=ft.Icon(ft.Icons.ADD, size=13, color=DARK),
+                    bgcolor=BLUE, border_radius=10,
+                    padding=ft.Padding(3, 1, 3, 1),
+                    tooltip="Ajouter un programme",
+                    ink=True,
+                    on_click=lambda e: _toggle_add_form(),
+                ),
+            ], spacing=8, tight=True,
+               vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            content=ft.Column([items_rlv, add_form],
+                              spacing=0, tight=True, width=340),
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        def _rebuild_items():
+            programs = _load_open_with_programs()
+            items_rlv.controls.clear()
+            if not programs:
+                items_rlv.controls.append(ft.Container(
+                    key="empty",
+                    content=ft.Text(
+                        "Aucun programme configuré — cliquez + pour en ajouter.",
+                        size=12, color=LIGHT_GREY,
+                    ),
+                    padding=ft.Padding(0, 6, 0, 6),
+                ))
+            else:
+                for i, prog in enumerate(programs):
+                    def _make_open(p):
+                        def _h(e):
+                            dlg.open = False
+                            page.update()
+                            _open_files_with(p, files)
+                        return _h
+                    def _make_delete(p):
+                        def _h(e):
+                            progs = _load_open_with_programs()
+                            progs = [x for x in progs if x != p]
+                            _save_open_with_programs(progs)
+                            _rebuild_items()
+                            items_rlv.update()
+                        return _h
+                    items_rlv.controls.append(ft.ListTile(
+                        key=str(i),
+                        leading=ft.ReorderableDragHandle(
+                            content=ft.Icon(ft.Icons.DRAG_HANDLE,
+                                            color=LIGHT_GREY, size=18),
+                        ),
+                        title=ft.Text(prog["label"], size=13, color=WHITE),
+                        trailing=ft.IconButton(
+                            icon=ft.Icons.DELETE_OUTLINE, icon_size=16,
+                            icon_color=RED, tooltip="Supprimer",
+                            on_click=_make_delete(prog),
+                            style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+                        ),
+                        on_click=_make_open(prog),
+                        hover_color=GREY, dense=True,
+                        content_padding=ft.Padding(0, 0, 0, 0),
+                    ))
+
+        def _on_reorder(e: ft.OnReorderEvent):
+            items_rlv.controls.insert(e.new_index, items_rlv.controls.pop(e.old_index))
+            progs = _load_open_with_programs()
+            progs.insert(e.new_index, progs.pop(e.old_index))
+            _save_open_with_programs(progs)
+            items_rlv.update()
+
+        items_rlv.on_reorder = _on_reorder
+
+        def _toggle_add_form():
+            add_form.visible = not add_form.visible
+            btn_ajouter.visible = add_form.visible
+            if add_form.visible:
+                add_label_field.value = ""
+                add_exe_field.value = ""
+            page.update()
+
+        def _confirm_add(e):
+            label = (add_label_field.value or "").strip()
+            exe   = (add_exe_field.value or "").strip()
+            if not label or not exe:
+                add_label_field.error_text = "Requis" if not label else None
+                add_exe_field.error_text   = "Requis" if not exe   else None
+                page.update()
+                return
+            add_label_field.error_text = None
+            add_exe_field.error_text   = None
+            progs = _load_open_with_programs()
+            progs.append({"label": label, "exe": exe})
+            _save_open_with_programs(progs)
+            add_form.visible = False
+            btn_ajouter.visible = False
+            _rebuild_items()
+            page.update()
+
+        def _close(e):
+            dlg.open = False
+            page.update()
+
+        btn_ajouter = ft.TextButton("Ajouter", on_click=_confirm_add, visible=False)
+        dlg.actions = [
+            btn_ajouter,
+            ft.TextButton("Fermer",  on_click=_close),
+        ]
+
+        _rebuild_items()
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
     def navigate_to_folder(new_path):
         """Navigue vers un dossier dans la preview"""
         if not new_path:
@@ -1873,15 +2054,29 @@ def main(page: ft.Page):
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             )
 
+                    def _make_ctx_handler(fp, d):
+                        def _on_right_click(e):
+                            if d:
+                                return  # pas de menu pour les dossiers
+                            if fp in selected_files and len(selected_files) > 1:
+                                files_to_open = list(selected_files)
+                            else:
+                                files_to_open = [fp]
+                            _show_ctx_menu(files_to_open)
+                        return _on_right_click
+
                     new_controls.append(
-                        ft.ListTile(
-                            leading=ft.Row([checkbox, visual], spacing=8, tight=True),
-                            title=ft.Text(file, size=13, color=WHITE),
-                            trailing=trailing,
-                            on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
-                            hover_color=GREY, dense=False,
-                            content_padding=ft.Padding(left=5, top=2, right=5, bottom=2),
-                            min_leading_width=0,
+                        ft.GestureDetector(
+                            on_secondary_tap_up=_make_ctx_handler(file_path, is_dir),
+                            content=ft.ListTile(
+                                leading=ft.Row([checkbox, visual], spacing=8, tight=True),
+                                title=ft.Text(file, size=13, color=WHITE),
+                                trailing=trailing,
+                                on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
+                                hover_color=GREY, dense=False,
+                                content_padding=ft.Padding(left=5, top=2, right=5, bottom=2),
+                                min_leading_width=0,
+                            ),
                         )
                     )
 

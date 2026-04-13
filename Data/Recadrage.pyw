@@ -42,7 +42,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Version : voir __version__
 """
 
-__version__ = "1.9.0"
+__version__ = "2.0.4"
 
 #############################################################
 #                          IMPORTS                          #
@@ -80,9 +80,12 @@ FORMATS = {
     "15x20 (152x203mm)": (152, 203),
     "15x15 (152x152mm)": (152, 152),
     "18x24 (178x240mm)": (178, 240),
+    "20x20 (203x203mm)": (203, 203),
     "20x30 (203x305mm)": (203, 305),
+    "A4 (210x297mm)": (210, 297),
     "30x30 (305x305mm)": (305, 305),
     "30x40 (305x405mm)": (305, 405),
+    "A3 (297x420mm)": (297, 420),
     "30x45 (305x455mm)": (305, 455),
     "40x50 (405x505mm)": (405, 505),
     "40x60 (405x605mm)": (405, 605),
@@ -287,6 +290,8 @@ class PhotoCropper:
         self.current_format = FORMATS["ID (36x46mm)"]
         self.current_format_label = "ID (36x46mm)"
         self.border_13x15 = False
+        self.border_10x20 = False
+        self.border_13x20 = False
         self.border_20x24 = False
         self.border_13x10 = False
         self.border_polaroid = False
@@ -309,6 +314,7 @@ class PhotoCropper:
         self._last_rotation_render = 0.0  # Throttle rotation
         self._last_zoom_render = 0.0      # Throttle zoom
         self._bounds_cache: tuple | None = None  # Cache (scale, rotation, (bw, bh))
+        self._scroll_rotates = False  # Shift bascule molette → rotation
 
         # Option noir et blanc
         self.is_bw = False
@@ -415,9 +421,20 @@ class PhotoCropper:
             ft.Container(bgcolor=_gc, left=0,                     top=self.canvas_h / 3,    width=self.canvas_w, height=1,             visible=False),
             ft.Container(bgcolor=_gc, left=0,                     top=2 * self.canvas_h / 3,width=self.canvas_w, height=1,             visible=False),
         ]
+        # Badge d'état du mode rotation (molette Tab)
+        self._shift_badge = ft.Container(
+            content=ft.Text("↻ ROTATION MOLETTE ON", size=12, color=DARK, weight=ft.FontWeight.BOLD),
+            bgcolor=ORANGE,
+            border_radius=6,
+            padding=ft.Padding.symmetric(horizontal=10, vertical=5),
+            visible=False,
+            left=8,
+            top=8,
+        )
+
         # Stack pour positionner l'image
         self.image_stack = ft.Stack(
-            controls=[self.image_container, *self._grid_lines],
+            controls=[self.image_container, *self._grid_lines, self._shift_badge],
             width=self.canvas_w,
             height=self.canvas_h,
         )
@@ -455,6 +472,8 @@ class PhotoCropper:
 
         self.two_in_one_switch = ft.Switch(label="2 en 1", active_color=BLUE, value=False, visible=any(fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]), on_change=self.is_two_in_one_enabled)
         self.border_switch_13x15 = ft.Switch(label="13x15", active_color=ORANGE, value=False, visible="10x15" in self.current_format_label, on_change=self.on_border_toggle_13x15)
+        self.border_switch_10x20 = ft.Switch(label="10x20", active_color=ORANGE, value=False, visible="10x15" in self.current_format_label, on_change=self.on_border_toggle_10x20)
+        self.border_switch_13x20 = ft.Switch(label="13x20", active_color=ORANGE, value=False, visible="13x18" in self.current_format_label, on_change=self.on_border_toggle_13x20)
         self.border_switch_20x24 = ft.Switch(label="20x24", active_color=ORANGE, value=False, visible="18x24" in self.current_format_label, on_change=self.on_border_toggle_20x24)
         self.border_switch_13x10 = ft.Switch(label="13x10", active_color=ORANGE, value=False, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_13x10)
         self.border_switch_polaroid = ft.Switch(label="Polaroid", active_color=ORANGE, value=False, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_polaroid)
@@ -873,8 +892,17 @@ class PhotoCropper:
         if "10x15" in self.current_format_label:
             self.border_switch_13x15.visible = True
             self.border_switch_13x15.value = self.border_13x15
+            self.border_switch_10x20.visible = True
+            self.border_switch_10x20.value = self.border_10x20
         else:
             self.border_switch_13x15.visible = False
+            self.border_switch_10x20.visible = False
+
+        if "13x18" in self.current_format_label:
+            self.border_switch_13x20.visible = True
+            self.border_switch_13x20.value = self.border_13x20
+        else:
+            self.border_switch_13x20.visible = False
 
         if "18x24" in self.current_format_label:
             self.border_switch_20x24.visible = True
@@ -1770,6 +1798,13 @@ class PhotoCropper:
         self._clamp_offsets()
         self._update_transform()
 
+    def _update_shift_badge(self):
+        """Met à jour le badge + la couleur du slider de rotation."""
+        self._shift_badge.visible = self._scroll_rotates
+        self._shift_badge.update()
+        self.rotation_slider.active_color = ORANGE if self._scroll_rotates else BLUE
+        self.rotation_slider.update()
+
     def on_pan_end(self, e: ft.DragEndEvent):
         """Rafraîchit la prévisualisation et l'histogramme après la fin du pan."""
         self._clamp_offsets()
@@ -1777,16 +1812,32 @@ class PhotoCropper:
         self.page.update()
 
     def on_scroll(self, e: ft.ScrollEvent):
-        """Zoom molette : zoom centré sur le curseur."""
+        """Zoom molette (mode normal) ou rotation (mode Shift activé)."""
+        if not self.image_paths:
+            return
+        delta = e.scroll_delta.y
+
+        if self._scroll_rotates:
+            # Mode rotation : rapide, pas de rendu PIL
+            step = delta / 800
+            new_rotation = max(-15.0, min(15.0, self.rotation + step))
+            if new_rotation == self.rotation:
+                return
+            self.rotation = new_rotation
+            self.rotation_slider.value = self.rotation
+            self.rotation_slider.label = f"{self.rotation:.2f}°"
+            self.rotation_slider.update()
+            self._clamp_offsets()
+            self._update_transform()
+            return
+
+        # Mode zoom
         now = time.monotonic()
         if now - self._last_zoom_render < 1 / 30:
-            # Accumuler quand même le delta pour ne pas perdre de ticks
-            delta = e.scroll_delta.y
             zoom_factor = 1 - delta / 5000
             self.scale = max(1.0, min(10.0, self.scale * zoom_factor))
             return
         self._last_zoom_render = now
-        delta = e.scroll_delta.y
         zoom_factor = 1 - delta / 5000
         old_scale = self.scale
         self.scale = max(1.0, min(10.0, self.scale * zoom_factor))
@@ -2159,6 +2210,14 @@ class PhotoCropper:
         """
         self.border_13x15 = bool(e.control.value)
 
+    def on_border_toggle_10x20(self, e):
+        """Active / désactive le cadre 10x20 pour une photo 10x15."""
+        self.border_10x20 = bool(e.control.value)
+
+    def on_border_toggle_13x20(self, e):
+        """Active / désactive le cadre 13x20 pour une photo 13x18."""
+        self.border_13x20 = bool(e.control.value)
+
     def on_border_toggle_20x24(self, e):
         """
         Active / désactive l'ajout d'une bordure blanche pour passer du
@@ -2508,6 +2567,11 @@ class PhotoCropper:
             self.two_in_one_switch.value = False
             self.border_switch_13x15.visible = True
             self.border_switch_13x15.value = self.border_13x15
+            self.border_switch_10x20.visible = True
+            self.border_switch_10x20.value = self.border_10x20
+            self.border_switch_13x20.visible = False
+            self.border_switch_13x20.value = False
+            self.border_13x20 = False
             self.border_switch_20x24.visible = False
             self.border_switch_20x24.value = False
             self.border_20x24 = False
@@ -2519,10 +2583,36 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
-        elif "13x18" in self.current_format_label or "15x20" in self.current_format_label:
+        elif "13x18" in self.current_format_label:
             self.two_in_one_switch.visible = True
             self.two_in_one_switch.value = False
             self.border_switch_13x15.visible = False
+            self.border_switch_10x20.visible = False
+            self.border_switch_10x20.value = False
+            self.border_10x20 = False
+            self.border_switch_13x20.visible = True
+            self.border_switch_13x20.value = self.border_13x20
+            self.border_switch_20x24.visible = False
+            self.border_switch_20x24.value = False
+            self.border_20x24 = False
+            self.border_switch_13x10.visible = False
+            self.border_switch_13x10.value = False
+            self.border_13x10 = False
+            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.value = False
+            self.border_switch_ID4.visible = False
+            self.border_switch_ID4.value = False
+            self.network_switch.visible = False
+        elif "15x20" in self.current_format_label:
+            self.two_in_one_switch.visible = True
+            self.two_in_one_switch.value = False
+            self.border_switch_13x15.visible = False
+            self.border_switch_10x20.visible = False
+            self.border_switch_10x20.value = False
+            self.border_10x20 = False
+            self.border_switch_13x20.visible = False
+            self.border_switch_13x20.value = False
+            self.border_13x20 = False
             self.border_switch_20x24.visible = False
             self.border_switch_20x24.value = False
             self.border_20x24 = False
@@ -2538,6 +2628,12 @@ class PhotoCropper:
             self.two_in_one_switch.visible = False
             self.border_switch_20x24.visible = True
             self.border_switch_13x15.visible = False
+            self.border_switch_10x20.visible = False
+            self.border_switch_10x20.value = False
+            self.border_10x20 = False
+            self.border_switch_13x20.visible = False
+            self.border_switch_13x20.value = False
+            self.border_13x20 = False
             self.border_switch_13x10.visible = False
             self.border_switch_13x10.value = False
             self.border_13x10 = False
@@ -2554,6 +2650,12 @@ class PhotoCropper:
             self.border_switch_13x10.visible = True
             self.border_switch_polaroid.visible = True
             self.border_switch_13x15.visible = False
+            self.border_switch_10x20.visible = False
+            self.border_switch_10x20.value = False
+            self.border_10x20 = False
+            self.border_switch_13x20.visible = False
+            self.border_switch_13x20.value = False
+            self.border_13x20 = False
             self.border_switch_ID2.visible = False
             self.border_switch_ID2.value = False
             self.border_switch_ID4.visible = False
@@ -2566,6 +2668,12 @@ class PhotoCropper:
             self.network_switch.visible = True
             self.sharpen_switch.value = True
             self.border_switch_13x15.visible = False
+            self.border_switch_10x20.visible = False
+            self.border_switch_10x20.value = False
+            self.border_10x20 = False
+            self.border_switch_13x20.visible = False
+            self.border_switch_13x20.value = False
+            self.border_13x20 = False
             self.border_switch_13x10.visible = False
             self.border_switch_13x10.value = False
             self.border_13x10 = False
@@ -2575,6 +2683,12 @@ class PhotoCropper:
         else:
             self.two_in_one_switch.visible = False
             self.border_switch_13x15.visible = False
+            self.border_switch_10x20.visible = False
+            self.border_switch_10x20.value = False
+            self.border_10x20 = False
+            self.border_switch_13x20.visible = False
+            self.border_switch_13x20.value = False
+            self.border_13x20 = False
             self.border_switch_20x24.visible = False
             self.border_switch_20x24.value = False
             self.border_20x24 = False
@@ -2697,6 +2811,8 @@ class PhotoCropper:
             "rotation": self.rotation,
             "copies": self.copies_count,
             "border_13x15": self.border_13x15,
+            "border_10x20": self.border_10x20,
+            "border_13x20": self.border_13x20,
             "is_bw": self.is_bw,
             "two_in_one": bool(self.two_in_one_switch.value),
             "is_sharpen": self.is_sharpen,
@@ -2892,6 +3008,32 @@ class PhotoCropper:
             pil_crop = framed
             fmt_short = "13x15"
 
+        if (not two_in_one_applied) and self.border_10x20 and "10x15" in fmt_short:
+            if export_is_portrait:
+                src_w, src_h = mm_to_pixels(102), mm_to_pixels(152)
+                out_w, out_h = mm_to_pixels(102), mm_to_pixels(203)
+            else:
+                src_w, src_h = mm_to_pixels(152), mm_to_pixels(102)
+                out_w, out_h = mm_to_pixels(203), mm_to_pixels(102)
+            base_fit = ImageOps.fit(pil_crop, (src_w, src_h), method=Image.Resampling.BICUBIC)
+            framed = Image.new("RGB", (out_w, out_h), "white")
+            framed.paste(base_fit, (0, 0))
+            pil_crop = framed
+            fmt_short = "10x20"
+
+        if (not two_in_one_applied) and self.border_13x20 and "13x18" in fmt_short:
+            if export_is_portrait:
+                src_w, src_h = mm_to_pixels(127), mm_to_pixels(178)
+                out_w, out_h = mm_to_pixels(127), mm_to_pixels(203)
+            else:
+                src_w, src_h = mm_to_pixels(178), mm_to_pixels(127)
+                out_w, out_h = mm_to_pixels(203), mm_to_pixels(127)
+            base_fit = ImageOps.fit(pil_crop, (src_w, src_h), method=Image.Resampling.BICUBIC)
+            framed = Image.new("RGB", (out_w, out_h), "white")
+            framed.paste(base_fit, (0, 0))
+            pil_crop = framed
+            fmt_short = "13x20"
+
         if (not two_in_one_applied) and self.border_20x24 and "18x24" in fmt_short:
             ratio_20_24 = 203 / 240
             if export_is_portrait:
@@ -3059,6 +3201,32 @@ class PhotoCropper:
                 framed.paste(base_fit, (0, 0))
                 ex_crop = framed
                 ex_short = "13x15"
+
+            if (not ex_two_in_one_applied) and snapshot.get("border_10x20", False) and "10x15" in ex_short:
+                if ex_is_portrait:
+                    src_w, src_h = mm_to_pixels(102), mm_to_pixels(152)
+                    out_w, out_h = mm_to_pixels(102), mm_to_pixels(203)
+                else:
+                    src_w, src_h = mm_to_pixels(152), mm_to_pixels(102)
+                    out_w, out_h = mm_to_pixels(203), mm_to_pixels(102)
+                base_fit = ImageOps.fit(ex_crop, (src_w, src_h), method=Image.Resampling.LANCZOS)
+                framed = Image.new("RGB", (out_w, out_h), "white")
+                framed.paste(base_fit, (0, 0))
+                ex_crop = framed
+                ex_short = "10x20"
+
+            if (not ex_two_in_one_applied) and snapshot.get("border_13x20", False) and "13x18" in ex_short:
+                if ex_is_portrait:
+                    src_w, src_h = mm_to_pixels(127), mm_to_pixels(178)
+                    out_w, out_h = mm_to_pixels(127), mm_to_pixels(203)
+                else:
+                    src_w, src_h = mm_to_pixels(178), mm_to_pixels(127)
+                    out_w, out_h = mm_to_pixels(203), mm_to_pixels(127)
+                base_fit = ImageOps.fit(ex_crop, (src_w, src_h), method=Image.Resampling.LANCZOS)
+                framed = Image.new("RGB", (out_w, out_h), "white")
+                framed.paste(base_fit, (0, 0))
+                ex_crop = framed
+                ex_short = "13x20"
 
             os.makedirs(ex_short, exist_ok=True)
             ex_copies = snapshot.get("copies", 1)
@@ -3241,7 +3409,10 @@ def main(page: ft.Page):
             Événement clavier Flet exposant ``event.key`` (nom textuel
             de la touche, p. ex. ``"Enter"``, ``"Backspace"``, ``" "``).
         """
-        if event.key == "Enter":
+        if event.key == "Tab":
+            app._scroll_rotates = not app._scroll_rotates
+            app._update_shift_badge()
+        elif event.key == "Enter":
             app.validate_and_next(event)
         elif event.key == "Backspace":
             app.toggle_orientation(event)
@@ -3274,6 +3445,8 @@ def main(page: ft.Page):
             content=ft.Column([
                 app.two_in_one_switch,
                 app.border_switch_13x15,
+                app.border_switch_10x20,
+                app.border_switch_13x20,
                 app.border_switch_20x24,
                 app.border_switch_13x10,
                 app.border_switch_polaroid,
@@ -3281,7 +3454,7 @@ def main(page: ft.Page):
                 app.border_switch_ID4,
                 app.network_switch,
             ], spacing=0),
-            height=150,
+            height=180,
         ),
         ft.Divider(height=8),
         ft.Text("Histogramme", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
