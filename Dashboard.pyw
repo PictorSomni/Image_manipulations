@@ -291,7 +291,6 @@ def main(page: ft.Page):
         content_padding=ft.Padding(5, 5, 5, 5),
     )
     # ── Filtre de types de fichiers ──────────────────────────────────
-    _FILTER_LABELS = ["Tous", "Images", "ZIP", "Docs", "Autres"]
     _FILTER_KEYS   = ["all",  "images", "zip", "docs", "other"]
     filter_segment = ft.CupertinoSlidingSegmentedButton(
         selected_index=0,
