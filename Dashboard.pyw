@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.0.4"
+__version__ = "2.0.5"
 
 
 
@@ -2576,7 +2576,7 @@ def main(page: ft.Page):
                 env = os.environ.copy()
                 env["DATA_PATH"] = os.path.join(app_directory, "Data")
                 env["FOLDER_PATH"] = selected_folder["path"]
-                
+
 
 
                 # Ajouter les chemins ImageMagick pour Wand (Homebrew sur macOS)
@@ -2605,14 +2605,12 @@ def main(page: ft.Page):
 
 
 
-
                 # Ajouter le dossier destination pour Transfert vers TEMP.py
                 if app_name == "Transfert vers TEMP.py":
                     if platform.system() == "Windows":
                         env["DEST_FOLDER"] = "Z:/temp"
                     else:
                         env["DEST_FOLDER"] = "/Volumes/TRAVAUX EN COURS/Z2026/TEMP"
-
 
 
 
@@ -2651,7 +2649,7 @@ def main(page: ft.Page):
                         pass
 
 
-                
+
                 # Lire la sortie en temps réel
                 def read_output(pipe, color):
                     """
@@ -2689,7 +2687,7 @@ def main(page: ft.Page):
                 stderr_reader_thread = threading.Thread(target=read_output, args=(process.stderr, RED), daemon=True)
                 stdout_reader_thread.start()
                 stderr_reader_thread.start()
-                
+
 
 
                 # Attendre la fin et rafraîchir la preview
@@ -2854,7 +2852,7 @@ def main(page: ft.Page):
             _add_to_recent(selected_folder["path"])
             _rebuild_recent_folders_menu()
             refresh_preview()
-    
+
 
 
     async def close_window(e):
@@ -2883,6 +2881,8 @@ def main(page: ft.Page):
             def publish_to_terminal(msg, color=LIGHT_GREY):
                 page.pubsub.send_all_on_topic("terminal", (msg, color))
 
+
+
             def run_git_command(*args):
                 return subprocess.run(
                     ["git", *args],
@@ -2906,6 +2906,8 @@ def main(page: ft.Page):
                             user_data_backups[fname] = f.read()
                     except Exception:
                         pass
+
+
 
             def _restore_user_data_files():
                 for fname, content in user_data_backups.items():

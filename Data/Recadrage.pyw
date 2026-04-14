@@ -38,11 +38,10 @@ Raccourcis clavier
 Entrée     : valider et passer à l'image suivante
 Backspace  : basculer l'orientation portrait / paysage
 Espace     : ignorer l'image courante et passer à la suivante
-
-Version : voir __version__
+Tab       : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.0.4"
+__version__ = "2.0.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -59,6 +58,7 @@ import contextlib
 import math
 import io
 import base64
+from matplotlib.dates import DAILY
 import numpy as np
 import importlib.util
 
@@ -95,7 +95,7 @@ FORMATS = {
     "70x100 (705x1005mm)": (705, 1005)
 }
 
-# Couleurs
+# ===================== COULEURS ===================== #
 DARK = "#222429"
 BG = "#373d4a"
 GREY = "#2C3038"
@@ -108,7 +108,8 @@ ORANGE = "#FFA071"
 RED = "#F17171"
 WHITE = "#c7ccd8"
 
-
+SNACKBAR_BACKGROUND_COLOR = DARK
+SNACKBAR_TEXT_COLOR = BLUE
 
 # ===================== Layout ===================== #
 LEFT_COL_WIDTH   = 200   # Largeur de la colonne de gauche (réglages sliders)
@@ -137,6 +138,7 @@ def mm_to_pixels(mm, dpi=DPI):
     >>> mm_to_pixels(102, 300)  # 102 mm à 300 dpi ≈ 1205 px
     1205
     """
+
     return int(mm / 25.4 * dpi)
 
 
@@ -175,6 +177,7 @@ def convert_to_srgb(source_image: Image.Image, icc_profile: bytes | None) -> Ima
     PIL.Image.Image
         Image en mode RGB dans l'espace colorimétrique sRGB.
     """
+
     if not icc_profile:
         return source_image  # déjà sRGB par défaut
     try:
@@ -210,6 +213,7 @@ def _erode_alpha(source_image: Image.Image, radius: int) -> Image.Image:
     PIL.Image.Image
         Image RGBA avec le canal alpha érodé.
     """
+
     if source_image.mode != "RGBA" or radius <= 0:
         return source_image
     r, g, b, alpha_channel = source_image.split()
@@ -252,8 +256,6 @@ class PhotoCropper:
         _preview_tmp_dir, _preview_counter, _prev_preview_path
     """
 
-
-
     def __init__(self, page: ft.Page):
         """
         Initialise l'application et construit tous les widgets Flet.
@@ -278,16 +280,24 @@ class PhotoCropper:
             - lire les dimensions courantes de la fenêtre
             - modifier le titre de la fenêtre
         """
+
         self.page = page
+
         # État du batch
         self.image_paths = []
         self.current_index = 0
         self.batch_mode = False
         self._preloaded = False
         self.source_folder = os.environ.get("FOLDER_PATH", os.getcwd())
+
+
+
         # Dossier de prévisualisation temporaire (au plus 1 fichier à la fois)
         self._preview_tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".preview_cache")
         os.makedirs(self._preview_tmp_dir, exist_ok=True)
+
+
+
         # Vider les éventuels résidus d'une session précédente
         for cache_file in os.listdir(self._preview_tmp_dir):
             try: os.remove(os.path.join(self._preview_tmp_dir, cache_file))
@@ -328,7 +338,9 @@ class PhotoCropper:
         self._last_rotation_render = 0.0  # Throttle rotation
         self._last_zoom_render = 0.0      # Throttle zoom
         self._bounds_cache: tuple | None = None  # Cache (scale, rotation, (bw, bh))
-        self._scroll_rotates = False  # Shift bascule molette → rotation
+        self._scroll_rotates = False       # Tab bascule défilement trackpad → rotation
+        self._gesture_scale_start = 1.0    # Scale au début du geste (suivi pour le zoom)
+        self._gesture_rotation_prev = 0.0  # Rotation cumulée depuis le début du geste (radians)
 
 
 
@@ -436,11 +448,11 @@ class PhotoCropper:
             gapless_playback=True,
         )
         
-        # Container positionné dans un Stack avec scale/rotate pour le zoom et la rotation
+        # Container de l'image — positionné dans le Stack, transformé via LayoutControl
         self.image_container = ft.Container(
             content=self.image_display,
-            left=0,
-            top=0,
+            left=(self.canvas_w - self.display_w) / 2,
+            top=(self.canvas_h - self.display_h) / 2,
         )
 
 
@@ -456,43 +468,27 @@ class PhotoCropper:
 
 
 
-        # Badge d'état du mode rotation (molette Tab)
-        self._shift_badge = ft.Container(
-            content=ft.Text("↻ ROTATION MOLETTE ON", size=12, color=DARK, weight=ft.FontWeight.BOLD),
-            bgcolor=ORANGE,
-            border_radius=6,
-            padding=ft.Padding.symmetric(horizontal=10, vertical=5),
-            visible=False,
-            left=8,
-            top=8,
-        )
-
-
-
-        # Stack pour positionner l'image
+        # Stack : image + grille en overlay fixe
         self.image_stack = ft.Stack(
-            controls=[self.image_container, *self._grid_lines, self._shift_badge],
+            controls=[self.image_container, *self._grid_lines],
             width=self.canvas_w,
             height=self.canvas_h,
         )
 
 
 
-        # GestureDetector pour gérer le pan et zoom
+        # GestureDetector couvrant tout le canevas pour le pan, zoom, rotation
         self.gesture_detector = ft.GestureDetector(
             content=self.image_stack,
-            on_pan_update=self.on_pan_update,
-            on_pan_end=self.on_pan_end,
-            on_scroll=self.on_scroll,
-            # on_scale_start=self.on_scale_start,   # pinch trackpad macOS — désactivé (trop sensible)
-            # on_scale_update=self.on_scale_update,  # pinch trackpad macOS — désactivé (trop sensible)
-            drag_interval=33,
+            mouse_cursor=ft.MouseCursor.MOVE,
+            on_scale_start=self.on_gesture_start,
+            on_scale_update=self.on_gesture_update,
+            on_scale_end=self.on_gesture_end,
+            on_scroll=self.on_gesture_scroll,
         )
 
 
 
-        # Texte de statut affiché quand la SnackBar n'est pas visible
-        self.status_text = ft.Text("")
         # Boutons d'action (créés ici pour que le main puisse les référencer)
         self.validate_button = ft.Button(
             "Valider & Suivant",
@@ -532,6 +528,9 @@ class PhotoCropper:
         self.fit_in_switch = ft.Switch(label="Fit-in", active_color=VIOLET, value=False, on_change=self.on_fit_in_toggle)
         self.show_grid = False
         self.grid_switch = ft.Switch(label="Grille", active_color=BLUE, value=False, on_change=self.on_grid_toggle)
+
+
+
         # Suppression fond IA
         self._rembg_session = [None]        # birefnet-portrait / birefnet-general
         self._rembg_session_u2net = [None]  # u2net_human_seg / u2net
@@ -607,6 +606,7 @@ class PhotoCropper:
 
 
         # Sliders de réglages (panneau gauche)
+        # Contraste
         self.contrast = 0.0
         self.contrast_slider = ft.Slider(
             value=0, min=-20, max=20, divisions=40, label="0",
@@ -614,6 +614,8 @@ class PhotoCropper:
             on_change=self.on_contrast_label,
             on_change_end=self.on_contrast_end,
         )
+
+        # Saturation
         self.saturation = 20.0
         self.saturation_slider = ft.Slider(
             value=20, min=-100, max=100, divisions=20, label="20",
@@ -621,6 +623,8 @@ class PhotoCropper:
             on_change=self.on_saturation_label,
             on_change_end=self.on_saturation_end,
         )
+
+        # Exposition (Exposure — similaire à Camera Raw, +20 = doublement de la luminosité)
         self.exposure = 10.0
         self.exposure_slider = ft.Slider(
             value=10, min=-100, max=100, divisions=20, label="10",
@@ -628,8 +632,6 @@ class PhotoCropper:
             on_change=self.on_exposure_label,
             on_change_end=self.on_exposure_end,
         )
-
-
 
         # Teinte (Hue)
         self.hue = 0.0
@@ -639,8 +641,6 @@ class PhotoCropper:
             on_change=self.on_hue_label,
             on_change_end=self.on_hue_end,
         )
-
-
 
         # Balance des blancs (temperature : - = froid/bleu, + = chaud/jaune)
         self.white_balance = 0.0
@@ -662,13 +662,16 @@ class PhotoCropper:
             gapless_playback=True,
         )
 
+
+
+        # Container principal du canevas de recadrage (Stack + GestureDetector)
         self.canvas_container = ft.Container(
             content=self.gesture_detector,
-            bgcolor=ft.Colors.WHITE,
             clip_behavior=ft.ClipBehavior.HARD_EDGE,
             width=self.canvas_w,
             height=self.canvas_h,
-            border=ft.Border.all(1, GREY),
+            bgcolor=WHITE,
+            border=ft.Border.all(1, WHITE),
         )
 
 
@@ -690,6 +693,7 @@ class PhotoCropper:
         jour ainsi que les propriétés `width` / `height` des widgets
         `canvas_container` et `image_stack`.
         """
+
         available_width = min(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
         available_height = min(self.page.window.height - 380, MAX_CANVAS_SIZE) if self.page.window.height else 600
 
@@ -712,6 +716,9 @@ class PhotoCropper:
         self.canvas_container.height = self.canvas_h
         self.image_stack.width = self.canvas_w
         self.image_stack.height = self.canvas_h
+
+
+
         # Repositionner les lignes de grille
         if hasattr(self, '_grid_lines'):
             self._grid_lines[0].left   = self.canvas_w / 3
@@ -728,26 +735,19 @@ class PhotoCropper:
 
     def _update_transform(self):
         """
-        Applique la transformation affine courante (scale, pan, rotation)
-        au container de l'image dans le Stack.
+        Applique pan, zoom et rotation via les propriétés LayoutControl.
 
-        Appelle uniquement `.update()` sur le container (pas `page.update()`)
-        pour minimiser le coût de rendu lors du pan/zoom interactif.
+        - `image_display.width/height` : zoom (redimensionnement layout, pas de re-rendu PIL).
+        - `image_container.left/top`   : pan (décalage du coin sup. gauche dans le Stack).
+        - `image_container.rotate`     : rotation autour du centre du container.
         """
-        scaled_image_width  = self.display_w * self.scale
-        scaled_image_height = self.display_h * self.scale
-
-        image_left = (self.canvas_w - scaled_image_width) / 2 + self.offset_x
-        image_top  = (self.canvas_h - scaled_image_height) / 2 + self.offset_y
-
-        self.image_container.scale = self.scale
+        scaled_w = self.display_w * self.scale
+        scaled_h = self.display_h * self.scale
+        self.image_display.width  = scaled_w
+        self.image_display.height = scaled_h
+        self.image_container.left  = (self.canvas_w - scaled_w) / 2 + self.offset_x
+        self.image_container.top   = (self.canvas_h - scaled_h) / 2 + self.offset_y
         self.image_container.rotate = math.radians(self.rotation)
-
-        image_center_x = image_left + scaled_image_width / 2
-        image_center_y = image_top  + scaled_image_height / 2
-
-        self.image_container.left = image_center_x - self.display_w / 2
-        self.image_container.top  = image_center_y - self.display_h / 2
         self.image_container.update()
 
 
@@ -769,6 +769,7 @@ class PhotoCropper:
         tuple[float, float]
             (bound_w, bound_h) en pixels écran.
         """
+
         if self._bounds_cache is not None:
             cached_scale, cached_rotation, bounds_result = self._bounds_cache
             if cached_scale == self.scale and cached_rotation == self.rotation:
@@ -803,6 +804,7 @@ class PhotoCropper:
         un surplus de +4 px). Cela garantit que le clamping correspond
         exactement à ce que l'export peut produire, évitant tout bord blanc.
         """
+
         # Couverture réelle en pixels écran — identique à l'export (_compute_crop_with_canvas)
         border_safety_factor = (1.0 + 2.0 / min(self.original_width, self.original_height)
                  if (self.original_width > 4 and self.original_height > 4) else 1.0)
@@ -859,7 +861,7 @@ class PhotoCropper:
         8. Mise à jour du titre de la fenêtre.
 
         En cas d'erreur (fichier invalide, exception PIL), le message est
-        affiché dans `status_text` et l'application passe automatiquement
+        affiché dans un snackbar et l'application passe automatiquement
         à l'image suivante.
 
         Parameters
@@ -869,10 +871,14 @@ class PhotoCropper:
             recalculée depuis les dimensions de l'image (utile lors d'un
             changement de format ou d'une bascule manuelle). Défaut : False.
         """
+
         if not self.image_paths:
             return
         if self.current_index >= len(self.image_paths):
             return
+        
+
+
         # Réinitialiser les valeurs de transformation
         self.scale = 1.0
         self.offset_x = 0.0
@@ -898,8 +904,9 @@ class PhotoCropper:
 
         # Vérifier que le fichier existe et est accessible
         if not os.path.isfile(path) or not os.access(path, os.R_OK):
-            self.status_text.value = f"Fichier inaccessible: {os.path.basename(path)}"
+            self.page.show_dialog(ft.SnackBar(ft.Text(f"Fichier inaccessible: {os.path.basename(path)}", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
             self.page.update()
+
             # Passer à l'image suivante automatiquement
             self.current_index += 1
             if self.current_index < len(self.image_paths):
@@ -908,8 +915,10 @@ class PhotoCropper:
         
         try:
             source_image = Image.open(path)
+
             # Conserver le profil ICC avant toute conversion
             self.icc_profile = source_image.info.get('icc_profile', None)
+
             # Appliquer la rotation EXIF pour corriger l'orientation
             source_image = ImageOps.exif_transpose(source_image)
             source_image = source_image.convert("RGBA")
@@ -918,8 +927,9 @@ class PhotoCropper:
             self.rembg_btn.selected = False
             self.original_width, self.original_height = source_image.size
         except Exception as e:
-            self.status_text.value = f"Erreur lors du chargement: {os.path.basename(path)} - {str(e)}"
+            self.page.show_dialog(ft.SnackBar(ft.Text(f"Erreur lors du chargement: {os.path.basename(path)} - {str(e)}", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
             self.page.update()
+
             # Passer à l'image suivante automatiquement
             self.current_index += 1
             if self.current_index < len(self.image_paths):
@@ -930,7 +940,9 @@ class PhotoCropper:
             self.canvas_is_portrait = True if self.original_height >= self.original_width else False
 
         self.update_canvas_size()
-        
+
+
+
         # Calculer la taille de base : COVER en mode normal, CONTAIN en mode Fit-in
         scale_factor_width = self.canvas_w / self.original_width
         scale_factor_height = self.canvas_h / self.original_height
@@ -952,10 +964,7 @@ class PhotoCropper:
         self.image_display.height = self.display_h
         self._render_preview()
 
-        # Réinitialiser le scale du container
-        self.image_container.scale = 1.0
-
-        # Appliquer la transformation initiale
+        # Appliquer la rotation et réinitialiser le transform
         self._clamp_offsets()
         self._update_transform()
 
@@ -1035,6 +1044,7 @@ class PhotoCropper:
             Événement Flet (non utilisé directement). Peut être None lors
             de l'appel programmatique depuis `delayed_start`.
         """
+
         import time
 
         source_folder_path = self.source_folder
@@ -1048,8 +1058,7 @@ class PhotoCropper:
         try:
             all_folder_files = os.listdir(source_folder_path)
         except Exception as e:
-            self.status_text.value = f"Erreur lors de la lecture du dossier: {e}"
-            self.page.update()
+            self.page.show_dialog(ft.SnackBar(ft.Text(f"Erreur lors de la lecture du dossier: {e}", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
             return
 
         image_filenames = [f for f in all_folder_files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.jpe', '.tif', '.tiff', '.bmp', '.dib', '.gif', '.webp', '.ico', '.pcx', '.tga', '.ppm', '.pgm', '.pbm', '.pnm')) and not f == "watermark.png"]
@@ -1058,15 +1067,15 @@ class PhotoCropper:
         if selected_files_filter:
             image_filenames = [f for f in image_filenames if f in selected_files_filter]
             if not image_filenames and total_image_count > 0:
-                self.status_text.value = f"{total_image_count} image(s) trouvée(s) mais aucune ne correspond aux fichiers sélectionnés"
+                self.page.show_dialog(ft.SnackBar(ft.Text(f"{total_image_count} image(s) trouvée(s) mais aucune ne correspond aux fichiers sélectionnés", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
                 self.page.update()
                 return
 
         if not image_filenames:
             if len(all_folder_files) == 0:
-                self.status_text.value = "Le dossier est vide"
+                self.page.show_dialog(ft.SnackBar(ft.Text("Le dossier est vide", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
             else:
-                self.status_text.value = f"Aucune image valide trouvée dans le dossier ({len(all_folder_files)} fichier(s) présent(s))"
+                self.page.show_dialog(ft.SnackBar(ft.Text(f"Aucun fichier image valide trouvé dans le dossier (total : {len(all_folder_files)})", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
             self.page.update()
             return
 
@@ -1082,7 +1091,7 @@ class PhotoCropper:
                     pass
 
         if not valid_image_paths:
-            self.status_text.value = f"{len(image_filenames)} image(s) trouvée(s) mais aucune n'est accessible ou valide"
+            self.page.show_dialog(ft.SnackBar(ft.Text(f"{len(image_filenames)} image(s) trouvée(s) mais aucune n'est accessible ou valide", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
             self.page.update()
             return
 
@@ -1116,6 +1125,7 @@ class PhotoCropper:
         PIL.Image.Image
             Image recadrée en mode RGB aux dimensions demandées.
         """
+
         return self._compute_crop_with_canvas(
             target_w_px, target_h_px,
             self.canvas_w, self.canvas_h,
@@ -1150,6 +1160,7 @@ class PhotoCropper:
         PIL.Image.Image
             Image recadrée en mode RGB aux dimensions du format cible (DPI).
         """
+
         if is_portrait:
             target_w_px = mm_to_pixels(fmt_w_mm)
             target_h_px = mm_to_pixels(fmt_h_mm)
@@ -1211,6 +1222,7 @@ class PhotoCropper:
         PIL.Image.Image
             Image recadrée en mode RGB aux dimensions du format du snapshot.
         """
+
         format_dimensions = snapshot["dims"]
         is_portrait = snapshot["is_portrait"]
         fmt_w_mm, fmt_h_mm = format_dimensions
@@ -1288,6 +1300,7 @@ class PhotoCropper:
         PIL.Image.Image
             Image recadrée en mode RGB.
         """
+
         rotation_radians = math.radians(self.rotation)
         cos_rotation = math.cos(rotation_radians)
         sin_rotation = math.sin(rotation_radians)
@@ -1296,6 +1309,7 @@ class PhotoCropper:
         total_scale_factor = base_scale * active_zoom_scale
         if total_scale_factor <= 0:
             total_scale_factor = 1e-6
+
         # Décale légèrement total_scale_factor pour que le noyau BICUBIC ne sorte jamais
         # des limites de l'image source. Quand le ratio de l'image correspond exactement
         # au ratio du format au zoom par défaut, les pixels de bord se projettent sur les
@@ -1391,8 +1405,10 @@ class PhotoCropper:
         PIL.Image.Image
             Image redimensionnée collée sur fond blanc RGB.
         """
+
         source_image = self.current_pil_image
         if source_image.mode == "RGBA":
+
             # Érosion du canal alpha (suppression des franges résiduelles)
             if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
                 erosion_radius = max(1, round(min(source_image.size) * self.rembg_erosion_pct / 100))
@@ -1437,6 +1453,7 @@ class PhotoCropper:
             True si le switch « 2 en 1 » est coché ET que le format
             courant est compatible (10x15, 13x18 ou 15x20).
         """
+
         return bool(self.two_in_one_switch.value) and any(
             fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]
         )
@@ -1461,6 +1478,7 @@ class PhotoCropper:
         PIL.Image.Image
             Image en orientation portrait (height ≥ width).
         """
+
         if image.width > image.height:
             return image.rotate(90, expand=True)
         return image
@@ -1495,6 +1513,7 @@ class PhotoCropper:
         PIL.Image.Image
             Planche 2-en-1 en mode RGB aux dimensions (target_w_px, target_h_px).
         """
+
         divide_horizontally = target_w_px >= target_h_px
 
         if divide_horizontally:
@@ -1541,6 +1560,7 @@ class PhotoCropper:
             Planche 13x15 en mode RGB avec les deux copies en haut et la
             marge blanche en bas.
         """
+
         panel_width  = mm_to_pixels(76)
         panel_height = mm_to_pixels(102)
         base_width   = mm_to_pixels(152)
@@ -1589,6 +1609,7 @@ class PhotoCropper:
         PIL.Image.Image
             Image RGB améliorée.
         """
+
         ycbcr_image = input_image.convert("YCbCr")
         y, cb, cr = ycbcr_image.split()
         luminance_array = np.array(y, dtype=np.float32)
@@ -1652,6 +1673,7 @@ class PhotoCropper:
         PIL.Image.Image
             Image RGB ajustée.
         """
+
         working_image = input_image.convert("RGB")
         if self.exposure != 0:
             # Exposition : gamma inverse (+ = plus clair, - = plus sombre)
@@ -1673,14 +1695,18 @@ class PhotoCropper:
 
 
     def _apply_shadows(self, input_image, value):
-        """Ajuste les ombres (similaire au slider Shadows de Camera Raw/Lightroom).
+        """
+        Ajuste les ombres (similaire au slider Shadows de Camera Raw/Lightroom).
         value : -100 … +100. Positif = éclaircit les ombres, négatif = les assombrit.
         La courbe est nulle aux noirs purs (v=0), maximale vers v=96 et nulle dès les
-        demi-tons (v≥192), ce qui préserve les noirs et les hautes lumières."""
+        demi-tons (v≥192), ce qui préserve les noirs et les hautes lumières.
+        """
+
         if value == 0:
             return input_image
         strength_factor = value / 100.0
         value_range = np.arange(256, dtype=np.float32)
+
         # Courbe sinusoïdale : sin(π·v/192) — zéro en 0, pic à 96, zéro à 192+
         normalized_value = value_range / 192.0
         shadow_weight = np.where(normalized_value <= 1.0, np.sin(np.pi * normalized_value), 0.0)
@@ -1696,10 +1722,12 @@ class PhotoCropper:
         """Ajuste les hautes lumières (miroir des ombres).
         value : -100 … +100. Positif = éclaircit les hautes lumières, négatif = les assombrit.
         Courbe nulle sous v=64, pic vers v=192, nulle aux blancs purs (v=255)."""
+
         if value == 0:
             return input_image
         strength_factor = value / 100.0
         value_range = np.arange(256, dtype=np.float32)
+
         # Courbe : sin(π·(v-64)/192) pour v dans [64, 255], zéro ailleurs
         normalized_value = (value_range - 64.0) / 192.0
         highlight_weight = np.where((normalized_value >= 0.0) & (normalized_value <= 1.0), np.sin(np.pi * normalized_value), 0.0)
@@ -1716,6 +1744,7 @@ class PhotoCropper:
 
         value dans [-180, +180] ; effet max ±30 % sur R/G/B via LUT.
         """
+
         if value == 0:
             return input_image
         normalized_value = value / 180.0       # [-1, +1]
@@ -1744,6 +1773,7 @@ class PhotoCropper:
     def _apply_white_balance(self, input_image, value):
         """Balance des blancs : -100 = froid (bleu), +100 = chaud (jaune/orange).\n\n        Applique une correction per-canal (R, G, B) proportionnelle à ``value``.
         """
+
         if value == 0:
             return input_image
         balance_strength = abs(value) / 100.0 * 0.20  # max ±20 % par canal
@@ -1761,6 +1791,7 @@ class PhotoCropper:
 
     def _render_histogram(self, preview_img):
         """Génère un histogramme RGB et met à jour ``self.histogram_image``."""
+
         histogram_width, histogram_height = RIGHT_COL_WIDTH, HISTOGRAM_HEIGHT
         pixel_array = np.array(preview_img.convert("RGB"), dtype=np.uint8)
         pixel_array = pixel_array[::4, ::4]  # sous-échantillonnage pour la vitesse
@@ -1812,15 +1843,21 @@ class PhotoCropper:
         lors du chargement d'une nouvelle image. Elle NE rafraîchit PAS
         `self.page` ; l'appelant le fait si nécessaire.
         """
+
         if not hasattr(self, 'current_pil_image') or self.current_pil_image is None:
             return
         if not hasattr(self, 'display_w'):
             return
-        # Réduire à la taille d'affichage EN PREMIER — toutes les opérations
-        # suivantes (érosion, composite, filtres) travaillent sur le petit canvas.
-        preview_width = max(1, int(self.display_w))
-        preview_height = max(1, int(self.display_h))
+        
+        # Réduire à 2× la taille du canevas — meilleure netteté au zoom
+        # sans atteindre la pleine résolution originale (compromis qualité/vitesse).
+        preview_width  = max(1, int(self.display_w * 2))
+        preview_height = max(1, int(self.display_h * 2))
+        # Plafonner à la résolution originale pour éviter l'agrandissement inutile
+        preview_width  = min(preview_width,  self.original_width)
+        preview_height = min(preview_height, self.original_height)
         preview_image = self.current_pil_image.resize((preview_width, preview_height), Image.Resampling.BILINEAR)
+        
         if preview_image.mode == "RGBA":
             # Clé de cache : image source + taille d'affichage + format + paramètres de composition
             composite_cache_key = (
@@ -1856,23 +1893,30 @@ class PhotoCropper:
                 self._rembg_composite_cache = (composite_cache_key, preview_image.copy())
         else:
             preview_image = preview_image.convert("RGB")
+
         # Noir et blanc
         if self.is_bw:
             preview_image = ImageOps.grayscale(preview_image).convert("RGB")
+
         # Contraste, saturation, exposition
         preview_image = self._apply_adjustments(preview_image)
+
         # Ombres
         if self.shadows != 0:
             preview_image = self._apply_shadows(preview_image, self.shadows)
+
         # Hautes lumières
         if self.highlights != 0:
             preview_image = self._apply_highlights(preview_image, self.highlights)
+
         # Netteté
         if self.is_sharpen:
             preview_image = preview_image.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
             preview_image = preview_image.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
+        
         # Conversion sRGB : aligner le preview sur l'image enregistrée
         preview_image = convert_to_srgb(preview_image, getattr(self, 'icc_profile', None))
+        
         # Encoder en mémoire — élimine l'I/O disque, invalide le cache Flutter via données uniques
         jpeg_buffer = io.BytesIO()
         preview_image.save(jpeg_buffer, format="JPEG", quality=70)
@@ -1885,91 +1929,116 @@ class PhotoCropper:
     # ================================================================ #
     #                  NAVIGATION (PAN, ZOOM, ROTATION)                #
     # ================================================================ #
-    def on_pan_update(self, e: ft.DragUpdateEvent):
-        """
-        Gestionnaire de glisser (drag) sur le canvas.
+    def on_gesture_start(self, e):
+        """Mémorise l'état au début d'un geste (pan, zoom, rotation)."""
 
-        Les deltas de position sont accumulés dans `offset_x` / `offset_y`
-        à chaque événement (potentiellement 200+ Hz selon le système).
-        Le rendu vers Flutter (`_clamp_offsets` + `_update_transform`) est
-        limité à 60 fps via `_last_pan_render` pour éviter de saturer la
-        file de messages Flet sur les machines lentes.
-
-        Parameters
-        ----------
-        e : ft.DragUpdateEvent
-            Événement Flet ; `e.local_delta` contient le déplacement
-            en pixels depuis le dernier événement.
-        """
-        self.offset_x += e.local_delta.x
-        self.offset_y += e.local_delta.y
-        # Throttle : on limite les appels à _update_transform à 60 fps max.
-        # Les deltas sont toujours accumulés ; seul l'envoi à Flutter est différé.
-        now = time.monotonic()
-        if now - self._last_pan_render < 1 / 30:
+        if not self.image_paths or not hasattr(self, 'original_width'):
             return
-        self._last_pan_render = now
+        self._gesture_scale_start = self.scale
+        self._gesture_rotation_prev = 0.0
+
+
+
+    def on_gesture_update(self, e):
+        """
+        Met à jour scale, offset et rotation depuis un geste GestureDetector.
+
+        - `e.scale`                   : facteur de zoom cumulatif depuis le début du geste.
+        - `e.focal_point_delta.x/y`   : déplacement du point focal depuis le dernier événement (pixels).
+        - `e.rotation`                : rotation cumulée depuis le début du geste (radians) — twist deux doigts.
+        """
+
+        if not self.image_paths or not hasattr(self, 'original_width'):
+            return
+
+        # ── Zoom (pinch deux doigts) ────────────────────────────────────
+        new_scale = max(1.0, min(10.0, self._gesture_scale_start * e.scale))
+        self.scale = new_scale
+
+        # ── Pan (déplacement du point focal) ────────────────────────────
+        self.offset_x += e.focal_point_delta.x
+        self.offset_y += e.focal_point_delta.y
+
+        # ── Rotation (twist deux doigts) ─────────────────────────────────
+        rotation_delta_rad = e.rotation - self._gesture_rotation_prev
+        self._gesture_rotation_prev = e.rotation
+        if abs(rotation_delta_rad) > 0.001:
+            rotation_delta_deg = math.degrees(rotation_delta_rad)
+            new_rotation = max(-15.0, min(15.0, self.rotation + rotation_delta_deg))
+            if new_rotation != self.rotation:
+                self.rotation = new_rotation
+                self.rotation_slider.value = self.rotation
+                self.rotation_slider.label = f"{self.rotation:.2f}°"
+                self.rotation_slider.update()
+
+        # ── Mise à jour du slider de zoom ────────────────────────────────
+        zoom_slider_val = min(self.scale, self.zoom_slider.max)
+        if abs(zoom_slider_val - self.zoom_slider.value) > 0.01:
+            self.zoom_slider.value = zoom_slider_val
+            self.zoom_slider.label = f"{self.scale:.2f}×"
+            self.zoom_slider.update()
+
+        # ── Transforms GPU + clampage ─────────────────────────────────────
+        self._clamp_offsets()
+        self._update_transform()
+
+
+
+    def on_gesture_end(self, e):
+        """Rafraîchit la prévisualisation et l'histogramme après la fin d'un geste."""
+
+        if not self.image_paths or not hasattr(self, 'original_width'):
+            return
+        self._clamp_offsets()
+        self._update_transform()
+        self._render_preview()
+        self.page.update()
+
+
+
+    def on_gesture_scroll(self, e):
+        """
+        Défilement molette / trackpad deux doigts :
+          - mode normal (badge absent) → scroll vertical → zoom.
+          - mode Tab    (badge visible) → scroll vertical → rotation.
+        """
+
+        if not self.image_paths or not hasattr(self, 'original_width'):
+            return
+        dy = e.scroll_delta.y
+        if self._scroll_rotates:
+            # Mode Tab : molette → rotation (±15°)
+            rotation_delta = dy * 0.05
+            self.rotation = max(-15.0, min(15.0, self.rotation + rotation_delta))
+            self.rotation_slider.value = self.rotation
+            self.rotation_slider.label = f"{self.rotation:.2f}°"
+            self.rotation_slider.update()
+        else:
+            # Mode normal : molette → zoom
+            if dy != 0:
+                zoom_delta = -dy * 0.0005
+                self.scale = max(1.0, min(10.0, self.scale * (1.0 + zoom_delta)))
+                zoom_slider_val = min(self.scale, self.zoom_slider.max)
+                self.zoom_slider.value = zoom_slider_val
+                self.zoom_slider.label = f"{self.scale:.2f}×"
+                self.zoom_slider.update()
         self._clamp_offsets()
         self._update_transform()
 
 
 
     def _update_shift_badge(self):
-        """Met à jour le badge + la couleur du slider de rotation."""
-        self._shift_badge.visible = self._scroll_rotates
-        self._shift_badge.update()
-        self.rotation_slider.active_color = ORANGE if self._scroll_rotates else BLUE
-        self.rotation_slider.update()
-
-
-
-    def on_pan_end(self, e: ft.DragEndEvent):
-        """Rafraîchit la prévisualisation et l'histogramme après la fin du pan."""
-        self._clamp_offsets()
-        self._render_preview()
-        self.page.update()
-
-
-
-    def on_scroll(self, e: ft.ScrollEvent):
-        """Zoom molette (mode normal) ou rotation (mode Shift activé)."""
-        if not self.image_paths:
-            return
-        scroll_delta = e.scroll_delta.y
+        """Affiche un SnackBar indiquant le mode de défilement actif."""
 
         if self._scroll_rotates:
-            # Mode rotation : rapide, pas de rendu PIL
-            step = scroll_delta / 800
-            new_rotation = max(-15.0, min(15.0, self.rotation + step))
-            if new_rotation == self.rotation:
-                return
-            self.rotation = new_rotation
-            self.rotation_slider.value = self.rotation
-            self.rotation_slider.label = f"{self.rotation:.2f}°"
-            self.rotation_slider.update()
-            self._clamp_offsets()
-            self._update_transform()
-            return
-
-        # Mode zoom
-        now = time.monotonic()
-        if now - self._last_zoom_render < 1 / 30:
-            zoom_multiplier = 1 - scroll_delta / 5000
-            self.scale = max(1.0, min(10.0, self.scale * zoom_multiplier))
-            return
-        self._last_zoom_render = now
-        zoom_multiplier = 1 - scroll_delta / 5000
-        previous_scale = self.scale
-        self.scale = max(1.0, min(10.0, self.scale * zoom_multiplier))
-        if previous_scale != self.scale:
-            scale_ratio = self.scale / previous_scale
-            self.offset_x *= scale_ratio
-            self.offset_y *= scale_ratio
-            self.zoom_slider.value = self.scale
-            self.zoom_slider.label = f"{self.scale:.2f}×"
-            self.zoom_slider.update()
-        self._clamp_offsets()
-        self._update_transform()
+            msg = "Molette → Rotation activée"
+        else:
+            msg = "Molette → Zoom activé"
+        self.page.show_dialog(ft.SnackBar(
+            ft.Text(msg, color=SNACKBAR_TEXT_COLOR),
+            bgcolor=SNACKBAR_BACKGROUND_COLOR,
+        ))
+        self.page.update()
 
 
 
@@ -1989,6 +2058,7 @@ class PhotoCropper:
             Événement Flet du slider ; `e.control.value` contient la
             valeur numérique courante en degrés.
         """
+
         self.rotation = e.control.value
         e.control.label = f"{self.rotation:.2f}°"
         e.control.update()
@@ -2003,6 +2073,7 @@ class PhotoCropper:
 
     def on_rotation_end(self, e):
         """Rafraîchit la prévisualisation et l'histogramme après la fin de la rotation."""
+
         self._render_preview()
         self.page.update()
 
@@ -2013,23 +2084,16 @@ class PhotoCropper:
         Gestionnaire du slider de zoom (pendant le glissement).
 
         Met à jour `self.scale`, corrige les offsets proportionnellement
-        et rafraîchit le label immédiatement. Le rendu affine est limité
-        à 60 fps via `_last_zoom_render` pour éviter de saturer la file
-        de messages Flet sur les machines lentes.
-
-        Parameters
-        ----------
-        e : ft.ControlEvent
-            Événement Flet du slider ; `e.control.value` contient le
-            facteur de zoom cible.
+        et applique la transformation via les propriétés LayoutControl.
         """
+
         target_scale = e.control.value
         previous_scale = self.scale
         self.scale = target_scale
-        if previous_scale != self.scale:
-            scale_ratio = self.scale / previous_scale
-            self.offset_x *= scale_ratio
-            self.offset_y *= scale_ratio
+        ratio = self.scale / previous_scale if previous_scale > 0 else 1.0
+        if previous_scale != self.scale and abs(ratio - 1.0) > 1e-6:
+            self.offset_x *= ratio
+            self.offset_y *= ratio
         e.control.label = f"{self.scale:.2f}×"
         e.control.update()
         now = time.monotonic()
@@ -2043,6 +2107,7 @@ class PhotoCropper:
 
     def on_zoom_end(self, e):
         """Rafraîchit la prévisualisation et l'histogramme après la fin du zoom."""
+
         self._clamp_offsets()
         self._render_preview()
         self.page.update()
@@ -2061,6 +2126,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement Flet du bouton « 0° » (non utilisé directement).
         """
+
         self.rotation = 0.0
         self.rotation_slider.value = self.rotation
         self.rotation_slider.label = f"{self.rotation:.2f}°"
@@ -2071,20 +2137,23 @@ class PhotoCropper:
 
 
     def reset_zoom(self, e):
-        """Remet le zoom à 1× par double-clic sur le slider."""
+        """Remet le zoom à 1× et réinitialise le pan (double-clic sur le slider)."""
+
         self.scale = 1.0
         self.offset_x = 0.0
         self.offset_y = 0.0
         self.zoom_slider.value = 1.0
         self.zoom_slider.label = "1.00×"
         self.zoom_slider.update()
-        self._clamp_offsets()
         self._update_transform()
+        self._render_preview()
+        self.page.update()
 
 
 
     def _reset_slider(self, slider, attr, default_val, label_str):
         """Remet un slider de réglage à sa valeur par défaut et redéclenche le rendu."""
+
         setattr(self, attr, default_val)
         slider.value = default_val
         slider.label = label_str
@@ -2099,6 +2168,7 @@ class PhotoCropper:
     # ================================================================ #
     def on_grid_toggle(self, e):
         """Active ou désactive la grille des tiers fixée au canevas."""
+
         self.show_grid = bool(e.control.value)
         for line in self._grid_lines:
             line.visible = self.show_grid
@@ -2117,6 +2187,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du Switch « Noir et blanc » ; `e.control.value` = bool.
         """
+
         self.is_bw = e.control.value
         self._render_preview()
         self.page.update()
@@ -2137,6 +2208,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du Switch « Fit-in » ; `e.control.value` = bool.
         """
+
         self.is_fit_in = bool(e.control.value)
         if self.is_fit_in:
             self.rotation = 0.0
@@ -2161,6 +2233,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du Switch « Netteté ».
         """
+
         self.is_sharpen = bool(e.control.value)
         self._render_preview()
         self.page.update()
@@ -2169,7 +2242,9 @@ class PhotoCropper:
 
     def on_rembg_model_toggle(self, e):
         """Bascule entre portrait et général."""
+
         self.rembg_human_seg = not self.rembg_human_seg
+
         # Invalider toutes les sessions pour forcer le rechargement
         self._rembg_session[0] = None
         self._rembg_session_u2net[0] = None
@@ -2185,6 +2260,7 @@ class PhotoCropper:
 
     def on_rembg_precise_toggle(self, e):
         """Bascule entre mode rapide (u2net) et mode précis (birefnet)."""
+
         self.rembg_precise = not self.rembg_precise
         if self.rembg_precise:
             self._rembg_precise_label.value = "Précis"
@@ -2198,12 +2274,14 @@ class PhotoCropper:
 
     def on_rembg_erosion_change(self, e):
         """Met à jour le % d'érosion pendant le drag (pas de rendu)."""
+
         self.rembg_erosion_pct = round(e.control.value, 1)
 
 
 
     def on_rembg_erosion_end(self, e):
         """Regénère la preview au relâchement du slider d'érosion."""
+
         self.rembg_erosion_pct = round(e.control.value, 1)
         self._render_preview()
         self.page.update()
@@ -2212,6 +2290,7 @@ class PhotoCropper:
 
     def on_rembg_bg_toggle(self, e):
         """Bascule fond blanc (GREY_200) ↔ fond flou (BLUE)."""
+
         self.rembg_bg_white = not self.rembg_bg_white
         if self.rembg_bg_white:
             self._rembg_bg_label.value = "Fond blanc"
@@ -2278,12 +2357,13 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du bouton icône (``on_click``).
         """
+
         if not REMBG_AVAILABLE:
-            self.status_text.value = "[ERREUR] rembg non installé — pip install rembg onnxruntime"
+            self.page.show_dialog(ft.SnackBar(ft.Text("[ERREUR] rembg non installé — pip install rembg onnxruntime", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
             self.page.update()
             return
         if self.current_pil_image is None:
-            self.status_text.value = "Aucune image chargée."
+            self.page.show_dialog(ft.SnackBar(ft.Text("[ERREUR] aucune image chargée", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
             self.page.update()
             return
 
@@ -2294,13 +2374,13 @@ class PhotoCropper:
             self.current_pil_image = self._rembg_original
             self._rembg_original = None
             self.rembg_btn.selected = False
-            self.status_text.value = "Fond restauré"
+            self.page.show_dialog(ft.SnackBar(ft.Text("Fond restauré", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
             self._render_preview()
             self.page.update()
             return
 
         self.rembg_btn.disabled = True
-        self.status_text.value = "Suppression du fond en cours…"
+        self.page.show_dialog(ft.SnackBar(ft.Text("Suppression du fond en cours…", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
         self.page.update()
 
 
@@ -2328,9 +2408,9 @@ class PhotoCropper:
             self._rembg_original = self.current_pil_image
             self.current_pil_image = result
             self.rembg_btn.selected = True
-            self.status_text.value = "[OK] Fond supprimé — recliquer pour restaurer"
+            self.page.show_dialog(ft.SnackBar(ft.Text("[OK] Fond supprimé — recliquer pour restaurer", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
         except Exception as ex:
-            self.status_text.value = f"[ERREUR] rembg : {ex}"
+            self.page.show_dialog(ft.SnackBar(ft.Text(f"[ERREUR] rembg : {ex}", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
         finally:
             self.rembg_btn.disabled = False
             self._render_preview()
@@ -2352,6 +2432,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du Switch « Sauver sur réseau ».
         """
+
         self.save_to_network = bool(e.control.value)
 
 
@@ -2369,6 +2450,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du Switch « 13x15 ».
         """
+
         self.border_13x15 = bool(e.control.value)
         if self.border_13x15:
             self.border_10x20 = False
@@ -2380,6 +2462,7 @@ class PhotoCropper:
     def on_border_toggle_10x20(self, e):
         """Active / désactive le cadre 10x20 pour une photo 10x15.
         Mutuellement exclusif avec 13x15."""
+
         self.border_10x20 = bool(e.control.value)
         if self.border_10x20:
             self.border_13x15 = False
@@ -2391,6 +2474,7 @@ class PhotoCropper:
 
     def on_border_toggle_13x20(self, e):
         """Active / désactive le cadre 13x20 pour une photo 13x18."""
+
         self.border_13x20 = bool(e.control.value)
 
 
@@ -2408,6 +2492,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du Switch « 20x24 ».
         """
+
         self.border_20x24 = bool(e.control.value)
 
 
@@ -2425,6 +2510,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du Switch « 13x10 ».
         """
+
         self.border_13x10 = bool(e.control.value)
         if self.border_13x10:
             self.border_polaroid = False
@@ -2446,6 +2532,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du Switch « Polaroid ».
         """
+
         self.border_polaroid = bool(e.control.value)
         if self.border_polaroid:
             self.border_13x10 = False
@@ -2467,6 +2554,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du Switch « ID X2 ».
         """
+
         self.border_id2 = bool(e.control.value)
         if self.border_id2:
             self.border_id4 = False
@@ -2488,6 +2576,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du Switch « ID X4 ».
         """
+
         self.border_id4 = bool(e.control.value)
         if self.border_id4:
             self.border_id2 = False
@@ -2510,6 +2599,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement Flet du slider.
         """
+
         self.shadows = e.control.value
         e.control.label = str(int(self.shadows))
         e.control.update()
@@ -2526,6 +2616,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement de fin de glissement (`on_change_end`).
         """
+
         self.shadows = e.control.value
         self._render_preview()
         self.page.update()
@@ -2544,6 +2635,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement Flet du slider.
         """
+
         self.highlights = e.control.value
         e.control.label = str(int(self.highlights))
         e.control.update()
@@ -2560,6 +2652,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement de fin de glissement (`on_change_end`).
         """
+
         self.highlights = e.control.value
         self._render_preview()
         self.page.update()
@@ -2575,6 +2668,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement Flet du slider.
         """
+
         self.contrast = e.control.value
         e.control.label = str(int(self.contrast))
         e.control.update()
@@ -2590,6 +2684,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement de fin de glissement.
         """
+
         self.contrast = e.control.value
         self._render_preview()
         self.page.update()
@@ -2605,6 +2700,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement Flet du slider.
         """
+
         self.saturation = e.control.value
         e.control.label = str(int(self.saturation))
         e.control.update()
@@ -2620,6 +2716,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement de fin de glissement.
         """
+
         self.saturation = e.control.value
         self._render_preview()
         self.page.update()
@@ -2635,6 +2732,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement Flet du slider.
         """
+
         self.exposure = e.control.value
         e.control.label = str(int(self.exposure))
         e.control.update()
@@ -2650,6 +2748,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement de fin de glissement.
         """
+
         self.exposure = e.control.value
         self._render_preview()
         self.page.update()
@@ -2700,6 +2799,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du bouton de réinitialisation (non utilisé directement).
         """
+
         self.shadows = 0.0
         self.shadows_slider.value = 0.0
         self.shadows_slider.label = "0"
@@ -2726,6 +2826,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du bouton « Réinit. réglages » (non utilisé directement).
         """
+
         self.contrast = 0.0
         self.contrast_slider.value = 0.0
         self.contrast_slider.label = "0"
@@ -2776,6 +2877,7 @@ class PhotoCropper:
         e : ft.ControlEvent or None
             Événement du RadioGroup ; `e.control.value` = clé du dict FORMATS.
         """
+
         self.current_format = FORMATS[e.control.value]
         try:
             self.current_format_label = e.control.value
@@ -2952,6 +3054,7 @@ class PhotoCropper:
         e : ft.ControlEvent or ft.KeyboardEvent
             Événement déclencheur (bouton ou clavier).
         """
+
         self.canvas_is_portrait = not self.canvas_is_portrait
         self.update_canvas_size()
         if self.image_paths:
@@ -2983,6 +3086,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du bouton « + ».
         """
+
         self.copies_count += 1
         self.copies_text.value = str(self.copies_count)
         self.page.update()
@@ -2998,6 +3102,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du bouton « − ».
         """
+
         if self.copies_count > 1:
             self.copies_count -= 1
         self.copies_text.value = str(self.copies_count)
@@ -3030,6 +3135,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du bouton « Ajouter le format courant ».
         """
+
         label = self.current_format_label
         dims = self.current_format
         is_portrait = self.canvas_is_portrait
@@ -3082,6 +3188,7 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du bouton « Vider la liste ».
         """
+
         self.extra_formats.clear()
         self._update_extra_formats_display()
         self.page.update()
@@ -3100,6 +3207,7 @@ class PhotoCropper:
         Met à jour `extra_formats_display.value` (affiché dans l'UI).
         Si la liste est vide, affiche « — ».
         """
+
         if self.extra_formats:
             parts = []
             for s in self.extra_formats:
@@ -3154,12 +3262,13 @@ class PhotoCropper:
         e : ft.ControlEvent or ft.KeyboardEvent
             Événement déclencheur (bouton « Valider & Suivant » ou clavier).
         """
+
         if not self.image_paths or self.current_index >= len(self.image_paths):
-            self.status_text.value = "Toutes les images ont été traitées."
+            self.page.show_dialog(ft.SnackBar(ft.Text("Toutes les images ont été traitées.", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
             self.page.update()
             return
 
-        self.status_text.value = "Enregistrement..."
+        self.page.show_dialog(ft.SnackBar(ft.Text("Enregistrement en cours...", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
         self.page.update()
 
         used_paths = set()
@@ -3185,6 +3294,7 @@ class PhotoCropper:
                 ``path`` s'il n'y a pas de conflit, sinon
                 ``<base>_2<ext>``, ``<base>_3<ext>``…
             """
+
             already_saved_paths = used_paths
             if path not in already_saved_paths:
                 already_saved_paths.add(path)
@@ -3487,7 +3597,7 @@ class PhotoCropper:
             snapshot_output_image.save(snapshot_saved_path, **jpeg_save_options)
             saved_file_path = snapshot_saved_path
 
-        self.status_text.value = f"[OK] {os.path.basename(saved_file_path)}"
+        self.page.show_dialog(ft.SnackBar(ft.Text(f"[OK] {os.path.basename(saved_file_path)} enregistré !", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
         self.page.update()
 
         if self.batch_mode:
@@ -3507,7 +3617,8 @@ class PhotoCropper:
                 self.copies_text.value = "1"
                 self.canvas_container.visible = False
                 self.validate_button.visible = False
-                self.status_text.value = "[OK] Toutes les images sont traitées !"
+                
+                self.page.show_dialog(ft.SnackBar(ft.Text("[OK] Toutes les images sont traitées !", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
                 self.page.update()
                 asyncio.create_task(self.close_window())
                 return
@@ -3535,8 +3646,9 @@ class PhotoCropper:
         e : ft.ControlEvent or ft.KeyboardEvent
             Événement déclencheur (bouton « Ignorer Image » ou espace clavier).
         """
+
         if not self.image_paths or self.current_index >= len(self.image_paths):
-            self.status_text.value = "Toutes les images ont été traitées."
+            self.page.show_dialog(ft.SnackBar(ft.Text("Toutes les images ont été traitées.", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
             self.page.update()
             asyncio.create_task(self.close_window())
             return
@@ -3544,12 +3656,12 @@ class PhotoCropper:
         self.current_index += 1
 
         if self.current_index >= len(self.image_paths):
-            self.status_text.value = "Toutes les images ont été traitées."
+            self.page.show_dialog(ft.SnackBar(ft.Text("Toutes les images ont été traitées.", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
             self.page.update()
             asyncio.create_task(self.close_window())
             return
 
-        self.status_text.value = "Image ignorée."
+        self.page.show_dialog(ft.SnackBar(ft.Text("Image ignorée.", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
         self.extra_formats.clear()
         self._update_extra_formats_display()
         self.copies_count = 1
@@ -3575,9 +3687,11 @@ class PhotoCropper:
         e : optional
             Événement déclencheur (non utilisé). Peut être None.
         """
+
         if getattr(self, '_closing', False):
             return
         self._closing = True
+
         # Nettoyer le dossier de cache de prévisualisation
         try:
             if os.path.isdir(self._preview_tmp_dir):
@@ -3631,8 +3745,6 @@ def main(page: ft.Page):
         Page Flet fournie par le runtime.
     """
 
-
-
     page.title = "Recadrage Photo"
     page.theme_mode = ft.ThemeMode.DARK
     page.window.maximized = True
@@ -3661,6 +3773,7 @@ def main(page: ft.Page):
             Événement clavier Flet exposant ``event.key`` (nom textuel
             de la touche, p. ex. ``"Enter"``, ``"Backspace"``, ``" "``).
         """
+
         if event.key == "Tab":
             app._scroll_rotates = not app._scroll_rotates
             app._update_shift_badge()
@@ -3906,14 +4019,6 @@ def main(page: ft.Page):
                 ft.VerticalDivider(width=1),
                 controls
             ], expand=True),
-            ft.Container(
-                content=app.status_text,
-                bgcolor=DARK,
-                padding=10,
-                border_radius=8,
-                right=20,
-                bottom=20,
-            ),
         ], expand=True)
     )
 
@@ -3932,6 +4037,7 @@ def main(page: ft.Page):
         e : ft.ControlEvent
             Événement de redimensionnement émis par Flet.
         """
+
         app.update_canvas_size()
         if app.image_paths:
             app._update_transform()
@@ -3960,6 +4066,7 @@ def main(page: ft.Page):
         Les exceptions sont silencieusement ignorées afin d'éviter un
         crash au démarrage si aucun fichier n'est sélectionné.
         """
+
         await asyncio.sleep(0.3)  # Attendre que la fenêtre soit maximisée
         try:
             app.batch_process_interactive(None)
