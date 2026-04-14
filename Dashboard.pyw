@@ -231,7 +231,6 @@ def main(page: ft.Page):
     preview_page = {"value": 0}  # Page courante (0-indexé)
     all_entries_data = {"list": [], "error": ""}  # Données brutes du dernier scan
     pending_file_selection = {"names": None}  # Noms à sélectionner après le prochain scan
-    ITEM_HEIGHT = 44             # hauteur approx. d'un ListTile dense avec thumbnail 40px
     preview_refresh_token = {"value": 0}   # incrémenté à chaque refresh pour annuler les anciens threads
 
 
