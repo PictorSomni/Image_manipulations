@@ -25,6 +25,8 @@ Dépendances :
 
 __version__ = "2.0.4"
 
+
+
 #############################################################
 #                          IMPORTS                          #
 #############################################################
@@ -45,6 +47,8 @@ try:
     from PIL import Image as _PILImage
 except ImportError:
     _PILImage = None
+
+
 
 #############################################################
 #                         CONSTANTS                         #
@@ -74,6 +78,8 @@ def _is_os_junk(entry):
         or (entry.name.startswith(".Trash-") and entry.is_dir())
     )
 
+
+
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -102,9 +108,11 @@ def main(page: ft.Page):
     et mettent à jour l'interface.
     ---
     """
-# ===================== COLORS ===================== #
+
+
+# ===================== COULEURS ===================== #
     DARK = "#222429"
-    BG = "#373d4a"
+    BACKGROUND = "#373d4a"
     GREY = "#2C3038"
     LIGHT_GREY = "#9399A6"
     BLUE = "#45B8F5"
@@ -116,37 +124,45 @@ def main(page: ft.Page):
     RED = "#F17171"
     WHITE = "#c7ccd8"
 
-# ===================== PROPERTIES ===================== #
+
+
+# ===================== PROPRIÉTÉS ===================== #
     page.title = "Dashboard - Image Manipulations"
     page.theme_mode = ft.ThemeMode.DARK
-    page.bgcolor = BG
+    page.bgcolor = BACKGROUND
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
     page.window.width = 1600
     page.window.height = 900
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
-    cwd = os.path.dirname(os.path.abspath(__file__))
+    app_directory = os.path.dirname(os.path.abspath(__file__))
     selected_files = set()  # Ensemble des fichiers sélectionnés
     clipboard = {"files": [], "cut": False}  # Presse-papiers pour copier/coller/couper des fichiers
 
+
+
     # ── Dossiers récents ──────────────────────────────────────────────
-    _recent_path = os.path.join(cwd, ".recent_folders.json")
+    recent_folders_file_path = os.path.join(app_directory, ".recent_folders.json")
 
     def _load_recent() -> list:
         try:
-            with open(_recent_path, "r", encoding="utf-8") as f:
+            with open(recent_folders_file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return [p for p in data if os.path.isdir(p)]
         except Exception:
             return []
 
+
+
     def _save_recent(folders: list) -> None:
         try:
-            with open(_recent_path, "w", encoding="utf-8") as f:
+            with open(recent_folders_file_path, "w", encoding="utf-8") as f:
                 json.dump(folders[:10], f, ensure_ascii=False, indent=2)
         except Exception:
             pass
+
+
 
     def _add_to_recent(path: str) -> None:
         path = os.path.normpath(path)
@@ -156,24 +172,33 @@ def main(page: ft.Page):
         recent.insert(0, path)
         _save_recent(recent[:10])
 
+
+
     # ── Dossiers favoris ──────────────────────────────────────────────
-    _favorites_path = os.path.join(cwd, ".favorites.json")
+    favorites_file_path = os.path.join(app_directory, ".favorites.json")
+
+
+
     # ── Programmes "Ouvrir avec" ──────────────────────────────────────
-    _open_with_config_path = os.path.join(cwd, "open_with.json")
+    open_with_config_file_path = os.path.join(app_directory, "open_with.json")
 
     def _load_favorites() -> list:
         try:
-            with open(_favorites_path, "r", encoding="utf-8") as f:
+            with open(favorites_file_path, "r", encoding="utf-8") as f:
                 return [p for p in json.load(f) if isinstance(p, str)]
         except Exception:
             return []
 
+
+
     def _save_favorites(folders: list) -> None:
         try:
-            with open(_favorites_path, "w", encoding="utf-8") as f:
+            with open(favorites_file_path, "w", encoding="utf-8") as f:
                 json.dump(folders, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
+
+
 
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
@@ -193,21 +218,25 @@ def main(page: ft.Page):
         "Augmentation IA.py": (False, GREEN),
         "Format 13x15.py": (False, WHITE),
     }
-    
+
+
+
     resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
     resize_watermark_size = {"value": "640"}  # Taille par défaut pour le redimensionnement avec watermark
     sort_mode = {"value": 0}  # 0 = A→Z, 1 = Z→A, 2 = par date de modification
     filter_type = {"value": "all"}  # "all", "images", "videos", "zip", "docs", "other"
-    _removable_drives = {"list": []}  # [(name, path), ...]
+    removable_drives_state = {"list": []}  # [(name, path), ...]
     lazy_images = []  # [(list_index, file_path, image_ctrl)] pour le chargement paresseux
     PAGE_SIZE = 100             # Nb d'éléments max par page dans la prévisualisation
     preview_page = {"value": 0}  # Page courante (0-indexé)
     all_entries_data = {"list": [], "error": ""}  # Données brutes du dernier scan
-    _pending_selection = {"names": None}  # Noms à sélectionner après le prochain scan
+    pending_file_selection = {"names": None}  # Noms à sélectionner après le prochain scan
     ITEM_HEIGHT = 44             # hauteur approx. d'un ListTile dense avec thumbnail 40px
-    _refresh_token = {"v": 0}   # incrémenté à chaque refresh pour annuler les anciens threads
+    preview_refresh_token = {"value": 0}   # incrémenté à chaque refresh pour annuler les anciens threads
 
-# ===================== UI ELEMENTS ===================== #
+
+
+# ===================== ÉLÉMENTS UI ===================== #
     folder_path = ft.TextField(
         label="Dossier sélectionné",
         hint_text="Cliquez sur Parcourir... ou collez un chemin",
@@ -235,13 +264,13 @@ def main(page: ft.Page):
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
     file_count_text = ft.Text("", size=14, color=WHITE, text_align=ft.TextAlign.RIGHT)
     selection_count_text = ft.Text("", size=14, color=BLUE, text_align=ft.TextAlign.RIGHT)
-    _select_toggle_btn = ft.IconButton(
+    select_toggle_button = ft.IconButton(
         icon=ft.Icons.SELECT_ALL,
         icon_color=VIOLET,
         icon_size=22,
         tooltip="Tout sélectionner",
     )
-    _invert_selection_btn = ft.IconButton(
+    invert_selection_button = ft.IconButton(
         icon=ft.Icons.PUBLISHED_WITH_CHANGES,
         icon_color=VIOLET,
         icon_size=22,
@@ -269,6 +298,8 @@ def main(page: ft.Page):
     page_indicator_text = ft.Text("", size=12, color=LIGHT_GREY)
     selected_files_prefix = "SELECTED_FILES:"
 
+
+
     # ── Champs de saisie Redimensionner ──────────────────────────────
     resize_input = ft.TextField(
         value="640",
@@ -290,8 +321,11 @@ def main(page: ft.Page):
         border_color=ORANGE,
         content_padding=ft.Padding(5, 5, 5, 5),
     )
+
+
+
     # ── Filtre de types de fichiers ──────────────────────────────────
-    _FILTER_KEYS   = ["all",  "images", "zip", "docs", "other"]
+    FILTER_KEYS   = ["all",  "images", "zip", "docs", "other"]
     filter_segment = ft.CupertinoSlidingSegmentedButton(
         selected_index=0,
         bgcolor=GREY,
@@ -301,9 +335,12 @@ def main(page: ft.Page):
         ],
         tooltip="Filtrer les fichiers par type",
     )
+
+
+
     # ── Section favoris ──────────────────────────────────────────────
-    _favorites_list_col = ft.ReorderableListView(expand=True, spacing=2, auto_scroll=False, padding=ft.Padding(12, 6, 12, 6), show_default_drag_handles=False)
-    _favorites_container = ft.Container(
+    favorites_list_view = ft.ReorderableListView(expand=True, spacing=2, auto_scroll=False, padding=ft.Padding(12, 6, 12, 6), show_default_drag_handles=False)
+    favorites_panel = ft.Container(
         content=ft.Column([
             ft.Row([
                 ft.Icon(ft.Icons.STAR, size=14, color=BLUE),
@@ -319,7 +356,7 @@ def main(page: ft.Page):
                     ink=True,
                 ),
             ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            _favorites_list_col,
+            favorites_list_view,
         ], spacing=4, expand=True),
         bgcolor=GREY,
         border=ft.Border.all(1, BLUE),
@@ -327,16 +364,19 @@ def main(page: ft.Page):
         padding=ft.Padding(12, 6, 12, 6),
         expand=True,
     )
+
+
+
     # ── Section périphériques amovibles ──────────────────────────────
-    _drives_column = ft.ReorderableListView(expand=True, spacing=4, auto_scroll=False, padding=ft.Padding(12, 6, 12, 6), show_default_drag_handles=False)
-    _drives_container = ft.Container(
+    drives_list_view = ft.ReorderableListView(expand=True, spacing=4, auto_scroll=False, padding=ft.Padding(12, 6, 12, 6), show_default_drag_handles=False)
+    drives_panel = ft.Container(
         content=ft.Column([
             ft.Row([
                 ft.Icon(ft.Icons.USB, size=14, color=VIOLET),
                 ft.Text("Périphériques détectés", size=14, color=VIOLET,
                         weight=ft.FontWeight.BOLD),
             ], spacing=6, tight=True),
-            _drives_column,
+            drives_list_view,
         ], spacing=4, expand=True),
         bgcolor=GREY,
         border=ft.Border.all(1, VIOLET),
@@ -346,7 +386,9 @@ def main(page: ft.Page):
         visible=False,
     )
 
-# ===================== METHODS ===================== #
+
+
+# ===================== MÉTHODES ===================== #
     # ================================================================ #
     #                    PUBSUB & ÉVÉNEMENTS                           #
     # ================================================================ #
@@ -361,19 +403,23 @@ def main(page: ft.Page):
                 terminal_output.controls.pop(0)
             page.update()
         except Exception:
-            # Ignore errors if page is closing or already destroyed
+            # Ignorer les erreurs si la page est en cours de fermeture ou déjà détruite
             pass
     
     # S'abonner au canal terminal
     page.pubsub.subscribe_topic("terminal", on_terminal_message)
-    
+
+
+
     def on_refresh_preview(topic, message):
         """Callback pour rafraîchir la preview depuis un thread"""
         refresh_preview(reset_page=False)
     
     # S'abonner au canal refresh
     page.pubsub.subscribe_topic("refresh", on_refresh_preview)
-    
+
+
+
     def on_navigate_request(topic, folder_path):
         """Callback pour naviguer vers un dossier depuis un thread"""
         if folder_path and os.path.isdir(folder_path):
@@ -382,12 +428,16 @@ def main(page: ft.Page):
     # S'abonner au canal navigate
     page.pubsub.subscribe_topic("navigate", on_navigate_request)
 
+
+
     def on_select_files_request(topic, selected_names_str):
         """Callback pour sélectionner des fichiers depuis la sortie d'un script"""
         apply_selected_files_by_name(selected_names_str)
 
     # S'abonner au canal select-files
     page.pubsub.subscribe_topic("select_files", on_select_files_request)
+
+
 
     def on_quit_request(topic, message):
         """Callback pour fermer la fenêtre depuis un thread de fond (thread-safe)"""
@@ -396,10 +446,12 @@ def main(page: ft.Page):
     # S'abonner au canal quit
     page.pubsub.subscribe_topic("quit", on_quit_request)
 
+
+
     def on_preview_ready(topic, payload):
         """Reçoit les données brutes du thread bg et déclenche le rendu de la page courante."""
         token, entries_data, new_file_count_text, error_text = payload
-        if _refresh_token["v"] != token:
+        if preview_refresh_token["value"] != token:
             return
         all_entries_data["list"] = entries_data
         all_entries_data["error"] = error_text
@@ -407,24 +459,30 @@ def main(page: ft.Page):
         # Appliquer la sélection en attente si un script l'a demandé
         # (ex: Fichiers manquants). On le fait ICI avec les données fraîches
         # pour éviter tout race condition entre threads.
-        if _pending_selection["names"] is not None:
-            names_to_apply = _pending_selection["names"]
-            _pending_selection["names"] = None
+        if pending_file_selection["names"] is not None:
+            names_to_apply = pending_file_selection["names"]
+            pending_file_selection["names"] = None
             apply_selected_files_by_name(names_to_apply)
         else:
-            _render_current_page()
+            _render_preview_page()
 
     # S'abonner au canal preview_ready
     page.pubsub.subscribe_topic("preview_ready", on_preview_ready)
+
+
 
     def request_quit():
         """Ferme la fenêtre principale de façon thread-safe via pubsub"""
         page.pubsub.send_all_on_topic("quit", None)
 
+
+
     def request_refresh():
         """Demande un rafraîchissement de la preview (thread-safe)"""
         page.pubsub.send_all_on_topic("refresh", None)
-    
+
+
+
     def on_keyboard_event(e: ft.KeyboardEvent):
         """Gestionnaire des événements clavier pour les raccourcis"""
         # Détection de Ctrl (Windows/Linux) ou Cmd (macOS)
@@ -443,6 +501,8 @@ def main(page: ft.Page):
     # Activer la gestion des événements clavier
     page.on_keyboard_event = on_keyboard_event
 
+
+
     # ================================================================ #
     #                          TERMINAL                                #
     # ================================================================ #
@@ -453,12 +513,16 @@ def main(page: ft.Page):
         clean_message = ansi_escape.sub('', message).strip()
         if clean_message:  # N'afficher que si le message n'est pas vide après nettoyage
             page.pubsub.send_all_on_topic("terminal", (clean_message, color))
-    
+
+
+
     def clear_terminal(e):
         """Efface le contenu du terminal"""
         terminal_output.controls.clear()
         page.update()
-    
+
+
+
     def copy_terminal_to_clipboard():
         """Copie tout le contenu du terminal dans le presse-papiers"""
         if not terminal_output.controls:
@@ -482,6 +546,8 @@ def main(page: ft.Page):
         except Exception as e:
             log_to_terminal(f"[ERREUR] Copie presse-papiers: {e}", RED)
 
+
+
     # ================================================================ #
     #                   NAVIGATION & FICHIERS                          #
     # ================================================================ #
@@ -497,13 +563,17 @@ def main(page: ft.Page):
             folder_path.value = selected_folder.get("path", "") or ""
             folder_path.update()
 
+
+
     def on_folder_path_blur(e):
         """Restaure le chemin courant si le champ est laissé invalide."""
         folder_path.error_text = None
         folder_path.value = selected_folder.get("path", "") or ""
         folder_path.update()
 
-    def _refresh_recent_btn():
+
+
+    def _rebuild_recent_folders_menu():
         """Reconstruit les items du bouton dossiers récents."""
         recent = _load_recent()
         if not recent:
@@ -526,6 +596,8 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+
+
     def open_in_file_explorer(folder_path):
         """Ouvre le dossier dans l'explorateur de fichiers natif"""
         if not folder_path or not os.path.isdir(folder_path):
@@ -542,7 +614,9 @@ def main(page: ft.Page):
             log_to_terminal(f"[OK] Ouverture du dossier: {os.path.basename(folder_path)}", GREEN)
         except Exception as e:
             log_to_terminal(f"[ERREUR] Erreur lors de l'ouverture de l'explorateur: {e}", RED)
-    
+
+
+
     def open_file_with_default_app(file_path):
         """Ouvre un fichier avec l'application par défaut du système en premier plan"""
         if not file_path or not os.path.isfile(file_path):
@@ -559,15 +633,19 @@ def main(page: ft.Page):
         except Exception as e:
             log_to_terminal(f"[ERREUR] Erreur lors de l'ouverture du fichier: {e}", RED)
 
+
+
     # ── Ouvrir avec (menu clic-droit) ─────────────────────────────────
     def _load_open_with_programs() -> list:
         """Charge la liste des programmes depuis open_with.json."""
         try:
-            with open(_open_with_config_path, "r", encoding="utf-8") as f:
+            with open(open_with_config_file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             return [p for p in data if isinstance(p, dict) and "label" in p and "exe" in p]
         except Exception:
             return []
+
+
 
     def _open_files_with(prog: dict, files: list):
         """Ouvre une liste de fichiers avec le programme spécifié."""
@@ -585,15 +663,19 @@ def main(page: ft.Page):
         except Exception as err:
             log_to_terminal(f"[ERREUR] {prog['label']}: {err}", RED)
 
+
+
     def _save_open_with_programs(programs: list):
         """Sauvegarde la liste des programmes dans open_with.json."""
         try:
-            with open(_open_with_config_path, "w", encoding="utf-8") as f:
+            with open(open_with_config_file_path, "w", encoding="utf-8") as f:
                 json.dump(programs, f, ensure_ascii=False, indent=2)
         except Exception as err:
             log_to_terminal(f"[ERREUR] Sauvegarde open_with.json : {err}", RED)
 
-    def _show_ctx_menu(files: list):
+
+
+    def _show_open_with_menu(files: list):
         """Affiche le dialog 'Ouvrir avec' pour les fichiers sélectionnés."""
 
         header_label = (
@@ -622,8 +704,8 @@ def main(page: ft.Page):
             visible=False,
         )
 
-        items_rlv = ft.ReorderableListView(padding=0, show_default_drag_handles=False)
-        dlg = ft.AlertDialog(
+        programs_list_view = ft.ReorderableListView(padding=0, show_default_drag_handles=False)
+        open_with_dialog = ft.AlertDialog(
             title=ft.Row([
                 ft.Text(header_label, size=13, color=LIGHT_GREY,
                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
@@ -637,16 +719,16 @@ def main(page: ft.Page):
                 ),
             ], spacing=8, tight=True,
                vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            content=ft.Column([items_rlv, add_form],
+            content=ft.Column([programs_list_view, add_form],
                               spacing=0, tight=True, width=340),
             actions_alignment=ft.MainAxisAlignment.END,
         )
 
         def _rebuild_items():
             programs = _load_open_with_programs()
-            items_rlv.controls.clear()
+            programs_list_view.controls.clear()
             if not programs:
-                items_rlv.controls.append(ft.Container(
+                programs_list_view.controls.append(ft.Container(
                     key="empty",
                     content=ft.Text(
                         "Aucun programme configuré — cliquez + pour en ajouter.",
@@ -656,21 +738,21 @@ def main(page: ft.Page):
                 ))
             else:
                 for i, prog in enumerate(programs):
-                    def _make_open(p):
-                        def _h(e):
-                            dlg.open = False
+                    def _create_open_handler(p):
+                        def _open_with_clicked(e):
+                            open_with_dialog.open = False
                             page.update()
                             _open_files_with(p, files)
-                        return _h
-                    def _make_delete(p):
-                        def _h(e):
-                            progs = _load_open_with_programs()
-                            progs = [x for x in progs if x != p]
-                            _save_open_with_programs(progs)
+                        return _open_with_clicked
+                    def _create_delete_handler(p):
+                        def _delete_program_clicked(e):
+                            programs = _load_open_with_programs()
+                            programs = [x for x in programs if x != p]
+                            _save_open_with_programs(programs)
                             _rebuild_items()
-                            items_rlv.update()
-                        return _h
-                    items_rlv.controls.append(ft.ListTile(
+                            programs_list_view.update()
+                        return _delete_program_clicked
+                    programs_list_view.controls.append(ft.ListTile(
                         key=str(i),
                         leading=ft.ReorderableDragHandle(
                             content=ft.Icon(ft.Icons.DRAG_HANDLE,
@@ -680,26 +762,26 @@ def main(page: ft.Page):
                         trailing=ft.IconButton(
                             icon=ft.Icons.DELETE_OUTLINE, icon_size=16,
                             icon_color=RED, tooltip="Supprimer",
-                            on_click=_make_delete(prog),
+                            on_click=_create_delete_handler(prog),
                             style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                         ),
-                        on_click=_make_open(prog),
+                        on_click=_create_open_handler(prog),
                         hover_color=GREY, dense=True,
                         content_padding=ft.Padding(0, 0, 0, 0),
                     ))
 
         def _on_reorder(e: ft.OnReorderEvent):
-            items_rlv.controls.insert(e.new_index, items_rlv.controls.pop(e.old_index))
-            progs = _load_open_with_programs()
-            progs.insert(e.new_index, progs.pop(e.old_index))
-            _save_open_with_programs(progs)
-            items_rlv.update()
+            programs_list_view.controls.insert(e.new_index, programs_list_view.controls.pop(e.old_index))
+            programs = _load_open_with_programs()
+            programs.insert(e.new_index, programs.pop(e.old_index))
+            _save_open_with_programs(programs)
+            programs_list_view.update()
 
-        items_rlv.on_reorder = _on_reorder
+        programs_list_view.on_reorder = _on_reorder
 
         def _toggle_add_form():
             add_form.visible = not add_form.visible
-            btn_ajouter.visible = add_form.visible
+            add_program_button.visible = add_form.visible
             if add_form.visible:
                 add_label_field.value = ""
                 add_exe_field.value = ""
@@ -715,28 +797,30 @@ def main(page: ft.Page):
                 return
             add_label_field.error_text = None
             add_exe_field.error_text   = None
-            progs = _load_open_with_programs()
-            progs.append({"label": label, "exe": exe})
-            _save_open_with_programs(progs)
+            programs = _load_open_with_programs()
+            programs.append({"label": label, "exe": exe})
+            _save_open_with_programs(programs)
             add_form.visible = False
-            btn_ajouter.visible = False
+            add_program_button.visible = False
             _rebuild_items()
             page.update()
 
         def _close(e):
-            dlg.open = False
+            open_with_dialog.open = False
             page.update()
 
-        btn_ajouter = ft.TextButton("Ajouter", on_click=_confirm_add, visible=False)
-        dlg.actions = [
-            btn_ajouter,
+        add_program_button = ft.TextButton("Ajouter", on_click=_confirm_add, visible=False)
+        open_with_dialog.actions = [
+            add_program_button,
             ft.TextButton("Fermer",  on_click=_close),
         ]
 
         _rebuild_items()
-        page.overlay.append(dlg)
-        dlg.open = True
+        page.overlay.append(open_with_dialog)
+        open_with_dialog.open = True
         page.update()
+
+
 
     def navigate_to_folder(new_path):
         """Navigue vers un dossier dans la preview"""
@@ -749,9 +833,11 @@ def main(page: ft.Page):
         selection_count_text.value = ""
         preview_page["value"] = 0
         _add_to_recent(new_path)
-        _refresh_recent_btn()
+        _rebuild_recent_folders_menu()
         refresh_preview()
-    
+
+
+
     def go_to_parent_folder(e):
         """Remonte au dossier parent"""
         if current_browse_folder["path"]:
@@ -759,6 +845,8 @@ def main(page: ft.Page):
             if parent and parent != current_browse_folder["path"]:
                 navigate_to_folder(parent)
     
+
+
     def extract_zip(file_path):
         """Décompresse un .zip avec détection de dossier racine unique"""
         dest_dir = os.path.dirname(file_path)
@@ -781,6 +869,8 @@ def main(page: ft.Page):
         except Exception as err:
             log_to_terminal(f"[ERREUR] Décompression: {err}", RED)
 
+
+
     def open_image_viewer(start_path):
         """Affiche un lecteur d'image plein écran avec navigation prev/next, zoom et déplacement (InteractiveViewer)."""
         entries = all_entries_data["list"]
@@ -788,26 +878,30 @@ def main(page: ft.Page):
         if not image_paths:
             image_paths = [start_path]
         try:
-            current_idx = {"v": image_paths.index(start_path)}
+            current_image_index = {"value": image_paths.index(start_path)}
         except ValueError:
-            current_idx = {"v": 0}
+            current_image_index = {"value": 0}
             image_paths = [start_path]
 
-        prev_kb = page.on_keyboard_event
+        previous_keyboard_handler = page.on_keyboard_event
+
+
 
         # ── Helpers ──────────────────────────────────────────────────────
         def _get_resolution(path):
             if _PILImage:
                 try:
-                    with _PILImage.open(path) as _im:
-                        return f"{_im.width} × {_im.height}"
+                    with _PILImage.open(path) as opened_image:
+                        return f"{opened_image.width} × {opened_image.height}"
                 except Exception:
                     pass
             return ""
 
+
+
         # ── Contrôles texte ───────────────────────────────────────────────
         filename_text = ft.Text(
-            os.path.basename(image_paths[current_idx["v"]]),
+            os.path.basename(image_paths[current_image_index["value"]]),
             size=13,
             color=ft.Colors.WHITE,
             weight=ft.FontWeight.W_500,
@@ -815,35 +909,37 @@ def main(page: ft.Page):
             overflow=ft.TextOverflow.ELLIPSIS,
         )
         counter_text = ft.Text(
-            f"{current_idx['v'] + 1} / {len(image_paths)}",
+            f"{current_image_index['value'] + 1} / {len(image_paths)}",
             size=12,
             color=ft.Colors.WHITE70,
         )
         resolution_text = ft.Text(
-            _get_resolution(image_paths[current_idx["v"]]),
+            _get_resolution(image_paths[current_image_index["value"]]),
             size=12,
             color=ft.Colors.WHITE54,
         )
         viewer_checkbox = ft.Checkbox(
-            value=image_paths[current_idx["v"]] in selected_files,
-            on_change=lambda e: on_checkbox_change(e, image_paths[current_idx["v"]]),
+            value=image_paths[current_image_index["value"]] in selected_files,
+            on_change=lambda e: on_checkbox_change(e, image_paths[current_image_index["value"]]),
         )
+
+
 
         # ── InteractiveViewer ─────────────────────────────────────────────
         # On recrée l'InteractiveViewer à chaque changement d'image pour
         # remettre le zoom et le pan à zéro.
-        _iv_key = {"n": 0}
+        viewer_key_counter = {"count": 0}
 
-        def _make_iv(path):
-            _iv_key["n"] += 1
-            vw = page.window.width or 1280
-            vh = page.window.height or 800
+        def _create_interactive_viewer(path):
+            viewer_key_counter["count"] += 1
+            window_width = page.window.width or 1280
+            window_height = page.window.height or 800
             return ft.InteractiveViewer(
-                key=str(_iv_key["n"]),
+                key=str(viewer_key_counter["count"]),
                 content=ft.Image(
                     src=path,
-                    width=vw,
-                    height=vh,
+                    width=window_width,
+                    height=window_height,
                     fit=ft.BoxFit.CONTAIN,
                     error_content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=ft.Colors.WHITE54),
                 ),
@@ -851,38 +947,40 @@ def main(page: ft.Page):
                 max_scale=10.0,
                 pan_enabled=True,
                 scale_enabled=True,
-                width=vw,
-                height=vh,
+                width=window_width,
+                height=window_height,
                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
             )
 
-        iv_container = ft.Container(
-            content=_make_iv(image_paths[current_idx["v"]]),
+        viewer_container = ft.Container(
+            content=_create_interactive_viewer(image_paths[current_image_index["value"]]),
             expand=True,
             alignment=ft.Alignment(0, 0),
         )
 
+
+
         # ── Navigation image ──────────────────────────────────────────────
         def _load_image(path):
-            iv_container.content   = _make_iv(path)
+            viewer_container.content   = _create_interactive_viewer(path)
             filename_text.value    = os.path.basename(path)
-            counter_text.value     = f"{current_idx['v'] + 1} / {len(image_paths)}"
+            counter_text.value     = f"{current_image_index['value'] + 1} / {len(image_paths)}"
             resolution_text.value  = _get_resolution(path)
             viewer_checkbox.value  = path in selected_files
             page.update()
 
         def go_prev(e):
             if len(image_paths) > 1:
-                current_idx["v"] = (current_idx["v"] - 1) % len(image_paths)
-                _load_image(image_paths[current_idx["v"]])
+                current_image_index["value"] = (current_image_index["value"] - 1) % len(image_paths)
+                _load_image(image_paths[current_image_index["value"]])
 
         def go_next(e):
             if len(image_paths) > 1:
-                current_idx["v"] = (current_idx["v"] + 1) % len(image_paths)
-                _load_image(image_paths[current_idx["v"]])
+                current_image_index["value"] = (current_image_index["value"] + 1) % len(image_paths)
+                _load_image(image_paths[current_image_index["value"]])
 
         def close_viewer(e):
-            page.on_keyboard_event = prev_kb
+            page.on_keyboard_event = previous_keyboard_handler
             page.theme = ft.Theme(
                 page_transitions=ft.PageTransitionsTheme(
                     macos=ft.PageTransitionTheme.NONE,
@@ -896,16 +994,16 @@ def main(page: ft.Page):
             page.update()
 
         def delete_current_image(e):
-            path = image_paths[current_idx["v"]]
+            path = image_paths[current_image_index["value"]]
             fname = os.path.basename(path)
 
             def _confirm(e2):
                 page.on_keyboard_event = on_key
-                dlg.open = False
+                delete_confirmation_dialog.open = False
                 page.update()
                 try:
                     os.remove(path)
-                    image_paths.pop(current_idx["v"])
+                    image_paths.pop(current_image_index["value"])
                     log_to_terminal(f"[OK] Supprimé: {fname}", GREEN)
                 except Exception as err:
                     log_to_terminal(f"[ERREUR] {err}", RED)
@@ -913,12 +1011,12 @@ def main(page: ft.Page):
                 if not image_paths:
                     close_viewer(None)
                     return
-                current_idx["v"] = min(current_idx["v"], len(image_paths) - 1)
-                _load_image(image_paths[current_idx["v"]])
+                current_image_index["value"] = min(current_image_index["value"], len(image_paths) - 1)
+                _load_image(image_paths[current_image_index["value"]])
 
             def _cancel(e2):
                 page.on_keyboard_event = on_key
-                dlg.open = False
+                delete_confirmation_dialog.open = False
                 page.update()
 
             def _on_key_dialog(e2: ft.KeyboardEvent):
@@ -927,7 +1025,7 @@ def main(page: ft.Page):
                 elif e2.key == "Enter":
                     _confirm(None)
 
-            dlg = ft.AlertDialog(
+            delete_confirmation_dialog = ft.AlertDialog(
                 title=ft.Text("Supprimer l'image ?"),
                 content=ft.Text(f"'{fname}' sera définitivement supprimé."),
                 actions=[
@@ -935,8 +1033,8 @@ def main(page: ft.Page):
                     ft.TextButton("Supprimer", on_click=_confirm, style=ft.ButtonStyle(color=ft.Colors.RED)),
                 ],
             )
-            page.overlay.append(dlg)
-            dlg.open = True
+            page.overlay.append(delete_confirmation_dialog)
+            delete_confirmation_dialog.open = True
             page.on_keyboard_event = _on_key_dialog
             page.update()
 
@@ -960,11 +1058,11 @@ def main(page: ft.Page):
             )
         )
 
-        btn_style = ft.ButtonStyle(
+        button_style = ft.ButtonStyle(
             overlay_color=ft.Colors.with_opacity(0.15, ft.Colors.WHITE),
         )
 
-        bar_bg = ft.Colors.with_opacity(0.72, GREY)
+        overlay_bar_color = ft.Colors.with_opacity(0.72, GREY)
 
         top_bar = ft.Row(
             [
@@ -981,7 +1079,7 @@ def main(page: ft.Page):
                         horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                         spacing=2,
                     ),
-                    bgcolor=bar_bg,
+                    bgcolor=overlay_bar_color,
                     padding=ft.Padding.symmetric(horizontal=24, vertical=10),
                     border_radius=16,
                     width=320,
@@ -991,6 +1089,8 @@ def main(page: ft.Page):
             spacing=8,
         )
 
+
+
         # Bouton fermer — coin supérieur droit
         close_btn_top = ft.Container(
             content=ft.IconButton(
@@ -999,13 +1099,13 @@ def main(page: ft.Page):
                 icon_size=24,
                 tooltip="Fermer (Échap)",
                 on_click=close_viewer,
-                style=btn_style,
+                style=button_style,
             ),
-            bgcolor=bar_bg,
+            bgcolor=overlay_bar_color,
             border_radius=20,
         )
 
-        nav_bar = ft.Container(
+        navigation_bar = ft.Container(
             content=ft.Row(
                 [
                     ft.IconButton(
@@ -1014,7 +1114,7 @@ def main(page: ft.Page):
                         icon_size=26,
                         tooltip="Image précédente",
                         on_click=go_prev,
-                        style=btn_style,
+                        style=button_style,
                     ),
                     ft.Container(
                         content=viewer_checkbox,
@@ -1026,7 +1126,7 @@ def main(page: ft.Page):
                         icon_size=22,
                         tooltip="Supprimer l'image (Suppr / ⌫)",
                         on_click=delete_current_image,
-                        style=btn_style,
+                        style=button_style,
                     ),
                     ft.IconButton(
                         icon=ft.Icons.ARROW_FORWARD_IOS_ROUNDED,
@@ -1034,20 +1134,20 @@ def main(page: ft.Page):
                         icon_size=26,
                         tooltip="Image suivante",
                         on_click=go_next,
-                        style=btn_style,
+                        style=button_style,
                     ),
                 ],
                 alignment=ft.MainAxisAlignment.CENTER,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 tight=True,
             ),
-            bgcolor=bar_bg,
+            bgcolor=overlay_bar_color,
             padding=ft.Padding.symmetric(horizontal=8, vertical=6),
             border_radius=16,
         )
 
-        nav_bar_row = ft.Row(
-            [nav_bar],
+        navigation_bar_row = ft.Row(
+            [navigation_bar],
             alignment=ft.MainAxisAlignment.CENTER,
         )
 
@@ -1058,7 +1158,7 @@ def main(page: ft.Page):
             controls=[
                 ft.Stack(
                     [
-                        iv_container,
+                        viewer_container,
                         # Barre supérieure — centrée
                         ft.Container(
                             content=top_bar,
@@ -1075,7 +1175,7 @@ def main(page: ft.Page):
                         ),
                         # Barre de navigation inférieure
                         ft.Container(
-                            content=nav_bar_row,
+                            content=navigation_bar_row,
                             bottom=16,
                             left=0,
                             right=0,
@@ -1090,6 +1190,7 @@ def main(page: ft.Page):
         page.update()
 
 
+
     def on_file_click(file_path, is_dir):
         """Gère le clic sur un fichier ou dossier dans la preview"""
         if is_dir:
@@ -1101,6 +1202,8 @@ def main(page: ft.Page):
             open_image_viewer(file_path)
         else:
             open_file_with_default_app(file_path)
+
+
 
     # ================================================================ #
     #                  OPÉRATIONS SUR FICHIERS                         #
@@ -1154,6 +1257,8 @@ def main(page: ft.Page):
         rename_dialog.open = True
         page.update()
 
+
+
     def delete_item(file_path):
         """Supprime un fichier ou dossier avec confirmation"""
         def confirm_delete(e):
@@ -1196,7 +1301,9 @@ def main(page: ft.Page):
         page.overlay.append(dialog)
         dialog.open = True
         page.update()
-        
+
+
+
     def create_new_folder(e):
         """Crée un nouveau dossier dans le dossier actuel"""
         target_folder = current_browse_folder["path"] or selected_folder["path"]
@@ -1255,7 +1362,9 @@ def main(page: ft.Page):
         page.overlay.append(dialog)
         dialog.open = True
         page.update()
-    
+
+
+
     def copy_selected_files(e):
         """Copie les fichiers sélectionnés dans le presse-papiers"""
         if not selected_files:
@@ -1266,6 +1375,8 @@ def main(page: ft.Page):
         count = len(clipboard["files"])
         log_to_terminal(f"[OK] {count} élément(s) copié(s)", BLUE)
 
+
+
     def cut_selected_files(e):
         """Coupe les fichiers sélectionnés (déplacement à la destination)"""
         if not selected_files:
@@ -1275,6 +1386,8 @@ def main(page: ft.Page):
         clipboard["cut"] = True
         count = len(clipboard["files"])
         log_to_terminal(f"[OK] {count} élément(s) coupé(s) — collé avec Ctrl+V", ORANGE)
+
+
 
     def select_by_filter(e):
         """Sélectionne tous les fichiers correspondant au filtre actif dans la page courante."""
@@ -1287,8 +1400,8 @@ def main(page: ft.Page):
                 selected_files.add(fpath)
                 added += 1
         selection_count_text.value = _selection_label()
-        _render_current_page()
-        _sync_toggle_btn()
+        _render_preview_page()
+        _update_select_toggle_button()
         if added:
             filt = filter_type["value"]
             label = filt if filt != "all" else "tous types"
@@ -1296,20 +1409,24 @@ def main(page: ft.Page):
         else:
             log_to_terminal("[ATTENTION] Aucun fichier à sélectionner avec ce filtre", ORANGE)
 
-    def _sync_toggle_btn():
+
+
+    def _update_select_toggle_button():
         """Met à jour l'apparence du bouton sélectionner/désélectionner."""
         if selected_files:
-            _select_toggle_btn.icon = ft.Icons.DESELECT
-            _select_toggle_btn.icon_color = ORANGE
-            _select_toggle_btn.tooltip = "Désélectionner tout"
+            select_toggle_button.icon = ft.Icons.DESELECT
+            select_toggle_button.icon_color = ORANGE
+            select_toggle_button.tooltip = "Désélectionner tout"
         else:
-            _select_toggle_btn.icon = ft.Icons.SELECT_ALL
-            _select_toggle_btn.icon_color = VIOLET
-            _select_toggle_btn.tooltip = "Tout sélectionner"
+            select_toggle_button.icon = ft.Icons.SELECT_ALL
+            select_toggle_button.icon_color = VIOLET
+            select_toggle_button.tooltip = "Tout sélectionner"
         try:
-            _select_toggle_btn.update()
+            select_toggle_button.update()
         except Exception:
             pass
+
+
 
     def toggle_select_all(e):
         """Sélectionne tout si rien sélectionné, sinon désélectionne tout."""
@@ -1317,6 +1434,8 @@ def main(page: ft.Page):
             clear_selection(e)
         else:
             select_by_filter(e)
+
+
 
     def invert_selection(e):
         """Inverse la sélection : sélectionne les non-sélectionnés, désélectionne les sélectionnés."""
@@ -1331,9 +1450,11 @@ def main(page: ft.Page):
             else:
                 selected_files.add(fpath)
         selection_count_text.value = _selection_label()
-        _render_current_page()
-        _sync_toggle_btn()
+        _render_preview_page()
+        _update_select_toggle_button()
         log_to_terminal(f"[OK] Sélection inversée — {len(selected_files)} fichier(s) sélectionné(s)", BLUE)
+
+
 
     def paste_files(e):
         """Colle les fichiers du presse-papiers dans le dossier actuel"""
@@ -1355,7 +1476,9 @@ def main(page: ft.Page):
                 continue
             
             dest_path = os.path.join(target_folder, os.path.basename(source_path))
-            
+
+
+
             # Si le fichier existe déjà, ajouter un suffixe
             if os.path.exists(dest_path):
                 base_name = os.path.basename(source_path)
@@ -1372,6 +1495,9 @@ def main(page: ft.Page):
                 else:
                     shutil.copy2(source_path, dest_path)
                 copied_count += 1
+
+
+
                 # Si mode couper : supprimer la source après copie réussie
                 if clipboard["cut"]:
                     try:
@@ -1399,11 +1525,13 @@ def main(page: ft.Page):
         
         refresh_preview()
 
-    def _open_numpad(file_path):
+
+
+    def _show_print_count_numpad(file_path):
         """Affiche un pavé numérique en sur-impression pour définir le nombre d'impressions."""
         basename = os.path.basename(file_path)
-        m = re.match(r'^(\d+)X_', basename)
-        numpad_value = {"text": m.group(1) if m else ""}
+        print_prefix_match = re.match(r'^(\d+)X_', basename)
+        numpad_value = {"text": print_prefix_match.group(1) if print_prefix_match else ""}
 
         display = ft.Text(
             numpad_value["text"] or "—",
@@ -1429,22 +1557,24 @@ def main(page: ft.Page):
             if not val or not val.isdigit() or int(val) < 1:
                 log_to_terminal("[ERREUR] Nombre invalide", RED)
                 return
-            n = int(val)
+            print_copies_count = int(val)
             numpad_dialog.open = False
             page.update()
             folder = os.path.dirname(file_path)
 
+
+
             # Vérifier si le dossier ne contient aucun préfixe NX_ AVANT ce renommage
             # (on exclut le fichier courant lui-même)
-            _print_prefix_re = re.compile(r'^\d+X_')
+            print_prefix_pattern = re.compile(r'^\d+X_')
             others_have_prefix = any(
-                _print_prefix_re.match(f)
+                print_prefix_pattern.match(f)
                 for f in os.listdir(folder)
                 if f != basename and os.path.isfile(os.path.join(folder, f))
             )
 
             clean = re.sub(r'^\d+X_', '', basename)
-            new_name = f"{n}X_{clean}"
+            new_name = f"{print_copies_count}X_{clean}"
             new_path = os.path.join(folder, new_name)
             if new_path != file_path:
                 try:
@@ -1456,6 +1586,8 @@ def main(page: ft.Page):
                 except Exception as err:
                     log_to_terminal(f"[ERREUR] {err}", RED)
 
+
+
             # Si aucun autre fichier n'avait de préfixe, on ajoute "1X_" aux autres
             if not others_have_prefix:
                 renamed_count = 0
@@ -1465,7 +1597,7 @@ def main(page: ft.Page):
                         continue
                     if fname == new_name:
                         continue
-                    if _print_prefix_re.match(fname):
+                    if print_prefix_pattern.match(fname):
                         continue
                     new_fname = f"1X_{fname}"
                     new_fpath = os.path.join(folder, new_fname)
@@ -1486,7 +1618,7 @@ def main(page: ft.Page):
             numpad_dialog.open = False
             page.update()
 
-        def _btn(label, on_click, color=GREY, text_color=WHITE):
+        def _make_numpad_button(label, on_click, color=GREY, text_color=WHITE):
             return ft.Container(
                 content=ft.Text(str(label), size=18, weight=ft.FontWeight.BOLD,
                                 color=text_color, text_align=ft.TextAlign.CENTER),
@@ -1504,10 +1636,10 @@ def main(page: ft.Page):
                 alignment=ft.Alignment(0, 0),
                 width=210,
             ),
-            ft.Row([_btn(7, lambda e: _press(7)), _btn(8, lambda e: _press(8)), _btn(9, lambda e: _press(9))], spacing=6, tight=True),
-            ft.Row([_btn(4, lambda e: _press(4)), _btn(5, lambda e: _press(5)), _btn(6, lambda e: _press(6))], spacing=6, tight=True),
-            ft.Row([_btn(1, lambda e: _press(1)), _btn(2, lambda e: _press(2)), _btn(3, lambda e: _press(3))], spacing=6, tight=True),
-            ft.Row([_btn("⌫", _backspace, GREY, ORANGE), _btn(0, lambda e: _press(0)), _btn("✓", _confirm, GREEN, DARK)], spacing=6, tight=True),
+            ft.Row([_make_numpad_button(7, lambda e: _press(7)), _make_numpad_button(8, lambda e: _press(8)), _make_numpad_button(9, lambda e: _press(9))], spacing=6, tight=True),
+            ft.Row([_make_numpad_button(4, lambda e: _press(4)), _make_numpad_button(5, lambda e: _press(5)), _make_numpad_button(6, lambda e: _press(6))], spacing=6, tight=True),
+            ft.Row([_make_numpad_button(1, lambda e: _press(1)), _make_numpad_button(2, lambda e: _press(2)), _make_numpad_button(3, lambda e: _press(3))], spacing=6, tight=True),
+            ft.Row([_make_numpad_button("⌫", _backspace, GREY, ORANGE), _make_numpad_button(0, lambda e: _press(0)), _make_numpad_button("✓", _confirm, GREEN, DARK)], spacing=6, tight=True),
         ], spacing=6, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
         numpad_dialog = ft.AlertDialog(
@@ -1521,7 +1653,9 @@ def main(page: ft.Page):
         numpad_dialog.open = True
         page.update()
 
-    def _remove_print_prefix(file_path):
+
+
+    def _remove_print_count_prefix(file_path):
         """Retire le préfixe NX_ d'un fichier."""
         basename = os.path.basename(file_path)
         folder = os.path.dirname(file_path)
@@ -1539,16 +1673,20 @@ def main(page: ft.Page):
             log_to_terminal(f"[ERREUR] {err}", RED)
         refresh_preview(reset_page=False)
 
+
+
     # ================================================================ #
     #                          SÉLECTION                               #
     # ================================================================ #
     def _selection_label():
         """Retourne le libellé de sélection affiché dans la barre d'état."""
-        n = len(selected_files)
-        if n == 0:
+        selected_count = len(selected_files)
+        if selected_count == 0:
             return ""
-        s = "s" if n > 1 else ""
-        return f"{n} fichier{s} sélectionné{s}"
+        plural_suffix = "s" if selected_count > 1 else ""
+        return f"{selected_count} fichier{plural_suffix} sélectionné{plural_suffix}"
+
+
 
     def on_checkbox_change(e, file_path):
         """Gère le changement d'état d'une checkbox"""
@@ -1557,9 +1695,11 @@ def main(page: ft.Page):
         else:
             selected_files.discard(file_path)
         selection_count_text.value = _selection_label()
-        _sync_toggle_btn()
+        _update_select_toggle_button()
         page.update()
-    
+
+
+
     def clear_selection(e):
         """Désélectionne tous les fichiers et dossiers"""
         selected_files.clear()
@@ -1568,6 +1708,8 @@ def main(page: ft.Page):
         page.update()
         log_to_terminal("[OK] Sélection effacée", GREEN)
     
+
+
     def delete_selected_files(e):
         """Supprime tous les fichiers et dossiers sélectionnés avec confirmation"""
         if not selected_files:
@@ -1630,6 +1772,8 @@ def main(page: ft.Page):
         dialog.open = True
         page.update()
 
+
+
     def apply_selected_files_by_name(selected_names_str):
         """Sélectionne dans la preview les éléments correspondant aux noms fournis"""
         folder_to_display = current_browse_folder["path"] or selected_folder["path"]
@@ -1637,24 +1781,29 @@ def main(page: ft.Page):
             return
 
         names = [name for name in selected_names_str.split("|") if name]
-        names_set = set(names)
+        names_to_select = set(names)
 
         selected_files.clear()
+
+
+
         # Utilise all_entries_data pour garantir que les chemins dans selected_files
         # sont identiques (même objet str) à ceux utilisés par _render_current_page(),
         # évitant toute divergence de normalisation Unicode NFD/NFC sur macOS.
         entries = all_entries_data["list"]
-        if names_set and entries:
+        if names_to_select and entries:
             for file_name, file_path, is_dir, is_image, ext in entries:
-                if file_name in names_set:
+                if file_name in names_to_select:
                     selected_files.add(file_path)
-        elif names_set:
+        elif names_to_select:
             # Fallback si entries pas encore peuplées
             for item_name in os.listdir(folder_to_display):
-                if item_name in names_set:
+                if item_name in names_to_select:
                     selected_files.add(os.path.join(folder_to_display, item_name))
 
         selection_count_text.value = _selection_label()
+
+
 
         # Naviguer vers la première page contenant au moins un fichier sélectionné
         # (évite que les fichiers au-delà de PAGE_SIZE soient invisibles)
@@ -1664,11 +1813,15 @@ def main(page: ft.Page):
                     preview_page["value"] = idx // PAGE_SIZE
                     break
 
-        # Re-rendu immédiat sans nouveau scan (le script ne modifie aucun fichier)
-        _render_current_page()
 
-        if names_set and not selected_files:
+
+        # Re-rendu immédiat sans nouveau scan (le script ne modifie aucun fichier)
+        _render_preview_page()
+
+        if names_to_select and not selected_files:
             log_to_terminal("[ATTENTION] Aucun fichier correspondant trouvé dans la preview", ORANGE)
+
+
 
     # ================================================================ #
     #                    FILTRAGE & PÉRIPHÉRIQUES                      #
@@ -1676,69 +1829,66 @@ def main(page: ft.Page):
     def _match_filter(entry_tuple):
         """Retourne True si l'entrée correspond au filtre actif."""
         _name, _path, is_dir, is_image, ext = entry_tuple
-        fval = filter_type["value"]
-        if fval == "all":
+        active_filter = filter_type["value"]
+        if active_filter == "all":
             return True
         if is_dir:
             return True  # Dossiers toujours visibles pour la navigation
-        if fval == "images":
+        if active_filter == "images":
             return is_image
-        if fval in _FILTER_CATEGORIES:
-            return ext in _FILTER_CATEGORIES[fval]
-        if fval == "other":
+        if active_filter in _FILTER_CATEGORIES:
+            return ext in _FILTER_CATEGORIES[active_filter]
+        if active_filter == "other":
             for cat_exts in _FILTER_CATEGORIES.values():
                 if ext in cat_exts:
                     return False
             return True
         return True
 
-    def _filter_chip_ctrl(label, key):
-        pass  # remplacé par CupertinoSlidingSegmentedButton
 
-    def _refresh_filter_chips():
-        """Synchronise l'index du segment avec filter_type."""
-        try:
-            filter_segment.selected_index = _FILTER_KEYS.index(filter_type["value"])
-            filter_segment.update()
-        except Exception:
-            pass
 
     def _set_filter(key):
         """Bascule le filtre actif et re-rend la page courante."""
         filter_type["value"] = key
         preview_page["value"] = 0
-        _render_current_page()
+        _render_preview_page()
+
+
 
     def on_filter_segment_change(e):
         """Callback du CupertinoSlidingSegmentedButton de filtre."""
         idx = e.control.selected_index
-        _set_filter(_FILTER_KEYS[idx])
+        _set_filter(FILTER_KEYS[idx])
+
+
 
     def _get_removable_drives():
         """Détecte les périphériques amovibles (cross-platform, sans dépendance externe)."""
         drives = []
         try:
             if platform.system() == "Darwin":
-                _sys_vols = {
+                macos_system_volumes = {
                     "Macintosh HD", "Macintosh HD - Data",
                     "com.apple.TimeMachine.localsnapshots",
                     "Recovery", "Preboot", "VM", "Update",
                 }
                 for entry in os.scandir("/Volumes"):
-                    if entry.is_dir() and entry.name not in _sys_vols and not entry.name.startswith("."):
+                    if entry.is_dir() and entry.name not in macos_system_volumes and not entry.name.startswith("."):
                         drives.append((entry.name, entry.path))
+
             elif platform.system() == "Windows":
                 import ctypes
-                DRIVE_REMOVABLE, DRIVE_CDROM = 2, 5
-                vol_buf = ctypes.create_unicode_buffer(261)
+                DRIVE_TYPE_REMOVABLE, DRIVE_TYPE_CDROM = 2, 5
+                volume_label_buffer = ctypes.create_unicode_buffer(261)
                 for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
                     path = f"{letter}:\\"
-                    dtype = ctypes.windll.kernel32.GetDriveTypeW(path)
-                    if dtype in (DRIVE_REMOVABLE, DRIVE_CDROM) and os.path.exists(path):
+                    drive_type = ctypes.windll.kernel32.GetDriveTypeW(path)
+                    if drive_type in (DRIVE_TYPE_REMOVABLE, DRIVE_TYPE_CDROM) and os.path.exists(path):
                         ctypes.windll.kernel32.GetVolumeInformationW(
-                            path, vol_buf, 261, None, None, None, None, 0)
-                        label = vol_buf.value or letter
+                            path, volume_label_buffer, 261, None, None, None, None, 0)
+                        label = volume_label_buffer.value or letter
                         drives.append((f"{label} ({letter}:)", path))
+
             else:  # Linux
                 for base in ("/media", "/run/media"):
                     if not os.path.isdir(base):
@@ -1759,17 +1909,19 @@ def main(page: ft.Page):
             pass
         return drives
 
-    def _refresh_favorites_ui():
+
+
+    def _rebuild_favorites_panel():
         """Reconstruit la liste des favoris dans le conteneur."""
-        favs = _load_favorites()
-        _favorites_list_col.controls.clear()
-        if not favs:
-            _favorites_list_col.controls.append(
+        favorites_list = _load_favorites()
+        favorites_list_view.controls.clear()
+        if not favorites_list:
+            favorites_list_view.controls.append(
                 ft.Text("Aucun favori — cliquez sur + pour ajouter", size=10,
                         color=LIGHT_GREY, italic=True)
             )
         else:
-            for p in favs:
+            for p in favorites_list:
                 name = os.path.basename(p) or p
                 def _nav(e, path=p):
                     if os.path.isdir(path):
@@ -1777,16 +1929,16 @@ def main(page: ft.Page):
                     else:
                         log_to_terminal(f"[ERREUR] Dossier introuvable : {path}", RED)
                 def _remove(e, path=p):
-                    favs2 = _load_favorites()
-                    if path in favs2:
-                        favs2.remove(path)
-                    _save_favorites(favs2)
-                    _refresh_favorites_ui()
+                    updated_favorites = _load_favorites()
+                    if path in updated_favorites:
+                        updated_favorites.remove(path)
+                    _save_favorites(updated_favorites)
+                    _rebuild_favorites_panel()
                     try:
-                        _favorites_list_col.update()
+                        favorites_list_view.update()
                     except Exception:
                         pass
-                _favorites_list_col.controls.append(
+                favorites_list_view.controls.append(
                     ft.Row([
                         ft.ReorderableDragHandle(
                             content=ft.Icon(ft.Icons.DRAG_INDICATOR, size=16, color=LIGHT_GREY),
@@ -1812,9 +1964,11 @@ def main(page: ft.Page):
                     ], spacing=4, tight=True, height=32, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 )
         try:
-            _favorites_list_col.update()
+            favorites_list_view.update()
         except Exception:
             pass
+
+
 
     def _add_favorite_current():
         """Ajoute le dossier courant aux favoris."""
@@ -1823,14 +1977,16 @@ def main(page: ft.Page):
             log_to_terminal("[ATTENTION] Aucun dossier sélectionné à ajouter en favori", ORANGE)
             return
         path = os.path.normpath(path)
-        favs = _load_favorites()
-        if path not in favs:
-            favs.append(path)
-            _save_favorites(favs)
-            _refresh_favorites_ui()
+        favorites_list = _load_favorites()
+        if path not in favorites_list:
+            favorites_list.append(path)
+            _save_favorites(favorites_list)
+            _rebuild_favorites_panel()
             log_to_terminal(f"[OK] Favori ajouté : {os.path.basename(path)}", YELLOW)
         else:
             log_to_terminal("[INFO] Ce dossier est déjà dans les favoris", LIGHT_GREY)
+
+
 
     def _eject_drive(path):
         """Démonte/éjecte un périphérique amovible selon le système d'exploitation."""
@@ -1838,11 +1994,11 @@ def main(page: ft.Page):
             sys_name = platform.system()
             if sys_name == "Windows":
                 drive_letter = os.path.splitdrive(path)[0]  # ex: "E:"
-                ps_cmd = (
+                powershell_eject_command = (
                     f"(New-Object -comObject Shell.Application)"
                     f".Namespace(17).ParseName('{drive_letter}').InvokeVerb('Eject')"
                 )
-                subprocess.Popen(["powershell", "-Command", ps_cmd],
+                subprocess.Popen(["powershell", "-Command", powershell_eject_command],
                                  creationflags=subprocess.CREATE_NO_WINDOW)
             elif sys_name == "Darwin":
                 subprocess.Popen(["diskutil", "eject", path])
@@ -1852,9 +2008,11 @@ def main(page: ft.Page):
         except Exception as ex:
             log_to_terminal(f"[ERREUR] Éjection impossible : {ex}", RED)
 
-    def _refresh_drives_ui(drives):
+
+
+    def _rebuild_drives_panel(drives):
         """Met à jour la section périphériques (appelée depuis le callback pubsub)."""
-        _drives_column.controls.clear()
+        drives_list_view.controls.clear()
         for name, path in drives:
             def _nav(e, p=path):
                 if os.path.isdir(p):
@@ -1863,7 +2021,7 @@ def main(page: ft.Page):
                     log_to_terminal(f"[ERREUR] Périphérique introuvable : {p}", RED)
             def _eject(e, p=path):
                 _eject_drive(p)
-            _drives_column.controls.append(
+            drives_list_view.controls.append(
                 ft.Row([
                     ft.ReorderableDragHandle(
                         content=ft.Icon(ft.Icons.DRAG_INDICATOR, size=16, color=LIGHT_GREY),
@@ -1888,19 +2046,23 @@ def main(page: ft.Page):
                     ),
                 ], spacing=4, tight=True, height=32, vertical_alignment=ft.CrossAxisAlignment.CENTER)
             )
-        _drives_container.visible = bool(drives)
+        drives_panel.visible = bool(drives)
         try:
-            _drives_container.update()
+            drives_panel.update()
         except Exception:
             pass
 
+
+
     def _on_drives_changed(topic, drives):
         """Callback pubsub : met à jour l'UI périphériques depuis le thread de fond."""
-        _refresh_drives_ui(drives)
+        _rebuild_drives_panel(drives)
 
     page.pubsub.subscribe_topic("drives_changed", _on_drives_changed)
 
-    def _drives_polling_thread():
+
+
+    def _poll_removable_drives():
         """Thread de fond : détecte les changements de périphériques toutes les 3 s."""
         prev_drives = []
         while True:
@@ -1909,30 +2071,17 @@ def main(page: ft.Page):
                 drives = _get_removable_drives()
                 if drives != prev_drives:
                     prev_drives = drives
-                    _removable_drives["list"] = drives
+                    removable_drives_state["list"] = drives
                     page.pubsub.send_all_on_topic("drives_changed", drives)
             except Exception:
                 pass
 
+
+
     # ================================================================ #
     #                           PREVIEW                                #
     # ================================================================ #
-    def _set_visible_images(scroll_pixels, viewport_height, do_update=True):
-        """Applique src aux images dans la zone visible + buffer."""
-        buffer_px = 3 * ITEM_HEIGHT
-        for (list_idx, file_path, image_ctrl) in lazy_images:
-            item_top = list_idx * ITEM_HEIGHT
-            if item_top < scroll_pixels + viewport_height + buffer_px and (item_top + ITEM_HEIGHT) > scroll_pixels - buffer_px:
-                if image_ctrl.src is None:
-                    image_ctrl.src = file_path
-                    if do_update:
-                        image_ctrl.update()
-
-    def on_preview_scroll(e):
-        """Déclenche le chargement paresseux des miniatures lors du défilement de la liste."""
-        _set_visible_images(e.pixels, e.viewport_dimension)
-
-    def _render_current_page():
+    def _render_preview_page():
         """
         Construit et affiche les contrôles ListView pour la page courante.
         Appelée depuis on_preview_ready et go_to_page (thread UI uniquement).
@@ -1997,13 +2146,13 @@ def main(page: ft.Page):
                     else:
                         visual = ft.Icon(icon, color=icon_color, size=22)
 
-                    delete_btn = ft.IconButton(
+                    delete_button = ft.IconButton(
                         icon=ft.Icons.DELETE_OUTLINE, icon_size=18,
                         icon_color=ft.Colors.RED_300, tooltip="Supprimer",
                         on_click=lambda e, path=file_path: delete_item(path),
                         style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                     )
-                    rename_btn = ft.IconButton(
+                    rename_button = ft.IconButton(
                         icon=ft.Icons.EDIT_OUTLINED, icon_size=17,
                         icon_color=LIGHT_GREY, tooltip="Renommer",
                         on_click=lambda e, path=file_path: _rename_item(path),
@@ -2011,49 +2160,49 @@ def main(page: ft.Page):
                     )
                     if is_dir:
                         trailing = ft.Row(
-                            [rename_btn, delete_btn],
+                            [rename_button, delete_button],
                             spacing=0, tight=True,
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         )
                     else:
-                        pm = re.match(r'^(\d+)X_', file)
-                        p_count = int(pm.group(1)) if pm else None
-                        if p_count is not None:
-                            count_chip = ft.Container(
-                                content=ft.Text(f"{p_count}×", size=12,
+                        print_prefix_match = re.match(r'^(\d+)X_', file)
+                        print_count = int(print_prefix_match.group(1)) if print_prefix_match else None
+                        if print_count is not None:
+                            print_count_badge = ft.Container(
+                                content=ft.Text(f"{print_count}×", size=12,
                                                 color=YELLOW, weight=ft.FontWeight.BOLD),
                                 bgcolor=GREY, border_radius=4,
                                 padding=ft.Padding(6, 3, 6, 3),
                                 tooltip="Modifier le nombre d'impressions",
-                                on_click=lambda e, p=file_path: _open_numpad(p),
+                                on_click=lambda e, p=file_path: _show_print_count_numpad(p),
                                 ink=True,
                             )
-                            remove_btn = ft.IconButton(
+                            remove_prefix_button = ft.IconButton(
                                 icon=ft.Icons.CLOSE, icon_size=15,
                                 icon_color=LIGHT_GREY, tooltip="Retirer le compteur",
-                                on_click=lambda e, p=file_path: _remove_print_prefix(p),
+                                on_click=lambda e, p=file_path: _remove_print_count_prefix(p),
                                 style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                             )
                             trailing = ft.Row(
-                                [count_chip, remove_btn, rename_btn, delete_btn],
+                                [print_count_badge, remove_prefix_button, rename_button, delete_button],
                                 spacing=0, tight=True,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             )
                         else:
-                            print_btn = ft.IconButton(
+                            set_print_count_button = ft.IconButton(
                                 icon=ft.Icons.PRINT_OUTLINED, icon_size=17,
                                 icon_color=LIGHT_GREY,
                                 tooltip="Définir le nombre d'impressions",
-                                on_click=lambda e, p=file_path: _open_numpad(p),
+                                on_click=lambda e, p=file_path: _show_print_count_numpad(p),
                                 style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                             )
                             trailing = ft.Row(
-                                [print_btn, rename_btn, delete_btn],
+                                [set_print_count_button, rename_button, delete_button],
                                 spacing=0, tight=True,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             )
 
-                    def _make_ctx_handler(fp, d):
+                    def _create_right_click_handler(fp, d):
                         def _on_right_click(e):
                             if d:
                                 return  # pas de menu pour les dossiers
@@ -2061,12 +2210,12 @@ def main(page: ft.Page):
                                 files_to_open = list(selected_files)
                             else:
                                 files_to_open = [fp]
-                            _show_ctx_menu(files_to_open)
+                            _show_open_with_menu(files_to_open)
                         return _on_right_click
 
                     new_controls.append(
                         ft.GestureDetector(
-                            on_secondary_tap_up=_make_ctx_handler(file_path, is_dir),
+                            on_secondary_tap_up=_create_right_click_handler(file_path, is_dir),
                             content=ft.ListTile(
                                 leading=ft.Row([checkbox, visual], spacing=8, tight=True),
                                 title=ft.Text(file, size=13, color=WHITE),
@@ -2084,6 +2233,8 @@ def main(page: ft.Page):
             preview_list.on_scroll = None
             preview_loading.visible = False
 
+
+
             # Contrôles de pagination
             if total > PAGE_SIZE:
                 prev_page_btn.visible = current_pg > 0
@@ -2094,16 +2245,20 @@ def main(page: ft.Page):
                 next_page_btn.visible = False
                 page_indicator_text.value = ""
 
+
+
             # Mettre à jour le compteur si un filtre est actif
             if filter_type["value"] != "all":
                 n_files = sum(1 for e in entries if not e[2])
                 n_total = sum(1 for e in all_entries_data["list"] if not e[2])
                 file_count_text.value = f"({n_files}/{n_total})"
 
-            _sync_toggle_btn()
+            _update_select_toggle_button()
             page.update()
         except Exception as ex:
             log_to_terminal(f"[ERREUR] Rendu preview: {ex}", RED)
+
+
 
     def refresh_preview(reset_page=True):
         """
@@ -2121,8 +2276,8 @@ def main(page: ft.Page):
         """
         if reset_page:
             preview_page["value"] = 0
-        _refresh_token["v"] += 1
-        my_token = _refresh_token["v"]
+        preview_refresh_token["value"] += 1
+        current_refresh_token = preview_refresh_token["value"]
         preview_list.on_scroll = None
         preview_list.controls.clear()
         lazy_images.clear()
@@ -2131,7 +2286,7 @@ def main(page: ft.Page):
         preview_loading.visible = bool(folder_to_display)
         page.update()
 
-        def _bg():
+        def _background_folder_scan():
             """
             Thread de fond : scanne le dossier et stocke des tuples de données brutes.
 
@@ -2173,14 +2328,18 @@ def main(page: ft.Page):
                     error_text = f"⚠️ Erreur: {str(ex)}"
 
             # Envoyer tuples de données brutes — le rendu des widgets se fait sur le thread UI
-            page.pubsub.send_all_on_topic("preview_ready", (my_token, entries_data, new_file_count_text, error_text))
+            page.pubsub.send_all_on_topic("preview_ready", (current_refresh_token, entries_data, new_file_count_text, error_text))
 
-        threading.Thread(target=_bg, daemon=True).start()
+        threading.Thread(target=_background_folder_scan, daemon=True).start()
     
+
+
     def on_sort_change(e):
         """Change le mode de tri et rafraîchit la preview"""
         sort_mode["value"] = e.control.selected_index
         refresh_preview()
+
+
 
     def go_to_page(delta):
         """Navigue de ±1 page sans rescanner le dossier."""
@@ -2190,7 +2349,9 @@ def main(page: ft.Page):
         if new_pg == preview_page["value"]:
             return
         preview_page["value"] = new_pg
-        _render_current_page()
+        _render_preview_page()
+
+
 
     # ================================================================ #
     #                LANCEMENT D'APPLICATIONS                          #
@@ -2224,6 +2385,9 @@ def main(page: ft.Page):
             Paramètre textuel à transmettre via ``SERIES_NAME`` ou ``PDF_NAME``
             (renseigné par le dialog affiché au premier appel).
         """
+
+
+
         # Pour Renommer sequence.py, demander le nom de la série avant de lancer
         if app_name == "Images en PDF.py" and series_name is None:
             pdf_name_input = ft.TextField(
@@ -2315,7 +2479,7 @@ def main(page: ft.Page):
             if is_local:
                 # Préparer l'environnement pour les apps locales
                 env = os.environ.copy()
-                env["DATA_PATH"] = os.path.join(cwd, "Data")
+                env["DATA_PATH"] = os.path.join(app_directory, "Data")
                 
                 # Naviguer vers le PATH pour order_it gauche/droite
                 if app_name == "Kiosk gauche.py":
@@ -2337,7 +2501,9 @@ def main(page: ft.Page):
                         navigate_to_folder(order_path)
                     else:
                         log_to_terminal(f"[AVERTISSEMENT] Le dossier {order_path} n'est pas accessible", ORANGE)
-                
+
+
+
                 # Ajouter le dossier destination pour Transfert vers TEMP.py
                 if app_name == "Transfert vers TEMP.py":
                     if platform.system() == "Windows":
@@ -2363,7 +2529,9 @@ def main(page: ft.Page):
                         ctypes.windll.user32.AllowSetForegroundWindow(process.pid)
                     except Exception:
                         pass
-                
+
+
+
                 # Lire la sortie en temps réel
                 def read_output(pipe, color):
                     """
@@ -2406,9 +2574,11 @@ def main(page: ft.Page):
             else:
                 # Préparer l'environnement avec le chemin du dossier Data
                 env = os.environ.copy()
-                env["DATA_PATH"] = os.path.join(cwd, "Data")
+                env["DATA_PATH"] = os.path.join(app_directory, "Data")
                 env["FOLDER_PATH"] = selected_folder["path"]
                 
+
+
                 # Ajouter les chemins ImageMagick pour Wand (Homebrew sur macOS)
                 if platform.system() == "Darwin":
                     # Chemins Homebrew pour Apple Silicon et Intel
@@ -2420,29 +2590,43 @@ def main(page: ft.Page):
                             env["DYLD_LIBRARY_PATH"] = magick_lib + ":" + env.get("DYLD_LIBRARY_PATH", "")
                             env["PATH"] = os.path.join(brew_path, "bin") + ":" + env.get("PATH", "")
                             break
-                
+
+
+
                 # Ajouter la taille de redimensionnement pour Redimensionner.py
                 if app_name == "Redimensionner.py":
                     env["RESIZE_SIZE"] = resize_size["value"]
-                
+
+
+
                 # Ajouter la taille de redimensionnement avec watermark pour Redimensionner filigrane.py
                 if app_name == "Redimensionner filigrane.py":
                     env["RESIZE_WATERMARK_SIZE"] = resize_watermark_size["value"]
-                
+
+
+
+
                 # Ajouter le dossier destination pour Transfert vers TEMP.py
                 if app_name == "Transfert vers TEMP.py":
                     if platform.system() == "Windows":
                         env["DEST_FOLDER"] = "Z:/temp"
                     else:
                         env["DEST_FOLDER"] = "/Volumes/TRAVAUX EN COURS/Z2026/TEMP"
-                
+
+
+
+
                 # Ajouter le nom de la série pour Renommer sequence.py
                 if app_name == "Renommer sequence.py" and series_name:
                     env["SERIES_NAME"] = series_name
 
+
+
                 # Ajouter le nom du PDF pour Images en PDF.py
                 if app_name == "Images en PDF.py" and series_name:
                     env["PDF_NAME"] = series_name
+
+
 
                 # Ajouter les fichiers sélectionnés (si aucun n'est sélectionné, la variable sera vide)
                 if selected_files:
@@ -2450,7 +2634,7 @@ def main(page: ft.Page):
                 
                 process = subprocess.Popen(
                     [sys.executable, "-u", app_path],
-                    cwd=os.path.join(cwd, "Data"),
+                    cwd=os.path.join(app_directory, "Data"),
                     env=env,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -2465,6 +2649,7 @@ def main(page: ft.Page):
                         ctypes.windll.user32.AllowSetForegroundWindow(process.pid)
                     except Exception:
                         pass
+
 
                 
                 # Lire la sortie en temps réel
@@ -2492,7 +2677,7 @@ def main(page: ft.Page):
                                     selected_names = line_stripped[len(selected_files_prefix):]
                                     # Stocker pour que on_preview_ready l'applique
                                     # avec les données fraîches du prochain scan.
-                                    _pending_selection["names"] = selected_names
+                                    pending_file_selection["names"] = selected_names
                                 else:
                                     log_to_terminal(line_stripped, color)
                     except Exception as read_err:
@@ -2500,11 +2685,13 @@ def main(page: ft.Page):
                     finally:
                         pipe.close()
                 
-                t_stdout = threading.Thread(target=read_output, args=(process.stdout, WHITE), daemon=True)
-                t_stderr = threading.Thread(target=read_output, args=(process.stderr, RED), daemon=True)
-                t_stdout.start()
-                t_stderr.start()
+                stdout_reader_thread = threading.Thread(target=read_output, args=(process.stdout, WHITE), daemon=True)
+                stderr_reader_thread = threading.Thread(target=read_output, args=(process.stderr, RED), daemon=True)
+                stdout_reader_thread.start()
+                stderr_reader_thread.start()
                 
+
+
                 # Attendre la fin et rafraîchir la preview
                 def done():
                     """
@@ -2513,8 +2700,8 @@ def main(page: ft.Page):
                     On attend les threads de lecture pour s'assurer que SELECTED_FILES:
                     a bien été traité avant de déclencher le refresh.
                     """
-                    t_stdout.join()
-                    t_stderr.join()
+                    stdout_reader_thread.join()
+                    stderr_reader_thread.join()
                     process.wait()
                     log_to_terminal(f"[OK] {display_name} terminé", GREEN)
                     # Rafraîchir la preview pour afficher les nouveaux dossiers/fichiers créés
@@ -2524,26 +2711,36 @@ def main(page: ft.Page):
         except Exception as err:
             log_to_terminal(f"[ERREUR] Erreur lors du lancement: {err}", RED)
 
+
+
     # ── Handlers des champs Redimensionner ───────────────────────────
     def on_resize_input_change(e):
         """Met à jour la taille de redimensionnement cible en pixels."""
         resize_size["value"] = e.control.value
 
+
+
     def launch_resize(e):
         """Lance Redimensionner.py avec la taille saisie dans resize_input."""
-        app_path = os.path.join(cwd, "Data", "Redimensionner.py")
+        app_path = os.path.join(app_directory, "Data", "Redimensionner.py")
         if os.path.exists(app_path):
             launch_app("Redimensionner.py", app_path, False)
+
+
 
     def on_resize_watermark_input_change(e):
         """Met à jour la taille de redimensionnement+filigrane cible en pixels."""
         resize_watermark_size["value"] = e.control.value
 
+
+
     def launch_resize_watermark(e):
         """Lance Redimensionner filigrane.py avec la taille saisie dans resize_watermark_input."""
-        app_path = os.path.join(cwd, "Data", "Redimensionner filigrane.py")
+        app_path = os.path.join(app_directory, "Data", "Redimensionner filigrane.py")
         if os.path.exists(app_path):
             launch_app("Redimensionner filigrane.py", app_path, False)
+
+
 
     def refresh_apps():
         """
@@ -2558,7 +2755,7 @@ def main(page: ft.Page):
         for app_name, app_config in apps.items():
             is_local = app_config[0]
             app_color = app_config[1]
-            app_path = os.path.join(cwd, "Data", app_name)
+            app_path = os.path.join(app_directory, "Data", app_name)
             if not os.path.exists(app_path):
                 continue
 
@@ -2620,6 +2817,8 @@ def main(page: ft.Page):
                     )
                 )
 
+
+
         # Grouper en rangées de 3 avec padding uniforme
         apps_list.controls.clear()
         for i in range(0, len(items), 3):
@@ -2631,6 +2830,8 @@ def main(page: ft.Page):
                 ft.Row(controls=row_items, expand=True, spacing=8)
             )
         page.update()
+
+
 
     # ================================================================ #
     #                       ACTIONS FENÊTRE                            #
@@ -2651,54 +2852,64 @@ def main(page: ft.Page):
             selected_files.clear()
             preview_page["value"] = 0
             _add_to_recent(selected_folder["path"])
-            _refresh_recent_btn()
+            _rebuild_recent_folders_menu()
             refresh_preview()
     
+
+
     async def close_window(e):
         """Ferme la fenêtre principale de l'application de façon asynchrone."""
         await page.window.close()
 
+
+
     def minimize_window(e):
         """Réduit la fenêtre dans la barre des tâches."""
         page.window.minimized = True
+
+
 
     def toggle_maximize_window(e):
         """Bascule entre fenêtre maximisée et taille normale."""
         page.window.maximized = not page.window.maximized
         page.update()
 
+
+
     def update_app(e):
         """Sauvegarde les fichiers utilisateur, git pull --rebase, vérifie les dépendances si requirements a changé, relance."""
         page.pubsub.send_all_on_topic("terminal", ("Mise à jour en cours…", YELLOW))
-        def _run():
-            def pub(msg, color=LIGHT_GREY):
+        def _run_update():
+            def publish_to_terminal(msg, color=LIGHT_GREY):
                 page.pubsub.send_all_on_topic("terminal", (msg, color))
 
-            def run_git(*args):
+            def run_git_command(*args):
                 return subprocess.run(
                     ["git", *args],
-                    cwd=cwd,
+                    cwd=app_directory,
                     capture_output=True,
                     text=True,
                     encoding="utf-8",
                     errors="replace",
                 )
 
+
+
             # ── Sauvegarde mémoire des fichiers utilisateur avant git ─
-            _user_files = [".recent_folders.json", ".favorites.json", ".pip_cache.json"]
-            _backups = {}
-            for fname in _user_files:
-                fpath = os.path.join(cwd, fname)
+            user_data_filenames = [".recent_folders.json", ".favorites.json", ".pip_cache.json"]
+            user_data_backups = {}
+            for fname in user_data_filenames:
+                fpath = os.path.join(app_directory, fname)
                 if os.path.isfile(fpath):
                     try:
                         with open(fpath, "r", encoding="utf-8") as f:
-                            _backups[fname] = f.read()
+                            user_data_backups[fname] = f.read()
                     except Exception:
                         pass
 
-            def _restore_user_files():
-                for fname, content in _backups.items():
-                    fpath = os.path.join(cwd, fname)
+            def _restore_user_data_files():
+                for fname, content in user_data_backups.items():
+                    fpath = os.path.join(app_directory, fname)
                     try:
                         with open(fpath, "w", encoding="utf-8") as f:
                             f.write(content)
@@ -2707,83 +2918,91 @@ def main(page: ft.Page):
 
             try:
                 # Stash les changements locaux s'il y en a
-                stash_result = run_git("stash")
-                stashed = "No local changes" not in stash_result.stdout
+                stash_result = run_git_command("stash")
+                had_local_changes = "No local changes" not in stash_result.stdout
 
                 # Pull --rebase
-                result = run_git("pull", "--rebase", "origin")
-                output = (result.stdout + result.stderr).strip()
+                git_pull_result = run_git_command("pull", "--rebase", "origin")
+                git_command_output = (git_pull_result.stdout + git_pull_result.stderr).strip()
 
-                if result.returncode != 0:
-                    if stashed:
-                        run_git("rebase", "--abort")
-                        run_git("stash", "pop")
-                    _restore_user_files()
-                    pub(f"[ERREUR] Erreur lors de la mise à jour.\n{output}", RED)
+                if git_pull_result.returncode != 0:
+                    if had_local_changes:
+                        run_git_command("rebase", "--abort")
+                        run_git_command("stash", "pop")
+                    _restore_user_data_files()
+                    publish_to_terminal(f"[ERREUR] Erreur lors de la mise à jour.\n{git_command_output}", RED)
                     return
 
+
+
                 # Supprimer le stash (changements de code locaux non désirés)
-                if stashed:
-                    run_git("stash", "drop")
+                if had_local_changes:
+                    run_git_command("stash", "drop")
+
+
 
                 # Restaurer systématiquement les fichiers utilisateur
-                _restore_user_files()
+                _restore_user_data_files()
 
-                if "Already up to date" in output or "Déjà à jour" in output or output == "":
-                    pub("[OK] Déjà à jour.", GREEN)
+                if "Already up to date" in git_command_output or "Déjà à jour" in git_command_output or git_command_output == "":
+                    publish_to_terminal("[OK] Déjà à jour.", GREEN)
                 else:
-                    pub(f"[OK] Code mis à jour.\n{output}", GREEN)
+                    publish_to_terminal(f"[OK] Code mis à jour.\n{git_command_output}", GREEN)
+
+
 
                 # ── Dépendances : pip uniquement si requirements.txt a changé ──
-                req_path = os.path.join(cwd, "requirements.txt")
-                pip_cache_path = os.path.join(cwd, ".pip_cache.json")
-                if not os.path.isfile(req_path):
-                    pub("⚠ requirements.txt introuvable, installation ignorée.", YELLOW)
+                requirements_file_path = os.path.join(app_directory, "requirements.txt")
+                pip_cache_file_path = os.path.join(app_directory, ".pip_cache.json")
+                if not os.path.isfile(requirements_file_path):
+                    publish_to_terminal("⚠ requirements.txt introuvable, installation ignorée.", YELLOW)
                 else:
-                    with open(req_path, "rb") as f:
-                        req_hash = hashlib.sha256(f.read()).hexdigest()
+                    with open(requirements_file_path, "rb") as f:
+                        requirements_checksum = hashlib.sha256(f.read()).hexdigest()
 
-                    cached_hash = None
+                    cached_checksum = None
                     try:
-                        with open(pip_cache_path, "r", encoding="utf-8") as f:
-                            cached_hash = json.load(f).get("req_hash")
+                        with open(pip_cache_file_path, "r", encoding="utf-8") as f:
+                            cached_checksum = json.load(f).get("req_hash")
                     except Exception:
                         pass
 
-                    if cached_hash == req_hash:
-                        pub("[OK] Dépendances inchangées, installation ignorée.", GREEN)
+                    if cached_checksum == requirements_checksum:
+                        publish_to_terminal("[OK] Dépendances inchangées, installation ignorée.", GREEN)
                     else:
-                        pub("📦 Nouvelles dépendances détectées, installation en cours…", YELLOW)
-                        pip_proc = subprocess.Popen(
-                            [sys.executable, "-m", "pip", "install", "-r", req_path, "--upgrade"],
+                        publish_to_terminal("📦 Nouvelles dépendances détectées, installation en cours…", YELLOW)
+                        pip_install_process = subprocess.Popen(
+                            [sys.executable, "-m", "pip", "install", "-r", requirements_file_path, "--upgrade"],
                             stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT,
                             text=True,
                             encoding="utf-8",
                             errors="replace",
-                            cwd=cwd,
+                            cwd=app_directory,
                         )
-                        for line in pip_proc.stdout:
+                        for line in pip_install_process.stdout:
                             line = line.rstrip()
                             if line:
-                                pub(line)
-                        pip_proc.wait()
-                        if pip_proc.returncode == 0:
-                            pub("[OK] Dépendances installées.", GREEN)
+                                publish_to_terminal(line)
+                        pip_install_process.wait()
+                        if pip_install_process.returncode == 0:
+                            publish_to_terminal("[OK] Dépendances installées.", GREEN)
                             try:
-                                with open(pip_cache_path, "w", encoding="utf-8") as f:
+                                with open(pip_cache_file_path, "w", encoding="utf-8") as f:
                                     json.dump(
-                                        {"req_hash": req_hash,
+                                        {"req_hash": requirements_checksum,
                                          "updated_at": time.strftime("%Y-%m-%d %H:%M")},
                                         f, ensure_ascii=False, indent=2,
                                     )
                             except Exception:
                                 pass
                         else:
-                            pub(f"pip a terminé avec le code {pip_proc.returncode}.", YELLOW)
+                            publish_to_terminal(f"pip a terminé avec le code {pip_install_process.returncode}.", YELLOW)
+
+
 
                 # ── Redémarrage automatique ───────────────────────────────
-                pub("🔄 Redémarrage du Dashboard…", BLUE)
+                publish_to_terminal("🔄 Redémarrage du Dashboard…", BLUE)
                 script = os.path.abspath(__file__)
                 subprocess.Popen(
                     [
@@ -2796,45 +3015,55 @@ def main(page: ft.Page):
                 request_quit()
 
             except Exception as exc:
-                _restore_user_files()
+                _restore_user_data_files()
                 page.pubsub.send_all_on_topic("terminal", (f"[ERREUR] {exc}", RED))
 
-        threading.Thread(target=_run, daemon=True).start()
+        threading.Thread(target=_run_update, daemon=True).start()
 
-# ===================== UI WIRING ===================== #
+
+
+# ===================== CONNEXIONS UI ===================== #
     # ── Champ dossier ────────────────────────────────────────────────
     folder_path.on_submit = on_folder_path_submit
     folder_path.on_blur = on_folder_path_blur
 
+
+
     # ── Preview ───────────────────────────────────────────────────────
     sort_segment.on_change = on_sort_change
     filter_segment.on_change = on_filter_segment_change
-    _select_toggle_btn.on_click = toggle_select_all
-    _invert_selection_btn.on_click = invert_selection
+    select_toggle_button.on_click = toggle_select_all
+    invert_selection_button.on_click = invert_selection
     prev_page_btn.on_click = lambda e: go_to_page(-1)
     next_page_btn.on_click = lambda e: go_to_page(+1)
+
+
 
     # ── Redimensionnement ─────────────────────────────────────────────
     resize_input.on_change = on_resize_input_change
     resize_watermark_input.on_change = on_resize_watermark_input_change
 
+
+
     # ── Initialisation ────────────────────────────────────────────────
-    _refresh_recent_btn()
+    _rebuild_recent_folders_menu()
     refresh_apps()
-    _refresh_favorites_ui()
+    _rebuild_favorites_panel()
     _initial_drives = _get_removable_drives()
     if _initial_drives:
-        _removable_drives["list"] = _initial_drives
-        _refresh_drives_ui(_initial_drives)
-    threading.Thread(target=_drives_polling_thread, daemon=True).start()
+        removable_drives_state["list"] = _initial_drives
+        _rebuild_drives_panel(_initial_drives)
+    threading.Thread(target=_poll_removable_drives, daemon=True).start()
 
-# ===================== FLET UI ===================== #
+
+
+# ===================== INTERFACE FLET ===================== #
     page.add(
         ft.WindowDragArea(
             ft.Row([
                 ft.Container(
                     ft.Text(f"DASHBOARD {__version__}", size=24, color=WHITE),
-                    bgcolor=BG,
+                    bgcolor=BACKGROUND,
                     padding=10,
                 ),
                 ft.IconButton(
@@ -2894,7 +3123,7 @@ def main(page: ft.Page):
                         ft.IconButton(
                             icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT_SHARP,
                             tooltip="Kiosk gauche",
-                            on_click=lambda e: launch_app("Kiosk gauche.py", os.path.join(cwd, "Data", "Kiosk gauche.py"), True),
+                            on_click=lambda e: launch_app("Kiosk gauche.py", os.path.join(app_directory, "Data", "Kiosk gauche.py"), True),
                             icon_color=VIOLET,
                             bgcolor=DARK,
                             icon_size=18,
@@ -2902,7 +3131,7 @@ def main(page: ft.Page):
                         ft.IconButton(
                             icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_RIGHT_SHARP,
                             tooltip="Kiosk droite",
-                            on_click=lambda e: launch_app("Kiosk droite.py", os.path.join(cwd, "Data", "Kiosk droite.py"), True),
+                            on_click=lambda e: launch_app("Kiosk droite.py", os.path.join(app_directory, "Data", "Kiosk droite.py"), True),
                             icon_color=VIOLET,
                             bgcolor=DARK,
                             icon_size=18,
@@ -2910,7 +3139,7 @@ def main(page: ft.Page):
                         ft.IconButton(
                             icon=ft.Icons.AUTO_DELETE,
                             tooltip="Nettoyer anciens fichiers (> 60 jours)",
-                            on_click=lambda e: launch_app("Nettoyer anciens fichiers.py", os.path.join(cwd, "Data", "Nettoyer anciens fichiers.py"), True),
+                            on_click=lambda e: launch_app("Nettoyer anciens fichiers.py", os.path.join(app_directory, "Data", "Nettoyer anciens fichiers.py"), True),
                             icon_color=ORANGE,
                             bgcolor=GREY,
                             icon_size=18,
@@ -2935,8 +3164,8 @@ def main(page: ft.Page):
                             icon_color=BLUE,
                             icon_size=20,
                         ),
-                        _select_toggle_btn,
-                        _invert_selection_btn,
+                        select_toggle_button,
+                        invert_selection_button,
                         ft.IconButton(
                             icon=ft.Icons.DELETE_SWEEP,
                             tooltip="Supprimer les fichiers sélectionnés",
@@ -3000,6 +3229,9 @@ def main(page: ft.Page):
             ], expand=True, spacing=8),
             ft.Container(
                 content=ft.Row([
+
+
+
                     # ── Terminal (gauche) ────────────────────────────
                     ft.Column([
                         ft.Row([
@@ -3029,16 +3261,21 @@ def main(page: ft.Page):
                             padding=5,
                         ),
                     ], expand=True, spacing=5),
+
+
+
                     # ── Favoris & Périphériques (droite) ─────────────
                     ft.Row([
-                        _favorites_container,
-                        _drives_container,
+                        favorites_panel,
+                        drives_panel,
                     ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
                 ], spacing=8, expand=True),
                 height=150,
             ),
         ], expand=True, spacing=8)
     )
+
+
 
     # ── Mettre la fenêtre en plein écran ────────────────────────────────────────────────
     async def _maximize():
@@ -3047,8 +3284,10 @@ def main(page: ft.Page):
 
     page.run_task(_maximize)
 
+
+
 #############################################################
-#                            RUN                            #
+#                         DÉMARRAGE                         #
 #############################################################
 # Neutralise l'erreur asyncio Windows "ConnectionResetError: [WinError 10054]"
 # qui apparaît lors de la fermeture des pipes des sous-processus.

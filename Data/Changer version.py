@@ -22,7 +22,7 @@ from pathlib import Path
 #############################################################
 ROOT = Path(__file__).parent.parent
 
-targets = [ROOT / "Dashboard.pyw"] + sorted((ROOT / "Data").glob("*.py"))
+targets = [ROOT / "Dashboard.pyw"] + sorted((ROOT / "Data").glob("*.py")) + sorted((ROOT / "Data").glob("*.pyw"))
 
 pattern = re.compile(r'^(__version__\s*=\s*")[^"]*(")', re.MULTILINE)
 

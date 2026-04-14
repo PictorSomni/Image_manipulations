@@ -62,7 +62,7 @@ import base64
 import numpy as np
 import importlib.util
 
-os.environ.setdefault("ORT_LOGGING_LEVEL", "3")  # Suppress onnxruntime performance warnings
+os.environ.setdefault("ORT_LOGGING_LEVEL", "3")  # Supprimer les avertissements de performance d'onnxruntime
 REMBG_AVAILABLE = importlib.util.find_spec("rembg") is not None
 
 # ===================== Configuration ===================== #
@@ -95,7 +95,7 @@ FORMATS = {
     "70x100 (705x1005mm)": (705, 1005)
 }
 
-# Colors
+# Couleurs
 DARK = "#222429"
 BG = "#373d4a"
 GREY = "#2C3038"
@@ -107,6 +107,8 @@ YELLOW = "#EECB6D"
 ORANGE = "#FFA071"
 RED = "#F17171"
 WHITE = "#c7ccd8"
+
+
 
 # ===================== Layout ===================== #
 LEFT_COL_WIDTH   = 200   # Largeur de la colonne de gauche (réglages sliders)
@@ -137,11 +139,15 @@ def mm_to_pixels(mm, dpi=DPI):
     """
     return int(mm / 25.4 * dpi)
 
+
+
 # Profil sRGB pré-construit (réutilisé pour chaque export)
 _SRGB_PROFILE = ImageCms.createProfile("sRGB")
 _SRGB_ICC = ImageCms.ImageCmsProfile(_SRGB_PROFILE).tobytes()
 
-def convert_to_srgb(img: Image.Image, icc_profile: bytes | None) -> Image.Image:
+
+
+def convert_to_srgb(source_image: Image.Image, icc_profile: bytes | None) -> Image.Image:
     """
     Convertit une image PIL vers l'espace colorimétrique sRGB.
 
@@ -158,10 +164,10 @@ def convert_to_srgb(img: Image.Image, icc_profile: bytes | None) -> Image.Image:
 
     Parameters
     ----------
-    img : PIL.Image.Image
+    source_image : PIL.Image.Image
         Image source à convertir (mode RGB ou RGBA attendu).
     icc_profile : bytes or None
-        Profil ICC brut de l'image source (img.info.get('icc_profile')).
+        Profil ICC brut de l'image source (source_image.info.get('icc_profile')).
         None si aucun profil n'est disponible.
 
     Returns
@@ -170,20 +176,21 @@ def convert_to_srgb(img: Image.Image, icc_profile: bytes | None) -> Image.Image:
         Image en mode RGB dans l'espace colorimétrique sRGB.
     """
     if not icc_profile:
-        return img  # déjà sRGB par défaut
+        return source_image  # déjà sRGB par défaut
     try:
         src_profile = ImageCms.ImageCmsProfile(io.BytesIO(icc_profile))
-        img_rgb = img.convert("RGB")
+        rgb_image = source_image.convert("RGB")
         return ImageCms.profileToProfile(
-            img_rgb, src_profile, _SRGB_PROFILE,
+            rgb_image, src_profile, _SRGB_PROFILE,
             renderingIntent=ImageCms.Intent.PERCEPTUAL,
             outputMode="RGB",
         )
     except Exception:
-        return img
+        return source_image
 
 
-def _erode_alpha(img: Image.Image, radius: int) -> Image.Image:
+
+def _erode_alpha(source_image: Image.Image, radius: int) -> Image.Image:
     """
     Érode le canal alpha d'une image RGBA d'environ ``radius`` pixels.
 
@@ -203,14 +210,15 @@ def _erode_alpha(img: Image.Image, radius: int) -> Image.Image:
     PIL.Image.Image
         Image RGBA avec le canal alpha érodé.
     """
-    if img.mode != "RGBA" or radius <= 0:
-        return img
-    r, g, b, a = img.split()
+    if source_image.mode != "RGBA" or radius <= 0:
+        return source_image
+    r, g, b, alpha_channel = source_image.split()
     # MinFilter(3) appliqué radius fois : coût O(9 × radius × N pixels)
     # bien plus rapide que MinFilter(2*radius+1) en O((2r+1)² × N).
     for _ in range(radius):
-        a = a.filter(ImageFilter.MinFilter(3))
-    return Image.merge("RGBA", (r, g, b, a))
+        alpha_channel = alpha_channel.filter(ImageFilter.MinFilter(3))
+    return Image.merge("RGBA", (r, g, b, alpha_channel))
+
 
 
 #############################################################
@@ -243,6 +251,8 @@ class PhotoCropper:
     Cache prévisualisation
         _preview_tmp_dir, _preview_counter, _prev_preview_path
     """
+
+
 
     def __init__(self, page: ft.Page):
         """
@@ -279,11 +289,13 @@ class PhotoCropper:
         self._preview_tmp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".preview_cache")
         os.makedirs(self._preview_tmp_dir, exist_ok=True)
         # Vider les éventuels résidus d'une session précédente
-        for _f in os.listdir(self._preview_tmp_dir):
-            try: os.remove(os.path.join(self._preview_tmp_dir, _f))
+        for cache_file in os.listdir(self._preview_tmp_dir):
+            try: os.remove(os.path.join(self._preview_tmp_dir, cache_file))
             except OSError: pass
         self._preview_counter = 0
         self._prev_preview_path = None
+
+
 
         # Configuration du canvas (calculé dynamiquement)
         self.canvas_is_portrait = True
@@ -304,6 +316,8 @@ class PhotoCropper:
         self.display_w = int(self.canvas_w)   # initialisé avant tout chargement d'image
         self.display_h = int(self.canvas_h)   # pour éviter AttributeError dans _clamp_offsets
 
+
+
         # Gestion du zoom et transformation
         self.scale = 1.0          # Scale actuel
         self.offset_x = 0.0       # Offset X en pixels
@@ -316,8 +330,12 @@ class PhotoCropper:
         self._bounds_cache: tuple | None = None  # Cache (scale, rotation, (bw, bh))
         self._scroll_rotates = False  # Shift bascule molette → rotation
 
+
+
         # Option noir et blanc
         self.is_bw = False
+
+
 
         # Rotation
         self.rotation = 0.0
@@ -332,6 +350,8 @@ class PhotoCropper:
             on_change_end=self.on_rotation_end,
         )
 
+
+
         # Zoom
         self.zoom_slider = ft.Slider(
             value=1.0,
@@ -343,6 +363,8 @@ class PhotoCropper:
             on_change=self.on_zoom_update,
             on_change_end=self.on_zoom_end,
         )
+
+
 
         # Ombres (Shadows — similaire à Camera Raw)
         self.shadows = 20.0
@@ -357,6 +379,8 @@ class PhotoCropper:
             on_change_end=self.on_shadows_end,
         )
 
+
+
         # Hautes lumières (Highlights — similaire à Camera Raw)
         self.highlights = 0.0
         self.highlights_slider = ft.Slider(
@@ -369,6 +393,8 @@ class PhotoCropper:
             on_change=self.on_highlights_label,
             on_change_end=self.on_highlights_end,
         )
+
+
 
         # Nombre d'exemplaires
         self.copies_count = 1
@@ -395,9 +421,13 @@ class PhotoCropper:
             tooltip="Plus",
         )
 
+
+
         # Formats multiples
         self.extra_formats = []  # list of snapshot dicts with full view state
         self.extra_formats_display = ft.Text("—", size=11, color=LIGHT_GREY, max_lines=1, text_align=ft.TextAlign.LEFT, no_wrap=True)
+
+
 
         # Image principale
         self.image_display = ft.Image(
@@ -413,14 +443,19 @@ class PhotoCropper:
             top=0,
         )
 
+
+
         # Lignes de grille des tiers (fixées au canevas, pas à l'image)
-        _gc = ft.Colors.with_opacity(0.5, "#707070")
+        grid_line_color = ft.Colors.with_opacity(0.5, "#707070")
         self._grid_lines = [
-            ft.Container(bgcolor=_gc, left=self.canvas_w / 3,     top=0,                    width=1,             height=self.canvas_h, visible=False),
-            ft.Container(bgcolor=_gc, left=2 * self.canvas_w / 3, top=0,                    width=1,             height=self.canvas_h, visible=False),
-            ft.Container(bgcolor=_gc, left=0,                     top=self.canvas_h / 3,    width=self.canvas_w, height=1,             visible=False),
-            ft.Container(bgcolor=_gc, left=0,                     top=2 * self.canvas_h / 3,width=self.canvas_w, height=1,             visible=False),
+            ft.Container(bgcolor=grid_line_color, left=self.canvas_w / 3,     top=0,                    width=1,             height=self.canvas_h, visible=False),
+            ft.Container(bgcolor=grid_line_color, left=2 * self.canvas_w / 3, top=0,                    width=1,             height=self.canvas_h, visible=False),
+            ft.Container(bgcolor=grid_line_color, left=0,                     top=self.canvas_h / 3,    width=self.canvas_w, height=1,             visible=False),
+            ft.Container(bgcolor=grid_line_color, left=0,                     top=2 * self.canvas_h / 3,width=self.canvas_w, height=1,             visible=False),
         ]
+
+
+
         # Badge d'état du mode rotation (molette Tab)
         self._shift_badge = ft.Container(
             content=ft.Text("↻ ROTATION MOLETTE ON", size=12, color=DARK, weight=ft.FontWeight.BOLD),
@@ -432,12 +467,16 @@ class PhotoCropper:
             top=8,
         )
 
+
+
         # Stack pour positionner l'image
         self.image_stack = ft.Stack(
             controls=[self.image_container, *self._grid_lines, self._shift_badge],
             width=self.canvas_w,
             height=self.canvas_h,
         )
+
+
 
         # GestureDetector pour gérer le pan et zoom
         self.gesture_detector = ft.GestureDetector(
@@ -450,9 +489,11 @@ class PhotoCropper:
             drag_interval=33,
         )
 
-        # visible status fallback when SnackBar is not shown
+
+
+        # Texte de statut affiché quand la SnackBar n'est pas visible
         self.status_text = ft.Text("")
-        # action buttons (created here so main can reference them)
+        # Boutons d'action (créés ici pour que le main puisse les référencer)
         self.validate_button = ft.Button(
             "Valider & Suivant",
             icon=ft.Icons.CHECK,
@@ -461,7 +502,9 @@ class PhotoCropper:
             on_click=self.validate_and_next,
         )
 
-        # Ignore button to skip current image
+
+
+        # Bouton pour ignorer l'image courante
         self.ignore_button = ft.Button(
             "Ignorer Image",
             icon=ft.Icons.BLOCK,
@@ -469,6 +512,8 @@ class PhotoCropper:
             color=DARK,
             on_click=self.ignore_image,
         )
+
+
 
         self.two_in_one_switch = ft.Switch(label="2 en 1", active_color=BLUE, value=False, visible=any(fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]), on_change=self.is_two_in_one_enabled)
         self.border_switch_13x15 = ft.Switch(label="13x15", active_color=ORANGE, value=False, visible="10x15" in self.current_format_label, on_change=self.on_border_toggle_13x15)
@@ -532,6 +577,9 @@ class PhotoCropper:
             disabled=not REMBG_AVAILABLE,
             tooltip="Rapide : u2net / Précis : birefnet" if REMBG_AVAILABLE else "",
         )
+
+
+
         # Érosion du masque — slider 0–2 % par tranche de 0,1 % (0 = désactivé)
         self.rembg_erosion_pct = 0.0
         self.rembg_erosion_slider = ft.Slider(
@@ -556,6 +604,8 @@ class PhotoCropper:
             style=ft.ButtonStyle(padding=ft.Padding.all(4)),
         )
 
+
+
         # Sliders de réglages (panneau gauche)
         self.contrast = 0.0
         self.contrast_slider = ft.Slider(
@@ -579,6 +629,8 @@ class PhotoCropper:
             on_change_end=self.on_exposure_end,
         )
 
+
+
         # Teinte (Hue)
         self.hue = 0.0
         self.hue_slider = ft.Slider(
@@ -588,6 +640,8 @@ class PhotoCropper:
             on_change_end=self.on_hue_end,
         )
 
+
+
         # Balance des blancs (temperature : - = froid/bleu, + = chaud/jaune)
         self.white_balance = 0.0
         self.white_balance_slider = ft.Slider(
@@ -596,6 +650,8 @@ class PhotoCropper:
             on_change=self.on_wb_label,
             on_change_end=self.on_wb_end,
         )
+
+
 
         # Histogramme miniature
         self.histogram_image = ft.Image(
@@ -615,10 +671,11 @@ class PhotoCropper:
             border=ft.Border.all(1, GREY),
         )
 
+
+
     # ================================================================ #
     #                    CANVAS & TRANSFORMATIONS                      #
     # ================================================================ #
-
     def update_canvas_size(self):
         """
         Recalcule et applique les dimensions optimales du canevas.
@@ -636,18 +693,20 @@ class PhotoCropper:
         available_width = min(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
         available_height = min(self.page.window.height - 380, MAX_CANVAS_SIZE) if self.page.window.height else 600
 
+
+
         # Calculer le ratio du format choisi
-        fmt_w, fmt_h = self.current_format
+        format_width, format_height = self.current_format
         if self.canvas_is_portrait:
-            target_ratio = fmt_w / fmt_h  # portrait: largeur < hauteur
+            target_aspect_ratio = format_width / format_height  # portrait: largeur < hauteur
         else:
-            target_ratio = fmt_h / fmt_w  # paysage: largeur > hauteur
+            target_aspect_ratio = format_height / format_width  # paysage: largeur > hauteur
 
         self.canvas_w = available_width
-        self.canvas_h = self.canvas_w / target_ratio
+        self.canvas_h = self.canvas_w / target_aspect_ratio
         if self.canvas_h > available_height:
             self.canvas_h = available_height
-            self.canvas_w = self.canvas_h * target_ratio
+            self.canvas_w = self.canvas_h * target_aspect_ratio
 
         self.canvas_container.width = self.canvas_w
         self.canvas_container.height = self.canvas_h
@@ -665,6 +724,8 @@ class PhotoCropper:
             self._grid_lines[3].width  = self.canvas_w
         self.page.update()
 
+
+
     def _update_transform(self):
         """
         Applique la transformation affine courante (scale, pan, rotation)
@@ -673,21 +734,23 @@ class PhotoCropper:
         Appelle uniquement `.update()` sur le container (pas `page.update()`)
         pour minimiser le coût de rendu lors du pan/zoom interactif.
         """
-        zoomed_w = self.display_w * self.scale
-        zoomed_h = self.display_h * self.scale
+        scaled_image_width  = self.display_w * self.scale
+        scaled_image_height = self.display_h * self.scale
 
-        left = (self.canvas_w - zoomed_w) / 2 + self.offset_x
-        top = (self.canvas_h - zoomed_h) / 2 + self.offset_y
+        image_left = (self.canvas_w - scaled_image_width) / 2 + self.offset_x
+        image_top  = (self.canvas_h - scaled_image_height) / 2 + self.offset_y
 
         self.image_container.scale = self.scale
         self.image_container.rotate = math.radians(self.rotation)
 
-        center_x = left + zoomed_w / 2
-        center_y = top + zoomed_h / 2
+        image_center_x = image_left + scaled_image_width / 2
+        image_center_y = image_top  + scaled_image_height / 2
 
-        self.image_container.left = center_x - self.display_w / 2
-        self.image_container.top  = center_y - self.display_h / 2
+        self.image_container.left = image_center_x - self.display_w / 2
+        self.image_container.top  = image_center_y - self.display_h / 2
         self.image_container.update()
+
+
 
     def _get_transformed_bounds(self):
         """
@@ -707,19 +770,21 @@ class PhotoCropper:
             (bound_w, bound_h) en pixels écran.
         """
         if self._bounds_cache is not None:
-            cs, cr, result = self._bounds_cache
-            if cs == self.scale and cr == self.rotation:
-                return result
-        scaled_w = self.display_w * self.scale
-        scaled_h = self.display_h * self.scale
-        theta = math.radians(self.rotation)
-        cos_t = abs(math.cos(theta))
-        sin_t = abs(math.sin(theta))
-        bound_w = scaled_w * cos_t + scaled_h * sin_t
-        bound_h = scaled_w * sin_t + scaled_h * cos_t
-        result = (bound_w, bound_h)
-        self._bounds_cache = (self.scale, self.rotation, result)
-        return result
+            cached_scale, cached_rotation, bounds_result = self._bounds_cache
+            if cached_scale == self.scale and cached_rotation == self.rotation:
+                return bounds_result
+        scaled_image_width = self.display_w * self.scale
+        scaled_image_height = self.display_h * self.scale
+        rotation_radians = math.radians(self.rotation)
+        cos_angle = abs(math.cos(rotation_radians))
+        sin_angle = abs(math.sin(rotation_radians))
+        bounding_width  = scaled_image_width * cos_angle + scaled_image_height * sin_angle
+        bounding_height = scaled_image_width * sin_angle + scaled_image_height * cos_angle
+        bounds_result = (bounding_width, bounding_height)
+        self._bounds_cache = (self.scale, self.rotation, bounds_result)
+        return bounds_result
+
+
 
     def _clamp_offsets(self):
         """
@@ -739,39 +804,40 @@ class PhotoCropper:
         exactement à ce que l'export peut produire, évitant tout bord blanc.
         """
         # Couverture réelle en pixels écran — identique à l'export (_compute_crop_with_canvas)
-        nudge = (1.0 + 2.0 / min(self.orig_w, self.orig_h)
-                 if (self.orig_w > 4 and self.orig_h > 4) else 1.0)
-        actual_w = self.base_scale * self.orig_w * self.scale * nudge
-        actual_h = self.base_scale * self.orig_h * self.scale * nudge
+        border_safety_factor = (1.0 + 2.0 / min(self.original_width, self.original_height)
+                 if (self.original_width > 4 and self.original_height > 4) else 1.0)
+        effective_width  = self.base_scale * self.original_width * self.scale * border_safety_factor
+        effective_height = self.base_scale * self.original_height * self.scale * border_safety_factor
 
         if self.rotation != 0:
-            theta = math.radians(self.rotation)
-            cos_t = abs(math.cos(theta))
-            sin_t = abs(math.sin(theta))
-            zoomed_w = actual_w * cos_t + actual_h * sin_t
-            zoomed_h = actual_w * sin_t + actual_h * cos_t
+            rotation_radians = math.radians(self.rotation)
+            cos_angle = abs(math.cos(rotation_radians))
+            sin_angle = abs(math.sin(rotation_radians))
+            rotated_width  = effective_width * cos_angle + effective_height * sin_angle
+            rotated_height = effective_width * sin_angle + effective_height * cos_angle
         else:
-            zoomed_w = actual_w
-            zoomed_h = actual_h
+            rotated_width  = effective_width
+            rotated_height = effective_height
 
-        overflow_x = zoomed_w - self.canvas_w
-        if overflow_x < 0.5:
+        horizontal_overflow = rotated_width - self.canvas_w
+        if horizontal_overflow < 0.5:
             self.offset_x = 0
         else:
-            max_offset_x = overflow_x / 2
-            self.offset_x = min(max_offset_x, max(-max_offset_x, self.offset_x))
+            max_horizontal_offset = horizontal_overflow / 2
+            self.offset_x = min(max_horizontal_offset, max(-max_horizontal_offset, self.offset_x))
 
-        overflow_y = zoomed_h - self.canvas_h
-        if overflow_y < 0.5:
+        vertical_overflow = rotated_height - self.canvas_h
+        if vertical_overflow < 0.5:
             self.offset_y = 0
         else:
-            max_offset_y = overflow_y / 2
-            self.offset_y = min(max_offset_y, max(-max_offset_y, self.offset_y))
+            max_vertical_offset = vertical_overflow / 2
+            self.offset_y = min(max_vertical_offset, max(-max_vertical_offset, self.offset_y))
+
+
 
     # ================================================================ #
     #                     CHARGEMENT DES IMAGES                        #
     # ================================================================ #
-
     def load_image(self, preserve_orientation=True):
         """
         Charge l'image courante (image_paths[current_index]) et prépare
@@ -817,14 +883,18 @@ class PhotoCropper:
 
         path = self.image_paths[self.current_index]
 
+
+
         # Pré-remplir copies_count depuis le préfixe NX_ du nom de fichier
-        _m = re.match(r'^(\d+)X_', os.path.basename(path))
-        if _m:
-            self.copies_count = int(_m.group(1))
+        copies_prefix_match = re.match(r'^(\d+)X_', os.path.basename(path))
+        if copies_prefix_match:
+            self.copies_count = int(copies_prefix_match.group(1))
         else:
             self.copies_count = 1
         if hasattr(self, 'copies_text'):
             self.copies_text.value = str(self.copies_count)
+
+
 
         # Vérifier que le fichier existe et est accessible
         if not os.path.isfile(path) or not os.access(path, os.R_OK):
@@ -837,16 +907,16 @@ class PhotoCropper:
             return
         
         try:
-            pil_img = Image.open(path)
+            source_image = Image.open(path)
             # Conserver le profil ICC avant toute conversion
-            self.icc_profile = pil_img.info.get('icc_profile', None)
+            self.icc_profile = source_image.info.get('icc_profile', None)
             # Appliquer la rotation EXIF pour corriger l'orientation
-            pil_img = ImageOps.exif_transpose(pil_img)
-            pil_img = pil_img.convert("RGBA")
-            self.current_pil_image = pil_img
+            source_image = ImageOps.exif_transpose(source_image)
+            source_image = source_image.convert("RGBA")
+            self.current_pil_image = source_image
             self._rembg_original = None
             self.rembg_btn.selected = False
-            self.orig_w, self.orig_h = pil_img.size
+            self.original_width, self.original_height = source_image.size
         except Exception as e:
             self.status_text.value = f"Erreur lors du chargement: {os.path.basename(path)} - {str(e)}"
             self.page.update()
@@ -857,20 +927,20 @@ class PhotoCropper:
             return
 
         if not preserve_orientation:
-            self.canvas_is_portrait = True if self.orig_h >= self.orig_w else False
+            self.canvas_is_portrait = True if self.original_height >= self.original_width else False
 
         self.update_canvas_size()
         
         # Calculer la taille de base : COVER en mode normal, CONTAIN en mode Fit-in
-        scale_w = self.canvas_w / self.orig_w
-        scale_h = self.canvas_h / self.orig_h
+        scale_factor_width = self.canvas_w / self.original_width
+        scale_factor_height = self.canvas_h / self.original_height
         if self.is_fit_in:
-            self.base_scale = min(scale_w, scale_h)
+            self.base_scale = min(scale_factor_width, scale_factor_height)
         else:
-            self.base_scale = max(scale_w, scale_h)
+            self.base_scale = max(scale_factor_width, scale_factor_height)
         
-        self.display_w = int(round(self.orig_w * self.base_scale))
-        self.display_h = int(round(self.orig_h * self.base_scale))
+        self.display_w = int(round(self.original_width * self.base_scale))
+        self.display_h = int(round(self.original_height * self.base_scale))
         if not self.is_fit_in:
             # +4 px garantit un débordement minimum même quand le ratio de l'image
             # correspond exactement à celui du format d'impression (ex. photo 2:3 en 10×15).
@@ -935,7 +1005,9 @@ class PhotoCropper:
 
         self.page.title = f"Crop: {os.path.basename(path)} ({self.current_index + 1}/{len(self.image_paths)})"
         self.page.update()
-    
+
+
+
     def batch_process_interactive(self, e):
         """
         Initialise le batch interactif en listant les images du dossier source.
@@ -965,64 +1037,65 @@ class PhotoCropper:
         """
         import time
 
-        folder = self.source_folder
+        source_folder_path = self.source_folder
 
         # Délai pour s'assurer que tous les fichiers sont complètement copiés
         time.sleep(0.3)
 
-        selected_files_str = os.environ.get("SELECTED_FILES", "")
-        selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
+        selected_files_env_value = os.environ.get("SELECTED_FILES", "")
+        selected_files_filter = set(selected_files_env_value.split("|")) if selected_files_env_value else None
 
         try:
-            all_files = os.listdir(folder)
+            all_folder_files = os.listdir(source_folder_path)
         except Exception as e:
             self.status_text.value = f"Erreur lors de la lecture du dossier: {e}"
             self.page.update()
             return
 
-        imgs = [f for f in all_files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.jpe', '.tif', '.tiff', '.bmp', '.dib', '.gif', '.webp', '.ico', '.pcx', '.tga', '.ppm', '.pgm', '.pbm', '.pnm')) and not f == "watermark.png"]
-        total_images_found = len(imgs)
+        image_filenames = [f for f in all_folder_files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.jpe', '.tif', '.tiff', '.bmp', '.dib', '.gif', '.webp', '.ico', '.pcx', '.tga', '.ppm', '.pgm', '.pbm', '.pnm')) and not f == "watermark.png"]
+        total_image_count = len(image_filenames)
 
-        if selected_files_set:
-            imgs = [f for f in imgs if f in selected_files_set]
-            if not imgs and total_images_found > 0:
-                self.status_text.value = f"{total_images_found} image(s) trouvée(s) mais aucune ne correspond aux fichiers sélectionnés"
+        if selected_files_filter:
+            image_filenames = [f for f in image_filenames if f in selected_files_filter]
+            if not image_filenames and total_image_count > 0:
+                self.status_text.value = f"{total_image_count} image(s) trouvée(s) mais aucune ne correspond aux fichiers sélectionnés"
                 self.page.update()
                 return
 
-        if not imgs:
-            if len(all_files) == 0:
+        if not image_filenames:
+            if len(all_folder_files) == 0:
                 self.status_text.value = "Le dossier est vide"
             else:
-                self.status_text.value = f"Aucune image valide trouvée dans le dossier ({len(all_files)} fichier(s) présent(s))"
+                self.status_text.value = f"Aucune image valide trouvée dans le dossier ({len(all_folder_files)} fichier(s) présent(s))"
             self.page.update()
             return
 
-        valid_paths = []
-        for img_file in imgs:
-            img_path = os.path.join(folder, img_file)
-            if os.path.isfile(img_path) and os.access(img_path, os.R_OK):
+        valid_image_paths = []
+        for image_filename in image_filenames:
+            image_path = os.path.join(source_folder_path, image_filename)
+            if os.path.isfile(image_path) and os.access(image_path, os.R_OK):
                 try:
-                    with Image.open(img_path) as test_img:
-                        test_img.verify()
-                    valid_paths.append(img_path)
+                    with Image.open(image_path) as test_image:
+                        test_image.verify()
+                    valid_image_paths.append(image_path)
                 except Exception:
                     pass
 
-        if not valid_paths:
-            self.status_text.value = f"{len(imgs)} image(s) trouvée(s) mais aucune n'est accessible ou valide"
+        if not valid_image_paths:
+            self.status_text.value = f"{len(image_filenames)} image(s) trouvée(s) mais aucune n'est accessible ou valide"
             self.page.update()
             return
 
-        self.image_paths = valid_paths
+        self.image_paths = valid_image_paths
         self.current_index = 0
         self.batch_mode = True
         self.load_image(preserve_orientation=False)
 
+
+
     # ================================================================ #
     #                      CALCUL DU RECADRAGE                         #
     # ================================================================ #
-
     def _compute_crop(self, target_w_px, target_h_px):
         """
         Calcule le recadrage de l'image courante pour le canevas principal.
@@ -1048,6 +1121,8 @@ class PhotoCropper:
             self.canvas_w, self.canvas_h,
             self.base_scale, self.offset_x, self.offset_y,
         )
+
+
 
     def _compute_crop_for_format(self, fmt_w_mm, fmt_h_mm, is_portrait):
         """
@@ -1082,31 +1157,33 @@ class PhotoCropper:
             target_w_px = mm_to_pixels(fmt_h_mm)
             target_h_px = mm_to_pixels(fmt_w_mm)
 
-        fmt_ratio = target_w_px / target_h_px
-        avail_w = self.canvas_w
-        avail_h = self.canvas_h
-        if avail_w / avail_h > fmt_ratio:
-            virt_h = avail_h
-            virt_w = avail_h * fmt_ratio
+        target_aspect_ratio = target_w_px / target_h_px
+        available_width  = self.canvas_w
+        available_height = self.canvas_h
+        if available_width / available_height > target_aspect_ratio:
+            virtual_canvas_height = available_height
+            virtual_canvas_width  = available_height * target_aspect_ratio
         else:
-            virt_w = avail_w
-            virt_h = avail_w / fmt_ratio
+            virtual_canvas_width  = available_width
+            virtual_canvas_height = available_width / target_aspect_ratio
 
-        virt_base_scale = max(virt_w / self.orig_w, virt_h / self.orig_h)
+        virtual_base_scale = max(virtual_canvas_width / self.original_width, virtual_canvas_height / self.original_height)
 
         if self.base_scale > 0:
-            off_img_x = self.offset_x / (self.base_scale * self.scale)
-            off_img_y = self.offset_y / (self.base_scale * self.scale)
+            image_space_offset_x = self.offset_x / (self.base_scale * self.scale)
+            image_space_offset_y = self.offset_y / (self.base_scale * self.scale)
         else:
-            off_img_x = off_img_y = 0.0
-        virt_offset_x = off_img_x * virt_base_scale * self.scale
-        virt_offset_y = off_img_y * virt_base_scale * self.scale
+            image_space_offset_x = image_space_offset_y = 0.0
+        virtual_offset_x = image_space_offset_x * virtual_base_scale * self.scale
+        virtual_offset_y = image_space_offset_y * virtual_base_scale * self.scale
 
         return self._compute_crop_with_canvas(
             target_w_px, target_h_px,
-            virt_w, virt_h,
-            virt_base_scale, virt_offset_x, virt_offset_y,
+            virtual_canvas_width, virtual_canvas_height,
+            virtual_base_scale, virtual_offset_x, virtual_offset_y,
         )
+
+
 
     def _compute_crop_from_snapshot(self, snapshot):
         """
@@ -1134,9 +1211,9 @@ class PhotoCropper:
         PIL.Image.Image
             Image recadrée en mode RGB aux dimensions du format du snapshot.
         """
-        dims = snapshot["dims"]
+        format_dimensions = snapshot["dims"]
         is_portrait = snapshot["is_portrait"]
-        fmt_w_mm, fmt_h_mm = dims
+        fmt_w_mm, fmt_h_mm = format_dimensions
         if is_portrait:
             target_w_px = mm_to_pixels(fmt_w_mm)
             target_h_px = mm_to_pixels(fmt_h_mm)
@@ -1144,31 +1221,35 @@ class PhotoCropper:
             target_w_px = mm_to_pixels(fmt_h_mm)
             target_h_px = mm_to_pixels(fmt_w_mm)
 
-        saved_rotation = self.rotation
-        saved_bw = self.is_bw
+        saved_rotation_angle = self.rotation
+        saved_black_and_white = self.is_bw
         self.rotation = snapshot["rotation"]
         self.is_bw = snapshot.get("is_bw", False)
 
+
+
         # Si rembg n'était pas actif lors du snapshot mais l'est maintenant,
         # utiliser l'image originale (avant suppression du fond) pour ce format.
-        saved_pil_image = None
+        saved_image_before_snapshot = None
         if not snapshot.get("rembg_active", False) and self.current_pil_image.mode == "RGBA" and self._rembg_original is not None:
-            saved_pil_image = self.current_pil_image
+            saved_image_before_snapshot = self.current_pil_image
             self.current_pil_image = self._rembg_original
 
-        result = self._compute_crop_with_canvas(
+        cropped_image = self._compute_crop_with_canvas(
             target_w_px, target_h_px,
             snapshot["canvas_w"], snapshot["canvas_h"],
             snapshot["base_scale"], snapshot["offset_x"], snapshot["offset_y"],
             scale_override=snapshot["scale"],
         )
 
-        if saved_pil_image is not None:
-            self.current_pil_image = saved_pil_image
+        if saved_image_before_snapshot is not None:
+            self.current_pil_image = saved_image_before_snapshot
 
-        self.rotation = saved_rotation
-        self.is_bw = saved_bw
-        return result
+        self.rotation = saved_rotation_angle
+        self.is_bw = saved_black_and_white
+        return cropped_image
+
+
 
     def _compute_crop_with_canvas(self, target_w_px, target_h_px,
                                    canvas_w, canvas_h, base_scale, offset_x, offset_y,
@@ -1207,84 +1288,87 @@ class PhotoCropper:
         PIL.Image.Image
             Image recadrée en mode RGB.
         """
-        angle = math.radians(self.rotation)
-        cos_a = math.cos(angle)
-        sin_a = math.sin(angle)
+        rotation_radians = math.radians(self.rotation)
+        cos_rotation = math.cos(rotation_radians)
+        sin_rotation = math.sin(rotation_radians)
 
-        scale = scale_override if scale_override is not None else self.scale
-        total_scale = base_scale * scale
-        if total_scale <= 0:
-            total_scale = 1e-6
-        # Nudge total_scale so BICUBIC kernel never samples outside source image bounds.
-        # When image ratio exactly matches format ratio at default zoom, border output pixels
-        # map to src coords 0.0 / orig_w exactly, so BICUBIC would need pixels at index -1
-        # which PIL fills with (255,255,255,0) → thin white fringe after alpha compositing.
-        if self.orig_w > 4 and self.orig_h > 4:
-            total_scale *= 1.0 + 2.0 / min(self.orig_w, self.orig_h)
+        active_zoom_scale = scale_override if scale_override is not None else self.scale
+        total_scale_factor = base_scale * active_zoom_scale
+        if total_scale_factor <= 0:
+            total_scale_factor = 1e-6
+        # Décale légèrement total_scale_factor pour que le noyau BICUBIC ne sorte jamais
+        # des limites de l'image source. Quand le ratio de l'image correspond exactement
+        # au ratio du format au zoom par défaut, les pixels de bord se projettent sur les
+        # coordonnées src 0.0 / orig_w, ce qui forcerait BICUBIC à lire l'index -1 —
+        # PIL le comble avec (255,255,255,0) → fine frange blanche après compositage alpha.
+        if self.original_width > 4 and self.original_height > 4:
+            total_scale_factor *= 1.0 + 2.0 / min(self.original_width, self.original_height)
 
-        canvas_cx = canvas_w / 2 + offset_x
-        canvas_cy = canvas_h / 2 + offset_y
-        orig_cx = self.orig_w / 2
-        orig_cy = self.orig_h / 2
+        canvas_center_x = canvas_w / 2 + offset_x
+        canvas_center_y = canvas_h / 2 + offset_y
+        image_center_x = self.original_width / 2
+        image_center_y = self.original_height / 2
 
-        ax_cx = total_scale * (cos_a * orig_cx - sin_a * orig_cy)
-        ay_cy = total_scale * (sin_a * orig_cx + cos_a * orig_cy)
-        tx = canvas_cx - ax_cx
-        ty = canvas_cy - ay_cy
+        scaled_rotated_image_center_x = total_scale_factor * (cos_rotation * image_center_x - sin_rotation * image_center_y)
+        scaled_rotated_image_center_y = total_scale_factor * (sin_rotation * image_center_x + cos_rotation * image_center_y)
+        canvas_translation_x = canvas_center_x - scaled_rotated_image_center_x
+        canvas_translation_y = canvas_center_y - scaled_rotated_image_center_y
 
-        sx = canvas_w / target_w_px
-        sy = canvas_h / target_h_px
+        canvas_to_output_scale_x = canvas_w / target_w_px
+        canvas_to_output_scale_y = canvas_h / target_h_px
 
-        inv_scale = 1.0 / total_scale
+        inverse_total_scale = 1.0 / total_scale_factor
 
-        a = inv_scale * cos_a * sx
-        b = inv_scale * sin_a * sy
-        d = inv_scale * -sin_a * sx
-        e_m = inv_scale * cos_a * sy
+        affine_m11 = inverse_total_scale * cos_rotation * canvas_to_output_scale_x
+        affine_m12 = inverse_total_scale * sin_rotation * canvas_to_output_scale_y
+        affine_m21 = inverse_total_scale * -sin_rotation * canvas_to_output_scale_x
+        affine_m22 = inverse_total_scale * cos_rotation * canvas_to_output_scale_y
 
-        inv_tx = inv_scale * (cos_a * tx + sin_a * ty)
-        inv_ty = inv_scale * (-sin_a * tx + cos_a * ty)
-        c = -inv_tx
-        f = -inv_ty
+        inverse_translation_x = inverse_total_scale * (cos_rotation * canvas_translation_x + sin_rotation * canvas_translation_y)
+        inverse_translation_y = inverse_total_scale * (-sin_rotation * canvas_translation_x + cos_rotation * canvas_translation_y)
+        affine_offset_x = -inverse_translation_x
+        affine_offset_y = -inverse_translation_y
 
-        pil_crop = self.current_pil_image.transform(
+        output_image = self.current_pil_image.transform(
             (target_w_px, target_h_px),
             Image.Transform.AFFINE,
-            (a, b, c, d, e_m, f),
+            (affine_m11, affine_m12, affine_offset_x, affine_m21, affine_m22, affine_offset_y),
             resample=Image.Resampling.BICUBIC,
             fillcolor=(255, 255, 255, 0),
         )
 
-        if pil_crop.mode == "RGBA":
+        if output_image.mode == "RGBA":
             # Érosion du canal alpha (suppression des franges résiduelles)
             if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
-                _er = max(1, round(min(pil_crop.size) * self.rembg_erosion_pct / 100))
-                pil_crop = _erode_alpha(pil_crop, _er)
+                erosion_radius = max(1, round(min(output_image.size) * self.rembg_erosion_pct / 100))
+                output_image = _erode_alpha(output_image, erosion_radius)
             if getattr(self, 'rembg_bg_white', True):
-                bg = Image.new("RGBA", pil_crop.size, (255, 255, 255, 255))
+                background_layer = Image.new("RGBA", output_image.size, (255, 255, 255, 255))
             else:
-                orig_for_blur = self._rembg_original if self._rembg_original is not None else None
-                if orig_for_blur is not None:
-                    orig_crop = orig_for_blur.convert("RGB").transform(
+                original_image_for_blur = self._rembg_original if self._rembg_original is not None else None
+                if original_image_for_blur is not None:
+                    original_crop = original_image_for_blur.convert("RGB").transform(
                         (target_w_px, target_h_px),
                         Image.Transform.AFFINE,
-                        (a, b, c, d, e_m, f),
+                        (affine_m11, affine_m12, affine_offset_x, affine_m21, affine_m22, affine_offset_y),
                         resample=Image.Resampling.BICUBIC,
                         fillcolor=(255, 255, 255),
                     )
-                    blurred_rgb = orig_crop.filter(ImageFilter.GaussianBlur(radius=64))
+                    blurred_background = original_crop.filter(ImageFilter.GaussianBlur(radius=64))
                 else:
-                    white = Image.new("RGBA", pil_crop.size, (255, 255, 255, 255))
-                    blurred_rgb = Image.alpha_composite(white, pil_crop).convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
-                bg = blurred_rgb.convert("RGBA")
-            pil_crop = Image.alpha_composite(bg, pil_crop).convert("RGB")
+                    white_background = Image.new("RGBA", output_image.size, (255, 255, 255, 255))
+                    blurred_background = Image.alpha_composite(white_background, output_image).convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
+                background_layer = blurred_background.convert("RGBA")
+            output_image = Image.alpha_composite(background_layer, output_image).convert("RGB")
         else:
-            pil_crop = pil_crop.convert("RGB")
+            output_image = output_image.convert("RGB")
 
         if self.is_bw:
-            pil_crop = pil_crop.convert("L").convert("RGB")
+            output_image = output_image.convert("L").convert("RGB")
 
-        return pil_crop
+        return output_image
+
+
 
     def _compute_fit_in(self, target_w_px, target_h_px):
         """
@@ -1307,41 +1391,42 @@ class PhotoCropper:
         PIL.Image.Image
             Image redimensionnée collée sur fond blanc RGB.
         """
-        img = self.current_pil_image
-        if img.mode == "RGBA":
+        source_image = self.current_pil_image
+        if source_image.mode == "RGBA":
             # Érosion du canal alpha (suppression des franges résiduelles)
             if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
-                _er = max(1, round(min(img.size) * self.rembg_erosion_pct / 100))
-                img = _erode_alpha(img.copy(), _er)
+                erosion_radius = max(1, round(min(source_image.size) * self.rembg_erosion_pct / 100))
+                source_image = _erode_alpha(source_image.copy(), erosion_radius)
             if getattr(self, 'rembg_bg_white', True):
-                bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+                background_layer = Image.new("RGBA", source_image.size, (255, 255, 255, 255))
             else:
-                orig_for_blur = self._rembg_original if self._rembg_original is not None else None
-                if orig_for_blur is not None:
-                    blurred_rgb = orig_for_blur.convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
+                original_image_for_blur = self._rembg_original if self._rembg_original is not None else None
+                if original_image_for_blur is not None:
+                    blurred_background = original_image_for_blur.convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
                 else:
-                    white = Image.new("RGBA", img.size, (255, 255, 255, 255))
-                    blurred_rgb = Image.alpha_composite(white, img).convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
-                bg = blurred_rgb.convert("RGBA")
-            img = Image.alpha_composite(bg, img).convert("RGB")
+                    white_background = Image.new("RGBA", source_image.size, (255, 255, 255, 255))
+                    blurred_background = Image.alpha_composite(white_background, source_image).convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
+                background_layer = blurred_background.convert("RGBA")
+            source_image = Image.alpha_composite(background_layer, source_image).convert("RGB")
         else:
-            img = img.convert("RGB")
-        fit_scale = min(target_w_px / self.orig_w, target_h_px / self.orig_h)
-        new_w = max(1, int(round(self.orig_w * fit_scale)))
-        new_h = max(1, int(round(self.orig_h * fit_scale)))
-        resized = img.resize((new_w, new_h), Image.Resampling.BICUBIC)
-        result = Image.new("RGB", (target_w_px, target_h_px), "white")
-        x_offset = (target_w_px - new_w) // 2
-        y_offset = (target_h_px - new_h) // 2
-        result.paste(resized, (x_offset, y_offset))
+            source_image = source_image.convert("RGB")
+        fit_scale_factor = min(target_w_px / self.original_width, target_h_px / self.original_height)
+        resized_width  = max(1, int(round(self.original_width  * fit_scale_factor)))
+        resized_height = max(1, int(round(self.original_height * fit_scale_factor)))
+        resized_image = source_image.resize((resized_width, resized_height), Image.Resampling.BICUBIC)
+        output_canvas = Image.new("RGB", (target_w_px, target_h_px), "white")
+        paste_offset_x = (target_w_px - resized_width)  // 2
+        paste_offset_y = (target_h_px - resized_height) // 2
+        output_canvas.paste(resized_image, (paste_offset_x, paste_offset_y))
         if self.is_bw:
-            result = result.convert("L").convert("RGB")
-        return result
+            output_canvas = output_canvas.convert("L").convert("RGB")
+        return output_canvas
+
+
 
     # ================================================================ #
     #                    CONSTRUCTION DES PLANCHES                     #
     # ================================================================ #
-
     def is_two_in_one_enabled(self):
         """
         Indique si le mode « 2 en 1 » est actif pour le format courant.
@@ -1355,6 +1440,8 @@ class PhotoCropper:
         return bool(self.two_in_one_switch.value) and any(
             fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]
         )
+
+
 
     def _force_portrait(self, image):
         """
@@ -1377,6 +1464,8 @@ class PhotoCropper:
         if image.width > image.height:
             return image.rotate(90, expand=True)
         return image
+
+
 
     def _build_two_in_one_image(self, first_image, target_w_px, target_h_px):
         """
@@ -1406,28 +1495,30 @@ class PhotoCropper:
         PIL.Image.Image
             Planche 2-en-1 en mode RGB aux dimensions (target_w_px, target_h_px).
         """
-        split_on_width = target_w_px >= target_h_px
+        divide_horizontally = target_w_px >= target_h_px
 
-        if split_on_width:
-            panel_w = target_w_px // 2
-            panel_h = target_h_px
-            first_pos = (0, 0)
-            second_pos = (panel_w, 0)
+        if divide_horizontally:
+            panel_width  = target_w_px // 2
+            panel_height = target_h_px
+            first_panel_position  = (0, 0)
+            second_panel_position = (panel_width, 0)
         else:
-            panel_w = target_w_px
-            panel_h = target_h_px // 2
-            first_pos = (0, 0)
-            second_pos = (0, panel_h)
+            panel_width  = target_w_px
+            panel_height = target_h_px // 2
+            first_panel_position  = (0, 0)
+            second_panel_position = (0, panel_height)
 
         first_image = self._force_portrait(first_image.convert("RGB"))
-        first_panel = ImageOps.fit(first_image, (panel_w, panel_h), method=Image.Resampling.BICUBIC)
+        first_panel = ImageOps.fit(first_image, (panel_width, panel_height), method=Image.Resampling.BICUBIC)
 
         second_panel = first_panel.copy()
 
-        composed = Image.new("RGB", (target_w_px, target_h_px), "white")
-        composed.paste(first_panel, first_pos)
-        composed.paste(second_panel, second_pos)
-        return composed
+        assembled_image = Image.new("RGB", (target_w_px, target_h_px), "white")
+        assembled_image.paste(first_panel, first_panel_position)
+        assembled_image.paste(second_panel, second_panel_position)
+        return assembled_image
+
+
 
     def _build_two_in_one_10x15_to_13x15(self, first_image):
         """
@@ -1450,24 +1541,26 @@ class PhotoCropper:
             Planche 13x15 en mode RGB avec les deux copies en haut et la
             marge blanche en bas.
         """
-        panel_w = mm_to_pixels(76)
-        panel_h = mm_to_pixels(102)
-        base_w = mm_to_pixels(152)
-        base_h = mm_to_pixels(102)
-        final_h = mm_to_pixels(127)
+        panel_width  = mm_to_pixels(76)
+        panel_height = mm_to_pixels(102)
+        base_width   = mm_to_pixels(152)
+        base_height  = mm_to_pixels(102)
+        final_height = mm_to_pixels(127)
 
         first_image = self._force_portrait(first_image.convert("RGB"))
-        panel = ImageOps.fit(first_image, (panel_w, panel_h), method=Image.Resampling.BICUBIC)
+        photo_panel = ImageOps.fit(first_image, (panel_width, panel_height), method=Image.Resampling.BICUBIC)
 
-        base = Image.new("RGB", (base_w, base_h), "white")
-        base.paste(panel, (0, 0))
-        base.paste(panel, (panel_w, 0))
+        base_image = Image.new("RGB", (base_width, base_height), "white")
+        base_image.paste(photo_panel, (0, 0))
+        base_image.paste(photo_panel, (panel_width, 0))
 
-        framed = Image.new("RGB", (base_w, final_h), "white")
-        framed.paste(base, (0, 0))
-        return framed
+        framed_image = Image.new("RGB", (base_width, final_height), "white")
+        framed_image.paste(base_image, (0, 0))
+        return framed_image
 
-    def _adaptive_enhance(self, img):
+
+
+    def _adaptive_enhance(self, input_image):
         """
         Améliore automatiquement les images sous-exposées ou ternes.
 
@@ -1488,7 +1581,7 @@ class PhotoCropper:
 
         Parameters
         ----------
-        img : PIL.Image.Image
+        input_image : PIL.Image.Image
             Image RGB à améliorer.
 
         Returns
@@ -1496,34 +1589,42 @@ class PhotoCropper:
         PIL.Image.Image
             Image RGB améliorée.
         """
-        ycbcr = img.convert("YCbCr")
-        y, cb, cr = ycbcr.split()
-        y_arr = np.array(y, dtype=np.float32)
-        mean_y = y_arr.mean()
+        ycbcr_image = input_image.convert("YCbCr")
+        y, cb, cr = ycbcr_image.split()
+        luminance_array = np.array(y, dtype=np.float32)
+        mean_luminance = luminance_array.mean()
+
+
 
         # Saturation toujours boostée, correction luminosité uniquement si image sombre
-        if mean_y >= 148:
-            return ImageEnhance.Color(img).enhance(1.32)
+        if mean_luminance >= 148:
+            return ImageEnhance.Color(input_image).enhance(1.32)
+
+
 
         # Correction gamma : ramène la moyenne vers 148 sans dépasser +42 unités
-        target_y = min(148.0, mean_y + 42.0)
-        gamma = math.log(target_y / 255.0) / math.log(max(mean_y, 1.0) / 255.0)
+        target_luminance = min(148.0, mean_luminance + 42.0)
+        gamma = math.log(target_luminance / 255.0) / math.log(max(mean_luminance, 1.0) / 255.0)
         gamma = max(0.60, min(0.95, gamma))  # Bornes de sécurité
 
-        y_enhanced = np.power(y_arr / 255.0, gamma) * 255.0
+        adjusted_luminance = np.power(luminance_array / 255.0, gamma) * 255.0
+
+
 
         # Léger étirement des contrastes (coupe 0.5 % à chaque extrémité)
-        p_low = np.percentile(y_enhanced, 0.5)
-        p_high = np.percentile(y_enhanced, 99.5)
-        if p_high > p_low:
-            y_enhanced = (y_enhanced - p_low) * 255.0 / (p_high - p_low)
-        y_enhanced = np.clip(y_enhanced, 0, 255).astype(np.uint8)
+        low_percentile  = np.percentile(adjusted_luminance, 0.5)
+        high_percentile = np.percentile(adjusted_luminance, 99.5)
+        if high_percentile > low_percentile:
+            adjusted_luminance = (adjusted_luminance - low_percentile) * 255.0 / (high_percentile - low_percentile)
+        adjusted_luminance = np.clip(adjusted_luminance, 0, 255).astype(np.uint8)
 
-        y_new = Image.fromarray(y_enhanced, "L")
-        result = Image.merge("YCbCr", (y_new, cb, cr)).convert("RGB")
-        return ImageEnhance.Color(result).enhance(1.42)
+        adjusted_y_channel = Image.fromarray(adjusted_luminance, "L")
+        enhanced_image = Image.merge("YCbCr", (adjusted_y_channel, cb, cr)).convert("RGB")
+        return ImageEnhance.Color(enhanced_image).enhance(1.42)
 
-    def _apply_adjustments(self, img):
+
+
+    def _apply_adjustments(self, input_image):
         """
         Applique les réglages d'exposition, contraste et saturation.
 
@@ -1551,127 +1652,139 @@ class PhotoCropper:
         PIL.Image.Image
             Image RGB ajustée.
         """
-        img = img.convert("RGB")
+        working_image = input_image.convert("RGB")
         if self.exposure != 0:
             # Exposition : gamma inverse (+ = plus clair, - = plus sombre)
             # +100 multiplie la lumière x2, -100 la divise par 2
-            factor = 2 ** (self.exposure / 100.0)
-            lut = np.clip(np.arange(256, dtype=np.float32) * factor, 0, 255).astype(np.uint8)
-            arr = np.array(img, dtype=np.uint8)
-            img = Image.fromarray(lut[arr], "RGB")
+            exposure_factor = 2 ** (self.exposure / 100.0)
+            exposure_lookup_table = np.clip(np.arange(256, dtype=np.float32) * exposure_factor, 0, 255).astype(np.uint8)
+            pixel_array = np.array(working_image, dtype=np.uint8)
+            working_image = Image.fromarray(exposure_lookup_table[pixel_array], "RGB")
         if self.contrast != 0:
-            img = ImageEnhance.Contrast(img).enhance(1.0 + self.contrast / 100.0)
+            working_image = ImageEnhance.Contrast(working_image).enhance(1.0 + self.contrast / 100.0)
         if self.saturation != 0:
-            img = ImageEnhance.Color(img).enhance(max(0.0, 1.0 + self.saturation / 100.0))
+            working_image = ImageEnhance.Color(working_image).enhance(max(0.0, 1.0 + self.saturation / 100.0))
         if self.hue != 0:
-            img = self._apply_hue(img, self.hue)
+            working_image = self._apply_hue(working_image, self.hue)
         if self.white_balance != 0:
-            img = self._apply_white_balance(img, self.white_balance)
-        return img
+            working_image = self._apply_white_balance(working_image, self.white_balance)
+        return working_image
 
-    def _apply_shadows(self, img, value):
+
+
+    def _apply_shadows(self, input_image, value):
         """Ajuste les ombres (similaire au slider Shadows de Camera Raw/Lightroom).
         value : -100 … +100. Positif = éclaircit les ombres, négatif = les assombrit.
         La courbe est nulle aux noirs purs (v=0), maximale vers v=96 et nulle dès les
         demi-tons (v≥192), ce qui préserve les noirs et les hautes lumières."""
         if value == 0:
-            return img
-        s = value / 100.0
-        v_arr = np.arange(256, dtype=np.float32)
+            return input_image
+        strength_factor = value / 100.0
+        value_range = np.arange(256, dtype=np.float32)
         # Courbe sinusoïdale : sin(π·v/192) — zéro en 0, pic à 96, zéro à 192+
-        t = v_arr / 192.0
-        weight = np.where(t <= 1.0, np.sin(np.pi * t), 0.0)
-        strength = 60  # amplitude max en niveaux d'intensité
-        lut = np.clip(v_arr + s * strength * weight, 0, 255).astype(np.uint8)
-        img_rgb = img.convert("RGB")
-        img_arr = np.array(img_rgb, dtype=np.uint8)
-        return Image.fromarray(lut[img_arr], "RGB")
+        normalized_value = value_range / 192.0
+        shadow_weight = np.where(normalized_value <= 1.0, np.sin(np.pi * normalized_value), 0.0)
+        shadow_amplitude = 60  # amplitude max en niveaux d'intensité
+        lookup_table = np.clip(value_range + strength_factor * shadow_amplitude * shadow_weight, 0, 255).astype(np.uint8)
+        input_rgb = input_image.convert("RGB")
+        image_array = np.array(input_rgb, dtype=np.uint8)
+        return Image.fromarray(lookup_table[image_array], "RGB")
 
-    def _apply_highlights(self, img, value):
+
+
+    def _apply_highlights(self, input_image, value):
         """Ajuste les hautes lumières (miroir des ombres).
         value : -100 … +100. Positif = éclaircit les hautes lumières, négatif = les assombrit.
         Courbe nulle sous v=64, pic vers v=192, nulle aux blancs purs (v=255)."""
         if value == 0:
-            return img
-        s = value / 100.0
-        v_arr = np.arange(256, dtype=np.float32)
+            return input_image
+        strength_factor = value / 100.0
+        value_range = np.arange(256, dtype=np.float32)
         # Courbe : sin(π·(v-64)/192) pour v dans [64, 255], zéro ailleurs
-        t = (v_arr - 64.0) / 192.0
-        weight = np.where((t >= 0.0) & (t <= 1.0), np.sin(np.pi * t), 0.0)
-        strength = 60
-        lut = np.clip(v_arr + s * strength * weight, 0, 255).astype(np.uint8)
-        img_rgb = img.convert("RGB")
-        img_arr = np.array(img_rgb, dtype=np.uint8)
-        return Image.fromarray(lut[img_arr], "RGB")
+        normalized_value = (value_range - 64.0) / 192.0
+        highlight_weight = np.where((normalized_value >= 0.0) & (normalized_value <= 1.0), np.sin(np.pi * normalized_value), 0.0)
+        highlight_amplitude = 60
+        lookup_table = np.clip(value_range + strength_factor * highlight_amplitude * highlight_weight, 0, 255).astype(np.uint8)
+        input_rgb = input_image.convert("RGB")
+        image_array = np.array(input_rgb, dtype=np.uint8)
+        return Image.fromarray(lookup_table[image_array], "RGB")
 
-    def _apply_hue(self, img, value):
+
+
+    def _apply_hue(self, input_image, value):
         """Teinte : décale vers vert (négatif) ou magenta (positif), comme Lightroom.
 
         value dans [-180, +180] ; effet max ±30 % sur R/G/B via LUT.
         """
         if value == 0:
-            return img
-        t = value / 180.0          # [-1, +1]
-        strength = abs(t) * 0.30   # force max 30 %
-        lut = np.arange(256, dtype=np.float32)
-        if t > 0:
+            return input_image
+        normalized_value = value / 180.0       # [-1, +1]
+        hue_strength = abs(normalized_value) * 0.30   # force max 30 %
+        base_lookup = np.arange(256, dtype=np.float32)
+        if normalized_value > 0:
             # Magenta : boost R et B, atténuer G
-            lut_r = np.clip(lut * (1.0 + strength),        0, 255).astype(np.uint8)
-            lut_g = np.clip(lut * (1.0 - strength),        0, 255).astype(np.uint8)
-            lut_b = np.clip(lut * (1.0 + strength * 0.7),  0, 255).astype(np.uint8)
+            red_lookup   = np.clip(base_lookup * (1.0 + hue_strength),       0, 255).astype(np.uint8)
+            green_lookup = np.clip(base_lookup * (1.0 - hue_strength),       0, 255).astype(np.uint8)
+            blue_lookup  = np.clip(base_lookup * (1.0 + hue_strength * 0.7), 0, 255).astype(np.uint8)
         else:
             # Vert : boost G, atténuer R et B
-            lut_r = np.clip(lut * (1.0 - strength),        0, 255).astype(np.uint8)
-            lut_g = np.clip(lut * (1.0 + strength),        0, 255).astype(np.uint8)
-            lut_b = np.clip(lut * (1.0 - strength * 0.7),  0, 255).astype(np.uint8)
-        arr = np.array(img.convert("RGB"), dtype=np.uint8)
-        result = np.stack([
-            lut_r[arr[:, :, 0]],
-            lut_g[arr[:, :, 1]],
-            lut_b[arr[:, :, 2]],
+            red_lookup   = np.clip(base_lookup * (1.0 - hue_strength),       0, 255).astype(np.uint8)
+            green_lookup = np.clip(base_lookup * (1.0 + hue_strength),       0, 255).astype(np.uint8)
+            blue_lookup  = np.clip(base_lookup * (1.0 - hue_strength * 0.7), 0, 255).astype(np.uint8)
+        pixel_array = np.array(input_image.convert("RGB"), dtype=np.uint8)
+        result_array = np.stack([
+            red_lookup[pixel_array[:, :, 0]],
+            green_lookup[pixel_array[:, :, 1]],
+            blue_lookup[pixel_array[:, :, 2]],
         ], axis=2)
-        return Image.fromarray(result, "RGB")
+        return Image.fromarray(result_array, "RGB")
 
-    def _apply_white_balance(self, img, value):
+
+
+    def _apply_white_balance(self, input_image, value):
         """Balance des blancs : -100 = froid (bleu), +100 = chaud (jaune/orange).\n\n        Applique une correction per-canal (R, G, B) proportionnelle à ``value``.
         """
         if value == 0:
-            return img
-        strength = abs(value) / 100.0 * 0.20  # max ±20 % par canal
-        arr = np.array(img.convert("RGB"), dtype=np.float32)
+            return input_image
+        balance_strength = abs(value) / 100.0 * 0.20  # max ±20 % par canal
+        pixel_array = np.array(input_image.convert("RGB"), dtype=np.float32)
         if value > 0:  # chaud : +R, léger +G, -B
-            arr[..., 0] = np.clip(arr[..., 0] * (1.0 + strength), 0, 255)
-            arr[..., 1] = np.clip(arr[..., 1] * (1.0 + strength * 0.2), 0, 255)
-            arr[..., 2] = np.clip(arr[..., 2] * (1.0 - strength), 0, 255)
+            pixel_array[..., 0] = np.clip(pixel_array[..., 0] * (1.0 + balance_strength), 0, 255)
+            pixel_array[..., 1] = np.clip(pixel_array[..., 1] * (1.0 + balance_strength * 0.2), 0, 255)
+            pixel_array[..., 2] = np.clip(pixel_array[..., 2] * (1.0 - balance_strength), 0, 255)
         else:          # froid : -R, G neutre, +B
-            arr[..., 0] = np.clip(arr[..., 0] * (1.0 - strength), 0, 255)
-            arr[..., 2] = np.clip(arr[..., 2] * (1.0 + strength), 0, 255)
-        return Image.fromarray(arr.astype(np.uint8), "RGB")
+            pixel_array[..., 0] = np.clip(pixel_array[..., 0] * (1.0 - balance_strength), 0, 255)
+            pixel_array[..., 2] = np.clip(pixel_array[..., 2] * (1.0 + balance_strength), 0, 255)
+        return Image.fromarray(pixel_array.astype(np.uint8), "RGB")
+
+
 
     def _render_histogram(self, preview_img):
         """Génère un histogramme RGB et met à jour ``self.histogram_image``."""
-        W, H = RIGHT_COL_WIDTH, HISTOGRAM_HEIGHT
-        arr = np.array(preview_img.convert("RGB"), dtype=np.uint8)
-        arr = arr[::4, ::4]  # sous-échantillonnage pour la vitesse
-        canvas = np.full((H, W, 3), (30, 30, 38), dtype=np.int32)
-        ch_colors = np.array([[80, 20, 20], [20, 70, 20], [20, 20, 80]], dtype=np.int32)
-        row_indices = np.arange(H)[:, np.newaxis]  # (H, 1)
-        for ch_idx in range(3):
-            counts, _ = np.histogram(arr[..., ch_idx], bins=W, range=(0, 256))
-            max_c = max(int(counts.max()), 1)
-            heights = np.clip((counts * H // max_c), 0, H).astype(int)
-            threshold = H - heights[np.newaxis, :]  # (1, W)
-            mask = row_indices >= threshold          # (H, W)
-            canvas += mask[:, :, np.newaxis] * ch_colors[ch_idx]
-        canvas = np.clip(canvas, 0, 255).astype(np.uint8)
-        hist_img = Image.fromarray(canvas, "RGB")
-        buf = io.BytesIO()
-        hist_img.save(buf, format="PNG")
-        self.histogram_image.src = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        histogram_width, histogram_height = RIGHT_COL_WIDTH, HISTOGRAM_HEIGHT
+        pixel_array = np.array(preview_img.convert("RGB"), dtype=np.uint8)
+        pixel_array = pixel_array[::4, ::4]  # sous-échantillonnage pour la vitesse
+        histogram_canvas = np.full((histogram_height, histogram_width, 3), (30, 30, 38), dtype=np.int32)
+        channel_colors = np.array([[80, 20, 20], [20, 70, 20], [20, 20, 80]], dtype=np.int32)
+        row_index_array = np.arange(histogram_height)[:, np.newaxis]  # (H, 1)
+        for channel_index in range(3):
+            pixel_counts, _ = np.histogram(pixel_array[..., channel_index], bins=histogram_width, range=(0, 256))
+            max_pixel_count = max(int(pixel_counts.max()), 1)
+            bar_heights = np.clip((pixel_counts * histogram_height // max_pixel_count), 0, histogram_height).astype(int)
+            bar_start_row = histogram_height - bar_heights[np.newaxis, :]  # (1, W)
+            colored_mask = row_index_array >= bar_start_row                 # (H, W)
+            histogram_canvas += colored_mask[:, :, np.newaxis] * channel_colors[channel_index]
+        histogram_canvas = np.clip(histogram_canvas, 0, 255).astype(np.uint8)
+        histogram_pil_image = Image.fromarray(histogram_canvas, "RGB")
+        png_buffer = io.BytesIO()
+        histogram_pil_image.save(png_buffer, format="PNG")
+        self.histogram_image.src = "data:image/png;base64," + base64.b64encode(png_buffer.getvalue()).decode()
         try:
             self.histogram_image.update()
         except Exception:
             pass
+
+
 
     def _render_preview(self):
         """
@@ -1705,72 +1818,73 @@ class PhotoCropper:
             return
         # Réduire à la taille d'affichage EN PREMIER — toutes les opérations
         # suivantes (érosion, composite, filtres) travaillent sur le petit canvas.
-        pw = max(1, int(self.display_w))
-        ph = max(1, int(self.display_h))
-        preview = self.current_pil_image.resize((pw, ph), Image.Resampling.BILINEAR)
-        if preview.mode == "RGBA":
+        preview_width = max(1, int(self.display_w))
+        preview_height = max(1, int(self.display_h))
+        preview_image = self.current_pil_image.resize((preview_width, preview_height), Image.Resampling.BILINEAR)
+        if preview_image.mode == "RGBA":
             # Clé de cache : image source + taille d'affichage + format + paramètres de composition
-            _cache_key = (
-                id(self.current_pil_image), pw, ph,
+            composite_cache_key = (
+                id(self.current_pil_image), preview_width, preview_height,
                 round(self.canvas_w), self.canvas_is_portrait,
                 getattr(self, 'rembg_erosion_pct', 0.0),
                 getattr(self, 'rembg_bg_white', True),
             )
-            if self._rembg_composite_cache is not None and self._rembg_composite_cache[0] == _cache_key:
+            if self._rembg_composite_cache is not None and self._rembg_composite_cache[0] == composite_cache_key:
                 # Cache valide : réutiliser le composite sans recalculer
-                preview = self._rembg_composite_cache[1].copy()
+                preview_image = self._rembg_composite_cache[1].copy()
             else:
                 # Érosion au format réduit — beaucoup plus rapide qu'à pleine résolution.
                 # Le rayon est mis à l'échelle pour que la preview corresponde au résultat final.
                 # L'échelle correcte est canvas_w / target_w_px (affichage → export),
                 # et non display_w / orig_w (qui sous-estime fortement pour les petits formats).
                 if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
-                    scaled_radius = max(1, round(min(preview.size) * self.rembg_erosion_pct / 100))
-                    preview = _erode_alpha(preview, scaled_radius)
+                    erosion_radius_scaled = max(1, round(min(preview_image.size) * self.rembg_erosion_pct / 100))
+                    preview_image = _erode_alpha(preview_image, erosion_radius_scaled)
                 if getattr(self, 'rembg_bg_white', True):
-                    bg = Image.new("RGBA", preview.size, (255, 255, 255, 255))
+                    background_layer = Image.new("RGBA", preview_image.size, (255, 255, 255, 255))
                 else:
-                    # Use original (opaque) image as blur source to avoid black bleed
-                    # from transparent pixels (alpha=0 → black in RGBA→RGB conversion)
-                    blur_src = self._rembg_original if self._rembg_original is not None else None
-                    if blur_src is not None:
-                        blurred_rgb = blur_src.convert("RGB").resize((pw, ph), Image.Resampling.BILINEAR).filter(ImageFilter.GaussianBlur(radius=30))
+                    # Utiliser l'image originale (opaque) comme source du flou pour éviter
+                    # les débordements noirs des pixels transparents (alpha=0 → noir en RGBA→RGB)
+                    blur_source_image = self._rembg_original if self._rembg_original is not None else None
+                    if blur_source_image is not None:
+                        blurred_background = blur_source_image.convert("RGB").resize((preview_width, preview_height), Image.Resampling.BILINEAR).filter(ImageFilter.GaussianBlur(radius=30))
                     else:
-                        white = Image.new("RGBA", preview.size, (255, 255, 255, 255))
-                        blurred_rgb = Image.alpha_composite(white, preview).convert("RGB").filter(ImageFilter.GaussianBlur(radius=30))
-                    bg = blurred_rgb.convert("RGBA")
-                preview = Image.alpha_composite(bg, preview).convert("RGB")
-                self._rembg_composite_cache = (_cache_key, preview.copy())
+                        white_background = Image.new("RGBA", preview_image.size, (255, 255, 255, 255))
+                        blurred_background = Image.alpha_composite(white_background, preview_image).convert("RGB").filter(ImageFilter.GaussianBlur(radius=30))
+                    background_layer = blurred_background.convert("RGBA")
+                preview_image = Image.alpha_composite(background_layer, preview_image).convert("RGB")
+                self._rembg_composite_cache = (composite_cache_key, preview_image.copy())
         else:
-            preview = preview.convert("RGB")
+            preview_image = preview_image.convert("RGB")
         # Noir et blanc
         if self.is_bw:
-            preview = ImageOps.grayscale(preview).convert("RGB")
+            preview_image = ImageOps.grayscale(preview_image).convert("RGB")
         # Contraste, saturation, exposition
-        preview = self._apply_adjustments(preview)
+        preview_image = self._apply_adjustments(preview_image)
         # Ombres
         if self.shadows != 0:
-            preview = self._apply_shadows(preview, self.shadows)
+            preview_image = self._apply_shadows(preview_image, self.shadows)
         # Hautes lumières
         if self.highlights != 0:
-            preview = self._apply_highlights(preview, self.highlights)
+            preview_image = self._apply_highlights(preview_image, self.highlights)
         # Netteté
         if self.is_sharpen:
-            preview = preview.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
-            preview = preview.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
+            preview_image = preview_image.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
+            preview_image = preview_image.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
         # Conversion sRGB : aligner le preview sur l'image enregistrée
-        preview = convert_to_srgb(preview, getattr(self, 'icc_profile', None))
+        preview_image = convert_to_srgb(preview_image, getattr(self, 'icc_profile', None))
         # Encoder en mémoire — élimine l'I/O disque, invalide le cache Flutter via données uniques
-        _buf = io.BytesIO()
-        preview.save(_buf, format="JPEG", quality=70)
-        self.image_display.src = "data:image/jpeg;base64," + base64.b64encode(_buf.getvalue()).decode()
+        jpeg_buffer = io.BytesIO()
+        preview_image.save(jpeg_buffer, format="JPEG", quality=70)
+        self.image_display.src = "data:image/jpeg;base64," + base64.b64encode(jpeg_buffer.getvalue()).decode()
         self.image_display.update()
-        self._render_histogram(preview)
+        self._render_histogram(preview_image)
+
+
 
     # ================================================================ #
     #                  NAVIGATION (PAN, ZOOM, ROTATION)                #
     # ================================================================ #
-
     def on_pan_update(self, e: ft.DragUpdateEvent):
         """
         Gestionnaire de glisser (drag) sur le canvas.
@@ -1798,6 +1912,8 @@ class PhotoCropper:
         self._clamp_offsets()
         self._update_transform()
 
+
+
     def _update_shift_badge(self):
         """Met à jour le badge + la couleur du slider de rotation."""
         self._shift_badge.visible = self._scroll_rotates
@@ -1805,21 +1921,25 @@ class PhotoCropper:
         self.rotation_slider.active_color = ORANGE if self._scroll_rotates else BLUE
         self.rotation_slider.update()
 
+
+
     def on_pan_end(self, e: ft.DragEndEvent):
         """Rafraîchit la prévisualisation et l'histogramme après la fin du pan."""
         self._clamp_offsets()
         self._render_preview()
         self.page.update()
 
+
+
     def on_scroll(self, e: ft.ScrollEvent):
         """Zoom molette (mode normal) ou rotation (mode Shift activé)."""
         if not self.image_paths:
             return
-        delta = e.scroll_delta.y
+        scroll_delta = e.scroll_delta.y
 
         if self._scroll_rotates:
             # Mode rotation : rapide, pas de rendu PIL
-            step = delta / 800
+            step = scroll_delta / 800
             new_rotation = max(-15.0, min(15.0, self.rotation + step))
             if new_rotation == self.rotation:
                 return
@@ -1834,22 +1954,24 @@ class PhotoCropper:
         # Mode zoom
         now = time.monotonic()
         if now - self._last_zoom_render < 1 / 30:
-            zoom_factor = 1 - delta / 5000
-            self.scale = max(1.0, min(10.0, self.scale * zoom_factor))
+            zoom_multiplier = 1 - scroll_delta / 5000
+            self.scale = max(1.0, min(10.0, self.scale * zoom_multiplier))
             return
         self._last_zoom_render = now
-        zoom_factor = 1 - delta / 5000
-        old_scale = self.scale
-        self.scale = max(1.0, min(10.0, self.scale * zoom_factor))
-        if old_scale != self.scale:
-            ratio = self.scale / old_scale
-            self.offset_x *= ratio
-            self.offset_y *= ratio
+        zoom_multiplier = 1 - scroll_delta / 5000
+        previous_scale = self.scale
+        self.scale = max(1.0, min(10.0, self.scale * zoom_multiplier))
+        if previous_scale != self.scale:
+            scale_ratio = self.scale / previous_scale
+            self.offset_x *= scale_ratio
+            self.offset_y *= scale_ratio
             self.zoom_slider.value = self.scale
             self.zoom_slider.label = f"{self.scale:.2f}×"
             self.zoom_slider.update()
         self._clamp_offsets()
         self._update_transform()
+
+
 
     def on_rotation_update(self, e):
         """
@@ -1877,10 +1999,14 @@ class PhotoCropper:
         self._clamp_offsets()
         self._update_transform()
 
+
+
     def on_rotation_end(self, e):
         """Rafraîchit la prévisualisation et l'histogramme après la fin de la rotation."""
         self._render_preview()
         self.page.update()
+
+
 
     def on_zoom_update(self, e):
         """
@@ -1897,13 +2023,13 @@ class PhotoCropper:
             Événement Flet du slider ; `e.control.value` contient le
             facteur de zoom cible.
         """
-        new_scale = e.control.value
-        old_scale = self.scale
-        self.scale = new_scale
-        if old_scale != self.scale:
-            ratio = self.scale / old_scale
-            self.offset_x *= ratio
-            self.offset_y *= ratio
+        target_scale = e.control.value
+        previous_scale = self.scale
+        self.scale = target_scale
+        if previous_scale != self.scale:
+            scale_ratio = self.scale / previous_scale
+            self.offset_x *= scale_ratio
+            self.offset_y *= scale_ratio
         e.control.label = f"{self.scale:.2f}×"
         e.control.update()
         now = time.monotonic()
@@ -1913,11 +2039,15 @@ class PhotoCropper:
         self._clamp_offsets()
         self._update_transform()
 
+
+
     def on_zoom_end(self, e):
         """Rafraîchit la prévisualisation et l'histogramme après la fin du zoom."""
         self._clamp_offsets()
         self._render_preview()
         self.page.update()
+
+
 
     def reset_rotation(self, e):
         """
@@ -1938,6 +2068,8 @@ class PhotoCropper:
         self._clamp_offsets()
         self._update_transform()
 
+
+
     def reset_zoom(self, e):
         """Remet le zoom à 1× par double-clic sur le slider."""
         self.scale = 1.0
@@ -1949,6 +2081,8 @@ class PhotoCropper:
         self._clamp_offsets()
         self._update_transform()
 
+
+
     def _reset_slider(self, slider, attr, default_val, label_str):
         """Remet un slider de réglage à sa valeur par défaut et redéclenche le rendu."""
         setattr(self, attr, default_val)
@@ -1958,16 +2092,19 @@ class PhotoCropper:
         self._render_preview()
         self.page.update()
 
+
+
     # ================================================================ #
     #                        TOGGLES & SWITCHES                        #
     # ================================================================ #
-
     def on_grid_toggle(self, e):
         """Active ou désactive la grille des tiers fixée au canevas."""
         self.show_grid = bool(e.control.value)
         for line in self._grid_lines:
             line.visible = self.show_grid
         self.page.update()
+
+
 
     def on_bw_toggle(self, e):
         """
@@ -1983,6 +2120,8 @@ class PhotoCropper:
         self.is_bw = e.control.value
         self._render_preview()
         self.page.update()
+
+
 
     def on_fit_in_toggle(self, e):
         """
@@ -2008,6 +2147,8 @@ class PhotoCropper:
             self.load_image(preserve_orientation=True)
         self.page.update()
 
+
+
     def on_sharpen_toggle(self, e):
         """
         Active ou désactive le filtre de netteté (UnsharpMask).
@@ -2024,6 +2165,8 @@ class PhotoCropper:
         self._render_preview()
         self.page.update()
 
+
+
     def on_rembg_model_toggle(self, e):
         """Bascule entre portrait et général."""
         self.rembg_human_seg = not self.rembg_human_seg
@@ -2038,6 +2181,8 @@ class PhotoCropper:
             self.rembg_model_btn.bgcolor = BLUE
         self.rembg_model_btn.update()
 
+
+
     def on_rembg_precise_toggle(self, e):
         """Bascule entre mode rapide (u2net) et mode précis (birefnet)."""
         self.rembg_precise = not self.rembg_precise
@@ -2049,15 +2194,21 @@ class PhotoCropper:
             self.rembg_precise_btn.bgcolor = BLUE
         self.rembg_precise_btn.update()
 
+
+
     def on_rembg_erosion_change(self, e):
         """Met à jour le % d'érosion pendant le drag (pas de rendu)."""
         self.rembg_erosion_pct = round(e.control.value, 1)
+
+
 
     def on_rembg_erosion_end(self, e):
         """Regénère la preview au relâchement du slider d'érosion."""
         self.rembg_erosion_pct = round(e.control.value, 1)
         self._render_preview()
         self.page.update()
+
+
 
     def on_rembg_bg_toggle(self, e):
         """Bascule fond blanc (GREY_200) ↔ fond flou (BLUE)."""
@@ -2073,6 +2224,8 @@ class PhotoCropper:
         self.rembg_bg_btn.update()
         self._render_preview()
         self.page.update()
+
+
 
     async def on_rembg(self, e):
         """
@@ -2134,6 +2287,8 @@ class PhotoCropper:
             self.page.update()
             return
 
+
+
         # Deuxième clic : restaurer l'image originale
         if self.rembg_btn.selected and self._rembg_original is not None:
             self.current_pil_image = self._rembg_original
@@ -2147,6 +2302,8 @@ class PhotoCropper:
         self.rembg_btn.disabled = True
         self.status_text.value = "Suppression du fond en cours…"
         self.page.update()
+
+
 
         def _do_rembg():
             from rembg import remove as _rembg_remove, new_session as _rembg_new_session
@@ -2179,6 +2336,8 @@ class PhotoCropper:
             self._render_preview()
             self.page.update()
 
+
+
     def on_network_toggle(self, e):
         """
         Active ou désactive la sauvegarde des planches ID ×4 sur le réseau.
@@ -2195,6 +2354,8 @@ class PhotoCropper:
         """
         self.save_to_network = bool(e.control.value)
 
+
+
     def on_border_toggle_13x15(self, e):
         """
         Active / désactive l'ajout d'une bordure blanche pour passer du
@@ -2209,14 +2370,30 @@ class PhotoCropper:
             Événement du Switch « 13x15 ».
         """
         self.border_13x15 = bool(e.control.value)
+        if self.border_13x15:
+            self.border_10x20 = False
+            self.border_switch_10x20.value = False
+            self.border_switch_10x20.update()
+
+
 
     def on_border_toggle_10x20(self, e):
-        """Active / désactive le cadre 10x20 pour une photo 10x15."""
+        """Active / désactive le cadre 10x20 pour une photo 10x15.
+        Mutuellement exclusif avec 13x15."""
         self.border_10x20 = bool(e.control.value)
+        if self.border_10x20:
+            self.border_13x15 = False
+            self.border_switch_13x15.value = False
+            self.border_switch_13x15.update()
+
+
+
 
     def on_border_toggle_13x20(self, e):
         """Active / désactive le cadre 13x20 pour une photo 13x18."""
         self.border_13x20 = bool(e.control.value)
+
+
 
     def on_border_toggle_20x24(self, e):
         """
@@ -2232,6 +2409,8 @@ class PhotoCropper:
             Événement du Switch « 20x24 ».
         """
         self.border_20x24 = bool(e.control.value)
+
+
 
     def on_border_toggle_13x10(self, e):
         """
@@ -2252,6 +2431,8 @@ class PhotoCropper:
             self.border_switch_polaroid.value = False
             self.page.update()
 
+
+
     def on_border_toggle_polaroid(self, e):
         """
         Active / désactive le cadre Polaroid.
@@ -2270,6 +2451,8 @@ class PhotoCropper:
             self.border_13x10 = False
             self.border_switch_13x10.value = False
             self.page.update()
+
+
 
     def on_border_toggle_id2(self, e):
         """
@@ -2290,6 +2473,8 @@ class PhotoCropper:
             self.border_switch_ID4.value = False
             self.page.update()
 
+
+
     def on_border_toggle_id4(self, e):
         """
         Active / désactive la planche ID ×4 (quatre photos d'identité
@@ -2309,6 +2494,8 @@ class PhotoCropper:
             self.border_switch_ID2.value = False
             self.page.update()
 
+
+
     # Label uniquement (pendant le glissement)
     def on_shadows_label(self, e):
         """
@@ -2327,6 +2514,8 @@ class PhotoCropper:
         e.control.label = str(int(self.shadows))
         e.control.update()
 
+
+
     # Rendu au relâchement
     def on_shadows_end(self, e):
         """
@@ -2340,6 +2529,8 @@ class PhotoCropper:
         self.shadows = e.control.value
         self._render_preview()
         self.page.update()
+
+
 
     def on_highlights_label(self, e):
         """
@@ -2357,6 +2548,8 @@ class PhotoCropper:
         e.control.label = str(int(self.highlights))
         e.control.update()
 
+
+
     def on_highlights_end(self, e):
         """
         Rendu complet de la prévisualisation au relâchement du slider
@@ -2371,6 +2564,8 @@ class PhotoCropper:
         self._render_preview()
         self.page.update()
 
+
+
     def on_contrast_label(self, e):
         """
         Mise à jour du label du slider Contraste pendant le glissement.
@@ -2383,6 +2578,8 @@ class PhotoCropper:
         self.contrast = e.control.value
         e.control.label = str(int(self.contrast))
         e.control.update()
+
+
 
     def on_contrast_end(self, e):
         """
@@ -2397,6 +2594,8 @@ class PhotoCropper:
         self._render_preview()
         self.page.update()
 
+
+
     def on_saturation_label(self, e):
         """
         Mise à jour du label du slider Saturation pendant le glissement.
@@ -2409,6 +2608,8 @@ class PhotoCropper:
         self.saturation = e.control.value
         e.control.label = str(int(self.saturation))
         e.control.update()
+
+
 
     def on_saturation_end(self, e):
         """
@@ -2423,6 +2624,8 @@ class PhotoCropper:
         self._render_preview()
         self.page.update()
 
+
+
     def on_exposure_label(self, e):
         """
         Mise à jour du label du slider Exposition pendant le glissement.
@@ -2435,6 +2638,8 @@ class PhotoCropper:
         self.exposure = e.control.value
         e.control.label = str(int(self.exposure))
         e.control.update()
+
+
 
     def on_exposure_end(self, e):
         """
@@ -2449,11 +2654,15 @@ class PhotoCropper:
         self._render_preview()
         self.page.update()
 
+
+
     def on_hue_label(self, e):
         """Mise à jour du label du slider Teinte pendant le glissement."""
         self.hue = e.control.value
         e.control.label = str(int(self.hue))
         e.control.update()
+
+
 
     def on_hue_end(self, e):
         """Rendu complet au relâchement du slider Teinte."""
@@ -2461,17 +2670,23 @@ class PhotoCropper:
         self._render_preview()
         self.page.update()
 
+
+
     def on_wb_label(self, e):
         """Mise à jour du label du slider Balance des blancs pendant le glissement."""
         self.white_balance = e.control.value
         e.control.label = str(int(self.white_balance))
         e.control.update()
 
+
+
     def on_wb_end(self, e):
         """Rendu complet au relâchement du slider Balance des blancs."""
         self.white_balance = e.control.value
         self._render_preview()
         self.page.update()
+
+
 
     def reset_shadows(self, e):
         """
@@ -2495,6 +2710,8 @@ class PhotoCropper:
         self.highlights_slider.update()
         self._render_preview()
         self.page.update()
+
+
 
     def reset_adjustments(self, e):
         """
@@ -2540,6 +2757,8 @@ class PhotoCropper:
         self._render_preview()
         self.page.update()
 
+
+
     def change_ratio(self, e=None):
         """
         Change le format d'impression actif et met à jour l'interface.
@@ -2583,6 +2802,9 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
+            self.border_switch_polaroid.visible = False
+            self.border_switch_polaroid.value = False
+            self.border_polaroid = False
         elif "13x18" in self.current_format_label:
             self.two_in_one_switch.visible = True
             self.two_in_one_switch.value = False
@@ -2603,6 +2825,9 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
+            self.border_switch_polaroid.visible = False
+            self.border_switch_polaroid.value = False
+            self.border_polaroid = False
         elif "15x20" in self.current_format_label:
             self.two_in_one_switch.visible = True
             self.two_in_one_switch.value = False
@@ -2624,6 +2849,9 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
+            self.border_switch_polaroid.visible = False
+            self.border_switch_polaroid.value = False
+            self.border_polaroid = False
         elif "18x24" in self.current_format_label:
             self.two_in_one_switch.visible = False
             self.border_switch_20x24.visible = True
@@ -2707,6 +2935,8 @@ class PhotoCropper:
         if self.image_paths:
             self.load_image(preserve_orientation=True)
 
+
+
     def toggle_orientation(self, e):
         """
         Bascule l'orientation du canevas entre portrait et paysage.
@@ -2735,10 +2965,11 @@ class PhotoCropper:
         self.border_switch_ID4.visible = True if "ID" in self.current_format_label else False
         self.network_switch.visible = True if "ID" in self.current_format_label else False
 
+
+
     # ================================================================ #
     #                  FORMATS MULTIPLES & EXEMPLAIRES                 #
     # ================================================================ #
-
     def increment_copies(self, e):
         """
         Incrémente le compteur d'exemplaires (à l'infini).
@@ -2756,6 +2987,8 @@ class PhotoCropper:
         self.copies_text.value = str(self.copies_count)
         self.page.update()
 
+
+
     def decrement_copies(self, e):
         """
         Décrémente le compteur d'exemplaires (minimum 1).
@@ -2769,6 +3002,8 @@ class PhotoCropper:
             self.copies_count -= 1
         self.copies_text.value = str(self.copies_count)
         self.page.update()
+
+
 
     def add_extra_format(self, e):
         """
@@ -2834,6 +3069,8 @@ class PhotoCropper:
         self.copies_text.value = "1"
         self.page.update()
 
+
+
     def clear_extra_formats(self, e):
         """
         Vide la liste des formats multiples (extra_formats).
@@ -2848,6 +3085,8 @@ class PhotoCropper:
         self.extra_formats.clear()
         self._update_extra_formats_display()
         self.page.update()
+
+
 
     def _update_extra_formats_display(self):
         """
@@ -2871,10 +3110,11 @@ class PhotoCropper:
         else:
             self.extra_formats_display.value = "—"
 
+
+
     # ================================================================ #
     #                            ACTIONS                               #
     # ================================================================ #
-
     def validate_and_next(self, e):
         """
         Exporte l'image courante et passe à la suivante.
@@ -2930,13 +3170,13 @@ class PhotoCropper:
             numérique (_2, _3, …) si le chemin est déjà réservé dans la
             session d'export courante.
 
-            Utilise le set ``used_paths`` (fermé sur la session d'export
+            Utilise le set ``already_saved_paths`` (fermé sur la session d'export
             de l'image courante) pour tracer les chemins déjà attribués.
 
             Parameters
             ----------
             path : str
-                Chemin candidat (peut être déjà dans used_paths).
+                Chemin candidat (peut être déjà dans already_saved_paths).
 
             Returns
             -------
@@ -2945,308 +3185,309 @@ class PhotoCropper:
                 ``path`` s'il n'y a pas de conflit, sinon
                 ``<base>_2<ext>``, ``<base>_3<ext>``…
             """
-            if path not in used_paths:
-                used_paths.add(path)
+            already_saved_paths = used_paths
+            if path not in already_saved_paths:
+                already_saved_paths.add(path)
                 return path
-            base, ext = os.path.splitext(path)
-            i = 2
+            file_base, file_extension = os.path.splitext(path)
+            suffix_number = 2
             while True:
-                candidate = f"{base}_{i}{ext}"
-                if candidate not in used_paths:
-                    used_paths.add(candidate)
-                    return candidate
-                i += 1
+                candidate_path = f"{file_base}_{suffix_number}{file_extension}"
+                if candidate_path not in already_saved_paths:
+                    already_saved_paths.add(candidate_path)
+                    return candidate_path
+                suffix_number += 1
 
-        export_is_portrait = self.canvas_is_portrait
-        fmt_w_mm, fmt_h_mm = self.current_format
-        if export_is_portrait:
-            target_w_px = mm_to_pixels(fmt_w_mm)
-            target_h_px = mm_to_pixels(fmt_h_mm)
+        output_is_portrait = self.canvas_is_portrait
+        format_width_mm, format_height_mm = self.current_format
+        if output_is_portrait:
+            output_width_px = mm_to_pixels(format_width_mm)
+            output_height_px = mm_to_pixels(format_height_mm)
         else:
-            target_w_px = mm_to_pixels(fmt_h_mm)
-            target_h_px = mm_to_pixels(fmt_w_mm)
+            output_width_px = mm_to_pixels(format_height_mm)
+            output_height_px = mm_to_pixels(format_width_mm)
 
         if self.is_fit_in:
-            pil_crop = self._compute_fit_in(target_w_px, target_h_px)
+            output_image = self._compute_fit_in(output_width_px, output_height_px)
         else:
-            pil_crop = self._compute_crop(target_w_px, target_h_px)
+            output_image = self._compute_crop(output_width_px, output_height_px)
 
-        base = os.path.basename(self.image_paths[self.current_index])
-        name, _ = os.path.splitext(base)
-        name = re.sub(r'^\d+X_', '', name)  # retirer le préfixe NX_ existant pour ne pas le doubler
-        fmt_short = self.current_format_label.split()[0]
-        copies_prefix = f"{self.copies_count}X_"
-        jpg = copies_prefix + name + ".jpg"
+        source_filename = os.path.basename(self.image_paths[self.current_index])
+        base_filename, _ = os.path.splitext(source_filename)
+        base_filename = re.sub(r'^\d+X_', '', base_filename)  # retirer le préfixe NX_ existant pour ne pas le doubler
+        format_short_name = self.current_format_label.split()[0]
+        copies_count_prefix = f"{self.copies_count}X_"
+        output_filename = copies_count_prefix + base_filename + ".jpg"
 
         # Appliquer les réglages couleur sur la photo AVANT l'ajout des bordures/marges,
         # pour que les zones blanches (13x15, Polaroid, ID grille…) restent blanc pur.
-        pil_crop = self._apply_adjustments(pil_crop)
+        output_image = self._apply_adjustments(output_image)
         if self.shadows != 0:
-            pil_crop = self._apply_shadows(pil_crop, self.shadows)
+            output_image = self._apply_shadows(output_image, self.shadows)
         if self.highlights != 0:
-            pil_crop = self._apply_highlights(pil_crop, self.highlights)
+            output_image = self._apply_highlights(output_image, self.highlights)
 
         two_in_one_applied = False
         if self.is_two_in_one_enabled():
-            if self.border_13x15 and "10x15" in fmt_short:
-                pil_crop = self._build_two_in_one_10x15_to_13x15(pil_crop)
-                fmt_short = "13x15"
+            if self.border_13x15 and "10x15" in format_short_name:
+                output_image = self._build_two_in_one_10x15_to_13x15(output_image)
+                format_short_name = "13x15"
             else:
-                pil_crop = self._build_two_in_one_image(pil_crop, target_w_px, target_h_px)
+                output_image = self._build_two_in_one_image(output_image, output_width_px, output_height_px)
             two_in_one_applied = True
 
-        if (not two_in_one_applied) and self.border_13x15 and "10x15" in fmt_short:
-            if export_is_portrait:
-                src_w, src_h = mm_to_pixels(102), mm_to_pixels(152)
-                out_w, out_h = mm_to_pixels(127), mm_to_pixels(152)
+        if (not two_in_one_applied) and self.border_13x15 and "10x15" in format_short_name:
+            if output_is_portrait:
+                source_width_px, source_height_px = mm_to_pixels(102), mm_to_pixels(152)
+                output_framed_width_px, output_framed_height_px = mm_to_pixels(127), mm_to_pixels(152)
             else:
-                src_w, src_h = mm_to_pixels(152), mm_to_pixels(102)
-                out_w, out_h = mm_to_pixels(152), mm_to_pixels(127)
-            base_10x15 = ImageOps.fit(pil_crop, (src_w, src_h), method=Image.Resampling.BICUBIC)
-            framed = Image.new("RGB", (out_w, out_h), "white")
-            framed.paste(base_10x15, (0, 0))
-            pil_crop = framed
-            fmt_short = "13x15"
+                source_width_px, source_height_px = mm_to_pixels(152), mm_to_pixels(102)
+                output_framed_width_px, output_framed_height_px = mm_to_pixels(152), mm_to_pixels(127)
+            fitted_photo = ImageOps.fit(output_image, (source_width_px, source_height_px), method=Image.Resampling.BICUBIC)
+            framed_image = Image.new("RGB", (output_framed_width_px, output_framed_height_px), "white")
+            framed_image.paste(fitted_photo, (0, 0))
+            output_image = framed_image
+            format_short_name = "13x15"
 
-        if (not two_in_one_applied) and self.border_10x20 and "10x15" in fmt_short:
-            if export_is_portrait:
-                src_w, src_h = mm_to_pixels(102), mm_to_pixels(152)
-                out_w, out_h = mm_to_pixels(102), mm_to_pixels(203)
+        if (not two_in_one_applied) and self.border_10x20 and "10x15" in format_short_name:
+            if output_is_portrait:
+                source_width_px, source_height_px = mm_to_pixels(102), mm_to_pixels(152)
+                output_framed_width_px, output_framed_height_px = mm_to_pixels(102), mm_to_pixels(203)
             else:
-                src_w, src_h = mm_to_pixels(152), mm_to_pixels(102)
-                out_w, out_h = mm_to_pixels(203), mm_to_pixels(102)
-            base_fit = ImageOps.fit(pil_crop, (src_w, src_h), method=Image.Resampling.BICUBIC)
-            framed = Image.new("RGB", (out_w, out_h), "white")
-            framed.paste(base_fit, (0, 0))
-            pil_crop = framed
-            fmt_short = "10x20"
+                source_width_px, source_height_px = mm_to_pixels(152), mm_to_pixels(102)
+                output_framed_width_px, output_framed_height_px = mm_to_pixels(203), mm_to_pixels(102)
+            fitted_photo = ImageOps.fit(output_image, (source_width_px, source_height_px), method=Image.Resampling.BICUBIC)
+            framed_image = Image.new("RGB", (output_framed_width_px, output_framed_height_px), "white")
+            framed_image.paste(fitted_photo, (0, 0))
+            output_image = framed_image
+            format_short_name = "10x20"
 
-        if (not two_in_one_applied) and self.border_13x20 and "13x18" in fmt_short:
-            if export_is_portrait:
-                src_w, src_h = mm_to_pixels(127), mm_to_pixels(178)
-                out_w, out_h = mm_to_pixels(127), mm_to_pixels(203)
+        if (not two_in_one_applied) and self.border_13x20 and "13x18" in format_short_name:
+            if output_is_portrait:
+                source_width_px, source_height_px = mm_to_pixels(127), mm_to_pixels(178)
+                output_framed_width_px, output_framed_height_px = mm_to_pixels(127), mm_to_pixels(203)
             else:
-                src_w, src_h = mm_to_pixels(178), mm_to_pixels(127)
-                out_w, out_h = mm_to_pixels(203), mm_to_pixels(127)
-            base_fit = ImageOps.fit(pil_crop, (src_w, src_h), method=Image.Resampling.BICUBIC)
-            framed = Image.new("RGB", (out_w, out_h), "white")
-            framed.paste(base_fit, (0, 0))
-            pil_crop = framed
-            fmt_short = "13x20"
+                source_width_px, source_height_px = mm_to_pixels(178), mm_to_pixels(127)
+                output_framed_width_px, output_framed_height_px = mm_to_pixels(203), mm_to_pixels(127)
+            fitted_photo = ImageOps.fit(output_image, (source_width_px, source_height_px), method=Image.Resampling.BICUBIC)
+            framed_image = Image.new("RGB", (output_framed_width_px, output_framed_height_px), "white")
+            framed_image.paste(fitted_photo, (0, 0))
+            output_image = framed_image
+            format_short_name = "13x20"
 
-        if (not two_in_one_applied) and self.border_20x24 and "18x24" in fmt_short:
+        if (not two_in_one_applied) and self.border_20x24 and "18x24" in format_short_name:
             ratio_20_24 = 203 / 240
-            if export_is_portrait:
-                target_w = int(pil_crop.height * ratio_20_24)
-                framed = Image.new("RGB", (target_w, pil_crop.height), "white")
-                framed.paste(pil_crop, (0, 0))
+            if output_is_portrait:
+                framed_width_px = int(output_image.height * ratio_20_24)
+                framed_image = Image.new("RGB", (framed_width_px, output_image.height), "white")
+                framed_image.paste(output_image, (0, 0))
             else:
-                target_h = int(pil_crop.width * ratio_20_24)
-                framed = Image.new("RGB", (pil_crop.width, target_h), "white")
-                framed.paste(pil_crop, (0, 0))
-            pil_crop = framed
-            fmt_short = "20x24"
+                framed_height_px = int(output_image.width * ratio_20_24)
+                framed_image = Image.new("RGB", (output_image.width, framed_height_px), "white")
+                framed_image.paste(output_image, (0, 0))
+            output_image = framed_image
+            format_short_name = "20x24"
 
-        if (not two_in_one_applied) and self.border_13x10 and "10x10" in fmt_short:
+        if (not two_in_one_applied) and self.border_13x10 and "10x10" in format_short_name:
             ratio_13_10 = 127 / 102
-            if export_is_portrait:
-                target_h = int(pil_crop.width * ratio_13_10)
-                framed = Image.new("RGB", (pil_crop.width, target_h), "white")
-                framed.paste(pil_crop, (0, 0))
+            if output_is_portrait:
+                framed_height_px = int(output_image.width * ratio_13_10)
+                framed_image = Image.new("RGB", (output_image.width, framed_height_px), "white")
+                framed_image.paste(output_image, (0, 0))
             else:
-                target_w = int(pil_crop.height * ratio_13_10)
-                framed = Image.new("RGB", (target_w, pil_crop.height), "white")
-                framed.paste(pil_crop, (0, 0))
-            pil_crop = framed
-            fmt_short = "13x10"
+                framed_width_px = int(output_image.height * ratio_13_10)
+                framed_image = Image.new("RGB", (framed_width_px, output_image.height), "white")
+                framed_image.paste(output_image, (0, 0))
+            output_image = framed_image
+            format_short_name = "13x10"
 
-        if (not two_in_one_applied) and self.border_polaroid and "10x10" in fmt_short:
+        if (not two_in_one_applied) and self.border_polaroid and "10x10" in format_short_name:
             POLAROID_WIDTH_PX = mm_to_pixels(127)
             POLAROID_HEIGHT_PX = mm_to_pixels(152)
-            framed = Image.new("RGB", (POLAROID_WIDTH_PX, POLAROID_HEIGHT_PX), "white")
-            x_offset = (POLAROID_WIDTH_PX - pil_crop.width) // 2
-            y_offset = x_offset
-            framed.paste(pil_crop, (x_offset, y_offset))
-            pil_crop = framed
-            fmt_short = "Polaroid"
+            framed_image = Image.new("RGB", (POLAROID_WIDTH_PX, POLAROID_HEIGHT_PX), "white")
+            paste_offset_x = (POLAROID_WIDTH_PX - output_image.width) // 2
+            paste_offset_y = paste_offset_x
+            framed_image.paste(output_image, (paste_offset_x, paste_offset_y))
+            output_image = framed_image
+            format_short_name = "Polaroid"
 
         if (not two_in_one_applied) and self.border_id4 and "ID" in self.current_format_label:
-            CANVA_WIDTH_PX = mm_to_pixels(127)
-            CANVA_HEIGHT_PX = mm_to_pixels(102)
-            SPACE_PX = mm_to_pixels(5)
-            framed = Image.new("RGB", (CANVA_WIDTH_PX, CANVA_HEIGHT_PX), "white")
-            img = pil_crop
-            if img.height > img.width:
-                img = img.rotate(90, expand=True)
-            total_width = img.width * 2 + SPACE_PX
-            total_height = img.height * 2 + SPACE_PX
-            start_x = (CANVA_WIDTH_PX - total_width) // 2
-            start_y = (CANVA_HEIGHT_PX - total_height) // 2
+            SHEET_WIDTH_PX  = mm_to_pixels(127)
+            SHEET_HEIGHT_PX = mm_to_pixels(102)
+            SPACING_PX = mm_to_pixels(5)
+            sheet_image = Image.new("RGB", (SHEET_WIDTH_PX, SHEET_HEIGHT_PX), "white")
+            id_photo = output_image
+            if id_photo.height > id_photo.width:
+                id_photo = id_photo.rotate(90, expand=True)
+            total_width  = id_photo.width  * 2 + SPACING_PX
+            total_height = id_photo.height * 2 + SPACING_PX
+            start_x = (SHEET_WIDTH_PX  - total_width)  // 2
+            start_y = (SHEET_HEIGHT_PX - total_height) // 2
             for row in range(2):
                 for col in range(2):
-                    x_pos = start_x + col * (img.width + SPACE_PX)
-                    y_pos = start_y + row * (img.height + SPACE_PX)
-                    framed.paste(img, (x_pos, y_pos))
-            pil_crop = framed
-            fmt_short = "ID_X4"
-            jpg = f"{copies_prefix}ID {self.current_index + 1:02}.jpg"
+                    paste_x = start_x + col * (id_photo.width  + SPACING_PX)
+                    paste_y = start_y + row * (id_photo.height + SPACING_PX)
+                    sheet_image.paste(id_photo, (paste_x, paste_y))
+            output_image = sheet_image
+            format_short_name = "ID_X4"
+            output_filename = f"{copies_count_prefix}ID {self.current_index + 1:02}.jpg"
 
         elif (not two_in_one_applied) and self.border_id2 and "ID" in self.current_format_label:
-            CANVA_WIDTH_PX = mm_to_pixels(102)
-            CANVA_HEIGHT_PX = mm_to_pixels(102)
-            SPACE_PX = mm_to_pixels(5)
-            framed = Image.new("RGB", (CANVA_WIDTH_PX, CANVA_HEIGHT_PX), "white")
-            img = pil_crop
-            if img.width > img.height:
-                img = img.rotate(90, expand=True)
-            x_offset = (CANVA_WIDTH_PX - img.width) // 2
-            y_offset_1 = SPACE_PX
-            framed.paste(img, (x_offset, y_offset_1))
-            y_offset_2 = CANVA_HEIGHT_PX - img.height - SPACE_PX
-            framed.paste(img, (x_offset, y_offset_2))
-            pil_crop = framed
-            fmt_short = "ID_X2"
-            jpg = f"{copies_prefix}ID {self.current_index + 1:02}.jpg"
+            SHEET_WIDTH_PX  = mm_to_pixels(102)
+            SHEET_HEIGHT_PX = mm_to_pixels(102)
+            SPACING_PX = mm_to_pixels(5)
+            sheet_image = Image.new("RGB", (SHEET_WIDTH_PX, SHEET_HEIGHT_PX), "white")
+            id_photo = output_image
+            if id_photo.width > id_photo.height:
+                id_photo = id_photo.rotate(90, expand=True)
+            paste_offset_x = (SHEET_WIDTH_PX - id_photo.width) // 2
+            first_paste_y  = SPACING_PX
+            sheet_image.paste(id_photo, (paste_offset_x, first_paste_y))
+            second_paste_y = SHEET_HEIGHT_PX - id_photo.height - SPACING_PX
+            sheet_image.paste(id_photo, (paste_offset_x, second_paste_y))
+            output_image = sheet_image
+            format_short_name = "ID_X2"
+            output_filename = f"{copies_count_prefix}ID {self.current_index + 1:02}.jpg"
 
-        if fmt_short == "ID_X4" and self.save_to_network:
+        if format_short_name == "ID_X4" and self.save_to_network:
             if platform.system() == "Windows":
-                base_dir = "\\\\Diskstation\\travaux en cours\\z2026"
+                output_directory = "\\\\Diskstation\\travaux en cours\\z2026"
             else:
-                base_dir = "/Volumes/TRAVAUX EN COURS/Z2026"
+                output_directory = "/Volumes/TRAVAUX EN COURS/Z2026"
         else:
-            base_dir = os.path.join(self.source_folder, fmt_short)
+            output_directory = os.path.join(self.source_folder, format_short_name)
 
         if self.is_sharpen:
-            pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
-            pil_crop = pil_crop.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
+            output_image = output_image.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
+            output_image = output_image.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
 
         # Conversion vers sRGB (correction colorimétrique)
-        pil_crop = convert_to_srgb(pil_crop, getattr(self, 'icc_profile', None))
+        output_image = convert_to_srgb(output_image, getattr(self, 'icc_profile', None))
 
-        save_kwargs = {"quality": 100, "format": "JPEG", "dpi": (DPI, DPI), "icc_profile": _SRGB_ICC}
+        jpeg_save_options = {"quality": 100, "format": "JPEG", "dpi": (DPI, DPI), "icc_profile": _SRGB_ICC}
 
-        out_path = None
+        saved_file_path = None
         if not self.extra_formats:
-            os.makedirs(base_dir, exist_ok=True)
-            out_path = unique_path(os.path.join(base_dir, jpg))
-            pil_crop.save(out_path, **save_kwargs)
+            os.makedirs(output_directory, exist_ok=True)
+            saved_file_path = unique_path(os.path.join(output_directory, output_filename))
+            output_image.save(saved_file_path, **jpeg_save_options)
 
         # Exports formats supplémentaires (ou tous les exports si extra_formats non vide)
-        for idx, snapshot in enumerate(self.extra_formats, start=1):
-            ex_label = snapshot["label"]
-            ex_short = ex_label.split()[0]
-            ex_is_portrait = snapshot["is_portrait"]
+        for snapshot_index, snapshot in enumerate(self.extra_formats, start=1):
+            snapshot_format_label = snapshot["label"]
+            snapshot_format_short_name = snapshot_format_label.split()[0]
+            snapshot_is_portrait = snapshot["is_portrait"]
 
-            ex_dims = snapshot["dims"]
-            ex_fmt_w_mm, ex_fmt_h_mm = ex_dims
-            if ex_is_portrait:
-                ex_target_w_px = mm_to_pixels(ex_fmt_w_mm)
-                ex_target_h_px = mm_to_pixels(ex_fmt_h_mm)
+            snapshot_format_dimensions = snapshot["dims"]
+            snapshot_width_mm, snapshot_height_mm = snapshot_format_dimensions
+            if snapshot_is_portrait:
+                snapshot_output_width_px = mm_to_pixels(snapshot_width_mm)
+                snapshot_output_height_px = mm_to_pixels(snapshot_height_mm)
             else:
-                ex_target_w_px = mm_to_pixels(ex_fmt_h_mm)
-                ex_target_h_px = mm_to_pixels(ex_fmt_w_mm)
+                snapshot_output_width_px = mm_to_pixels(snapshot_height_mm)
+                snapshot_output_height_px = mm_to_pixels(snapshot_width_mm)
 
             if snapshot.get("fit_in", False):
-                saved_bw = self.is_bw
+                saved_bw_for_snapshot = self.is_bw
                 self.is_bw = snapshot.get("is_bw", False)
                 # Si rembg n'était pas actif lors du snapshot mais l'est maintenant,
                 # utiliser l'image originale pour ce format fit-in.
-                saved_pil_fit = None
+                saved_image_before_fit = None
                 if not snapshot.get("rembg_active", False) and self.current_pil_image.mode == "RGBA" and self._rembg_original is not None:
-                    saved_pil_fit = self.current_pil_image
+                    saved_image_before_fit = self.current_pil_image
                     self.current_pil_image = self._rembg_original
-                ex_crop = self._compute_fit_in(ex_target_w_px, ex_target_h_px)
-                if saved_pil_fit is not None:
-                    self.current_pil_image = saved_pil_fit
-                self.is_bw = saved_bw
+                snapshot_output_image = self._compute_fit_in(snapshot_output_width_px, snapshot_output_height_px)
+                if saved_image_before_fit is not None:
+                    self.current_pil_image = saved_image_before_fit
+                self.is_bw = saved_bw_for_snapshot
             else:
-                ex_crop = self._compute_crop_from_snapshot(snapshot)
+                snapshot_output_image = self._compute_crop_from_snapshot(snapshot)
 
-            ex_two_in_one_applied = False
+            snapshot_two_in_one_applied = False
 
             # Appliquer les réglages couleur AVANT les bordures pour que les
             # zones blanches ajoutées (13x15, Polaroid…) restent blanc pur.
-            saved_contrast, saved_saturation, saved_exposure = self.contrast, self.saturation, self.exposure
-            saved_hue, saved_wb = self.hue, self.white_balance
+            original_contrast, original_saturation, original_exposure = self.contrast, self.saturation, self.exposure
+            original_hue, original_white_balance = self.hue, self.white_balance
             self.contrast = snapshot.get("contrast", 0)
             self.saturation = snapshot.get("saturation", 0)
             self.exposure = snapshot.get("exposure", 0)
             self.hue = snapshot.get("hue", 0)
             self.white_balance = snapshot.get("white_balance", 0)
-            ex_crop = self._apply_adjustments(ex_crop)
-            self.contrast, self.saturation, self.exposure = saved_contrast, saved_saturation, saved_exposure
-            self.hue, self.white_balance = saved_hue, saved_wb
+            snapshot_output_image = self._apply_adjustments(snapshot_output_image)
+            self.contrast, self.saturation, self.exposure = original_contrast, original_saturation, original_exposure
+            self.hue, self.white_balance = original_hue, original_white_balance
             if snapshot.get("shadows", 0) != 0:
-                ex_crop = self._apply_shadows(ex_crop, snapshot["shadows"])
+                snapshot_output_image = self._apply_shadows(snapshot_output_image, snapshot["shadows"])
             if snapshot.get("highlights", 0) != 0:
-                ex_crop = self._apply_highlights(ex_crop, snapshot["highlights"])
+                snapshot_output_image = self._apply_highlights(snapshot_output_image, snapshot["highlights"])
 
             if snapshot.get("two_in_one", False):
-                if snapshot.get("border_13x15", False) and "10x15" in ex_short:
-                    ex_crop = self._build_two_in_one_10x15_to_13x15(ex_crop)
-                    ex_short = "13x15"
+                if snapshot.get("border_13x15", False) and "10x15" in snapshot_format_short_name:
+                    snapshot_output_image = self._build_two_in_one_10x15_to_13x15(snapshot_output_image)
+                    snapshot_format_short_name = "13x15"
                 else:
-                    ex_crop = self._build_two_in_one_image(ex_crop, ex_target_w_px, ex_target_h_px)
-                ex_two_in_one_applied = True
+                    snapshot_output_image = self._build_two_in_one_image(snapshot_output_image, snapshot_output_width_px, snapshot_output_height_px)
+                snapshot_two_in_one_applied = True
 
-            if (not ex_two_in_one_applied) and snapshot.get("border_13x15", False) and "10x15" in ex_short:
-                if ex_is_portrait:
-                    src_w, src_h = mm_to_pixels(102), mm_to_pixels(152)
-                    out_w, out_h = mm_to_pixels(127), mm_to_pixels(152)
+            if (not snapshot_two_in_one_applied) and snapshot.get("border_13x15", False) and "10x15" in snapshot_format_short_name:
+                if snapshot_is_portrait:
+                    snapshot_source_width, snapshot_source_height = mm_to_pixels(102), mm_to_pixels(152)
+                    snapshot_framed_width, snapshot_framed_height = mm_to_pixels(127), mm_to_pixels(152)
                 else:
-                    src_w, src_h = mm_to_pixels(152), mm_to_pixels(102)
-                    out_w, out_h = mm_to_pixels(152), mm_to_pixels(127)
-                base_fit = ImageOps.fit(ex_crop, (src_w, src_h), method=Image.Resampling.LANCZOS)
-                framed = Image.new("RGB", (out_w, out_h), "white")
-                framed.paste(base_fit, (0, 0))
-                ex_crop = framed
-                ex_short = "13x15"
+                    snapshot_source_width, snapshot_source_height = mm_to_pixels(152), mm_to_pixels(102)
+                    snapshot_framed_width, snapshot_framed_height = mm_to_pixels(152), mm_to_pixels(127)
+                snapshot_fitted_photo = ImageOps.fit(snapshot_output_image, (snapshot_source_width, snapshot_source_height), method=Image.Resampling.LANCZOS)
+                snapshot_framed_image = Image.new("RGB", (snapshot_framed_width, snapshot_framed_height), "white")
+                snapshot_framed_image.paste(snapshot_fitted_photo, (0, 0))
+                snapshot_output_image = snapshot_framed_image
+                snapshot_format_short_name = "13x15"
 
-            if (not ex_two_in_one_applied) and snapshot.get("border_10x20", False) and "10x15" in ex_short:
-                if ex_is_portrait:
-                    src_w, src_h = mm_to_pixels(102), mm_to_pixels(152)
-                    out_w, out_h = mm_to_pixels(102), mm_to_pixels(203)
+            if (not snapshot_two_in_one_applied) and snapshot.get("border_10x20", False) and "10x15" in snapshot_format_short_name:
+                if snapshot_is_portrait:
+                    snapshot_source_width, snapshot_source_height = mm_to_pixels(102), mm_to_pixels(152)
+                    snapshot_framed_width, snapshot_framed_height = mm_to_pixels(102), mm_to_pixels(203)
                 else:
-                    src_w, src_h = mm_to_pixels(152), mm_to_pixels(102)
-                    out_w, out_h = mm_to_pixels(203), mm_to_pixels(102)
-                base_fit = ImageOps.fit(ex_crop, (src_w, src_h), method=Image.Resampling.LANCZOS)
-                framed = Image.new("RGB", (out_w, out_h), "white")
-                framed.paste(base_fit, (0, 0))
-                ex_crop = framed
-                ex_short = "10x20"
+                    snapshot_source_width, snapshot_source_height = mm_to_pixels(152), mm_to_pixels(102)
+                    snapshot_framed_width, snapshot_framed_height = mm_to_pixels(203), mm_to_pixels(102)
+                snapshot_fitted_photo = ImageOps.fit(snapshot_output_image, (snapshot_source_width, snapshot_source_height), method=Image.Resampling.LANCZOS)
+                snapshot_framed_image = Image.new("RGB", (snapshot_framed_width, snapshot_framed_height), "white")
+                snapshot_framed_image.paste(snapshot_fitted_photo, (0, 0))
+                snapshot_output_image = snapshot_framed_image
+                snapshot_format_short_name = "10x20"
 
-            if (not ex_two_in_one_applied) and snapshot.get("border_13x20", False) and "13x18" in ex_short:
-                if ex_is_portrait:
-                    src_w, src_h = mm_to_pixels(127), mm_to_pixels(178)
-                    out_w, out_h = mm_to_pixels(127), mm_to_pixels(203)
+            if (not snapshot_two_in_one_applied) and snapshot.get("border_13x20", False) and "13x18" in snapshot_format_short_name:
+                if snapshot_is_portrait:
+                    snapshot_source_width, snapshot_source_height = mm_to_pixels(127), mm_to_pixels(178)
+                    snapshot_framed_width, snapshot_framed_height = mm_to_pixels(127), mm_to_pixels(203)
                 else:
-                    src_w, src_h = mm_to_pixels(178), mm_to_pixels(127)
-                    out_w, out_h = mm_to_pixels(203), mm_to_pixels(127)
-                base_fit = ImageOps.fit(ex_crop, (src_w, src_h), method=Image.Resampling.LANCZOS)
-                framed = Image.new("RGB", (out_w, out_h), "white")
-                framed.paste(base_fit, (0, 0))
-                ex_crop = framed
-                ex_short = "13x20"
+                    snapshot_source_width, snapshot_source_height = mm_to_pixels(178), mm_to_pixels(127)
+                    snapshot_framed_width, snapshot_framed_height = mm_to_pixels(203), mm_to_pixels(127)
+                snapshot_fitted_photo = ImageOps.fit(snapshot_output_image, (snapshot_source_width, snapshot_source_height), method=Image.Resampling.LANCZOS)
+                snapshot_framed_image = Image.new("RGB", (snapshot_framed_width, snapshot_framed_height), "white")
+                snapshot_framed_image.paste(snapshot_fitted_photo, (0, 0))
+                snapshot_output_image = snapshot_framed_image
+                snapshot_format_short_name = "13x20"
 
-            os.makedirs(ex_short, exist_ok=True)
-            ex_copies = snapshot.get("copies", 1)
-            ex_prefix = f"{ex_copies}X_"
-            ex_jpg = ex_prefix + name + f"_{idx}.jpg"
-            ex_dir = os.path.join(self.source_folder, ex_short)
-            os.makedirs(ex_dir, exist_ok=True)
-            ex_path = unique_path(os.path.join(ex_dir, ex_jpg))
+            os.makedirs(snapshot_format_short_name, exist_ok=True)
+            snapshot_copies_count = snapshot.get("copies", 1)
+            snapshot_copies_prefix = f"{snapshot_copies_count}X_"
+            snapshot_output_filename = snapshot_copies_prefix + base_filename + f"_{snapshot_index}.jpg"
+            snapshot_output_directory = os.path.join(self.source_folder, snapshot_format_short_name)
+            os.makedirs(snapshot_output_directory, exist_ok=True)
+            snapshot_saved_path = unique_path(os.path.join(snapshot_output_directory, snapshot_output_filename))
 
             if snapshot.get("is_sharpen", self.is_sharpen):
-                ex_crop = ex_crop.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
-                ex_crop = ex_crop.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
+                snapshot_output_image = snapshot_output_image.filter(ImageFilter.UnsharpMask(radius=4, percent=13, threshold=0))
+                snapshot_output_image = snapshot_output_image.filter(ImageFilter.UnsharpMask(radius=2, percent=21, threshold=0))
 
             # Conversion vers sRGB (correction colorimétrique)
-            ex_crop = convert_to_srgb(ex_crop, getattr(self, 'icc_profile', None))
+            snapshot_output_image = convert_to_srgb(snapshot_output_image, getattr(self, 'icc_profile', None))
 
-            ex_crop.save(ex_path, **save_kwargs)
-            out_path = ex_path
+            snapshot_output_image.save(snapshot_saved_path, **jpeg_save_options)
+            saved_file_path = snapshot_saved_path
 
-        self.status_text.value = f"[OK] {os.path.basename(out_path)}"
+        self.status_text.value = f"[OK] {os.path.basename(saved_file_path)}"
         self.page.update()
 
         if self.batch_mode:
@@ -3276,6 +3517,8 @@ class PhotoCropper:
             self.copies_count = 1
             self.copies_text.value = "1"
             self.page.update()
+
+
 
     def ignore_image(self, e):
         """
@@ -3314,6 +3557,8 @@ class PhotoCropper:
         self.load_image(preserve_orientation=False)
         self.page.update()
 
+
+
     async def close_window(self, e=None):
         """
         Ferme la fenêtre de l'application en toute sécurité.
@@ -3349,6 +3594,8 @@ class PhotoCropper:
         except Exception:
             pass
 
+
+
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -3383,6 +3630,9 @@ def main(page: ft.Page):
     page : ft.Page
         Page Flet fournie par le runtime.
     """
+
+
+
     page.title = "Recadrage Photo"
     page.theme_mode = ft.ThemeMode.DARK
     page.window.maximized = True
@@ -3390,6 +3640,8 @@ def main(page: ft.Page):
     page.run_task(page.window.to_front)
 
     app = PhotoCropper(page)
+
+
 
     def on_key(event: ft.KeyboardEvent):
         """
@@ -3467,11 +3719,15 @@ def main(page: ft.Page):
     page.add(
         ft.Stack([
             ft.Row([
+
+
                 # ── Panneau gauche : réglages sliders ──────────────────────
                 ft.Container(
                     content=ft.Column([
                         ft.Text("Réglages", size=16, weight=ft.FontWeight.BOLD, color=WHITE),
                         ft.Divider(height=4),
+
+
                         # ── Géométrie ──────────────────────────────────────
                         ft.Container(
                             content=ft.Column([
@@ -3486,6 +3742,8 @@ def main(page: ft.Page):
                             border=ft.Border.all(1, BLUE),
                         ),
                         ft.Divider(height=6),
+
+
                         # ── Luminosité ────────────────────────────────────
                         ft.Container(
                             content=ft.Column([
@@ -3504,6 +3762,8 @@ def main(page: ft.Page):
                             border=ft.Border.all(1, YELLOW),
                         ),
                         ft.Divider(height=6),
+
+
                         # ── Couleur ───────────────────────────────────────
                         ft.Container(
                             content=ft.Column([
@@ -3520,6 +3780,8 @@ def main(page: ft.Page):
                             border=ft.Border.all(1, VIOLET),
                         ),
                         ft.Divider(height=6),
+
+
                         # ── Netteté ───────────────────────────────────────
                         ft.Container(
                             content=ft.Column([
@@ -3543,6 +3805,8 @@ def main(page: ft.Page):
                     border_radius=8,
                 ),
                 ft.Container(
+
+
                 # ── Panneau du dessus : Opérations ──────────────────────
                     content=ft.Column(
                         [
@@ -3624,6 +3888,8 @@ def main(page: ft.Page):
                                 width=1200,
                                 border=ft.Border.all(1, GREY),
                             ),
+
+
                             # ── Zone centrale : Canevas de l'image ──────────────────────
                             ft.Container(
                                 content=app.canvas_container,
@@ -3651,6 +3917,8 @@ def main(page: ft.Page):
         ], expand=True)
     )
 
+
+
     # Gestionnaire de redimensionnement de la fenêtre
     def on_window_resize(e):
         """
@@ -3670,7 +3938,9 @@ def main(page: ft.Page):
     
     page.on_resize = on_window_resize
 
-    # Start directly in interactive batch mode on launch (avec délai pour s'assurer que la fenêtre est initialisée)
+
+
+# Start directly in interactive batch mode on launch (avec délai pour s'assurer que la fenêtre est initialisée)
     async def delayed_start():
         """
         Coroutine de démarrage différé du mode batch interactif.
