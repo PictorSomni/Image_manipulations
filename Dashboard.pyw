@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.0.5"
+__version__ = "2.0.6"
 
 
 
@@ -239,6 +239,7 @@ def main(page: ft.Page):
     all_entries_data = {"list": [], "error": ""}  # Données brutes du dernier scan
     pending_file_selection = {"names": None}  # Noms à sélectionner après le prochain scan
     preview_refresh_token = {"value": 0}   # incrémenté à chaque refresh pour annuler les anciens threads
+    search_query = {"value": ""}  # Requête de recherche active dans la preview
 
 
 
@@ -303,6 +304,37 @@ def main(page: ft.Page):
     )
     page_indicator_text = ft.Text("", size=12, color=LIGHT_GREY)
     selected_files_prefix = "SELECTED_FILES:"
+
+    # ── Barre de recherche dans la preview ────────────────────────────
+    search_field = ft.TextField(
+        hint_text="Rechercher...",
+        border_color=BLUE,
+        text_size=13,
+        height=32,
+        width=180,
+        content_padding=ft.Padding(8, 2, 8, 2),
+        prefix_icon=ft.Icons.SEARCH,
+        bgcolor=DARK,
+    )
+    search_close_btn = ft.IconButton(
+        icon=ft.Icons.CLOSE,
+        icon_color=LIGHT_GREY,
+        icon_size=16,
+        tooltip="Fermer la recherche",
+        style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+    )
+    search_active_row = ft.Row(
+        [search_field, search_close_btn],
+        spacing=0, tight=True,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        visible=False,
+    )
+    search_icon_btn = ft.IconButton(
+        icon=ft.Icons.SEARCH,
+        icon_color=WHITE,
+        icon_size=20,
+        tooltip="Rechercher dans les fichiers",
+    )
 
 
 
@@ -1893,6 +1925,37 @@ def main(page: ft.Page):
 
 
 
+    # ── Recherche dans la preview ──────────────────────────────────────
+    def _on_search_change(e):
+        """Met à jour la requête de recherche et re-rend la preview.
+        Si le champ est vidé, referme la barre et restaure l'icône seule."""
+        typed_text = (search_field.value or "").strip()
+        if not typed_text:
+            _clear_search(e)
+            return
+        search_query["value"] = typed_text
+        preview_page["value"] = 0
+        _render_preview_page()
+
+    def _open_search(e):
+        """Affiche la barre de recherche et masque le bouton icône."""
+        search_icon_btn.visible = False
+        search_active_row.visible = True
+        page.update()
+        search_field.focus()
+        page.update()
+
+    def _clear_search(e):
+        """Efface la recherche, masque la barre et restaure tous les fichiers."""
+        search_query["value"] = ""
+        search_field.value = ""
+        search_active_row.visible = False
+        search_icon_btn.visible = True
+        _render_preview_page()
+        page.update()
+
+
+
     def _get_removable_drives():
         """Détecte les périphériques amovibles (cross-platform, sans dépendance externe)."""
         drives = []
@@ -2213,7 +2276,11 @@ def main(page: ft.Page):
             entries = all_entries_data["list"]
             # Appliquer le filtre actif
             if filter_type["value"] != "all":
-                entries = [e for e in entries if _match_filter(e)]
+                entries = [entry for entry in entries if _match_filter(entry)]
+            # Appliquer la recherche textuelle
+            if search_query["value"]:
+                query_lower = search_query["value"].lower()
+                entries = [entry for entry in entries if query_lower in entry[0].lower()]
             total = len(entries)
             total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
             current_pg = min(preview_page["value"], total_pages - 1)
@@ -3163,6 +3230,14 @@ def main(page: ft.Page):
 
 
 
+    # ── Recherche preview ─────────────────────────────────────────────
+    search_icon_btn.on_click = _open_search
+    search_field.on_change = _on_search_change
+    search_field.on_submit = _on_search_change
+    search_close_btn.on_click = _clear_search
+
+
+
     # ── Redimensionnement ─────────────────────────────────────────────
     resize_input.on_change = on_resize_input_change
     resize_watermark_input.on_change = on_resize_watermark_input_change
@@ -3297,6 +3372,8 @@ def main(page: ft.Page):
                             icon_color=RED,
                             icon_size=20,
                         ),
+                        search_icon_btn,
+                        search_active_row,
                         ft.Container(expand=True),
                         selection_count_text,
                         ft.Container(width=6),

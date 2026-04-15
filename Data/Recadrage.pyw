@@ -41,7 +41,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Tab       : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.0.5"
+__version__ = "2.0.6"
 
 #############################################################
 #                          IMPORTS                          #
@@ -107,8 +107,7 @@ ORANGE = "#FFA071"
 RED = "#F17171"
 WHITE = "#c7ccd8"
 
-SNACKBAR_BACKGROUND_COLOR = DARK
-SNACKBAR_TEXT_COLOR = BLUE
+
 
 # ===================== Layout ===================== #
 LEFT_COL_WIDTH   = 200   # Largeur de la colonne de gauche (réglages sliders)
@@ -675,6 +674,19 @@ class PhotoCropper:
 
 
 
+# ===================== Snackbar ===================== #
+    def _snackbar(self, message, text_color=DARK, bg_color=BLUE):
+        self.page.show_dialog(ft.SnackBar(
+            ft.Text(message, color=text_color, size=16, text_align=ft.TextAlign.CENTER),
+            bgcolor=bg_color,
+            duration=3000,
+            behavior=ft.SnackBarBehavior.FLOATING,
+            padding=ft.Padding(21, 21, 21, 21),
+            shape=ft.RoundedRectangleBorder(radius=8),
+            ))
+
+
+
     # ================================================================ #
     #                    CANVAS & TRANSFORMATIONS                      #
     # ================================================================ #
@@ -903,7 +915,7 @@ class PhotoCropper:
 
         # Vérifier que le fichier existe et est accessible
         if not os.path.isfile(path) or not os.access(path, os.R_OK):
-            self.page.show_dialog(ft.SnackBar(ft.Text(f"Fichier inaccessible: {os.path.basename(path)}", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+            self._snackbar(f"Fichier inaccessible: {os.path.basename(path)}")
             self.page.update()
 
             # Passer à l'image suivante automatiquement
@@ -926,7 +938,7 @@ class PhotoCropper:
             self.rembg_btn.selected = False
             self.original_width, self.original_height = source_image.size
         except Exception as e:
-            self.page.show_dialog(ft.SnackBar(ft.Text(f"Erreur lors du chargement: {os.path.basename(path)} - {str(e)}", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+            self._snackbar(f"Erreur lors du chargement: {os.path.basename(path)} - {str(e)}")
             self.page.update()
 
             # Passer à l'image suivante automatiquement
@@ -1057,7 +1069,7 @@ class PhotoCropper:
         try:
             all_folder_files = os.listdir(source_folder_path)
         except Exception as e:
-            self.page.show_dialog(ft.SnackBar(ft.Text(f"Erreur lors de la lecture du dossier: {e}", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+            self._snackbar(f"Erreur lors de la lecture du dossier: {e}")
             return
 
         image_filenames = [f for f in all_folder_files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.jpe', '.tif', '.tiff', '.bmp', '.dib', '.gif', '.webp', '.ico', '.pcx', '.tga', '.ppm', '.pgm', '.pbm', '.pnm')) and not f == "watermark.png"]
@@ -1066,15 +1078,15 @@ class PhotoCropper:
         if selected_files_filter:
             image_filenames = [f for f in image_filenames if f in selected_files_filter]
             if not image_filenames and total_image_count > 0:
-                self.page.show_dialog(ft.SnackBar(ft.Text(f"{total_image_count} image(s) trouvée(s) mais aucune ne correspond aux fichiers sélectionnés", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+                self._snackbar(f"{total_image_count} image(s) trouvée(s) mais aucune ne correspond aux fichiers sélectionnés")
                 self.page.update()
                 return
 
         if not image_filenames:
             if len(all_folder_files) == 0:
-                self.page.show_dialog(ft.SnackBar(ft.Text("Le dossier est vide", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+                self._snackbar("Le dossier est vide")
             else:
-                self.page.show_dialog(ft.SnackBar(ft.Text(f"Aucun fichier image valide trouvé dans le dossier (total : {len(all_folder_files)})", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+                self._snackbar(f"Aucun fichier image valide trouvé dans le dossier (total : {len(all_folder_files)})")
             self.page.update()
             return
 
@@ -1090,7 +1102,7 @@ class PhotoCropper:
                     pass
 
         if not valid_image_paths:
-            self.page.show_dialog(ft.SnackBar(ft.Text(f"{len(image_filenames)} image(s) trouvée(s) mais aucune n'est accessible ou valide", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+            self._snackbar(f"{len(image_filenames)} image(s) trouvée(s) mais aucune n'est accessible ou valide")
             self.page.update()
             return
 
@@ -2033,10 +2045,7 @@ class PhotoCropper:
             msg = "Molette → Rotation activée"
         else:
             msg = "Molette → Zoom activé"
-        self.page.show_dialog(ft.SnackBar(
-            ft.Text(msg, color=SNACKBAR_TEXT_COLOR),
-            bgcolor=SNACKBAR_BACKGROUND_COLOR,
-        ))
+        self._snackbar(msg)
         self.page.update()
 
 
@@ -2132,6 +2141,7 @@ class PhotoCropper:
         self.rotation_slider.update()
         self._clamp_offsets()
         self._update_transform()
+        self._snackbar("Rotation réinitialisée à 0°")
 
 
 
@@ -2147,6 +2157,7 @@ class PhotoCropper:
         self._update_transform()
         self._render_preview()
         self.page.update()
+        self._snackbar("Zoom réinitialisé à 1× et pan réinitialisé")
 
 
 
@@ -2159,7 +2170,7 @@ class PhotoCropper:
         slider.update()
         self._render_preview()
         self.page.update()
-
+        self._snackbar("Slider réinitialisé")
 
 
     # ================================================================ #
@@ -2358,12 +2369,10 @@ class PhotoCropper:
         """
 
         if not REMBG_AVAILABLE:
-            self.page.show_dialog(ft.SnackBar(ft.Text("[ERREUR] rembg non installé — pip install rembg onnxruntime", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
-            self.page.update()
+            self._snackbar("[ERREUR] rembg non installé — pip install rembg onnxruntime")
             return
         if self.current_pil_image is None:
-            self.page.show_dialog(ft.SnackBar(ft.Text("[ERREUR] aucune image chargée", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
-            self.page.update()
+            self._snackbar("[ERREUR] aucune image chargée")
             return
 
 
@@ -2373,13 +2382,13 @@ class PhotoCropper:
             self.current_pil_image = self._rembg_original
             self._rembg_original = None
             self.rembg_btn.selected = False
-            self.page.show_dialog(ft.SnackBar(ft.Text("Fond restauré", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+            self._snackbar("Fond restauré")
             self._render_preview()
             self.page.update()
             return
 
         self.rembg_btn.disabled = True
-        self.page.show_dialog(ft.SnackBar(ft.Text("Suppression du fond en cours…", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+        self._snackbar("Suppression du fond en cours…")
         self.page.update()
 
 
@@ -2407,9 +2416,9 @@ class PhotoCropper:
             self._rembg_original = self.current_pil_image
             self.current_pil_image = result
             self.rembg_btn.selected = True
-            self.page.show_dialog(ft.SnackBar(ft.Text("[OK] Fond supprimé — recliquer pour restaurer", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+            self._snackbar("[OK] Fond supprimé — recliquer pour restaurer")
         except Exception as ex:
-            self.page.show_dialog(ft.SnackBar(ft.Text(f"[ERREUR] rembg : {ex}", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+            self._snackbar(f"[ERREUR] rembg : {ex}")
         finally:
             self.rembg_btn.disabled = False
             self._render_preview()
@@ -2809,6 +2818,7 @@ class PhotoCropper:
         self.highlights_slider.update()
         self._render_preview()
         self.page.update()
+        self._snackbar("Ombres et Hautes Lumières remises à 0")
 
 
 
@@ -2856,6 +2866,7 @@ class PhotoCropper:
         self.white_balance_slider.update()
         self._render_preview()
         self.page.update()
+        self._snackbar("Tous les réglages remis à 0")
 
 
 
@@ -3263,12 +3274,10 @@ class PhotoCropper:
         """
 
         if not self.image_paths or self.current_index >= len(self.image_paths):
-            self.page.show_dialog(ft.SnackBar(ft.Text("Toutes les images ont été traitées.", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
-            self.page.update()
+            self._snackbar("Toutes les images ont été traitées.")
             return
 
-        self.page.show_dialog(ft.SnackBar(ft.Text("Enregistrement en cours...", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
-        self.page.update()
+        self._snackbar("Enregistrement en cours...")
 
         used_paths = set()
 
@@ -3596,8 +3605,7 @@ class PhotoCropper:
             snapshot_output_image.save(snapshot_saved_path, **jpeg_save_options)
             saved_file_path = snapshot_saved_path
 
-        self.page.show_dialog(ft.SnackBar(ft.Text(f"[OK] {os.path.basename(saved_file_path)} enregistré !", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
-        self.page.update()
+        self._snackbar(f"[OK] {os.path.basename(saved_file_path)} enregistré !")
 
         if self.batch_mode:
             self.current_index += 1
@@ -3617,7 +3625,7 @@ class PhotoCropper:
                 self.canvas_container.visible = False
                 self.validate_button.visible = False
                 
-                self.page.show_dialog(ft.SnackBar(ft.Text("[OK] Toutes les images sont traitées !", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+                self._snackbar("[OK] Toutes les images sont traitées !")
                 self.page.update()
                 asyncio.create_task(self.close_window())
                 return
@@ -3647,20 +3655,18 @@ class PhotoCropper:
         """
 
         if not self.image_paths or self.current_index >= len(self.image_paths):
-            self.page.show_dialog(ft.SnackBar(ft.Text("Toutes les images ont été traitées.", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
-            self.page.update()
+            self._snackbar("Toutes les images ont été traitées.")
             asyncio.create_task(self.close_window())
             return
 
         self.current_index += 1
 
         if self.current_index >= len(self.image_paths):
-            self.page.show_dialog(ft.SnackBar(ft.Text("Toutes les images ont été traitées.", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
-            self.page.update()
+            self._snackbar("Toutes les images ont été traitées.")
             asyncio.create_task(self.close_window())
             return
 
-        self.page.show_dialog(ft.SnackBar(ft.Text("Image ignorée.", color=SNACKBAR_TEXT_COLOR), bgcolor=SNACKBAR_BACKGROUND_COLOR))
+        self._snackbar("Image ignorée.")
         self.extra_formats.clear()
         self._update_extra_formats_display()
         self.copies_count = 1
@@ -3780,7 +3786,7 @@ def main(page: ft.Page):
             app.validate_and_next(event)
         elif event.key == "Backspace":
             app.toggle_orientation(event)
-        elif event.key == " ":
+        elif event.key == "Escape":
             app.ignore_image(event)
     page.on_keyboard_event = on_key
 
