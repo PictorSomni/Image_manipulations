@@ -185,7 +185,14 @@ def main(page: ft.Page):
     def _load_favorites() -> list:
         try:
             with open(favorites_file_path, "r", encoding="utf-8") as f:
-                return [p for p in json.load(f) if isinstance(p, str)]
+                raw = json.load(f)
+            result = []
+            for item in raw:
+                if isinstance(item, str):
+                    result.append({"path": item, "label": ""})
+                elif isinstance(item, dict) and "path" in item:
+                    result.append({"path": item["path"], "label": item.get("label", "")})
+            return result
         except Exception:
             return []
 
@@ -693,12 +700,31 @@ def main(page: ft.Page):
             border_color=BLUE, text_size=13, height=40,
             content_padding=ft.Padding(8, 4, 8, 4), expand=True,
         )
+
+        async def _browse_exe(e):
+            result = await ft.FilePicker().pick_files(
+                dialog_title="Choisir l'exécutable",
+                allow_multiple=False,
+            )
+            if result:
+                add_exe_field.value = result[0].path
+                add_exe_field.update()
+
+        browse_exe_btn = ft.IconButton(
+            icon=ft.Icons.FOLDER_OPEN,
+            icon_color=BLUE,
+            icon_size=20,
+            tooltip="Parcourir…",
+            on_click=_browse_exe,
+            style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+        )
+
         add_form = ft.Container(
             content=ft.Column([
                 ft.Divider(height=8, color=GREY),
                 ft.Text("Ajouter un programme", size=12, color=LIGHT_GREY),
                 ft.Row([add_label_field], tight=True),
-                ft.Row([add_exe_field], tight=True),
+                ft.Row([add_exe_field, browse_exe_btn], tight=True),
             ], spacing=6, tight=True),
             visible=False,
         )
@@ -1465,64 +1491,70 @@ def main(page: ft.Page):
         if not clipboard["files"]:
             log_to_terminal("[ATTENTION] Presse-papiers vide", ORANGE)
             return
-        
-        copied_count = 0
-        errors = []
-        
-        for source_path in clipboard["files"]:
-            if not os.path.exists(source_path):
-                errors.append(f"{os.path.basename(source_path)}: fichier source introuvable")
-                continue
-            
-            dest_path = os.path.join(target_folder, os.path.basename(source_path))
 
+        # Snapshot du presse-papiers avant de lancer le thread
+        files_to_paste = list(clipboard["files"])
+        is_cut = clipboard["cut"]
+        count = len(files_to_paste)
+        action_label = "déplacement" if is_cut else "copie"
+        log_to_terminal(f"[...] {action_label.capitalize()} de {count} élément(s) en cours…", ORANGE)
 
+        def _do_paste():
+            copied_count = 0
+            errors = []
 
-            # Si le fichier existe déjà, ajouter un suffixe
-            if os.path.exists(dest_path):
-                base_name = os.path.basename(source_path)
-                name, ext = os.path.splitext(base_name)
-                counter = 1
-                while os.path.exists(dest_path):
-                    new_name = f"{name} ({counter}){ext}"
-                    dest_path = os.path.join(target_folder, new_name)
-                    counter += 1
-            
-            try:
-                if os.path.isdir(source_path):
-                    shutil.copytree(source_path, dest_path)
-                else:
-                    shutil.copy2(source_path, dest_path)
-                copied_count += 1
+            for source_path in files_to_paste:
+                if not os.path.exists(source_path):
+                    errors.append(f"{os.path.basename(source_path)}: fichier source introuvable")
+                    continue
 
+                dest_path = os.path.join(target_folder, os.path.basename(source_path))
 
+                # Si le fichier existe déjà, ajouter un suffixe
+                if os.path.exists(dest_path):
+                    base_name = os.path.basename(source_path)
+                    name, ext = os.path.splitext(base_name)
+                    counter = 1
+                    while os.path.exists(dest_path):
+                        new_name = f"{name} ({counter}){ext}"
+                        dest_path = os.path.join(target_folder, new_name)
+                        counter += 1
 
-                # Si mode couper : supprimer la source après copie réussie
-                if clipboard["cut"]:
-                    try:
-                        if os.path.isdir(source_path):
-                            shutil.rmtree(source_path)
-                        else:
-                            os.remove(source_path)
-                        selected_files.discard(source_path)
-                    except Exception as del_err:
-                        errors.append(f"Suppression source {os.path.basename(source_path)}: {del_err}")
-            except Exception as err:
-                errors.append(f"{os.path.basename(source_path)}: {err}")
-        
-        if copied_count > 0:
-            action = "déplacé" if clipboard["cut"] else "collé"
-            log_to_terminal(f"[OK] {copied_count} élément(s) {action}(s)", BLUE)
-            if clipboard["cut"]:
-                clipboard["files"] = []
-                clipboard["cut"] = False
-                selection_count_text.value = _selection_label()
-        
-        if errors:
-            for error in errors:
-                log_to_terminal(f"[ERREUR] {error}", RED)
-        
-        refresh_preview()
+                try:
+                    if os.path.isdir(source_path):
+                        shutil.copytree(source_path, dest_path)
+                    else:
+                        shutil.copy2(source_path, dest_path)
+                    copied_count += 1
+
+                    # Si mode couper : supprimer la source après copie réussie
+                    if is_cut:
+                        try:
+                            if os.path.isdir(source_path):
+                                shutil.rmtree(source_path)
+                            else:
+                                os.remove(source_path)
+                            selected_files.discard(source_path)
+                        except Exception as del_err:
+                            errors.append(f"Suppression source {os.path.basename(source_path)}: {del_err}")
+                except Exception as err:
+                    errors.append(f"{os.path.basename(source_path)}: {err}")
+
+            if copied_count > 0:
+                action = "déplacé" if is_cut else "collé"
+                log_to_terminal(f"[OK] {copied_count} élément(s) {action}(s)", BLUE)
+                if is_cut:
+                    clipboard["files"] = []
+                    clipboard["cut"] = False
+                    selection_count_text.value = _selection_label()
+
+            if errors:
+                for error in errors:
+                    log_to_terminal(f"[ERREUR] {error}", RED)
+
+            refresh_preview()
+
+        threading.Thread(target=_do_paste, daemon=True).start()
 
 
 
@@ -1920,8 +1952,9 @@ def main(page: ft.Page):
                         color=LIGHT_GREY, italic=True)
             )
         else:
-            for p in favorites_list:
-                name = os.path.basename(p) or p
+            for i, fav in enumerate(favorites_list):
+                p = fav["path"]
+                display_name = fav["label"] or os.path.basename(p) or p
                 def _nav(e, path=p):
                     if os.path.isdir(path):
                         navigate_to_folder(path)
@@ -1929,14 +1962,15 @@ def main(page: ft.Page):
                         log_to_terminal(f"[ERREUR] Dossier introuvable : {path}", RED)
                 def _remove(e, path=p):
                     updated_favorites = _load_favorites()
-                    if path in updated_favorites:
-                        updated_favorites.remove(path)
+                    updated_favorites = [f for f in updated_favorites if f["path"] != path]
                     _save_favorites(updated_favorites)
                     _rebuild_favorites_panel()
                     try:
                         favorites_list_view.update()
                     except Exception:
                         pass
+                def _rename(e, path=p, current_label=fav["label"]):
+                    _show_rename_favorite_dialog(path, current_label)
                 favorites_list_view.controls.append(
                     ft.Row([
                         ft.ReorderableDragHandle(
@@ -1945,12 +1979,20 @@ def main(page: ft.Page):
                         ),
                         ft.Icon(ft.Icons.FOLDER, size=16, color=BLUE),
                         ft.Container(
-                            content=ft.Text(name, size=16, color=WHITE,
+                            content=ft.Text(display_name, size=16, color=WHITE,
                                             overflow=ft.TextOverflow.ELLIPSIS, max_lines=1),
                             expand=True,
                             on_click=_nav,
                             tooltip=p,
                             ink=True,
+                        ),
+                        ft.Container(
+                            content=ft.Icon(ft.Icons.EDIT_OUTLINED, size=15, color=LIGHT_GREY),
+                            on_click=_rename,
+                            tooltip="Renommer le raccourci",
+                            ink=True,
+                            border_radius=8,
+                            padding=ft.Padding(3, 2, 3, 2),
                         ),
                         ft.Container(
                             content=ft.Icon(ft.Icons.CLOSE, size=16, color=LIGHT_GREY),
@@ -1969,21 +2011,102 @@ def main(page: ft.Page):
 
 
 
+    def _show_rename_favorite_dialog(path: str, current_label: str):
+        """Ouvre un dialog pour renommer le raccourci d'un favori."""
+        label_field = ft.TextField(
+            value=current_label or os.path.basename(path),
+            hint_text=os.path.basename(path),
+            border_color=BLUE, text_size=13, height=40,
+            content_padding=ft.Padding(8, 4, 8, 4),
+            autofocus=True,
+        )
+        dlg = ft.AlertDialog(
+            title=ft.Text("Renommer le raccourci", size=13, color=WHITE),
+            content=ft.Column([
+                ft.Text(path, size=10, color=LIGHT_GREY,
+                        overflow=ft.TextOverflow.ELLIPSIS, max_lines=1),
+                label_field,
+            ], spacing=6, tight=True, width=280),
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        def _confirm(e):
+            new_label = (label_field.value or "").strip()
+            favorites = _load_favorites()
+            for fav in favorites:
+                if fav["path"] == path:
+                    fav["label"] = new_label
+                    break
+            _save_favorites(favorites)
+            dlg.open = False
+            page.update()
+            _rebuild_favorites_panel()
+
+        def _cancel(e):
+            dlg.open = False
+            page.update()
+
+        dlg.actions = [
+            ft.TextButton("OK", on_click=_confirm),
+            ft.TextButton("Annuler", on_click=_cancel),
+        ]
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+
+
     def _add_favorite_current():
-        """Ajoute le dossier courant aux favoris."""
+        """Ajoute le dossier courant aux favoris (avec choix du nom du raccourci)."""
         path = current_browse_folder.get("path") or selected_folder.get("path")
         if not path or not os.path.isdir(path):
             log_to_terminal("[ATTENTION] Aucun dossier sélectionné à ajouter en favori", ORANGE)
             return
         path = os.path.normpath(path)
         favorites_list = _load_favorites()
-        if path not in favorites_list:
-            favorites_list.append(path)
-            _save_favorites(favorites_list)
-            _rebuild_favorites_panel()
-            log_to_terminal(f"[OK] Favori ajouté : {os.path.basename(path)}", YELLOW)
-        else:
+        if any(f["path"] == path for f in favorites_list):
             log_to_terminal("[INFO] Ce dossier est déjà dans les favoris", LIGHT_GREY)
+            return
+
+        default_name = os.path.basename(path)
+        label_field = ft.TextField(
+            value=default_name,
+            hint_text=default_name,
+            border_color=BLUE, text_size=13, height=40,
+            content_padding=ft.Padding(8, 4, 8, 4),
+            autofocus=True,
+        )
+        dlg = ft.AlertDialog(
+            title=ft.Text("Ajouter aux favoris", size=13, color=WHITE),
+            content=ft.Column([
+                ft.Text("Nom du raccourci :", size=11, color=LIGHT_GREY),
+                label_field,
+            ], spacing=6, tight=True, width=280),
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        def _confirm(e):
+            label = (label_field.value or "").strip()
+            dlg.open = False
+            page.update()
+            favorites_list = _load_favorites()
+            if not any(f["path"] == path for f in favorites_list):
+                favorites_list.append({"path": path, "label": label})
+                _save_favorites(favorites_list)
+                _rebuild_favorites_panel()
+                log_to_terminal(f"[OK] Favori ajouté : {label or default_name}", YELLOW)
+
+        def _cancel(e):
+            dlg.open = False
+            page.update()
+
+        dlg.actions = [
+            ft.TextButton("Ajouter", on_click=_confirm),
+            ft.TextButton("Annuler", on_click=_cancel),
+        ]
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
 
 
 

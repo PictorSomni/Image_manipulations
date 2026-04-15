@@ -58,7 +58,6 @@ import contextlib
 import math
 import io
 import base64
-from matplotlib.dates import DAILY
 import numpy as np
 import importlib.util
 
@@ -2008,7 +2007,7 @@ class PhotoCropper:
         dy = e.scroll_delta.y
         if self._scroll_rotates:
             # Mode Tab : molette → rotation (±15°)
-            rotation_delta = dy * 0.05
+            rotation_delta = dy * 0.005
             self.rotation = max(-15.0, min(15.0, self.rotation + rotation_delta))
             self.rotation_slider.value = self.rotation
             self.rotation_slider.label = f"{self.rotation:.2f}°"
@@ -2016,7 +2015,7 @@ class PhotoCropper:
         else:
             # Mode normal : molette → zoom
             if dy != 0:
-                zoom_delta = -dy * 0.0005
+                zoom_delta = -dy * 0.0002
                 self.scale = max(1.0, min(10.0, self.scale * (1.0 + zoom_delta)))
                 zoom_slider_val = min(self.scale, self.zoom_slider.max)
                 self.zoom_slider.value = zoom_slider_val
