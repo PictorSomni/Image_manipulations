@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.0.6"
+__version__ = "2.1.0"
 
 
 
@@ -483,6 +483,38 @@ def main(page: ft.Page):
 
     # S'abonner au canal quit
     page.pubsub.subscribe_topic("quit", on_quit_request)
+
+
+    def on_restore_window(topic, message):
+        """Restaure la fenêtre Dashboard quand Selecteur se ferme."""
+        page.window.minimized = False
+        page.update()
+
+    page.pubsub.subscribe_topic("restore_window", on_restore_window)
+
+
+    def _launch_selecteur(extra_env: dict = None):
+        """Lance Selecteur, minimise Dashboard, puis le restaure à la fermeture de Selecteur."""
+        env = {
+            **os.environ,
+            "SELECTEUR_INITIAL_FOLDER": (
+                current_browse_folder["path"] or selected_folder["path"] or ""
+            ),
+        }
+        if extra_env:
+            env.update(extra_env)
+        proc = subprocess.Popen(
+            [sys.executable, os.path.join(app_directory, "Selecteur.pyw")],
+            env=env,
+        )
+        page.window.minimized = True
+        page.update()
+
+        def _watch():
+            proc.wait()
+            page.pubsub.send_all_on_topic("restore_window", None)
+
+        threading.Thread(target=_watch, daemon=True).start()
 
 
 
@@ -1248,6 +1280,14 @@ def main(page: ft.Page):
 
 
 
+    def _open_json_in_selecteur(file_path):
+        """Lance le Sélecteur avec le fichier JSON pré-chargé dans l'onglet Liste."""
+        log_to_terminal(
+            f"[OK] Ouverture dans Sélecteur → Liste : {os.path.basename(file_path)}",
+            VIOLET,
+        )
+        _launch_selecteur({"SELECTEUR_JSON_PATH": file_path})
+
     def on_file_click(file_path, is_dir):
         """Gère le clic sur un fichier ou dossier dans la preview"""
         if is_dir:
@@ -1257,6 +1297,8 @@ def main(page: ft.Page):
             extract_zip(file_path)
         elif os.path.splitext(file_path)[1].lower() in _IMAGE_VIEWER_EXTS:
             open_image_viewer(file_path)
+        elif os.path.splitext(file_path)[1].lower() == ".json":
+            _open_json_in_selecteur(file_path)
         else:
             open_file_with_default_app(file_path)
 
@@ -2712,12 +2754,17 @@ def main(page: ft.Page):
                     bufsize=1,
                     universal_newlines=True
                 )
-                if platform.system() == "Windows":
-                    try:
-                        import ctypes
-                        ctypes.windll.user32.AllowSetForegroundWindow(process.pid)
-                    except Exception:
-                        pass
+
+                # Minimise Dashboard pour laisser la place à l'app lancée
+                if app_path.endswith(".pyw"):
+                    page.window.minimized = True
+                    page.update()
+
+                    def _watch_local(proc=process):
+                        proc.wait()
+                        page.pubsub.send_all_on_topic("restore_window", None)
+
+                    threading.Thread(target=_watch_local, daemon=True).start()
 
 
 
@@ -3270,6 +3317,14 @@ def main(page: ft.Page):
                     tooltip="Mettre à jour (git pull --rebase)",
                     on_click=update_app,
                     icon_color=LIGHT_GREY,
+                    bgcolor=DARK,
+                    icon_size=18,
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.SPLITSCREEN,
+                    tooltip="Ouvrir le Sélecteur (demi-écran)",
+                    on_click=lambda e: _launch_selecteur(),
+                    icon_color=ORANGE,
                     bgcolor=DARK,
                     icon_size=18,
                 ),
