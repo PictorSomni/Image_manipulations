@@ -1074,7 +1074,15 @@ def main(page: ft.Page):
             )
             if len(page.views) > 1:
                 page.views.pop()
-            refresh_preview()
+            # Restaurer la page de la preview_list sur celle contenant la dernière image visionnée
+            current_path = image_paths[current_image_index["value"]]
+            all_entry_paths = [entry_path for (_name, entry_path, _is_dir, _is_img, _ext) in all_entries_data["list"]]
+            try:
+                entry_index = all_entry_paths.index(current_path)
+                preview_page["value"] = entry_index // PAGE_SIZE
+            except ValueError:
+                pass
+            refresh_preview(reset_page=False)
             page.update()
 
         def delete_current_image(e):
