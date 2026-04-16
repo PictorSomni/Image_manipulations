@@ -17,7 +17,7 @@ Sélecteur — App compacte (demi-écran) avec deux onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 
 
 #############################################################
@@ -163,14 +163,16 @@ def main(page: ft.Page):
     json_entries     = {"list": []}
     list_sort_mode   = {"value": 2}         # 0=A→Z  1=Z→A  2=Récent
     list_search_q    = {"value": ""}
+    recent_json_list = {"data": [p for p in _cfg.get("recent_json", []) if isinstance(p, str) and os.path.isfile(p)]}
 
     # ═════════════════════════════════════════════════════════════════════
     #  ██  Helpers persistance
     # ═════════════════════════════════════════════════════════════════════
     def _persist():
         _save_config({
-            "dst_path":  dst_path_field.value or "",
-            "json_path": json_path["value"] or "",
+            "dst_path":    dst_path_field.value or "",
+            "json_path":   json_path["value"] or "",
+            "recent_json": recent_json_list["data"],
         })
 
     def _add_recent_src(p: str):
@@ -182,6 +184,37 @@ def main(page: ft.Page):
         lst = lst[:10]
         _save_recent_shared(lst)
         recent_src_list["data"] = lst
+
+    def _add_recent_json(p: str):
+        p = os.path.normpath(p)
+        lst = [x for x in recent_json_list["data"] if x != p]
+        lst.insert(0, p)
+        recent_json_list["data"] = lst[:10]
+        _persist()
+        _rebuild_recent_json_menu()
+
+    def _rebuild_recent_json_menu():
+        lst = recent_json_list["data"]
+        if not lst:
+            recent_json_btn.items = [
+                ft.PopupMenuItem(content=ft.Text("Aucun fichier récent"))
+            ]
+        else:
+            recent_json_btn.items = [
+                ft.PopupMenuItem(
+                    content=ft.Row(
+                        [ft.Icon(ft.Icons.DATA_OBJECT, size=16),
+                         ft.Text(os.path.basename(p) or p)],
+                        spacing=8, tight=True,
+                    ),
+                    on_click=lambda e, p=p: _open_json_in_list(p),
+                )
+                for p in lst
+            ]
+        try:
+            recent_json_btn.update()
+        except Exception:
+            pass
 
 
     # ═════════════════════════════════════════════════════════════════════
@@ -232,23 +265,13 @@ def main(page: ft.Page):
 
     search_field = ft.TextField(
         hint_text="Rechercher...", border_color=BLUE,
-        text_size=13, height=32, width=180,
+        text_size=13, height=32, expand=True,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH, bgcolor=DARK,
     )
     search_close_btn = ft.IconButton(
         icon=ft.Icons.CLOSE, icon_color=LIGHT_GREY, icon_size=16,
         style=ft.ButtonStyle(padding=ft.Padding.all(4)),
-    )
-    search_active_row = ft.Row(
-        [search_field, search_close_btn],
-        spacing=0, tight=True,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        visible=False,
-    )
-    search_icon_btn = ft.IconButton(
-        icon=ft.Icons.SEARCH, icon_color=WHITE,
-        icon_size=20, tooltip="Rechercher",
     )
 
     prev_page_btn = ft.IconButton(
@@ -283,13 +306,6 @@ def main(page: ft.Page):
         content_padding=ft.Padding(8, 2, 8, 2),
         bgcolor=DARK, expand=True,
     )
-    subfolder_field = ft.TextField(
-        hint_text="Nom du sous-dossier (ex: Client_Dupont)...",
-        border_color=ORANGE,
-        text_size=13, height=36,
-        content_padding=ft.Padding(8, 2, 8, 2),
-        bgcolor=DARK, expand=True,
-    )
     status_text = ft.Text("", size=12, color=LIGHT_GREY, expand=True)
     copy_btn = ft.Container(
         content=ft.Row([
@@ -313,6 +329,12 @@ def main(page: ft.Page):
         border_color=VIOLET, text_size=13, height=36,
         content_padding=ft.Padding(8, 2, 8, 2),
         bgcolor=DARK, expand=True,
+    )
+    recent_json_btn = ft.PopupMenuButton(
+        icon=ft.Icons.HISTORY,
+        icon_color=LIGHT_GREY,
+        tooltip="Fichiers JSON récents",
+        items=[],
     )
     list_search_field = ft.TextField(
         hint_text="Rechercher...", border_color=VIOLET,
@@ -623,13 +645,6 @@ def main(page: ft.Page):
         sort_mode["value"] = e.control.selected_index
         _refresh_preview()
 
-    def _open_search(e):
-        search_icon_btn.visible    = False
-        search_active_row.visible  = True
-        page.update()
-        search_field.focus()
-        page.update()
-
     def _on_search_change(e):
         q = (search_field.value or "").strip()
         if not q:
@@ -640,11 +655,10 @@ def main(page: ft.Page):
         _render_preview()
 
     def _clear_search(e):
-        search_query["value"]      = ""
-        search_field.value         = ""
-        search_active_row.visible  = False
-        search_icon_btn.visible    = True
+        search_query["value"] = ""
+        search_field.value    = ""
         _render_preview()
+        page.update()
         page.update()
 
     def _go_to_page(delta):
@@ -708,8 +722,7 @@ def main(page: ft.Page):
             status_text.value = "⚠️ Dossier de destination invalide"
             page.update()
             return
-        subfolder = (subfolder_field.value or "").strip()
-        dst       = os.path.join(dst_base, subfolder) if subfolder else dst_base
+        dst = dst_base
         files_snap = list(selected_files)
         n = len(files_snap)
         status_text.value = f"[...] Copie de {n} fichier(s)..."
@@ -924,6 +937,7 @@ def main(page: ft.Page):
             json_path_field.update()
         except Exception:
             pass
+        _add_recent_json(path)
         _persist()
         _load_and_render()
         tabs.selected_index = 1
@@ -1077,6 +1091,7 @@ def main(page: ft.Page):
             json_path["value"]    = p
             json_path_field.value = p
             json_path_field.update()
+            _add_recent_json(p)
             _persist()
             _load_and_render()
 
@@ -1084,6 +1099,7 @@ def main(page: ft.Page):
         p = (json_path_field.value or "").strip()
         if p and os.path.isfile(p):
             json_path["value"] = p
+            _add_recent_json(p)
             _persist()
             _load_and_render()
         else:
@@ -1140,6 +1156,7 @@ def main(page: ft.Page):
                 json_path["value"]    = p
                 json_path_field.value = p
                 json_path_field.update()
+                _add_recent_json(p)
                 _persist()
                 _load_and_render()
                 list_status.value = f"[OK] Créé : {name}"
@@ -1185,7 +1202,6 @@ def main(page: ft.Page):
     invert_btn.on_click        = _invert
     filter_segment.on_change   = _on_filter_change
     sort_segment.on_change     = _on_sort_change
-    search_icon_btn.on_click   = _open_search
     search_field.on_change     = _on_search_change
     search_field.on_submit     = _on_search_change
     search_close_btn.on_click  = _clear_search
@@ -1237,8 +1253,8 @@ def main(page: ft.Page):
         ft.Row([
             select_toggle_btn,
             invert_btn,
-            search_icon_btn,
-            search_active_row,
+            search_field,
+            search_close_btn,
             ft.Container(expand=True),
             selection_count_text,
             ft.Container(width=4),
@@ -1278,13 +1294,6 @@ def main(page: ft.Page):
                         icon_size=18, tooltip="Parcourir...",
                         on_click=_pick_dst,
                     ),
-                ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                ft.Row([
-                    ft.Icon(ft.Icons.DRIVE_FILE_RENAME_OUTLINE,
-                            color=ORANGE, size=16),
-                    ft.Text("Sous-dossier :", size=13, color=ORANGE,
-                            weight=ft.FontWeight.W_500),
-                    subfolder_field,
                     copy_btn,
                 ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 status_text,
@@ -1305,6 +1314,7 @@ def main(page: ft.Page):
         ft.Row([
             ft.Icon(ft.Icons.DATA_OBJECT, color=VIOLET, size=18),
             json_path_field,
+            recent_json_btn,
             ft.IconButton(
                 icon=ft.Icons.FOLDER_OPEN, icon_color=VIOLET,
                 icon_size=18, tooltip="Ouvrir un fichier JSON",
@@ -1433,6 +1443,7 @@ def main(page: ft.Page):
 
     # ── Initialisation ───────────────────────────────────────────────────
     _rebuild_recent_src_menu()
+    _rebuild_recent_json_menu()
     if os.path.isfile(json_path["value"]):
         _load_and_render()
     else:

@@ -19,7 +19,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 
 #############################################################
 #                          IMPORTS                          #
@@ -84,6 +84,13 @@ def mm_to_pixels(mm, dpi) :
 WIDTH_DPI = mm_to_pixels(WIDTH, DPI)
 HEIGHT_DPI = mm_to_pixels(HEIGHT, DPI)
 
+_FORMAT_FOLDER_NAMES = {
+    (76, 102): "10x15",
+    (89, 127): "13x18",
+    (102, 152): "15x20",
+}
+FOLDER_NAME = _FORMAT_FOLDER_NAMES.get((WIDTH, HEIGHT), f"{WIDTH * 2}x{HEIGHT}")
+
 def folder(folder_name):
     """Crée le sous-dossier ``folder_name`` dans PATH s'il n'existe pas encore."""
     folder_path = PATH / folder_name
@@ -100,7 +107,7 @@ while len(FOLDER) > 0:
     print(f"image {index} sur {TOTAL // 2}") if TOTAL % 2 == 0 else print(f"image {index} sur {(TOTAL // 2) + 1}")
     print("-" * 13)
 
-    folder(f"{WIDTH * 2}x{HEIGHT}")
+    folder(FOLDER_NAME)
     image1 = FOLDER.pop()
     if any(key_name in image1.lower() for key_name in DUO) == True:
         IMAGE_NAME = image1
@@ -129,7 +136,7 @@ while len(FOLDER) > 0:
             new_image.paste(cropped_image, (x_offset, 0))
             x_offset += WIDTH_DPI
 
-        output_folder = PATH / f"{WIDTH * 2}x{HEIGHT}"
+        output_folder = PATH / FOLDER_NAME
         if DOUBLE:
             new_image.save(str(output_folder / IMAGE_NAME), dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
             DOUBLE = False

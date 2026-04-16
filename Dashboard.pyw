@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 
 
 
@@ -132,8 +132,8 @@ def main(page: ft.Page):
     page.bgcolor = BACKGROUND
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width = 1600
-    page.window.height = 900
+    page.window.width = 1400
+    page.window.height = 840
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
     app_directory = os.path.dirname(os.path.abspath(__file__))
@@ -209,21 +209,15 @@ def main(page: ft.Page):
 
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
-        "N&B.py": (False, WHITE),
-        "Fichiers manquants.py": (False, ORANGE),
         "Transfert vers TEMP.py": (True, BLUE),
-        "Ameliorer nettete.py": (False, WHITE),
-        "Renommer sequence.py": (False, BLUE),
         "Conversion JPG.py": (False, BLUE),
-        "Nettoyer metadonnees.py": (False, RED),
+        "Renommer sequence.py": (False, BLUE),
+        "Images en PDF.py": (False, GREEN),
         "Remerciements.py": (False, VIOLET),
         "Recadrage.pyw": (False, BLUE),
         "Redimensionner filigrane.py": (False, WHITE),
-        "Images en PDF.py": (False, GREEN),
+        "2 en 1.py": (False, YELLOW),
         "Redimensionner.py": (False, WHITE),
-        "Format 13x10.py": (False, WHITE),
-        "Augmentation IA.py": (False, GREEN),
-        "Format 13x15.py": (False, WHITE),
     }
 
 
@@ -756,12 +750,12 @@ def main(page: ft.Page):
 
         # Champs du formulaire d'ajout
         add_label_field = ft.TextField(
-            hint_text="Nom affiché (ex : Affinity Photo)",
+            hint_text="Nom affiché (ex : Affinity)",
             border_color=BLUE, text_size=13, height=40,
             content_padding=ft.Padding(8, 4, 8, 4), expand=True,
         )
         add_exe_field = ft.TextField(
-            hint_text="Chemin exe (ex : C:\\...\\Photo.exe)",
+            hint_text="Chemin exe (ex : C:\\...\\Affinity.exe)",
             border_color=BLUE, text_size=13, height=40,
             content_padding=ft.Padding(8, 4, 8, 4), expand=True,
         )
@@ -850,8 +844,8 @@ def main(page: ft.Page):
                         ),
                         title=ft.Text(prog["label"], size=13, color=WHITE),
                         trailing=ft.IconButton(
-                            icon=ft.Icons.DELETE_OUTLINE, icon_size=16,
-                            icon_color=RED, tooltip="Supprimer",
+                            icon=ft.Icons.CLOSE, icon_size=16,
+                            icon_color=LIGHT_GREY, tooltip="Supprimer",
                             on_click=_create_delete_handler(prog),
                             style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                         ),
@@ -3127,8 +3121,9 @@ def main(page: ft.Page):
         """Construit la colonne d'icônes rondes (outils rapides)."""
         two_in_one_path = os.path.join(app_directory, "Data", "2 en 1.py")
         selecteur_path = os.path.join(app_directory, "Selecteur.pyw")
+        fichiers_manquants_path = os.path.join(app_directory, "Data", "Fichiers manquants.py")
 
-        def _round_btn(icon, color, tooltip, on_click):
+        def _round_button(icon, color, tooltip, on_click):
             return ft.Container(
                 content=ft.Icon(icon, color=color, size=22),
                 bgcolor=GREY,
@@ -3142,18 +3137,60 @@ def main(page: ft.Page):
                 ink=True,
             )
 
+        noir_et_blanc_path        = os.path.join(app_directory, "Data", "N&B.py")
+        ameliorer_nettete_path    = os.path.join(app_directory, "Data", "Ameliorer nettete.py")
+        nettoyer_metadonnees_path = os.path.join(app_directory, "Data", "Nettoyer metadonnees.py")
+        format_13x10_path         = os.path.join(app_directory, "Data", "Format 13x10.py")
+        format_13x15_path         = os.path.join(app_directory, "Data", "Format 13x15.py")
+
         quick_tools_col.controls = [
-            _round_btn(
-                ft.Icons.SPLITSCREEN,
-                YELLOW,
-                "2 en 1",
-                lambda e: launch_app("2 en 1.py", two_in_one_path, False),
-            ),
-            _round_btn(
+            _round_button(
                 ft.Icons.VERTICAL_SPLIT,
-                ORANGE,
+                YELLOW,
                 "Ouvrir le Sélecteur (demi-écran)",
                 lambda e: _launch_selecteur(),
+            ),
+            _round_button(
+                ft.Icons.FIND_IN_PAGE,
+                ORANGE,
+                "Fichiers manquants",
+                lambda e: launch_app("Fichiers manquants.py", fichiers_manquants_path, False),
+            ),
+            _round_button(
+                ft.Icons.MONOCHROME_PHOTOS,
+                WHITE,
+                "N&B",
+                lambda e: launch_app("N&B.py", noir_et_blanc_path, False),
+            ),
+            _round_button(
+                ft.Icons.AUTO_GRAPH,
+                WHITE,
+                "Améliorer netteté",
+                lambda e: launch_app("Ameliorer nettete.py", ameliorer_nettete_path, False),
+            ),
+            _round_button(
+                ft.Icons.CLEANING_SERVICES,
+                RED,
+                "Nettoyer métadonnées",
+                lambda e: launch_app("Nettoyer metadonnees.py", nettoyer_metadonnees_path, False),
+            ),
+            _round_button(
+                ft.Icons.CROP_3_2,
+                WHITE,
+                "Format 13×10",
+                lambda e: launch_app("Format 13x10.py", format_13x10_path, False),
+            ),
+            _round_button(
+                ft.Icons.CROP_SQUARE,
+                WHITE,
+                "Format 13×15",
+                lambda e: launch_app("Format 13x15.py", format_13x15_path, False),
+            ),
+            _round_button(
+                ft.Icons.AUTO_FIX_HIGH,
+                GREEN,
+                "Augmentation IA",
+                lambda e: launch_app("Augmentation IA.py", os.path.join(app_directory, "Data", "Augmentation IA.py"), False),
             ),
         ]
 
@@ -3413,14 +3450,6 @@ def main(page: ft.Page):
                     bgcolor=DARK,
                     icon_size=18,
                 ),
-                ft.IconButton(
-                    icon=ft.Icons.SPLITSCREEN,
-                    tooltip="Ouvrir le Sélecteur (demi-écran)",
-                    on_click=lambda e: _launch_selecteur(),
-                    icon_color=ORANGE,
-                    bgcolor=DARK,
-                    icon_size=18,
-                ),
                 ft.Container(expand=True),
                 folder_path,
                 recent_folders_btn,
@@ -3466,7 +3495,7 @@ def main(page: ft.Page):
                             content=ft.Text("Applications disponibles", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
                             margin=ft.Margin.only(top=10, bottom=10, left=10),
                         ),
-                        ft.Container(width=48),  # Espacement entre le titre et les boutons
+                        ft.Container(width=32),  # Espacement entre le titre et les boutons
                         ft.IconButton(
                             icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT_SHARP,
                             tooltip="Kiosk gauche",
@@ -3510,7 +3539,7 @@ def main(page: ft.Page):
                             width=56,
                         ),
                     ], expand=True, spacing=8),
-                ], expand=True),
+                ], expand=6),
                 ft.Column([
                     ft.Row([
                         ft.Text("Contenu du dossier", weight=ft.FontWeight.BOLD, size=14, color=WHITE, margin=ft.Margin.only(left=10)),
@@ -3584,44 +3613,42 @@ def main(page: ft.Page):
                         border_radius=8,
                         bgcolor=DARK,
                     )
-                ], expand=True)
+                ], expand=9)
             ], expand=True, spacing=8),
             ft.Container(
                 content=ft.Row([
 
-
-
                     # ── Terminal (gauche) ────────────────────────────
+                    ft.Container(
+                        content=terminal_output,
+                        expand=True,
+                        border=ft.Border.all(1, GREEN),
+                        border_radius=8,
+                        bgcolor=DARK,
+                        padding=5,
+                    ),
+
+                    # ── Boutons ronds (milieu) ────────────────────────
                     ft.Column([
-                        ft.Row([
-                            ft.Container(width=8),
-                            ft.Text("Terminal", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
-                            ft.IconButton(
-                                icon=ft.Icons.COPY_ALL,
-                                tooltip="Copier le terminal",
-                                on_click=lambda e: copy_terminal_to_clipboard(),
-                                icon_color=BLUE,
-                                icon_size=18,
-                            ),
-                            ft.IconButton(
-                                icon=ft.Icons.CLEAR_ALL,
-                                tooltip="Effacer le terminal",
-                                on_click=clear_terminal,
-                                icon_color=RED,
-                                icon_size=18,
-                            ),
-                        ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                        ft.Container(
-                            content=terminal_output,
-                            expand=True,
-                            border=ft.Border.all(1, GREY),
-                            border_radius=8,
-                            bgcolor=DARK,
-                            padding=5,
+                        ft.IconButton(
+                            icon=ft.Icons.COPY_ALL,
+                            tooltip="Copier le terminal",
+                            on_click=lambda e: copy_terminal_to_clipboard(),
+                            icon_color=BLUE,
+                            icon_size=18,
+                            bgcolor=GREY,
+                            style=ft.ButtonStyle(shape=ft.CircleBorder(), side=ft.BorderSide(1, BLUE)),
                         ),
-                    ], expand=True, spacing=5),
-
-
+                        ft.IconButton(
+                            icon=ft.Icons.CLEAR_ALL,
+                            tooltip="Effacer le terminal",
+                            on_click=clear_terminal,
+                            icon_color=RED,
+                            icon_size=18,
+                            bgcolor=GREY,
+                            style=ft.ButtonStyle(shape=ft.CircleBorder(), side=ft.BorderSide(1, RED)),
+                        ),
+                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=4),
 
                     # ── Favoris & Périphériques (droite) ─────────────
                     ft.Row([
@@ -3629,19 +3656,10 @@ def main(page: ft.Page):
                         drives_panel,
                     ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
                 ], spacing=8, expand=True),
-                height=150,
+                height=190,
             ),
         ], expand=True, spacing=8)
     )
-
-
-
-    # ── Mettre la fenêtre en plein écran ────────────────────────────────────────────────
-    async def _maximize():
-        page.window.maximized = True
-        page.update()
-
-    page.run_task(_maximize)
 
 
 
