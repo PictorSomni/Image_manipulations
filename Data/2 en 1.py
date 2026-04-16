@@ -8,8 +8,13 @@ Si un nom de fichier contient un mot-clé "recto", "verso" ou "duo", les deux
 faces sont issues de la même image (duplication).
 
 Variables d'environnement :
-  FOLDER_PATH     — dossier source des images (défaut : répertoire du script).
-  SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
+  FOLDER_PATH       — dossier source des images (défaut : répertoire du script).
+  SELECTED_FILES    — liste de noms séparés par ``|`` (filtre optionnel).
+  TWO_IN_ONE_WIDTH  — largeur individuelle en mm (défaut : 76).
+  TWO_IN_ONE_HEIGHT — hauteur individuelle en mm (défaut : 102).
+
+  Les fichiers dont le nom commence par ``NX_`` (ex. ``2X_photo.jpg``) sont
+  répétés N fois dans la liste avant d'être appariés.
 
 Dépendances : Pillow (PIL)
 """
@@ -21,14 +26,15 @@ __version__ = "2.1.0"
 #############################################################
 from pathlib import Path
 import os
+import re
 from PIL import Image, ImageOps, ImageFile
 
 #############################################################
 #                           SIZE                            #
 #############################################################
 #-------------- size of each individual image --------------#
-WIDTH = 76         # mm -> will be doubled !
-HEIGHT = 102       # mm
+WIDTH = int(os.environ.get("TWO_IN_ONE_WIDTH", 76))   # mm -> will be doubled !
+HEIGHT = int(os.environ.get("TWO_IN_ONE_HEIGHT", 102)) # mm
 DPI = 300          # DPI
 START = 1          # Start number to count, if needed
 
@@ -49,6 +55,20 @@ selected_files_set = set(selected_files_str.split("|")) if selected_files_str el
 EXTENSION = (".jpg", ".jpeg", ".png")
 all_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png"]
 FOLDER = [f for f in all_files if f in selected_files_set] if selected_files_set else all_files
+
+# Expand files prefixed with NX_ (e.g. "2X_photo.jpg" → repeat the file 2 times)
+_COPIES_RE = re.compile(r'^(\d+)X_', re.IGNORECASE)
+
+def _expand_copies(file_list):
+    """Répète chaque fichier selon son préfixe NX_ (ex: '3X_photo.jpg' → 3 fois)."""
+    expanded = []
+    for f in file_list:
+        m = _COPIES_RE.match(f)
+        count = int(m.group(1)) if m else 1
+        expanded.extend([f] * count)
+    return expanded
+
+FOLDER = _expand_copies(FOLDER)
 TOTAL = len(FOLDER)
 DUO = ["recto", "verso", "duo"]
 DOUBLE = False

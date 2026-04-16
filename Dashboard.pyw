@@ -258,6 +258,7 @@ def main(page: ft.Page):
         items=[],
     )
     apps_list = ft.Column(expand=True, spacing=8)
+    quick_tools_col = ft.Column([], spacing=10, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
     preview_list = ft.ListView(expand=True, auto_scroll=False, spacing=4)
     preview_loading = ft.Container(
         content=ft.Row([
@@ -2660,6 +2661,52 @@ def main(page: ft.Page):
             page.update()
             return
 
+        if app_name == "2 en 1.py" and series_name is None:
+            _TWO_IN_ONE_FORMATS = [
+                ("2 sur 10×15  (76 × 102 mm)",  "76x102"),
+                ("2 sur 13×18  (89 × 127 mm)",  "89x127"),
+                ("2 sur 15×20  (102 × 152 mm)", "102x152"),
+            ]
+            two_in_one_dropdown = ft.Dropdown(
+                label="Format",
+                value=_TWO_IN_ONE_FORMATS[0][1],
+                autofocus=True,
+                width=280,
+                bgcolor=DARK,
+                border_color=GREY,
+                options=[
+                    ft.dropdown.Option(key=val, text=label)
+                    for label, val in _TWO_IN_ONE_FORMATS
+                ],
+            )
+
+            def on_confirm_two_in_one(e):
+                val = two_in_one_dropdown.value or _TWO_IN_ONE_FORMATS[0][1]
+                two_in_one_dialog.open = False
+                page.update()
+                launch_app(app_name, app_path, is_local, series_name=val)
+
+            def on_cancel_two_in_one(e):
+                two_in_one_dialog.open = False
+                page.update()
+
+            two_in_one_dropdown.on_change = on_confirm_two_in_one
+
+            two_in_one_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Format 2 en 1"),
+                content=two_in_one_dropdown,
+                actions=[
+                    ft.TextButton("Annuler", on_click=on_cancel_two_in_one),
+                    ft.TextButton("OK", on_click=on_confirm_two_in_one),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.overlay.append(two_in_one_dialog)
+            two_in_one_dialog.open = True
+            page.update()
+            return
+
         if app_name == "Renommer sequence.py" and series_name is None:
             series_input = ft.TextField(
                 label="Nom de la série",
@@ -2859,6 +2906,15 @@ def main(page: ft.Page):
                 # Ajouter le nom du PDF pour Images en PDF.py
                 if app_name == "Images en PDF.py" and series_name:
                     env["PDF_NAME"] = series_name
+
+
+
+                # Ajouter les dimensions pour 2 en 1.py
+                if app_name == "2 en 1.py" and series_name:
+                    parts = series_name.split("x")
+                    if len(parts) == 2:
+                        env["TWO_IN_ONE_WIDTH"] = parts[0]
+                        env["TWO_IN_ONE_HEIGHT"] = parts[1]
 
 
 
@@ -3064,6 +3120,42 @@ def main(page: ft.Page):
                 ft.Row(controls=row_items, expand=True, spacing=8)
             )
         page.update()
+
+
+
+    def _build_quick_tools():
+        """Construit la colonne d'icônes rondes (outils rapides)."""
+        two_in_one_path = os.path.join(app_directory, "Data", "2 en 1.py")
+        selecteur_path = os.path.join(app_directory, "Selecteur.pyw")
+
+        def _round_btn(icon, color, tooltip, on_click):
+            return ft.Container(
+                content=ft.Icon(icon, color=color, size=22),
+                bgcolor=GREY,
+                border=ft.Border.all(1, color),
+                border_radius=50,
+                width=44,
+                height=44,
+                alignment=ft.Alignment(0, 0),
+                tooltip=tooltip,
+                on_click=on_click,
+                ink=True,
+            )
+
+        quick_tools_col.controls = [
+            _round_btn(
+                ft.Icons.SPLITSCREEN,
+                YELLOW,
+                "2 en 1",
+                lambda e: launch_app("2 en 1.py", two_in_one_path, False),
+            ),
+            _round_btn(
+                ft.Icons.VERTICAL_SPLIT,
+                ORANGE,
+                "Ouvrir le Sélecteur (demi-écran)",
+                lambda e: _launch_selecteur(),
+            ),
+        ]
 
 
 
@@ -3294,6 +3386,7 @@ def main(page: ft.Page):
     # ── Initialisation ────────────────────────────────────────────────
     _rebuild_recent_folders_menu()
     refresh_apps()
+    _build_quick_tools()
     _rebuild_favorites_panel()
     _initial_drives = _get_removable_drives()
     if _initial_drives:
@@ -3399,14 +3492,24 @@ def main(page: ft.Page):
                             icon_size=18,
                         ),
                     ]),
-                    ft.Container(
-                        content=apps_list,
-                        expand=True,
-                        border=ft.Border.all(1, GREY),
-                        border_radius=8,
-                        bgcolor=DARK,
-                        padding=8,
-                    ),
+                    ft.Row([
+                        ft.Container(
+                            content=apps_list,
+                            expand=True,
+                            border=ft.Border.all(1, GREY),
+                            border_radius=8,
+                            bgcolor=DARK,
+                            padding=8,
+                        ),
+                        ft.Container(
+                            content=quick_tools_col,
+                            bgcolor=DARK,
+                            border=ft.Border.all(1, GREY),
+                            border_radius=8,
+                            padding=ft.padding.symmetric(vertical=8, horizontal=4),
+                            width=56,
+                        ),
+                    ], expand=True, spacing=8),
                 ], expand=True),
                 ft.Column([
                     ft.Row([
