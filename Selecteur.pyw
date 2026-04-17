@@ -398,6 +398,88 @@ def main(page: ft.Page):
             return True
         return True
 
+    def _increment_print_count(file_path):
+        basename = os.path.basename(file_path)
+        folder = os.path.dirname(file_path)
+        print_prefix_match = re.match(r'^(\d+)X_', basename)
+        print_prefix_pattern = re.compile(r'^\d+X_')
+        if print_prefix_match:
+            current_count = int(print_prefix_match.group(1))
+            clean = re.sub(r'^\d+X_', '', basename)
+        else:
+            current_count = 0
+            clean = basename
+        new_count = current_count + 1
+        new_name = f"{new_count}X_{clean}"
+        new_path = os.path.join(folder, new_name)
+        if new_path != file_path:
+            try:
+                os.rename(file_path, new_path)
+                if file_path in selected_files:
+                    selected_files.discard(file_path)
+                    selected_files.add(new_path)
+            except Exception as error:
+                status_text.value = f"[ERREUR] {error}"
+                page.update()
+                return
+        if current_count == 0:
+            others_have_prefix = any(
+                print_prefix_pattern.match(fname)
+                for fname in os.listdir(folder)
+                if fname != new_name and os.path.isfile(os.path.join(folder, fname))
+            )
+            if not others_have_prefix:
+                for fname in os.listdir(folder):
+                    fpath = os.path.join(folder, fname)
+                    if not os.path.isfile(fpath) or fname == new_name:
+                        continue
+                    if print_prefix_pattern.match(fname):
+                        continue
+                    new_fname = f"1X_{fname}"
+                    new_fpath = os.path.join(folder, new_fname)
+                    try:
+                        os.rename(fpath, new_fpath)
+                        if fpath in selected_files:
+                            selected_files.discard(fpath)
+                            selected_files.add(new_fpath)
+                    except Exception as error:
+                        status_text.value = f"[ERREUR] {fname}: {error}"
+                        page.update()
+        _refresh_preview(reset_page=False)
+
+    def _decrement_print_count(file_path):
+        basename = os.path.basename(file_path)
+        folder = os.path.dirname(file_path)
+        print_prefix_match = re.match(r'^(\d+)X_', basename)
+        if not print_prefix_match:
+            return
+        current_count = int(print_prefix_match.group(1))
+        clean = re.sub(r'^\d+X_', '', basename)
+        if current_count <= 1:
+            new_path = os.path.join(folder, clean)
+            try:
+                os.rename(file_path, new_path)
+                if file_path in selected_files:
+                    selected_files.discard(file_path)
+                    selected_files.add(new_path)
+            except Exception as error:
+                status_text.value = f"[ERREUR] {error}"
+                page.update()
+                return
+        else:
+            new_name = f"{current_count - 1}X_{clean}"
+            new_path = os.path.join(folder, new_name)
+            try:
+                os.rename(file_path, new_path)
+                if file_path in selected_files:
+                    selected_files.discard(file_path)
+                    selected_files.add(new_path)
+            except Exception as error:
+                status_text.value = f"[ERREUR] {error}"
+                page.update()
+                return
+        _refresh_preview(reset_page=False)
+
     def _on_checkbox_change(e, path):
         if e.control.value:
             selected_files.add(path)
@@ -468,12 +550,55 @@ def main(page: ft.Page):
                     else:
                         visual = ft.Icon(icon, color=ic, size=22)
 
+                    if not is_dir:
+                        print_match = re.match(r'^(\d+)X_', name)
+                        print_count = int(print_match.group(1)) if print_match else 0
+                        minus_btn = ft.Container(
+                            content=ft.Text("−", size=12, color=DARK if print_count > 0 else LIGHT_GREY,
+                                            text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD),
+                            width=24, height=24,
+                            bgcolor=ORANGE if print_count > 0 else GREY,
+                            border_radius=ft.BorderRadius(4, 0, 0, 4),
+                            alignment=ft.Alignment(0, 0),
+                            on_click=(lambda e, p=fpath: _decrement_print_count(p)) if print_count > 0 else None,
+                            ink=print_count > 0,
+                            tooltip="Réduire les impressions" if print_count > 0 else "",
+                        )
+                        count_display = ft.Container(
+                            content=ft.Text(
+                                str(print_count) if print_count > 0 else "·",
+                                size=10, color=YELLOW if print_count > 0 else LIGHT_GREY,
+                                text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD,
+                            ),
+                            width=20, height=24,
+                            bgcolor=DARK,
+                            alignment=ft.Alignment(0, 0),
+                        )
+                        plus_btn = ft.Container(
+                            content=ft.Text("+", size=12, color=DARK,
+                                            text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD),
+                            width=24, height=24,
+                            bgcolor=GREEN,
+                            border_radius=ft.BorderRadius(0, 4, 4, 0),
+                            alignment=ft.Alignment(0, 0),
+                            on_click=lambda e, p=fpath: _increment_print_count(p),
+                            ink=True,
+                            tooltip="Augmenter les impressions",
+                        )
+                        trailing = ft.Row(
+                            [minus_btn, count_display, plus_btn],
+                            spacing=0, tight=True,
+                        )
+                    else:
+                        trailing = None
+
                     controls.append(
                         ft.ListTile(
                             leading=ft.Row(
                                 [checkbox, visual], spacing=6, tight=True
                             ),
                             title=ft.Text(name, size=13, color=WHITE),
+                            trailing=trailing,
                             on_click=lambda e, p=fpath, d=is_dir, ex=ext: _navigate(p) if d else _open_json_in_list(p) if ex == ".json" else None,
                             hover_color=GREY, dense=True,
                             content_padding=ft.Padding(left=5, top=2, right=5, bottom=2),

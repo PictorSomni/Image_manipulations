@@ -1635,75 +1635,41 @@ def main(page: ft.Page):
 
 
 
-    def _show_print_count_numpad(file_path):
-        """Affiche un pavé numérique en sur-impression pour définir le nombre d'impressions."""
+    def _increment_print_count(file_path):
         basename = os.path.basename(file_path)
+        folder = os.path.dirname(file_path)
         print_prefix_match = re.match(r'^(\d+)X_', basename)
-        numpad_value = {"text": print_prefix_match.group(1) if print_prefix_match else ""}
-
-        display = ft.Text(
-            numpad_value["text"] or "—",
-            size=32, weight=ft.FontWeight.BOLD,
-            color=YELLOW, text_align=ft.TextAlign.CENTER,
-        )
-
-        def _refresh_display():
-            display.value = numpad_value["text"] or "—"
-            display.update()
-
-        def _press(d):
-            if len(numpad_value["text"]) < 3:
-                numpad_value["text"] += str(d)
-            _refresh_display()
-
-        def _backspace(e):
-            numpad_value["text"] = numpad_value["text"][:-1]
-            _refresh_display()
-
-        def _confirm(e):
-            val = numpad_value["text"]
-            if not val or not val.isdigit() or int(val) < 1:
-                log_to_terminal("[ERREUR] Nombre invalide", RED)
-                return
-            print_copies_count = int(val)
-            numpad_dialog.open = False
-            page.update()
-            folder = os.path.dirname(file_path)
-
-
-
-            # Vérifier si le dossier ne contient aucun préfixe NX_ AVANT ce renommage
-            # (on exclut le fichier courant lui-même)
-            print_prefix_pattern = re.compile(r'^\d+X_')
-            others_have_prefix = any(
-                print_prefix_pattern.match(f)
-                for f in os.listdir(folder)
-                if f != basename and os.path.isfile(os.path.join(folder, f))
-            )
-
+        print_prefix_pattern = re.compile(r'^\d+X_')
+        if print_prefix_match:
+            current_count = int(print_prefix_match.group(1))
             clean = re.sub(r'^\d+X_', '', basename)
-            new_name = f"{print_copies_count}X_{clean}"
-            new_path = os.path.join(folder, new_name)
-            if new_path != file_path:
-                try:
-                    os.rename(file_path, new_path)
-                    log_to_terminal(f"[OK] {basename} → {new_name}", GREEN)
-                    if file_path in selected_files:
-                        selected_files.discard(file_path)
-                        selected_files.add(new_path)
-                except Exception as err:
-                    log_to_terminal(f"[ERREUR] {err}", RED)
-
-
-
-            # Si aucun autre fichier n'avait de préfixe, on ajoute "1X_" aux autres
+        else:
+            current_count = 0
+            clean = basename
+        new_count = current_count + 1
+        new_name = f"{new_count}X_{clean}"
+        new_path = os.path.join(folder, new_name)
+        if new_path != file_path:
+            try:
+                os.rename(file_path, new_path)
+                log_to_terminal(f"[OK] {basename} → {new_name}", GREEN)
+                if file_path in selected_files:
+                    selected_files.discard(file_path)
+                    selected_files.add(new_path)
+            except Exception as err:
+                log_to_terminal(f"[ERREUR] {err}", RED)
+                return
+        if current_count == 0:
+            others_have_prefix = any(
+                print_prefix_pattern.match(fname)
+                for fname in os.listdir(folder)
+                if fname != new_name and os.path.isfile(os.path.join(folder, fname))
+            )
             if not others_have_prefix:
                 renamed_count = 0
                 for fname in os.listdir(folder):
                     fpath = os.path.join(folder, fname)
-                    if not os.path.isfile(fpath):
-                        continue
-                    if fname == new_name:
+                    if not os.path.isfile(fpath) or fname == new_name:
                         continue
                     if print_prefix_pattern.match(fname):
                         continue
@@ -1719,66 +1685,37 @@ def main(page: ft.Page):
                         log_to_terminal(f"[ERREUR] {fname}: {err}", RED)
                 if renamed_count:
                     log_to_terminal(f"[OK] {renamed_count} fichier(s) renommé(s) avec le préfixe 1X_", GREEN)
+        refresh_preview(reset_page=False)
 
-            refresh_preview(reset_page=False)
-
-        def _cancel(e):
-            numpad_dialog.open = False
-            page.update()
-
-        def _make_numpad_button(label, on_click, color=GREY, text_color=WHITE):
-            return ft.Container(
-                content=ft.Text(str(label), size=18, weight=ft.FontWeight.BOLD,
-                                color=text_color, text_align=ft.TextAlign.CENTER),
-                width=60, height=52,
-                bgcolor=color, border_radius=6,
-                alignment=ft.Alignment(0, 0),
-                on_click=on_click, ink=True,
-            )
-
-        numpad_grid = ft.Column([
-            ft.Container(
-                content=display,
-                bgcolor=DARK, border_radius=6,
-                padding=ft.Padding(12, 8, 12, 8),
-                alignment=ft.Alignment(0, 0),
-                width=210,
-            ),
-            ft.Row([_make_numpad_button(7, lambda e: _press(7)), _make_numpad_button(8, lambda e: _press(8)), _make_numpad_button(9, lambda e: _press(9))], spacing=6, tight=True),
-            ft.Row([_make_numpad_button(4, lambda e: _press(4)), _make_numpad_button(5, lambda e: _press(5)), _make_numpad_button(6, lambda e: _press(6))], spacing=6, tight=True),
-            ft.Row([_make_numpad_button(1, lambda e: _press(1)), _make_numpad_button(2, lambda e: _press(2)), _make_numpad_button(3, lambda e: _press(3))], spacing=6, tight=True),
-            ft.Row([_make_numpad_button("⌫", _backspace, GREY, ORANGE), _make_numpad_button(0, lambda e: _press(0)), _make_numpad_button("✓", _confirm, GREEN, DARK)], spacing=6, tight=True),
-        ], spacing=6, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-
-        numpad_dialog = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("Nombre d'impressions"),
-            content=numpad_grid,
-            actions=[ft.TextButton("Annuler", on_click=_cancel)],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        page.overlay.append(numpad_dialog)
-        numpad_dialog.open = True
-        page.update()
-
-
-
-    def _remove_print_count_prefix(file_path):
-        """Retire le préfixe NX_ d'un fichier."""
+    def _decrement_print_count(file_path):
         basename = os.path.basename(file_path)
         folder = os.path.dirname(file_path)
-        clean = re.sub(r'^\d+X_', '', basename)
-        if clean == basename:
+        print_prefix_match = re.match(r'^(\d+)X_', basename)
+        if not print_prefix_match:
             return
-        new_path = os.path.join(folder, clean)
-        try:
-            os.rename(file_path, new_path)
-            log_to_terminal(f"[OK] Compteur retiré : {clean}", GREEN)
-            if file_path in selected_files:
-                selected_files.discard(file_path)
-                selected_files.add(new_path)
-        except Exception as err:
-            log_to_terminal(f"[ERREUR] {err}", RED)
+        current_count = int(print_prefix_match.group(1))
+        clean = re.sub(r'^\d+X_', '', basename)
+        if current_count <= 1:
+            new_path = os.path.join(folder, clean)
+            try:
+                os.rename(file_path, new_path)
+                log_to_terminal(f"[OK] Compteur retiré : {clean}", GREEN)
+                if file_path in selected_files:
+                    selected_files.discard(file_path)
+                    selected_files.add(new_path)
+            except Exception as err:
+                log_to_terminal(f"[ERREUR] {err}", RED)
+        else:
+            new_name = f"{current_count - 1}X_{clean}"
+            new_path = os.path.join(folder, new_name)
+            try:
+                os.rename(file_path, new_path)
+                log_to_terminal(f"[OK] {basename} → {new_name}", GREEN)
+                if file_path in selected_files:
+                    selected_files.discard(file_path)
+                    selected_files.add(new_path)
+            except Exception as err:
+                log_to_terminal(f"[ERREUR] {err}", RED)
         refresh_preview(reset_page=False)
 
 
@@ -2400,41 +2337,48 @@ def main(page: ft.Page):
                         )
                     else:
                         print_prefix_match = re.match(r'^(\d+)X_', file)
-                        print_count = int(print_prefix_match.group(1)) if print_prefix_match else None
-                        if print_count is not None:
-                            print_count_badge = ft.Container(
-                                content=ft.Text(f"{print_count}×", size=12,
-                                                color=YELLOW, weight=ft.FontWeight.BOLD),
-                                bgcolor=GREY, border_radius=4,
-                                padding=ft.Padding(6, 3, 6, 3),
-                                tooltip="Modifier le nombre d'impressions",
-                                on_click=lambda e, p=file_path: _show_print_count_numpad(p),
-                                ink=True,
-                            )
-                            remove_prefix_button = ft.IconButton(
-                                icon=ft.Icons.CLOSE, icon_size=15,
-                                icon_color=LIGHT_GREY, tooltip="Retirer le compteur",
-                                on_click=lambda e, p=file_path: _remove_print_count_prefix(p),
-                                style=ft.ButtonStyle(padding=ft.Padding.all(4)),
-                            )
-                            trailing = ft.Row(
-                                [print_count_badge, remove_prefix_button, rename_button, delete_button],
-                                spacing=0, tight=True,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            )
-                        else:
-                            set_print_count_button = ft.IconButton(
-                                icon=ft.Icons.PRINT_OUTLINED, icon_size=17,
-                                icon_color=LIGHT_GREY,
-                                tooltip="Définir le nombre d'impressions",
-                                on_click=lambda e, p=file_path: _show_print_count_numpad(p),
-                                style=ft.ButtonStyle(padding=ft.Padding.all(4)),
-                            )
-                            trailing = ft.Row(
-                                [set_print_count_button, rename_button, delete_button],
-                                spacing=0, tight=True,
-                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                            )
+                        print_count = int(print_prefix_match.group(1)) if print_prefix_match else 0
+                        minus_btn = ft.Container(
+                            content=ft.Text("−", size=13, color=DARK if print_count > 0 else LIGHT_GREY,
+                                            text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD),
+                            width=26, height=26,
+                            bgcolor=ORANGE if print_count > 0 else GREY,
+                            border_radius=ft.BorderRadius(4, 0, 0, 4),
+                            alignment=ft.Alignment(0, 0),
+                            on_click=(lambda e, p=file_path: _decrement_print_count(p)) if print_count > 0 else None,
+                            ink=print_count > 0,
+                            tooltip="Réduire les impressions" if print_count > 0 else "",
+                        )
+                        count_display = ft.Container(
+                            content=ft.Text(
+                                str(print_count) if print_count > 0 else "·",
+                                size=11, color=YELLOW if print_count > 0 else LIGHT_GREY,
+                                text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD,
+                            ),
+                            width=22, height=26,
+                            bgcolor=DARK,
+                            alignment=ft.Alignment(0, 0),
+                        )
+                        plus_btn = ft.Container(
+                            content=ft.Text("+", size=13, color=DARK,
+                                            text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD),
+                            width=26, height=26,
+                            bgcolor=GREEN,
+                            border_radius=ft.BorderRadius(0, 4, 4, 0),
+                            alignment=ft.Alignment(0, 0),
+                            on_click=lambda e, p=file_path: _increment_print_count(p),
+                            ink=True,
+                            tooltip="Augmenter les impressions",
+                        )
+                        print_controls = ft.Row(
+                            [minus_btn, count_display, plus_btn],
+                            spacing=0, tight=True,
+                        )
+                        trailing = ft.Row(
+                            [print_controls, rename_button, delete_button],
+                            spacing=4, tight=True,
+                            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                        )
 
                     def _create_right_click_handler(fp, d):
                         def _on_right_click(e):
