@@ -88,6 +88,7 @@ _FORMAT_FOLDER_NAMES = {
     (76, 102): "10x15",
     (89, 127): "13x18",
     (102, 152): "15x20",
+    (152, 203): "20x30",
 }
 FOLDER_NAME = _FORMAT_FOLDER_NAMES.get((WIDTH, HEIGHT), f"{WIDTH * 2}x{HEIGHT}")
 

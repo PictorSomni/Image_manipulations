@@ -1086,8 +1086,9 @@ def main(page: ft.Page):
             allow_multiple=False,
             initial_directory=initial_dir,
         )
-        if result and result.files:
-            p = result.files[0].path
+        files = result.files if hasattr(result, "files") else result
+        if files:
+            p = files[0].path
             json_path["value"]    = p
             json_path_field.value = p
             json_path_field.update()

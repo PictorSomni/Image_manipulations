@@ -2668,6 +2668,7 @@ def main(page: ft.Page):
                 ("2 sur 10×15  (76 × 102 mm)",  "76x102"),
                 ("2 sur 13×18  (89 × 127 mm)",  "89x127"),
                 ("2 sur 15×20  (102 × 152 mm)", "102x152"),
+                ("2 sur 20×30  (152 × 203 mm)", "152x203"),
             ]
             two_in_one_dropdown = ft.Dropdown(
                 label="Format",
@@ -3543,7 +3544,7 @@ def main(page: ft.Page):
                             bgcolor=DARK,
                             border=ft.Border.all(1, GREY),
                             border_radius=8,
-                            padding=ft.padding.symmetric(vertical=8, horizontal=4),
+                            padding=ft.Padding.symmetric(vertical=8, horizontal=4),
                             width=56,
                         ),
                     ], expand=True, spacing=8),
