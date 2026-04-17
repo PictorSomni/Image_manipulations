@@ -4,15 +4,15 @@ Application de gestion et manipulation d'images avec interface graphique.
 Compatible **Windows**, **macOS** et **Linux**.
 
 ![Dashboard](screenshots/dashboard01.jpg)
-![Visionneuse plein écran](screenshots/dashboard02.jpg)
-![Augmentation IA](screenshots/dashboard03.jpg)
-![Recadrage](screenshots/dashboard04.jpg)
+![Recadrage](screenshots/dashboard02.jpg)
+![Selecteur](screenshots/dashboard03.jpg)
+![Augmentation IA](screenshots/dashboard04.jpg)
 
 ---
 
 ## 🆕 Nouveautés
 
-### Dashboard (v2.0)
+### Dashboard (v2.1)
 - **Visionneuse plein écran** : ouvrir n'importe quelle image en plein écran depuis le panneau de fichiers, avec navigation au clavier (flèches), possibilité de **sélectionner ou supprimer** le fichier affiché depuis la visionneuse.
 - **Tri des dossiers** : tri alphabétique A → Z, Z → A ou par **Date** via les boutons dédiés dans la barre de contenu.
 - **Bouton Mise à jour** intégré directement dans l'interface (équivalent de `update.bat` / `update.sh`).
@@ -29,6 +29,11 @@ Compatible **Windows**, **macOS** et **Linux**.
 - **Interface repensée** avec des sections colorées (Géométrie, Luminosité, Couleur, Netteté) pour une navigation plus lisible.
 - **Balance des blancs** : curseur froid / chaud ajustable en temps réel.
 - **Histogramme** : aperçu de la distribution des tons directement dans le panneau de droite.
+
+### Sélecteur (v2.1)
+- **Onglet Fichiers** : prévisualisation d'un dossier source avec sélection par checkbox, filtres par type, tri et barre de recherche. Copie les fichiers sélectionnés vers un dossier de destination, avec création optionnelle d'un sous-dossier nommé.
+- **Onglet Liste** : gestion d'une liste de noms / descriptions stockée en JSON — recherche, tri, ajout, édition et suppression d'entrées. Cliquer sur un nom ou une description le copie automatiquement dans le presse-papiers.
+- **Lancement flexible** : utilisable indépendamment ou directement depuis le Dashboard.
 
 ---
 
@@ -133,6 +138,7 @@ pip install -r requirements.txt
 ```
 Dashboard-Image-Manipulation/
 ├── Dashboard.pyw         # Application principale
+├── Selecteur.pyw         # Application secondaire
 ├── run.py                # Lanceur universel Python
 ├── run.sh                # Lanceur Linux/macOS
 ├── run.bat               # Lanceur Windows
@@ -143,7 +149,7 @@ Dashboard-Image-Manipulation/
 ├── requirements.txt      # Dépendances Python
 ├── README.md             # Ce fichier
 └── Data/                 # Applications et ressources
-    ├── watermark.png     # Filigrane utilisé par certaines apps
+   ├── watermark.png     # Filigrane utilisé par certaines apps
    ├── Augmentation IA.py
    ├── Ameliorer nettete.py
    ├── Conversion JPG.py
@@ -155,12 +161,12 @@ Dashboard-Image-Manipulation/
    ├── Kiosk gauche.py
    ├── N&B.py
    ├── Nettoyer metadonnees.py
-    ├── Remerciements.py
+   ├── Remerciements.py
    ├── Redimensionner.py
    ├── Redimensionner filigrane.py
    ├── Recadrage.pyw
-    ├── Renommer sequence.py
-    ├── renommer nombre photo.py
+   ├── Renommer sequence.py
+   ├── renommer nombre photo.py
    └── Transfert vers TEMP.py
 ```
 

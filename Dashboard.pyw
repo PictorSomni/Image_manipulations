@@ -212,11 +212,11 @@ def main(page: ft.Page):
         "Transfert vers TEMP.py": (True, BLUE),
         "Conversion JPG.py": (False, BLUE),
         "Renommer sequence.py": (False, BLUE),
-        "Images en PDF.py": (False, GREEN),
-        "Remerciements.py": (False, VIOLET),
+        "Format 13x10.py": (False, HOVER_YELLOW),
+        "Format 13x15.py": (False, HOVER_YELLOW),
         "Recadrage.pyw": (False, BLUE),
         "Redimensionner filigrane.py": (False, WHITE),
-        "2 en 1.py": (False, YELLOW),
+        "2 en 1.py": (False, HOVER_YELLOW),
         "Redimensionner.py": (False, WHITE),
     }
 
@@ -3148,8 +3148,8 @@ def main(page: ft.Page):
         noir_et_blanc_path        = os.path.join(app_directory, "Data", "N&B.py")
         ameliorer_nettete_path    = os.path.join(app_directory, "Data", "Ameliorer nettete.py")
         nettoyer_metadonnees_path = os.path.join(app_directory, "Data", "Nettoyer metadonnees.py")
-        format_13x10_path         = os.path.join(app_directory, "Data", "Format 13x10.py")
-        format_13x15_path         = os.path.join(app_directory, "Data", "Format 13x15.py")
+        images_en_pdf_path        = os.path.join(app_directory, "Data", "Images en PDF.py")
+        remerciements_path        = os.path.join(app_directory, "Data", "Remerciements.py")
 
         quick_tools_col.controls = [
             _round_button(
@@ -3183,16 +3183,16 @@ def main(page: ft.Page):
                 lambda e: launch_app("Nettoyer metadonnees.py", nettoyer_metadonnees_path, False),
             ),
             _round_button(
-                ft.Icons.CROP_3_2,
-                WHITE,
-                "Format 13×10",
-                lambda e: launch_app("Format 13x10.py", format_13x10_path, False),
+                ft.Icons.PICTURE_AS_PDF,
+                BLUE,
+                "Images en PDF",
+                lambda e: launch_app("Images en PDF.py", images_en_pdf_path, False),
             ),
             _round_button(
-                ft.Icons.CROP_SQUARE,
-                WHITE,
-                "Format 13×15",
-                lambda e: launch_app("Format 13x15.py", format_13x15_path, False),
+                ft.CupertinoIcons.BIN_XMARK_FILL,
+                VIOLET,
+                "Remerciements",
+                lambda e: launch_app("Remerciements.py", remerciements_path, False),
             ),
             _round_button(
                 ft.Icons.AUTO_FIX_HIGH,
