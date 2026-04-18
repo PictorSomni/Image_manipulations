@@ -60,8 +60,8 @@ if dest_dir:
     copied_files = [file.name for file in sorted(dest_dir.iterdir()) if file.is_file()]
     # Construire un ensemble des noms présents dans la destination en ignorant
     # le préfixe de compteur d'impression ajouté par Recadrage.pyw (ex: "3X_").
-    copied_basenames = {strip_copies_prefix(f) for f in copied_files}
-    missing_files = [file for file in all_files if file not in copied_basenames and not file.startswith('.') and not file.endswith('.py')]
+    copied_basenames = {strip_copies_prefix(f).lower() for f in copied_files}
+    missing_files = [file for file in all_files if file.lower() not in copied_basenames and not file.startswith('.') and not file.endswith('.py')]
     print(f"{len(missing_files)} fichier(s) manquant(s) dans le dossier {dest_dir}.")
     missing_files_str = "|".join(os.path.basename(f) for f in missing_files)
     os.environ[ENV_SELECTED_FILES_KEY] = missing_files_str
@@ -74,8 +74,8 @@ else:
         print("Impossible de déterminer le dossier parent.")
     else:
         current_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file()]
-        parent_files = {strip_copies_prefix(file.name) for file in parent_dir.iterdir() if file.is_file()}
-        extra_files = [f for f in current_files if strip_copies_prefix(f) not in parent_files and not f.startswith('.') and not f.endswith('.py')]
+        parent_files = {strip_copies_prefix(file.name).lower() for file in parent_dir.iterdir() if file.is_file()}
+        extra_files = [f for f in current_files if strip_copies_prefix(f).lower() not in parent_files and not f.startswith('.') and not f.endswith('.py')]
         print(f"{len(extra_files)} fichier(s) absent(s) du dossier parent ({parent_dir.name}).")
         extra_files_str = "|".join(extra_files)
         os.environ[ENV_SELECTED_FILES_KEY] = extra_files_str

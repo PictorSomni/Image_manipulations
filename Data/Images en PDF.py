@@ -39,7 +39,7 @@ selected_files_str = os.environ.get("SELECTED_FILES", "")
 selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
 
 EXTENSION = (".jpg", ".jpeg", ".png")
-all_files = [file for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix in EXTENSION and file.name != "watermark.png"]
+all_files = [file for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name.lower() != "watermark.png"]
 IMAGE_FILES = [f for f in all_files if f.name in selected_files_set] if selected_files_set else all_files
 TOTAL = len(IMAGE_FILES)
 

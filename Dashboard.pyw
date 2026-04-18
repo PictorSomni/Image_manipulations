@@ -135,7 +135,7 @@ def main(page: ft.Page):
     page.bgcolor = BACKGROUND
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width = 1400
+    page.window.width = 1440
     page.window.height = 800
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
@@ -2769,7 +2769,7 @@ def main(page: ft.Page):
             page.update()
             return
 
-        if not is_local and not selected_folder["path"]:
+        if not is_local and not (current_browse_folder["path"] or selected_folder["path"]):
             log_to_terminal("[ERREUR] Veuillez sélectionner un dossier avant de lancer cette application", RED)
             return
 
@@ -2881,7 +2881,7 @@ def main(page: ft.Page):
                 # Préparer l'environnement avec le chemin du dossier Data
                 env = os.environ.copy()
                 env["DATA_PATH"] = os.path.join(app_directory, "Data")
-                env["FOLDER_PATH"] = selected_folder["path"]
+                env["FOLDER_PATH"] = current_browse_folder["path"] or selected_folder["path"]
 
 
 
