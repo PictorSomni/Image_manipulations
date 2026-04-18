@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.1.1"
+__version__ = "2.1.2"
 
 
 
@@ -42,7 +42,10 @@ import zipfile
 import json
 import asyncio
 import time
+import base64
+import io
 import hashlib
+import tempfile
 try:
     from PIL import Image as _PILImage
 except ImportError:
@@ -133,7 +136,7 @@ def main(page: ft.Page):
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
     page.window.width = 1400
-    page.window.height = 840
+    page.window.height = 800
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
     app_directory = os.path.dirname(os.path.abspath(__file__))
@@ -227,6 +230,8 @@ def main(page: ft.Page):
     sort_mode = {"value": 0}  # 0 = A→Z, 1 = Z→A, 2 = par date de modification
     filter_type = {"value": "all"}  # "all", "images", "videos", "zip", "docs", "other"
     removable_drives_state = {"list": []}  # [(name, path), ...]
+    _image_cache_busters = {}  # {normpath: temp_path_unique} pour invalider le cache navigateur
+    _rot_temp_dir = tempfile.mkdtemp(prefix="dashboard_rot_")
     lazy_images = []  # [(list_index, file_path, image_ctrl)] pour le chargement paresseux
     PAGE_SIZE = 100             # Nb d'éléments max par page dans la prévisualisation
     preview_page = {"value": 0}  # Page courante (0-indexé)
@@ -306,7 +311,7 @@ def main(page: ft.Page):
         border_color=BLUE,
         text_size=13,
         height=32,
-        width=180,
+        width=140,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH,
         bgcolor=DARK,
@@ -322,7 +327,6 @@ def main(page: ft.Page):
         [search_field, search_close_btn],
         spacing=0, tight=True,
         vertical_alignment=ft.CrossAxisAlignment.CENTER,
-        visible=False,
     )
     search_icon_btn = ft.IconButton(
         icon=ft.Icons.SEARCH,
@@ -741,14 +745,70 @@ def main(page: ft.Page):
 
 
     def _show_open_with_menu(files: list):
-        """Affiche le dialog 'Ouvrir avec' pour les fichiers sélectionnés."""
+        """Alias vers le menu contextuel unifié (compatibilité)."""
+        _show_file_context_menu(files)
+
+
+
+    _ROTATABLE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
+
+    def _rotate_files(files, direction):
+        """Pivote les images de 90° à gauche ou à droite en utilisant Pillow."""
+        if _PILImage is None:
+            log_to_terminal("[ERREUR] Pillow non installé — rotation impossible", RED)
+            return
+        rotated = 0
+        ts = str(int(time.time() * 1000))
+        for fp in files:
+            ext = os.path.splitext(fp)[1].lower()
+            if ext not in _ROTATABLE_EXTS:
+                continue
+            try:
+                with _PILImage.open(fp) as img:
+                    img_converted = img.copy()
+                    if direction == "left":
+                        result = img_converted.rotate(90, expand=True)
+                    else:
+                        result = img_converted.rotate(-90, expand=True)
+                    save_kwargs = {}
+                    fmt = "JPEG" if ext in (".jpg", ".jpeg") else "PNG"
+                    if fmt == "JPEG":
+                        save_kwargs["quality"] = 95
+                        save_kwargs["subsampling"] = 0
+                    # Sauvegarder le fichier original
+                    result.save(fp, **save_kwargs)
+                    # Sauvegarder une copie avec nom unique pour bypasser le cache
+                    norm = os.path.normpath(fp)
+                    old_temp = _image_cache_busters.get(norm)
+                    if old_temp and os.path.exists(old_temp):
+                        try:
+                            os.remove(old_temp)
+                        except Exception:
+                            pass
+                    temp_name = f"{ts}_{os.path.basename(fp)}"
+                    temp_path = os.path.join(_rot_temp_dir, temp_name)
+                    result.save(temp_path, **save_kwargs)
+                    _image_cache_busters[norm] = temp_path
+                rotated += 1
+            except Exception as ex:
+                log_to_terminal(f"[ERREUR] Rotation {os.path.basename(fp)}: {ex}", RED)
+        if rotated:
+            label = "gauche" if direction == "left" else "droite"
+            log_to_terminal(f"[OK] {rotated} image(s) pivotée(s) vers {label}", YELLOW)
+            refresh_preview(reset_page=False)
+
+
+    def _show_file_context_menu(files: list):
+        """Menu contextuel clic-droit : rotation + liste Ouvrir avec intégrée."""
+        image_files = [f for f in files if os.path.splitext(f)[1].lower() in _ROTATABLE_EXTS]
+        has_images = bool(image_files)
 
         header_label = (
             os.path.basename(files[0]) if len(files) == 1
             else f"{len(files)} fichier(s) sélectionné(s)"
         )
 
-        # Champs du formulaire d'ajout
+        # ── Formulaire d'ajout de programme ──────────────────────────────
         add_label_field = ft.TextField(
             hint_text="Nom affiché (ex : Affinity)",
             border_color=BLUE, text_size=13, height=40,
@@ -770,11 +830,8 @@ def main(page: ft.Page):
                 add_exe_field.update()
 
         browse_exe_btn = ft.IconButton(
-            icon=ft.Icons.FOLDER_OPEN,
-            icon_color=BLUE,
-            icon_size=20,
-            tooltip="Parcourir…",
-            on_click=_browse_exe,
+            icon=ft.Icons.FOLDER_OPEN, icon_color=BLUE, icon_size=20,
+            tooltip="Parcourir…", on_click=_browse_exe,
             style=ft.ButtonStyle(padding=ft.Padding.all(4)),
         )
 
@@ -789,7 +846,8 @@ def main(page: ft.Page):
         )
 
         programs_list_view = ft.ReorderableListView(padding=0, show_default_drag_handles=False)
-        open_with_dialog = ft.AlertDialog(
+
+        dlg = ft.AlertDialog(
             title=ft.Row([
                 ft.Text(header_label, size=13, color=LIGHT_GREY,
                         max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True),
@@ -801,12 +859,17 @@ def main(page: ft.Page):
                     ink=True,
                     on_click=lambda e: _toggle_add_form(),
                 ),
-            ], spacing=8, tight=True,
-               vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            content=ft.Column([programs_list_view, add_form],
-                              spacing=0, tight=True, width=340),
-            actions_alignment=ft.MainAxisAlignment.END,
+            ], spacing=8, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            content_padding=ft.Padding(12, 0, 12, 8),
         )
+
+        def _close(e=None):
+            dlg.open = False
+            page.update()
+
+        def _do_rotate(direction):
+            _close()
+            threading.Thread(target=_rotate_files, args=(image_files, direction), daemon=True).start()
 
         def _rebuild_items():
             programs = _load_open_with_programs()
@@ -824,23 +887,21 @@ def main(page: ft.Page):
                 for i, prog in enumerate(programs):
                     def _create_open_handler(p):
                         def _open_with_clicked(e):
-                            open_with_dialog.open = False
-                            page.update()
+                            _close()
                             _open_files_with(p, files)
                         return _open_with_clicked
                     def _create_delete_handler(p):
                         def _delete_program_clicked(e):
-                            programs = _load_open_with_programs()
-                            programs = [x for x in programs if x != p]
-                            _save_open_with_programs(programs)
+                            progs = _load_open_with_programs()
+                            progs = [x for x in progs if x != p]
+                            _save_open_with_programs(progs)
                             _rebuild_items()
                             programs_list_view.update()
                         return _delete_program_clicked
                     programs_list_view.controls.append(ft.ListTile(
                         key=str(i),
                         leading=ft.ReorderableDragHandle(
-                            content=ft.Icon(ft.Icons.DRAG_HANDLE,
-                                            color=LIGHT_GREY, size=18),
+                            content=ft.Icon(ft.Icons.DRAG_HANDLE, color=LIGHT_GREY, size=18),
                         ),
                         title=ft.Text(prog["label"], size=13, color=WHITE),
                         trailing=ft.IconButton(
@@ -856,9 +917,9 @@ def main(page: ft.Page):
 
         def _on_reorder(e: ft.OnReorderEvent):
             programs_list_view.controls.insert(e.new_index, programs_list_view.controls.pop(e.old_index))
-            programs = _load_open_with_programs()
-            programs.insert(e.new_index, programs.pop(e.old_index))
-            _save_open_with_programs(programs)
+            progs = _load_open_with_programs()
+            progs.insert(e.new_index, progs.pop(e.old_index))
+            _save_open_with_programs(progs)
             programs_list_view.update()
 
         programs_list_view.on_reorder = _on_reorder
@@ -881,27 +942,44 @@ def main(page: ft.Page):
                 return
             add_label_field.error_text = None
             add_exe_field.error_text   = None
-            programs = _load_open_with_programs()
-            programs.append({"label": label, "exe": exe})
-            _save_open_with_programs(programs)
+            progs = _load_open_with_programs()
+            progs.append({"label": label, "exe": exe})
+            _save_open_with_programs(progs)
             add_form.visible = False
             add_program_button.visible = False
             _rebuild_items()
             page.update()
 
-        def _close(e):
-            open_with_dialog.open = False
-            page.update()
+        # ── Assemblage du contenu ─────────────────────────────────────────
+        content_rows = []
+        if has_images:
+            content_rows.append(
+                ft.Row([
+                    ft.IconButton(
+                        icon=ft.Icons.ROTATE_LEFT, icon_color=WHITE, icon_size=28,
+                        tooltip="Rotation gauche (−90°)",
+                        on_click=lambda e: _do_rotate("left"),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.ROTATE_RIGHT, icon_color=WHITE, icon_size=28,
+                        tooltip="Rotation droite (+90°)",
+                        on_click=lambda e: _do_rotate("right"),
+                    ),
+                ], spacing=0, tight=True)
+            )
+            content_rows.append(ft.Divider(height=8, color=GREY))
+        content_rows.append(programs_list_view)
+        content_rows.append(add_form)
+
+        dlg.content = ft.Column(content_rows, spacing=0, tight=True, width=340)
 
         add_program_button = ft.TextButton("Ajouter", on_click=_confirm_add, visible=False)
-        open_with_dialog.actions = [
-            add_program_button,
-            ft.TextButton("Fermer",  on_click=_close),
-        ]
+        dlg.actions = [add_program_button, ft.TextButton("Fermer", on_click=_close)]
+        dlg.actions_alignment = ft.MainAxisAlignment.END
 
         _rebuild_items()
-        page.overlay.append(open_with_dialog)
-        open_with_dialog.open = True
+        page.overlay.append(dlg)
+        dlg.open = True
         page.update()
 
 
@@ -1018,10 +1096,12 @@ def main(page: ft.Page):
             viewer_key_counter["count"] += 1
             window_width = page.window.width or 1280
             window_height = page.window.height or 800
+            _cb = _image_cache_busters.get(os.path.normpath(path))
+            _src = _cb if _cb else path
             return ft.InteractiveViewer(
                 key=str(viewer_key_counter["count"]),
                 content=ft.Image(
-                    src=path,
+                    src=_src,
                     width=window_width,
                     height=window_height,
                     fit=ft.BoxFit.CONTAIN,
@@ -1919,20 +1999,10 @@ def main(page: ft.Page):
         preview_page["value"] = 0
         _render_preview_page()
 
-    def _open_search(e):
-        """Affiche la barre de recherche et masque le bouton icône."""
-        search_icon_btn.visible = False
-        search_active_row.visible = True
-        page.update()
-        search_field.focus()
-        page.update()
-
     def _clear_search(e):
-        """Efface la recherche, masque la barre et restaure tous les fichiers."""
+        """Efface la recherche et restaure tous les fichiers."""
         search_query["value"] = ""
         search_field.value = ""
-        search_active_row.visible = False
-        search_icon_btn.visible = True
         _render_preview_page()
         page.update()
 
@@ -2136,7 +2206,7 @@ def main(page: ft.Page):
             page.update()
             favorites_list = _load_favorites()
             if not any(f["path"] == path for f in favorites_list):
-                favorites_list.append({"path": path, "label": label})
+                favorites_list.insert(0, {"path": path, "label": label})
                 _save_favorites(favorites_list)
                 _rebuild_favorites_panel()
                 log_to_terminal(f"[OK] Favori ajouté : {label or default_name}", YELLOW)
@@ -2232,14 +2302,18 @@ def main(page: ft.Page):
     def _poll_removable_drives():
         """Thread de fond : détecte les changements de périphériques toutes les 3 s."""
         prev_drives = []
+        ordered_drives = []
         while True:
             time.sleep(3)
             try:
                 drives = _get_removable_drives()
                 if drives != prev_drives:
+                    new_drives = [d for d in drives if d not in prev_drives]
+                    existing_drives = [d for d in ordered_drives if d in drives]
+                    ordered_drives = new_drives + existing_drives
                     prev_drives = drives
-                    removable_drives_state["list"] = drives
-                    page.pubsub.send_all_on_topic("drives_changed", drives)
+                    removable_drives_state["list"] = ordered_drives
+                    page.pubsub.send_all_on_topic("drives_changed", ordered_drives)
             except Exception:
                 pass
 
@@ -2309,8 +2383,10 @@ def main(page: ft.Page):
                     )
 
                     if is_image:
+                        _cb = _image_cache_busters.get(os.path.normpath(file_path))
+                        _display_src = _cb if _cb else file_path
                         visual = ft.Container(
-                            content=ft.Image(src=file_path, fit=ft.BoxFit.COVER, error_content=ft.Icon(icon, color=icon_color, size=22)),
+                            content=ft.Image(src=_display_src, fit=ft.BoxFit.COVER, error_content=ft.Icon(icon, color=icon_color, size=22)),
                             width=50, height=50,
                             border_radius=4, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                         )
@@ -2388,7 +2464,7 @@ def main(page: ft.Page):
                                 files_to_open = list(selected_files)
                             else:
                                 files_to_open = [fp]
-                            _show_open_with_menu(files_to_open)
+                            _show_file_context_menu(files_to_open)
                         return _on_right_click
 
                     new_controls.append(
@@ -3098,12 +3174,6 @@ def main(page: ft.Page):
 
         quick_tools_col.controls = [
             _round_button(
-                ft.Icons.VERTICAL_SPLIT,
-                YELLOW,
-                "Ouvrir le Sélecteur (demi-écran)",
-                lambda e: _launch_selecteur(),
-            ),
-            _round_button(
                 ft.Icons.FIND_IN_PAGE,
                 ORANGE,
                 "Fichiers manquants",
@@ -3360,7 +3430,6 @@ def main(page: ft.Page):
 
 
     # ── Recherche preview ─────────────────────────────────────────────
-    search_icon_btn.on_click = _open_search
     search_field.on_change = _on_search_change
     search_field.on_submit = _on_search_change
     search_close_btn.on_click = _clear_search
@@ -3400,6 +3469,14 @@ def main(page: ft.Page):
                     tooltip="Mettre à jour (git pull --rebase)",
                     on_click=update_app,
                     icon_color=LIGHT_GREY,
+                    bgcolor=DARK,
+                    icon_size=18,
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.VERTICAL_SPLIT,
+                    tooltip="Ouvrir le Sélecteur (demi-écran)",
+                    on_click=lambda e: _launch_selecteur(),
+                    icon_color=YELLOW,
                     bgcolor=DARK,
                     icon_size=18,
                 ),
@@ -3512,8 +3589,6 @@ def main(page: ft.Page):
                             icon_color=RED,
                             icon_size=20,
                         ),
-                        search_icon_btn,
-                        search_active_row,
                         ft.Container(expand=True),
                         selection_count_text,
                         ft.Container(width=6),
@@ -3525,6 +3600,7 @@ def main(page: ft.Page):
                     ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER, height=36),
                     ft.Row([
                         filter_segment,
+                        search_active_row,
                         ft.Container(expand=True),
                         ft.IconButton(
                             icon=ft.Icons.CONTENT_COPY,
@@ -3609,7 +3685,7 @@ def main(page: ft.Page):
                         drives_panel,
                     ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
                 ], spacing=8, expand=True),
-                height=190,
+                height=150,
             ),
         ], expand=True, spacing=8)
     )

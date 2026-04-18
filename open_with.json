@@ -8,6 +8,10 @@
     "exe": "/Applications/Topaz Photo.app"
   },
   {
+    "label": "Topaz Gigapixel",
+    "exe": "C:\\Program Files\\Topaz Labs LLC\\Topaz Gigapixel\\Topaz Gigapixel.exe"
+  },
+  {
     "label": "Luminar",
     "exe": "/Applications/Luminar Neo.app"
   }

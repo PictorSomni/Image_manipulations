@@ -17,7 +17,7 @@ Sélecteur — App compacte (demi-écran) avec deux onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.1.1"
+__version__ = "2.1.2"
 
 
 #############################################################
