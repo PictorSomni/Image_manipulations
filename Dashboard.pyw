@@ -1024,6 +1024,7 @@ def main(page: ft.Page):
                         tooltip="Rotation droite (+90°)",
                         on_click=lambda e: _do_rotate("right"),
                     ),
+                    ft.Container(expand=True),
                     ft.IconButton(
                         icon=ft.Icons.FOLDER_ZIP, icon_color=WHITE, icon_size=28,
                         tooltip="Zipper la sélection",
@@ -1035,6 +1036,7 @@ def main(page: ft.Page):
         else:
             content_rows.append(
                 ft.Row([
+                    ft.Container(expand=True),
                     ft.IconButton(
                         icon=ft.Icons.FOLDER_ZIP, icon_color=WHITE, icon_size=28,
                         tooltip="Zipper la sélection",

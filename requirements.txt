@@ -2,7 +2,7 @@
 # Compatible: Windows, macOS, Linux
 
 # Interface graphique
-flet>=0.80.0
+flet==0.84.0
 
 # Traitement d'images
 Pillow>=10.0.0
