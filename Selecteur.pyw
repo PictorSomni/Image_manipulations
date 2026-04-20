@@ -17,7 +17,7 @@ Sélecteur — App compacte (demi-écran) avec deux onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.1.3"
+__version__ = "2.1.4"
 
 
 #############################################################
@@ -1364,7 +1364,7 @@ def main(page: ft.Page):
                 on_click=_pick_src,
             ),
             ft.IconButton(
-                icon=ft.Icons.OPEN_IN_NEW, icon_color=LIGHT_GREY,
+                icon=ft.Icons.OPEN_IN_NEW, icon_color=GREEN,
                 icon_size=18, tooltip="Ouvrir dans l'explorateur",
                 on_click=_open_in_explorer,
             ),
