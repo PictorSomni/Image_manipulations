@@ -30,8 +30,6 @@ __version__ = "2.1.4"
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-from ast import Or
-
 import flet as ft
 import os
 import subprocess
@@ -47,7 +45,6 @@ import time
 import hashlib
 import tempfile
 
-from regex import D, F
 try:
     from PIL import Image as _PILImage
 except ImportError:
@@ -86,7 +83,7 @@ def _is_os_junk(entry):
 
 
 #############################################################
-#                           MAIN                            #
+#                        -={MAIN}=-                         #
 #############################################################
 def main(page: ft.Page):
     """
@@ -139,10 +136,12 @@ def main(page: ft.Page):
     page.window.title_bar_buttons_hidden = True
     page.window.width = 1360
     page.window.height = 800
+    page.window.icon = "assets/icon.png"
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
     app_directory = os.path.dirname(os.path.abspath(__file__))
     selected_files = set()  # Ensemble des fichiers sélectionnés
+
     clipboard = {"files": [], "cut": False}  # Presse-papiers pour copier/coller/couper des fichiers
 
 
@@ -3987,4 +3986,4 @@ if sys.platform == "win32":
     _loop.set_exception_handler(_silence_proactor_pipe_errors)
     asyncio.set_event_loop(_loop)
 
-ft.run(main)
+ft.run(main, assets_dir="assets")
