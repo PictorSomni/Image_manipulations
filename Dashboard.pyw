@@ -42,8 +42,6 @@ import zipfile
 import json
 import asyncio
 import time
-import base64
-import io
 import hashlib
 import tempfile
 try:
@@ -1856,12 +1854,33 @@ def main(page: ft.Page):
             new_path = os.path.join(folder, clean)
             try:
                 os.rename(file_path, new_path)
-                log_to_terminal(f"[OK] Compteur retiré : {clean}", GREEN)
                 if file_path in selected_files:
                     selected_files.discard(file_path)
                     selected_files.add(new_path)
             except Exception as err:
                 log_to_terminal(f"[ERREUR] {err}", RED)
+                refresh_preview(reset_page=False)
+                return
+            # Retirer le préfixe de tous les autres fichiers du dossier
+            print_prefix_pattern = re.compile(r'^\d+X_')
+            removed = 0
+            for fname in os.listdir(folder):
+                fpath = os.path.join(folder, fname)
+                if not os.path.isfile(fpath) or fname == clean:
+                    continue
+                if not print_prefix_pattern.match(fname):
+                    continue
+                clean_fname = re.sub(r'^\d+X_', '', fname)
+                clean_fpath = os.path.join(folder, clean_fname)
+                try:
+                    os.rename(fpath, clean_fpath)
+                    if fpath in selected_files:
+                        selected_files.discard(fpath)
+                        selected_files.add(clean_fpath)
+                    removed += 1
+                except Exception as err:
+                    log_to_terminal(f"[ERREUR] {fname}: {err}", RED)
+            log_to_terminal(f"[OK] Préfixe retiré de {removed + 1} fichier(s)", GREEN)
         else:
             new_name = f"{current_count - 1}X_{clean}"
             new_path = os.path.join(folder, new_name)
