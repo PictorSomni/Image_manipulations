@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.1.2"
+__version__ = "2.1.3"
 
 
 
@@ -752,6 +752,29 @@ def main(page: ft.Page):
 
     _ROTATABLE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
 
+    def _zip_selection(files: list, zip_name: str):
+        """Zippe la liste de fichiers dans le dossier courant sous zip_name."""
+        if not files:
+            return
+        folder = os.path.dirname(files[0])
+        base = zip_name if zip_name else "selection"
+        if not base.lower().endswith(".zip"):
+            base += ".zip"
+        candidate = os.path.join(folder, base)
+        stem, ext = os.path.splitext(candidate)
+        counter = 1
+        while os.path.exists(candidate):
+            candidate = f"{stem}_{counter}{ext}"
+            counter += 1
+        try:
+            with zipfile.ZipFile(candidate, "w", zipfile.ZIP_DEFLATED) as zf:
+                for fp in files:
+                    zf.write(fp, arcname=os.path.basename(fp))
+            log_to_terminal(f"[OK] Archive créée : {os.path.basename(candidate)}", YELLOW)
+            refresh_preview()
+        except Exception as ex:
+            log_to_terminal(f"[ERREUR] Zip : {ex}", RED)
+
     def _rotate_files(files, direction):
         """Pivote les images de 90° à gauche ou à droite en utilisant Pillow."""
         if _PILImage is None:
@@ -871,6 +894,44 @@ def main(page: ft.Page):
             _close()
             threading.Thread(target=_rotate_files, args=(image_files, direction), daemon=True).start()
 
+        def _do_zip(e):
+            _close()
+            zip_name_input = ft.TextField(
+                label="Nom de l'archive",
+                hint_text="Ex: selection",
+                autofocus=True,
+                width=320,
+                bgcolor=DARK,
+                border_color=GREY,
+            )
+
+            def _on_confirm_zip(ev):
+                name = (zip_name_input.value or "").strip() or "selection"
+                zip_dlg.open = False
+                page.update()
+                log_to_terminal(f"[ZIP] Création de {name}.zip en cours…", YELLOW)
+                threading.Thread(target=_zip_selection, args=(files, name), daemon=True).start()
+
+            def _on_cancel_zip(ev):
+                zip_dlg.open = False
+                page.update()
+
+            zip_name_input.on_submit = _on_confirm_zip
+
+            zip_dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Nom de l'archive ZIP"),
+                content=zip_name_input,
+                actions=[
+                    ft.TextButton("Annuler", on_click=_on_cancel_zip),
+                    ft.TextButton("OK", on_click=_on_confirm_zip),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.overlay.append(zip_dlg)
+            zip_dlg.open = True
+            page.update()
+
         def _rebuild_items():
             programs = _load_open_with_programs()
             programs_list_view.controls.clear()
@@ -964,6 +1025,22 @@ def main(page: ft.Page):
                         icon=ft.Icons.ROTATE_RIGHT, icon_color=WHITE, icon_size=28,
                         tooltip="Rotation droite (+90°)",
                         on_click=lambda e: _do_rotate("right"),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.FOLDER_ZIP, icon_color=WHITE, icon_size=28,
+                        tooltip="Zipper la sélection",
+                        on_click=_do_zip,
+                    ),
+                ], spacing=0, tight=True)
+            )
+            content_rows.append(ft.Divider(height=8, color=GREY))
+        else:
+            content_rows.append(
+                ft.Row([
+                    ft.IconButton(
+                        icon=ft.Icons.FOLDER_ZIP, icon_color=WHITE, icon_size=28,
+                        tooltip="Zipper la sélection",
+                        on_click=_do_zip,
                     ),
                 ], spacing=0, tight=True)
             )
@@ -1376,7 +1453,7 @@ def main(page: ft.Page):
         if is_dir:
             navigate_to_folder(file_path)
         elif os.path.splitext(file_path)[1].lower() == ".zip":
-            log_to_terminal(f"Extraction: {os.path.splitext(os.path.basename(file_path))[0]}", BLUE)
+            log_to_terminal(f"Extraction: {os.path.splitext(os.path.basename(file_path))[0]}", YELLOW)
             extract_zip(file_path)
         elif os.path.splitext(file_path)[1].lower() in _IMAGE_VIEWER_EXTS:
             open_image_viewer(file_path)

@@ -52,7 +52,7 @@ sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au t
 
 """
 
-__version__ = "2.1.2"
+__version__ = "2.1.3"
 
 ###############################################################
 #                         IMPORTS                             #
