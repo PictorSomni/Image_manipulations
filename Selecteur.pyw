@@ -33,12 +33,6 @@ import platform
 import subprocess
 import sys
 import asyncio
-import time
-
-try:
-    from PIL import Image as _PILImage
-except ImportError:
-    _PILImage = None
 
 
 #############################################################
@@ -47,22 +41,6 @@ except ImportError:
 _IMAGE_EXTS = {
     ".jpg", ".jpeg", ".png", ".gif", ".bmp",
     ".webp", ".ico", ".tiff", ".tif",
-}
-
-_FILTER_CATEGORIES = {
-    "images": {
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp",
-        ".ico", ".tiff", ".tif", ".raw", ".cr2", ".nef", ".arw", ".dng",
-    },
-    "videos": {
-        ".mp4", ".mov", ".avi", ".mkv", ".mts", ".m2ts",
-        ".wmv", ".mpg", ".mpeg",
-    },
-    "zip":    {".zip", ".rar", ".7z", ".tar", ".gz"},
-    "docs":   {
-        ".pdf", ".txt", ".md", ".log", ".csv", ".xml", ".json",
-        ".odt", ".docx", ".xlsx", ".pptx", ".doc", ".xls", ".ppt",
-    },
 }
 
 _OS_JUNK = {
@@ -101,7 +79,7 @@ def main(page: ft.Page):
     page.bgcolor     = BACKGROUND
     page.window.title_bar_hidden         = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width  = 820
+    page.window.width  = 960
     page.window.height = 960
 
     # ─── Chemins config ──────────────────────────────────────────────────
@@ -148,7 +126,6 @@ def main(page: ft.Page):
     current_src      = {"path": None}
     selected_files   = set()
     sort_mode        = {"value": 0}         # 0=A→Z  1=Z→A  2=Date
-    filter_type      = {"value": "all"}
     all_entries      = {"list": [], "error": ""}
     search_query     = {"value": ""}
     refresh_token    = {"value": 0}
@@ -246,13 +223,6 @@ def main(page: ft.Page):
         icon_size=20, tooltip="Inverser la sélection",
     )
 
-    FILTER_KEYS    = ["all", "images", "zip", "docs", "other"]
-    filter_segment = ft.CupertinoSlidingSegmentedButton(
-        selected_index=0, bgcolor=GREY, thumb_color=DARK,
-        controls=[ft.Text(lbl, size=11, color=WHITE)
-                  for lbl in ["Tous", "Images", "ZIP", "Docs", "Autres"]],
-        tooltip="Filtrer par type",
-    )
     sort_segment = ft.CupertinoSlidingSegmentedButton(
         selected_index=0, bgcolor=GREY, thumb_color=DARK,
         controls=[
@@ -265,7 +235,7 @@ def main(page: ft.Page):
 
     search_field = ft.TextField(
         hint_text="Rechercher...", border_color=BLUE,
-        text_size=13, height=32, expand=True,
+        text_size=13, height=32, width=200,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH, bgcolor=DARK,
     )
@@ -338,9 +308,9 @@ def main(page: ft.Page):
     )
     list_search_field = ft.TextField(
         hint_text="Rechercher...", border_color=VIOLET,
-        text_size=13, height=32,
+        text_size=13, height=32, width=200,
         content_padding=ft.Padding(8, 2, 8, 2),
-        prefix_icon=ft.Icons.SEARCH, bgcolor=DARK, expand=True,
+        prefix_icon=ft.Icons.SEARCH, bgcolor=DARK,
     )
     list_sort_segment = ft.CupertinoSlidingSegmentedButton(
         selected_index=2, bgcolor=GREY, thumb_color=DARK,
@@ -380,23 +350,7 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    def _match_filter(entry):
-        _, _, is_dir, is_img, ext = entry
-        ftype = filter_type["value"]
-        if ftype == "all":
-            return True
-        if is_dir:
-            return True
-        if ftype == "images":
-            return is_img
-        if ftype in _FILTER_CATEGORIES:
-            return ext in _FILTER_CATEGORIES[ftype]
-        if ftype == "other":
-            for cat_exts in _FILTER_CATEGORIES.values():
-                if ext in cat_exts:
-                    return False
-            return True
-        return True
+
 
     def _increment_print_count(file_path):
         basename = os.path.basename(file_path)
@@ -492,8 +446,6 @@ def main(page: ft.Page):
     def _render_preview():
         try:
             entries = all_entries["list"]
-            if filter_type["value"] != "all":
-                entries = [en for en in entries if _match_filter(en)]
             if search_query["value"]:
                 q = search_query["value"].lower()
                 entries = [en for en in entries if q in en[0].lower()]
@@ -724,8 +676,6 @@ def main(page: ft.Page):
     # ── Sélection ────────────────────────────────────────────────────────
     def _select_all(e=None):
         entries = all_entries["list"]
-        if filter_type["value"] != "all":
-            entries = [en for en in entries if _match_filter(en)]
         for _, fpath, is_dir, _, _ in entries:
             if not is_dir:
                 selected_files.add(fpath)
@@ -747,8 +697,6 @@ def main(page: ft.Page):
 
     def _invert(e):
         entries = all_entries["list"]
-        if filter_type["value"] != "all":
-            entries = [en for en in entries if _match_filter(en)]
         for _, fpath, is_dir, _, _ in entries:
             if is_dir:
                 continue
@@ -760,12 +708,7 @@ def main(page: ft.Page):
         _render_preview()
         _update_toggle_btn()
 
-    # ── Filtre / Tri / Recherche ─────────────────────────────────────────
-    def _on_filter_change(e):
-        filter_type["value"]  = FILTER_KEYS[e.control.selected_index]
-        preview_page["value"] = 0
-        _render_preview()
-
+    # ── Tri / Recherche ──────────────────────────────────────────────────
     def _on_sort_change(e):
         sort_mode["value"] = e.control.selected_index
         _refresh_preview()
@@ -1326,7 +1269,6 @@ def main(page: ft.Page):
 
     select_toggle_btn.on_click = _toggle_all
     invert_btn.on_click        = _invert
-    filter_segment.on_change   = _on_filter_change
     sort_segment.on_change     = _on_sort_change
     search_field.on_change     = _on_search_change
     search_field.on_submit     = _on_search_change
@@ -1364,15 +1306,16 @@ def main(page: ft.Page):
                 on_click=_pick_src,
             ),
             ft.IconButton(
-                icon=ft.Icons.OPEN_IN_NEW, icon_color=GREEN,
-                icon_size=18, tooltip="Ouvrir dans l'explorateur",
-                on_click=_open_in_explorer,
-            ),
-            ft.IconButton(
                 icon=ft.Icons.REFRESH, icon_color=BLUE,
                 icon_size=20, tooltip="Rafraîchir",
                 on_click=lambda e: _refresh_preview(),
             ),
+            ft.IconButton(
+                icon=ft.Icons.OPEN_IN_NEW, icon_color=GREEN,
+                icon_size=18, tooltip="Ouvrir dans l'explorateur",
+                on_click=_open_in_explorer,
+            ),
+            
         ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
 
         # ── Barre de sélection + recherche ───────────────────────────
@@ -1383,19 +1326,11 @@ def main(page: ft.Page):
             search_close_btn,
             ft.Container(expand=True),
             selection_count_text,
-            ft.Container(width=4),
             file_count_text,
-            ft.Container(width=4),
+            sort_segment,
             prev_page_btn,
             page_indicator,
             next_page_btn,
-        ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-
-        # ── Filtre + Tri ─────────────────────────────────────────────
-        ft.Row([
-            filter_segment,
-            ft.Container(expand=True),
-            sort_segment,
         ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
 
         # ── Liste de prévisualisation ─────────────────────────────────
@@ -1455,19 +1390,20 @@ def main(page: ft.Page):
 
         # ── Barre de recherche + tri + ajout ─────────────────────────
         ft.Row([
-            list_sort_segment,
-            list_search_field,
             ft.Container(
                 content=ft.Row([
                     ft.Icon(ft.Icons.ADD, size=14, color=DARK),
                     ft.Text("Ajouter", size=12, color=DARK,
                             weight=ft.FontWeight.BOLD),
-                ], spacing=4, tight=True),
+                ], spacing=4),
                 bgcolor=VIOLET, border_radius=6,
-                padding=ft.Padding(10, 5, 10, 5),
+                padding=ft.Padding(5, 5, 5, 5),
                 on_click=_add_entry, ink=True,
                 tooltip="Ajouter une entrée",
             ),
+            list_search_field,
+            ft.Container(expand=True),
+            list_sort_segment,
         ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
 
         ft.Text(

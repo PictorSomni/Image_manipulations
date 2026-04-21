@@ -348,7 +348,7 @@ def main(page: ft.Page):
         hint_text="Rechercher...",
         border_color=BLUE,
         text_size=13,
-        height=42,
+        height=45,
         width=200,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH,
@@ -399,12 +399,12 @@ def main(page: ft.Page):
     filter_segment = ft.Dropdown(
         value="all",
         width=110,
-        height=42,
+        height=45,
         fill_color=DARK,
         bgcolor=DARK,
         border_color=BLUE,
         text_size=12,
-        content_padding=ft.Padding(8, 2, 8, 2),
+        content_padding=ft.Padding(8, 0, 8, 0),
         options=[
             ft.dropdown.Option(key=key, text=label)
             for key, label in zip(FILTER_KEYS, FILTER_LABELS)
