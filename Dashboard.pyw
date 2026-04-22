@@ -478,30 +478,7 @@ def main(page: ft.Page):
     # ================================================================ #
     #                    PUBSUB & ÉVÉNEMENTS                           #
     # ================================================================ #
-    def on_terminal_message(topic, message):
-        """Callback pour les messages pubsub"""
-        try:
-            msg, color = message
-            terminal_output.controls.append(
-                ft.Text(msg, size=13, color=color, font_family="monospace")
-            )
-            if len(terminal_output.controls) > 1000:
-                terminal_output.controls.pop(0)
-            page.update()
-
-            async def _scroll_to_bottom():
-                try:
-                    await terminal_output.scroll_to(offset=-1)#, duration=0)
-                except Exception:
-                    pass
-
-            page.run_task(_scroll_to_bottom)
-        except Exception:
-            # Ignorer les erreurs si la page est en cours de fermeture ou déjà détruite
-            pass
-    
-    # S'abonner au canal terminal
-    page.pubsub.subscribe_topic("terminal", on_terminal_message)
+    # (terminal géré directement dans log_to_terminal)
 
 
 
@@ -652,11 +629,27 @@ def main(page: ft.Page):
     # ================================================================ #
     def log_to_terminal(message, color=WHITE):
         """Ajoute un message au terminal intégré"""
-        # Supprimer les codes ANSI d'échappement (clear screen, colors, etc.)
         ansi_escape = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\[\?[0-9;]*[a-zA-Z]')
         clean_message = ansi_escape.sub('', message).strip()
-        if clean_message:  # N'afficher que si le message n'est pas vide après nettoyage
-            page.pubsub.send_all_on_topic("terminal", (clean_message, color))
+        if not clean_message:
+            return
+        try:
+            terminal_output.controls.append(
+                ft.Text(clean_message, size=13, color=color, font_family="monospace")
+            )
+            if len(terminal_output.controls) > 1000:
+                terminal_output.controls.pop(0)
+            page.update()
+
+            async def _scroll_to_bottom():
+                try:
+                    await terminal_output.scroll_to(offset=-1)
+                except Exception:
+                    pass
+
+            page.run_task(_scroll_to_bottom)
+        except Exception:
+            pass
 
 
 
@@ -2820,12 +2813,12 @@ def main(page: ft.Page):
                         ft.GestureDetector(
                             on_secondary_tap_up=_create_right_click_handler(file_path, is_dir),
                             content=ft.ListTile(
-                                leading=ft.Row([checkbox, visual], spacing=8, tight=True),
-                                title=ft.Text(file, size=13, color=WHITE),
+                                leading=ft.Row([checkbox, visual], spacing=16, tight=True),
+                                title=ft.Text(file, size=16, color=WHITE),
                                 trailing=trailing,
                                 on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
                                 hover_color=GREY, dense=False,
-                                content_padding=ft.Padding(left=5, top=2, right=5, bottom=2),
+                                content_padding=ft.Padding(left=8, top=2, right=8, bottom=2),
                                 min_leading_width=0,
                             ),
                         )
@@ -3593,10 +3586,8 @@ def main(page: ft.Page):
 
     def update_app(e):
         """Sauvegarde les fichiers utilisateur, git pull --rebase, vérifie les dépendances si requirements a changé, relance."""
-        page.pubsub.send_all_on_topic("terminal", ("Mise à jour en cours…", YELLOW))
+        log_to_terminal("Mise à jour en cours…", YELLOW)
         def _run_update():
-            def publish_to_terminal(msg, color=LIGHT_GREY):
-                page.pubsub.send_all_on_topic("terminal", (msg, color))
 
 
 
@@ -3649,7 +3640,7 @@ def main(page: ft.Page):
                         run_git_command("rebase", "--abort")
                         run_git_command("stash", "pop")
                     _restore_user_data_files()
-                    publish_to_terminal(f"[ERREUR] Erreur lors de la mise à jour.\n{git_command_output}", RED)
+                    log_to_terminal(f"[ERREUR] Erreur lors de la mise à jour.\n{git_command_output}", RED)
                     return
 
 
@@ -3664,9 +3655,9 @@ def main(page: ft.Page):
                 _restore_user_data_files()
 
                 if "Already up to date" in git_command_output or "Déjà à jour" in git_command_output or git_command_output == "":
-                    publish_to_terminal("[OK] Déjà à jour.", GREEN)
+                    log_to_terminal("[OK] Déjà à jour.", GREEN)
                 else:
-                    publish_to_terminal(f"[OK] Code mis à jour.\n{git_command_output}", GREEN)
+                    log_to_terminal(f"[OK] Code mis à jour.\n{git_command_output}", GREEN)
 
 
 
@@ -3674,7 +3665,7 @@ def main(page: ft.Page):
                 requirements_file_path = os.path.join(app_directory, "requirements.txt")
                 pip_cache_file_path = os.path.join(app_directory, ".pip_cache.json")
                 if not os.path.isfile(requirements_file_path):
-                    publish_to_terminal("⚠ requirements.txt introuvable, installation ignorée.", YELLOW)
+                    log_to_terminal("⚠ requirements.txt introuvable, installation ignorée.", YELLOW)
                 else:
                     with open(requirements_file_path, "rb") as f:
                         requirements_checksum = hashlib.sha256(f.read()).hexdigest()
@@ -3687,9 +3678,9 @@ def main(page: ft.Page):
                         pass
 
                     if cached_checksum == requirements_checksum:
-                        publish_to_terminal("[OK] Dépendances inchangées, installation ignorée.", GREEN)
+                        log_to_terminal("[OK] Dépendances inchangées, installation ignorée.", GREEN)
                     else:
-                        publish_to_terminal("📦 Nouvelles dépendances détectées, installation en cours…", YELLOW)
+                        log_to_terminal("📦 Nouvelles dépendances détectées, installation en cours…", YELLOW)
                         pip_install_process = subprocess.Popen(
                             [sys.executable, "-m", "pip", "install", "-r", requirements_file_path, "--upgrade"],
                             stdout=subprocess.PIPE,
@@ -3702,10 +3693,10 @@ def main(page: ft.Page):
                         for line in pip_install_process.stdout:
                             line = line.rstrip()
                             if line:
-                                publish_to_terminal(line)
+                                log_to_terminal(line, LIGHT_GREY)
                         pip_install_process.wait()
                         if pip_install_process.returncode == 0:
-                            publish_to_terminal("[OK] Dépendances installées.", GREEN)
+                            log_to_terminal("[OK] Dépendances installées.", GREEN)
                             try:
                                 with open(pip_cache_file_path, "w", encoding="utf-8") as f:
                                     json.dump(
@@ -3716,12 +3707,12 @@ def main(page: ft.Page):
                             except Exception:
                                 pass
                         else:
-                            publish_to_terminal(f"pip a terminé avec le code {pip_install_process.returncode}.", YELLOW)
+                            log_to_terminal(f"pip a terminé avec le code {pip_install_process.returncode}.", YELLOW)
 
 
 
                 # ── Redémarrage automatique ───────────────────────────────
-                publish_to_terminal("🔄 Redémarrage du Dashboard…", BLUE)
+                log_to_terminal("🔄 Redémarrage du Dashboard…", BLUE)
                 script = os.path.abspath(__file__)
                 subprocess.Popen(
                     [
@@ -3735,7 +3726,7 @@ def main(page: ft.Page):
 
             except Exception as exc:
                 _restore_user_data_files()
-                page.pubsub.send_all_on_topic("terminal", (f"[ERREUR] {exc}", RED))
+                log_to_terminal(f"[ERREUR] {exc}", RED)
 
         threading.Thread(target=_run_update, daemon=True).start()
 
@@ -3787,6 +3778,8 @@ def main(page: ft.Page):
 
 # ===================== INTERFACE FLET ===================== #
     page.add(
+
+        # ── Dessus ────────────────────────────
         ft.WindowDragArea(
             ft.Row([
                 ft.Container(
@@ -3849,6 +3842,8 @@ def main(page: ft.Page):
             ft.Divider(),
             ft.Row([
                 ft.Column([
+
+                    # ── Zone gauche ────────────────────────────
                     ft.Row([
                         ft.Container(
                             content=ft.Text("Applications disponibles", weight=ft.FontWeight.BOLD, size=14, color=WHITE),
@@ -3880,6 +3875,8 @@ def main(page: ft.Page):
                             icon_size=18,
                         ),
                     ]),
+
+                    # ── Apps ────────────────────────────
                     ft.Row([
                         ft.Container(
                             content=apps_list,
@@ -3900,6 +3897,8 @@ def main(page: ft.Page):
                     ], expand=True, spacing=8),
                 ], expand=6),
                 ft.Column([
+
+                    # ── Zone droite ────────────────────────────
                     ft.Row([
                         ft.Text("Contenu du dossier", weight=ft.FontWeight.BOLD, size=14, color=WHITE, margin=ft.Margin.only(left=10)),
                         ft.IconButton(
@@ -3909,9 +3908,9 @@ def main(page: ft.Page):
                             icon_color=BLUE,
                             icon_size=20,
                         ),
+                        filter_sel_btn,
                         select_toggle_button,
                         invert_selection_button,
-                        filter_sel_btn,
                         ft.IconButton(
                             icon=ft.Icons.DELETE_SWEEP,
                             tooltip="Supprimer les fichiers sélectionnés",
@@ -3966,6 +3965,8 @@ def main(page: ft.Page):
                     ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         padding=ft.Padding(0, 5, 0, 0), # Ajustement pour aligner le dessus avec les zones à gauche 
                     ),
+
+                    # ── Preview list (droite) ────────────────────────────
                     ft.Container(
                         content=ft.Stack([
                             preview_list,

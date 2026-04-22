@@ -389,88 +389,6 @@ def main(page: ft.Page):
 
 
 
-    def _increment_print_count(file_path):
-        basename = os.path.basename(file_path)
-        folder = os.path.dirname(file_path)
-        print_prefix_match = re.match(r'^(\d+)X_', basename)
-        print_prefix_pattern = re.compile(r'^\d+X_')
-        if print_prefix_match:
-            current_count = int(print_prefix_match.group(1))
-            clean = re.sub(r'^\d+X_', '', basename)
-        else:
-            current_count = 0
-            clean = basename
-        new_count = current_count + 1
-        new_name = f"{new_count}X_{clean}"
-        new_path = os.path.join(folder, new_name)
-        if new_path != file_path:
-            try:
-                os.rename(file_path, new_path)
-                if file_path in selected_files:
-                    selected_files.discard(file_path)
-                    selected_files.add(new_path)
-            except Exception as error:
-                status_text.value = f"[ERREUR] {error}"
-                page.update()
-                return
-        if current_count == 0:
-            others_have_prefix = any(
-                print_prefix_pattern.match(fname)
-                for fname in os.listdir(folder)
-                if fname != new_name and os.path.isfile(os.path.join(folder, fname))
-            )
-            if not others_have_prefix:
-                for fname in os.listdir(folder):
-                    fpath = os.path.join(folder, fname)
-                    if not os.path.isfile(fpath) or fname == new_name:
-                        continue
-                    if print_prefix_pattern.match(fname):
-                        continue
-                    new_fname = f"1X_{fname}"
-                    new_fpath = os.path.join(folder, new_fname)
-                    try:
-                        os.rename(fpath, new_fpath)
-                        if fpath in selected_files:
-                            selected_files.discard(fpath)
-                            selected_files.add(new_fpath)
-                    except Exception as error:
-                        status_text.value = f"[ERREUR] {fname}: {error}"
-                        page.update()
-        _refresh_preview(reset_page=False)
-
-    def _decrement_print_count(file_path):
-        basename = os.path.basename(file_path)
-        folder = os.path.dirname(file_path)
-        print_prefix_match = re.match(r'^(\d+)X_', basename)
-        if not print_prefix_match:
-            return
-        current_count = int(print_prefix_match.group(1))
-        clean = re.sub(r'^\d+X_', '', basename)
-        if current_count <= 1:
-            new_path = os.path.join(folder, clean)
-            try:
-                os.rename(file_path, new_path)
-                if file_path in selected_files:
-                    selected_files.discard(file_path)
-                    selected_files.add(new_path)
-            except Exception as error:
-                status_text.value = f"[ERREUR] {error}"
-                page.update()
-                return
-        else:
-            new_name = f"{current_count - 1}X_{clean}"
-            new_path = os.path.join(folder, new_name)
-            try:
-                os.rename(file_path, new_path)
-                if file_path in selected_files:
-                    selected_files.discard(file_path)
-                    selected_files.add(new_path)
-            except Exception as error:
-                status_text.value = f"[ERREUR] {error}"
-                page.update()
-                return
-        _refresh_preview(reset_page=False)
-
     def _on_checkbox_change(e, path):
         if e.control.value:
             selected_files.add(path)
@@ -530,16 +448,14 @@ def main(page: ft.Page):
                         visual = ft.Container(
                             content=ft.Image(
                                 src=fpath, fit=ft.BoxFit.COVER,
-                                error_content=ft.Icon(icon, color=ic, size=22),
+                                error_content=ft.Icon(icon, color=ic, size=21),
                             ),
-                            width=88, height=88,
+                            width=64, height=64,
                             border_radius=4,
                             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                         )
                     else:
-                        visual = ft.Icon(icon, color=ic, size=22)
-
-                    trailing = None
+                        visual = ft.Icon(icon, color=ic, size=21)
 
                     controls.append(
                         ft.Container(
@@ -547,12 +463,12 @@ def main(page: ft.Page):
                                 [
                                     checkbox,
                                     visual,
-                                    ft.Text(name, size=13, color=WHITE, expand=True),
+                                    ft.Text(name, size=16, color=WHITE, expand=True),
                                 ],
-                                spacing=6,
+                                spacing=8,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
-                            padding=ft.Padding(left=5, top=2, right=5, bottom=2),
+                            padding=ft.Padding(left=8, top=2, right=8, bottom=2),
                             ink=True,
                             ink_color=GREY,
                             on_click=lambda e, p=fpath, d=is_dir, ex=ext: _navigate(p) if d else _open_json_in_list(p) if ex == ".json" else None,
