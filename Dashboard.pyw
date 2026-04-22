@@ -230,6 +230,7 @@ def main(page: ft.Page):
     resize_watermark_size = {"value": "640"}  # Taille par défaut pour le redimensionnement avec watermark
     sort_mode = {"value": 0}  # 0 = A→Z, 1 = Z→A, 2 = par date de modification
     filter_type = {"value": "all"}  # "all", "images", "videos", "zip", "docs", "other"
+    show_only_selection = {"value": False}  # True = afficher uniquement les fichiers sélectionnés
     removable_drives_state = {"list": []}  # [(name, path), ...]
     _image_cache_busters = {}  # {normpath: temp_path_unique} pour invalider le cache navigateur
     _rot_temp_dir = tempfile.mkdtemp(prefix="dashboard_rot_")
@@ -306,6 +307,15 @@ def main(page: ft.Page):
         icon_color=VIOLET,
         icon_size=22,
         tooltip="Inverser la sélection",
+    )
+
+
+
+    filter_sel_btn = ft.IconButton(
+        icon=ft.Icons.FILTER_LIST,
+        icon_color=LIGHT_GREY,
+        icon_size=22,
+        tooltip="Afficher uniquement la sélection",
     )
 
 
@@ -1853,6 +1863,29 @@ def main(page: ft.Page):
 
 
 
+    def _update_filter_sel_btn():
+        """Met à jour l'apparence du bouton 'afficher uniquement la sélection'."""
+        if show_only_selection["value"]:
+            filter_sel_btn.icon_color = BLUE
+            filter_sel_btn.tooltip = "Afficher tous les fichiers"
+        else:
+            filter_sel_btn.icon_color = LIGHT_GREY
+            filter_sel_btn.tooltip = "Afficher uniquement la sélection"
+        try:
+            filter_sel_btn.update()
+        except Exception:
+            pass
+
+
+
+    def _toggle_show_only_selection(e):
+        """Active/désactive le filtre 'uniquement la sélection'."""
+        show_only_selection["value"] = not show_only_selection["value"]
+        _update_filter_sel_btn()
+        _render_preview_page()
+
+
+
     def toggle_select_all(e):
         """Sélectionne tout si rien sélectionné, sinon désélectionne tout."""
         if selected_files:
@@ -2105,6 +2138,9 @@ def main(page: ft.Page):
     def clear_selection(e):
         """Désélectionne tous les fichiers et rafraîchit la preview."""
         selected_files.clear()
+        if show_only_selection["value"]:
+            show_only_selection["value"] = False
+            _update_filter_sel_btn()
         refresh_preview()
         selection_count_text.value = _selection_label()
         page.update()
@@ -2502,24 +2538,58 @@ def main(page: ft.Page):
 
 
     def _eject_drive(path):
-        """Démonte/éjecte un périphérique amovible selon le système d'exploitation."""
-        try:
+        """Démonte/éjecte un périphérique amovible selon le système d'exploitation.
+        Réessaie automatiquement jusqu'à 3 fois si l'éjection n'est pas confirmée."""
+        log_to_terminal(f"[...] Éjection en cours : {path}", VIOLET)
+
+        def _run():
             sys_name = platform.system()
-            if sys_name == "Windows":
-                drive_letter = os.path.splitdrive(path)[0]  # ex: "E:"
-                powershell_eject_command = (
-                    f"(New-Object -comObject Shell.Application)"
-                    f".Namespace(17).ParseName('{drive_letter}').InvokeVerb('Eject')"
-                )
-                subprocess.Popen(["powershell", "-Command", powershell_eject_command],
-                                 creationflags=subprocess.CREATE_NO_WINDOW)
-            elif sys_name == "Darwin":
-                subprocess.Popen(["diskutil", "eject", path])
-            else:  # Linux
-                subprocess.Popen(["umount", path])
-            log_to_terminal(f"[OK] Éjection demandée : {path}", VIOLET)
-        except Exception as ex:
-            log_to_terminal(f"[ERREUR] Éjection impossible : {ex}", RED)
+            max_attempts = 3
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    if sys_name == "Windows":
+                        drive_letter = os.path.splitdrive(path)[0]  # ex: "E:"
+                        powershell_eject_command = (
+                            f"(New-Object -comObject Shell.Application)"
+                            f".Namespace(17).ParseName('{drive_letter}').InvokeVerb('Eject')"
+                        )
+                        subprocess.run(["powershell", "-Command", powershell_eject_command],
+                                       creationflags=subprocess.CREATE_NO_WINDOW,
+                                       timeout=10)
+                        # InvokeVerb est asynchrone : on attend que le lecteur disparaisse
+                        time.sleep(1.5)
+                        if not os.path.exists(path):
+                            log_to_terminal(f"[OK] Éjecté : {path}", VIOLET)
+                            return
+                    elif sys_name == "Darwin":
+                        result = subprocess.run(
+                            ["diskutil", "eject", path],
+                            capture_output=True, text=True, timeout=10,
+                        )
+                        if result.returncode == 0:
+                            log_to_terminal(f"[OK] Éjecté : {path}", VIOLET)
+                            return
+                    else:  # Linux
+                        result = subprocess.run(
+                            ["umount", path],
+                            capture_output=True, text=True, timeout=10,
+                        )
+                        if result.returncode == 0:
+                            log_to_terminal(f"[OK] Éjecté : {path}", VIOLET)
+                            return
+                except subprocess.TimeoutExpired:
+                    pass
+                except Exception as ex:
+                    log_to_terminal(f"[ERREUR] Éjection impossible : {ex}", RED)
+                    return
+
+                if attempt < max_attempts:
+                    log_to_terminal(f"[...] Tentative {attempt}/{max_attempts} échouée — nouvel essai…", ORANGE)
+                    time.sleep(1)
+
+            log_to_terminal(f"[ATTENTION] Éjection non confirmée après {max_attempts} tentatives : {path}", ORANGE)
+
+        threading.Thread(target=_run, daemon=True).start()
 
 
 
@@ -2613,6 +2683,9 @@ def main(page: ft.Page):
             if search_query["value"]:
                 query_lower = search_query["value"].lower()
                 entries = [entry for entry in entries if query_lower in entry[0].lower()]
+            # Afficher uniquement la sélection si actif
+            if show_only_selection["value"]:
+                entries = [entry for entry in entries if entry[1] in selected_files]
             total = len(entries)
             total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
             current_pg = min(preview_page["value"], total_pages - 1)
@@ -3680,6 +3753,7 @@ def main(page: ft.Page):
     filter_segment.on_change = on_filter_segment_change
     select_toggle_button.on_click = toggle_select_all
     invert_selection_button.on_click = invert_selection
+    filter_sel_btn.on_click = _toggle_show_only_selection
     prev_page_btn.on_click = lambda e: go_to_page(-1)
     next_page_btn.on_click = lambda e: go_to_page(+1)
 
@@ -3837,6 +3911,7 @@ def main(page: ft.Page):
                         ),
                         select_toggle_button,
                         invert_selection_button,
+                        filter_sel_btn,
                         ft.IconButton(
                             icon=ft.Icons.DELETE_SWEEP,
                             tooltip="Supprimer les fichiers sélectionnés",
