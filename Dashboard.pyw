@@ -3984,10 +3984,27 @@ def main(page: ft.Page):
 
                     # ── Terminal (gauche) ────────────────────────────
                     ft.Container(
-                        content=ft.Column([
-                            terminal_output,
-                            ft.Row([
-                                terminal_cmd_input,
+                        content=ft.Row([
+                            ft.Column([
+                                terminal_output,
+                                ft.Row([terminal_cmd_input]),
+                            ], spacing=4, expand=True),
+
+                            ft.Column([
+                                ft.IconButton(
+                                    icon=ft.Icons.COPY_ALL,
+                                    tooltip="Copier le terminal",
+                                    on_click=lambda e: copy_terminal_to_clipboard(),
+                                    icon_color=BLUE,
+                                    icon_size=16,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.CLEAR_ALL,
+                                    tooltip="Effacer le terminal",
+                                    on_click=clear_terminal,
+                                    icon_color=RED,
+                                    icon_size=16,
+                                ),
                                 ft.IconButton(
                                     icon=ft.Icons.SEND,
                                     icon_color=GREEN,
@@ -3995,36 +4012,14 @@ def main(page: ft.Page):
                                     tooltip="Envoyer la commande",
                                     on_click=on_terminal_command_submit,
                                 ),
-                            ], spacing=4),
-                        ], spacing=4, expand=True),
+                            ], alignment=ft.MainAxisAlignment.END, spacing=0),
+                        ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
                         expand=True,
                         border=ft.Border.all(1, GREEN),
                         border_radius=8,
                         bgcolor=DARK,
                         padding=5,
                     ),
-
-                    # ── Boutons ronds (milieu) ────────────────────────
-                    ft.Column([
-                        ft.IconButton(
-                            icon=ft.Icons.COPY_ALL,
-                            tooltip="Copier le terminal",
-                            on_click=lambda e: copy_terminal_to_clipboard(),
-                            icon_color=BLUE,
-                            icon_size=18,
-                            bgcolor=GREY,
-                            style=ft.ButtonStyle(shape=ft.CircleBorder(), side=ft.BorderSide(1, BLUE)),
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.CLEAR_ALL,
-                            tooltip="Effacer le terminal",
-                            on_click=clear_terminal,
-                            icon_color=RED,
-                            icon_size=18,
-                            bgcolor=GREY,
-                            style=ft.ButtonStyle(shape=ft.CircleBorder(), side=ft.BorderSide(1, RED)),
-                        ),
-                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=4),
 
                     # ── Favoris & Périphériques (droite) ─────────────
                     ft.Row([
