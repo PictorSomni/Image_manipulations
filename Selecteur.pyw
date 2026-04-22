@@ -140,7 +140,10 @@ def main(page: ft.Page):
     json_entries     = {"list": []}
     list_sort_mode   = {"value": 2}         # 0=A→Z  1=Z→A  2=Récent
     list_search_q    = {"value": ""}
-    recent_json_list = {"data": [p for p in _cfg.get("recent_json", []) if isinstance(p, str) and os.path.isfile(p)]}
+    recent_json_list    = {"data": [p for p in _cfg.get("recent_json", []) if isinstance(p, str) and os.path.isfile(p)]}
+    list_selected_items = {"data": set()}   # entrées cochées (filtre)
+    list_done_items     = {"data": set()}   # entrées marquées "faites"
+    list_filter_active  = {"value": False}  # afficher uniquement la sélection
 
     # ═════════════════════════════════════════════════════════════════════
     #  ██  Helpers persistance
@@ -192,6 +195,28 @@ def main(page: ft.Page):
             recent_json_btn.update()
         except Exception:
             pass
+
+    def _load_list_states():
+        """Charge les états (sélection / faits) pour le fichier JSON courant."""
+        cfg    = _load_config()
+        states = cfg.get("list_states", {})
+        path   = json_path["value"]
+        entry  = states.get(path, {})
+        list_selected_items["data"] = set(entry.get("selected", []))
+        list_done_items["data"]     = set(entry.get("done", []))
+
+    def _save_list_states():
+        """Persiste les états (sélection / faits) pour le fichier JSON courant."""
+        cfg    = _load_config()
+        states = cfg.get("list_states", {})
+        path   = json_path["value"]
+        if path:
+            states[path] = {
+                "selected": list(list_selected_items["data"]),
+                "done":     list(list_done_items["data"]),
+            }
+        cfg["list_states"] = states
+        _save_config(cfg)
 
 
     # ═════════════════════════════════════════════════════════════════════
@@ -324,6 +349,18 @@ def main(page: ft.Page):
     list_view   = ft.ListView(expand=True, auto_scroll=False, spacing=4)
     list_status = ft.Text("", size=12, color=LIGHT_GREY)
     list_count  = ft.Text("", size=12, color=LIGHT_GREY)
+    filter_sel_btn = ft.IconButton(
+        icon=ft.Icons.FILTER_LIST,
+        icon_color=LIGHT_GREY,
+        icon_size=20,
+        tooltip="Afficher uniquement la sélection",
+    )
+    deselect_all_list_btn = ft.IconButton(
+        icon=ft.Icons.DESELECT,
+        icon_color=LIGHT_GREY,
+        icon_size=20,
+        tooltip="Désélectionner tout",
+    )
 
 
     # ═════════════════════════════════════════════════════════════════════
@@ -495,66 +532,30 @@ def main(page: ft.Page):
                                 src=fpath, fit=ft.BoxFit.COVER,
                                 error_content=ft.Icon(icon, color=ic, size=22),
                             ),
-                            width=44, height=44,
+                            width=88, height=88,
                             border_radius=4,
                             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                         )
                     else:
                         visual = ft.Icon(icon, color=ic, size=22)
 
-                    if not is_dir:
-                        print_match = re.match(r'^(\d+)X_', name)
-                        print_count = int(print_match.group(1)) if print_match else 0
-                        minus_btn = ft.Container(
-                            content=ft.Text("−", size=12, color=DARK if print_count > 0 else LIGHT_GREY,
-                                            text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD),
-                            width=24, height=24,
-                            bgcolor=ORANGE if print_count > 0 else GREY,
-                            border_radius=ft.BorderRadius(4, 0, 0, 4),
-                            alignment=ft.Alignment(0, 0),
-                            on_click=(lambda e, p=fpath: _decrement_print_count(p)) if print_count > 0 else None,
-                            ink=print_count > 0,
-                            tooltip="Réduire les impressions" if print_count > 0 else "",
-                        )
-                        count_display = ft.Container(
-                            content=ft.Text(
-                                str(print_count) if print_count > 0 else "·",
-                                size=10, color=YELLOW if print_count > 0 else LIGHT_GREY,
-                                text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD,
-                            ),
-                            width=20, height=24,
-                            bgcolor=DARK,
-                            alignment=ft.Alignment(0, 0),
-                        )
-                        plus_btn = ft.Container(
-                            content=ft.Text("+", size=12, color=DARK,
-                                            text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD),
-                            width=24, height=24,
-                            bgcolor=GREEN,
-                            border_radius=ft.BorderRadius(0, 4, 4, 0),
-                            alignment=ft.Alignment(0, 0),
-                            on_click=lambda e, p=fpath: _increment_print_count(p),
-                            ink=True,
-                            tooltip="Augmenter les impressions",
-                        )
-                        trailing = ft.Row(
-                            [minus_btn, count_display, plus_btn],
-                            spacing=0, tight=True,
-                        )
-                    else:
-                        trailing = None
+                    trailing = None
 
                     controls.append(
-                        ft.ListTile(
-                            leading=ft.Row(
-                                [checkbox, visual], spacing=6, tight=True
+                        ft.Container(
+                            content=ft.Row(
+                                [
+                                    checkbox,
+                                    visual,
+                                    ft.Text(name, size=13, color=WHITE, expand=True),
+                                ],
+                                spacing=6,
+                                vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
-                            title=ft.Text(name, size=13, color=WHITE),
-                            trailing=trailing,
+                            padding=ft.Padding(left=5, top=2, right=5, bottom=2),
+                            ink=True,
+                            ink_color=GREY,
                             on_click=lambda e, p=fpath, d=is_dir, ex=ext: _navigate(p) if d else _open_json_in_list(p) if ex == ".json" else None,
-                            hover_color=GREY, dense=True,
-                            content_padding=ft.Padding(left=5, top=2, right=5, bottom=2),
-                            min_leading_width=0,
                         )
                     )
 
@@ -878,6 +879,7 @@ def main(page: ft.Page):
         except Exception as ex:
             list_status.value = f"[ERREUR] Autosave: {ex}"
             page.update()
+        _save_list_states()
 
     def _copy_to_clipboard(text: str):
         try:
@@ -920,6 +922,9 @@ def main(page: ft.Page):
         else:
             entries = sorted(entries, key=lambda e: e["nom"].lower())
 
+        if list_filter_active["value"]:
+            entries = [e for e in entries if e["nom"] in list_selected_items["data"]]
+
         controls = []
         for entry in entries:
             nom  = entry["nom"]
@@ -928,6 +933,13 @@ def main(page: ft.Page):
             controls.append(
                 ft.Container(
                     content=ft.Row([
+                        # ── Checkbox sélection ────────────────────────
+                        ft.Checkbox(
+                            value=nom in list_selected_items["data"],
+                            tooltip="Sélection (filtre)",
+                            on_change=lambda e, n=nom: _on_check_select(e, n),
+                            active_color=YELLOW,
+                        ),
                         # ── Nom ──────────────────────────────────────
                         ft.Container(
                             content=ft.Text(
@@ -964,6 +976,13 @@ def main(page: ft.Page):
                                 on_click=lambda e, n=nom, d=desc: _edit_entry(n, d),
                                 style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                             ),
+                            # ── Checkbox mise en page ─────────────────────
+                            ft.Checkbox(
+                                value=nom in list_done_items["data"],
+                                tooltip="Mise en page faite",
+                                on_change=lambda e, n=nom: _on_check_done(e, n),
+                                active_color=GREEN,
+                            ),
                             ft.IconButton(
                                 icon=ft.Icons.DELETE_OUTLINE,
                                 icon_size=16, icon_color=RED,
@@ -982,10 +1001,13 @@ def main(page: ft.Page):
         list_view.controls.extend(controls)
         n_total   = len(json_entries["list"])
         n_visible = len(entries)
-        if q:
+        n_sel     = len(list_selected_items["data"])
+        if list_filter_active["value"]:
+            list_count.value = f"{n_visible} sélectionnée(s) / {n_total} total"
+        elif q:
             list_count.value = f"{n_visible}/{n_total} entrée(s)"
         else:
-            list_count.value = f"{n_total} entrée(s)"
+            list_count.value = f"{n_total} entrée(s)" + (f"  •  {n_sel} sélectionnée(s)" if n_sel else "")
         try:
             list_view.update()
             list_count.update()
@@ -994,6 +1016,7 @@ def main(page: ft.Page):
 
     def _load_and_render():
         json_entries["list"] = _load_json_list()
+        _load_list_states()
         _render_list()
         page.update()
 
@@ -1042,6 +1065,13 @@ def main(page: ft.Page):
                     entry["nom"]         = new_nom
                     entry["description"] = new_desc
                     break
+            if new_nom != nom_orig:
+                if nom_orig in list_selected_items["data"]:
+                    list_selected_items["data"].discard(nom_orig)
+                    list_selected_items["data"].add(new_nom)
+                if nom_orig in list_done_items["data"]:
+                    list_done_items["data"].discard(nom_orig)
+                    list_done_items["data"].add(new_nom)
             dlg.open = False
             page.update()
             _autosave()
@@ -1065,6 +1095,8 @@ def main(page: ft.Page):
             json_entries["list"] = [
                 en for en in json_entries["list"] if en["nom"] != nom
             ]
+            list_selected_items["data"].discard(nom)
+            list_done_items["data"].discard(nom)
             dlg.open = False
             page.update()
             _autosave()
@@ -1141,6 +1173,47 @@ def main(page: ft.Page):
     def _on_list_sort_change(e):
         list_sort_mode["value"] = e.control.selected_index
         _render_list()
+
+    def _on_check_select(e, nom):
+        if e.control.value:
+            list_selected_items["data"].add(nom)
+        else:
+            list_selected_items["data"].discard(nom)
+        _update_filter_btn()
+        _save_list_states()
+
+    def _on_check_done(e, nom):
+        if e.control.value:
+            list_done_items["data"].add(nom)
+        else:
+            list_done_items["data"].discard(nom)
+        _save_list_states()
+
+    def _toggle_list_filter(e):
+        list_filter_active["value"] = not list_filter_active["value"]
+        _update_filter_btn()
+        _render_list()
+
+    def _deselect_all_list(e):
+        list_selected_items["data"].clear()
+        if list_filter_active["value"]:
+            list_filter_active["value"] = False
+        _update_filter_btn()
+        _save_list_states()
+        _render_list()
+
+    def _update_filter_btn():
+        n = len(list_selected_items["data"])
+        if list_filter_active["value"]:
+            filter_sel_btn.icon_color = BLUE
+            filter_sel_btn.tooltip    = f"Filtre actif ({n} sélectionnée(s)) — cliquer pour afficher tout"
+        else:
+            filter_sel_btn.icon_color = YELLOW if n else LIGHT_GREY
+            filter_sel_btn.tooltip    = f"Afficher uniquement la sélection ({n} sélectionnée(s))"
+        try:
+            filter_sel_btn.update()
+        except Exception:
+            pass
 
     async def _pick_json(e):
         initial_dir = current_src["path"] or (
@@ -1284,6 +1357,8 @@ def main(page: ft.Page):
     list_search_field.on_submit    = _on_list_search_change
     list_sort_segment.on_change    = _on_list_sort_change
     json_path_field.on_submit      = _on_json_path_submit
+    filter_sel_btn.on_click        = _toggle_list_filter
+    deselect_all_list_btn.on_click  = _deselect_all_list
 
 
     # ═════════════════════════════════════════════════════════════════════
@@ -1402,6 +1477,8 @@ def main(page: ft.Page):
                 tooltip="Ajouter une entrée",
             ),
             list_search_field,
+            filter_sel_btn,
+            deselect_all_list_btn,
             ft.Container(expand=True),
             list_sort_segment,
         ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),

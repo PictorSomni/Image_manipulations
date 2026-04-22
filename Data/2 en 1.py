@@ -86,6 +86,7 @@ HEIGHT_DPI = mm_to_pixels(HEIGHT, DPI)
 
 _FORMAT_FOLDER_NAMES = {
     (76, 102): "10x15",
+    (102, 102): "10x20",
     (89, 127): "13x18",
     (102, 152): "15x20",
     (152, 203): "20x30",

@@ -2905,8 +2905,7 @@ def main(page: ft.Page):
             name = text_input.value.strip() if text_input.value else ""
             param_dialog.open = False
             page.update()
-            if name:
-                launch_app(app_name, app_path, is_local, series_name=name)
+            launch_app(app_name, app_path, is_local, series_name=name)
 
         def _on_cancel(e):
             param_dialog.open = False
@@ -2970,6 +2969,7 @@ def main(page: ft.Page):
         if app_name == "2 en 1.py" and series_name is None:
             _TWO_IN_ONE_FORMATS = [
                 ("2 sur 10×15  (76 × 102 mm)",  "76x102"),
+                ("2 sur 10×20  (102 × 102 mm)", "102x102"),
                 ("2 sur 13×18  (89 × 127 mm)",  "89x127"),
                 ("2 sur 15×20  (102 × 152 mm)", "102x152"),
                 ("2 sur 20×30  (152 × 203 mm)", "152x203"),
