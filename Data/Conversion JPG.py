@@ -71,13 +71,11 @@ else:
                     jpg_path = PATH / f"{file_name}_{j+1:03}.jpg"
                     pix.save(str(jpg_path))
                 pdf_doc.close()
-                print(f"  [OK] Converti: {page_count} page(s)")
             else:
                 with Image(filename=str(file)) as actual_file:
                     actual_file.format = 'jpeg'
                     jpg_path = PATH / f"{file_name}.jpg"
                     actual_file.save(filename=str(jpg_path))
-                print(f"  [OK] Converti: {file_name}.jpg")
 
             dest_folder = PATH / f"{file_extension[1:]}"
             file.rename(dest_folder / file.name)

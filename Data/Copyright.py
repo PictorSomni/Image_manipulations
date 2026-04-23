@@ -87,6 +87,9 @@ def add_copyright(image, label) :
 #############################################################
 #                           MAIN                            #
 #############################################################
+copyright_mode   = os.environ.get("COPYRIGHT_MODE", "date")   # "date", "filename", "custom"
+copyright_custom = os.environ.get("COPYRIGHT_CUSTOM", "")
+
 for i, file in enumerate(FOLDER):
     print(f"Image {i+1}/{TOTAL}")
     folder("Copyright")
@@ -97,7 +100,12 @@ for i, file in enumerate(FOLDER):
     except Exception:
         continue
     else:
-        label = get_date_taken(base_image) or filename
+        if copyright_mode == "custom" and copyright_custom:
+            label = copyright_custom
+        elif copyright_mode == "filename":
+            label = filename
+        else:  # "date" (défaut)
+            label = get_date_taken(base_image) or filename
         base_image = base_image.convert("RGB")
         base_image = add_copyright(base_image, label)
         base_image.save(str(PATH / "Copyright" / f"{filename}.jpg"), format="JPEG", subsampling=0, quality=100)

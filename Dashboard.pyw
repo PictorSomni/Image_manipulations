@@ -134,8 +134,8 @@ def main(page: ft.Page):
     page.bgcolor = BACKGROUND
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width = 1360
-    page.window.height = 820
+    page.window.width = 1280
+    page.window.height = 840
     page.window.icon = "assets/icon.png"
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
@@ -229,7 +229,6 @@ def main(page: ft.Page):
     resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
     resize_watermark_size = {"value": "640"}  # Taille par défaut pour le redimensionnement avec watermark
     sort_mode = {"value": 0}  # 0 = A→Z, 1 = Z→A, 2 = par date de modification
-    filter_type = {"value": "all"}  # "all", "images", "videos", "zip", "docs", "other"
     show_only_selection = {"value": False}  # True = afficher uniquement les fichiers sélectionnés
     removable_drives_state = {"list": []}  # [(name, path), ...]
     _image_cache_busters = {}  # {normpath: temp_path_unique} pour invalider le cache navigateur
@@ -360,7 +359,7 @@ def main(page: ft.Page):
         border_color=BLUE,
         text_size=13,
         height=45,
-        width=200,
+        width=180,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH,
         bgcolor=DARK,
@@ -400,27 +399,6 @@ def main(page: ft.Page):
         keyboard_type=ft.KeyboardType.NUMBER,
         border_color=ORANGE,
         content_padding=ft.Padding(5, 5, 5, 5),
-    )
-
-
-
-    # ── Filtre de types de fichiers ──────────────────────────────────
-    FILTER_KEYS   = ["all", "images", "zip", "docs", "other"]
-    FILTER_LABELS = ["Tous", "Images", "ZIP", "Docs", "Autres"]
-    filter_segment = ft.Dropdown(
-        value="all",
-        width=110,
-        height=45,
-        fill_color=DARK,
-        bgcolor=DARK,
-        border_color=BLUE,
-        text_size=12,
-        content_padding=ft.Padding(8, 0, 8, 0),
-        options=[
-            ft.dropdown.Option(key=key, text=label)
-            for key, label in zip(FILTER_KEYS, FILTER_LABELS)
-        ],
-        tooltip="Filtrer les fichiers par type",
     )
 
 
@@ -909,6 +887,8 @@ def main(page: ft.Page):
 
     _ROTATABLE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
 
+
+
     def _zip_selection(items: list, zip_name: str):
         """Zippe la liste de fichiers et/ou dossiers dans le dossier courant sous zip_name."""
         if not items:
@@ -940,6 +920,8 @@ def main(page: ft.Page):
         except Exception as ex:
             log_to_terminal(f"[ERREUR] Zip : {ex}", RED)
 
+
+
     def _prompt_and_zip_selection(e):
         """Affiche le dialog de nom puis zippe les éléments sélectionnés (fichiers et dossiers)."""
         items = list(selected_files)
@@ -954,6 +936,8 @@ def main(page: ft.Page):
             bgcolor=DARK,
             border_color=GREY,
         )
+
+
 
         def _on_confirm_zip(ev):
             name = (zip_name_input.value or "").strip() or "selection"
@@ -980,6 +964,8 @@ def main(page: ft.Page):
         page.overlay.append(zip_dlg)
         zip_dlg.open = True
         page.update()
+
+
 
     def _rotate_files(files, direction):
         """Pivote les images de 90° à gauche ou à droite en utilisant Pillow."""
@@ -1029,6 +1015,7 @@ def main(page: ft.Page):
             label = "gauche" if direction == "left" else "droite"
             log_to_terminal(f"[OK] {rotated} image(s) pivotée(s) vers {label}", YELLOW)
             refresh_preview(reset_page=False)
+
 
 
     def _show_file_context_menu(files: list):
@@ -1096,13 +1083,19 @@ def main(page: ft.Page):
             content_padding=ft.Padding(12, 0, 12, 8),
         )
 
+
+
         def _close(e=None):
             dlg.open = False
             page.update()
 
+
+
         def _do_rotate(direction):
             _close()
             threading.Thread(target=_rotate_files, args=(image_files, direction), daemon=True).start()
+
+
 
         def _rebuild_items():
             programs = _load_open_with_programs()
@@ -1148,6 +1141,8 @@ def main(page: ft.Page):
                         content_padding=ft.Padding(0, 0, 0, 0),
                     ))
 
+
+
         def _on_reorder(e: ft.OnReorderEvent):
             programs_list_view.controls.insert(e.new_index, programs_list_view.controls.pop(e.old_index))
             programs = _load_open_with_programs()
@@ -1157,6 +1152,8 @@ def main(page: ft.Page):
 
         programs_list_view.on_reorder = _on_reorder
 
+
+
         def _toggle_add_form():
             add_form.visible = not add_form.visible
             add_program_button.visible = add_form.visible
@@ -1164,6 +1161,8 @@ def main(page: ft.Page):
                 add_label_field.value = ""
                 add_exe_field.value = ""
             page.update()
+
+
 
         def _confirm_add(e):
             label = (add_label_field.value or "").strip()
@@ -1249,7 +1248,7 @@ def main(page: ft.Page):
             parent = os.path.dirname(current_browse_folder["path"])
             if parent and parent != current_browse_folder["path"]:
                 navigate_to_folder(parent)
-    
+
 
 
     def extract_zip(file_path):
@@ -1823,10 +1822,11 @@ def main(page: ft.Page):
 
 
     def select_by_filter(e):
-        """Sélectionne tous les fichiers correspondant au filtre actif dans la page courante."""
+        """Sélectionne tous les fichiers visibles (en tenant compte de la recherche active)."""
         entries = all_entries_data["list"]
-        if filter_type["value"] != "all":
-            entries = [entry for entry in entries if _match_filter(entry)]
+        if search_query["value"]:
+            query_lower = search_query["value"].lower()
+            entries = [entry for entry in entries if query_lower in entry[0].lower()]
         added = 0
         for _name, fpath, is_dir, _is_img, _ext in entries:
             if not is_dir:
@@ -1836,17 +1836,25 @@ def main(page: ft.Page):
         _render_preview_page()
         _update_select_toggle_button()
         if added:
-            filt = filter_type["value"]
-            label = filt if filt != "all" else "tous types"
-            log_to_terminal(f"[OK] {added} fichier(s) sélectionné(s) — {label}", BLUE)
+            log_to_terminal(f"[OK] {added} fichier(s) sélectionné(s)", BLUE)
         else:
-            log_to_terminal("[ATTENTION] Aucun fichier à sélectionner avec ce filtre", ORANGE)
+            log_to_terminal("[ATTENTION] Aucun fichier à sélectionner", ORANGE)
 
 
 
     def _update_select_toggle_button():
         """Met à jour l'apparence du bouton sélectionner/désélectionner."""
-        if selected_files:
+        if search_query["value"]:
+            query_lower = search_query["value"].lower()
+            filtered_paths = {
+                fpath for (_name, fpath, is_dir, _is_img, _ext) in all_entries_data["list"]
+                if not is_dir and query_lower in _name.lower()
+            }
+            all_filtered_selected = bool(filtered_paths) and filtered_paths.issubset(selected_files)
+        else:
+            all_filtered_selected = bool(selected_files)
+
+        if all_filtered_selected:
             select_toggle_button.icon = ft.Icons.DESELECT
             select_toggle_button.icon_color = ORANGE
             select_toggle_button.tooltip = "Désélectionner tout"
@@ -1885,19 +1893,35 @@ def main(page: ft.Page):
 
 
     def toggle_select_all(e):
-        """Sélectionne tout si rien sélectionné, sinon désélectionne tout."""
-        if selected_files:
-            clear_selection(e)
+        """Sélectionne tout si rien sélectionné, sinon désélectionne tout.
+        Si une recherche est active : sélectionne d'abord les fichiers filtrés,
+        puis désélectionne tout au second appui."""
+        if search_query["value"]:
+            query_lower = search_query["value"].lower()
+            filtered_paths = {
+                fpath for (_name, fpath, is_dir, _is_img, _ext) in all_entries_data["list"]
+                if not is_dir and query_lower in _name.lower()
+            }
+            if not filtered_paths.issubset(selected_files):
+                # Premier appui : sélectionner les fichiers filtrés
+                select_by_filter(e)
+            else:
+                # Deuxième appui : tout désélectionner
+                clear_selection(e)
         else:
-            select_by_filter(e)
+            if selected_files:
+                clear_selection(e)
+            else:
+                select_by_filter(e)
 
 
 
     def invert_selection(e):
         """Inverse la sélection : sélectionne les non-sélectionnés, désélectionne les sélectionnés."""
         entries = all_entries_data["list"]
-        if filter_type["value"] != "all":
-            entries = [entry for entry in entries if _match_filter(entry)]
+        if search_query["value"]:
+            query_lower = search_query["value"].lower()
+            entries = [entry for entry in entries if query_lower in entry[0].lower()]
         for _name, fpath, is_dir, _is_img, _ext in entries:
             if is_dir:
                 continue
@@ -2048,6 +2072,8 @@ def main(page: ft.Page):
                     log_to_terminal(f"[OK] {renamed_count} fichier(s) renommé(s) avec le préfixe 1X_", GREEN)
         refresh_preview(reset_page=False)
 
+
+
     def _decrement_print_count(file_path):
         """
         Décrémente le compteur d’impressions préfixé (NX_) du fichier.
@@ -2143,7 +2169,7 @@ def main(page: ft.Page):
         selection_count_text.value = _selection_label()
         page.update()
         log_to_terminal("[OK] Sélection effacée", GREEN)
-    
+
 
 
     def delete_selected_files(e):
@@ -2262,41 +2288,6 @@ def main(page: ft.Page):
     # ================================================================ #
     #                    FILTRAGE & PÉRIPHÉRIQUES                      #
     # ================================================================ #
-    def _match_filter(entry_tuple):
-        """Retourne True si l'entrée correspond au filtre actif."""
-        _name, _path, is_dir, is_image, ext = entry_tuple
-        active_filter = filter_type["value"]
-        if active_filter == "all":
-            return True
-        if is_dir:
-            return True  # Dossiers toujours visibles pour la navigation
-        if active_filter == "images":
-            return is_image
-        if active_filter in _FILTER_CATEGORIES:
-            return ext in _FILTER_CATEGORIES[active_filter]
-        if active_filter == "other":
-            for cat_exts in _FILTER_CATEGORIES.values():
-                if ext in cat_exts:
-                    return False
-            return True
-        return True
-
-
-
-    def _set_filter(key):
-        """Bascule le filtre actif, remet la pagination à zéro et re-rend la page courante."""
-        filter_type["value"] = key
-        preview_page["value"] = 0
-        _render_preview_page()
-
-
-
-    def on_filter_segment_change(e):
-        """Callback du dropdown de filtre."""
-        _set_filter(e.control.value or "all")
-
-
-
     # ── Recherche dans la preview ──────────────────────────────────────
     def _on_search_change(e):
         """Met à jour la requête de recherche et re-rend la preview.
@@ -2674,9 +2665,6 @@ def main(page: ft.Page):
         """
         try:
             entries = all_entries_data["list"]
-            # Appliquer le filtre actif
-            if filter_type["value"] != "all":
-                entries = [entry for entry in entries if _match_filter(entry)]
             # Appliquer la recherche textuelle
             if search_query["value"]:
                 query_lower = search_query["value"].lower()
@@ -2847,12 +2835,6 @@ def main(page: ft.Page):
                 page_indicator_text.value = ""
 
 
-
-            # Mettre à jour le compteur si un filtre est actif
-            if filter_type["value"] != "all":
-                filtered_file_count = sum(1 for entry in entries if not entry[2])
-                total_file_count    = sum(1 for entry in all_entries_data["list"] if not entry[2])
-                file_count_text.value = f"({filtered_file_count}/{total_file_count})"
 
             _update_select_toggle_button()
             page.update()
@@ -3056,6 +3038,97 @@ def main(page: ft.Page):
 
 
         # Pour Renommer sequence.py, demander le nom de la série avant de lancer
+        if app_name == "Copyright.py" and series_name is None:
+            copyright_custom_field = ft.TextField(
+                prefix="© ",
+                border_color=BLUE,
+                text_size=13,
+                height=40,
+                content_padding=ft.Padding(8, 4, 8, 4),
+                expand=True,
+                visible=False,
+            )
+            copyright_custom_row = ft.AnimatedSwitcher(
+                content=ft.Container(height=0),
+                duration=150,
+            )
+
+            selected_copyright_mode = {"value": None}
+
+            def _make_copyright_option(mode, icon, label, description):
+                def _on_click(e):
+                    selected_copyright_mode["value"] = mode
+                    copyright_custom_field.visible = (mode == "custom")
+                    # Highlight sélectionné
+                    for btn in copyright_options_row.controls:
+                        btn.border = ft.Border.all(2, BLUE if btn.data == mode else GREY)
+                    page.update()
+                btn = ft.Container(
+                    data=mode,
+                    content=ft.Column([
+                        ft.Icon(icon, size=22, color=BLUE),
+                        ft.Text(label, size=12, color=WHITE, text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD),
+                        ft.Text(description, size=10, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4, tight=True),
+                    bgcolor=DARK,
+                    border=ft.Border.all(2, GREY),
+                    border_radius=8,
+                    padding=ft.Padding(10, 10, 10, 10),
+                    width=105,
+                    height=100,
+                    on_click=_on_click,
+                    ink=True,
+                )
+                return btn
+
+            copyright_options_row = ft.Row(
+                [
+                    _make_copyright_option("date",   ft.Icons.CALENDAR_TODAY,    "Date",          "de prise de vue"),
+                    _make_copyright_option("filename", ft.Icons.INSERT_DRIVE_FILE, "Nom du fichier",   ""),
+                    _make_copyright_option("custom",  ft.Icons.EDIT,              "Personnalisé",  "© Votre nom"),
+                ],
+                spacing=8,
+                alignment=ft.MainAxisAlignment.CENTER,
+            )
+
+            def _on_confirm_copyright(e):
+                mode = selected_copyright_mode["value"]
+                if mode is None:
+                    return
+                custom_text = copyright_custom_field.value.strip() if mode == "custom" else ""
+                if mode == "custom" and not custom_text:
+                    copyright_custom_field.error_text = "Requis"
+                    page.update()
+                    return
+                copyright_dlg.open = False
+                page.update()
+                launch_app(app_name, app_path, is_local, series_name=f"{mode}:© {custom_text}")
+
+            def _on_cancel_copyright(e):
+                copyright_dlg.open = False
+                page.update()
+
+            copyright_dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Ajouter Copyright"),
+                content=ft.Column([
+                    ft.Text("Quel texte afficher sur les images ?", size=13, color=LIGHT_GREY),
+                    ft.Container(height=4),
+                    copyright_options_row,
+                    ft.Container(height=4),
+                    copyright_custom_field,
+                ], tight=True, spacing=4, width=350),
+                actions=[
+                    ft.TextButton("Annuler", on_click=_on_cancel_copyright),
+                    ft.TextButton("Appliquer", on_click=_on_confirm_copyright),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.overlay.append(copyright_dlg)
+            copyright_dlg.open = True
+            page.update()
+            return
+
         if app_name == "Images en PDF.py" and series_name is None:
             _ask_text_before_launch("Nom du PDF", "Nom du PDF", "Ex: Album_Mariage",
                                     app_name, app_path, is_local)
@@ -3256,7 +3329,7 @@ def main(page: ft.Page):
 
 
 
-                # Ajouter le dossier destination pour Transfert vers TEMP.py
+                # Ajouter le dossier pour Transfert vers TEMP.py
                 if app_name == "Transfert vers TEMP.py":
                     if platform.system() == "Windows":
                         env["DEST_FOLDER"] = "Z:/temp"
@@ -3286,7 +3359,15 @@ def main(page: ft.Page):
 
 
 
-                # Ajouter les fichiers sélectionnés (si aucun n'est sélectionné, la variable sera vide)
+                # Paramètres Copyright
+                if app_name == "Copyright.py" and series_name:
+                    mode_part, _, custom_part = series_name.partition(":")
+                    env["COPYRIGHT_MODE"] = mode_part
+                    if mode_part == "custom" and custom_part:
+                        env["COPYRIGHT_CUSTOM"] = custom_part
+
+
+                # (si aucun n'est sélectionné, la variable sera vide)
                 if selected_files:
                     env["SELECTED_FILES"] = "|".join(os.path.basename(f) for f in selected_files)
                 
@@ -3777,7 +3858,6 @@ def main(page: ft.Page):
 
     # ── Preview ───────────────────────────────────────────────────────
     sort_segment.on_change = on_sort_change
-    filter_segment.on_change = on_filter_segment_change
     select_toggle_button.on_click = toggle_select_all
     invert_selection_button.on_click = invert_selection
     filter_sel_btn.on_click = _toggle_show_only_selection
@@ -3955,8 +4035,6 @@ def main(page: ft.Page):
                             icon_size=20,
                         ),
                         ft.Container(expand=True),
-                        selection_count_text,
-                        ft.Container(width=6),
                         file_count_text,
                         ft.Container(width=4),
                         prev_page_btn,
@@ -3965,9 +4043,8 @@ def main(page: ft.Page):
                     ], spacing=5, vertical_alignment=ft.CrossAxisAlignment.CENTER, height=36),
                     ft.Container(
                         content=ft.Row([
-                        filter_segment,
-                        ft.Container(width=16),
                         search_active_row,
+                        selection_count_text,
                         ft.Container(expand=True),
                         ft.IconButton(
                             icon=ft.Icons.CONTENT_COPY,

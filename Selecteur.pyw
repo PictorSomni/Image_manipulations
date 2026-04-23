@@ -381,7 +381,17 @@ def main(page: ft.Page):
         return f"{n} fichier{'s' if n > 1 else ''} sélectionné{'s' if n > 1 else ''}"
 
     def _update_toggle_btn():
-        if selected_files:
+        if search_query["value"]:
+            query_lower = search_query["value"].lower()
+            filtered_paths = {
+                fpath for (_name, fpath, is_dir, _is_img, _ext) in all_entries["list"]
+                if not is_dir and query_lower in _name.lower()
+            }
+            all_filtered_selected = bool(filtered_paths) and filtered_paths.issubset(selected_files)
+        else:
+            all_filtered_selected = bool(selected_files)
+
+        if all_filtered_selected:
             select_toggle_btn.icon       = ft.Icons.DESELECT
             select_toggle_btn.icon_color = ORANGE
             select_toggle_btn.tooltip    = "Désélectionner tout"
@@ -604,6 +614,9 @@ def main(page: ft.Page):
     # ── Sélection ────────────────────────────────────────────────────────
     def _select_all(e=None):
         entries = all_entries["list"]
+        if search_query["value"]:
+            query_lower = search_query["value"].lower()
+            entries = [en for en in entries if query_lower in en[0].lower()]
         for _, fpath, is_dir, _, _ in entries:
             if not is_dir:
                 selected_files.add(fpath)
@@ -620,10 +633,21 @@ def main(page: ft.Page):
         _update_toggle_btn()
 
     def _toggle_all(e):
-        if selected_files:
-            _clear_selection()
+        if search_query["value"]:
+            query_lower = search_query["value"].lower()
+            filtered_paths = {
+                fpath for (_name, fpath, is_dir, _is_img, _ext) in all_entries["list"]
+                if not is_dir and query_lower in _name.lower()
+            }
+            if not filtered_paths.issubset(selected_files):
+                _select_all()
+            else:
+                _clear_selection()
         else:
-            _select_all()
+            if selected_files:
+                _clear_selection()
+            else:
+                _select_all()
 
     def _invert(e):
         entries = all_entries["list"]
