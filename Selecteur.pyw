@@ -17,7 +17,7 @@ Sélecteur — App compacte (demi-écran) avec deux onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.1.4"
+__version__ = "2.1.5"
 
 
 #############################################################
@@ -132,6 +132,7 @@ def main(page: ft.Page):
     PAGE_SIZE        = 100
     preview_page     = {"value": 0}
     recent_src_list  = {"data": _load_recent_shared()}
+    file_filter_active = {"value": False}   # afficher uniquement la sélection
 
     # ─────────────────────────────────────────────────────────────────────
     #  ██████████  État  ──  Onglet 2 (Liste JSON)
@@ -239,6 +240,12 @@ def main(page: ft.Page):
     file_count_text      = ft.Text("", size=13, color=LIGHT_GREY)
     selection_count_text = ft.Text("", size=13, color=BLUE)
 
+    file_filter_btn = ft.IconButton(
+        icon=ft.Icons.FILTER_LIST,
+        icon_color=LIGHT_GREY,
+        icon_size=20,
+        tooltip="Afficher uniquement la sélection",
+    )
     select_toggle_btn = ft.IconButton(
         icon=ft.Icons.SELECT_ALL, icon_color=VIOLET,
         icon_size=20, tooltip="Tout sélectionner",
@@ -405,6 +412,9 @@ def main(page: ft.Page):
                 q = search_query["value"].lower()
                 entries = [en for en in entries if q in en[0].lower()]
 
+            if file_filter_active["value"]:
+                entries = [en for en in entries if en[1] in selected_files]
+
             total       = len(entries)
             total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
             cur_pg      = min(preview_page["value"], total_pages - 1)
@@ -493,6 +503,7 @@ def main(page: ft.Page):
                 page_indicator.value  = ""
 
             _update_toggle_btn()
+            _update_file_filter_btn()
             page.update()
         except Exception as ex:
             status_text.value = f"[ERREUR] Rendu: {ex}"
@@ -603,6 +614,8 @@ def main(page: ft.Page):
     def _clear_selection(e=None):
         selected_files.clear()
         selection_count_text.value = ""
+        if file_filter_active["value"]:
+            file_filter_active["value"] = False
         _render_preview()
         _update_toggle_btn()
 
@@ -624,6 +637,24 @@ def main(page: ft.Page):
         selection_count_text.value = _selection_label()
         _render_preview()
         _update_toggle_btn()
+
+    def _toggle_file_filter(e):
+        file_filter_active["value"] = not file_filter_active["value"]
+        _update_file_filter_btn()
+        _render_preview()
+
+    def _update_file_filter_btn():
+        n = len(selected_files)
+        if file_filter_active["value"]:
+            file_filter_btn.icon_color = BLUE
+            file_filter_btn.tooltip    = f"Filtre actif ({n} sélectionné(s)) — cliquer pour afficher tout"
+        else:
+            file_filter_btn.icon_color = VIOLET if n else LIGHT_GREY
+            file_filter_btn.tooltip    = f"Afficher uniquement la sélection ({n} sélectionné(s))"
+        try:
+            file_filter_btn.update()
+        except Exception:
+            pass
 
     # ── Tri / Recherche ──────────────────────────────────────────────────
     def _on_sort_change(e):
@@ -854,7 +885,7 @@ def main(page: ft.Page):
                             value=nom in list_selected_items["data"],
                             tooltip="Sélection (filtre)",
                             on_change=lambda e, n=nom: _on_check_select(e, n),
-                            active_color=YELLOW,
+                            active_color=VIOLET,
                         ),
                         # ── Nom ──────────────────────────────────────
                         ft.Container(
@@ -1121,10 +1152,10 @@ def main(page: ft.Page):
     def _update_filter_btn():
         n = len(list_selected_items["data"])
         if list_filter_active["value"]:
-            filter_sel_btn.icon_color = BLUE
+            filter_sel_btn.icon_color = VIOLET
             filter_sel_btn.tooltip    = f"Filtre actif ({n} sélectionnée(s)) — cliquer pour afficher tout"
         else:
-            filter_sel_btn.icon_color = YELLOW if n else LIGHT_GREY
+            filter_sel_btn.icon_color = LIGHT_GREY
             filter_sel_btn.tooltip    = f"Afficher uniquement la sélection ({n} sélectionnée(s))"
         try:
             filter_sel_btn.update()
@@ -1258,6 +1289,7 @@ def main(page: ft.Page):
 
     select_toggle_btn.on_click = _toggle_all
     invert_btn.on_click        = _invert
+    file_filter_btn.on_click   = _toggle_file_filter
     sort_segment.on_change     = _on_sort_change
     search_field.on_change     = _on_search_change
     search_field.on_submit     = _on_search_change
@@ -1311,6 +1343,7 @@ def main(page: ft.Page):
 
         # ── Barre de sélection + recherche ───────────────────────────
         ft.Row([
+            file_filter_btn,
             select_toggle_btn,
             invert_btn,
             search_field,

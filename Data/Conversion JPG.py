@@ -13,7 +13,7 @@ Variables d'environnement :
 Dépendances : Wand (ImageMagick), PyMuPDF (fitz)
 """
 
-__version__ = "2.1.4"
+__version__ = "2.1.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -58,7 +58,7 @@ else:
     for i, file in enumerate(FOLDER):
         file_name = file.stem
         file_extension = file.suffix.lower()
-        print(f"Image {i+1} sur {TOTAL}: {file.name}")
+        print(f"Image {i+1}/{TOTAL}")
         folder(f"{file_extension[1:]}")
 
         try:
@@ -66,7 +66,7 @@ else:
                 pdf_doc = fitz.open(str(file))
                 page_count = len(pdf_doc)
                 for j, page in enumerate(pdf_doc):
-                    print(f"  - Conversion de la page {j+1} sur {page_count}")
+                    print(f"  - Conversion de la page {j+1}/{page_count}")
                     pix = page.get_pixmap(dpi=300)
                     jpg_path = PATH / f"{file_name}_{j+1:03}.jpg"
                     pix.save(str(jpg_path))
@@ -74,9 +74,9 @@ else:
                 print(f"  [OK] Converti: {page_count} page(s)")
             else:
                 with Image(filename=str(file)) as actual_file:
-                    image = actual_file.convert('jpg')
+                    actual_file.format = 'jpeg'
                     jpg_path = PATH / f"{file_name}.jpg"
-                    image.save(filename=str(jpg_path))
+                    actual_file.save(filename=str(jpg_path))
                 print(f"  [OK] Converti: {file_name}.jpg")
 
             dest_folder = PATH / f"{file_extension[1:]}"

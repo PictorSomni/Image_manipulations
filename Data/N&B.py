@@ -12,7 +12,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.1.4"
+__version__ = "2.1.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -33,7 +33,7 @@ PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 selected_files_str = os.environ.get("SELECTED_FILES", "")
 selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
 
-EXTENSION = (".JPG", ".JPEG", ".PNG", ".DNG")
+EXTENSION = (".JPG", ".JPEG", ".PNG", ".BMP", ".GIF", ".TIFF")  # extensions d'image acceptées
 all_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.upper() in EXTENSION and file.name != "watermark.png"]
 FOLDER = [f for f in all_files if f in selected_files_set] if selected_files_set else all_files
 TOTAL = len(FOLDER)

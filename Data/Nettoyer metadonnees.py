@@ -12,7 +12,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.1.4"
+__version__ = "2.1.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -42,7 +42,7 @@ TOTAL = len(FOLDER)
 #                           MAIN                            #
 #############################################################
 for i, file in enumerate(FOLDER):
-    print("Image {} sur {}".format(i+1, TOTAL))
+    print(f"Image {i+1}/{TOTAL}")
 
     filename = Path(file).stem
     try:

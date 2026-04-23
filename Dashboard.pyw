@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.1.4"
+__version__ = "2.1.5"
 
 
 
@@ -135,7 +135,7 @@ def main(page: ft.Page):
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
     page.window.width = 1360
-    page.window.height = 800
+    page.window.height = 820
     page.window.icon = "assets/icon.png"
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
@@ -233,6 +233,7 @@ def main(page: ft.Page):
     show_only_selection = {"value": False}  # True = afficher uniquement les fichiers sélectionnés
     removable_drives_state = {"list": []}  # [(name, path), ...]
     _image_cache_busters = {}  # {normpath: temp_path_unique} pour invalider le cache navigateur
+    _image_last_mtime = {}     # {normpath: mtime} pour détecter les modifications externes
     _rot_temp_dir = tempfile.mkdtemp(prefix="dashboard_rot_")
     PAGE_SIZE = 100             # Nb d'éléments max par page dans la prévisualisation
     preview_page = {"value": 0}  # Page courante (0-indexé)
@@ -1017,6 +1018,10 @@ def main(page: ft.Page):
                     temp_path = os.path.join(_rot_temp_dir, temp_name)
                     result.save(temp_path, **save_kwargs)
                     _image_cache_busters[normalized_path] = temp_path
+                    try:
+                        _image_last_mtime[normalized_path] = os.stat(file_path).st_mtime
+                    except OSError:
+                        pass
                 rotated += 1
             except Exception as ex:
                 log_to_terminal(f"[ERREUR] Rotation {os.path.basename(file_path)}: {ex}", RED)
@@ -2917,6 +2922,30 @@ def main(page: ft.Page):
                             is_image = ext in [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"]
                             entries_data.append((name, path, is_dir, is_image, ext))
 
+                            # Détecter les modifications externes et invalider le cache miniature
+                            if is_image and not is_dir:
+                                normalized_path = os.path.normpath(path)
+                                try:
+                                    current_mtime = entry.stat().st_mtime
+                                except OSError:
+                                    continue
+                                stored_mtime = _image_last_mtime.get(normalized_path)
+                                if stored_mtime is not None and current_mtime != stored_mtime:
+                                    old_temp = _image_cache_busters.get(normalized_path)
+                                    if old_temp and os.path.exists(old_temp):
+                                        try:
+                                            os.remove(old_temp)
+                                        except Exception:
+                                            pass
+                                    try:
+                                        temp_name = f"cb_{int(current_mtime * 1000)}_{os.path.basename(path)}"
+                                        temp_path = os.path.join(_rot_temp_dir, temp_name)
+                                        shutil.copy2(path, temp_path)
+                                        _image_cache_busters[normalized_path] = temp_path
+                                    except Exception:
+                                        pass
+                                _image_last_mtime[normalized_path] = current_mtime
+
                 except PermissionError:
                     error_text = "⚠️ Accès refusé à ce dossier"
                 except Exception as ex:
@@ -3485,6 +3514,7 @@ def main(page: ft.Page):
         noir_et_blanc_path        = os.path.join(app_directory, "Data", "N&B.py")
         ameliorer_nettete_path    = os.path.join(app_directory, "Data", "Ameliorer nettete.py")
         nettoyer_metadonnees_path = os.path.join(app_directory, "Data", "Nettoyer metadonnees.py")
+        copyright_path            = os.path.join(app_directory, "Data", "Copyright.py")
         images_en_pdf_path        = os.path.join(app_directory, "Data", "Images en PDF.py")
         remerciements_path        = os.path.join(app_directory, "Data", "Remerciements.py")
 
@@ -3512,6 +3542,12 @@ def main(page: ft.Page):
                 RED,
                 "Nettoyer métadonnées",
                 lambda e: launch_app("Nettoyer metadonnees.py", nettoyer_metadonnees_path, False),
+            ),
+            _round_button(
+                ft.Icons.COPYRIGHT,
+                HOVER_YELLOW,
+                "Ajouter Copyright",
+                lambda e: launch_app("Copyright.py", copyright_path, False),
             ),
             _round_button(
                 ft.Icons.PICTURE_AS_PDF,

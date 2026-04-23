@@ -13,7 +13,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.1.4"
+__version__ = "2.1.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -50,7 +50,7 @@ def folder(folder) :
 #############################################################
 for i, file in enumerate(FOLDER):
     folder("NETTES")
-    print("Image {} sur {}".format(i+1, TOTAL))
+    print(f"Image {i+1} sur {TOTAL}")
 
     if file != "watermark.png":
         try:
