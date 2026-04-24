@@ -930,17 +930,19 @@ class PhotoCropper:
             # Conserver le profil ICC avant toute conversion
             self.icc_profile = source_image.info.get('icc_profile', None)
 
-            # Conserver les données EXIF brutes (hors orientation)
+            # Appliquer la rotation EXIF AVANT toute manipulation de l'objet EXIF
+            # (getexif() retourne un objet mis en cache : pop(274) avant exif_transpose
+            # supprimerait le tag Orientation avant que exif_transpose puisse le lire)
+            source_image = ImageOps.exif_transpose(source_image)
+
+            # Conserver les données EXIF brutes (hors orientation) — après correction
             try:
                 _raw_exif = source_image.getexif()
-                # Supprimer le tag Orientation (274) car exif_transpose va corriger physiquement
+                # Supprimer le tag Orientation (274) car l'image est déjà corrigée physiquement
                 _raw_exif.pop(274, None)
                 self.source_exif = _raw_exif.tobytes()
             except Exception:
                 self.source_exif = None
-
-            # Appliquer la rotation EXIF pour corriger l'orientation
-            source_image = ImageOps.exif_transpose(source_image)
             source_image = source_image.convert("RGBA")
             self.current_pil_image = source_image
             self._rembg_original = None
