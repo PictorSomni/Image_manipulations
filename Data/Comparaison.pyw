@@ -195,12 +195,12 @@ def main(page: ft.Page):
     # Overlay du dossier choisi (bordure colorée sur le panneau sélectionné)
     border_left  = ft.Container(
         expand=True,
-        border=ft.Border.all(3, GREEN),
+        border=ft.Border.all(7, GREEN),
         border_radius=4,
     )
     border_right = ft.Container(
         expand=True,
-        border=ft.Border.all(3, ft.Colors.TRANSPARENT),
+        border=ft.Border.all(7, ft.Colors.TRANSPARENT),
         border_radius=4,
     )
 
@@ -378,11 +378,11 @@ def main(page: ft.Page):
     def _update_border():
         """Met à jour la bordure verte selon le choix courant."""
         if choice["value"] == 0:
-            border_left.border  = ft.Border.all(3, GREEN)
-            border_right.border = ft.Border.all(3, ft.Colors.TRANSPARENT)
+            border_left.border  = ft.Border.all(7, GREEN)
+            border_right.border = ft.Border.all(7, ft.Colors.TRANSPARENT)
         else:
-            border_left.border  = ft.Border.all(3, ft.Colors.TRANSPARENT)
-            border_right.border = ft.Border.all(3, GREEN)
+            border_left.border  = ft.Border.all(7, ft.Colors.TRANSPARENT)
+            border_right.border = ft.Border.all(7, GREEN)
         try:
             border_left.update()
             border_right.update()
