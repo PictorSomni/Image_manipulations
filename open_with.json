@@ -1,18 +1,6 @@
 [
   {
     "label": "Affinity",
-    "exe": "/Applications/Affinity.app"
-  },
-  {
-    "label": "Topaz Photo",
-    "exe": "/Applications/Topaz Photo.app"
-  },
-  {
-    "label": "Topaz Gigapixel",
-    "exe": "C:\\Program Files\\Topaz Labs LLC\\Topaz Gigapixel\\Topaz Gigapixel.exe"
-  },
-  {
-    "label": "Luminar",
-    "exe": "/Applications/Luminar Neo.app"
+    "exe": "C:\\Program Files\\WindowsApps\\Canva.Affinity_3.2.0.4351_x64__8a0j1tnjnt4a4\\App\\Affinity.exe"
   }
 ]

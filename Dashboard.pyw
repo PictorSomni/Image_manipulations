@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.1.6"
+__version__ = "2.2.0"
 
 
 
@@ -135,7 +135,7 @@ def main(page: ft.Page):
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
     page.window.width = 1280
-    page.window.height = 840
+    page.window.height = 880
     page.window.icon = "assets/icon.png"
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
@@ -527,6 +527,56 @@ def main(page: ft.Page):
             page.pubsub.send_all_on_topic("restore_window", None)
 
         threading.Thread(target=_watch, daemon=True).start()
+
+
+
+    def _launch_comparaison(second_folder: str = ""):
+        """Lance Comparaison.pyw, minimise Dashboard, puis le restaure à la fermeture."""
+        browse = current_browse_folder["path"] or ""
+        base   = selected_folder["path"] or ""
+
+        # Dossier 1 : dossier courant de navigation (ou le dossier sélectionné)
+        folder1 = browse or base
+        if not folder1:
+            log_to_terminal("[ERREUR] Veuillez sélectionner un dossier avant de lancer la Comparaison", RED)
+            return
+
+        # Dossier 2 : si browse et base sont distincts, utiliser base comme dossier 2
+        if browse and base and os.path.normpath(browse) != os.path.normpath(base):
+            folder2 = base
+        else:
+            folder2 = second_folder
+
+        def _do_launch(f2: str):
+            env = {**os.environ, "FOLDER_PATH": folder1}
+            if f2:
+                env["SECOND_FOLDER"] = f2
+            comparaison_path = os.path.join(app_directory, "Data", "Comparaison.pyw")
+            proc = subprocess.Popen([sys.executable, comparaison_path], env=env)
+            page.window.minimized = True
+            page.update()
+
+            def _watch():
+                proc.wait()
+                page.pubsub.send_all_on_topic("restore_window", None)
+
+            threading.Thread(target=_watch, daemon=True).start()
+
+        # Si le second dossier est déjà connu, lancer directement
+        if folder2:
+            _do_launch(folder2)
+            return
+
+        # Sinon, ouvrir un sélecteur de dossier dans Dashboard pour choisir le second dossier
+        async def _pick_and_launch(e=None):
+            picked = await ft.FilePicker().get_directory_path(
+                dialog_title="Sélectionner le second dossier à comparer")
+            if picked:
+                _do_launch(os.path.normpath(picked))
+            else:
+                log_to_terminal("[INFO] Comparaison annulée (pas de second dossier sélectionné)", LIGHT_GREY)
+
+        page.run_task(_pick_and_launch)
 
 
 
@@ -3187,6 +3237,10 @@ def main(page: ft.Page):
                                     app_name, app_path, is_local)
             return
 
+        if app_name == "Comparaison.pyw":
+            _launch_comparaison()
+            return
+
         if not is_local and not (current_browse_folder["path"] or selected_folder["path"]):
             log_to_terminal("[ERREUR] Veuillez sélectionner un dossier avant de lancer cette application", RED)
             return
@@ -3647,6 +3701,12 @@ def main(page: ft.Page):
                 ORANGE,
                 "Zipper la sélection",
                 _prompt_and_zip_selection,
+            ),
+            _round_button(
+                ft.Icons.COMPARE,
+                BLUE,
+                "Comparaison d'images",
+                lambda e: _launch_comparaison(),
             ),
             _round_button(
                 ft.Icons.AUTO_FIX_HIGH,
