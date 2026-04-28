@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.2.0"
+__version__ = "2.2.3"
 
 
 
@@ -56,13 +56,6 @@ except ImportError:
 #                         CONSTANTS                         #
 #############################################################
 _IMAGE_VIEWER_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"}
-
-_FILTER_CATEGORIES = {
-    "images": {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif", ".raw", ".cr2", ".nef", ".arw", ".dng"},
-    "videos": {".mp4", ".mov", ".avi", ".mkv", ".mts", ".m2ts", ".wmv", ".mpg", ".mpeg"},
-    "zip":    {".zip", ".rar", ".7z", ".tar", ".gz"},
-    "docs":   {".pdf",".txt", ".md", ".log", ".csv", ".xml", ".json", ".odt", ".docx", ".xlsx", ".pptx", ".doc", ".xls", ".ppt"},
-}
 
 _OS_JUNK = {
     ".ds_store", "thumbs.db", "thumbs.db:encryptable",
@@ -135,7 +128,7 @@ def main(page: ft.Page):
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
     page.window.width = 1280
-    page.window.height = 880
+    page.window.height = 900
     page.window.icon = "assets/icon.png"
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
@@ -1816,7 +1809,7 @@ def main(page: ft.Page):
                     log_to_terminal(f"[OK] Dossier créé: {folder_name}", BLUE)
                     dialog.open = False
                     page.update()
-                    refresh_preview()
+                    navigate_to_folder(new_folder_path)
             except Exception as err:
                 log_to_terminal(f"[ERREUR] Erreur lors de la création du dossier: {err}", RED)
                 dialog.open = False

@@ -17,25 +17,25 @@ Variables d'environnement :
   FOLDER_PATH    — dossier 1 (obligatoire si lancé depuis Dashboard).
   SECOND_FOLDER  — dossier 2 (optionnel ; sinon l'app demande le dossier).
 
-Dépendances : flet >= 0.84, Pillow
+Dépendances : flet >= 0.84
 """
 
-__version__ = "2.2.0"
+__version__ = "2.2.3"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  IMPORTS
 # ─────────────────────────────────────────────────────────────────────────────
 import flet as ft
+import asyncio
 import os
 import shutil
-import difflib
 from pathlib import Path
+from types import SimpleNamespace
 
 try:
-    from PIL import Image as PILImage
+    from PIL import Image as _PILImage
 except ImportError:
-    PILImage = None
-
+    _PILImage = None
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  CONSTANTES
@@ -60,38 +60,17 @@ WHITE        = "#c7ccd8"
 # ─────────────────────────────────────────────────────────────────────────────
 def _get_image_files(folder: str) -> list:
     """Retourne la liste triée des images dans le dossier (niveau 1 seulement)."""
-    p = Path(folder)
+    folder_path = Path(folder)
     return sorted(
-        [f for f in p.iterdir() if f.is_file() and f.suffix.lower() in IMAGE_EXTS],
-        key=lambda f: f.name.lower(),
+        [file for file in folder_path.iterdir() if file.is_file() and file.suffix.lower() in IMAGE_EXTS],
+        key=lambda file: file.name.lower(),
     )
-
-
-def _match_score(stem1: str, stem2: str) -> tuple:
-    """
-    Retourne (substring_len, ratio) pour trier les candidats.
-    - substring_len : longueur de stem1 si stem1 ⊆ stem2 (ou inversement),
-                      0 si aucun containment.
-    - ratio         : similarité globale SequenceMatcher (départage à égalité).
-    Le containment strict est requis : pas de fallback préfixe.
-    """
-    if stem1 in stem2:
-        sub = len(stem1)
-    elif stem2 in stem1:
-        sub = len(stem2)
-    else:
-        sub = 0
-    ratio = difflib.SequenceMatcher(None, stem1, stem2).ratio()
-    return sub, ratio
 
 
 def _match_pairs(files1: list, files2: list) -> list:
     """
-    Associe chaque image de files1 à la meilleure correspondance dans files2.
-
-    Règle : le stem du fichier dossier 1 doit être entièrement contenu dans
-    le stem du fichier dossier 2 (ou inversement). Le ratio SequenceMatcher
-    sert uniquement à départager deux candidats de même longueur de containment.
+    Associe chaque image de files1 à la première correspondance dans files2
+    dont le stem contient celui de files1 (ou inversement).
     """
     if not files1 or not files2:
         return []
@@ -99,25 +78,17 @@ def _match_pairs(files1: list, files2: list) -> list:
     unmatched2 = list(files2)
     pairs = []
 
-    for f1 in files1:
+    for file1 in files1:
         if not unmatched2:
             break
-        stem1 = f1.stem.lower()
-
-        best_sub   = 0
-        best_ratio = -1.0
-        best_idx   = -1
-        for i, f2 in enumerate(unmatched2):
-            stem2 = f2.stem.lower()
-            sub, ratio = _match_score(stem1, stem2)
-            if sub > best_sub or (sub == best_sub and sub > 0 and ratio > best_ratio):
-                best_sub   = sub
-                best_ratio = ratio
-                best_idx   = i
-
-        # Paire acceptée uniquement si containment réel (sub > 0)
-        if best_idx >= 0 and best_sub > 0:
-            pairs.append((f1, unmatched2.pop(best_idx)))
+        stem1 = file1.stem.lower()
+        match_index = next(
+            (index for index, file2 in enumerate(unmatched2)
+             if stem1 in file2.stem.lower() or file2.stem.lower() in stem1),
+            -1,
+        )
+        if match_index >= 0:
+            pairs.append((file1, unmatched2.pop(match_index)))
 
     return pairs
 
@@ -138,19 +109,31 @@ def _find_resume_index(pairs_list: list, base_dir: Path) -> int:
     processed_names: set[str] = set()
     for folder in (sel_dir, aut_dir):
         if folder.is_dir():
-            for f in folder.rglob("*"):
-                if f.is_file() and f.suffix.lower() in IMAGE_EXTS:
-                    processed_names.add(f.name.lower())
+            for file_entry in folder.rglob("*"):
+                if file_entry.is_file() and file_entry.suffix.lower() in IMAGE_EXTS:
+                    processed_names.add(file_entry.name.lower())
 
     if not processed_names:
         return 0
 
     # Première paire dont aucun des deux fichiers n'est déjà traité
-    for i, (p1, p2) in enumerate(pairs_list):
-        if p1.name.lower() not in processed_names and p2.name.lower() not in processed_names:
-            return i
+    for pair_index, (file1, file2) in enumerate(pairs_list):
+        if file1.name.lower() not in processed_names and file2.name.lower() not in processed_names:
+            return pair_index
 
     return len(pairs_list)  # Toutes les paires ont déjà été traitées
+
+
+def _get_image_size(file_path: Path) -> str:
+    """Retourne la résolution de l'image sous forme '1234×5678', ou '' si PIL est absent ou la lecture échoue."""
+    if _PILImage is None:
+        return ""
+    try:
+        with _PILImage.open(file_path) as img:
+            width, height = img.size
+            return f"{width}×{height}"
+    except Exception:
+        return ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -166,22 +149,21 @@ def main(page: ft.Page):
     page.window.title_bar_buttons_hidden = True
     page.window.width  = 1400
     page.window.height = 900
-    page.window.maximized = True
 
     # ── État global ──────────────────────────────────────────────────────
-    folder1   = {"path": os.environ.get("FOLDER_PATH",    "").strip()}
-    folder2   = {"path": os.environ.get("SECOND_FOLDER",  "").strip()}
-    pairs     = {"list": []}
-    cur_idx   = {"value": 0}
-    choice    = {"value": 0}   # 0 = gauche (folder1), 1 = droite (folder2)
+    folder1_path       = os.environ.get("FOLDER_PATH",   "").strip()
+    folder2_path       = os.environ.get("SECOND_FOLDER", "").strip()
+    pairs_list:  list  = []
+    current_pair_index = 0
+    selected_side      = 0  # 0 = gauche (folder1), 1 = droite (folder2)
 
-    # État partagé des visionneuses (zoom + pan)
-    vs = {
-        "scale":              1.0,
-        "offset_x":           0.0,
-        "offset_y":           0.0,
-        "gesture_scale_start": 1.0,
-    }
+    # État partagé des visionneuses (zoom + pan) — muté en place, pas de nonlocal nécessaire.
+    viewer_state = SimpleNamespace(
+        scale=1.0,
+        offset_x=0.0,
+        offset_y=0.0,
+        gesture_scale_start=1.0,
+    )
 
     # ── Widgets images ────────────────────────────────────────────────────
     _BLANK = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
@@ -226,6 +208,10 @@ def main(page: ft.Page):
     fname2_text  = ft.Text("—", size=12, color=WHITE, max_lines=1,
                            overflow=ft.TextOverflow.ELLIPSIS, expand=True,
                            text_align=ft.TextAlign.CENTER)
+    resolution1_text = ft.Text("", size=10, color=LIGHT_GREY,
+                               text_align=ft.TextAlign.CENTER, expand=True)
+    resolution2_text = ft.Text("", size=10, color=LIGHT_GREY,
+                               text_align=ft.TextAlign.CENTER, expand=True)
     counter_text = ft.Text("0 / 0", size=12, color=LIGHT_GREY,
                            text_align=ft.TextAlign.CENTER, width=80)
     status_text  = ft.Text("", size=12, color=LIGHT_GREY,
@@ -246,6 +232,7 @@ def main(page: ft.Page):
     # ── Barre de titre ────────────────────────────────────────────────────
     async def _close(e):
         await page.window.close()
+        os._exit(0)  # Garantit la fin du processus pour que Dashboard détecte la fermeture
 
     def _minimize(e):
         page.window.minimized = True
@@ -277,46 +264,49 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
     def _viewer_size():
         """Retourne (w, h) du viewer en pixels (estimé depuis les dims de la page)."""
-        pw = page.width  or 1400
-        ph = page.height or 900
-        return max(100, (int(pw) - 40) // 2), max(100, int(ph) - 140)
+        page_width  = page.width  or 1400
+        page_height = page.height or 900
+        return max(100, (int(page_width) - 40) // 2), max(100, int(page_height) - 140)
 
     def _update_transform():
         """Applique zoom + pan aux deux visionneuses simultanément."""
-        vw, vh = _viewer_size()
-        scale_t  = ft.Scale(vs["scale"], alignment=ft.Alignment(0, 0))
+        viewer_width, viewer_height = _viewer_size()
+        scale_transform  = ft.Scale(viewer_state.scale, alignment=ft.Alignment(0, 0))
         # ft.Offset est fractionnel (× taille du contrôle) → convertir depuis pixels
-        offset_t = ft.Offset(vs["offset_x"] / vw, vs["offset_y"] / vh)
-        cont_left.scale  = scale_t;  cont_left.offset  = offset_t;  cont_left.update()
-        cont_right.scale = scale_t;  cont_right.offset = offset_t;  cont_right.update()
+        offset_transform = ft.Offset(viewer_state.offset_x / viewer_width, viewer_state.offset_y / viewer_height)
+        cont_left.scale  = scale_transform
+        cont_left.offset = offset_transform
+        cont_left.update()
+        cont_right.scale  = scale_transform
+        cont_right.offset = offset_transform
+        cont_right.update()
 
     def _reset_view():
-        vs["scale"]    = 1.0
-        vs["offset_x"] = 0.0
-        vs["offset_y"] = 0.0
+        viewer_state.scale    = 1.0
+        viewer_state.offset_x = 0.0
+        viewer_state.offset_y = 0.0
         _update_transform()
 
     # Gestionnaires de gestes (partagés par les deux GestureDetector)
     def on_gesture_start(e):
-        vs["gesture_scale_start"] = vs["scale"]
+        viewer_state.gesture_scale_start = viewer_state.scale
 
     def on_gesture_update(e):
-        vs["scale"] = max(0.1, min(10.0,
-                          vs["gesture_scale_start"] * e.scale))
-        vs["offset_x"] += e.focal_point_delta.x
-        vs["offset_y"] += e.focal_point_delta.y
+        viewer_state.scale     = max(0.1, min(10.0, viewer_state.gesture_scale_start * e.scale))
+        viewer_state.offset_x += e.focal_point_delta.x
+        viewer_state.offset_y += e.focal_point_delta.y
         _update_transform()
 
     def on_gesture_scroll(e):
-        dy = e.scroll_delta.y
-        if dy != 0:
-            vs["scale"] = max(0.1, min(10.0,
-                              vs["scale"] * (1.0 - dy * 0.002)))
+        scroll_delta_y = e.scroll_delta.y
+        if scroll_delta_y != 0:
+            viewer_state.scale = max(0.1, min(10.0, viewer_state.scale * (1.0 - scroll_delta_y * 0.002)))
             _update_transform()
 
     def _select_side(side: int):
         """Sélectionne le côté 0=gauche, 1=droite et met à jour le bouton."""
-        choice["value"] = side
+        nonlocal selected_side
+        selected_side = side
         choice_segment.selected_index = side
         choice_segment.update()
         _update_border()
@@ -343,41 +333,46 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
     #  NAVIGATION ENTRE PAIRES
     # ═════════════════════════════════════════════════════════════════════
-    def _load_pair(idx: int):
-        pl = pairs["list"]
-        if not pl or idx >= len(pl):
+    def _load_pair(pair_index: int):
+        if not pairs_list or pair_index >= len(pairs_list):
             return
-        p1, p2 = pl[idx]
-        vs["scale"] = 1.0;  vs["offset_x"] = 0.0;  vs["offset_y"] = 0.0
-        image_left.src  = str(p1)
-        image_right.src = str(p2)
-        cont_left.scale  = ft.Scale(1.0);  cont_left.offset  = ft.Offset(0, 0)
-        cont_right.scale = ft.Scale(1.0);  cont_right.offset = ft.Offset(0, 0)
-        n = len(pl)
-        fname1_text.value  = p1.name
-        fname2_text.value  = p2.name
-        counter_text.value = f"{idx + 1} / {n}"
-        progress_bar.value = (idx + 1) / n
+        file1, file2 = pairs_list[pair_index]
+        viewer_state.scale    = 1.0
+        viewer_state.offset_x = 0.0
+        viewer_state.offset_y = 0.0
+        image_left.src  = str(file1)
+        image_right.src = str(file2)
+        cont_left.scale  = ft.Scale(1.0)
+        cont_left.offset = ft.Offset(0, 0)
+        cont_right.scale  = ft.Scale(1.0)
+        cont_right.offset = ft.Offset(0, 0)
+        total_pairs = len(pairs_list)
+        fname1_text.value  = file1.name
+        fname2_text.value  = file2.name
+        resolution1_text.value = _get_image_size(file1)
+        resolution2_text.value = _get_image_size(file2)
+        counter_text.value = f"{pair_index + 1} / {total_pairs}"
+        progress_bar.value = (pair_index + 1) / total_pairs
         status_text.value  = ""
         page.update()
 
     def _next_pair():
-        idx = cur_idx["value"] + 1
-        if idx >= len(pairs["list"]):
+        nonlocal current_pair_index, selected_side
+        if current_pair_index + 1 >= len(pairs_list):
             _show_completion()
             return
-        cur_idx["value"] = idx
-        choice["value"]  = 0
+        current_pair_index += 1
+        selected_side = 0
         choice_segment.selected_index = 0
         _update_border()
-        _load_pair(idx)
+        _load_pair(current_pair_index)
 
     # ═════════════════════════════════════════════════════════════════════
     #  ACTIONS
     # ═════════════════════════════════════════════════════════════════════
     def _update_border():
-        """Met à jour la bordure verte selon le choix courant."""
-        if choice["value"] == 0:
+        """Met à jour la bordure verte selon le panneau sélectionné (0=gauche, 1=droite)."""
+        if selected_side == 0:
             border_left.border  = ft.Border.all(7, GREEN)
             border_right.border = ft.Border.all(7, ft.Colors.TRANSPARENT)
         else:
@@ -390,36 +385,31 @@ def main(page: ft.Page):
             pass
 
     def on_choice_change(e):
-        choice["value"] = e.control.selected_index
+        nonlocal selected_side
+        selected_side = e.control.selected_index
         _update_border()
 
     def on_validate(e):
-        pl = pairs["list"]
-        if not pl:
-            return
-        idx = cur_idx["value"]
-        if idx >= len(pl):
+        if not pairs_list or current_pair_index >= len(pairs_list):
             return
 
-        p1, p2 = pl[idx]
-        base_dir = Path(folder1["path"])
+        file1, file2 = pairs_list[current_pair_index]
+        base_dir = Path(folder1_path)
         sel_dir  = base_dir / "SELECTION"
         aut_dir  = base_dir / "AUTRES"
         sel_dir.mkdir(exist_ok=True)
         aut_dir.mkdir(exist_ok=True)
 
-        chosen_val = choice["value"]
-
-        if chosen_val == 0:
+        if selected_side == 0:
             # Garder gauche (folder1)
-            chosen_path   = p1
-            rejected_path = p2
+            chosen_path   = file1
+            rejected_path = file2
             # Le rejeté vient de folder2 → AUTRES/{nom_dossier2}/
-            subfolder = aut_dir / Path(folder2["path"]).name
+            subfolder = aut_dir / Path(folder2_path).name
         else:
             # Garder droite (folder2)
-            chosen_path   = p2
-            rejected_path = p1
+            chosen_path   = file2
+            rejected_path = file1
             # Le rejeté vient de folder1 → AUTRES/ directement
             subfolder = aut_dir
 
@@ -445,72 +435,79 @@ def main(page: ft.Page):
 
     # ── Complétion ───────────────────────────────────────────────────────
     def _show_completion():
-        n = len(pairs["list"])
+        total_pairs = len(pairs_list)
         fname1_text.value  = "—"
         fname2_text.value  = "—"
-        counter_text.value = f"{n} / {n}"
+        resolution1_text.value = ""
+        resolution2_text.value = ""
+        counter_text.value = f"{total_pairs} / {total_pairs}"
         progress_bar.value = 1.0
-        status_text.value  = f"[OK]  Toutes les paires ont été traitées ({n} image(s))."
+        status_text.value  = f"[OK]  Toutes les paires ont été traitées ({total_pairs} image(s)). Fermeture…"
         page.update()
+
+        async def _close_after_delay():
+            await asyncio.sleep(1.5)
+            await page.window.close()
+            os._exit(0)  # Garantit la fin du processus pour que Dashboard détecte la fermeture
+
+        page.run_task(_close_after_delay)
 
     # ═════════════════════════════════════════════════════════════════════
     #  INITIALISATION DES PAIRES
     # ═════════════════════════════════════════════════════════════════════
     def _build_pairs_and_start():
-        f1 = folder1["path"]
-        f2 = folder2["path"]
+        nonlocal pairs_list, current_pair_index, selected_side
 
-        if not f1 or not os.path.isdir(f1):
-            status_text.value = f"Dossier 1 introuvable : {repr(f1)}"
+        if not folder1_path or not os.path.isdir(folder1_path):
+            status_text.value = f"Dossier 1 introuvable : {repr(folder1_path)}"
             page.update()
             return
-        if not f2 or not os.path.isdir(f2):
-            status_text.value = f"Dossier 2 introuvable : {repr(f2)}"
-            page.update()
-            return
-
-        imgs1 = _get_image_files(f1)
-        imgs2 = _get_image_files(f2)
-
-        if not imgs1:
-            status_text.value = f"Aucune image dans {os.path.basename(f1)}."
-            page.update()
-            return
-        if not imgs2:
-            status_text.value = f"Aucune image dans {os.path.basename(f2)}."
+        if not folder2_path or not os.path.isdir(folder2_path):
+            status_text.value = f"Dossier 2 introuvable : {repr(folder2_path)}"
             page.update()
             return
 
-        matched = _match_pairs(imgs1, imgs2)
-        pairs["list"] = matched
+        images1 = _get_image_files(folder1_path)
+        images2 = _get_image_files(folder2_path)
+
+        if not images1:
+            status_text.value = f"Aucune image dans {os.path.basename(folder1_path)}."
+            page.update()
+            return
+        if not images2:
+            status_text.value = f"Aucune image dans {os.path.basename(folder2_path)}."
+            page.update()
+            return
+
+        pairs_list = _match_pairs(images1, images2)
 
         # Reprendre là où on s'était arrêté
-        resume_idx = _find_resume_index(matched, Path(f1))
-        cur_idx["value"] = resume_idx
-        choice["value"]  = 0
+        resume_index       = _find_resume_index(pairs_list, Path(folder1_path))
+        current_pair_index = resume_index
+        selected_side      = 0
 
         # Mettre à jour les labels de dossiers
-        folder1_lbl.value = f"◀  {f1}"
-        folder2_lbl.value = f"▶  {f2}"
+        folder1_lbl.value = f"◀  {folder1_path}"
+        folder2_lbl.value = f"▶  {folder2_path}"
 
         # Masquer l'écran de configuration, afficher le comparateur
         setup_overlay.visible = False
         main_col.visible      = True
         page.update()
 
-        if resume_idx >= len(matched):
+        if resume_index >= len(pairs_list):
             _show_completion()
         else:
-            if resume_idx > 0:
-                status_text.value = f"-->  Reprise à la paire {resume_idx + 1} ({resume_idx} déjà traitée(s))"
-            _load_pair(resume_idx)
+            if resume_index > 0:
+                status_text.value = f"-->  Reprise à la paire {resume_index + 1} ({resume_index} déjà traitée(s))"
+            _load_pair(resume_index)
 
     # ═════════════════════════════════════════════════════════════════════
     #  ÉCRAN DE CONFIGURATION (si SECOND_FOLDER non fourni)
     # ═════════════════════════════════════════════════════════════════════
     setup_folder1_field = ft.TextField(
         label="Dossier 1 (source principale)",
-        value=folder1["path"],
+        value=folder1_path,
         hint_text="Chemin du premier dossier",
         bgcolor=DARK, border_color=GREY,
         expand=True, read_only=False,
@@ -518,7 +515,7 @@ def main(page: ft.Page):
     )
     setup_folder2_field = ft.TextField(
         label="Dossier 2 (à comparer)",
-        value=folder2["path"],
+        value=folder2_path,
         hint_text="Chemin du second dossier",
         bgcolor=DARK, border_color=GREY,
         expand=True, read_only=False,
@@ -528,38 +525,39 @@ def main(page: ft.Page):
     setup_status = ft.Text("", size=12, color=RED, text_align=ft.TextAlign.CENTER)
 
     async def _pick_folder1(e):
+        nonlocal folder1_path
         picked = await ft.FilePicker().get_directory_path(
             dialog_title="Sélectionner le dossier 1")
         if picked:
-            folder1["path"] = os.path.normpath(picked)
-            setup_folder1_field.value = folder1["path"]
+            folder1_path = os.path.normpath(picked)
+            setup_folder1_field.value = folder1_path
             setup_folder1_field.update()
 
     async def _pick_folder2(e):
+        nonlocal folder2_path
         picked = await ft.FilePicker().get_directory_path(
             dialog_title="Sélectionner le dossier 2")
         if picked:
-            folder2["path"] = os.path.normpath(picked)
-            setup_folder2_field.value = folder2["path"]
+            folder2_path = os.path.normpath(picked)
+            setup_folder2_field.value = folder2_path
             setup_folder2_field.update()
 
     def _on_start(e):
-        f1 = (setup_folder1_field.value or "").strip()
-        f2 = (setup_folder2_field.value or "").strip()
-        if not f1 or not os.path.isdir(f1):
+        nonlocal folder1_path, folder2_path
+        folder1_path = (setup_folder1_field.value or "").strip()
+        folder2_path = (setup_folder2_field.value or "").strip()
+        if not folder1_path or not os.path.isdir(folder1_path):
             setup_status.value = "Dossier 1 introuvable."
             setup_status.update()
             return
-        if not f2 or not os.path.isdir(f2):
+        if not folder2_path or not os.path.isdir(folder2_path):
             setup_status.value = "Dossier 2 introuvable."
             setup_status.update()
             return
-        if f1 == f2:
+        if folder1_path == folder2_path:
             setup_status.value = "Les deux dossiers doivent être différents."
             setup_status.update()
             return
-        folder1["path"] = f1
-        folder2["path"] = f2
         _build_pairs_and_start()
 
     setup_overlay = ft.Container(
@@ -656,7 +654,9 @@ def main(page: ft.Page):
     # Ligne des noms de fichiers + contrôles (fusionnés en une seule barre)
     controls_row = ft.Row([
         reset_btn,
-        fname1_text,
+        ft.Column([fname1_text, resolution1_text],
+                  spacing=1, expand=True,
+                  horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         ft.Container(expand=True),
         choice_segment,
         ft.Container(expand=True),
@@ -666,7 +666,9 @@ def main(page: ft.Page):
         ft.Container(width=8),
         validate_btn,
         ft.Container(width=16),
-        fname2_text,
+        ft.Column([fname2_text, resolution2_text],
+                  spacing=1, expand=True,
+                  horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         status_text,
     ], alignment=ft.MainAxisAlignment.CENTER,
        vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -715,10 +717,17 @@ def main(page: ft.Page):
     )
 
     # ── Démarrage auto ────────────────────────────────────────────────────
-    if folder1["path"] and folder2["path"]:
+    async def _on_load():
+        """Maximise la fenêtre après que Flet l'a entièrement initialisée."""
+        page.window.maximized = True
+        page.update()
+
+    page.run_task(_on_load)
+
+    if folder1_path and folder2_path:
         _build_pairs_and_start()
-    elif folder1["path"]:
-        setup_folder1_field.value = folder1["path"]
+    elif folder1_path:
+        setup_folder1_field.value = folder1_path
         setup_folder1_field.update()
 
 
