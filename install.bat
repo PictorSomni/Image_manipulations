@@ -10,7 +10,7 @@ echo.
 REM Vérifier si Python est installé
 python --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [91mErreur:[0m Python n'est pas installe.
+    echo Erreur:Python n'est pas installe.
     echo Telechargez Python 3.8+ depuis https://www.python.org/downloads/
     echo Assurez-vous de cocher "Add Python to PATH" lors de l'installation
     pause
@@ -18,25 +18,25 @@ if %errorlevel% neq 0 (
 )
 
 for /f "tokens=2" %%i in ('python --version') do set PYTHON_VERSION=%%i
-echo [92mPython %PYTHON_VERSION% detecte[0m
+echo Python %PYTHON_VERSION% detecte
 
 REM Vérifier si pip est installé
 pip --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [91mErreur:[0m pip n'est pas installe.
+    echo Erreur:pip n'est pas installe.
     echo Reinstallez Python en cochant "pip" lors de l'installation
     pause
     exit /b 1
 )
 
-echo [92mpip detecte[0m
+echo pip detecte
 echo.
 
 REM Vérifier ImageMagick (optionnel mais recommandé)
 echo Verification d'ImageMagick (requis pour la conversion d'images)...
 magick --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [93mAvertissement:[0m ImageMagick n'est pas installe.
+    echo Avertissement:ImageMagick n'est pas installe.
     echo.
     echo Pour installer ImageMagick :
     echo   Telechargez depuis https://imagemagick.org/script/download.php#windows
@@ -49,7 +49,7 @@ if %errorlevel% neq 0 (
         exit /b 1
     )
 ) else (
-    echo [92mImageMagick detecte[0m
+    echo ImageMagick detecte
 )
 
 echo.
@@ -58,7 +58,7 @@ pip install -r requirements.txt --upgrade
 
 echo.
 echo ======================================
-echo [92mInstallation terminee ![0m
+echo Installation terminee !
 echo ======================================
 echo.
 echo Pour lancer le Dashboard :

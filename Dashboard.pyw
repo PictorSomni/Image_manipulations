@@ -218,10 +218,11 @@ def main(page: ft.Page):
     }
 
 
+    # ===================== Valeurs par défaut ===================== #
 
     resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
     resize_watermark_size = {"value": "640"}  # Taille par défaut pour le redimensionnement avec watermark
-    sort_mode = {"value": 0}  # 0 = A→Z, 1 = Z→A, 2 = par date de modification
+    sort_mode = {"value": 2}  # 0 = A→Z, 1 = Z→A, 2 = par date de modification
     show_only_selection = {"value": False}  # True = afficher uniquement les fichiers sélectionnés
     removable_drives_state = {"list": []}  # [(name, path), ...]
     _image_cache_busters = {}  # {normpath: temp_path_unique} pour invalider le cache navigateur
@@ -314,7 +315,7 @@ def main(page: ft.Page):
 
 
     sort_segment = ft.CupertinoSlidingSegmentedButton(
-        selected_index=0,
+        selected_index=2,
         bgcolor=GREY,
         thumb_color=DARK,
         controls=[
@@ -3179,11 +3180,11 @@ def main(page: ft.Page):
 
         if app_name == "2 en 1.py" and series_name is None:
             _TWO_IN_ONE_FORMATS = [
-                ("2 sur 10×15  (76 × 102 mm)",  "76x102"),
-                ("2 sur 10×20  (102 × 102 mm)", "102x102"),
-                ("2 sur 13×18  (89 × 127 mm)",  "89x127"),
-                ("2 sur 15×20  (102 × 152 mm)", "102x152"),
-                ("2 sur 20×30  (152 × 203 mm)", "152x203"),
+                ("2 7x10 sur 10×15",  "76x102"),
+                ("2 10x10 sur 10×20", "102x102"),
+                ("2 9x13 sur 13×18",  "89x127"),
+                ("2 10x15 sur 15×20", "102x152"),
+                ("2 15x20 sur 20×30", "152x203"),
             ]
             two_in_one_dropdown = ft.Dropdown(
                 label="Format",
@@ -3247,26 +3248,25 @@ def main(page: ft.Page):
                 env = os.environ.copy()
                 env["DATA_PATH"] = os.path.join(app_directory, "Data")
                 
-                # Naviguer vers le PATH pour order_it gauche/droite
+                # Naviguer vers le PATH pour order_it gauche/droite (après fin du processus)
+                kiosk_target_path = None
                 if app_name == "Kiosk gauche.py":
                     if platform.system() == "Windows":
-                        order_path = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK GAUCHE"
+                        kiosk_target_path = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK GAUCHE"
                     else:
-                        order_path = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE"
-                    if os.path.isdir(order_path):
-                        navigate_to_folder(order_path)
-                    else:
-                        log_to_terminal(f"[AVERTISSEMENT] Le dossier {order_path} n'est pas accessible", ORANGE)
-                
+                        kiosk_target_path = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE"
+                    if not os.path.isdir(kiosk_target_path):
+                        log_to_terminal(f"[AVERTISSEMENT] Le dossier {kiosk_target_path} n'est pas accessible", ORANGE)
+                        kiosk_target_path = None
+
                 elif app_name == "Kiosk droite.py":
                     if platform.system() == "Windows":
-                        order_path = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK DROITE"
+                        kiosk_target_path = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK DROITE"
                     else:
-                        order_path = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE"
-                    if os.path.isdir(order_path):
-                        navigate_to_folder(order_path)
-                    else:
-                        log_to_terminal(f"[AVERTISSEMENT] Le dossier {order_path} n'est pas accessible", ORANGE)
+                        kiosk_target_path = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE"
+                    if not os.path.isdir(kiosk_target_path):
+                        log_to_terminal(f"[AVERTISSEMENT] Le dossier {kiosk_target_path} n'est pas accessible", ORANGE)
+                        kiosk_target_path = None
 
 
 
@@ -3295,11 +3295,20 @@ def main(page: ft.Page):
                     page.window.minimized = True
                     page.update()
 
-                    def _watch_local(proc=process):
+                    def _watch_local(proc=process, nav_path=kiosk_target_path):
                         proc.wait()
                         page.pubsub.send_all_on_topic("restore_window", None)
+                        if nav_path and os.path.isdir(nav_path):
+                            page.pubsub.send_all_on_topic("navigate", nav_path)
 
                     threading.Thread(target=_watch_local, daemon=True).start()
+                elif kiosk_target_path:
+                    def _watch_kiosk(proc=process, nav_path=kiosk_target_path):
+                        proc.wait()
+                        if os.path.isdir(nav_path):
+                            page.pubsub.send_all_on_topic("navigate", nav_path)
+
+                    threading.Thread(target=_watch_kiosk, daemon=True).start()
 
 
 
