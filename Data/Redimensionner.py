@@ -14,7 +14,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.2.4"
+__version__ = "2.2.6"
 
 #############################################################
 #                          IMPORTS                          #
@@ -23,6 +23,8 @@ import os
 import sys
 from pathlib import Path
 from PIL import Image, ImageFile, ImageOps
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import CONSTANTS
 
 #############################################################
 #                           PATH                            #
@@ -37,7 +39,7 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Récupérer la taille depuis la variable d'environnement
 try:
-    MAXSIZE_VALUE = int(os.environ.get("RESIZE_SIZE", "640"))
+    MAXSIZE_VALUE = int(os.environ.get("RESIZE_SIZE", str(CONSTANTS.RESIZE_DEFAULT)))
     MAXSIZE = (MAXSIZE_VALUE, MAXSIZE_VALUE)
 except ValueError:
     print("Erreur : La variable d'environnement RESIZE_SIZE doit être un nombre.")

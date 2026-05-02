@@ -12,16 +12,19 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.2.4"
+__version__ = "2.2.6"
 
 #############################################################
 #                          IMPORTS                          #
 #############################################################
 import os
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import CONSTANTS
 from PIL import Image, ImageFile, ImageOps
 
-DPI = 300
+DPI = CONSTANTS.DPI
 #############################################################
 #                           PATH                            #
 #############################################################
@@ -45,10 +48,19 @@ def mm_to_pixels(mm, dpi) :
     """Convertit des millimètres en pixels entiers pour un DPI donné."""
     return round((float(mm) / 25.4) * dpi)
 
+
+
+SQUARE_PRINT_SIZE = (127, 102)
+SQUARE_CROP_SIZE = (102, 102)
+SQUARE_PRINT_DPI = (mm_to_pixels(SQUARE_PRINT_SIZE[0], DPI)), (mm_to_pixels(SQUARE_PRINT_SIZE[1], DPI))
+SQUARE_CROP_DPI = (mm_to_pixels(SQUARE_CROP_SIZE[0], DPI)), (mm_to_pixels(SQUARE_CROP_SIZE[1], DPI))
+
 PRINT_SIZE = (127, 152)
 CROP_SIZE = (102, 152)
 PRINT_DPI = (mm_to_pixels(PRINT_SIZE[0], DPI)), (mm_to_pixels(PRINT_SIZE[1], DPI))
 CROP_DPI = (mm_to_pixels(CROP_SIZE[0], DPI)), (mm_to_pixels(CROP_SIZE[1], DPI))
+PRINT_DPI = (mm_to_pixels(PRINT_SIZE[0], DPI)), (mm_to_pixels(PRINT_SIZE[1], DPI))
+
 
 
 def folder(folder) :
@@ -69,19 +81,33 @@ for i, file in enumerate(FOLDER):
     except Exception as e:
         print(e)
     else:
-        folder("13x15")
+        if base_image.width == base_image.height: # IF SQUARE, CROP TO 102x102
+            folder("13x10")
+            
+            result = ImageOps.fit(base_image, (SQUARE_CROP_DPI[0], SQUARE_CROP_DPI[1]), centering=(0.5, 0.5))
+            result = result.convert("RGB")
 
-        if base_image.width > base_image.height: # IF LANDSCAPE, ROTATE 90 DEGREES
-            base_image = base_image.rotate(90, expand=True)
+            print_size = Image.new("RGB", (SQUARE_PRINT_DPI[0], SQUARE_PRINT_DPI[1]), (255, 255, 255))
+            print_size.paste(result)
 
-        result = ImageOps.fit(base_image, (CROP_DPI[0], CROP_DPI[1]), centering=(0.5, 0.5))
-        result = result.convert("RGB")
+            filename = file_path.stem
+            output_folder = PATH / "13x10"
+            print_size.save(str(output_folder / f"{filename}.jpg"), dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+        
+        else :
+            folder("13x15")
 
-        print_size = Image.new("RGB", (PRINT_DPI[0], PRINT_DPI[1]), (255, 255, 255))
-        print_size.paste(result)
+            if base_image.width > base_image.height: # IF LANDSCAPE, ROTATE 90 DEGREES
+                base_image = base_image.rotate(90, expand=True)
 
-        filename = file_path.stem
-        output_folder = PATH / "13x15"
-        print_size.save(str(output_folder / f"{filename}.jpg"), dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+            result = ImageOps.fit(base_image, (CROP_DPI[0], CROP_DPI[1]), centering=(0.5, 0.5))
+            result = result.convert("RGB")
+
+            print_size = Image.new("RGB", (PRINT_DPI[0], PRINT_DPI[1]), (255, 255, 255))
+            print_size.paste(result)
+
+            filename = file_path.stem
+            output_folder = PATH / "13x15"
+            print_size.save(str(output_folder / f"{filename}.jpg"), dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 print("Terminé !")
 # input("Terminé !\nAppuyez sur une touche pour fermer")

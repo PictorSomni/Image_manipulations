@@ -9,7 +9,7 @@ Utilisation :
 """
 
 # ← MODIFIEZ ICI
-NEW_VERSION = "2.2.4"
+NEW_VERSION = "2.2.6"
 
 #############################################################
 #                          IMPORTS                          #
@@ -22,7 +22,7 @@ from pathlib import Path
 #############################################################
 ROOT = Path(__file__).parent.parent
 
-targets = [ROOT / "Dashboard.pyw", ROOT / "Selecteur.pyw"] + sorted((ROOT / "Data").glob("*.py")) + sorted((ROOT / "Data").glob("*.pyw"))
+targets = [ROOT / "Dashboard.pyw", ROOT / "Selecteur.pyw", ROOT / "CONSTANTS.py"] + sorted((ROOT / "Data").glob("*.py")) + sorted((ROOT / "Data").glob("*.pyw"))
 
 pattern = re.compile(r'^(__version__\s*=\s*")[^"]*(")', re.MULTILINE)
 

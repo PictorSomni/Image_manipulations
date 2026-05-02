@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.2.4"
+__version__ = "2.2.6"
 
 
 
@@ -34,6 +34,8 @@ import flet as ft
 import os
 import subprocess
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import CONSTANTS
 import platform
 import shutil
 import threading
@@ -106,18 +108,18 @@ def main(page: ft.Page):
 
 
 # ===================== COULEURS ===================== #
-    DARK = "#222429"
-    BACKGROUND = "#373d4a"
-    GREY = "#2C3038"
-    LIGHT_GREY = "#9399A6"
-    BLUE = "#45B8F5"
-    VIOLET = "#B587FE"
-    GREEN = "#49B76C"
-    YELLOW = "#FBCD5F"
-    HOVER_YELLOW = "#F9BA4E"
-    ORANGE = "#FFA071"
-    RED = "#F17171"
-    WHITE = "#c7ccd8"
+    DARK        = CONSTANTS.COLOR_DARK
+    BACKGROUND  = CONSTANTS.COLOR_BACKGROUND
+    GREY        = CONSTANTS.COLOR_GREY
+    LIGHT_GREY  = CONSTANTS.COLOR_LIGHT_GREY
+    BLUE        = CONSTANTS.COLOR_BLUE
+    VIOLET      = CONSTANTS.COLOR_VIOLET
+    GREEN       = CONSTANTS.COLOR_GREEN
+    YELLOW      = CONSTANTS.COLOR_YELLOW
+    HOVER_YELLOW = CONSTANTS.COLOR_HOVER_YELLOW
+    ORANGE      = CONSTANTS.COLOR_ORANGE
+    RED         = CONSTANTS.COLOR_RED
+    WHITE       = CONSTANTS.COLOR_WHITE
 
 
 
@@ -127,8 +129,8 @@ def main(page: ft.Page):
     page.bgcolor = BACKGROUND
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width = 1280
-    page.window.height = 900
+    page.window.width = CONSTANTS.WINDOW_WIDTH
+    page.window.height = CONSTANTS.WINDOW_HEIGHT
     page.window.icon = "assets/icon.png"
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
@@ -209,8 +211,8 @@ def main(page: ft.Page):
         "Transfert vers TEMP.py": (True, BLUE),
         "Conversion JPG.py": (False, BLUE),
         "Renommer sequence.py": (False, BLUE),
-        "Format 13x10.py": (False, HOVER_YELLOW),
         "Format 13x15.py": (False, HOVER_YELLOW),
+        "Format 13x20.py": (False, HOVER_YELLOW),
         "Recadrage.pyw": (False, BLUE),
         "Redimensionner filigrane.py": (False, WHITE),
         "2 en 1.py": (False, HOVER_YELLOW),
@@ -220,8 +222,8 @@ def main(page: ft.Page):
 
     # ===================== Valeurs par défaut ===================== #
 
-    resize_size = {"value": "640"}  # Taille par défaut pour le redimensionnement
-    resize_watermark_size = {"value": "640"}  # Taille par défaut pour le redimensionnement avec watermark
+    resize_size = {"value": str(CONSTANTS.RESIZE_DEFAULT)}  # Taille par défaut pour le redimensionnement
+    resize_watermark_size = {"value": str(CONSTANTS.RESIZE_DEFAULT)}  # Taille par défaut pour le redimensionnement avec watermark
     sort_mode = {"value": 2}  # 0 = A→Z, 1 = Z→A, 2 = par date de modification
     show_only_selection = {"value": False}  # True = afficher uniquement les fichiers sélectionnés
     removable_drives_state = {"list": []}  # [(name, path), ...]
@@ -375,7 +377,7 @@ def main(page: ft.Page):
 
     # ── Champs de saisie Redimensionner ──────────────────────────────
     resize_input = ft.TextField(
-        value="640",
+        value=str(CONSTANTS.RESIZE_DEFAULT),
         width=80,
         height=35,
         text_size=13,
@@ -385,7 +387,7 @@ def main(page: ft.Page):
         content_padding=ft.Padding(5, 5, 5, 5),
     )
     resize_watermark_input = ft.TextField(
-        value="640",
+        value=str(CONSTANTS.RESIZE_DEFAULT),
         width=80,
         height=35,
         text_size=13,
@@ -3180,13 +3182,7 @@ def main(page: ft.Page):
             return
 
         if app_name == "2 en 1.py" and series_name is None:
-            _TWO_IN_ONE_FORMATS = [
-                ("2 10x15 sur 15×20", "102x152"),
-                ("2 7x10 sur 10×15",  "76x102"),
-                ("2 9x13 sur 13×18",  "89x127"),
-                ("2 10x10 sur 10×20", "102x102"),
-                ("2 15x20 sur 20×30", "152x203"),
-            ]
+            _TWO_IN_ONE_FORMATS = CONSTANTS.TWO_IN_ONE_FORMATS
             two_in_one_dropdown = ft.Dropdown(
                 label="Format",
                 value=_TWO_IN_ONE_FORMATS[0][1],
@@ -3247,6 +3243,7 @@ def main(page: ft.Page):
             if is_local:
                 # Préparer l'environnement pour les apps locales
                 env = os.environ.copy()
+                env["PYTHONIOENCODING"] = "utf-8"
                 env["DATA_PATH"] = os.path.join(app_directory, "Data")
                 
                 # Naviguer vers le PATH pour order_it gauche/droite (après fin du processus)
@@ -3355,6 +3352,7 @@ def main(page: ft.Page):
             else:
                 # Préparer l'environnement avec le chemin du dossier Data
                 env = os.environ.copy()
+                env["PYTHONIOENCODING"] = "utf-8"
                 env["DATA_PATH"] = os.path.join(app_directory, "Data")
                 env["FOLDER_PATH"] = current_browse_folder["path"] or selected_folder["path"]
 

@@ -15,20 +15,23 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.2.4"
+__version__ = "2.2.6"
 
 #############################################################
 #                          IMPORTS                          #
 #############################################################
 from pathlib import Path
 import os
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import CONSTANTS
 from PIL import Image
 
 PROJECT = False
 WATERMARK = False
-MAXSIZE = 640
-QUALITY = 80
-ALPHA = 0.35
+MAXSIZE = CONSTANTS.RESIZE_DEFAULT
+QUALITY = CONSTANTS.PROJET_QUALITY
+ALPHA   = CONSTANTS.WATERMARK_ALPHA
 
 #############################################################
 #                           PATH                            #

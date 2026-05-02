@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Recadre et positionne des images au format 10×13 cm sur un canvas d'impression 13×10 cm.
+Recadre et positionne des images au format portrait 10×15 cm sur un canvas 13×20 cm.
 
-Chaque image portrait est recadrée à 102×102 mm (carré) puis centrée sur un
-canvas blanc 127×102 mm à 300 DPI. Le résultat est sauvegardé dans ``13x10/``.
+Chaque image portrait est recadrée à 127×178 mm puis centrée sur un canvas blanc
+127×203 mm à 300 DPI. Le résultat est sauvegardé dans ``13x20/``.
 
 Variables d'environnement :
   FOLDER_PATH     — dossier source (défaut : répertoire du script).
@@ -12,16 +12,19 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.2.4"
+__version__ = "2.2.6"
 
 #############################################################
 #                          IMPORTS                          #
 #############################################################
 import os
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import CONSTANTS
 from PIL import Image, ImageFile, ImageOps
 
-DPI = 300
+DPI = CONSTANTS.DPI
 #############################################################
 #                           PATH                            #
 #############################################################
@@ -45,8 +48,8 @@ def mm_to_pixels(mm, dpi) :
     """Convertit des millimètres en pixels entiers pour un DPI donné."""
     return round((float(mm) / 25.4) * dpi)
 
-PRINT_SIZE = (127, 102)
-CROP_SIZE = (102, 102)
+PRINT_SIZE = (127, 203)
+CROP_SIZE = (127, 178)
 PRINT_DPI = (mm_to_pixels(PRINT_SIZE[0], DPI)), (mm_to_pixels(PRINT_SIZE[1], DPI))
 CROP_DPI = (mm_to_pixels(CROP_SIZE[0], DPI)), (mm_to_pixels(CROP_SIZE[1], DPI))
 
@@ -58,7 +61,7 @@ def folder(folder) :
 
 
 #############################################################
-#                            MAIN                           #
+#                           MAIN                            #
 #############################################################
 for i, file in enumerate(FOLDER):
     print(f"Image {i+1}/{TOTAL}")
@@ -69,7 +72,7 @@ for i, file in enumerate(FOLDER):
     except Exception as e:
         print(e)
     else:
-        folder("13x10")
+        folder("13x20")
 
         if base_image.width > base_image.height: # IF LANDSCAPE, ROTATE 90 DEGREES
             base_image = base_image.rotate(90, expand=True)
@@ -81,6 +84,7 @@ for i, file in enumerate(FOLDER):
         print_size.paste(result)
 
         filename = file_path.stem
-        output_folder = PATH / "13x10"
+        output_folder = PATH / "13x20"
         print_size.save(str(output_folder / f"{filename}.jpg"), dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+print("Terminé !")
 # input("Terminé !\nAppuyez sur une touche pour fermer")

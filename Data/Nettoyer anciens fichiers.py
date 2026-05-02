@@ -14,7 +14,7 @@ Chemins :
 Dépendances : modules standard (os, platform, pathlib, datetime)
 """
 
-__version__ = "2.2.4"
+__version__ = "2.2.6"
 
 #############################################################
 #                          IMPORTS                          #
@@ -23,11 +23,13 @@ import sys
 import platform
 from pathlib import Path
 from datetime import datetime, timedelta
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import CONSTANTS
 
 #############################################################
 #                         CONSTANTS                         #
 #############################################################
-DAYS = 60
+DAYS = CONSTANTS.CLEAN_DAYS
 
 if platform.system() == "Windows":
     FOLDERS = [

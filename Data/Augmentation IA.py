@@ -52,7 +52,7 @@ sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au t
 
 """
 
-__version__ = "2.2.4"
+__version__ = "2.2.6"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -64,11 +64,13 @@ warnings.filterwarnings("ignore", message=".*torch.meshgrid.*indexing.*", catego
 import flet as ft
 import os
 import io
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import CONSTANTS
 import contextlib
 import base64
 import asyncio
 import math
-import json
 import urllib.request
 import importlib.util
 from PIL import Image, ImageFilter
@@ -153,7 +155,7 @@ _SAM2_MODELS: dict = {
 #                       CONFIGURATION                         #
 ###############################################################
 
-DPI = 300  # Résolution d'export (points par pouce)
+DPI = CONSTANTS.DPI  # Résolution d'export (points par pouce)
 
 # ---- Modèles IA ----
 _MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")

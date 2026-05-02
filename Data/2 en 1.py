@@ -19,7 +19,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.2.4"
+__version__ = "2.2.6"
 
 #############################################################
 #                          IMPORTS                          #
@@ -27,6 +27,9 @@ __version__ = "2.2.4"
 from pathlib import Path
 import os
 import re
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import CONSTANTS
 from PIL import Image, ImageOps, ImageFile
 
 #############################################################
@@ -35,7 +38,7 @@ from PIL import Image, ImageOps, ImageFile
 #-------------- size of each individual image --------------#
 WIDTH = int(os.environ.get("TWO_IN_ONE_WIDTH", 76))   # mm -> will be doubled !
 HEIGHT = int(os.environ.get("TWO_IN_ONE_HEIGHT", 102)) # mm
-DPI = 300          # DPI
+DPI = CONSTANTS.DPI          # DPI
 START = 1          # Start number to count, if needed
 
 #############################################################

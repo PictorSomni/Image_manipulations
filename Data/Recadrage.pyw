@@ -41,13 +41,16 @@ Espace     : ignorer l'image courante et passer à la suivante
 Tab       : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.2.4"
+__version__ = "2.2.6"
 
 #############################################################
 #                          IMPORTS                          #
 #############################################################
 import flet as ft
 import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import CONSTANTS
 import shutil
 import platform
 import re
@@ -67,32 +70,10 @@ REMBG_AVAILABLE = importlib.util.find_spec("rembg") is not None
 # ===================== Configuration ===================== #
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
 CONTROLS_WIDTH = 270    # Largeur de la colonne de contrôles
-DPI = 300  # Résolution d'export
+DPI = CONSTANTS.DPI  # Résolution d'export
 
 # Formats d'impression (largeur_mm, hauteur_mm) - en portrait
-FORMATS = {
-    "ID (36x46mm)": (36, 46),
-    "9x13 (89x127mm)": (89, 127),
-    "10x10 (102x102mm)": (102, 102),
-    "10x15 (102x152mm)": (102, 152),
-    "13x18 (127x178mm)": (127, 178),
-    "15x20 (152x203mm)": (152, 203),
-    "15x15 (152x152mm)": (152, 152),
-    "18x24 (178x240mm)": (178, 240),
-    "20x20 (203x203mm)": (203, 203),
-    "20x30 (203x305mm)": (203, 305),
-    "A4 (210x297mm)": (210, 297),
-    "30x30 (305x305mm)": (305, 305),
-    "30x40 (305x405mm)": (305, 405),
-    "A3 (297x420mm)": (297, 420),
-    "30x45 (305x455mm)": (305, 455),
-    "40x50 (405x505mm)": (405, 505),
-    "40x60 (405x605mm)": (405, 605),
-    "50x70 (505x705mm)": (505, 705),
-    "60x80 (605x805mm)": (605, 805),
-    "60x90 (605x905mm)": (605, 905),
-    "70x100 (705x1005mm)": (705, 1005)
-}
+FORMATS = CONSTANTS.FORMATS
 
 # ===================== COULEURS ===================== #
 DARK = "#222429"
