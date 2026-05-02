@@ -49,7 +49,8 @@ __version__ = "2.2.6"
 import flet as ft
 import os
 import sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import CONSTANTS
 import shutil
 import platform
