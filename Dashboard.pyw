@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.2.3"
+__version__ = "2.2.4"
 
 
 
@@ -133,7 +133,7 @@ def main(page: ft.Page):
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
     app_directory = os.path.dirname(os.path.abspath(__file__))
-    selected_files = set()  # Ensemble des fichiers sélectionnés
+    selected_files = []  # Liste des fichiers sélectionnés (ordre de clic préservé)
 
     clipboard = {"files": [], "cut": False}  # Presse-papiers pour copier/coller/couper des fichiers
 
@@ -564,7 +564,8 @@ def main(page: ft.Page):
         # Sinon, ouvrir un sélecteur de dossier dans Dashboard pour choisir le second dossier
         async def _pick_and_launch(e=None):
             picked = await ft.FilePicker().get_directory_path(
-                dialog_title="Sélectionner le second dossier à comparer")
+                dialog_title="Sélectionner le second dossier à comparer",
+                initial_directory=folder1)
             if picked:
                 _do_launch(os.path.normpath(picked))
             else:
@@ -1873,8 +1874,8 @@ def main(page: ft.Page):
             entries = [entry for entry in entries if query_lower in entry[0].lower()]
         added = 0
         for _name, fpath, is_dir, _is_img, _ext in entries:
-            if not is_dir:
-                selected_files.add(fpath)
+            if not is_dir and fpath not in selected_files:
+                selected_files.append(fpath)
                 added += 1
         selection_count_text.value = _selection_label()
         _render_preview_page()
@@ -1894,7 +1895,7 @@ def main(page: ft.Page):
                 fpath for (_name, fpath, is_dir, _is_img, _ext) in all_entries_data["list"]
                 if not is_dir and query_lower in _name.lower()
             }
-            all_filtered_selected = bool(filtered_paths) and filtered_paths.issubset(selected_files)
+            all_filtered_selected = bool(filtered_paths) and filtered_paths.issubset(set(selected_files))
         else:
             all_filtered_selected = bool(selected_files)
 
@@ -1946,8 +1947,8 @@ def main(page: ft.Page):
                 fpath for (_name, fpath, is_dir, _is_img, _ext) in all_entries_data["list"]
                 if not is_dir and query_lower in _name.lower()
             }
-            if not filtered_paths.issubset(selected_files):
-                # Premier appui : sélectionner les fichiers filtrés
+            if not filtered_paths.issubset(set(selected_files)):
+                # Premier appuis : sélectionner les fichiers filtrés
                 select_by_filter(e)
             else:
                 # Deuxième appui : tout désélectionner
@@ -1970,9 +1971,9 @@ def main(page: ft.Page):
             if is_dir:
                 continue
             if fpath in selected_files:
-                selected_files.discard(fpath)
+                selected_files.remove(fpath)
             else:
-                selected_files.add(fpath)
+                selected_files.append(fpath)
         selection_count_text.value = _selection_label()
         _render_preview_page()
         _update_select_toggle_button()
@@ -2033,7 +2034,8 @@ def main(page: ft.Page):
                                 shutil.rmtree(source_path)
                             else:
                                 os.remove(source_path)
-                            selected_files.discard(source_path)
+                            if source_path in selected_files:
+                                selected_files.remove(source_path)
                         except Exception as del_err:
                             errors.append(f"Suppression source {os.path.basename(source_path)}: {del_err}")
                 except Exception as err:
@@ -2083,8 +2085,7 @@ def main(page: ft.Page):
                 os.rename(file_path, new_path)
                 log_to_terminal(f"[OK] {basename} → {new_name}", GREEN)
                 if file_path in selected_files:
-                    selected_files.discard(file_path)
-                    selected_files.add(new_path)
+                    selected_files[selected_files.index(file_path)] = new_path
             except Exception as err:
                 log_to_terminal(f"[ERREUR] {err}", RED)
                 return
@@ -2107,8 +2108,7 @@ def main(page: ft.Page):
                     try:
                         os.rename(entry_path, new_entry_path)
                         if entry_path in selected_files:
-                            selected_files.discard(entry_path)
-                            selected_files.add(new_entry_path)
+                            selected_files[selected_files.index(entry_path)] = new_entry_path
                         renamed_count += 1
                     except Exception as err:
                         log_to_terminal(f"[ERREUR] {file_name}: {err}", RED)
@@ -2137,8 +2137,7 @@ def main(page: ft.Page):
             try:
                 os.rename(file_path, new_path)
                 if file_path in selected_files:
-                    selected_files.discard(file_path)
-                    selected_files.add(new_path)
+                    selected_files[selected_files.index(file_path)] = new_path
             except Exception as err:
                 log_to_terminal(f"[ERREUR] {err}", RED)
                 refresh_preview(reset_page=False)
@@ -2157,8 +2156,7 @@ def main(page: ft.Page):
                 try:
                     os.rename(entry_path, clean_entry_path)
                     if entry_path in selected_files:
-                        selected_files.discard(entry_path)
-                        selected_files.add(clean_entry_path)
+                        selected_files[selected_files.index(entry_path)] = clean_entry_path
                     removed += 1
                 except Exception as err:
                     log_to_terminal(f"[ERREUR] {file_name}: {err}", RED)
@@ -2170,8 +2168,7 @@ def main(page: ft.Page):
                 os.rename(file_path, new_path)
                 log_to_terminal(f"[OK] {basename} → {new_name}", GREEN)
                 if file_path in selected_files:
-                    selected_files.discard(file_path)
-                    selected_files.add(new_path)
+                    selected_files[selected_files.index(file_path)] = new_path
             except Exception as err:
                 log_to_terminal(f"[ERREUR] {err}", RED)
         refresh_preview(reset_page=False)
@@ -2194,9 +2191,11 @@ def main(page: ft.Page):
     def on_checkbox_change(e, file_path):
         """Gère le changement d'état d'une checkbox"""
         if e.control.value:
-            selected_files.add(file_path)
+            if file_path not in selected_files:
+                selected_files.append(file_path)
         else:
-            selected_files.discard(file_path)
+            if file_path in selected_files:
+                selected_files.remove(file_path)
         selection_count_text.value = _selection_label()
         _update_select_toggle_button()
         page.update()
@@ -2205,7 +2204,7 @@ def main(page: ft.Page):
 
     def clear_selection(e):
         """Désélectionne tous les fichiers et rafraîchit la preview."""
-        selected_files.clear()
+        selected_files.clear()  # list.clear() est valide
         if show_only_selection["value"]:
             show_only_selection["value"] = False
             _update_filter_sel_btn()
@@ -2286,8 +2285,8 @@ def main(page: ft.Page):
         if not folder_to_display or not os.path.isdir(folder_to_display):
             return
 
-        names = [name for name in selected_names_str.split("|") if name]
-        names_to_select = set(names)
+        names_ordered = [name for name in selected_names_str.split("|") if name]
+        names_to_select = set(names_ordered)
 
         selected_files.clear()
 
@@ -2298,14 +2297,16 @@ def main(page: ft.Page):
         # évitant toute divergence de normalisation Unicode NFD/NFC sur macOS.
         entries = all_entries_data["list"]
         if names_to_select and entries:
-            for file_name, file_path, is_dir, is_image, ext in entries:
-                if file_name in names_to_select:
-                    selected_files.add(file_path)
+            name_to_path = {file_name: file_path for file_name, file_path, is_dir, is_image, ext in entries if file_name in names_to_select}
+            for name in names_ordered:
+                if name in name_to_path:
+                    selected_files.append(name_to_path[name])
         elif names_to_select:
             # Fallback si entries pas encore peuplées
-            for item_name in os.listdir(folder_to_display):
-                if item_name in names_to_select:
-                    selected_files.add(os.path.join(folder_to_display, item_name))
+            existing = {item_name: os.path.join(folder_to_display, item_name) for item_name in os.listdir(folder_to_display)}
+            for name in names_ordered:
+                if name in existing:
+                    selected_files.append(existing[name])
 
         selection_count_text.value = _selection_label()
 
@@ -3180,10 +3181,10 @@ def main(page: ft.Page):
 
         if app_name == "2 en 1.py" and series_name is None:
             _TWO_IN_ONE_FORMATS = [
-                ("2 7x10 sur 10×15",  "76x102"),
-                ("2 10x10 sur 10×20", "102x102"),
-                ("2 9x13 sur 13×18",  "89x127"),
                 ("2 10x15 sur 15×20", "102x152"),
+                ("2 7x10 sur 10×15",  "76x102"),
+                ("2 9x13 sur 13×18",  "89x127"),
+                ("2 10x10 sur 10×20", "102x102"),
                 ("2 15x20 sur 20×30", "152x203"),
             ]
             two_in_one_dropdown = ft.Dropdown(

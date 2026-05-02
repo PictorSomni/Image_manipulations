@@ -20,7 +20,7 @@ Variables d'environnement :
 Dépendances : flet >= 0.84
 """
 
-__version__ = "2.2.3"
+__version__ = "2.2.4"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  IMPORTS
@@ -147,8 +147,7 @@ def main(page: ft.Page):
     page.bgcolor     = BACKGROUND
     page.window.title_bar_hidden         = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width  = 1400
-    page.window.height = 900
+    page.window.maximized = True
 
     # ── État global ──────────────────────────────────────────────────────
     folder1_path       = os.environ.get("FOLDER_PATH",   "").strip()
@@ -717,13 +716,6 @@ def main(page: ft.Page):
     )
 
     # ── Démarrage auto ────────────────────────────────────────────────────
-    async def _on_load():
-        """Maximise la fenêtre après que Flet l'a entièrement initialisée."""
-        page.window.maximized = True
-        page.update()
-
-    page.run_task(_on_load)
-
     if folder1_path and folder2_path:
         _build_pairs_and_start()
     elif folder1_path:

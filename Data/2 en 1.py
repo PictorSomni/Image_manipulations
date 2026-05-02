@@ -19,7 +19,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.2.3"
+__version__ = "2.2.4"
 
 #############################################################
 #                          IMPORTS                          #
@@ -106,8 +106,7 @@ print(f"2 images sur {WIDTH * 2}x{HEIGHT}")
 print("#" * 30)
 
 while len(FOLDER) > 0:
-    print(f"image {index} sur {TOTAL // 2}") if TOTAL % 2 == 0 else print(f"image {index} sur {(TOTAL // 2) + 1}")
-    print("-" * 13)
+    print(f"{index} / {TOTAL // 2}") if TOTAL % 2 == 0 else print(f"{index} / {(TOTAL // 2) + 1}")
 
     folder(FOLDER_NAME)
     image1 = FOLDER.pop()

@@ -15,7 +15,7 @@ Variables d'environnement :
 Dépendances : modules standard (os, pathlib, sys)
 """
 
-__version__ = "2.2.3"
+__version__ = "2.2.4"
 
 #############################################################
 #                          IMPORTS                          #
@@ -35,10 +35,14 @@ SERIES_NAME = os.environ.get("SERIES_NAME", "").strip()
 #############################################################
 # Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
 selected_files_str = os.environ.get("SELECTED_FILES", "")
-selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
+selected_files_list = selected_files_str.split("|") if selected_files_str else None
 
 all_files = sorted([file.name for file in PATH.iterdir() if file.is_file() and file.name != "watermark.png"])
-FOLDER = sorted([f for f in all_files if f in selected_files_set]) if selected_files_set else all_files
+if selected_files_list:
+    all_files_set = set(all_files)
+    FOLDER = [f for f in selected_files_list if f in all_files_set]
+else:
+    FOLDER = all_files
 
 #############################################################
 #                           MAIN                            #
