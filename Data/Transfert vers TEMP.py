@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : flet >= 0.21, modules standard (pathlib, shutil, datetime)
 """
 
-__version__ = "2.2.6"
+__version__ = "2.3.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -30,6 +30,8 @@ import subprocess
 import platform
 import sys
 import os
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import CONSTANTS
 import flet as ft
 
 #############################################################
@@ -51,16 +53,16 @@ if _SOURCE_FILES_ENV:
             SOURCE_FILES_FROM_DASHBOARD.append(_path)
 
 # Colors
-DARK = "#23252a"
-BG = "#292c33"
-GREY = "#2f333c"
-LIGHT_GREY = "#62666f"
-BLUE = "#45B8F5"
-GREEN = "#49B76C"
-DARK_ORANGE = "#2A1D18"
-ORANGE = "#e06331"
-RED = "#e17080"
-WHITE = "#adb2be"
+DARK         = CONSTANTS.COLOR_DARK
+BG           = CONSTANTS.COLOR_BACKGROUND
+GREY         = CONSTANTS.COLOR_GREY
+LIGHT_GREY   = CONSTANTS.COLOR_LIGHT_GREY
+BLUE         = CONSTANTS.COLOR_BLUE
+GREEN        = CONSTANTS.COLOR_GREEN
+DARK_ORANGE  = "#2A1D18"
+ORANGE       = CONSTANTS.COLOR_ORANGE
+RED          = CONSTANTS.COLOR_RED
+WHITE        = CONSTANTS.COLOR_WHITE
 
 #############################################################
 #                           MAIN                            #

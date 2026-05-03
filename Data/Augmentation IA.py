@@ -52,7 +52,7 @@ sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au t
 
 """
 
-__version__ = "2.2.6"
+__version__ = "2.3.0"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -213,16 +213,18 @@ BG_COLORS: dict[str, tuple[int, int, int]] = {
 IMAGE_EXTENSIONS: set[str] = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".webp"}
 
 # ---- Palette UI (cohérente avec Dashboard.pyw) ---- #
-DARK       = "#222429"
-BG_UI      = "#373d4a"
-GREY       = "#2C3038"
-LIGHT_GREY = "#9399A6"
-BLUE       = "#45B8F5"
-VIOLET     = "#AC92EC"
-GREEN      = "#49B76C"
-ORANGE     = "#FFA071"
-RED        = "#F17171"
-WHITE      = "#c7ccd8"
+DARK         = CONSTANTS.COLOR_DARK
+BG_UI        = CONSTANTS.COLOR_BACKGROUND
+GREY         = CONSTANTS.COLOR_GREY
+LIGHT_GREY   = CONSTANTS.COLOR_LIGHT_GREY
+BLUE         = CONSTANTS.COLOR_BLUE
+VIOLET       = CONSTANTS.COLOR_VIOLET
+GREEN        = CONSTANTS.COLOR_GREEN
+YELLOW       = CONSTANTS.COLOR_YELLOW
+HOVER_YELLOW = CONSTANTS.COLOR_HOVER_YELLOW
+ORANGE       = CONSTANTS.COLOR_ORANGE
+RED          = CONSTANTS.COLOR_RED
+WHITE        = CONSTANTS.COLOR_WHITE
 
 ###############################################################
 #                       UTILITAIRES                           #

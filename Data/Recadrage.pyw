@@ -41,7 +41,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Tab       : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.2.6"
+__version__ = "2.3.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -77,17 +77,18 @@ DPI = CONSTANTS.DPI  # Résolution d'export
 FORMATS = CONSTANTS.FORMATS
 
 # ===================== COULEURS ===================== #
-DARK = "#222429"
-BG = "#373d4a"
-GREY = "#2C3038"
-LIGHT_GREY = "#9399A6"
-BLUE = "#45B8F5"
-VIOLET = "#AC92EC"
-GREEN = "#49B76C"
-YELLOW = "#EECB6D"
-ORANGE = "#FFA071"
-RED = "#F17171"
-WHITE = "#c7ccd8"
+DARK         = CONSTANTS.COLOR_DARK
+BG           = CONSTANTS.COLOR_BACKGROUND
+GREY         = CONSTANTS.COLOR_GREY
+LIGHT_GREY   = CONSTANTS.COLOR_LIGHT_GREY
+BLUE         = CONSTANTS.COLOR_BLUE
+VIOLET       = CONSTANTS.COLOR_VIOLET
+GREEN        = CONSTANTS.COLOR_GREEN
+YELLOW       = CONSTANTS.COLOR_YELLOW
+HOVER_YELLOW = CONSTANTS.COLOR_HOVER_YELLOW
+ORANGE       = CONSTANTS.COLOR_ORANGE
+RED          = CONSTANTS.COLOR_RED
+WHITE        = CONSTANTS.COLOR_WHITE
 
 
 

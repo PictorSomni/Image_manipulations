@@ -17,7 +17,7 @@ Sélecteur — App compacte (demi-écran) avec deux onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.2.6"
+__version__ = "2.3.0"
 
 
 #############################################################
@@ -33,6 +33,7 @@ import platform
 import subprocess
 import sys
 import asyncio
+import CONSTANTS
 
 
 #############################################################
@@ -60,18 +61,18 @@ def _is_os_junk(entry):
 def main(page: ft.Page):
 
     # ─── Couleurs ────────────────────────────────────────────────────────
-    DARK        = "#222429"
-    BACKGROUND  = "#373d4a"
-    GREY        = "#2C3038"
-    LIGHT_GREY  = "#9399A6"
-    BLUE        = "#45B8F5"
-    VIOLET      = "#B587FE"
-    GREEN       = "#49B76C"
-    YELLOW      = "#FBCD5F"
-    HOVER_YELLOW= "#F9BA4E"
-    ORANGE      = "#FFA071"
-    RED         = "#F17171"
-    WHITE       = "#c7ccd8"
+    DARK         = CONSTANTS.COLOR_DARK
+    BACKGROUND   = CONSTANTS.COLOR_BACKGROUND
+    GREY         = CONSTANTS.COLOR_GREY
+    LIGHT_GREY   = CONSTANTS.COLOR_LIGHT_GREY
+    BLUE         = CONSTANTS.COLOR_BLUE
+    VIOLET       = CONSTANTS.COLOR_VIOLET
+    GREEN        = CONSTANTS.COLOR_GREEN
+    YELLOW       = CONSTANTS.COLOR_YELLOW
+    HOVER_YELLOW = CONSTANTS.COLOR_HOVER_YELLOW
+    ORANGE       = CONSTANTS.COLOR_ORANGE
+    RED          = CONSTANTS.COLOR_RED
+    WHITE        = CONSTANTS.COLOR_WHITE
 
     # ─── Propriétés fenêtre ──────────────────────────────────────────────
     page.title       = "Sélecteur"

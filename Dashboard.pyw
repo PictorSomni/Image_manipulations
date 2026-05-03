@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.2.6"
+__version__ = "2.3.0"
 
 
 
@@ -217,6 +217,9 @@ def main(page: ft.Page):
         "Redimensionner filigrane.py": (False, WHITE),
         "2 en 1.py": (False, HOVER_YELLOW),
         "Redimensionner.py": (False, WHITE),
+        "Selecteur.pyw": (True, YELLOW, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Selecteur.pyw")),
+        "Fichiers manquants.py": (False, ORANGE),
+        "Comparaison.pyw": (False, BLUE, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Comparaison.pyw")),
     }
 
 
@@ -574,6 +577,25 @@ def main(page: ft.Page):
                 log_to_terminal("[INFO] Comparaison annulée (pas de second dossier sélectionné)", LIGHT_GREY)
 
         page.run_task(_pick_and_launch)
+
+
+
+    def _launch_kiosk_flet():
+        """Lance kiosk_flet.pyw, minimise Dashboard, puis le restaure à la fermeture."""
+        folder = current_browse_folder["path"] or selected_folder["path"] or ""
+        env = {**os.environ}
+        if folder:
+            env["FOLDER_PATH"] = folder
+        kiosk_path = os.path.join(app_directory, "Kiosk", "kiosk_flet.pyw")
+        proc = subprocess.Popen([sys.executable, kiosk_path], env=env)
+        page.window.minimized = True
+        page.update()
+
+        def _watch():
+            proc.wait()
+            page.pubsub.send_all_on_topic("restore_window", None)
+
+        threading.Thread(target=_watch, daemon=True).start()
 
 
 
@@ -3228,10 +3250,6 @@ def main(page: ft.Page):
                                     app_name, app_path, is_local)
             return
 
-        if app_name == "Comparaison.pyw":
-            _launch_comparaison()
-            return
-
         if not is_local and not (current_browse_folder["path"] or selected_folder["path"]):
             log_to_terminal("[ERREUR] Veuillez sélectionner un dossier avant de lancer cette application", RED)
             return
@@ -3549,7 +3567,7 @@ def main(page: ft.Page):
         for app_name, app_config in apps.items():
             is_local = app_config[0]
             app_color = app_config[1]
-            app_path = os.path.join(app_directory, "Data", app_name)
+            app_path = app_config[2] if len(app_config) > 2 else os.path.join(app_directory, "Data", app_name)
             if not os.path.exists(app_path):
                 continue
 
@@ -3623,6 +3641,7 @@ def main(page: ft.Page):
             apps_list.controls.append(
                 ft.Row(controls=row_items, expand=True, spacing=8)
             )
+
         page.update()
 
 
@@ -3655,12 +3674,6 @@ def main(page: ft.Page):
         remerciements_path        = os.path.join(app_directory, "Data", "Remerciements.py")
 
         quick_tools_col.controls = [
-            _round_button(
-                ft.Icons.FIND_IN_PAGE,
-                ORANGE,
-                "Fichiers manquants",
-                lambda e: launch_app("Fichiers manquants.py", fichiers_manquants_path, False),
-            ),
             _round_button(
                 ft.Icons.MONOCHROME_PHOTOS,
                 WHITE,
@@ -3702,12 +3715,6 @@ def main(page: ft.Page):
                 ORANGE,
                 "Zipper la sélection",
                 _prompt_and_zip_selection,
-            ),
-            _round_button(
-                ft.Icons.COMPARE,
-                BLUE,
-                "Comparaison d'images",
-                lambda e: _launch_comparaison(),
             ),
             _round_button(
                 ft.Icons.AUTO_FIX_HIGH,
@@ -3973,10 +3980,10 @@ def main(page: ft.Page):
                     icon_size=18,
                 ),
                 ft.IconButton(
-                    icon=ft.Icons.VERTICAL_SPLIT,
-                    tooltip="Ouvrir le Sélecteur (demi-écran)",
-                    on_click=lambda e: _launch_selecteur(),
-                    icon_color=YELLOW,
+                    icon=ft.Icons.PHOTO_LIBRARY,
+                    tooltip="Ouvrir le Kiosk",
+                    on_click=lambda e: _launch_kiosk_flet(),
+                    icon_color=VIOLET,
                     bgcolor=DARK,
                     icon_size=18,
                 ),

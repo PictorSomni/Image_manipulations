@@ -20,16 +20,19 @@ Variables d'environnement :
 Dépendances : flet >= 0.84
 """
 
-__version__ = "2.2.6"
+__version__ = "2.3.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  IMPORTS
 # ─────────────────────────────────────────────────────────────────────────────
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import CONSTANTS
 import flet as ft
 import asyncio
 import os
 import shutil
-from pathlib import Path
 from types import SimpleNamespace
 
 try:
@@ -42,18 +45,18 @@ except ImportError:
 # ─────────────────────────────────────────────────────────────────────────────
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".tif", ".webp"}
 
-DARK         = "#222429"
-BACKGROUND   = "#373d4a"
-GREY         = "#2C3038"
-LIGHT_GREY   = "#9399A6"
-BLUE         = "#45B8F5"
-VIOLET       = "#B587FE"
-GREEN        = "#49B76C"
-YELLOW       = "#FBCD5F"
-HOVER_YELLOW = "#F9BA4E"
-ORANGE       = "#FFA071"
-RED          = "#F17171"
-WHITE        = "#c7ccd8"
+DARK         = CONSTANTS.COLOR_DARK
+BACKGROUND   = CONSTANTS.COLOR_BACKGROUND
+GREY         = CONSTANTS.COLOR_GREY
+LIGHT_GREY   = CONSTANTS.COLOR_LIGHT_GREY
+BLUE         = CONSTANTS.COLOR_BLUE
+VIOLET       = CONSTANTS.COLOR_VIOLET
+GREEN        = CONSTANTS.COLOR_GREEN
+YELLOW       = CONSTANTS.COLOR_YELLOW
+HOVER_YELLOW = CONSTANTS.COLOR_HOVER_YELLOW
+ORANGE       = CONSTANTS.COLOR_ORANGE
+RED          = CONSTANTS.COLOR_RED
+WHITE        = CONSTANTS.COLOR_WHITE
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  UTILITAIRES
