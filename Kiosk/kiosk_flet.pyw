@@ -7,7 +7,7 @@ Remplace la version Qt6 originale (main.py) avec :
   - Grille d'images avec sélection de format et compteur d'impressions par photo.
   - Prévisualisation N&B par image (toggle par bouton).
   - Calcul du prix total en temps réel.
-  - Validation et écriture d'un fichier commande.txt.
+  - Validation copie des fichiers dans des dossiers SELECTION et AUTRES.
 
 Dépendances : flet, Pillow (PIL)
 """
@@ -18,6 +18,8 @@ import sys
 import io
 import base64
 import threading
+import tempfile
+import shutil
 
 # ── Import des constantes spécifiques au kiosk ───────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -66,6 +68,27 @@ def _make_thumbnail_b64(file_path: str, grayscale: bool = False, size: int = THU
         return None
 
 
+def _save_thumbnail(file_path: str, out_path: str, grayscale: bool = False, size: int = THUMBNAIL_SIZE) -> bool:
+    """
+    Génère une miniature JPEG et la sauvegarde sur disque.
+    Retourne True en cas de succès, False sinon.
+    """
+    if not HAS_PIL or PILImage is None or ImageOps is None:
+        return False
+    try:
+        with PILImage.open(file_path) as img:
+            img = ImageOps.exif_transpose(img)
+            if grayscale:
+                img = img.convert("L").convert("RGB")
+            else:
+                img = img.convert("RGB")
+            img.thumbnail((size, size), PILImage.LANCZOS)
+            img.save(out_path, format="JPEG", quality=80)
+        return True
+    except Exception:
+        return False
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  Point d'entrée Flet
 # ─────────────────────────────────────────────────────────────────────────────
@@ -90,7 +113,7 @@ def main(page: ft.Page) -> None:
     page.bgcolor = C_BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.full_screen = True
+    page.window.maximized = True
     page.padding = 0
     page.update()
 
@@ -106,6 +129,10 @@ def main(page: ft.Page) -> None:
     total_price = {"value": 0.0}
     nb_state: dict[str, bool] = {}          # True = prévisualisation N&B active
     image_cards: dict[str, dict] = {}       # {filename: {card, count_text, image_ctrl, nb_button}}
+
+    KIOSK_PAGE_SIZE  = 60               # nombre de cartes affichées par page
+    kiosk_page       = {"value": 0}     # page courante (0-indexé)
+    kiosk_page_token = {"value": 0}     # jeton d'annulation des threads miniatures
 
     # ─────────────────────────────────────────────────────────────────────
     #  Helpers d'état
@@ -170,13 +197,23 @@ def main(page: ft.Page) -> None:
         card_data["nb_button"].update()
 
         file_path = os.path.join(current_folder["path"], filename)
+        stem = os.path.splitext(filename)[0]
 
         def _reload_thumbnail():
-            b64 = _make_thumbnail_b64(file_path, grayscale=is_nb)
-            if b64 is not None:
-                card_data["image_ctrl"].src = f"data:image/jpeg;base64,{b64}"
-            elif not is_nb:
-                card_data["image_ctrl"].src = file_path
+            temp_dir = _get_temp_dir()
+            if is_nb:
+                thumb_path = os.path.join(temp_dir, f"{stem}_nb.jpg")
+                if not os.path.exists(thumb_path):
+                    ok = _save_thumbnail(file_path, thumb_path, grayscale=True)
+                    if not ok:
+                        thumb_path = os.path.join(temp_dir, f"{stem}_thumb.jpg")
+            else:
+                thumb_path = os.path.join(temp_dir, f"{stem}_thumb.jpg")
+                if not os.path.exists(thumb_path):
+                    ok = _save_thumbnail(file_path, thumb_path, grayscale=False)
+                    if not ok:
+                        thumb_path = file_path
+            card_data["image_ctrl"].src = thumb_path
 
             async def _apply():
                 try:
@@ -258,15 +295,20 @@ def main(page: ft.Page) -> None:
         )
 
         def _reload_preview_image() -> None:
-            b64 = _make_thumbnail_b64(
-                _current_file_path(),
-                grayscale=state["nb_active"],
-                size=1024,
-            )
-            if b64 is not None:
-                preview_img.src = f"data:image/jpeg;base64,{b64}"
-            else:
-                preview_img.src = _current_file_path()
+            temp_dir = _get_temp_dir()
+            stem = os.path.splitext(state["filename"])[0]
+            suffix = "_preview_nb" if state["nb_active"] else "_preview"
+            preview_path = os.path.join(temp_dir, f"{stem}{suffix}.jpg")
+            if not os.path.exists(preview_path):
+                ok = _save_thumbnail(
+                    _current_file_path(),
+                    preview_path,
+                    grayscale=state["nb_active"],
+                    size=1024,
+                )
+                if not ok:
+                    preview_path = _current_file_path()
+            preview_img.src = preview_path
 
             async def _apply():
                 try:
@@ -406,19 +448,28 @@ def main(page: ft.Page) -> None:
         threading.Thread(target=_reload_preview_image, daemon=True).start()
 
     # ─────────────────────────────────────────────────────────────────────
-    #  État de chargement des miniatures
+    #  Dossier temporaire pour les miniatures
     # ─────────────────────────────────────────────────────────────────────
-    _loading_state: dict = {"total": 0, "loaded": 0}
+    _temp_dir: dict = {"path": ""}
+
+    def _get_temp_dir() -> str:
+        """Crée le dossier temporaire si nécessaire et retourne son chemin."""
+        if not _temp_dir["path"] or not os.path.isdir(_temp_dir["path"]):
+            _temp_dir["path"] = tempfile.mkdtemp(prefix="kiosk_")
+        return _temp_dir["path"]
+
+    def _cleanup_temp_dir() -> None:
+        """Supprime le dossier temporaire et tout son contenu."""
+        if _temp_dir["path"] and os.path.isdir(_temp_dir["path"]):
+            shutil.rmtree(_temp_dir["path"], ignore_errors=True)
+        _temp_dir["path"] = ""
 
     # ─────────────────────────────────────────────────────────────────────
     #  Construction d'une carte image
     # ─────────────────────────────────────────────────────────────────────
 
-    def _build_image_card(filename: str) -> tuple[ft.Container, dict, object]:
-        file_path = os.path.join(current_folder["path"], filename)
-
-        _blank_gif = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
-
+    def _build_image_card(filename: str, thumb_path: str) -> tuple[ft.Container, dict]:
+        """Construit une carte image en utilisant la miniature déjà convertie sur disque."""
         count_text = ft.Text(
             "0",
             size=20,
@@ -433,7 +484,7 @@ def main(page: ft.Page) -> None:
             tooltip="Prévisualiser en N&B",
         )
         image_ctrl = ft.Image(
-            src=_blank_gif,
+            src=thumb_path,
             width=THUMBNAIL_SIZE,
             height=THUMBNAIL_SIZE,
             fit=ft.BoxFit.CONTAIN,
@@ -448,40 +499,13 @@ def main(page: ft.Page) -> None:
             ),
         )
 
-        # On ferme sur filename (valeur figée à chaque itération)
         nb_button.on_click = lambda e, f=filename: on_toggle_nb(f)
-
-        # Chargement de la miniature en arrière-plan via PIL
-        # NE PAS lancer le thread ici — il sera démarré par load_folder
-        # après que les cartes aient été ajoutées à la page.
-        def _load_thumb():
-            b64 = _make_thumbnail_b64(file_path, grayscale=False)
-            if b64 is not None:
-                image_ctrl.src = f"data:image/jpeg;base64,{b64}"
-            else:
-                image_ctrl.src = file_path
-            # Mise à jour de la barre de progression
-            _loading_state["loaded"] += 1
-            loaded = _loading_state["loaded"]
-            total = _loading_state["total"]
-            loading_label.value = f"Chargement {loaded} / {total}"
-            if loaded >= total:
-                loading_row.visible = False
-
-            async def _apply():
-                try:
-                    page.update()
-                except Exception:
-                    pass
-
-            page.run_task(_apply)
 
         # Nom affiché tronqué
         display_name = filename if len(filename) <= 18 else filename[:15] + "…"
 
         card = ft.Container(
             content=ft.Column([
-                # Miniature cliquable
                 ft.Container(
                     content=image_ctrl,
                     on_click=lambda e, f=filename: on_show_preview(f),
@@ -535,13 +559,65 @@ def main(page: ft.Page) -> None:
             "image_ctrl": image_ctrl,
             "nb_button": nb_button,
         }
-        return card, card_data, _load_thumb
+        return card, card_data
+
+    # ─────────────────────────────────────────────────────────────────────
+    #  Lazy loading — rendu de la page courante de la grille
+    # ─────────────────────────────────────────────────────────────────────
+
+    def _render_image_page() -> None:
+        """Affiche uniquement les cartes de la page courante.
+        Les miniatures ont déjà été converties sur disque — affichage instantané."""
+        total = len(images_list)
+        if total == 0:
+            image_cards.clear()
+            images_grid.controls.clear()
+            images_grid.update()
+            pagination_row.visible = False
+            pagination_row.update()
+            return
+
+        total_pages = max(1, (total + KIOSK_PAGE_SIZE - 1) // KIOSK_PAGE_SIZE)
+        current_pg  = min(max(0, kiosk_page["value"]), total_pages - 1)
+        kiosk_page["value"] = current_pg
+
+        start       = current_pg * KIOSK_PAGE_SIZE
+        end         = min(start + KIOSK_PAGE_SIZE, total)
+        page_images = images_list[start:end]
+
+        # Pagination UI
+        prev_page_btn.visible     = current_pg > 0
+        next_page_btn.visible     = current_pg < total_pages - 1
+        page_indicator_text.value = f"Page {current_pg + 1} / {total_pages}"
+        pagination_row.visible    = total > KIOSK_PAGE_SIZE
+        pagination_row.update()
+
+        # Reconstruction de la grille pour cette page uniquement
+        image_cards.clear()
+        images_grid.controls.clear()
+
+        temp_dir = _get_temp_dir()
+        for entry_name in page_images:
+            stem       = os.path.splitext(entry_name)[0]
+            thumb_path = os.path.join(temp_dir, f"{stem}_thumb.jpg")
+            card, card_data = _build_image_card(entry_name, thumb_path)
+            image_cards[entry_name] = card_data
+            images_grid.controls.append(card)
+
+        images_grid.update()
+
+    def _go_to_page(page_num: int) -> None:
+        """Change la page courante et déclenche le rendu."""
+        kiosk_page["value"] = page_num
+        _render_image_page()
+        page.update()
 
     # ─────────────────────────────────────────────────────────────────────
     #  Chargement du dossier
     # ─────────────────────────────────────────────────────────────────────
 
     def load_folder(folder_path: str) -> None:
+        _cleanup_temp_dir()
         # Réinitialisation
         images_list.clear()
         image_cards.clear()
@@ -549,6 +625,10 @@ def main(page: ft.Page) -> None:
         prints_data.clear()
         total_price["value"] = 0.0
         current_folder["path"] = folder_path
+
+        # Incrémenter le jeton pour annuler toute conversion en cours
+        kiosk_page_token["value"] += 1
+        token = kiosk_page_token["value"]
 
         # Scan des images
         try:
@@ -570,26 +650,60 @@ def main(page: ft.Page) -> None:
         price_text.value = "0.00 €"
         price_text.update()
 
-        # Construction de la grille
+        # Vider la grille pendant la conversion
         images_grid.controls.clear()
         images_grid.update()
-        if images_list:
-            _loading_state["total"] = len(images_list)
-            _loading_state["loaded"] = 0
-            loading_label.value = f"Chargement 0 / {len(images_list)}"
-            loading_row.visible = True
-            loading_row.update()
-        thumb_loaders: list = []
-        for entry_name in images_list:
-            card, card_data, loader = _build_image_card(entry_name)
-            image_cards[entry_name] = card_data
-            images_grid.controls.append(card)
-            thumb_loaders.append(loader)
-        images_grid.update()  # cartes sur la page AVANT de lancer les threads
-        for loader in thumb_loaders:
-            threading.Thread(target=loader, daemon=True).start()
-
+        pagination_row.visible = False
+        pagination_row.update()
         _update_size_buttons()
+
+        if not images_list:
+            loading_row.visible = False
+            loading_row.update()
+            return
+
+        # ── Phase 1 : conversion de toutes les miniatures (1024 px) ──────
+        total = len(images_list)
+        loading_label.value    = f"Conversion 0 / {total}"
+        loading_progress.value = 0.0
+        loading_row.visible    = True
+        loading_row.update()
+
+        def _convert_all():
+            temp_dir = _get_temp_dir()
+            for i, filename in enumerate(images_list):
+                if kiosk_page_token["value"] != token:
+                    return  # dossier changé entre-temps
+                file_path  = os.path.join(folder_path, filename)
+                stem       = os.path.splitext(filename)[0]
+                thumb_path = os.path.join(temp_dir, f"{stem}_thumb.jpg")
+                if not os.path.exists(thumb_path):
+                    _save_thumbnail(file_path, thumb_path, grayscale=False, size=1024)
+                loaded = i + 1
+                loading_label.value    = f"Conversion {loaded} / {total}"
+                loading_progress.value = loaded / total
+
+                async def _upd():
+                    try:
+                        page.update()
+                    except Exception:
+                        pass
+
+                page.run_task(_upd)
+
+            if kiosk_page_token["value"] != token:
+                return
+
+            # ── Phase 2 : affichage paginé ───────────────────────────────
+            async def _show_grid():
+                loading_row.visible = False
+                kiosk_page["value"] = 0
+                _render_image_page()
+                page.update()
+
+            page.run_task(_show_grid)
+
+        threading.Thread(target=_convert_all, daemon=True).start()
 
     # ─────────────────────────────────────────────────────────────────────
     #  Ouverture d'un dossier
@@ -649,19 +763,43 @@ def main(page: ft.Page) -> None:
             source_path = os.path.join(folder_path, filename)
             if not os.path.isfile(source_path):
                 continue
-            destination_dir = selection_dir if filename in selected_files else autres_dir
-            destination_path = os.path.join(destination_dir, filename)
-            # Évite d'écraser un fichier existant en ajoutant un suffixe
-            if os.path.exists(destination_path):
-                base, extension = os.path.splitext(filename)
-                counter = 1
-                while os.path.exists(destination_path):
-                    destination_path = os.path.join(destination_dir, f"{base}_{counter}{extension}")
-                    counter += 1
-            try:
-                shutil.move(source_path, destination_path)
-            except OSError as move_error:
-                errors.append(f"{filename}: {move_error}")
+            if filename in selected_files:
+                destination_path = os.path.join(selection_dir, filename)
+                # Évite d'écraser un fichier existant en ajoutant un suffixe
+                if os.path.exists(destination_path):
+                    base, extension = os.path.splitext(filename)
+                    counter = 1
+                    while os.path.exists(destination_path):
+                        destination_path = os.path.join(selection_dir, f"{base}_{counter}{extension}")
+                        counter += 1
+                try:
+                    if nb_state.get(filename, False) and HAS_PIL and PILImage is not None and ImageOps is not None:
+                        # Conversion N&B puis déplacement
+                        ext = os.path.splitext(filename)[1].lower()
+                        fmt = "JPEG" if ext in (".jpg", ".jpeg") else "PNG"
+                        save_kwargs: dict = {"quality": 100} if fmt == "JPEG" else {}
+                        with PILImage.open(source_path) as img:
+                            img = ImageOps.exif_transpose(img)
+                            img = img.convert("L")
+                            img.save(destination_path, format=fmt, **save_kwargs)
+                        os.remove(source_path)
+                    else:
+                        shutil.move(source_path, destination_path)
+                except Exception as copy_error:
+                    errors.append(f"{filename}: {copy_error}")
+            else:
+                destination_path = os.path.join(autres_dir, filename)
+                # Évite d'écraser un fichier existant en ajoutant un suffixe
+                if os.path.exists(destination_path):
+                    base, extension = os.path.splitext(filename)
+                    counter = 1
+                    while os.path.exists(destination_path):
+                        destination_path = os.path.join(autres_dir, f"{base}_{counter}{extension}")
+                        counter += 1
+                try:
+                    shutil.move(source_path, destination_path)
+                except OSError as move_error:
+                    errors.append(f"{filename}: {move_error}")
 
         if errors:
             print(f"[ERREUR] Déplacement fichiers :\n" + "\n".join(errors))
@@ -683,9 +821,10 @@ def main(page: ft.Page) -> None:
         current_folder["path"] = ""
 
         moved_count = len(selected_files) - len(errors)
+        _cleanup_temp_dir()
         page.show_dialog(ft.SnackBar(
             ft.Text(
-                f"✓  {moved_count} image(s) déplacée(s) vers SELECTION.",
+                f"✓  {moved_count} image(s) copiée(s) vers SELECTION.",
                 color=C_GREEN,
             ),
             bgcolor=C_GREY,
@@ -772,6 +911,40 @@ def main(page: ft.Page) -> None:
         padding=ft.Padding(16, 6, 16, 4),
     )
 
+    # ── Contrôles de pagination ───────────────────────────────────────────
+    prev_page_btn = ft.IconButton(
+        icon=ft.Icons.CHEVRON_LEFT,
+        icon_color=C_BLUE,
+        icon_size=28,
+        tooltip="Page précédente",
+        on_click=lambda e: _go_to_page(kiosk_page["value"] - 1),
+    )
+    next_page_btn = ft.IconButton(
+        icon=ft.Icons.CHEVRON_RIGHT,
+        icon_color=C_BLUE,
+        icon_size=28,
+        tooltip="Page suivante",
+        on_click=lambda e: _go_to_page(kiosk_page["value"] + 1),
+    )
+    page_indicator_text = ft.Text(
+        "",
+        size=13,
+        color=C_LIGHT_GREY,
+        text_align=ft.TextAlign.CENTER,
+        width=120,
+    )
+    pagination_row = ft.Container(
+        content=ft.Row(
+            [prev_page_btn, page_indicator_text, next_page_btn],
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=4,
+        ),
+        visible=False,
+        bgcolor=C_BG,
+        padding=ft.Padding(8, 4, 8, 4),
+    )
+
     # ── Panneau gauche ────────────────────────────────────────────────────
     left_panel = ft.Container(
         content=ft.Column([
@@ -815,6 +988,7 @@ def main(page: ft.Page) -> None:
         ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=10,
+            expand=True,
         ),
         bgcolor=C_DARK,
         padding=ft.Padding(10, 16, 10, 16),
@@ -823,6 +997,7 @@ def main(page: ft.Page) -> None:
 
     async def _close_window():
         """Ferme la fenêtre proprement depuis le thread UI."""
+        _cleanup_temp_dir()
         try:
             await page.window.close()
         except RuntimeError:
@@ -867,13 +1042,14 @@ def main(page: ft.Page) -> None:
                 ft.VerticalDivider(width=1, thickness=1, color=C_GREY),
                 ft.Column([
                     loading_row,
+                    pagination_row,
                     ft.Container(
                         content=images_grid,
                         expand=True,
                         bgcolor=C_BG,
                     ),
                 ], expand=True, spacing=0),
-            ], expand=True, spacing=0, vertical_alignment=ft.CrossAxisAlignment.START),
+            ], expand=True, spacing=0, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
         ], expand=True, spacing=0)
     )
 
