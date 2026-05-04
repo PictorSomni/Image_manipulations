@@ -217,9 +217,9 @@ def main(page: ft.Page):
         "Redimensionner filigrane.py": (False, WHITE),
         "2 en 1.py": (False, HOVER_YELLOW),
         "Redimensionner.py": (False, WHITE),
-        "Selecteur.pyw": (True, YELLOW, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Selecteur.pyw")),
-        "Fichiers manquants.py": (False, ORANGE),
-        "Comparaison.pyw": (False, BLUE, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Comparaison.pyw")),
+        "Selecteur.pyw": (True, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Selecteur.pyw")),
+        "Copyright.py": (False, VIOLET),
+        "Comparaison.pyw": (False, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Comparaison.pyw")),
     }
 
 
@@ -3693,10 +3693,10 @@ def main(page: ft.Page):
                 lambda e: launch_app("Nettoyer metadonnees.py", nettoyer_metadonnees_path, False),
             ),
             _round_button(
-                ft.Icons.COPYRIGHT,
-                HOVER_YELLOW,
-                "Ajouter Copyright",
-                lambda e: launch_app("Copyright.py", copyright_path, False),
+                ft.Icons.MANAGE_SEARCH,
+                ORANGE,
+                "Fichiers manquants",
+                lambda e: launch_app("Fichiers manquants.py", fichiers_manquants_path, False),
             ),
             _round_button(
                 ft.Icons.PICTURE_AS_PDF,
