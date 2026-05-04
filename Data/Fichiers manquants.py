@@ -13,7 +13,7 @@ Variables d'environnement :
   SELECTED_FILES  — chemin du dossier de destination (fichier/dossier sélectionné).
 """
 
-__version__ = "2.3.0"
+__version__ = "2.3.1"
 
 ENV_SELECTED_FILES_KEY = "SELECTED_FILES"
 OUTPUT_SELECTED_FILES_PREFIX = "SELECTED_FILES:"
@@ -165,6 +165,13 @@ async def main(page: ft.Page) -> None:
                 ft.Row([
                     ft.Icon(ft.Icons.FIND_IN_PAGE, color=VIOLET, size=24),
                     ft.Text("Fichiers manquants", size=16, color=WHITE, weight=ft.FontWeight.W_600),
+                    ft.Container(expand=True),
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE, icon_color=RED, icon_size=18,
+                        tooltip="Fermer",
+                        on_click=lambda e: page.run_task(_close),
+                        style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+                    ),
                 ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 ft.Divider(color=GREY, height=16),
                 ft.Row([

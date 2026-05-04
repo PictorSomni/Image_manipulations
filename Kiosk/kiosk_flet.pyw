@@ -20,6 +20,7 @@ import base64
 import threading
 import tempfile
 import shutil
+import platform
 
 # ── Import des constantes spécifiques au kiosk ───────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -113,9 +114,17 @@ def main(page: ft.Page) -> None:
     page.bgcolor = C_BG
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
-    page.window.maximized = True
     page.padding = 0
     page.update()
+
+    async def _maximize_window() -> None:
+        if platform.system() == "Darwin":
+            page.window.full_screen = True
+        else:
+            page.window.maximized = True
+        page.update()
+
+    page.run_task(_maximize_window)
 
     # ── Tarifs et paramètres grille depuis Kiosk/CONSTANT.py ─────────────────
     SIZES: dict = KIOSK_CONSTANT.SIZES
@@ -809,15 +818,25 @@ def main(page: ft.Page) -> None:
         commande_path = os.path.join(selection_dir, "commande.txt")
         file_exists = os.path.isfile(commande_path)
         try:
+            # Réorganise par photo : stem → [(count, format_name, is_nb), ...]
+            photo_orders: dict[str, list[tuple[int, str, bool]]] = {}
+            for format_name, file_counts in format_selections.items():
+                for filename, count in file_counts.items():
+                    stem = os.path.splitext(filename)[0]
+                    is_nb = nb_state.get((format_name, filename), False)
+                    photo_orders.setdefault(stem, []).append((count, format_name, is_nb))
+            for stem in photo_orders:
+                photo_orders[stem].sort(key=lambda entry: entry[1])
+
             with open(commande_path, "a", encoding="utf-8") as f:
                 if file_exists:
                     f.write("\n")
-                f.write(f"=== {selection_name} ===\n")
-                for format_name, file_counts in format_selections.items():
-                    f.write(f"{format_name}\n")
-                    for filename, count in sorted(file_counts.items()):
-                        nb_marker = " (n&b)" if nb_state.get((format_name, filename), False) else ""
-                        f.write(f"    {filename}{nb_marker} × {count}\n")
+                f.write(f"=== {selection_name} ===\n\n")
+                for stem, prints_list in sorted(photo_orders.items()):
+                    f.write(f"{stem}\n")
+                    for count, format_name, is_nb in prints_list:
+                        nb_marker = " n&b" if is_nb else ""
+                        f.write(f"    {count}X {format_name}{nb_marker}\n")
                     f.write("\n")
                 f.write(f"TOTAL : {total_price['value']:.2f} €\n")
         except OSError as write_error:

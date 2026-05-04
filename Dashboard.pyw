@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.3.0"
+__version__ = "2.3.1"
 
 
 
@@ -3672,6 +3672,7 @@ def main(page: ft.Page):
         copyright_path            = os.path.join(app_directory, "Data", "Copyright.py")
         images_en_pdf_path        = os.path.join(app_directory, "Data", "Images en PDF.py")
         remerciements_path        = os.path.join(app_directory, "Data", "Remerciements.py")
+        copier_nefs_path          = os.path.join(app_directory, "Data", "Copier NEFs sélection.py")
 
         quick_tools_col.controls = [
             _round_button(
@@ -3721,6 +3722,12 @@ def main(page: ft.Page):
                 GREEN,
                 "Augmentation IA",
                 lambda e: launch_app("Augmentation IA.py", os.path.join(app_directory, "Data", "Augmentation IA.py"), False),
+            ),
+            _round_button(
+                ft.Icons.CAMERA_ALT,
+                GREEN,
+                "Copier NEFs → SELECTION",
+                lambda e: launch_app("Copier NEFs sélection.py", copier_nefs_path, False),
             ),
         ]
 
