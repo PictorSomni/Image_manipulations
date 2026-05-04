@@ -7,7 +7,7 @@ Remplace la version Qt6 originale (main.py) avec :
   - Grille d'images avec sélection de format et compteur d'impressions par photo.
   - Prévisualisation N&B par image (toggle par bouton).
   - Calcul du prix total en temps réel.
-  - Validation copie des fichiers dans des dossiers SELECTION et AUTRES.
+  - Validation copie des fichiers sélectionnés dans un dossier SELECTION (SELECTION_2, … si déjà existant).
 
 Dépendances : flet, Pillow (PIL)
 """
@@ -127,7 +127,7 @@ def main(page: ft.Page) -> None:
     prints_data: dict[str, dict[str, int]] = {}
     current_size = {"value": list(SIZES.keys())[0]}
     total_price = {"value": 0.0}
-    nb_state: dict[str, bool] = {}          # True = prévisualisation N&B active
+    nb_state: dict[tuple, bool] = {}        # (format_name, filename) → True = N&B actif pour ce format
     image_cards: dict[str, dict] = {}       # {filename: {card, count_text, image_ctrl, nb_button}}
 
     KIOSK_PAGE_SIZE  = 60               # nombre de cartes affichées par page
@@ -169,6 +169,9 @@ def main(page: ft.Page) -> None:
         for filename, card_data in image_cards.items():
             count = prints_data.get(format_name, {}).get(filename, 0)
             _apply_card_style(card_data, count)
+            is_nb = nb_state.get((format_name, filename), False)
+            card_data["nb_button"].icon_color = C_VIOLET if is_nb else C_LIGHT_GREY
+            card_data["nb_button"].update()
 
     # ─────────────────────────────────────────────────────────────────────
     #  Gestionnaires d'événements
@@ -188,8 +191,9 @@ def main(page: ft.Page) -> None:
         _apply_card_style(image_cards[filename], new_count)
 
     def on_toggle_nb(filename: str) -> None:
-        nb_state[filename] = not nb_state.get(filename, False)
-        is_nb = nb_state[filename]
+        key = (current_size["value"], filename)
+        nb_state[key] = not nb_state.get(key, False)
+        is_nb = nb_state[key]
         card_data = image_cards[filename]
 
         # Feedback immédiat sur l'icône
@@ -233,7 +237,7 @@ def main(page: ft.Page) -> None:
         state = {
             "index": images_list.index(filename) if filename in images_list else 0,
             "filename": filename,
-            "nb_active": nb_state.get(filename, False),
+            "nb_active": nb_state.get((current_size["value"], filename), False),
         }
 
         def _current_file_path() -> str:
@@ -320,7 +324,7 @@ def main(page: ft.Page) -> None:
 
         def _navigate_to(new_filename: str) -> None:
             state["filename"] = new_filename
-            state["nb_active"] = nb_state.get(new_filename, False)
+            state["nb_active"] = nb_state.get((current_size["value"], new_filename), False)
             preview_img.src = _blank_gif
             preview_title.value = new_filename
             preview_count_text.value = str(
@@ -344,7 +348,7 @@ def main(page: ft.Page) -> None:
 
         def preview_toggle_nb(e) -> None:
             on_toggle_nb(state["filename"])
-            state["nb_active"] = nb_state.get(state["filename"], False)
+            state["nb_active"] = nb_state.get((current_size["value"], state["filename"]), False)
             nb_preview_button.icon_color = C_VIOLET if state["nb_active"] else C_LIGHT_GREY
             preview_img.src = _blank_gif
             page.update()
@@ -744,16 +748,22 @@ def main(page: ft.Page) -> None:
             return
 
         folder_path = current_folder["path"]
-        selection_dir = os.path.join(folder_path, "SELECTION")
-        autres_dir = os.path.join(folder_path, "AUTRES")
+
+        # ── Trouve un dossier SELECTION disponible ─────────────────────────
+        selection_base = os.path.join(folder_path, "SELECTION")
+        selection_dir = selection_base
+        n = 2
+        while os.path.exists(selection_dir):
+            selection_dir = f"{selection_base}_{n}"
+            n += 1
+        selection_name = os.path.basename(selection_dir)
 
         errors: list[str] = []
         try:
             os.makedirs(selection_dir, exist_ok=True)
-            os.makedirs(autres_dir, exist_ok=True)
         except OSError as mkdir_error:
             page.show_dialog(ft.SnackBar(
-                ft.Text(f"Erreur création dossiers : {mkdir_error}", color=C_RED),
+                ft.Text(f"Erreur création dossier : {mkdir_error}", color=C_RED),
                 bgcolor=C_GREY,
                 duration=4000,
                 behavior=ft.SnackBarBehavior.FLOATING,
@@ -782,7 +792,7 @@ def main(page: ft.Page) -> None:
                         destination_path = os.path.join(count_subfolder, f"{base}_{counter}{extension}")
                         counter += 1
                 try:
-                    if nb_state.get(filename, False) and HAS_PIL and PILImage is not None and ImageOps is not None:
+                    if nb_state.get((format_name, filename), False) and HAS_PIL and PILImage is not None and ImageOps is not None:
                         ext = os.path.splitext(filename)[1].lower()
                         fmt = "JPEG" if ext in (".jpg", ".jpeg") else "PNG"
                         save_kwargs: dict = {"quality": 100} if fmt == "JPEG" else {}
@@ -795,49 +805,26 @@ def main(page: ft.Page) -> None:
                 except Exception as copy_error:
                     errors.append(f"{filename}: {copy_error}")
 
-        # ── Supprime les originaux des fichiers sélectionnés ──────────────
-        for filename in selected_files:
-            source_path = os.path.join(folder_path, filename)
-            if os.path.isfile(source_path):
-                try:
-                    os.remove(source_path)
-                except OSError as rm_error:
-                    errors.append(f"{filename} (suppression): {rm_error}")
-
-        # ── Déplace les fichiers non sélectionnés dans AUTRES ─────────────
-        for filename in images_list:
-            if filename in selected_files:
-                continue
-            source_path = os.path.join(folder_path, filename)
-            if not os.path.isfile(source_path):
-                continue
-            destination_path = os.path.join(autres_dir, filename)
-            if os.path.exists(destination_path):
-                base, extension = os.path.splitext(filename)
-                counter = 1
-                while os.path.exists(destination_path):
-                    destination_path = os.path.join(autres_dir, f"{base}_{counter}{extension}")
-                    counter += 1
-            try:
-                shutil.move(source_path, destination_path)
-            except OSError as move_error:
-                errors.append(f"{filename}: {move_error}")
-
-        # ── Écrit commande.txt ─────────────────────────────────────────────
-        commande_path = os.path.join(folder_path, "commande.txt")
+        # ── Écrit / complète commande.txt ──────────────────────────────────
+        commande_path = os.path.join(selection_dir, "commande.txt")
+        file_exists = os.path.isfile(commande_path)
         try:
-            with open(commande_path, "w", encoding="utf-8") as f:
+            with open(commande_path, "a", encoding="utf-8") as f:
+                if file_exists:
+                    f.write("\n")
+                f.write(f"=== {selection_name} ===\n")
                 for format_name, file_counts in format_selections.items():
                     f.write(f"{format_name}\n")
                     for filename, count in sorted(file_counts.items()):
-                        f.write(f"    {filename} × {count}\n")
+                        nb_marker = " (n&b)" if nb_state.get((format_name, filename), False) else ""
+                        f.write(f"    {filename}{nb_marker} × {count}\n")
                     f.write("\n")
                 f.write(f"TOTAL : {total_price['value']:.2f} €\n")
         except OSError as write_error:
             errors.append(f"commande.txt: {write_error}")
 
         if errors:
-            print(f"[ERREUR] Déplacement fichiers :\n" + "\n".join(errors))
+            print(f"[ERREUR] Copie fichiers :\n" + "\n".join(errors))
 
         # Réinitialisation de l'interface
         images_grid.controls.clear()
@@ -855,11 +842,11 @@ def main(page: ft.Page) -> None:
         count_label.update()
         current_folder["path"] = ""
 
-        moved_count = len(selected_files) - len(errors)
+        copied_count = len(selected_files) - len(errors)
         _cleanup_temp_dir()
         page.show_dialog(ft.SnackBar(
             ft.Text(
-                f"✓  {moved_count} image(s) déplacée(s) vers SELECTION.",
+                f"✓  {copied_count} image(s) copiée(s) vers {selection_name}.",
                 color=C_GREEN,
             ),
             bgcolor=C_GREY,
@@ -1087,6 +1074,11 @@ def main(page: ft.Page) -> None:
             ], expand=True, spacing=0, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
         ], expand=True, spacing=0)
     )
+
+    # ── Auto-ouverture du dossier passé par Dashboard ─────────────────────
+    _initial_folder = os.environ.get("FOLDER_PATH", "")
+    if _initial_folder and os.path.isdir(_initial_folder):
+        load_folder(_initial_folder)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
