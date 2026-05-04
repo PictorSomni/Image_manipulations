@@ -725,11 +725,13 @@ def main(page: ft.Page) -> None:
         if not current_folder["path"]:
             return
 
-        # Détermine quels fichiers ont au moins une copie dans n'importe quel format
+        # Construit format_selections[format_name] = {filename: count} pour count > 0
+        format_selections: dict[str, dict[str, int]] = {}
         selected_files: set[str] = set()
         for format_name in SIZES:
             for filename, count in prints_data.get(format_name, {}).items():
                 if count > 0:
+                    format_selections.setdefault(format_name, {})[filename] = count
                     selected_files.add(filename)
 
         if not selected_files:
@@ -759,22 +761,28 @@ def main(page: ft.Page) -> None:
             return
 
         import shutil
-        for filename in images_list:
-            source_path = os.path.join(folder_path, filename)
-            if not os.path.isfile(source_path):
-                continue
-            if filename in selected_files:
-                destination_path = os.path.join(selection_dir, filename)
-                # Évite d'écraser un fichier existant en ajoutant un suffixe
+
+        # ── Copie les fichiers sélectionnés dans SELECTION/<format>/<count>x/ ──
+        for format_name, file_counts in format_selections.items():
+            for filename, count in file_counts.items():
+                source_path = os.path.join(folder_path, filename)
+                if not os.path.isfile(source_path):
+                    continue
+                count_subfolder = os.path.join(selection_dir, format_name, f"{count}x")
+                try:
+                    os.makedirs(count_subfolder, exist_ok=True)
+                except OSError as mk_err:
+                    errors.append(f"{filename}: {mk_err}")
+                    continue
+                destination_path = os.path.join(count_subfolder, filename)
                 if os.path.exists(destination_path):
                     base, extension = os.path.splitext(filename)
                     counter = 1
                     while os.path.exists(destination_path):
-                        destination_path = os.path.join(selection_dir, f"{base}_{counter}{extension}")
+                        destination_path = os.path.join(count_subfolder, f"{base}_{counter}{extension}")
                         counter += 1
                 try:
                     if nb_state.get(filename, False) and HAS_PIL and PILImage is not None and ImageOps is not None:
-                        # Conversion N&B puis déplacement
                         ext = os.path.splitext(filename)[1].lower()
                         fmt = "JPEG" if ext in (".jpg", ".jpeg") else "PNG"
                         save_kwargs: dict = {"quality": 100} if fmt == "JPEG" else {}
@@ -782,24 +790,51 @@ def main(page: ft.Page) -> None:
                             img = ImageOps.exif_transpose(img)
                             img = img.convert("L")
                             img.save(destination_path, format=fmt, **save_kwargs)
-                        os.remove(source_path)
                     else:
-                        shutil.move(source_path, destination_path)
+                        shutil.copy2(source_path, destination_path)
                 except Exception as copy_error:
                     errors.append(f"{filename}: {copy_error}")
-            else:
-                destination_path = os.path.join(autres_dir, filename)
-                # Évite d'écraser un fichier existant en ajoutant un suffixe
-                if os.path.exists(destination_path):
-                    base, extension = os.path.splitext(filename)
-                    counter = 1
-                    while os.path.exists(destination_path):
-                        destination_path = os.path.join(autres_dir, f"{base}_{counter}{extension}")
-                        counter += 1
+
+        # ── Supprime les originaux des fichiers sélectionnés ──────────────
+        for filename in selected_files:
+            source_path = os.path.join(folder_path, filename)
+            if os.path.isfile(source_path):
                 try:
-                    shutil.move(source_path, destination_path)
-                except OSError as move_error:
-                    errors.append(f"{filename}: {move_error}")
+                    os.remove(source_path)
+                except OSError as rm_error:
+                    errors.append(f"{filename} (suppression): {rm_error}")
+
+        # ── Déplace les fichiers non sélectionnés dans AUTRES ─────────────
+        for filename in images_list:
+            if filename in selected_files:
+                continue
+            source_path = os.path.join(folder_path, filename)
+            if not os.path.isfile(source_path):
+                continue
+            destination_path = os.path.join(autres_dir, filename)
+            if os.path.exists(destination_path):
+                base, extension = os.path.splitext(filename)
+                counter = 1
+                while os.path.exists(destination_path):
+                    destination_path = os.path.join(autres_dir, f"{base}_{counter}{extension}")
+                    counter += 1
+            try:
+                shutil.move(source_path, destination_path)
+            except OSError as move_error:
+                errors.append(f"{filename}: {move_error}")
+
+        # ── Écrit commande.txt ─────────────────────────────────────────────
+        commande_path = os.path.join(folder_path, "commande.txt")
+        try:
+            with open(commande_path, "w", encoding="utf-8") as f:
+                for format_name, file_counts in format_selections.items():
+                    f.write(f"{format_name}\n")
+                    for filename, count in sorted(file_counts.items()):
+                        f.write(f"    {filename} × {count}\n")
+                    f.write("\n")
+                f.write(f"TOTAL : {total_price['value']:.2f} €\n")
+        except OSError as write_error:
+            errors.append(f"commande.txt: {write_error}")
 
         if errors:
             print(f"[ERREUR] Déplacement fichiers :\n" + "\n".join(errors))
@@ -824,7 +859,7 @@ def main(page: ft.Page) -> None:
         _cleanup_temp_dir()
         page.show_dialog(ft.SnackBar(
             ft.Text(
-                f"✓  {moved_count} image(s) copiée(s) vers SELECTION.",
+                f"✓  {moved_count} image(s) déplacée(s) vers SELECTION.",
                 color=C_GREEN,
             ),
             bgcolor=C_GREY,
