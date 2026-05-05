@@ -785,8 +785,12 @@ def main(page: ft.Page):
     if folder1_path and folder2_path:
         _build_pairs_and_start()
     elif folder1_path:
-        setup_folder1_field.value = folder1_path
-        setup_folder1_field.update()
+        # folder1 est connu (lancé depuis Dashboard) : ouvrir directement le
+        # sélecteur de dossier 2, comme Fichiers manquants le fait pour dest.
+        async def _auto_pick_folder2():
+            await _pick_folder2(None)
+
+        page.run_task(_auto_pick_folder2)
 
 
 ft.run(main)

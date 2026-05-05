@@ -571,23 +571,19 @@ def main(page: ft.Page):
                 except Exception as ex:
                     err = f"⚠️ Erreur: {ex}"
 
-            page.pubsub.send_all_on_topic(
-                "sel_preview_ready",
-                (cur_token, entries_data, file_ct, err),
-            )
+            async def _apply():
+                if refresh_token["value"] != cur_token:
+                    return
+                all_entries["list"]  = entries_data
+                all_entries["error"] = err
+                file_count_text.value = file_ct
+                preview_loading.visible = False
+                _render_preview()
+
+            page.run_task(_apply)
 
         threading.Thread(target=_bg, daemon=True).start()
 
-    def _on_preview_ready(topic, payload):
-        token, entries_data, file_ct, err = payload
-        if refresh_token["value"] != token:
-            return
-        all_entries["list"]  = entries_data
-        all_entries["error"] = err
-        file_count_text.value = file_ct
-        _render_preview()
-
-    page.pubsub.subscribe_topic("sel_preview_ready", _on_preview_ready)
 
     def _rebuild_recent_src_menu():
         lst = _load_recent_shared()

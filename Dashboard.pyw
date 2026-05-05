@@ -3663,6 +3663,12 @@ def main(page: ft.Page):
                     )
                 )
             else:
+                if app_name == "Selecteur.pyw":
+                    on_click_handler = lambda e: _launch_selecteur()
+                elif app_name == "Comparaison.pyw":
+                    on_click_handler = lambda e: _launch_comparaison()
+                else:
+                    on_click_handler = lambda e, name=app_name, path=app_path, local=is_local: launch_app(name, path, local)
                 items.append(
                     ft.Container(
                         content=ft.Text(
@@ -3675,7 +3681,7 @@ def main(page: ft.Page):
                         ),
                         expand=True,
                         alignment=ft.Alignment(0, 0),
-                        on_click=lambda e, name=app_name, path=app_path, local=is_local: launch_app(name, path, local),
+                        on_click=on_click_handler,
                         bgcolor=GREY,
                         border=ft.Border.all(1, app_color),
                         padding=ft.Padding(10, 10, 10, 10),
