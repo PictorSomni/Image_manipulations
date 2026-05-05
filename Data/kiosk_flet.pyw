@@ -20,11 +20,10 @@ import base64
 import threading
 import tempfile
 import shutil
-import platform
 
 # ── Import des constantes spécifiques au kiosk ───────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import CONSTANT as KIOSK_CONSTANT
+import CONSTANTS as KIOSK_CONSTANT
 
 try:
     from PIL import Image as PILImage, ImageOps
@@ -44,30 +43,6 @@ THUMBNAIL_SIZE = KIOSK_CONSTANT.THUMBNAIL_SIZE
 # ─────────────────────────────────────────────────────────────────────────────
 #  Utilitaire image
 # ─────────────────────────────────────────────────────────────────────────────
-
-def _make_thumbnail_b64(file_path: str, grayscale: bool = False, size: int = THUMBNAIL_SIZE) -> str | None:
-    """
-    Génère une miniature JPEG encodée en base64.
-
-    Applique automatiquement la correction d'orientation EXIF.
-    Retourne None si PIL n'est pas disponible ou en cas d'erreur.
-    """
-    if not HAS_PIL or PILImage is None or ImageOps is None:
-        return None
-    try:
-        with PILImage.open(file_path) as img:
-            img = ImageOps.exif_transpose(img)
-            if grayscale:
-                img = img.convert("L").convert("RGB")
-            else:
-                img = img.convert("RGB")
-            img.thumbnail((size, size), PILImage.LANCZOS)
-            buffer = io.BytesIO()
-            img.save(buffer, format="JPEG", quality=80)
-            return base64.b64encode(buffer.getvalue()).decode("utf-8")
-    except Exception:
-        return None
-
 
 def _save_thumbnail(file_path: str, out_path: str, grayscale: bool = False, size: int = THUMBNAIL_SIZE) -> bool:
     """
@@ -93,7 +68,6 @@ def _save_thumbnail(file_path: str, out_path: str, grayscale: bool = False, size
 # ─────────────────────────────────────────────────────────────────────────────
 #  Point d'entrée Flet
 # ─────────────────────────────────────────────────────────────────────────────
-
 def main(page: ft.Page) -> None:
 
     # ── Couleurs (issues de Kiosk/CONSTANT.py) ─────────────────────────────
@@ -118,10 +92,7 @@ def main(page: ft.Page) -> None:
     page.update()
 
     async def _maximize_window() -> None:
-        if platform.system() == "Darwin":
-            page.window.full_screen = True
-        else:
-            page.window.maximized = True
+        page.window.maximized = True
         page.update()
 
     page.run_task(_maximize_window)
@@ -861,11 +832,10 @@ def main(page: ft.Page) -> None:
         count_label.update()
         current_folder["path"] = ""
 
-        copied_count = len(selected_files) - len(errors)
         _cleanup_temp_dir()
         page.show_dialog(ft.SnackBar(
             ft.Text(
-                f"✓  {copied_count} image(s) copiée(s) vers {selection_name}.",
+                f"[OK]  Commande validée.",
                 color=C_GREEN,
             ),
             bgcolor=C_GREY,

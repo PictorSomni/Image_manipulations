@@ -52,7 +52,7 @@ sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au t
 
 """
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -66,7 +66,7 @@ import os
 import io
 from pathlib import Path
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 import contextlib
 import base64

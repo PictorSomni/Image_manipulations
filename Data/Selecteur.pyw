@@ -17,7 +17,7 @@ Sélecteur — App compacte (demi-écran) avec deux onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 
 #############################################################
@@ -33,6 +33,7 @@ import platform
 import subprocess
 import sys
 import asyncio
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
 
 

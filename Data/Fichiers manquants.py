@@ -13,7 +13,7 @@ Variables d'environnement :
   SELECTED_FILES  — chemin du dossier de destination (fichier/dossier sélectionné).
 """
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 ENV_SELECTED_FILES_KEY = "SELECTED_FILES"
 OUTPUT_SELECTED_FILES_PREFIX = "SELECTED_FILES:"
@@ -26,7 +26,7 @@ import flet as ft
 from pathlib import Path
 import os
 import re
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 
 #############################################################

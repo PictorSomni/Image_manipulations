@@ -41,7 +41,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Tab       : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 #############################################################
 #                          IMPORTS                          #
@@ -50,7 +50,7 @@ import flet as ft
 import os
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 import shutil
 import platform

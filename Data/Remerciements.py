@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL), re
 """
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 #############################################################
 #                          IMPORTS                          #
@@ -27,7 +27,7 @@ from pathlib import Path
 import os
 import re
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 from PIL import Image, ImageOps, ImageFile
 #############################################################
@@ -36,7 +36,7 @@ from PIL import Image, ImageOps, ImageFile
 WIDTH   = CONSTANTS.REMERCIEMENTS_WIDTH
 HEIGHT  = CONSTANTS.REMERCIEMENTS_HEIGHT
 DPI     = CONSTANTS.DPI
-MAXSIZE = CONSTANTS.REMERCIEMENTS_MAXSIZE
+MAXSIZE = CONSTANTS.RESIZE_DEFAULT
 QUALITY = CONSTANTS.REMERCIEMENTS_QUALITY
 ALPHA   = CONSTANTS.REMERCIEMENTS_ALPHA
 

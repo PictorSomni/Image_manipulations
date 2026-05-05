@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 
 
@@ -34,7 +34,7 @@ import flet as ft
 import os
 import subprocess
 import sys
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data"))
 import CONSTANTS
 import platform
 import shutil
@@ -212,12 +212,12 @@ def main(page: ft.Page):
         "Conversion JPG.py": (False, BLUE),
         "Renommer sequence.py": (False, BLUE),
         "Format 13x15.py": (False, HOVER_YELLOW),
-        "Format 13x20.py": (False, HOVER_YELLOW),
+        "Fit 203.py": (False, HOVER_YELLOW),
         "Recadrage.pyw": (False, BLUE),
         "Redimensionner filigrane.py": (False, WHITE),
         "2 en 1.py": (False, HOVER_YELLOW),
         "Redimensionner.py": (False, WHITE),
-        "Selecteur.pyw": (True, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Selecteur.pyw")),
+        "Selecteur.pyw": (True, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Selecteur.pyw")),
         "Copyright.py": (False, VIOLET),
         "Comparaison.pyw": (False, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Comparaison.pyw")),
     }
@@ -515,7 +515,7 @@ def main(page: ft.Page):
         if extra_env:
             env.update(extra_env)
         proc = subprocess.Popen(
-            [sys.executable, os.path.join(app_directory, "Selecteur.pyw")],
+            [sys.executable, os.path.join(app_directory, "Data", "Selecteur.pyw")],
             env=env,
         )
         page.window.minimized = True
@@ -550,6 +550,13 @@ def main(page: ft.Page):
             env = {**os.environ, "FOLDER_PATH": folder1}
             if f2:
                 env["SECOND_FOLDER"] = f2
+            # Si des fichiers sont sélectionnés dans folder1, les transmettre pour filtrer la comparaison
+            files_in_folder1 = [
+                f for f in selected_files
+                if os.path.isfile(f) and os.path.normpath(os.path.dirname(f)) == os.path.normpath(folder1)
+            ]
+            if files_in_folder1:
+                env["SELECTED_FILES"] = "|".join(os.path.basename(f) for f in files_in_folder1)
             comparaison_path = os.path.join(app_directory, "Data", "Comparaison.pyw")
             proc = subprocess.Popen([sys.executable, comparaison_path], env=env)
             page.window.minimized = True
@@ -565,7 +572,6 @@ def main(page: ft.Page):
         if folder2:
             _do_launch(folder2)
             return
-
         # Sinon, ouvrir un sélecteur de dossier dans Dashboard pour choisir le second dossier
         async def _pick_and_launch(e=None):
             picked = await ft.FilePicker().get_directory_path(
@@ -586,7 +592,7 @@ def main(page: ft.Page):
         env = {**os.environ}
         if folder:
             env["FOLDER_PATH"] = folder
-        kiosk_path = os.path.join(app_directory, "Kiosk", "kiosk_flet.pyw")
+        kiosk_path = os.path.join(app_directory, "Data", "kiosk_flet.pyw")
         proc = subprocess.Popen([sys.executable, kiosk_path], env=env)
         page.window.minimized = True
         page.update()
@@ -3244,6 +3250,48 @@ def main(page: ft.Page):
             two_in_one_dialog.open = True
             page.update()
             return
+        
+        if app_name == "Fit 203.py" and series_name is None:
+            _FIT_203_FORMATS = CONSTANTS.FIT_203_FORMATS
+            fit_203_dropdown = ft.Dropdown(
+                label="Format",
+                value=f"{_FIT_203_FORMATS[0][1]}|{_FIT_203_FORMATS[0][2]}",
+                autofocus=True,
+                width=280,
+                bgcolor=DARK,
+                border_color=GREY,
+                options=[
+                    ft.dropdown.Option(key=f"{crop}|{canvas}", text=label)
+                    for label, crop, canvas in _FIT_203_FORMATS
+                ],
+            )
+
+            def on_confirm_fit_203(e):
+                val = fit_203_dropdown.value or f"{_FIT_203_FORMATS[0][1]}|{_FIT_203_FORMATS[0][2]}"
+                fit_203_dialog.open = False
+                page.update()
+                launch_app(app_name, app_path, is_local, series_name=val)
+
+            def on_cancel_fit_203(e):
+                fit_203_dialog.open = False
+                page.update()
+
+            fit_203_dropdown.on_change = on_confirm_fit_203
+
+            fit_203_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Format Fit 203"),
+                content=fit_203_dropdown,
+                actions=[
+                    ft.TextButton("Annuler", on_click=on_cancel_fit_203),
+                    ft.TextButton("OK", on_click=on_confirm_fit_203),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+            page.overlay.append(fit_203_dialog)
+            fit_203_dialog.open = True
+            page.update()
+            return
 
         if app_name == "Renommer sequence.py" and series_name is None:
             _ask_text_before_launch("Renommer la série", "Nom de la série", "Ex: Mariage_Martin",
@@ -3430,6 +3478,13 @@ def main(page: ft.Page):
                         env["TWO_IN_ONE_WIDTH"] = parts[0]
                         env["TWO_IN_ONE_HEIGHT"] = parts[1]
 
+
+                # Ajouter les dimensions pour Fit 203.py
+                if app_name == "Fit 203.py" and series_name:
+                    parts = series_name.split("|")
+                    if len(parts) == 2:
+                        env["FIT_203_CROP_SIZE"] = parts[0]
+                        env["FIT_203_PRINT_SIZE"] = parts[1]
 
 
                 # Paramètres Copyright
@@ -3649,7 +3704,7 @@ def main(page: ft.Page):
     def _build_quick_tools():
         """Construit la colonne d'icônes rondes (outils rapides)."""
         two_in_one_path = os.path.join(app_directory, "Data", "2 en 1.py")
-        selecteur_path = os.path.join(app_directory, "Selecteur.pyw")
+        selecteur_path = os.path.join(app_directory, "Data", "Selecteur.pyw")
         fichiers_manquants_path = os.path.join(app_directory, "Data", "Fichiers manquants.py")
 
         def _round_button(icon, color, tooltip, on_click):

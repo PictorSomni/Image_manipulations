@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Constantes partagées entre Dashboard.pyw et les scripts du dossier Data/.
+Constantes partagées entre Dashboard.pyw, les scripts du dossier Data/,
+Selecteur.pyw et kiosk_flet.pyw.
 
 Modifier ce fichier pour changer les paramètres globaux de l'application sans
 toucher aux scripts eux-mêmes.
@@ -8,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ────────────────────────────────────────────────────────────────
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 
 # ─── Interface (Dashboard) ──────────────────────────────────────────────────
@@ -16,7 +17,7 @@ WINDOW_WIDTH  = 1280
 WINDOW_HEIGHT = 900
 
 
-# ─── Palette de couleurs ────────────────────────────────────────────────────
+# ─── Palette de couleurs ─────────────────────────────────────────────────────
 # Utilisée dans le terminal intégré et les éléments de l'interface Dashboard.
 COLOR_DARK         = "#222429"
 COLOR_BACKGROUND   = "#373d4a"
@@ -32,11 +33,11 @@ COLOR_RED          = "#F17171"
 COLOR_WHITE        = "#c7ccd8"
 
 
-# ─── Résolution d'impression ─────────────────────────────────────────────────
+# ─── Résolution d'impression ──────────────────────────────────────────────────
 DPI = 300   # Points par pouce (ne pas modifier sauf matériel spécifique)
 
 
-# ─── Formats d'impression ─────────────────────────────────────────────────
+# ─── Formats d'impression ────────────────────────────────────────────────────
 FORMATS = { # (largeur_mm, hauteur_mm) - en portrait
     "ID (36x46mm)": (36, 46),
     "9x13 (89x127mm)": (89, 127),
@@ -60,8 +61,9 @@ FORMATS = { # (largeur_mm, hauteur_mm) - en portrait
     "60x90 (605x905mm)": (605, 905),
     "70x100 (705x1005mm)": (705, 1005)
 }
+
 # ─── Redimensionnement ───────────────────────────────────────────────────────
-RESIZE_DEFAULT = 640   # Dimension max par défaut
+RESIZE_DEFAULT = 512   # Dimension max par défaut - y compris pour remerciements
 RESIZE_QUALITY = 80    # Qualité JPEG des miniatures (0-100)
 WATERMARK_ALPHA   = 0.35   # Opacité du filigrane (0.0 = invisible, 1.0 = opaque)
 
@@ -70,7 +72,6 @@ WATERMARK_ALPHA   = 0.35   # Opacité du filigrane (0.0 = invisible, 1.0 = opaqu
 # Paramètres du script Remerciements.py (tirage 2-en-1 client).
 REMERCIEMENTS_WIDTH   = 76    # Largeur individuelle en mm (doublée en 2-en-1)
 REMERCIEMENTS_HEIGHT  = 102   # Hauteur individuelle en mm
-REMERCIEMENTS_MAXSIZE = 512   # Dimension max (px) des miniatures remerciements
 REMERCIEMENTS_QUALITY = 75    # Qualité JPEG remerciements
 REMERCIEMENTS_ALPHA   = 0.42  # Opacité filigrane remerciements
 
@@ -87,6 +88,56 @@ TWO_IN_ONE_FORMATS = [
 ]
 
 
+# ─── Formats Fit 203 ─────────────────────────────────────────────────────────
+# Liste ordonnée affichée dans le dialogue Dashboard (premier = valeur par défaut).
+# Chaque entrée : (label affiché, "largeurxhauteur" en mm, "largeurxhauteur" du canvas en mm)
+FIT_203_FORMATS = [
+    ("10x15 sur 10×20", "102x152", "102x203"),
+    ("13x18 sur 13x20",  "127x178", "127x203"),
+]
+
+
 # ─── Nettoyage automatique ───────────────────────────────────────────────────
 # Utilisée par Nettoyer anciens fichiers.py.
 CLEAN_DAYS = 60   # Fichiers plus vieux que N jours sont supprimés
+
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  KIOSK
+# ═════════════════════════════════════════════════════════════════════════════
+# ─── Extensions d'image acceptées (kiosk) ────────────────────────────────────
+EXTENSION = (".jpg", ".jpeg", ".png")
+
+# ─── Grille d'images (kiosk, version Flet) ───────────────────────────────────
+# Taille maximale d'une cellule de la grille (px) — plus grand = moins d'images par ligne
+GRID_MAX_EXTENT = 340
+# Ratio hauteur/largeur de chaque cellule (1.0 = carré, < 1.0 = paysage)
+GRID_ASPECT_RATIO = 0.82
+# Espacement entre les cellules (px)
+GRID_SPACING = 12
+# Taille des miniatures générées par PIL (px, côté le plus long)
+THUMBNAIL_SIZE = 280
+
+# ─── Prévisualisation plein écran (kiosk) ────────────────────────────────────
+# Résolution max utilisée pour générer la version N&B en prévisualisation plein écran
+PREVIEW_NB_SIZE = 1024
+
+# ─── Panneau gauche (kiosk) ──────────────────────────────────────────────────
+LEFT_PANEL_WIDTH = 210
+FORMAT_BUTTON_HEIGHT = 48
+ACTION_BUTTON_HEIGHT = 68
+
+# ─── Tarifs d'impression (kiosk, format : prix en €) ─────────────────────────
+SIZES = {
+    "10x15"   : 3.00,
+    "13x18"   : 5.50,
+    "15x20"   : 7.00,
+    "20x30"   : 12.00,
+    "30x40"   : 18.00,
+    "40x60"   : 28.00,
+    "50x70"   : 36.00,
+    "60x90"   : 40.00,
+    "Montage" : 0.00,
+    "Autres"  : 0.00,
+}

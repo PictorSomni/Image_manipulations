@@ -21,7 +21,7 @@ Variables d'environnement :
   SELECTED_FILES  — chemin optionnel vers le dossier SELECTION ciblé.
 """
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 #############################################################
 #                          IMPORTS                          #
@@ -32,7 +32,7 @@ import shutil
 import flet as ft
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 
 #############################################################

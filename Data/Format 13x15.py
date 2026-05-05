@@ -12,7 +12,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 #############################################################
 #                          IMPORTS                          #
@@ -20,7 +20,7 @@ __version__ = "2.3.1"
 import os
 from pathlib import Path
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 from PIL import Image, ImageFile, ImageOps
 

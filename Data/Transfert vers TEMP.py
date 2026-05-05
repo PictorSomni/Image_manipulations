@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : flet >= 0.21, modules standard (pathlib, shutil, datetime)
 """
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 #############################################################
 #                          IMPORTS                          #
@@ -30,7 +30,7 @@ import subprocess
 import platform
 import sys
 import os
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 import flet as ft
 

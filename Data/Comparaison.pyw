@@ -20,14 +20,14 @@ Variables d'environnement :
 Dépendances : flet >= 0.84
 """
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  IMPORTS
 # ─────────────────────────────────────────────────────────────────────────────
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 import flet as ft
 import asyncio
@@ -72,8 +72,11 @@ def _get_image_files(folder: str) -> list:
 
 def _match_pairs(files1: list, files2: list) -> list:
     """
-    Associe chaque image de files1 à la première correspondance dans files2
-    dont le stem contient celui de files1 (ou inversement).
+    Associe chaque image de files1 à la meilleure correspondance dans files2 :
+      1. Correspondance exacte de stem (insensible à la casse).
+      2. Stem de files1 contenu dans le stem de files2 (ex: IMG_001 → OK_IMG_001_sharp).
+      3. Stem de files2 contenu dans le stem de files1 (ordre inverse).
+    Les images sans correspondance sont ignorées.
     """
     if not files1 or not files2:
         return []
@@ -85,11 +88,28 @@ def _match_pairs(files1: list, files2: list) -> list:
         if not unmatched2:
             break
         stem1 = file1.stem.lower()
+
+        # 1. Correspondance exacte
         match_index = next(
             (index for index, file2 in enumerate(unmatched2)
-             if stem1 in file2.stem.lower() or file2.stem.lower() in stem1),
+             if file2.stem.lower() == stem1),
             -1,
         )
+        # 2. stem1 contenu dans stem2 (ex: IMG_001 dans OK_IMG_001_sharp)
+        if match_index < 0:
+            match_index = next(
+                (index for index, file2 in enumerate(unmatched2)
+                 if stem1 in file2.stem.lower()),
+                -1,
+            )
+        # 3. stem2 contenu dans stem1
+        if match_index < 0:
+            match_index = next(
+                (index for index, file2 in enumerate(unmatched2)
+                 if file2.stem.lower() in stem1),
+                -1,
+            )
+
         if match_index >= 0:
             pairs.append((file1, unmatched2.pop(match_index)))
 
@@ -119,9 +139,11 @@ def _find_resume_index(pairs_list: list, base_dir: Path) -> int:
     if not processed_names:
         return 0
 
-    # Première paire dont aucun des deux fichiers n'est déjà traité
-    for pair_index, (file1, file2) in enumerate(pairs_list):
-        if file1.name.lower() not in processed_names and file2.name.lower() not in processed_names:
+    # Première paire dont file1 (dossier source) n'est pas encore traité.
+    # On ignore file2 car il vient d'un dossier externe et ses noms ne doivent
+    # pas influencer la reprise.
+    for pair_index, (file1, _) in enumerate(pairs_list):
+        if file1.name.lower() not in processed_names:
             return pair_index
 
     return len(pairs_list)  # Toutes les paires ont déjà été traitées
@@ -150,11 +172,12 @@ def main(page: ft.Page):
     page.bgcolor     = BACKGROUND
     page.window.title_bar_hidden         = True
     page.window.title_bar_buttons_hidden = True
-    page.window.maximized = True
 
     # ── État global ──────────────────────────────────────────────────────
     folder1_path       = os.environ.get("FOLDER_PATH",   "").strip()
     folder2_path       = os.environ.get("SECOND_FOLDER", "").strip()
+    selected_names_str = os.environ.get("SELECTED_FILES", "").strip()
+    selected_names     = set(selected_names_str.split("|")) if selected_names_str else None
     pairs_list:  list  = []
     current_pair_index = 0
     selected_side      = 0  # 0 = gauche (folder1), 1 = droite (folder2)
@@ -166,6 +189,13 @@ def main(page: ft.Page):
         offset_y=0.0,
         gesture_scale_start=1.0,
     )
+
+
+    async def _maximize_window() -> None:
+        page.window.maximized = True
+        page.update()
+
+    page.run_task(_maximize_window)
 
     # ── Widgets images ────────────────────────────────────────────────────
     _BLANK = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
@@ -417,9 +447,17 @@ def main(page: ft.Page):
 
         subfolder.mkdir(parents=True, exist_ok=True)
 
+        # En mode référence (dossier 2 = une seule image partagée par toutes les paires),
+        # ne jamais déplacer l'image de référence — seulement la copier si elle est rejetée.
+        is_reference_mode = pairs_list and all(pair[1] == pairs_list[0][1] for pair in pairs_list)
+        reject_is_reference = is_reference_mode and rejected_path == file2
+
         try:
             shutil.copy2(str(chosen_path), str(sel_dir / chosen_path.name))
-            shutil.move(str(rejected_path), str(subfolder / rejected_path.name))
+            if reject_is_reference:
+                shutil.copy2(str(rejected_path), str(subfolder / rejected_path.name))
+            else:
+                shutil.move(str(rejected_path), str(subfolder / rejected_path.name))
             status_text.value = f"✓  {chosen_path.name}"
         except Exception as err:
             status_text.value = f"Erreur : {err}"
@@ -464,45 +502,48 @@ def main(page: ft.Page):
             status_text.value = f"Dossier 1 introuvable : {repr(folder1_path)}"
             page.update()
             return
-        if not folder2_path or not os.path.isdir(folder2_path):
-            status_text.value = f"Dossier 2 introuvable : {repr(folder2_path)}"
-            page.update()
-            return
 
         images1 = _get_image_files(folder1_path)
-        images2 = _get_image_files(folder2_path)
-
+        # Filtrer images1 si des fichiers spécifiques ont été sélectionnés dans Dashboard
+        if selected_names:
+            images1 = [file for file in images1 if file.name in selected_names]
         if not images1:
-            status_text.value = f"Aucune image dans {os.path.basename(folder1_path)}."
+            status_text.value = f"Aucune image correspondante dans {os.path.basename(folder1_path)}."
             page.update()
             return
-        if not images2:
-            status_text.value = f"Aucune image dans {os.path.basename(folder2_path)}."
+
+        if folder2_path and os.path.isdir(folder2_path):
+            images2 = _get_image_files(folder2_path)
+            folder2_label = folder2_path
+            if not images2:
+                status_text.value = f"Aucune image dans {os.path.basename(folder2_path)}."
+                page.update()
+                return
+        else:
+            status_text.value = f"Dossier 2 introuvable : {repr(folder2_path)}"
             page.update()
             return
 
         pairs_list = _match_pairs(images1, images2)
 
-        # Reprendre là où on s'était arrêté
-        resume_index       = _find_resume_index(pairs_list, Path(folder1_path))
-        current_pair_index = resume_index
+        if not pairs_list:
+            status_text.value = "Aucune correspondance de noms trouvée entre les deux dossiers."
+            setup_overlay.visible = False
+            main_col.visible = True
+            page.update()
+            return
+
+        current_pair_index = 0
         selected_side      = 0
 
-        # Mettre à jour les labels de dossiers
         folder1_lbl.value = f"◀  {folder1_path}"
-        folder2_lbl.value = f"▶  {folder2_path}"
+        folder2_lbl.value = f"▶  {folder2_label}"
 
-        # Masquer l'écran de configuration, afficher le comparateur
         setup_overlay.visible = False
         main_col.visible      = True
         page.update()
 
-        if resume_index >= len(pairs_list):
-            _show_completion()
-        else:
-            if resume_index > 0:
-                status_text.value = f"-->  Reprise à la paire {resume_index + 1} ({resume_index} déjà traitée(s))"
-            _load_pair(resume_index)
+        _load_pair(0)
 
     # ═════════════════════════════════════════════════════════════════════
     #  ÉCRAN DE CONFIGURATION (si SECOND_FOLDER non fourni)
@@ -517,7 +558,7 @@ def main(page: ft.Page):
     )
     setup_folder2_field = ft.TextField(
         label="Dossier 2 (à comparer)",
-        value=folder2_path,
+        value=folder2_path or folder1_path,
         hint_text="Chemin du second dossier",
         bgcolor=DARK, border_color=GREY,
         expand=True, read_only=False,
@@ -528,8 +569,10 @@ def main(page: ft.Page):
 
     async def _pick_folder1(e):
         nonlocal folder1_path
+        initial = folder1_path or ""
         picked = await ft.FilePicker().get_directory_path(
-            dialog_title="Sélectionner le dossier 1")
+            dialog_title="Sélectionner le dossier 1",
+            initial_directory=initial)
         if picked:
             folder1_path = os.path.normpath(picked)
             setup_folder1_field.value = folder1_path
@@ -537,8 +580,10 @@ def main(page: ft.Page):
 
     async def _pick_folder2(e):
         nonlocal folder2_path
+        initial = folder2_path or folder1_path or ""
         picked = await ft.FilePicker().get_directory_path(
-            dialog_title="Sélectionner le dossier 2")
+            dialog_title="Sélectionner le dossier 2",
+            initial_directory=initial)
         if picked:
             folder2_path = os.path.normpath(picked)
             setup_folder2_field.value = folder2_path
@@ -637,6 +682,22 @@ def main(page: ft.Page):
         on_click=on_reset_view,
     )
 
+    def on_restart(e):
+        nonlocal current_pair_index, selected_side
+        current_pair_index = 0
+        selected_side = 0
+        choice_segment.selected_index = 0
+        _update_border()
+        status_text.value = ""
+        _load_pair(0)
+
+    restart_btn = ft.IconButton(
+        icon=ft.Icons.REFRESH,
+        icon_color=LIGHT_GREY,
+        tooltip="Recommencer depuis le début",
+        on_click=on_restart,
+    )
+
     # Ligne d'en-tête des dossiers
     header_row = ft.Row([
         ft.Icon(ft.Icons.FOLDER, color=BLUE, size=14),
@@ -656,6 +717,7 @@ def main(page: ft.Page):
     # Ligne des noms de fichiers + contrôles (fusionnés en une seule barre)
     controls_row = ft.Row([
         reset_btn,
+        restart_btn,
         ft.Column([fname1_text, resolution1_text],
                   spacing=1, expand=True,
                   horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -717,6 +779,7 @@ def main(page: ft.Page):
             ], expand=True),
         ], spacing=0, expand=True)
     )
+
 
     # ── Démarrage auto ────────────────────────────────────────────────────
     if folder1_path and folder2_path:

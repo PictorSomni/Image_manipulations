@@ -12,7 +12,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.3.1"
+__version__ = "2.3.2"
 
 #############################################################
 #                          IMPORTS                          #
@@ -20,11 +20,21 @@ __version__ = "2.3.1"
 import os
 from pathlib import Path
 import sys
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 from PIL import Image, ImageFile, ImageOps
 
 DPI = CONSTANTS.DPI
+
+#############################################################
+#                           SIZE                            #
+#############################################################
+#-------------- size of each individual image --------------#
+CROP_SIZE = os.environ.get("FIT_203_CROP_SIZE", "102x152")   # mm
+PRINT_SIZE = os.environ.get("FIT_203_PRINT_SIZE", "102x203") # mm
+DPI = CONSTANTS.DPI          # DPI
+START = 1          # Start number to count, if needed
+
 #############################################################
 #                           PATH                            #
 #############################################################
@@ -48,10 +58,9 @@ def mm_to_pixels(mm, dpi) :
     """Convertit des millimètres en pixels entiers pour un DPI donné."""
     return round((float(mm) / 25.4) * dpi)
 
-PRINT_SIZE = (127, 203)
-CROP_SIZE = (127, 178)
-PRINT_DPI = (mm_to_pixels(PRINT_SIZE[0], DPI)), (mm_to_pixels(PRINT_SIZE[1], DPI))
-CROP_DPI = (mm_to_pixels(CROP_SIZE[0], DPI)), (mm_to_pixels(CROP_SIZE[1], DPI))
+# Format de recadrage (ex: "102x152")
+PRINT_DPI = (mm_to_pixels(PRINT_SIZE.split("x")[0], DPI)), (mm_to_pixels(PRINT_SIZE.split("x")[1], DPI))
+CROP_DPI = (mm_to_pixels(CROP_SIZE.split("x")[0], DPI)), (mm_to_pixels(CROP_SIZE.split("x")[1], DPI))
 
 
 def folder(folder) :
