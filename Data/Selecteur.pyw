@@ -17,7 +17,7 @@ Sélecteur — App compacte (demi-écran) avec deux onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.3.3"
+__version__ = "2.3.4"
 
 
 #############################################################
@@ -808,11 +808,16 @@ def main(page: ft.Page):
             _navigate(os.path.normpath(folder))
 
     async def _pick_dst(event):
-        folder = await ft.FilePicker().get_directory_path(
-            dialog_title="Dossier de destination"
+        # save_file permet de créer un nouveau dossier sur macOS (bouton natif)
+        # On pré-remplit le nom de fichier avec un placeholder ; on extrait ensuite
+        # le dossier parent du chemin retourné.
+        path = await ft.FilePicker().save_file(
+            dialog_title="Choisir le dossier de destination",
+            file_name="Sélectionner ce dossier",
         )
-        if folder:
-            dst_path_field.value = os.path.normpath(folder)
+        if path:
+            folder = os.path.dirname(os.path.normpath(path))
+            dst_path_field.value = folder
             dst_path_field.update()
             _persist()
             _copy_selection(None)  # copie automatique dès que la destination est choisie

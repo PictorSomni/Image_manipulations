@@ -41,7 +41,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Tab       : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.3.3"
+__version__ = "2.3.4"
 
 #############################################################
 #                          IMPORTS                          #
@@ -885,10 +885,19 @@ class PhotoCropper:
 
 
 
-        # Pré-remplir copies_count depuis le préfixe NX_ du nom de fichier
-        copies_prefix_match = re.match(r'^(\d+)X_', os.path.basename(path))
-        if copies_prefix_match:
-            self.copies_count = int(copies_prefix_match.group(1))
+        # Pré-remplir copies_count et format depuis le préfixe NX_{format}_ du nom de fichier
+        filename_prefix_match = re.match(r'^(\d+)X_([^_]+)_', os.path.basename(path))
+        copies_only_match     = re.match(r'^(\d+)X_', os.path.basename(path))
+        if filename_prefix_match:
+            self.copies_count = int(filename_prefix_match.group(1))
+            format_from_filename = filename_prefix_match.group(2)
+            if not preserve_orientation and format_from_filename in FORMATS:
+                self.current_format       = FORMATS[format_from_filename]
+                self.current_format_label = format_from_filename
+                if hasattr(self, 'format_radio_group'):
+                    self.format_radio_group.value = format_from_filename
+        elif copies_only_match:
+            self.copies_count = int(copies_only_match.group(1))
         else:
             self.copies_count = 1
         if hasattr(self, 'copies_text'):
@@ -3787,20 +3796,22 @@ def main(page: ft.Page):
             app.ignore_image(event)
     page.on_keyboard_event = on_key
 
+    app.format_radio_group = ft.RadioGroup(
+        content=ft.Column(
+            [ft.Radio(value=fmt, label=fmt, fill_color=BLUE) for fmt in FORMATS.keys()],
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        value="ID",
+        on_change=app.change_ratio,
+    )
+
     controls = ft.Column([
         ft.Container(
             # ── Panneau droite : Choix des dimensions des photos ──────────────────────
             content=ft.Column([
                 ft.Text("Formats Photos", size=16, weight=ft.FontWeight.BOLD, color=WHITE),
                 ft.Divider(height=4),
-                ft.RadioGroup(
-                    content=ft.Column(
-                        [ft.Radio(value=fmt, label=fmt, fill_color=BLUE) for fmt in FORMATS.keys()],
-                        scroll=ft.ScrollMode.AUTO,
-                    ),
-                    value="ID (36x46mm)",
-                    on_change=app.change_ratio
-                ),
+                app.format_radio_group,
             ], scroll=ft.ScrollMode.AUTO),
             height=400,
             border=ft.Border.all(1, GREY),
