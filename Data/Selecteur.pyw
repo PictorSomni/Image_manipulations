@@ -17,7 +17,7 @@ Sélecteur — App compacte (demi-écran) avec deux onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.3.2"
+__version__ = "2.3.3"
 
 
 #############################################################
@@ -52,8 +52,8 @@ _OS_JUNK = {
 
 
 def _is_os_junk(entry):
-    n = entry.name.lower()
-    return n in _OS_JUNK or n.startswith("._")
+    filename_lower = entry.name.lower()
+    return filename_lower in _OS_JUNK or filename_lower.startswith("._")
 
 
 #############################################################
@@ -92,33 +92,33 @@ def main(page: ft.Page):
     # ─── Config persistante ──────────────────────────────────────────────
     def _load_config() -> dict:
         try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                return json.load(f)
+            with open(config_file, "r", encoding="utf-8") as file_handle:
+                return json.load(file_handle)
         except Exception:
             return {}
 
-    def _save_config(cfg: dict):
+    def _save_config(config: dict):
         try:
-            with open(config_file, "w", encoding="utf-8") as f:
-                json.dump(cfg, f, ensure_ascii=False, indent=2)
+            with open(config_file, "w", encoding="utf-8") as file_handle:
+                json.dump(config, file_handle, ensure_ascii=False, indent=2)
         except Exception:
             pass
 
-    _cfg = _load_config()
+    config_data = _load_config()
 
     # ─── Dossiers récents partagés avec Dashboard ─────────────────────────
     def _load_recent_shared() -> list:
         try:
-            with open(_shared_recent_file, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return [p for p in data if isinstance(p, str) and os.path.isdir(p)]
+            with open(_shared_recent_file, "r", encoding="utf-8") as file_handle:
+                loaded_data = json.load(file_handle)
+            return [path for path in loaded_data if isinstance(path, str) and os.path.isdir(path)]
         except Exception:
             return []
 
     def _save_recent_shared(folders: list):
         try:
-            with open(_shared_recent_file, "w", encoding="utf-8") as f:
-                json.dump(folders[:10], f, ensure_ascii=False, indent=2)
+            with open(_shared_recent_file, "w", encoding="utf-8") as file_handle:
+                json.dump(folders[:10], file_handle, ensure_ascii=False, indent=2)
         except Exception:
             pass
 
@@ -135,15 +135,18 @@ def main(page: ft.Page):
     preview_page     = {"value": 0}
     recent_src_list  = {"data": _load_recent_shared()}
     file_filter_active = {"value": False}   # afficher uniquement la sélection
+    print_counts     = {"data": {}}   # filepath → int (nb d'impressions, défaut 1)
+    print_formats    = {"data": {}}   # filepath → clé format (CONSTANTS.FORMATS)
+    count_text_refs  = {"data": {}}   # filepath → ft.Text widget du compteur
 
     # ─────────────────────────────────────────────────────────────────────
     #  ██████████  État  ──  Onglet 2 (Liste JSON)
     # ─────────────────────────────────────────────────────────────────────
-    json_path        = {"value": _cfg.get("json_path", os.path.join(app_dir, ".liste.json"))}
+    json_path        = {"value": config_data.get("json_path", os.path.join(app_dir, ".liste.json"))}
     json_entries     = {"list": []}
     list_sort_mode   = {"value": 2}         # 0=A→Z  1=Z→A  2=Récent
-    list_search_q    = {"value": ""}
-    recent_json_list    = {"data": [p for p in _cfg.get("recent_json", []) if isinstance(p, str) and os.path.isfile(p)]}
+    list_search_query    = {"value": ""}
+    recent_json_list    = {"data": [path for path in config_data.get("recent_json", []) if isinstance(path, str) and os.path.isfile(path)]}
     list_selected_items = {"data": set()}   # entrées cochées (filtre)
     list_done_items     = {"data": set()}   # entrées marquées "faites"
     list_filter_active  = {"value": False}  # afficher uniquement la sélection
@@ -158,27 +161,27 @@ def main(page: ft.Page):
             "recent_json": recent_json_list["data"],
         })
 
-    def _add_recent_src(p: str):
-        lst = _load_recent_shared()
-        p = os.path.normpath(p)
-        if p in lst:
-            lst.remove(p)
-        lst.insert(0, p)
-        lst = lst[:10]
-        _save_recent_shared(lst)
-        recent_src_list["data"] = lst
+    def _add_recent_src(folder_path: str):
+        recent_list = _load_recent_shared()
+        folder_path = os.path.normpath(folder_path)
+        if folder_path in recent_list:
+            recent_list.remove(folder_path)
+        recent_list.insert(0, folder_path)
+        recent_list = recent_list[:10]
+        _save_recent_shared(recent_list)
+        recent_src_list["data"] = recent_list
 
-    def _add_recent_json(p: str):
-        p = os.path.normpath(p)
-        lst = [x for x in recent_json_list["data"] if x != p]
-        lst.insert(0, p)
-        recent_json_list["data"] = lst[:10]
+    def _add_recent_json(json_file_path: str):
+        json_file_path = os.path.normpath(json_file_path)
+        recent_list = [existing for existing in recent_json_list["data"] if existing != json_file_path]
+        recent_list.insert(0, json_file_path)
+        recent_json_list["data"] = recent_list[:10]
         _persist()
         _rebuild_recent_json_menu()
 
     def _rebuild_recent_json_menu():
-        lst = recent_json_list["data"]
-        if not lst:
+        recent_list = recent_json_list["data"]
+        if not recent_list:
             recent_json_btn.items = [
                 ft.PopupMenuItem(content=ft.Text("Aucun fichier récent"))
             ]
@@ -187,12 +190,12 @@ def main(page: ft.Page):
                 ft.PopupMenuItem(
                     content=ft.Row(
                         [ft.Icon(ft.Icons.DATA_OBJECT, size=16),
-                         ft.Text(os.path.basename(p) or p)],
+                         ft.Text(os.path.basename(path) or path)],
                         spacing=8, tight=True,
                     ),
-                    on_click=lambda e, p=p: _open_json_in_list(p),
+                    on_click=lambda event, path=path: _open_json_in_list(path),
                 )
-                for p in lst
+                for path in recent_list
             ]
         try:
             recent_json_btn.update()
@@ -201,25 +204,25 @@ def main(page: ft.Page):
 
     def _load_list_states():
         """Charge les états (sélection / faits) pour le fichier JSON courant."""
-        cfg    = _load_config()
-        states = cfg.get("list_states", {})
+        config    = _load_config()
+        all_states = config.get("list_states", {})
         path   = json_path["value"]
-        entry  = states.get(path, {})
-        list_selected_items["data"] = set(entry.get("selected", []))
-        list_done_items["data"]     = set(entry.get("done", []))
+        state_entry  = all_states.get(path, {})
+        list_selected_items["data"] = set(state_entry.get("selected", []))
+        list_done_items["data"]     = set(state_entry.get("done", []))
 
     def _save_list_states():
         """Persiste les états (sélection / faits) pour le fichier JSON courant."""
-        cfg    = _load_config()
-        states = cfg.get("list_states", {})
+        config    = _load_config()
+        all_states = config.get("list_states", {})
         path   = json_path["value"]
         if path:
-            states[path] = {
+            all_states[path] = {
                 "selected": list(list_selected_items["data"]),
                 "done":     list(list_done_items["data"]),
             }
-        cfg["list_states"] = states
-        _save_config(cfg)
+        config["list_states"] = all_states
+        _save_config(config)
 
 
     # ═════════════════════════════════════════════════════════════════════
@@ -303,7 +306,7 @@ def main(page: ft.Page):
     )
 
     dst_path_field = ft.TextField(
-        value=_cfg.get("dst_path", ""),
+        value=config_data.get("dst_path", ""),
         hint_text="Dossier de destination...",
         border_color=GREEN,
         text_size=13, height=36,
@@ -320,6 +323,12 @@ def main(page: ft.Page):
         bgcolor=GREEN, border_radius=6,
         padding=ft.Padding(12, 8, 12, 8),
         ink=True, tooltip="Copier les fichiers sélectionnés vers la destination",
+    )
+    copy_progress = ft.ProgressBar(
+        color=GREEN, bgcolor=GREY,
+        value=None,   # indéterminé (infini)
+        visible=False,
+        height=4,
     )
 
 
@@ -377,10 +386,10 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
 
     def _selection_label():
-        n = len(selected_files)
-        if n == 0:
+        count = len(selected_files)
+        if count == 0:
             return ""
-        return f"{n} fichier{'s' if n > 1 else ''} sélectionné{'s' if n > 1 else ''}"
+        return f"{count} fichier{'s' if count > 1 else ''} sélectionné{'s' if count > 1 else ''}"
 
     def _update_toggle_btn():
         if search_query["value"]:
@@ -408,8 +417,8 @@ def main(page: ft.Page):
 
 
 
-    def _on_checkbox_change(e, path):
-        if e.control.value:
+    def _on_checkbox_change(event, path):
+        if event.control.value:
             selected_files.add(path)
         else:
             selected_files.discard(path)
@@ -421,16 +430,16 @@ def main(page: ft.Page):
         try:
             entries = all_entries["list"]
             if search_query["value"]:
-                q = search_query["value"].lower()
-                entries = [en for en in entries if q in en[0].lower()]
+                search_lower = search_query["value"].lower()
+                entries = [entry for entry in entries if search_lower in entry[0].lower()]
 
             if file_filter_active["value"]:
-                entries = [en for en in entries if en[1] in selected_files]
+                entries = [entry for entry in entries if entry[1] in selected_files]
 
-            total       = len(entries)
-            total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
-            cur_pg      = min(preview_page["value"], total_pages - 1)
-            preview_page["value"] = cur_pg
+            total_entries = len(entries)
+            total_pages = max(1, (total_entries + PAGE_SIZE - 1) // PAGE_SIZE)
+            current_page_index      = min(preview_page["value"], total_pages - 1)
+            preview_page["value"] = current_page_index
 
             controls = []
 
@@ -443,41 +452,80 @@ def main(page: ft.Page):
                                 text_align=ft.TextAlign.CENTER)
                     )
             else:
-                start = cur_pg * PAGE_SIZE
-                end   = min(start + PAGE_SIZE, total)
-                for name, fpath, is_dir, is_img, ext in entries[start:end]:
+                page_start = current_page_index * PAGE_SIZE
+                page_end   = min(page_start + PAGE_SIZE, total_entries)
+                for filename, file_path, is_directory, is_image, file_extension in entries[page_start:page_end]:
                     # Icône selon type
-                    if is_dir:
-                        icon, ic = ft.Icons.FOLDER, ft.Colors.AMBER_400
-                    elif is_img:
-                        icon, ic = ft.Icons.IMAGE, ft.Colors.GREEN_400
-                    elif ext == ".pdf":
-                        icon, ic = ft.Icons.PICTURE_AS_PDF, ft.Colors.RED_400
-                    elif ext == ".zip":
-                        icon, ic = ft.Icons.FOLDER_ZIP, ORANGE
-                    elif ext in {".txt", ".md", ".log"}:
-                        icon, ic = ft.Icons.DESCRIPTION, ft.Colors.BLUE_GREY_400
+                    if is_directory:
+                        icon_name, icon_color = ft.Icons.FOLDER, ft.Colors.AMBER_400
+                    elif is_image:
+                        icon_name, icon_color = ft.Icons.IMAGE, ft.Colors.GREEN_400
+                    elif file_extension == ".pdf":
+                        icon_name, icon_color = ft.Icons.PICTURE_AS_PDF, ft.Colors.RED_400
+                    elif file_extension == ".zip":
+                        icon_name, icon_color = ft.Icons.FOLDER_ZIP, ORANGE
+                    elif file_extension in {".txt", ".md", ".log"}:
+                        icon_name, icon_color = ft.Icons.DESCRIPTION, ft.Colors.BLUE_GREY_400
                     else:
-                        icon, ic = ft.Icons.INSERT_DRIVE_FILE, ft.Colors.BLUE_GREY_400
+                        icon_name, icon_color = ft.Icons.INSERT_DRIVE_FILE, ft.Colors.BLUE_GREY_400
 
                     checkbox = ft.Checkbox(
                         border_side=ft.BorderSide(color=BLUE),
-                        value=fpath in selected_files,
-                        on_change=lambda e, p=fpath: _on_checkbox_change(e, p),
+                        value=file_path in selected_files,
+                        on_change=lambda event, p=file_path: _on_checkbox_change(event, p),
                     )
 
-                    if is_img and not is_dir:
+                    if is_image and not is_directory:
                         visual = ft.Container(
                             content=ft.Image(
-                                src=fpath, fit=ft.BoxFit.COVER,
-                                error_content=ft.Icon(icon, color=ic, size=21),
+                                src=file_path, fit=ft.BoxFit.COVER,
+                                error_content=ft.Icon(icon_name, color=icon_color, size=21),
                             ),
                             width=64, height=64,
                             border_radius=4,
                             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                         )
                     else:
-                        visual = ft.Icon(icon, color=ic, size=21)
+                        visual = ft.Icon(icon_name, color=icon_color, size=21)
+
+                    if is_image and not is_directory:
+                        print_count   = print_counts["data"].get(file_path, 1)
+                        format_value = print_formats["data"].get(file_path, "")
+                        format_dropdown = ft.Dropdown(
+                            value=format_value or None,
+                            hint_text="Format",
+                            options=[ft.dropdown.Option(key=key, text=key)
+                                     for key in CONSTANTS.FORMATS.keys()],
+                            on_select=lambda event, p=file_path: _set_format(p, event.control.value or ""),
+                            text_size=11, height=36, width=110,
+                            content_padding=ft.Padding(8, 0, 0, 0),
+                            bgcolor=DARK, border_color=GREY,
+                        )
+                        count_label = ft.Text(str(print_count), size=12, color=WHITE, width=18,
+                                      text_align=ft.TextAlign.CENTER)
+                        count_text_refs["data"][file_path] = count_label
+                        extra_controls = [
+                            ft.Row([
+                                ft.IconButton(
+                                    icon=ft.Icons.REMOVE, icon_size=14,
+                                    icon_color=ORANGE,
+                                    style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                                    on_click=lambda event, p=file_path: _dec_count(p),
+                                    tooltip="Moins d'impressions",
+                                ),
+                                count_label,
+                                ft.IconButton(
+                                    icon=ft.Icons.ADD, icon_size=14,
+                                    icon_color=GREEN,
+                                    style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                                    on_click=lambda event, p=file_path: _inc_count(p),
+                                    tooltip="Plus d'impressions",
+                                ),
+                            ], spacing=0, tight=True),
+                            format_dropdown,
+                        ]
+                    else:
+                        extra_controls = []
 
                     controls.append(
                         ft.Container(
@@ -485,15 +533,16 @@ def main(page: ft.Page):
                                 [
                                     checkbox,
                                     visual,
-                                    ft.Text(name, size=16, color=WHITE, expand=True),
-                                ],
+                                    ft.Text(filename, size=13 if (is_image and not is_directory) else 16,
+                                            color=WHITE, expand=True),
+                                ] + extra_controls,
                                 spacing=8,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
                             ),
                             padding=ft.Padding(left=8, top=2, right=8, bottom=2),
                             ink=True,
                             ink_color=GREY,
-                            on_click=lambda e, p=fpath, d=is_dir, ex=ext: _navigate(p) if d else _open_json_in_list(p) if ex == ".json" else None,
+                            on_click=lambda event, p=file_path, d=is_directory, ex=file_extension: _navigate(p) if d else _open_json_in_list(p) if ex == ".json" else None,
                         )
                     )
 
@@ -502,12 +551,12 @@ def main(page: ft.Page):
             preview_loading.visible = False
 
             # Pagination
-            if total > PAGE_SIZE:
-                prev_page_btn.visible  = cur_pg > 0
-                next_page_btn.visible  = cur_pg < total_pages - 1
+            if total_entries > PAGE_SIZE:
+                prev_page_btn.visible  = current_page_index > 0
+                next_page_btn.visible  = current_page_index < total_pages - 1
                 page_indicator.value   = (
-                    f"{cur_pg * PAGE_SIZE + 1}-"
-                    f"{min((cur_pg + 1) * PAGE_SIZE, total)}/{total}"
+                    f"{current_page_index * PAGE_SIZE + 1}-"
+                    f"{min((current_page_index + 1) * PAGE_SIZE, total_entries)}/{total_entries}"
                 )
             else:
                 prev_page_btn.visible = False
@@ -517,8 +566,8 @@ def main(page: ft.Page):
             _update_toggle_btn()
             _update_file_filter_btn()
             page.update()
-        except Exception as ex:
-            status_text.value = f"[ERREUR] Rendu: {ex}"
+        except Exception as render_exception:
+            status_text.value = f"[ERREUR] Rendu: {render_exception}"
             page.update()
 
     def _navigate(path):
@@ -537,58 +586,58 @@ def main(page: ft.Page):
         if reset_page:
             preview_page["value"] = 0
         refresh_token["value"] += 1
-        cur_token = refresh_token["value"]
+        current_token = refresh_token["value"]
         preview_list.controls.clear()
         file_count_text.value   = ""
         folder = current_src["path"]
         preview_loading.visible = bool(folder)
         page.update()
 
-        def _bg():
-            entries_data = []
-            file_ct      = ""
-            err          = ""
+        def _background_scan():
+            entries_list = []
+            file_count_label      = ""
+            error_message          = ""
             if folder:
                 try:
-                    with os.scandir(folder) as it:
-                        raw = [e for e in it if not _is_os_junk(e)]
-                    n_files = sum(1 for e in raw if not e.is_dir())
-                    file_ct = f"({n_files} fichier{'s' if n_files > 1 else ''})"
+                    with os.scandir(folder) as scanner:
+                        raw_entries = [scan_entry for scan_entry in scanner if not _is_os_junk(scan_entry)]
+                    file_count = sum(1 for scan_entry in raw_entries if not scan_entry.is_dir())
+                    file_count_label = f"({file_count} fichier{'s' if file_count > 1 else ''})"
                     if sort_mode["value"] == 2:
-                        srt = sorted(raw, key=lambda e: (not e.is_dir(), -e.stat().st_mtime))
+                        sorted_entries = sorted(raw_entries, key=lambda scan_entry: (not scan_entry.is_dir(), -scan_entry.stat().st_mtime))
                     elif sort_mode["value"] == 1:
-                        srt = sorted(raw, key=lambda e: (not e.is_dir(), e.name.lower()), reverse=True)
+                        sorted_entries = sorted(raw_entries, key=lambda scan_entry: (not scan_entry.is_dir(), scan_entry.name.lower()), reverse=True)
                     else:
-                        srt = sorted(raw, key=lambda e: (not e.is_dir(), e.name.lower()))
-                    for entry in srt:
-                        ext    = os.path.splitext(entry.name)[1].lower()
-                        is_img = ext in _IMAGE_EXTS
-                        entries_data.append(
-                            (entry.name, entry.path, entry.is_dir(), is_img, ext)
+                        sorted_entries = sorted(raw_entries, key=lambda scan_entry: (not scan_entry.is_dir(), scan_entry.name.lower()))
+                    for scan_entry in sorted_entries:
+                        file_extension    = os.path.splitext(scan_entry.name)[1].lower()
+                        is_image = file_extension in _IMAGE_EXTS
+                        entries_list.append(
+                            (scan_entry.name, scan_entry.path, scan_entry.is_dir(), is_image, file_extension)
                         )
                 except PermissionError:
-                    err = "⚠️ Accès refusé à ce dossier"
-                except Exception as ex:
-                    err = f"⚠️ Erreur: {ex}"
+                    error_message = "⚠️ Accès refusé à ce dossier"
+                except Exception as exception:
+                    error_message = f"⚠️ Erreur: {exception}"
 
-            async def _apply():
-                if refresh_token["value"] != cur_token:
+            async def _apply_results():
+                if refresh_token["value"] != current_token:
                     return
-                all_entries["list"]  = entries_data
-                all_entries["error"] = err
-                file_count_text.value = file_ct
+                all_entries["list"]  = entries_list
+                all_entries["error"] = error_message
+                file_count_text.value = file_count_label
                 preview_loading.visible = False
                 _render_preview()
 
-            page.run_task(_apply)
+            page.run_task(_apply_results)
 
-        threading.Thread(target=_bg, daemon=True).start()
+        threading.Thread(target=_background_scan, daemon=True).start()
 
 
     def _rebuild_recent_src_menu():
-        lst = _load_recent_shared()
-        recent_src_list["data"] = lst
-        if not lst:
+        recent_list = _load_recent_shared()
+        recent_src_list["data"] = recent_list
+        if not recent_list:
             recent_src_btn.items = [
                 ft.PopupMenuItem(content=ft.Text("Aucun dossier récent"))
             ]
@@ -597,12 +646,12 @@ def main(page: ft.Page):
                 ft.PopupMenuItem(
                     content=ft.Row(
                         [ft.Icon(ft.Icons.FOLDER, size=16),
-                         ft.Text(os.path.basename(p) or p)],
+                         ft.Text(os.path.basename(path) or path)],
                         spacing=8, tight=True,
                     ),
-                    on_click=lambda e, p=p: _navigate(p),
+                    on_click=lambda event, path=path: _navigate(path),
                 )
-                for p in lst
+                for path in recent_list
             ]
         try:
             recent_src_btn.update()
@@ -610,19 +659,19 @@ def main(page: ft.Page):
             pass
 
     # ── Sélection ────────────────────────────────────────────────────────
-    def _select_all(e=None):
+    def _select_all(event=None):
         entries = all_entries["list"]
         if search_query["value"]:
             query_lower = search_query["value"].lower()
-            entries = [en for en in entries if query_lower in en[0].lower()]
-        for _, fpath, is_dir, _, _ in entries:
-            if not is_dir:
-                selected_files.add(fpath)
+            entries = [entry for entry in entries if query_lower in entry[0].lower()]
+        for _, file_path, is_directory, _, _ in entries:
+            if not is_directory:
+                selected_files.add(file_path)
         selection_count_text.value = _selection_label()
         _render_preview()
         _update_toggle_btn()
 
-    def _clear_selection(e=None):
+    def _clear_selection(event=None):
         selected_files.clear()
         selection_count_text.value = ""
         if file_filter_active["value"]:
@@ -630,12 +679,12 @@ def main(page: ft.Page):
         _render_preview()
         _update_toggle_btn()
 
-    def _toggle_all(e):
+    def _toggle_all(event):
         if search_query["value"]:
             query_lower = search_query["value"].lower()
             filtered_paths = {
-                fpath for (_name, fpath, is_dir, _is_img, _ext) in all_entries["list"]
-                if not is_dir and query_lower in _name.lower()
+                file_path for (_name, file_path, is_directory, _is_image, _ext) in all_entries["list"]
+                if not is_directory and query_lower in _name.lower()
             }
             if not filtered_paths.issubset(selected_files):
                 _select_all()
@@ -647,52 +696,75 @@ def main(page: ft.Page):
             else:
                 _select_all()
 
-    def _invert(e):
+    def _invert(event):
         entries = all_entries["list"]
-        for _, fpath, is_dir, _, _ in entries:
-            if is_dir:
+        for _, file_path, is_directory, _, _ in entries:
+            if is_directory:
                 continue
-            if fpath in selected_files:
-                selected_files.discard(fpath)
+            if file_path in selected_files:
+                selected_files.discard(file_path)
             else:
-                selected_files.add(fpath)
+                selected_files.add(file_path)
         selection_count_text.value = _selection_label()
         _render_preview()
         _update_toggle_btn()
 
-    def _toggle_file_filter(e):
+    def _toggle_file_filter(event):
         file_filter_active["value"] = not file_filter_active["value"]
         _update_file_filter_btn()
         _render_preview()
 
     def _update_file_filter_btn():
-        n = len(selected_files)
+        selected_count = len(selected_files)
         if file_filter_active["value"]:
             file_filter_btn.icon_color = BLUE
-            file_filter_btn.tooltip    = f"Filtre actif ({n} sélectionné(s)) — cliquer pour afficher tout"
+            file_filter_btn.tooltip    = f"Filtre actif ({selected_count} sélectionné(s)) — cliquer pour afficher tout"
         else:
-            file_filter_btn.icon_color = VIOLET if n else LIGHT_GREY
-            file_filter_btn.tooltip    = f"Afficher uniquement la sélection ({n} sélectionné(s))"
+            file_filter_btn.icon_color = VIOLET if selected_count else LIGHT_GREY
+            file_filter_btn.tooltip    = f"Afficher uniquement la sélection ({selected_count} sélectionné(s))"
         try:
             file_filter_btn.update()
         except Exception:
             pass
 
+    def _dec_count(path):
+        current_count = print_counts["data"].get(path, 1)
+        if current_count > 1:
+            print_counts["data"][path] = current_count - 1
+            count_widget = count_text_refs["data"].get(path)
+            if count_widget:
+                count_widget.value = str(current_count - 1)
+                count_widget.update()
+
+    def _inc_count(path):
+        current_count = print_counts["data"].get(path, 1)
+        print_counts["data"][path] = current_count + 1
+        count_widget = count_text_refs["data"].get(path)
+        if count_widget:
+            count_widget.value = str(current_count + 1)
+            count_widget.update()
+
+    def _set_format(path, value):
+        if value:
+            print_formats["data"][path] = value
+        else:
+            print_formats["data"].pop(path, None)
+
     # ── Tri / Recherche ──────────────────────────────────────────────────
-    def _on_sort_change(e):
-        sort_mode["value"] = e.control.selected_index
+    def _on_sort_change(event):
+        sort_mode["value"] = event.control.selected_index
         _refresh_preview()
 
-    def _on_search_change(e):
-        q = (search_field.value or "").strip()
-        if not q:
-            _clear_search(e)
+    def _on_search_change(event):
+        search_text = (search_field.value or "").strip()
+        if not search_text:
+            _clear_search(event)
             return
-        search_query["value"]  = q
+        search_query["value"]  = search_text
         preview_page["value"]  = 0
         _render_preview()
 
-    def _clear_search(e):
+    def _clear_search(event):
         search_query["value"] = ""
         search_field.value    = ""
         _render_preview()
@@ -700,21 +772,21 @@ def main(page: ft.Page):
         page.update()
 
     def _go_to_page(delta):
-        total       = len(all_entries["list"])
-        total_pages = max(1, (total + PAGE_SIZE - 1) // PAGE_SIZE)
-        new_pg      = max(0, min(preview_page["value"] + delta, total_pages - 1))
-        if new_pg == preview_page["value"]:
+        total_entries       = len(all_entries["list"])
+        total_pages = max(1, (total_entries + PAGE_SIZE - 1) // PAGE_SIZE)
+        new_page_index      = max(0, min(preview_page["value"] + delta, total_pages - 1))
+        if new_page_index == preview_page["value"]:
             return
-        preview_page["value"] = new_pg
+        preview_page["value"] = new_page_index
         _render_preview()
 
-    def _go_parent(e):
+    def _go_parent(event):
         if current_src["path"]:
             parent = os.path.dirname(current_src["path"])
             if parent and parent != current_src["path"]:
                 _navigate(parent)
 
-    def _open_in_explorer(e):
+    def _open_in_explorer(event):
         folder = current_src["path"]
         if not folder or not os.path.isdir(folder):
             return
@@ -728,14 +800,14 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    async def _pick_src(e):
+    async def _pick_src(event):
         folder = await ft.FilePicker().get_directory_path(
             dialog_title="Dossier source (images)"
         )
         if folder:
             _navigate(os.path.normpath(folder))
 
-    async def _pick_dst(e):
+    async def _pick_dst(event):
         folder = await ft.FilePicker().get_directory_path(
             dialog_title="Dossier de destination"
         )
@@ -743,59 +815,75 @@ def main(page: ft.Page):
             dst_path_field.value = os.path.normpath(folder)
             dst_path_field.update()
             _persist()
+            _copy_selection(None)  # copie automatique dès que la destination est choisie
 
-    def _on_status(topic, msg):
-        status_text.value = msg
+    def _on_status(topic, message):
+        status_text.value = message
         page.update()
 
     page.pubsub.subscribe_topic("sel_status", _on_status)
 
-    def _copy_selection(e):
+    def _copy_selection(event):
         if not selected_files:
             status_text.value = "⚠️ Aucun fichier sélectionné"
             page.update()
             return
-        dst_base = (dst_path_field.value or "").strip()
-        if not dst_base or not os.path.isdir(dst_base):
+        destination_base = (dst_path_field.value or "").strip()
+        if not destination_base or not os.path.isdir(destination_base):
             status_text.value = "⚠️ Dossier de destination invalide"
             page.update()
             return
-        dst = dst_base
-        files_snap = list(selected_files)
-        n = len(files_snap)
-        status_text.value = f"[...] Copie de {n} fichier(s)..."
+        destination_folder = destination_base
+        files_snapshot   = list(selected_files)
+        counts_snapshot  = dict(print_counts["data"])
+        formats_snapshot = dict(print_formats["data"])
+        total_files = len(files_snapshot)
+        copy_progress.visible = True
+        status_text.value = f"[...] Copie de {total_files} fichier(s)..."
         page.update()
 
-        def _do():
+        def _perform_copy():
             try:
-                os.makedirs(dst, exist_ok=True)
-            except Exception as ex:
-                page.pubsub.send_all_on_topic("sel_status", f"[ERREUR] Création dossier: {ex}")
+                os.makedirs(destination_folder, exist_ok=True)
+            except Exception as exception:
+                async def _report_copy_error():
+                    copy_progress.visible = False
+                    page.pubsub.send_all_on_topic("sel_status", f"[ERREUR] Création dossier: {exception}")
+                page.run_task(_report_copy_error)
                 return
-            ok, errors = 0, []
-            for src in files_snap:
-                if not os.path.isfile(src):
-                    errors.append(f"{os.path.basename(src)}: introuvable")
+            success_count, errors = 0, []
+            for source_file in files_snapshot:
+                if not os.path.isfile(source_file):
+                    errors.append(f"{os.path.basename(source_file)}: introuvable")
                     continue
-                dest_path = os.path.join(dst, os.path.basename(src))
-                if os.path.exists(dest_path):
-                    stem, ext = os.path.splitext(os.path.basename(src))
-                    c = 1
-                    while os.path.exists(dest_path):
-                        dest_path = os.path.join(dst, f"{stem} ({c}){ext}")
-                        c += 1
+                original_stem, file_extension = os.path.splitext(os.path.basename(source_file))
+                print_count = counts_snapshot.get(source_file, 1)
+                format_key   = formats_snapshot.get(source_file, "")
+                prefix_parts = [f"{print_count}X"]
+                if format_key:
+                    prefix_parts.append(format_key)
+                destination_stem = "_".join(prefix_parts) + "_" + original_stem
+                destination_path = os.path.join(destination_folder, destination_stem + file_extension)
+                if os.path.exists(destination_path):
+                    collision_index = 1
+                    while os.path.exists(destination_path):
+                        destination_path = os.path.join(destination_folder, f"{destination_stem} ({collision_index}){file_extension}")
+                        collision_index += 1
                 try:
-                    shutil.copy2(src, dest_path)
-                    ok += 1
-                except Exception as ex:
-                    errors.append(f"{os.path.basename(src)}: {ex}")
-            dst_label = os.path.basename(dst) or dst
-            msg = f"[OK] {ok}/{n} copié(s) → {dst_label}"
+                    shutil.copy2(source_file, destination_path)
+                    success_count += 1
+                except Exception as exception:
+                    errors.append(f"{os.path.basename(source_file)}: {exception}")
+            destination_label = os.path.basename(destination_folder) or destination_folder
+            status_message = f"[OK] {success_count}/{total_files} copié(s) → {destination_label}"
             if errors:
-                msg += f"  |  {len(errors)} erreur(s)"
-            page.pubsub.send_all_on_topic("sel_status", msg)
+                status_message += f"  |  {len(errors)} erreur(s)"
+            async def _finalize_copy():
+                copy_progress.visible = False
+                page.pubsub.send_all_on_topic("sel_status", status_message)
+            page.run_task(_finalize_copy)
 
-        threading.Thread(target=_do, daemon=True).start()
+        threading.Thread(target=_perform_copy, daemon=True).start()
 
 
     # ═════════════════════════════════════════════════════════════════════
@@ -807,11 +895,11 @@ def main(page: ft.Page):
         if not path or not os.path.isfile(path):
             return []
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if isinstance(data, list):
+            with open(path, "r", encoding="utf-8") as file_handle:
+                loaded_data = json.load(file_handle)
+            if isinstance(loaded_data, list):
                 result = []
-                for item in data:
+                for item in loaded_data:
                     if isinstance(item, dict):
                         result.append({
                             "nom":         str(item.get("nom", "")),
@@ -830,11 +918,11 @@ def main(page: ft.Page):
             page.update()
             return
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(json_entries["list"], f, ensure_ascii=False, indent=2)
+            with open(path, "w", encoding="utf-8") as file_handle:
+                json.dump(json_entries["list"], file_handle, ensure_ascii=False, indent=2)
             list_status.value = "[OK] Sauvegardé"
-        except Exception as ex:
-            list_status.value = f"[ERREUR] {ex}"
+        except Exception as exception:
+            list_status.value = f"[ERREUR] {exception}"
         page.update()
 
     def _autosave():
@@ -843,18 +931,18 @@ def main(page: ft.Page):
         if not path:
             return
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(json_entries["list"], f, ensure_ascii=False, indent=2)
-        except Exception as ex:
-            list_status.value = f"[ERREUR] Autosave: {ex}"
+            with open(path, "w", encoding="utf-8") as file_handle:
+                json.dump(json_entries["list"], file_handle, ensure_ascii=False, indent=2)
+        except Exception as exception:
+            list_status.value = f"[ERREUR] Autosave: {exception}"
             page.update()
         _save_list_states()
 
     def _copy_to_clipboard(text: str):
         try:
             page.set_clipboard(text)
-            preview = text[:50] + ("..." if len(text) > 50 else "")
-            list_status.value = f"[OK] Copié : {preview}"
+            text_preview = text[:50] + ("..." if len(text) > 50 else "")
+            list_status.value = f"[OK] Copié : {text_preview}"
         except Exception:
             # Fallback système
             try:
@@ -872,32 +960,32 @@ def main(page: ft.Page):
                         stdin=subprocess.PIPE,
                     ).communicate(text.encode("utf-8"))
                 list_status.value = "[OK] Copié"
-            except Exception as ex2:
-                list_status.value = f"[ERREUR] Clipboard: {ex2}"
+            except Exception as clipboard_exception:
+                list_status.value = f"[ERREUR] Clipboard: {clipboard_exception}"
         page.update()
 
     def _render_list():
         entries = list(json_entries["list"])
-        q = list_search_q["value"].lower()
-        if q:
+        search_lower = list_search_query["value"].lower()
+        if search_lower:
             entries = [
-                e for e in entries
-                if q in e["nom"].lower() or q in e["description"].lower()
+                entry for entry in entries
+                if search_lower in entry["nom"].lower() or search_lower in entry["description"].lower()
             ]
         if list_sort_mode["value"] == 1:
-            entries = sorted(entries, key=lambda e: e["nom"].lower(), reverse=True)
+            entries = sorted(entries, key=lambda list_entry: list_entry["nom"].lower(), reverse=True)
         elif list_sort_mode["value"] == 2:
             entries = list(reversed(entries))  # dernier ajouté en premier
         else:
-            entries = sorted(entries, key=lambda e: e["nom"].lower())
+            entries = sorted(entries, key=lambda list_entry: list_entry["nom"].lower())
 
         if list_filter_active["value"]:
-            entries = [e for e in entries if e["nom"] in list_selected_items["data"]]
+            entries = [entry for entry in entries if entry["nom"] in list_selected_items["data"]]
 
         controls = []
         for entry in entries:
             nom  = entry["nom"]
-            desc = entry["description"]
+            description = entry["description"]
 
             controls.append(
                 ft.Container(
@@ -906,7 +994,7 @@ def main(page: ft.Page):
                         ft.Checkbox(
                             value=nom in list_selected_items["data"],
                             tooltip="Sélection (filtre)",
-                            on_change=lambda e, n=nom: _on_check_select(e, n),
+                            on_change=lambda event, entry_name=nom: _on_check_select(event, entry_name),
                             active_color=VIOLET,
                         ),
                         # ── Nom ──────────────────────────────────────
@@ -916,7 +1004,7 @@ def main(page: ft.Page):
                                 color=BLUE, max_lines=1,
                                 overflow=ft.TextOverflow.ELLIPSIS,
                             ),
-                            on_click=lambda e, n=nom: _copy_to_clipboard(n),
+                            on_click=lambda event, entry_name=nom: _copy_to_clipboard(entry_name),
                             tooltip=f"Copier le nom : {nom}",
                             ink=True, border_radius=6,
                             padding=ft.Padding(10, 6, 10, 6),
@@ -926,11 +1014,11 @@ def main(page: ft.Page):
                         # ── Description ───────────────────────────────
                         ft.Container(
                             content=ft.Text(
-                                desc or "—", size=14, color=LIGHT_GREY,
+                                description or "—", size=14, color=LIGHT_GREY,
                                 max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                             ),
-                            on_click=lambda e, d=desc: _copy_to_clipboard(d) if d else None,
-                            tooltip=f"Copier la description : {desc}" if desc else "Pas de description",
+                            on_click=lambda event, desc_value=description: _copy_to_clipboard(desc_value) if desc_value else None,
+                            tooltip=f"Copier la description : {description}" if description else "Pas de description",
                             ink=True, border_radius=6,
                             padding=ft.Padding(10, 6, 10, 6),
                             bgcolor=DARK,
@@ -942,21 +1030,21 @@ def main(page: ft.Page):
                                 icon=ft.Icons.EDIT_OUTLINED,
                                 icon_size=16, icon_color=LIGHT_GREY,
                                 tooltip="Éditer",
-                                on_click=lambda e, n=nom, d=desc: _edit_entry(n, d),
+                                on_click=lambda event, entry_name=nom, entry_desc=description: _edit_entry(entry_name, entry_desc),
                                 style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                             ),
                             # ── Checkbox mise en page ─────────────────────
                             ft.Checkbox(
                                 value=nom in list_done_items["data"],
                                 tooltip="Mise en page faite",
-                                on_change=lambda e, n=nom: _on_check_done(e, n),
+                                on_change=lambda event, entry_name=nom: _on_check_done(event, entry_name),
                                 active_color=GREEN,
                             ),
                             ft.IconButton(
                                 icon=ft.Icons.DELETE_OUTLINE,
                                 icon_size=16, icon_color=RED,
                                 tooltip="Supprimer",
-                                on_click=lambda e, n=nom: _delete_entry(n),
+                                on_click=lambda event, entry_name=nom: _delete_entry(entry_name),
                                 style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                             ),
                         ], spacing=0, tight=True),
@@ -968,15 +1056,15 @@ def main(page: ft.Page):
 
         list_view.controls.clear()
         list_view.controls.extend(controls)
-        n_total   = len(json_entries["list"])
-        n_visible = len(entries)
-        n_sel     = len(list_selected_items["data"])
+        total_count   = len(json_entries["list"])
+        visible_count = len(entries)
+        selected_count     = len(list_selected_items["data"])
         if list_filter_active["value"]:
-            list_count.value = f"{n_visible} sélectionnée(s) / {n_total} total"
-        elif q:
-            list_count.value = f"{n_visible}/{n_total} entrée(s)"
+            list_count.value = f"{visible_count} sélectionnée(s) / {total_count} total"
+        elif search_lower:
+            list_count.value = f"{visible_count}/{total_count} entrée(s)"
         else:
-            list_count.value = f"{n_total} entrée(s)" + (f"  •  {n_sel} sélectionnée(s)" if n_sel else "")
+            list_count.value = f"{total_count} entrée(s)" + (f"  •  {selected_count} sélectionnée(s)" if selected_count else "")
         try:
             list_view.update()
             list_count.update()
@@ -1007,77 +1095,77 @@ def main(page: ft.Page):
             pass
         page.update()
 
-    def _edit_entry(nom_orig: str, desc_orig: str):
-        nom_f = ft.TextField(
-            label="Nom", value=nom_orig, autofocus=True,
+    def _edit_entry(original_name: str, original_description: str):
+        name_field = ft.TextField(
+            label="Nom", value=original_name, autofocus=True,
             bgcolor=DARK, border_color=BLUE, text_size=13,
         )
-        desc_f = ft.TextField(
-            label="Description", value=desc_orig,
+        description_field = ft.TextField(
+            label="Description", value=original_description,
             bgcolor=DARK, border_color=BLUE, text_size=13,
             multiline=True, min_lines=2, max_lines=6,
         )
-        dlg = ft.AlertDialog(
+        dialog = ft.AlertDialog(
             title=ft.Text("Éditer l'entrée"),
-            content=ft.Column([nom_f, desc_f], spacing=8, tight=True, width=380),
+            content=ft.Column([name_field, description_field], spacing=8, tight=True, width=380),
         )
 
-        def _confirm(e):
-            new_nom  = (nom_f.value  or "").strip()
-            new_desc = (desc_f.value or "").strip()
-            if not new_nom:
-                nom_f.error_text = "Requis"
+        def _confirm(event):
+            new_name  = (name_field.value  or "").strip()
+            new_description = (description_field.value or "").strip()
+            if not new_name:
+                name_field.error_text = "Requis"
                 page.update()
                 return
             for entry in json_entries["list"]:
-                if entry["nom"] == nom_orig and entry["description"] == desc_orig:
-                    entry["nom"]         = new_nom
-                    entry["description"] = new_desc
+                if entry["nom"] == original_name and entry["description"] == original_description:
+                    entry["nom"]         = new_name
+                    entry["description"] = new_description
                     break
-            if new_nom != nom_orig:
-                if nom_orig in list_selected_items["data"]:
-                    list_selected_items["data"].discard(nom_orig)
-                    list_selected_items["data"].add(new_nom)
-                if nom_orig in list_done_items["data"]:
-                    list_done_items["data"].discard(nom_orig)
-                    list_done_items["data"].add(new_nom)
-            dlg.open = False
+            if new_name != original_name:
+                if original_name in list_selected_items["data"]:
+                    list_selected_items["data"].discard(original_name)
+                    list_selected_items["data"].add(new_name)
+                if original_name in list_done_items["data"]:
+                    list_done_items["data"].discard(original_name)
+                    list_done_items["data"].add(new_name)
+            dialog.open = False
             page.update()
             _autosave()
             _render_list()
 
-        def _cancel(e):
-            dlg.open = False
+        def _cancel(event):
+            dialog.open = False
             page.update()
 
-        nom_f.on_submit = _confirm
-        dlg.actions = [
+        name_field.on_submit = _confirm
+        dialog.actions = [
             ft.TextButton("Annuler", on_click=_cancel),
             ft.TextButton("OK", on_click=_confirm),
         ]
-        page.overlay.append(dlg)
-        dlg.open = True
+        page.overlay.append(dialog)
+        dialog.open = True
         page.update()
 
-    def _delete_entry(nom: str):
-        def _confirm(e):
+    def _delete_entry(entry_name: str):
+        def _confirm(event):
             json_entries["list"] = [
-                en for en in json_entries["list"] if en["nom"] != nom
+                entry_item for entry_item in json_entries["list"] if entry_item["nom"] != entry_name
             ]
-            list_selected_items["data"].discard(nom)
-            list_done_items["data"].discard(nom)
-            dlg.open = False
+            list_selected_items["data"].discard(entry_name)
+            list_done_items["data"].discard(entry_name)
+            dialog.open = False
             page.update()
             _autosave()
             _render_list()
 
-        def _cancel(e):
-            dlg.open = False
+        def _cancel(event):
+            dialog.open = False
             page.update()
 
-        dlg = ft.AlertDialog(
+        dialog = ft.AlertDialog(
             title=ft.Text("Supprimer l'entrée ?"),
-            content=ft.Text(f"« {nom} » sera supprimée de la liste."),
+            content=ft.Text(f"« {entry_name} » sera supprimée de la liste."),
             actions=[
                 ft.TextButton("Annuler", on_click=_cancel),
                 ft.TextButton(
@@ -1087,12 +1175,12 @@ def main(page: ft.Page):
                 ),
             ],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
+        page.overlay.append(dialog)
+        dialog.open = True
         page.update()
 
-    def _add_entry(e):
-        bloc_f = ft.TextField(
+    def _add_entry(event):
+        block_field = ft.TextField(
             label="Bloc (1re ligne = nom, suite = description)",
             hint_text="Collez ou saisissez le bloc ici…",
             autofocus=True,
@@ -1100,70 +1188,70 @@ def main(page: ft.Page):
             multiline=True, min_lines=3, max_lines=10,
             width=380,
         )
-        dlg = ft.AlertDialog(
+        dialog = ft.AlertDialog(
             title=ft.Text("Ajouter une entrée"),
-            content=ft.Column([bloc_f], spacing=8, tight=True, width=380),
+            content=ft.Column([block_field], spacing=8, tight=True, width=380),
         )
 
-        def _confirm(e2):
-            raw   = (bloc_f.value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
-            lines = raw.split("\n", 1)
-            nom   = lines[0].strip()
-            desc  = lines[1].strip() if len(lines) > 1 else ""
-            if not nom:
-                bloc_f.error_text = "La première ligne (nom) est requise"
+        def _confirm(inner_event):
+            raw_text   = (block_field.value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+            text_lines = raw_text.split("\n", 1)
+            entry_name   = text_lines[0].strip()
+            entry_description  = text_lines[1].strip() if len(text_lines) > 1 else ""
+            if not entry_name:
+                block_field.error_text = "La première ligne (nom) est requise"
                 page.update()
                 return
-            bloc_f.error_text = None
-            json_entries["list"].append({"nom": nom, "description": desc})
-            dlg.open = False
+            block_field.error_text = None
+            json_entries["list"].append({"nom": entry_name, "description": entry_description})
+            dialog.open = False
             page.update()
             _autosave()
             _render_list()
 
-        def _cancel(e2):
-            dlg.open = False
+        def _cancel(inner_event):
+            dialog.open = False
             page.update()
 
-        dlg.actions = [
+        dialog.actions = [
             ft.TextButton("Annuler", on_click=_cancel),
             ft.TextButton("Ajouter", on_click=_confirm),
         ]
-        page.overlay.append(dlg)
-        dlg.open = True
+        page.overlay.append(dialog)
+        dialog.open = True
         page.update()
 
     # ── Recherche liste ──────────────────────────────────────────────────
-    def _on_list_search_change(e):
-        q = (list_search_field.value or "").strip()
-        list_search_q["value"] = q
+    def _on_list_search_change(event):
+        search_text = (list_search_field.value or "").strip()
+        list_search_query["value"] = search_text
         _render_list()
 
-    def _on_list_sort_change(e):
-        list_sort_mode["value"] = e.control.selected_index
+    def _on_list_sort_change(event):
+        list_sort_mode["value"] = event.control.selected_index
         _render_list()
 
-    def _on_check_select(e, nom):
-        if e.control.value:
-            list_selected_items["data"].add(nom)
+    def _on_check_select(event, entry_name):
+        if event.control.value:
+            list_selected_items["data"].add(entry_name)
         else:
-            list_selected_items["data"].discard(nom)
+            list_selected_items["data"].discard(entry_name)
         _update_filter_btn()
         _save_list_states()
 
-    def _on_check_done(e, nom):
-        if e.control.value:
-            list_done_items["data"].add(nom)
+    def _on_check_done(event, entry_name):
+        if event.control.value:
+            list_done_items["data"].add(entry_name)
         else:
-            list_done_items["data"].discard(nom)
+            list_done_items["data"].discard(entry_name)
         _save_list_states()
 
-    def _toggle_list_filter(e):
+    def _toggle_list_filter(event):
         list_filter_active["value"] = not list_filter_active["value"]
         _update_filter_btn()
         _render_list()
 
-    def _deselect_all_list(e):
+    def _deselect_all_list(event):
         list_selected_items["data"].clear()
         if list_filter_active["value"]:
             list_filter_active["value"] = False
@@ -1172,61 +1260,61 @@ def main(page: ft.Page):
         _render_list()
 
     def _update_filter_btn():
-        n = len(list_selected_items["data"])
+        selected_count = len(list_selected_items["data"])
         if list_filter_active["value"]:
             filter_sel_btn.icon_color = VIOLET
-            filter_sel_btn.tooltip    = f"Filtre actif ({n} sélectionnée(s)) — cliquer pour afficher tout"
+            filter_sel_btn.tooltip    = f"Filtre actif ({selected_count} sélectionnée(s)) — cliquer pour afficher tout"
         else:
             filter_sel_btn.icon_color = LIGHT_GREY
-            filter_sel_btn.tooltip    = f"Afficher uniquement la sélection ({n} sélectionnée(s))"
+            filter_sel_btn.tooltip    = f"Afficher uniquement la sélection ({selected_count} sélectionnée(s))"
         try:
             filter_sel_btn.update()
         except Exception:
             pass
 
-    async def _pick_json(e):
-        initial_dir = current_src["path"] or (
+    async def _pick_json(event):
+        initial_directory = current_src["path"] or (
             os.path.dirname(json_path["value"])
             if json_path["value"] and os.path.isfile(json_path["value"])
             else None
         )
-        result = await ft.FilePicker().pick_files(
+        pick_result = await ft.FilePicker().pick_files(
             dialog_title="Ouvrir un fichier JSON",
             allowed_extensions=["json"],
             allow_multiple=False,
-            initial_directory=initial_dir,
+            initial_directory=initial_directory,
         )
-        files = result.files if hasattr(result, "files") else result
-        if files:
-            p = files[0].path
-            json_path["value"]    = p
-            json_path_field.value = p
+        picked_files = pick_result.files if hasattr(pick_result, "files") else pick_result
+        if picked_files:
+            file_path = picked_files[0].path
+            json_path["value"]    = file_path
+            json_path_field.value = file_path
             json_path_field.update()
-            _add_recent_json(p)
+            _add_recent_json(file_path)
             _persist()
             _load_and_render()
 
-    def _on_json_path_submit(e):
-        p = (json_path_field.value or "").strip()
-        if p and os.path.isfile(p):
-            json_path["value"] = p
-            _add_recent_json(p)
+    def _on_json_path_submit(event):
+        path_value = (json_path_field.value or "").strip()
+        if path_value and os.path.isfile(path_value):
+            json_path["value"] = path_value
+            _add_recent_json(path_value)
             _persist()
             _load_and_render()
         else:
             json_path_field.error_text = "Fichier introuvable"
             json_path_field.update()
 
-    async def _new_json_file(e):
+    async def _new_json_file(event):
         """Crée un nouveau fichier JSON vide : choix du dossier puis du nom."""
-        initial_dir = current_src["path"] or (
+        initial_directory = current_src["path"] or (
             os.path.dirname(json_path["value"])
             if json_path["value"] and os.path.isfile(json_path["value"])
             else None
         )
         folder = await ft.FilePicker().get_directory_path(
             dialog_title="Choisir l'emplacement du nouveau fichier JSON",
-            initial_directory=initial_dir,
+            initial_directory=initial_directory,
         )
         if not folder:
             return
@@ -1239,7 +1327,7 @@ def main(page: ft.Page):
             bgcolor=DARK, border_color=VIOLET, text_size=13,
             width=320,
         )
-        dlg = ft.AlertDialog(
+        dialog = ft.AlertDialog(
             title=ft.Text("Nouveau fichier JSON"),
             content=ft.Column([
                 ft.Text(
@@ -1250,42 +1338,42 @@ def main(page: ft.Page):
             ], spacing=8, tight=True, width=360),
         )
 
-        def _confirm(ev):
-            name = (name_field.value or "").strip()
-            if not name:
+        def _confirm(inner_event):
+            file_name = (name_field.value or "").strip()
+            if not file_name:
                 name_field.error_text = "Requis"
                 page.update()
                 return
-            if not name.lower().endswith(".json"):
-                name = name + ".json"
-            p = os.path.join(folder, name)
-            dlg.open = False
+            if not file_name.lower().endswith(".json"):
+                file_name = file_name + ".json"
+            file_path = os.path.join(folder, file_name)
+            dialog.open = False
             page.update()
             try:
-                with open(p, "w", encoding="utf-8") as f:
-                    json.dump([], f, ensure_ascii=False, indent=2)
-                json_path["value"]    = p
-                json_path_field.value = p
+                with open(file_path, "w", encoding="utf-8") as file_handle:
+                    json.dump([], file_handle, ensure_ascii=False, indent=2)
+                json_path["value"]    = file_path
+                json_path_field.value = file_path
                 json_path_field.update()
-                _add_recent_json(p)
+                _add_recent_json(file_path)
                 _persist()
                 _load_and_render()
-                list_status.value = f"[OK] Créé : {name}"
-            except Exception as ex:
-                list_status.value = f"[ERREUR] {ex}"
+                list_status.value = f"[OK] Créé : {file_name}"
+            except Exception as exception:
+                list_status.value = f"[ERREUR] {exception}"
             page.update()
 
-        def _cancel(ev):
-            dlg.open = False
+        def _cancel(inner_event):
+            dialog.open = False
             page.update()
 
         name_field.on_submit = _confirm
-        dlg.actions = [
+        dialog.actions = [
             ft.TextButton("Annuler", on_click=_cancel),
             ft.TextButton("Créer", on_click=_confirm),
         ]
-        page.overlay.append(dlg)
-        dlg.open = True
+        page.overlay.append(dialog)
+        dialog.open = True
         page.update()
 
 
@@ -1293,14 +1381,14 @@ def main(page: ft.Page):
     #  ██  Actions fenêtre
     # ═════════════════════════════════════════════════════════════════════
 
-    async def _close(e):
+    async def _close(event):
         _persist()
         await page.window.close()
 
-    def _minimize(e):
+    def _minimize(event):
         page.window.minimized = True
 
-    def _toggle_maximize(e):
+    def _toggle_maximize(event):
         page.window.maximized = not page.window.maximized
         page.update()
 
@@ -1316,10 +1404,10 @@ def main(page: ft.Page):
     search_field.on_change     = _on_search_change
     search_field.on_submit     = _on_search_change
     search_close_btn.on_click  = _clear_search
-    prev_page_btn.on_click     = lambda e: _go_to_page(-1)
-    next_page_btn.on_click     = lambda e: _go_to_page(+1)
+    prev_page_btn.on_click     = lambda event: _go_to_page(-1)
+    next_page_btn.on_click     = lambda event: _go_to_page(+1)
     copy_btn.on_click          = _copy_selection
-    src_path_field.on_submit   = lambda e: (
+    src_path_field.on_submit   = lambda event: (
         _navigate((src_path_field.value or "").strip())
     )
 
@@ -1353,7 +1441,7 @@ def main(page: ft.Page):
             ft.IconButton(
                 icon=ft.Icons.REFRESH, icon_color=BLUE,
                 icon_size=20, tooltip="Rafraîchir",
-                on_click=lambda e: _refresh_preview(),
+                on_click=lambda event: _refresh_preview(),
             ),
             ft.IconButton(
                 icon=ft.Icons.OPEN_IN_NEW, icon_color=GREEN,
@@ -1403,6 +1491,7 @@ def main(page: ft.Page):
                     ),
                     copy_btn,
                 ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                copy_progress,
                 status_text,
             ], spacing=6, tight=True),
             bgcolor=GREY,
@@ -1560,34 +1649,34 @@ def main(page: ft.Page):
         list_count.value = "0 entrée(s)"
 
     # Navigation initiale : dossier transmis par Dashboard via variable d'environnement
-    _initial_folder = os.environ.get("SELECTEUR_INITIAL_FOLDER", "").strip()
-    if _initial_folder and os.path.isdir(_initial_folder):
-        _navigate(_initial_folder)
+    initial_folder = os.environ.get("SELECTEUR_INITIAL_FOLDER", "").strip()
+    if initial_folder and os.path.isdir(initial_folder):
+        _navigate(initial_folder)
 
     # Fichier JSON transmis par Dashboard (clic sur un .json)
-    _initial_json = os.environ.get("SELECTEUR_JSON_PATH", "").strip()
-    if _initial_json and os.path.isfile(_initial_json):
-        _open_json_in_list(_initial_json)
+    initial_json_path = os.environ.get("SELECTEUR_JSON_PATH", "").strip()
+    if initial_json_path and os.path.isfile(initial_json_path):
+        _open_json_in_list(initial_json_path)
 
 
 #############################################################
 #                         DÉMARRAGE                         #
 #############################################################
 if sys.platform == "win32":
-    _original_exception_handler = None
+    original_exception_handler = None
 
     def _silence_proactor_pipe_errors(loop, context):
-        exc = context.get("exception")
-        if isinstance(exc, (ConnectionResetError, BrokenPipeError)):
+        exception = context.get("exception")
+        if isinstance(exception, (ConnectionResetError, BrokenPipeError)):
             return
-        if _original_exception_handler:
-            _original_exception_handler(loop, context)
+        if original_exception_handler:
+            original_exception_handler(loop, context)
         else:
             loop.default_exception_handler(context)
 
-    _loop = asyncio.new_event_loop()
-    _original_exception_handler = _loop.get_exception_handler()
-    _loop.set_exception_handler(_silence_proactor_pipe_errors)
-    asyncio.set_event_loop(_loop)
+    event_loop = asyncio.new_event_loop()
+    original_exception_handler = event_loop.get_exception_handler()
+    event_loop.set_exception_handler(_silence_proactor_pipe_errors)
+    asyncio.set_event_loop(event_loop)
 
 ft.run(main)

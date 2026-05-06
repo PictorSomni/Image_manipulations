@@ -21,7 +21,7 @@ Variables d'environnement :
   SELECTED_FILES  — chemin optionnel vers le dossier SELECTION ciblé.
 """
 
-__version__ = "2.3.2"
+__version__ = "2.3.3"
 
 #############################################################
 #                          IMPORTS                          #

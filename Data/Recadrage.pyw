@@ -41,7 +41,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Tab       : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.3.2"
+__version__ = "2.3.3"
 
 #############################################################
 #                          IMPORTS                          #
@@ -290,8 +290,8 @@ class PhotoCropper:
 
         # Configuration du canvas (calculé dynamiquement)
         self.canvas_is_portrait = True
-        self.current_format = FORMATS["ID (36x46mm)"]
-        self.current_format_label = "ID (36x46mm)"
+        self.current_format = FORMATS["ID"]
+        self.current_format_label = "ID"
         self.border_13x15 = False
         self.border_10x20 = False
         self.border_13x20 = False
