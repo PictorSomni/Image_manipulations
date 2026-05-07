@@ -752,28 +752,23 @@ def main(page: ft.Page) -> None:
 
         import shutil
 
-        # ── Copie les fichiers sélectionnés dans SELECTION/<format>/<count>x/ ──
+        # ── Copie les fichiers sélectionnés dans SELECTION/ avec nomenclature {count}X_{format}_{original} ──
         for format_name, file_counts in format_selections.items():
             for filename, count in file_counts.items():
                 source_path = os.path.join(folder_path, filename)
                 if not os.path.isfile(source_path):
                     continue
-                count_subfolder = os.path.join(selection_dir, format_name, f"{count}x")
-                try:
-                    os.makedirs(count_subfolder, exist_ok=True)
-                except OSError as mk_err:
-                    errors.append(f"{filename}: {mk_err}")
-                    continue
-                destination_path = os.path.join(count_subfolder, filename)
+                original_stem, file_extension = os.path.splitext(filename)
+                new_stem = f"{count}X_{format_name}_{original_stem}"
+                destination_path = os.path.join(selection_dir, new_stem + file_extension)
                 if os.path.exists(destination_path):
-                    base, extension = os.path.splitext(filename)
                     counter = 1
                     while os.path.exists(destination_path):
-                        destination_path = os.path.join(count_subfolder, f"{base}_{counter}{extension}")
+                        destination_path = os.path.join(selection_dir, f"{new_stem} ({counter}){file_extension}")
                         counter += 1
                 try:
                     if nb_state.get((format_name, filename), False) and HAS_PIL and PILImage is not None and ImageOps is not None:
-                        ext = os.path.splitext(filename)[1].lower()
+                        ext = file_extension.lower()
                         fmt = "JPEG" if ext in (".jpg", ".jpeg") else "PNG"
                         save_kwargs: dict = {"quality": 100} if fmt == "JPEG" else {}
                         with PILImage.open(source_path) as img:

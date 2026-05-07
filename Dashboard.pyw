@@ -23,7 +23,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.3.4"
+__version__ = "2.3.5"
 
 
 
@@ -277,7 +277,7 @@ def main(page: ft.Page):
 
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
     terminal_cmd_input = ft.TextField(
-        hint_text="> Terminal",
+        hint_text="> Terminal  (tapez /note pour ouvrir le bloc-notes)",
         border_color=GREEN,
         text_style=ft.TextStyle(font_family="monospace", size=12),
         dense=True,
@@ -286,6 +286,44 @@ def main(page: ft.Page):
         on_submit=lambda e: on_terminal_command_submit(e),
         on_focus=lambda e: terminal_input_focused.update({"value": True}),
         on_blur=lambda e: terminal_input_focused.update({"value": False}),
+    )
+    terminal_cmd_row = ft.Row([terminal_cmd_input])
+
+    # ── Bloc-notes ────────────────────────────────────────────────────
+    notes_file_path = os.path.join(app_directory, ".notes.txt")
+    note_mode       = {"value": False}
+
+    notepad_field = ft.TextField(
+        multiline=True,
+        expand=True,
+        min_lines=4,
+        text_style=ft.TextStyle(font_family="monospace", size=12),
+        color=WHITE,
+        border_color=VIOLET,
+        border_radius=6,
+        bgcolor=DARK,
+        filled=True,
+        hint_text="Écrivez vos notes ici…",
+        hint_style=ft.TextStyle(color=LIGHT_GREY, italic=True),
+    )
+
+    notepad_container = ft.Container(
+        content=ft.Column([
+            ft.Row([
+                ft.Icon(ft.Icons.EDIT_NOTE, color=VIOLET, size=16),
+                ft.Text("Notes", color=VIOLET, size=12, weight=ft.FontWeight.BOLD, expand=True),
+                ft.IconButton(
+                    icon=ft.Icons.CLOSE,
+                    icon_color=RED,
+                    icon_size=16,
+                    tooltip="Fermer le bloc-notes",
+                    on_click=lambda e: switch_to_terminal_mode(),
+                ),
+            ], spacing=4),
+            notepad_field,
+        ], spacing=4, expand=True),
+        expand=True,
+        visible=False,
     )
 
 
@@ -747,11 +785,78 @@ def main(page: ft.Page):
 
 
 
+    # ── Bloc-notes : fonctions ──────────────────────────────────────────
+    def save_notes():
+        """Sauvegarde le contenu du bloc-notes dans .notes.txt."""
+        try:
+            with open(notes_file_path, "w", encoding="utf-8") as _f:
+                _f.write(notepad_field.value or "")
+            log_to_terminal("[OK] Notes sauvegardées", GREEN)
+        except Exception as _err:
+            log_to_terminal(f"[ERREUR] Sauvegarde notes : {_err}", RED)
+
+    def load_notes():
+        """Charge le contenu du bloc-notes depuis .notes.txt."""
+        try:
+            if os.path.exists(notes_file_path):
+                with open(notes_file_path, "r", encoding="utf-8") as _f:
+                    notepad_field.value = _f.read()
+            else:
+                notepad_field.value = ""
+        except Exception:
+            notepad_field.value = ""
+
+    def switch_to_note():
+        """Bascule la zone bas en mode bloc-notes."""
+        load_notes()
+        note_mode["value"] = True
+        terminal_output.visible = False
+        terminal_cmd_row.visible = False
+        notepad_container.visible = True
+        terminal_output.update()
+        terminal_cmd_row.update()
+        notepad_container.update()
+
+        async def _focus_note():
+            try:
+                await notepad_field.focus()
+            except Exception:
+                pass
+        page.run_task(_focus_note)
+
+    def switch_to_terminal_mode():
+        """Sauvegarde les notes et revient au terminal."""
+        save_notes()
+        note_mode["value"] = False
+        terminal_output.visible = True
+        terminal_cmd_row.visible = True
+        notepad_container.visible = False
+        terminal_output.update()
+        terminal_cmd_row.update()
+        notepad_container.update()
+
+        async def _focus_term():
+            try:
+                await terminal_cmd_input.focus()
+            except Exception:
+                pass
+        page.run_task(_focus_term)
+
+
+
     def on_terminal_command_submit(e):
         """Exécute la commande saisie dans le terminal intégré."""
         command_text = terminal_cmd_input.value.strip()
         if not command_text:
             return
+
+        # ── Commandes internes (slash-commands) ───────────────────────
+        if command_text.lower() == "/note":
+            terminal_cmd_input.value = ""
+            terminal_cmd_input.update()
+            switch_to_note()
+            return
+
         if not command_history or command_history[0] != command_text:
             command_history.insert(0, command_text)
         history_index["value"] = -1
@@ -4235,8 +4340,9 @@ def main(page: ft.Page):
                     ft.Container(
                         content=ft.Row([
                             ft.Column([
+                                notepad_container,
                                 terminal_output,
-                                ft.Row([terminal_cmd_input]),
+                                terminal_cmd_row,
                             ], spacing=4, expand=True),
 
                             ft.Column([
