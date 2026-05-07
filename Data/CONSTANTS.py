@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ────────────────────────────────────────────────────────────────
-__version__ = "2.3.5"
+__version__ = "2.3.6"
 
 
 # ─── Interface (Dashboard) ──────────────────────────────────────────────────
@@ -95,6 +95,12 @@ FIT_203_FORMATS = [
     ("10x15 sur 10×20", "102x152", "102x203"),
     ("13x18 sur 13x20",  "127x178", "127x203"),
 ]
+
+
+# ─── Dossier TEMP ────────────────────────────────────────────────────────────
+# Destination par défaut pour le transfert de fichiers (Transfert vers TEMP.py).
+# Peut être surchargé via la variable d'environnement DEST_FOLDER.
+TEMP_FOLDER = "Z:/temp"
 
 
 # ─── Nettoyage automatique ───────────────────────────────────────────────────

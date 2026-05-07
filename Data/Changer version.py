@@ -9,7 +9,7 @@ Utilisation :
 """
 
 # ← MODIFIEZ ICI
-NEW_VERSION = "2.3.5"
+NEW_VERSION = "2.3.6"
 
 #############################################################
 #                          IMPORTS                          #

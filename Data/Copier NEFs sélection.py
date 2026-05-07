@@ -1,35 +1,35 @@
 # -*- coding: utf-8 -*-
 """
-Copie les fichiers RAW/NEF correspondant aux photos commandées via kiosk_flet
-dans un sous-dossier ``NEFs/`` du dossier SELECTION concerné.
+Trie les fichiers RAW : déplace dans ``RAW/AUTRES/`` tous les fichiers qui
+ne correspondent PAS aux photos de la SELECTION (ou JPG). Les RAW de la
+sélection restent dans le dossier RAW.
 
-Fonctionnement :
-  1. Détecte (ou demande) le dossier source contenant les fichiers RAW.
-  2. Détecte (ou demande) le dossier SELECTION à cibler.
-  3. Parcourt récursivement SELECTION pour collecter les noms de base uniques
-     des images commandées.
-  4. Localise les fichiers RAW correspondants dans le dossier source.
-  5. Copie ces RAW dans ``SELECTION/NEFs/``.
+Détection automatique des dossiers depuis le dossier de départ :
+  - Nom "RAW"             → cherche SELECTION*/JPG dans le dossier parent.
+  - Nom "SELECTION*"/"JPG"→ cherche RAW/ dans le dossier parent.
+  - Autre (dossier session)→ cherche RAW/ et SELECTION*/JPG comme sous-dossiers.
 
-Lorsque lancé depuis le Dashboard, ``FOLDER_PATH`` doit pointer vers le dossier
-de la session (celui qui contient à la fois les JPEGs et les fichiers RAW).
-Si ``SELECTED_FILES`` contient le chemin d'un dossier ``SELECTION*``, il est
-utilisé directement sans demande supplémentaire.
+La correspondance tolère le préfixe kiosk (ex : ``2X_102x152_DSC1234.jpg``
+correspond à ``DSC1234.nef`` grâce à une comparaison par sous-chaîne).
+
+Aucune UI : file picker direct si aucun dossier n'est fourni, puis fermeture.
 
 Variables d'environnement :
-  FOLDER_PATH     — dossier source contenant les fichiers RAW.
-  SELECTED_FILES  — chemin optionnel vers le dossier SELECTION ciblé.
+  FOLDER_PATH     — dossier de départ (session, RAW ou SELECTION).
+  SELECTED_FILES  — chemin optionnel d'un dossier SELECTION* (prioritaire).
 """
 
-__version__ = "2.3.5"
+__version__ = "3.1.0"
 
 #############################################################
 #                          IMPORTS                          #
 #############################################################
+import re
 import sys
 import os
 import shutil
-import flet as ft
+import tkinter
+import tkinter.filedialog
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -38,284 +38,208 @@ import CONSTANTS
 #############################################################
 #                        CONSTANTES                         #
 #############################################################
-# Extensions RAW reconnues (insensible à la casse)
 RAW_EXTENSIONS = {
     ".nef", ".cr2", ".cr3", ".arw", ".dng",
     ".orf", ".rw2", ".raf", ".pef", ".srw",
     ".3fr", ".x3f", ".mrw", ".nrw",
 }
 
-# Nom du sous-dossier de destination dans SELECTION
-NEF_SUBFOLDER_NAME = "NEFs"
+AUTRES_SUBFOLDER_NAME = "AUTRES"
+COMMANDE_FILENAME     = "commande.txt"
 
-# Nom du fichier de commande à ignorer lors du scan
-COMMANDE_FILENAME = "commande.txt"
+# Préfixe kiosk : ex. "2X_102x152_DSC1234" → groupe 1 = "DSC1234"
+_KIOSK_PREFIX_RE = re.compile(r'^\d+x_\d+x\d+_(.+)$', re.IGNORECASE)
 
 #############################################################
 #                         HELPERS                           #
 #############################################################
 
-def _find_selection_folders(source: Path) -> list[Path]:
-    """Retourne les dossiers SELECTION* triés (SELECTION < SELECTION_2 < …)."""
-    candidates = sorted(
-        (entry for entry in source.iterdir()
+def _find_selection_candidates(folder: Path) -> list[Path]:
+    """Retourne les sous-dossiers SELECTION* triés dans ``folder``."""
+    return sorted(
+        (entry for entry in folder.iterdir()
          if entry.is_dir() and entry.name.upper().startswith("SELECTION")),
-        key=lambda p: (len(p.name), p.name),
+        key=lambda path: (len(path.name), path.name),
     )
-    return candidates
 
 
-def _collect_stems_from_selection(selection: Path) -> set[str]:
+def _find_selection_or_jpg(folder: Path) -> Path | None:
     """
-    Parcourt récursivement le dossier SELECTION et retourne l'ensemble des
-    noms de base (sans extension, en minuscules) des fichiers image trouvés.
+    Retourne le dossier SELECTION/JPG de la session depuis ``folder``.
+
+    Ordre de recherche :
+      1. SELECTION* directement dans ``folder``.
+      2. SELECTION* à l'intérieur de ``folder/JPG/``.
+      3. ``folder/JPG/`` lui-même.
     """
-    stems: set[str] = set()
-    for entry in selection.rglob("*"):
-        if entry.is_file() and entry.name.lower() != COMMANDE_FILENAME:
-            stems.add(entry.stem.lower())
-    return stems
+    candidates = _find_selection_candidates(folder)
+    if candidates:
+        return candidates[-1]
+
+    jpg_folder = folder / "JPG"
+    if jpg_folder.is_dir():
+        candidates_in_jpg = _find_selection_candidates(jpg_folder)
+        if candidates_in_jpg:
+            return candidates_in_jpg[-1]
+        return jpg_folder
+
+    return None
 
 
-def _find_raw_files(source: Path, stems: set[str]) -> list[Path]:
+def _resolve_folders(start: Path) -> tuple[Path | None, Path | None]:
     """
-    Retourne les fichiers RAW situés directement dans ``source`` dont le nom
-    de base (en minuscules) figure dans ``stems``.
+    Retourne ``(raw_folder, selection_folder)`` depuis un dossier de départ.
+
+    Règles de détection par nom du dossier :
+      - "RAW"                → raw = start, selection = cherche depuis parent
+      - "SELECTION*"         → selection = start, raw = session/RAW
+                               (session = parent.parent si parent est JPG, sinon parent)
+      - "JPG"               → selection = SELECTION* dans start (ou start), raw = parent/RAW
+      - autre (session)     → raw = start/RAW, selection = cherche depuis start
     """
-    raw_files: list[Path] = []
-    for entry in sorted(source.iterdir()):
-        if entry.is_file() and entry.suffix.lower() in RAW_EXTENSIONS:
-            if entry.stem.lower() in stems:
-                raw_files.append(entry)
-    return raw_files
+    name_upper = start.name.upper()
+    parent     = start.parent
+
+    if name_upper == "RAW":
+        return start, _find_selection_or_jpg(parent)
+
+    if name_upper.startswith("SELECTION"):
+        # SELECTION peut être directement dans la session ou dans session/JPG/
+        session = parent.parent if parent.name.upper() == "JPG" else parent
+        raw_folder = session / "RAW"
+        return (raw_folder if raw_folder.is_dir() else None), start
+
+    if name_upper == "JPG":
+        raw_folder = parent / "RAW"
+        candidates = _find_selection_candidates(start)
+        selection  = candidates[-1] if candidates else start
+        return (raw_folder if raw_folder.is_dir() else None), selection
+
+    # Dossier session : RAW et SELECTION sont des sous-dossiers
+    raw_subfolder = start / "RAW"
+    raw_folder    = raw_subfolder if raw_subfolder.is_dir() else None
+    return raw_folder, _find_selection_or_jpg(start)
 
 
-def _copy_raws(raw_files: list[Path], destination: Path) -> tuple[int, list[str]]:
+def _strip_kiosk_prefix(stem_lower: str) -> str:
+    """Retire le préfixe kiosk (ex: '2x_102x152_dsc1234' → 'dsc1234')."""
+    match = _KIOSK_PREFIX_RE.match(stem_lower)
+    return match.group(1) if match else stem_lower
+
+
+def _collect_stems(selection_folder: Path) -> set[str]:
     """
-    Copie ``raw_files`` dans ``destination``.
-    Retourne (nombre_copiés, liste_erreurs).
+    Retourne l'ensemble des stems originaux (sans préfixe kiosk, sans extension,
+    en minuscules) des fichiers présents directement dans ``selection_folder``,
+    en ignorant commande.txt.
     """
+    return {
+        _strip_kiosk_prefix(entry.stem.lower())
+        for entry in selection_folder.iterdir()
+        if entry.is_file() and entry.name.lower() != COMMANDE_FILENAME
+    }
+
+
+def _raw_matches_selection(raw_stem_lower: str, selection_stems: set[str]) -> bool:
+    """
+    Retourne True si ``raw_stem_lower`` figure dans ``selection_stems``.
+    Les stems de sélection ont déjà été dépréfixés (préfixe kiosk retiré),
+    la comparaison est donc exacte.
+    """
+    return raw_stem_lower in selection_stems
+
+
+def _find_non_matching_raw_files(raw_folder: Path, selection_stems: set[str]) -> list[Path]:
+    """Retourne les fichiers RAW de ``raw_folder`` ne correspondant PAS à ``selection_stems``."""
+    return [
+        entry for entry in sorted(raw_folder.iterdir())
+        if entry.is_file()
+        and entry.suffix.lower() in RAW_EXTENSIONS
+        and not _raw_matches_selection(entry.stem.lower(), selection_stems)
+    ]
+
+
+def _move_raws(raw_files: list[Path], destination: Path) -> tuple[int, list[str]]:
+    """Déplace ``raw_files`` dans ``destination``. Retourne (nombre_déplacés, erreurs)."""
     destination.mkdir(parents=True, exist_ok=True)
-    copied = 0
+    moved_count = 0
     errors: list[str] = []
     for raw_path in raw_files:
-        dest_path = destination / raw_path.name
-        if dest_path.exists():
+        destination_path = destination / raw_path.name
+        if destination_path.exists():
             errors.append(f"Déjà présent, ignoré : {raw_path.name}")
             continue
         try:
-            shutil.copy2(raw_path, dest_path)
-            copied += 1
-        except OSError as copy_error:
-            errors.append(f"{raw_path.name} : {copy_error}")
-    return copied, errors
+            shutil.move(str(raw_path), destination_path)
+            moved_count += 1
+        except OSError as move_error:
+            errors.append(f"{raw_path.name} : {move_error}")
+    return moved_count, errors
 
 #############################################################
-#                        FLET MAIN                          #
+#                           MAIN                            #
 #############################################################
 
-async def main(page: ft.Page) -> None:
-    page.title = "Copier NEFs → SELECTION"
-    page.theme_mode = ft.ThemeMode.DARK
-    page.bgcolor = CONSTANTS.COLOR_DARK
-    page.window.width = 600
-    page.window.height = 400
-    page.window.resizable = True
-    page.window.title_bar_hidden = True
-    page.window.title_bar_buttons_hidden = True
-    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
-    page.vertical_alignment = ft.MainAxisAlignment.CENTER
+def run(start_folder: Path) -> None:
+    raw_folder, selection_folder = _resolve_folders(start_folder)
 
-    DARK       = CONSTANTS.COLOR_DARK
-    GREY       = CONSTANTS.COLOR_GREY
-    LIGHT_GREY = CONSTANTS.COLOR_LIGHT_GREY
-    VIOLET     = CONSTANTS.COLOR_VIOLET
-    GREEN      = CONSTANTS.COLOR_GREEN
-    RED        = CONSTANTS.COLOR_RED
-    WHITE      = CONSTANTS.COLOR_WHITE
-    YELLOW     = CONSTANTS.COLOR_YELLOW
-    BLUE       = CONSTANTS.COLOR_BLUE
+    if not raw_folder or not raw_folder.is_dir():
+        print(f"[x] Dossier RAW introuvable depuis '{start_folder.name}'", flush=True)
+        return
 
-    # ── Récupération des chemins depuis l'environnement ───────────────────
-    env_source      = os.environ.get("FOLDER_PATH", "").strip()
-    env_selection   = os.environ.get("SELECTED_FILES", "").strip()
+    if not selection_folder or not selection_folder.is_dir():
+        print(f"[x] Dossier SELECTION/JPG introuvable depuis '{start_folder.name}'", flush=True)
+        return
 
-    source_path: Path | None = (
-        Path(env_source) if env_source and os.path.isdir(env_source) else None
-    )
-    selection_path: Path | None = None
+    selection_stems = _collect_stems(selection_folder)
 
-    # SELECTED_FILES peut pointer directement sur un dossier SELECTION*
-    if env_selection:
-        first_item = env_selection.split("|")[0].strip()
-        if os.path.isdir(first_item) and Path(first_item).name.upper().startswith("SELECTION"):
-            selection_path = Path(first_item)
+    if not selection_stems:
+        print(f"[x] Aucune photo dans '{selection_folder.name}'", flush=True)
+        return
 
-    # Si pas fourni explicitement, tenter l'auto-détection depuis source
-    if selection_path is None and source_path and source_path.is_dir():
-        candidates = _find_selection_folders(source_path)
-        if candidates:
-            selection_path = candidates[-1]  # la plus récente
+    non_matching_files = _find_non_matching_raw_files(raw_folder, selection_stems)
+    if not non_matching_files:
+        print("[ok] Tous les RAW correspondent à la sélection, rien à déplacer.", flush=True)
+        return
 
-    # ── État ─────────────────────────────────────────────────────────────
-    state = {
-        "source":    source_path,
-        "selection": selection_path,
-    }
+    destination = raw_folder / AUTRES_SUBFOLDER_NAME
+    moved_count, errors = _move_raws(non_matching_files, destination)
 
-    # ── Widgets ───────────────────────────────────────────────────────────
-    source_label = ft.Text(
-        str(state["source"]) if state["source"] else "Aucun dossier sélectionné",
-        size=12,
-        color=GREEN if state["source"] else LIGHT_GREY,
-        overflow=ft.TextOverflow.ELLIPSIS,
-        max_lines=1,
-    )
-    selection_label = ft.Text(
-        str(state["selection"]) if state["selection"] else "Aucun dossier SELECTION détecté",
-        size=12,
-        color=GREEN if state["selection"] else LIGHT_GREY,
-        overflow=ft.TextOverflow.ELLIPSIS,
-        max_lines=1,
-    )
-    status_label = ft.Text("", size=12, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER)
-
-    def _refresh_labels() -> None:
-        source_label.value = str(state["source"]) if state["source"] else "Aucun dossier sélectionné"
-        source_label.color = GREEN if state["source"] else LIGHT_GREY
-        selection_label.value = str(state["selection"]) if state["selection"] else "Aucun dossier SELECTION détecté"
-        selection_label.color = GREEN if state["selection"] else LIGHT_GREY
-        page.update()
-
-    async def pick_source(e) -> None:
-        picked = await ft.FilePicker().get_directory_path(
-            dialog_title="Dossier source (contenant les NEFs)",
-            initial_directory=str(state["source"]) if state["source"] else None,
-        )
-        if picked:
-            state["source"] = Path(picked)
-            # Relancer l'auto-détection de SELECTION
-            if state["selection"] is None:
-                candidates = _find_selection_folders(state["source"])
-                if candidates:
-                    state["selection"] = candidates[-1]
-            _refresh_labels()
-
-    async def pick_selection(e) -> None:
-        picked = await ft.FilePicker().get_directory_path(
-            dialog_title="Dossier SELECTION ciblé",
-            initial_directory=str(state["source"]) if state["source"] else None,
-        )
-        if picked:
-            state["selection"] = Path(picked)
-            _refresh_labels()
-
-    def run_copy(e) -> None:
-        if not state["source"] or not state["source"].is_dir():
-            status_label.value = "Dossier source introuvable."
-            status_label.color = RED
-            page.update()
-            return
-        if not state["selection"] or not state["selection"].is_dir():
-            status_label.value = "Dossier SELECTION introuvable."
-            status_label.color = RED
-            page.update()
-            return
-
-        stems = _collect_stems_from_selection(state["selection"])
-        if not stems:
-            status_label.value = "Aucune photo trouvée dans SELECTION."
-            status_label.color = RED
-            page.update()
-            return
-
-        raw_files = _find_raw_files(state["source"], stems)
-        if not raw_files:
-            status_label.value = f"Aucun fichier RAW correspondant trouvé ({len(stems)} photo(s) cherchée(s))."
-            status_label.color = RED
-            page.update()
-            return
-
-        destination = state["selection"] / NEF_SUBFOLDER_NAME
-        copied, errors = _copy_raws(raw_files, destination)
-
-        summary_parts = [f"{copied} NEF(s) copiés → {state['selection'].name}/NEFs/"]
-        if errors:
-            summary_parts.append(f"{len(errors)} ignoré(s) ou erreur(s).")
-            for error_line in errors:
-                print(f"[WARN] {error_line}")
-        print(" ".join(summary_parts))
-
-        page.run_task(_close)
-
-    async def _close() -> None:
-        try:
-            await page.window.close()
-        except RuntimeError:
-            pass
-
-    page.add(
-        ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Icon(ft.Icons.PHOTO_CAMERA, color=VIOLET, size=24),
-                    ft.Text("Copier NEFs → SELECTION", size=16, color=WHITE, weight=ft.FontWeight.W_600),
-                    ft.Container(expand=True),
-                    ft.IconButton(
-                        icon=ft.Icons.CLOSE, icon_color=RED, icon_size=18,
-                        tooltip="Fermer",
-                        on_click=lambda e: page.run_task(_close),
-                        style=ft.ButtonStyle(padding=ft.Padding.all(4)),
-                    ),
-                ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                ft.Divider(color=GREY, height=16),
-                # Source (NEFs)
-                ft.Row([
-                    ft.Icon(ft.Icons.FOLDER, color=BLUE, size=16),
-                    ft.Text("Source (NEFs)", size=12, color=LIGHT_GREY, width=90),
-                    ft.Container(content=source_label, expand=True),
-                    ft.IconButton(
-                        icon=ft.Icons.FOLDER_OPEN, icon_color=YELLOW,
-                        tooltip="Choisir le dossier source",
-                        on_click=pick_source,
-                        style=ft.ButtonStyle(padding=ft.Padding.all(4)),
-                    ),
-                ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                # SELECTION
-                ft.Row([
-                    ft.Icon(ft.Icons.FOLDER_SPECIAL, color=VIOLET, size=16),
-                    ft.Text("SELECTION", size=12, color=LIGHT_GREY, width=90),
-                    ft.Container(content=selection_label, expand=True),
-                    ft.IconButton(
-                        icon=ft.Icons.FOLDER_OPEN, icon_color=YELLOW,
-                        tooltip="Choisir le dossier SELECTION",
-                        on_click=pick_selection,
-                        style=ft.ButtonStyle(padding=ft.Padding.all(4)),
-                    ),
-                ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                status_label,
-                ft.Container(height=4),
-                ft.Row([
-                    ft.Button(
-                        "Copier les NEFs",
-                        icon=ft.Icons.COPY,
-                        bgcolor=VIOLET, color=DARK,
-                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=8)),
-                        on_click=run_copy,
-                    ),
-                ], alignment=ft.MainAxisAlignment.CENTER),
-            ], spacing=10, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
-            bgcolor=DARK,
-            border_radius=10,
-            border=ft.Border.all(1, GREY),
-            padding=ft.Padding(28, 24, 28, 24),
-            width=540,
-        )
+    for error_line in errors:
+        print(f"[WARN] {error_line}", flush=True)
+    print(
+        f"[ok] {moved_count} RAW(s) déplacés → {raw_folder.name}/{AUTRES_SUBFOLDER_NAME}/",
+        flush=True,
     )
 
-    # Lancement automatique si tout est connu
-    if state["source"] and state["selection"]:
-        run_copy(None)
 
+# ── Résolution du dossier de départ ───────────────────────────────────
+environment_folder    = os.environ.get("FOLDER_PATH",    "").strip()
+environment_selection = os.environ.get("SELECTED_FILES", "").strip()
 
-ft.run(main)
+start_folder: Path | None = None
+
+# SELECTED_FILES peut pointer directement sur un dossier SELECTION*
+if environment_selection:
+    first_item = Path(environment_selection.split("|")[0].strip())
+    if first_item.is_dir() and first_item.name.upper().startswith("SELECTION"):
+        start_folder = first_item
+
+if start_folder is None and environment_folder and os.path.isdir(environment_folder):
+    start_folder = Path(environment_folder)
+
+if start_folder is None:
+    root = tkinter.Tk()
+    root.withdraw()
+    picked = tkinter.filedialog.askdirectory(
+        title="Sélectionner le dossier (session, RAW ou SELECTION)",
+    )
+    root.destroy()
+    if picked:
+        start_folder = Path(picked)
+
+if start_folder is not None:
+    run(start_folder)
+else:
+    print("[x] Aucun dossier fourni.", flush=True)
+

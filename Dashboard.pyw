@@ -14,16 +14,19 @@ Ce module fournit une interface graphique Flet permettant de :
     coller, suppression avec confirmation, création de dossier.
 
 Raccourcis clavier :
+  Ctrl/Cmd+A  — sélectionner tout / désélectionner tout.
   Ctrl/Cmd+C  — copier les fichiers sélectionnés dans le presse-papiers interne.
-  Ctrl/Cmd+V  — coller dans le dossier actuel.
+  Ctrl/Cmd+I  — inverser la sélection.
   Ctrl/Cmd+N  — créer un nouveau dossier.
+  Ctrl/Cmd+T  — donner le focus au terminal.
+  Ctrl/Cmd+V  — coller dans le dossier actuel.
 
 Dépendances :
   flet >= 0.80, modules standard (os, subprocess, sys, platform, shutil,
   threading, re, zipfile, time).
 """
 
-__version__ = "2.3.5"
+__version__ = "2.3.6"
 
 
 
@@ -232,6 +235,7 @@ def main(page: ft.Page):
     removable_drives_state = {"list": []}  # [(name, path), ...]
     _image_cache_busters = {}  # {normpath: temp_path_unique} pour invalider le cache navigateur
     _image_last_mtime = {}     # {normpath: mtime} pour détecter les modifications externes
+    _checkbox_refs = {}        # {file_path: ft.Checkbox} — refs aux checkboxes rendues (mise à jour in-place)
     _rot_temp_dir = tempfile.mkdtemp(prefix="dashboard_rot_")
     PAGE_SIZE = 100             # Nb d'éléments max par page dans la prévisualisation
     preview_page = {"value": 0}  # Page courante (0-indexé)
@@ -277,7 +281,7 @@ def main(page: ft.Page):
 
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
     terminal_cmd_input = ft.TextField(
-        hint_text="> Terminal  (tapez /note pour ouvrir le bloc-notes)",
+        hint_text="> Terminal",#  (tapez /note pour ouvrir le bloc-notes)",
         border_color=GREEN,
         text_style=ft.TextStyle(font_family="monospace", size=12),
         dense=True,
@@ -638,6 +642,7 @@ def main(page: ft.Page):
         def _watch():
             proc.wait()
             page.pubsub.send_all_on_topic("restore_window", None)
+            page.pubsub.send_all_on_topic("refresh", None)
 
         threading.Thread(target=_watch, daemon=True).start()
 
@@ -701,16 +706,33 @@ def main(page: ft.Page):
                     terminal_cmd_input.update()
                 return
 
+        if e.key == "Escape" and note_mode["value"]:
+            switch_to_terminal_mode()
+            return
+
         if ctrl_pressed:
-            if e.key == "C":
+            if e.key == "A":
+                toggle_select_all(None)
+            elif e.key == "C":
                 copy_selected_files(None)
-            elif e.key == "X":
-                cut_selected_files(None)
-            elif e.key == "V":
-                paste_files(None)
+            elif e.key == "I":
+                invert_selection(None)
             elif e.key == "N":
                 create_new_folder(None)
-    
+            elif e.key == "R":
+                refresh_preview(force_reload=True)
+            elif e.key == "T":
+                async def _focus_terminal_input():
+                    try:
+                        await terminal_cmd_input.focus()
+                    except Exception:
+                        pass
+                page.run_task(_focus_terminal_input)
+            elif e.key == "V":
+                paste_files(None)
+            elif e.key == "X":
+                cut_selected_files(None)
+
     # Activer la gestion des événements clavier
     page.on_keyboard_event = on_keyboard_event
 
@@ -1194,7 +1216,7 @@ def main(page: ft.Page):
         if rotated:
             label = "gauche" if direction == "left" else "droite"
             log_to_terminal(f"[OK] {rotated} image(s) pivotée(s) vers {label}", YELLOW)
-            refresh_preview(reset_page=False)
+            refresh_preview(reset_page=False, force_reload=True)
 
 
 
@@ -1411,14 +1433,6 @@ def main(page: ft.Page):
         _add_to_recent(new_path)
         _rebuild_recent_folders_menu()
         refresh_preview()
-
-        async def _refocus_terminal():
-            try:
-                await terminal_cmd_input.focus()
-            except Exception:
-                pass
-
-        page.run_task(_refocus_terminal)
 
 
 
@@ -2012,9 +2026,10 @@ def main(page: ft.Page):
             if not is_dir and fpath not in selected_files:
                 selected_files.append(fpath)
                 added += 1
-        selection_count_text.value = _selection_label()
-        _render_preview_page()
-        _update_select_toggle_button()
+        if show_only_selection["value"]:
+            _render_preview_page()
+        else:
+            _update_visible_checkboxes()
         if added:
             log_to_terminal(f"[OK] {added} fichier(s) sélectionné(s)", BLUE)
         else:
@@ -2109,9 +2124,10 @@ def main(page: ft.Page):
                 selected_files.remove(fpath)
             else:
                 selected_files.append(fpath)
-        selection_count_text.value = _selection_label()
-        _render_preview_page()
-        _update_select_toggle_button()
+        if show_only_selection["value"]:
+            _render_preview_page()
+        else:
+            _update_visible_checkboxes()
         log_to_terminal(f"[OK] Sélection inversée — {len(selected_files)} fichier(s) sélectionné(s)", BLUE)
 
 
@@ -2336,16 +2352,25 @@ def main(page: ft.Page):
         page.update()
 
 
+    def _update_visible_checkboxes():
+        """Met à jour les cases à cocher en place sans reconstruire les widgets image."""
+        for file_path, checkbox_widget in _checkbox_refs.items():
+            checkbox_widget.value = file_path in selected_files
+        selection_count_text.value = _selection_label()
+        _update_select_toggle_button()
+        page.update()
+
+
 
     def clear_selection(e):
         """Désélectionne tous les fichiers et rafraîchit la preview."""
-        selected_files.clear()  # list.clear() est valide
+        selected_files.clear()
         if show_only_selection["value"]:
             show_only_selection["value"] = False
             _update_filter_sel_btn()
-        refresh_preview()
-        selection_count_text.value = _selection_label()
-        page.update()
+            _render_preview_page()  # la liste filtrée change, re-rendu nécessaire
+        else:
+            _update_visible_checkboxes()  # seulement les cases à cocher changent
         log_to_terminal("[OK] Sélection effacée", GREEN)
 
 
@@ -2844,6 +2869,7 @@ def main(page: ft.Page):
         Toutes les miniatures de la page sont chargées immédiatement (pas de lazy loading).
         """
         try:
+            _checkbox_refs.clear()
             entries = all_entries_data["list"]
             # Appliquer la recherche textuelle
             if search_query["value"]:
@@ -2896,6 +2922,7 @@ def main(page: ft.Page):
                         value=file_path in selected_files,
                         on_change=lambda e, path=file_path: on_checkbox_change(e, path),
                     )
+                    _checkbox_refs[file_path] = checkbox
 
                     if is_image:
                         cached_source_path = _image_cache_busters.get(os.path.normpath(file_path))
@@ -3023,7 +3050,7 @@ def main(page: ft.Page):
 
 
 
-    def refresh_preview(reset_page=True):
+    def refresh_preview(reset_page=True, force_reload=False):
         """
         Déclenche un rafraîchissement asynchrone du panneau de prévisualisation.
 
@@ -3036,6 +3063,9 @@ def main(page: ft.Page):
         ----------
         reset_page : bool
             Si True (défaut), revient à la page 0. Si False, conserve la page courante.
+        force_reload : bool
+            Si True, vérifie les mtimes et régénère les caches miniatures depuis le disque.
+            Ne passer True que sur le bouton Rafraîchir explicite ou après une rotation.
         """
         if reset_page:
             preview_page["value"] = 0
@@ -3085,7 +3115,8 @@ def main(page: ft.Page):
                             entries_data.append((name, path, is_dir, is_image, ext))
 
                             # Détecter les modifications externes et invalider le cache miniature
-                            if is_image and not is_dir:
+                            # (uniquement sur rafraîchissement explicite pour éviter de ralentir)
+                            if force_reload and is_image and not is_dir:
                                 normalized_path = os.path.normpath(path)
                                 try:
                                     current_mtime = entry.stat().st_mtime
@@ -3839,6 +3870,7 @@ def main(page: ft.Page):
         images_en_pdf_path        = os.path.join(app_directory, "Data", "Images en PDF.py")
         remerciements_path        = os.path.join(app_directory, "Data", "Remerciements.py")
         copier_nefs_path          = os.path.join(app_directory, "Data", "Copier NEFs sélection.py")
+        separer_raw_jpg_path      = os.path.join(app_directory, "Data", "Séparer RAW et JPG.py")
 
         quick_tools_col.controls = [
             _round_button(
@@ -3888,6 +3920,12 @@ def main(page: ft.Page):
                 GREEN,
                 "Augmentation IA",
                 lambda e: launch_app("Augmentation IA.py", os.path.join(app_directory, "Data", "Augmentation IA.py"), False),
+            ),
+            _round_button(
+                ft.Icons.DRIVE_FILE_MOVE,
+                YELLOW,
+                "Séparer RAW et JPG",
+                lambda e: launch_app("Séparer RAW et JPG.py", separer_raw_jpg_path, False),
             ),
             _round_button(
                 ft.Icons.CAMERA_ALT,
@@ -4174,8 +4212,8 @@ def main(page: ft.Page):
                     icon=ft.Icons.REFRESH,
                     icon_color=BLUE,
                     bgcolor=GREY,
-                    tooltip="Rafraîchir",
-                    on_click=lambda e: refresh_preview(),
+                    tooltip="Rafraîchir (Ctrl+R)",
+                    on_click=lambda e: refresh_preview(force_reload=True),
                 ),
                 ft.IconButton(
                     icon=ft.Icons.OPEN_IN_NEW,
