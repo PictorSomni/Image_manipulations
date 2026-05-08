@@ -22,7 +22,7 @@ Variables d'environnement :
 Dépendances : flet >= 0.21, modules standard (pathlib, shutil, datetime)
 """
 
-__version__ = "2.3.6"
+__version__ = "2.3.7"
 
 #############################################################
 #                          IMPORTS                          #
@@ -209,7 +209,7 @@ def main(page: ft.Page):
                 ft.Container(
                     content=ft.Row([launch_button], alignment=ft.MainAxisAlignment.CENTER),
                     alignment=ft.Alignment.CENTER,
-                    padding=ft.padding.symmetric(vertical=6),
+                    padding=ft.Padding.symmetric(vertical=6),
                 ),
                 ft.Container(content=progress_bar, alignment=ft.Alignment.CENTER),
                 ft.Container(content=status_text, alignment=ft.Alignment.CENTER),

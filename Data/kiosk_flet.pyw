@@ -12,6 +12,8 @@ Remplace la version Qt6 originale (main.py) avec :
 Dépendances : flet, Pillow (PIL)
 """
 
+__version__ = "2.3.7"
+
 import flet as ft
 import os
 import sys
@@ -210,34 +212,23 @@ def main(page: ft.Page) -> None:
         threading.Thread(target=_reload_thumbnail, daemon=True).start()
 
     def on_show_preview(filename: str) -> None:
-        """Affiche la prévisualisation plein écran de l'image."""
+        """Affiche la prévisualisation plein écran avec PageView pour swiper entre les images."""
         _blank_gif = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
 
-        # État mutable de la prévisualisation (navigation)
-        state = {
-            "index": images_list.index(filename) if filename in images_list else 0,
-            "filename": filename,
-            "nb_active": nb_state.get((current_size["value"], filename), False),
-        }
+        initial_index = images_list.index(filename) if filename in images_list else 0
+        state = {"index": initial_index}
+        _prev_keyboard_handler = page.on_keyboard_event
 
-        def _current_file_path() -> str:
-            return os.path.join(current_folder["path"], state["filename"])
+        def _current_filename() -> str:
+            return images_list[state["index"]] if images_list else ""
 
         def close_preview(e) -> None:
+            page.on_keyboard_event = _prev_keyboard_handler
             if preview_overlay in page.overlay:
                 page.overlay.remove(preview_overlay)
             page.update()
 
-        preview_img = ft.Image(
-            src=_blank_gif,
-            fit=ft.BoxFit.CONTAIN,
-            expand=True,
-            gapless_playback=True,
-            error_content=ft.Container(
-                content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=C_LIGHT_GREY, size=64),
-                alignment=ft.Alignment(0, 0),
-            ),
-        )
+        # ── Contrôles partagés barre titre / barre inférieure ────────────────
         preview_title = ft.Text(
             filename,
             size=15,
@@ -246,8 +237,6 @@ def main(page: ft.Page) -> None:
             max_lines=1,
             overflow=ft.TextOverflow.ELLIPSIS,
         )
-
-        # ── Barre inférieure : compteur + N&B ─────────────────────────────
         preview_count_text = ft.Text(
             str(prints_data[current_size["value"]].get(filename, 0)),
             size=26,
@@ -256,43 +245,60 @@ def main(page: ft.Page) -> None:
             width=56,
             text_align=ft.TextAlign.CENTER,
         )
-
-        def _refresh_preview_count() -> None:
-            preview_count_text.value = str(
-                prints_data[current_size["value"]].get(state["filename"], 0)
-            )
-            page.update()
-
-        def preview_add(e) -> None:
-            on_change_count(state["filename"], +1)
-            _refresh_preview_count()
-
-        def preview_remove(e) -> None:
-            on_change_count(state["filename"], -1)
-            _refresh_preview_count()
-
         nb_preview_button = ft.IconButton(
             icon=ft.Icons.INVERT_COLORS,
-            icon_color=C_VIOLET if state["nb_active"] else C_LIGHT_GREY,
+            icon_color=C_VIOLET if nb_state.get((current_size["value"], filename), False) else C_LIGHT_GREY,
             icon_size=30,
             tooltip="Basculer N&B",
         )
 
-        def _reload_preview_image() -> None:
+        # ── Contrôles image par index (chargement lazy) ──────────────────────
+        page_image_controls: dict[int, ft.Image] = {}
+        pages_loaded: set[int] = set()
+
+        def _build_page_containers() -> list[ft.Container]:
+            containers = []
+            for page_index in range(len(images_list)):
+                img_ctrl = ft.Image(
+                    src=_blank_gif,
+                    fit=ft.BoxFit.CONTAIN,
+                    expand=True,
+                    gapless_playback=True,
+                    error_content=ft.Container(
+                        content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=C_LIGHT_GREY, size=64),
+                        alignment=ft.Alignment(0, 0),
+                    ),
+                )
+                page_image_controls[page_index] = img_ctrl
+                containers.append(
+                    ft.Container(
+                        content=img_ctrl,
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        bgcolor=C_DARK,
+                    )
+                )
+            return containers
+
+        def _load_image_for_index(load_index: int) -> None:
+            if load_index < 0 or load_index >= len(images_list):
+                return
+            if load_index in pages_loaded:
+                return
+            load_filename = images_list[load_index]
             temp_dir = _get_temp_dir()
-            stem = os.path.splitext(state["filename"])[0]
-            suffix = "_preview_nb" if state["nb_active"] else "_preview"
+            stem = os.path.splitext(load_filename)[0]
+            is_nb = nb_state.get((current_size["value"], load_filename), False)
+            suffix = "_preview_nb" if is_nb else "_preview"
             preview_path = os.path.join(temp_dir, f"{stem}{suffix}.jpg")
             if not os.path.exists(preview_path):
-                ok = _save_thumbnail(
-                    _current_file_path(),
-                    preview_path,
-                    grayscale=state["nb_active"],
-                    size=1024,
-                )
+                load_file_path = os.path.join(current_folder["path"], load_filename)
+                ok = _save_thumbnail(load_file_path, preview_path, grayscale=is_nb, size=1024)
                 if not ok:
-                    preview_path = _current_file_path()
-            preview_img.src = preview_path
+                    preview_path = os.path.join(current_folder["path"], load_filename)
+            if load_index in page_image_controls:
+                page_image_controls[load_index].src = preview_path
+            pages_loaded.add(load_index)
 
             async def _apply():
                 try:
@@ -302,49 +308,128 @@ def main(page: ft.Page) -> None:
 
             page.run_task(_apply)
 
-        def _navigate_to(new_filename: str) -> None:
-            state["filename"] = new_filename
-            state["nb_active"] = nb_state.get((current_size["value"], new_filename), False)
-            preview_img.src = _blank_gif
+        def _load_pages_around(center_index: int) -> None:
+            for offset in (0, 1, -1, 2, -2):
+                target = center_index + offset
+                if 0 <= target < len(images_list):
+                    threading.Thread(
+                        target=_load_image_for_index,
+                        args=(target,),
+                        daemon=True,
+                    ).start()
+
+        def _update_bottom_bar(new_index: int) -> None:
+            state["index"] = new_index
+            new_filename = images_list[new_index] if images_list else ""
             preview_title.value = new_filename
             preview_count_text.value = str(
                 prints_data[current_size["value"]].get(new_filename, 0)
             )
-            nb_preview_button.icon_color = C_VIOLET if state["nb_active"] else C_LIGHT_GREY
+            is_nb = nb_state.get((current_size["value"], new_filename), False)
+            nb_preview_button.icon_color = C_VIOLET if is_nb else C_LIGHT_GREY
             page.update()
-            threading.Thread(target=_reload_preview_image, daemon=True).start()
 
-        def navigate_prev(e) -> None:
-            if not images_list:
-                return
-            state["index"] = (state["index"] - 1) % len(images_list)
-            _navigate_to(images_list[state["index"]])
+        def on_page_change(e) -> None:
+            new_index = int(e.data)
+            _update_bottom_bar(new_index)
+            _load_pages_around(new_index)
 
-        def navigate_next(e) -> None:
-            if not images_list:
+        def preview_add(e) -> None:
+            on_change_count(_current_filename(), +1)
+            preview_count_text.value = str(
+                prints_data[current_size["value"]].get(_current_filename(), 0)
+            )
+            page.update()
+
+        def preview_remove(e) -> None:
+            on_change_count(_current_filename(), -1)
+            preview_count_text.value = str(
+                prints_data[current_size["value"]].get(_current_filename(), 0)
+            )
+            page.update()
+
+        async def navigate_prev(e) -> None:
+            if not images_list or state["index"] <= 0:
                 return
-            state["index"] = (state["index"] + 1) % len(images_list)
-            _navigate_to(images_list[state["index"]])
+            await images_page_view.previous_page(
+                animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
+                animation_duration=ft.Duration(milliseconds=500),
+            )
+
+        async def navigate_next(e) -> None:
+            if not images_list or state["index"] >= len(images_list) - 1:
+                return
+            await images_page_view.next_page(
+                animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
+                animation_duration=ft.Duration(milliseconds=500),
+            )
 
         def preview_toggle_nb(e) -> None:
-            on_toggle_nb(state["filename"])
-            state["nb_active"] = nb_state.get((current_size["value"], state["filename"]), False)
-            nb_preview_button.icon_color = C_VIOLET if state["nb_active"] else C_LIGHT_GREY
-            preview_img.src = _blank_gif
+            current_fn = _current_filename()
+            on_toggle_nb(current_fn)
+            is_nb = nb_state.get((current_size["value"], current_fn), False)
+            nb_preview_button.icon_color = C_VIOLET if is_nb else C_LIGHT_GREY
+            # Réinitialise l'image courante pour forcer le rechargement N&B
+            if state["index"] in page_image_controls:
+                page_image_controls[state["index"]].src = _blank_gif
+            pages_loaded.discard(state["index"])
             page.update()
-            threading.Thread(target=_reload_preview_image, daemon=True).start()
+            threading.Thread(
+                target=_load_image_for_index,
+                args=(state["index"],),
+                daemon=True,
+            ).start()
 
         nb_preview_button.on_click = preview_toggle_nb
 
+        # ── Sélecteur de format dans la prévisualisation ────────────────────────
+        format_selector_text = ft.Text(
+            current_size["value"],
+            size=13,
+            color=C_LIGHT_GREY,
+        )
+
+        def _on_select_format_in_preview(selected_format: str) -> None:
+            current_size["value"] = selected_format
+            format_selector_text.value = selected_format
+            _update_size_buttons()
+            current_fn = _current_filename()
+            preview_count_text.value = str(
+                prints_data[current_size["value"]].get(current_fn, 0)
+            )
+            is_nb = nb_state.get((current_size["value"], current_fn), False)
+            nb_preview_button.icon_color = C_VIOLET if is_nb else C_LIGHT_GREY
+            page.update()
+
+        format_popup_menu = ft.PopupMenuButton(
+            content=ft.Container(
+                content=ft.Row([
+                    format_selector_text,
+                    ft.Icon(ft.Icons.ARROW_DROP_DOWN, color=C_LIGHT_GREY, size=16),
+                ], spacing=2, tight=True),
+                padding=ft.Padding(8, 4, 8, 4),
+                border_radius=6,
+                bgcolor=C_GREY,
+            ),
+            items=[
+                ft.PopupMenuItem(
+                    content=fmt,
+                    on_click=lambda e, fmt=fmt: _on_select_format_in_preview(fmt),
+                )
+                for fmt in SIZES
+            ],
+        )
+
+        images_page_view = ft.PageView(
+            controls=_build_page_containers(),
+            expand=True,
+            horizontal=True,
+            selected_index=initial_index,
+            on_change=on_page_change,
+        )
+
         bottom_bar = ft.Container(
             content=ft.Row([
-                ft.Container(expand=True),
-                ft.Text(
-                    current_size["value"],
-                    size=13,
-                    color=C_LIGHT_GREY,
-                ),
-                ft.Container(expand=True),
                 ft.IconButton(
                     icon=ft.Icons.CHEVRON_LEFT,
                     icon_color=C_WHITE,
@@ -354,6 +439,8 @@ def main(page: ft.Page) -> None:
                     style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                 ),
                 ft.Container(width=8),
+                format_popup_menu,
+                ft.Container(width=12),
                 ft.IconButton(
                     icon=ft.Icons.REMOVE_CIRCLE_OUTLINE,
                     icon_color=C_RED,
@@ -371,6 +458,8 @@ def main(page: ft.Page) -> None:
                     on_click=preview_add,
                     style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                 ),
+                ft.Container(width=12),
+                nb_preview_button,
                 ft.Container(width=8),
                 ft.IconButton(
                     icon=ft.Icons.CHEVRON_RIGHT,
@@ -380,56 +469,66 @@ def main(page: ft.Page) -> None:
                     on_click=navigate_next,
                     style=ft.ButtonStyle(padding=ft.Padding.all(4)),
                 ),
-                ft.Container(width=20),
-                nb_preview_button,
-                ft.Container(expand=True),
-            ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=C_DARK,
-            height=64,
-            padding=ft.Padding(12, 4, 12, 4),
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
+            bgcolor=ft.Colors.with_opacity(0.72, C_GREY),
+            border_radius=16,
+            padding=ft.Padding(8, 6, 8, 6),
         )
 
         preview_overlay = ft.Container(
-            content=ft.Column([
-                # Barre supérieure
+            content=ft.Stack([
+                ft.Column([
+                    # Barre supérieure
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Container(expand=True),
+                            preview_title,
+                            ft.Container(expand=True),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_color=C_RED,
+                                icon_size=28,
+                                tooltip="Fermer",
+                                on_click=close_preview,
+                                style=ft.ButtonStyle(bgcolor=C_DARK),
+                            ),
+                        ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        bgcolor=C_DARK,
+                        padding=ft.Padding(12, 4, 12, 4),
+                        height=50,
+                    ),
+                    # PageView des images (swipe horizontal)
+                    images_page_view,
+                ], spacing=0, expand=True),
+                # Barre inférieure flottante
                 ft.Container(
-                    content=ft.Row([
-                        ft.Container(expand=True),
-                        preview_title,
-                        ft.Container(expand=True),
-                        ft.IconButton(
-                            icon=ft.Icons.CLOSE,
-                            icon_color=C_RED,
-                            icon_size=28,
-                            tooltip="Fermer",
-                            on_click=close_preview,
-                            style=ft.ButtonStyle(bgcolor=C_DARK),
-                        ),
-                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    bgcolor=C_DARK,
-                    padding=ft.Padding(12, 4, 12, 4),
-                    height=50,
+                    content=ft.Row(
+                        [bottom_bar],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                    bottom=16,
+                    left=0,
+                    right=0,
                 ),
-                # Zone image
-                ft.Container(
-                    content=preview_img,
-                    expand=True,
-                    alignment=ft.Alignment(0, 0),
-                    bgcolor=C_DARK,
-                ),
-                # Barre inférieure
-                ft.Divider(height=1, thickness=1, color=C_GREY),
-                bottom_bar,
-            ], spacing=0, expand=True),
+            ], expand=True),
             bgcolor=C_DARK,
             expand=True,
         )
 
+        def on_preview_key(event: ft.KeyboardEvent) -> None:
+            if event.key in ("Arrow Left", "ArrowLeft"):
+                page.run_task(navigate_prev, event)
+            elif event.key in ("Arrow Right", "ArrowRight"):
+                page.run_task(navigate_next, event)
+            elif event.key == "Escape":
+                close_preview(None)
+
+        page.on_keyboard_event = on_preview_key
         page.overlay.append(preview_overlay)
         page.update()
 
-        # ── Chargement de l'image en haute résolution en arrière-plan
-        threading.Thread(target=_reload_preview_image, daemon=True).start()
+        # Chargement des images autour de l'index initial
+        _load_pages_around(initial_index)
 
     # ─────────────────────────────────────────────────────────────────────
     #  Dossier temporaire pour les miniatures
