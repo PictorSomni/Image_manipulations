@@ -14,14 +14,13 @@ Chemins :
 Dépendances : modules standard (os, platform, pathlib, datetime)
 """
 
-__version__ = "2.3.7"
+__version__ = "2.3.8"
 
 #############################################################
 #                          IMPORTS                          #
 #############################################################
 import sys
 import shutil
-import platform
 from pathlib import Path
 from datetime import datetime, timedelta
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -30,24 +29,8 @@ import CONSTANTS
 #############################################################
 #                         CONSTANTS                         #
 #############################################################
-DAYS = CONSTANTS.CLEAN_DAYS
-
-if platform.system() == "Windows":
-    FOLDERS = [
-        Path("\\\\studioc-kiosk1\\kiosk-data\\it-HotFolder"),
-        Path("\\\\studioc-kiosk2\\kiosk-data\\it-HotFolder"),
-        Path("\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK GAUCHE"),
-        Path("\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK DROITE"),
-        Path("\\\\diskstation\\travaux en cours\\Z2026\\TEMP"),
-    ]
-else:
-    FOLDERS = [
-        Path("/Volumes/kiosk-data-1/it-HotFolder"),
-        Path("/Volumes/kiosk-data-2/it-HotFolder"),
-        Path("/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE"),
-        Path("/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE"),
-        Path("/Volumes/TRAVAUX EN COURS/Z2026/TEMP"),
-    ]
+DAYS    = CONSTANTS.CLEAN_DAYS
+FOLDERS = [Path(p) for p in CONSTANTS.CLEAN_FOLDERS]
 
 #############################################################
 #                           MAIN                            #

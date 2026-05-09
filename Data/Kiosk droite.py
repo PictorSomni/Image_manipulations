@@ -15,7 +15,7 @@ Chemins :
 Dépendances : modules standard (sys, re, collections, pathlib, platform, shutil)
 """
 
-__version__ = "2.3.7"
+__version__ = "2.3.8"
 
 #############################################################
 #                          IMPORTS                          #
@@ -24,21 +24,15 @@ import sys
 import re
 from collections import Counter
 from pathlib import Path
-import platform
 from shutil import copyfile
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import CONSTANTS
 
 #############################################################
 #                           PATH                            #
 #############################################################
-if platform.system() == "Windows":
-    PATH = "\\\\studioc-kiosk2\\kiosk-data\\it-HotFolder"
-    DESTINATION = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK DROITE"
-else :
-    PATH = "/Volumes/kiosk-data-1/it-HotFolder"
-    DESTINATION = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE"
-
-PATH = Path(PATH)
-DESTINATION = Path(DESTINATION)
+PATH        = Path(CONSTANTS.KIOSK_DROITE_SRC)
+DESTINATION = Path(CONSTANTS.KIOSK_DROITE_DEST)
 
 #############################################################
 #                         CONTENT                           #

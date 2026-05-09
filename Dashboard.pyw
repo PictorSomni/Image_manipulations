@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.3.7"
+__version__ = "2.3.8"
 
 
 
@@ -283,7 +283,7 @@ def main(page: ft.Page):
     terminal_cmd_input = ft.TextField(
         hint_text="> Terminal",#  (tapez /note pour ouvrir le bloc-notes)",
         border_color=GREEN,
-        text_style=ft.TextStyle(font_family="monospace", size=12),
+        text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
         dense=True,
         expand=True,
         color=GREEN,
@@ -294,14 +294,16 @@ def main(page: ft.Page):
     terminal_cmd_row = ft.Row([terminal_cmd_input])
 
     # ── Bloc-notes ────────────────────────────────────────────────────
-    notes_file_path = os.path.join(app_directory, ".notes.txt")
-    note_mode       = {"value": False}
+    notes_file_path     = os.path.join(app_directory, ".notes.txt")
+    constants_file_path = os.path.join(app_directory, "Data", "CONSTANTS.py")
+    note_mode           = {"value": False}
+    note_target_file    = {"path": notes_file_path}
 
     notepad_field = ft.TextField(
         multiline=True,
         expand=True,
         min_lines=4,
-        text_style=ft.TextStyle(font_family="monospace", size=12),
+        text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
         color=WHITE,
         border_color=VIOLET,
         border_radius=6,
@@ -311,11 +313,14 @@ def main(page: ft.Page):
         hint_style=ft.TextStyle(color=LIGHT_GREY, italic=True),
     )
 
+    notepad_header_icon  = ft.Icon(ft.Icons.EDIT_NOTE, color=VIOLET, size=16)
+    notepad_header_title = ft.Text("Notes", color=VIOLET, size=12, weight=ft.FontWeight.BOLD, expand=True)
+
     notepad_container = ft.Container(
         content=ft.Column([
             ft.Row([
-                ft.Icon(ft.Icons.EDIT_NOTE, color=VIOLET, size=16),
-                ft.Text("Notes", color=VIOLET, size=12, weight=ft.FontWeight.BOLD, expand=True),
+                notepad_header_icon,
+                notepad_header_title,
                 ft.IconButton(
                     icon=ft.Icons.CLOSE,
                     icon_color=RED,
@@ -705,9 +710,17 @@ def main(page: ft.Page):
                     )
                     terminal_cmd_input.update()
                 return
+            elif e.key == "Enter":
+                on_terminal_command_submit(e)
+                return
 
         if e.key == "Escape" and note_mode["value"]:
             switch_to_terminal_mode()
+            return
+
+        # Ne pas intercepter les raccourcis clavier si le bloc-notes est actif
+        # (laisser le TextField gérer ses propres Ctrl+A, Ctrl+C, etc.)
+        if note_mode["value"]:
             return
 
         if ctrl_pressed:
@@ -749,7 +762,7 @@ def main(page: ft.Page):
             return
         try:
             terminal_output.controls.append(
-                ft.Text(clean_message, size=13, color=color, font_family="monospace")
+                ft.Text(clean_message, size=CONSTANTS.TERMINAL_FONT_SIZE, color=color, font_family="monospace")
             )
             if len(terminal_output.controls) > 1000:
                 terminal_output.controls.pop(0)
@@ -809,32 +822,42 @@ def main(page: ft.Page):
 
     # ── Bloc-notes : fonctions ──────────────────────────────────────────
     def save_notes():
-        """Sauvegarde le contenu du bloc-notes dans .notes.txt."""
+        """Sauvegarde le contenu du bloc-notes dans le fichier cible."""
         try:
-            with open(notes_file_path, "w", encoding="utf-8") as _f:
+            with open(note_target_file["path"], "w", encoding="utf-8") as _f:
                 _f.write(notepad_field.value or "")
-            log_to_terminal("[OK] Notes sauvegardées", GREEN)
+            label = os.path.basename(note_target_file["path"])
+            log_to_terminal(f"[OK] {label} sauvegardé", GREEN)
         except Exception as _err:
-            log_to_terminal(f"[ERREUR] Sauvegarde notes : {_err}", RED)
+            log_to_terminal(f"[ERREUR] Sauvegarde : {_err}", RED)
 
     def load_notes():
-        """Charge le contenu du bloc-notes depuis .notes.txt."""
+        """Charge le contenu du bloc-notes depuis le fichier cible."""
         try:
-            if os.path.exists(notes_file_path):
-                with open(notes_file_path, "r", encoding="utf-8") as _f:
+            if os.path.exists(note_target_file["path"]):
+                with open(note_target_file["path"], "r", encoding="utf-8") as _f:
                     notepad_field.value = _f.read()
             else:
                 notepad_field.value = ""
         except Exception:
             notepad_field.value = ""
 
-    def switch_to_note():
-        """Bascule la zone bas en mode bloc-notes."""
+    def _open_notepad_ui(title, icon, color, hint):
+        """Affiche la zone bloc-notes avec le titre et la couleur donnés."""
+        notepad_header_icon.name  = icon
+        notepad_header_icon.color = color
+        notepad_header_title.value = title
+        notepad_header_title.color = color
+        notepad_field.hint_text   = hint
+        notepad_field.border_color = color
         load_notes()
         note_mode["value"] = True
-        terminal_output.visible = False
+        terminal_output.visible  = False
         terminal_cmd_row.visible = False
         notepad_container.visible = True
+        notepad_header_icon.update()
+        notepad_header_title.update()
+        notepad_field.update()
         terminal_output.update()
         terminal_cmd_row.update()
         notepad_container.update()
@@ -845,6 +868,17 @@ def main(page: ft.Page):
             except Exception:
                 pass
         page.run_task(_focus_note)
+
+    def switch_to_note():
+        """Bascule la zone bas en mode bloc-notes (fichier .notes.txt)."""
+        note_target_file["path"] = notes_file_path
+        _open_notepad_ui("Notes", ft.Icons.EDIT_NOTE, VIOLET, "Écrivez vos notes ici…")
+
+    def switch_to_options():
+        """Bascule la zone bas en mode édition CONSTANTS.py."""
+        note_target_file["path"] = constants_file_path
+        _open_notepad_ui("CONSTANTS.py", ft.Icons.TUNE, ORANGE, "Modifiez les constantes ici…")
+        return
 
     def switch_to_terminal_mode():
         """Sauvegarde les notes et revient au terminal."""
@@ -877,6 +911,12 @@ def main(page: ft.Page):
             terminal_cmd_input.value = ""
             terminal_cmd_input.update()
             switch_to_note()
+            return
+
+        if command_text.lower() == "/option":
+            terminal_cmd_input.value = ""
+            terminal_cmd_input.update()
+            switch_to_options()
             return
 
         if not command_history or command_history[0] != command_text:
@@ -1470,18 +1510,24 @@ def main(page: ft.Page):
 
 
     def open_image_viewer(start_path):
-        """Affiche un lecteur d'image plein écran avec navigation prev/next, zoom et déplacement (InteractiveViewer)."""
+        """Affiche un lecteur d'image avec PageView swipeable (support écran tactile)."""
+        _blank_gif = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+
         entries = all_entries_data["list"]
         image_paths = [entry_path for (_, entry_path, is_directory, is_image_file, _ext) in entries if is_image_file and not is_directory]
         if not image_paths:
             image_paths = [start_path]
         try:
-            current_image_index = {"value": image_paths.index(start_path)}
+            initial_index = image_paths.index(start_path)
         except ValueError:
-            current_image_index = {"value": 0}
+            initial_index = 0
             image_paths = [start_path]
 
+        state = {"index": initial_index}
         previous_keyboard_handler = page.on_keyboard_event
+
+        def _current_path() -> str:
+            return image_paths[state["index"]] if image_paths else ""
 
 
 
@@ -1497,9 +1543,9 @@ def main(page: ft.Page):
 
 
 
-        # ── Contrôles texte ───────────────────────────────────────────────
+        # ── Contrôles barre titre ─────────────────────────────────────────
         filename_text = ft.Text(
-            os.path.basename(image_paths[current_image_index["value"]]),
+            os.path.basename(_current_path()),
             size=13,
             color=ft.Colors.WHITE,
             weight=ft.FontWeight.W_500,
@@ -1507,92 +1553,165 @@ def main(page: ft.Page):
             overflow=ft.TextOverflow.ELLIPSIS,
         )
         counter_text = ft.Text(
-            f"{current_image_index['value'] + 1} / {len(image_paths)}",
+            f"{state['index'] + 1} / {len(image_paths)}",
             size=12,
             color=ft.Colors.WHITE70,
         )
         resolution_text = ft.Text(
-            _get_resolution(image_paths[current_image_index["value"]]),
+            "",
             size=12,
             color=ft.Colors.WHITE54,
         )
         viewer_checkbox = ft.Checkbox(
-            value=image_paths[current_image_index["value"]] in selected_files,
-            on_change=lambda e: on_checkbox_change(e, image_paths[current_image_index["value"]]),
+            value=_current_path() in selected_files,
+            on_change=lambda e: on_checkbox_change(e, _current_path()),
         )
 
 
 
-        # ── InteractiveViewer ─────────────────────────────────────────────
-        # On recrée l'InteractiveViewer à chaque changement d'image pour
-        # remettre le zoom et le pan à zéro.
-        viewer_key_counter = {"count": 0}
+        # ── Chargement lazy des images ────────────────────────────────────
+        page_image_controls: dict = {}
+        pages_loaded: set = set()
 
-        def _create_interactive_viewer(path):
-            viewer_key_counter["count"] += 1
-            window_width = page.window.width or 1280
-            window_height = page.window.height or 800
-            cached_source_path = _image_cache_busters.get(os.path.normpath(path))
-            image_source = cached_source_path if cached_source_path else path
-            return ft.InteractiveViewer(
-                key=str(viewer_key_counter["count"]),
-                content=ft.Image(
-                    src=image_source,
-                    width=window_width,
-                    height=window_height,
+        def _build_page_containers():
+            containers = []
+            win_w = page.window.width or 1280
+            win_h = page.window.height or 800
+            for idx in range(len(image_paths)):
+                img_ctrl = ft.Image(
+                    src=_blank_gif,
+                    width=win_w,
+                    height=win_h,
                     fit=ft.BoxFit.CONTAIN,
-                    error_content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=ft.Colors.WHITE54),
-                ),
-                min_scale=0.5,
-                max_scale=10.0,
-                pan_enabled=True,
-                scale_enabled=True,
-                width=window_width,
-                height=window_height,
-                clip_behavior=ft.ClipBehavior.HARD_EDGE,
-            )
+                    gapless_playback=True,
+                    error_content=ft.Container(
+                        content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=ft.Colors.WHITE54, size=64),
+                        alignment=ft.Alignment(0, 0),
+                    ),
+                )
+                page_image_controls[idx] = img_ctrl
+                # InteractiveViewer à l'intérieur de chaque page :
+                # - Pinch-to-zoom / molette souris pour zoomer
+                # - Swipe horizontal disponible quand zoom = 1× (PageView reprend la main)
+                # - Pan disponible quand zoom > 1×
+                viewer = ft.InteractiveViewer(
+                    key=f"iv_{idx}",
+                    content=img_ctrl,
+                    min_scale=0.5,
+                    max_scale=10.0,
+                    pan_enabled=True,
+                    scale_enabled=True,
+                    width=win_w,
+                    height=win_h,
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                )
+                containers.append(
+                    ft.Container(
+                        content=viewer,
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        bgcolor="#1a1a1a",
+                    )
+                )
+            return containers
 
-        viewer_container = ft.Container(
-            content=_create_interactive_viewer(image_paths[current_image_index["value"]]),
-            expand=True,
-            alignment=ft.Alignment(0, 0),
-        )
+        def _load_image_for_index(load_index: int) -> None:
+            if load_index < 0 or load_index >= len(image_paths):
+                return
+            if load_index in pages_loaded:
+                return
+            path = image_paths[load_index]
+            normalized = os.path.normpath(path)
+            cached = _image_cache_busters.get(normalized)
+            src = cached if cached else path
+            if load_index in page_image_controls:
+                page_image_controls[load_index].src = src
+            pages_loaded.add(load_index)
+
+            async def _apply():
+                try:
+                    page.update()
+                except Exception:
+                    pass
+
+            page.run_task(_apply)
+
+        def _load_pages_around(center: int) -> None:
+            for offset in (0, 1, -1, 2, -2):
+                target = center + offset
+                if 0 <= target < len(image_paths):
+                    threading.Thread(
+                        target=_load_image_for_index,
+                        args=(target,),
+                        daemon=True,
+                    ).start()
 
 
 
-        # ── Navigation image ──────────────────────────────────────────────
-        def _load_image(path):
-            viewer_container.content   = _create_interactive_viewer(path)
-            filename_text.value    = os.path.basename(path)
-            counter_text.value     = f"{current_image_index['value'] + 1} / {len(image_paths)}"
-            resolution_text.value  = _get_resolution(path)
-            viewer_checkbox.value  = path in selected_files
+        # ── Mise à jour de la barre titre ─────────────────────────────────
+        def _update_overlay_bar(new_index: int) -> None:
+            state["index"] = new_index
+            path = image_paths[new_index] if image_paths else ""
+            filename_text.value = os.path.basename(path)
+            counter_text.value = f"{new_index + 1} / {len(image_paths)}"
+            viewer_checkbox.value = path in selected_files
+            resolution_text.value = ""
+
+            def _load_res():
+                resolution_text.value = _get_resolution(path)
+                try:
+                    page.update()
+                except Exception:
+                    pass
+
+            threading.Thread(target=_load_res, daemon=True).start()
             page.update()
 
-        def go_prev(e):
-            if len(image_paths) > 1:
-                current_image_index["value"] = (current_image_index["value"] - 1) % len(image_paths)
-                _load_image(image_paths[current_image_index["value"]])
+        def on_page_change(e) -> None:
+            new_index = int(e.data)
+            _update_overlay_bar(new_index)
+            _load_pages_around(new_index)
 
-        def go_next(e):
-            if len(image_paths) > 1:
-                current_image_index["value"] = (current_image_index["value"] + 1) % len(image_paths)
-                _load_image(image_paths[current_image_index["value"]])
 
-        def close_viewer(e):
-            page.on_keyboard_event = previous_keyboard_handler
-            page.theme = ft.Theme(
-                page_transitions=ft.PageTransitionsTheme(
-                    macos=ft.PageTransitionTheme.NONE,
-                    windows=ft.PageTransitionTheme.NONE,
-                    linux=ft.PageTransitionTheme.NONE,
-                )
+
+        # ── PageView ──────────────────────────────────────────────────────
+        images_page_view = ft.PageView(
+            controls=_build_page_containers(),
+            expand=True,
+            horizontal=True,
+            selected_index=initial_index,
+            on_change=on_page_change,
+        )
+
+
+
+        # ── Navigation ────────────────────────────────────────────────────
+        async def navigate_prev(e) -> None:
+            if not image_paths or state["index"] <= 0:
+                return
+            await images_page_view.previous_page(
+                animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
+                animation_duration=ft.Duration(milliseconds=300),
             )
-            if len(page.views) > 1:
-                page.views.pop()
-            # Restaurer la page de la preview_list sur celle contenant la dernière image visionnée
-            current_path = image_paths[current_image_index["value"]]
-            all_entry_paths = [entry_path for (_name, entry_path, _is_dir, _is_img, _ext) in all_entries_data["list"]]
+
+        async def navigate_next(e) -> None:
+            if not image_paths or state["index"] >= len(image_paths) - 1:
+                return
+            await images_page_view.next_page(
+                animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
+                animation_duration=ft.Duration(milliseconds=300),
+            )
+
+
+
+        # ── Fermeture ─────────────────────────────────────────────────────
+        def close_viewer(e) -> None:
+            page.on_keyboard_event = previous_keyboard_handler
+            if preview_overlay in page.overlay:
+                page.overlay.remove(preview_overlay)
+            # Restaurer la page preview sur l'image courante
+            current_path = _current_path()
+            all_entry_paths = [ep for (_, ep, _d, _i, _e) in all_entries_data["list"]]
             try:
                 entry_index = all_entry_paths.index(current_path)
                 preview_page["value"] = entry_index // PAGE_SIZE
@@ -1601,8 +1720,11 @@ def main(page: ft.Page):
             refresh_preview(reset_page=False)
             page.update()
 
-        def delete_current_image(e):
-            path = image_paths[current_image_index["value"]]
+
+
+        # ── Suppression ───────────────────────────────────────────────────
+        def delete_current_image(e) -> None:
+            path = _current_path()
             fname = os.path.basename(path)
 
             def _confirm(e2):
@@ -1611,16 +1733,53 @@ def main(page: ft.Page):
                 page.update()
                 try:
                     os.remove(path)
-                    image_paths.pop(current_image_index["value"])
                     log_to_terminal(f"[OK] Supprimé: {fname}", GREEN)
                 except Exception as err:
                     log_to_terminal(f"[ERREUR] {err}", RED)
                     return
+
+                # Retirer l'image de la liste et du PageView
+                cur_idx = state["index"]
+                image_paths.pop(cur_idx)
+                images_page_view.controls.pop(cur_idx)
+                page_image_controls.pop(cur_idx, None)
+                pages_loaded.discard(cur_idx)
+
                 if not image_paths:
+                    # Plus d'images : fermer la visionneuse
                     close_viewer(None)
                     return
-                current_image_index["value"] = min(current_image_index["value"], len(image_paths) - 1)
-                _load_image(image_paths[current_image_index["value"]])
+
+                # Reconstruire le mapping des contrôles (les index ont décalé)
+                new_page_image_controls = {}
+                new_pages_loaded = set()
+                for new_i, ctrl in list(page_image_controls.items()):
+                    if new_i < cur_idx:
+                        new_page_image_controls[new_i] = ctrl
+                        if new_i in pages_loaded:
+                            new_pages_loaded.add(new_i)
+                    elif new_i > cur_idx:
+                        new_page_image_controls[new_i - 1] = ctrl
+                        if new_i in pages_loaded:
+                            new_pages_loaded.add(new_i - 1)
+                page_image_controls.clear()
+                page_image_controls.update(new_page_image_controls)
+                pages_loaded.clear()
+                pages_loaded.update(new_pages_loaded)
+
+                # Choisir le nouvel index : rester sur la même position
+                # (ou reculer d'un cran si on était à la fin)
+                new_idx = min(cur_idx, len(image_paths) - 1)
+                images_page_view.selected_index = new_idx
+                _update_overlay_bar(new_idx)
+                _load_pages_around(new_idx)
+                page.update()
+
+                # Rafraîchir la grille en arrière-plan sans changer de page
+                threading.Thread(
+                    target=lambda: refresh_preview(reset_page=False),
+                    daemon=True,
+                ).start()
 
             def _cancel(e2):
                 page.on_keyboard_event = on_key
@@ -1646,11 +1805,14 @@ def main(page: ft.Page):
             page.on_keyboard_event = _on_key_dialog
             page.update()
 
-        def on_key(e: ft.KeyboardEvent):
-            if e.key in ("Arrow Right", "ArrowRight"):
-                go_next(None)
-            elif e.key in ("Arrow Left", "ArrowLeft"):
-                go_prev(None)
+
+
+        # ── Clavier ───────────────────────────────────────────────────────
+        def on_key(e: ft.KeyboardEvent) -> None:
+            if e.key in ("Arrow Left", "ArrowLeft"):
+                page.run_task(navigate_prev, e)
+            elif e.key in ("Arrow Right", "ArrowRight"):
+                page.run_task(navigate_next, e)
             elif e.key == "Escape":
                 close_viewer(None)
             elif e.key in ("Delete", "Backspace"):
@@ -1658,14 +1820,9 @@ def main(page: ft.Page):
 
         page.on_keyboard_event = on_key
 
-        page.theme = ft.Theme(
-            page_transitions=ft.PageTransitionsTheme(
-                macos=ft.PageTransitionTheme.OPEN_UPWARDS,
-                windows=ft.PageTransitionTheme.OPEN_UPWARDS,
-                linux=ft.PageTransitionTheme.OPEN_UPWARDS,
-            )
-        )
 
+
+        # ── UI ────────────────────────────────────────────────────────────
         button_style = ft.ButtonStyle(
             overlay_color=ft.Colors.with_opacity(0.15, ft.Colors.WHITE),
         )
@@ -1697,9 +1854,6 @@ def main(page: ft.Page):
             spacing=8,
         )
 
-
-
-        # Bouton fermer — coin supérieur droit
         close_btn_top = ft.Container(
             content=ft.IconButton(
                 icon=ft.Icons.CLOSE_ROUNDED,
@@ -1721,7 +1875,7 @@ def main(page: ft.Page):
                         icon_color=ft.Colors.WHITE,
                         icon_size=26,
                         tooltip="Image précédente",
-                        on_click=go_prev,
+                        on_click=navigate_prev,
                         style=button_style,
                     ),
                     ft.Container(
@@ -1741,7 +1895,7 @@ def main(page: ft.Page):
                         icon_color=ft.Colors.WHITE,
                         icon_size=26,
                         tooltip="Image suivante",
-                        on_click=go_next,
+                        on_click=navigate_next,
                         style=button_style,
                     ),
                 ],
@@ -1754,48 +1908,49 @@ def main(page: ft.Page):
             border_radius=16,
         )
 
-        navigation_bar_row = ft.Row(
-            [navigation_bar],
-            alignment=ft.MainAxisAlignment.CENTER,
-        )
-
-        viewer_view = ft.View(
-            route="/image_viewer",
-            bgcolor="#3c3c3c",
-            padding=0,
-            controls=[
-                ft.Stack(
-                    [
-                        viewer_container,
-                        # Barre supérieure — centrée
-                        ft.Container(
-                            content=top_bar,
-                            top=12,
-                            left=0,
-                            right=0,
-                            alignment=ft.Alignment(0, 0),
-                        ),
-                        # Bouton fermer — coin supérieur droit
-                        ft.Container(
-                            content=close_btn_top,
-                            top=10,
-                            right=12,
-                        ),
-                        # Barre de navigation inférieure
-                        ft.Container(
-                            content=navigation_bar_row,
-                            bottom=16,
-                            left=0,
-                            right=0,
-                            alignment=ft.Alignment(0, 0),
-                        ),
-                    ],
-                    expand=True,
-                )
-            ],
-        )
-        page.views.append(viewer_view)
+        preview_overlay = ft.Stack([
+            # PageView swipeable (fond plein)
+            images_page_view,
+            # Titre/compteur centré en haut
+            ft.Container(
+                content=top_bar,
+                top=8,
+                left=0,
+                right=0,
+                alignment=ft.Alignment(0, 0),
+            ),
+            # Bouton fermer en haut à droite
+            ft.Container(
+                content=close_btn_top,
+                top=8,
+                right=8,
+            ),
+            # Barre de navigation inférieure flottante
+            ft.Container(
+                content=ft.Row(
+                    [navigation_bar],
+                    alignment=ft.MainAxisAlignment.CENTER,
+                ),
+                bottom=16,
+                left=0,
+                right=0,
+            ),
+        ], expand=True)
+        page.overlay.append(preview_overlay)
         page.update()
+
+        # Résolution initiale en arrière-plan
+        def _load_initial_res():
+            resolution_text.value = _get_resolution(_current_path())
+            try:
+                page.update()
+            except Exception:
+                pass
+
+        threading.Thread(target=_load_initial_res, daemon=True).start()
+
+        # Chargement des images autour de l'index initial
+        _load_pages_around(initial_index)
 
 
 
@@ -3114,16 +3269,16 @@ def main(page: ft.Page):
                             is_image = ext in [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"]
                             entries_data.append((name, path, is_dir, is_image, ext))
 
-                            # Détecter les modifications externes et invalider le cache miniature
-                            # (uniquement sur rafraîchissement explicite pour éviter de ralentir)
-                            if force_reload and is_image and not is_dir:
+                            # Mémoriser le mtime à chaque scan pour détecter les modifications externes.
+                            # Sur rafraîchissement explicite (force_reload), invalider le cache si le fichier a changé.
+                            if is_image and not is_dir:
                                 normalized_path = os.path.normpath(path)
                                 try:
                                     current_mtime = entry.stat().st_mtime
                                 except OSError:
                                     continue
                                 stored_mtime = _image_last_mtime.get(normalized_path)
-                                if stored_mtime is not None and current_mtime != stored_mtime:
+                                if force_reload and stored_mtime is not None and current_mtime != stored_mtime:
                                     old_temp = _image_cache_busters.get(normalized_path)
                                     if old_temp and os.path.exists(old_temp):
                                         try:
@@ -3347,21 +3502,13 @@ def main(page: ft.Page):
 
         if app_name == "2 en 1.py" and series_name is None:
             _TWO_IN_ONE_FORMATS = CONSTANTS.TWO_IN_ONE_FORMATS
-            two_in_one_dropdown = ft.Dropdown(
-                label="Format",
-                value=_TWO_IN_ONE_FORMATS[0][1],
-                autofocus=True,
-                width=280,
-                bgcolor=DARK,
-                border_color=GREY,
-                options=[
-                    ft.dropdown.Option(key=val, text=label)
-                    for label, val in _TWO_IN_ONE_FORMATS
-                ],
+            two_in_one_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Format 2 en 1"),
+                content=None,
             )
 
-            def on_confirm_two_in_one(e):
-                val = two_in_one_dropdown.value or _TWO_IN_ONE_FORMATS[0][1]
+            def _pick_two_in_one(val):
                 two_in_one_dialog.open = False
                 page.update()
                 launch_app(app_name, app_path, is_local, series_name=val)
@@ -3370,18 +3517,27 @@ def main(page: ft.Page):
                 two_in_one_dialog.open = False
                 page.update()
 
-            two_in_one_dropdown.on_change = on_confirm_two_in_one
-
-            two_in_one_dialog = ft.AlertDialog(
-                modal=True,
-                title=ft.Text("Format 2 en 1"),
-                content=two_in_one_dropdown,
-                actions=[
-                    ft.TextButton("Annuler", on_click=on_cancel_two_in_one),
-                    ft.TextButton("OK", on_click=on_confirm_two_in_one),
+            two_in_one_buttons = ft.Column(
+                controls=[
+                    ft.Container(
+                        content=ft.Text(label, size=14, color=HOVER_YELLOW, text_align=ft.TextAlign.CENTER),
+                        bgcolor=GREY,
+                        border=ft.Border.all(1, HOVER_YELLOW),
+                        border_radius=4,
+                        padding=ft.Padding(12, 10, 12, 10),
+                        width=280,
+                        alignment=ft.Alignment(0, 0),
+                        ink=True,
+                        on_click=lambda e, v=val: _pick_two_in_one(v),
+                    )
+                    for label, val in _TWO_IN_ONE_FORMATS
                 ],
-                actions_alignment=ft.MainAxisAlignment.END,
+                spacing=6,
+                tight=True,
             )
+            two_in_one_dialog.content = two_in_one_buttons
+            two_in_one_dialog.actions = [ft.TextButton("Annuler", on_click=on_cancel_two_in_one)]
+            two_in_one_dialog.actions_alignment = ft.MainAxisAlignment.END
             page.overlay.append(two_in_one_dialog)
             two_in_one_dialog.open = True
             page.update()
@@ -3389,21 +3545,13 @@ def main(page: ft.Page):
         
         if app_name == "Fit 203.py" and series_name is None:
             _FIT_203_FORMATS = CONSTANTS.FIT_203_FORMATS
-            fit_203_dropdown = ft.Dropdown(
-                label="Format",
-                value=f"{_FIT_203_FORMATS[0][1]}|{_FIT_203_FORMATS[0][2]}",
-                autofocus=True,
-                width=280,
-                bgcolor=DARK,
-                border_color=GREY,
-                options=[
-                    ft.dropdown.Option(key=f"{crop}|{canvas}", text=label)
-                    for label, crop, canvas in _FIT_203_FORMATS
-                ],
+            fit_203_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Format Fit 203"),
+                content=None,
             )
 
-            def on_confirm_fit_203(e):
-                val = fit_203_dropdown.value or f"{_FIT_203_FORMATS[0][1]}|{_FIT_203_FORMATS[0][2]}"
+            def _pick_fit_203(val):
                 fit_203_dialog.open = False
                 page.update()
                 launch_app(app_name, app_path, is_local, series_name=val)
@@ -3412,18 +3560,27 @@ def main(page: ft.Page):
                 fit_203_dialog.open = False
                 page.update()
 
-            fit_203_dropdown.on_change = on_confirm_fit_203
-
-            fit_203_dialog = ft.AlertDialog(
-                modal=True,
-                title=ft.Text("Format Fit 203"),
-                content=fit_203_dropdown,
-                actions=[
-                    ft.TextButton("Annuler", on_click=on_cancel_fit_203),
-                    ft.TextButton("OK", on_click=on_confirm_fit_203),
+            fit_203_buttons = ft.Column(
+                controls=[
+                    ft.Container(
+                        content=ft.Text(label, size=14, color=HOVER_YELLOW, text_align=ft.TextAlign.CENTER),
+                        bgcolor=GREY,
+                        border=ft.Border.all(1, HOVER_YELLOW),
+                        border_radius=4,
+                        padding=ft.Padding(12, 10, 12, 10),
+                        width=280,
+                        alignment=ft.Alignment(0, 0),
+                        ink=True,
+                        on_click=lambda e, v=f"{crop}|{canvas}": _pick_fit_203(v),
+                    )
+                    for label, crop, canvas in _FIT_203_FORMATS
                 ],
-                actions_alignment=ft.MainAxisAlignment.END,
+                spacing=6,
+                tight=True,
             )
+            fit_203_dialog.content = fit_203_buttons
+            fit_203_dialog.actions = [ft.TextButton("Annuler", on_click=on_cancel_fit_203)]
+            fit_203_dialog.actions_alignment = ft.MainAxisAlignment.END
             page.overlay.append(fit_203_dialog)
             fit_203_dialog.open = True
             page.update()
@@ -3486,6 +3643,8 @@ def main(page: ft.Page):
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     bufsize=1,
                     universal_newlines=True
                 )
@@ -4170,6 +4329,76 @@ def main(page: ft.Page):
     threading.Thread(target=_poll_removable_drives, daemon=True).start()
 
 
+    # ── Panneau bas : état agrandir/réduire ──────────────────────────
+    _bottom_panel_state = {"expanded": False}
+
+    _expand_btn = ft.IconButton(
+        icon=ft.Icons.EXPAND_LESS,
+        tooltip="Agrandir",
+        icon_color=LIGHT_GREY,
+        icon_size=16,
+    )
+
+    bottom_panel_container = ft.Container(
+        content=ft.Row([
+            # ── Terminal (gauche) ────────────────────────────
+            ft.Container(
+                content=ft.Row([
+                    ft.Column([
+                        notepad_container,
+                        terminal_output,
+                        terminal_cmd_row,
+                    ], spacing=4, expand=True),
+                    ft.Column([
+                        _expand_btn,
+                        ft.IconButton(
+                            icon=ft.Icons.COPY_ALL,
+                            tooltip="Copier le terminal",
+                            on_click=lambda e: copy_terminal_to_clipboard(),
+                            icon_color=BLUE,
+                            icon_size=16,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.CLEAR_ALL,
+                            tooltip="Effacer le terminal",
+                            on_click=clear_terminal,
+                            icon_color=RED,
+                            icon_size=16,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.SEND,
+                            icon_color=GREEN,
+                            icon_size=16,
+                            tooltip="Envoyer la commande",
+                            on_click=on_terminal_command_submit,
+                        ),
+                    ], alignment=ft.MainAxisAlignment.END, spacing=0),
+                ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+                expand=True,
+                border=ft.Border.all(1, GREEN),
+                border_radius=8,
+                bgcolor=DARK,
+                padding=5,
+            ),
+            # ── Favoris & Périphériques (droite) ─────────────
+            ft.Row([
+                favorites_panel,
+                drives_panel,
+            ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+        ], spacing=8, expand=True),
+        height=CONSTANTS.TERMINAL_HEIGHT,
+    )
+
+    def toggle_bottom_panel():
+        _bottom_panel_state["expanded"] = not _bottom_panel_state["expanded"]
+        expanded = _bottom_panel_state["expanded"]
+        bottom_panel_container.height = CONSTANTS.TERMINAL_HEIGHT_MAX if expanded else CONSTANTS.TERMINAL_HEIGHT
+        _expand_btn.icon    = ft.Icons.EXPAND_MORE if expanded else ft.Icons.EXPAND_LESS
+        _expand_btn.tooltip = "Réduire" if expanded else "Agrandir"
+        page.update()
+
+    _expand_btn.on_click = lambda e: toggle_bottom_panel()
+
 
 # ===================== INTERFACE FLET ===================== #
     page.add(
@@ -4282,7 +4511,11 @@ def main(page: ft.Page):
                             padding=8,
                         ),
                         ft.Container(
-                            content=quick_tools_col,
+                            content=ft.ListView(
+                                controls=[quick_tools_col],
+                                expand=True,
+                                auto_scroll=False,
+                            ),
                             bgcolor=DARK,
                             border=ft.Border.all(1, GREY),
                             border_radius=8,
@@ -4371,57 +4604,7 @@ def main(page: ft.Page):
                     )
                 ], expand=9)
             ], expand=True, spacing=8),
-            ft.Container(
-                content=ft.Row([
-
-                    # ── Terminal (gauche) ────────────────────────────
-                    ft.Container(
-                        content=ft.Row([
-                            ft.Column([
-                                notepad_container,
-                                terminal_output,
-                                terminal_cmd_row,
-                            ], spacing=4, expand=True),
-
-                            ft.Column([
-                                ft.IconButton(
-                                    icon=ft.Icons.COPY_ALL,
-                                    tooltip="Copier le terminal",
-                                    on_click=lambda e: copy_terminal_to_clipboard(),
-                                    icon_color=BLUE,
-                                    icon_size=16,
-                                ),
-                                ft.IconButton(
-                                    icon=ft.Icons.CLEAR_ALL,
-                                    tooltip="Effacer le terminal",
-                                    on_click=clear_terminal,
-                                    icon_color=RED,
-                                    icon_size=16,
-                                ),
-                                ft.IconButton(
-                                    icon=ft.Icons.SEND,
-                                    icon_color=GREEN,
-                                    icon_size=16,
-                                    tooltip="Envoyer la commande",
-                                    on_click=on_terminal_command_submit,
-                                ),
-                            ], alignment=ft.MainAxisAlignment.END, spacing=0),
-                        ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-                        expand=True,
-                        border=ft.Border.all(1, GREEN),
-                        border_radius=8,
-                        bgcolor=DARK,
-                        padding=5,
-                    ),
-
-                    # ── Favoris & Périphériques (droite) ─────────────
-                    ft.Row([
-                        favorites_panel,
-                        drives_panel,
-                    ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-                ], spacing=8, expand=True),
-                height=150,
-            ),
+            bottom_panel_container,
         ], expand=True, spacing=8)
     )
 

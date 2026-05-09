@@ -9,12 +9,15 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ────────────────────────────────────────────────────────────────
-__version__ = "2.3.7"
+__version__ = "2.3.8"
 
 
 # ─── Interface (Dashboard) ──────────────────────────────────────────────────
-WINDOW_WIDTH  = 1280
-WINDOW_HEIGHT = 900
+WINDOW_WIDTH       = 1280
+WINDOW_HEIGHT      = 900
+TERMINAL_FONT_SIZE    = 13   # Taille du texte dans le terminal, le bloc-notes et les options
+TERMINAL_HEIGHT       = 170  # Hauteur par défaut du panneau terminal (px)
+TERMINAL_HEIGHT_MAX   = 500  # Hauteur du panneau terminal en mode agrandir (px)
 
 
 # ─── Palette de couleurs ─────────────────────────────────────────────────────
@@ -108,10 +111,40 @@ TEMP_FOLDER = "Z:/temp"
 CLEAN_DAYS = 60   # Fichiers plus vieux que N jours sont supprimés
 
 
+# ─── Chemins réseau kiosks ───────────────────────────────────────────────────
+# Utilisés par Kiosk gauche.py, Kiosk droite.py et Nettoyer anciens fichiers.py.
+import platform as _platform
+if _platform.system() == "Windows":
+    KIOSK_GAUCHE_SRC  = r"\\studioc-kiosk1\kiosk-data\it-HotFolder"
+    KIOSK_GAUCHE_DEST = r"\\Diskstation\travaux en cours\z2026\kiosk\KIOSK GAUCHE"
+    KIOSK_DROITE_SRC  = r"\\studioc-kiosk2\kiosk-data\it-HotFolder"
+    KIOSK_DROITE_DEST = r"\\Diskstation\travaux en cours\z2026\kiosk\KIOSK DROITE"
+    CLEAN_FOLDERS = [
+        r"\\studioc-kiosk1\kiosk-data\it-HotFolder",
+        r"\\studioc-kiosk2\kiosk-data\it-HotFolder",
+        r"\\Diskstation\travaux en cours\z2026\kiosk\KIOSK GAUCHE",
+        r"\\Diskstation\travaux en cours\z2026\kiosk\KIOSK DROITE",
+        r"\\diskstation\travaux en cours\Z2026\TEMP",
+    ]
+else:
+    KIOSK_GAUCHE_SRC  = "/Volumes/kiosk-data/it-HotFolder"
+    KIOSK_GAUCHE_DEST = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE"
+    KIOSK_DROITE_SRC  = "/Volumes/kiosk-data-1/it-HotFolder"
+    KIOSK_DROITE_DEST = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE"
+    CLEAN_FOLDERS = [
+        "/Volumes/kiosk-data-1/it-HotFolder",
+        "/Volumes/kiosk-data-2/it-HotFolder",
+        "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE",
+        "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE",
+        "/Volumes/TRAVAUX EN COURS/Z2026/TEMP",
+    ]
+del _platform
 
-# ═════════════════════════════════════════════════════════════════════════════
+
+
+#══════════════════════════════════════════════════════════════════════════
 #  KIOSK
-# ═════════════════════════════════════════════════════════════════════════════
+#══════════════════════════════════════════════════════════════════════════
 # ─── Extensions d'image acceptées (kiosk) ────────────────────────────────────
 EXTENSION = (".jpg", ".jpeg", ".png")
 
