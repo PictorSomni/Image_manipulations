@@ -134,6 +134,7 @@ def main(page: ft.Page):
     page.window.title_bar_buttons_hidden = True
     page.window.width = CONSTANTS.WINDOW_WIDTH
     page.window.height = CONSTANTS.WINDOW_HEIGHT
+    page.window.maximized = CONSTANTS.MAXIMIZED
     page.window.icon = "assets/icon.png"
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}

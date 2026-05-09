@@ -12,14 +12,6 @@ toucher aux scripts eux-mêmes.
 __version__ = "2.3.8"
 
 
-# ─── Interface (Dashboard) ──────────────────────────────────────────────────
-WINDOW_WIDTH       = 1280
-WINDOW_HEIGHT      = 900
-TERMINAL_FONT_SIZE    = 13   # Taille du texte dans le terminal, le bloc-notes et les options
-TERMINAL_HEIGHT       = 170  # Hauteur par défaut du panneau terminal (px)
-TERMINAL_HEIGHT_MAX   = 500  # Hauteur du panneau terminal en mode agrandir (px)
-
-
 # ─── Palette de couleurs ─────────────────────────────────────────────────────
 # Utilisée dans le terminal intégré et les éléments de l'interface Dashboard.
 COLOR_DARK         = "#222429"
@@ -64,6 +56,16 @@ FORMATS = { # (largeur_mm, hauteur_mm) - en portrait
     "60x90": (605, 905),
     "70x100": (705, 1005)
 }
+
+
+# ─── Interface (Dashboard) ──────────────────────────────────────────────────
+WINDOW_WIDTH          = 1280
+WINDOW_HEIGHT         = 900
+MAXIMIZED             = True 
+TERMINAL_FONT_SIZE    = 13   # Taille du texte dans le terminal, le bloc-notes et les options
+TERMINAL_HEIGHT       = 170  # Hauteur par défaut du panneau terminal (px)
+TERMINAL_HEIGHT_MAX   = 640  # Hauteur du panneau terminal en mode agrandir (px)
+
 
 # ─── Redimensionnement ───────────────────────────────────────────────────────
 RESIZE_DEFAULT = 512   # Dimension max par défaut - y compris pour remerciements
