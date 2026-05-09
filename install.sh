@@ -50,12 +50,28 @@ else
 fi
 
 echo ""
-echo "Installation des dépendances Python..."
+echo "Installation des dependances Python..."
 pip3 install -r requirements.txt --upgrade
 
 echo ""
+echo "Verification d'Ollama (IA locale)..."
+if command -v ollama &> /dev/null; then
+    echo "[OK] Ollama detecte, mise a jour..."
+    ollama pull llama3.2:3b   || true
+else
+    echo "[INFO] Installation d'Ollama..."
+    curl -fsSL https://ollama.com/install.sh | sh
+    if command -v ollama &> /dev/null; then
+        echo "[OK] Ollama installe."
+    else
+        echo "[AVERTISSEMENT] Impossible d'installer Ollama automatiquement."
+        echo "[INFO] Installez-le manuellement depuis https://ollama.com/download"
+    fi
+fi
+
+echo ""
 echo "======================================"
-echo "[OK] Installation terminée !"
+echo "[OK] Installation terminee !"
 echo "======================================"
 echo ""
 echo "Pour lancer le Dashboard :"

@@ -7,16 +7,27 @@ Compatible **Windows**, **macOS** et **Linux**.
 ![Recadrage](screenshots/dashboard02.jpg)
 ![Selecteur](screenshots/dashboard03.jpg)
 ![Augmentation IA](screenshots/dashboard04.jpg)
+![Kiosk](screenshots/dashboard05.jpg)
 
 ---
 
 ## 🆕 Nouveautés
 
-### Dashboard (v2.1)
+### Dashboard (v2.4)
+- **Assistant IA local** : conversation intégrée via [Ollama](https://ollama.com) — accessible avec `/ai` dans la barre de commande.
+  - Sélection automatique du modèle : texte pur (`llama3.2:3b`) ou vision (`llava:7b`) selon qu'une image est jointe ou non.
+  - **Envoi d'images** : bouton 📎 dans le panneau IA, ou clic-droit sur une image de la preview → *Envoyer à l'IA*.
+  - Images redimensionnées automatiquement à 1024 px avant envoi (performance).
+  - Auto-démarrage du serveur Ollama si absent ; téléchargement automatique du modèle à la première utilisation.
+  - Bouton ⏹ pour libérer la RAM (`ollama stop`) quand l'analyse est terminée.
+  - Mise à jour automatique des modèles lors du `git pull` intégré.
+  - Ollama installé automatiquement par `install.sh` / `install.bat` si absent.
 - **Visionneuse plein écran** : ouvrir n'importe quelle image en plein écran depuis le panneau de fichiers, avec navigation au clavier (flèches), possibilité de **sélectionner ou supprimer** le fichier affiché depuis la visionneuse.
 - **Tri des dossiers** : tri alphabétique A → Z, Z → A ou par **Date** via les boutons dédiés dans la barre de contenu.
 - **Bouton Mise à jour** intégré directement dans l'interface (équivalent de `update.bat` / `update.sh`).
 - **Nettoyage des anciens fichiers** : suppression en un clic des fichiers de plus de 60 jours dans des dossiers cibles prédéfinis.
+-**Bloc note** : intégré dane le terminal via la commande /note. Enregistré automatiquement à la fermeture (bouton croix ou avec la touche Echap) dans un fichier .note.txt$
+-**Options** : intégré via la commande /option dans le terminal. Permet de voir (et modifier) le fichier CONSTANTS.py. 
 
 ### Augmentation IA (v2.0)
 - **Sélection SAM2** : découpe interactive par clics positifs / négatifs en complément de rembg — modèles S, B+ et L téléchargeables à la demande.
@@ -101,7 +112,11 @@ Sinon, ils s'arrêtent avec un message d'erreur explicite.
 ## 📋 Prérequis
 
 - **Python 3.8+** : [Télécharger Python](https://www.python.org/downloads/)
-- **ImageMagick** (optionnel mais recommandé pour la conversion d'images) :
+- **Ollama** *(installé automatiquement par `install.sh` / `install.bat`)* : [ollama.com](https://ollama.com/download)
+  - Moteur d'IA local — fait tourner les modèles de langage sur la machine.
+  - Modèles utilisés par défaut : `llama3.2:3b` (texte, ~2 GB) et `llava:7b` (vision, ~4 GB).
+  - Configurable dans `Data/CONSTANTS.py` (`AI_MODEL_TEXT` / `AI_MODEL_VISION`).
+- **ImageMagick** *(optionnel mais recommandé pour la conversion d'images)* :
   - **Windows** : [Télécharger ImageMagick](https://imagemagick.org/script/download.php#windows)
   - **macOS** : `brew install imagemagick`
   - **Linux** : `sudo apt install imagemagick` (Debian/Ubuntu) ou `sudo dnf install ImageMagick` (Fedora)
@@ -174,6 +189,7 @@ Dashboard-Image-Manipulation/
 
 ## 🎯 Fonctionnalités
 
+- **Assistant IA local** : conversation avec `/ai` dans la barre de commande, analyse d'images via Ollama (100 % local, aucune donnée envoyée sur Internet)
 - **Interface graphique moderne** avec Flet
 - **Navigation dans les dossiers** avec prévisualisation et **tri A-Z / Z-A / Date**
 - **Visionneuse plein écran** : affichage plein écran avec navigation clavier, sélection et suppression depuis la visionneuse

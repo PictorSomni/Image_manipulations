@@ -12,7 +12,7 @@ Remplace la version Qt6 originale (main.py) avec :
 Dépendances : flet, Pillow (PIL)
 """
 
-__version__ = "2.3.8"
+__version__ = "2.4.0"
 
 import flet as ft
 import os
@@ -1107,6 +1107,7 @@ def main(page: ft.Page) -> None:
             await page.window.close()
         except RuntimeError:
             pass
+        sys.exit(0)
 
     # ── Barre de titre personnalisée ──────────────────────────────────────
     top_bar = ft.Container(

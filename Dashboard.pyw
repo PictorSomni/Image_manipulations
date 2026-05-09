@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.3.8"
+__version__ = "2.4.0"
 
 
 
@@ -49,6 +49,9 @@ import asyncio
 import time
 import hashlib
 import tempfile
+import urllib.request
+import urllib.error
+import base64
 
 try:
     from PIL import Image as _PILImage
@@ -136,6 +139,17 @@ def main(page: ft.Page):
     page.window.height = CONSTANTS.WINDOW_HEIGHT
     page.window.maximized = CONSTANTS.MAXIMIZED
     page.window.icon = "assets/icon.png"
+
+    async def on_window_event(event):
+        if event.data == "close":
+            proc = ollama_process["proc"]
+            if proc is not None and proc.poll() is None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+
+    page.window.on_event = on_window_event
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
     app_directory = os.path.dirname(os.path.abspath(__file__))
@@ -248,6 +262,11 @@ def main(page: ft.Page):
     history_index = {"value": -1}  # -1 = nouvelle saisie en cours
     history_draft = {"value": ""}  # Saisie en cours avant navigation dans l'historique
     terminal_input_focused = {"value": False}
+    ai_mode            = {"value": False}
+    ai_conversation    = []              # Historique de conversation [{role, content}]
+    ai_streaming       = {"value": False}
+    ollama_process     = {"proc": None}  # Process ollama serve lancé par nous
+    ai_pending_images  = []              # Images jointes en attente [{path, b64}]
 
 
 
@@ -336,6 +355,82 @@ def main(page: ft.Page):
         visible=False,
     )
 
+
+
+    # ── Conversation IA ───────────────────────────────────────────────
+    ai_chat_view = ft.ListView(expand=True, spacing=4, auto_scroll=True)
+    ai_input_field = ft.TextField(
+        hint_text="Posez votre question… (Entrée pour envoyer)",
+        border_color=BLUE,
+        text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
+        dense=True,
+        expand=True,
+        color=WHITE,
+        bgcolor=DARK,
+        shift_enter=True,
+        on_submit=lambda e: _on_ai_submit(),
+    )
+    ai_model_label   = ft.Text(CONSTANTS.AI_MODEL_TEXT, color=LIGHT_GREY, size=11, italic=True)
+    ai_status_text   = ft.Text("", color=LIGHT_GREY, size=11, italic=True)
+    ai_stop_button   = ft.IconButton(
+        icon=ft.Icons.STOP_CIRCLE,
+        icon_color=LIGHT_GREY,
+        icon_size=16,
+        tooltip="Libérer le modèle (ollama stop)",
+        on_click=lambda e: _ai_stop_model(),
+        visible=False,
+    )
+    ai_attach_row    = ft.Row([], spacing=4, visible=False, wrap=True)
+    ai_send_button   = ft.IconButton(
+        icon=ft.Icons.SEND,
+        icon_color=BLUE,
+        icon_size=18,
+        tooltip="Envoyer",
+        on_click=lambda e: _on_ai_submit(),
+    )
+    ai_attach_button = ft.IconButton(
+        icon=ft.Icons.ATTACH_FILE,
+        icon_color=LIGHT_GREY,
+        icon_size=18,
+        tooltip="Joindre une image",
+        on_click=lambda e: page.run_task(_ai_pick_image),
+    )
+    ai_container = ft.Container(
+        content=ft.Column([
+            ft.Row([
+                ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=16),
+                ft.Text("Assistant IA", color=BLUE, size=12, weight=ft.FontWeight.BOLD),
+                ft.Container(expand=True),
+                ai_model_label,
+                ft.Container(width=6),
+                ai_status_text,
+                ai_stop_button,
+                ft.IconButton(
+                    icon=ft.Icons.DELETE_SWEEP,
+                    icon_color=LIGHT_GREY,
+                    icon_size=16,
+                    tooltip="Effacer la conversation",
+                    on_click=lambda e: _clear_ai_conversation(),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.CLOSE,
+                    icon_color=RED,
+                    icon_size=16,
+                    tooltip="Fermer (Échap)",
+                    on_click=lambda e: switch_to_terminal_mode(),
+                ),
+            ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ai_chat_view,
+            ai_attach_row,
+            ft.Row(
+                [ai_attach_button, ai_input_field, ai_send_button],
+                spacing=4,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+        ], spacing=4, expand=True),
+        expand=True,
+        visible=False,
+    )
 
 
     file_count_text = ft.Text("", size=14, color=WHITE, text_align=ft.TextAlign.RIGHT)
@@ -715,13 +810,13 @@ def main(page: ft.Page):
                 on_terminal_command_submit(e)
                 return
 
-        if e.key == "Escape" and note_mode["value"]:
+        if e.key == "Escape" and (note_mode["value"] or ai_mode["value"]):
             switch_to_terminal_mode()
             return
 
-        # Ne pas intercepter les raccourcis clavier si le bloc-notes est actif
+        # Ne pas intercepter les raccourcis clavier si le bloc-notes ou l'IA est actif
         # (laisser le TextField gérer ses propres Ctrl+A, Ctrl+C, etc.)
-        if note_mode["value"]:
+        if note_mode["value"] or ai_mode["value"]:
             return
 
         if ctrl_pressed:
@@ -768,14 +863,12 @@ def main(page: ft.Page):
             if len(terminal_output.controls) > 1000:
                 terminal_output.controls.pop(0)
             page.update()
-
-            async def _scroll_to_bottom():
+            async def _scroll_terminal():
                 try:
                     await terminal_output.scroll_to(offset=-1)
                 except Exception:
                     pass
-
-            page.run_task(_scroll_to_bottom)
+            page.run_task(_scroll_terminal)
         except Exception:
             pass
 
@@ -824,6 +917,7 @@ def main(page: ft.Page):
     # ── Bloc-notes : fonctions ──────────────────────────────────────────
     def save_notes():
         """Sauvegarde le contenu du bloc-notes dans le fichier cible."""
+        is_constants = (note_target_file["path"] == constants_file_path)
         try:
             with open(note_target_file["path"], "w", encoding="utf-8") as _f:
                 _f.write(notepad_field.value or "")
@@ -831,6 +925,21 @@ def main(page: ft.Page):
             log_to_terminal(f"[OK] {label} sauvegardé", GREEN)
         except Exception as _err:
             log_to_terminal(f"[ERREUR] Sauvegarde : {_err}", RED)
+            return
+        if is_constants:
+            log_to_terminal("[INFO] Redémarrage pour appliquer les nouvelles constantes…", ORANGE)
+            dashboard_path = os.path.abspath(__file__)
+            async def _restart_async():
+                import time as _time
+                _time.sleep(0.4)
+                subprocess.Popen([sys.executable, dashboard_path])
+                _time.sleep(0.2)
+                try:
+                    await page.window.close()
+                except Exception:
+                    pass
+                os._exit(0)
+            page.run_task(_restart_async)
 
     def load_notes():
         """Charge le contenu du bloc-notes depuis le fichier cible."""
@@ -881,16 +990,452 @@ def main(page: ft.Page):
         _open_notepad_ui("CONSTANTS.py", ft.Icons.TUNE, ORANGE, "Modifiez les constantes ici…")
         return
 
-    def switch_to_terminal_mode():
-        """Sauvegarde les notes et revient au terminal."""
-        save_notes()
-        note_mode["value"] = False
-        terminal_output.visible = True
-        terminal_cmd_row.visible = True
+    # ── Intelligence artificielle ──────────────────────────────────────
+    def switch_to_ai_mode():
+        """Bascule la zone bas en mode conversation IA."""
+        if note_mode["value"]:
+            save_notes()
+            note_mode["value"] = False
+        ai_mode["value"] = True
+        ai_model_label.value = (
+            f"{CONSTANTS.AI_MODEL_VISION}  🖼" if ai_pending_images else CONSTANTS.AI_MODEL_TEXT
+        )
+        terminal_output.visible  = False
+        terminal_cmd_row.visible = False
         notepad_container.visible = False
+        ai_container.visible     = True
         terminal_output.update()
         terminal_cmd_row.update()
         notepad_container.update()
+        ai_container.update()
+        ai_model_label.update()
+
+        # Pré-démarrer Ollama en silence pendant que l'utilisateur tape
+        def _silent_prestart():
+            try:
+                urllib.request.urlopen(f"{CONSTANTS.AI_OLLAMA_URL}/api/tags", timeout=3).close()
+            except Exception:
+                try:
+                    ollama_process["proc"] = subprocess.Popen(
+                        ["ollama", "serve"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                except Exception:
+                    pass
+        threading.Thread(target=_silent_prestart, daemon=True).start()
+
+        async def _focus_ai():
+            try:
+                await ai_input_field.focus()
+            except Exception:
+                pass
+        page.run_task(_focus_ai)
+
+    def _clear_ai_conversation():
+        """Efface l'historique de la conversation IA."""
+        ai_conversation.clear()
+        ai_chat_view.controls.clear()
+        ai_status_text.value = ""
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    def _ai_stop_model():
+        """Libère le modèle chargé en RAM via `ollama stop`."""
+        def _run_stop():
+            try:
+                subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_VISION], timeout=10)
+                subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_TEXT],   timeout=10)
+            except Exception:
+                pass
+            ai_stop_button.visible = False
+            ai_status_text.value = ""
+            try:
+                page.update()
+            except Exception:
+                pass
+        threading.Thread(target=_run_stop, daemon=True).start()
+
+    # ── Gestion des images jointes ────────────────────────────────────
+    def _ai_refresh_attach_row():
+        """Reconstruit la barre de pièces jointes visuellement."""
+        ai_attach_row.controls.clear()
+        for image_entry in ai_pending_images:
+            name = os.path.basename(image_entry["path"])
+            # Copie locale pour la lambda
+            entry_ref = image_entry
+            ai_attach_row.controls.append(
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.IMAGE, size=13, color=ORANGE),
+                        ft.Text(name, size=11, color=ORANGE),
+                        ft.IconButton(
+                            icon=ft.Icons.CLOSE,
+                            icon_color=RED,
+                            icon_size=12,
+                            tooltip="Retirer",
+                            style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                            on_click=lambda e, ref=entry_ref: _ai_remove_image(ref),
+                        ),
+                    ], spacing=2, tight=True),
+                    bgcolor=GREY,
+                    border_radius=4,
+                    padding=ft.Padding(4, 2, 4, 2),
+                )
+            )
+        ai_attach_row.visible = len(ai_pending_images) > 0
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    def _ai_attach_image(image_path):
+        """Encode une image en base64 (redimensionnée à 1024px max) et l'ajoute aux pièces jointes."""
+        # Vérifier si déjà jointe
+        if any(entry["path"] == image_path for entry in ai_pending_images):
+            return
+        try:
+            from PIL import Image as PilImage
+            import io as _io
+            with PilImage.open(image_path) as pil_img:
+                pil_img = pil_img.convert("RGB")
+                max_side = 1024
+                width, height = pil_img.size
+                if width > max_side or height > max_side:
+                    ratio = min(max_side / width, max_side / height)
+                    new_size = (int(width * ratio), int(height * ratio))
+                    pil_img = pil_img.resize(new_size, PilImage.LANCZOS)
+                buffer = _io.BytesIO()
+                pil_img.save(buffer, format="JPEG", quality=85)
+                b64_data = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        except Exception:
+            # Fallback : lecture brute si Pillow échoue
+            try:
+                with open(image_path, "rb") as image_file:
+                    b64_data = base64.b64encode(image_file.read()).decode("utf-8")
+            except Exception as exc:
+                _ai_add_bubble("assistant", f"[ERREUR] Impossible de lire l'image : {exc}")
+                return
+        ai_pending_images.append({"path": image_path, "b64": b64_data})
+        _ai_refresh_attach_row()
+        # Avertir si le modèle vision configuré ne supporte pas réellement la vision
+        vision_model = CONSTANTS.AI_MODEL_VISION
+        is_vision = any(
+            vision_model == entry[1] or vision_model.startswith(entry[1] + ":")
+            for entry in CONSTANTS.AI_AVAILABLE_MODELS
+            if entry[2]
+        )
+        if not is_vision:
+            _ai_add_bubble(
+                "assistant",
+                f"⚠️ Le modèle vision configuré ({vision_model}) n'est pas reconnu comme modèle vision.\n"
+                "Vérifiez AI_MODEL_VISION dans CONSTANTS.py.",
+            )
+
+    def _ai_remove_image(image_entry):
+        """Retire une image des pièces jointes en attente."""
+        if image_entry in ai_pending_images:
+            ai_pending_images.remove(image_entry)
+        _ai_refresh_attach_row()
+
+    async def _ai_pick_image():
+        """Ouvre un sélecteur de fichier pour choisir une image à joindre."""
+        result = await ft.FilePicker().pick_files(
+            dialog_title="Joindre une image",
+            allowed_extensions=["jpg", "jpeg", "png", "gif", "bmp", "webp"],
+            allow_multiple=True,
+        )
+        if result:
+            for picked_file in result:
+                if picked_file.path:
+                    _ai_attach_image(picked_file.path)
+
+    def ai_send_selected_images(e=None):
+        """Joint les fichiers image sélectionnés dans la preview à la conversation IA."""
+        image_exts = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
+        image_paths = [
+            file_path for file_path in selected_files
+            if os.path.splitext(file_path)[1].lower() in image_exts
+        ]
+        if not image_paths:
+            log_to_terminal("[IA] Aucune image sélectionnée dans la preview", LIGHT_GREY)
+            return
+        switch_to_ai_mode()
+        for image_path in image_paths:
+            _ai_attach_image(image_path)
+        log_to_terminal(f"[IA] {len(image_paths)} image(s) jointe(s)", BLUE)
+
+    def _ensure_ollama_ready(model_name=None):
+        """
+        Vérifie qu'Ollama est lancé et que le modèle est disponible.
+        Lance le serveur et/ou télécharge le modèle si nécessaire.
+        Retourne True si tout est prêt, False en cas d'erreur bloquante.
+        Doit être appelé depuis un thread secondaire (bloquant).
+        """
+        if model_name is None:
+            model_name = CONSTANTS.AI_MODEL_TEXT
+        def _is_ollama_up():
+            try:
+                with urllib.request.urlopen(
+                    f"{CONSTANTS.AI_OLLAMA_URL}/api/tags", timeout=3
+                ) as resp:
+                    return resp.status == 200
+            except Exception:
+                return False
+
+        # ── 1. Démarrer Ollama si nécessaire ──────────────────────────
+        if not _is_ollama_up():
+            _ai_add_bubble("assistant", "⚙️ Démarrage d'Ollama en arrière-plan…")
+            try:
+                ollama_process["proc"] = subprocess.Popen(
+                    ["ollama", "serve"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except FileNotFoundError:
+                _ai_add_bubble(
+                    "assistant",
+                    "[ERREUR] Ollama n'est pas installé sur cette machine.\n"
+                    "Téléchargez-le sur https://ollama.com",
+                )
+                return False
+            # Attendre jusqu'à 20 s que le serveur réponde
+            for _ in range(40):
+                time.sleep(0.5)
+                if _is_ollama_up():
+                    break
+            else:
+                _ai_add_bubble(
+                    "assistant",
+                    "[ERREUR] Ollama n'a pas démarré dans les délais impartis.",
+                )
+                return False
+
+        # ── 2. Vérifier si le modèle est présent ──────────────────────
+        try:
+            with urllib.request.urlopen(
+                f"{CONSTANTS.AI_OLLAMA_URL}/api/tags", timeout=5
+            ) as resp:
+                available_names = [
+                    model.get("name", "")
+                    for model in json.loads(resp.read().decode("utf-8")).get("models", [])
+                ]
+            model_present = any(
+                name == model_name or name.startswith(model_name + ":")
+                for name in available_names
+            )
+        except Exception:
+            model_present = False
+
+        if not model_present:
+            pull_status_ctrl = _ai_add_bubble(
+                "assistant",
+                f"⬇️ Téléchargement de {model_name}…\n"
+                "(première utilisation — peut prendre quelques minutes)",
+            )
+            try:
+                pull_payload = json.dumps(
+                    {"name": model_name, "stream": True}
+                ).encode("utf-8")
+                pull_request = urllib.request.Request(
+                    f"{CONSTANTS.AI_OLLAMA_URL}/api/pull",
+                    data=pull_payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(pull_request, timeout=3600) as pull_resp:
+                    for raw_line in pull_resp:
+                        chunk = json.loads(raw_line.decode("utf-8"))
+                        status = chunk.get("status", "")
+                        completed = chunk.get("completed", 0)
+                        total = chunk.get("total", 0)
+                        if total:
+                            pct = int(completed / total * 100)
+                            pull_status_ctrl.value = (
+                                f"⬇️ {model_name} — {status} {pct}%"
+                            )
+                        elif status:
+                            pull_status_ctrl.value = (
+                                f"⬇️ {model_name} — {status}"
+                            )
+                        try:
+                            page.update()
+                        except Exception:
+                            pass
+                pull_status_ctrl.value = f"✅ {model_name} téléchargé et prêt !"
+                try:
+                    page.update()
+                except Exception:
+                    pass
+            except Exception as exc:
+                _ai_add_bubble("assistant", f"[ERREUR] Téléchargement du modèle : {exc}")
+                return False
+
+        return True
+
+    def _ai_add_bubble(role, text):
+        """Ajoute un message dans le panneau IA et retourne le contrôle Text (pour le streaming)."""
+        is_user = role == "user"
+        bubble_text = ft.Text(
+            text,
+            size=CONSTANTS.TERMINAL_FONT_SIZE,
+            color=BLUE if is_user else GREEN,
+            font_family="monospace",
+            selectable=True,
+            no_wrap=False,
+        )
+        bubble = ft.Container(
+            content=bubble_text,
+            bgcolor=DARK if is_user else GREY,
+            border_radius=6,
+            padding=ft.Padding(8, 4, 8, 4),
+            expand=True,
+        )
+        row = ft.Row(
+            [bubble],
+            alignment=ft.MainAxisAlignment.END if is_user else ft.MainAxisAlignment.START,
+        )
+        ai_chat_view.controls.append(row)
+        page.update()
+        async def _scroll_chat():
+            try:
+                await ai_chat_view.scroll_to(offset=-1)
+            except Exception:
+                pass
+        page.run_task(_scroll_chat)
+        return bubble_text
+
+    def _send_ai_message(message_text):
+        """Envoie un message à Ollama et streame la réponse dans le panneau IA."""
+        if ai_streaming["value"]:
+            return
+        if not message_text.strip():
+            return
+        ai_streaming["value"] = True
+        ai_stop_button.visible = True
+        ai_status_text.value = "⏳ En cours…"
+        try:
+            ai_status_text.update()
+        except Exception:
+            pass
+
+        # Capturer et vider les images jointes avant le thread
+        images_b64 = [entry["b64"] for entry in ai_pending_images]
+        ai_pending_images.clear()
+        _ai_refresh_attach_row()
+
+        # Choisir le modèle selon la présence d'images
+        active_model = CONSTANTS.AI_MODEL_VISION if images_b64 else CONSTANTS.AI_MODEL_TEXT
+        ai_model_label.value = f"{active_model}  {'🖼' if images_b64 else '💬'}"
+        try:
+            ai_model_label.update()
+        except Exception:
+            pass
+
+        # Construire l'entrée utilisateur (avec images si présent)
+        user_message = {"role": "user", "content": message_text}
+        if images_b64:
+            user_message["images"] = images_b64
+        ai_conversation.append(user_message)
+
+        # Afficher la bulle utilisateur avec indicateur image
+        display_text = message_text
+        if images_b64:
+            display_text = f"🖼️ ({len(images_b64)} image(s))  {message_text}" if message_text else f"🖼️ {len(images_b64)} image(s) jointe(s)"
+        _ai_add_bubble("user", display_text)
+
+        def _run():
+            full_response = ""
+            response_text_ctrl = None
+            try:
+                # S'assurer qu'Ollama est prêt (serveur + modèle)
+                if not _ensure_ollama_ready(active_model):
+                    return
+
+                payload = json.dumps({
+                    "model": active_model,
+                    "messages": [
+                        {"role": "system", "content": CONSTANTS.AI_SYSTEM_PROMPT},
+                        *ai_conversation,
+                    ],
+                    "stream": True,
+                    "options": {"temperature": CONSTANTS.AI_TEMPERATURE},
+                }).encode("utf-8")
+                request = urllib.request.Request(
+                    f"{CONSTANTS.AI_OLLAMA_URL}/api/chat",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(request, timeout=300) as response:
+                    for raw_line in response:
+                        chunk = json.loads(raw_line.decode("utf-8"))
+                        token = chunk.get("message", {}).get("content", "")
+                        if token:
+                            full_response += token
+                            if response_text_ctrl is None:
+                                response_text_ctrl = _ai_add_bubble("assistant", token)
+                            else:
+                                response_text_ctrl.value = full_response
+                                page.update()
+                                async def _scroll_chat_stream():
+                                    try:
+                                        await ai_chat_view.scroll_to(offset=-1)
+                                    except Exception:
+                                        pass
+                                page.run_task(_scroll_chat_stream)
+                        if chunk.get("done"):
+                            break
+                if full_response:
+                    ai_conversation.append({"role": "assistant", "content": full_response})
+                else:
+                    _ai_add_bubble("assistant", "[Aucune réponse reçue]")
+            except Exception as exc:
+                _ai_add_bubble("assistant", f"[ERREUR] {exc}")
+            finally:
+                ai_streaming["value"] = False
+                ai_stop_button.visible = False
+                ai_status_text.value = ""
+                try:
+                    page.update()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_ai_submit():
+        """Récupère le texte saisi, vide le champ et envoie le message à l'IA."""
+        message_text = ai_input_field.value.strip()
+        # Autoriser l'envoi sans texte si des images sont jointes
+        if not message_text and not ai_pending_images:
+            return
+        ai_input_field.value = ""
+        ai_input_field.update()
+
+        async def _refocus_ai():
+            try:
+                await ai_input_field.focus()
+            except Exception:
+                pass
+        page.run_task(_refocus_ai)
+        _send_ai_message(message_text)
+
+    def switch_to_terminal_mode():
+        """Sauvegarde les notes/quitte l'IA et revient au terminal."""
+        if note_mode["value"]:
+            save_notes()
+        note_mode["value"] = False
+        ai_mode["value"]   = False
+        terminal_output.visible   = True
+        terminal_cmd_row.visible  = True
+        notepad_container.visible = False
+        ai_container.visible      = False
+        terminal_output.update()
+        terminal_cmd_row.update()
+        notepad_container.update()
+        ai_container.update()
 
         async def _focus_term():
             try:
@@ -918,6 +1463,12 @@ def main(page: ft.Page):
             terminal_cmd_input.value = ""
             terminal_cmd_input.update()
             switch_to_options()
+            return
+
+        if command_text.lower() == "/ai":
+            terminal_cmd_input.value = ""
+            terminal_cmd_input.update()
+            switch_to_ai_mode()
             return
 
         if not command_history or command_history[0] != command_text:
@@ -1428,6 +1979,12 @@ def main(page: ft.Page):
         # ── Assemblage du contenu ─────────────────────────────────────────
         content_rows = []
         if has_images:
+            def _send_images_to_ai(e=None):
+                _close()
+                for image_path in image_files:
+                    _ai_attach_image(image_path)
+                switch_to_ai_mode()
+
             content_rows.append(
                 ft.Row([
                     ft.Container(expand=True),
@@ -1443,6 +2000,19 @@ def main(page: ft.Page):
                     ),
                     ft.Container(expand=True),
                 ], spacing=0, tight=True)
+            )
+            content_rows.append(
+                ft.TextButton(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.SMART_TOY, size=16, color=BLUE),
+                        ft.Text(
+                            f"Envoyer à l'IA ({len(image_files)} image{'s' if len(image_files) > 1 else ''})",
+                            size=13, color=BLUE,
+                        ),
+                    ], spacing=6, tight=True),
+                    on_click=_send_images_to_ai,
+                    style=ft.ButtonStyle(padding=ft.Padding(8, 4, 8, 4)),
+                )
             )
             content_rows.append(ft.Divider(height=8, color=GREY))
         content_rows.append(programs_list_view)
@@ -4093,6 +4663,12 @@ def main(page: ft.Page):
                 "Copier NEFs → SELECTION",
                 lambda e: launch_app("Copier NEFs sélection.py", copier_nefs_path, False),
             ),
+            # _round_button(
+            #     ft.Icons.SMART_TOY,
+            #     BLUE,
+            #     "Envoyer à l'IA",
+            #     ai_send_selected_images,
+            # ),
         ]
 
 
@@ -4265,20 +4841,80 @@ def main(page: ft.Page):
                         else:
                             log_to_terminal(f"pip a terminé avec le code {pip_install_process.returncode}.", YELLOW)
 
+                # ── Mise à jour d'Ollama ──────────────────────────────────
+                log_to_terminal("🤖 Mise à jour d'Ollama...", YELLOW)
+                try:
+                    ollama_check = subprocess.run(
+                        ["ollama", "--version"],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    if ollama_check.returncode == 0:
+                        log_to_terminal(f"[OK] Ollama détecté : {ollama_check.stdout.strip()}", GREEN)
+                        tags_resp = subprocess.run(
+                            ["ollama", "list"],
+                            capture_output=True, text=True, timeout=10,
+                        )
+                        if tags_resp.returncode == 0:
+                            for model_line in tags_resp.stdout.splitlines()[1:]:
+                                model_tag = model_line.split()[0] if model_line.split() else ""
+                                if model_tag:
+                                    log_to_terminal(f"  ⬇️ ollama pull {model_tag}", LIGHT_GREY)
+                                    pull_proc = subprocess.Popen(
+                                        ["ollama", "pull", model_tag],
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT,
+                                        text=True, encoding="utf-8", errors="replace",
+                                    )
+                                    for pull_line in pull_proc.stdout:
+                                        pull_line = pull_line.rstrip()
+                                        if pull_line:
+                                            log_to_terminal(f"    {pull_line}", LIGHT_GREY)
+                                    pull_proc.wait()
+                            log_to_terminal("[OK] Modèles Ollama à jour.", GREEN)
+                    else:
+                        log_to_terminal("[AVERTISSEMENT] Ollama non détecté, ignoré.", YELLOW)
+                except FileNotFoundError:
+                    log_to_terminal("Ollama non trouvé, tentative d'installation...", YELLOW)
+                    try:
+                        if sys.platform == "win32":
+                            install_script = (
+                                "Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' "
+                                "-OutFile '$env:TEMP\\OllamaSetup.exe'; "
+                                "Start-Process '$env:TEMP\\OllamaSetup.exe' -Wait"
+                            )
+                            subprocess.run(
+                                ["powershell", "-Command", install_script],
+                                timeout=300,
+                            )
+                        else:
+                            subprocess.run(
+                                ["sh", "-c", "curl -fsSL https://ollama.com/install.sh | sh"],
+                                timeout=300,
+                            )
+                        subprocess.run(["ollama", "pull", CONSTANTS.AI_MODEL_TEXT], timeout=3600)
+                        log_to_terminal("[OK] Ollama installé.", GREEN)
+                    except Exception as install_exc:
+                        log_to_terminal(f"[AVERTISSEMENT] Impossible d'installer Ollama : {install_exc}", YELLOW)
+                        log_to_terminal("[INFO] Installez-le manuellement : https://ollama.com/download", LIGHT_GREY)
+                except Exception as ollama_exc:
+                    log_to_terminal(f"[AVERTISSEMENT] Ollama : {ollama_exc}", YELLOW)
+
 
 
                 # ── Redémarrage automatique ───────────────────────────────
                 log_to_terminal("🔄 Redémarrage du Dashboard…", BLUE)
-                script = os.path.abspath(__file__)
-                subprocess.Popen(
-                    [
-                        sys.executable, "-c",
-                        f"import time, subprocess, sys; time.sleep(2); "
-                        f"subprocess.Popen([sys.executable, r'{script}'])",
-                    ],
-                    close_fds=True,
-                )
-                request_quit()
+                dashboard_path = os.path.abspath(__file__)
+                async def _restart_after_update():
+                    import time as _time
+                    _time.sleep(0.4)
+                    subprocess.Popen([sys.executable, dashboard_path])
+                    _time.sleep(0.2)
+                    try:
+                        await page.window.close()
+                    except Exception:
+                        pass
+                    os._exit(0)
+                page.run_task(_restart_after_update)
 
             except Exception as exc:
                 _restore_user_data_files()
@@ -4347,6 +4983,7 @@ def main(page: ft.Page):
                 content=ft.Row([
                     ft.Column([
                         notepad_container,
+                        ai_container,
                         terminal_output,
                         terminal_cmd_row,
                     ], spacing=4, expand=True),

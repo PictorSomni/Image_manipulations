@@ -57,6 +57,29 @@ echo Installation des dependances Python...
 pip install -r requirements.txt --upgrade
 
 echo.
+echo Verification d'Ollama (IA locale)...
+ollama --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [INFO] Ollama n'est pas installe. Installation en cours...
+    powershell -Command "Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile '%TEMP%\OllamaSetup.exe'; Start-Process '%TEMP%\OllamaSetup.exe' -Wait"
+    ollama --version >nul 2>&1
+    if %errorlevel% neq 0 (
+        echo [AVERTISSEMENT] Impossible d'installer Ollama automatiquement.
+        echo [INFO] Installez-le manuellement depuis https://ollama.com/download
+    ) else (
+        echo [OK] Ollama installe.
+        echo [INFO] Telechargement du modele texte par defaut ^(llama3.2:3b^)...
+        ollama pull llama3.2:3b
+        echo [OK] Modele pret.
+    )
+) else (
+    echo [OK] Ollama detecte.
+    echo [INFO] Telechargement du modele texte par defaut ^(llama3.2:3b^)...
+    ollama pull llama3.2:3b
+    echo [OK] Modele pret.
+)
+
+echo.
 echo ======================================
 echo Installation terminee !
 echo ======================================

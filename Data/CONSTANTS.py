@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ────────────────────────────────────────────────────────────────
-__version__ = "2.3.8"
+__version__ = "2.4.0"
 
 
 # ─── Palette de couleurs ─────────────────────────────────────────────────────
@@ -59,12 +59,12 @@ FORMATS = { # (largeur_mm, hauteur_mm) - en portrait
 
 
 # ─── Interface (Dashboard) ──────────────────────────────────────────────────
-WINDOW_WIDTH          = 1280
-WINDOW_HEIGHT         = 900
-MAXIMIZED             = True 
-TERMINAL_FONT_SIZE    = 13   # Taille du texte dans le terminal, le bloc-notes et les options
-TERMINAL_HEIGHT       = 170  # Hauteur par défaut du panneau terminal (px)
-TERMINAL_HEIGHT_MAX   = 640  # Hauteur du panneau terminal en mode agrandir (px)
+WINDOW_WIDTH                = 1280
+WINDOW_HEIGHT               = 920
+MAXIMIZED                         =  True 
+TERMINAL_FONT_SIZE       = 13   # Taille du texte dans le terminal, le bloc-notes et les options
+TERMINAL_HEIGHT            = 170  # Hauteur par défaut du panneau terminal (px)
+TERMINAL_HEIGHT_MAX   = 500  # Hauteur du panneau terminal en mode agrandir (px)
 
 
 # ─── Redimensionnement ───────────────────────────────────────────────────────
@@ -141,6 +141,51 @@ else:
         "/Volumes/TRAVAUX EN COURS/Z2026/TEMP",
     ]
 del _platform
+
+
+# ─── Intelligence artificielle (Ollama) ──────────────────────────────────────
+# L'IA locale utilise Ollama (https://ollama.com).
+# Installez Ollama puis téléchargez un modèle : ollama pull llama3.2:3b
+#
+# Recommandations par niveau de machine :
+#   Très petite (2-4 GB RAM)  : gemma2:2b (~1.6 GB)  ou  qwen2.5:0.5b (~400 MB)
+#   Petite      (4-8 GB RAM)  : phi3:mini (~2.3 GB)  ou  llama3.2:3b (~2 GB)
+#   Moyenne     (8-16 GB RAM) : mistral:7b (~4.1 GB) ou  qwen2.5:7b (~4.4 GB)
+#   Bonne       (16 GB+ RAM)  : llama3.1:8b (~4.7 GB) ou deepseek-r1:8b (~4.9 GB)
+
+AI_OLLAMA_URL   = "http://localhost:11434"   # URL de l'API Ollama locale
+AI_MODEL_TEXT   = "llama3.2:3b"             # Modèle texte pur  (~2 GB)
+AI_MODEL_VISION = "llava:7b"              # Modèle vision     (~4.1 GB)
+AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
+AI_SYSTEM_PROMPT = (
+    "Tu es un assistant intégré dans un logiciel de gestion et retouche d'images photographiques. "
+    "Tu réponds en français, de façon concise et pratique."
+)
+
+# Modèles disponibles – (label affiché, nom Ollama, supporte_vision)
+# Modifiez AI_MODEL ci-dessus selon la config de la machine.
+AI_AVAILABLE_MODELS = [
+    # ── Gemma 4 — texte + vision natif (Google, 2025) ──────────────────
+    ("Gemma 4 E4B  (recommandé, ~9.6 GB) 🖼",            "gemma4:e4b",          True),
+    ("Gemma 4 E2B  (légère, ~7.2 GB) 🖼",                "gemma4:e2b",          True),
+    ("Gemma 4 · 26B MoE  (~18 GB) 🖼",                   "gemma4:26b",          True),
+    # ── Vision uniquement ──────────────────────────────────────────────
+    ("LLaVA-Phi3 · 3.8B  (~2.9 GB) 🖼",                  "llava-phi3",          True),
+    ("LLaVA · 7B  (~4.1 GB) 🖼",                         "llava:7b",            True),
+    ("Llama 3.2 Vision · 11B  (~8 GB) 🖼",               "llama3.2-vision:11b", True),
+    ("Moondream 2  (légère, ~1.8 GB) 🖼",                 "moondream2",          True),
+    # ── Texte uniquement ───────────────────────────────────────────────
+    ("Llama 3.1 · 8B  (~4.7 GB)",                        "llama3.1:8b",         False),
+    ("Llama 3.2 · 3B  (~2 GB)",                          "llama3.2:3b",         False),
+    ("Mistral 7B  (~4.1 GB)",                            "mistral:7b",          False),
+    ("Phi-3 Mini · 3.8B  (~2.3 GB)",                     "phi3:mini",           False),
+    ("Qwen 2.5 · 7B  (~4.4 GB)",                         "qwen2.5:7b",          False),
+    ("Gemma 2 · 2B  (~1.6 GB)",                          "gemma2:2b",           False),
+    ("Qwen 2.5 · 0.5B  (très légère, ~400 MB)",          "qwen2.5:0.5b",        False),
+]
+
+# Ensemble des noms de modèles supportant la vision (pour vérification rapide)
+AI_VISION_MODELS = {entry[1] for entry in AI_AVAILABLE_MODELS if entry[2]}
 
 
 
