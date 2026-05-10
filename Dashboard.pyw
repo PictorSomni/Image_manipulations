@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 
 
@@ -52,11 +52,74 @@ import tempfile
 import urllib.request
 import urllib.error
 import base64
+import html.parser
 
 try:
     from PIL import Image as _PILImage
 except ImportError:
     _PILImage = None
+
+
+# ── Récupération de contenu web pour l'IA ──────────────────────────────────────
+
+class _HTMLTextExtractor(html.parser.HTMLParser):
+    """Extrait le texte brut d'un document HTML en ignorant les balises."""
+    _SKIP_TAGS = {"script", "style", "noscript", "head"}
+
+    def __init__(self):
+        super().__init__()
+        self._skip_depth = 0
+        self._parts = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self._SKIP_TAGS:
+            self._skip_depth += 1
+
+    def handle_endtag(self, tag):
+        if tag in self._SKIP_TAGS and self._skip_depth > 0:
+            self._skip_depth -= 1
+
+    def handle_data(self, data):
+        if self._skip_depth == 0:
+            stripped = data.strip()
+            if stripped:
+                self._parts.append(stripped)
+
+    def get_text(self):
+        return "\n".join(self._parts)
+
+
+def _fetch_url_content(url, max_chars=12_000):
+    """
+    Récupère le contenu textuel d'une URL HTTP(S).
+
+    Retourne une chaîne tronquée à ``max_chars`` caractères,
+    ou un message d'erreur si la récupération échoue.
+    """
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; ImageManipBot/1.0)"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as response:
+            content_type = response.headers.get("Content-Type", "")
+            charset = "utf-8"
+            if "charset=" in content_type:
+                charset = content_type.split("charset=")[-1].split(";")[0].strip()
+            raw_bytes = response.read()
+        raw_text = raw_bytes.decode(charset, errors="replace")
+        if "</" in raw_text or "<br" in raw_text.lower():
+            extractor = _HTMLTextExtractor()
+            extractor.feed(raw_text)
+            plain_text = extractor.get_text()
+        else:
+            plain_text = raw_text
+        plain_text = re.sub(r"\n{3,}", "\n\n", plain_text).strip()
+        if len(plain_text) > max_chars:
+            plain_text = plain_text[:max_chars] + f"\n\n[… contenu tronqué à {max_chars} caractères]"
+        return plain_text
+    except Exception as fetch_error:
+        return f"[Impossible de récupérer l'URL : {fetch_error}]"
 
 
 
@@ -831,12 +894,7 @@ def main(page: ft.Page):
             elif e.key == "R":
                 refresh_preview(force_reload=True)
             elif e.key == "T":
-                async def _focus_terminal_input():
-                    try:
-                        await terminal_cmd_input.focus()
-                    except Exception:
-                        pass
-                page.run_task(_focus_terminal_input)
+                toggle_terminal_overlay()
             elif e.key == "V":
                 paste_files(None)
             elif e.key == "X":
@@ -1334,8 +1392,19 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+        # Détecter les URLs dans le message et injecter leur contenu
+        url_pattern = re.compile(r'https?://[^\s<>"\)\]]+', re.IGNORECASE)
+        found_urls = url_pattern.findall(message_text)
+        enriched_text = message_text
+        if found_urls:
+            url_blocks = []
+            for url in found_urls:
+                page_content = _fetch_url_content(url)
+                url_blocks.append(f"--- Contenu de {url} ---\n{page_content}\n--- Fin ---")
+            enriched_text = message_text + "\n\n" + "\n\n".join(url_blocks)
+
         # Construire l'entrée utilisateur (avec images si présent)
-        user_message = {"role": "user", "content": message_text}
+        user_message = {"role": "user", "content": enriched_text}
         if images_b64:
             user_message["images"] = images_b64
         ai_conversation.append(user_message)
@@ -4703,19 +4772,6 @@ def main(page: ft.Page):
 
 
 
-    def minimize_window(e):
-        """Réduit la fenêtre dans la barre des tâches."""
-        page.window.minimized = True
-
-
-
-    def toggle_maximize_window(e):
-        """Bascule entre fenêtre maximisée et taille normale."""
-        page.window.maximized = not page.window.maximized
-        page.update()
-
-
-
     def update_app(e):
         """Sauvegarde les fichiers utilisateur, git pull --rebase, vérifie les dépendances si requirements a changé, relance."""
         log_to_terminal("Mise à jour en cours…", YELLOW)
@@ -4966,19 +5022,17 @@ def main(page: ft.Page):
     threading.Thread(target=_poll_removable_drives, daemon=True).start()
 
 
-    # ── Panneau bas : état agrandir/réduire ──────────────────────────
-    _bottom_panel_state = {"expanded": False}
-
-    _expand_btn = ft.IconButton(
+    # ── Terminal : panneau bas avec hauteur variable ──────────────────
+    _expand_terminal_btn = ft.IconButton(
         icon=ft.Icons.EXPAND_LESS,
-        tooltip="Agrandir",
+        tooltip="Agrandir  (Ctrl+T)",
         icon_color=LIGHT_GREY,
         icon_size=16,
     )
+    _terminal_expanded = {"value": False}
 
     bottom_panel_container = ft.Container(
         content=ft.Row([
-            # ── Terminal (gauche) ────────────────────────────
             ft.Container(
                 content=ft.Row([
                     ft.Column([
@@ -4988,7 +5042,7 @@ def main(page: ft.Page):
                         terminal_cmd_row,
                     ], spacing=4, expand=True),
                     ft.Column([
-                        _expand_btn,
+                        _expand_terminal_btn,
                         ft.IconButton(
                             icon=ft.Icons.COPY_ALL,
                             tooltip="Copier le terminal",
@@ -5018,24 +5072,26 @@ def main(page: ft.Page):
                 bgcolor=DARK,
                 padding=5,
             ),
-            # ── Favoris & Périphériques (droite) ─────────────
             ft.Row([
                 favorites_panel,
                 drives_panel,
             ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
         ], spacing=8, expand=True),
         height=CONSTANTS.TERMINAL_HEIGHT,
+        bottom=0,
+        left=0,
+        right=0,
     )
 
-    def toggle_bottom_panel():
-        _bottom_panel_state["expanded"] = not _bottom_panel_state["expanded"]
-        expanded = _bottom_panel_state["expanded"]
-        bottom_panel_container.height = CONSTANTS.TERMINAL_HEIGHT_MAX if expanded else CONSTANTS.TERMINAL_HEIGHT
-        _expand_btn.icon    = ft.Icons.EXPAND_MORE if expanded else ft.Icons.EXPAND_LESS
-        _expand_btn.tooltip = "Réduire" if expanded else "Agrandir"
+    def toggle_terminal_overlay():
+        _terminal_expanded["value"] = not _terminal_expanded["value"]
+        expanded = _terminal_expanded["value"]
+        bottom_panel_container.height = CONSTANTS.TERMINAL_OVERLAY_HEIGHT if expanded else CONSTANTS.TERMINAL_HEIGHT
+        _expand_terminal_btn.icon    = ft.Icons.EXPAND_MORE if expanded else ft.Icons.EXPAND_LESS
+        _expand_terminal_btn.tooltip = "Réduire  (Ctrl+T)"  if expanded else "Agrandir  (Ctrl+T)"
         page.update()
 
-    _expand_btn.on_click = lambda e: toggle_bottom_panel()
+    _expand_terminal_btn.on_click = lambda e: toggle_terminal_overlay()
 
 
 # ===================== INTERFACE FLET ===================== #
@@ -5091,16 +5147,17 @@ def main(page: ft.Page):
                 ),
                 ft.Container(expand=True),
                 ft.IconButton(
-                    icon=ft.Icons.MINIMIZE, on_click=minimize_window,),
+                    icon=ft.Icons.MINIMIZE, on_click=lambda e: setattr(page.window, 'minimized', True),),
                 ft.IconButton(
                     icon=ft.Icons.FULLSCREEN,
-                    on_click=toggle_maximize_window,
+                    on_click=lambda e: (setattr(page.window, 'maximized', not page.window.maximized), page.update()),
                     tooltip="Maximiser / Restaurer",
                 ),
                 ft.IconButton(ft.Icons.CLOSE, on_click=close_window),
             ])
         ),
-        ft.Column([
+        ft.Stack([
+            ft.Column([
             ft.Divider(),
             ft.Row([
                 ft.Column([
@@ -5146,7 +5203,7 @@ def main(page: ft.Page):
                             border=ft.Border.all(1, GREY),
                             border_radius=8,
                             bgcolor=DARK,
-                            padding=8,
+                            padding=ft.Padding(8, 8, 8, 8),
                         ),
                         ft.Container(
                             content=ft.ListView(
@@ -5242,8 +5299,10 @@ def main(page: ft.Page):
                     )
                 ], expand=9)
             ], expand=True, spacing=8),
-            bottom_panel_container,
-        ], expand=True, spacing=8)
+            ft.Container(height=CONSTANTS.TERMINAL_HEIGHT + CONSTANTS.TERMINAL_BOTTOM_GAP),
+        ], expand=True, spacing=8),
+        bottom_panel_container,
+        ], expand=True),
     )
 
 

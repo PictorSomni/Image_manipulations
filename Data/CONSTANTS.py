@@ -8,11 +8,11 @@ toucher aux scripts eux-mêmes.
 """
 
 
-# ─── Version ────────────────────────────────────────────────────────────────
-__version__ = "2.4.0"
+# ─── Version ───────────────────────────────────────────────────────
+__version__ = "2.4.1"
 
 
-# ─── Palette de couleurs ─────────────────────────────────────────────────────
+# ─── Palette de couleurs ───────────────────────────────────────────────────────────────
 # Utilisée dans le terminal intégré et les éléments de l'interface Dashboard.
 COLOR_DARK         = "#222429"
 COLOR_BACKGROUND   = "#373d4a"
@@ -28,11 +28,11 @@ COLOR_RED          = "#F17171"
 COLOR_WHITE        = "#c7ccd8"
 
 
-# ─── Résolution d'impression ──────────────────────────────────────────────────
+# ─── Résolution d'impression ───────────────────────────────────────────────────────────────
 DPI = 300   # Points par pouce (ne pas modifier sauf matériel spécifique)
 
 
-# ─── Formats d'impression ────────────────────────────────────────────────────
+# ─── Formats d'impression ───────────────────────────────────────────────────────────────
 FORMATS = { # (largeur_mm, hauteur_mm) - en portrait
     "ID": (36, 46),
     "9x13": (89, 127),
@@ -58,22 +58,23 @@ FORMATS = { # (largeur_mm, hauteur_mm) - en portrait
 }
 
 
-# ─── Interface (Dashboard) ──────────────────────────────────────────────────
+# ─── Interface (Dashboard) ───────────────────────────────────────────────────────────────
 WINDOW_WIDTH                = 1280
-WINDOW_HEIGHT               = 920
-MAXIMIZED                         =  True 
+WINDOW_HEIGHT               = 940
+MAXIMIZED                         =  False 
 TERMINAL_FONT_SIZE       = 13   # Taille du texte dans le terminal, le bloc-notes et les options
-TERMINAL_HEIGHT            = 170  # Hauteur par défaut du panneau terminal (px)
-TERMINAL_HEIGHT_MAX   = 500  # Hauteur du panneau terminal en mode agrandir (px)
+TERMINAL_HEIGHT          = 170  # Hauteur du panneau terminal compact (px) - toujours visible
+TERMINAL_OVERLAY_HEIGHT  = 640  # Hauteur de l'overlay terminal agrandi (px)
+TERMINAL_BOTTOM_GAP      =   5  # Marge visible entre le bas des listes et l'overlay (px)
 
 
-# ─── Redimensionnement ───────────────────────────────────────────────────────
+# ─── Redimensionnement ───────────────────────────────────────────────────────────────
 RESIZE_DEFAULT = 512   # Dimension max par défaut - y compris pour remerciements
 RESIZE_QUALITY = 80    # Qualité JPEG des miniatures (0-100)
 WATERMARK_ALPHA   = 0.35   # Opacité du filigrane (0.0 = invisible, 1.0 = opaque)
 
 
-# ─── Remerciements ───────────────────────────────────────────────────────────
+# ─── Remerciements ───────────────────────────────────────────────────────────────
 # Paramètres du script Remerciements.py (tirage 2-en-1 client).
 REMERCIEMENTS_WIDTH   = 76    # Largeur individuelle en mm (doublée en 2-en-1)
 REMERCIEMENTS_HEIGHT  = 102   # Hauteur individuelle en mm
@@ -81,7 +82,7 @@ REMERCIEMENTS_QUALITY = 75    # Qualité JPEG remerciements
 REMERCIEMENTS_ALPHA   = 0.42  # Opacité filigrane remerciements
 
 
-# ─── Formats 2-en-1 ──────────────────────────────────────────────────────────
+# ─── Formats 2-en-1 ───────────────────────────────────────────────────────────────
 # Liste ordonnée affichée dans le dialogue Dashboard (premier = valeur par défaut).
 # Chaque entrée : (label affiché, "largeurxhauteur" en mm)
 TWO_IN_ONE_FORMATS = [
@@ -93,7 +94,7 @@ TWO_IN_ONE_FORMATS = [
 ]
 
 
-# ─── Formats Fit 203 ─────────────────────────────────────────────────────────
+# ─── Formats Fit 203 ───────────────────────────────────────────────────────────────
 # Liste ordonnée affichée dans le dialogue Dashboard (premier = valeur par défaut).
 # Chaque entrée : (label affiché, "largeurxhauteur" en mm, "largeurxhauteur" du canvas en mm)
 FIT_203_FORMATS = [
@@ -102,18 +103,18 @@ FIT_203_FORMATS = [
 ]
 
 
-# ─── Dossier TEMP ────────────────────────────────────────────────────────────
+# ─── Dossier TEMP ───────────────────────────────────────────────────────────────
 # Destination par défaut pour le transfert de fichiers (Transfert vers TEMP.py).
 # Peut être surchargé via la variable d'environnement DEST_FOLDER.
 TEMP_FOLDER = "Z:/temp"
 
 
-# ─── Nettoyage automatique ───────────────────────────────────────────────────
+# ─── Nettoyage automatique ───────────────────────────────────────────────────────────────
 # Utilisée par Nettoyer anciens fichiers.py.
 CLEAN_DAYS = 60   # Fichiers plus vieux que N jours sont supprimés
 
 
-# ─── Chemins réseau kiosks ───────────────────────────────────────────────────
+# ─── Chemins réseau kiosks ───────────────────────────────────────────────────────────────
 # Utilisés par Kiosk gauche.py, Kiosk droite.py et Nettoyer anciens fichiers.py.
 import platform as _platform
 if _platform.system() == "Windows":
@@ -143,7 +144,7 @@ else:
 del _platform
 
 
-# ─── Intelligence artificielle (Ollama) ──────────────────────────────────────
+# ─── Intelligence artificielle (Ollama) ───────────────────────────────────────────
 # L'IA locale utilise Ollama (https://ollama.com).
 # Installez Ollama puis téléchargez un modèle : ollama pull llama3.2:3b
 #
@@ -159,22 +160,23 @@ AI_MODEL_VISION = "llava:7b"              # Modèle vision     (~4.1 GB)
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
 AI_SYSTEM_PROMPT = (
     "Tu es un assistant intégré dans un logiciel de gestion et retouche d'images photographiques. "
-    "Tu réponds en français, de façon concise et pratique."
+    "Tu réponds en français, de façon enthousiaste et pratique."
+    "Si tu reçois une phrase qui n'est pas une question, tu dois vérifier l'orthographe et proposer des versions alternatives formulées différemment."
 )
 
 # Modèles disponibles – (label affiché, nom Ollama, supporte_vision)
 # Modifiez AI_MODEL ci-dessus selon la config de la machine.
 AI_AVAILABLE_MODELS = [
-    # ── Gemma 4 — texte + vision natif (Google, 2025) ──────────────────
+    # ── Gemma 4 — texte + vision natif (Google, 2025) ───────────────────────────────────
     ("Gemma 4 E4B  (recommandé, ~9.6 GB) 🖼",            "gemma4:e4b",          True),
     ("Gemma 4 E2B  (légère, ~7.2 GB) 🖼",                "gemma4:e2b",          True),
     ("Gemma 4 · 26B MoE  (~18 GB) 🖼",                   "gemma4:26b",          True),
-    # ── Vision uniquement ──────────────────────────────────────────────
+    # ── Vision uniquement ─────────────────────────────────────────────────
     ("LLaVA-Phi3 · 3.8B  (~2.9 GB) 🖼",                  "llava-phi3",          True),
     ("LLaVA · 7B  (~4.1 GB) 🖼",                         "llava:7b",            True),
     ("Llama 3.2 Vision · 11B  (~8 GB) 🖼",               "llama3.2-vision:11b", True),
     ("Moondream 2  (légère, ~1.8 GB) 🖼",                 "moondream2",          True),
-    # ── Texte uniquement ───────────────────────────────────────────────
+    # ── Texte uniquement ─────────────────────────────────────────────────
     ("Llama 3.1 · 8B  (~4.7 GB)",                        "llama3.1:8b",         False),
     ("Llama 3.2 · 3B  (~2 GB)",                          "llama3.2:3b",         False),
     ("Mistral 7B  (~4.1 GB)",                            "mistral:7b",          False),
@@ -189,13 +191,13 @@ AI_VISION_MODELS = {entry[1] for entry in AI_AVAILABLE_MODELS if entry[2]}
 
 
 
-#══════════════════════════════════════════════════════════════════════════
+#══════════════════════════════════════════════════════════════
 #  KIOSK
-#══════════════════════════════════════════════════════════════════════════
-# ─── Extensions d'image acceptées (kiosk) ────────────────────────────────────
+#══════════════════════════════════════════════════════════════
+# ─── Extensions d'image acceptées (kiosk) ────────────────────────────────────────
 EXTENSION = (".jpg", ".jpeg", ".png")
 
-# ─── Grille d'images (kiosk, version Flet) ───────────────────────────────────
+# ─── Grille d'images (kiosk, version Flet) ─────────────────────────────────────────
 # Taille maximale d'une cellule de la grille (px) — plus grand = moins d'images par ligne
 GRID_MAX_EXTENT = 340
 # Ratio hauteur/largeur de chaque cellule (1.0 = carré, < 1.0 = paysage)
@@ -205,16 +207,16 @@ GRID_SPACING = 12
 # Taille des miniatures générées par PIL (px, côté le plus long)
 THUMBNAIL_SIZE = 280
 
-# ─── Prévisualisation plein écran (kiosk) ────────────────────────────────────
+# ─── Prévisualisation plein écran (kiosk) ─────────────────────────────────────────
 # Résolution max utilisée pour générer la version N&B en prévisualisation plein écran
 PREVIEW_NB_SIZE = 1024
 
-# ─── Panneau gauche (kiosk) ──────────────────────────────────────────────────
+# ─── Panneau gauche (kiosk) ───────────────────────────────────────────────────────────────
 LEFT_PANEL_WIDTH = 210
 FORMAT_BUTTON_HEIGHT = 48
 ACTION_BUTTON_HEIGHT = 68
 
-# ─── Tarifs d'impression (kiosk, format : prix en €) ─────────────────────────
+# ─── Tarifs d'impression (kiosk, format : prix en €) ────────────────────────────────────
 SIZES = {
     "10x15"   : 3.00,
     "13x18"   : 5.50,
