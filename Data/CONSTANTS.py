@@ -65,7 +65,6 @@ MAXIMIZED                         =  False
 TERMINAL_FONT_SIZE       = 13   # Taille du texte dans le terminal, le bloc-notes et les options
 TERMINAL_HEIGHT          = 170  # Hauteur du panneau terminal compact (px) - toujours visible
 TERMINAL_OVERLAY_HEIGHT  = 640  # Hauteur de l'overlay terminal agrandi (px)
-TERMINAL_BOTTOM_GAP      =   5  # Marge visible entre le bas des listes et l'overlay (px)
 
 
 # ─── Redimensionnement ───────────────────────────────────────────────────────────────

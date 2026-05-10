@@ -5299,7 +5299,7 @@ def main(page: ft.Page):
                     )
                 ], expand=9)
             ], expand=True, spacing=8),
-            ft.Container(height=CONSTANTS.TERMINAL_HEIGHT + CONSTANTS.TERMINAL_BOTTOM_GAP),
+            ft.Container(height=CONSTANTS.TERMINAL_HEIGHT),
         ], expand=True, spacing=8),
         bottom_panel_container,
         ], expand=True),
