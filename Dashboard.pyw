@@ -1471,6 +1471,12 @@ def main(page: ft.Page):
                     page.update()
                 except Exception:
                     pass
+                async def _refocus_after_response():
+                    try:
+                        await ai_input_field.focus()
+                    except Exception:
+                        pass
+                page.run_task(_refocus_after_response)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -1538,6 +1544,15 @@ def main(page: ft.Page):
             terminal_cmd_input.value = ""
             terminal_cmd_input.update()
             switch_to_ai_mode()
+
+            async def _refocus_ai_input():
+                await asyncio.sleep(0.05)
+                try:
+                    await ai_input_field.focus()
+                except Exception:
+                    pass
+
+            page.run_task(_refocus_ai_input)
             return
 
         if not command_history or command_history[0] != command_text:
@@ -2447,6 +2462,32 @@ def main(page: ft.Page):
 
 
 
+        # ── Rotation ──────────────────────────────────────────────────────
+        def _rotate_current(direction: str) -> None:
+            path = _current_path()
+            if not path:
+                return
+            if os.path.splitext(path)[1].lower() not in _ROTATABLE_EXTS:
+                return
+
+            def _do_rotate():
+                _rotate_files([path], direction)
+                normalized = os.path.normpath(path)
+                cached = _image_cache_busters.get(normalized)
+                src = cached if cached else path
+                cur_idx = state["index"]
+                if cur_idx in page_image_controls:
+                    page_image_controls[cur_idx].src = src
+                    pages_loaded.discard(cur_idx)
+                try:
+                    page.update()
+                except Exception:
+                    pass
+
+            threading.Thread(target=_do_rotate, daemon=True).start()
+
+
+
         # ── Clavier ───────────────────────────────────────────────────────
         def on_key(e: ft.KeyboardEvent) -> None:
             if e.key in ("Arrow Left", "ArrowLeft"):
@@ -2457,6 +2498,10 @@ def main(page: ft.Page):
                 close_viewer(None)
             elif e.key in ("Delete", "Backspace"):
                 delete_current_image(None)
+            elif e.key == "[":
+                _rotate_current("left")
+            elif e.key == "]":
+                _rotate_current("right")
 
         page.on_keyboard_event = on_key
 
@@ -2523,11 +2568,27 @@ def main(page: ft.Page):
                         padding=ft.Padding.symmetric(horizontal=4, vertical=0),
                     ),
                     ft.IconButton(
+                        icon=ft.Icons.ROTATE_LEFT,
+                        icon_color=ft.Colors.WHITE70,
+                        icon_size=22,
+                        tooltip="Pivoter à gauche ([)",
+                        on_click=lambda e: _rotate_current("left"),
+                        style=button_style,
+                    ),
+                    ft.IconButton(
                         icon=ft.Icons.DELETE_ROUNDED,
                         icon_color=ft.Colors.RED_300,
                         icon_size=22,
                         tooltip="Supprimer l'image (Suppr / ⌫)",
                         on_click=delete_current_image,
+                        style=button_style,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.ROTATE_RIGHT,
+                        icon_color=ft.Colors.WHITE70,
+                        icon_size=22,
+                        tooltip="Pivoter à droite (])",
+                        on_click=lambda e: _rotate_current("right"),
                         style=button_style,
                     ),
                     ft.IconButton(
