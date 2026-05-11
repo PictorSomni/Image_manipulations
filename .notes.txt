@@ -1,48 +1,110 @@
-La composition est une partie essentielle de la photographie qui détermine l'arrangement des éléments visuels dans l'image. Voici quelques principes clés à prendre en compte :
+## 📸 Le Parcours du Photographe : De la théorie à l'impact
 
-**Les Lois de la Gestalt**
+### 💡 Phase 0 : L'introduction et le "Mindset" (15-20% du temps)
+**Objectif :** Changer la perception de l'appareil photo de "machine complexe" à "outil de vision".
+*   **Le plus important :** Définir la photographie non pas comme prendre des photos, mais comme **choisir ce que l'on voit** et **raconter une histoire**.
+*   **Point à aborder :** La différence entre la *photographie* (l'acte) et la *photographie artistique* (l'intention).
+*   **Exercice pratique :** Un "jeu de la vue". Demander aux participants de prendre des photos de la même chose (ex: une tasse de café) mais en changeant radicalement leur angle, leur distance, ou leur lumière.
 
-1. **Principe d'unité** : les objets et les éléments de composition doivent être liés par un concept commun ou une raison logique.
-2. **Principe de continuité** : les lignes, les formes et les textures doivent être continues pour créer une impression de cohérence.
-3. **Principe de proximité** : les objets et les éléments qui sont proches l'un de l'autre devraient être plus importants que ceux qui sont lointains.
-4. **Principe de contraste** : le contrast entre des éléments visuels peut créer une composition intéressante.
+### ⚙️ Module 1 : La Maîtrise Technique (Le Triangle d'Exposition)
+**Objectif :** Passer du mode automatique au mode manuel (le passage obligé).
+*   **Concept clé :** Le Triangle d'Exposition (Ouverture / Vitesse / ISO). C'est la fondation.
+    *   **Ouverture (Diaphragme) :** Ce qu'on ouvre. L'impact sur la profondeur de champ (flou d'arrière-plan). *Exemple :* Le portrait nécessite un grand bokeh (grande ouverture).
+    *   **Vitesse d'Obturation :** Le temps. L'impact sur le mouvement (figer ou flouter). *Exemple :* Flouter l'eau pour un effet soyeux.
+    *   **ISO :** La sensibilité à la lumière. Le compromis entre luminosité et bruit numérique.
+*   **Exercice pratique :** Un "Challenge de l'Exposition". Donner trois scénarios (Ex: Portrait en plein soleil ; Cascade en mouvement ; Ambiance de nuit) et les faire ajuster les réglages manuellement pour atteindre l'effet souhaité.
 
-**Les Lignes de Force**
+### 📐 Module 2 : L'Œil du Compositeur (Les Règles de l'Art)
+**Objectif :** Apprendre à organiser visuellement la scène avant même de déclencher.
+*   **Composition :** C'est le squelette de la photo.
+    *   **La Règle des Tiers :** Le point de départ. Ne jamais placer le sujet au centre.
+    *   **Les Lignes Directrices (Leading Lines) :** Utiliser les éléments naturels (routes, rivières, etc.) pour guider l'œil du spectateur.
+    *   **Le Cadre dans le cadre (Framing) :** Utiliser des éléments naturels (arches, feuillage) pour encadrer le sujet.
+    *   **Symétrie et Équilibre :** Comment utiliser les répétitions et les lignes pour créer un sentiment d'harmonie.
+*   **Lumière (Le Maître Mot) :**
+    *   **Qualité de la lumière :** Lumière dure (contrastée, midi) vs. Lumière douce (matin/soir).
+    *   **Heures magiques :** L'heure dorée (Golden Hour) et l'heure bleue. Comment les exploiter.
+    *   **Le contre-jour :** Comment créer de la silhouette et du drame.
+*   **Exercice pratique :** Une "Chasse à la Composition". Les faire photographier une même scène (un parc, une rue) en utilisant uniquement différentes règles de composition.
 
-1. **Ligne horizontale** : peut créer un sentiment d'équilibre ou de stabilité.
-2. **Ligne verticale** : peut créer un sentiment de hauteur ou de gravité.
-3. **Ligne diagonale** : peut créer un sentiment d'énergie ou de mouvement.
+### 🎭 Module 3 : Les Genres Photographiques (Spécialisation)
+**Objectif :** Adapter la technique et le regard au sujet.
+*   **Le Portrait :**
+    *   *Focus :* L'émotion, les yeux.
+    *   *Conseils :* L'importance du modèle, l'éclairage de studio vs. extérieur, la pose naturelle.
+    *   *Exercice :* Une séance photo avec un modèle pour se concentrer sur le *contact* et la *direction*.
+*   **Le Paysage :**
+    *   *Focus :* L'échelle, la profondeur.
+    *   *Conseils :* Utiliser un filtre polarisant, la composition en premier plan (pour donner de la profondeur).
+    *   *Exercice :* Photographie en extérieur, en se concentrant sur la gestion de la profondeur de champ.
+*   **La Photographie de Rue (Street Photography) :**
+    *   *Focus :* Le moment, l'imprévu, la discrétion.
+    *   *Conseils :* Être prêt, anticiper, ne pas hésiter à prendre le risque.
+    *   *Exercice :* Une promenade en ville avec une contrainte (ex: ne photographier que des mains, ou uniquement des ombres).
 
-**Les Formes et les Textures**
+### 💻 Module 4 : Le Post-Traitement (La Touche Finale)
+**Objectif :** Comprendre que la photo ne s'arrête pas au déclenchement.
+*   **Logiciels :** Présenter les bases (Lightroom / Capture One / etc.).
+*   **Les étapes cruciales :**
+    1.  **Recadrage et Correction de l'horizon.**
+    2.  **Exposition et Contraste :** Ajuster les zones trop sombres ou trop claires.
+    3.  **La Couleur (Saturation/Teinte) :** Améliorer l'ambiance.
+*   **Point de vue professionnel :** L'importance de la cohérence de la marque visuelle (tonalité, couleur) dans un portfolio.
 
-1. **Formes géométriques** : peuvent créer une composition simple et élégante.
-2. **Formes organiques** : peuvent créer une composition plus complexe et intéressante.
-3. **Textures** : peuvent ajouter de la profondeur et de l'intérêt à l'image.
+***
 
-**L'Équilibre**
+### 📝 Conseil de formateur (Pour toi) :
 
-1. **Principe d'équilibre symétrique** : les éléments de composition devraient être répartis de manière symétrique pour créer un sentiment d'équilibre.
-2. **Principe d'équilibre asymétrique** : les éléments de composition devraient être répartis de manière asymétrique pour créer un sentiment d'asymétrie.
+**Ne fais jamais de la théorie sans un exercice immédiatement après.** Après avoir parlé de la Règle des Tiers, fais-les sortir prendre des photos en appliquant cette règle. Le savoir doit être *expérientiel*.
 
-**Le Centre de Gravité**
+Aborder les lois de la Gestalt dans un cours de photo, ce n'est pas juste apprendre des concepts théoriques ; c'est donner à tes étudiants un **dictionnaire de l'œil** qui leur permettra de *décoder* n'importe quelle image, et surtout, de *construire* une image qui fonctionne au niveau subconscient du spectateur.
 
-1. **Centre de gravité** : l'objet ou le sujet principal devrait être placé dans le centre de la composition pour créer un sentiment de stabilité.
-2. **Décentrement** : le centre de gravité peut être décentré pour créer un sentiment d'inconfort ou de tension.
+Voici comment tu peux structurer ce module de manière très pédagogique et impactante.
 
-Ces principes sont essentiels pour créer des compositions photographiques équilibrées, intéressantes et engageantes.
+***
 
-Les Lois de la Gestalt sont un outil puissant pour la composition photographique, car elles nous aident à créer des images visuellement attrayantes et équilibrées. Voici quelques exemples d'outils de composition qui utilisent les Lois de la Gestalt :
+## 🧠 Module : L'Architecture Visuelle – La Psychologie de l'Image
 
-1. **Règle de l'axe** (ou "la règle de l'élément central") : cette règle utilise la loi de continuité pour créer une ligne directrice qui mène le regard du spectateur vers un élément central, comme un sujet ou un objet.
-2. **Périphérie et centre** : en utilisant la loi de proximité, on peut créer des compositions où les éléments sont organisés autour d'un centre focal, pour attirer l'attention du spectateur.
-3. **Symétrie et asymétrie** : la loi de closure permet de créer des compositions symétriques ou asymétriques, en utilisant des éléments qui créent une sensation de fermeture ou de renforcement.
-4. **Contraste** : l'utilisation de contrastes entre les éléments de la composition peut être un outil puissant pour attirer l'attention du spectateur, en utilisant la loi de répétition et de continuité.
-5. **Framing** : en utilisant les lois de la Gestalt, on peut créer des compositions où les éléments sont encadrés par un cadre naturel ou artificiel, pour créer une sensation de fermeture ou de closure.
+### 🎯 Objectif du module :
+Apprendre aux étudiants à ne plus simplement "prendre une photo", mais à **"orchestrer l'expérience visuelle"**. Comprendre comment l'œil humain est programmé pour chercher des motifs, des lignes et des relations.
 
-Voici quelques techniques spécifiques qui utilisent les Lois de la Gestalt :
+### 💡 Introduction : Le Cerveau en Mode Détective
+Commence par expliquer que le cerveau humain ne voit pas des objets isolés ; il voit des *relations*. Quand nous voyons une photo, notre cerveau essaie immédiatement de trouver des schémas pour rendre l'information plus facile à traiter. Les lois de la Gestalt sont simplement le manuel d'instructions de ce détective cérébral.
 
-* **Le triangle équilibré** : c'est une composition qui utilise la loi de figure pour créer un triangle équilibré et harmonieux.
-* **La ligne directrice** : c'est une technique qui utilise la loi de continuité pour créer une ligne directrice qui mène le regard du spectateur vers un élément central.
-* **L'axe du sujet** : c'est une technique qui utilise la loi de continuité et de proximité pour créer un axe qui mène le regard du spectateur vers le sujet.
+---
 
-Ces outils de composition peuvent être utilisés pour créer des images visuellement attrayantes et équilibrées, en suivant les Lois de la Gestalt.
+### Les Principes Clés de la Gestalt et leur Application Photo
+
+Voici les principes à enseigner, avec des exemples concrets pour chaque loi :
+
+#### 1. Proximité (The Law of Proximity)
+*   **Le concept :** Les éléments placés proches les uns des autres seront perçus comme appartenant au même groupe ou étant liés.
+*   **L'application photo :** Ne pas simplement grouper des objets, mais utiliser la proximité pour *forcer* le regard du spectateur.
+    *   *Exemple à montrer :* Deux groupes d'objets identiques, mais l'un est isolé et l'autre est en grappe. Montrer comment la grappe attire l'attention en tant qu'unité.
+
+#### 2. Similitude (The Law of Similarity)
+*   **Le concept :** Les éléments qui se ressemblent (même couleur, même forme, même taille) seront perçus comme faisant partie du même ensemble, même s'ils sont éloignés.
+*   **L'application photo :** Utiliser la couleur ou la forme répétée pour créer un rythme visuel et guider le regard.
+    *   *Exemple à montrer :* Une rangée de fenêtres identiques dans un paysage. La répétition crée une structure forte et un sentiment d'ordre ou de monotonie.
+
+#### 3. Clôture (The Law of Closure)
+*   **Le concept :** Le cerveau a tendance à "compléter" les formes incomplètes. Il préfère voir un objet entier plutôt que des morceaux séparés.
+*   **L'application photo :** C'est le principe le plus puissant pour l'art conceptuel. Ne pas montrer l'objet complet, mais laisser un vide ou une forme incomplète, forçant le spectateur à "compléter" mentalement l'image.
+    *   *Exemple à montrer :* Une photo où des éléments manquent (une forme de cercle incomplète, une silhouette coupée) mais qui, vues ensemble, forment un objet reconnaissable.
+
+#### 4. Continuité (The Law of Continuity)
+*   **Le concept :** L'œil humain préfère suivre le chemin le plus lisse et le plus continu possible. Il va suivre les lignes et les courbes plutôt que de sauter de manière abrupte.
+*   **L'application photo :** Utiliser des lignes directrices (routes, rivières, rangées de poteaux) pour guider le regard du spectateur à travers l'image, créant ainsi une narration visuelle.
+    *   *Exemple à montrer :* Une route sinueuse qui traverse un paysage. Le regard suit naturellement la courbe de la route jusqu'à un point focal lointain.
+
+---
+
+### 🎬 Conclusion et Exercice Pratique
+
+Termine la session avec un défi :
+
+**Le Défi du Photographe :** Demandez aux étudiants de sortir et de prendre des photos en se concentrant *uniquement* sur l'application d'un seul principe de Gestalt (par exemple, "Trouvez 5 exemples de Continuité aujourd'hui").
+
+**Le Conseil de Pro :** Rappelez-leur que la maîtrise de ces lois ne signifie pas *forcer* l'effet, mais plutôt *comprendre* pourquoi l'effet fonctionne, pour pouvoir choisir si l'effet est recherché ou non.
+
+**Résultat attendu :** Les étudiants ne voient plus seulement des objets, mais des **relations** entre les objets.
