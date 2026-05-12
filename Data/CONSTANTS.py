@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.4.2"
+__version__ = "2.4.3"
 
 
 # ─── Palette de couleurs ───────────────────────────────────────────────────────────────
@@ -64,7 +64,8 @@ WINDOW_HEIGHT               = 940
 MAXIMIZED                         =  False 
 TERMINAL_FONT_SIZE       = 13   # Taille du texte dans le terminal, le bloc-notes et les options
 TERMINAL_HEIGHT          = 170  # Hauteur du panneau terminal compact (px) - toujours visible
-TERMINAL_OVERLAY_HEIGHT  = 640  # Hauteur de l'overlay terminal agrandi (px)
+TERMINAL_OVERLAY_HEIGHT  = WINDOW_HEIGHT  # Hauteur de l'overlay terminal agrandi (px)
+WDA_HEIGHT               = 96   # Hauteur de la WindowDragArea (barre de titre custom, en px)
 
 
 # ─── Redimensionnement ───────────────────────────────────────────────────────────────

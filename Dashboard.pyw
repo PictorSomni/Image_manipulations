@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.4.2"
+__version__ = "2.4.3"
 
 
 
@@ -330,6 +330,7 @@ def main(page: ft.Page):
     ai_streaming       = {"value": False}
     ollama_process     = {"proc": None}  # Process ollama serve lancé par nous
     ai_pending_images  = []              # Images jointes en attente [{path, b64}]
+    ai_pending_files   = []              # Documents/audio joints en attente [{path, type}]
 
 
 
@@ -405,6 +406,20 @@ def main(page: ft.Page):
                 notepad_header_icon,
                 notepad_header_title,
                 ft.IconButton(
+                    icon=ft.Icons.SAVE_AS,
+                    icon_color=BLUE,
+                    icon_size=16,
+                    tooltip="Sauvegarder sous…",
+                    on_click=lambda e: page.run_task(_notepad_save_as),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.DELETE_SWEEP,
+                    icon_color=ORANGE,
+                    icon_size=16,
+                    tooltip="Effacer tout le bloc-notes",
+                    on_click=lambda e: _notepad_clear(),
+                ),
+                ft.IconButton(
                     icon=ft.Icons.CLOSE,
                     icon_color=RED,
                     icon_size=16,
@@ -452,11 +467,18 @@ def main(page: ft.Page):
         on_click=lambda e: _on_ai_submit(),
     )
     ai_attach_button = ft.IconButton(
-        icon=ft.Icons.ATTACH_FILE,
+        icon=ft.Icons.IMAGE,
         icon_color=LIGHT_GREY,
         icon_size=18,
         tooltip="Joindre une image",
         on_click=lambda e: page.run_task(_ai_pick_image),
+    )
+    ai_attach_file_button = ft.IconButton(
+        icon=ft.Icons.ATTACH_FILE,
+        icon_color=LIGHT_GREY,
+        icon_size=18,
+        tooltip="Joindre un document ou fichier audio",
+        on_click=lambda e: page.run_task(_ai_pick_file),
     )
     ai_container = ft.Container(
         content=ft.Column([
@@ -468,6 +490,13 @@ def main(page: ft.Page):
                 ft.Container(width=6),
                 ai_status_text,
                 ai_stop_button,
+                ft.IconButton(
+                    icon=ft.Icons.SEND_TO_MOBILE,
+                    icon_color=VIOLET,
+                    icon_size=16,
+                    tooltip="Transférer la conversation vers le bloc-notes",
+                    on_click=lambda e: _ai_conversation_to_notepad(),
+                ),
                 ft.IconButton(
                     icon=ft.Icons.DELETE_SWEEP,
                     icon_color=LIGHT_GREY,
@@ -486,7 +515,7 @@ def main(page: ft.Page):
             ai_chat_view,
             ai_attach_row,
             ft.Row(
-                [ai_attach_button, ai_input_field, ai_send_button],
+                [ai_attach_button, ai_attach_file_button, ai_input_field, ai_send_button],
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
@@ -973,6 +1002,33 @@ def main(page: ft.Page):
 
 
     # ── Bloc-notes : fonctions ──────────────────────────────────────────
+    async def _notepad_save_as():
+        """Exporte le contenu du bloc-notes dans un fichier choisi par l'utilisateur."""
+        result = await ft.FilePicker().save_file(
+            dialog_title="Enregistrer le bloc-notes sous…",
+            file_name="notes.txt",
+            allowed_extensions=["txt", "md"],
+        )
+        if not result:
+            return
+        target_path = result if isinstance(result, str) else getattr(result, "path", None)
+        if not target_path:
+            return
+        try:
+            with open(target_path, "w", encoding="utf-8") as exported_file:
+                exported_file.write(notepad_field.value or "")
+            log_to_terminal(f"[OK] Bloc-notes exporté → {target_path}", GREEN)
+        except Exception as export_error:
+            log_to_terminal(f"[ERREUR] Export bloc-notes : {export_error}", RED)
+
+    def _notepad_clear():
+        """Efface tout le contenu du bloc-notes (sans sauvegarder)."""
+        notepad_field.value = ""
+        try:
+            notepad_field.update()
+        except Exception:
+            pass
+
     def save_notes():
         """Sauvegarde le contenu du bloc-notes dans le fichier cible."""
         is_constants = (note_target_file["path"] == constants_file_path)
@@ -1100,6 +1156,28 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+    def _ai_conversation_to_notepad():
+        """Formate la conversation IA et la transfère dans le bloc-notes."""
+        if not ai_conversation:
+            log_to_terminal("[IA] Aucune conversation à transférer", LIGHT_GREY)
+            return
+        lines = []
+        for message in ai_conversation:
+            role = message.get("role", "")
+            content = message.get("content", "")
+            if role == "user":
+                prefix = "Vous"
+            elif role == "assistant":
+                prefix = "IA"
+            else:
+                continue
+            lines.append(f"[{prefix}]\n{content}\n")
+        block = "\n".join(lines).strip()
+        existing = notepad_field.value or ""
+        separator = "\n\n" + "─" * 40 + "\n\n" if existing.strip() else ""
+        notepad_field.value = existing + separator + block
+        switch_to_note()
+
     def _ai_stop_model():
         """Libère le modèle chargé en RAM via `ollama stop`."""
         def _run_stop():
@@ -1143,7 +1221,31 @@ def main(page: ft.Page):
                     padding=ft.Padding(4, 2, 4, 2),
                 )
             )
-        ai_attach_row.visible = len(ai_pending_images) > 0
+        for file_entry in ai_pending_files:
+            name = os.path.basename(file_entry["path"])
+            file_type = file_entry["type"]
+            icon_name = ft.Icons.AUDIO_FILE if file_type == "audio" else ft.Icons.DESCRIPTION
+            entry_ref = file_entry
+            ai_attach_row.controls.append(
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(icon_name, size=13, color=YELLOW),
+                        ft.Text(name, size=11, color=YELLOW),
+                        ft.IconButton(
+                            icon=ft.Icons.CLOSE,
+                            icon_color=RED,
+                            icon_size=12,
+                            tooltip="Retirer",
+                            style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                            on_click=lambda e, ref=entry_ref: _ai_remove_file(ref),
+                        ),
+                    ], spacing=2, tight=True),
+                    bgcolor=GREY,
+                    border_radius=4,
+                    padding=ft.Padding(4, 2, 4, 2),
+                )
+            )
+        ai_attach_row.visible = bool(ai_pending_images) or bool(ai_pending_files)
         try:
             page.update()
         except Exception:
@@ -1198,6 +1300,95 @@ def main(page: ft.Page):
             ai_pending_images.remove(image_entry)
         _ai_refresh_attach_row()
 
+    # ── Extensions reconnues comme documents ou fichiers audio ────────
+    _AI_DOCUMENT_EXTS = {
+        ".txt", ".md", ".py", ".js", ".ts", ".json", ".csv", ".xml",
+        ".html", ".htm", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".log",
+        ".rst", ".pdf", ".docx", ".doc", ".rtf", ".odt",
+    }
+    _AI_AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".opus", ".wma"}
+
+    def _ai_attach_document_file(file_path):
+        """Ajoute un document ou fichier audio aux pièces jointes en attente."""
+        if any(entry["path"] == file_path for entry in ai_pending_files):
+            return
+        ext = os.path.splitext(file_path)[1].lower()
+        file_type = "audio" if ext in _AI_AUDIO_EXTS else "document"
+        ai_pending_files.append({"path": file_path, "type": file_type})
+        _ai_refresh_attach_row()
+
+    def _ai_remove_file(file_entry):
+        """Retire un document/audio des pièces jointes en attente."""
+        if file_entry in ai_pending_files:
+            ai_pending_files.remove(file_entry)
+        _ai_refresh_attach_row()
+
+    def _ai_extract_file_content(file_entry):
+        """
+        Extrait le contenu textuel d'un document ou transcrit un fichier audio.
+        Retourne (nom_affiché, texte_extrait).
+        Lève une exception si l'extraction échoue.
+        """
+        file_path = file_entry["path"]
+        file_type = file_entry["type"]
+        ext = os.path.splitext(file_path)[1].lower()
+        name = os.path.basename(file_path)
+
+        if file_type == "audio":
+            try:
+                import whisper as _whisper
+            except ImportError:
+                raise ImportError(
+                    "openai-whisper n'est pas installé.\n"
+                    "Installez-le avec : pip install openai-whisper"
+                )
+            whisper_model = _whisper.load_model("base")
+            result = whisper_model.transcribe(file_path)
+            return name, result["text"]
+
+        # ── Documents ────────────────────────────────────────────────
+        if ext == ".pdf":
+            try:
+                import fitz as _fitz
+                pdf_doc = _fitz.open(file_path)
+                text = "\n".join(pdf_page.get_text("text") for pdf_page in pdf_doc)
+                pdf_doc.close()
+                return name, text
+            except ImportError:
+                raise ImportError("PyMuPDF non disponible pour lire les PDF.")
+
+        if ext in (".docx", ".doc"):
+            try:
+                import docx as _docx
+                word_doc = _docx.Document(file_path)
+                text = "\n".join(para.text for para in word_doc.paragraphs)
+                return name, text
+            except ImportError:
+                raise ImportError(
+                    "python-docx non installé. Installez-le avec : pip install python-docx"
+                )
+
+        # Fichier texte brut (tous les autres formats)
+        with open(file_path, "r", encoding="utf-8", errors="replace") as text_file:
+            return name, text_file.read()
+
+    async def _ai_pick_file():
+        """Ouvre un sélecteur de fichier pour joindre un document ou fichier audio."""
+        result = await ft.FilePicker().pick_files(
+            dialog_title="Joindre un document ou fichier audio",
+            allowed_extensions=[
+                "txt", "md", "py", "js", "ts", "json", "csv", "xml",
+                "html", "htm", "yaml", "yml", "toml", "ini", "cfg", "log",
+                "rst", "pdf", "docx", "doc", "rtf",
+                "mp3", "wav", "m4a", "ogg", "flac", "aac", "opus",
+            ],
+            allow_multiple=True,
+        )
+        if result:
+            for picked_file in result:
+                if picked_file.path:
+                    _ai_attach_document_file(picked_file.path)
+
     async def _ai_pick_image():
         """Ouvre un sélecteur de fichier pour choisir une image à joindre."""
         result = await ft.FilePicker().pick_files(
@@ -1211,19 +1402,26 @@ def main(page: ft.Page):
                     _ai_attach_image(picked_file.path)
 
     def ai_send_selected_images(e=None):
-        """Joint les fichiers image sélectionnés dans la preview à la conversation IA."""
+        """Joint les fichiers image, document et audio sélectionnés dans la preview à la conversation IA."""
         image_exts = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
         image_paths = [
             file_path for file_path in selected_files
             if os.path.splitext(file_path)[1].lower() in image_exts
         ]
-        if not image_paths:
-            log_to_terminal("[IA] Aucune image sélectionnée dans la preview", LIGHT_GREY)
+        file_paths = [
+            file_path for file_path in selected_files
+            if os.path.splitext(file_path)[1].lower() in (_AI_DOCUMENT_EXTS | _AI_AUDIO_EXTS)
+        ]
+        if not image_paths and not file_paths:
+            log_to_terminal("[IA] Aucun fichier compatible sélectionné dans la preview", LIGHT_GREY)
             return
         switch_to_ai_mode()
         for image_path in image_paths:
             _ai_attach_image(image_path)
-        log_to_terminal(f"[IA] {len(image_paths)} image(s) jointe(s)", BLUE)
+        for file_path in file_paths:
+            _ai_attach_document_file(file_path)
+        total = len(image_paths) + len(file_paths)
+        log_to_terminal(f"[IA] {total} fichier(s) joint(s)", BLUE)
 
     def _ensure_ollama_ready(model_name=None):
         """
@@ -1369,7 +1567,7 @@ def main(page: ft.Page):
         """Envoie un message à Ollama et streame la réponse dans le panneau IA."""
         if ai_streaming["value"]:
             return
-        if not message_text.strip():
+        if not message_text.strip() and not ai_pending_images and not ai_pending_files:
             return
         ai_streaming["value"] = True
         ai_stop_button.visible = True
@@ -1382,6 +1580,11 @@ def main(page: ft.Page):
         # Capturer et vider les images jointes avant le thread
         images_b64 = [entry["b64"] for entry in ai_pending_images]
         ai_pending_images.clear()
+        _ai_refresh_attach_row()
+
+        # Capturer et vider les documents/audio joints avant le thread
+        files_to_inject = list(ai_pending_files)
+        ai_pending_files.clear()
         _ai_refresh_attach_row()
 
         # Choisir le modèle selon la présence d'images
@@ -1409,10 +1612,16 @@ def main(page: ft.Page):
             user_message["images"] = images_b64
         ai_conversation.append(user_message)
 
-        # Afficher la bulle utilisateur avec indicateur image
+        # Afficher la bulle utilisateur avec indicateur image/fichier
         display_text = message_text
         if images_b64:
             display_text = f"🖼️ ({len(images_b64)} image(s))  {message_text}" if message_text else f"🖼️ {len(images_b64)} image(s) jointe(s)"
+        if files_to_inject:
+            files_label = "  ".join(
+                ("🎵" if entry["type"] == "audio" else "📄") + " " + os.path.basename(entry["path"])
+                for entry in files_to_inject
+            )
+            display_text = (display_text + "  " if display_text else "") + files_label
         _ai_add_bubble("user", display_text)
 
         def _run():
@@ -1422,6 +1631,33 @@ def main(page: ft.Page):
                 # S'assurer qu'Ollama est prêt (serveur + modèle)
                 if not _ensure_ollama_ready(active_model):
                     return
+
+                # Extraire et injecter le contenu des documents/audio joints
+                if files_to_inject:
+                    injected_blocks = []
+                    for file_entry in files_to_inject:
+                        file_name = os.path.basename(file_entry["path"])
+                        try:
+                            if file_entry["type"] == "audio":
+                                ai_status_text.value = f"⏳ Transcription : {file_name}…"
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                            label, content = _ai_extract_file_content(file_entry)
+                            type_label = "Transcription audio" if file_entry["type"] == "audio" else "Document"
+                            injected_blocks.append(
+                                f"--- {type_label} : {label} ---\n{content[:50000]}\n--- Fin ---"
+                            )
+                        except Exception as extraction_exc:
+                            _ai_add_bubble("assistant", f"[ERREUR] {file_name} : {extraction_exc}")
+                    if injected_blocks:
+                        ai_conversation[-1]["content"] += "\n\n" + "\n\n".join(injected_blocks)
+                    ai_status_text.value = "⏳ En cours…"
+                    try:
+                        page.update()
+                    except Exception:
+                        pass
 
                 payload = json.dumps({
                     "model": active_model,
@@ -1483,8 +1719,8 @@ def main(page: ft.Page):
     def _on_ai_submit():
         """Récupère le texte saisi, vide le champ et envoie le message à l'IA."""
         message_text = ai_input_field.value.strip()
-        # Autoriser l'envoi sans texte si des images sont jointes
-        if not message_text and not ai_pending_images:
+        # Autoriser l'envoi sans texte si des images ou fichiers sont joints
+        if not message_text and not ai_pending_images and not ai_pending_files:
             return
         ai_input_field.value = ""
         ai_input_field.update()
@@ -5091,6 +5327,7 @@ def main(page: ft.Page):
         icon_size=16,
     )
     _terminal_expanded = {"value": False}
+    WDA_HEIGHT = CONSTANTS.WDA_HEIGHT
 
     bottom_panel_container = ft.Container(
         content=ft.Row([
@@ -5147,7 +5384,7 @@ def main(page: ft.Page):
     def toggle_terminal_overlay():
         _terminal_expanded["value"] = not _terminal_expanded["value"]
         expanded = _terminal_expanded["value"]
-        bottom_panel_container.height = CONSTANTS.TERMINAL_OVERLAY_HEIGHT if expanded else CONSTANTS.TERMINAL_HEIGHT
+        bottom_panel_container.height = page.window.height - WDA_HEIGHT if expanded else CONSTANTS.TERMINAL_HEIGHT
         _expand_terminal_btn.icon    = ft.Icons.EXPAND_MORE if expanded else ft.Icons.EXPAND_LESS
         _expand_terminal_btn.tooltip = "Réduire  (Ctrl+T)"  if expanded else "Agrandir  (Ctrl+T)"
         page.update()
