@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.4.3"
+__version__ = "2.4.4"
 
 
 # ─── Palette de couleurs ───────────────────────────────────────────────────────────────
@@ -62,9 +62,8 @@ FORMATS = { # (largeur_mm, hauteur_mm) - en portrait
 WINDOW_WIDTH                = 1280
 WINDOW_HEIGHT               = 940
 MAXIMIZED                         =  False 
-TERMINAL_FONT_SIZE       = 13   # Taille du texte dans le terminal, le bloc-notes et les options
+TERMINAL_FONT_SIZE       = 16   # Taille du texte dans le terminal, le bloc-notes et les options
 TERMINAL_HEIGHT          = 170  # Hauteur du panneau terminal compact (px) - toujours visible
-TERMINAL_OVERLAY_HEIGHT  = WINDOW_HEIGHT  # Hauteur de l'overlay terminal agrandi (px)
 WDA_HEIGHT               = 96   # Hauteur de la WindowDragArea (barre de titre custom, en px)
 
 
@@ -159,7 +158,8 @@ AI_OLLAMA_URL   = "http://localhost:11434"   # URL de l'API Ollama locale
 AI_MODEL_TEXT   = "gemma4:e4b"             # Modèle texte + vision (~9.6 GB) — recommandé
 AI_MODEL_VISION = "gemma4:e4b"             # Modèle vision     (~9.6 GB)
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
-AI_SYSTEM_PROMPT = ""
+AI_URL_MAX_CHARS = 12_000                    # Nb max de caractères extraits d'une URL (augmenter si le modèle a un grand contexte)
+AI_SYSTEM_PROMPT = "On peut se tutoyer."
 
 # Modèles disponibles – (label affiché, nom Ollama, supporte_vision)
 # Modifiez AI_MODEL ci-dessus selon la config de la machine.

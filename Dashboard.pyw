@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.4.3"
+__version__ = "2.4.4"
 
 
 
@@ -378,10 +378,11 @@ def main(page: ft.Page):
     terminal_cmd_row = ft.Row([terminal_cmd_input])
 
     # ── Bloc-notes ────────────────────────────────────────────────────
-    notes_file_path     = os.path.join(app_directory, ".notes.txt")
-    constants_file_path = os.path.join(app_directory, "Data", "CONSTANTS.py")
-    note_mode           = {"value": False}
-    note_target_file    = {"path": notes_file_path}
+    notes_file_path      = os.path.join(app_directory, ".notes.txt")
+    constants_file_path  = os.path.join(app_directory, "Data", "CONSTANTS.py")
+    ai_history_file_path = os.path.join(app_directory, ".ai_conversation.json")
+    note_mode            = {"value": False}
+    note_target_file     = {"path": notes_file_path}
 
     notepad_field = ft.TextField(
         multiline=True,
@@ -389,7 +390,7 @@ def main(page: ft.Page):
         min_lines=4,
         text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
         color=WHITE,
-        border_color=VIOLET,
+        border_color=ft.Colors.TRANSPARENT,
         border_radius=6,
         bgcolor=DARK,
         filled=True,
@@ -400,37 +401,28 @@ def main(page: ft.Page):
     notepad_header_icon  = ft.Icon(ft.Icons.EDIT_NOTE, color=VIOLET, size=16)
     notepad_header_title = ft.Text("Notes", color=VIOLET, size=12, weight=ft.FontWeight.BOLD, expand=True)
 
+    expand_button_terminal = ft.IconButton(
+        icon=ft.Icons.EXPAND_LESS,
+        tooltip="Agrandir  (Ctrl+T)",
+        icon_color=LIGHT_GREY,
+        icon_size=16,
+        on_click=lambda e: toggle_terminal_overlay(),
+    )
+    expand_button_overlay = ft.IconButton(
+        icon=ft.Icons.EXPAND_LESS,
+        tooltip="Agrandir  (Ctrl+T)",
+        icon_color=LIGHT_GREY,
+        icon_size=16,
+        on_click=lambda e: toggle_terminal_overlay(),
+    )
+
     notepad_container = ft.Container(
         content=ft.Column([
-            ft.Row([
-                notepad_header_icon,
-                notepad_header_title,
-                ft.IconButton(
-                    icon=ft.Icons.SAVE_AS,
-                    icon_color=BLUE,
-                    icon_size=16,
-                    tooltip="Sauvegarder sous…",
-                    on_click=lambda e: page.run_task(_notepad_save_as),
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.DELETE_SWEEP,
-                    icon_color=ORANGE,
-                    icon_size=16,
-                    tooltip="Effacer tout le bloc-notes",
-                    on_click=lambda e: _notepad_clear(),
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.CLOSE,
-                    icon_color=RED,
-                    icon_size=16,
-                    tooltip="Fermer le bloc-notes",
-                    on_click=lambda e: switch_to_terminal_mode(),
-                ),
-            ], spacing=4),
             notepad_field,
         ], spacing=4, expand=True),
         expand=True,
-        visible=False,
+        visible=True,
+        bgcolor=DARK,
     )
 
 
@@ -467,61 +459,25 @@ def main(page: ft.Page):
         on_click=lambda e: _on_ai_submit(),
     )
     ai_attach_button = ft.IconButton(
-        icon=ft.Icons.IMAGE,
-        icon_color=LIGHT_GREY,
-        icon_size=18,
-        tooltip="Joindre une image",
-        on_click=lambda e: page.run_task(_ai_pick_image),
-    )
-    ai_attach_file_button = ft.IconButton(
         icon=ft.Icons.ATTACH_FILE,
         icon_color=LIGHT_GREY,
         icon_size=18,
-        tooltip="Joindre un document ou fichier audio",
-        on_click=lambda e: page.run_task(_ai_pick_file),
+        tooltip="Joindre une image, un document ou un fichier audio",
+        on_click=lambda e: page.run_task(_ai_pick_any),
     )
     ai_container = ft.Container(
         content=ft.Column([
-            ft.Row([
-                ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=16),
-                ft.Text("Assistant IA", color=BLUE, size=12, weight=ft.FontWeight.BOLD),
-                ft.Container(expand=True),
-                ai_model_label,
-                ft.Container(width=6),
-                ai_status_text,
-                ai_stop_button,
-                ft.IconButton(
-                    icon=ft.Icons.SEND_TO_MOBILE,
-                    icon_color=VIOLET,
-                    icon_size=16,
-                    tooltip="Transférer la conversation vers le bloc-notes",
-                    on_click=lambda e: _ai_conversation_to_notepad(),
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.DELETE_SWEEP,
-                    icon_color=LIGHT_GREY,
-                    icon_size=16,
-                    tooltip="Effacer la conversation",
-                    on_click=lambda e: _clear_ai_conversation(),
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.CLOSE,
-                    icon_color=RED,
-                    icon_size=16,
-                    tooltip="Fermer (Échap)",
-                    on_click=lambda e: switch_to_terminal_mode(),
-                ),
-            ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ai_chat_view,
             ai_attach_row,
             ft.Row(
-                [ai_attach_button, ai_attach_file_button, ai_input_field, ai_send_button],
+                [ai_attach_button, ai_input_field, ai_send_button],
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
         ], spacing=4, expand=True),
         expand=True,
-        visible=False,
+        visible=True,
+        bgcolor=DARK,
     )
 
 
@@ -880,6 +836,11 @@ def main(page: ft.Page):
         """Gestionnaire des événements clavier pour les raccourcis"""
         ctrl_pressed = e.ctrl or e.meta
 
+        # Ctrl+T est global : fonctionne quelle que soit la zone active
+        if ctrl_pressed and e.key == "T":
+            toggle_terminal_overlay()
+            return
+
         if terminal_input_focused["value"]:
             if e.key in ("Arrow Up", "ArrowUp"):
                 if command_history:
@@ -922,8 +883,6 @@ def main(page: ft.Page):
                 create_new_folder(None)
             elif e.key == "R":
                 refresh_preview(force_reload=True)
-            elif e.key == "T":
-                toggle_terminal_overlay()
             elif e.key == "V":
                 paste_files(None)
             elif e.key == "X":
@@ -1067,24 +1026,23 @@ def main(page: ft.Page):
             notepad_field.value = ""
 
     def _open_notepad_ui(title, icon, color, hint):
-        """Affiche la zone bloc-notes avec le titre et la couleur donnés."""
+        """Affiche la zone bloc-notes (+ IA) avec le titre et la couleur donnés."""
         notepad_header_icon.name  = icon
         notepad_header_icon.color = color
         notepad_header_title.value = title
         notepad_header_title.color = color
         notepad_field.hint_text   = hint
-        notepad_field.border_color = color
         load_notes()
         note_mode["value"] = True
+        ai_mode["value"]   = True
         terminal_output.visible  = False
         terminal_cmd_row.visible = False
-        notepad_container.visible = True
+        update_overlay_visibility()
         notepad_header_icon.update()
         notepad_header_title.update()
         notepad_field.update()
         terminal_output.update()
         terminal_cmd_row.update()
-        notepad_container.update()
 
         async def _focus_note():
             try:
@@ -1106,22 +1064,19 @@ def main(page: ft.Page):
 
     # ── Intelligence artificielle ──────────────────────────────────────
     def switch_to_ai_mode():
-        """Bascule la zone bas en mode conversation IA."""
-        if note_mode["value"]:
-            save_notes()
-            note_mode["value"] = False
+        """Bascule la zone bas en mode conversation IA + notes."""
+        note_target_file["path"] = notes_file_path
+        load_notes()
+        note_mode["value"] = True
         ai_mode["value"] = True
         ai_model_label.value = (
             f"{CONSTANTS.AI_MODEL_VISION}  🖼" if ai_pending_images else CONSTANTS.AI_MODEL_TEXT
         )
         terminal_output.visible  = False
         terminal_cmd_row.visible = False
-        notepad_container.visible = False
-        ai_container.visible     = True
+        update_overlay_visibility()
         terminal_output.update()
         terminal_cmd_row.update()
-        notepad_container.update()
-        ai_container.update()
         ai_model_label.update()
 
         # Pré-démarrer Ollama en silence pendant que l'utilisateur tape
@@ -1147,20 +1102,74 @@ def main(page: ft.Page):
         page.run_task(_focus_ai)
 
     def _clear_ai_conversation():
-        """Efface l'historique de la conversation IA."""
+        """Efface l'historique de la conversation IA et supprime le fichier .ai_conversation.json."""
         ai_conversation.clear()
         ai_chat_view.controls.clear()
         ai_status_text.value = ""
+        try:
+            if os.path.isfile(ai_history_file_path):
+                os.remove(ai_history_file_path)
+        except Exception:
+            pass
         try:
             page.update()
         except Exception:
             pass
 
-    def _ai_conversation_to_notepad():
-        """Formate la conversation IA et la transfère dans le bloc-notes."""
-        if not ai_conversation:
-            log_to_terminal("[IA] Aucune conversation à transférer", LIGHT_GREY)
+    def _ai_save_history():
+        """Sauvegarde ai_conversation dans .ai_conversation.json."""
+        try:
+            # Ne sauvegarder que role + content (pas les images base64)
+            serializable = [
+                {"role": message["role"], "content": message["content"]}
+                for message in ai_conversation
+                if message.get("role") in ("user", "assistant")
+            ]
+            with open(ai_history_file_path, "w", encoding="utf-8") as history_file:
+                json.dump(serializable, history_file, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _ai_load_history():
+        """Charge .ai_conversation.json dans ai_conversation et reconstruit ai_chat_view."""
+        if not os.path.isfile(ai_history_file_path):
             return
+        try:
+            with open(ai_history_file_path, "r", encoding="utf-8") as history_file:
+                saved_messages = json.load(history_file)
+            for message in saved_messages:
+                role = message.get("role")
+                content = message.get("content", "")
+                if role not in ("user", "assistant"):
+                    continue
+                ai_conversation.append({"role": role, "content": content})
+                is_user = role == "user"
+                bubble_text = ft.Text(
+                    content,
+                    size=CONSTANTS.TERMINAL_FONT_SIZE,
+                    color=BLUE if is_user else GREEN,
+                    font_family="monospace",
+                    selectable=True,
+                    no_wrap=False,
+                )
+                bubble = ft.Container(
+                    content=bubble_text,
+                    bgcolor=DARK if is_user else GREY,
+                    border_radius=6,
+                    padding=ft.Padding(8, 4, 8, 4),
+                    expand=True,
+                )
+                ai_chat_view.controls.append(
+                    ft.Row(
+                        [bubble],
+                        alignment=ft.MainAxisAlignment.END if is_user else ft.MainAxisAlignment.START,
+                    )
+                )
+        except Exception:
+            pass
+
+    def _ai_build_conversation_text():
+        """Retourne la conversation IA formatée en texte brut."""
         lines = []
         for message in ai_conversation:
             role = message.get("role", "")
@@ -1172,11 +1181,35 @@ def main(page: ft.Page):
             else:
                 continue
             lines.append(f"[{prefix}]\n{content}\n")
-        block = "\n".join(lines).strip()
+        return "\n".join(lines).strip()
+
+    def _ai_conversation_to_notepad():
+        """Formate la conversation IA et la transfère dans le bloc-notes."""
+        if not ai_conversation:
+            log_to_terminal("[IA] Aucune conversation à transférer", LIGHT_GREY)
+            return
+        block = _ai_build_conversation_text()
+        # switch_to_note() charge le fichier dans notepad_field.value → on récupère ensuite
+        switch_to_note()
         existing = notepad_field.value or ""
         separator = "\n\n" + "─" * 40 + "\n\n" if existing.strip() else ""
         notepad_field.value = existing + separator + block
-        switch_to_note()
+        try:
+            notepad_field.update()
+        except Exception:
+            pass
+
+    def _copy_ai_conversation():
+        """Copie toute la conversation IA dans le presse-papiers."""
+        if not ai_conversation:
+            log_to_terminal("[IA] Aucune conversation à copier", LIGHT_GREY)
+            return
+        text = _ai_build_conversation_text()
+        try:
+            page.clipboard = text
+            log_to_terminal("[IA] Conversation copiée dans le presse-papiers", BLUE)
+        except Exception as copy_error:
+            log_to_terminal(f"[ERREUR] Copie IA : {copy_error}", RED)
 
     def _ai_stop_model():
         """Libère le modèle chargé en RAM via `ollama stop`."""
@@ -1342,9 +1375,28 @@ def main(page: ft.Page):
                     "openai-whisper n'est pas installé.\n"
                     "Installez-le avec : pip install openai-whisper"
                 )
+            import shutil as _shutil
+            if not _shutil.which("ffmpeg"):
+                _system = platform.system()
+                if _system == "Darwin":
+                    _ffmpeg_hint = "brew install ffmpeg"
+                elif _system == "Windows":
+                    _ffmpeg_hint = "winget install ffmpeg  (ou https://ffmpeg.org/download.html)"
+                else:
+                    _ffmpeg_hint = "sudo apt install ffmpeg  (ou le gestionnaire de paquets de votre distro)"
+                raise RuntimeError(
+                    f"ffmpeg est requis pour transcrire les fichiers audio mais n'est pas installé.\n"
+                    f"Installez-le avec : {_ffmpeg_hint}"
+                )
             whisper_model = _whisper.load_model("base")
-            result = whisper_model.transcribe(file_path)
-            return name, result["text"]
+            try:
+                result = whisper_model.transcribe(file_path)
+            except Exception as whisper_error:
+                raise RuntimeError(f"Échec de la transcription : {whisper_error}")
+            transcribed_text = (result.get("text") or "").strip()
+            if not transcribed_text:
+                raise RuntimeError("La transcription est vide — vérifiez que le fichier audio contient de la parole.")
+            return name, transcribed_text
 
         # ── Documents ────────────────────────────────────────────────
         if ext == ".pdf":
@@ -1372,11 +1424,13 @@ def main(page: ft.Page):
         with open(file_path, "r", encoding="utf-8", errors="replace") as text_file:
             return name, text_file.read()
 
-    async def _ai_pick_file():
-        """Ouvre un sélecteur de fichier pour joindre un document ou fichier audio."""
+    async def _ai_pick_any():
+        """Ouvre un sélecteur de fichier pour joindre une image, un document ou un fichier audio."""
+        _image_exts_pick = {"jpg", "jpeg", "png", "gif", "bmp", "webp"}
         result = await ft.FilePicker().pick_files(
-            dialog_title="Joindre un document ou fichier audio",
+            dialog_title="Joindre une image, un document ou un fichier audio",
             allowed_extensions=[
+                "jpg", "jpeg", "png", "gif", "bmp", "webp",
                 "txt", "md", "py", "js", "ts", "json", "csv", "xml",
                 "html", "htm", "yaml", "yml", "toml", "ini", "cfg", "log",
                 "rst", "pdf", "docx", "doc", "rtf",
@@ -1387,19 +1441,11 @@ def main(page: ft.Page):
         if result:
             for picked_file in result:
                 if picked_file.path:
-                    _ai_attach_document_file(picked_file.path)
-
-    async def _ai_pick_image():
-        """Ouvre un sélecteur de fichier pour choisir une image à joindre."""
-        result = await ft.FilePicker().pick_files(
-            dialog_title="Joindre une image",
-            allowed_extensions=["jpg", "jpeg", "png", "gif", "bmp", "webp"],
-            allow_multiple=True,
-        )
-        if result:
-            for picked_file in result:
-                if picked_file.path:
-                    _ai_attach_image(picked_file.path)
+                    ext = os.path.splitext(picked_file.path)[1].lstrip(".").lower()
+                    if ext in _image_exts_pick:
+                        _ai_attach_image(picked_file.path)
+                    else:
+                        _ai_attach_document_file(picked_file.path)
 
     def ai_send_selected_images(e=None):
         """Joint les fichiers image, document et audio sélectionnés dans la preview à la conversation IA."""
@@ -1554,13 +1600,14 @@ def main(page: ft.Page):
             alignment=ft.MainAxisAlignment.END if is_user else ft.MainAxisAlignment.START,
         )
         ai_chat_view.controls.append(row)
-        page.update()
-        async def _scroll_chat():
+        async def _update_and_scroll():
             try:
+                page.update()
+                await asyncio.sleep(0)
                 await ai_chat_view.scroll_to(offset=-1)
             except Exception:
                 pass
-        page.run_task(_scroll_chat)
+        page.run_task(_update_and_scroll)
         return bubble_text
 
     def _send_ai_message(message_text):
@@ -1602,7 +1649,7 @@ def main(page: ft.Page):
         if found_urls:
             url_blocks = []
             for url in found_urls:
-                page_content = _fetch_url_content(url)
+                page_content = _fetch_url_content(url, max_chars=CONSTANTS.AI_URL_MAX_CHARS)
                 url_blocks.append(f"--- Contenu de {url} ---\n{page_content}\n--- Fin ---")
             enriched_text = message_text + "\n\n" + "\n\n".join(url_blocks)
 
@@ -1631,6 +1678,9 @@ def main(page: ft.Page):
                 # S'assurer qu'Ollama est prêt (serveur + modèle)
                 if not _ensure_ollama_ready(active_model):
                     return
+
+                # Indiquer que le modèle est en cours de chargement
+                loading_ctrl = _ai_add_bubble("assistant", f"⏳ Chargement du modèle {active_model}…")
 
                 # Extraire et injecter le contenu des documents/audio joints
                 if files_to_inject:
@@ -1681,20 +1731,36 @@ def main(page: ft.Page):
                         if token:
                             full_response += token
                             if response_text_ctrl is None:
+                                # Supprimer l'indicateur de chargement au 1er token
+                                if loading_ctrl is not None:
+                                    try:
+                                        ai_chat_view.controls = [
+                                            row for row in ai_chat_view.controls
+                                            if not (
+                                                hasattr(row, "controls") and row.controls
+                                                and hasattr(row.controls[0], "content")
+                                                and row.controls[0].content is loading_ctrl
+                                            )
+                                        ]
+                                        loading_ctrl = None
+                                    except Exception:
+                                        pass
                                 response_text_ctrl = _ai_add_bubble("assistant", token)
                             else:
                                 response_text_ctrl.value = full_response
-                                page.update()
-                                async def _scroll_chat_stream():
+                                async def _stream_update_scroll():
                                     try:
+                                        page.update()
+                                        await asyncio.sleep(0)
                                         await ai_chat_view.scroll_to(offset=-1)
                                     except Exception:
                                         pass
-                                page.run_task(_scroll_chat_stream)
+                                page.run_task(_stream_update_scroll)
                         if chunk.get("done"):
                             break
                 if full_response:
                     ai_conversation.append({"role": "assistant", "content": full_response})
+                    _ai_save_history()
                 else:
                     _ai_add_bubble("assistant", "[Aucune réponse reçue]")
             except Exception as exc:
@@ -1741,12 +1807,9 @@ def main(page: ft.Page):
         ai_mode["value"]   = False
         terminal_output.visible   = True
         terminal_cmd_row.visible  = True
-        notepad_container.visible = False
-        ai_container.visible      = False
+        update_overlay_visibility()
         terminal_output.update()
         terminal_cmd_row.update()
-        notepad_container.update()
-        ai_container.update()
 
         async def _focus_term():
             try:
@@ -1764,31 +1827,10 @@ def main(page: ft.Page):
             return
 
         # ── Commandes internes (slash-commands) ───────────────────────
-        if command_text.lower() == "/note":
-            terminal_cmd_input.value = ""
-            terminal_cmd_input.update()
-            switch_to_note()
-            return
-
         if command_text.lower() == "/option":
             terminal_cmd_input.value = ""
             terminal_cmd_input.update()
             switch_to_options()
-            return
-
-        if command_text.lower() == "/ai":
-            terminal_cmd_input.value = ""
-            terminal_cmd_input.update()
-            switch_to_ai_mode()
-
-            async def _refocus_ai_input():
-                await asyncio.sleep(0.05)
-                try:
-                    await ai_input_field.focus()
-                except Exception:
-                    pass
-
-            page.run_task(_refocus_ai_input)
             return
 
         if not command_history or command_history[0] != command_text:
@@ -2136,6 +2178,11 @@ def main(page: ft.Page):
         """Menu contextuel clic-droit : rotation + liste Ouvrir avec intégrée."""
         image_files = [f for f in files if os.path.splitext(f)[1].lower() in _ROTATABLE_EXTS]
         has_images = bool(image_files)
+        doc_audio_files = [
+            f for f in files
+            if os.path.splitext(f)[1].lower() in (_AI_DOCUMENT_EXTS | _AI_AUDIO_EXTS)
+        ]
+        has_doc_audio = bool(doc_audio_files)
 
         header_label = (
             os.path.basename(files[0]) if len(files) == 1
@@ -2331,6 +2378,30 @@ def main(page: ft.Page):
                         ),
                     ], spacing=6, tight=True),
                     on_click=_send_images_to_ai,
+                    style=ft.ButtonStyle(padding=ft.Padding(8, 4, 8, 4)),
+                )
+            )
+            content_rows.append(ft.Divider(height=8, color=GREY))
+        if has_doc_audio:
+            def _send_docs_to_ai(e=None):
+                _close()
+                for doc_path in doc_audio_files:
+                    _ai_attach_document_file(doc_path)
+                switch_to_ai_mode()
+
+            doc_label = (
+                f"{len(doc_audio_files)} fichier{'s' if len(doc_audio_files) > 1 else ''}"
+            )
+            content_rows.append(
+                ft.TextButton(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.SMART_TOY, size=16, color=VIOLET),
+                        ft.Text(
+                            f"Envoyer à l'IA ({doc_label})",
+                            size=13, color=VIOLET,
+                        ),
+                    ], spacing=6, tight=True),
+                    on_click=_send_docs_to_ai,
                     style=ft.ButtonStyle(padding=ft.Padding(8, 4, 8, 4)),
                 )
             )
@@ -5312,6 +5383,7 @@ def main(page: ft.Page):
     refresh_apps()
     _build_quick_tools()
     _rebuild_favorites_panel()
+    _ai_load_history()
     _initial_drives = _get_removable_drives()
     if _initial_drives:
         removable_drives_state["list"] = _initial_drives
@@ -5319,77 +5391,199 @@ def main(page: ft.Page):
     threading.Thread(target=_poll_removable_drives, daemon=True).start()
 
 
-    # ── Terminal : panneau bas avec hauteur variable ──────────────────
-    _expand_terminal_btn = ft.IconButton(
-        icon=ft.Icons.EXPAND_LESS,
-        tooltip="Agrandir  (Ctrl+T)",
-        icon_color=LIGHT_GREY,
-        icon_size=16,
-    )
-    _terminal_expanded = {"value": False}
-    WDA_HEIGHT = CONSTANTS.WDA_HEIGHT
+    terminal_is_expanded = {"value": False}
 
-    bottom_panel_container = ft.Container(
+    # ── Système d'overlay (IA + Notes simultanés) ──────────────────────────
+    # En-tête du panneau IA (gauche)
+    ai_panel_header = ft.Row([
+        ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=14),
+        ft.Text("IA", color=BLUE, size=11, weight=ft.FontWeight.BOLD),
+        ft.Container(width=4),
+        ai_model_label,
+        ft.Container(width=4),
+        ai_status_text,
+        ai_stop_button,
+        ft.Container(expand=True),
+        ft.IconButton(
+            icon=ft.Icons.COPY_ALL,
+            icon_color=BLUE,
+            icon_size=14,
+            tooltip="Copier la conversation IA",
+            on_click=lambda e: _copy_ai_conversation(),
+        ),
+        ft.IconButton(
+            icon=ft.Icons.SEND_TO_MOBILE,
+            icon_color=VIOLET,
+            icon_size=14,
+            tooltip="Transférer la conversation vers le bloc-notes",
+            on_click=lambda e: _ai_conversation_to_notepad(),
+        ),
+        ft.IconButton(
+            icon=ft.Icons.DELETE_SWEEP,
+            icon_color=LIGHT_GREY,
+            icon_size=14,
+            tooltip="Effacer la conversation IA",
+            on_click=lambda e: _clear_ai_conversation(),
+        ),
+    ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+    # En-tête du panneau Notes (droite) — contient aussi Agrandir et Fermer
+    notepad_panel_header = ft.Row([
+        ft.Icon(ft.Icons.EDIT_NOTE, color=VIOLET, size=14),
+        notepad_header_title,
+        ft.Container(expand=True),
+        ft.IconButton(
+            icon=ft.Icons.SAVE_AS,
+            icon_color=BLUE,
+            icon_size=14,
+            tooltip="Sauvegarder les notes sous…",
+            on_click=lambda e: page.run_task(_notepad_save_as),
+        ),
+        ft.IconButton(
+            icon=ft.Icons.DELETE_SWEEP,
+            icon_color=ORANGE,
+            icon_size=14,
+            tooltip="Effacer tout le bloc-notes",
+            on_click=lambda e: _notepad_clear(),
+        ),
+        ft.Container(width=4),
+        expand_button_overlay,
+        ft.IconButton(
+            icon=ft.Icons.CLOSE,
+            icon_color=RED,
+            icon_size=14,
+            tooltip="Fermer",
+            on_click=lambda e: switch_to_terminal_mode(),
+        ),
+    ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+    overlay_container = ft.Container(
         content=ft.Row([
             ft.Container(
-                content=ft.Row([
-                    ft.Column([
-                        notepad_container,
-                        ai_container,
-                        terminal_output,
-                        terminal_cmd_row,
-                    ], spacing=4, expand=True),
-                    ft.Column([
-                        _expand_terminal_btn,
-                        ft.IconButton(
-                            icon=ft.Icons.COPY_ALL,
-                            tooltip="Copier le terminal",
-                            on_click=lambda e: copy_terminal_to_clipboard(),
-                            icon_color=BLUE,
-                            icon_size=16,
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.CLEAR_ALL,
-                            tooltip="Effacer le terminal",
-                            on_click=clear_terminal,
-                            icon_color=RED,
-                            icon_size=16,
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.SEND,
-                            icon_color=GREEN,
-                            icon_size=16,
-                            tooltip="Envoyer la commande",
-                            on_click=on_terminal_command_submit,
-                        ),
-                    ], alignment=ft.MainAxisAlignment.END, spacing=0),
-                ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+                content=ft.Column([ai_panel_header, ai_container], spacing=4, expand=True),
                 expand=True,
-                border=ft.Border.all(1, GREEN),
-                border_radius=8,
                 bgcolor=DARK,
+                border=ft.Border.all(1, BLUE),
+                border_radius=8,
                 padding=5,
             ),
+            ft.Container(
+                content=ft.Column([notepad_panel_header, notepad_container], spacing=4, expand=True),
+                expand=True,
+                bgcolor=DARK,
+                border=ft.Border.all(1, VIOLET),
+                border_radius=8,
+                padding=5,
+            ),
+        ], expand=True, spacing=8),
+        visible=False,
+        bgcolor=BACKGROUND,
+        padding=4,
+        left=0, right=0, top=0, bottom=0,
+    )
+
+    def update_overlay_visibility():
+        """Affiche ou masque l'overlay (IA à gauche + Notes à droite)."""
+        panels_are_open = ai_mode["value"] or note_mode["value"]
+        overlay_container.visible    = panels_are_open
+        open_panels_button.icon       = ft.Icons.SMART_TOY
+        open_panels_button.icon_color = RED if panels_are_open else BLUE
+        open_panels_button.tooltip    = "Fermer IA & Notes" if panels_are_open else "Ouvrir IA & Bloc-notes"
+
+    open_panels_button = ft.IconButton(
+        icon=ft.Icons.SMART_TOY,
+        tooltip="Ouvrir IA & Bloc-notes",
+        icon_color=BLUE,
+        icon_size=16,
+        on_click=lambda e: toggle_panels_open(),
+    )
+
+    def toggle_panels_open():
+        if ai_mode["value"] or note_mode["value"]:
+            switch_to_terminal_mode()
+        else:
+            note_target_file["path"] = notes_file_path
+            load_notes()
+            note_mode["value"] = True
+            ai_mode["value"]   = True
+            terminal_output.visible  = False
+            terminal_cmd_row.visible = False
+            update_overlay_visibility()
+            terminal_output.update()
+            terminal_cmd_row.update()
+            try:
+                page.update()
+            except Exception:
+                pass
+
+    bottom_panel_container = ft.Container(
+        content=ft.Stack([
             ft.Row([
-                favorites_panel,
-                drives_panel,
-            ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-        ], spacing=8, expand=True),
+                ft.Container(
+                    content=ft.Row([
+                        ft.Column([
+                            terminal_output,
+                            terminal_cmd_row,
+                        ], spacing=4, expand=True),
+                        ft.Column([
+                            expand_button_terminal,
+                            open_panels_button,
+                            ft.IconButton(
+                                icon=ft.Icons.COPY_ALL,
+                                tooltip="Copier le terminal",
+                                on_click=lambda e: copy_terminal_to_clipboard(),
+                                icon_color=BLUE,
+                                icon_size=16,
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.CLEAR_ALL,
+                                tooltip="Effacer le terminal",
+                                on_click=clear_terminal,
+                                icon_color=RED,
+                                icon_size=16,
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.SEND,
+                                icon_color=GREEN,
+                                icon_size=16,
+                                tooltip="Envoyer la commande",
+                                on_click=on_terminal_command_submit,
+                            ),
+                        ], alignment=ft.MainAxisAlignment.END, spacing=0),
+                    ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+                    expand=True,
+                    border=ft.Border.all(1, GREEN),
+                    border_radius=8,
+                    bgcolor=DARK,
+                    padding=5,
+                ),
+                ft.Row([
+                    favorites_panel,
+                    drives_panel,
+                ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+            ], spacing=8, expand=True),
+            overlay_container,
+        ]),
         height=CONSTANTS.TERMINAL_HEIGHT,
+        bgcolor=BACKGROUND,
         bottom=0,
         left=0,
         right=0,
     )
 
     def toggle_terminal_overlay():
-        _terminal_expanded["value"] = not _terminal_expanded["value"]
-        expanded = _terminal_expanded["value"]
-        bottom_panel_container.height = page.window.height - WDA_HEIGHT if expanded else CONSTANTS.TERMINAL_HEIGHT
-        _expand_terminal_btn.icon    = ft.Icons.EXPAND_MORE if expanded else ft.Icons.EXPAND_LESS
-        _expand_terminal_btn.tooltip = "Réduire  (Ctrl+T)"  if expanded else "Agrandir  (Ctrl+T)"
+        terminal_is_expanded["value"] = not terminal_is_expanded["value"]
+        is_expanded = terminal_is_expanded["value"]
+        bottom_panel_container.height = page.window.height - CONSTANTS.WDA_HEIGHT if is_expanded else CONSTANTS.TERMINAL_HEIGHT
+        new_icon    = ft.Icons.EXPAND_MORE if is_expanded else ft.Icons.EXPAND_LESS
+        new_tooltip = "Réduire  (Ctrl+T)" if is_expanded else "Agrandir  (Ctrl+T)"
+        for expand_button in (expand_button_terminal, expand_button_overlay):
+            expand_button.icon    = new_icon
+            expand_button.tooltip = new_tooltip
         page.update()
 
-    _expand_terminal_btn.on_click = lambda e: toggle_terminal_overlay()
+    expand_button_terminal.on_click = lambda e: toggle_terminal_overlay()
+    expand_button_overlay.on_click  = lambda e: toggle_terminal_overlay()
 
 
 # ===================== INTERFACE FLET ===================== #
