@@ -127,6 +127,7 @@ def _fetch_url_content(url, max_chars=12_000):
 #                         CONSTANTS                         #
 #############################################################
 _IMAGE_VIEWER_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"}
+_NOTEPAD_EXTS = {".txt", ".md", ".log", ".ini", ".cfg", ".yaml", ".yml", ".rtf", ".py", ".toml", ".sh", ".bat", ".csv"}
 
 _OS_JUNK = {
     ".ds_store", "thumbs.db", "thumbs.db:encryptable",
@@ -484,7 +485,7 @@ def main(page: ft.Page):
             ai_chat_view,
             ai_attach_row,
             ft.Row(
-                [ai_attach_button, ai_input_field, ai_send_button],
+                [ai_attach_button, ai_input_field],
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
@@ -1098,11 +1099,10 @@ def main(page: ft.Page):
         terminal_output.visible  = False
         terminal_cmd_row.visible = False
         update_overlay_visibility()
-        notepad_header_icon.update()
-        notepad_header_title.update()
-        notepad_field.update()
-        terminal_output.update()
-        terminal_cmd_row.update()
+        try:
+            page.update()
+        except Exception:
+            pass
 
         async def _focus_note():
             try:
@@ -1121,6 +1121,12 @@ def main(page: ft.Page):
         note_target_file["path"] = constants_file_path
         _open_notepad_ui("CONSTANTS.py", ft.Icons.TUNE, ORANGE, "Modifiez les constantes ici…")
         return
+
+    def open_file_in_notepad(file_path):
+        """Ouvre un fichier texte dans le bloc-notes intégré et affiche le panneau."""
+        note_target_file["path"] = file_path
+        title = os.path.basename(file_path)
+        _open_notepad_ui(title, ft.Icons.DESCRIPTION, VIOLET, "")
 
     # ── Intelligence artificielle ──────────────────────────────────────
     def switch_to_ai_mode():
@@ -3063,6 +3069,8 @@ def main(page: ft.Page):
         elif os.path.splitext(file_path)[1].lower() == ".zip":
             log_to_terminal(f"Extraction: {os.path.splitext(os.path.basename(file_path))[0]}", YELLOW)
             extract_zip(file_path)
+        elif os.path.splitext(file_path)[1].lower() in _NOTEPAD_EXTS:
+            open_file_in_notepad(file_path)
         elif os.path.splitext(file_path)[1].lower() in _IMAGE_VIEWER_EXTS:
             open_image_viewer(file_path)
         elif os.path.splitext(file_path)[1].lower() == ".json":
@@ -5481,78 +5489,51 @@ def main(page: ft.Page):
         ft.Container(width=4),
         ai_status_text,
         ai_stop_button,
-        ft.Container(expand=True),
-        ft.IconButton(
-            icon=ft.Icons.COPY_ALL,
-            icon_color=BLUE,
-            icon_size=14,
-            tooltip="Copier la conversation IA",
-            on_click=lambda e: _copy_ai_conversation(),
-        ),
-        ft.IconButton(
-            icon=ft.Icons.SEND_TO_MOBILE,
-            icon_color=VIOLET,
-            icon_size=14,
-            tooltip="Transférer la conversation vers le bloc-notes",
-            on_click=lambda e: _ai_conversation_to_notepad(),
-        ),
-        ft.IconButton(
-            icon=ft.Icons.DELETE_SWEEP,
-            icon_color=LIGHT_GREY,
-            icon_size=14,
-            tooltip="Effacer la conversation IA",
-            on_click=lambda e: _clear_ai_conversation(),
-        ),
     ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # En-tête du panneau Notes (droite) — contient aussi Agrandir et Fermer
+    # En-tête du panneau Notes (droite) — titre uniquement
     notepad_panel_header = ft.Row([
         notepad_header_icon,
         notepad_header_title,
-        ft.Container(expand=True),
-        ft.IconButton(
-            icon=ft.Icons.VISIBILITY,
-            icon_color=LIGHT_GREY,
-            icon_size=14,
-            tooltip="Prévisualiser en Markdown",
-            on_click=lambda e: _notepad_toggle_preview(),
-        ),
-        ft.IconButton(
-            icon=ft.Icons.OPEN_IN_NEW,
-            icon_color=LIGHT_GREY,
-            icon_size=14,
-            tooltip="Ouvrir dans l'application par défaut",
-            on_click=lambda e: _notepad_open_in_system(),
-        ),
-        ft.IconButton(
-            icon=ft.Icons.SAVE_AS,
-            icon_color=BLUE,
-            icon_size=14,
-            tooltip="Sauvegarder les notes sous…",
-            on_click=lambda e: page.run_task(_notepad_save_as),
-        ),
-        ft.IconButton(
-            icon=ft.Icons.DELETE_SWEEP,
-            icon_color=ORANGE,
-            icon_size=14,
-            tooltip="Effacer tout le bloc-notes",
-            on_click=lambda e: _notepad_clear(),
-        ),
-        ft.Container(width=4),
-        expand_button_overlay,
-        ft.IconButton(
-            icon=ft.Icons.CLOSE,
-            icon_color=RED,
-            icon_size=14,
-            tooltip="Fermer",
-            on_click=lambda e: switch_to_terminal_mode(),
-        ),
-    ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     overlay_container = ft.Container(
         content=ft.Row([
             ft.Container(
-                content=ft.Column([ai_panel_header, ai_container], spacing=4, expand=True),
+                content=ft.Row([
+                    ft.Column([ai_panel_header, ai_container], spacing=4, expand=True),
+                    ft.Column([
+                        expand_button_overlay,
+                        ft.IconButton(
+                            icon=ft.Icons.CLOSE,
+                            icon_color=RED,
+                            icon_size=16,
+                            tooltip="Fermer IA & Notes",
+                            on_click=lambda e: switch_to_terminal_mode(),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.COPY_ALL,
+                            icon_color=BLUE,
+                            icon_size=16,
+                            tooltip="Copier la conversation IA",
+                            on_click=lambda e: _copy_ai_conversation(),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.SEND_TO_MOBILE,
+                            icon_color=VIOLET,
+                            icon_size=16,
+                            tooltip="Transférer la conversation vers le bloc-notes",
+                            on_click=lambda e: _ai_conversation_to_notepad(),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.DELETE_SWEEP,
+                            icon_color=LIGHT_GREY,
+                            icon_size=16,
+                            tooltip="Effacer la conversation IA",
+                            on_click=lambda e: _clear_ai_conversation(),
+                        ),
+                    ], alignment=ft.MainAxisAlignment.END, spacing=0),
+                ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
                 expand=True,
                 bgcolor=DARK,
                 border=ft.Border.all(1, BLUE),
@@ -5560,7 +5541,46 @@ def main(page: ft.Page):
                 padding=5,
             ),
             ft.Container(
-                content=ft.Column([notepad_panel_header, notepad_container], spacing=4, expand=True),
+                content=ft.Row([
+                    ft.Column([notepad_panel_header, notepad_container], spacing=4, expand=True),
+                    ft.Column([
+                        ft.IconButton(
+                            icon=ft.Icons.HOME,
+                            icon_color=VIOLET,
+                            icon_size=16,
+                            tooltip="Charger la note par défaut (.notes.txt)",
+                            on_click=lambda e: switch_to_note(),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.VISIBILITY,
+                            icon_color=LIGHT_GREY,
+                            icon_size=16,
+                            tooltip="Prévisualiser en Markdown",
+                            on_click=lambda e: _notepad_toggle_preview(),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.OPEN_IN_NEW,
+                            icon_color=LIGHT_GREY,
+                            icon_size=16,
+                            tooltip="Ouvrir dans l'application par défaut",
+                            on_click=lambda e: _notepad_open_in_system(),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.SAVE_AS,
+                            icon_color=BLUE,
+                            icon_size=16,
+                            tooltip="Sauvegarder les notes sous…",
+                            on_click=lambda e: page.run_task(_notepad_save_as),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.DELETE_SWEEP,
+                            icon_color=ORANGE,
+                            icon_size=16,
+                            tooltip="Effacer tout le bloc-notes",
+                            on_click=lambda e: _notepad_clear(),
+                        ),
+                    ], alignment=ft.MainAxisAlignment.END, spacing=0),
+                ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
                 expand=True,
                 bgcolor=DARK,
                 border=ft.Border.all(1, VIOLET),
@@ -5570,7 +5590,6 @@ def main(page: ft.Page):
         ], expand=True, spacing=8),
         visible=False,
         bgcolor=BACKGROUND,
-        padding=4,
         left=0, right=0, top=0, bottom=0,
     )
 
@@ -5673,6 +5692,11 @@ def main(page: ft.Page):
             expand_button.icon    = new_icon
             expand_button.tooltip = new_tooltip
         page.update()
+        # Réaffirmer la visibilité de l'overlay après le page.update() pour éviter
+        # que Flet ne la réinitialise à sa valeur initiale (False) lors du re-render.
+        if ai_mode["value"] or note_mode["value"]:
+            overlay_container.visible = True
+            overlay_container.update()
 
     expand_button_terminal.on_click = lambda e: toggle_terminal_overlay()
     expand_button_overlay.on_click  = lambda e: toggle_terminal_overlay()
