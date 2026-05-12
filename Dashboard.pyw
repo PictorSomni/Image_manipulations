@@ -397,6 +397,19 @@ def main(page: ft.Page):
         hint_text="Écrivez vos notes ici…",
         hint_style=ft.TextStyle(color=LIGHT_GREY, italic=True),
     )
+    notepad_is_preview       = {"value": False}
+    notepad_markdown_preview = ft.Markdown(
+        "",
+        selectable=True,
+        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+        code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
+        expand=True,
+    )
+    notepad_preview_scroll = ft.ListView(
+        controls=[notepad_markdown_preview],
+        expand=True,
+        visible=False,
+    )
 
     notepad_header_icon  = ft.Icon(ft.Icons.EDIT_NOTE, color=VIOLET, size=16)
     notepad_header_title = ft.Text("Notes", color=VIOLET, size=12, weight=ft.FontWeight.BOLD, expand=True)
@@ -419,6 +432,7 @@ def main(page: ft.Page):
     notepad_container = ft.Container(
         content=ft.Column([
             notepad_field,
+            notepad_preview_scroll,
         ], spacing=4, expand=True),
         expand=True,
         visible=True,
@@ -988,6 +1002,42 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+    def _notepad_toggle_preview():
+        """Bascule entre édition et prévisualisation Markdown du bloc-notes."""
+        notepad_is_preview["value"] = not notepad_is_preview["value"]
+        is_preview = notepad_is_preview["value"]
+        if is_preview:
+            notepad_markdown_preview.value = notepad_field.value or ""
+            notepad_preview_scroll.visible = True
+            notepad_field.visible = False
+        else:
+            notepad_field.visible = True
+            notepad_preview_scroll.visible = False
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    def _notepad_open_in_system():
+        """Ouvre le fichier de notes courant dans l'application par défaut du système."""
+        file_path = note_target_file["path"]
+        if not os.path.isfile(file_path):
+            try:
+                with open(file_path, "w", encoding="utf-8") as _f:
+                    _f.write(notepad_field.value or "")
+            except Exception as save_error:
+                log_to_terminal(f"[ERREUR] Impossible de créer le fichier : {save_error}", RED)
+                return
+        try:
+            if platform.system() == "Darwin":
+                subprocess.Popen(["open", file_path])
+            elif platform.system() == "Windows":
+                os.startfile(file_path)
+            else:
+                subprocess.Popen(["xdg-open", file_path])
+        except Exception as open_error:
+            log_to_terminal(f"[ERREUR] Ouverture du fichier : {open_error}", RED)
+
     def save_notes():
         """Sauvegarde le contenu du bloc-notes dans le fichier cible."""
         is_constants = (note_target_file["path"] == constants_file_path)
@@ -1016,14 +1066,24 @@ def main(page: ft.Page):
 
     def load_notes():
         """Charge le contenu du bloc-notes depuis le fichier cible."""
+        # Toujours revenir en mode édition lors du chargement d'un nouveau fichier
+        if notepad_is_preview["value"]:
+            notepad_is_preview["value"] = False
+            notepad_field.visible = True
+            notepad_preview_scroll.visible = False
         try:
             if os.path.exists(note_target_file["path"]):
                 with open(note_target_file["path"], "r", encoding="utf-8") as _f:
-                    notepad_field.value = _f.read()
+                    content = _f.read()
             else:
-                notepad_field.value = ""
+                content = ""
         except Exception:
-            notepad_field.value = ""
+            content = ""
+        notepad_field.value = content
+        if notepad_is_preview["value"]:
+            notepad_markdown_preview.value = content
+            notepad_preview_scroll.visible = True
+            notepad_field.visible = False
 
     def _open_notepad_ui(title, icon, color, hint):
         """Affiche la zone bloc-notes (+ IA) avec le titre et la couleur donnés."""
@@ -1144,14 +1204,23 @@ def main(page: ft.Page):
                     continue
                 ai_conversation.append({"role": role, "content": content})
                 is_user = role == "user"
-                bubble_text = ft.Text(
-                    content,
-                    size=CONSTANTS.TERMINAL_FONT_SIZE,
-                    color=BLUE if is_user else GREEN,
-                    font_family="monospace",
-                    selectable=True,
-                    no_wrap=False,
-                )
+                if is_user:
+                    bubble_text = ft.Text(
+                        content,
+                        size=CONSTANTS.TERMINAL_FONT_SIZE,
+                        color=BLUE,
+                        font_family="monospace",
+                        selectable=True,
+                        no_wrap=False,
+                    )
+                else:
+                    bubble_text = ft.Markdown(
+                        content,
+                        selectable=True,
+                        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                        code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
+                        expand=True,
+                    )
                 bubble = ft.Container(
                     content=bubble_text,
                     bgcolor=DARK if is_user else GREY,
@@ -1578,16 +1647,25 @@ def main(page: ft.Page):
         return True
 
     def _ai_add_bubble(role, text):
-        """Ajoute un message dans le panneau IA et retourne le contrôle Text (pour le streaming)."""
+        """Ajoute un message dans le panneau IA et retourne le contrôle (pour le streaming)."""
         is_user = role == "user"
-        bubble_text = ft.Text(
-            text,
-            size=CONSTANTS.TERMINAL_FONT_SIZE,
-            color=BLUE if is_user else GREEN,
-            font_family="monospace",
-            selectable=True,
-            no_wrap=False,
-        )
+        if is_user:
+            bubble_text = ft.Text(
+                text,
+                size=CONSTANTS.TERMINAL_FONT_SIZE,
+                color=BLUE,
+                font_family="monospace",
+                selectable=True,
+                no_wrap=False,
+            )
+        else:
+            bubble_text = ft.Markdown(
+                text,
+                selectable=True,
+                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+                code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
+                expand=True,
+            )
         bubble = ft.Container(
             content=bubble_text,
             bgcolor=DARK if is_user else GREY,
@@ -5429,9 +5507,23 @@ def main(page: ft.Page):
 
     # En-tête du panneau Notes (droite) — contient aussi Agrandir et Fermer
     notepad_panel_header = ft.Row([
-        ft.Icon(ft.Icons.EDIT_NOTE, color=VIOLET, size=14),
+        notepad_header_icon,
         notepad_header_title,
         ft.Container(expand=True),
+        ft.IconButton(
+            icon=ft.Icons.VISIBILITY,
+            icon_color=LIGHT_GREY,
+            icon_size=14,
+            tooltip="Prévisualiser en Markdown",
+            on_click=lambda e: _notepad_toggle_preview(),
+        ),
+        ft.IconButton(
+            icon=ft.Icons.OPEN_IN_NEW,
+            icon_color=LIGHT_GREY,
+            icon_size=14,
+            tooltip="Ouvrir dans l'application par défaut",
+            on_click=lambda e: _notepad_open_in_system(),
+        ),
         ft.IconButton(
             icon=ft.Icons.SAVE_AS,
             icon_color=BLUE,
