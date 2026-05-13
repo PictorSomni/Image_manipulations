@@ -2736,14 +2736,61 @@ def main(page: ft.Page):
 
 
 
-        # ── PageView ──────────────────────────────────────────────────────
-        images_page_view = ft.PageView(
-            controls=_build_page_containers(),
-            expand=True,
-            horizontal=True,
-            selected_index=initial_index,
-            on_change=on_page_change,
-        )
+        # ── Viewer principal ──────────────────────────────────────────────
+        _HAS_PAGE_VIEW = hasattr(ft, "PageView")
+        if _HAS_PAGE_VIEW:
+            images_page_view = ft.PageView(
+                controls=_build_page_containers(),
+                expand=True,
+                horizontal=True,
+                selected_index=initial_index,
+                on_change=on_page_change,
+            )
+        else:
+            # Fallback : une seule image visible à la fois (navigation par boutons/clavier)
+            _fb_win_w = page.window.width or 1280
+            _fb_win_h = page.window.height or 800
+            _fb_img_ctrl = ft.Image(
+                src=_blank_gif,
+                width=_fb_win_w,
+                height=_fb_win_h,
+                fit=ft.BoxFit.CONTAIN,
+                gapless_playback=True,
+                error_content=ft.Container(
+                    content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=ft.Colors.WHITE54, size=64),
+                    alignment=ft.Alignment(0, 0),
+                ),
+            )
+            page_image_controls[initial_index] = _fb_img_ctrl
+            _fb_iv = ft.InteractiveViewer(
+                key="iv_fb",
+                content=_fb_img_ctrl,
+                min_scale=0.5,
+                max_scale=10.0,
+                pan_enabled=True,
+                scale_enabled=True,
+                width=_fb_win_w,
+                height=_fb_win_h,
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            )
+            images_page_view = ft.Container(
+                content=_fb_iv,
+                expand=True,
+                alignment=ft.Alignment(0, 0),
+                bgcolor="#1a1a1a",
+            )
+
+            def _fb_navigate(new_idx: int) -> None:
+                """Met à jour l'image affichée en mode fallback (sans PageView)."""
+                old_idx = state["index"]
+                path = image_paths[new_idx] if image_paths else ""
+                normalized = os.path.normpath(path) if path else ""
+                cached = _image_cache_busters.get(normalized) if normalized else None
+                _fb_img_ctrl.src = cached if cached else path
+                page_image_controls.clear()
+                page_image_controls[new_idx] = _fb_img_ctrl
+                pages_loaded.discard(old_idx)
+                pages_loaded.add(new_idx)
 
 
 
@@ -2751,18 +2798,28 @@ def main(page: ft.Page):
         async def navigate_prev(e) -> None:
             if not image_paths or state["index"] <= 0:
                 return
-            await images_page_view.previous_page(
-                animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
-                animation_duration=ft.Duration(milliseconds=300),
-            )
+            if _HAS_PAGE_VIEW:
+                await images_page_view.previous_page(  # type: ignore[union-attr]
+                    animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
+                    animation_duration=ft.Duration(milliseconds=300),
+                )
+            else:
+                new_idx = state["index"] - 1
+                _fb_navigate(new_idx)
+                _update_overlay_bar(new_idx)
 
         async def navigate_next(e) -> None:
             if not image_paths or state["index"] >= len(image_paths) - 1:
                 return
-            await images_page_view.next_page(
-                animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
-                animation_duration=ft.Duration(milliseconds=300),
-            )
+            if _HAS_PAGE_VIEW:
+                await images_page_view.next_page(  # type: ignore[union-attr]
+                    animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
+                    animation_duration=ft.Duration(milliseconds=300),
+                )
+            else:
+                new_idx = state["index"] + 1
+                _fb_navigate(new_idx)
+                _update_overlay_bar(new_idx)
 
 
 
@@ -2800,10 +2857,11 @@ def main(page: ft.Page):
                     log_to_terminal(f"[ERREUR] {err}", RED)
                     return
 
-                # Retirer l'image de la liste et du PageView
+                # Retirer l'image de la liste et du viewer
                 cur_idx = state["index"]
                 image_paths.pop(cur_idx)
-                images_page_view.controls.pop(cur_idx)
+                if _HAS_PAGE_VIEW:
+                    images_page_view.controls.pop(cur_idx)
                 page_image_controls.pop(cur_idx, None)
                 pages_loaded.discard(cur_idx)
 
@@ -2832,7 +2890,10 @@ def main(page: ft.Page):
                 # Choisir le nouvel index : rester sur la même position
                 # (ou reculer d'un cran si on était à la fin)
                 new_idx = min(cur_idx, len(image_paths) - 1)
-                images_page_view.selected_index = new_idx
+                if _HAS_PAGE_VIEW:
+                    images_page_view.selected_index = new_idx
+                else:
+                    _fb_navigate(new_idx)
                 _update_overlay_bar(new_idx)
                 _load_pages_around(new_idx)
                 page.update()
@@ -3017,7 +3078,7 @@ def main(page: ft.Page):
         )
 
         preview_overlay = ft.Stack([
-            # PageView swipeable (fond plein)
+            # Viewer principal (fond plein)
             images_page_view,
             # Titre/compteur centré en haut
             ft.Container(
