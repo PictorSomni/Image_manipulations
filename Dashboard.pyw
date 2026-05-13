@@ -1808,8 +1808,7 @@ def main(page: ft.Page):
         ai_stop_button.visible = True
         ai_status_text.value = "⏳ En cours…"
         try:
-            ai_stop_button.update()
-            ai_status_text.update()
+            page.update()
         except Exception:
             pass
 
@@ -5694,10 +5693,19 @@ def main(page: ft.Page):
         ai_clear_button,
     ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # En-tête du panneau Notes (droite) — titre uniquement
+    # En-tête du panneau Notes (droite)
+    notepad_clear_button = ft.IconButton(
+        icon=ft.Icons.DELETE_SWEEP,
+        icon_color=ORANGE,
+        icon_size=16,
+        tooltip="Effacer tout le bloc-notes",
+        on_click=lambda e: _notepad_clear(),
+    )
+
     notepad_panel_header = ft.Row([
         notepad_header_icon,
         notepad_header_title,
+        notepad_clear_button,
     ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     overlay_container = ft.Container(
@@ -5767,13 +5775,6 @@ def main(page: ft.Page):
                             icon_size=16,
                             tooltip="Sauvegarder les notes sous…",
                             on_click=lambda e: page.run_task(_notepad_save_as),
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.DELETE_SWEEP,
-                            icon_color=ORANGE,
-                            icon_size=16,
-                            tooltip="Effacer tout le bloc-notes",
-                            on_click=lambda e: _notepad_clear(),
                         ),
                     ], alignment=ft.MainAxisAlignment.END, spacing=0),
                 ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
