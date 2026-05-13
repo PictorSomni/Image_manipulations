@@ -41,9 +41,11 @@ import flet as ft
 #                         CONSTANTS                         #
 #############################################################
 def _resolve_volume_path(p: Path) -> Path:
-    """Sur macOS, si /Volumes/NOM n'existe pas, tente /Volumes/NOM-1, -2…
-    (volume remonté avec un suffixe par macOS lors d'un double montage)."""
-    if sys.platform != "darwin" or p.is_dir():
+    """Sur macOS, résout le point de montage réel d'un volume réseau en lisant
+    la table des montages (commande `mount`) — sans jamais accéder au filesystem,
+    ce qui évite de déclencher la dialog d'authentification macOS.
+    Gère le suffixe -1, -2… ajouté par macOS lors d'un double montage."""
+    if sys.platform != "darwin":
         return p
     p_str = str(p)
     if not p_str.startswith("/Volumes/"):
@@ -51,10 +53,24 @@ def _resolve_volume_path(p: Path) -> Path:
     rest = p_str[len("/Volumes/"):]
     vol_name = rest.split("/")[0]
     sub_path = rest[len(vol_name):]
-    for suffix in ["-1", "-2", "-3", "-4"]:
-        candidate = Path(f"/Volumes/{vol_name}{suffix}{sub_path}")
-        if candidate.is_dir():
-            return candidate
+    try:
+        import re as _re
+        mount_out = subprocess.run(
+            ["mount"], capture_output=True, text=True, timeout=3
+        ).stdout
+        for line in mount_out.splitlines():
+            # Ligne type : //user@host/share on /Volumes/NOM (smbfs, ...)
+            match = _re.match(r'^\S+\s+on\s+(/Volumes/[^(]+?)\s*\(', line)
+            if not match:
+                continue
+            mount_point = match.group(1).rstrip()
+            mp_vol = mount_point[len("/Volumes/"):]
+            if mp_vol == vol_name or _re.match(
+                rf'^{_re.escape(vol_name)}-\d+$', mp_vol
+            ):
+                return Path(mount_point + sub_path)
+    except Exception:
+        pass
     return p
 
 DEFAULT_SOURCE = Path.home() / "Downloads"
@@ -98,9 +114,12 @@ def main(page: ft.Page):
     page.vertical_alignment = ft.MainAxisAlignment.START
 
     source_label = ft.Text(str(DEFAULT_SOURCE), color=GREEN, size=12)
+    # Sur macOS, ne pas appeler .exists() ici — déclenche la dialog auth sur les partages réseau.
+    # La couleur sera mise à jour au moment de la copie.
+    _dest_color = LIGHT_GREY if sys.platform == "darwin" else (GREEN if DEFAULT_DEST.exists() else RED)
     dest_label   = ft.Text(
         str(DEFAULT_DEST),
-        color=GREEN if DEFAULT_DEST.exists() else RED,
+        color=_dest_color,
         size=12,
     )
     status_text  = ft.Text(
