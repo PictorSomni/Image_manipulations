@@ -32,6 +32,7 @@ from shutil import copy2
 from datetime import datetime
 import sys
 import os
+import subprocess
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 import flet as ft
@@ -117,6 +118,15 @@ def main(page: ft.Page):
                 return sequence_folder
             sequence_number += 1
 
+    def _next_sequence_path(base_path):
+        """Détermine le prochain chemin de séquence sans le créer (lecture seule)."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        date_folder = Path(base_path) / today
+        seq = 1
+        while (date_folder / f"{seq:02d}").exists():
+            seq += 1
+        return date_folder / f"{seq:02d}"
+
     async def run_copy(e):
         try:
             launch_button.disabled = True
@@ -140,18 +150,42 @@ def main(page: ft.Page):
                 launch_button.update()
                 return
 
-            dest_folder = get_next_sequence_folder(DEFAULT_DEST)
             progress_bar.visible = True
             progress_bar.value = 0
             progress_bar.update()
 
             total = len(source_files)
-            for index, source_file in enumerate(source_files):
-                copy2(source_file, dest_folder / source_file.name)
-                progress_bar.value = (index + 1) / total
-                status_text.value = f"Copie : {index + 1}/{total} — {source_file.name}"
-                progress_bar.update()
+            try:
+                dest_folder = get_next_sequence_folder(DEFAULT_DEST)
+                for index, source_file in enumerate(source_files):
+                    copy2(source_file, dest_folder / source_file.name)
+                    progress_bar.value = (index + 1) / total
+                    status_text.value = f"Copie : {index + 1}/{total} — {source_file.name}"
+                    progress_bar.update()
+                    status_text.update()
+            except PermissionError:
+                if sys.platform != "darwin":
+                    raise
+                status_text.value = "Droits insuffisants — authentification requise..."
+                status_text.color = ORANGE
                 status_text.update()
+                dest_folder = _next_sequence_path(DEFAULT_DEST)
+                def _q(p):
+                    return "'" + str(p).replace("'", "'\\''")+"'"
+                shell_script = " && ".join(
+                    [f"mkdir -p {_q(dest_folder)}"] +
+                    [f"cp {_q(f)} {_q(dest_folder / f.name)}" for f in source_files]
+                )
+                as_script = shell_script.replace("\\", "\\\\").replace('"', '\\"')
+                proc = subprocess.run(
+                    ["osascript", "-e",
+                     f'do shell script "{as_script}" with administrator privileges'],
+                    capture_output=True, text=True,
+                )
+                if proc.returncode != 0:
+                    raise PermissionError(proc.stderr.strip() or "Accès refusé au dossier TEMP")
+                progress_bar.value = 1.0
+                progress_bar.update()
 
             progress_bar.visible = False
             progress_bar.update()

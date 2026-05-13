@@ -117,6 +117,19 @@ CLEAN_DAYS = 60   # Fichiers plus vieux que N jours sont supprimés
 # ─── Chemins réseau kiosks ───────────────────────────────────────────────────────────────
 # Utilisés par Kiosk gauche.py, Kiosk droite.py et Nettoyer anciens fichiers.py.
 import platform as _platform
+
+def _resolve_macos_volume(base_name: str) -> str:
+    """Résout le chemin réel d'un volume macOS monté dans /Volumes/.
+    macOS peut ajouter un suffixe '-1', '-2', etc. si le nom est déjà pris.
+    Retourne le premier chemin existant, ou le nom de base si aucun n'est monté."""
+    import os as _os
+    candidates = [base_name] + [f"{base_name}-{i}" for i in range(1, 5)]
+    for name in candidates:
+        path = f"/Volumes/{name}"
+        if _os.path.ismount(path):
+            return path
+    return f"/Volumes/{base_name}"
+
 if _platform.system() == "Windows":
     KIOSK_GAUCHE_SRC  = r"\\studioc-kiosk1\kiosk-data\it-HotFolder"
     KIOSK_GAUCHE_DEST = r"\\Diskstation\travaux en cours\z2026\kiosk\KIOSK GAUCHE"
@@ -130,16 +143,18 @@ if _platform.system() == "Windows":
         r"\\diskstation\travaux en cours\Z2026\TEMP",
     ]
 else:
-    KIOSK_GAUCHE_SRC  = "/Volumes/kiosk1-hotfolder"
-    KIOSK_GAUCHE_DEST = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE"
-    KIOSK_DROITE_SRC  = "/Volumes/kiosk2-hotfolder"
-    KIOSK_DROITE_DEST = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE"
+    _travaux = _resolve_macos_volume("TRAVAUX EN COURS")
+    KIOSK_GAUCHE_SRC  = "/Volumes/kiosk-data/it-HotFolder"
+    KIOSK_GAUCHE_DEST = f"{_travaux}/Z2026/KIOSK/KIOSK GAUCHE"
+    KIOSK_DROITE_SRC  = "/Volumes/kiosk-data-1/it-HotFolder"
+    KIOSK_DROITE_DEST = f"{_travaux}/Z2026/KIOSK/KIOSK DROITE"
+    TEMP_FOLDER       = f"{_travaux}/Z2026/TEMP"
     CLEAN_FOLDERS = [
-        "/Volumes/kiosk1-hotfolder",
-        "/Volumes/kiosk2-hotfolder",
-        "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE",
-        "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE",
-        "/Volumes/TRAVAUX EN COURS/Z2026/TEMP",
+        "/Volumes/kiosk-data-1/it-HotFolder",
+        "/Volumes/kiosk-data-2/it-HotFolder",
+        f"{_travaux}/Z2026/KIOSK/KIOSK GAUCHE",
+        f"{_travaux}/Z2026/KIOSK/KIOSK DROITE",
+        f"{_travaux}/Z2026/TEMP",
     ]
 del _platform
 
