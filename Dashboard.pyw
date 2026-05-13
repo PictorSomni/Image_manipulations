@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.4.6"
+__version__ = "2.4.7"
 
 
 
@@ -1143,6 +1143,22 @@ def main(page: ft.Page):
         note_target_file["path"] = file_path
         title = os.path.basename(file_path)
         _open_notepad_ui(title, ft.Icons.DESCRIPTION, VIOLET, "")
+
+    def _create_and_open_info_txt(e=None):
+        """Crée INFO.txt dans le dossier courant (si inexistant) et l'ouvre dans le bloc-notes."""
+        folder = current_browse_folder["path"] or selected_folder.get("path")
+        if not folder or not os.path.isdir(folder):
+            log_to_terminal("[INFO] Aucun dossier sélectionné", LIGHT_GREY)
+            return
+        file_path = os.path.join(folder, "INFO.txt")
+        if not os.path.exists(file_path):
+            try:
+                with open(file_path, "w", encoding="utf-8") as _f:
+                    pass
+            except Exception as err:
+                log_to_terminal(f"[ERREUR] Création INFO.txt : {err}", RED)
+                return
+        open_file_in_notepad(file_path)
 
     # ── Intelligence artificielle ──────────────────────────────────────
     def switch_to_ai_mode():
@@ -5272,6 +5288,12 @@ def main(page: ft.Page):
             #     "Envoyer à l'IA",
             #     ai_send_selected_images,
             # ),
+            _round_button(
+                ft.Icons.NOTE_ADD,
+                YELLOW,
+                "Créer INFO.txt dans le dossier courant",
+                _create_and_open_info_txt,
+            ),
         ]
 
 

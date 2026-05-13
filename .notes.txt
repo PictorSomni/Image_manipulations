@@ -1,3 +1,1 @@
-Refaire 4 photos et cadres pour Libert
 Dieudonné - projet fp fête laique a envoyer
-Rajouter les dimensions des images de Recadrage dans CONSTANT pour adapter à chaque machine

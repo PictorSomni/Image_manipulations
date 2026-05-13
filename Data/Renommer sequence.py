@@ -15,7 +15,7 @@ Variables d'environnement :
 Dépendances : modules standard (os, pathlib, sys)
 """
 
-__version__ = "2.4.6"
+__version__ = "2.4.7"
 
 #############################################################
 #                          IMPORTS                          #
