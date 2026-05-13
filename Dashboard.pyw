@@ -1720,6 +1720,7 @@ def main(page: ft.Page):
         ai_stop_button.visible = True
         ai_status_text.value = "⏳ En cours…"
         try:
+            ai_stop_button.update()
             ai_status_text.update()
         except Exception:
             pass
@@ -1780,7 +1781,7 @@ def main(page: ft.Page):
                     return
 
                 # Indiquer que le modèle est en cours de chargement
-                loading_ctrl = _ai_add_bubble("assistant", f"⏳ Chargement du modèle {active_model}…")
+                loading_ctrl = _ai_add_bubble("assistant", "⏳ Réflexion en cours…")
 
                 # Extraire et injecter le contenu des documents/audio joints
                 if files_to_inject:
