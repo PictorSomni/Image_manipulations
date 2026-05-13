@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.4.7"
+__version__ = "2.4.8"
 
 
 # ─── Palette de couleurs ───────────────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ FORMATS = { # (largeur_mm, hauteur_mm) - en portrait
 
 # ─── Interface (Dashboard) ───────────────────────────────────────────────────────────────
 WINDOW_WIDTH                = 1280
-WINDOW_HEIGHT               = 940
+WINDOW_HEIGHT               = 1024
 MAXIMIZED                         =  False 
 TERMINAL_FONT_SIZE       = 16   # Taille du texte dans le terminal, le bloc-notes et les options
 TERMINAL_HEIGHT          = 170  # Hauteur du panneau terminal compact (px) - toujours visible
@@ -77,6 +77,7 @@ WDA_HEIGHT               = 100   # Hauteur de la WindowDragArea (barre de titre 
 # ─── Redimensionnement ───────────────────────────────────────────────────────────────
 RESIZE_DEFAULT = 640   # Dimension max par défaut - y compris pour remerciements
 RESIZE_QUALITY = 80    # Qualité JPEG des miniatures (0-100)
+DASHBOARD_THUMB_SIZE = 50  # Taille des miniatures dans le panneau de prévisualisation (px)
 WATERMARK_ALPHA   = 0.35   # Opacité du filigrane (0.0 = invisible, 1.0 = opaque)
 
 

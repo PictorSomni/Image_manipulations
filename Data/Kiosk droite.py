@@ -15,7 +15,7 @@ Chemins :
 Dépendances : modules standard (sys, re, collections, pathlib, platform, shutil)
 """
 
-__version__ = "2.4.7"
+__version__ = "2.4.8"
 
 #############################################################
 #                          IMPORTS                          #

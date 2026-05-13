@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.4.7"
+__version__ = "2.4.8"
 
 
 
@@ -332,6 +332,8 @@ def main(page: ft.Page):
     _image_last_mtime = {}     # {normpath: mtime} pour détecter les modifications externes
     _checkbox_refs = {}        # {file_path: ft.Checkbox} — refs aux checkboxes rendues (mise à jour in-place)
     _rot_temp_dir = tempfile.mkdtemp(prefix="dashboard_rot_")
+    _thumb_cache = {}          # {normpath: thumb_path} — miniatures PIL générées (chargement asynchrone)
+    _pending_thumb_refs = {}   # {normpath: (ft.Container, file_path, icon, icon_color)} — widgets en attente
     PAGE_SIZE = 100             # Nb d'éléments max par page dans la prévisualisation
     preview_page = {"value": 0}  # Page courante (0-indexé)
     all_entries_data = {"list": [], "error": ""}  # Données brutes du dernier scan
@@ -348,6 +350,38 @@ def main(page: ft.Page):
     ollama_process     = {"proc": None}  # Process ollama serve lancé par nous
     ai_pending_images  = []              # Images jointes en attente [{path, b64}]
     ai_pending_files   = []              # Documents/audio joints en attente [{path, type}]
+
+
+
+    def _generate_thumbnail(file_path):
+        """
+        Génère une miniature 100×100 px avec PIL et la sauve dans le dossier temp.
+        Retourne le chemin de la miniature, ou None en cas d'échec.
+        Si PIL n'est pas disponible, retourne le chemin original.
+        """
+        if _PILImage is None:
+            return file_path
+        try:
+            mtime = os.path.getmtime(file_path)
+        except OSError:
+            return None
+        cache_key = hashlib.md5(f"{os.path.normpath(file_path)}:{mtime}".encode()).hexdigest()
+        thumb_path = os.path.join(_rot_temp_dir, f"thumb_{cache_key}.jpg")
+        if os.path.exists(thumb_path):
+            return thumb_path
+        try:
+            with _PILImage.open(file_path) as img:
+                img = img.convert("RGB")
+                w, h = img.size
+                min_dim = min(w, h)
+                left = (w - min_dim) // 2
+                top = (h - min_dim) // 2
+                img = img.crop((left, top, left + min_dim, top + min_dim))
+                img = img.resize((CONSTANTS.DASHBOARD_THUMB_SIZE, CONSTANTS.DASHBOARD_THUMB_SIZE), _PILImage.LANCZOS)
+                img.save(thumb_path, "JPEG", quality=75)
+            return thumb_path
+        except Exception:
+            return None
 
 
 
@@ -851,6 +885,43 @@ def main(page: ft.Page):
 
 
 
+    def _start_thumb_loader():
+        """Lance un thread qui génère les miniatures PIL pour la page courante."""
+        pending_snapshot = list(_pending_thumb_refs.items())
+        load_token = preview_refresh_token["value"]
+
+        def _load():
+            updates = []
+            for norm_path, (img_ref, file_path, icon, icon_color) in pending_snapshot:
+                if preview_refresh_token["value"] != load_token:
+                    return  # Navigation survenue, annuler
+                thumb = _generate_thumbnail(file_path)
+                if thumb:
+                    _thumb_cache[norm_path] = thumb
+                    updates.append((img_ref, thumb))
+            if updates and preview_refresh_token["value"] == load_token:
+                _ts = CONSTANTS.DASHBOARD_THUMB_SIZE
+                for container, thumb in updates:
+                    container.bgcolor = None
+                    container.content = ft.Image(
+                        src=thumb,
+                        width=_ts, height=_ts,
+                        fit=ft.BoxFit.COVER,
+                        border_radius=ft.BorderRadius.all(4),
+                    )
+
+                async def _apply():
+                    try:
+                        page.update()
+                    except Exception:
+                        pass
+
+                page.run_task(_apply)
+
+        threading.Thread(target=_load, daemon=True).start()
+
+
+
     def request_quit():
         """Ferme la fenêtre principale de façon thread-safe via pubsub"""
         page.pubsub.send_all_on_topic("quit", None)
@@ -1158,6 +1229,7 @@ def main(page: ft.Page):
             except Exception as err:
                 log_to_terminal(f"[ERREUR] Création INFO.txt : {err}", RED)
                 return
+            refresh_preview(reset_page=False)
         open_file_in_notepad(file_path)
 
     # ── Intelligence artificielle ──────────────────────────────────────
@@ -4211,10 +4283,12 @@ def main(page: ft.Page):
         """
         Construit et affiche les contrôles ListView pour la page courante.
         Appelée depuis on_preview_ready et go_to_page (thread UI uniquement).
-        Toutes les miniatures de la page sont chargées immédiatement (pas de lazy loading).
+        Les images sont affichées d'abord avec une icône placeholder, puis les miniatures
+        sont générées en arrière-plan et mises à jour sans bloquer l'UI.
         """
         try:
             _checkbox_refs.clear()
+            _pending_thumb_refs.clear()
             entries = all_entries_data["list"]
             # Appliquer la recherche textuelle
             if search_query["value"]:
@@ -4270,13 +4344,24 @@ def main(page: ft.Page):
                     _checkbox_refs[file_path] = checkbox
 
                     if is_image:
-                        cached_source_path = _image_cache_busters.get(os.path.normpath(file_path))
-                        display_source = cached_source_path if cached_source_path else file_path
-                        visual = ft.Container(
-                            content=ft.Image(src=display_source, fit=ft.BoxFit.COVER, error_content=ft.Icon(icon, color=icon_color, size=22)),
-                            width=50, height=50,
-                            border_radius=4, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
-                        )
+                        norm_path = os.path.normpath(file_path)
+                        cached_thumb = _thumb_cache.get(norm_path) or _image_cache_busters.get(norm_path)
+                        _ts = CONSTANTS.DASHBOARD_THUMB_SIZE
+                        if cached_thumb:
+                            visual = ft.Image(
+                                src=cached_thumb,
+                                width=_ts, height=_ts,
+                                fit=ft.BoxFit.COVER,
+                                border_radius=ft.BorderRadius.all(4),
+                            )
+                        else:
+                            img_ref = ft.Image(
+                                src=file_path,
+                                width=_ts, height=_ts,
+                                border_radius=ft.BorderRadius.all(4),
+                            )
+                            visual = img_ref
+                            _pending_thumb_refs[norm_path] = (img_ref, file_path, icon, icon_color)
                     else:
                         visual = ft.Icon(icon, color=icon_color, size=22)
 
@@ -4358,8 +4443,12 @@ def main(page: ft.Page):
                         ft.GestureDetector(
                             on_secondary_tap_up=_create_right_click_handler(file_path, is_dir),
                             content=ft.ListTile(
-                                leading=ft.Row([checkbox, visual], spacing=16, tight=True),
-                                title=ft.Text(file, size=16, color=WHITE),
+                                leading=checkbox,
+                                title=ft.Row(
+                                    [visual, ft.Text(file, size=16, color=WHITE, expand=True)],
+                                    spacing=12,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                                ),
                                 trailing=trailing,
                                 on_click=lambda e, path=file_path, d=is_dir: on_file_click(path, d),
                                 hover_color=GREY, dense=False,
@@ -4390,6 +4479,9 @@ def main(page: ft.Page):
 
             _update_select_toggle_button()
             page.update()
+            # Lancer le chargement des miniatures en arrière-plan après le rendu initial
+            if _pending_thumb_refs:
+                _start_thumb_loader()
         except Exception as ex:
             log_to_terminal(f"[ERREUR] Rendu preview: {ex}", RED)
 
@@ -5282,15 +5374,15 @@ def main(page: ft.Page):
                 "Copier NEFs → SELECTION",
                 lambda e: launch_app("Copier NEFs sélection.py", copier_nefs_path, False),
             ),
-            # _round_button(
-            #     ft.Icons.SMART_TOY,
-            #     BLUE,
-            #     "Envoyer à l'IA",
-            #     ai_send_selected_images,
-            # ),
+            _round_button(
+                ft.Icons.SMART_TOY,
+                BLUE,
+                "Envoyer à l'IA",
+                ai_send_selected_images,
+            ),
             _round_button(
                 ft.Icons.NOTE_ADD,
-                YELLOW,
+                RED,
                 "Créer INFO.txt dans le dossier courant",
                 _create_and_open_info_txt,
             ),
