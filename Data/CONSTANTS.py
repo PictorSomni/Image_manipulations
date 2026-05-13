@@ -130,13 +130,13 @@ if _platform.system() == "Windows":
         r"\\diskstation\travaux en cours\Z2026\TEMP",
     ]
 else:
-    KIOSK_GAUCHE_SRC  = "/Volumes/kiosk-data/it-HotFolder"
+    KIOSK_GAUCHE_SRC  = "/Volumes/kiosk1-hotfolder"
     KIOSK_GAUCHE_DEST = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE"
-    KIOSK_DROITE_SRC  = "/Volumes/kiosk-data-1/it-HotFolder"
+    KIOSK_DROITE_SRC  = "/Volumes/kiosk2-hotfolder"
     KIOSK_DROITE_DEST = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE"
     CLEAN_FOLDERS = [
-        "/Volumes/kiosk-data-1/it-HotFolder",
-        "/Volumes/kiosk-data-2/it-HotFolder",
+        "/Volumes/kiosk1-hotfolder",
+        "/Volumes/kiosk2-hotfolder",
         "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE",
         "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE",
         "/Volumes/TRAVAUX EN COURS/Z2026/TEMP",
