@@ -118,18 +118,6 @@ CLEAN_DAYS = 60   # Fichiers plus vieux que N jours sont supprimés
 # Utilisés par Kiosk gauche.py, Kiosk droite.py et Nettoyer anciens fichiers.py.
 import platform as _platform
 
-def _resolve_macos_volume(base_name: str) -> str:
-    """Résout le chemin réel d'un volume macOS monté dans /Volumes/.
-    macOS peut ajouter un suffixe '-1', '-2', etc. si le nom est déjà pris.
-    Retourne le premier chemin existant, ou le nom de base si aucun n'est monté."""
-    import os as _os
-    candidates = [base_name] + [f"{base_name}-{i}" for i in range(1, 5)]
-    for name in candidates:
-        path = f"/Volumes/{name}"
-        if _os.path.ismount(path):
-            return path
-    return f"/Volumes/{base_name}"
-
 if _platform.system() == "Windows":
     KIOSK_GAUCHE_SRC  = r"\\studioc-kiosk1\kiosk-data\it-HotFolder"
     KIOSK_GAUCHE_DEST = r"\\Diskstation\travaux en cours\z2026\kiosk\KIOSK GAUCHE"
@@ -143,7 +131,7 @@ if _platform.system() == "Windows":
         r"\\diskstation\travaux en cours\Z2026\TEMP",
     ]
 else:
-    _travaux = _resolve_macos_volume("TRAVAUX EN COURS")
+    _travaux = "/Volumes/TRAVAUX EN COURS"
     KIOSK_GAUCHE_SRC  = "/Volumes/kiosk-data/it-HotFolder"
     KIOSK_GAUCHE_DEST = f"{_travaux}/Z2026/KIOSK/KIOSK GAUCHE"
     KIOSK_DROITE_SRC  = "/Volumes/kiosk-data-1/it-HotFolder"

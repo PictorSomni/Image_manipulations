@@ -287,6 +287,22 @@ def main(page: ft.Page):
             pass
 
 
+    def _resolve_favorite_path(p: str) -> str:
+        """Sur macOS, si le chemin /Volumes/NOM n'existe pas, tente /Volumes/NOM-1, -2…"""
+        if sys.platform != "darwin" or os.path.isdir(p):
+            return p
+        if not p.startswith("/Volumes/"):
+            return p
+        rest = p[len("/Volumes/"):]
+        vol_name = rest.split("/")[0]
+        sub_path = rest[len(vol_name):]
+        for suffix in ["-1", "-2", "-3", "-4"]:
+            candidate = f"/Volumes/{vol_name}{suffix}{sub_path}"
+            if os.path.isdir(candidate):
+                return candidate
+        return p
+
+
 
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
@@ -3826,8 +3842,9 @@ def main(page: ft.Page):
                 p = fav["path"]
                 display_name = fav["label"] or os.path.basename(p) or p
                 def _nav(e, path=p):
-                    if os.path.isdir(path):
-                        navigate_to_folder(path)
+                    resolved = _resolve_favorite_path(path)
+                    if os.path.isdir(resolved):
+                        navigate_to_folder(resolved)
                     else:
                         log_to_terminal(f"[ERREUR] Dossier introuvable : {path}", RED)
                 def _remove(e, path=p):
@@ -5481,6 +5498,14 @@ def main(page: ft.Page):
 
     # ── Système d'overlay (IA + Notes simultanés) ──────────────────────────
     # En-tête du panneau IA (gauche)
+    ai_clear_button = ft.IconButton(
+        icon=ft.Icons.DELETE_SWEEP,
+        icon_color=LIGHT_GREY,
+        icon_size=16,
+        tooltip="Effacer la conversation IA",
+        on_click=lambda e: _clear_ai_conversation(),
+    )
+
     ai_panel_header = ft.Row([
         ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=14),
         ft.Text("IA", color=BLUE, size=11, weight=ft.FontWeight.BOLD),
@@ -5489,6 +5514,7 @@ def main(page: ft.Page):
         ft.Container(width=4),
         ai_status_text,
         ai_stop_button,
+        ai_clear_button,
     ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     # En-tête du panneau Notes (droite) — titre uniquement
@@ -5524,13 +5550,6 @@ def main(page: ft.Page):
                             icon_size=16,
                             tooltip="Transférer la conversation vers le bloc-notes",
                             on_click=lambda e: _ai_conversation_to_notepad(),
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.DELETE_SWEEP,
-                            icon_color=LIGHT_GREY,
-                            icon_size=16,
-                            tooltip="Effacer la conversation IA",
-                            on_click=lambda e: _clear_ai_conversation(),
                         ),
                     ], alignment=ft.MainAxisAlignment.END, spacing=0),
                 ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
