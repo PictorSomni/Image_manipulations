@@ -40,8 +40,25 @@ import flet as ft
 #############################################################
 #                         CONSTANTS                         #
 #############################################################
+def _resolve_volume_path(p: Path) -> Path:
+    """Sur macOS, si /Volumes/NOM n'existe pas, tente /Volumes/NOM-1, -2…
+    (volume remonté avec un suffixe par macOS lors d'un double montage)."""
+    if sys.platform != "darwin" or p.is_dir():
+        return p
+    p_str = str(p)
+    if not p_str.startswith("/Volumes/"):
+        return p
+    rest = p_str[len("/Volumes/"):]
+    vol_name = rest.split("/")[0]
+    sub_path = rest[len(vol_name):]
+    for suffix in ["-1", "-2", "-3", "-4"]:
+        candidate = Path(f"/Volumes/{vol_name}{suffix}{sub_path}")
+        if candidate.is_dir():
+            return candidate
+    return p
+
 DEFAULT_SOURCE = Path.home() / "Downloads"
-DEFAULT_DEST   = Path(os.environ.get("DEST_FOLDER", CONSTANTS.TEMP_FOLDER))
+DEFAULT_DEST   = _resolve_volume_path(Path(os.environ.get("DEST_FOLDER", CONSTANTS.TEMP_FOLDER)))
 LAUNCHED_FROM_DASHBOARD = os.environ.get("LAUNCHED_FROM_DASHBOARD") == "1"
 
 # Fichiers/dossiers spécifiques passés par le Dashboard (chemins complets séparés par |)
@@ -132,6 +149,14 @@ def main(page: ft.Page):
             launch_button.disabled = True
             launch_button.update()
 
+            # Re-résoudre le chemin destination au moment de la copie
+            # (le volume macOS peut avoir été remonté avec un suffixe "-1" depuis le démarrage)
+            dest = _resolve_volume_path(DEFAULT_DEST)
+            if str(dest) != str(DEFAULT_DEST):
+                dest_label.value = str(dest)
+                dest_label.color = GREEN
+                dest_label.update()
+
             status_text.value = "Analyse du dossier source..."
             status_text.color = BLUE
             status_text.update()
@@ -156,7 +181,7 @@ def main(page: ft.Page):
 
             total = len(source_files)
             try:
-                dest_folder = get_next_sequence_folder(DEFAULT_DEST)
+                dest_folder = get_next_sequence_folder(dest)
                 for index, source_file in enumerate(source_files):
                     copy2(source_file, dest_folder / source_file.name)
                     progress_bar.value = (index + 1) / total
@@ -169,7 +194,7 @@ def main(page: ft.Page):
                 status_text.value = "Droits insuffisants — authentification requise..."
                 status_text.color = ORANGE
                 status_text.update()
-                dest_folder = _next_sequence_path(DEFAULT_DEST)
+                dest_folder = _next_sequence_path(dest)
                 def _q(p):
                     return "'" + str(p).replace("'", "'\\''")+"'"
                 shell_script = " && ".join(
