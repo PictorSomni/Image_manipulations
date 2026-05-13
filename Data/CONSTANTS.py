@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.4.4"
+__version__ = "2.4.5"
 
 
 # ─── Palette de couleurs ───────────────────────────────────────────────────────────────
@@ -131,7 +131,15 @@ if _platform.system() == "Windows":
         r"\\diskstation\travaux en cours\Z2026\TEMP",
     ]
 else:
+    import os as _os
     _travaux = "/Volumes/TRAVAUX EN COURS"
+    if not _os.path.isdir(_travaux):
+        for _suffix in ["-1", "-2", "-3", "-4"]:
+            _candidate = f"{_travaux}{_suffix}"
+            if _os.path.isdir(_candidate):
+                _travaux = _candidate
+                break
+    del _os
     KIOSK_GAUCHE_SRC  = "/Volumes/kiosk-data/it-HotFolder"
     KIOSK_GAUCHE_DEST = f"{_travaux}/Z2026/KIOSK/KIOSK GAUCHE"
     KIOSK_DROITE_SRC  = "/Volumes/kiosk-data-1/it-HotFolder"

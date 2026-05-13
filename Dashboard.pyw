@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.4.4"
+__version__ = "2.4.5"
 
 
 
@@ -2527,6 +2527,7 @@ def main(page: ft.Page):
         """Navigue vers un dossier dans la preview"""
         if not new_path:
             return
+        new_path = _resolve_favorite_path(new_path)
         current_browse_folder["path"] = new_path
         selected_folder["path"] = new_path
         folder_path.value = new_path
