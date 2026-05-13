@@ -737,8 +737,10 @@ class PhotoCropper:
         """
         scaled_w = self.display_w * self.scale
         scaled_h = self.display_h * self.scale
-        self.image_display.width  = scaled_w
-        self.image_display.height = scaled_h
+        # Évite un relayout Flutter coûteux si le scale n'a pas changé (pan pur)
+        if self.image_display.width != scaled_w or self.image_display.height != scaled_h:
+            self.image_display.width  = scaled_w
+            self.image_display.height = scaled_h
         self.image_container.left  = (self.canvas_w - scaled_w) / 2 + self.offset_x
         self.image_container.top   = (self.canvas_h - scaled_h) / 2 + self.offset_y
         self.image_container.rotate = math.radians(self.rotation)
@@ -1028,6 +1030,17 @@ class PhotoCropper:
 
         self.page.title = f"Crop: {os.path.basename(path)} ({self.current_index + 1}/{len(self.image_paths)})"
         self.page.update()
+
+        # Warmup GPU : micro-décalage 100 ms après le chargement pour forcer la
+        # rasterisation de la texture Flutter avant le premier geste utilisateur.
+        async def _warmup_transform():
+            await asyncio.sleep(0.1)
+            self.offset_x = 0.5
+            self._update_transform()
+            await asyncio.sleep(0.05)
+            self.offset_x = 0.0
+            self._update_transform()
+        self.page.run_task(_warmup_transform)
 
 
 
@@ -1992,7 +2005,11 @@ class PhotoCropper:
             self.zoom_slider.label = f"{self.scale:.2f}×"
             self.zoom_slider.update()
 
-        # ── Transforms GPU + clampage ─────────────────────────────────────
+        # ── Transforms GPU + clampage (throttlé à ~30 fps) ──────────────────
+        now = time.time()
+        if now - self._last_pan_render < 0.033:
+            return
+        self._last_pan_render = now
         self._clamp_offsets()
         self._update_transform()
 
@@ -3474,7 +3491,14 @@ class PhotoCropper:
             if platform.system() == "Windows":
                 output_directory = "\\\\Diskstation\\travaux en cours\\z2026"
             else:
-                output_directory = "/Volumes/TRAVAUX EN COURS/Z2026"
+                _travaux_primary   = "/Volumes/TRAVAUX EN COURS/Z2026"
+                _travaux_secondary = "/Volumes/TRAVAUX EN COURS-1/Z2026"
+                if os.path.isdir(_travaux_primary):
+                    output_directory = _travaux_primary
+                elif os.path.isdir(_travaux_secondary):
+                    output_directory = _travaux_secondary
+                else:
+                    output_directory = _travaux_primary  # sera créé par makedirs ou plantera explicitement
         else:
             output_directory = os.path.join(self.source_folder, format_short_name)
 
