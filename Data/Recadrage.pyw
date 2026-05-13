@@ -41,7 +41,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Tab       : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.4.5"
+__version__ = "2.4.6"
 
 #############################################################
 #                          IMPORTS                          #
@@ -72,6 +72,7 @@ REMBG_AVAILABLE = importlib.util.find_spec("rembg") is not None
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
 CONTROLS_WIDTH = 270    # Largeur de la colonne de contrôles
 DPI = CONSTANTS.DPI  # Résolution d'export
+PREVIEW_MAX_PIXELS = CONSTANTS.PREVIEW_MAX_PIXELS  # Taille max (px, côté le plus long) de la prévisualisation
 
 # Formats d'impression (largeur_mm, hauteur_mm) - en portrait
 FORMATS = CONSTANTS.FORMATS
@@ -1876,13 +1877,11 @@ class PhotoCropper:
         if not hasattr(self, 'display_w'):
             return
         
-        # Réduire à 2× la taille du canevas — meilleure netteté au zoom
-        # sans atteindre la pleine résolution originale (compromis qualité/vitesse).
-        preview_width  = max(1, int(self.display_w * 2))
-        preview_height = max(1, int(self.display_h * 2))
-        # Plafonner à la résolution originale pour éviter l'agrandissement inutile
-        preview_width  = min(preview_width,  self.original_width)
-        preview_height = min(preview_height, self.original_height)
+        # Réduire l'image source à PREVIEW_MAX_PIXELS sur le côté le plus long
+        # (compromis qualité/vitesse — réduire la valeur sur les machines moins puissantes).
+        ratio = min(PREVIEW_MAX_PIXELS / self.original_width, PREVIEW_MAX_PIXELS / self.original_height, 1.0)
+        preview_width  = max(1, int(self.original_width  * ratio))
+        preview_height = max(1, int(self.original_height * ratio))
         preview_image = self.current_pil_image.resize((preview_width, preview_height), Image.Resampling.BILINEAR)
         
         if preview_image.mode == "RGBA":

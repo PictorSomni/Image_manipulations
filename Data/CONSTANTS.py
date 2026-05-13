@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.4.5"
+__version__ = "2.4.6"
 
 
 # ─── Palette de couleurs ───────────────────────────────────────────────────────────────
@@ -30,6 +30,13 @@ COLOR_WHITE        = "#c7ccd8"
 
 # ─── Résolution d'impression ───────────────────────────────────────────────────────────────
 DPI = 300   # Points par pouce (ne pas modifier sauf matériel spécifique)
+
+
+# ─── Performance de prévisualisation ─────────────────────────────────────────────────────────
+# Taille maximale (en pixels, côté le plus long) de l'image de prévisualisation dans
+# Recadrage.pyw. Une valeur plus élevée améliore la netteté au zoom mais ralentit le rendu.
+# Réduire sur les machines moins puissantes (ex. 1200 = taille canvas exacte).
+PREVIEW_MAX_PIXELS = 1024
 
 
 # ─── Formats d'impression ───────────────────────────────────────────────────────────────
@@ -64,7 +71,7 @@ WINDOW_HEIGHT               = 940
 MAXIMIZED                         =  False 
 TERMINAL_FONT_SIZE       = 16   # Taille du texte dans le terminal, le bloc-notes et les options
 TERMINAL_HEIGHT          = 170  # Hauteur du panneau terminal compact (px) - toujours visible
-WDA_HEIGHT               = 96   # Hauteur de la WindowDragArea (barre de titre custom, en px)
+WDA_HEIGHT               = 100   # Hauteur de la WindowDragArea (barre de titre custom, en px)
 
 
 # ─── Redimensionnement ───────────────────────────────────────────────────────────────
