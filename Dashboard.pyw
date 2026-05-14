@@ -370,7 +370,9 @@ def main(page: ft.Page):
         if os.path.exists(thumb_path):
             return thumb_path
         try:
+            from PIL import ImageOps as _PILImageOps
             with _PILImage.open(file_path) as img:
+                img = _PILImageOps.exif_transpose(img)
                 img = img.convert("RGB")
                 w, h = img.size
                 min_dim = min(w, h)
