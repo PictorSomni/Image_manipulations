@@ -143,12 +143,12 @@ def main(page: ft.Page):
     page.bgcolor     = BACKGROUND
     page.window.title_bar_hidden         = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width  = 960
+    page.window.width  = 1024
     page.window.height = 960
 
     # ─── Chemins config ──────────────────────────────────────────────────
     app_dir             = os.path.dirname(os.path.abspath(__file__))
-    config_file         = os.path.join(app_dir, ".selecteur_config.json")
+    config_file         = os.path.join(app_dir, ".sidepanel_config.json")
     _shared_recent_file = os.path.join(app_dir, ".recent_folders.json")  # partagé avec Dashboard
 
     # ─── Config persistante ──────────────────────────────────────────────

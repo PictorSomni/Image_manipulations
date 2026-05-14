@@ -481,6 +481,13 @@ def main(page: ft.Page):
         icon_size=16,
         on_click=lambda e: toggle_terminal_overlay(),
     )
+    expand_button_notepad = ft.IconButton(
+        icon=ft.Icons.EXPAND_LESS,
+        tooltip="Agrandir  (Ctrl+T)",
+        icon_color=LIGHT_GREY,
+        icon_size=16,
+        on_click=lambda e: toggle_terminal_overlay(),
+    )
 
     notepad_container = ft.Container(
         content=ft.Column([
@@ -1106,26 +1113,6 @@ def main(page: ft.Page):
             page.update()
         except Exception:
             pass
-
-    def _notepad_open_in_system():
-        """Ouvre le fichier de notes courant dans l'application par défaut du système."""
-        file_path = note_target_file["path"]
-        if not os.path.isfile(file_path):
-            try:
-                with open(file_path, "w", encoding="utf-8") as _f:
-                    _f.write(notepad_field.value or "")
-            except Exception as save_error:
-                log_to_terminal(f"[ERREUR] Impossible de créer le fichier : {save_error}", RED)
-                return
-        try:
-            if platform.system() == "Darwin":
-                subprocess.Popen(["open", file_path])
-            elif platform.system() == "Windows":
-                os.startfile(file_path)
-            else:
-                subprocess.Popen(["xdg-open", file_path])
-        except Exception as open_error:
-            log_to_terminal(f"[ERREUR] Ouverture du fichier : {open_error}", RED)
 
     def save_notes():
         """Sauvegarde le contenu du bloc-notes dans le fichier cible."""
@@ -5772,6 +5759,7 @@ def main(page: ft.Page):
         content=ft.Row([
             ft.Column([notepad_panel_header, notepad_container], spacing=4, expand=True),
             ft.Column([
+                expand_button_notepad,
                 ft.IconButton(
                     icon=ft.Icons.HOME,
                     icon_color=VIOLET,
@@ -5785,13 +5773,6 @@ def main(page: ft.Page):
                     icon_size=16,
                     tooltip="Prévisualiser en Markdown",
                     on_click=lambda e: _notepad_toggle_preview(),
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.OPEN_IN_NEW,
-                    icon_color=LIGHT_GREY,
-                    icon_size=16,
-                    tooltip="Ouvrir dans l'application par défaut",
-                    on_click=lambda e: _notepad_open_in_system(),
                 ),
                 ft.IconButton(
                     icon=ft.Icons.SAVE_AS,
@@ -5948,7 +5929,7 @@ def main(page: ft.Page):
         bottom_panel_container.height = page.window.height - CONSTANTS.WDA_HEIGHT if is_expanded else CONSTANTS.TERMINAL_HEIGHT
         new_icon    = ft.Icons.EXPAND_MORE if is_expanded else ft.Icons.EXPAND_LESS
         new_tooltip = "Réduire  (Ctrl+T)" if is_expanded else "Agrandir  (Ctrl+T)"
-        for expand_button in (expand_button_terminal, expand_button_overlay):
+        for expand_button in (expand_button_terminal, expand_button_overlay, expand_button_notepad):
             expand_button.icon    = new_icon
             expand_button.tooltip = new_tooltip
         page.update()
@@ -5960,6 +5941,7 @@ def main(page: ft.Page):
 
     expand_button_terminal.on_click = lambda e: toggle_terminal_overlay()
     expand_button_overlay.on_click  = lambda e: toggle_terminal_overlay()
+    expand_button_notepad.on_click  = lambda e: toggle_terminal_overlay()
 
 
 # ===================== INTERFACE FLET ===================== #

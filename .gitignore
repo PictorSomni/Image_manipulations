@@ -43,7 +43,8 @@ $RECYCLE.BIN/
 .favorites.json
 .pip_cache.json
 .open_with.json
+open_with.json
 .DS_Store
-.selecteur_config.json
+.sidepanel_config.json
 .notes.txt
 .ai_conversation.json

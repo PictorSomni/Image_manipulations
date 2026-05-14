@@ -41,7 +41,7 @@ Compatible **Windows**, **macOS** et **Linux**.
 - **Balance des blancs** : curseur froid / chaud ajustable en temps réel.
 - **Histogramme** : aperçu de la distribution des tons directement dans le panneau de droite.
 
-### Sélecteur (v2.1)
+### SidePanel (v2.1)
 - **Onglet Fichiers** : prévisualisation d'un dossier source avec sélection par checkbox, filtres par type, tri et barre de recherche. Copie les fichiers sélectionnés vers un dossier de destination, avec création optionnelle d'un sous-dossier nommé.
 - **Onglet Liste** : gestion d'une liste de noms / descriptions stockée en JSON — recherche, tri, ajout, édition et suppression d'entrées. Cliquer sur un nom ou une description le copie automatiquement dans le presse-papiers.
 - **Lancement flexible** : utilisable indépendamment ou directement depuis le Dashboard.
@@ -153,35 +153,42 @@ pip install -r requirements.txt
 ```
 Dashboard-Image-Manipulation/
 ├── Dashboard.pyw         # Application principale
-├── Selecteur.pyw         # Application secondaire
 ├── run.py                # Lanceur universel Python
 ├── run.sh                # Lanceur Linux/macOS
 ├── run.bat               # Lanceur Windows
-├── update.sh             # Mise à jour Git Linux/macOS
-├── update.bat            # Mise à jour Git Windows
 ├── install.sh            # Installation Linux/macOS
 ├── install.bat           # Installation Windows
+├── mount_kiosks.sh       # Montage des partages kiosques (macOS)
 ├── requirements.txt      # Dépendances Python
 ├── README.md             # Ce fichier
 └── Data/                 # Applications et ressources
    ├── watermark.png     # Filigrane utilisé par certaines apps
-   ├── Augmentation IA.py
+   ├── 2 en 1.py
    ├── Ameliorer nettete.py
+   ├── Augmentation IA.py
+   ├── Changer version.py
+   ├── Comparaison.pyw
    ├── Conversion JPG.py
+   ├── Copier NEFs sélection.py
+   ├── Copyright.py
    ├── Fichiers manquants.py
-   ├── Format 13x10.py
+   ├── Fit 203.py
    ├── Format 13x15.py
    ├── Images en PDF.py
    ├── Kiosk droite.py
    ├── Kiosk gauche.py
+   ├── kiosk_flet.pyw
    ├── N&B.py
+   ├── Nettoyer anciens fichiers.py
    ├── Nettoyer metadonnees.py
-   ├── Remerciements.py
-   ├── Redimensionner.py
-   ├── Redimensionner filigrane.py
+   ├── Projet.py
    ├── Recadrage.pyw
+   ├── Redimensionner filigrane.py
+   ├── Redimensionner.py
+   ├── Remerciements.py
    ├── Renommer sequence.py
-   ├── renommer nombre photo.py
+   ├── Séparer RAW et JPG.py
+   ├── SidePanel.pyw
    └── Transfert vers TEMP.py
 ```
 
@@ -219,23 +226,32 @@ Dashboard-Image-Manipulation/
 | Nom affiché (Dashboard) | Script | Description |
 |-------------------------|--------|-------------|
 | Augmentation IA | `Augmentation IA.py` | Super-résolution ×2/×4, restauration de visage par IA, **suppression de fond (rembg)**, **sélection interactive SAM2** (clics positifs/négatifs), **inpainting** (TELEA, LaMa, MAT via IOPaint), slider morphologique érosion/dilatation du masque |
-| Nettoyer les métadonnées | `Nettoyer metadonnees.py` | Supprime les métadonnées EXIF |
+| 2 en 1 | `2 en 1.py` | Assemble deux photos portrait côte à côte sur une seule image JPEG prête à imprimer |
+| Améliorer la netteté | `Ameliorer nettete.py` | Améliore la netteté des images |
+| Changer version | `Changer version.py` | Met à jour `__version__` dans Dashboard.pyw et tous les scripts de Data/ |
+| Comparaison | `Comparaison.pyw` | Comparaison côte à côte de deux lots d'images avec visionneuses synchronisées |
 | Conversion en JPG | `Conversion JPG.py` | Convertit les images (et les fichiers PDF !) en JPG |
+| Copier NEFs sélection | `Copier NEFs sélection.py` | Trie les fichiers RAW : déplace ceux qui ne correspondent pas aux photos sélectionnées |
+| Copyright | `Copyright.py` | Applique un filigrane de copyright (date et données EXIF) sur les images sélectionnées |
 | Fichiers manquants | `Fichiers manquants.py` | Détecte les fichiers manquants |
-| Format 13x10 | `Format 13x10.py` | Recadre en format 13x10 cm |
+| Fit 203 | `Fit 203.py` | Recadre et positionne des images au format portrait sur un canvas 13×20 cm |
 | Format 13x15 | `Format 13x15.py` | Recadre en format 13x15 cm |
 | Images en PDF | `Images en PDF.py` | Génère un PDF à partir d'images |
-| Noir et blanc | `N&B.py` | Conversion noir et blanc |
-| Recadrage | `Recadrage.pyw` | Recadrage interactif avec 16 formats d'impression (ID, 10x15, 13x18, 20x30…), mode batch, zoom/pan/rotation, 2 en 1, planches ID x2/x4, formats multiples par image, exemplaires, noir et blanc, netteté, grille des tiers, suppression de fond par IA (rembg) ; **interface repensée** avec sections colorées (Géométrie / Luminosité / Couleur / Netteté), **balance des blancs** et **histogramme** |
-| Remerciements | `Remerciements.py` | Génère des cartes de remerciement |
-| Redimensionner | `Redimensionner.py` | Redimensionne les images (taille paramétrable) |
-| Redimensionner + filigrane | `Redimensionner filigrane.py` | Redimensionne avec filigrane (taille paramétrable) |
-| Renommer nombre photo | `renommer nombre photo.py` | Renomme selon un pattern |
-| Renommer en séquence | `Renommer sequence.py` | Renomme en séquence numérotée |
-| Améliorer la netteté | `Ameliorer nettete.py` | Améliore la netteté des images |
-| Transfert vers TEMP | `Transfert vers TEMP.py` | Envoie des fichiers vers un dossier TEMP prédéfini |
 | Kiosk droite | `Kiosk droite.py` | Organise les fichiers kiosque droite |
 | Kiosk gauche | `Kiosk gauche.py` | Organise les fichiers kiosque gauche |
+| Kiosk Flet | `kiosk_flet.pyw` | Application kiosque de sélection d'impressions photo avec interface Flet plein écran |
+| Noir et blanc | `N&B.py` | Conversion noir et blanc |
+| Nettoyer anciens fichiers | `Nettoyer anciens fichiers.py` | Supprime les fichiers vieux de plus de 60 jours dans les dossiers KIOSK et TEMP |
+| Nettoyer les métadonnées | `Nettoyer metadonnees.py` | Supprime les métadonnées EXIF |
+| Projet | `Projet.py` | Génère des miniatures de projet avec filigrane semi-transparent |
+| Recadrage | `Recadrage.pyw` | Recadrage interactif avec 16 formats d'impression (ID, 10x15, 13x18, 20x30…), mode batch, zoom/pan/rotation, 2 en 1, planches ID x2/x4, formats multiples par image, exemplaires, noir et blanc, netteté, grille des tiers, suppression de fond par IA (rembg) ; **interface repensée** avec sections colorées (Géométrie / Luminosité / Couleur / Netteté), **balance des blancs** et **histogramme** |
+| Redimensionner | `Redimensionner.py` | Redimensionne les images (taille paramétrable) |
+| Redimensionner + filigrane | `Redimensionner filigrane.py` | Redimensionne avec filigrane (taille paramétrable) |
+| Remerciements | `Remerciements.py` | Génère des cartes de remerciement |
+| Renommer en séquence | `Renommer sequence.py` | Renomme en séquence numérotée |
+| Séparer RAW et JPG | `Séparer RAW et JPG.py` | Sépare les fichiers RAW et JPG d'un dossier dans des sous-dossiers dédiés |
+| SidePanel | `SidePanel.pyw` | App compacte avec onglets pour gestion de fichiers, sélection et listes JSON |
+| Transfert vers TEMP | `Transfert vers TEMP.py` | Envoie des fichiers vers un dossier TEMP prédéfini |
 
 ---
 
