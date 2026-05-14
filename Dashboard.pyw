@@ -1813,7 +1813,7 @@ def main(page: ft.Page):
 
         # Choisir le modèle selon la présence d'images
         active_model = CONSTANTS.AI_MODEL_VISION if images_b64 else CONSTANTS.AI_MODEL_TEXT
-        ai_model_label.value = f"{active_model}  {'🖼' if images_b64 else '💬'}"
+        ai_model_label.value = f"{active_model}{'  🖼' if images_b64 else ''}"
         try:
             ai_model_label.update()
         except Exception:
@@ -4879,19 +4879,13 @@ def main(page: ft.Page):
                 # Naviguer vers le PATH pour order_it gauche/droite (après fin du processus)
                 kiosk_target_path = None
                 if app_name == "Kiosk gauche.py":
-                    if platform.system() == "Windows":
-                        kiosk_target_path = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK GAUCHE"
-                    else:
-                        kiosk_target_path = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK GAUCHE"
+                    kiosk_target_path = CONSTANTS.KIOSK_GAUCHE_DEST
                     if not os.path.isdir(kiosk_target_path):
                         log_to_terminal(f"[AVERTISSEMENT] Le dossier {kiosk_target_path} n'est pas accessible", ORANGE)
                         kiosk_target_path = None
 
                 elif app_name == "Kiosk droite.py":
-                    if platform.system() == "Windows":
-                        kiosk_target_path = "\\\\Diskstation\\travaux en cours\\z2026\\kiosk\\KIOSK DROITE"
-                    else:
-                        kiosk_target_path = "/Volumes/TRAVAUX EN COURS/Z2026/KIOSK/KIOSK DROITE"
+                    kiosk_target_path = CONSTANTS.KIOSK_DROITE_DEST
                     if not os.path.isdir(kiosk_target_path):
                         log_to_terminal(f"[AVERTISSEMENT] Le dossier {kiosk_target_path} n'est pas accessible", ORANGE)
                         kiosk_target_path = None
