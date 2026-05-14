@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Constantes partagées entre Dashboard.pyw, les scripts du dossier Data/,
-Selecteur.pyw et kiosk_flet.pyw.
+SidePanel.pyw et kiosk_flet.pyw.
 
 Modifier ce fichier pour changer les paramètres globaux de l'application sans
 toucher aux scripts eux-mêmes.
@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.4.8"
+__version__ = "2.5.0"
 
 
 # ─── Palette de couleurs ───────────────────────────────────────────────────────────────

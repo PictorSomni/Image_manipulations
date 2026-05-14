@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.4.8"
+__version__ = "2.5.0"
 
 
 
@@ -315,7 +315,7 @@ def main(page: ft.Page):
         "Redimensionner filigrane.py": (False, WHITE),
         "2 en 1.py": (False, HOVER_YELLOW),
         "Redimensionner.py": (False, WHITE),
-        "Selecteur.pyw": (True, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Selecteur.pyw")),
+        "SidePanel.pyw": (True, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "SidePanel.pyw")),
         "Copyright.py": (False, VIOLET),
         "Comparaison.pyw": (False, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Comparaison.pyw")),
     }
@@ -465,7 +465,7 @@ def main(page: ft.Page):
     )
 
     notepad_header_icon  = ft.Icon(ft.Icons.EDIT_NOTE, color=VIOLET, size=16)
-    notepad_header_title = ft.Text("Notes", color=VIOLET, size=12, weight=ft.FontWeight.BOLD, expand=True)
+    notepad_header_title = ft.Text("Notes", color=VIOLET, size=12, weight=ft.FontWeight.BOLD)
 
     expand_button_terminal = ft.IconButton(
         icon=ft.Icons.EXPAND_LESS,
@@ -515,7 +515,6 @@ def main(page: ft.Page):
         icon_size=16,
         tooltip="Libérer le modèle (ollama stop)",
         on_click=lambda e: _ai_stop_model(),
-        visible=False,
     )
     ai_attach_row    = ft.Row([], spacing=4, visible=False, wrap=True)
     ai_send_button   = ft.IconButton(
@@ -755,15 +754,15 @@ def main(page: ft.Page):
 
 
     def on_restore_window(topic, message):
-        """Restaure la fenêtre Dashboard quand Selecteur se ferme."""
+        """Restaure la fenêtre Dashboard quand Side Panel se ferme."""
         page.window.minimized = False
         page.update()
 
     page.pubsub.subscribe_topic("restore_window", on_restore_window)
 
 
-    def _launch_selecteur(extra_env: dict = None):
-        """Lance Selecteur, minimise Dashboard, puis le restaure à la fermeture de Selecteur."""
+    def _launch_side_panel(extra_env: dict = None):
+        """Lance Side Panel, minimise Dashboard, puis le restaure à la fermeture de Side Panel."""
         env = {
             **os.environ,
             "SELECTEUR_INITIAL_FOLDER": (
@@ -773,7 +772,7 @@ def main(page: ft.Page):
         if extra_env:
             env.update(extra_env)
         proc = subprocess.Popen(
-            [sys.executable, os.path.join(app_directory, "Data", "Selecteur.pyw")],
+            [sys.executable, os.path.join(app_directory, "Data", "SidePanel.pyw")],
             env=env,
         )
         page.window.minimized = True
@@ -1401,6 +1400,7 @@ def main(page: ft.Page):
             except Exception:
                 pass
             ai_stop_button.visible = False
+            ai_stop_button.icon_color = LIGHT_GREY
             ai_status_text.value = ""
             try:
                 page.update()
@@ -1807,7 +1807,7 @@ def main(page: ft.Page):
         if not message_text.strip() and not ai_pending_images and not ai_pending_files:
             return
         ai_streaming["value"] = True
-        ai_stop_button.visible = True
+        ai_stop_button.icon_color = RED
         ai_status_text.value = "⏳ En cours…"
         try:
             page.update()
@@ -1906,6 +1906,7 @@ def main(page: ft.Page):
                         *ai_conversation,
                     ],
                     "stream": True,
+                    "keep_alive": -1,
                     "options": {"temperature": CONSTANTS.AI_TEMPERATURE},
                 }).encode("utf-8")
                 request = urllib.request.Request(
@@ -1957,7 +1958,7 @@ def main(page: ft.Page):
                 _ai_add_bubble("assistant", f"[ERREUR] {exc}")
             finally:
                 ai_streaming["value"] = False
-                ai_stop_button.visible = False
+                ai_stop_button.icon_color = LIGHT_GREY
                 ai_status_text.value = ""
                 try:
                     page.update()
@@ -3214,13 +3215,13 @@ def main(page: ft.Page):
 
 
 
-    def _open_json_in_selecteur(file_path):
-        """Lance le Sélecteur avec le fichier JSON pré-chargé dans l'onglet Liste."""
+    def _open_json_in_side_panel(file_path):
+        """Lance Side Panel avec le fichier JSON pré-chargé dans l'onglet Liste."""
         log_to_terminal(
-            f"[OK] Ouverture dans Sélecteur → Liste : {os.path.basename(file_path)}",
+            f"[OK] Ouverture dans Side Panel → Liste : {os.path.basename(file_path)}",
             VIOLET,
         )
-        _launch_selecteur({"SELECTEUR_JSON_PATH": file_path})
+        _launch_side_panel({"SELECTEUR_JSON_PATH": file_path})
 
     def on_file_click(file_path, is_dir):
         """
@@ -3229,7 +3230,7 @@ def main(page: ft.Page):
         - Dossier      → navigation
         - ZIP          → extraction
         - Image        → visionneuse plein écran
-        - JSON         → ouverture dans Sélecteur
+        - JSON         → ouverture dans Side Panel
         - Autre        → application par défaut du système
         """
         if is_dir:
@@ -3242,7 +3243,7 @@ def main(page: ft.Page):
         elif os.path.splitext(file_path)[1].lower() in _IMAGE_VIEWER_EXTS:
             open_image_viewer(file_path)
         elif os.path.splitext(file_path)[1].lower() == ".json":
-            _open_json_in_selecteur(file_path)
+            _open_json_in_side_panel(file_path)
         else:
             open_file_with_default_app(file_path)
 
@@ -5241,16 +5242,20 @@ def main(page: ft.Page):
                     )
                 )
             else:
-                if app_name == "Selecteur.pyw":
-                    on_click_handler = lambda e: _launch_selecteur()
+                if app_name == "SidePanel.pyw":
+                    on_click_handler = lambda e: _launch_side_panel()
                 elif app_name == "Comparaison.pyw":
                     on_click_handler = lambda e: _launch_comparaison()
                 else:
                     on_click_handler = lambda e, name=app_name, path=app_path, local=is_local: launch_app(name, path, local)
+                display_name = (
+                    "Side Panel" if app_name == "SidePanel.pyw"
+                    else (app_name[:-4] if app_name.endswith(".pyw") else app_name[:-3])
+                )
                 items.append(
                     ft.Container(
                         content=ft.Text(
-                            app_name[:-4] if app_name.endswith(".pyw") else app_name[:-3],
+                            display_name,
                             size=14,
                             color=app_color,
                             text_align=ft.TextAlign.CENTER,
@@ -5288,7 +5293,7 @@ def main(page: ft.Page):
     def _build_quick_tools():
         """Construit la colonne d'icônes rondes (outils rapides)."""
         two_in_one_path = os.path.join(app_directory, "Data", "2 en 1.py")
-        selecteur_path = os.path.join(app_directory, "Data", "Selecteur.pyw")
+        side_panel_path = os.path.join(app_directory, "Data", "SidePanel.pyw")
         fichiers_manquants_path = os.path.join(app_directory, "Data", "Fichiers manquants.py")
 
         def _round_button(icon, color, tooltip, on_click):
@@ -5693,6 +5698,14 @@ def main(page: ft.Page):
         ai_status_text,
         ai_stop_button,
         ai_clear_button,
+        ft.Container(expand=True),
+        ft.IconButton(
+            icon=ft.Icons.FULLSCREEN,
+            icon_color=BLUE,
+            icon_size=16,
+            tooltip="IA seule / Restaurer les deux panneaux",
+            on_click=lambda e: toggle_ai_fullscreen(),
+        ),
     ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     # En-tête du panneau Notes (droite)
@@ -5708,94 +5721,142 @@ def main(page: ft.Page):
         notepad_header_icon,
         notepad_header_title,
         notepad_clear_button,
+        ft.Container(expand=True),
+        ft.IconButton(
+            icon=ft.Icons.FULLSCREEN,
+            icon_color=VIOLET,
+            icon_size=16,
+            tooltip="Bloc-notes seul / Restaurer les deux panneaux",
+            on_click=lambda e: toggle_notepad_fullscreen(),
+        ),
     ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+    overlay_fullscreen = {"mode": None}  # None, "ai", "notepad"
+
+    ai_panel_container = ft.Container(
+        content=ft.Row([
+            ft.Column([ai_panel_header, ai_container], spacing=4, expand=True),
+            ft.Column([
+                expand_button_overlay,
+                ft.IconButton(
+                    icon=ft.Icons.CLOSE,
+                    icon_color=RED,
+                    icon_size=16,
+                    tooltip="Fermer IA & Notes",
+                    on_click=lambda e: switch_to_terminal_mode(),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.COPY_ALL,
+                    icon_color=BLUE,
+                    icon_size=16,
+                    tooltip="Copier la conversation IA",
+                    on_click=lambda e: _copy_ai_conversation(),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.SEND_TO_MOBILE,
+                    icon_color=VIOLET,
+                    icon_size=16,
+                    tooltip="Transférer la conversation vers le bloc-notes",
+                    on_click=lambda e: _ai_conversation_to_notepad(),
+                ),
+            ], alignment=ft.MainAxisAlignment.END, spacing=0),
+        ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+        expand=True,
+        bgcolor=DARK,
+        border=ft.Border.all(1, BLUE),
+        border_radius=8,
+        padding=5,
+    )
+
+    notepad_panel_container = ft.Container(
+        content=ft.Row([
+            ft.Column([notepad_panel_header, notepad_container], spacing=4, expand=True),
+            ft.Column([
+                ft.IconButton(
+                    icon=ft.Icons.HOME,
+                    icon_color=VIOLET,
+                    icon_size=16,
+                    tooltip="Charger la note par défaut (.notes.txt)",
+                    on_click=lambda e: switch_to_note(),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.VISIBILITY,
+                    icon_color=LIGHT_GREY,
+                    icon_size=16,
+                    tooltip="Prévisualiser en Markdown",
+                    on_click=lambda e: _notepad_toggle_preview(),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.OPEN_IN_NEW,
+                    icon_color=LIGHT_GREY,
+                    icon_size=16,
+                    tooltip="Ouvrir dans l'application par défaut",
+                    on_click=lambda e: _notepad_open_in_system(),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.SAVE_AS,
+                    icon_color=BLUE,
+                    icon_size=16,
+                    tooltip="Sauvegarder les notes sous…",
+                    on_click=lambda e: page.run_task(_notepad_save_as),
+                ),
+            ], alignment=ft.MainAxisAlignment.END, spacing=0),
+        ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+        expand=True,
+        bgcolor=DARK,
+        border=ft.Border.all(1, VIOLET),
+        border_radius=8,
+        padding=5,
+    )
 
     overlay_container = ft.Container(
         content=ft.Row([
-            ft.Container(
-                content=ft.Row([
-                    ft.Column([ai_panel_header, ai_container], spacing=4, expand=True),
-                    ft.Column([
-                        expand_button_overlay,
-                        ft.IconButton(
-                            icon=ft.Icons.CLOSE,
-                            icon_color=RED,
-                            icon_size=16,
-                            tooltip="Fermer IA & Notes",
-                            on_click=lambda e: switch_to_terminal_mode(),
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.COPY_ALL,
-                            icon_color=BLUE,
-                            icon_size=16,
-                            tooltip="Copier la conversation IA",
-                            on_click=lambda e: _copy_ai_conversation(),
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.SEND_TO_MOBILE,
-                            icon_color=VIOLET,
-                            icon_size=16,
-                            tooltip="Transférer la conversation vers le bloc-notes",
-                            on_click=lambda e: _ai_conversation_to_notepad(),
-                        ),
-                    ], alignment=ft.MainAxisAlignment.END, spacing=0),
-                ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-                expand=True,
-                bgcolor=DARK,
-                border=ft.Border.all(1, BLUE),
-                border_radius=8,
-                padding=5,
-            ),
-            ft.Container(
-                content=ft.Row([
-                    ft.Column([notepad_panel_header, notepad_container], spacing=4, expand=True),
-                    ft.Column([
-                        ft.IconButton(
-                            icon=ft.Icons.HOME,
-                            icon_color=VIOLET,
-                            icon_size=16,
-                            tooltip="Charger la note par défaut (.notes.txt)",
-                            on_click=lambda e: switch_to_note(),
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.VISIBILITY,
-                            icon_color=LIGHT_GREY,
-                            icon_size=16,
-                            tooltip="Prévisualiser en Markdown",
-                            on_click=lambda e: _notepad_toggle_preview(),
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.OPEN_IN_NEW,
-                            icon_color=LIGHT_GREY,
-                            icon_size=16,
-                            tooltip="Ouvrir dans l'application par défaut",
-                            on_click=lambda e: _notepad_open_in_system(),
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.SAVE_AS,
-                            icon_color=BLUE,
-                            icon_size=16,
-                            tooltip="Sauvegarder les notes sous…",
-                            on_click=lambda e: page.run_task(_notepad_save_as),
-                        ),
-                    ], alignment=ft.MainAxisAlignment.END, spacing=0),
-                ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-                expand=True,
-                bgcolor=DARK,
-                border=ft.Border.all(1, VIOLET),
-                border_radius=8,
-                padding=5,
-            ),
+            ai_panel_container,
+            notepad_panel_container,
         ], expand=True, spacing=8),
         visible=False,
         bgcolor=BACKGROUND,
         left=0, right=0, top=0, bottom=0,
     )
 
+    def toggle_ai_fullscreen():
+        """Affiche uniquement le panneau IA, ou restaure les deux panneaux."""
+        if overlay_fullscreen["mode"] == "ai":
+            overlay_fullscreen["mode"] = None
+            ai_panel_container.visible = True
+            notepad_panel_container.visible = True
+        else:
+            overlay_fullscreen["mode"] = "ai"
+            ai_panel_container.visible = True
+            notepad_panel_container.visible = False
+        try:
+            overlay_container.update()
+        except Exception:
+            pass
+
+    def toggle_notepad_fullscreen():
+        """Affiche uniquement le panneau Bloc-notes, ou restaure les deux panneaux."""
+        if overlay_fullscreen["mode"] == "notepad":
+            overlay_fullscreen["mode"] = None
+            ai_panel_container.visible = True
+            notepad_panel_container.visible = True
+        else:
+            overlay_fullscreen["mode"] = "notepad"
+            ai_panel_container.visible = False
+            notepad_panel_container.visible = True
+        try:
+            overlay_container.update()
+        except Exception:
+            pass
+
     def update_overlay_visibility():
         """Affiche ou masque l'overlay (IA à gauche + Notes à droite)."""
         panels_are_open = ai_mode["value"] or note_mode["value"]
         overlay_container.visible    = panels_are_open
+        if not panels_are_open:
+            overlay_fullscreen["mode"] = None
+            ai_panel_container.visible = True
+            notepad_panel_container.visible = True
         open_panels_button.icon       = ft.Icons.SMART_TOY
         open_panels_button.icon_color = RED if panels_are_open else BLUE
         open_panels_button.tooltip    = "Fermer IA & Notes" if panels_are_open else "Ouvrir IA & Bloc-notes"

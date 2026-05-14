@@ -2089,6 +2089,7 @@ def main(page: ft.Page):
                         *ai_conversation_sp,
                     ],
                     "stream": True,
+                    "keep_alive": -1,
                     "options": {"temperature": CONSTANTS.AI_TEMPERATURE},
                 }).encode("utf-8")
                 request = urllib.request.Request(
