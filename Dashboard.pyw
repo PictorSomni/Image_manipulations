@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.5.1"
+__version__ = "2.5.2"
 
 
 
@@ -50,7 +50,6 @@ import time
 import hashlib
 import tempfile
 import urllib.request
-import urllib.error
 import base64
 import html.parser
 
@@ -1750,6 +1749,20 @@ def main(page: ft.Page):
 
         return True
 
+    def _md_dark(text: str) -> str:
+        """Remplace les blockquotes Markdown (fond bleu clair de Flutter)
+        par un équivalent lisible sur thème sombre."""
+        lines = text.split("\n")
+        result = []
+        for line in lines:
+            if line.startswith("> "):
+                result.append("**›** " + line[2:])
+            elif line == ">":
+                result.append("")
+            else:
+                result.append(line)
+        return "\n".join(result)
+
     def _ai_add_bubble(role, text):
         """Ajoute un message dans le panneau IA et retourne le contrôle (pour le streaming)."""
         is_user = role == "user"
@@ -1764,7 +1777,7 @@ def main(page: ft.Page):
             )
         else:
             bubble_text = ft.Markdown(
-                text,
+                _md_dark(text),
                 selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
@@ -1930,7 +1943,7 @@ def main(page: ft.Page):
                                         pass
                                 response_text_ctrl = _ai_add_bubble("assistant", token)
                             else:
-                                response_text_ctrl.value = full_response
+                                response_text_ctrl.value = _md_dark(full_response)
                                 async def _stream_update_scroll():
                                     try:
                                         page.update()

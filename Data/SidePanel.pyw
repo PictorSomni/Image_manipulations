@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.5.1"
+__version__ = "2.5.2"
 
 
 #############################################################
