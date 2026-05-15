@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.5.0"
+__version__ = "2.5.1"
 
 
 
@@ -4842,7 +4842,7 @@ def main(page: ft.Page):
                         width=280,
                         alignment=ft.Alignment(0, 0),
                         ink=True,
-                        on_click=lambda e, v=f"{crop}|{canvas}": _pick_fit_203(v),
+                        on_click=lambda e, v=f"{crop}|{canvas}|{label.split(' sur ')[-1].replace('×', 'x')}": _pick_fit_203(v),
                     )
                     for label, crop, canvas in _FIT_203_FORMATS
                 ],
@@ -5042,9 +5042,11 @@ def main(page: ft.Page):
                 # Ajouter les dimensions pour Fit 203.py
                 if app_name == "Fit 203.py" and series_name:
                     parts = series_name.split("|")
-                    if len(parts) == 2:
+                    if len(parts) >= 2:
                         env["FIT_203_CROP_SIZE"] = parts[0]
                         env["FIT_203_PRINT_SIZE"] = parts[1]
+                    if len(parts) == 3:
+                        env["FIT_203_OUTPUT_FOLDER"] = parts[2]
 
 
                 # Paramètres Copyright

@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.5.0"
+__version__ = "2.5.1"
 
 
 # ─── Palette de couleurs ───────────────────────────────────────────────────────────────
@@ -141,10 +141,10 @@ if _platform.system() == "Windows":
 else:
     import os as _os
     _travaux = "/Volumes/TRAVAUX EN COURS"
-    if not _os.path.isdir(_travaux):
+    if not _os.path.ismount(_travaux):
         for _suffix in ["-1", "-2", "-3", "-4"]:
             _candidate = f"{_travaux}{_suffix}"
-            if _os.path.isdir(_candidate):
+            if _os.path.ismount(_candidate):
                 _travaux = _candidate
                 break
     del _os

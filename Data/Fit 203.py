@@ -12,7 +12,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.5.0"
+__version__ = "2.5.1"
 
 #############################################################
 #                          IMPORTS                          #
@@ -30,8 +30,9 @@ DPI = CONSTANTS.DPI
 #                           SIZE                            #
 #############################################################
 #-------------- size of each individual image --------------#
-CROP_SIZE = os.environ.get("FIT_203_CROP_SIZE", "102x152")   # mm
-PRINT_SIZE = os.environ.get("FIT_203_PRINT_SIZE", "102x203") # mm
+CROP_SIZE = os.environ.get("FIT_203_CROP_SIZE", "102x152")    # mm
+PRINT_SIZE = os.environ.get("FIT_203_PRINT_SIZE", "102x203")  # mm
+OUTPUT_FOLDER = os.environ.get("FIT_203_OUTPUT_FOLDER", "13x20")
 DPI = CONSTANTS.DPI          # DPI
 START = 1          # Start number to count, if needed
 
@@ -81,7 +82,7 @@ for i, file in enumerate(FOLDER):
     except Exception as e:
         print(e)
     else:
-        folder("13x20")
+        folder(OUTPUT_FOLDER)
 
         if base_image.width > base_image.height: # IF LANDSCAPE, ROTATE 90 DEGREES
             base_image = base_image.rotate(90, expand=True)
@@ -93,7 +94,7 @@ for i, file in enumerate(FOLDER):
         print_size.paste(result)
 
         filename = file_path.stem
-        output_folder = PATH / "13x20"
+        output_folder = PATH / OUTPUT_FOLDER
         print_size.save(str(output_folder / f"{filename}.jpg"), dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
 print("Terminé !")
 # input("Terminé !\nAppuyez sur une touche pour fermer")
