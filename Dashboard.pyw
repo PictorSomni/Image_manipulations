@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.5.3"
+__version__ = "2.5.4"
 
 
 
@@ -6024,6 +6024,18 @@ def main(page: ft.Page):
                     tooltip="Ouvrir l'explorateur",
                     on_click=lambda e: open_in_file_explorer(current_browse_folder["path"] or selected_folder["path"]),
                 ),
+                ft.IconButton(
+                    icon=ft.Icons.BLUETOOTH,
+                    icon_color=ft.Colors.LIGHT_BLUE_300,
+                    bgcolor=GREY,
+                    tooltip="Recevoir un fichier via Bluetooth",
+                    on_click=lambda e: (
+                        subprocess.Popen(["fsquirt.exe", "/Receive"])
+                        if platform.system() == "Windows"
+                        else subprocess.Popen(["open", "-a", "Bluetooth File Exchange"])
+                    ),
+                ),
+
                 ft.Container(expand=True),
                 ft.IconButton(
                     icon=ft.Icons.MINIMIZE, on_click=lambda e: setattr(page.window, 'minimized', True),),
