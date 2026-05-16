@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.5.2"
+__version__ = "2.5.3"
 
 
 
@@ -125,8 +125,8 @@ def _fetch_url_content(url, max_chars=12_000):
 #############################################################
 #                         CONSTANTS                         #
 #############################################################
-_IMAGE_VIEWER_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".ico", ".tiff", ".tif"}
-_NOTEPAD_EXTS = {".txt", ".md", ".log", ".ini", ".cfg", ".yaml", ".yml", ".rtf", ".py", ".toml", ".sh", ".bat", ".csv"}
+_IMAGE_VIEWER_EXTS = CONSTANTS.IMAGE_EXTS
+_NOTEPAD_EXTS      = CONSTANTS.NOTEPAD_EXTS
 
 _OS_JUNK = {
     ".ds_store", "thumbs.db", "thumbs.db:encryptable",
@@ -1506,12 +1506,8 @@ def main(page: ft.Page):
         _ai_refresh_attach_row()
 
     # ── Extensions reconnues comme documents ou fichiers audio ────────
-    _AI_DOCUMENT_EXTS = {
-        ".txt", ".md", ".py", ".js", ".ts", ".json", ".csv", ".xml",
-        ".html", ".htm", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".log",
-        ".rst", ".pdf", ".docx", ".doc", ".rtf", ".odt",
-    }
-    _AI_AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".opus", ".wma"}
+    _AI_DOCUMENT_EXTS = CONSTANTS.AI_DOCUMENT_EXTS
+    _AI_AUDIO_EXTS     = CONSTANTS.AI_AUDIO_EXTS
 
     def _ai_attach_document_file(file_path):
         """Ajoute un document ou fichier audio aux pièces jointes en attente."""
@@ -1621,7 +1617,7 @@ def main(page: ft.Page):
 
     def ai_send_selected_images(e=None):
         """Joint les fichiers image, document et audio sélectionnés dans la preview à la conversation IA."""
-        image_exts = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
+        image_exts = CONSTANTS.IMAGE_EXTS
         image_paths = [
             file_path for file_path in selected_files
             if os.path.splitext(file_path)[1].lower() in image_exts
@@ -2237,7 +2233,7 @@ def main(page: ft.Page):
 
 
 
-    _ROTATABLE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp"}
+    _ROTATABLE_EXTS = CONSTANTS.ROTATABLE_EXTS
 
 
 

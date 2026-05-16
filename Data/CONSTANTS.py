@@ -9,7 +9,29 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.5.2"
+__version__ = "2.5.3"
+
+
+# ─── Extensions de fichiers ────────────────────────────────────────────────────────────
+IMAGE_EXTS = frozenset({
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp",
+    ".webp", ".ico", ".tiff", ".tif",
+})
+NOTEPAD_EXTS = frozenset({
+    ".txt", ".md", ".log", ".ini", ".cfg", ".yaml", ".yml",
+    ".rtf", ".py", ".toml", ".sh", ".bat", ".csv",
+})
+AI_DOCUMENT_EXTS = frozenset({
+    ".txt", ".md", ".py", ".js", ".ts", ".json", ".csv", ".xml",
+    ".html", ".htm", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".log",
+    ".rst", ".pdf", ".docx", ".doc", ".rtf", ".odt",
+})
+AI_AUDIO_EXTS = frozenset({
+    ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".opus", ".wma",
+})
+ROTATABLE_EXTS = frozenset({
+    ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp",
+})
 
 
 # ─── Palette de couleurs ───────────────────────────────────────────────────────────────

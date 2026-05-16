@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.5.2"
+__version__ = "2.5.3"
 
 
 #############################################################
@@ -45,10 +45,8 @@ import CONSTANTS
 #############################################################
 #                         CONSTANTS                         #
 #############################################################
-_IMAGE_EXTS = {
-    ".jpg", ".jpeg", ".png", ".gif", ".bmp",
-    ".webp", ".ico", ".tiff", ".tif",
-}
+_IMAGE_EXTS   = CONSTANTS.IMAGE_EXTS
+_NOTEPAD_EXTS = CONSTANTS.NOTEPAD_EXTS
 
 _OS_JUNK = {
     ".ds_store", "thumbs.db", "thumbs.db:encryptable",
@@ -216,7 +214,7 @@ def main(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────
     #  ██████████  État  ──  Onglet 3 (Bloc-notes)
     # ─────────────────────────────────────────────────────────────────────
-    notes_file_path      = os.path.normpath(os.path.join(app_dir, "..", ".notes.txt"))
+    note_target_file     = {"path": os.path.normpath(os.path.join(app_dir, "..", ".notes.txt"))}
     notepad_is_preview   = {"value": False}
 
     # ───────────────────────────────────────────────────────────────────
@@ -702,7 +700,7 @@ def main(page: ft.Page):
                             padding=ft.Padding(left=8, top=2, right=8, bottom=2),
                             ink=True,
                             ink_color=GREY,
-                            on_click=lambda event, p=file_path, d=is_directory, ex=file_extension: _navigate(p) if d else _open_json_in_list(p) if ex == ".json" else None,
+                            on_click=lambda event, p=file_path, d=is_directory, ex=file_extension: _navigate(p) if d else _open_json_in_list(p) if ex == ".json" else _open_file_in_notepad(p) if ex in _NOTEPAD_EXTS else None,
                         )
                     )
 
@@ -1493,8 +1491,8 @@ def main(page: ft.Page):
             notepad_field.visible = True
             notepad_preview_scroll.visible = False
         try:
-            if os.path.exists(notes_file_path):
-                with open(notes_file_path, "r", encoding="utf-8") as file_handle:
+            if os.path.exists(note_target_file["path"]):
+                with open(note_target_file["path"], "r", encoding="utf-8") as file_handle:
                     notepad_field.value = file_handle.read()
             else:
                 notepad_field.value = ""
@@ -1506,9 +1504,9 @@ def main(page: ft.Page):
             pass
 
     def _notepad_save(event=None):
-        """Sauvegarde le contenu du bloc-notes dans .notes.txt."""
+        """Sauvegarde le contenu du bloc-notes dans le fichier cible."""
         try:
-            with open(notes_file_path, "w", encoding="utf-8") as file_handle:
+            with open(note_target_file["path"], "w", encoding="utf-8") as file_handle:
                 file_handle.write(notepad_field.value or "")
         except Exception:
             pass
@@ -1536,16 +1534,22 @@ def main(page: ft.Page):
 
     notepad_preview_btn.on_click = _notepad_toggle_preview
 
+    def _open_file_in_notepad(file_path):
+        """Ouvre un fichier texte dans l'onglet Notes."""
+        note_target_file["path"] = file_path
+        _notepad_load()
+        tabs.selected_index = 2
+        try:
+            tabs.update()
+        except Exception:
+            pass
+
     # ═══════════════════════════════════════════════════════════════════
     #  ██  Fonctions — Onglet 4 (IA)
     # ═══════════════════════════════════════════════════════════════════
 
-    _AI_DOCUMENT_EXTS = {
-        ".txt", ".md", ".py", ".js", ".ts", ".json", ".csv", ".xml",
-        ".html", ".htm", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".log",
-        ".rst", ".pdf", ".docx", ".doc", ".rtf", ".odt",
-    }
-    _AI_AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".opus", ".wma"}
+    _AI_DOCUMENT_EXTS = CONSTANTS.AI_DOCUMENT_EXTS
+    _AI_AUDIO_EXTS     = CONSTANTS.AI_AUDIO_EXTS
 
     def _ai_add_bubble_sp(role, text):
         """Ajoute un message dans le panneau IA et retourne le contrôle (pour le streaming)."""

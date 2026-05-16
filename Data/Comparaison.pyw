@@ -20,7 +20,7 @@ Variables d'environnement :
 Dépendances : flet >= 0.84
 """
 
-__version__ = "2.5.2"
+__version__ = "2.5.3"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  IMPORTS
@@ -43,7 +43,7 @@ except ImportError:
 # ─────────────────────────────────────────────────────────────────────────────
 #  CONSTANTES
 # ─────────────────────────────────────────────────────────────────────────────
-IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".tif", ".webp"}
+IMAGE_EXTS = CONSTANTS.IMAGE_EXTS
 
 DARK         = CONSTANTS.COLOR_DARK
 BACKGROUND   = CONSTANTS.COLOR_BACKGROUND
