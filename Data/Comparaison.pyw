@@ -196,6 +196,7 @@ def main(page: ft.Page):
         page.update()
 
     page.run_task(_maximize_window)
+    page.run_task(page.window.to_front)
 
     # ── Widgets images ────────────────────────────────────────────────────
     _BLANK = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="

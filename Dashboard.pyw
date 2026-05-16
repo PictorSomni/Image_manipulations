@@ -767,6 +767,7 @@ def main(page: ft.Page):
     def on_restore_window(topic, message):
         """Restaure la fenêtre Dashboard quand Side Panel se ferme."""
         page.window.minimized = False
+        page.window.maximized = True
         page.update()
 
     page.pubsub.subscribe_topic("restore_window", on_restore_window)
@@ -2214,7 +2215,13 @@ def main(page: ft.Page):
             if platform.system() == "Darwin":
                 subprocess.Popen(["open", "-a", exe] + files)
             else:
-                subprocess.Popen([exe] + files)
+                proc = subprocess.Popen([exe] + files)
+                if platform.system() == "Windows":
+                    def _watch_external(p=proc):
+                        p.wait()
+                        page.pubsub.send_all_on_topic("restore_window", None)
+
+                    threading.Thread(target=_watch_external, daemon=True).start()
             display_names = ", ".join(os.path.basename(file_path) for file_path in files[:3])
             overflow_suffix = f" (+{len(files) - 3})" if len(files) > 3 else ""
             log_to_terminal(f"[OK] Ouvert avec {prog['label']}: {display_names}{overflow_suffix}", GREEN)
@@ -2466,6 +2473,14 @@ def main(page: ft.Page):
                 for program_index, prog in enumerate(programs):
                     def _create_open_handler(program):
                         def _open_with_clicked(e):
+                            if platform.system() == "Windows":
+                                try:
+                                    import ctypes
+                                    hwnd = ctypes.windll.user32.GetForegroundWindow()
+                                    if hwnd:
+                                        ctypes.windll.user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
+                                except Exception:
+                                    pass
                             _close()
                             _open_files_with(program, files)
                         return _open_with_clicked

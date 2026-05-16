@@ -143,6 +143,7 @@ def main(page: ft.Page):
     page.window.title_bar_buttons_hidden = True
     page.window.width  = 1024
     page.window.height = 960
+    page.run_task(page.window.to_front)
 
     # ─── Chemins config ──────────────────────────────────────────────────
     app_dir             = os.path.dirname(os.path.abspath(__file__))

@@ -98,6 +98,7 @@ def main(page: ft.Page) -> None:
         page.update()
 
     page.run_task(_maximize_window)
+    page.run_task(page.window.to_front)
 
     # ── Tarifs et paramètres grille depuis Kiosk/CONSTANT.py ─────────────────
     SIZES: dict = KIOSK_CONSTANT.SIZES
