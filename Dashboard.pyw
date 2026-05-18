@@ -127,6 +127,7 @@ def _fetch_url_content(url, max_chars=12_000):
 #############################################################
 _IMAGE_VIEWER_EXTS = CONSTANTS.IMAGE_EXTS
 _NOTEPAD_EXTS      = CONSTANTS.NOTEPAD_EXTS
+_ANSI_ESCAPE       = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\[\?[0-9;]*[a-zA-Z]')
 
 _OS_JUNK = {
     ".ds_store", "thumbs.db", "thumbs.db:encryptable",
@@ -1011,10 +1012,12 @@ def main(page: ft.Page):
     # ================================================================ #
     #                          TERMINAL                                #
     # ================================================================ #
+    _terminal_update_timer = {"timer": None}
+    _terminal_update_lock  = threading.Lock()
+
     def log_to_terminal(message, color=WHITE):
         """Ajoute un message au terminal intégré"""
-        ansi_escape = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\[\?[0-9;]*[a-zA-Z]')
-        clean_message = ansi_escape.sub('', message).strip()
+        clean_message = _ANSI_ESCAPE.sub('', message).strip()
         if not clean_message:
             return
         try:
@@ -1023,13 +1026,20 @@ def main(page: ft.Page):
             )
             if len(terminal_output.controls) > 1000:
                 terminal_output.controls.pop(0)
-            page.update()
-            async def _scroll_terminal():
-                try:
-                    await terminal_output.scroll_to(offset=-1)
-                except Exception:
-                    pass
-            page.run_task(_scroll_terminal)
+            with _terminal_update_lock:
+                if _terminal_update_timer["timer"] is not None:
+                    _terminal_update_timer["timer"].cancel()
+                def _do_update():
+                    page.update()
+                    async def _scroll():
+                        try:
+                            await terminal_output.scroll_to(offset=-1)
+                        except Exception:
+                            pass
+                    page.run_task(_scroll)
+                t = threading.Timer(0.05, _do_update)
+                _terminal_update_timer["timer"] = t
+                t.start()
         except Exception:
             pass
 
@@ -3783,7 +3793,7 @@ def main(page: ft.Page):
                 selected_files.remove(file_path)
         selection_count_text.value = _selection_label()
         _update_select_toggle_button()
-        page.update()
+        selection_count_text.update()
 
 
     def _update_visible_checkboxes():
