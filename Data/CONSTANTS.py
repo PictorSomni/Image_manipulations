@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.5.4"
+__version__ = "2.5.5"
 
 
 # ─── Extensions de fichiers ────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ FORMATS = { # (largeur_mm, hauteur_mm) - en portrait
 
 # ─── Interface (Dashboard) ───────────────────────────────────────────────────────────────
 WINDOW_WIDTH                = 1280
-WINDOW_HEIGHT               = 1024
+WINDOW_HEIGHT               = 915
 MAXIMIZED                         =  False 
 TERMINAL_FONT_SIZE       = 16   # Taille du texte dans le terminal, le bloc-notes et les options
 TERMINAL_HEIGHT          = 170  # Hauteur du panneau terminal compact (px) - toujours visible

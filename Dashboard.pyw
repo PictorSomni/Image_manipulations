@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.5.4"
+__version__ = "2.5.5"
 
 
 
@@ -320,7 +320,7 @@ def main(page: ft.Page):
         "Redimensionner filigrane.py": (False, WHITE),
         "2 en 1.py": (False, HOVER_YELLOW),
         "Redimensionner.py": (False, WHITE),
-        "SidePanel.pyw": (True, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "SidePanel.pyw")),
+        "Augmentation IA.py": (False, VIOLET),
         "Copyright.py": (False, VIOLET),
         "Comparaison.pyw": (False, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Comparaison.pyw")),
     }
@@ -787,13 +787,17 @@ def main(page: ft.Page):
         proc = subprocess.Popen(
             [sys.executable, os.path.join(app_directory, "Data", "SidePanel.pyw")],
             env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
         page.window.minimized = True
         page.update()
 
         def _watch():
             proc.wait()
-            page.pubsub.send_all_on_topic("restore_window", None)
+            page.window.minimized = False
+            page.window.maximized = True
+            page.update()
 
         threading.Thread(target=_watch, daemon=True).start()
 
@@ -834,7 +838,9 @@ def main(page: ft.Page):
 
             def _watch():
                 proc.wait()
-                page.pubsub.send_all_on_topic("restore_window", None)
+                page.window.minimized = False
+                page.window.maximized = True
+                page.update()
 
             threading.Thread(target=_watch, daemon=True).start()
 
@@ -863,14 +869,17 @@ def main(page: ft.Page):
         if folder:
             env["FOLDER_PATH"] = folder
         kiosk_path = os.path.join(app_directory, "Data", "kiosk_flet.pyw")
-        proc = subprocess.Popen([sys.executable, kiosk_path], env=env)
+        proc = subprocess.Popen([sys.executable, kiosk_path], env=env,
+                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         page.window.minimized = True
         page.update()
 
         def _watch():
             proc.wait()
-            page.pubsub.send_all_on_topic("restore_window", None)
-            page.pubsub.send_all_on_topic("refresh", None)
+            page.window.minimized = False
+            page.window.maximized = True
+            page.update()
+            refresh_preview(reset_page=False)
 
         threading.Thread(target=_watch, daemon=True).start()
 
@@ -2229,7 +2238,9 @@ def main(page: ft.Page):
                 if platform.system() == "Windows":
                     def _watch_external(p=proc):
                         p.wait()
-                        page.pubsub.send_all_on_topic("restore_window", None)
+                        page.window.minimized = False
+                        page.window.maximized = True
+                        page.update()
 
                     threading.Thread(target=_watch_external, daemon=True).start()
             display_names = ", ".join(os.path.basename(file_path) for file_path in files[:3])
@@ -4979,16 +4990,18 @@ def main(page: ft.Page):
 
                     def _watch_local(proc=process, nav_path=kiosk_target_path):
                         proc.wait()
-                        page.pubsub.send_all_on_topic("restore_window", None)
+                        page.window.minimized = False
+                        page.window.maximized = True
+                        page.update()
                         if nav_path and os.path.isdir(nav_path):
-                            page.pubsub.send_all_on_topic("navigate", nav_path)
+                            navigate_to_folder(nav_path)
 
                     threading.Thread(target=_watch_local, daemon=True).start()
                 elif kiosk_target_path:
                     def _watch_kiosk(proc=process, nav_path=kiosk_target_path):
                         proc.wait()
                         if os.path.isdir(nav_path):
-                            page.pubsub.send_all_on_topic("navigate", nav_path)
+                            navigate_to_folder(nav_path)
 
                     threading.Thread(target=_watch_kiosk, daemon=True).start()
 
@@ -5404,12 +5417,6 @@ def main(page: ft.Page):
                 _prompt_and_zip_selection,
             ),
             _round_button(
-                ft.Icons.AUTO_FIX_HIGH,
-                GREEN,
-                "Augmentation IA",
-                lambda e: launch_app("Augmentation IA.py", os.path.join(app_directory, "Data", "Augmentation IA.py"), False),
-            ),
-            _round_button(
                 ft.Icons.DRIVE_FILE_MOVE,
                 YELLOW,
                 "Séparer RAW et JPG",
@@ -5421,12 +5428,12 @@ def main(page: ft.Page):
                 "Copier NEFs → SELECTION",
                 lambda e: launch_app("Copier NEFs sélection.py", copier_nefs_path, False),
             ),
-            _round_button(
-                ft.Icons.SMART_TOY,
-                BLUE,
-                "Envoyer à l'IA",
-                ai_send_selected_images,
-            ),
+            # _round_button(
+            #     ft.Icons.SMART_TOY,
+            #     BLUE,
+            #     "Envoyer à l'IA",
+            #     ai_send_selected_images,
+            # ),
             _round_button(
                 ft.Icons.NOTE_ADD,
                 RED,
@@ -6022,6 +6029,14 @@ def main(page: ft.Page):
                     tooltip="Ouvrir le Kiosk",
                     on_click=lambda e: _launch_kiosk_flet(),
                     icon_color=VIOLET,
+                    bgcolor=DARK,
+                    icon_size=18,
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.VIEW_SIDEBAR,
+                    tooltip="Ouvrir le Side Panel",
+                    on_click=lambda e: _launch_side_panel(),
+                    icon_color=BLUE,
                     bgcolor=DARK,
                     icon_size=18,
                 ),
