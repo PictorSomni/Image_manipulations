@@ -2995,42 +2995,38 @@ def main(page: ft.Page):
                     selected_files.remove(path)
                     selection_count_text.value = _selection_label()
                     selection_count_text.update()
+                # Retirer l'entrée de all_entries_data pour cohérence
+                all_entries_data["list"] = [
+                    e for e in all_entries_data["list"] if e[1] != path
+                ]
+
                 cur_idx = state["index"]
                 image_paths.pop(cur_idx)
                 if _HAS_PAGE_VIEW:
                     images_page_view.controls.pop(cur_idx)
                 page_image_controls.pop(cur_idx, None)
-                pages_loaded.discard(cur_idx)
 
                 if not image_paths:
-                    # Plus d'images : fermer la visionneuse
                     close_viewer(None)
                     return
 
-                # Reconstruire le mapping des contrôles (les index ont décalé)
-                new_page_image_controls = {}
-                new_pages_loaded = set()
-                for new_i, ctrl in list(page_image_controls.items()):
-                    if new_i < cur_idx:
-                        new_page_image_controls[new_i] = ctrl
-                        if new_i in pages_loaded:
-                            new_pages_loaded.add(new_i)
-                    elif new_i > cur_idx:
-                        new_page_image_controls[new_i - 1] = ctrl
-                        if new_i in pages_loaded:
-                            new_pages_loaded.add(new_i - 1)
+                # Décaler les clés de page_image_controls après cur_idx
+                shifted = {}
+                for k, v in page_image_controls.items():
+                    shifted[k if k < cur_idx else k - 1] = v
                 page_image_controls.clear()
-                page_image_controls.update(new_page_image_controls)
-                pages_loaded.clear()
-                pages_loaded.update(new_pages_loaded)
+                page_image_controls.update(shifted)
 
-                # Choisir le nouvel index : rester sur la même position
-                # (ou reculer d'un cran si on était à la fin)
+                # Vider pages_loaded pour forcer le rechargement propre de tout
+                pages_loaded.clear()
+
                 new_idx = min(cur_idx, len(image_paths) - 1)
+
                 if _HAS_PAGE_VIEW:
                     images_page_view.selected_index = new_idx
                 else:
                     _fb_navigate(new_idx)
+
                 _update_overlay_bar(new_idx)
                 _load_pages_around(new_idx)
                 page.update()
@@ -4632,6 +4628,8 @@ def main(page: ft.Page):
                                     continue
                                 stored_mtime = _image_last_mtime.get(normalized_path)
                                 if force_reload and stored_mtime is not None and current_mtime != stored_mtime:
+                                    # Invalider la miniature en mémoire
+                                    _thumb_cache.pop(normalized_path, None)
                                     old_temp = _image_cache_busters.get(normalized_path)
                                     if old_temp and os.path.exists(old_temp):
                                         try:
