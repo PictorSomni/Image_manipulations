@@ -2271,6 +2271,13 @@ def main(page: ft.Page):
         page.window.maximized = not page.window.maximized
         page.update()
 
+    def _on_window_event(event):
+        if event.data == "close":
+            _persist()
+            _notepad_save()
+            _ai_save_history_sp()
+
+    page.window.on_event = _on_window_event
 
     # ═════════════════════════════════════════════════════════════════════
     #  ██  Connexions
