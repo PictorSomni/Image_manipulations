@@ -33,6 +33,7 @@ from datetime import datetime
 import sys
 import os
 import subprocess
+import asyncio
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 import flet as ft
@@ -237,6 +238,46 @@ def main(page: ft.Page):
 
             progress_bar.visible = False
             progress_bar.update()
+
+            # Confirmation avant suppression des fichiers source
+            confirm_event = asyncio.Event()
+            confirm_result = {"delete": False}
+
+            def _do_delete(e):
+                confirm_result["delete"] = True
+                confirm_dialog.open = False
+                page.update()
+                confirm_event.set()
+
+            def _skip_delete(e):
+                confirm_dialog.open = False
+                page.update()
+                confirm_event.set()
+
+            confirm_dialog = ft.AlertDialog(
+                title=ft.Text("Supprimer les fichiers source ?"),
+                content=ft.Text(
+                    f"{total} fichier(s) du dossier source seront définitivement supprimés."
+                ),
+                actions=[
+                    ft.TextButton("Conserver", on_click=_skip_delete),
+                    ft.TextButton(
+                        "Supprimer",
+                        on_click=_do_delete,
+                        style=ft.ButtonStyle(color=ft.Colors.RED),
+                    ),
+                ],
+            )
+            page.overlay.append(confirm_dialog)
+            confirm_dialog.open = True
+            page.update()
+            await confirm_event.wait()
+
+            if not confirm_result["delete"]:
+                status_text.value = "Suppression annulée — fichiers conservés."
+                status_text.color = ORANGE
+                status_text.update()
+                return
 
             for source_file in source_files:
                 source_file.unlink()

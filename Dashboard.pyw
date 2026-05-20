@@ -2304,9 +2304,13 @@ def main(page: ft.Page):
         if not items:
             log_to_terminal("[ATTENTION] Aucun élément sélectionné à zipper", ORANGE)
             return
+        default_name = ""
+        if len(items) == 1 and os.path.isdir(items[0]):
+            default_name = os.path.basename(items[0])
         zip_name_input = ft.TextField(
             label="Nom de l'archive",
             hint_text="Ex: selection",
+            value=default_name,
             autofocus=True,
             width=320,
             bgcolor=DARK,
@@ -2316,7 +2320,7 @@ def main(page: ft.Page):
 
 
         def _on_confirm_zip(ev):
-            name = (zip_name_input.value or "").strip() or "selection"
+            name = (zip_name_input.value or "").strip() or default_name or "selection"
             zip_dlg.open = False
             page.update()
             log_to_terminal(f"[ZIP] Création de {name}.zip en cours…", YELLOW)
@@ -2986,7 +2990,11 @@ def main(page: ft.Page):
                     log_to_terminal(f"[ERREUR] {err}", RED)
                     return
 
-                # Retirer l'image de la liste et du viewer
+                # Retirer de la sélection si présent
+                if path in selected_files:
+                    selected_files.remove(path)
+                    selection_count_text.value = _selection_label()
+                    selection_count_text.update()
                 cur_idx = state["index"]
                 image_paths.pop(cur_idx)
                 if _HAS_PAGE_VIEW:
@@ -3354,6 +3362,10 @@ def main(page: ft.Page):
                     shutil.rmtree(file_path)
                 else:
                     os.remove(file_path)
+                # Retirer de la sélection si présent
+                if file_path in selected_files:
+                    selected_files.remove(file_path)
+                    selection_count_text.value = _selection_label()
                 dialog.open = False
                 page.update()
                 refresh_preview()
@@ -3858,6 +3870,7 @@ def main(page: ft.Page):
                     errors.append(f"{os.path.basename(item_path)}: {err}")
             
             selected_files.clear()
+            selection_count_text.value = _selection_label()
             dialog.open = False
             page.update()
             refresh_preview()
