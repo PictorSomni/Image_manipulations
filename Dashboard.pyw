@@ -5388,6 +5388,12 @@ def main(page: ft.Page):
 
         quick_tools_col.controls = [
             _round_button(
+                ft.Icons.MANAGE_SEARCH,
+                ORANGE,
+                "Fichiers identiques",
+                lambda e: launch_app("Fichiers identiques.py", fichiers_identiques_path, False),
+            ),
+            _round_button(
                 ft.Icons.MONOCHROME_PHOTOS,
                 WHITE,
                 "N&B",
@@ -5404,12 +5410,6 @@ def main(page: ft.Page):
                 RED,
                 "Nettoyer métadonnées",
                 lambda e: launch_app("Nettoyer metadonnees.py", nettoyer_metadonnees_path, False),
-            ),
-            _round_button(
-                ft.Icons.MANAGE_SEARCH,
-                ORANGE,
-                "Fichiers identiques",
-                lambda e: launch_app("Fichiers identiques.py", fichiers_identiques_path, False),
             ),
             _round_button(
                 ft.Icons.PICTURE_AS_PDF,
