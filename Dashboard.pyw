@@ -519,7 +519,17 @@ def main(page: ft.Page):
         shift_enter=True,
         on_submit=lambda e: _on_ai_submit(),
     )
-    ai_model_label   = ft.Text(CONSTANTS.AI_MODEL_TEXT, color=LIGHT_GREY, size=11, italic=True)
+    ai_model_dropdown = ft.Dropdown(
+        value=CONSTANTS.AI_MODEL_TEXT,
+        options=[ft.dropdown.Option(model) for model in CONSTANTS.AI_DROPDOWN_MODELS],
+        text_size=11,
+        dense=True,
+        color=LIGHT_GREY,
+        bgcolor=DARK,
+        border_color=GREY,
+        content_padding=ft.Padding.symmetric(horizontal=6, vertical=0),
+        width=150,
+    )
     ai_status_text   = ft.Text("", color=LIGHT_GREY, size=11, italic=True)
     ai_stop_button   = ft.IconButton(
         icon=ft.Icons.STOP_CIRCLE,
@@ -1251,15 +1261,11 @@ def main(page: ft.Page):
         load_notes()
         note_mode["value"] = True
         ai_mode["value"] = True
-        ai_model_label.value = (
-            f"{CONSTANTS.AI_MODEL_VISION}  🖼" if ai_pending_images else CONSTANTS.AI_MODEL_TEXT
-        )
         terminal_output.visible  = False
         terminal_cmd_row.visible = False
         update_overlay_visibility()
         terminal_output.update()
         terminal_cmd_row.update()
-        ai_model_label.update()
 
         # Pré-démarrer Ollama en silence pendant que l'utilisateur tape
         def _silent_prestart():
@@ -1845,13 +1851,8 @@ def main(page: ft.Page):
         ai_pending_files.clear()
         _ai_refresh_attach_row()
 
-        # Choisir le modèle selon la présence d'images
-        active_model = CONSTANTS.AI_MODEL_VISION if images_b64 else CONSTANTS.AI_MODEL_TEXT
-        ai_model_label.value = f"{active_model}{'  🖼' if images_b64 else ''}"
-        try:
-            ai_model_label.update()
-        except Exception:
-            pass
+        # Choisir le modèle sélectionné par l'utilisateur
+        active_model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_TEXT
 
         # Détecter les URLs dans le message et injecter leur contenu
         url_pattern = re.compile(r'https?://[^\s<>"\)\]]+', re.IGNORECASE)
@@ -5752,7 +5753,7 @@ def main(page: ft.Page):
         ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=14),
         ft.Text("IA", color=BLUE, size=11, weight=ft.FontWeight.BOLD),
         ft.Container(width=4),
-        ai_model_label,
+        ai_model_dropdown,
         ft.Container(width=4),
         ai_status_text,
         ai_stop_button,

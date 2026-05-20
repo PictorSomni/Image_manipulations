@@ -221,8 +221,10 @@ AI_SYSTEM_PROMPT = _textwrap.dedent("""
 AI_AVAILABLE_MODELS = [
     # ── Gemma 4 — texte + vision natif (Google, 2025) ───────────────────────────────────
     ("Gemma 4 E4B  (recommandé, ~9.6 GB) 🖼",            "gemma4:e4b",          True),
-    ("Gemma 4 E2B  (légère, ~7.2 GB) 🖼",                "gemma4:e2b",          True),
     ("Gemma 4 · 26B MoE  (~18 GB) 🖼",                   "gemma4:26b",          True),
+    # ── DeepSeek-R1 — raisonnement (texte uniquement) ───────────────────────────────────
+    ("DeepSeek-R1 · 8B  (~5.2 GB)",                      "deepseek-r1:8b",      False),
+    ("DeepSeek-R1 · 14B  (~9.0 GB)",                     "deepseek-r1:14b",     False),
     # ── Vision uniquement ─────────────────────────────────────────────────
     ("LLaVA-Phi3 · 3.8B  (~2.9 GB) 🖼",                  "llava-phi3",          True),
     ("LLaVA · 7B  (~4.1 GB) 🖼",                         "llava:7b",            True),
@@ -240,6 +242,13 @@ AI_AVAILABLE_MODELS = [
 
 # Ensemble des noms de modèles supportant la vision (pour vérification rapide)
 AI_VISION_MODELS = {entry[1] for entry in AI_AVAILABLE_MODELS if entry[2]}
+
+# Modèles affichés dans le dropdown de sélection rapide du Dashboard.
+# Modifiez cette liste pour changer les options proposées à l'utilisateur.
+AI_DROPDOWN_MODELS = [
+    "gemma4:e4b",
+    "deepseek-r1:8b",
+]
 
 
 
