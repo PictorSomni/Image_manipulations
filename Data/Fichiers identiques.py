@@ -128,6 +128,7 @@ async def main(page: ft.Page) -> None:
             dest_label.value = str(dest_path)
             dest_label.color = GREEN
             page.update()
+            run_comparison(None)
 
     def run_comparison(e) -> None:
         if not source_path or not source_path.is_dir():
@@ -220,5 +221,22 @@ async def main(page: ft.Page) -> None:
             await pick_dest(None)
         page.run_task(_auto_pick_dest)
 
+
+# Mode sans interface : si toutes les données sont disponibles depuis le Dashboard
+_hless_source = os.environ.get("FOLDER_PATH", "").strip()
+_hless_dest   = os.environ.get("SELECTED_FILES", "").strip()
+if _hless_source and _hless_dest:
+    _hless_sp    = Path(_hless_source)
+    _hless_first = _hless_dest.split("|")[0]
+    _hless_dp    = (
+        Path(_hless_first) if os.path.isdir(_hless_first)
+        else (_hless_sp / _hless_first if os.path.isdir(_hless_sp / _hless_first) else None)
+    )
+    if _hless_sp.is_dir() and _hless_dp and _hless_dp.is_dir() and _hless_sp != _hless_dp:
+        _hless_common = _compare(_hless_sp, _hless_dp)
+        _hless_str = "|".join(_hless_common)
+        print(f"{len(_hless_common)} fichier(s) identique(s) dans {_hless_dp.name}.")
+        print(f"{OUTPUT_SELECTED_FILES_PREFIX}{_hless_str}")
+        sys.exit(0)
 
 ft.run(main)

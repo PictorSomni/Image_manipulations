@@ -99,6 +99,22 @@ RED        = CONSTANTS.COLOR_RED
 WHITE      = CONSTANTS.COLOR_WHITE
 
 #############################################################
+#                    SÉQUENCE DOSSIERS                      #
+#############################################################
+def get_next_sequence_folder(base_path):
+    today = datetime.now().strftime("%Y-%m-%d")
+    date_folder = Path(base_path) / today
+    date_folder.mkdir(parents=True, exist_ok=True)
+    sequence_number = 1
+    while True:
+        sequence_folder = date_folder / f"{sequence_number:02d}"
+        if not sequence_folder.exists():
+            sequence_folder.mkdir(parents=True, exist_ok=True)
+            return sequence_folder
+        sequence_number += 1
+
+
+#############################################################
 #                           MAIN                            #
 #############################################################
 def main(page: ft.Page):
@@ -141,18 +157,6 @@ def main(page: ft.Page):
         height=60, width=250,
         visible=not LAUNCHED_FROM_DASHBOARD,
     )
-
-    def get_next_sequence_folder(base_path):
-        today = datetime.now().strftime("%Y-%m-%d")
-        date_folder = Path(base_path) / today
-        date_folder.mkdir(parents=True, exist_ok=True)
-        sequence_number = 1
-        while True:
-            sequence_folder = date_folder / f"{sequence_number:02d}"
-            if not sequence_folder.exists():
-                sequence_folder.mkdir(parents=True, exist_ok=True)
-                return sequence_folder
-            sequence_number += 1
 
     def _next_sequence_path(base_path):
         """Détermine le prochain chemin de séquence sans le créer (lecture seule)."""
@@ -296,6 +300,30 @@ def main(page: ft.Page):
         ),
     )
 
+
+if LAUNCHED_FROM_DASHBOARD:
+    try:
+        dest = _resolve_volume_path(DEFAULT_DEST)
+        source_files = (
+            SOURCE_FILES_FROM_DASHBOARD
+            if SOURCE_FILES_FROM_DASHBOARD
+            else [f for f in DEFAULT_SOURCE.iterdir() if f.is_file()]
+        )
+        if not source_files:
+            print("[info] Aucun fichier à copier.", flush=True)
+            sys.exit(0)
+        dest_folder = get_next_sequence_folder(dest)
+        for idx, f in enumerate(source_files, 1):
+            copy2(f, dest_folder / f.name)
+            print(f"Copie : {idx}/{len(source_files)} \u2014 {f.name}", flush=True)
+        for f in source_files:
+            f.unlink()
+        print(f"[ok] {len(source_files)} fichier(s) copiés vers {dest_folder}", flush=True)
+        print(f"NAVIGATE_TO:{dest_folder}", flush=True)
+    except Exception as _e:
+        print(f"[x] Erreur : {_e}", flush=True)
+        sys.exit(1)
+    sys.exit(0)
 
 ft.run(main)
 

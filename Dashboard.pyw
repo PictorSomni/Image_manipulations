@@ -5348,7 +5348,7 @@ def main(page: ft.Page):
         """Construit la colonne d'icônes rondes (outils rapides)."""
         two_in_one_path = os.path.join(app_directory, "Data", "2 en 1.py")
         side_panel_path = os.path.join(app_directory, "Data", "SidePanel.pyw")
-        fichiers_manquants_path = os.path.join(app_directory, "Data", "Fichiers manquants.py")
+        fichiers_identiques_path = os.path.join(app_directory, "Data", "Fichiers identiques.py")
 
         def _round_button(icon, color, tooltip, on_click):
             return ft.Container(
@@ -5395,8 +5395,8 @@ def main(page: ft.Page):
             _round_button(
                 ft.Icons.MANAGE_SEARCH,
                 ORANGE,
-                "Fichiers manquants",
-                lambda e: launch_app("Fichiers manquants.py", fichiers_manquants_path, False),
+                "Fichiers identiques",
+                lambda e: launch_app("Fichiers identiques.py", fichiers_identiques_path, False),
             ),
             _round_button(
                 ft.Icons.PICTURE_AS_PDF,
