@@ -93,8 +93,8 @@ FORMATS = { # (largeur_mm, hauteur_mm) - en portrait
 
 
 # ─── Interface (Dashboard) ───────────────────────────────────────────────────────────────
-WINDOW_WIDTH             = 1280
-WINDOW_HEIGHT            = 915
+WINDOW_WIDTH             = 1300
+WINDOW_HEIGHT            = 910
 MAXIMIZED                =  True 
 TERMINAL_FONT_SIZE       = 16   # Taille du texte dans le terminal, le bloc-notes et les options
 TERMINAL_HEIGHT          = 170  # Hauteur du panneau terminal compact (px) - toujours visible

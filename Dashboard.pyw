@@ -16,13 +16,13 @@ Ce module fournit une interface graphique Flet permettant de :
 Raccourcis clavier :
   Ctrl/Cmd+A  — sélectionner tout / désélectionner tout.
   Ctrl/Cmd+C  — copier les fichiers sélectionnés dans le presse-papiers interne.
-  Ctrl/Cmd+F  — basculer entre Terminal/Favoris et IA+Notes.
+  Ctrl/Cmd+↓ — basculer entre Terminal/Favoris et IA+Notes.
   Ctrl/Cmd+I  — inverser la sélection.
   Ctrl/Cmd+N  — créer un nouveau dossier.
   Ctrl/Cmd+V  — coller dans le dossier actuel.
   Ctrl/Cmd+↑ — agrandir/réduire le terminal.
-  Ctrl/Cmd+← — IA en plein écran (quand IA+Notes ouvert).
-  Ctrl/Cmd+→ — Bloc-notes en plein écran (quand IA+Notes ouvert).
+  Ctrl/Cmd+← — Bloc-notes en plein écran (quand IA+Notes ouvert).
+  Ctrl/Cmd+→ — IA en plein écran (quand IA+Notes ouvert).
 
 Dépendances :
   flet >= 0.80, modules standard (os, subprocess, sys, platform, shutil,
@@ -920,7 +920,8 @@ def main(page: ft.Page):
             padding=ft.Padding.symmetric(horizontal=10, vertical=2),
             shape=ft.StadiumBorder(),
         ),
-        height=28,
+        height=40,
+        width=76,
         tooltip="Tarif kiosk actif — cliquer pour changer (STUDIOS / PRINTS)",
     )
 
@@ -1013,12 +1014,12 @@ def main(page: ft.Page):
         """Gestionnaire des événements clavier pour les raccourcis"""
         ctrl_pressed = e.ctrl or e.meta
 
-        # Ctrl+↑ / Ctrl+F sont globaux : fonctionnent quelle que soit la zone active
+        # Ctrl+↑ / Ctrl+↓ sont globaux : fonctionnent quelle que soit la zone active
         if ctrl_pressed and e.key in ("Arrow Up", "ArrowUp"):
             toggle_terminal_overlay()
             return
 
-        if ctrl_pressed and e.key == "F":
+        if ctrl_pressed and e.key in ("Arrow Down", "ArrowDown"):
             if ai_mode["value"]:
                 switch_to_terminal_mode()
             else:
@@ -1027,10 +1028,10 @@ def main(page: ft.Page):
 
         if ctrl_pressed and (ai_mode["value"] or note_mode["value"]):
             if e.key in ("Arrow Left", "ArrowLeft"):
-                toggle_ai_fullscreen()
+                toggle_notepad_fullscreen()
                 return
             if e.key in ("Arrow Right", "ArrowRight"):
-                toggle_notepad_fullscreen()
+                toggle_ai_fullscreen()
                 return
 
         if terminal_input_focused["value"]:
