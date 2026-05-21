@@ -19,8 +19,10 @@ Raccourcis clavier :
   Ctrl/Cmd+F  — basculer entre Terminal/Favoris et IA+Notes.
   Ctrl/Cmd+I  — inverser la sélection.
   Ctrl/Cmd+N  — créer un nouveau dossier.
-  Ctrl/Cmd+T  — donner le focus au terminal.
   Ctrl/Cmd+V  — coller dans le dossier actuel.
+  Ctrl/Cmd+↑ — agrandir/réduire le terminal.
+  Ctrl/Cmd+← — IA en plein écran (quand IA+Notes ouvert).
+  Ctrl/Cmd+→ — Bloc-notes en plein écran (quand IA+Notes ouvert).
 
 Dépendances :
   flet >= 0.80, modules standard (os, subprocess, sys, platform, shutil,
@@ -476,21 +478,21 @@ def main(page: ft.Page):
 
     expand_button_terminal = ft.IconButton(
         icon=ft.Icons.EXPAND_LESS,
-        tooltip="Agrandir  (Ctrl+T)",
+        tooltip="Agrandir  (Ctrl+↑)",
         icon_color=LIGHT_GREY,
         icon_size=16,
         on_click=lambda e: toggle_terminal_overlay(),
     )
     expand_button_overlay = ft.IconButton(
         icon=ft.Icons.EXPAND_LESS,
-        tooltip="Agrandir  (Ctrl+T)",
+        tooltip="Agrandir  (Ctrl+↑)",
         icon_color=LIGHT_GREY,
         icon_size=16,
         on_click=lambda e: toggle_terminal_overlay(),
     )
     expand_button_notepad = ft.IconButton(
         icon=ft.Icons.EXPAND_LESS,
-        tooltip="Agrandir  (Ctrl+T)",
+        tooltip="Agrandir  (Ctrl+↑)",
         icon_color=LIGHT_GREY,
         icon_size=16,
         on_click=lambda e: toggle_terminal_overlay(),
@@ -1011,10 +1013,25 @@ def main(page: ft.Page):
         """Gestionnaire des événements clavier pour les raccourcis"""
         ctrl_pressed = e.ctrl or e.meta
 
-        # Ctrl+T est global : fonctionne quelle que soit la zone active
-        if ctrl_pressed and e.key == "T":
+        # Ctrl+↑ / Ctrl+F sont globaux : fonctionnent quelle que soit la zone active
+        if ctrl_pressed and e.key in ("Arrow Up", "ArrowUp"):
             toggle_terminal_overlay()
             return
+
+        if ctrl_pressed and e.key == "F":
+            if ai_mode["value"]:
+                switch_to_terminal_mode()
+            else:
+                switch_to_ai_mode()
+            return
+
+        if ctrl_pressed and (ai_mode["value"] or note_mode["value"]):
+            if e.key in ("Arrow Left", "ArrowLeft"):
+                toggle_ai_fullscreen()
+                return
+            if e.key in ("Arrow Right", "ArrowRight"):
+                toggle_notepad_fullscreen()
+                return
 
         if terminal_input_focused["value"]:
             if e.key in ("Arrow Up", "ArrowUp"):
@@ -1052,11 +1069,6 @@ def main(page: ft.Page):
                 toggle_select_all(None)
             elif e.key == "C":
                 copy_selected_files(None)
-            elif e.key == "F":
-                if ai_mode["value"]:
-                    switch_to_terminal_mode()
-                else:
-                    switch_to_ai_mode()
             elif e.key == "I":
                 invert_selection(None)
             elif e.key == "N":
@@ -1315,6 +1327,10 @@ def main(page: ft.Page):
         update_overlay_visibility()
         terminal_output.update()
         terminal_cmd_row.update()
+        try:
+            page.update()
+        except Exception:
+            pass
 
         # Pré-démarrer Ollama en silence pendant que l'utilisateur tape
         def _silent_prestart():
@@ -6090,7 +6106,7 @@ def main(page: ft.Page):
         is_expanded = terminal_is_expanded["value"]
         bottom_panel_container.height = page.window.height - CONSTANTS.WDA_HEIGHT if is_expanded else CONSTANTS.TERMINAL_HEIGHT
         new_icon    = ft.Icons.EXPAND_MORE if is_expanded else ft.Icons.EXPAND_LESS
-        new_tooltip = "Réduire  (Ctrl+T)" if is_expanded else "Agrandir  (Ctrl+T)"
+        new_tooltip = "Réduire  (Ctrl+↑)" if is_expanded else "Agrandir  (Ctrl+↑)"
         for expand_button in (expand_button_terminal, expand_button_overlay, expand_button_notepad):
             expand_button.icon    = new_icon
             expand_button.tooltip = new_tooltip
