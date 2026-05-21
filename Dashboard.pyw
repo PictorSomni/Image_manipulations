@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.5.5"
+__version__ = "2.5.6"
 
 
 
@@ -2235,20 +2235,14 @@ def main(page: ft.Page):
             if platform.system() == "Darwin":
                 subprocess.Popen(["open", "-a", exe] + files)
             else:
-                proc = subprocess.Popen([exe] + files)
-                if platform.system() == "Windows":
-                    def _watch_external(p=proc):
-                        p.wait()
-                        page.window.minimized = False
-                        page.window.maximized = True
-                        page.update()
-
-                    threading.Thread(target=_watch_external, daemon=True).start()
+                subprocess.Popen([exe] + files)
             display_names = ", ".join(os.path.basename(file_path) for file_path in files[:3])
             overflow_suffix = f" (+{len(files) - 3})" if len(files) > 3 else ""
             log_to_terminal(f"[OK] Ouvert avec {prog['label']}: {display_names}{overflow_suffix}", GREEN)
+            return True
         except Exception as err:
             log_to_terminal(f"[ERREUR] {prog['label']}: {err}", RED)
+            return False
 
 
 
@@ -2348,7 +2342,7 @@ def main(page: ft.Page):
 
 
 
-    def _rotate_files(files, direction):
+    def _rotate_files(files, direction, clear_sel=False):
         """Pivote les images de 90° à gauche ou à droite en utilisant Pillow."""
         if _PILImage is None:
             log_to_terminal("[ERREUR] Pillow non installé — rotation impossible", RED)
@@ -2395,6 +2389,9 @@ def main(page: ft.Page):
         if rotated:
             label = "gauche" if direction == "left" else "droite"
             log_to_terminal(f"[OK] {rotated} image(s) pivotée(s) vers {label}", YELLOW)
+            if clear_sel:
+                selected_files.clear()
+                _update_select_toggle_button()
             refresh_preview(reset_page=False, force_reload=True)
 
 
@@ -2479,7 +2476,7 @@ def main(page: ft.Page):
 
         def _do_rotate(direction):
             _close()
-            threading.Thread(target=_rotate_files, args=(image_files, direction), daemon=True).start()
+            threading.Thread(target=_rotate_files, args=(image_files, direction, True), daemon=True).start()
 
 
 
@@ -2508,7 +2505,8 @@ def main(page: ft.Page):
                                 except Exception:
                                     pass
                             _close()
-                            _open_files_with(program, files)
+                            if _open_files_with(program, files):
+                                clear_selection(None)
                         return _open_with_clicked
                     def _create_delete_handler(program):
                         def _delete_program_clicked(e):
@@ -2584,36 +2582,78 @@ def main(page: ft.Page):
                 for image_path in image_files:
                     _ai_attach_image(image_path)
                 switch_to_ai_mode()
+                clear_selection(None)
 
-            content_rows.append(
-                ft.Row([
-                    ft.Container(expand=True),
-                    ft.IconButton(
-                        icon=ft.Icons.ROTATE_LEFT, icon_color=HOVER_YELLOW, icon_size=28,
-                        tooltip="Rotation gauche (−90°)",
-                        on_click=lambda e: _do_rotate("left"),
+            def _show_exif_data(e=None):
+                _close()
+                exif_path = image_files[0]
+                rows = []
+                try:
+                    if _PILImage is None:
+                        raise ImportError("PIL non disponible")
+                    from PIL.ExifTags import TAGS
+                    with _PILImage.open(exif_path) as img:
+                        width, height = img.size
+                        raw = img.getexif()
+                    rows.append(
+                        ft.Text(f"Résolution : {width} × {height} px", size=12, color=BLUE, selectable=True)
+                    )
+                    if raw:
+                        for tag_id, value in raw.items():
+                            tag_name = TAGS.get(tag_id, f"Tag {tag_id}")
+                            if isinstance(value, bytes):
+                                continue
+                            rows.append(
+                                ft.Text(f"{tag_name}: {value}", size=12, color=WHITE, selectable=True)
+                            )
+                    else:
+                        rows.append(ft.Text("Aucune donnée EXIF.", size=12, color=LIGHT_GREY))
+                except Exception as ex:
+                    rows.append(ft.Text(f"Erreur : {ex}", size=12, color=RED))
+
+                exif_dlg = ft.AlertDialog(
+                    title=ft.Text(os.path.basename(exif_path), size=13, color=LIGHT_GREY),
+                    content=ft.Column(
+                        rows, spacing=2,
+                        scroll=ft.ScrollMode.AUTO,
+                        width=400, height=400,
                     ),
-                    ft.IconButton(
-                        icon=ft.Icons.ROTATE_RIGHT, icon_color=YELLOW, icon_size=28,
-                        tooltip="Rotation droite (+90°)",
-                        on_click=lambda e: _do_rotate("right"),
-                    ),
-                    ft.Container(expand=True),
-                ], spacing=0, tight=True)
-            )
-            content_rows.append(
-                ft.TextButton(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.SMART_TOY, size=16, color=BLUE),
-                        ft.Text(
-                            f"Envoyer à l'IA ({len(image_files)} image{'s' if len(image_files) > 1 else ''})",
-                            size=13, color=BLUE,
-                        ),
-                    ], spacing=6, tight=True),
-                    on_click=_send_images_to_ai,
-                    style=ft.ButtonStyle(padding=ft.Padding(8, 4, 8, 4)),
                 )
-            )
+
+                def _close_exif(e=None):
+                    exif_dlg.open = False
+                    page.update()
+
+                exif_dlg.actions = [ft.TextButton("Fermer", on_click=_close_exif)]
+                exif_dlg.actions_alignment = ft.MainAxisAlignment.END
+                page.overlay.append(exif_dlg)
+                exif_dlg.open = True
+                page.update()
+
+            icon_btns = [
+                ft.IconButton(
+                    icon=ft.Icons.SMART_TOY, icon_color=BLUE, icon_size=22,
+                    tooltip=f"Envoyer à l'IA ({len(image_files)} image{'s' if len(image_files) > 1 else ''})",
+                    on_click=_send_images_to_ai,
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.ROTATE_LEFT, icon_color=HOVER_YELLOW, icon_size=22,
+                    tooltip="Rotation gauche (−90°)",
+                    on_click=lambda e: _do_rotate("left"),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.ROTATE_RIGHT, icon_color=YELLOW, icon_size=22,
+                    tooltip="Rotation droite (+90°)",
+                    on_click=lambda e: _do_rotate("right"),
+                ),
+            ]
+            if len(image_files) == 1:
+                icon_btns.append(ft.IconButton(
+                    icon=ft.Icons.INFO_OUTLINE, icon_color=LIGHT_GREY, icon_size=22,
+                    tooltip="Voir les EXIF",
+                    on_click=_show_exif_data,
+                ))
+            content_rows.append(ft.Row(icon_btns, spacing=0, alignment=ft.MainAxisAlignment.CENTER))
             content_rows.append(ft.Divider(height=8, color=GREY))
         if has_doc_audio:
             def _send_docs_to_ai(e=None):
@@ -2621,23 +2661,18 @@ def main(page: ft.Page):
                 for doc_path in doc_audio_files:
                     _ai_attach_document_file(doc_path)
                 switch_to_ai_mode()
+                clear_selection(None)
 
             doc_label = (
                 f"{len(doc_audio_files)} fichier{'s' if len(doc_audio_files) > 1 else ''}"
             )
-            content_rows.append(
-                ft.TextButton(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.SMART_TOY, size=16, color=VIOLET),
-                        ft.Text(
-                            f"Envoyer à l'IA ({doc_label})",
-                            size=13, color=VIOLET,
-                        ),
-                    ], spacing=6, tight=True),
+            content_rows.append(ft.Row([
+                ft.IconButton(
+                    icon=ft.Icons.SMART_TOY, icon_color=VIOLET, icon_size=22,
+                    tooltip=f"Envoyer à l'IA ({doc_label})",
                     on_click=_send_docs_to_ai,
-                    style=ft.ButtonStyle(padding=ft.Padding(8, 4, 8, 4)),
-                )
-            )
+                ),
+            ], spacing=0, tight=True))
             content_rows.append(ft.Divider(height=8, color=GREY))
         content_rows.append(programs_list_view)
         content_rows.append(add_form)
@@ -3464,6 +3499,7 @@ def main(page: ft.Page):
         clipboard["cut"] = False
         count = len(clipboard["files"])
         log_to_terminal(f"[OK] {count} élément(s) copié(s)", BLUE)
+        clear_selection(None)
 
 
 
@@ -3476,6 +3512,7 @@ def main(page: ft.Page):
         clipboard["cut"] = True
         count = len(clipboard["files"])
         log_to_terminal(f"[OK] {count} élément(s) coupé(s) — collé avec Ctrl+V", ORANGE)
+        clear_selection(None)
 
 
 
@@ -6016,6 +6053,19 @@ def main(page: ft.Page):
     expand_button_overlay.on_click  = lambda e: toggle_terminal_overlay()
     expand_button_notepad.on_click  = lambda e: toggle_terminal_overlay()
 
+    def _open_bluetooth():
+        if platform.system() == "Windows":
+            try:
+                import ctypes
+                hwnd = ctypes.windll.user32.GetForegroundWindow()
+                if hwnd:
+                    ctypes.windll.user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
+            except Exception:
+                pass
+            subprocess.Popen(["fsquirt.exe", "/Receive"])
+        else:
+            subprocess.Popen(["open", "-a", "Bluetooth File Exchange"])
+
 
 # ===================== INTERFACE FLET ===================== #
     page.add(
@@ -6081,11 +6131,7 @@ def main(page: ft.Page):
                     icon_color=ft.Colors.LIGHT_BLUE_300,
                     bgcolor=GREY,
                     tooltip="Recevoir un fichier via Bluetooth",
-                    on_click=lambda e: (
-                        subprocess.Popen(["fsquirt.exe", "/Receive"])
-                        if platform.system() == "Windows"
-                        else subprocess.Popen(["open", "-a", "Bluetooth File Exchange"])
-                    ),
+                    on_click=lambda e: _open_bluetooth(),
                 ),
 
                 ft.Container(expand=True),
