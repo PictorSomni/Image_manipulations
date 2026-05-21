@@ -73,6 +73,7 @@ MAX_CANVAS_SIZE = 1200  # Taille max du canvas
 CONTROLS_WIDTH = 270    # Largeur de la colonne de contrôles
 DPI = CONSTANTS.DPI  # Résolution d'export
 PREVIEW_MAX_PIXELS = CONSTANTS.PREVIEW_MAX_PIXELS  # Taille max (px, côté le plus long) de la prévisualisation
+ID_X4_10x20_PHOTOS_BOTTOM = CONSTANTS.ID_X4_10x20_PHOTOS_BOTTOM  # True = photos moitié basse, False = photos moitié haute
 
 # Formats d'impression (largeur_mm, hauteur_mm) - en portrait
 FORMATS = CONSTANTS.FORMATS
@@ -3481,7 +3482,10 @@ class PhotoCropper:
                 total_width  = id_photo.width  * 2 + SPACING_PX
                 total_height = id_photo.height * 2 + SPACING_PX
                 start_x = (SHEET_WIDTH_PX - total_width)  // 2
-                start_y = half_height + (half_height - total_height) // 2
+                if ID_X4_10x20_PHOTOS_BOTTOM:
+                    start_y = half_height + (half_height - total_height) // 2
+                else:
+                    start_y = (half_height - total_height) // 2
                 for row in range(2):
                     for col in range(2):
                         paste_x = start_x + col * (id_photo.width  + SPACING_PX)

@@ -53,6 +53,11 @@ COLOR_WHITE        = "#c7ccd8"
 # ─── Résolution d'impression ───────────────────────────────────────────────────────────────
 DPI = 300   # Points par pouce (ne pas modifier sauf matériel spécifique)
 
+# ─── Planche ID X4 en 10x20 ───────────────────────────────────────────────────────────────
+# True  = 4 photos dans la moitié BASSE  (moitié haute blanche) — défaut imprimante bas
+# False = 4 photos dans la moitié HAUTE (moitié basse blanche)
+ID_X4_10x20_PHOTOS_BOTTOM = True
+
 
 # ─── Performance de prévisualisation ─────────────────────────────────────────────────────────
 # Taille maximale (en pixels, côté le plus long) de l'image de prévisualisation dans

@@ -16,6 +16,7 @@ Ce module fournit une interface graphique Flet permettant de :
 Raccourcis clavier :
   Ctrl/Cmd+A  — sélectionner tout / désélectionner tout.
   Ctrl/Cmd+C  — copier les fichiers sélectionnés dans le presse-papiers interne.
+  Ctrl/Cmd+F  — basculer entre Terminal/Favoris et IA+Notes.
   Ctrl/Cmd+I  — inverser la sélection.
   Ctrl/Cmd+N  — créer un nouveau dossier.
   Ctrl/Cmd+T  — donner le focus au terminal.
@@ -1051,6 +1052,11 @@ def main(page: ft.Page):
                 toggle_select_all(None)
             elif e.key == "C":
                 copy_selected_files(None)
+            elif e.key == "F":
+                if ai_mode["value"]:
+                    switch_to_terminal_mode()
+                else:
+                    switch_to_ai_mode()
             elif e.key == "I":
                 invert_selection(None)
             elif e.key == "N":
