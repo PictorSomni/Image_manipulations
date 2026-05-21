@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.5.6"
+__version__ = "2.5.7"
 
 
 #############################################################
@@ -2539,14 +2539,46 @@ def main(page: ft.Page):
             expand=True,
             spacing=0,
             controls=[
-                ft.TabBar(
-                    tabs=[
-                        ft.Tab(label="Fichiers", icon=ft.Icons.PHOTO_LIBRARY_OUTLINED),
-                        ft.Tab(label="Liste",    icon=ft.Icons.LIST_ALT_OUTLINED),
-                        ft.Tab(label="Notes",    icon=ft.Icons.EDIT_NOTE_OUTLINED),
-                        ft.Tab(label="IA",       icon=ft.Icons.SMART_TOY_OUTLINED),
-                    ],
+                ft.WindowDragArea(
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Row([
+                                ft.Icon(ft.Icons.SPLITSCREEN, color=ORANGE, size=18),
+                                ft.Text(
+                                    f"SIDE PANEL  {__version__}",
+                                    size=15, color=WHITE,
+                                    weight=ft.FontWeight.W_500,
+                                ),
+                            ], spacing=6),
+                            padding=ft.Padding(10, 0, 0, 0),
+                        ),
+                        ft.Container(expand=True),
+                        ft.TabBar(
+                            tabs=[
+                                ft.Tab(label="Fichiers", icon=ft.Icons.PHOTO_LIBRARY_OUTLINED),
+                                ft.Tab(label="Liste",    icon=ft.Icons.LIST_ALT_OUTLINED),
+                                ft.Tab(label="Notes",    icon=ft.Icons.EDIT_NOTE_OUTLINED),
+                                ft.Tab(label="IA",       icon=ft.Icons.SMART_TOY_OUTLINED),
+                            ],
+                        ),
+                        ft.Container(expand=True),
+                        ft.Row([
+                            ft.IconButton(
+                                icon=ft.Icons.REMOVE, icon_size=16,
+                                on_click=_minimize, tooltip="Réduire",
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.FULLSCREEN, icon_size=16,
+                                on_click=_toggle_maximize, tooltip="Maximiser / Restaurer",
+                            ),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE, icon_size=16,
+                                on_click=_close, tooltip="Fermer",
+                            ),
+                        ], spacing=0),
+                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 ),
+                ft.Divider(height=1, color=GREY),
                 ft.TabBarView(
                     expand=True,
                     controls=[
@@ -2576,41 +2608,7 @@ def main(page: ft.Page):
         ),
     )
 
-    title_bar = ft.WindowDragArea(
-        ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.Icons.SPLITSCREEN, color=ORANGE, size=18),
-                ft.Text(
-                    f"SIDE PANEL  {__version__}",
-                    size=15, color=WHITE,
-                    weight=ft.FontWeight.W_500,
-                ),
-                ft.Container(expand=True),
-                ft.IconButton(
-                    icon=ft.Icons.REMOVE, icon_size=16,
-                    on_click=_minimize, tooltip="Réduire",
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.FULLSCREEN, icon_size=16,
-                    on_click=_toggle_maximize, tooltip="Maximiser / Restaurer",
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.CLOSE, icon_size=16,
-                    on_click=_close, tooltip="Fermer",
-                ),
-            ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=DARK,
-            padding=ft.Padding(10, 6, 6, 6),
-        )
-    )
-
-    page.add(
-        ft.Column([
-            title_bar,
-            ft.Divider(height=1, color=GREY),
-            tabs,
-        ], expand=True, spacing=0)
-    )
+    page.add(tabs)
 
     # ── Initialisation ───────────────────────────────────────────────────
     _rebuild_recent_src_menu()

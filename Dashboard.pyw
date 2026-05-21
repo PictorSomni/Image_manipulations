@@ -26,7 +26,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.5.6"
+__version__ = "2.5.7"
 
 
 
@@ -216,6 +216,7 @@ def main(page: ft.Page):
     page.window.on_event = on_window_event
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
+    kiosk_tariff = {"value": "PRINTS"}  # Tarif kiosk actif : "STUDIOS" ou "PRINTS"
     app_directory = os.path.dirname(os.path.abspath(__file__))
     selected_files = []  # Liste des fichiers sélectionnés (ordre de clic préservé)
 
@@ -878,6 +879,7 @@ def main(page: ft.Page):
         env = {**os.environ}
         if folder:
             env["FOLDER_PATH"] = folder
+        env["TARIFF_TYPE"] = kiosk_tariff["value"]
         kiosk_path = os.path.join(app_directory, "Data", "kiosk_flet.pyw")
         proc = subprocess.Popen([sys.executable, kiosk_path], env=env,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -893,6 +895,29 @@ def main(page: ft.Page):
 
         threading.Thread(target=_watch, daemon=True).start()
 
+    _kiosk_tariff_label = ft.Text("PRINTS", size=12, color=DARK)
+    kiosk_tariff_btn = ft.Button(
+        content=_kiosk_tariff_label,
+        bgcolor=GREEN,
+        style=ft.ButtonStyle(
+            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
+            shape=ft.RoundedRectangleBorder(radius=6),
+        ),
+        height=28,
+        tooltip="Tarif kiosk actif — cliquer pour changer (STUDIOS / PRINTS)",
+    )
+
+    def _toggle_kiosk_tariff(e) -> None:
+        kiosk_tariff["value"] = "PRINTS" if kiosk_tariff["value"] == "STUDIOS" else "STUDIOS"
+        if kiosk_tariff["value"] == "STUDIOS":
+            _kiosk_tariff_label.value = "STUDIOS"
+            kiosk_tariff_btn.bgcolor = YELLOW
+        else:
+            _kiosk_tariff_label.value = "PRINTS"
+            kiosk_tariff_btn.bgcolor = GREEN
+        kiosk_tariff_btn.update()
+
+    kiosk_tariff_btn.on_click = _toggle_kiosk_tariff
 
 
     def on_preview_ready(topic, payload):
@@ -6054,17 +6079,45 @@ def main(page: ft.Page):
     expand_button_notepad.on_click  = lambda e: toggle_terminal_overlay()
 
     def _open_bluetooth():
+        if not _strip_state["active"]:
+            _toggle_strip()
         if platform.system() == "Windows":
-            try:
-                import ctypes
-                hwnd = ctypes.windll.user32.GetForegroundWindow()
-                if hwnd:
-                    ctypes.windll.user32.ShowWindow(hwnd, 6)  # SW_MINIMIZE
-            except Exception:
-                pass
             subprocess.Popen(["fsquirt.exe", "/Receive"])
         else:
             subprocess.Popen(["open", "-a", "Bluetooth File Exchange"])
+
+
+# ── Strip mode (réduction en bandeau pour écrans tactiles) ────────────────────
+    _strip_state = {"active": False, "saved_height": CONSTANTS.WINDOW_HEIGHT}
+    _main_stack_ref = ft.Ref[ft.Stack]()
+    strip_btn = ft.IconButton(
+        icon=ft.Icons.UNFOLD_LESS,
+        tooltip="Réduire en bandeau (écran tactile)",
+        icon_color=LIGHT_GREY,
+        bgcolor=DARK,
+        icon_size=18,
+    )
+
+    def _toggle_strip(e=None):
+        stack = _main_stack_ref.current
+        if not _strip_state["active"]:
+            _strip_state["saved_height"] = page.window.height or CONSTANTS.WINDOW_HEIGHT
+            _strip_state["active"] = True
+            stack.visible = False
+            page.window.height = CONSTANTS.WDA_HEIGHT
+            strip_btn.icon = ft.Icons.UNFOLD_MORE
+            strip_btn.tooltip = "Restaurer la fenêtre"
+            strip_btn.icon_color = BLUE
+        else:
+            _strip_state["active"] = False
+            stack.visible = True
+            page.window.height = _strip_state["saved_height"]
+            strip_btn.icon = ft.Icons.UNFOLD_LESS
+            strip_btn.tooltip = "Réduire en bandeau (écran tactile)"
+            strip_btn.icon_color = LIGHT_GREY
+        page.update()
+
+    strip_btn.on_click = _toggle_strip
 
 
 # ===================== INTERFACE FLET ===================== #
@@ -6094,6 +6147,7 @@ def main(page: ft.Page):
                     bgcolor=DARK,
                     icon_size=18,
                 ),
+                kiosk_tariff_btn,
                 ft.IconButton(
                     icon=ft.Icons.VIEW_SIDEBAR,
                     tooltip="Ouvrir le Side Panel",
@@ -6135,6 +6189,7 @@ def main(page: ft.Page):
                 ),
 
                 ft.Container(expand=True),
+                strip_btn,
                 ft.IconButton(
                     icon=ft.Icons.MINIMIZE, on_click=lambda e: setattr(page.window, 'minimized', True),),
                 ft.IconButton(
@@ -6291,8 +6346,15 @@ def main(page: ft.Page):
             ft.Container(height=CONSTANTS.TERMINAL_HEIGHT),
         ], expand=True, spacing=8),
         bottom_panel_container,
-        ], expand=True),
+        ], expand=True, ref=_main_stack_ref),
     )
+
+    if CONSTANTS.MAXIMIZED:
+        async def _delayed_maximize():
+            await asyncio.sleep(0.15)
+            page.window.maximized = True
+            page.update()
+        page.run_task(_delayed_maximize)
 
 
 

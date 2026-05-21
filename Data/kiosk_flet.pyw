@@ -12,7 +12,7 @@ Remplace la version Qt6 originale (main.py) avec :
 Dépendances : flet, Pillow (PIL)
 """
 
-__version__ = "2.5.6"
+__version__ = "2.5.7"
 
 import flet as ft
 import os
@@ -101,14 +101,32 @@ def main(page: ft.Page) -> None:
     page.run_task(page.window.to_front)
 
     # ── Tarifs et paramètres grille depuis Kiosk/CONSTANT.py ─────────────────
-    SIZES: dict = KIOSK_CONSTANT.SIZES
+    STUDIOS_TARIFF: dict[str, float]      = KIOSK_CONSTANT.STUDIOS
+    PRINTS_TARIFF:  dict[str, list]       = KIOSK_CONSTANT.PRINTS
+    active_tariff = {"value": os.environ.get("TARIFF_TYPE", "STUDIOS")}
+
+    def _active_sizes() -> dict:
+        return STUDIOS_TARIFF if active_tariff["value"] == "STUDIOS" else PRINTS_TARIFF
+
+    def _get_unit_price(format_name: str, total_count: int) -> float:
+        """Prix unitaire selon le tarif actif ; PRINTS utilise des tranches dégressives."""
+        if active_tariff["value"] == "STUDIOS":
+            return STUDIOS_TARIFF.get(format_name, 0.0)
+        tiers = PRINTS_TARIFF.get(format_name)
+        if tiers is None:
+            return 0.0
+        if total_count <= 10:  return tiers[0]
+        if total_count <= 50:  return tiers[1]
+        if total_count <= 100: return tiers[2]
+        if total_count <= 200: return tiers[3]
+        return tiers[4]
 
     # ── État global ───────────────────────────────────────────────────────
     current_folder = {"path": ""}
     images_list: list[str] = []
     # prints_data[format][filename] = nombre de copies
     prints_data: dict[str, dict[str, int]] = {}
-    current_size = {"value": list(SIZES.keys())[0]}
+    current_size = {"value": list(_active_sizes().keys())[0]}
     total_price = {"value": 0.0}
     nb_state: dict[tuple, bool] = {}        # (format_name, filename) → True = N&B actif pour ce format
     image_cards: dict[str, dict] = {}       # {filename: {card, count_text, image_ctrl, nb_button}}
@@ -121,11 +139,20 @@ def main(page: ft.Page) -> None:
     #  Helpers d'état
     # ─────────────────────────────────────────────────────────────────────
 
+    FRAIS_AMORCE = 1.50  # Frais d'amorce par commande (mode PRINTS uniquement)
+
     def _recalculate_total() -> None:
         total = 0.0
-        for format_name, price_per_unit in SIZES.items():
-            for filename, count in prints_data.get(format_name, {}).items():
-                total += count * price_per_unit
+        has_prints = False
+        for format_name in _active_sizes():
+            counts = prints_data.get(format_name, {})
+            total_count = sum(counts.values())
+            if total_count == 0:
+                continue
+            has_prints = True
+            total += total_count * _get_unit_price(format_name, total_count)
+        if active_tariff["value"] == "PRINTS" and has_prints:
+            total += FRAIS_AMORCE
         total_price["value"] = round(total, 2)
         price_text.value = f"{total_price['value']:.2f} €"
         price_text.update()
@@ -417,7 +444,7 @@ def main(page: ft.Page) -> None:
                     content=fmt,
                     on_click=lambda e, fmt=fmt: _on_select_format_in_preview(fmt),
                 )
-                for fmt in SIZES
+                for fmt in _active_sizes()
             ],
         )
 
@@ -722,8 +749,8 @@ def main(page: ft.Page) -> None:
         except PermissionError:
             pass
 
-        # Initialisation des données d'impression pour chaque format
-        for format_name in SIZES:
+        # Initialisation des données d'impression pour tous les formats possibles
+        for format_name in set(STUDIOS_TARIFF) | set(PRINTS_TARIFF):
             prints_data[format_name] = {f: 0 for f in images_list}
 
         # Mise à jour des labels d'en-tête
@@ -812,7 +839,7 @@ def main(page: ft.Page) -> None:
         # Construit format_selections[format_name] = {filename: count} pour count > 0
         format_selections: dict[str, dict[str, int]] = {}
         selected_files: set[str] = set()
-        for format_name in SIZES:
+        for format_name in _active_sizes():
             for filename, count in prints_data.get(format_name, {}).items():
                 if count > 0:
                     format_selections.setdefault(format_name, {})[filename] = count
@@ -904,6 +931,8 @@ def main(page: ft.Page) -> None:
                         nb_marker = " n&b" if is_nb else ""
                         f.write(f"    {count}X {format_name}{nb_marker}\n")
                     f.write("\n")
+                if active_tariff["value"] == "PRINTS":
+                    f.write(f"Frais d'amorce : {FRAIS_AMORCE:.2f} €\n")
                 f.write(f"TOTAL : {total_price['value']:.2f} €\n")
         except OSError as write_error:
             errors.append(f"commande.txt: {write_error}")
@@ -971,9 +1000,10 @@ def main(page: ft.Page) -> None:
         scroll=ft.ScrollMode.AUTO,
         expand=True,
     )
-    for format_name in SIZES:
+
+    for format_name in _active_sizes():
         is_first = (format_name == current_size["value"])
-        format_button = ft.Button(
+        _fmt_btn = ft.Button(
             format_name,
             color=C_DARK if is_first else C_BLUE,
             bgcolor=C_BLUE if is_first else C_GREY,
@@ -981,8 +1011,8 @@ def main(page: ft.Page) -> None:
             height=KIOSK_CONSTANT.FORMAT_BUTTON_HEIGHT,
             on_click=lambda e, s=format_name: on_size_select(s),
         )
-        size_buttons_map[format_name] = format_button
-        sizes_column.controls.append(format_button)
+        size_buttons_map[format_name] = _fmt_btn
+        sizes_column.controls.append(_fmt_btn)
 
     # ── Grille d'images ───────────────────────────────────────────────────
     images_grid = ft.GridView(
@@ -1110,6 +1140,72 @@ def main(page: ft.Page) -> None:
             pass
         sys.exit(0)
 
+    # ── Tableau des tarifs ────────────────────────────────────────────────
+    def _show_price_table(e) -> None:
+        tariff_name = active_tariff["value"]
+        if tariff_name == "STUDIOS":
+            rows = [
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(fmt, color=C_WHITE, size=13)),
+                    ft.DataCell(ft.Text(f"{price:.2f} €" if price > 0 else "—", color=C_BLUE, size=13)),
+                ])
+                for fmt, price in STUDIOS_TARIFF.items()
+            ]
+            table = ft.DataTable(
+                columns=[
+                    ft.DataColumn(ft.Text("Format", color=C_LIGHT_GREY, weight=ft.FontWeight.W_600)),
+                    ft.DataColumn(ft.Text("Prix unitaire", color=C_LIGHT_GREY, weight=ft.FontWeight.W_600), numeric=True),
+                ],
+                rows=rows,
+                border=ft.border.all(1, C_GREY),
+                border_radius=8,
+                heading_row_color=C_GREY,
+            )
+        else:
+            tier_labels = ["≤ 10", "11–50", "51–100", "101–200", "> 200"]
+            rows = [
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Text(fmt, color=C_WHITE, size=13)),
+                    *[ft.DataCell(ft.Text(f"{p:.2f} €", color=C_BLUE, size=13)) for p in tiers],
+                ])
+                for fmt, tiers in PRINTS_TARIFF.items()
+            ]
+            table = ft.DataTable(
+                columns=[
+                    ft.DataColumn(ft.Text("Format", color=C_LIGHT_GREY, weight=ft.FontWeight.W_600)),
+                    *[ft.DataColumn(ft.Text(lbl, color=C_LIGHT_GREY, weight=ft.FontWeight.W_600), numeric=True) for lbl in tier_labels],
+                ],
+                rows=rows,
+                border=ft.border.all(1, C_GREY),
+                border_radius=8,
+                heading_row_color=C_GREY,
+            )
+        amorce_note = ft.Text(
+            f"+ Frais d'amorce : {FRAIS_AMORCE:.2f} € par commande",
+            color=C_LIGHT_GREY,
+            size=12,
+            italic=True,
+        ) if tariff_name == "PRINTS" else None
+        dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Tarifs — {tariff_name}", color=C_WHITE, weight=ft.FontWeight.BOLD),
+            content=ft.Container(
+                content=ft.Column(
+                    [table] + ([amorce_note] if amorce_note else []),
+                    scroll=ft.ScrollMode.AUTO, tight=True,
+                ),
+                bgcolor=C_DARK,
+                border_radius=8,
+                padding=8,
+            ),
+            bgcolor=C_GREY,
+            actions=[
+                ft.TextButton("Fermer", on_click=lambda e: page.pop_dialog(), style=ft.ButtonStyle(color=C_BLUE)),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.show_dialog(dlg)
+
     # ── Barre de titre personnalisée ──────────────────────────────────────
     top_bar = ft.Container(
         content=ft.Row([
@@ -1124,6 +1220,17 @@ def main(page: ft.Page) -> None:
                 padding=ft.Padding(16, 0, 0, 0),
             ),
             ft.Container(expand=True),
+            ft.Button(
+                content=ft.Text("TARIFS", size=12, color=C_LIGHT_GREY),
+                on_click=_show_price_table,
+                bgcolor=ft.Colors.TRANSPARENT,
+                style=ft.ButtonStyle(
+                    side=ft.BorderSide(1, C_LIGHT_GREY),
+                    shape=ft.RoundedRectangleBorder(radius=6),
+                    padding=ft.Padding.symmetric(horizontal=10, vertical=4),
+                ),
+                height=30,
+            ),
             ft.IconButton(
                 icon=ft.Icons.CLOSE,
                 icon_color=C_RED,

@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.5.6"
+__version__ = "2.5.7"
 
 
 # ─── Extensions de fichiers ────────────────────────────────────────────────────────────
@@ -88,9 +88,9 @@ FORMATS = { # (largeur_mm, hauteur_mm) - en portrait
 
 
 # ─── Interface (Dashboard) ───────────────────────────────────────────────────────────────
-WINDOW_WIDTH                = 1280
-WINDOW_HEIGHT               = 915
-MAXIMIZED                         =  False 
+WINDOW_WIDTH             = 1280
+WINDOW_HEIGHT            = 915
+MAXIMIZED                =  True 
 TERMINAL_FONT_SIZE       = 16   # Taille du texte dans le terminal, le bloc-notes et les options
 TERMINAL_HEIGHT          = 170  # Hauteur du panneau terminal compact (px) - toujours visible
 WDA_HEIGHT               = 100   # Hauteur de la WindowDragArea (barre de titre custom, en px)
@@ -278,7 +278,8 @@ FORMAT_BUTTON_HEIGHT = 48
 ACTION_BUTTON_HEIGHT = 68
 
 # ─── Tarifs d'impression (kiosk, format : prix en €) ────────────────────────────────────
-SIZES = {
+
+STUDIOS = {
     "10x15"   : 3.00,
     "13x18"   : 5.50,
     "15x20"   : 7.00,
@@ -290,3 +291,16 @@ SIZES = {
     "Montage" : 0.00,
     "Autres"  : 0.00,
 }
+
+PRINTS = {
+    "10x15"   : [0.50, 0.40, 0.35, 0.30, 0.25],  # Prix dégressif selon la quantité (<10, 11>50, 51>100, 101>200, >200)
+    "13x18"   : [1.50, 1.40, 1.35, 1.30, 1.25],
+    "15x20"   : [2.50, 2.20, 2.00, 1.80, 1.60],
+    "20x30"   : [4.90, 4.70, 4.50, 4.30, 4.10],
+    "30x40"   : [12.90, 12.50, 12.00, 11.50, 11.00],
+    "40x60"   : [24.90, 24.50, 24.00, 23.50, 23.00],
+    "50x70"   : [28.00, 26.50, 25.00, 24.50, 24.00],
+    "60x90"   : [30.00, 29.50, 29.00, 28.50, 28.00],
+}
+
+SIZES = STUDIOS  # Alias conservé pour compatibilité ascendante
