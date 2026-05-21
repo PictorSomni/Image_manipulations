@@ -1166,8 +1166,12 @@ def main(page: ft.Page):
     def _notepad_clear():
         """Efface tout le contenu du bloc-notes (sans sauvegarder)."""
         notepad_field.value = ""
+        if notepad_is_preview["value"]:
+            notepad_is_preview["value"] = False
+            notepad_field.visible = True
+            notepad_preview_scroll.visible = False
         try:
-            notepad_field.update()
+            page.update()
         except Exception:
             pass
 
