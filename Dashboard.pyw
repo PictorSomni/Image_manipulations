@@ -6109,7 +6109,7 @@ def main(page: ft.Page):
 
 
 # ── Strip mode (réduction en bandeau pour écrans tactiles) ────────────────────
-    _strip_state = {"active": False, "saved_height": CONSTANTS.WINDOW_HEIGHT}
+    _strip_state = {"active": False, "saved_height": CONSTANTS.WINDOW_HEIGHT, "was_maximized": False}
     _main_stack_ref = ft.Ref[ft.Stack]()
     strip_btn = ft.IconButton(
         icon=ft.Icons.UNFOLD_LESS,
@@ -6121,9 +6121,15 @@ def main(page: ft.Page):
 
     def _toggle_strip(e=None):
         stack = _main_stack_ref.current
+        is_mac = platform.system() == "Darwin"
         if not _strip_state["active"]:
+            _strip_state["was_maximized"] = bool(page.window.maximized)
             _strip_state["saved_height"] = page.window.height or CONSTANTS.WINDOW_HEIGHT
             _strip_state["active"] = True
+            # Sur macOS, changer window.height n'a aucun effet si la fenêtre est
+            # maximisée : il faut d'abord la dé-maximiser explicitement.
+            if is_mac and _strip_state["was_maximized"]:
+                page.window.maximized = False
             stack.visible = False
             page.window.height = CONSTANTS.WDA_HEIGHT
             strip_btn.icon = ft.Icons.UNFOLD_MORE
@@ -6132,7 +6138,10 @@ def main(page: ft.Page):
         else:
             _strip_state["active"] = False
             stack.visible = True
-            page.window.height = _strip_state["saved_height"]
+            if is_mac and _strip_state["was_maximized"]:
+                page.window.maximized = True
+            else:
+                page.window.height = _strip_state["saved_height"]
             strip_btn.icon = ft.Icons.UNFOLD_LESS
             strip_btn.tooltip = "Réduire en bandeau (écran tactile)"
             strip_btn.icon_color = LIGHT_GREY
