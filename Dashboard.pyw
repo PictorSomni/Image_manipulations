@@ -785,6 +785,20 @@ def main(page: ft.Page):
     page.pubsub.subscribe_topic("restore_window", on_restore_window)
 
 
+    def on_deselect_request(topic, message):
+        """Callback pour désélectionner tous les fichiers depuis un thread de fond."""
+        selected_files.clear()
+        if show_only_selection["value"]:
+            show_only_selection["value"] = False
+            _update_filter_sel_btn()
+            _render_preview_page()
+        else:
+            _update_visible_checkboxes()
+
+    # S'abonner au canal deselect
+    page.pubsub.subscribe_topic("deselect", on_deselect_request)
+
+
     def _launch_side_panel(extra_env: dict = None):
         """Lance Side Panel, minimise Dashboard, puis le restaure à la fermeture de Side Panel."""
         env = {
@@ -900,8 +914,8 @@ def main(page: ft.Page):
         content=_kiosk_tariff_label,
         bgcolor=GREEN,
         style=ft.ButtonStyle(
-            padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-            shape=ft.RoundedRectangleBorder(radius=6),
+            padding=ft.Padding.symmetric(horizontal=10, vertical=2),
+            shape=ft.StadiumBorder(),
         ),
         height=28,
         tooltip="Tarif kiosk actif — cliquer pour changer (STUDIOS / PRINTS)",
@@ -5278,6 +5292,9 @@ def main(page: ft.Page):
                     stderr_reader_thread.join()
                     process.wait()
                     log_to_terminal(f"[OK] {display_name} terminé", GREEN)
+                    # Désélectionner les fichiers traités (sauf si le script en a sélectionné de nouveaux)
+                    if selected_files and pending_file_selection["names"] is None:
+                        page.pubsub.send_all_on_topic("deselect", None)
                     # Rafraîchir la preview pour afficher les nouveaux dossiers/fichiers créés
                     request_refresh()
                 
@@ -6139,15 +6156,28 @@ def main(page: ft.Page):
                     bgcolor=DARK,
                     icon_size=18,
                 ),
-                ft.IconButton(
-                    icon=ft.Icons.PHOTO_LIBRARY,
-                    tooltip="Ouvrir le Kiosk",
-                    on_click=lambda e: _launch_kiosk_flet(),
-                    icon_color=VIOLET,
-                    bgcolor=DARK,
-                    icon_size=18,
+                ft.Container(
+                    content=ft.Row(
+                        [
+                            ft.IconButton(
+                                icon=ft.Icons.PHOTO_LIBRARY,
+                                tooltip="Ouvrir le Kiosk",
+                                on_click=lambda e: _launch_kiosk_flet(),
+                                icon_color=VIOLET,
+                                bgcolor=DARK,
+                                icon_size=18,
+                            ),
+                            kiosk_tariff_btn,
+                        ],
+                        spacing=4,
+                        tight=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    border=ft.Border.all(1, VIOLET),
+                    border_radius=10,
+                    padding=ft.Padding(4, 2, 8, 2),
+                    margin=ft.Margin(6, 0, 6, 0),
                 ),
-                kiosk_tariff_btn,
                 ft.IconButton(
                     icon=ft.Icons.VIEW_SIDEBAR,
                     tooltip="Ouvrir le Side Panel",

@@ -301,6 +301,7 @@ class PhotoCropper:
         self.border_polaroid = False
         self.border_id2 = False
         self.border_id4 = True
+        self.id4_10x20 = True       # Planche ID X4 en format 10x20 (moitié haute blanche)
         self.save_to_network = True  # Sauvegarder les ID X4 sur le réseau par défaut
         self.enhance_toggle = False  # Retro-compat snapshots anciens
         self.canvas_w = 800  # Valeur initiale, ajustée au chargement
@@ -502,6 +503,7 @@ class PhotoCropper:
         self.border_switch_polaroid = ft.Switch(label="Polaroid", active_color=ORANGE, value=False, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_polaroid)
         self.border_switch_ID2 = ft.Switch(label="ID X2", active_color=ORANGE, value=False, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id2)
         self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=ORANGE, value=True, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id4)
+        self.id4_10x20_switch = ft.Switch(label="10x20", active_color=ORANGE, value=True, visible="ID" in self.current_format_label and self.border_id4, on_change=self.on_id4_10x20_toggle)
         self.network_switch = ft.Switch(label="Sauver sur réseau", active_color=GREEN, value=True, visible="ID" in self.current_format_label, on_change=self.on_network_toggle)
         self.sharpen_switch = ft.Switch(label="Netteté", active_color=BLUE, value=True, visible=True, on_change=self.on_sharpen_toggle)
         self.is_sharpen = True
@@ -1020,12 +1022,14 @@ class PhotoCropper:
             self.border_switch_ID2.value = self.border_id2
             self.border_switch_ID4.visible = True
             self.border_switch_ID4.value = self.border_id4
+            self.id4_10x20_switch.visible = self.border_id4
             self.network_switch.visible = True
             self.network_switch.value = self.save_to_network
             self.sharpen_switch.value = True
         else:
             self.border_switch_ID2.visible = False
             self.border_switch_ID4.visible = False
+            self.id4_10x20_switch.visible = False
             self.network_switch.visible = False
             self.sharpen_switch.value = self.sharpen_switch.value
 
@@ -2608,7 +2612,14 @@ class PhotoCropper:
         if self.border_id4:
             self.border_id2 = False
             self.border_switch_ID2.value = False
-            self.page.update()
+        self.id4_10x20_switch.visible = self.border_id4
+        self.page.update()
+
+
+
+    def on_id4_10x20_toggle(self, e):
+        """Active / désactive le format 10x20 pour la planche ID ×4."""
+        self.id4_10x20 = bool(e.control.value)
 
 
 
@@ -2933,6 +2944,7 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
+            self.id4_10x20_switch.visible = False
             self.border_switch_polaroid.visible = False
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
@@ -2956,6 +2968,7 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
+            self.id4_10x20_switch.visible = False
             self.border_switch_polaroid.visible = False
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
@@ -2980,6 +2993,7 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
+            self.id4_10x20_switch.visible = False
             self.border_switch_polaroid.visible = False
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
@@ -3001,6 +3015,7 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
+            self.id4_10x20_switch.visible = False
             self.border_switch_polaroid.visible = False
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
@@ -3020,10 +3035,12 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
+            self.id4_10x20_switch.visible = False
         elif "ID" in self.current_format_label:
             self.two_in_one_switch.visible = False
             self.border_switch_ID2.visible = True
             self.border_switch_ID4.visible = True
+            self.id4_10x20_switch.visible = self.border_id4
             self.network_switch.visible = True
             self.sharpen_switch.value = True
             self.border_switch_13x15.visible = False
@@ -3059,6 +3076,7 @@ class PhotoCropper:
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = False
+            self.id4_10x20_switch.visible = False
             self.border_switch_polaroid.visible = False
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
@@ -3095,6 +3113,7 @@ class PhotoCropper:
         self.border_switch_polaroid.visible = True if "10x10" in self.current_format_label else False
         self.border_switch_ID2.visible = True if "ID" in self.current_format_label else False
         self.border_switch_ID4.visible = True if "ID" in self.current_format_label else False
+        self.id4_10x20_switch.visible = True if "ID" in self.current_format_label and self.border_id4 else False
         self.network_switch.visible = True if "ID" in self.current_format_label else False
 
 
@@ -3449,24 +3468,41 @@ class PhotoCropper:
             format_short_name = "Polaroid"
 
         if (not two_in_one_applied) and self.border_id4 and "ID" in self.current_format_label:
-            SHEET_WIDTH_PX  = mm_to_pixels(127)
-            SHEET_HEIGHT_PX = mm_to_pixels(102)
             SPACING_PX = mm_to_pixels(5)
-            sheet_image = Image.new("RGB", (SHEET_WIDTH_PX, SHEET_HEIGHT_PX), "white")
             id_photo = output_image
             if id_photo.height > id_photo.width:
                 id_photo = id_photo.rotate(90, expand=True)
-            total_width  = id_photo.width  * 2 + SPACING_PX
-            total_height = id_photo.height * 2 + SPACING_PX
-            start_x = (SHEET_WIDTH_PX  - total_width)  // 2
-            start_y = (SHEET_HEIGHT_PX - total_height) // 2
-            for row in range(2):
-                for col in range(2):
-                    paste_x = start_x + col * (id_photo.width  + SPACING_PX)
-                    paste_y = start_y + row * (id_photo.height + SPACING_PX)
-                    sheet_image.paste(id_photo, (paste_x, paste_y))
+            if self.id4_10x20:
+                # Format 10x20 : moitié haute blanche, 4 photos dans la moitié basse
+                SHEET_WIDTH_PX  = mm_to_pixels(102)
+                SHEET_HEIGHT_PX = mm_to_pixels(203)
+                sheet_image = Image.new("RGB", (SHEET_WIDTH_PX, SHEET_HEIGHT_PX), "white")
+                half_height = SHEET_HEIGHT_PX // 2
+                total_width  = id_photo.width  * 2 + SPACING_PX
+                total_height = id_photo.height * 2 + SPACING_PX
+                start_x = (SHEET_WIDTH_PX - total_width)  // 2
+                start_y = half_height + (half_height - total_height) // 2
+                for row in range(2):
+                    for col in range(2):
+                        paste_x = start_x + col * (id_photo.width  + SPACING_PX)
+                        paste_y = start_y + row * (id_photo.height + SPACING_PX)
+                        sheet_image.paste(id_photo, (paste_x, paste_y))
+                format_short_name = "ID_X4_10x20"
+            else:
+                SHEET_WIDTH_PX  = mm_to_pixels(127)
+                SHEET_HEIGHT_PX = mm_to_pixels(102)
+                sheet_image = Image.new("RGB", (SHEET_WIDTH_PX, SHEET_HEIGHT_PX), "white")
+                total_width  = id_photo.width  * 2 + SPACING_PX
+                total_height = id_photo.height * 2 + SPACING_PX
+                start_x = (SHEET_WIDTH_PX  - total_width)  // 2
+                start_y = (SHEET_HEIGHT_PX - total_height) // 2
+                for row in range(2):
+                    for col in range(2):
+                        paste_x = start_x + col * (id_photo.width  + SPACING_PX)
+                        paste_y = start_y + row * (id_photo.height + SPACING_PX)
+                        sheet_image.paste(id_photo, (paste_x, paste_y))
+                format_short_name = "ID_X4"
             output_image = sheet_image
-            format_short_name = "ID_X4"
             output_filename = f"{copies_count_prefix}ID {self.current_index + 1:02}.jpg"
 
         elif (not two_in_one_applied) and self.border_id2 and "ID" in self.current_format_label:
@@ -3486,7 +3522,7 @@ class PhotoCropper:
             format_short_name = "ID_X2"
             output_filename = f"{copies_count_prefix}ID {self.current_index + 1:02}.jpg"
 
-        if format_short_name == "ID_X4" and self.save_to_network:
+        if format_short_name in ("ID_X4", "ID_X4_10x20") and self.save_to_network:
             if platform.system() == "Windows":
                 output_directory = "\\\\Diskstation\\travaux en cours\\z2026"
             else:
@@ -3853,6 +3889,7 @@ def main(page: ft.Page):
                 app.border_switch_polaroid,
                 app.border_switch_ID2,
                 app.border_switch_ID4,
+                app.id4_10x20_switch,
                 app.network_switch,
             ], spacing=0),
             height=180,
