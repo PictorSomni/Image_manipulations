@@ -6221,7 +6221,7 @@ def main(page: ft.Page):
                     icon_color=GREEN,
                     bgcolor=GREY,
                     tooltip="Ouvrir l'explorateur",
-                    on_click=lambda e: open_in_file_explorer(current_browse_folder["path"] or selected_folder["path"]),
+                    on_click=lambda e: (open_in_file_explorer(current_browse_folder["path"] or selected_folder["path"]), _toggle_strip() if not _strip_state["active"] else None),
                 ),
                 ft.IconButton(
                     icon=ft.Icons.BLUETOOTH,
