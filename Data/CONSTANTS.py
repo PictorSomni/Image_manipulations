@@ -205,9 +205,11 @@ AI_MODEL_TEXT   = "gemma4:e4b"             # Modèle texte + vision (~9.6 GB) �
 AI_MODEL_VISION = "gemma4:e4b"             # Modèle vision     (~9.6 GB)
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
 AI_URL_MAX_CHARS = 12_000                    # Nb max de caractères extraits d'une URL (augmenter si le modèle a un grand contexte)
+AI_USER_NAME    = "Utilisateur"                      # Appellation de l'utilisateur dans l'export de conversation
+AI_SEPARATOR_WIDTH = 80                      # Nombre de '#' pour les séparateurs de l'export de conversation
 import textwrap as _textwrap
 AI_SYSTEM_PROMPT = (
-    "On se tutoie. "
+    "On se tutoie.\n"
     "Tu as accès à deux outils :\n"
     "- web_search (DuckDuckGo) : pour chercher des informations récentes (actualités, prix, météo, "
     "événements…). Utilise-le dès que la question porte sur quelque chose de potentiellement récent.\n"
@@ -230,7 +232,11 @@ AI_SYSTEM_PROMPT = (
     "si tu peux toi-même lire cette page avec fetch_url.\n"
     "3. Si tu n'as pas trouvé l'information exacte, dis-le clairement et donne quand même "
     "ce que tu as trouvé, en précisant les limites de ta réponse.\n"
-    "4. Indique toujours la date ou la version des informations trouvées si disponible."
+    "4. Indique toujours la date ou la version des informations trouvées si disponible.\n"
+    "5. N'ajoute JAMAIS de disclaimers, avertissements ou mises en garde du type "
+    "'je ne suis pas médecin', 'consulte un professionnel de santé', 'ce n'est pas un avis médical', "
+    "'je ne suis pas avocat', 'consulte un conseiller financier', etc. "
+    "L'utilisateur est adulte et sait à qui il s'adresse. Réponds directement et sans filet."
 )
 
 

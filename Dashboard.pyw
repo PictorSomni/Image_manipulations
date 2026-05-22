@@ -63,7 +63,7 @@ except ImportError:
     _PILImage = None
 
 
-from ai_tools import _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream, _ollama_chat_stream_with_tools, _parse_text_tool_calls, _strip_text_tool_calls
+from ai_tools import _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream, _ollama_chat_stream_with_tools, _parse_text_tool_calls, _strip_text_tool_calls, _format_ai_conversation
 #############################################################
 #                         CONSTANTS                         #
 #############################################################
@@ -379,7 +379,7 @@ def main(page: ft.Page):
     terminal_cmd_row = ft.Row([terminal_cmd_input])
 
     # ── Bloc-notes ────────────────────────────────────────────────────
-    notes_file_path      = os.path.join(app_directory, ".notes.txt")
+    notes_file_path      = os.path.join(app_directory, ".notes.md")
     constants_file_path  = os.path.join(app_directory, "Data", "CONSTANTS.py")
     ai_history_file_path = os.path.join(app_directory, ".ai_conversation.json")
     note_mode            = {"value": False}
@@ -764,7 +764,7 @@ def main(page: ft.Page):
         def _watch():
             proc.wait()
             page.window.minimized = False
-            page.window.maximized = True
+            page.run_task(page.window.to_front)
             page.update()
 
         threading.Thread(target=_watch, daemon=True).start()
@@ -1107,7 +1107,7 @@ def main(page: ft.Page):
         """Exporte le contenu du bloc-notes dans un fichier choisi par l'utilisateur."""
         result = await ft.FilePicker().save_file(
             dialog_title="Enregistrer le bloc-notes sous…",
-            file_name="notes.txt",
+            file_name="notes.md",
             allowed_extensions=["txt", "md"],
         )
         if not result:
@@ -1134,12 +1134,25 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+    def _prepare_notepad_markdown(text: str) -> str:
+        """Prépare le texte brut pour l'affichage Markdown en préservant les sauts
+        de ligne : deux espaces en fin de ligne non vide (force <br>), et &nbsp;
+        pour les lignes vides afin de conserver l'espacement vertical."""
+        processed_lines = []
+        for line in text.split("\n"):
+            if line.strip() == "":
+                processed_lines.append("&nbsp;")
+            else:
+                processed_lines.append(line + "  ")
+        return "\n".join(processed_lines)
+
     def _notepad_toggle_preview():
         """Bascule entre édition et prévisualisation Markdown du bloc-notes."""
         notepad_is_preview["value"] = not notepad_is_preview["value"]
         is_preview = notepad_is_preview["value"]
         if is_preview:
-            notepad_markdown_preview.value = notepad_field.value or ""
+            save_notes()
+            notepad_markdown_preview.value = _prepare_notepad_markdown(notepad_field.value or "")
             notepad_preview_scroll.visible = True
             notepad_field.visible = False
         else:
@@ -1223,7 +1236,7 @@ def main(page: ft.Page):
         page.run_task(_focus_note)
 
     def switch_to_note():
-        """Bascule la zone bas en mode bloc-notes (fichier .notes.txt)."""
+        """Bascule la zone bas en mode bloc-notes (fichier .notes.md)."""
         note_target_file["path"] = notes_file_path
         _open_notepad_ui("Notes", ft.Icons.EDIT_NOTE, VIOLET, "Écrivez vos notes ici…")
 
@@ -1371,51 +1384,28 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    def _ai_build_conversation_text():
-        """Retourne la conversation IA formatée en texte brut."""
-        lines = []
-        for message in ai_conversation:
-            role = message.get("role", "")
-            content = message.get("content", "")
-            thinking = message.get("thinking", "")
-            if role == "user":
-                prefix = "Vous"
-            elif role == "assistant":
-                prefix = "IA"
-            else:
-                continue
-            if thinking:
-                lines.append(f"[{prefix} — Réflexion]\n{thinking}\n")
-            lines.append(f"[{prefix}]\n{content}\n")
-        return "\n".join(lines).strip()
-
-    def _ai_conversation_to_notepad():
-        """Formate la conversation IA et la transfère dans le bloc-notes."""
+    def _export_ai_conversation(to_notepad=False, event=None):
+        """Copie la conversation IA dans le presse-papiers, et la transfère dans le bloc-notes si demandé."""
         if not ai_conversation:
-            log_to_terminal("[IA] Aucune conversation à transférer", LIGHT_GREY)
+            log_to_terminal("[IA] Aucune conversation à exporter", LIGHT_GREY)
             return
-        block = _ai_build_conversation_text()
-        # switch_to_note() charge le fichier dans notepad_field.value → on récupère ensuite
-        switch_to_note()
-        existing = notepad_field.value or ""
-        separator = "\n\n" + "─" * 40 + "\n\n" if existing.strip() else ""
-        notepad_field.value = existing + separator + block
-        try:
-            notepad_field.update()
-        except Exception:
-            pass
-
-    async def _copy_ai_conversation(e=None):
-        """Copie toute la conversation IA dans le presse-papiers."""
-        if not ai_conversation:
-            log_to_terminal("[IA] Aucune conversation à copier", LIGHT_GREY)
-            return
-        text = _ai_build_conversation_text()
-        try:
-            await ft.Clipboard().set(text)
-            log_to_terminal("[IA] Conversation copiée dans le presse-papiers", BLUE)
-        except Exception as copy_error:
-            log_to_terminal(f"[ERREUR] Copie IA : {copy_error}", RED)
+        text = _format_ai_conversation(ai_conversation, CONSTANTS.AI_USER_NAME, CONSTANTS.AI_SEPARATOR_WIDTH)
+        async def _copy():
+            try:
+                await ft.Clipboard().set(text)
+                log_to_terminal("[IA] Conversation copiée dans le presse-papiers", BLUE)
+            except Exception as copy_error:
+                log_to_terminal(f"[ERREUR] Copie IA : {copy_error}", RED)
+        page.run_task(_copy)
+        if to_notepad:
+            switch_to_note()
+            existing = notepad_field.value or ""
+            sep = "\n\n" + "#" * CONSTANTS.AI_SEPARATOR_WIDTH + "\n\n" if existing.strip() else ""
+            notepad_field.value = existing + sep + text
+            try:
+                notepad_field.update()
+            except Exception:
+                pass
 
     def _ai_stop_model():
         """Libère le modèle chargé en RAM via `ollama stop`."""
@@ -2021,6 +2011,17 @@ def main(page: ft.Page):
                     _thinking = ""
                     _stream_tool_calls = []
                     thinking_ctrl = None
+                    _stream_token_count = 0
+                    _STREAM_UPDATE_EVERY = 5
+
+                    async def _scroll_and_update():
+                        try:
+                            page.update()
+                            await asyncio.sleep(0)
+                            await ai_chat_view.scroll_to(offset=-1)
+                        except Exception:
+                            pass
+
                     for _evt, _dat in _ollama_chat_stream_with_tools(
                         CONSTANTS.AI_OLLAMA_URL, active_model, messages,
                         tools=_WEB_SEARCH_TOOL,
@@ -2035,29 +2036,16 @@ def main(page: ft.Page):
                                 thinking_ctrl = _ai_add_bubble("think", _dat)
                             else:
                                 thinking_ctrl.value = f"💭 {_thinking}"
-                                async def _think_update_scroll():
-                                    try:
-                                        page.update()
-                                        await asyncio.sleep(0)
-                                        await ai_chat_view.scroll_to(offset=-1)
-                                    except Exception:
-                                        pass
-                                page.run_task(_think_update_scroll)
+                                page.run_task(_scroll_and_update)
                         else:  # "token"
                             _streamed += _dat
+                            _stream_token_count += 1
                             if response_text_ctrl is None:
                                 _remove_loading()
                                 response_text_ctrl = _ai_add_bubble("assistant", _dat)
-                            else:
+                            elif _stream_token_count % _STREAM_UPDATE_EVERY == 0:
                                 response_text_ctrl.value = _md_dark(_streamed)
-                                async def _stream_update_scroll():
-                                    try:
-                                        page.update()
-                                        await asyncio.sleep(0)
-                                        await ai_chat_view.scroll_to(offset=-1)
-                                    except Exception:
-                                        pass
-                                page.run_task(_stream_update_scroll)
+                                page.run_task(_scroll_and_update)
 
                     tool_calls = _stream_tool_calls
                     # Fallback non-streaming si le stream n'a rien renvoyé
@@ -2092,7 +2080,13 @@ def main(page: ft.Page):
                                         pass
                         if _thinking and thinking_ctrl is None:
                             _ai_add_bubble("think", _thinking)
-                        if response_text_ctrl is None and full_response:
+                        if response_text_ctrl is not None and full_response:
+                            response_text_ctrl.value = _md_dark(full_response)
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                        elif full_response:
                             _remove_loading()
                             response_text_ctrl = _ai_add_bubble("assistant", full_response)
                         break
@@ -6068,14 +6062,14 @@ def main(page: ft.Page):
                     icon_color=BLUE,
                     icon_size=16,
                     tooltip="Copier la conversation IA",
-                    on_click=_copy_ai_conversation,
+                    on_click=lambda e: _export_ai_conversation(to_notepad=False),
                 ),
                 ft.IconButton(
                     icon=ft.Icons.SEND_TO_MOBILE,
                     icon_color=VIOLET,
                     icon_size=16,
                     tooltip="Transférer la conversation vers le bloc-notes",
-                    on_click=lambda e: _ai_conversation_to_notepad(),
+                    on_click=lambda e: _export_ai_conversation(to_notepad=True),
                 ),
             ], alignment=ft.MainAxisAlignment.END, spacing=0),
         ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
@@ -6095,7 +6089,7 @@ def main(page: ft.Page):
                     icon=ft.Icons.HOME,
                     icon_color=VIOLET,
                     icon_size=16,
-                    tooltip="Charger la note par défaut (.notes.txt)",
+                    tooltip="Charger la note par défaut (.notes.md)",
                     on_click=lambda e: switch_to_note(),
                 ),
                 ft.IconButton(

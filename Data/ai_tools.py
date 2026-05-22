@@ -290,6 +290,44 @@ def _strip_text_tool_calls(text):
     return text.strip()
 
 
+def _format_ai_conversation(conversation, user_name="Toi", separator_width=80):
+    """
+    Formate une liste de messages IA en texte Markdown exportable.
+
+    Chaque tour est un bloc H1 avec le nom du rôle. Les blocs de réflexion
+    (thinking) sont rendus en blockquote avant le contenu. Les blocs sont
+    séparés par une ligne de tirets.
+
+    Args:
+        conversation : liste de dicts avec les clés 'role', 'content', 'thinking'.
+        user_name    : nom affiché pour le rôle 'user'.
+
+    Returns:
+        Chaîne Markdown prête à être copiée ou insérée dans le bloc-notes.
+    """
+    blocks = []
+    separator = "\n\n" + "#" * separator_width + "\n\n"
+    for message in conversation:
+        role = message.get("role", "")
+        content = message.get("content", "")
+        thinking = message.get("thinking", "")
+        if role == "user":
+            prefix = user_name
+        elif role == "assistant":
+            prefix = "IA"
+        else:
+            continue
+        if thinking:
+            thinking_lines = "\n".join(
+                f"> {line}" if line.strip() else ">" for line in thinking.split("\n")
+            )
+            block = f"> 💭 **Réflexion**\n>\n{thinking_lines}\n\n# {prefix}\n\n{content.strip()}"
+        else:
+            block = f"# {prefix}\n\n{content.strip()}"
+        blocks.append(block.strip())
+    return separator.join(blocks).strip()
+
+
 def _web_search(query, max_results=5):
     """
     Effectue une recherche sur DuckDuckGo et retourne les résultats formatés.

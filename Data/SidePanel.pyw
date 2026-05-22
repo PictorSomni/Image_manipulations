@@ -60,7 +60,7 @@ def _is_os_junk(entry):
     return filename_lower in _OS_JUNK or filename_lower.startswith("._")
 
 
-from ai_tools import _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream, _ollama_chat_stream_with_tools, _parse_text_tool_calls, _strip_text_tool_calls
+from ai_tools import _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream, _ollama_chat_stream_with_tools, _parse_text_tool_calls, _strip_text_tool_calls, _format_ai_conversation
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -160,7 +160,7 @@ def main(page: ft.Page):
     # ─────────────────────────────────────────────────────────────────────
     #  ██████████  État  ──  Onglet 3 (Bloc-notes)
     # ─────────────────────────────────────────────────────────────────────
-    note_target_file     = {"path": os.path.normpath(os.path.join(app_dir, "..", ".notes.txt"))}
+    note_target_file     = {"path": os.path.normpath(os.path.join(app_dir, "..", ".notes.md"))}
     notepad_is_preview   = {"value": False}
 
     # ───────────────────────────────────────────────────────────────────
@@ -1437,7 +1437,7 @@ def main(page: ft.Page):
         return "\n".join(processed_lines)
 
     def _notepad_load():
-        """Charge le fichier .notes.txt dans le champ du bloc-notes."""
+        """Charge le fichier .notes.md dans le champ du bloc-notes."""
         if notepad_is_preview["value"]:
             notepad_is_preview["value"] = False
             notepad_field.visible = True
@@ -1486,6 +1486,21 @@ def main(page: ft.Page):
 
     notepad_preview_btn.on_click = _notepad_toggle_preview
 
+    def _notepad_clear(event=None):
+        """Efface le contenu du bloc-notes et sauvegarde immédiatement."""
+        notepad_field.value = ""
+        if notepad_is_preview["value"]:
+            notepad_is_preview["value"] = False
+            notepad_field.visible = True
+            notepad_preview_scroll.visible = False
+            notepad_preview_btn.icon = ft.Icons.VISIBILITY
+            notepad_preview_btn.tooltip = "Prévisualiser en Markdown"
+        _notepad_save()
+        try:
+            page.update()
+        except Exception:
+            pass
+
     def _open_file_in_notepad(file_path):
         """Ouvre un fichier texte dans l'onglet Notes."""
         note_target_file["path"] = file_path
@@ -1502,6 +1517,20 @@ def main(page: ft.Page):
 
     _AI_DOCUMENT_EXTS = CONSTANTS.AI_DOCUMENT_EXTS
     _AI_AUDIO_EXTS     = CONSTANTS.AI_AUDIO_EXTS
+
+    def _md_dark(text: str) -> str:
+        """Remplace les blockquotes Markdown (fond bleu clair de Flutter)
+        par un équivalent lisible sur thème sombre."""
+        lines = text.split("\n")
+        result = []
+        for line in lines:
+            if line.startswith("> "):
+                result.append("**›** " + line[2:])
+            elif line == ">":
+                result.append("")
+            else:
+                result.append(line)
+        return "\n".join(result)
 
     def _ai_add_bubble_sp(role, text):
         """Ajoute un message dans le panneau IA et retourne le contrôle (pour le streaming)."""
@@ -1527,7 +1556,7 @@ def main(page: ft.Page):
             )
         else:
             bubble_text = ft.Markdown(
-                text,
+                _md_dark(text),
                 selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
@@ -1597,7 +1626,7 @@ def main(page: ft.Page):
                     )
                 else:
                     bubble_text = ft.Markdown(
-                        content,
+                        _md_dark(content),
                         selectable=True,
                         extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                         code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
@@ -1634,50 +1663,31 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    def _copy_ai_conversation_sp():
-        """Copie toute la conversation IA dans le presse-papiers."""
+    def _export_ai_conversation_sp(to_notepad=False, event=None):
+        """Copie la conversation IA dans le presse-papiers, et la transfère dans le bloc-notes si demandé."""
         if not ai_conversation_sp:
             return
-        text = _ai_build_conversation_text_sp()
-        try:
-            page.set_clipboard(text)
-        except Exception:
-            pass
-
-    def _ai_build_conversation_text_sp():
-        """Retourne la conversation IA formatée en texte brut."""
-        lines = []
-        for message in ai_conversation_sp:
-            role = message.get("role", "")
-            content = message.get("content", "")
-            if role == "user":
-                prefix = "Vous"
-            elif role == "assistant":
-                prefix = "IA"
-            else:
-                continue
-            lines.append(f"[{prefix}]\n{content}\n")
-        return "\n".join(lines).strip()
-
-    def _ai_conversation_to_notepad_sp(event=None):
-        """Formate la conversation IA et la transfère dans le bloc-notes."""
-        if not ai_conversation_sp:
-            return
-        block = _ai_build_conversation_text_sp()
-        existing = notepad_field.value or ""
-        separator = "\n\n" + "─" * 40 + "\n\n" if existing.strip() else ""
-        notepad_field.value = existing + separator + block
-        _notepad_save()
-        try:
-            notepad_field.update()
-        except Exception:
-            pass
-        # Basculer vers l'onglet Notes
-        tabs.selected_index = 2
-        try:
-            tabs.update()
-        except Exception:
-            pass
+        text = _format_ai_conversation(ai_conversation_sp, CONSTANTS.AI_USER_NAME, CONSTANTS.AI_SEPARATOR_WIDTH)
+        async def _copy():
+            try:
+                await ft.Clipboard().set(text)
+            except Exception:
+                pass
+        page.run_task(_copy)
+        if to_notepad:
+            existing = notepad_field.value or ""
+            sep = "\n\n" + "#" * CONSTANTS.AI_SEPARATOR_WIDTH + "\n\n" if existing.strip() else ""
+            notepad_field.value = existing + sep + text
+            _notepad_save()
+            try:
+                notepad_field.update()
+            except Exception:
+                pass
+            tabs.selected_index = 2
+            try:
+                tabs.update()
+            except Exception:
+                pass
 
     def _ai_stop_model_sp(event=None):
         """Libère le modèle chargé en RAM via `ollama stop`."""
@@ -1777,6 +1787,19 @@ def main(page: ft.Page):
                 return
         ai_pending_images_sp.append({"path": image_path, "b64": b64_data})
         _ai_refresh_attach_row_sp()
+        # Avertir si le modèle vision configuré ne supporte pas réellement la vision
+        vision_model = CONSTANTS.AI_MODEL_VISION
+        is_vision = any(
+            vision_model == entry[1] or vision_model.startswith(entry[1] + ":")
+            for entry in CONSTANTS.AI_AVAILABLE_MODELS
+            if entry[2]
+        )
+        if not is_vision:
+            _ai_add_bubble_sp(
+                "assistant",
+                f"⚠️ Le modèle vision configuré ({vision_model}) n'est pas reconnu comme modèle vision.\n"
+                "Vérifiez AI_MODEL_VISION dans CONSTANTS.py.",
+            )
 
     def _ai_remove_image_sp(image_entry):
         if image_entry in ai_pending_images_sp:
@@ -2124,9 +2147,12 @@ def main(page: ft.Page):
                 ]
 
                 today = datetime.date.today().strftime("%d %B %Y")
+                # Limiter l'historique aux 10 derniers messages pour éviter
+                # que les petits modèles locaux perdent de vue la question courante
+                _history = ai_conversation_sp[-10:] if len(ai_conversation_sp) > 10 else ai_conversation_sp
                 messages = [
                     {"role": "system", "content": CONSTANTS.AI_SYSTEM_PROMPT + f"\n\nDate du jour : {today}."},
-                    *ai_conversation_sp,
+                    *_history,
                 ]
 
                 # ── Boucle agentique (max 6 tours d'outils) ─────────────────────
@@ -2136,6 +2162,17 @@ def main(page: ft.Page):
                     _thinking = ""
                     _stream_tool_calls = []
                     thinking_ctrl = None
+                    _stream_token_count = 0
+                    _STREAM_UPDATE_EVERY = 5
+
+                    async def _scroll_and_update():
+                        try:
+                            page.update()
+                            await asyncio.sleep(0)
+                            await ai_chat_view_sp.scroll_to(offset=-1)
+                        except Exception:
+                            pass
+
                     for _evt, _dat in _ollama_chat_stream_with_tools(
                         CONSTANTS.AI_OLLAMA_URL, active_model, messages,
                         tools=_WEB_SEARCH_TOOL,
@@ -2150,29 +2187,16 @@ def main(page: ft.Page):
                                 thinking_ctrl = _ai_add_bubble_sp("think", _dat)
                             else:
                                 thinking_ctrl.value = f"💭 {_thinking}"
-                                async def _think_update():
-                                    try:
-                                        page.update()
-                                        await asyncio.sleep(0)
-                                        await ai_chat_view_sp.scroll_to(offset=-1)
-                                    except Exception:
-                                        pass
-                                page.run_task(_think_update)
+                                page.run_task(_scroll_and_update)
                         else:  # "token"
                             _streamed += _dat
+                            _stream_token_count += 1
                             if response_text_ctrl is None:
                                 _remove_loading()
                                 response_text_ctrl = _ai_add_bubble_sp("assistant", _dat)
-                            else:
-                                response_text_ctrl.value = _streamed
-                                async def _stream_update():
-                                    try:
-                                        page.update()
-                                        await asyncio.sleep(0)
-                                        await ai_chat_view_sp.scroll_to(offset=-1)
-                                    except Exception:
-                                        pass
-                                page.run_task(_stream_update)
+                            elif _stream_token_count % _STREAM_UPDATE_EVERY == 0:
+                                response_text_ctrl.value = _md_dark(_streamed)
+                                page.run_task(_scroll_and_update)
 
                     tool_calls = _stream_tool_calls
                     # Fallback non-streaming si le stream n'a rien renvoyé
@@ -2200,14 +2224,20 @@ def main(page: ft.Page):
                                 _thinking = _think_match.group(1).strip()
                                 full_response = re.sub(r'<think>.*?</think>', '', full_response, flags=re.DOTALL).strip()
                                 if response_text_ctrl is not None:
-                                    response_text_ctrl.value = full_response
+                                    response_text_ctrl.value = _md_dark(full_response)
                                     try:
                                         page.update()
                                     except Exception:
                                         pass
                         if _thinking and thinking_ctrl is None:
                             _ai_add_bubble_sp("think", _thinking)
-                        if response_text_ctrl is None and full_response:
+                        if response_text_ctrl is not None and full_response:
+                            response_text_ctrl.value = _md_dark(full_response)
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                        elif full_response:
                             _remove_loading()
                             response_text_ctrl = _ai_add_bubble_sp("assistant", full_response)
                         break
@@ -2272,9 +2302,15 @@ def main(page: ft.Page):
                         _tool_results = list(_pool.map(_run_tool_sp, _tool_tasks))
                     for (_t_name, _), _result in zip(_tool_tasks, _tool_results):
                         messages.append({"role": "tool", "tool_name": _t_name, "content": _result})
+                    # Rappel explicite de la question courante après les résultats d'outils
+                    messages.append({"role": "user", "content": f"(Résultats reçus. Réponds maintenant à ma question : {enriched_text})"})
+                    _remove_loading()
 
                 if full_response:
-                    ai_conversation_sp.append({"role": "assistant", "content": full_response})
+                    _entry = {"role": "assistant", "content": full_response}
+                    if _thinking:
+                        _entry["thinking"] = _thinking
+                    ai_conversation_sp.append(_entry)
                     _ai_save_history_sp()
                 else:
                     _ai_add_bubble_sp("assistant", "[Aucune réponse reçue]")
@@ -2318,7 +2354,7 @@ def main(page: ft.Page):
     ai_attach_btn_sp.on_click   = lambda event: page.run_task(_ai_pick_any_sp)
     ai_stop_btn_sp.on_click     = _ai_stop_model_sp
     ai_clear_btn_sp.on_click    = _clear_ai_conversation_sp
-    ai_copy_btn_sp.on_click     = lambda e: _copy_ai_conversation_sp()
+    ai_copy_btn_sp.on_click     = lambda e: _export_ai_conversation_sp(to_notepad=False)
 
     async def _new_json_file(event):
         """Crée un nouveau fichier JSON vide : choix du dossier puis du nom."""
@@ -2602,11 +2638,11 @@ def main(page: ft.Page):
             ft.Container(expand=True),
             notepad_preview_btn,
             ft.IconButton(
-                icon=ft.Icons.SAVE_OUTLINED,
-                icon_color=BLUE,
+                icon=ft.Icons.DELETE_OUTLINE,
+                icon_color=RED,
                 icon_size=18,
-                tooltip="Sauvegarder",
-                on_click=_notepad_save,
+                tooltip="Effacer le bloc-notes",
+                on_click=_notepad_clear,
             ),
         ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ft.Container(
@@ -2644,7 +2680,7 @@ def main(page: ft.Page):
                 icon_color=VIOLET,
                 icon_size=16,
                 tooltip="Transférer la conversation vers le bloc-notes",
-                on_click=_ai_conversation_to_notepad_sp,
+                on_click=lambda e: _export_ai_conversation_sp(to_notepad=True),
             ),
         ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ft.Container(
