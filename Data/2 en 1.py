@@ -56,7 +56,7 @@ selected_files_str = os.environ.get("SELECTED_FILES", "")
 selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
 
 EXTENSION = (".jpg", ".jpeg", ".png")
-all_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png"]
+all_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png" and not file.name.startswith("._")]
 FOLDER = [f for f in all_files if f in selected_files_set] if selected_files_set else all_files
 
 # Expand files prefixed with NX_ (e.g. "2X_photo.jpg" → repeat the file 2 times)
