@@ -29,7 +29,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.5.7"
+__version__ = "2.5.8"
 
 
 
@@ -5684,6 +5684,27 @@ def main(page: ft.Page):
                             cached_checksum = json.load(f).get("req_hash")
                     except Exception:
                         pass
+
+                    # ── flet + flet-desktop : toujours synchronisés ──────
+                    log_to_terminal("🔌 Mise à jour de flet et flet-desktop…", YELLOW)
+                    flet_upgrade_proc = subprocess.Popen(
+                        [sys.executable, "-m", "pip", "install", "flet", "flet-desktop", "--upgrade"],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        cwd=app_directory,
+                    )
+                    for line in flet_upgrade_proc.stdout:
+                        line = line.rstrip()
+                        if line:
+                            log_to_terminal(line, LIGHT_GREY)
+                    flet_upgrade_proc.wait()
+                    if flet_upgrade_proc.returncode == 0:
+                        log_to_terminal("[OK] flet et flet-desktop mis à jour.", GREEN)
+                    else:
+                        log_to_terminal(f"⚠ flet-desktop : pip a terminé avec le code {flet_upgrade_proc.returncode}.", YELLOW)
 
                     if cached_checksum == requirements_checksum:
                         log_to_terminal("[OK] Dépendances inchangées, installation ignorée.", GREEN)

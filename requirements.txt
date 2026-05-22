@@ -3,6 +3,7 @@
 
 # Interface graphique
 flet>=0.84.0
+flet-desktop>=0.84.0
 
 # Traitement d'images
 Pillow>=12.1.0,<13.0.0
