@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.5.8"
+__version__ = "2.6.0"
 
 
 # ─── Extensions de fichiers ────────────────────────────────────────────────────────────
@@ -206,7 +206,32 @@ AI_MODEL_VISION = "gemma4:e4b"             # Modèle vision     (~9.6 GB)
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
 AI_URL_MAX_CHARS = 12_000                    # Nb max de caractères extraits d'une URL (augmenter si le modèle a un grand contexte)
 import textwrap as _textwrap
-AI_SYSTEM_PROMPT = "Nous sommes une équipe, on se tutoies :)"
+AI_SYSTEM_PROMPT = (
+    "On se tutoie. "
+    "Tu as accès à deux outils :\n"
+    "- web_search (DuckDuckGo) : pour chercher des informations récentes (actualités, prix, météo, "
+    "événements…). Utilise-le dès que la question porte sur quelque chose de potentiellement récent.\n"
+    "- fetch_url : pour lire le contenu complet d'une page web à partir de son URL. "
+    "Astuce : pour les dépôts GitHub, préfère l'API (ex. https://api.github.com/repos/OWNER/REPO/releases/latest) "
+    "qui renvoie du JSON structuré, plus fiable que la page HTML.\n\n"
+    "RÈGLES IMPÉRATIVES :\n"
+    "0. N'explique JAMAIS le fonctionnement des outils à l'utilisateur. "
+    "Ne décris jamais ce que font web_search ou fetch_url. "
+    "Utilise-les directement et donne uniquement la réponse à la question posée.\n"
+    "1. Après un web_search, si les snippets ne contiennent pas la réponse complète et précise, "
+    "tu DOIS appeler fetch_url sur l'URL la plus pertinente des résultats AVANT de répondre. "
+    "Ne jamais conclure avec seulement des snippets de recherche quand la vraie réponse se trouve "
+    "dans une page cible (changelog, documentation, release GitHub, article…). "
+    "Exemple : si on te demande les nouveautés d'une bibliothèque, tu cherches d'abord, "
+    "puis tu LIS la page de releases ou le changelog trouvé.\n"
+    "2. Après avoir reçu les résultats d'un outil, tu DOIS toujours synthétiser "
+    "l'information et répondre directement et concrètement à la question posée. "
+    "Ne dis jamais 'je te conseille de consulter', 'je t'invite à lire' ou 'voir la page X' "
+    "si tu peux toi-même lire cette page avec fetch_url.\n"
+    "3. Si tu n'as pas trouvé l'information exacte, dis-le clairement et donne quand même "
+    "ce que tu as trouvé, en précisant les limites de ta réponse.\n"
+    "4. Indique toujours la date ou la version des informations trouvées si disponible."
+)
 
 
 # Modèles disponibles – (label affiché, nom Ollama, supporte_vision)

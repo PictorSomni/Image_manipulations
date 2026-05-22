@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.5.8"
+__version__ = "2.6.0"
 
 
 #############################################################
@@ -33,11 +33,12 @@ import platform
 import subprocess
 import sys
 import asyncio
+import datetime
+import concurrent.futures
 import time
 import base64
 import urllib.request
 import urllib.error
-import html.parser
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
 
@@ -59,63 +60,7 @@ def _is_os_junk(entry):
     return filename_lower in _OS_JUNK or filename_lower.startswith("._")
 
 
-# ── Extraction de contenu web pour l'IA ─────────────────────────────────────
-
-class _HTMLTextExtractor(html.parser.HTMLParser):
-    """Extrait le texte brut d'un document HTML en ignorant les balises."""
-    _SKIP_TAGS = {"script", "style", "noscript", "head"}
-
-    def __init__(self):
-        super().__init__()
-        self._skip_depth = 0
-        self._parts = []
-
-    def handle_starttag(self, tag, attrs):
-        if tag in self._SKIP_TAGS:
-            self._skip_depth += 1
-
-    def handle_endtag(self, tag):
-        if tag in self._SKIP_TAGS and self._skip_depth > 0:
-            self._skip_depth -= 1
-
-    def handle_data(self, data):
-        if self._skip_depth == 0:
-            stripped = data.strip()
-            if stripped:
-                self._parts.append(stripped)
-
-    def get_text(self):
-        return "\n".join(self._parts)
-
-
-def _fetch_url_content(url, max_chars=12_000):
-    """Récupère le contenu textuel d'une URL HTTP(S), tronqué à max_chars."""
-    try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; ImageManipBot/1.0)"},
-        )
-        with urllib.request.urlopen(req, timeout=15) as response:
-            content_type = response.headers.get("Content-Type", "")
-            charset = "utf-8"
-            if "charset=" in content_type:
-                charset = content_type.split("charset=")[-1].split(";")[0].strip()
-            raw_bytes = response.read()
-        raw_text = raw_bytes.decode(charset, errors="replace")
-        if "</" in raw_text or "<br" in raw_text.lower():
-            extractor = _HTMLTextExtractor()
-            extractor.feed(raw_text)
-            plain_text = extractor.get_text()
-        else:
-            plain_text = raw_text
-        plain_text = re.sub(r"\n{3,}", "\n\n", plain_text).strip()
-        if len(plain_text) > max_chars:
-            plain_text = plain_text[:max_chars] + f"\n\n[… contenu tronqué à {max_chars} caractères]"
-        return plain_text
-    except Exception as fetch_error:
-        return f"[Impossible de récupérer l'URL : {fetch_error}]"
-
-
+from ai_tools import _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream, _ollama_chat_stream_with_tools, _parse_text_tool_calls, _strip_text_tool_calls
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -511,13 +456,13 @@ def main(page: ft.Page):
         shift_enter=True,
     )
     ai_model_label_sp  = ft.Text(CONSTANTS.AI_MODEL_TEXT, color=LIGHT_GREY, size=11, italic=True)
-    ai_status_text_sp  = ft.Text("", color=LIGHT_GREY, size=11, italic=True)
+    ai_status_text_sp  = ft.Text("", color=LIGHT_GREY, size=11, italic=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
     ai_stop_btn_sp     = ft.IconButton(
         icon=ft.Icons.STOP_CIRCLE,
         icon_color=LIGHT_GREY,
         icon_size=16,
         tooltip="Libérer le modèle (ollama stop)",
-        visible=False,
+        visible=True,
     )
     ai_attach_row_sp   = ft.Row([], spacing=4, visible=False, wrap=True)
     ai_attach_btn_sp   = ft.IconButton(
@@ -537,6 +482,12 @@ def main(page: ft.Page):
         icon_color=LIGHT_GREY,
         icon_size=16,
         tooltip="Effacer la conversation IA",
+    )
+    ai_copy_btn_sp     = ft.IconButton(
+        icon=ft.Icons.COPY_ALL,
+        icon_color=LIGHT_GREY,
+        icon_size=16,
+        tooltip="Copier la conversation IA",
     )
 
 
@@ -1554,7 +1505,8 @@ def main(page: ft.Page):
 
     def _ai_add_bubble_sp(role, text):
         """Ajoute un message dans le panneau IA et retourne le contrôle (pour le streaming)."""
-        is_user = role == "user"
+        is_user  = role == "user"
+        is_think = role == "think"
         if is_user:
             bubble_text = ft.Text(
                 text,
@@ -1564,17 +1516,30 @@ def main(page: ft.Page):
                 selectable=True,
                 no_wrap=False,
             )
+        elif is_think:
+            bubble_text = ft.Text(
+                f"💭 {text}",
+                size=CONSTANTS.TERMINAL_FONT_SIZE - 1,
+                color=LIGHT_GREY,
+                italic=True,
+                selectable=True,
+                no_wrap=False,
+            )
         else:
             bubble_text = ft.Markdown(
                 text,
                 selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
+                md_style_sheet=ft.MarkdownStyleSheet(
+                    p_text_style=ft.TextStyle(size=CONSTANTS.TERMINAL_FONT_SIZE),
+                ),
                 expand=True,
             )
         bubble = ft.Container(
             content=bubble_text,
-            bgcolor=DARK if is_user else GREY,
+            bgcolor="#1a1c20" if is_think else (DARK if is_user else GREY),
+            border=ft.Border.all(1, LIGHT_GREY) if is_think else None,
             border_radius=6,
             padding=ft.Padding(8, 4, 8, 4),
             expand=True,
@@ -1669,6 +1634,16 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+    def _copy_ai_conversation_sp():
+        """Copie toute la conversation IA dans le presse-papiers."""
+        if not ai_conversation_sp:
+            return
+        text = _ai_build_conversation_text_sp()
+        try:
+            page.set_clipboard(text)
+        except Exception:
+            pass
+
     def _ai_build_conversation_text_sp():
         """Retourne la conversation IA formatée en texte brut."""
         lines = []
@@ -1712,7 +1687,7 @@ def main(page: ft.Page):
                 subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_TEXT],   timeout=10)
             except Exception:
                 pass
-            ai_stop_btn_sp.visible = False
+            ai_stop_btn_sp.icon_color = LIGHT_GREY
             ai_status_text_sp.value = ""
             try:
                 page.update()
@@ -2001,7 +1976,7 @@ def main(page: ft.Page):
         if not message_text.strip() and not ai_pending_images_sp and not ai_pending_files_sp:
             return
         ai_streaming_sp["value"] = True
-        ai_stop_btn_sp.visible = True
+        ai_stop_btn_sp.icon_color = RED
         ai_status_text_sp.value = "⏳ En cours…"
         try:
             page.update()
@@ -2061,6 +2036,22 @@ def main(page: ft.Page):
 
                 loading_ctrl = _ai_add_bubble_sp("assistant", "⏳ Réflexion en cours…")
 
+                def _remove_loading():
+                    nonlocal loading_ctrl
+                    if loading_ctrl is not None:
+                        try:
+                            ai_chat_view_sp.controls = [
+                                row for row in ai_chat_view_sp.controls
+                                if not (
+                                    hasattr(row, "controls") and row.controls
+                                    and hasattr(row.controls[0], "content")
+                                    and row.controls[0].content is loading_ctrl
+                                )
+                            ]
+                            loading_ctrl = None
+                        except Exception:
+                            pass
+
                 if files_to_inject:
                     injected_blocks = []
                     for file_entry in files_to_inject:
@@ -2087,45 +2078,93 @@ def main(page: ft.Page):
                     except Exception:
                         pass
 
-                payload = json.dumps({
-                    "model": active_model,
-                    "messages": [
-                        {"role": "system", "content": CONSTANTS.AI_SYSTEM_PROMPT},
-                        *ai_conversation_sp,
-                    ],
-                    "stream": True,
-                    "keep_alive": -1,
-                    "options": {"temperature": CONSTANTS.AI_TEMPERATURE},
-                }).encode("utf-8")
-                request = urllib.request.Request(
-                    f"{CONSTANTS.AI_OLLAMA_URL}/api/chat",
-                    data=payload,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                with urllib.request.urlopen(request, timeout=300) as response:
-                    for raw_line in response:
-                        chunk = json.loads(raw_line.decode("utf-8"))
-                        token = chunk.get("message", {}).get("content", "")
-                        if token:
-                            full_response += token
-                            if response_text_ctrl is None:
-                                if loading_ctrl is not None:
+                _WEB_SEARCH_TOOL = [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "web_search",
+                            "description": (
+                                "Recherche des informations récentes sur internet via DuckDuckGo. "
+                                "À utiliser pour les actualités, événements récents, prix, météo, "
+                                "ou toute information susceptible d'avoir changé depuis la date d'entraînement."
+                            ),
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "query": {
+                                        "type": "string",
+                                        "description": "Requête de recherche",
+                                    }
+                                },
+                                "required": ["query"],
+                            },
+                        },
+                    },
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "fetch_url",
+                            "description": (
+                                "Lit le contenu textuel d'une page web à partir de son URL. "
+                                "À utiliser pour approfondir un résultat de recherche ou consulter "
+                                "une page spécifique."
+                            ),
+                            "parameters": {
+                                "type": "object",
+                                "properties": {
+                                    "url": {
+                                        "type": "string",
+                                        "description": "URL complète (https://…) de la page à lire",
+                                    }
+                                },
+                                "required": ["url"],
+                            },
+                        },
+                    },
+                ]
+
+                today = datetime.date.today().strftime("%d %B %Y")
+                messages = [
+                    {"role": "system", "content": CONSTANTS.AI_SYSTEM_PROMPT + f"\n\nDate du jour : {today}."},
+                    *ai_conversation_sp,
+                ]
+
+                # ── Boucle agentique (max 6 tours d'outils) ─────────────────────
+                for _tool_round in range(6):
+                    # Streaming avec thinking natif Ollama et capture des tool_calls
+                    _streamed = ""
+                    _thinking = ""
+                    _stream_tool_calls = []
+                    thinking_ctrl = None
+                    for _evt, _dat in _ollama_chat_stream_with_tools(
+                        CONSTANTS.AI_OLLAMA_URL, active_model, messages,
+                        tools=_WEB_SEARCH_TOOL,
+                        temperature=CONSTANTS.AI_TEMPERATURE,
+                    ):
+                        if _evt == "tool_calls":
+                            _stream_tool_calls.extend(_dat)
+                        elif _evt == "thinking":
+                            _thinking += _dat
+                            if thinking_ctrl is None:
+                                _remove_loading()
+                                thinking_ctrl = _ai_add_bubble_sp("think", _dat)
+                            else:
+                                thinking_ctrl.value = f"💭 {_thinking}"
+                                async def _think_update():
                                     try:
-                                        ai_chat_view_sp.controls = [
-                                            row for row in ai_chat_view_sp.controls
-                                            if not (
-                                                hasattr(row, "controls") and row.controls
-                                                and hasattr(row.controls[0], "content")
-                                                and row.controls[0].content is loading_ctrl
-                                            )
-                                        ]
-                                        loading_ctrl = None
+                                        page.update()
+                                        await asyncio.sleep(0)
+                                        await ai_chat_view_sp.scroll_to(offset=-1)
                                     except Exception:
                                         pass
-                                response_text_ctrl = _ai_add_bubble_sp("assistant", token)
+                                page.run_task(_think_update)
+                        else:  # "token"
+                            _streamed += _dat
+                            if response_text_ctrl is None:
+                                _remove_loading()
+                                response_text_ctrl = _ai_add_bubble_sp("assistant", _dat)
                             else:
-                                response_text_ctrl.value = full_response
+                                response_text_ctrl.value = _streamed
                                 async def _stream_update():
                                     try:
                                         page.update()
@@ -2134,8 +2173,106 @@ def main(page: ft.Page):
                                     except Exception:
                                         pass
                                 page.run_task(_stream_update)
-                        if chunk.get("done"):
-                            break
+
+                    tool_calls = _stream_tool_calls
+                    # Fallback non-streaming si le stream n'a rien renvoyé
+                    if not _streamed and not _stream_tool_calls:
+                        _fallback = _ollama_chat_once(
+                            CONSTANTS.AI_OLLAMA_URL, active_model, messages,
+                            tools=_WEB_SEARCH_TOOL,
+                            temperature=CONSTANTS.AI_TEMPERATURE,
+                        )
+                        tool_calls = _fallback.get("tool_calls") or []
+                        _streamed = _fallback.get("content", "")
+                        _thinking = _fallback.get("thinking", "")
+                    if not tool_calls:
+                        text_calls = _parse_text_tool_calls(_streamed)
+                        if text_calls:
+                            tool_calls = text_calls
+                            _streamed = _strip_text_tool_calls(_streamed)
+
+                    if not tool_calls:
+                        full_response = _streamed
+                        # Fallback XML <think> si pas de thinking natif (modèles non supportés)
+                        if not _thinking and "<think>" in full_response:
+                            _think_match = re.search(r'<think>(.*?)</think>', full_response, re.DOTALL)
+                            if _think_match:
+                                _thinking = _think_match.group(1).strip()
+                                full_response = re.sub(r'<think>.*?</think>', '', full_response, flags=re.DOTALL).strip()
+                                if response_text_ctrl is not None:
+                                    response_text_ctrl.value = full_response
+                                    try:
+                                        page.update()
+                                    except Exception:
+                                        pass
+                        if _thinking and thinking_ctrl is None:
+                            _ai_add_bubble_sp("think", _thinking)
+                        if response_text_ctrl is None and full_response:
+                            _remove_loading()
+                            response_text_ctrl = _ai_add_bubble_sp("assistant", full_response)
+                        break
+
+                    # Tour d'outils — supprimer le texte préliminaire streamé si présent
+                    if response_text_ctrl is not None:
+                        try:
+                            ai_chat_view_sp.controls = [
+                                row for row in ai_chat_view_sp.controls
+                                if not (
+                                    hasattr(row, "controls") and row.controls
+                                    and hasattr(row.controls[0], "content")
+                                    and row.controls[0].content is response_text_ctrl
+                                )
+                            ]
+                        except Exception:
+                            pass
+                        response_text_ctrl = None
+
+                    # ── Exécuter les appels d'outils ──────────────────────────────
+                    messages.append({
+                        "role": "assistant",
+                        "thinking": _thinking,
+                        "content": _streamed,
+                        "tool_calls": tool_calls,
+                    })
+                    # Afficher tous les indicateurs, collecter les tâches
+                    _tool_tasks = []
+                    for tc in tool_calls:
+                        fn      = tc.get("function", {})
+                        fn_name = fn.get("name", "")
+                        fn_args = fn.get("arguments") or {}
+                        if fn_name == "web_search":
+                            query   = fn_args.get("query", "")
+                            short_q = (query[:45] + "…") if len(query) > 45 else query
+                            ai_status_text_sp.value = f"🔍 {short_q}"
+                            if loading_ctrl is not None:
+                                loading_ctrl.value = f"🔍 {short_q}"
+                            _ai_add_bubble_sp("assistant", f"🔍 Recherche : {query}")
+                            _tool_tasks.append((fn_name, fn_args))
+                        elif fn_name == "fetch_url":
+                            url     = fn_args.get("url", "")
+                            short_u = (url[:45] + "…") if len(url) > 45 else url
+                            ai_status_text_sp.value = f"🌐 {short_u}"
+                            if loading_ctrl is not None:
+                                loading_ctrl.value = f"🌐 {short_u}"
+                            _ai_add_bubble_sp("assistant", f"🌐 Lecture : {url}")
+                            _tool_tasks.append((fn_name, fn_args))
+                    try:
+                        page.update()
+                    except Exception:
+                        pass
+                    # Exécuter tous les outils en parallèle
+                    def _run_tool_sp(task):
+                        name, args = task
+                        if name == "web_search":
+                            return _web_search(args.get("query", ""))
+                        elif name == "fetch_url":
+                            return _fetch_url_content(args.get("url", ""), max_chars=CONSTANTS.AI_URL_MAX_CHARS)
+                        return ""
+                    with concurrent.futures.ThreadPoolExecutor() as _pool:
+                        _tool_results = list(_pool.map(_run_tool_sp, _tool_tasks))
+                    for (_t_name, _), _result in zip(_tool_tasks, _tool_results):
+                        messages.append({"role": "tool", "tool_name": _t_name, "content": _result})
+
                 if full_response:
                     ai_conversation_sp.append({"role": "assistant", "content": full_response})
                     _ai_save_history_sp()
@@ -2145,7 +2282,7 @@ def main(page: ft.Page):
                 _ai_add_bubble_sp("assistant", f"[ERREUR] {exc}")
             finally:
                 ai_streaming_sp["value"] = False
-                ai_stop_btn_sp.visible = False
+                ai_stop_btn_sp.icon_color = LIGHT_GREY
                 ai_status_text_sp.value = ""
                 try:
                     page.update()
@@ -2181,6 +2318,7 @@ def main(page: ft.Page):
     ai_attach_btn_sp.on_click   = lambda event: page.run_task(_ai_pick_any_sp)
     ai_stop_btn_sp.on_click     = _ai_stop_model_sp
     ai_clear_btn_sp.on_click    = _clear_ai_conversation_sp
+    ai_copy_btn_sp.on_click     = lambda e: _copy_ai_conversation_sp()
 
     async def _new_json_file(event):
         """Crée un nouveau fichier JSON vide : choix du dossier puis du nom."""
@@ -2496,9 +2634,10 @@ def main(page: ft.Page):
             ft.Container(width=4),
             ai_model_label_sp,
             ft.Container(width=4),
-            ai_status_text_sp,
+            ft.Container(content=ai_status_text_sp, width=160),
             ai_stop_btn_sp,
             ft.Container(expand=True),
+            ai_copy_btn_sp,
             ai_clear_btn_sp,
             ft.IconButton(
                 icon=ft.Icons.SEND_TO_MOBILE,
