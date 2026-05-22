@@ -376,21 +376,29 @@ def main(page: ft.Page) -> None:
             )
             page.update()
 
+        _HAS_PAGE_VIEW = hasattr(ft, "PageView")
+
         async def navigate_prev(e) -> None:
             if not images_list or state["index"] <= 0:
                 return
-            await images_page_view.previous_page(
-                animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
-                animation_duration=ft.Duration(milliseconds=500),
-            )
+            if _HAS_PAGE_VIEW:
+                await images_page_view.previous_page(  # type: ignore[union-attr]
+                    animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
+                    animation_duration=ft.Duration(milliseconds=500),
+                )
+            else:
+                _fb_navigate(state["index"] - 1)
 
         async def navigate_next(e) -> None:
             if not images_list or state["index"] >= len(images_list) - 1:
                 return
-            await images_page_view.next_page(
-                animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
-                animation_duration=ft.Duration(milliseconds=500),
-            )
+            if _HAS_PAGE_VIEW:
+                await images_page_view.next_page(  # type: ignore[union-attr]
+                    animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
+                    animation_duration=ft.Duration(milliseconds=500),
+                )
+            else:
+                _fb_navigate(state["index"] + 1)
 
         def preview_toggle_nb(e) -> None:
             current_fn = _current_filename()
@@ -448,13 +456,46 @@ def main(page: ft.Page) -> None:
             ],
         )
 
-        images_page_view = ft.PageView(
-            controls=_build_page_containers(),
-            expand=True,
-            horizontal=True,
-            selected_index=initial_index,
-            on_change=on_page_change,
-        )
+        if _HAS_PAGE_VIEW:
+            images_page_view = ft.PageView(
+                controls=_build_page_containers(),
+                expand=True,
+                horizontal=True,
+                selected_index=initial_index,
+                on_change=on_page_change,
+            )
+        else:
+            # Fallback pour les versions de Flet sans PageView (ex : macOS ancienne install)
+            _fb_img_ctrl = ft.Image(
+                src=_blank_gif,
+                fit=ft.BoxFit.CONTAIN,
+                expand=True,
+                gapless_playback=True,
+                error_content=ft.Container(
+                    content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=C_LIGHT_GREY, size=64),
+                    alignment=ft.Alignment(0, 0),
+                ),
+            )
+            page_image_controls[initial_index] = _fb_img_ctrl
+            images_page_view = ft.Container(
+                content=_fb_img_ctrl,
+                expand=True,
+                alignment=ft.Alignment(0, 0),
+                bgcolor=C_DARK,
+            )
+
+            def _fb_navigate(new_index: int) -> None:
+                """Navigation image en mode fallback (sans PageView)."""
+                old_index = state["index"]
+                page_image_controls.clear()
+                page_image_controls[new_index] = _fb_img_ctrl
+                pages_loaded.discard(old_index)
+                _update_bottom_bar(new_index)
+                threading.Thread(
+                    target=_load_image_for_index,
+                    args=(new_index,),
+                    daemon=True,
+                ).start()
 
         bottom_bar = ft.Container(
             content=ft.Row([
