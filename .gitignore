@@ -46,5 +46,5 @@ $RECYCLE.BIN/
 open_with.json
 .DS_Store
 .sidepanel_config.json
-.notes.txt
+.notes.md
 .ai_conversation.json
