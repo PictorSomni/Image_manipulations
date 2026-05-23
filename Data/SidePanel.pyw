@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.6.0"
+__version__ = "2.6.1"
 
 
 #############################################################
@@ -144,6 +144,7 @@ def main(page: ft.Page):
     print_counts     = {"data": {}}   # filepath → int (nb d'impressions, défaut 1)
     print_formats    = {"data": {}}   # filepath → clé format (CONSTANTS.FORMATS)
     count_text_refs  = {"data": {}}   # filepath → ft.Text widget du compteur
+    checkbox_refs    = {"data": {}}   # filepath → ft.Checkbox widget
 
     # ─────────────────────────────────────────────────────────────────────
     #  ██████████  État  ──  Onglet 2 (Liste JSON)
@@ -537,6 +538,7 @@ def main(page: ft.Page):
         page.update()
 
     def _render_preview():
+        checkbox_refs["data"].clear()
         try:
             entries = all_entries["list"]
             if search_query["value"]:
@@ -584,6 +586,7 @@ def main(page: ft.Page):
                         value=file_path in selected_files,
                         on_change=lambda event, p=file_path: _on_checkbox_change(event, p),
                     )
+                    checkbox_refs["data"][file_path] = checkbox
 
                     if is_image and not is_directory:
                         visual = ft.Container(
@@ -594,12 +597,15 @@ def main(page: ft.Page):
                             width=64, height=64,
                             border_radius=4,
                             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+                            on_click=lambda e, p=file_path: _show_fullscreen_preview(p),
+                            tooltip="Prévisualiser en plein écran",
+                            ink=True,
                         )
                     else:
                         visual = ft.Icon(icon_name, color=icon_color, size=21)
 
                     if is_image and not is_directory:
-                        print_count   = print_counts["data"].get(file_path, 1)
+                        print_count   = print_counts["data"].get(file_path, 0)
                         format_value = print_formats["data"].get(file_path, "")
                         format_dropdown = ft.Dropdown(
                             value=format_value or None,
@@ -838,8 +844,8 @@ def main(page: ft.Page):
             pass
 
     def _dec_count(path):
-        current_count = print_counts["data"].get(path, 1)
-        if current_count > 1:
+        current_count = print_counts["data"].get(path, 0)
+        if current_count > 0:
             print_counts["data"][path] = current_count - 1
             count_widget = count_text_refs["data"].get(path)
             if count_widget:
@@ -847,7 +853,7 @@ def main(page: ft.Page):
                 count_widget.update()
 
     def _inc_count(path):
-        current_count = print_counts["data"].get(path, 1)
+        current_count = print_counts["data"].get(path, 0)
         print_counts["data"][path] = current_count + 1
         count_widget = count_text_refs["data"].get(path)
         if count_widget:
@@ -909,6 +915,378 @@ def main(page: ft.Page):
                 subprocess.Popen(["xdg-open", folder])
         except Exception:
             pass
+
+    def _show_fullscreen_preview(file_path: str):
+        """Prévisualisation plein écran — PageView + InteractiveViewer (zoom/pan) + sélection + impression."""
+        # Construire la liste des images navigables (recherche/filtre actifs respectés)
+        entries = all_entries["list"]
+        if search_query["value"]:
+            query_lower = search_query["value"].lower()
+            entries = [entry for entry in entries if query_lower in entry[0].lower()]
+        if file_filter_active["value"]:
+            entries = [entry for entry in entries if entry[1] in selected_files]
+        page_start  = preview_page["value"] * PAGE_SIZE
+        entries     = entries[page_start : page_start + PAGE_SIZE]
+        image_paths = [fpath for (_name, fpath, is_dir, is_img, _ext) in entries if is_img and not is_dir]
+        if not image_paths:
+            return
+
+        initial_index = image_paths.index(file_path) if file_path in image_paths else 0
+        state = {"index": initial_index}
+        _prev_keyboard_handler = page.on_keyboard_event
+        _blank_gif = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
+
+        def _cur() -> str:
+            return image_paths[state["index"]]
+
+        def close_preview(e=None):
+            page.on_keyboard_event = _prev_keyboard_handler
+            if fs_overlay in page.overlay:
+                page.overlay.remove(fs_overlay)
+            for fpath, cb in checkbox_refs["data"].items():
+                cb.value = fpath in selected_files
+            selection_count_text.value = _selection_label()
+            _update_toggle_btn()
+            page.update()
+
+        # ── Barre de titre ────────────────────────────────────────────────
+        fs_title = ft.Text(
+            os.path.basename(file_path),
+            size=14, color=WHITE,
+            weight=ft.FontWeight.W_500,
+            max_lines=1,
+            overflow=ft.TextOverflow.ELLIPSIS,
+            expand=True,
+        )
+        fs_counter = ft.Text(
+            f"{initial_index + 1} / {len(image_paths)}",
+            size=12, color=ft.Colors.WHITE70,
+        )
+
+        # ── Contrôles barre inférieure ────────────────────────────────────
+        fs_checkbox = ft.Checkbox(
+            value=file_path in selected_files,
+            label="Sélectionner",
+            label_style=ft.TextStyle(color=WHITE, size=13),
+            active_color=BLUE,
+            check_color=DARK,
+        )
+
+        def _on_fs_check(e):
+            p = _cur()
+            if e.control.value:
+                selected_files.add(p)
+            else:
+                selected_files.discard(p)
+
+        fs_checkbox.on_change = _on_fs_check
+
+        fs_format = ft.Dropdown(
+            value=print_formats["data"].get(file_path) or None,
+            hint_text="Format",
+            options=[
+                ft.dropdown.Option(key="", text="— aucun —"),
+            ] + [ft.dropdown.Option(key=k, text=k) for k in CONSTANTS.FORMATS.keys()],
+            text_size=13, height=40, width=120,
+            content_padding=ft.Padding(8, 0, 0, 0),
+            bgcolor=GREY, border_color=BLUE,
+        )
+
+        def _on_fs_format(e):
+            p = _cur()
+            val = e.control.value or ""
+            if val:
+                print_formats["data"][p] = val
+            else:
+                print_formats["data"].pop(p, None)
+
+        fs_format.on_select = _on_fs_format
+
+        fs_count = ft.Text(
+            str(print_counts["data"].get(file_path, 0)),
+            size=26, color=WHITE,
+            weight=ft.FontWeight.BOLD,
+            width=50, text_align=ft.TextAlign.CENTER,
+        )
+
+        def _fs_dec(e=None):
+            p = _cur()
+            cur = print_counts["data"].get(p, 0)
+            if cur > 0:
+                print_counts["data"][p] = cur - 1
+                fs_count.value = str(cur - 1)
+                fs_count.update()
+
+        def _fs_inc(e=None):
+            p = _cur()
+            cur = print_counts["data"].get(p, 0)
+            print_counts["data"][p] = cur + 1
+            fs_count.value = str(cur + 1)
+            fs_count.update()
+
+        # ── Chargement lazy ───────────────────────────────────────────────
+        page_image_controls: dict = {}
+        pages_loaded: set = set()
+
+        def _build_page_containers():
+            win_w = page.window.width or 1024
+            win_h = (page.window.height or 960) - 50  # soustraire hauteur barre titre
+            containers = []
+            for idx in range(len(image_paths)):
+                img_ctrl = ft.Image(
+                    src=_blank_gif,
+                    width=win_w,
+                    height=win_h,
+                    fit=ft.BoxFit.CONTAIN,
+                    gapless_playback=True,
+                    error_content=ft.Container(
+                        content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=LIGHT_GREY, size=64),
+                        alignment=ft.Alignment(0, 0),
+                    ),
+                )
+                page_image_controls[idx] = img_ctrl
+                viewer = ft.InteractiveViewer(
+                    key=f"fs_iv_{idx}",
+                    content=img_ctrl,
+                    min_scale=0.5,
+                    max_scale=10.0,
+                    pan_enabled=True,
+                    scale_enabled=True,
+                    width=win_w,
+                    height=win_h,
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                )
+                containers.append(
+                    ft.Container(
+                        content=viewer,
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        bgcolor=DARK,
+                    )
+                )
+            return containers
+
+        def _load_image_for_index(load_index: int) -> None:
+            if load_index < 0 or load_index >= len(image_paths):
+                return
+            if load_index in pages_loaded:
+                return
+            pages_loaded.add(load_index)
+            if load_index in page_image_controls:
+                page_image_controls[load_index].src = image_paths[load_index]
+
+            async def _apply():
+                try:
+                    page.update()
+                except Exception:
+                    pass
+
+            page.run_task(_apply)
+
+        def _load_pages_around(center: int) -> None:
+            for offset in (0, 1, -1, 2, -2):
+                target = center + offset
+                if 0 <= target < len(image_paths):
+                    threading.Thread(
+                        target=_load_image_for_index,
+                        args=(target,),
+                        daemon=True,
+                    ).start()
+
+        def _update_bar(new_index: int) -> None:
+            state["index"] = new_index
+            p = image_paths[new_index] if image_paths else ""
+            fs_title.value = os.path.basename(p)
+            fs_counter.value = f"{new_index + 1} / {len(image_paths)}"
+            fs_checkbox.value = p in selected_files
+            fs_format.value = print_formats["data"].get(p) or None
+            fs_count.value = str(print_counts["data"].get(p, 0))
+            page.update()
+
+        def on_page_change(e) -> None:
+            new_index = int(e.data)
+            _update_bar(new_index)
+            _load_pages_around(new_index)
+
+        # ── PageView ou fallback ──────────────────────────────────────────
+        _HAS_PAGE_VIEW = hasattr(ft, "PageView")
+        if _HAS_PAGE_VIEW:
+            images_page_view = ft.PageView(
+                controls=_build_page_containers(),
+                expand=True,
+                horizontal=True,
+                selected_index=initial_index,
+                on_change=on_page_change,
+            )
+        else:
+            win_w = page.window.width or 1024
+            win_h = (page.window.height or 960) - 50
+            _fb_img_ctrl = ft.Image(
+                src=_blank_gif,
+                width=win_w, height=win_h,
+                fit=ft.BoxFit.CONTAIN,
+                gapless_playback=True,
+                error_content=ft.Container(
+                    content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=LIGHT_GREY, size=64),
+                    alignment=ft.Alignment(0, 0),
+                ),
+            )
+            page_image_controls[initial_index] = _fb_img_ctrl
+            _fb_iv = ft.InteractiveViewer(
+                key="fs_iv_fb",
+                content=_fb_img_ctrl,
+                min_scale=0.5, max_scale=10.0,
+                pan_enabled=True, scale_enabled=True,
+                width=win_w, height=win_h,
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+            )
+            images_page_view = ft.Container(
+                content=_fb_iv,
+                expand=True,
+                alignment=ft.Alignment(0, 0),
+                bgcolor=DARK,
+            )
+
+            def _fb_navigate(new_idx: int) -> None:
+                old_idx = state["index"]
+                _fb_img_ctrl.src = image_paths[new_idx] if image_paths else _blank_gif
+                page_image_controls.clear()
+                page_image_controls[new_idx] = _fb_img_ctrl
+                pages_loaded.discard(old_idx)
+                pages_loaded.add(new_idx)
+
+        # ── Navigation ────────────────────────────────────────────────────
+        async def navigate_prev(e=None) -> None:
+            if not image_paths or state["index"] <= 0:
+                return
+            if _HAS_PAGE_VIEW:
+                await images_page_view.previous_page(
+                    animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
+                    animation_duration=ft.Duration(milliseconds=300),
+                )
+            else:
+                new_idx = state["index"] - 1
+                _fb_navigate(new_idx)
+                _update_bar(new_idx)
+
+        async def navigate_next(e=None) -> None:
+            if not image_paths or state["index"] >= len(image_paths) - 1:
+                return
+            if _HAS_PAGE_VIEW:
+                await images_page_view.next_page(
+                    animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
+                    animation_duration=ft.Duration(milliseconds=300),
+                )
+            else:
+                new_idx = state["index"] + 1
+                _fb_navigate(new_idx)
+                _update_bar(new_idx)
+
+        def on_fs_key(event: ft.KeyboardEvent):
+            if event.key in ("Arrow Left", "ArrowLeft"):
+                page.run_task(navigate_prev, event)
+            elif event.key in ("Arrow Right", "ArrowRight"):
+                page.run_task(navigate_next, event)
+            elif event.key in ("Arrow Up", "ArrowUp"):
+                p = _cur()
+                new_val = p not in selected_files
+                if new_val:
+                    selected_files.add(p)
+                else:
+                    selected_files.discard(p)
+                fs_checkbox.value = new_val
+                fs_checkbox.update()
+            elif event.key == "Escape":
+                close_preview()
+
+        page.on_keyboard_event = on_fs_key
+
+        # ── Barre flottante ───────────────────────────────────────────────
+        bottom_bar = ft.Container(
+            content=ft.Row([
+                ft.IconButton(
+                    icon=ft.Icons.CHEVRON_LEFT,
+                    icon_color=WHITE, icon_size=36,
+                    tooltip="Image précédente (←)",
+                    on_click=lambda e: page.run_task(navigate_prev, e),
+                    style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+                ),
+                ft.Container(width=4),
+                fs_checkbox,
+                ft.Container(width=8),
+                ft.Container(
+                    content=fs_format,
+                    padding=ft.Padding(0, 0, 0, 4),
+                ),
+                ft.Container(width=8),
+                ft.IconButton(
+                    icon=ft.Icons.REMOVE_CIRCLE_OUTLINE,
+                    icon_color=RED, icon_size=32,
+                    tooltip="Retirer une copie",
+                    on_click=_fs_dec,
+                    style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+                ),
+                fs_count,
+                ft.IconButton(
+                    icon=ft.Icons.ADD_CIRCLE_OUTLINE,
+                    icon_color=GREEN, icon_size=32,
+                    tooltip="Ajouter une copie",
+                    on_click=_fs_inc,
+                    style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+                ),
+                ft.Container(width=4),
+                ft.IconButton(
+                    icon=ft.Icons.CHEVRON_RIGHT,
+                    icon_color=WHITE, icon_size=36,
+                    tooltip="Image suivante (→)",
+                    on_click=lambda e: page.run_task(navigate_next, e),
+                    style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+                ),
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, tight=True),
+            bgcolor=ft.Colors.with_opacity(0.80, GREY),
+            border_radius=16,
+            padding=ft.Padding(8, 6, 8, 6),
+        )
+
+        fs_overlay = ft.Container(
+            content=ft.Stack([
+                ft.Column([
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Container(width=8),
+                            fs_title,
+                            fs_counter,
+                            ft.Container(width=8),
+                            ft.IconButton(
+                                icon=ft.Icons.CLOSE,
+                                icon_color=RED, icon_size=28,
+                                tooltip="Fermer (Échap)",
+                                on_click=close_preview,
+                                style=ft.ButtonStyle(bgcolor=DARK),
+                            ),
+                        ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                        bgcolor=DARK,
+                        padding=ft.Padding(8, 4, 8, 4),
+                        height=50,
+                    ),
+                    images_page_view,
+                ], spacing=0, expand=True),
+                ft.Container(
+                    content=ft.Row(
+                        [bottom_bar],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                    ),
+                    bottom=16, left=0, right=0,
+                ),
+            ], expand=True),
+            bgcolor=DARK,
+            expand=True,
+        )
+
+        page.overlay.append(fs_overlay)
+        page.update()
+        _load_pages_around(initial_index)
+
 
     async def _pick_src(event):
         folder = await ft.FilePicker().get_directory_path(
@@ -972,12 +1350,17 @@ def main(page: ft.Page):
                     errors.append(f"{os.path.basename(source_file)}: introuvable")
                     continue
                 original_stem, file_extension = os.path.splitext(os.path.basename(source_file))
-                print_count = counts_snapshot.get(source_file, 1)
+                print_count = counts_snapshot.get(source_file, 0)
                 format_key   = formats_snapshot.get(source_file, "")
-                prefix_parts = [f"{print_count}X"]
-                if format_key:
-                    prefix_parts.append(format_key)
-                destination_stem = "_".join(prefix_parts) + "_" + original_stem
+                if print_count or format_key:
+                    prefix_parts = []
+                    if print_count:
+                        prefix_parts.append(f"{print_count}X")
+                    if format_key:
+                        prefix_parts.append(format_key)
+                    destination_stem = "_".join(prefix_parts) + "_" + original_stem
+                else:
+                    destination_stem = original_stem
                 destination_path = os.path.join(destination_folder, destination_stem + file_extension)
                 if os.path.exists(destination_path):
                     collision_index = 1

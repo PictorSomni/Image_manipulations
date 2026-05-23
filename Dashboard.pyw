@@ -29,7 +29,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.6.0"
+__version__ = "2.6.1"
 
 
 
@@ -529,6 +529,15 @@ def main(page: ft.Page):
         icon_color=VIOLET,
         icon_size=22,
         tooltip="Inverser la sélection",
+    )
+
+
+
+    select_same_date_button = ft.IconButton(
+        icon=ft.Icons.EVENT,
+        icon_color=VIOLET,
+        icon_size=22,
+        tooltip="Sélectionner même date",
     )
 
 
@@ -3822,6 +3831,38 @@ def main(page: ft.Page):
 
 
 
+    def select_same_date(e):
+        """Sélectionne tous les fichiers du dossier pris à la même date (jour) que le fichier sélectionné."""
+        if not selected_files:
+            log_to_terminal("[ATTENTION] Aucun fichier sélectionné comme référence", ORANGE)
+            return
+        ref_path = selected_files[-1]
+        try:
+            ref_mtime = os.path.getmtime(ref_path)
+        except OSError:
+            log_to_terminal("[ERREUR] Impossible de lire la date du fichier de référence", RED)
+            return
+        ref_date = datetime.date.fromtimestamp(ref_mtime)
+        added = 0
+        for _name, fpath, is_dir, _is_img, _ext in all_entries_data["list"]:
+            if is_dir:
+                continue
+            try:
+                fdate = datetime.date.fromtimestamp(os.path.getmtime(fpath))
+            except OSError:
+                continue
+            if fdate == ref_date and fpath not in selected_files:
+                selected_files.append(fpath)
+                added += 1
+        if show_only_selection["value"]:
+            _render_preview_page()
+        else:
+            _update_visible_checkboxes()
+        _update_select_toggle_button()
+        log_to_terminal(f"[OK] {len(selected_files)} fichier(s) du {ref_date.strftime('%d/%m/%Y')} sélectionné(s) (+{added} ajouté(s))", BLUE)
+
+
+
     def paste_files(e):
         """Colle les fichiers du presse-papiers dans le dossier actuel"""
         target_folder = current_browse_folder["path"] or selected_folder["path"]
@@ -5957,6 +5998,7 @@ def main(page: ft.Page):
     sort_segment.on_change = on_sort_change
     select_toggle_button.on_click = toggle_select_all
     invert_selection_button.on_click = invert_selection
+    select_same_date_button.on_click = select_same_date
     filter_sel_btn.on_click = _toggle_show_only_selection
     prev_page_btn.on_click = lambda e: go_to_page(-1)
     next_page_btn.on_click = lambda e: go_to_page(+1)
@@ -6490,6 +6532,7 @@ def main(page: ft.Page):
                         filter_sel_btn,
                         select_toggle_button,
                         invert_selection_button,
+                        select_same_date_button,
                         ft.IconButton(
                             icon=ft.Icons.DELETE_SWEEP,
                             tooltip="Supprimer les fichiers sélectionnés",

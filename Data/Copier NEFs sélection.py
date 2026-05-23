@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Trie les fichiers RAW : déplace dans ``RAW/AUTRES/`` tous les fichiers qui
-ne correspondent PAS aux photos de la SELECTION (ou JPG). Les RAW de la
-sélection restent dans le dossier RAW.
+Déplace dans ``RAW/SELECTION/`` les fichiers RAW correspondant aux photos
+de la sélection (ou JPG). Les autres RAW restent dans le dossier RAW.
 
 Détection automatique des dossiers depuis le dossier de départ :
   - Nom "RAW"             → cherche SELECTION*/JPG dans le dossier parent.
@@ -19,7 +18,7 @@ Variables d'environnement :
   SELECTED_FILES  — chemin optionnel d'un dossier SELECTION* (prioritaire).
 """
 
-__version__ = "2.6.0"
+__version__ = "2.6.1"
 
 #############################################################
 #                          IMPORTS                          #
@@ -44,8 +43,8 @@ RAW_EXTENSIONS = {
     ".3fr", ".x3f", ".mrw", ".nrw",
 }
 
-AUTRES_SUBFOLDER_NAME = "AUTRES"
-COMMANDE_FILENAME     = "commande.txt"
+SELECTION_SUBFOLDER_NAME = "SELECTION"
+COMMANDE_FILENAME        = "commande.txt"
 
 # Préfixe kiosk : ex. "2X_102x152_DSC1234" → groupe 1 = "DSC1234"
 _KIOSK_PREFIX_RE = re.compile(r'^\d+x_\d+x\d+_(.+)$', re.IGNORECASE)
@@ -149,13 +148,13 @@ def _raw_matches_selection(raw_stem_lower: str, selection_stems: set[str]) -> bo
     return raw_stem_lower in selection_stems
 
 
-def _find_non_matching_raw_files(raw_folder: Path, selection_stems: set[str]) -> list[Path]:
-    """Retourne les fichiers RAW de ``raw_folder`` ne correspondant PAS à ``selection_stems``."""
+def _find_matching_raw_files(raw_folder: Path, selection_stems: set[str]) -> list[Path]:
+    """Retourne les fichiers RAW de ``raw_folder`` correspondant à ``selection_stems``."""
     return [
         entry for entry in sorted(raw_folder.iterdir())
         if entry.is_file()
         and entry.suffix.lower() in RAW_EXTENSIONS
-        and not _raw_matches_selection(entry.stem.lower(), selection_stems)
+        and _raw_matches_selection(entry.stem.lower(), selection_stems)
     ]
 
 
@@ -197,20 +196,17 @@ def run(start_folder: Path) -> None:
         print(f"[x] Aucune photo dans '{selection_folder.name}'", flush=True)
         return
 
-    non_matching_files = _find_non_matching_raw_files(raw_folder, selection_stems)
-    if not non_matching_files:
-        print("[ok] Tous les RAW correspondent à la sélection, rien à déplacer.", flush=True)
+    matching_files = _find_matching_raw_files(raw_folder, selection_stems)
+
+    if not matching_files:
+        print("[ok] Aucun RAW correspondant à la sélection.", flush=True)
         return
 
-    destination = raw_folder / AUTRES_SUBFOLDER_NAME
-    moved_count, errors = _move_raws(non_matching_files, destination)
+    moved_count, errors = _move_raws(matching_files, raw_folder / SELECTION_SUBFOLDER_NAME)
 
     for error_line in errors:
         print(f"[WARN] {error_line}", flush=True)
-    print(
-        f"[ok] {moved_count} RAW(s) déplacés → {raw_folder.name}/{AUTRES_SUBFOLDER_NAME}/",
-        flush=True,
-    )
+    print(f"[ok] {moved_count} RAW(s) déplacés → {raw_folder.name}/{SELECTION_SUBFOLDER_NAME}/", flush=True)
 
 
 # ── Résolution du dossier de départ ───────────────────────────────────
