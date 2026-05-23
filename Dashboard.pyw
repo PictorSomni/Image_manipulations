@@ -5658,7 +5658,7 @@ def main(page: ft.Page):
         quick_tools_col.controls = [
             _round_button(
                 ft.Icons.MANAGE_SEARCH,
-                ORANGE,
+                GREEN,
                 "Fichiers identiques",
                 lambda e: launch_app("Fichiers identiques.py", fichiers_identiques_path, False),
             ),
@@ -5699,14 +5699,14 @@ def main(page: ft.Page):
                 _prompt_and_zip_selection,
             ),
             _round_button(
-                ft.Icons.DRIVE_FILE_MOVE,
+                ft.Icons.HIDE_IMAGE,
                 YELLOW,
                 "Séparer RAW et JPG",
                 lambda e: launch_app("Séparer RAW et JPG.py", separer_raw_jpg_path, False),
             ),
             _round_button(
-                ft.Icons.CAMERA_ALT,
-                GREEN,
+                ft.Icons.IMAGE_SEARCH_OUTLINED,
+                YELLOW,
                 "Copier NEFs → SELECTION",
                 lambda e: launch_app("Copier NEFs sélection.py", copier_nefs_path, False),
             ),
@@ -5718,7 +5718,7 @@ def main(page: ft.Page):
             # ),
             _round_button(
                 ft.Icons.NOTE_ADD,
-                RED,
+                BLUE,
                 "Créer INFO.txt dans le dossier courant",
                 _create_and_open_info_txt,
             ),
