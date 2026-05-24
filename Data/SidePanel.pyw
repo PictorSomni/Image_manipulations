@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.6.1"
+__version__ = "2.6.2"
 
 
 #############################################################
@@ -41,6 +41,7 @@ import urllib.request
 import urllib.error
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
+import thumb_cache
 
 
 #############################################################
@@ -52,6 +53,7 @@ _NOTEPAD_EXTS = CONSTANTS.NOTEPAD_EXTS
 _OS_JUNK = {
     ".ds_store", "thumbs.db", "thumbs.db:encryptable",
     "ehthumbs.db", "desktop.ini", ".directory",
+    CONSTANTS.THUMB_CACHE_DB_NAME,
 }
 
 
@@ -60,7 +62,12 @@ def _is_os_junk(entry):
     return filename_lower in _OS_JUNK or filename_lower.startswith("._")
 
 
-from ai_tools import _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream, _ollama_chat_stream_with_tools, _parse_text_tool_calls, _strip_text_tool_calls, _format_ai_conversation
+from ai_tools import (
+    _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream,
+    _ollama_chat_stream_with_tools, _parse_text_tool_calls, _strip_text_tool_calls,
+    _format_ai_conversation, _folder_tool_definitions, _folder_list_contents,
+    _folder_read_file, _encode_image_for_analysis, _analyze_images_batched,
+)
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -145,6 +152,9 @@ def main(page: ft.Page):
     print_formats    = {"data": {}}   # filepath → clé format (CONSTANTS.FORMATS)
     count_text_refs  = {"data": {}}   # filepath → ft.Text widget du compteur
     checkbox_refs    = {"data": {}}   # filepath → ft.Checkbox widget
+    _sp_thumb_cache        = {}  # {normpath: b64_string} — miniatures en mémoire
+    _sp_pending_thumb_refs = {}  # {normpath: (ft.Container, file_path)}
+    _sp_thumb_token        = {"value": 0}  # Incrémenté à chaque changement de dossier
 
     # ─────────────────────────────────────────────────────────────────────
     #  ██████████  État  ──  Onglet 2 (Liste JSON)
@@ -589,18 +599,30 @@ def main(page: ft.Page):
                     checkbox_refs["data"][file_path] = checkbox
 
                     if is_image and not is_directory:
-                        visual = ft.Container(
-                            content=ft.Image(
-                                src=file_path, fit=ft.BoxFit.COVER,
+                        norm_path = os.path.normpath(file_path)
+                        cached_b64 = _sp_thumb_cache.get(norm_path)
+                        if cached_b64:
+                            thumb_content = ft.Image(
+                                src=cached_b64,
+                                fit=ft.BoxFit.COVER,
+                                width=64, height=64,
                                 error_content=ft.Icon(icon_name, color=icon_color, size=21),
-                            ),
+                            )
+                        else:
+                            thumb_content = ft.Icon(icon_name, color=icon_color, size=21)
+                        thumb_container = ft.Container(
+                            content=thumb_content,
                             width=64, height=64,
                             border_radius=4,
+                            bgcolor=DARK if not cached_b64 else None,
                             clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
                             on_click=lambda e, p=file_path: _show_fullscreen_preview(p),
                             tooltip="Prévisualiser en plein écran",
                             ink=True,
                         )
+                        visual = thumb_container
+                        if not cached_b64:
+                            _sp_pending_thumb_refs[norm_path] = (thumb_container, file_path)
                     else:
                         visual = ft.Icon(icon_name, color=icon_color, size=21)
 
@@ -682,9 +704,41 @@ def main(page: ft.Page):
             _update_toggle_btn()
             _update_file_filter_btn()
             page.update()
+            _sp_start_thumb_loader()
         except Exception as render_exception:
             status_text.value = f"[ERREUR] Rendu: {render_exception}"
             page.update()
+
+    def _sp_start_thumb_loader():
+        """Lance un thread qui génère les miniatures manquantes pour la page courante."""
+        if not _sp_pending_thumb_refs:
+            return
+        pending_snapshot = list(_sp_pending_thumb_refs.items())
+        load_token = _sp_thumb_token["value"]
+
+        def _load():
+            for norm_path, (container, file_path) in pending_snapshot:
+                if _sp_thumb_token["value"] != load_token:
+                    return
+                b64 = thumb_cache.get_or_generate(file_path)
+                if b64 and _sp_thumb_token["value"] == load_token:
+                    _sp_thumb_cache[norm_path] = b64
+                    container.bgcolor = None
+                    container.content = ft.Image(
+                        src=b64,
+                        fit=ft.BoxFit.COVER,
+                        width=64, height=64,
+                    )
+
+                    async def _apply():
+                        try:
+                            page.update()
+                        except Exception:
+                            pass
+
+                    page.run_task(_apply)
+
+        threading.Thread(target=_load, daemon=True).start()
 
     def _navigate(path):
         if not path or not os.path.isdir(path):
@@ -694,8 +748,12 @@ def main(page: ft.Page):
         selected_files.clear()
         selection_count_text.value   = ""
         preview_page["value"]        = 0
+        _sp_thumb_token["value"]     += 1
+        _sp_thumb_cache.clear()
+        _sp_pending_thumb_refs.clear()
         _add_recent_src(path)
         _rebuild_recent_src_menu()
+        thumb_cache.invalidate_stale(path)
         _refresh_preview()
 
     def _refresh_preview(reset_page=True):
@@ -2530,11 +2588,27 @@ def main(page: ft.Page):
                 ]
 
                 today = datetime.date.today().strftime("%d %B %Y")
+                # ── Outils dossier (disponibles si un dossier est ouvert) ─────
+                _folder_path_for_tools = current_src["path"]
+                _FOLDER_TOOLS = _folder_tool_definitions(_folder_path_for_tools)
+                _ALL_TOOLS = _WEB_SEARCH_TOOL + _FOLDER_TOOLS
                 # Limiter l'historique aux 10 derniers messages pour éviter
                 # que les petits modèles locaux perdent de vue la question courante
                 _history = ai_conversation_sp[-10:] if len(ai_conversation_sp) > 10 else ai_conversation_sp
+                _system_content = CONSTANTS.AI_SYSTEM_PROMPT + f"\n\nDate du jour : {today}."
+                if _FOLDER_TOOLS:
+                    _system_content += (
+                        f"\n\nDOSSIER OUVERT : « {os.path.basename(_folder_path_for_tools)} » "
+                        f"(`{_folder_path_for_tools}`).\
+\nOutils disponibles pour ce dossier : list_folder_contents, "
+                        "read_file_content, organize_files, analyze_images.\n"
+                        "Utilise-les quand l'utilisateur te demande d'explorer, résumer, "
+                        "organiser ou analyser visuellement le contenu de ce dossier. "
+                        "Pour toute question sur ce que contiennent les images "
+                        "(couleurs, personnes, lieux, objets…), utilise analyze_images."
+                    )
                 messages = [
-                    {"role": "system", "content": CONSTANTS.AI_SYSTEM_PROMPT + f"\n\nDate du jour : {today}."},
+                    {"role": "system", "content": _system_content},
                     *_history,
                 ]
 
@@ -2558,7 +2632,7 @@ def main(page: ft.Page):
 
                     for _evt, _dat in _ollama_chat_stream_with_tools(
                         CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                        tools=_WEB_SEARCH_TOOL,
+                        tools=_ALL_TOOLS,
                         temperature=CONSTANTS.AI_TEMPERATURE,
                     ):
                         if _evt == "tool_calls":
@@ -2586,7 +2660,7 @@ def main(page: ft.Page):
                     if not _streamed and not _stream_tool_calls:
                         _fallback = _ollama_chat_once(
                             CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                            tools=_WEB_SEARCH_TOOL,
+                            tools=_ALL_TOOLS,
                             temperature=CONSTANTS.AI_TEMPERATURE,
                         )
                         tool_calls = _fallback.get("tool_calls") or []
@@ -2648,7 +2722,8 @@ def main(page: ft.Page):
                         "tool_calls": tool_calls,
                     })
                     # Afficher tous les indicateurs, collecter les tâches
-                    _tool_tasks = []
+                    _tool_tasks          = []
+                    _folder_tool_results = []  # traités séquentiellement avant le pool
                     for tc in tool_calls:
                         fn      = tc.get("function", {})
                         fn_name = fn.get("name", "")
@@ -2669,11 +2744,200 @@ def main(page: ft.Page):
                                 loading_ctrl.value = f"🌐 {short_u}"
                             _ai_add_bubble_sp("assistant", f"🌐 Lecture : {url}")
                             _tool_tasks.append((fn_name, fn_args))
+                        elif fn_name == "list_folder_contents":
+                            _folder_display = os.path.basename(_folder_path_for_tools) if _folder_path_for_tools else "?"
+                            ai_status_text_sp.value = "📂 Lecture du dossier…"
+                            _ai_add_bubble_sp("assistant", f"📂 Lecture du dossier « {_folder_display} »")
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _folder_tool_results.append((fn_name, _folder_list_contents(_folder_path_for_tools)))
+                        elif fn_name == "read_file_content":
+                            _read_filename = fn_args.get("filename", "")
+                            ai_status_text_sp.value = f"📄 Lecture : {_read_filename}…"
+                            _ai_add_bubble_sp("assistant", f"📄 Lecture : {_read_filename}")
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _folder_tool_results.append((fn_name, _folder_read_file(
+                                _folder_path_for_tools, _read_filename,
+                                document_exts=CONSTANTS.AI_DOCUMENT_EXTS,
+                            )))
+                        elif fn_name == "organize_files":
+                            _org_actions = fn_args.get("actions", [])
+                            _org_summary = fn_args.get("summary", "")
+                            if not _org_actions:
+                                _folder_tool_results.append((fn_name, "Aucune action à exécuter."))
+                            elif not _folder_path_for_tools:
+                                _folder_tool_results.append((fn_name, "Aucun dossier ouvert."))
+                            else:
+                                _org_confirmed_sp = True
+                                if CONSTANTS.AI_ORGANIZE_CONFIRM:
+                                    ai_status_text_sp.value = "📂 Organisation — en attente de confirmation…"
+                                    try:
+                                        page.update()
+                                    except Exception:
+                                        pass
+                                    _confirm_event_sp  = threading.Event()
+                                    _confirm_result_sp = {"confirmed": False}
+
+                                    def _on_org_confirm_sp(event=None):
+                                        _confirm_result_sp["confirmed"] = True
+                                        _organize_dlg_sp.open = False
+                                        page.update()
+                                        _confirm_event_sp.set()
+
+                                    def _on_org_cancel_sp(event=None):
+                                        _organize_dlg_sp.open = False
+                                        page.update()
+                                        _confirm_event_sp.set()
+
+                                    _action_rows_sp = [
+                                        ft.Text(
+                                            f"• {_act.get('filename', '?')}  →  "
+                                            f"{_act.get('destination_subfolder', '?')}/",
+                                            size=12, color=WHITE,
+                                        )
+                                        for _act in _org_actions[:40]
+                                    ]
+                                    if len(_org_actions) > 40:
+                                        _action_rows_sp.append(
+                                            ft.Text(f"… et {len(_org_actions) - 40} autres", size=12, color=LIGHT_GREY)
+                                        )
+                                    _organize_dlg_sp = ft.AlertDialog(
+                                        modal=True,
+                                        title=ft.Text("📂 Organiser les fichiers"),
+                                        content=ft.Column(
+                                            [
+                                                ft.Text(
+                                                    _org_summary or "Organisation proposée par l'IA :",
+                                                    size=13, color=WHITE,
+                                                ),
+                                                ft.Container(height=6),
+                                                ft.Column(
+                                                    _action_rows_sp,
+                                                    scroll=ft.ScrollMode.AUTO,
+                                                    height=min(320, len(_action_rows_sp) * 24),
+                                                ),
+                                            ],
+                                            tight=True,
+                                            width=500,
+                                        ),
+                                        actions=[
+                                            ft.TextButton("Annuler", on_click=_on_org_cancel_sp),
+                                            ft.ElevatedButton(
+                                                "Exécuter",
+                                                bgcolor=BLUE,
+                                                color=WHITE,
+                                                on_click=_on_org_confirm_sp,
+                                            ),
+                                        ],
+                                        actions_alignment=ft.MainAxisAlignment.END,
+                                    )
+                                    page.overlay.append(_organize_dlg_sp)
+                                    _organize_dlg_sp.open = True
+                                    try:
+                                        page.update()
+                                    except Exception:
+                                        pass
+                                    _confirm_event_sp.wait(timeout=300)
+                                    _org_confirmed_sp = _confirm_result_sp["confirmed"]
+                                if not _org_confirmed_sp:
+                                    _folder_tool_results.append((fn_name, "Organisation annulée par l'utilisateur."))
+                                else:
+                                    _executed_moves = []
+                                    _move_errors    = []
+                                    for _org_action in _org_actions:
+                                        _org_filename  = os.path.basename(_org_action.get("filename", ""))
+                                        _org_subfolder = _org_action.get("destination_subfolder", "").strip("/\\")
+                                        if not _org_filename or not _org_subfolder:
+                                            continue
+                                        _org_source   = os.path.join(_folder_path_for_tools, _org_filename)
+                                        _org_dest_dir = os.path.join(_folder_path_for_tools, _org_subfolder)
+                                        _org_dest     = os.path.join(_org_dest_dir, _org_filename)
+                                        if not os.path.isfile(_org_source):
+                                            _move_errors.append(f"Introuvable : {_org_filename}")
+                                            continue
+                                        try:
+                                            os.makedirs(_org_dest_dir, exist_ok=True)
+                                            shutil.move(_org_source, _org_dest)
+                                            _executed_moves.append(f"✓ {_org_filename} → {_org_subfolder}/")
+                                        except Exception as _move_exc:
+                                            _move_errors.append(f"✗ {_org_filename} : {_move_exc}")
+                                    page.pubsub.send_all_on_topic("refresh", None)
+                                    _navigate(_folder_path_for_tools)
+                                    _org_result_lines = [f"{len(_executed_moves)} fichier(s) déplacé(s)."] + _executed_moves
+                                    if _move_errors:
+                                        _org_result_lines += ["Erreurs :"] + _move_errors
+                                    _folder_tool_results.append((fn_name, "\n".join(_org_result_lines)))
+                        elif fn_name == "analyze_images":
+                            _analyze_filenames = fn_args.get("filenames", [])
+                            _analyze_question  = fn_args.get("question", "")
+                            if not _analyze_filenames:
+                                _analyze_candidates = sorted([
+                                    entry.name for entry in os.scandir(_folder_path_for_tools)
+                                    if entry.is_file()
+                                    and os.path.splitext(entry.name)[1].lower() in CONSTANTS.IMAGE_EXTS
+                                ])
+                            else:
+                                _analyze_candidates = [
+                                    os.path.basename(fname) for fname in _analyze_filenames
+                                    if os.path.isfile(
+                                        os.path.join(_folder_path_for_tools, os.path.basename(fname))
+                                    )
+                                ]
+                            if not _analyze_candidates:
+                                _folder_tool_results.append((fn_name, "Aucune image trouvée."))
+                            else:
+                                _analyze_model = active_model
+                                _analysis_progress_ctrl_sp = _ai_add_bubble_sp(
+                                    "assistant",
+                                    f"📸 Analyse de {len(_analyze_candidates)} image(s)…",
+                                )
+                                def _on_analyze_progress_sp(batch_num, total_batches):
+                                    ai_status_text_sp.value = f"📸 Analyse lot {batch_num}/{total_batches}…"
+                                    if _analysis_progress_ctrl_sp:
+                                        _analysis_progress_ctrl_sp.value = _md_dark(
+                                            f"📸 Analyse — lot {batch_num}/{total_batches}…"
+                                        )
+                                    try:
+                                        page.update()
+                                    except Exception:
+                                        pass
+                                _analyze_results_sp = _analyze_images_batched(
+                                    CONSTANTS.AI_OLLAMA_URL,
+                                    _analyze_model,
+                                    _folder_path_for_tools,
+                                    _analyze_candidates,
+                                    _analyze_question,
+                                    batch_size=CONSTANTS.AI_FOLDER_SELECT_BATCH_SIZE,
+                                    image_exts=CONSTANTS.IMAGE_EXTS,
+                                    max_size=CONSTANTS.AI_FOLDER_SELECT_IMAGE_SIZE,
+                                    quality=CONSTANTS.AI_FOLDER_SELECT_QUALITY,
+                                    on_progress=_on_analyze_progress_sp,
+                                    is_running=lambda: ai_streaming_sp["value"],
+                                )
+                                if _analysis_progress_ctrl_sp:
+                                    _analysis_progress_ctrl_sp.value = _md_dark(
+                                        f"📸 {len(_analyze_candidates)} image(s) analysée(s)."
+                                    )
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append(
+                                    (fn_name, "\n\n".join(_analyze_results_sp) or "Aucun résultat.")
+                                )
                     try:
                         page.update()
                     except Exception:
                         pass
-                    # Exécuter tous les outils en parallèle
+                    # Résultats dossier déjà collectés — ajouter aux messages avant le pool web
+                    for (_t_name, _t_result) in _folder_tool_results:
+                        messages.append({"role": "tool", "tool_name": _t_name, "content": _t_result})
+                    # Exécuter tous les outils web/URL en parallèle
                     def _run_tool_sp(task):
                         name, args = task
                         if name == "web_search":

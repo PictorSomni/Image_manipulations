@@ -12,7 +12,7 @@ Remplace la version Qt6 originale (main.py) avec :
 Dépendances : flet, Pillow (PIL)
 """
 
-__version__ = "2.6.1"
+__version__ = "2.6.2"
 
 import flet as ft
 import os
@@ -20,8 +20,8 @@ import sys
 import io
 import base64
 import threading
-import tempfile
 import shutil
+import thumb_cache
 
 # ── Import des constantes spécifiques au kiosk ───────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -45,27 +45,6 @@ THUMBNAIL_SIZE = KIOSK_CONSTANT.THUMBNAIL_SIZE
 # ─────────────────────────────────────────────────────────────────────────────
 #  Utilitaire image
 # ─────────────────────────────────────────────────────────────────────────────
-
-def _save_thumbnail(file_path: str, out_path: str, grayscale: bool = False, size: int = THUMBNAIL_SIZE) -> bool:
-    """
-    Génère une miniature JPEG et la sauvegarde sur disque.
-    Retourne True en cas de succès, False sinon.
-    """
-    if not HAS_PIL or PILImage is None or ImageOps is None:
-        return False
-    try:
-        with PILImage.open(file_path) as img:
-            img = ImageOps.exif_transpose(img)
-            if grayscale:
-                img = img.convert("L").convert("RGB")
-            else:
-                img = img.convert("RGB")
-            img.thumbnail((size, size), PILImage.LANCZOS)
-            img.save(out_path, format="JPEG", quality=80)
-        return True
-    except Exception:
-        return False
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Point d'entrée Flet
@@ -214,20 +193,8 @@ def main(page: ft.Page) -> None:
         stem = os.path.splitext(filename)[0]
 
         def _reload_thumbnail():
-            temp_dir = _get_temp_dir()
-            if is_nb:
-                thumb_path = os.path.join(temp_dir, f"{stem}_nb.jpg")
-                if not os.path.exists(thumb_path):
-                    ok = _save_thumbnail(file_path, thumb_path, grayscale=True)
-                    if not ok:
-                        thumb_path = os.path.join(temp_dir, f"{stem}_thumb.jpg")
-            else:
-                thumb_path = os.path.join(temp_dir, f"{stem}_thumb.jpg")
-                if not os.path.exists(thumb_path):
-                    ok = _save_thumbnail(file_path, thumb_path, grayscale=False)
-                    if not ok:
-                        thumb_path = file_path
-            card_data["image_ctrl"].src = thumb_path
+            b64 = thumb_cache.get_or_generate(file_path, grayscale=is_nb)
+            card_data["image_ctrl"].src = b64 if b64 else b""
 
             async def _apply():
                 try:
@@ -288,12 +255,12 @@ def main(page: ft.Page) -> None:
             containers = []
             for page_index in range(len(images_list)):
                 img_ctrl = ft.Image(
-                    src=_blank_gif,
+                    src=b"",
                     fit=ft.BoxFit.CONTAIN,
                     expand=True,
                     gapless_playback=True,
                     error_content=ft.Container(
-                        content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=C_LIGHT_GREY, size=64),
+                        content=ft.Icon(ft.Icons.IMAGE_OUTLINED, color=C_GREY, size=64),
                         alignment=ft.Alignment(0, 0),
                     ),
                 )
@@ -314,18 +281,16 @@ def main(page: ft.Page) -> None:
             if load_index in pages_loaded:
                 return
             load_filename = images_list[load_index]
-            temp_dir = _get_temp_dir()
-            stem = os.path.splitext(load_filename)[0]
             is_nb = nb_state.get((current_size["value"], load_filename), False)
-            suffix = "_preview_nb" if is_nb else "_preview"
-            preview_path = os.path.join(temp_dir, f"{stem}{suffix}.jpg")
-            if not os.path.exists(preview_path):
-                load_file_path = os.path.join(current_folder["path"], load_filename)
-                ok = _save_thumbnail(load_file_path, preview_path, grayscale=is_nb, size=1024)
-                if not ok:
-                    preview_path = os.path.join(current_folder["path"], load_filename)
+            load_file_path = os.path.join(current_folder["path"], load_filename)
+            b64 = thumb_cache.get_or_generate(
+                load_file_path,
+                size_px=KIOSK_CONSTANT.PREVIEW_NB_SIZE,
+                quality=80,
+                grayscale=is_nb,
+            )
             if load_index in page_image_controls:
-                page_image_controls[load_index].src = preview_path
+                page_image_controls[load_index].src = b64 if b64 else b""
             pages_loaded.add(load_index)
 
             async def _apply():
@@ -407,7 +372,7 @@ def main(page: ft.Page) -> None:
             nb_preview_button.icon_color = C_VIOLET if is_nb else C_LIGHT_GREY
             # Réinitialise l'image courante pour forcer le rechargement N&B
             if state["index"] in page_image_controls:
-                page_image_controls[state["index"]].src = _blank_gif
+                page_image_controls[state["index"]].src = b""
             pages_loaded.discard(state["index"])
             page.update()
             threading.Thread(
@@ -600,28 +565,11 @@ def main(page: ft.Page) -> None:
         _load_pages_around(initial_index)
 
     # ─────────────────────────────────────────────────────────────────────
-    #  Dossier temporaire pour les miniatures
-    # ─────────────────────────────────────────────────────────────────────
-    _temp_dir: dict = {"path": ""}
-
-    def _get_temp_dir() -> str:
-        """Crée le dossier temporaire si nécessaire et retourne son chemin."""
-        if not _temp_dir["path"] or not os.path.isdir(_temp_dir["path"]):
-            _temp_dir["path"] = tempfile.mkdtemp(prefix="kiosk_")
-        return _temp_dir["path"]
-
-    def _cleanup_temp_dir() -> None:
-        """Supprime le dossier temporaire et tout son contenu."""
-        if _temp_dir["path"] and os.path.isdir(_temp_dir["path"]):
-            shutil.rmtree(_temp_dir["path"], ignore_errors=True)
-        _temp_dir["path"] = ""
-
-    # ─────────────────────────────────────────────────────────────────────
     #  Construction d'une carte image
     # ─────────────────────────────────────────────────────────────────────
 
-    def _build_image_card(filename: str, thumb_path: str) -> tuple[ft.Container, dict]:
-        """Construit une carte image en utilisant la miniature déjà convertie sur disque."""
+    def _build_image_card(filename: str, b64: str = None) -> tuple[ft.Container, dict]:
+        """Construit une carte image (b64 ou zone grise si miniature pas encore prête)."""
         count_text = ft.Text(
             "0",
             size=20,
@@ -636,17 +584,15 @@ def main(page: ft.Page) -> None:
             tooltip="Prévisualiser en N&B",
         )
         image_ctrl = ft.Image(
-            src=thumb_path,
+            src=b64 if b64 else b"",
             width=THUMBNAIL_SIZE,
             height=THUMBNAIL_SIZE,
             fit=ft.BoxFit.CONTAIN,
             gapless_playback=True,
             error_content=ft.Container(
-                content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=C_LIGHT_GREY, size=40),
+                bgcolor=C_GREY,
                 width=THUMBNAIL_SIZE,
                 height=THUMBNAIL_SIZE,
-                alignment=ft.Alignment(0, 0),
-                bgcolor=C_GREY,
                 border_radius=4,
             ),
         )
@@ -748,15 +694,37 @@ def main(page: ft.Page) -> None:
         image_cards.clear()
         images_grid.controls.clear()
 
-        temp_dir = _get_temp_dir()
+        render_token = kiosk_page_token["value"]
         for entry_name in page_images:
-            stem       = os.path.splitext(entry_name)[0]
-            thumb_path = os.path.join(temp_dir, f"{stem}_thumb.jpg")
-            card, card_data = _build_image_card(entry_name, thumb_path)
+            card, card_data = _build_image_card(entry_name)
             image_cards[entry_name] = card_data
             images_grid.controls.append(card)
 
         images_grid.update()
+
+        # Chargement asynchrone des miniatures pour la page courante
+        if page_images:
+            page_images_snapshot = list(page_images)
+            folder_snapshot = current_folder["path"]
+
+            def _fill_page_thumbs():
+                for filename in page_images_snapshot:
+                    if kiosk_page_token["value"] != render_token:
+                        return
+                    file_path = os.path.join(folder_snapshot, filename)
+                    b64 = thumb_cache.get_or_generate(file_path)
+                    if b64 and filename in image_cards and kiosk_page_token["value"] == render_token:
+                        image_cards[filename]["image_ctrl"].src = b64
+
+                        async def _upd():
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+
+                        page.run_task(_upd)
+
+            threading.Thread(target=_fill_page_thumbs, daemon=True).start()
 
     def _go_to_page(page_num: int) -> None:
         """Change la page courante et déclenche le rendu."""
@@ -769,7 +737,6 @@ def main(page: ft.Page) -> None:
     # ─────────────────────────────────────────────────────────────────────
 
     def load_folder(folder_path: str) -> None:
-        _cleanup_temp_dir()
         # Réinitialisation
         images_list.clear()
         image_cards.clear()
@@ -809,53 +776,26 @@ def main(page: ft.Page) -> None:
         pagination_row.update()
         _update_size_buttons()
 
-        if not images_list:
-            loading_row.visible = False
-            loading_row.update()
-            return
-
-        # ── Phase 1 : conversion de toutes les miniatures (1024 px) ──────
-        total = len(images_list)
-        loading_label.value    = f"Conversion 0 / {total}"
-        loading_progress.value = 0.0
-        loading_row.visible    = True
+        loading_row.visible = False
         loading_row.update()
 
-        def _convert_all():
-            temp_dir = _get_temp_dir()
-            for i, filename in enumerate(images_list):
-                if kiosk_page_token["value"] != token:
-                    return  # dossier changé entre-temps
-                file_path  = os.path.join(folder_path, filename)
-                stem       = os.path.splitext(filename)[0]
-                thumb_path = os.path.join(temp_dir, f"{stem}_thumb.jpg")
-                if not os.path.exists(thumb_path):
-                    _save_thumbnail(file_path, thumb_path, grayscale=False, size=1024)
-                loaded = i + 1
-                loading_label.value    = f"Conversion {loaded} / {total}"
-                loading_progress.value = loaded / total
+        if not images_list:
+            return
 
-                async def _upd():
-                    try:
-                        page.update()
-                    except Exception:
-                        pass
+        # Affichage immédiat de la grille avec chargement asynchrone des miniatures
+        kiosk_page["value"] = 0
+        _render_image_page()
 
-                page.run_task(_upd)
+        # Pré-chargement en arrière-plan des miniatures pour toutes les pages
+        def _bg_preload():
+            thumb_cache.preload_folder(
+                folder_path,
+                images_list,
+                stop_token=kiosk_page_token,
+                token_value=token,
+            )
 
-            if kiosk_page_token["value"] != token:
-                return
-
-            # ── Phase 2 : affichage paginé ───────────────────────────────
-            async def _show_grid():
-                loading_row.visible = False
-                kiosk_page["value"] = 0
-                _render_image_page()
-                page.update()
-
-            page.run_task(_show_grid)
-
-        threading.Thread(target=_convert_all, daemon=True).start()
+        threading.Thread(target=_bg_preload, daemon=True).start()
 
     # ─────────────────────────────────────────────────────────────────────
     #  Ouverture d'un dossier
