@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.6.2"
+__version__ = "2.6.3"
 
 
 #############################################################
@@ -66,7 +66,9 @@ from ai_tools import (
     _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream,
     _ollama_chat_stream_with_tools, _parse_text_tool_calls, _strip_text_tool_calls,
     _format_ai_conversation, _folder_tool_definitions, _folder_list_contents,
-    _folder_read_file, _encode_image_for_analysis, _analyze_images_batched,
+    _folder_read_file, _folder_create_file, _encode_image_for_analysis, _analyze_images_batched,
+    _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
+    _update_memory_file, _build_system_content,
 )
 #############################################################
 #                           MAIN                            #
@@ -2542,71 +2544,17 @@ def main(page: ft.Page):
                     except Exception:
                         pass
 
-                _WEB_SEARCH_TOOL = [
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "web_search",
-                            "description": (
-                                "Recherche des informations récentes sur internet via DuckDuckGo. "
-                                "À utiliser pour les actualités, événements récents, prix, météo, "
-                                "ou toute information susceptible d'avoir changé depuis la date d'entraînement."
-                            ),
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "query": {
-                                        "type": "string",
-                                        "description": "Requête de recherche",
-                                    }
-                                },
-                                "required": ["query"],
-                            },
-                        },
-                    },
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "fetch_url",
-                            "description": (
-                                "Lit le contenu textuel d'une page web à partir de son URL. "
-                                "À utiliser pour approfondir un résultat de recherche ou consulter "
-                                "une page spécifique."
-                            ),
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "url": {
-                                        "type": "string",
-                                        "description": "URL complète (https://…) de la page à lire",
-                                    }
-                                },
-                                "required": ["url"],
-                            },
-                        },
-                    },
-                ]
-
                 today = datetime.date.today().strftime("%d %B %Y")
                 # ── Outils dossier (disponibles si un dossier est ouvert) ─────
                 _folder_path_for_tools = current_src["path"]
                 _FOLDER_TOOLS = _folder_tool_definitions(_folder_path_for_tools)
-                _ALL_TOOLS = _WEB_SEARCH_TOOL + _FOLDER_TOOLS
+                _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _FOLDER_TOOLS
                 # Limiter l'historique aux 10 derniers messages pour éviter
                 # que les petits modèles locaux perdent de vue la question courante
                 _history = ai_conversation_sp[-10:] if len(ai_conversation_sp) > 10 else ai_conversation_sp
-                _system_content = CONSTANTS.AI_SYSTEM_PROMPT + f"\n\nDate du jour : {today}."
-                if _FOLDER_TOOLS:
-                    _system_content += (
-                        f"\n\nDOSSIER OUVERT : « {os.path.basename(_folder_path_for_tools)} » "
-                        f"(`{_folder_path_for_tools}`).\
-\nOutils disponibles pour ce dossier : list_folder_contents, "
-                        "read_file_content, organize_files, analyze_images.\n"
-                        "Utilise-les quand l'utilisateur te demande d'explorer, résumer, "
-                        "organiser ou analyser visuellement le contenu de ce dossier. "
-                        "Pour toute question sur ce que contiennent les images "
-                        "(couleurs, personnes, lieux, objets…), utilise analyze_images."
-                    )
+                _system_content = _build_system_content(
+                    CONSTANTS.AI_SYSTEM_PROMPT, _folder_path_for_tools, today
+                )
                 messages = [
                     {"role": "system", "content": _system_content},
                     *_history,
@@ -2618,6 +2566,7 @@ def main(page: ft.Page):
                     _streamed = ""
                     _thinking = ""
                     _stream_tool_calls = []
+                    _text_parsed_tools = False  # True si tool_calls viennent du parseur texte
                     thinking_ctrl = None
                     _stream_token_count = 0
                     _STREAM_UPDATE_EVERY = 5
@@ -2670,10 +2619,12 @@ def main(page: ft.Page):
                         text_calls = _parse_text_tool_calls(_streamed)
                         if text_calls:
                             tool_calls = text_calls
+                            _text_parsed_tools = True
+                            _streamed_for_history = _streamed  # Garder <tool_code> pour l'historique Gemma
                             _streamed = _strip_text_tool_calls(_streamed)
 
                     if not tool_calls:
-                        full_response = _streamed
+                        full_response = _strip_text_tool_calls(_streamed)
                         # Fallback XML <think> si pas de thinking natif (modèles non supportés)
                         if not _thinking and "<think>" in full_response:
                             _think_match = re.search(r'<think>(.*?)</think>', full_response, re.DOTALL)
@@ -2699,28 +2650,24 @@ def main(page: ft.Page):
                             response_text_ctrl = _ai_add_bubble_sp("assistant", full_response)
                         break
 
-                    # Tour d'outils — supprimer le texte préliminaire streamé si présent
+                    # Tour d'outils — finaliser le texte préliminaire streamé si présent
                     if response_text_ctrl is not None:
-                        try:
-                            ai_chat_view_sp.controls = [
-                                row for row in ai_chat_view_sp.controls
-                                if not (
-                                    hasattr(row, "controls") and row.controls
-                                    and hasattr(row.controls[0], "content")
-                                    and row.controls[0].content is response_text_ctrl
-                                )
-                            ]
-                        except Exception:
-                            pass
+                        if _streamed:
+                            response_text_ctrl.value = _md_dark(_streamed)
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
                         response_text_ctrl = None
 
                     # ── Exécuter les appels d'outils ──────────────────────────────
-                    messages.append({
-                        "role": "assistant",
-                        "thinking": _thinking,
-                        "content": _streamed,
-                        "tool_calls": tool_calls,
-                    })
+                    if _text_parsed_tools:
+                        # Gemma : conserver le <tool_code> dans l'assistant message pour que
+                        # Gemma reconnaisse sa propre syntaxe et continue d'appeler des outils.
+                        messages.append({"role": "assistant", "content": _streamed_for_history})
+                    else:
+                        # Modèle avec tool_calls natifs : content vide pour éviter HTTP 500.
+                        messages.append({"role": "assistant", "content": "", "tool_calls": tool_calls})
                     # Afficher tous les indicateurs, collecter les tâches
                     _tool_tasks          = []
                     _folder_tool_results = []  # traités séquentiellement avant le pool
@@ -2930,13 +2877,106 @@ def main(page: ft.Page):
                                 _folder_tool_results.append(
                                     (fn_name, "\n\n".join(_analyze_results_sp) or "Aucun résultat.")
                                 )
+                        elif fn_name == "create_file":
+                            import datetime as _dt_cf
+                            _create_filename = fn_args.get("filename", "").strip()
+                            if not _create_filename:
+                                _create_filename = f"fichier_{_dt_cf.datetime.now():%Y%m%d_%H%M%S}.txt"
+                            _create_content  = fn_args.get("content", "")
+                            ai_status_text_sp.value = f"📝 Création : {_create_filename}…"
+                            _ai_add_bubble_sp("assistant", f"📝 Création du fichier : {_create_filename}")
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _create_result = _folder_create_file(
+                                _folder_path_for_tools, _create_filename, _create_content
+                            )
+                            page.pubsub.send_all_on_topic("refresh", None)
+                            _folder_tool_results.append((fn_name, _create_result))
+                        elif fn_name == "run_terminal_command":
+                            _cmd      = fn_args.get("command", "")
+                            _cmd_desc = fn_args.get("description", _cmd)
+                            _cwd = _folder_path_for_tools if _folder_path_for_tools else None
+                            if CONSTANTS.AI_TERMINAL_CONFIRM:
+                                _cmd_confirm_event  = threading.Event()
+                                _cmd_confirm_result = {"confirmed": False}
+
+                                def _on_cmd_confirm_sp(event=None):
+                                    _cmd_confirm_result["confirmed"] = True
+                                    _cmd_dlg_sp.open = False
+                                    page.update()
+                                    _cmd_confirm_event.set()
+
+                                def _on_cmd_cancel_sp(event=None):
+                                    _cmd_dlg_sp.open = False
+                                    page.update()
+                                    _cmd_confirm_event.set()
+
+                                _cmd_dlg_sp = ft.AlertDialog(
+                                    modal=True,
+                                    title=ft.Text("💻 Exécuter une commande"),
+                                    content=ft.Column(
+                                        [
+                                            ft.Text(_cmd_desc, size=13, color=WHITE),
+                                            ft.Container(height=8),
+                                            ft.Container(
+                                                ft.Text(_cmd, size=12, font_family="monospace", color=YELLOW),
+                                                bgcolor=DARK,
+                                                padding=10,
+                                                border_radius=6,
+                                            ),
+                                        ],
+                                        tight=True,
+                                        width=500,
+                                    ),
+                                    actions=[
+                                        ft.TextButton("Annuler", on_click=_on_cmd_cancel_sp),
+                                        ft.ElevatedButton(
+                                            "Exécuter",
+                                            bgcolor=BLUE,
+                                            color=WHITE,
+                                            on_click=_on_cmd_confirm_sp,
+                                        ),
+                                    ],
+                                    actions_alignment=ft.MainAxisAlignment.END,
+                                )
+                                page.overlay.append(_cmd_dlg_sp)
+                                _cmd_dlg_sp.open = True
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _cmd_confirm_event.wait(timeout=300)
+                                if not _cmd_confirm_result["confirmed"]:
+                                    _folder_tool_results.append((fn_name, "Commande annulée par l'utilisateur."))
+                                    continue
+                            ai_status_text_sp.value = "💻 Exécution en cours…"
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _folder_tool_results.append(
+                                (fn_name, _run_terminal_command(_cmd, cwd=_cwd))
+                            )
+                        elif fn_name == "update_memory_file":
+                            _mem_target  = fn_args.get("target", "")
+                            _mem_action  = fn_args.get("action", "")
+                            _mem_content = fn_args.get("content", "")
+                            _mem_old     = fn_args.get("old_text", "")
+                            ai_status_text_sp.value = f"🧠 Mise à jour mémoire ({_mem_target})…"
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _folder_tool_results.append(
+                                (fn_name, _update_memory_file(_mem_target, _mem_action, _mem_content, _mem_old))
+                            )
                     try:
                         page.update()
                     except Exception:
                         pass
-                    # Résultats dossier déjà collectés — ajouter aux messages avant le pool web
-                    for (_t_name, _t_result) in _folder_tool_results:
-                        messages.append({"role": "tool", "tool_name": _t_name, "content": _t_result})
+                    # ── Injecter les résultats d'outils dans l'historique ────────────────
                     # Exécuter tous les outils web/URL en parallèle
                     def _run_tool_sp(task):
                         name, args = task
@@ -2946,11 +2986,26 @@ def main(page: ft.Page):
                             return _fetch_url_content(args.get("url", ""), max_chars=CONSTANTS.AI_URL_MAX_CHARS)
                         return ""
                     with concurrent.futures.ThreadPoolExecutor() as _pool:
-                        _tool_results = list(_pool.map(_run_tool_sp, _tool_tasks))
-                    for (_t_name, _), _result in zip(_tool_tasks, _tool_results):
-                        messages.append({"role": "tool", "tool_name": _t_name, "content": _result})
-                    # Rappel explicite de la question courante après les résultats d'outils
-                    messages.append({"role": "user", "content": f"(Résultats reçus. Réponds maintenant à ma question : {enriched_text})"})
+                        _web_tool_results = list(_pool.map(_run_tool_sp, _tool_tasks))
+                    _all_tool_results = _folder_tool_results + [
+                        (_t_name, _result)
+                        for (_t_name, _), _result in zip(_tool_tasks, _web_tool_results)
+                    ]
+                    if _text_parsed_tools:
+                        # Gemma ne supporte pas role="tool" — injecter les résultats
+                        # comme message user pour éviter HTTP 500 au deuxième appel.
+                        _results_lines = [f"[{_tn}]: {_tr}" for _tn, _tr in _all_tool_results]
+                        messages.append({
+                            "role": "user",
+                            "content": "Résultats des outils :\n" + "\n\n".join(_results_lines),
+                        })
+                    else:
+                        for _t_name, _t_result in _all_tool_results:
+                            messages.append({"role": "tool", "tool_name": _t_name, "content": _t_result})
+                        messages.append({"role": "user", "content": (
+                            "Voici les résultats des outils. Si d'autres outils sont nécessaires "
+                            "pour terminer la tâche, utilise-les. Sinon, réponds à l'utilisateur."
+                        )})
                     _remove_loading()
 
                 if full_response:

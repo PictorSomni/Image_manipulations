@@ -29,7 +29,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.6.2"
+__version__ = "2.6.3"
 
 
 
@@ -66,7 +66,9 @@ from ai_tools import (
     _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream,
     _ollama_chat_stream_with_tools, _parse_text_tool_calls, _strip_text_tool_calls,
     _format_ai_conversation, _folder_tool_definitions, _folder_list_contents,
-    _folder_read_file, _encode_image_for_analysis, _analyze_images_batched,
+    _folder_read_file, _folder_create_file, _encode_image_for_analysis, _analyze_images_batched,
+    _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
+    _update_memory_file, _build_system_content,
 )
 import thumb_cache
 #############################################################
@@ -158,6 +160,14 @@ def main(page: ft.Page):
             if proc is not None and proc.poll() is None:
                 try:
                     proc.terminate()
+                except Exception:
+                    pass
+        elif event.data in ("resize", "maximize", "unmaximize"):
+            if overlay_fullscreen["mode"] in ("ai", "notepad"):
+                win_w = page.window.width or CONSTANTS.WINDOW_WIDTH
+                bottom_panel_container.width = int((win_w - 8) * 6 / 15 + 4)
+                try:
+                    bottom_panel_container.update()
                 except Exception:
                     pass
 
@@ -297,6 +307,7 @@ def main(page: ft.Page):
     history_index = {"value": -1}  # -1 = nouvelle saisie en cours
     history_draft = {"value": ""}  # Saisie en cours avant navigation dans l'historique
     terminal_input_focused = {"value": False}
+    _solo_left_state   = {"container": None}   # Référence au conteneur solo (mode pleine hauteur)
     ai_mode            = {"value": False}
     ai_conversation    = []              # Historique de conversation [{role, content}]
     ai_streaming       = {"value": False}
@@ -953,10 +964,10 @@ def main(page: ft.Page):
 
         if ctrl_pressed and (ai_mode["value"] or note_mode["value"]):
             if e.key in ("Arrow Left", "ArrowLeft"):
-                toggle_notepad_fullscreen()
+                toggle_ai_fullscreen()
                 return
             if e.key in ("Arrow Right", "ArrowRight"):
-                toggle_ai_fullscreen()
+                toggle_notepad_fullscreen()
                 return
 
         if terminal_input_focused["value"]:
@@ -1755,6 +1766,63 @@ def main(page: ft.Page):
 
         return True
 
+    def _clean_file_content(raw_content):
+        """
+        Retire les artefacts de raisonnement inline de Gemma (chain-of-thought)
+        qui s'immiscent parfois dans les arguments de create_file.
+        Stratégie :
+          - Retire les tokens spéciaux Gemma (<channel|>, <|tool_call>…)
+          - Dès qu'une ligne de "thinking" est détectée (Wait,/Hmm,/I see…),
+            tronque tout le reste (le contenu qui suit est invalide).
+          - Retire les lignes de méta-commentaire isolées.
+        """
+        import re as _re_cfc
+        # Tokens spéciaux Gemma et balises tool_call résiduelles
+        content = _re_cfc.sub(r'<channel\|>', '', raw_content)
+        content = _re_cfc.sub(r'<\|[^|>]+\|>', '', content)
+        content = _re_cfc.sub(r'<\|tool_call>.*?(?:<tool_call\|>|$)', '', content, flags=_re_cfc.DOTALL)
+
+        lines = content.split('\n')
+        clean_lines = []
+
+        # Patterns de TRONCATURE : dès qu'une de ces lignes apparaît, tout ce qui suit
+        # est du raisonnement Gemma — on coupe ici.
+        _TRUNCATE_RE = _re_cfc.compile(
+            r'^\s*(?:Wait[,\s—]|Hmm[,\s.]|Actually[,\s—]|I see a discrepancy|'
+            r'I notice that|Let me reconsider|Let me re-|I need to re-|'
+            r'OK so[,\s]|OK, so[,\s]|I will re-run|I should re-)',
+            _re_cfc.IGNORECASE,
+        )
+        # Patterns de lignes individuelles à ignorer (sans tronquer le reste)
+        _SKIP_RE = _re_cfc.compile(
+            r'^\s*(?:'
+            r'\((?:Note|Wait|Self-correction|Correction|Assuming|Final attempt|'
+            r'I will|Since the|The prompt|This was|Using the|Given that|'
+            r'Final output|OK,? I|Let me re)'
+            r'|(?:Actual list from|Final list based|Listing all files and|'
+            r'File List:|Assuming the file|I will generate|I will use the|'
+            r'I will stop|I will provide|I will list|I will present|'
+            r'Since the prompt|The file list has been|I will assume)'
+            r')',
+            _re_cfc.IGNORECASE,
+        )
+        for line in lines:
+            # Troncature : début du raisonnement Gemma → arrêt immédiat
+            if _TRUNCATE_RE.match(line):
+                break
+            if _SKIP_RE.match(line):
+                continue
+            # Retire les parenthèses de raisonnement en fin de ligne
+            # ex: "fichier.jpg  (Note: Correction: ...)" → "fichier.jpg"
+            line = _re_cfc.sub(
+                r'\s*\((?:Note|Wait|Self-correction|Correction):.*',
+                '', line, flags=_re_cfc.IGNORECASE,
+            )
+            clean_lines.append(line)
+        # Supprime les blocs de 3+ lignes vides consécutives
+        result = _re_cfc.sub(r'\n{3,}', '\n\n', '\n'.join(clean_lines))
+        return result.strip()
+
     def _md_dark(text: str) -> str:
         """Remplace les blockquotes Markdown (fond bleu clair de Flutter)
         par un équivalent lisible sur thème sombre."""
@@ -1935,69 +2003,15 @@ def main(page: ft.Page):
                     except Exception:
                         pass
 
-                _WEB_SEARCH_TOOL = [
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "web_search",
-                            "description": (
-                                "Recherche des informations récentes sur internet via DuckDuckGo. "
-                                "À utiliser pour les actualités, événements récents, prix, météo, "
-                                "ou toute information susceptible d'avoir changé depuis la date d'entraînement."
-                            ),
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "query": {
-                                        "type": "string",
-                                        "description": "Requête de recherche",
-                                    }
-                                },
-                                "required": ["query"],
-                            },
-                        },
-                    },
-                    {
-                        "type": "function",
-                        "function": {
-                            "name": "fetch_url",
-                            "description": (
-                                "Lit le contenu textuel d'une page web à partir de son URL. "
-                                "À utiliser pour approfondir un résultat de recherche ou consulter "
-                                "une page spécifique."
-                            ),
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "url": {
-                                        "type": "string",
-                                        "description": "URL complète (https://…) de la page à lire",
-                                    }
-                                },
-                                "required": ["url"],
-                            },
-                        },
-                    },
-                ]
-
                 # ── Outils dossier (disponibles si un dossier est ouvert) ─────
                 _folder_path_for_tools = current_browse_folder["path"] or selected_folder["path"]
                 _FOLDER_TOOLS = _folder_tool_definitions(_folder_path_for_tools)
-                _ALL_TOOLS = _WEB_SEARCH_TOOL + _FOLDER_TOOLS
+                _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _FOLDER_TOOLS
 
                 today = datetime.date.today().strftime("%d %B %Y")
-                _system_content = CONSTANTS.AI_SYSTEM_PROMPT + f"\n\nDate du jour : {today}."
-                if _FOLDER_TOOLS:
-                    _system_content += (
-                        f"\n\nDOSSIER OUVERT : « {os.path.basename(_folder_path_for_tools)} » "
-                        f"(`{_folder_path_for_tools}`).\n"
-                        "Outils disponibles pour ce dossier : list_folder_contents, "
-                        "read_file_content, organize_files, analyze_images.\n"
-                        "Utilise-les quand l'utilisateur te demande d'explorer, résumer, "
-                        "organiser ou analyser visuellement le contenu de ce dossier. "
-                        "Pour toute question sur ce que contiennent les images "
-                        "(couleurs, personnes, lieux, objets…), utilise analyze_images."
-                    )
+                _system_content = _build_system_content(
+                    CONSTANTS.AI_SYSTEM_PROMPT, _folder_path_for_tools, today
+                )
                 # Limiter l'historique aux 10 derniers messages pour éviter
                 # que les petits modèles locaux perdent de vue la question courante
                 _history = ai_conversation[-10:] if len(ai_conversation) > 10 else ai_conversation
@@ -2006,13 +2020,48 @@ def main(page: ft.Page):
                     *_history,
                 ]
 
+                # ── Debug log ───────────────────────────────────────────────
+                import json as _json_debug, datetime as _dt_debug
+                _DEBUG_LOG = "/tmp/ai_dashboard_debug.log"
+                def _dbg(label: str, data) -> None:
+                    try:
+                        with open(_DEBUG_LOG, "a", encoding="utf-8") as _df:
+                            ts = _dt_debug.datetime.now().strftime("%H:%M:%S")
+                            _df.write(f"\n{'='*60}\n[{ts}] {label}\n")
+                            if isinstance(data, (dict, list)):
+                                _df.write(_json_debug.dumps(data, ensure_ascii=False, indent=2))
+                            else:
+                                _df.write(str(data))
+                            _df.write("\n")
+                    except Exception:
+                        pass
+                _dbg("INIT_MESSAGES", messages)
+
+                # Capturer la demande originale de l'utilisateur (avant tout tour d'outil)
+                # pour la réinjecter dans les rounds suivants et éviter que Gemma l'oublie.
+                _original_user_request = next(
+                    (m["content"] for m in reversed(messages) if m["role"] == "user"),
+                    "",
+                )
+                if len(_original_user_request) > 400:
+                    _original_user_request = _original_user_request[:400] + "…"
+
+                # Résultat list_folder_contents conservé entre les rounds pour
+                # l'auto-création si Gemma répond en texte sans appeler create_file.
+                _last_folder_listing = None
+                _text_response_retry_done = False
+                _create_file_done = False  # True dès que create_file a été exécuté
+                _read_file_done = False    # True dès que read_file_content a été exécuté
+
                 # ── Boucle agentique (max 6 tours d'outils) ─────────────────────
                 for _tool_round in range(6):
                     # Streaming avec thinking natif Ollama et capture des tool_calls
                     _streamed = ""
                     _thinking = ""
                     _stream_tool_calls = []
+                    _text_parsed_tools = False  # True si tool_calls viennent du parseur texte
                     thinking_ctrl = None
+                    _dbg(f"ROUND_{_tool_round}_START_messages_count={len(messages)}", messages)
                     _stream_token_count = 0
                     _STREAM_UPDATE_EVERY = 5
 
@@ -2050,6 +2099,10 @@ def main(page: ft.Page):
                                 page.run_task(_scroll_and_update)
 
                     tool_calls = _stream_tool_calls
+                    _dbg(f"ROUND_{_tool_round}_AFTER_STREAM", {
+                        "_streamed_raw": _streamed,
+                        "_stream_tool_calls_native": _stream_tool_calls,
+                    })
                     # Fallback non-streaming si le stream n'a rien renvoyé
                     if not _streamed and not _stream_tool_calls:
                         _fallback = _ollama_chat_once(
@@ -2064,10 +2117,51 @@ def main(page: ft.Page):
                         text_calls = _parse_text_tool_calls(_streamed)
                         if text_calls:
                             tool_calls = text_calls
+                            _text_parsed_tools = True
+                            _streamed_for_history = _streamed  # Garder <tool_code> pour l'historique Gemma
                             _streamed = _strip_text_tool_calls(_streamed)
+                    _dbg(f"ROUND_{_tool_round}_AFTER_PARSE", {
+                        "_text_parsed_tools": _text_parsed_tools,
+                        "tool_calls": tool_calls,
+                        "_streamed_after_strip": _streamed[:600] if _streamed else "",
+                    })
 
                     if not tool_calls:
-                        full_response = _streamed
+                        # Gemma a répondu en texte sans appeler create_file alors
+                        # qu'un résultat list_folder_contents est disponible.
+                        # Créer le fichier directement avec les données réelles.
+                        if (_tool_round > 0 and _last_folder_listing
+                                and not _text_response_retry_done
+                                and not _create_file_done
+                                and not _read_file_done):  # pas dans un workflow d'édition
+                            _text_response_retry_done = True
+                            import os as _os_autocreate
+                            import datetime as _dt_autocreate
+                            _folder_basename = _os_autocreate.path.basename(
+                                _folder_path_for_tools or ""
+                            )
+                            _auto_filename = (
+                                f"liste_{_folder_basename}.md" if _folder_basename
+                                else f"liste_fichiers_{_dt_autocreate.datetime.now():%Y%m%d_%H%M%S}.md"
+                            )
+                            _ai_add_bubble("assistant", f"📝 Création : {_auto_filename}")
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _folder_create_file(
+                                _folder_path_for_tools, _auto_filename, _last_folder_listing
+                            )
+                            page.pubsub.send_all_on_topic("refresh", None)
+                            full_response = (
+                                f"Voilà, j'ai créé le fichier **{_auto_filename}** "
+                                "avec la liste complète des fichiers et leurs tailles ! 😊"
+                            )
+                            response_text_ctrl = None
+                            _remove_loading()
+                            response_text_ctrl = _ai_add_bubble("assistant", full_response)
+                            break
+                        full_response = _strip_text_tool_calls(_streamed)
                         # Fallback XML <think> si pas de thinking natif (modèles non supportés)
                         if not _thinking and "<think>" in full_response:
                             _think_match = re.search(r'<think>(.*?)</think>', full_response, re.DOTALL)
@@ -2093,28 +2187,24 @@ def main(page: ft.Page):
                             response_text_ctrl = _ai_add_bubble("assistant", full_response)
                         break
 
-                    # Tour d'outils — supprimer le texte préliminaire streamé si présent
+                    # Tour d'outils — finaliser le texte préliminaire streamé si présent
                     if response_text_ctrl is not None:
-                        try:
-                            ai_chat_view.controls = [
-                                row for row in ai_chat_view.controls
-                                if not (
-                                    hasattr(row, "controls") and row.controls
-                                    and hasattr(row.controls[0], "content")
-                                    and row.controls[0].content is response_text_ctrl
-                                )
-                            ]
-                        except Exception:
-                            pass
+                        if _streamed:
+                            response_text_ctrl.value = _md_dark(_streamed)
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
                         response_text_ctrl = None
 
                     # ── Exécuter les appels d'outils ──────────────────────────────
-                    messages.append({
-                        "role": "assistant",
-                        "thinking": _thinking,
-                        "content": _streamed,
-                        "tool_calls": tool_calls,
-                    })
+                    if _text_parsed_tools:
+                        # Gemma : conserver le <tool_code> dans l'assistant message pour que
+                        # Gemma reconnaisse sa propre syntaxe et continue d'appeler des outils.
+                        messages.append({"role": "assistant", "content": _streamed_for_history})
+                    else:
+                        # Modèle avec tool_calls natifs : content vide pour éviter HTTP 500.
+                        messages.append({"role": "assistant", "content": "", "tool_calls": tool_calls})
                     # Afficher tous les indicateurs, collecter les tâches
                     _tool_tasks = []
                     _folder_tool_results = []  # traités séquentiellement avant le pool
@@ -2159,6 +2249,7 @@ def main(page: ft.Page):
                                 _folder_path_for_tools, _read_filename,
                                 document_exts=CONSTANTS.AI_DOCUMENT_EXTS,
                             )))
+                            _read_file_done = True
                         elif fn_name == "organize_files":
                             _org_actions = fn_args.get("actions", [])
                             _org_summary = fn_args.get("summary", "")
@@ -2221,7 +2312,7 @@ def main(page: ft.Page):
                                         ),
                                         actions=[
                                             ft.TextButton("Annuler", on_click=_on_org_cancel),
-                                            ft.ElevatedButton(
+                                            ft.Button(
                                                 "Exécuter",
                                                 bgcolor=BLUE,
                                                 color=WHITE,
@@ -2327,13 +2418,113 @@ def main(page: ft.Page):
                                 _folder_tool_results.append(
                                     (fn_name, "\n\n".join(_analyze_results) or "Aucun résultat.")
                                 )
+                        elif fn_name == "create_file":
+                            import datetime as _dt_cf
+                            _create_filename = fn_args.get("filename", "").strip()
+                            if not _create_filename:
+                                _create_filename = f"fichier_{_dt_cf.datetime.now():%Y%m%d_%H%M%S}.txt"
+                            # Si un listage de dossier est disponible ET qu'on n'est pas
+                            # dans un workflow d'édition (read_file_content déjà exécuté),
+                            # utiliser les données réelles plutôt que le contenu généré par Gemma.
+                            if _last_folder_listing and not _read_file_done:
+                                _create_content = _last_folder_listing
+                            else:
+                                _create_content = _clean_file_content(fn_args.get("content", ""))
+                            ai_status_text.value = f"📝 Création : {_create_filename}…"
+                            _ai_add_bubble("assistant", f"📝 Création du fichier : {_create_filename}")
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _create_result = _folder_create_file(
+                                _folder_path_for_tools, _create_filename, _create_content
+                            )
+                            page.pubsub.send_all_on_topic("refresh", None)
+                            _create_file_done = True
+                            _folder_tool_results.append((fn_name, _create_result))
+                        elif fn_name == "run_terminal_command":
+                            _cmd      = fn_args.get("command", "")
+                            _cmd_desc = fn_args.get("description", _cmd)
+                            _cwd = _folder_path_for_tools if _folder_path_for_tools else None
+                            if CONSTANTS.AI_TERMINAL_CONFIRM:
+                                _cmd_confirm_event  = threading.Event()
+                                _cmd_confirm_result = {"confirmed": False}
+
+                                def _on_cmd_confirm(event=None):
+                                    _cmd_confirm_result["confirmed"] = True
+                                    _cmd_dlg.open = False
+                                    page.update()
+                                    _cmd_confirm_event.set()
+
+                                def _on_cmd_cancel(event=None):
+                                    _cmd_dlg.open = False
+                                    page.update()
+                                    _cmd_confirm_event.set()
+
+                                _cmd_dlg = ft.AlertDialog(
+                                    modal=True,
+                                    title=ft.Text("💻 Exécuter une commande"),
+                                    content=ft.Column(
+                                        [
+                                            ft.Text(_cmd_desc, size=13, color=WHITE),
+                                            ft.Container(height=8),
+                                            ft.Container(
+                                                ft.Text(_cmd, size=12, font_family="monospace", color=YELLOW),
+                                                bgcolor=DARK,
+                                                padding=10,
+                                                border_radius=6,
+                                            ),
+                                        ],
+                                        tight=True,
+                                        width=500,
+                                    ),
+                                    actions=[
+                                        ft.TextButton("Annuler", on_click=_on_cmd_cancel),
+                                        ft.Button(
+                                            "Exécuter",
+                                            bgcolor=BLUE,
+                                            color=WHITE,
+                                            on_click=_on_cmd_confirm,
+                                        ),
+                                    ],
+                                    actions_alignment=ft.MainAxisAlignment.END,
+                                )
+                                page.overlay.append(_cmd_dlg)
+                                _cmd_dlg.open = True
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _cmd_confirm_event.wait(timeout=300)
+                                if not _cmd_confirm_result["confirmed"]:
+                                    _folder_tool_results.append((fn_name, "Commande annulée par l'utilisateur."))
+                                    continue
+                            ai_status_text.value = "💻 Exécution en cours…"
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _folder_tool_results.append(
+                                (fn_name, _run_terminal_command(_cmd, cwd=_cwd))
+                            )
+                        elif fn_name == "update_memory_file":
+                            _mem_target  = fn_args.get("target", "")
+                            _mem_action  = fn_args.get("action", "")
+                            _mem_content = fn_args.get("content", "")
+                            _mem_old     = fn_args.get("old_text", "")
+                            ai_status_text.value = f"🧠 Mise à jour mémoire ({_mem_target})…"
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _folder_tool_results.append(
+                                (fn_name, _update_memory_file(_mem_target, _mem_action, _mem_content, _mem_old))
+                            )
                     try:
                         page.update()
                     except Exception:
                         pass
-                    # Résultats dossier déjà collectés — ajouter aux messages avant le pool web
-                    for (_t_name, _t_result) in _folder_tool_results:
-                        messages.append({"role": "tool", "tool_name": _t_name, "content": _t_result})
+                    # ── Injecter les résultats d'outils dans l'historique ────────────────
                     # Exécuter les outils web/URL en parallèle
                     def _run_tool(task):
                         name, args = task
@@ -2343,11 +2534,88 @@ def main(page: ft.Page):
                             return _fetch_url_content(args.get("url", ""), max_chars=CONSTANTS.AI_URL_MAX_CHARS)
                         return ""
                     with concurrent.futures.ThreadPoolExecutor() as _pool:
-                        _tool_results = list(_pool.map(_run_tool, _tool_tasks))
-                    for (_t_name, _), _result in zip(_tool_tasks, _tool_results):
-                        messages.append({"role": "tool", "tool_name": _t_name, "content": _result})
-                    # Rappel explicite de la question courante après les résultats d'outils
-                    messages.append({"role": "user", "content": f"(Résultats reçus. Réponds maintenant à ma question : {enriched_text})"})
+                        _web_tool_results = list(_pool.map(_run_tool, _tool_tasks))
+                    _all_tool_results = _folder_tool_results + [
+                        (_t_name, _result)
+                        for (_t_name, _), _result in zip(_tool_tasks, _web_tool_results)
+                    ]
+                    # Mémoriser le dernier résultat list_folder_contents pour
+                    # l'auto-création si Gemma refuse d'appeler create_file.
+                    for _t_name, _t_result in _all_tool_results:
+                        if _t_name == "list_folder_contents":
+                            _last_folder_listing = _t_result
+                    if _text_parsed_tools:
+                        # Gemma ne supporte pas role="tool" — injecter les résultats
+                        # comme message user pour éviter HTTP 500 au deuxième appel.
+                        _results_lines = [f"[{_tn}]: {_tr}" for _tn, _tr in _all_tool_results]
+                        _injected_msg = "Résultats des outils :\n" + "\n\n".join(_results_lines)
+                        # Ajouter la directive pour que Gemma continue (et appelle l'outil suivant
+                        # si nécessaire) au lieu de répondre en texte avec les données.
+                        _create_file_just_done_tp = any(
+                            name == "create_file" for name, _ in _all_tool_results
+                        )
+                        if _create_file_just_done_tp:
+                            _injected_msg += (
+                                "\n\nLe fichier a été créé avec succès. "
+                                "La tâche est terminée — réponds à l'utilisateur "
+                                "pour confirmer ce qui a été fait, sans appeler d'autres outils."
+                            )
+                        else:
+                            _injected_msg += (
+                                f"\n\nDemande à accomplir : \u00ab {_original_user_request} \u00bb\n"
+                                "Les résultats des outils sont disponibles ci-dessus. "
+                                "Si la tâche n'est pas encore terminée, appelle l'outil suivant "
+                                "(ex. create_file si tu dois créer un fichier). "
+                                "N'écris pas la réponse finale avant d'avoir utilisé tous les outils nécessaires."
+                            )
+                        messages.append({"role": "user", "content": _injected_msg})
+                        _dbg(f"ROUND_{_tool_round}_RESULTS_INJECTED", {
+                            "assistant_msg_appended": messages[-2],
+                            "user_results_msg": _injected_msg[:1000],
+                        })
+                    else:
+                        # Stratégie hybride pour Gemma 4 via Ollama :
+                        # Round 0 → tool_responses dans le message assistant
+                        #            (maintient Gemma en mode outil pour forcer le chaînage)
+                        # Round 1+ → role:tool standard
+                        #            (évite HTTP 500 causé par tool_responses multiples en historique)
+                        if _tool_round == 0:
+                            _last_assistant_idx = None
+                            for _msg_idx in range(len(messages) - 1, -1, -1):
+                                if messages[_msg_idx].get("role") == "assistant":
+                                    _last_assistant_idx = _msg_idx
+                                    break
+                            if _last_assistant_idx is not None:
+                                messages[_last_assistant_idx]["tool_responses"] = [
+                                    {"name": _t_name, "response": _t_result}
+                                    for _t_name, _t_result in _all_tool_results
+                                ]
+                        else:
+                            # Rounds suivants : role:tool standard (évite HTTP 500)
+                            for _t_name, _t_result in _all_tool_results:
+                                messages.append({"role": "tool", "content": _t_result})
+                        # Message user avec données réelles explicites + directive
+                        # (garantit que Gemma voit les vraies données dans tous les cas)
+                        _create_file_just_done = any(
+                            name == "create_file" for name, _ in _all_tool_results
+                        )
+                        if _create_file_just_done:
+                            messages.append({"role": "user", "content": (
+                                "Le fichier a été créé avec succès. "
+                                "La tâche est terminée — réponds à l'utilisateur "
+                                "pour confirmer ce qui a été fait, sans appeler d'autres outils."
+                            )})
+                        else:
+                            _results_lines = [f"[{_tn}]:\n{_tr}" for _tn, _tr in _all_tool_results]
+                            messages.append({"role": "user", "content": (
+                                "Résultats des outils :\n\n"
+                                + "\n\n".join(_results_lines)
+                                + f"\n\nDemande à accomplir : \u00ab {_original_user_request} \u00bb\n"
+                                "Appelle maintenant l'outil suivant en utilisant EXACTEMENT "
+                                "les données ci-dessus (ne pas les inventer ni les modifier). "
+                                "Si la tâche est de créer un fichier, appelle create_file avec "
+                                "le contenu recopié mot pour mot depuis les résultats."
+                            )})
                     _remove_loading()
 
                 if full_response:
@@ -2464,7 +2732,7 @@ def main(page: ft.Page):
                 ft.TextButton("Annuler", on_click=lambda e: (
                     setattr(criteria_dlg, "open", False) or page.update()
                 )),
-                ft.ElevatedButton(
+                ft.Button(
                     "Analyser",
                     bgcolor=BLUE,
                     color=WHITE,
@@ -6758,6 +7026,14 @@ def main(page: ft.Page):
         on_click=lambda e: _ai_analyze_folder_for_selection(),
     )
 
+    ai_fullscreen_btn = ft.IconButton(
+        icon=ft.Icons.FULLSCREEN,
+        icon_color=BLUE,
+        icon_size=16,
+        tooltip="IA seule (prend la place de l'apps_list + terminal) / Restaurer les deux panneaux",
+        on_click=lambda e: toggle_ai_fullscreen(),
+    )
+
     ai_panel_header = ft.Row([
         ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=14),
         ft.Text("IA", color=BLUE, size=11, weight=ft.FontWeight.BOLD),
@@ -6769,13 +7045,7 @@ def main(page: ft.Page):
         ai_folder_select_button,
         ai_clear_button,
         ft.Container(expand=True),
-        ft.IconButton(
-            icon=ft.Icons.FULLSCREEN,
-            icon_color=BLUE,
-            icon_size=16,
-            tooltip="IA seule / Restaurer les deux panneaux",
-            on_click=lambda e: toggle_ai_fullscreen(),
-        ),
+        ai_fullscreen_btn,
     ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     # En-tête du panneau Notes (droite)
@@ -6787,18 +7057,20 @@ def main(page: ft.Page):
         on_click=lambda e: _notepad_clear(),
     )
 
+    notepad_fullscreen_btn = ft.IconButton(
+        icon=ft.Icons.FULLSCREEN,
+        icon_color=VIOLET,
+        icon_size=16,
+        tooltip="Bloc-notes seul (prend la place de l'apps_list + terminal) / Restaurer les deux panneaux",
+        on_click=lambda e: toggle_notepad_fullscreen(),
+    )
+
     notepad_panel_header = ft.Row([
         notepad_header_icon,
         notepad_header_title,
         notepad_clear_button,
         ft.Container(expand=True),
-        ft.IconButton(
-            icon=ft.Icons.FULLSCREEN,
-            icon_color=VIOLET,
-            icon_size=16,
-            tooltip="Bloc-notes seul / Restaurer les deux panneaux",
-            on_click=lambda e: toggle_notepad_fullscreen(),
-        ),
+        notepad_fullscreen_btn,
     ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     overlay_fullscreen = {"mode": None}  # None, "ai", "notepad"
@@ -6883,40 +7155,101 @@ def main(page: ft.Page):
         left=0, right=0, top=0, bottom=0,
     )
 
+    # ── Spacer et conteneur solo (mode pleine hauteur gauche) ─────────────────
+    # _terminal_spacer : réserve la hauteur du terminal dans la colonne principale.
+    # En mode solo, sa hauteur passe à 0 pour que la colonne gauche prenne toute la hauteur.
+    _terminal_spacer = ft.Container(height=CONSTANTS.TERMINAL_HEIGHT)
+
+    # _solo_left_container : overlay Stack positionné à gauche, visible uniquement en mode solo.
+    # Sa largeur correspond à la colonne apps (expand=6 sur 15) et il couvre la hauteur entière.
+    _solo_left_inner     = ft.Column([], expand=True)
+    _solo_left_container = ft.Container(
+        content=_solo_left_inner,
+        visible=False,
+        bgcolor=BACKGROUND,
+        left=0, top=0, bottom=0,
+    )
+    _solo_left_state["container"] = _solo_left_container
+
+    def _enter_solo_mode(panel_container, mode_name, do_update=True):
+        """Bascule un panneau en mode solo pleine hauteur à gauche."""
+        overlay_fullscreen["mode"] = mode_name
+        # Repositionner bottom_panel_container en colonne gauche pleine hauteur.
+        # On ne déplace pas les widgets (reparenting rompt les événements Flet).
+        win_w = page.window.width or CONSTANTS.WINDOW_WIDTH
+        bottom_panel_container.width  = int((win_w - 8) * 6 / 15 + 4)
+        bottom_panel_container.top    = 0
+        bottom_panel_container.right  = None
+        bottom_panel_container.height = None
+        # Masquer le panneau inactif ; l'actif reste dans overlay_container
+        ai_panel_container.visible      = (mode_name == "ai")
+        notepad_panel_container.visible = (mode_name == "notepad")
+        overlay_container.visible = True
+        _terminal_spacer.height = 0
+        # Mettre à jour le bouton du panneau actif pour indiquer « réduire »
+        _active_btn = ai_fullscreen_btn if mode_name == "ai" else notepad_fullscreen_btn
+        _active_btn.icon    = ft.Icons.FULLSCREEN_EXIT
+        _active_btn.tooltip = "Réduire / Revenir aux deux panneaux"
+        if do_update:
+            page.update()
+
+    def _exit_solo_mode(do_update=True):
+        """Restaure le mode deux panneaux depuis le mode solo."""
+        overlay_fullscreen["mode"] = None
+        # Restaurer bottom_panel_container en barre de fond
+        bottom_panel_container.top    = None
+        bottom_panel_container.right  = 0
+        bottom_panel_container.width  = None
+        bottom_panel_container.height = (
+            page.window.height - CONSTANTS.WDA_HEIGHT
+            if terminal_is_expanded["value"]
+            else CONSTANTS.TERMINAL_HEIGHT
+        )
+        ai_panel_container.visible      = True
+        notepad_panel_container.visible = True
+        _terminal_spacer.height = CONSTANTS.TERMINAL_HEIGHT
+        # Restaurer les deux boutons à leur icône d'origine
+        ai_fullscreen_btn.icon    = ft.Icons.FULLSCREEN
+        ai_fullscreen_btn.tooltip = "IA seule (prend la place de l'apps_list + terminal) / Restaurer les deux panneaux"
+        notepad_fullscreen_btn.icon    = ft.Icons.FULLSCREEN
+        notepad_fullscreen_btn.tooltip = "Bloc-notes seul (prend la place de l'apps_list + terminal) / Restaurer les deux panneaux"
+        if do_update:
+            page.update()
+
     def toggle_ai_fullscreen():
-        """Affiche uniquement le panneau IA, ou restaure les deux panneaux."""
+        """Mode solo IA : panel IA pleine hauteur à gauche, preview_list visible à droite."""
         if overlay_fullscreen["mode"] == "ai":
-            overlay_fullscreen["mode"] = None
-            ai_panel_container.visible = True
-            notepad_panel_container.visible = True
+            _exit_solo_mode()
+        elif overlay_fullscreen["mode"] == "notepad":
+            _exit_solo_mode(do_update=False)
+            _enter_solo_mode(ai_panel_container, "ai")
         else:
-            overlay_fullscreen["mode"] = "ai"
-            ai_panel_container.visible = True
-            notepad_panel_container.visible = False
-        try:
-            overlay_container.update()
-        except Exception:
-            pass
+            _enter_solo_mode(ai_panel_container, "ai")
 
     def toggle_notepad_fullscreen():
-        """Affiche uniquement le panneau Bloc-notes, ou restaure les deux panneaux."""
+        """Mode solo Bloc-notes : panel notes pleine hauteur à gauche, preview_list visible à droite."""
         if overlay_fullscreen["mode"] == "notepad":
-            overlay_fullscreen["mode"] = None
-            ai_panel_container.visible = True
-            notepad_panel_container.visible = True
+            _exit_solo_mode()
+        elif overlay_fullscreen["mode"] == "ai":
+            _exit_solo_mode(do_update=False)
+            _enter_solo_mode(notepad_panel_container, "notepad")
         else:
-            overlay_fullscreen["mode"] = "notepad"
-            ai_panel_container.visible = False
-            notepad_panel_container.visible = True
-        try:
-            overlay_container.update()
-        except Exception:
-            pass
+            _enter_solo_mode(notepad_panel_container, "notepad")
 
     def update_overlay_visibility():
         """Affiche ou masque l'overlay (IA à gauche + Notes à droite)."""
         panels_are_open = ai_mode["value"] or note_mode["value"]
-        overlay_container.visible    = panels_are_open
+        # Nettoyage du mode solo si les panneaux se ferment
+        if not panels_are_open and overlay_fullscreen["mode"] in ("ai", "notepad"):
+            # Restaurer bottom_panel_container au mode normal
+            bottom_panel_container.top    = None
+            bottom_panel_container.right  = 0
+            bottom_panel_container.width  = None
+            bottom_panel_container.height = CONSTANTS.TERMINAL_HEIGHT
+            ai_panel_container.visible      = True
+            notepad_panel_container.visible = True
+            _terminal_spacer.height = CONSTANTS.TERMINAL_HEIGHT
+        overlay_container.visible = panels_are_open
         if not panels_are_open:
             overlay_fullscreen["mode"] = None
             ai_panel_container.visible = True
@@ -7314,9 +7647,10 @@ def main(page: ft.Page):
                     )
                 ], expand=9)
             ], expand=True, spacing=8),
-            ft.Container(height=CONSTANTS.TERMINAL_HEIGHT),
+            _terminal_spacer,
         ], expand=True, spacing=8),
         bottom_panel_container,
+        _solo_left_container,
         ], expand=True, ref=_main_stack_ref),
     )
 

@@ -2,7 +2,7 @@
 """
 Utilitaires IA partagés entre Dashboard.pyw et SidePanel.pyw.
 
-Fonctions exposées :
+Fonctions et constantes exposées :
   _fetch_url_content(url, max_chars)         — récupère le texte d'une URL HTTP(S)
   _web_search(query, max_results)            — recherche DuckDuckGo, retourne les résultats formatés
   _ollama_chat_once(url, model, messages)    — appel non-streaming à /api/chat, retourne le dict message
@@ -12,10 +12,25 @@ Fonctions exposées :
   _folder_tool_definitions(folder_path)      — retourne les 4 définitions d'outils dossier pour Ollama
   _folder_list_contents(folder_path)         — liste les fichiers avec taille et date
   _folder_read_file(folder_path, filename)   — lit le contenu texte d'un fichier
+  _folder_create_file(folder_path, filename, content)
+                                             — crée un fichier texte dans le dossier ouvert
   _encode_image_for_analysis(image_path)     — encode une image en base64 JPEG pour un modèle vision
   _analyze_images_batched(...)               — analyse des images par lots et retourne les résultats
+
+  Helpers système (partagés) :
+  _WEB_TOOLS                                 — liste des 2 définitions d'outils web (web_search + fetch_url)
+  _TERMINAL_TOOLS                            — définition de l'outil run_terminal_command
+  _MEMORY_TOOLS                              — définition de l'outil update_memory_file
+  _run_terminal_command(command, cwd, timeout)
+                                             — exécute une commande shell et retourne la sortie
+  _update_memory_file(target, action, content, old_text)
+                                             — met à jour memory.md / user.md / skills.md (retourne JSON)
+  _read_memory_file(target)                  — lit un fichier mémoire brut (str)
+  _build_system_content(base_prompt, folder_path, today_date_str)
+                                             — assemble le message système complet (system.md + mémoire + date + dossier)
 """
 
+import ast as _ast
 import json
 import re
 import urllib.request
@@ -248,13 +263,26 @@ def _ollama_chat_stream_with_tools(ollama_url, model, messages, tools=None, temp
                 break
 
 
+def _eval_str_node(node):
+    """Évalue un nœud AST en chaîne (littéral ou concaténation de littéraux)."""
+    if isinstance(node, _ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, _ast.BinOp) and isinstance(node.op, _ast.Add):
+        left = _eval_str_node(node.left)
+        right = _eval_str_node(node.right)
+        if left is not None and right is not None:
+            return left + right
+    return None
+
+
 def _parse_text_tool_calls(text):
     """
     Détecte les appels d'outils écrits en texte brut par le modèle (format de repli).
 
-    Supporte deux formats émis par Gemma :
+    Supporte trois formats émis par Gemma :
       <execute_tool> fn(key='val') </execute_tool>
       <|tool_call>call:fn{key:<|"|>val<|"|>}<tool_call|>
+      <tool_code>print(obj.fn(key="val"))</tool_code>  — style Google/Gemma
 
     Retourne une liste de dicts {"function": {"name": ..., "arguments": {...}}}
     compatibles avec le format tool_calls d'Ollama.
@@ -286,6 +314,105 @@ def _parse_text_tool_calls(text):
                 args[key] = kv.group(2).strip()
         calls.append({"function": {"name": fn_name, "arguments": args}})
 
+    # Format 3 : <tool_code>print(obj.fn(key="val"))</tool_code> — style Google/Gemma
+    _GEMMA_FN_ALIASES = {
+        "write_file":       "create_file",
+        "update_file":      "create_file",
+        "save_file":        "create_file",
+        "create_text_file": "create_file",
+    }
+    _GEMMA_PARAM_ALIASES = {
+        "create_file": {
+            "file_name":    "filename",
+            "file_content": "content",
+            "file_path":    "filename",
+            "path":         "filename",
+        },
+        "read_file_content": {
+            "file_name": "filename",
+            "file_path": "filename",
+            "path":      "filename",
+        },
+    }
+    pat3 = re.compile(r'<tool_code>(.*?)</tool_code>', re.DOTALL | re.IGNORECASE)
+    for m in pat3.finditer(text):
+        code_block = m.group(1).strip()
+        try:
+            tree = _ast.parse(code_block, mode='eval')
+            call_node = tree.body
+            # Déballer print(...) si présent
+            if (
+                isinstance(call_node, _ast.Call)
+                and isinstance(call_node.func, _ast.Name)
+                and call_node.func.id == 'print'
+                and call_node.args
+            ):
+                call_node = call_node.args[0]
+            # obj.fn_name(...)
+            if isinstance(call_node, _ast.Call) and isinstance(call_node.func, _ast.Attribute):
+                fn_name = call_node.func.attr
+                # Normaliser le nom de fonction (ex. write_file → create_file)
+                fn_name = _GEMMA_FN_ALIASES.get(fn_name, fn_name)
+                args = {}
+                for kw in call_node.keywords:
+                    if not kw.arg:
+                        continue
+                    # Essayer concaténation de chaînes d'abord, puis literal_eval
+                    arg_val = _eval_str_node(kw.value)
+                    if arg_val is None:
+                        try:
+                            arg_val = _ast.literal_eval(kw.value)
+                        except Exception:
+                            arg_val = None
+                    if arg_val is not None:
+                        args[kw.arg] = arg_val
+                # Normaliser les noms de paramètres Gemma → noms de nos outils
+                aliases = _GEMMA_PARAM_ALIASES.get(fn_name, {})
+                for gemma_key, our_key in aliases.items():
+                    if gemma_key in args:
+                        args[our_key] = args.pop(gemma_key)
+                if fn_name:  # args peut être vide (ex. list_folder_contents())
+                    calls.append({"function": {"name": fn_name, "arguments": args}})
+        except (SyntaxError, ValueError, AttributeError):
+            # Fallback regex pour les blocs avec chaînes multi-lignes
+            # (ast.parse échoue si le contenu contient de vraies newlines)
+            _fb_match = re.search(
+                r'(?:print\s*\(\s*)?(?:\w+\.)?(\w+)\s*\(', code_block
+            )
+            if _fb_match:
+                _fb_fn = _fb_match.group(1)
+                if _fb_fn == "print":
+                    _inner_match = re.search(
+                        r'print\s*\(\s*(?:\w+\.)?(\w+)\s*\(', code_block
+                    )
+                    _fb_fn = _inner_match.group(1) if _inner_match else ""
+                # Normaliser le nom de fonction (ex. write_file → create_file)
+                _fb_fn = _GEMMA_FN_ALIASES.get(_fb_fn, _fb_fn)
+                _fb_args = {}
+                for _kv in re.finditer(
+                    r'(\w+)\s*=\s*"((?:[^"\\]|\\.)*)"', code_block, re.DOTALL
+                ):
+                    _fb_args[_kv.group(1)] = (
+                        _kv.group(2)
+                        .replace('\\n', '\n').replace('\\t', '\t')
+                        .replace('\\\\', '\\').replace('\\"', '"')
+                    )
+                for _kv in re.finditer(
+                    r"(\w+)\s*=\s*'((?:[^'\\]|\\.)*)'", code_block, re.DOTALL
+                ):
+                    if _kv.group(1) not in _fb_args:
+                        _fb_args[_kv.group(1)] = (
+                            _kv.group(2)
+                            .replace('\\n', '\n').replace('\\t', '\t')
+                            .replace('\\\\', '\\').replace("\\'", "'")
+                        )
+                _fb_aliases = _GEMMA_PARAM_ALIASES.get(_fb_fn, {})
+                for _gk, _ok in _fb_aliases.items():
+                    if _gk in _fb_args:
+                        _fb_args[_ok] = _fb_args.pop(_gk)
+                if _fb_fn:
+                    calls.append({"function": {"name": _fb_fn, "arguments": _fb_args}})
+
     return calls
 
 
@@ -294,6 +421,8 @@ def _strip_text_tool_calls(text):
     text = re.sub(r'<execute_tool>.*?</execute_tool>', '', text,
                   flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r'<\|tool_call>.*?<tool_call\|>', '', text, flags=re.DOTALL)
+    text = re.sub(r'<tool_code>.*?</tool_code>', '', text,
+                  flags=re.IGNORECASE | re.DOTALL)
     return text.strip()
 
 
@@ -480,6 +609,39 @@ def _folder_tool_definitions(folder_path):
         {
             "type": "function",
             "function": {
+                "name": "create_file",
+                "description": (
+                    "Crée ou écrase un fichier dans le dossier ouvert avec le contenu fourni. "
+                    "Fonctionne aussi pour modifier un fichier existant : lire son contenu "
+                    "avec read_file_content, modifier le texte en mémoire, puis appeler "
+                    "create_file avec le même nom de fichier et le nouveau contenu complet. "
+                    "Idéal pour générer des scripts (.py, .sh, .bat), des notes (.txt, .md), "
+                    "des fichiers de configuration, ou tout autre fichier texte. "
+                    "IMPORTANT : le paramètre 'filename' est obligatoire. "
+                    "Le contenu doit être basé uniquement sur les données réelles "
+                    "obtenues des outils précédents — ne pas inventer de données. "
+                    "Le paramètre 'content' doit contenir UNIQUEMENT le contenu du fichier, "
+                    "sans aucun message conversationnel, question ou commentaire destiné à l'utilisateur."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "filename": {
+                            "type": "string",
+                            "description": "Nom du fichier à créer (ex. script.py, notes.txt)",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Contenu textuel complet du fichier",
+                        },
+                    },
+                    "required": ["filename", "content"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
                 "name": "analyze_images",
                 "description": (
                     "Analyse visuellement les images du dossier ouvert pour répondre "
@@ -536,6 +698,23 @@ def _folder_list_contents(folder_path):
         return "\n".join(lines)
     except Exception as exc:
         return f"Erreur lors de la lecture du dossier : {exc}"
+
+
+def _folder_create_file(folder_path, filename, content):
+    """
+    Crée un fichier texte dans le dossier ouvert avec le contenu fourni.
+    Retourne un message de succès ou d'erreur.
+    """
+    try:
+        safe_name = _os.path.basename(filename)
+        if not safe_name:
+            return "Nom de fichier invalide."
+        file_path = _os.path.join(folder_path, safe_name)
+        with open(file_path, "w", encoding="utf-8") as file_handle:
+            file_handle.write(content)
+        return f"Fichier créé : {safe_name} ({len(content)} caractère(s))"
+    except Exception as exc:
+        return f"Erreur lors de la création du fichier : {exc}"
 
 
 def _folder_read_file(folder_path, filename, document_exts=None, max_chars=20_000):
@@ -666,3 +845,410 @@ def _analyze_images_batched(
             results.append(f"(lot {batch_num} — erreur : {exc})")
 
     return results
+
+
+# ─── Outils terminal partagés ───────────────────────────────────────────────
+import subprocess as _subprocess
+
+
+def _run_terminal_command(command, cwd=None, timeout=60):
+    """
+    Exécute une commande shell et retourne la sortie combinée stdout + stderr.
+    cwd : répertoire de travail (dossier ouvert si fourni).
+    """
+    try:
+        result = _subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            cwd=cwd,
+            timeout=timeout,
+        )
+        output = result.stdout
+        if result.stderr:
+            output += ("\n" if output else "") + result.stderr
+        output = output.strip()
+        if not output:
+            output = f"(Commande exécutée, code de retour : {result.returncode})"
+        elif result.returncode != 0:
+            output += f"\n(Code de retour : {result.returncode})"
+        return output
+    except _subprocess.TimeoutExpired:
+        return f"[Timeout : la commande a dépassé {timeout} secondes]"
+    except Exception as exc:
+        return f"[Erreur d'exécution : {exc}]"
+
+
+_TERMINAL_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "run_terminal_command",
+            "description": (
+                "Exécute une commande shell sur la machine locale. "
+                "Utile pour installer des paquets, lancer des scripts, "
+                "convertir des formats, lancer des processus, etc. "
+                "NE PAS utiliser pour lister le contenu d'un dossier "
+                "(utiliser list_folder_contents à la place) ni pour créer un fichier texte "
+                "(utiliser create_file à la place). "
+                "Une confirmation est toujours demandée à l'utilisateur avant exécution."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": "Commande shell à exécuter",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Explication courte de ce que fait la commande",
+                    },
+                },
+                "required": ["command"],
+            },
+        },
+    },
+]
+
+
+# ─── Outils web partagés ──────────────────────────────────────────────────────
+
+_WEB_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": (
+                "Recherche des informations récentes sur internet via DuckDuckGo. "
+                "À utiliser pour les actualités, événements récents, prix, météo, "
+                "ou toute information susceptible d'avoir changé depuis la date d'entraînement."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Requête de recherche",
+                    }
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "fetch_url",
+            "description": (
+                "Lit le contenu textuel d'une page web à partir de son URL. "
+                "À utiliser pour approfondir un résultat de recherche ou consulter "
+                "une page spécifique."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "URL complète (https://…) de la page à lire",
+                    }
+                },
+                "required": ["url"],
+            },
+        },
+    },
+]
+
+
+# ─── Système de mémoire persistante ─────────────────────────────────────────
+
+_DATA_DIR = _os.path.dirname(_os.path.abspath(__file__))
+
+_MEMORY_CHAR_LIMITS = {
+    "memory": 2200,
+    "user":   1375,
+    "skills": 3000,
+}
+
+_MEMORY_FILE_NAMES = {
+    "memory": "memory.md",
+    "user":   "user.md",
+    "skills": "skills.md",
+}
+
+
+def _memory_file_path(target):
+    return _os.path.join(_DATA_DIR, _MEMORY_FILE_NAMES[target])
+
+
+def _read_memory_file(target):
+    """Lit un fichier mémoire, retourne le contenu brut (chaîne vide si absent)."""
+    try:
+        with open(_memory_file_path(target), encoding="utf-8") as file_handle:
+            return file_handle.read()
+    except (FileNotFoundError, OSError):
+        return ""
+
+
+def _update_memory_file(target, action, content="", old_text=""):
+    """
+    Met à jour un fichier mémoire persistant (memory.md, user.md, skills.md).
+
+    Actions :
+        add     — ajoute une nouvelle entrée (séparée par §)
+        replace — remplace l'entrée contenant old_text par content
+        remove  — supprime l'entrée contenant old_text
+
+    Retourne une chaîne JSON avec success, message et usage.
+    """
+    if target not in _MEMORY_CHAR_LIMITS:
+        return json.dumps({
+            "success": False,
+            "error": f"Cible invalide : {target!r}. Utilise 'memory', 'user' ou 'skills'.",
+        })
+
+    file_path = _memory_file_path(target)
+    char_limit = _MEMORY_CHAR_LIMITS[target]
+
+    try:
+        with open(file_path, encoding="utf-8") as file_handle:
+            raw_content = file_handle.read()
+    except FileNotFoundError:
+        raw_content = ""
+    except OSError as error:
+        return json.dumps({"success": False, "error": str(error)})
+
+    # Séparer les lignes de commentaires HTML du corps
+    all_lines = raw_content.splitlines()
+    comment_lines = [line for line in all_lines if line.startswith("<!--")]
+    header = ("\n".join(comment_lines) + "\n") if comment_lines else ""
+    body_lines = [line for line in all_lines if not line.startswith("<!--")]
+    body = "\n".join(body_lines).strip()
+    entries = [entry.strip() for entry in body.split("§") if entry.strip()]
+
+    if action == "add":
+        if not content.strip():
+            return json.dumps({"success": False, "error": "content est vide."})
+        new_entry = content.strip()
+        if new_entry in entries:
+            return json.dumps({"success": True, "note": "Entrée déjà présente, aucun doublon ajouté."})
+        candidate_entries = entries + [new_entry]
+        candidate_body = " §\n".join(candidate_entries)
+        candidate_full = header + candidate_body
+        if len(candidate_full) > char_limit:
+            _entry_sep = " §\n"
+            current_usage = f"{len(header + _entry_sep.join(entries))}/{char_limit}"
+            return json.dumps({
+                "success": False,
+                "error": (
+                    f"Mémoire à {current_usage} chars. "
+                    f"Ajouter cette entrée ({len(new_entry)} chars) dépasserait la limite. "
+                    "Consolide ou supprime des entrées existantes d'abord."
+                ),
+                "current_entries": entries,
+                "usage": current_usage,
+            })
+        entries = candidate_entries
+
+    elif action == "replace":
+        if not old_text.strip():
+            return json.dumps({"success": False, "error": "old_text est requis pour 'replace'."})
+        matching_indices = [index for index, entry in enumerate(entries) if old_text.strip() in entry]
+        if not matching_indices:
+            return json.dumps({
+                "success": False,
+                "error": f"Aucune entrée ne contient : {old_text!r}",
+                "current_entries": entries,
+            })
+        if len(matching_indices) > 1:
+            return json.dumps({
+                "success": False,
+                "error": f"old_text ambigu : {len(matching_indices)} entrées correspondent. Précise davantage.",
+                "matches": [entries[index] for index in matching_indices],
+            })
+        entries[matching_indices[0]] = content.strip()
+        candidate_body = " §\n".join(entries)
+        candidate_full = header + candidate_body
+        if len(candidate_full) > char_limit:
+            return json.dumps({
+                "success": False,
+                "error": f"Contenu trop long après remplacement ({len(candidate_full)}/{char_limit} chars).",
+            })
+
+    elif action == "remove":
+        if not old_text.strip():
+            return json.dumps({"success": False, "error": "old_text est requis pour 'remove'."})
+        matching_indices = [index for index, entry in enumerate(entries) if old_text.strip() in entry]
+        if not matching_indices:
+            return json.dumps({
+                "success": False,
+                "error": f"Aucune entrée ne contient : {old_text!r}",
+                "current_entries": entries,
+            })
+        if len(matching_indices) > 1:
+            return json.dumps({
+                "success": False,
+                "error": f"old_text ambigu : {len(matching_indices)} entrées correspondent.",
+                "matches": [entries[index] for index in matching_indices],
+            })
+        entries.pop(matching_indices[0])
+
+    else:
+        return json.dumps({
+            "success": False,
+            "error": f"Action invalide : {action!r}. Utilise 'add', 'replace' ou 'remove'.",
+        })
+
+    new_body = " §\n".join(entries)
+    new_full = header + new_body
+    try:
+        with open(file_path, "w", encoding="utf-8") as file_handle:
+            file_handle.write(new_full)
+    except OSError as error:
+        return json.dumps({"success": False, "error": str(error)})
+
+    usage = f"{len(new_full)}/{char_limit}"
+    return json.dumps({
+        "success": True,
+        "action": action,
+        "target": target,
+        "entries_count": len(entries),
+        "usage": usage,
+    })
+
+
+# ─── Outil mémoire persistante ────────────────────────────────────────────────
+
+_MEMORY_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "update_memory_file",
+            "description": (
+                "Met à jour ta mémoire persistante entre les sessions. "
+                "Utilise cet outil proactivement quand tu apprends quelque chose d'important sur "
+                "l'utilisateur, son environnement, ses préférences ou une procédure utile.\n"
+                "Cibles :\n"
+                "  - 'memory' : tes notes personnelles (environnement, conventions, leçons apprises) — 2 200 chars max\n"
+                "  - 'user'   : profil utilisateur (préférences, habitudes, style de communication) — 1 375 chars max\n"
+                "  - 'skills' : procédures et techniques apprises (étapes, commandes, workflows) — 3 000 chars max\n"
+                "Actions :\n"
+                "  - 'add'     : ajoute une nouvelle entrée\n"
+                "  - 'replace' : remplace l'entrée contenant old_text par content\n"
+                "  - 'remove'  : supprime l'entrée contenant old_text"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "enum": ["memory", "user", "skills"],
+                        "description": "Fichier cible : 'memory', 'user' ou 'skills'",
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["add", "replace", "remove"],
+                        "description": "Action à effectuer",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Contenu de la nouvelle entrée (requis pour 'add' et 'replace')",
+                    },
+                    "old_text": {
+                        "type": "string",
+                        "description": (
+                            "Sous-chaîne unique identifiant l'entrée à remplacer ou supprimer "
+                            "(requis pour 'replace' et 'remove')"
+                        ),
+                    },
+                },
+                "required": ["target", "action"],
+            },
+        },
+    },
+]
+
+
+def _build_system_content(base_prompt, folder_path=None, today_date_str=None):
+    """
+    Assemble le contenu complet du message système envoyé à l'IA.
+
+    Lit system.md si disponible (sinon utilise base_prompt comme fallback).
+    Injecte ensuite memory.md, user.md, skills.md avec indicateurs d'utilisation.
+    Ajoute la date du jour et le contexte du dossier ouvert.
+
+    Args:
+        base_prompt     : prompt de base (str), utilisé si system.md est absent.
+        folder_path     : chemin absolu du dossier ouvert, ou None.
+        today_date_str  : date du jour pré-formatée (ex. "25 mai 2026"), ou None.
+
+    Returns:
+        Chaîne complète prête à être passée comme message système.
+    """
+    # ── Prompt système de base ────────────────────────────────────────────────
+    system_md_path = _os.path.join(_DATA_DIR, "system.md")
+    if _os.path.exists(system_md_path):
+        try:
+            with open(system_md_path, encoding="utf-8") as file_handle:
+                system_content = file_handle.read().strip()
+        except OSError:
+            system_content = base_prompt
+    else:
+        system_content = base_prompt
+
+    # ── Fichiers mémoire persistante ──────────────────────────────────────────
+    _memory_label_map = {
+        "memory": "MÉMOIRE (notes personnelles)",
+        "user":   "PROFIL UTILISATEUR",
+        "skills": "SKILLS (procédures apprises)",
+    }
+
+    for target in ("memory", "user", "skills"):
+        raw = _read_memory_file(target)
+        all_lines = raw.splitlines()
+        body_lines = [line for line in all_lines if not line.startswith("<!--")]
+        body = "\n".join(body_lines).strip()
+        entries = [entry.strip() for entry in body.split("§") if entry.strip()]
+        if not entries:
+            continue
+        char_limit = _MEMORY_CHAR_LIMITS[target]
+        char_count = len(raw)
+        pct = int(char_count * 100 / char_limit)
+        label = _memory_label_map[target]
+        separator = "═" * 46
+        content_str = " §\n".join(entries)
+        system_content += f"\n\n{separator}\n{label} [{pct}% — {char_count}/{char_limit} chars]\n{separator}\n{content_str}"
+
+    # ── Date du jour ──────────────────────────────────────────────────────────
+    if today_date_str:
+        system_content += f"\n\nDate du jour : {today_date_str}."
+
+    # ── Contexte du dossier ouvert ────────────────────────────────────────────
+    if folder_path and _os.path.isdir(folder_path):
+        folder_name = _os.path.basename(folder_path)
+        system_content += (
+            f"\n\nDOSSIER OUVERT : « {folder_name} » (`{folder_path}`).\n"
+            "Outils disponibles pour ce dossier : list_folder_contents, "
+            "read_file_content, organize_files, analyze_images, create_file.\n"
+            "Utilise-les quand l'utilisateur te demande d'explorer, résumer, "
+            "organiser ou analyser visuellement le contenu de ce dossier. "
+            "Pour toute question sur ce que contiennent les images "
+            "(couleurs, personnes, lieux, objets…), utilise analyze_images. "
+            "RÈGLE ABSOLUE : pour lister le contenu du dossier, utilise TOUJOURS "
+            "list_folder_contents — JAMAIS ls, find ou toute autre commande shell via run_terminal_command. "
+            "Pour créer un fichier (script, note, liste, config…), utilise TOUJOURS create_file — "
+            "JAMAIS run_terminal_command avec une redirection (>, tee, etc.). "
+            "Le paramètre 'content' doit contenir UNIQUEMENT le texte final du fichier, "
+            "recopié mot pour mot depuis les résultats des outils — "
+            "sans aucun raisonnement, auto-correction, note entre parenthèses ou placeholder."
+        )
+    system_content += (
+        "\n\nOutil terminal disponible : run_terminal_command. "
+        "Utilise-le pour exécuter des commandes shell si l'utilisateur le demande "
+        "(installation de paquets, conversion de fichiers, scripts, etc.). "
+        "NE PAS l'utiliser pour lister des fichiers ou créer des fichiers texte : "
+        "utilise list_folder_contents et create_file pour ça. "
+        "Une confirmation sera toujours demandée avant exécution."
+    )
+    return system_content

@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.6.2"
+__version__ = "2.6.3"
 
 
 # ─── Extensions de fichiers ────────────────────────────────────────────────────────────
@@ -199,40 +199,29 @@ del _platform
 
 # ─── Intelligence artificielle (Ollama) ───────────────────────────────────────────
 # L'IA locale utilise Ollama (https://ollama.com).
-# Installez Ollama puis téléchargez un modèle : ollama pull llama3.2:3b
-#
-# Recommandations par niveau de machine :
-#   Très petite (2-4 GB RAM)  : gemma2:2b (~1.6 GB)  ou  qwen2.5:0.5b (~400 MB)
-#   Petite      (4-8 GB RAM)  : phi3:mini (~2.3 GB)  ou  llama3.2:3b (~2 GB)
-#   Moyenne     (8-16 GB RAM) : mistral:7b (~4.1 GB) ou  qwen2.5:7b (~4.4 GB)
-#   Bonne       (16 GB+ RAM)  : llama3.1:8b (~4.7 GB) ou deepseek-r1:8b (~4.9 GB)
+# Installez Ollama puis téléchargez un modèle : ollama pull gemma4:e4b
 
 AI_OLLAMA_URL   = "http://localhost:11434"   # URL de l'API Ollama locale
-AI_MODEL_TEXT   = "gemma4:e4b"             # Modèle texte + vision (~9.6 GB) — recommandé
-AI_MODEL_VISION = "gemma4:e4b"             # Modèle vision     (~9.6 GB)
+AI_MODEL_TEXT   = "gemma4:e4b"               # Modèle texte + vision (~9.6 GB)
+AI_MODEL_VISION = "gemma4:e4b"               # Modèle vision     (~9.6 GB)
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
 AI_URL_MAX_CHARS = 12_000                    # Nb max de caractères extraits d'une URL (augmenter si le modèle a un grand contexte)
-AI_ORGANIZE_CONFIRM = False                  # True = dialog de confirmation avant chaque tri de fichiers ; False = exécution directe
+AI_ORGANIZE_CONFIRM  = False                  # True = dialog de confirmation avant chaque tri de fichiers ; False = exécution directe
+AI_TERMINAL_CONFIRM = False                   # True = dialog de confirmation avant chaque commande terminal ; False = exécution directe
 AI_FOLDER_SELECT_BATCH_SIZE = 5              # Nb d'images par appel IA — petits lots de 5 pour feedback fréquent et attention maximale par image
-AI_FOLDER_SELECT_IMAGE_SIZE = 1024           # Résolution max (px) — 1024 pour bien distinguer netteté, expressions, exposition
+AI_FOLDER_SELECT_IMAGE_SIZE = 800           # Résolution max (px) — 1024 pour bien distinguer netteté, expressions, exposition
 AI_FOLDER_SELECT_QUALITY    = 70             # Qualité JPEG des images envoyées à l'IA pour l'analyse
 AI_FOLDER_SELECT_SYSTEM_PROMPT = (
     "Tu es un éditeur photo professionnel spécialisé dans la sélection avant développement RAW.\n\n"
     "CONTEXTE IMPORTANT :\n"
-    "Les photos que tu reçois sont des JPEG bruts sortis directement du boîtier (aperçus embarqués "
-    "dans les fichiers RAW), non retouchés. Elles peuvent paraître plates, ternes, légèrement "
-    "sous-exposées ou moins piquées qu'une version développée — c'est NORMAL et attendu. "
-    "Base ta sélection sur le POTENTIEL de chaque image (composition, netteté, expression, moment) "
+    "Base ta sélection sur le POTENTIEL de chaque image (composition, contrastes, lumière, couleur, expression, moment) "
     "et non sur son rendu final. L'utilisateur retouchera ensuite les fichiers RAW correspondants.\n\n"
-    "Il s'agit d'un reportage photo (événement, mariage, portrait…). "
-    "La majorité des photos sont des portraits de personnes différentes — "
-    "c'est NORMAL et attendu, ne pas pénaliser pour cela. "
+    "Il s'agit soit d'un reportage photo (événement, mariage, portrait…), soit des paysages / ambiances."
+    "Si tu vois une série de portraits, il est probablement composé de personnes différentes (même si certaines sont toujours mises en avant) — "
     "Tu analyses le reportage par petits groupes successifs ; "
     "applique des critères cohérents à travers tous les groupes.\n\n"
     "CRITÈRES D'EXCLUSION (écarte uniquement si le défaut est clairement visible) :\n"
     "- Photos nettement floues ou avec un mouvement non intentionnel sur le sujet principal\n"
-    "- Hautes lumières TOTALEMENT brûlées (blanc pur sans aucun détail récupérable même en RAW) "
-    "— NE PAS exclure une photo lumineuse, aérée ou à style clair/high-key intentionnel\n"
     "- Ombres complètement bouchées sans aucun détail récupérable\n"
     "- Yeux clairement fermés sur le/les sujet(s) principal(aux)\n"
     "- Mise au point clairement manquée sur le sujet principal\n"
@@ -255,70 +244,33 @@ AI_FOLDER_SELECT_SYSTEM_PROMPT = (
     "Si tu mentionnes dans reason que tu as sélectionné des photos, ces mêmes photos "
     "DOIVENT obligatoirement figurer dans selected_files — sinon elles seront perdues."
 )
-AI_USER_NAME    = "Utilisateur"                      # Appellation de l'utilisateur dans l'export de conversation
+AI_USER_NAME    = "Charles"                      # Appellation de l'utilisateur dans l'export de conversation
 AI_SEPARATOR_WIDTH = 80                      # Nombre de '#' pour les séparateurs de l'export de conversation
-import textwrap as _textwrap
 AI_SYSTEM_PROMPT = (
-    "On se tutoie.\n"
-    "Tu as accès à deux outils :\n"
-    "- web_search (DuckDuckGo) : pour chercher des informations récentes (actualités, prix, météo, "
-    "événements…). Utilise-le dès que la question porte sur quelque chose de potentiellement récent.\n"
-    "- fetch_url : pour lire le contenu complet d'une page web à partir de son URL. "
-    "Astuce : pour les dépôts GitHub, préfère l'API (ex. https://api.github.com/repos/OWNER/REPO/releases/latest) "
-    "qui renvoie du JSON structuré, plus fiable que la page HTML.\n\n"
-    "RÈGLES IMPÉRATIVES :\n"
-    "0. N'explique JAMAIS le fonctionnement des outils à l'utilisateur. "
-    "Ne décris jamais ce que font web_search ou fetch_url. "
-    "Utilise-les directement et donne uniquement la réponse à la question posée.\n"
-    "1. Après un web_search, si les snippets ne contiennent pas la réponse complète et précise, "
-    "tu DOIS appeler fetch_url sur l'URL la plus pertinente des résultats AVANT de répondre. "
-    "Ne jamais conclure avec seulement des snippets de recherche quand la vraie réponse se trouve "
-    "dans une page cible (changelog, documentation, release GitHub, article…). "
-    "Exemple : si on te demande les nouveautés d'une bibliothèque, tu cherches d'abord, "
-    "puis tu LIS la page de releases ou le changelog trouvé.\n"
-    "2. Après avoir reçu les résultats d'un outil, tu DOIS toujours synthétiser "
-    "l'information et répondre directement et concrètement à la question posée. "
-    "Ne dis jamais 'je te conseille de consulter', 'je t'invite à lire' ou 'voir la page X' "
-    "si tu peux toi-même lire cette page avec fetch_url.\n"
-    "3. Si tu n'as pas trouvé l'information exacte, dis-le clairement et donne quand même "
-    "ce que tu as trouvé, en précisant les limites de ta réponse.\n"
-    "4. Indique toujours la date ou la version des informations trouvées si disponible.\n"
-    "5. N'ajoute JAMAIS de disclaimers, avertissements ou mises en garde du type "
-    "'je ne suis pas médecin', 'consulte un professionnel de santé', 'ce n'est pas un avis médical', "
-    "'je ne suis pas avocat', 'consulte un conseiller financier', etc. "
-    "L'utilisateur est adulte et sait à qui il s'adresse. Réponds directement et sans filet."
+    f"On se tutoie. Tu parles à {AI_USER_NAME}.\n\n"
+    "CAPACITÉS :\n"
+    "Tu peux accéder à internet (web_search, fetch_url) et aux fichiers du dossier ouvert "
+    "— les lister, lire leur contenu, les organiser par sous-dossiers, ou analyser visuellement les images.\n\n"
+    "RÈGLES :\n"
+    "- Pas de disclaimers ni de mises en garde inutiles (pas de 'consulte un professionnel', 'je ne suis pas médecin', etc.).\n"
+    "- Si tu ne connais pas la réponse, fais une recherche web plutôt que d'inventer.\n"
+    "- Cite toujours tes sources avec les URLs complètes quand tu fais une recherche web.\n"
+    "- Les images que tu reçois sont des miniatures réduites : ne tire pas de conclusions sur la netteté ou le piqué "
+    "de l'original — un flou apparent peut n'être dû qu'à la réduction de résolution.\n"
+    "- Quand tu organises des fichiers, explique ta logique clairement.\n\n"
+    "Reste naturel et engageant, n'hésite pas à utiliser des émoticônes ou de l'humour quand c'est pertinent."
 )
 
 
 # Modèles disponibles – (label affiché, nom Ollama, supporte_vision)
-# Modifiez AI_MODEL ci-dessus selon la config de la machine.
 AI_AVAILABLE_MODELS = [
-    # ── Gemma 4 — texte + vision natif (Google, 2025) ───────────────────────────────────
-    ("Gemma 4 E4B  (recommandé, ~9.6 GB) 🖼",            "gemma4:e4b",          True),
-    ("Gemma 4 · 26B MoE  (~18 GB) 🖼",                   "gemma4:26b",          True),
-    # ── DeepSeek-R1 — raisonnement (texte uniquement) ───────────────────────────────────
-    ("DeepSeek-R1 · 8B  (~5.2 GB)",                      "deepseek-r1:8b",      False),
-    ("DeepSeek-R1 · 14B  (~9.0 GB)",                     "deepseek-r1:14b",     False),
-    # ── Vision uniquement ─────────────────────────────────────────────────
-    ("LLaVA-Phi3 · 3.8B  (~2.9 GB) 🖼",                  "llava-phi3",          True),
-    ("LLaVA · 7B  (~4.1 GB) 🖼",                         "llava:7b",            True),
-    ("Llama 3.2 Vision · 11B  (~8 GB) 🖼",               "llama3.2-vision:11b", True),
-    ("Moondream 2  (légère, ~1.8 GB) 🖼",                 "moondream2",          True),
-    # ── Texte uniquement ─────────────────────────────────────────────────
-    ("Llama 3.1 · 8B  (~4.7 GB)",                        "llama3.1:8b",         False),
-    ("Llama 3.2 · 3B  (~2 GB)",                          "llama3.2:3b",         False),
-    ("Mistral 7B  (~4.1 GB)",                            "mistral:7b",          False),
-    ("Phi-3 Mini · 3.8B  (~2.3 GB)",                     "phi3:mini",           False),
-    ("Qwen 2.5 · 7B  (~4.4 GB)",                         "qwen2.5:7b",          False),
-    ("Gemma 2 · 2B  (~1.6 GB)",                          "gemma2:2b",           False),
-    ("Qwen 2.5 · 0.5B  (très légère, ~400 MB)",          "qwen2.5:0.5b",        False),
+    ("Gemma 4 E4B  (~9.6 GB) 🖼",   "gemma4:e4b",      True),
+    ("Gemma 4 · 26B  (~18 GB) 🖼",  "gemma4:26b",      True),
+    ("DeepSeek-R1 · 8B  (~5.2 GB)", "deepseek-r1:8b",  False),
+    ("DeepSeek-R1 · 14B  (~9 GB)",  "deepseek-r1:14b", False),
 ]
 
-# Ensemble des noms de modèles supportant la vision (pour vérification rapide)
-AI_VISION_MODELS = {entry[1] for entry in AI_AVAILABLE_MODELS if entry[2]}
-
 # Modèles affichés dans le dropdown de sélection rapide du Dashboard.
-# Modifiez cette liste pour changer les options proposées à l'utilisateur.
 AI_DROPDOWN_MODELS = [
     "gemma4:e4b",
     "deepseek-r1:8b",

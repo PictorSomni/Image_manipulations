@@ -48,3 +48,10 @@ open_with.json
 .sidepanel_config.json
 .notes.md
 .ai_conversation.json
+.ai_conversation_sp.json
+
+# Fichiers mémoire IA persistante — contenu personnel, ne pas versionner
+Data/memory.md
+Data/user.md
+Data/skills.md
+Data/system.md

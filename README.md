@@ -13,6 +13,29 @@ Compatible **Windows**, **macOS** et **Linux**.
 
 ## 🆕 Nouveautés
 
+### Dashboard (v2.6)
+- **Mémoire persistante de l'IA** : l'assistant peut désormais mémoriser des informations entre les sessions via 4 fichiers locaux dans `Data/` :
+  - `system.md` — prompt système personnalisable (remplace `AI_SYSTEM_PROMPT` dans `CONSTANTS.py`)
+  - `memory.md` — notes personnelles de l'agent (max 2 200 chars)
+  - `user.md` — profil utilisateur : préférences, habitudes, style (max 1 375 chars)
+  - `skills.md` — procédures et techniques apprises (max 3 000 chars)  
+  L'IA utilise l'outil `update_memory_file` pour ajouter, remplacer ou supprimer des entrées. Ces fichiers sont injectés automatiquement dans le system prompt à chaque démarrage avec un indicateur d'utilisation `[12% — 267/2200 chars]`.
+- **Texte préliminaire conservé** : quand l'IA écrit du texte avant d'appeler un outil (ex. « Je vais lister le dossier… »), ce texte reste affiché plutôt que d'être supprimé.
+- **Prise en charge du format `<tool_code>` de Gemma** : les appels d'outils au format Google/Gemma (`<tool_code>print(file_manager.create_file(...))</tool_code>`) sont désormais parsés et exécutés correctement, y compris la concaténation de chaînes Python dans les arguments.
+
+### Dashboard (v2.5 + v2.6 antérieur)
+- **Gemma comme agent — boucle agentique multi-tours** : l'IA peut enchaîner jusqu'à 6 tours d'outils automatiquement. Une seule question peut déclencher une recherche web, lire la page trouvée, lister le dossier ouvert, puis analyser les images — tout en continu, sans intervention.
+- **Thinking natif streamé** : les modèles supportant le mode thinking Ollama affichent leur raisonnement intermédiaire en temps réel dans une bulle 💭 dédiée.
+- **Outils dossier intégrés** : quand un dossier est ouvert, l'IA dispose de 4 outils supplémentaires :
+  - `list_folder_contents` — liste les fichiers avec taille et date
+  - `read_file_content` — lit le contenu d'un fichier texte
+  - `organize_files` — propose et exécute une organisation par sous-dossiers (confirmation avant action)
+  - `analyze_images` — analyse visuellement les images par lots avec une question libre
+- **Sélection photo IA agentique** : nouveau mode de sélection avant développement RAW via l'outil `select_photos`. Analyse par lots de 5 images, critères professionnels de reportage (netteté, expression, exposition, cadrage), taux de sélection 30-60 % configurable.
+- **Modèle par défaut mis à jour** : Gemma 4 E4B (~9.6 GB, texte + vision natif) remplace les anciens `llama3.2:3b` + `llava:7b`. Liste étendue incluant Gemma 4 26B, DeepSeek-R1 (8B/14B), Llama 3.2 Vision, etc.
+- **Support documents et audio** : glisser-déposer ou joindre des fichiers texte, code, PDF, DOCX directement à l'IA ; support des fichiers audio (mp3, wav, m4a, flac…).
+- **Outils web et dossier centralisés** : les définitions d'outils et le contexte système sont partagés entre Dashboard et SidePanel via `ai_tools.py` (pas de duplication).
+
 ### Dashboard (v2.4)
 - **Assistant IA local** : conversation intégrée via [Ollama](https://ollama.com) — accessible avec `/ai` dans la barre de commande.
   - Sélection automatique du modèle : texte pur (`llama3.2:3b`) ou vision (`llava:7b`) selon qu'une image est jointe ou non.
@@ -114,8 +137,9 @@ Sinon, ils s'arrêtent avec un message d'erreur explicite.
 - **Python 3.8+** : [Télécharger Python](https://www.python.org/downloads/)
 - **Ollama** *(installé automatiquement par `install.sh` / `install.bat`)* : [ollama.com](https://ollama.com/download)
   - Moteur d'IA local — fait tourner les modèles de langage sur la machine.
-  - Modèles utilisés par défaut : `llama3.2:3b` (texte, ~2 GB) et `llava:7b` (vision, ~4 GB).
+  - Modèle utilisé par défaut : `gemma4:e4b` (~9.6 GB, texte + vision natif).
   - Configurable dans `Data/CONSTANTS.py` (`AI_MODEL_TEXT` / `AI_MODEL_VISION`).
+  - Autres modèles disponibles : Gemma 4 26B, DeepSeek-R1 (8B/14B), Llama 3.2 Vision, LLaVA, Mistral, etc.
 - **ImageMagick** *(optionnel mais recommandé pour la conversion d'images)* :
   - **Windows** : [Télécharger ImageMagick](https://imagemagick.org/script/download.php#windows)
   - **macOS** : `brew install imagemagick`
