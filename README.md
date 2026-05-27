@@ -13,6 +13,10 @@ Compatible **Windows**, **macOS** et **Linux**.
 
 ## 🆕 Nouveautés
 
+### Dashboard (v2.6.5) — 27 mai 2026
+- **Sauvegarde automatique des images Gemini** : les images générées ou éditées par l'IA sont désormais toujours enregistrées sur disque, même si aucun dossier n'est sélectionné — elles sont alors sauvegardées dans `Generated/` à la racine du projet.
+- **Retry automatique sur les erreurs 503** : les erreurs Gemini `UNAVAILABLE` (service temporairement indisponible) déclenchent maintenant une nouvelle tentative automatique après 10 secondes (jusqu'à 3 essais), aussi bien pour le chat que pour la génération d'images.
+
 ### Dashboard (v2.6)
 - **Mémoire persistante de l'IA** : l'assistant peut désormais mémoriser des informations entre les sessions via 4 fichiers locaux dans `Data/` :
   - `system.md` — prompt système personnalisable (remplace `AI_SYSTEM_PROMPT` dans `CONSTANTS.py`)

@@ -2482,15 +2482,18 @@ def main(page: ft.Page):
                                 resolution=_gi_resolution,
                             )
                             _gi_stop_evt.set()
-                            if _gi_bytes and _folder_path_for_tools:
-                                _gi_save_path = os.path.join(_folder_path_for_tools, _gi_out_filename)
+                            if _gi_bytes:
+                                _gi_dest_folder = _folder_path_for_tools or os.path.join(app_directory, "Generated")
+                                os.makedirs(_gi_dest_folder, exist_ok=True)
+                                _gi_save_path = os.path.join(_gi_dest_folder, _gi_out_filename)
                                 with open(_gi_save_path, "wb") as _fout:
                                     _fout.write(_gi_bytes)
                                 _ai_add_image_bubble(_gi_save_path)
-                                page.pubsub.send_all_on_topic("refresh", None)
-                                _gi_result = f"Image sauvegardée : {_gi_out_filename}"
+                                if _folder_path_for_tools:
+                                    page.pubsub.send_all_on_topic("refresh", None)
+                                _gi_result = f"Image sauvegardée : {_gi_save_path}"
                                 if _gi_text:
-                                    _gi_result = _gi_text + f"\n\nFichier : {_gi_out_filename}"
+                                    _gi_result = _gi_text + f"\n\nFichier : {_gi_save_path}"
                             else:
                                 _gi_result = _gi_text or "[ERREUR] Aucune image générée."
                             _folder_tool_results.append((fn_name, _gi_result))

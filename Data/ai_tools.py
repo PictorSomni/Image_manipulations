@@ -1599,6 +1599,9 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
                 _delay = int(_match.group(1)) + 2 if _match else 62
                 yield ("token", f"\n[Quota Gemini dépassé – nouvelle tentative dans {_delay}s…]\n")
                 _time.sleep(_delay)
+            elif ("503" in _exc_str or "UNAVAILABLE" in _exc_str) and _attempt < _MAX_RETRIES:
+                yield ("token", f"\n[Service Gemini indisponible – nouvelle tentative dans 10s…]\n")
+                _time.sleep(10)
             else:
                 yield ("token", f"\n[Erreur Gemini : {exc}]")
                 break
@@ -1677,8 +1680,8 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
         except Exception as _exc:
             _exc_str = str(_exc)
             # Retry automatique sur quota 429
-            if "429" in _exc_str and _attempt_gi < _MAX_RETRIES_GI:
-                _delay_gi = 60.0
+            if ("429" in _exc_str or "503" in _exc_str or "UNAVAILABLE" in _exc_str) and _attempt_gi < _MAX_RETRIES_GI:
+                _delay_gi = 10.0 if ("503" in _exc_str or "UNAVAILABLE" in _exc_str) else 60.0
                 _m_gi = _re_gi.search(r'"retryDelay":\s*"(\d+(?:\.\d+)?)s"', _exc_str)
                 if _m_gi:
                     _delay_gi = float(_m_gi.group(1)) + 1.0
