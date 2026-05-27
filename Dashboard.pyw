@@ -2868,7 +2868,12 @@ def main(page: ft.Page):
                 )
                 return
 
-            batch_size    = CONSTANTS.AI_FOLDER_SELECT_BATCH_SIZE
+            active_model  = ai_model_dropdown.value or CONSTANTS.AI_MODEL_VISION
+            batch_size    = (
+                CONSTANTS.AI_GEMINI_FOLDER_BATCH_SIZE
+                if (active_model or "").startswith("gemini")
+                else CONSTANTS.AI_FOLDER_SELECT_BATCH_SIZE
+            )
             total_images  = len(all_images)
             total_batches = (total_images + batch_size - 1) // batch_size
 
@@ -2943,7 +2948,6 @@ def main(page: ft.Page):
                     f"\n\nCONTEXTE ET CRITÈRES SPÉCIFIQUES DU REPORTAGE :\n{criteria_text}"
                 )
 
-            active_model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_VISION
             if not _ensure_ollama_ready(active_model):
                 return
 
