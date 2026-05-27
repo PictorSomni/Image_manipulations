@@ -9,13 +9,14 @@ Fonctions et constantes exposées :
   _ollama_chat_stream(url, model, messages)  — appel streaming à /api/chat, génère les tokens
 
   Outils dossier (partagés) :
-  _folder_tool_definitions(folder_path)      — retourne les 4 définitions d'outils dossier pour Ollama
+  _folder_tool_definitions(folder_path)      — retourne les 6 définitions d'outils dossier pour Ollama
   _folder_list_contents(folder_path)         — liste les fichiers avec taille et date
   _folder_read_file(folder_path, filename)   — lit le contenu texte d'un fichier
   _folder_create_file(folder_path, filename, content)
                                              — crée un fichier texte dans le dossier ouvert
   _encode_image_for_analysis(image_path)     — encode une image en base64 JPEG pour un modèle vision
   _analyze_images_batched(...)               — analyse des images par lots et retourne les résultats
+  _gemini_generate_image(prompt, ...)        — génère/modifie une image via Nano Banana 2
 
   Helpers système (partagés) :
   _WEB_TOOLS                                 — liste des 2 définitions d'outils web (web_search + fetch_url)
@@ -647,7 +648,9 @@ def _folder_tool_definitions(folder_path):
                     "Analyse visuellement les images du dossier ouvert pour répondre "
                     "à une question. Exemples : trouver les personnes portant du rouge, "
                     "identifier les photos floues, décrire chaque image, "
-                    "trouver les photos prises en extérieur."
+                    "trouver les photos prises en extérieur. "
+                    "N'utilise PAS cet outil si l'image est déjà jointe directement "
+                    "dans le message de l'utilisateur — réponds directement à partir de cette image."
                 ),
                 "parameters": {
                     "type": "object",
@@ -666,6 +669,86 @@ def _folder_tool_definitions(folder_path):
                         },
                     },
                     "required": ["question"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "generate_image",
+                "description": (
+                    "Génère une image à partir d'un prompt texte avec Nano Banana 2 "
+                    "(gemini-3.1-flash-image-preview). "
+                    "L'image est sauvegardée dans le dossier ouvert et affichée dans le chat. "
+                    "Utilise cet outil quand l'utilisateur demande de créer, dessiner ou générer une image."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {
+                            "type": "string",
+                            "description": (
+                                "Description détaillée de l'image à générer. "
+                                "Plus la description est précise, meilleur est le résultat."
+                            ),
+                        },
+                        "filename": {
+                            "type": "string",
+                            "description": (
+                                "Nom du fichier de sortie (ex. 'portrait.png'). "
+                                "Laisser vide pour nommer automatiquement."
+                            ),
+                        },
+                        "aspect_ratio": {
+                            "type": "string",
+                            "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+                            "description": "Format de l'image. Défaut : 1:1.",
+                        },
+                    },
+                    "required": ["prompt"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "edit_image",
+                "description": (
+                    "Modifie une image existante du dossier ouvert avec un prompt texte "
+                    "via Nano Banana 2 (gemini-3.1-flash-image-preview). "
+                    "Idéal pour : changer le style, ajouter/supprimer des éléments, "
+                    "changer les couleurs, transformer une photo en illustration. "
+                    "L'image modifiée est sauvegardée dans le dossier ouvert."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "source_filename": {
+                            "type": "string",
+                            "description": "Nom du fichier image source à modifier (dans le dossier ouvert).",
+                        },
+                        "prompt": {
+                            "type": "string",
+                            "description": (
+                                "Instructions de modification, ex. : "
+                                "'Transforme en style aquarelle', "
+                                "'Remplace le fond par un coucher de soleil'."
+                            ),
+                        },
+                        "output_filename": {
+                            "type": "string",
+                            "description": (
+                                "Nom du fichier de sortie (ex. 'photo_aquarelle.png'). "
+                                "Laisser vide pour nommer automatiquement."
+                            ),
+                        },
+                        "aspect_ratio": {
+                            "type": "string",
+                            "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+                            "description": "Format de sortie. Défaut : même que l'original.",
+                        },
+                    },
+                    "required": ["source_filename", "prompt"],
                 },
             },
         },
@@ -834,13 +917,32 @@ def _analyze_images_batched(
             "NomFichier : réponse"
         )
         try:
-            response = _ollama_chat_once(
-                ollama_url,
-                model,
-                [{"role": "user", "content": prompt, "images": b64_list}],
-                temperature=0.2,
-            )
-            results.append(response.get("content", ""))
+            if model.startswith("gemini"):
+                from google import genai as _genai_ab
+                from google.genai import types as _gtypes_ab
+                import base64 as _b64_ab
+                _client_ab = _genai_ab.Client()
+                _parts_ab = [
+                    _gtypes_ab.Part.from_bytes(
+                        data=_b64_ab.b64decode(b64), mime_type="image/jpeg"
+                    )
+                    for b64 in b64_list
+                ]
+                _parts_ab.append(_gtypes_ab.Part(text=prompt))
+                _resp_ab = _client_ab.models.generate_content(
+                    model=model,
+                    contents=[_gtypes_ab.Content(role="user", parts=_parts_ab)],
+                    config=_gtypes_ab.GenerateContentConfig(temperature=0.2),
+                )
+                results.append(_resp_ab.text or "")
+            else:
+                response = _ollama_chat_once(
+                    ollama_url,
+                    model,
+                    [{"role": "user", "content": prompt, "images": b64_list}],
+                    temperature=0.2,
+                )
+                results.append(response.get("content", ""))
         except Exception as exc:
             results.append(f"(lot {batch_num} — erreur : {exc})")
 
@@ -1230,11 +1332,14 @@ def _build_system_content(base_prompt, folder_path=None, today_date_str=None):
         system_content += (
             f"\n\nDOSSIER OUVERT : « {folder_name} » (`{folder_path}`).\n"
             "Outils disponibles pour ce dossier : list_folder_contents, "
-            "read_file_content, organize_files, analyze_images, create_file.\n"
+            "read_file_content, organize_files, analyze_images, create_file, "
+            "generate_image, edit_image.\n"
             "Utilise-les quand l'utilisateur te demande d'explorer, résumer, "
             "organiser ou analyser visuellement le contenu de ce dossier. "
             "Pour toute question sur ce que contiennent les images "
             "(couleurs, personnes, lieux, objets…), utilise analyze_images. "
+            "Pour générer une nouvelle image depuis un prompt texte, utilise generate_image. "
+            "Pour modifier une image existante du dossier, utilise edit_image. "
             "RÈGLE ABSOLUE : pour lister le contenu du dossier, utilise TOUJOURS "
             "list_folder_contents — JAMAIS ls, find ou toute autre commande shell via run_terminal_command. "
             "Pour créer un fichier (script, note, liste, config…), utilise TOUJOURS create_file — "
@@ -1252,3 +1357,331 @@ def _build_system_content(base_prompt, folder_path=None, today_date_str=None):
         "Une confirmation sera toujours demandée avant exécution."
     )
     return system_content
+
+
+# ─── Intégration Google Gemini ───────────────────────────────────────────────
+
+def _ollama_tools_to_gemini(tools):
+    """
+    Convertit une liste de définitions d'outils au format Ollama (JSON Schema)
+    en un seul objet types.Tool Gemini contenant les FunctionDeclaration.
+    Retourne None si la liste est vide.
+    """
+    if not tools:
+        return None
+    try:
+        from google.genai import types as _gtypes
+    except ImportError:
+        return None
+
+    def _convert_schema(schema, _gtypes):
+        """Convertit récursivement un JSON Schema dict en types.Schema Gemini."""
+        raw_type = schema.get("type", "string").upper()
+        prop_type = getattr(_gtypes.Type, raw_type, _gtypes.Type.STRING)
+        kwargs = {
+            "type": prop_type,
+            "description": schema.get("description", ""),
+        }
+        if "enum" in schema:
+            kwargs["enum"] = schema["enum"]
+        # Tableaux : items obligatoire pour Gemini
+        if prop_type == _gtypes.Type.ARRAY and "items" in schema:
+            kwargs["items"] = _convert_schema(schema["items"], _gtypes)
+        # Objets imbriqués
+        if prop_type == _gtypes.Type.OBJECT and "properties" in schema:
+            kwargs["properties"] = {
+                k: _convert_schema(v, _gtypes)
+                for k, v in schema["properties"].items()
+            }
+            if "required" in schema:
+                kwargs["required"] = schema["required"]
+        return _gtypes.Schema(**kwargs)
+
+    declarations = []
+    for tool in tools:
+        fn = tool.get("function", {})
+        params = fn.get("parameters", {})
+        properties = {
+            prop_name: _convert_schema(schema, _gtypes)
+            for prop_name, schema in params.get("properties", {}).items()
+        }
+        gemini_params = _gtypes.Schema(
+            type=_gtypes.Type.OBJECT,
+            properties=properties,
+            required=params.get("required", []),
+        )
+        declarations.append(_gtypes.FunctionDeclaration(
+            name=fn.get("name", ""),
+            description=fn.get("description", ""),
+            parameters=gemini_params,
+        ))
+    return _gtypes.Tool(function_declarations=declarations)
+
+
+def _ollama_messages_to_gemini(messages):
+    """
+    Convertit une liste de messages au format Ollama en :
+      (system_instruction_str_or_None, [types.Content, ...])
+    Gère : texte, images base64 (clé 'images'), PDFs base64 (clé 'pdfs'),
+    tool_calls (role assistant) et résultats d'outils (role 'tool').
+    """
+    try:
+        import base64 as _b64
+        from google.genai import types as _gtypes
+    except ImportError:
+        return None, []
+
+    system_instr = None
+    gemini_contents = []
+
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+
+        if role == "system":
+            system_instr = content if isinstance(content, str) else ""
+            continue
+
+        gemini_role = "model" if role == "assistant" else "user"
+        parts = []
+
+        # Contenu textuel
+        if isinstance(content, str) and content:
+            parts.append(_gtypes.Part(text=content))
+        elif isinstance(content, list):
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "text" and item.get("text"):
+                    parts.append(_gtypes.Part(text=item["text"]))
+                elif item.get("type") == "image_url":
+                    url = (item.get("image_url") or {}).get("url", "")
+                    if url.startswith("data:") and "," in url:
+                        header, b64_data = url.split(",", 1)
+                        mime_type = header.split(":")[1].split(";")[0]
+                        try:
+                            parts.append(_gtypes.Part.from_bytes(
+                                data=_b64.b64decode(b64_data),
+                                mime_type=mime_type,
+                            ))
+                        except Exception:
+                            pass
+
+        # Images base64 (format Ollama : liste de chaînes b64 JPEG)
+        for b64_img in msg.get("images", []):
+            try:
+                parts.append(_gtypes.Part.from_bytes(
+                    data=_b64.b64decode(b64_img),
+                    mime_type="image/jpeg",
+                ))
+            except Exception:
+                pass
+
+        # PDFs base64 (format étendu : clé 'pdfs', liste de chaînes b64)
+        for b64_pdf in msg.get("pdfs", []):
+            try:
+                parts.append(_gtypes.Part.from_bytes(
+                    data=_b64.b64decode(b64_pdf),
+                    mime_type="application/pdf",
+                ))
+            except Exception:
+                pass
+
+        # Appels d'outils (rôle assistant)
+        if role == "assistant":
+            for tc in msg.get("tool_calls", []):
+                fn = tc.get("function", {})
+                args = fn.get("arguments", {})
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except Exception:
+                        args = {}
+                parts.append(_gtypes.Part.from_function_call(
+                    name=fn.get("name", ""),
+                    args=args,
+                ))
+
+        # Résultats d'outils (rôle 'tool')
+        if role == "tool":
+            tool_name = msg.get("name", "tool_result")
+            result_text = content if isinstance(content, str) else json.dumps(content)
+            parts.append(_gtypes.Part.from_function_response(
+                name=tool_name,
+                response={"result": result_text},
+            ))
+            gemini_role = "user"
+
+        if parts:
+            gemini_contents.append(_gtypes.Content(role=gemini_role, parts=parts))
+
+    return system_instr, gemini_contents
+
+
+def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7):
+    """
+    Version Gemini de _ollama_chat_stream_with_tools.
+    Génère les mêmes tuples : ("token", str), ("thinking", str), ("tool_calls", list).
+
+    tool_calls est une liste d'éléments compatibles format Ollama :
+      [{"function": {"name": str, "arguments": dict}}, ...]
+
+    Nécessite GEMINI_API_KEY dans les variables d'environnement.
+    """
+    try:
+        from google import genai as _genai
+        from google.genai import types as _gtypes
+    except ImportError:
+        yield ("token", (
+            "[Erreur : google-genai n'est pas installé. "
+            "Exécute : pip install google-genai>=1.55.0]"
+        ))
+        return
+
+    try:
+        client = _genai.Client()
+    except Exception as exc:
+        yield ("token", f"[Erreur initialisation Gemini : {exc}]")
+        return
+
+    gemini_tool = _ollama_tools_to_gemini(tools)
+    gemini_tools_list = [gemini_tool] if gemini_tool is not None else None
+
+    system_instr, gemini_contents = _ollama_messages_to_gemini(messages)
+
+    config_kwargs = {"temperature": temperature}
+    if system_instr:
+        config_kwargs["system_instruction"] = system_instr
+    if gemini_tools_list is not None:
+        config_kwargs["tools"] = gemini_tools_list
+    config = _gtypes.GenerateContentConfig(**config_kwargs)
+
+    # Accumulateur pour les function calls fragmentés sur plusieurs chunks
+    import time as _time
+    import re as _re_retry
+
+    _MAX_RETRIES = 3
+
+    for _attempt in range(_MAX_RETRIES + 1):
+        pending_tool_calls = []
+        try:
+            for chunk in client.models.generate_content_stream(
+                model=model,
+                contents=gemini_contents,
+                config=config,
+            ):
+                if not chunk.candidates:
+                    continue
+                for part in chunk.candidates[0].content.parts:
+                    # Tokens de réflexion (thinking)
+                    if getattr(part, "thought", False) and part.text:
+                        yield ("thinking", part.text)
+                    # Appel d'outil
+                    elif part.function_call is not None:
+                        fc = part.function_call
+                        args = dict(fc.args) if fc.args else {}
+                        pending_tool_calls.append({
+                            "function": {"name": fc.name, "arguments": args}
+                        })
+                    # Token de texte
+                    elif part.text:
+                        yield ("token", part.text)
+
+            # Émettre les tool_calls accumulés en une seule fois
+            if pending_tool_calls:
+                yield ("tool_calls", pending_tool_calls)
+            break  # succès
+
+        except Exception as exc:
+            _exc_str = str(exc)
+            if ("429" in _exc_str or "RESOURCE_EXHAUSTED" in _exc_str) and _attempt < _MAX_RETRIES:
+                _match = _re_retry.search(r"retryDelay[^0-9]*(\d+)", _exc_str)
+                _delay = int(_match.group(1)) + 2 if _match else 62
+                yield ("token", f"\n[Quota Gemini dépassé – nouvelle tentative dans {_delay}s…]\n")
+                _time.sleep(_delay)
+            else:
+                yield ("token", f"\n[Erreur Gemini : {exc}]")
+                break
+
+
+def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", resolution="1K"):
+    """
+    Génère ou modifie une image avec Nano Banana 2 (gemini-3.1-flash-image-preview).
+
+    - prompt            : description textuelle de l'image souhaitée
+    - input_image_bytes : bytes de l'image source pour édition (None = génération pure)
+    - aspect_ratio      : format de sortie, ex. "1:1", "16:9", "3:2" …
+    - resolution        : résolution : "512", "1K", "2K", "4K"
+
+    Retourne (text_response: str, image_bytes: bytes | None).
+    """
+    try:
+        from google import genai as _genai_img
+        from google.genai import types as _gtypes_img
+        import os as _os_img
+        import io as _io_img
+    except ImportError:
+        return ("Erreur : bibliothèque google-genai non installée.", None)
+
+    _api_key = _os_img.environ.get("GEMINI_API_KEY", "")
+    if not _api_key:
+        return ("Erreur : variable d'environnement GEMINI_API_KEY non définie.", None)
+
+    import time as _time_gi
+    import re as _re_gi
+    _MAX_RETRIES_GI = 3
+    for _attempt_gi in range(_MAX_RETRIES_GI + 1):
+        try:
+            _client = _genai_img.Client(api_key=_api_key)
+
+            # Construire le contenu : [image source optionnelle, puis prompt texte]
+            _contents = []
+            if input_image_bytes:
+                try:
+                    from PIL import Image as _PILImg
+                    _pil = _PILImg.open(_io_img.BytesIO(input_image_bytes))
+                    _contents.append(_pil)
+                except Exception:
+                    _contents.append(
+                        _gtypes_img.Part.from_bytes(data=input_image_bytes, mime_type="image/jpeg")
+                    )
+            _contents.append(prompt)
+
+            # Config de génération
+            _cfg_kwargs = {"response_modalities": ["TEXT", "IMAGE"]}
+            if aspect_ratio != "1:1" or resolution != "1K":
+                # image_config est le champ correct dans GenerateContentConfig v2.x
+                _cfg_kwargs["image_config"] = _gtypes_img.ImageConfig(
+                    aspect_ratio=aspect_ratio,
+                    image_size=resolution,
+                )
+
+            _response = _client.models.generate_content(
+                model="gemini-3.1-flash-image-preview",
+                contents=_contents,
+                config=_gtypes_img.GenerateContentConfig(**_cfg_kwargs),
+            )
+
+            _text_out = ""
+            _image_out = None
+            for _part in _response.parts:
+                if getattr(_part, "thought", False):
+                    continue
+                if _part.text:
+                    _text_out += _part.text
+                elif getattr(_part, "inline_data", None) is not None:
+                    _image_out = _part.inline_data.data  # bytes PNG/JPEG
+
+            return (_text_out.strip(), _image_out)
+
+        except Exception as _exc:
+            _exc_str = str(_exc)
+            # Retry automatique sur quota 429
+            if "429" in _exc_str and _attempt_gi < _MAX_RETRIES_GI:
+                _delay_gi = 60.0
+                _m_gi = _re_gi.search(r'"retryDelay":\s*"(\d+(?:\.\d+)?)s"', _exc_str)
+                if _m_gi:
+                    _delay_gi = float(_m_gi.group(1)) + 1.0
+                _time_gi.sleep(_delay_gi)
+                continue
+            return (f"[ERREUR Gemini Image] {_exc}", None)

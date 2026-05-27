@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.6.3"
+__version__ = "2.6.5"
 
 
 #############################################################
@@ -64,7 +64,8 @@ def _is_os_junk(entry):
 
 from ai_tools import (
     _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream,
-    _ollama_chat_stream_with_tools, _parse_text_tool_calls, _strip_text_tool_calls,
+    _ollama_chat_stream_with_tools, _gemini_chat_stream_with_tools,
+    _parse_text_tool_calls, _strip_text_tool_calls,
     _format_ai_conversation, _folder_tool_definitions, _folder_list_contents,
     _folder_read_file, _folder_create_file, _encode_image_for_analysis, _analyze_images_batched,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
@@ -756,6 +757,11 @@ def main(page: ft.Page):
         _add_recent_src(path)
         _rebuild_recent_src_menu()
         thumb_cache.invalidate_stale(path)
+        search_query["value"]       = ""
+        search_field.value           = ""
+        if file_filter_active["value"]:
+            file_filter_active["value"] = False
+            _update_file_filter_btn()
         _refresh_preview()
 
     def _refresh_preview(reset_page=True):
@@ -936,6 +942,9 @@ def main(page: ft.Page):
         if not search_text:
             _clear_search(event)
             return
+        if file_filter_active["value"]:
+            file_filter_active["value"] = False
+            _update_file_filter_btn()
         search_query["value"]  = search_text
         preview_page["value"]  = 0
         _render_preview()
@@ -2136,8 +2145,10 @@ def main(page: ft.Page):
         """Libère le modèle chargé en RAM via `ollama stop`."""
         def _run_stop():
             try:
-                subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_VISION], timeout=10)
-                subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_TEXT],   timeout=10)
+                current_model = CONSTANTS.AI_MODEL_TEXT
+                if not (current_model or "").startswith("gemini"):
+                    subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_VISION], timeout=10)
+                    subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_TEXT],   timeout=10)
             except Exception:
                 pass
             ai_stop_btn_sp.icon_color = LIGHT_GREY
@@ -2342,6 +2353,9 @@ def main(page: ft.Page):
         """Vérifie qu'Ollama est lancé et que le modèle est disponible."""
         if model_name is None:
             model_name = CONSTANTS.AI_MODEL_TEXT
+        # Les modèles Gemini n'ont pas besoin d'Ollama
+        if (model_name or "").startswith("gemini"):
+            return True
 
         def _is_ollama_up():
             try:
@@ -2579,10 +2593,18 @@ def main(page: ft.Page):
                         except Exception:
                             pass
 
-                    for _evt, _dat in _ollama_chat_stream_with_tools(
-                        CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                        tools=_ALL_TOOLS,
-                        temperature=CONSTANTS.AI_TEMPERATURE,
+                    for _evt, _dat in (
+                        _gemini_chat_stream_with_tools(
+                            active_model, messages,
+                            tools=_ALL_TOOLS,
+                            temperature=CONSTANTS.AI_TEMPERATURE,
+                        )
+                        if (active_model or "").startswith("gemini") else
+                        _ollama_chat_stream_with_tools(
+                            CONSTANTS.AI_OLLAMA_URL, active_model, messages,
+                            tools=_ALL_TOOLS,
+                            temperature=CONSTANTS.AI_TEMPERATURE,
+                        )
                     ):
                         if _evt == "tool_calls":
                             _stream_tool_calls.extend(_dat)
@@ -2605,16 +2627,17 @@ def main(page: ft.Page):
                                 page.run_task(_scroll_and_update)
 
                     tool_calls = _stream_tool_calls
-                    # Fallback non-streaming si le stream n'a rien renvoyé
+                    # Fallback non-streaming si le stream n'a rien renvoyé (Ollama uniquement)
                     if not _streamed and not _stream_tool_calls:
-                        _fallback = _ollama_chat_once(
-                            CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                            tools=_ALL_TOOLS,
-                            temperature=CONSTANTS.AI_TEMPERATURE,
-                        )
-                        tool_calls = _fallback.get("tool_calls") or []
-                        _streamed = _fallback.get("content", "")
-                        _thinking = _fallback.get("thinking", "")
+                        if not (active_model or "").startswith("gemini"):
+                            _fallback = _ollama_chat_once(
+                                CONSTANTS.AI_OLLAMA_URL, active_model, messages,
+                                tools=_ALL_TOOLS,
+                                temperature=CONSTANTS.AI_TEMPERATURE,
+                            )
+                            tool_calls = _fallback.get("tool_calls") or []
+                            _streamed = _fallback.get("content", "")
+                            _thinking = _fallback.get("thinking", "")
                     if not tool_calls:
                         text_calls = _parse_text_tool_calls(_streamed)
                         if text_calls:
@@ -3172,6 +3195,12 @@ def main(page: ft.Page):
     src_path_field.on_submit   = lambda event: (
         _navigate((src_path_field.value or "").strip())
     )
+
+    def _on_tab_change(event):
+        """Sauvegarde les notes automatiquement quand on quitte l'onglet Bloc-notes."""
+        _notepad_save()
+
+    tabs.on_change = _on_tab_change
 
     list_search_field.on_change    = _on_list_search_change
     list_search_field.on_submit    = _on_list_search_change

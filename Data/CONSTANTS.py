@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.6.3"
+__version__ = "2.6.5"
 
 
 # ─── Extensions de fichiers ────────────────────────────────────────────────────────────
@@ -79,6 +79,7 @@ FORMATS = { # (largeur_mm, hauteur_mm) - en portrait
     "9x13": (89, 127),
     "10x10": (102, 102),
     "10x15": (102, 152),
+    "13x13": (127, 127),
     "13x18": (127, 178),
     "15x20": (152, 203),
     "15x15": (152, 152),
@@ -155,6 +156,11 @@ TEMP_FOLDER = "Z:/temp"
 # Utilisée par Nettoyer anciens fichiers.py.
 CLEAN_DAYS = 60   # Fichiers plus vieux que N jours sont supprimés
 
+# ─── Comportement ZIP ─────────────────────────────────────────────────────────────────────
+# True  = supprime directement le .zip source après décompression (sans confirmation)
+# False = affiche une boîte de dialogue Oui/Non avant de supprimer
+DELETE_ZIP_AFTER_EXTRACT = True
+
 
 # ─── Chemins réseau kiosks ───────────────────────────────────────────────────────────────
 # Utilisés par Kiosk gauche.py, Kiosk droite.py et Nettoyer anciens fichiers.py.
@@ -202,13 +208,16 @@ del _platform
 # Installez Ollama puis téléchargez un modèle : ollama pull gemma4:e4b
 
 AI_OLLAMA_URL   = "http://localhost:11434"   # URL de l'API Ollama locale
-AI_MODEL_TEXT   = "gemma4:e4b"               # Modèle texte + vision (~9.6 GB)
-AI_MODEL_VISION = "gemma4:e4b"               # Modèle vision     (~9.6 GB)
+AI_MODEL_TEXT   = "gemini-3.5-flash"         # Modèle texte par défaut
+AI_MODEL_VISION = "gemini-3.5-flash"         # Modèle vision par défaut
+AI_GEMINI_MODEL    = "gemini-3.5-flash"      # Modèle Gemini principal (API Google)
+AI_GEMINI_FALLBACK = "gemma4:e4b"            # Fallback Ollama local si hors-ligne
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
 AI_URL_MAX_CHARS = 12_000                    # Nb max de caractères extraits d'une URL (augmenter si le modèle a un grand contexte)
 AI_ORGANIZE_CONFIRM  = False                  # True = dialog de confirmation avant chaque tri de fichiers ; False = exécution directe
 AI_TERMINAL_CONFIRM = False                   # True = dialog de confirmation avant chaque commande terminal ; False = exécution directe
-AI_FOLDER_SELECT_BATCH_SIZE = 5              # Nb d'images par appel IA — petits lots de 5 pour feedback fréquent et attention maximale par image
+AI_FOLDER_SELECT_BATCH_SIZE = 5              # Nb d'images par appel IA (Ollama) — petits lots de 5 pour feedback fréquent et attention maximale par image
+AI_GEMINI_FOLDER_BATCH_SIZE = 20            # Nb d'images par appel IA (Gemini) — lots plus grands, contexte large et quota par requête
 AI_FOLDER_SELECT_IMAGE_SIZE = 800           # Résolution max (px) — 1024 pour bien distinguer netteté, expressions, exposition
 AI_FOLDER_SELECT_QUALITY    = 70             # Qualité JPEG des images envoyées à l'IA pour l'analyse
 AI_FOLDER_SELECT_SYSTEM_PROMPT = (
@@ -262,18 +271,19 @@ AI_SYSTEM_PROMPT = (
 )
 
 
-# Modèles disponibles – (label affiché, nom Ollama, supporte_vision)
+# Modèles disponibles – (label affiché, identifiant, supporte_vision)
 AI_AVAILABLE_MODELS = [
-    ("Gemma 4 E4B  (~9.6 GB) 🖼",   "gemma4:e4b",      True),
-    ("Gemma 4 · 26B  (~18 GB) 🖼",  "gemma4:26b",      True),
-    ("DeepSeek-R1 · 8B  (~5.2 GB)", "deepseek-r1:8b",  False),
-    ("DeepSeek-R1 · 14B  (~9 GB)",  "deepseek-r1:14b", False),
+    ("Gemini 3.5 Flash  🌐🖼",        "gemini-3.5-flash", True),
+    ("Gemma 4 E4B  (~9.6 GB) 🖼",    "gemma4:e4b",       True),
+    ("Gemma 4 · 26B  (~18 GB) 🖼",   "gemma4:26b",       True),
+    ("DeepSeek-R1 · 8B  (~5.2 GB)",  "deepseek-r1:8b",   False),
+    ("DeepSeek-R1 · 14B  (~9 GB)",   "deepseek-r1:14b",  False),
 ]
 
 # Modèles affichés dans le dropdown de sélection rapide du Dashboard.
 AI_DROPDOWN_MODELS = [
+    "gemini-3.5-flash",
     "gemma4:e4b",
-    "deepseek-r1:8b",
 ]
 
 

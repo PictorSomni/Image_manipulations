@@ -29,7 +29,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.6.3"
+__version__ = "2.6.5"
 
 
 
@@ -64,9 +64,11 @@ except ImportError:
 
 from ai_tools import (
     _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream,
-    _ollama_chat_stream_with_tools, _parse_text_tool_calls, _strip_text_tool_calls,
+    _ollama_chat_stream_with_tools, _gemini_chat_stream_with_tools,
+    _parse_text_tool_calls, _strip_text_tool_calls,
     _format_ai_conversation, _folder_tool_definitions, _folder_list_contents,
     _folder_read_file, _folder_create_file, _encode_image_for_analysis, _analyze_images_batched,
+    _gemini_generate_image,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
     _update_memory_file, _build_system_content,
 )
@@ -1016,6 +1018,8 @@ def main(page: ft.Page):
                 paste_files(None)
             elif e.key == "X":
                 cut_selected_files(None)
+        elif e.key in ("Delete", "Backspace"):
+            delete_selected_files(None)
 
     # Activer la gestion des événements clavier
     page.on_keyboard_event = on_keyboard_event
@@ -1407,8 +1411,10 @@ def main(page: ft.Page):
         """Libère le modèle chargé en RAM via `ollama stop`."""
         def _run_stop():
             try:
-                subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_VISION], timeout=10)
-                subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_TEXT],   timeout=10)
+                current_model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_TEXT
+                if not (current_model or "").startswith("gemini"):
+                    subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_VISION], timeout=10)
+                    subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_TEXT],   timeout=10)
             except Exception:
                 pass
             ai_stop_button.visible = False
@@ -1664,9 +1670,12 @@ def main(page: ft.Page):
         Lance le serveur et/ou télécharge le modèle si nécessaire.
         Retourne True si tout est prêt, False en cas d'erreur bloquante.
         Doit être appelé depuis un thread secondaire (bloquant).
-        """
+        """        
         if model_name is None:
             model_name = CONSTANTS.AI_MODEL_TEXT
+        # Les modèles Gemini n'ont pas besoin d'Ollama
+        if (model_name or "").startswith("gemini"):
+            return True
         def _is_ollama_up():
             try:
                 with urllib.request.urlopen(
@@ -1893,6 +1902,28 @@ def main(page: ft.Page):
         page.run_task(_update_and_scroll)
         return bubble_text
 
+    def _ai_add_image_bubble(image_path):
+        """Affiche une image générée par Nano Banana 2 dans le chat IA."""
+        img_widget = ft.Image(
+            src=image_path,
+            width=400,
+            border_radius=8,
+            fit=ft.BoxFit.CONTAIN,
+        )
+        row = ft.Row(
+            [ft.Container(img_widget, border_radius=8)],
+            alignment=ft.MainAxisAlignment.START,
+        )
+        ai_chat_view.controls.append(row)
+        async def _upd():
+            try:
+                page.update()
+                await asyncio.sleep(0)
+                await ai_chat_view.scroll_to(offset=-1)
+            except Exception:
+                pass
+        page.run_task(_upd)
+
     def _send_ai_message(message_text):
         """Envoie un message à Ollama et streame la réponse dans le panneau IA."""
         if ai_streaming["value"]:
@@ -2073,10 +2104,18 @@ def main(page: ft.Page):
                         except Exception:
                             pass
 
-                    for _evt, _dat in _ollama_chat_stream_with_tools(
-                        CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                        tools=_ALL_TOOLS,
-                        temperature=CONSTANTS.AI_TEMPERATURE,
+                    for _evt, _dat in (
+                        _gemini_chat_stream_with_tools(
+                            active_model, messages,
+                            tools=_ALL_TOOLS,
+                            temperature=CONSTANTS.AI_TEMPERATURE,
+                        )
+                        if (active_model or "").startswith("gemini") else
+                        _ollama_chat_stream_with_tools(
+                            CONSTANTS.AI_OLLAMA_URL, active_model, messages,
+                            tools=_ALL_TOOLS,
+                            temperature=CONSTANTS.AI_TEMPERATURE,
+                        )
                     ):
                         if _evt == "tool_calls":
                             _stream_tool_calls.extend(_dat)
@@ -2103,16 +2142,16 @@ def main(page: ft.Page):
                         "_streamed_raw": _streamed,
                         "_stream_tool_calls_native": _stream_tool_calls,
                     })
-                    # Fallback non-streaming si le stream n'a rien renvoyé
                     if not _streamed and not _stream_tool_calls:
-                        _fallback = _ollama_chat_once(
-                            CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                            tools=_ALL_TOOLS,
-                            temperature=CONSTANTS.AI_TEMPERATURE,
-                        )
-                        tool_calls = _fallback.get("tool_calls") or []
-                        _streamed = _fallback.get("content", "")
-                        _thinking = _fallback.get("thinking", "")
+                        if not (active_model or "").startswith("gemini"):
+                            _fallback = _ollama_chat_once(
+                                CONSTANTS.AI_OLLAMA_URL, active_model, messages,
+                                tools=_ALL_TOOLS,
+                                temperature=CONSTANTS.AI_TEMPERATURE,
+                            )
+                            tool_calls = _fallback.get("tool_calls") or []
+                            _streamed = _fallback.get("content", "")
+                            _thinking = _fallback.get("thinking", "")
                     if not tool_calls:
                         text_calls = _parse_text_tool_calls(_streamed)
                         if text_calls:
@@ -2127,40 +2166,6 @@ def main(page: ft.Page):
                     })
 
                     if not tool_calls:
-                        # Gemma a répondu en texte sans appeler create_file alors
-                        # qu'un résultat list_folder_contents est disponible.
-                        # Créer le fichier directement avec les données réelles.
-                        if (_tool_round > 0 and _last_folder_listing
-                                and not _text_response_retry_done
-                                and not _create_file_done
-                                and not _read_file_done):  # pas dans un workflow d'édition
-                            _text_response_retry_done = True
-                            import os as _os_autocreate
-                            import datetime as _dt_autocreate
-                            _folder_basename = _os_autocreate.path.basename(
-                                _folder_path_for_tools or ""
-                            )
-                            _auto_filename = (
-                                f"liste_{_folder_basename}.md" if _folder_basename
-                                else f"liste_fichiers_{_dt_autocreate.datetime.now():%Y%m%d_%H%M%S}.md"
-                            )
-                            _ai_add_bubble("assistant", f"📝 Création : {_auto_filename}")
-                            try:
-                                page.update()
-                            except Exception:
-                                pass
-                            _folder_create_file(
-                                _folder_path_for_tools, _auto_filename, _last_folder_listing
-                            )
-                            page.pubsub.send_all_on_topic("refresh", None)
-                            full_response = (
-                                f"Voilà, j'ai créé le fichier **{_auto_filename}** "
-                                "avec la liste complète des fichiers et leurs tailles ! 😊"
-                            )
-                            response_text_ctrl = None
-                            _remove_loading()
-                            response_text_ctrl = _ai_add_bubble("assistant", full_response)
-                            break
                         full_response = _strip_text_tool_calls(_streamed)
                         # Fallback XML <think> si pas de thinking natif (modèles non supportés)
                         if not _thinking and "<think>" in full_response:
@@ -2377,9 +2382,13 @@ def main(page: ft.Page):
                                 _folder_tool_results.append((fn_name, "Aucune image trouvée."))
                             else:
                                 _analyze_total   = len(_analyze_candidates)
-                                _analyze_batch_n = CONSTANTS.AI_FOLDER_SELECT_BATCH_SIZE
-                                _analyze_batches = (_analyze_total + _analyze_batch_n - 1) // _analyze_batch_n
                                 _analyze_model   = ai_model_dropdown.value or CONSTANTS.AI_MODEL_VISION
+                                _analyze_batch_n = (
+                                    CONSTANTS.AI_GEMINI_FOLDER_BATCH_SIZE
+                                    if (_analyze_model or "").startswith("gemini")
+                                    else CONSTANTS.AI_FOLDER_SELECT_BATCH_SIZE
+                                )
+                                _analyze_batches = (_analyze_total + _analyze_batch_n - 1) // _analyze_batch_n
                                 _analysis_progress_ctrl = _ai_add_bubble(
                                     "assistant",
                                     f"📸 Analyse de {_analyze_total} image(s) — lot 1/{_analyze_batches}…",
@@ -2400,7 +2409,7 @@ def main(page: ft.Page):
                                     _folder_path_for_tools,
                                     _analyze_candidates,
                                     _analyze_question,
-                                    batch_size=CONSTANTS.AI_FOLDER_SELECT_BATCH_SIZE,
+                                    batch_size=_analyze_batch_n,
                                     image_exts=CONSTANTS.IMAGE_EXTS,
                                     max_size=CONSTANTS.AI_FOLDER_SELECT_IMAGE_SIZE,
                                     quality=CONSTANTS.AI_FOLDER_SELECT_QUALITY,
@@ -2418,6 +2427,73 @@ def main(page: ft.Page):
                                 _folder_tool_results.append(
                                     (fn_name, "\n\n".join(_analyze_results) or "Aucun résultat.")
                                 )
+                        elif fn_name in ("generate_image", "edit_image"):
+                            import datetime as _dt_gi
+                            _gi_prompt     = fn_args.get("prompt", "")
+                            _gi_aspect     = fn_args.get("aspect_ratio", "1:1")
+                            _gi_resolution = fn_args.get("resolution", "1K")
+                            # Fichier de sortie
+                            if fn_name == "generate_image":
+                                _gi_out_filename = (
+                                    fn_args.get("filename", "").strip()
+                                    or f"generated_{_dt_gi.datetime.now():%Y%m%d_%H%M%S}.png"
+                                )
+                                _gi_src_bytes = None
+                                _gi_label = _gi_prompt[:60] + ("…" if len(_gi_prompt) > 60 else "")
+                                _ai_add_bubble("assistant", f"🎨 Génération : {_gi_label}")
+                            else:  # edit_image
+                                _gi_src_name = fn_args.get("source_filename", "").strip()
+                                _gi_out_filename = (
+                                    fn_args.get("output_filename", "").strip()
+                                    or f"edited_{_dt_gi.datetime.now():%Y%m%d_%H%M%S}.png"
+                                )
+                                _gi_src_bytes = None
+                                if _gi_src_name and _folder_path_for_tools:
+                                    _gi_src_path = os.path.join(
+                                        _folder_path_for_tools, os.path.basename(_gi_src_name)
+                                    )
+                                    if os.path.isfile(_gi_src_path):
+                                        with open(_gi_src_path, "rb") as _f:
+                                            _gi_src_bytes = _f.read()
+                                _ai_add_bubble("assistant", f"🎨 Édition : {_gi_src_name} → {_gi_out_filename}")
+                            import time as _time_gi_ui
+                            import threading as _threading_gi
+                            _gi_start_t = _time_gi_ui.time()
+                            _gi_stop_evt = _threading_gi.Event()
+                            def _gi_progress_thread():
+                                while not _gi_stop_evt.wait(2.0):
+                                    _elapsed = int(_time_gi_ui.time() - _gi_start_t)
+                                    ai_status_text.value = f"🎨 Nano Banana 2 en cours… {_elapsed}s"
+                                    try:
+                                        page.update()
+                                    except Exception:
+                                        pass
+                            _gi_progress_t = _threading_gi.Thread(target=_gi_progress_thread, daemon=True)
+                            ai_status_text.value = "🎨 Nano Banana 2 en cours… 0s"
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _gi_progress_t.start()
+                            _gi_text, _gi_bytes = _gemini_generate_image(
+                                _gi_prompt,
+                                input_image_bytes=_gi_src_bytes,
+                                aspect_ratio=_gi_aspect,
+                                resolution=_gi_resolution,
+                            )
+                            _gi_stop_evt.set()
+                            if _gi_bytes and _folder_path_for_tools:
+                                _gi_save_path = os.path.join(_folder_path_for_tools, _gi_out_filename)
+                                with open(_gi_save_path, "wb") as _fout:
+                                    _fout.write(_gi_bytes)
+                                _ai_add_image_bubble(_gi_save_path)
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _gi_result = f"Image sauvegardée : {_gi_out_filename}"
+                                if _gi_text:
+                                    _gi_result = _gi_text + f"\n\nFichier : {_gi_out_filename}"
+                            else:
+                                _gi_result = _gi_text or "[ERREUR] Aucune image générée."
+                            _folder_tool_results.append((fn_name, _gi_result))
                         elif fn_name == "create_file":
                             import datetime as _dt_cf
                             _create_filename = fn_args.get("filename", "").strip()
@@ -2930,11 +3006,19 @@ def main(page: ft.Page):
                 thinking_text = ""
                 token_counter = 0
                 try:
-                    for event_type, event_data in _ollama_chat_stream_with_tools(
-                        CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                        tools=[select_photos_tool],
-                        temperature=0.3,
-                        timeout=600,
+                    for event_type, event_data in (
+                        _gemini_chat_stream_with_tools(
+                            active_model, messages,
+                            tools=[select_photos_tool],
+                            temperature=0.3,
+                        )
+                        if (active_model or "").startswith("gemini") else
+                        _ollama_chat_stream_with_tools(
+                            CONSTANTS.AI_OLLAMA_URL, active_model, messages,
+                            tools=[select_photos_tool],
+                            temperature=0.3,
+                            timeout=600,
+                        )
                     ):
                         if not ai_streaming["value"]:
                             break
@@ -3883,6 +3967,9 @@ def main(page: ft.Page):
         selection_count_text.value = ""
         search_query["value"] = ""
         search_field.value = ""
+        if show_only_selection["value"]:
+            show_only_selection["value"] = False
+            _update_filter_sel_btn()
         preview_page["value"] = 0
         _add_to_recent(new_path)
         _rebuild_recent_folders_menu()
@@ -3917,7 +4004,39 @@ def main(page: ft.Page):
 
                 zf.extractall(extract_to)
             log_to_terminal(f"[OK] Décompressé: {os.path.basename(file_path)}", GREEN)
-            refresh_preview()
+            if CONSTANTS.DELETE_ZIP_AFTER_EXTRACT:
+                try:
+                    os.remove(file_path)
+                    log_to_terminal(f"[OK] ZIP supprimé: {os.path.basename(file_path)}", GREEN)
+                except Exception as _ze:
+                    log_to_terminal(f"[ERREUR] Suppression ZIP: {_ze}", RED)
+                refresh_preview()
+            else:
+                def _confirm_del_zip(ev):
+                    dlg_del_zip.open = False
+                    page.update()
+                    try:
+                        os.remove(file_path)
+                        log_to_terminal(f"[OK] ZIP supprimé: {os.path.basename(file_path)}", GREEN)
+                        refresh_preview()
+                    except Exception as _ze:
+                        log_to_terminal(f"[ERREUR] Suppression ZIP: {_ze}", RED)
+                def _cancel_del_zip(ev):
+                    dlg_del_zip.open = False
+                    page.update()
+                dlg_del_zip = ft.AlertDialog(
+                    title=ft.Text("Supprimer le fichier ZIP ?"),
+                    content=ft.Text(f"Voulez-vous supprimer '{os.path.basename(file_path)}' ?"),
+                    actions=[
+                        ft.TextButton("Conserver", on_click=_cancel_del_zip),
+                        ft.TextButton("Supprimer", on_click=_confirm_del_zip,
+                                      style=ft.ButtonStyle(color=ft.Colors.RED)),
+                    ],
+                )
+                page.overlay.append(dlg_del_zip)
+                dlg_del_zip.open = True
+                page.update()
+                refresh_preview()
         except Exception as err:
             log_to_terminal(f"[ERREUR] Décompression: {err}", RED)
 
@@ -4611,7 +4730,6 @@ def main(page: ft.Page):
         page.update()
 
 
-
     def create_new_folder(e):
         """Crée un nouveau dossier dans le dossier actuel"""
         target_folder = current_browse_folder["path"] or selected_folder["path"]
@@ -5218,6 +5336,9 @@ def main(page: ft.Page):
         if not typed_text:
             _clear_search(e)
             return
+        if show_only_selection["value"]:
+            show_only_selection["value"] = False
+            _update_filter_sel_btn()
         search_query["value"] = typed_text
         preview_page["value"] = 0
         _render_preview_page()
