@@ -1683,7 +1683,8 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
 
 def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", resolution="1K"):
     """
-    Génère ou modifie une image avec Nano Banana 2 (gemini-3.1-flash-image-preview).
+    Génère ou modifie une image avec Nano Banana 2.
+    Utilise gemini-3.1-flash-image-preview avec bascule automatique (fallback) vers gemini-2.5-flash-image si surchargé ou indisponible.
 
     - prompt            : description textuelle de l'image souhaitée
     - input_image_bytes : bytes de l'image source pour édition (None = génération pure)
@@ -1711,57 +1712,76 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
 
     import time as _time_gi
     import re as _re_gi
-    _MAX_RETRIES_GI = 3
-    for _attempt_gi in range(_MAX_RETRIES_GI + 1):
-        try:
-            _client = _genai_img.Client(api_key=_api_key)
 
-            # Construire le contenu : [image source optionnelle, puis prompt texte]
-            # Prompt en premier, puis image source (ordre recommandé par la doc Gemini)
-            _contents = [prompt]
-            if input_image_bytes:
-                try:
-                    from PIL import Image as _PILImg
-                    _pil = _PILImg.open(_io_img.BytesIO(input_image_bytes))
-                    _contents.append(_pil)
-                except Exception:
-                    _contents.append(
-                        _gtypes_img.Part.from_bytes(data=input_image_bytes, mime_type="image/jpeg")
-                    )
+    _candidate_models = ["gemini-3.1-flash-image-preview", "gemini-2.5-flash-image"]
+    _last_error = None
 
-            # Config de génération — response_format pour Gemini 3 (remplace image_config)
-            _cfg_kwargs: dict = {"response_modalities": ["TEXT", "IMAGE"]}
-            if aspect_ratio != "1:1" or resolution != "1K":
-                _cfg_kwargs["response_format"] = {
-                    "image": {"aspect_ratio": aspect_ratio, "image_size": resolution}
-                }
+    for _model in _candidate_models:
+        _MAX_RETRIES_GI = 1  # Retries courts par modèle pour éviter d'attendre indéfiniment
+        for _attempt_gi in range(_MAX_RETRIES_GI + 1):
+            try:
+                _client = _genai_img.Client(api_key=_api_key)
 
-            _response = _client.models.generate_content(
-                model="gemini-3.1-flash-image-preview",
-                contents=_contents,
-                config=_gtypes_img.GenerateContentConfig(**_cfg_kwargs),
-            )
+                # Construire le contenu : [image source optionnelle, puis prompt texte]
+                # Prompt en premier, puis image source (ordre recommandé par la doc Gemini)
+                _contents = [prompt]
+                if input_image_bytes:
+                    try:
+                        from PIL import Image as _PILImg, ImageOps as _PILOps
+                        _pil = _PILImg.open(_io_img.BytesIO(input_image_bytes))
+                        # Transposer EXIF et convertir en RGB pour supprimer la transparence RGBA potentiellement rejetée
+                        _pil = _PILOps.exif_transpose(_pil).convert("RGB")
+                        # Redimensionnement préventif au format 4K max pour préserver la qualité maximale
+                        _pil.thumbnail((4096, 4096), _PILImg.Resampling.LANCZOS)
+                        _buf = _io_img.BytesIO()
+                        _pil.save(_buf, format="JPEG", quality=100, optimize=True)
+                        _compressed_bytes = _buf.getvalue()
+                        _contents.append(
+                            _gtypes_img.Part.from_bytes(data=_compressed_bytes, mime_type="image/jpeg")
+                        )
+                    except Exception:
+                        _contents.append(
+                            _gtypes_img.Part.from_bytes(data=input_image_bytes, mime_type="image/jpeg")
+                        )
 
-            _text_out = ""
-            _image_out = None
-            for _part in _response.parts:
-                if getattr(_part, "thought", False):
+                # Config de génération — response_format pour Gemini 3 (remplace image_config)
+                _cfg_kwargs: dict = {"response_modalities": ["TEXT", "IMAGE"]}
+                if aspect_ratio != "1:1" or resolution != "1K":
+                    _cfg_kwargs["response_format"] = {
+                        "image": {"aspect_ratio": aspect_ratio, "image_size": resolution}
+                    }
+
+                _response = _client.models.generate_content(
+                    model=_model,
+                    contents=_contents,
+                    config=_gtypes_img.GenerateContentConfig(**_cfg_kwargs),
+                )
+
+                _text_out = ""
+                _image_out = None
+                if _response.parts:
+                    for _part in _response.parts:
+                        if getattr(_part, "thought", False):
+                            continue
+                        if _part.text:
+                            _text_out += _part.text
+                        elif getattr(_part, "inline_data", None) is not None and _part.inline_data:
+                            _image_out = _part.inline_data.data  # bytes PNG/JPEG
+
+                return (_text_out.strip(), _image_out)
+
+            except Exception as _exc:
+                _exc_str = str(_exc)
+                _last_error = _exc
+                # Retry automatique très rapide sur quota 429 ou erreur 503
+                if ("429" in _exc_str or "503" in _exc_str or "UNAVAILABLE" in _exc_str) and _attempt_gi < _MAX_RETRIES_GI:
+                    _delay_gi = 2.0
+                    _m_gi = _re_gi.search(r'"retryDelay":\s*"(\d+(?:\.\d+)?)s"', _exc_str)
+                    if _m_gi:
+                        _delay_gi = float(_m_gi.group(1)) + 1.0
+                    _time_gi.sleep(_delay_gi)
                     continue
-                if _part.text:
-                    _text_out += _part.text
-                elif getattr(_part, "inline_data", None) is not None:
-                    _image_out = _part.inline_data.data  # bytes PNG/JPEG
+                # Si erreur irrémédiable ou épuisement des essais, on tente le modèle suivant immédiatement
+                break
 
-            return (_text_out.strip(), _image_out)
-
-        except Exception as _exc:
-            _exc_str = str(_exc)
-            # Retry automatique sur quota 429
-            if ("429" in _exc_str or "503" in _exc_str or "UNAVAILABLE" in _exc_str) and _attempt_gi < _MAX_RETRIES_GI:
-                _delay_gi = 10.0 if ("503" in _exc_str or "UNAVAILABLE" in _exc_str) else 60.0
-                _m_gi = _re_gi.search(r'"retryDelay":\s*"(\d+(?:\.\d+)?)s"', _exc_str)
-                if _m_gi:
-                    _delay_gi = float(_m_gi.group(1)) + 1.0
-                _time_gi.sleep(_delay_gi)
-                continue
-            return (f"[ERREUR Gemini Image] {_exc}", None)
+    return (f"[ERREUR Gemini Image] {_last_error}", None)
