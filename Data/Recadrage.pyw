@@ -41,7 +41,7 @@ Espace     : ignorer l'image courante et passer à la suivante
 Tab       : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.6.5"
+__version__ = "2.6.6"
 
 #############################################################
 #                          IMPORTS                          #
@@ -208,6 +208,178 @@ def _erode_alpha(source_image: Image.Image, radius: int) -> Image.Image:
 
 
 
+# ================================================================ #
+#                     SLIDER VERTICAL CUSTOM                       #
+# ================================================================ #
+
+class _VertSliderEvent:
+    """Événement simulé pour compatibilité avec les callbacks (e.control.value / label / update)."""
+    def __init__(self, control):
+        self.control = control
+
+
+class VerticalSlider:
+    """
+    Slider vertical personnalisé basé sur GestureDetector.
+
+    Expose la même interface que ft.Slider (value, label, max, update())
+    utilisée par le code PhotoCropper, avec une détection de gestes
+    verticale correcte sur toute la hauteur du contrôle.
+
+    Le bas correspond au minimum et le haut au maximum.
+    Double-tap → callback on_double_tap (ex : reset).
+    """
+
+    _TRACK_W = 4
+    _THUMB_D = 22
+    _COL_W   = 50
+
+    def __init__(self, *, min_val, max_val, initial_val,
+                 on_change=None, on_change_end=None, on_double_tap=None,
+                 active_color=ft.Colors.BLUE, track_height=500):
+        self._min      = float(min_val)
+        self._max      = float(max_val)
+        self._value    = float(initial_val)
+        self._on_change     = on_change
+        self._on_change_end = on_change_end
+        self._on_dbl_tap    = on_double_tap
+        self._color    = active_color
+        self._h        = track_height
+        self.label     = ""
+
+        cx = (self._COL_W - self._TRACK_W) // 2  # centre horizontal de la piste
+
+        self._bg_track = ft.Container(
+            width=self._TRACK_W, height=track_height,
+            bgcolor=ft.Colors.with_opacity(0.30, active_color),
+            border_radius=self._TRACK_W,
+            left=cx, top=0,
+        )
+        self._fg_track = ft.Container(
+            width=self._TRACK_W, height=0,
+            bgcolor=active_color,
+            border_radius=self._TRACK_W,
+            left=cx, top=track_height,
+        )
+        self._thumb = ft.Container(
+            width=self._THUMB_D, height=self._THUMB_D,
+            border_radius=self._THUMB_D // 2,
+            bgcolor=active_color,
+            left=(self._COL_W - self._THUMB_D) // 2,
+            top=0,
+        )
+        self._lbl = ft.Text(
+            "", size=10, color=active_color,
+            weight=ft.FontWeight.BOLD,
+            left=self._COL_W + 4, top=0,
+        )
+
+        self._gesture = ft.GestureDetector(
+            content=ft.Container(
+                width=self._COL_W, height=track_height,
+                bgcolor=ft.Colors.TRANSPARENT,
+            ),
+            on_pan_start=self._pan_start,
+            on_pan_update=self._pan_update,
+            on_pan_end=self._pan_end,
+            on_double_tap=self._dbl_tap,
+        )
+
+        self.control = ft.Stack(
+            controls=[self._bg_track, self._fg_track, self._thumb, self._lbl, self._gesture],
+            width=self._COL_W,
+            height=track_height,
+            clip_behavior=ft.ClipBehavior.NONE,
+        )
+        self._refresh()
+
+    # ── Propriétés (interface ft.Slider) ────────────────────────────────
+
+    @property
+    def value(self):
+        return self._value
+
+    @value.setter
+    def value(self, v):
+        self._value = float(v)
+        self._refresh()
+
+    @property
+    def max(self):
+        return self._max
+
+    def update(self):
+        """Synchronise le visuel avec l'état courant (appelé par les callbacks)."""
+        self._refresh()
+        self._thumb.update()
+        self._fg_track.update()
+        self._lbl.update()
+
+    # ── Visuel ──────────────────────────────────────────────────────────
+
+    def _val_to_top(self, v):
+        """Convertit une valeur en position Y du centre du curseur (0=haut=max)."""
+        ratio = (v - self._min) / (self._max - self._min)
+        return int(self._h * (1.0 - ratio))
+
+    def _top_to_val(self, top):
+        ratio = 1.0 - top / self._h
+        return max(self._min, min(self._max, self._min + ratio * (self._max - self._min)))
+
+    def _refresh(self):
+        center_y  = self._val_to_top(self._value)
+        thumb_top = max(0, min(self._h - self._THUMB_D, center_y - self._THUMB_D // 2))
+        self._thumb.top = thumb_top
+        self._fg_track.top    = center_y
+        self._fg_track.height = max(0, self._h - center_y)
+        self._lbl.top   = max(0, thumb_top - 6)
+        self._lbl.value = self.label
+
+    def _update_thumb(self):
+        """Mise à jour rapide pendant le glissement (sans update() du Stack)."""
+        center_y  = self._val_to_top(self._value)
+        thumb_top = max(0, min(self._h - self._THUMB_D, center_y - self._THUMB_D // 2))
+        self._thumb.top = thumb_top
+        self._fg_track.top    = center_y
+        self._fg_track.height = max(0, self._h - center_y)
+        self._thumb.update()
+        self._fg_track.update()
+
+    # ── Gestes ──────────────────────────────────────────────────────────
+    # Flet 0.85 : DragUpdateEvent expose e.local_delta.y (pas e.local_y).
+    # On accumule directement les deltas sur self._value.
+
+    def _pan_start(self, e):
+        pass  # rien à faire — on accumule les deltas dans _pan_update
+
+    def _pan_update(self, e):
+        dy = e.local_delta.y
+        delta = -(dy / self._h) * (self._max - self._min)
+        self._value = max(self._min, min(self._max, self._value + delta))
+        self._update_thumb()
+        if self._on_change:
+            self._on_change(_VertSliderEvent(self))
+
+    def _pan_end(self, e):
+        if self._on_change_end:
+            self._on_change_end(_VertSliderEvent(self))
+
+    def _dbl_tap(self, e):
+        if self._on_dbl_tap:
+            self._on_dbl_tap(e)
+
+    # ── Redimensionnement ────────────────────────────────────────────────
+
+    def resize(self, new_height):
+        """Met à jour la hauteur du slider (appelé lors du redimensionnement de la fenêtre)."""
+        self._h = new_height
+        self._bg_track.height          = new_height
+        self._gesture.content.height   = new_height
+        self.control.height            = new_height
+        self._refresh()
+        self.control.update()
+
+
 #############################################################
 #                         CONTENT                           #
 #############################################################
@@ -335,30 +507,35 @@ class PhotoCropper:
 
         # Rotation
         self.rotation = 0.0
-        self.rotation_slider = ft.Slider(
-            value=self.rotation,
-            min=-15.0,
-            max=15.0,
-            divisions=300,
-            label=f"{self.rotation:.1f}°",
-            active_color=BLUE,
+
+        # Sliders verticaux personnalisés (GestureDetector — détection sur toute la hauteur)
+        self.rotation_slider = VerticalSlider(
+            min_val=-15.0, max_val=15.0, initial_val=0.0,
             on_change=self.on_rotation_update,
             on_change_end=self.on_rotation_end,
+            on_double_tap=lambda e: self.reset_rotation(e),
+            active_color=BLUE,
+            track_height=int(self.canvas_h),
         )
 
+        self.rotation_slider_col = ft.Column([
+            ft.Text("ROTATION", size=10, weight=ft.FontWeight.BOLD, color=BLUE),
+            self.rotation_slider.control,
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5, alignment=ft.MainAxisAlignment.CENTER)
 
-
-        # Zoom
-        self.zoom_slider = ft.Slider(
-            value=1.0,
-            min=1.0,
-            max=3.0,
-            divisions=60,
-            label="1.00×",
-            active_color=BLUE,
+        self.zoom_slider = VerticalSlider(
+            min_val=1.0, max_val=3.0, initial_val=1.0,
             on_change=self.on_zoom_update,
             on_change_end=self.on_zoom_end,
+            on_double_tap=lambda e: self.reset_zoom(e),
+            active_color=BLUE,
+            track_height=int(self.canvas_h),
         )
+
+        self.zoom_slider_col = ft.Column([
+            ft.Text("ZOOM", size=10, weight=ft.FontWeight.BOLD, color=BLUE),
+            self.zoom_slider.control,
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5, alignment=ft.MainAxisAlignment.CENTER)
 
 
 
@@ -444,10 +621,10 @@ class PhotoCropper:
         # Lignes de grille des tiers (fixées au canevas, pas à l'image)
         grid_line_color = ft.Colors.with_opacity(0.5, "#707070")
         self._grid_lines = [
-            ft.Container(bgcolor=grid_line_color, left=self.canvas_w / 3,     top=0,                    width=1,             height=self.canvas_h, visible=False),
-            ft.Container(bgcolor=grid_line_color, left=2 * self.canvas_w / 3, top=0,                    width=1,             height=self.canvas_h, visible=False),
-            ft.Container(bgcolor=grid_line_color, left=0,                     top=self.canvas_h / 3,    width=self.canvas_w, height=1,             visible=False),
-            ft.Container(bgcolor=grid_line_color, left=0,                     top=2 * self.canvas_h / 3,width=self.canvas_w, height=1,             visible=False),
+            ft.Container(bgcolor=grid_line_color, left=self.canvas_w / 3,     top=0,                    width=1,             height=self.canvas_h, visible=True),
+            ft.Container(bgcolor=grid_line_color, left=2 * self.canvas_w / 3, top=0,                    width=1,             height=self.canvas_h, visible=True),
+            ft.Container(bgcolor=grid_line_color, left=0,                     top=self.canvas_h / 3,    width=self.canvas_w, height=1,             visible=True),
+            ft.Container(bgcolor=grid_line_color, left=0,                     top=2 * self.canvas_h / 3,width=self.canvas_w, height=1,             visible=True),
         ]
 
 
@@ -511,8 +688,8 @@ class PhotoCropper:
         self.bw_switch = ft.Switch(label="Noir et blanc", active_color=YELLOW, value=False, on_change=self.on_bw_toggle)
         self.is_fit_in = False
         self.fit_in_switch = ft.Switch(label="Fit-in", active_color=VIOLET, value=False, on_change=self.on_fit_in_toggle)
-        self.show_grid = False
-        self.grid_switch = ft.Switch(label="Grille", active_color=BLUE, value=False, on_change=self.on_grid_toggle)
+        self.show_grid = True
+        self.grid_switch = ft.Switch(label="Grille", active_color=BLUE, value=True, on_change=self.on_grid_toggle)
 
 
 
@@ -714,6 +891,10 @@ class PhotoCropper:
         self.canvas_container.height = self.canvas_h
         self.image_stack.width = self.canvas_w
         self.image_stack.height = self.canvas_h
+
+        # Redimensionner les sliders verticaux
+        self.rotation_slider.resize(int(self.canvas_h))
+        self.zoom_slider.resize(int(self.canvas_h))
 
 
 
@@ -1882,12 +2063,18 @@ class PhotoCropper:
         if not hasattr(self, 'display_w'):
             return
         
-        # Réduire l'image source à PREVIEW_MAX_PIXELS sur le côté le plus long
-        # (compromis qualité/vitesse — réduire la valeur sur les machines moins puissantes).
-        ratio = min(PREVIEW_MAX_PIXELS / self.original_width, PREVIEW_MAX_PIXELS / self.original_height, 1.0)
-        preview_width  = max(1, int(self.original_width  * ratio))
-        preview_height = max(1, int(self.original_height * ratio))
-        preview_image = self.current_pil_image.resize((preview_width, preview_height), Image.Resampling.BILINEAR)
+        # Cacher l'image de base réduite pour la preview afin d'éviter de redimensionner
+        # une image géante (plusieurs mégapixels) à chaque petit mouvement de curseur.
+        cache_key = (id(self.current_pil_image), PREVIEW_MAX_PIXELS)
+        if hasattr(self, '_preview_base_cache') and self._preview_base_cache[0] == cache_key:
+            preview_image = self._preview_base_cache[1].copy()
+            preview_width, preview_height = preview_image.size
+        else:
+            ratio = min(PREVIEW_MAX_PIXELS / self.original_width, PREVIEW_MAX_PIXELS / self.original_height, 1.0)
+            preview_width  = max(1, int(self.original_width  * ratio))
+            preview_height = max(1, int(self.original_height * ratio))
+            preview_image = self.current_pil_image.resize((preview_width, preview_height), Image.Resampling.BILINEAR)
+            self._preview_base_cache = (cache_key, preview_image.copy())
         
         if preview_image.mode == "RGBA":
             # Clé de cache : image source + taille d'affichage + format + paramètres de composition
@@ -2091,6 +2278,8 @@ class PhotoCropper:
             valeur numérique courante en degrés.
         """
 
+        if not self.image_paths or not hasattr(self, 'original_width'):
+            return
         self.rotation = e.control.value
         e.control.label = f"{self.rotation:.2f}°"
         e.control.update()
@@ -2106,6 +2295,8 @@ class PhotoCropper:
     def on_rotation_end(self, e):
         """Rafraîchit la prévisualisation et l'histogramme après la fin de la rotation."""
 
+        if not self.image_paths or not hasattr(self, 'original_width'):
+            return
         self._render_preview()
         self.page.update()
 
@@ -2119,6 +2310,8 @@ class PhotoCropper:
         et applique la transformation via les propriétés LayoutControl.
         """
 
+        if not self.image_paths or not hasattr(self, 'original_width'):
+            return
         target_scale = e.control.value
         previous_scale = self.scale
         self.scale = target_scale
@@ -2140,6 +2333,8 @@ class PhotoCropper:
     def on_zoom_end(self, e):
         """Rafraîchit la prévisualisation et l'histogramme après la fin du zoom."""
 
+        if not self.image_paths or not hasattr(self, 'original_width'):
+            return
         self._clamp_offsets()
         self._render_preview()
         self.page.update()
@@ -2163,6 +2358,8 @@ class PhotoCropper:
         self.rotation_slider.value = self.rotation
         self.rotation_slider.label = f"{self.rotation:.2f}°"
         self.rotation_slider.update()
+        if not self.image_paths or not hasattr(self, 'original_width'):
+            return
         self._clamp_offsets()
         self._update_transform()
         self._snackbar("Rotation réinitialisée à 0°")
@@ -2178,6 +2375,8 @@ class PhotoCropper:
         self.zoom_slider.value = 1.0
         self.zoom_slider.label = "1.00×"
         self.zoom_slider.update()
+        if not self.image_paths or not hasattr(self, 'original_width'):
+            return
         self._update_transform()
         self._render_preview()
         self.page.update()
@@ -3918,22 +4117,6 @@ def main(page: ft.Page):
                         ft.Divider(height=4),
 
 
-                        # ── Géométrie ──────────────────────────────────────
-                        ft.Container(
-                            content=ft.Column([
-                                ft.Text("GÉOMÉTRIE", size=10, color=BLUE, weight=ft.FontWeight.BOLD),
-                                ft.Text("Rotation", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.rotation_slider, on_double_tap=lambda e: app.reset_rotation(e)),
-                                ft.Text("Zoom", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.zoom_slider, on_double_tap=lambda e: app.reset_zoom(e)),
-                            ], spacing=2),
-                            bgcolor=DARK, border_radius=6,
-                            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
-                            border=ft.Border.all(1, BLUE),
-                        ),
-                        ft.Divider(height=6),
-
-
                         # ── Luminosité ────────────────────────────────────
                         ft.Container(
                             content=ft.Column([
@@ -4082,9 +4265,13 @@ def main(page: ft.Page):
 
                             # ── Zone centrale : Canevas de l'image ──────────────────────
                             ft.Container(
-                                content=app.canvas_container,
+                                content=ft.Row([
+                                    app.rotation_slider_col,
+                                    app.canvas_container,
+                                    app.zoom_slider_col,
+                                ], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
                                 expand=True,
-                                alignment=ft.Alignment.CENTER,
+                                alignment=ft.Alignment(0, 0),
                             ),
                         ],
                         spacing=0,

@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.6.5"
+__version__ = "2.6.6"
 
 
 #############################################################
@@ -3024,7 +3024,7 @@ def main(page: ft.Page):
                         })
                     else:
                         for _t_name, _t_result in _all_tool_results:
-                            messages.append({"role": "tool", "tool_name": _t_name, "content": _t_result})
+                            messages.append({"role": "tool", "tool_name": _t_name, "name": _t_name, "content": _t_result})
                         messages.append({"role": "user", "content": (
                             "Voici les résultats des outils. Si d'autres outils sont nécessaires "
                             "pour terminer la tâche, utilise-les. Sinon, réponds à l'utilisateur."

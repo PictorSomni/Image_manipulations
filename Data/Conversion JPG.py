@@ -13,7 +13,7 @@ Variables d'environnement :
 Dépendances : Wand (ImageMagick), PyMuPDF (fitz)
 """
 
-__version__ = "2.6.5"
+__version__ = "2.6.6"
 
 #############################################################
 #                          IMPORTS                          #
@@ -26,60 +26,61 @@ import fitz  # PyMuPDF
 #############################################################
 #                           PATH                            #
 #############################################################
-PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
+folder_path = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 
 #############################################################
 #                         CONTENT                           #
 #############################################################
 # Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
-selected_files_str = os.environ.get("SELECTED_FILES", "")
-selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
+selected_files_string = os.environ.get("SELECTED_FILES", "")
+selected_files_set = set(selected_files_string.split("|")) if selected_files_string else None
 
-EXTENSIONS = (".avif",".heic", ".webp", ".png", ".tiff", ".jpeg", ".bmp", ".gif", ".psd", ".svg", ".ico", ".jfif", ".jpe", ".jif", ".jfi", ".pdf")
-all_files = [file for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSIONS]
-FOLDER = [f for f in all_files if f.name in selected_files_set] if selected_files_set else all_files
-TOTAL = len(FOLDER)
+convertible_extensions = (".avif", ".heic", ".webp", ".png", ".tiff", ".jpeg", ".bmp", ".gif", ".psd", ".svg", ".ico", ".jfif", ".jpe", ".jif", ".jfi", ".pdf")
+all_files = [file for file in sorted(folder_path.iterdir()) if file.is_file() and file.suffix.lower() in convertible_extensions]
+files_to_process = [file for file in all_files if file.name in selected_files_set] if selected_files_set else all_files
+total_files_count = len(files_to_process)
 
-def folder(folder_name):
-    """Crée le sous-dossier ``folder_name`` dans PATH s'il n'existe pas encore."""
-    folder_path = PATH / folder_name
-    folder_path.mkdir(exist_ok=True)
+
+def create_folder(folder_name):
+    """Crée le sous-dossier ``folder_name`` dans folder_path s'il n'existe pas encore."""
+    new_folder_path = folder_path / folder_name
+    new_folder_path.mkdir(exist_ok=True)
 
 #############################################################
 #                           MAIN                            #
 #############################################################
 print(f"Conversion en JPG")
-print(f"Dossier de travail: {PATH}")
-print(f"Fichiers trouvés: {TOTAL}")
+print(f"Dossier de travail: {folder_path}")
+print(f"Fichiers trouvés: {total_files_count}")
 
-if TOTAL == 0:
+if total_files_count == 0:
     print("Aucun fichier à convertir trouvé.")
 else:
-    for i, file in enumerate(FOLDER):
+    for index, file in enumerate(files_to_process):
         file_name = file.stem
         file_extension = file.suffix.lower()
-        print(f"Image {i+1}/{TOTAL}")
-        folder(f"{file_extension[1:]}")
+        print(f"Image {index + 1}/{total_files_count}")
+        create_folder(f"{file_extension[1:]}")
 
         try:
             if file_extension == ".pdf":
-                pdf_doc = fitz.open(str(file))
-                page_count = len(pdf_doc)
-                for j, page in enumerate(pdf_doc):
-                    print(f"  - Conversion de la page {j+1}/{page_count}")
-                    pix = page.get_pixmap(dpi=300)
-                    jpg_path = PATH / f"{file_name}_{j+1:03}.jpg"
-                    pix.save(str(jpg_path))
-                pdf_doc.close()
+                pdf_document = fitz.open(str(file))
+                page_count = len(pdf_document)
+                for page_index, page in enumerate(pdf_document):
+                    print(f"  - Conversion de la page {page_index + 1}/{page_count}")
+                    pixmap_image = page.get_pixmap(dpi=300)
+                    jpg_path = folder_path / f"{file_name}_{page_index + 1:03}.jpg"
+                    pixmap_image.save(str(jpg_path))
+                pdf_document.close()
             else:
                 with Image(filename=str(file)) as actual_file:
                     actual_file.format = 'jpeg'
-                    jpg_path = PATH / f"{file_name}.jpg"
+                    jpg_path = folder_path / f"{file_name}.jpg"
                     actual_file.save(filename=str(jpg_path))
 
-            dest_folder = PATH / f"{file_extension[1:]}"
+            dest_folder = folder_path / f"{file_extension[1:]}"
             file.rename(dest_folder / file.name)
-        except Exception as e:
-            print(f"  [X] Erreur pour {file.name}: {e}")
+        except Exception as exception:
+            print(f"  [X] Erreur pour {file.name}: {exception}")
 
 print("Terminé")

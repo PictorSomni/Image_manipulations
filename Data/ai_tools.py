@@ -87,6 +87,71 @@ class _HTMLTextExtractor(html.parser.HTMLParser):
         return "\n".join(target)
 
 
+def _get_gemini_api_key():
+    """Tente de récupérer la clé d'API Gemini de façon extrêmement robuste sur Windows, macOS et Linux."""
+    import os
+    import re
+    import subprocess
+    
+    # 1. Directement dans l'environnement
+    key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if key:
+        return key
+        
+    # 2. Dans un fichier .env (relatif au dossier de l'app ou racine du dépôt)
+    for env_dir in [os.getcwd(), os.path.dirname(os.path.abspath(__file__)), os.path.dirname(os.path.dirname(os.path.abspath(__file__)))]:
+        env_path = os.path.join(env_dir, ".env")
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip() and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            if k.strip() == "GEMINI_API_KEY":
+                                key = v.strip().strip('"').strip("'")
+                                if key:
+                                    os.environ["GEMINI_API_KEY"] = key
+                                    return key
+            except Exception:
+                pass
+
+    # 3. macOS / Linux uniquement : charger depuis le login shell (pour .zshrc, .bashrc, .profile)
+    if os.name != "nt":
+        for shell in ["/bin/zsh", "/bin/bash"]:
+            if os.path.exists(shell):
+                try:
+                    result = subprocess.run(
+                        [shell, "-l", "-c", "echo $GEMINI_API_KEY"],
+                        capture_output=True, text=True, timeout=2
+                    )
+                    key = result.stdout.strip()
+                    if key:
+                        os.environ["GEMINI_API_KEY"] = key
+                        return key
+                except Exception:
+                    pass
+
+        # Fallback : lecture directe des fichiers RC de l'utilisateur
+        home = os.path.expanduser("~")
+        for rc_file in [".zshrc", ".bashrc", ".bash_profile", ".profile"]:
+            rc_path = os.path.join(home, rc_file)
+            if os.path.isfile(rc_path):
+                try:
+                    with open(rc_path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                    # match "export GEMINI_API_KEY=xxx" or "GEMINI_API_KEY=xxx"
+                    match = re.search(r'(?:export\s+)?GEMINI_API_KEY\s*=\s*["\']?(.*?)["\']?\s*(?:#|$)', content)
+                    if match:
+                        key = match.group(1).strip()
+                        if key:
+                            os.environ["GEMINI_API_KEY"] = key
+                            return key
+                except Exception:
+                    pass
+                    
+    return ""
+
+
 def _fetch_url_content(url, max_chars=12_000):
     """
     Récupère le contenu textuel d'une URL HTTP(S).
@@ -1504,7 +1569,7 @@ def _ollama_messages_to_gemini(messages):
 
         # Résultats d'outils (rôle 'tool')
         if role == "tool":
-            tool_name = msg.get("name", "tool_result")
+            tool_name = msg.get("tool_name") or msg.get("name") or "tool_result"
             result_text = content if isinstance(content, str) else json.dumps(content)
             parts.append(_gtypes.Part.from_function_response(
                 name=tool_name,
@@ -1538,8 +1603,17 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
         ))
         return
 
+    api_key = _get_gemini_api_key()
+
+    if not api_key:
+        yield ("token", (
+            "[Erreur : la variable d'environnement GEMINI_API_KEY n'est pas définie. "
+            "Veuillez la configurer dans votre environnement (.zshrc, .bashrc) ou créer un fichier .env contenant GEMINI_API_KEY=votre_cle.]"
+        ))
+        return
+
     try:
-        client = _genai.Client()
+        client = _genai.Client(api_key=api_key)
     except Exception as exc:
         yield ("token", f"[Erreur initialisation Gemini : {exc}]")
         return
@@ -1549,7 +1623,7 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
 
     system_instr, gemini_contents = _ollama_messages_to_gemini(messages)
 
-    config_kwargs = {"temperature": temperature}
+    config_kwargs: dict = {"temperature": temperature}
     if system_instr:
         config_kwargs["system_instruction"] = system_instr
     if gemini_tools_list is not None:
@@ -1626,9 +1700,14 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
     except ImportError:
         return ("Erreur : bibliothèque google-genai non installée.", None)
 
-    _api_key = _os_img.environ.get("GEMINI_API_KEY", "")
+    _api_key = _get_gemini_api_key()
+
     if not _api_key:
-        return ("Erreur : variable d'environnement GEMINI_API_KEY non définie.", None)
+        return (
+            "Erreur : la variable d'environnement GEMINI_API_KEY n'est pas définie. "
+            "Veuillez la configurer dans votre environnement (.zshrc, .bashrc) ou créer un fichier .env contenant GEMINI_API_KEY=votre_cle.",
+            None
+        )
 
     import time as _time_gi
     import re as _re_gi
@@ -1638,7 +1717,8 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
             _client = _genai_img.Client(api_key=_api_key)
 
             # Construire le contenu : [image source optionnelle, puis prompt texte]
-            _contents = []
+            # Prompt en premier, puis image source (ordre recommandé par la doc Gemini)
+            _contents = [prompt]
             if input_image_bytes:
                 try:
                     from PIL import Image as _PILImg
@@ -1648,16 +1728,13 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
                     _contents.append(
                         _gtypes_img.Part.from_bytes(data=input_image_bytes, mime_type="image/jpeg")
                     )
-            _contents.append(prompt)
 
-            # Config de génération
-            _cfg_kwargs = {"response_modalities": ["TEXT", "IMAGE"]}
+            # Config de génération — response_format pour Gemini 3 (remplace image_config)
+            _cfg_kwargs: dict = {"response_modalities": ["TEXT", "IMAGE"]}
             if aspect_ratio != "1:1" or resolution != "1K":
-                # image_config est le champ correct dans GenerateContentConfig v2.x
-                _cfg_kwargs["image_config"] = _gtypes_img.ImageConfig(
-                    aspect_ratio=aspect_ratio,
-                    image_size=resolution,
-                )
+                _cfg_kwargs["response_format"] = {
+                    "image": {"aspect_ratio": aspect_ratio, "image_size": resolution}
+                }
 
             _response = _client.models.generate_content(
                 model="gemini-3.1-flash-image-preview",

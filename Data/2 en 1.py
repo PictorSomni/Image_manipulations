@@ -19,7 +19,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "2.6.5"
+__version__ = "2.6.6"
 
 #############################################################
 #                          IMPORTS                          #

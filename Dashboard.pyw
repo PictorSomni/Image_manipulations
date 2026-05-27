@@ -29,7 +29,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.6.5"
+__version__ = "2.6.6"
 
 
 
@@ -316,6 +316,10 @@ def main(page: ft.Page):
     ollama_process     = {"proc": None}  # Process ollama serve lancé par nous
     ai_pending_images  = []              # Images jointes en attente [{path, b64}]
     ai_pending_files   = []              # Documents/audio joints en attente [{path, type}]
+    _live_print_counts = {}     # {file_path: int} — cache local/live des nombres d'impressions avant renommage disque
+    _print_rename_timers = {}   # {file_path: threading.Timer} — timers pour débouncer le renommage disque
+    _print_count_text_refs = {} # {file_path: ft.Text}
+    _print_minus_btn_refs = {}  # {file_path: ft.Container}
 
 
 
@@ -466,7 +470,8 @@ def main(page: ft.Page):
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0),
         width=150,
     )
-    ai_status_text   = ft.Text("", color=LIGHT_GREY, size=11, italic=True)
+    ai_status_text    = ft.Text("", color=LIGHT_GREY, size=11, italic=True)
+    ai_progress_bar  = ft.ProgressBar(value=None, visible=False, color=BLUE, height=2)
     ai_stop_button   = ft.IconButton(
         icon=ft.Icons.STOP_CIRCLE,
         icon_color=LIGHT_GREY,
@@ -494,6 +499,7 @@ def main(page: ft.Page):
         content=ft.Column([
             ai_chat_view,
             ai_attach_row,
+            ai_progress_bar,
             ft.Row(
                 [ai_attach_button, ai_input_field],
                 spacing=4,
@@ -1939,7 +1945,8 @@ def main(page: ft.Page):
             pass
 
         # Capturer et vider les images jointes avant le thread
-        images_b64 = [entry["b64"] for entry in ai_pending_images]
+        images_b64   = [entry["b64"]  for entry in ai_pending_images]
+        images_paths = [entry["path"] for entry in ai_pending_images]
         ai_pending_images.clear()
         _ai_refresh_attach_row()
 
@@ -1961,6 +1968,11 @@ def main(page: ft.Page):
                 page_content = _fetch_url_content(url, max_chars=CONSTANTS.AI_URL_MAX_CHARS)
                 url_blocks.append(f"--- Contenu de {url} ---\n{page_content}\n--- Fin ---")
             enriched_text = enriched_text + "\n\n" + "\n\n".join(url_blocks)
+
+        # Injecter le nom des fichiers image joints pour que l'IA les identifie
+        if images_paths:
+            filenames_info = ", ".join(os.path.basename(path) for path in images_paths)
+            enriched_text = enriched_text + f"\n[Image(s) jointe(s) : {filenames_info}]"
 
         # Construire l'entrée utilisateur (avec images si présent)
         user_message = {"role": "user", "content": enriched_text}
@@ -2470,6 +2482,7 @@ def main(page: ft.Page):
                                         pass
                             _gi_progress_t = _threading_gi.Thread(target=_gi_progress_thread, daemon=True)
                             ai_status_text.value = "🎨 Nano Banana 2 en cours… 0s"
+                            ai_progress_bar.visible = True
                             try:
                                 page.update()
                             except Exception:
@@ -2482,6 +2495,7 @@ def main(page: ft.Page):
                                 resolution=_gi_resolution,
                             )
                             _gi_stop_evt.set()
+                            ai_progress_bar.visible = False
                             if _gi_bytes:
                                 _gi_dest_folder = _folder_path_for_tools or os.path.join(app_directory, "Generated")
                                 os.makedirs(_gi_dest_folder, exist_ok=True)
@@ -5047,16 +5061,13 @@ def main(page: ft.Page):
 
 
 
-    def _increment_print_count(file_path):
-        """
-        Incrémente le compteur d'impressions préfixé (NX_) du fichier.
-
-        Si le fichier n'a pas encore de préfixe et qu'aucun autre fichier du
-        dossier n'en a non plus, ajoute automatiquement le préfixe ``1X_`` à
-        tous les autres fichiers du même dossier.
-        """
+    def _apply_print_rename(file_path, new_count):
         basename = os.path.basename(file_path)
         folder = os.path.dirname(file_path)
+        
+        if not os.path.exists(file_path):
+            return
+            
         print_prefix_match = re.match(r'^(\d+)X_', basename)
         print_prefix_pattern = re.compile(r'^\d+X_')
         if print_prefix_match:
@@ -5065,29 +5076,97 @@ def main(page: ft.Page):
         else:
             current_count = 0
             clean_basename = basename
-        new_count = current_count + 1
-        new_name = f"{new_count}X_{clean_basename}"
+            
+        if new_count > 0:
+            new_name = f"{new_count}X_{clean_basename}"
+        else:
+            new_name = clean_basename
+            
         new_path = os.path.join(folder, new_name)
         if new_path != file_path:
             try:
                 os.rename(file_path, new_path)
-                log_to_terminal(f"[OK] {basename} → {new_name}", GREEN)
+                log_to_terminal(f"[Impressions] {basename} → {new_name}", GREEN)
+                
+                # Mettre à jour dans selected_files
                 if file_path in selected_files:
                     selected_files[selected_files.index(file_path)] = new_path
+                    
+                # Mettre à jour le dictionnaire de live counts avec la nouvelle clé de fichier
+                _live_print_counts[new_path] = new_count
+                _live_print_counts.pop(file_path, None)
+                
+                # Mettre à jour les références UI refs si elles existent
+                if file_path in _print_count_text_refs:
+                    _print_count_text_refs[new_path] = _print_count_text_refs.pop(file_path)
+                if file_path in _print_minus_btn_refs:
+                    _print_minus_btn_refs[new_path] = _print_minus_btn_refs.pop(file_path)
+                
+                # Déclencher un refresh en arrière-plan pour rescanner proprement
+                page.pubsub.send_all_on_topic("refresh", None)
             except Exception as err:
                 log_to_terminal(f"[ERREUR] {err}", RED)
                 return
-        if current_count == 0:
+                
+        # 1. Si le fichier est repassé à 0, on remet TOUS les autres fichiers du dossier à 0 aussi
+        if new_count <= 0:
+            renamed_count = 0
+            for file_name in os.listdir(folder):
+                # Ignorer les fichiers cachés et fichiers système/junk
+                if file_name.startswith(".") or file_name.lower() in _OS_JUNK:
+                    continue
+                entry_path = os.path.join(folder, file_name)
+                if not os.path.isfile(entry_path) or entry_path == new_path:
+                    continue
+                if not print_prefix_pattern.match(file_name):
+                    continue
+                clean_other_basename = re.sub(r'^\d+X_', '', file_name)
+                clean_entry_path = os.path.join(folder, clean_other_basename)
+                try:
+                    os.rename(entry_path, clean_entry_path)
+                    if entry_path in selected_files:
+                        selected_files[selected_files.index(entry_path)] = clean_entry_path
+                    # Mettre à jour live counts et UI instantanément pour les autres fichiers
+                    _live_print_counts[clean_entry_path] = 0
+                    _live_print_counts.pop(entry_path, None)
+                    
+                    if entry_path in _print_count_text_refs:
+                        txt_ref = _print_count_text_refs[entry_path]
+                        txt_ref.value = "·"
+                        txt_ref.color = LIGHT_GREY
+                        txt_ref.update()
+                        _print_count_text_refs[clean_entry_path] = _print_count_text_refs.pop(entry_path)
+                    if entry_path in _print_minus_btn_refs:
+                        minus_ref = _print_minus_btn_refs[entry_path]
+                        minus_ref.content.color = LIGHT_GREY
+                        minus_ref.bgcolor = GREY
+                        minus_ref.on_click = None
+                        minus_ref.ink = False
+                        minus_ref.update()
+                        _print_minus_btn_refs[clean_entry_path] = _print_minus_btn_refs.pop(entry_path)
+                        
+                    renamed_count += 1
+                except Exception as err:
+                    log_to_terminal(f"[ERREUR] {file_name}: {err}", RED)
+            if renamed_count:
+                log_to_terminal(f"[OK] Préfixe retiré de {renamed_count} fichier(s)", GREEN)
+                page.pubsub.send_all_on_topic("refresh", None)
+                
+        # 2. Gérer l'auto-préfixe 1X_ si besoin (uniquement sur fichiers non-cachés et non-junk)
+        elif current_count == 0 and new_count > 0:
             others_have_prefix = any(
                 print_prefix_pattern.match(file_name)
                 for file_name in os.listdir(folder)
-                if file_name != new_name and os.path.isfile(os.path.join(folder, file_name))
+                if file_name != new_name and os.path.isfile(os.path.join(folder, file_name)) and not file_name.startswith(".") and file_name.lower() not in _OS_JUNK
             )
             if not others_have_prefix:
                 renamed_count = 0
                 for file_name in os.listdir(folder):
+                    # Ignorer les fichiers cachés et fichiers système/junk
+                    if file_name.startswith(".") or file_name.lower() in _OS_JUNK:
+                        continue
                     entry_path = os.path.join(folder, file_name)
-                    if not os.path.isfile(entry_path) or file_name == new_name:
+                    if not os.path.isfile(entry_path) or entry_path == new_path:
                         continue
                     if print_prefix_pattern.match(file_name):
                         continue
@@ -5097,69 +5176,106 @@ def main(page: ft.Page):
                         os.rename(entry_path, new_entry_path)
                         if entry_path in selected_files:
                             selected_files[selected_files.index(entry_path)] = new_entry_path
+                        # Mettre à jour live counts et UI instantanément
+                        _live_print_counts[new_entry_path] = 1
+                        _live_print_counts.pop(entry_path, None)
+                        
+                        if entry_path in _print_count_text_refs:
+                            txt_ref = _print_count_text_refs[entry_path]
+                            txt_ref.value = "1"
+                            txt_ref.color = YELLOW
+                            txt_ref.update()
+                            _print_count_text_refs[new_entry_path] = _print_count_text_refs.pop(entry_path)
+                        if entry_path in _print_minus_btn_refs:
+                            minus_ref = _print_minus_btn_refs[entry_path]
+                            minus_ref.content.color = DARK
+                            minus_ref.bgcolor = ORANGE
+                            minus_ref.on_click = lambda e, p=new_entry_path: _decrement_print_count(p)
+                            minus_ref.ink = True
+                            minus_ref.update()
+                            _print_minus_btn_refs[new_entry_path] = _print_minus_btn_refs.pop(entry_path)
+                            
                         renamed_count += 1
                     except Exception as err:
                         log_to_terminal(f"[ERREUR] {file_name}: {err}", RED)
                 if renamed_count:
                     log_to_terminal(f"[OK] {renamed_count} fichier(s) renommé(s) avec le préfixe 1X_", GREEN)
-        refresh_preview(reset_page=False)
+                    page.pubsub.send_all_on_topic("refresh", None)
 
-
+    def _increment_print_count(file_path):
+        """Incrémente le compteur d'impressions de façon réactive et débouncée."""
+        if file_path in _live_print_counts:
+            current_count = _live_print_counts[file_path]
+        else:
+            basename = os.path.basename(file_path)
+            print_prefix_match = re.match(r'^(\d+)X_', basename)
+            current_count = int(print_prefix_match.group(1)) if print_prefix_match else 0
+            _live_print_counts[file_path] = current_count
+            
+        new_count = current_count + 1
+        _live_print_counts[file_path] = new_count
+        
+        # Mettre à jour l'UI instantanément
+        if file_path in _print_count_text_refs:
+            txt_ref = _print_count_text_refs[file_path]
+            txt_ref.value = str(new_count) if new_count > 0 else "·"
+            txt_ref.color = YELLOW if new_count > 0 else LIGHT_GREY
+            txt_ref.update()
+            
+        if file_path in _print_minus_btn_refs:
+            minus_ref = _print_minus_btn_refs[file_path]
+            minus_ref.content.color = DARK if new_count > 0 else LIGHT_GREY
+            minus_ref.bgcolor = ORANGE if new_count > 0 else GREY
+            minus_ref.on_click = (lambda e, p=file_path: _decrement_print_count(p)) if new_count > 0 else None
+            minus_ref.ink = (new_count > 0)
+            minus_ref.update()
+            
+        # Annuler l'ancien timer et démarrer le nouveau
+        if file_path in _print_rename_timers:
+            _print_rename_timers[file_path].cancel()
+            
+        timer = threading.Timer(1.5, _apply_print_rename, args=(file_path, new_count))
+        _print_rename_timers[file_path] = timer
+        timer.start()
 
     def _decrement_print_count(file_path):
-        """
-        Décrémente le compteur d’impressions préfixé (NX_) du fichier.
-
-        Si le compteur atteint 0, supprime le préfixe du fichier et retire
-        le préfixe de tous les autres fichiers du dossier.
-        """
-        basename = os.path.basename(file_path)
-        folder = os.path.dirname(file_path)
-        print_prefix_match = re.match(r'^(\d+)X_', basename)
-        if not print_prefix_match:
-            return
-        current_count = int(print_prefix_match.group(1))
-        clean_basename = re.sub(r'^\d+X_', '', basename)
-        if current_count <= 1:
-            new_path = os.path.join(folder, clean_basename)
-            try:
-                os.rename(file_path, new_path)
-                if file_path in selected_files:
-                    selected_files[selected_files.index(file_path)] = new_path
-            except Exception as err:
-                log_to_terminal(f"[ERREUR] {err}", RED)
-                refresh_preview(reset_page=False)
-                return
-            # Retirer le préfixe de tous les autres fichiers du dossier
-            print_prefix_pattern = re.compile(r'^\d+X_')
-            removed = 0
-            for file_name in os.listdir(folder):
-                entry_path = os.path.join(folder, file_name)
-                if not os.path.isfile(entry_path) or file_name == clean_basename:
-                    continue
-                if not print_prefix_pattern.match(file_name):
-                    continue
-                clean_file_name = re.sub(r'^\d+X_', '', file_name)
-                clean_entry_path = os.path.join(folder, clean_file_name)
-                try:
-                    os.rename(entry_path, clean_entry_path)
-                    if entry_path in selected_files:
-                        selected_files[selected_files.index(entry_path)] = clean_entry_path
-                    removed += 1
-                except Exception as err:
-                    log_to_terminal(f"[ERREUR] {file_name}: {err}", RED)
-            log_to_terminal(f"[OK] Préfixe retiré de {removed + 1} fichier(s)", GREEN)
+        """Décrémente le compteur d'impressions de façon réactive et débouncée."""
+        if file_path in _live_print_counts:
+            current_count = _live_print_counts[file_path]
         else:
-            new_name = f"{current_count - 1}X_{clean_basename}"
-            new_path = os.path.join(folder, new_name)
-            try:
-                os.rename(file_path, new_path)
-                log_to_terminal(f"[OK] {basename} → {new_name}", GREEN)
-                if file_path in selected_files:
-                    selected_files[selected_files.index(file_path)] = new_path
-            except Exception as err:
-                log_to_terminal(f"[ERREUR] {err}", RED)
-        refresh_preview(reset_page=False)
+            basename = os.path.basename(file_path)
+            print_prefix_match = re.match(r'^(\d+)X_', basename)
+            current_count = int(print_prefix_match.group(1)) if print_prefix_match else 0
+            _live_print_counts[file_path] = current_count
+            
+        if current_count <= 0:
+            return
+            
+        new_count = current_count - 1
+        _live_print_counts[file_path] = new_count
+        
+        # Mettre à jour l'UI instantanément
+        if file_path in _print_count_text_refs:
+            txt_ref = _print_count_text_refs[file_path]
+            txt_ref.value = str(new_count) if new_count > 0 else "·"
+            txt_ref.color = YELLOW if new_count > 0 else LIGHT_GREY
+            txt_ref.update()
+            
+        if file_path in _print_minus_btn_refs:
+            minus_ref = _print_minus_btn_refs[file_path]
+            minus_ref.content.color = DARK if new_count > 0 else LIGHT_GREY
+            minus_ref.bgcolor = ORANGE if new_count > 0 else GREY
+            minus_ref.on_click = (lambda e, p=file_path: _decrement_print_count(p)) if new_count > 0 else None
+            minus_ref.ink = (new_count > 0)
+            minus_ref.update()
+            
+        # Annuler l'ancien timer et démarrer le nouveau
+        if file_path in _print_rename_timers:
+            _print_rename_timers[file_path].cancel()
+            
+        timer = threading.Timer(1.5, _apply_print_rename, args=(file_path, new_count))
+        _print_rename_timers[file_path] = timer
+        timer.start()
 
 
 
@@ -5828,8 +5944,13 @@ def main(page: ft.Page):
                             vertical_alignment=ft.CrossAxisAlignment.CENTER,
                         )
                     else:
-                        print_prefix_match = re.match(r'^(\d+)X_', file)
-                        print_count = int(print_prefix_match.group(1)) if print_prefix_match else 0
+                        if file_path in _live_print_counts:
+                            print_count = _live_print_counts[file_path]
+                        else:
+                            print_prefix_match = re.match(r'^(\d+)X_', file)
+                            print_count = int(print_prefix_match.group(1)) if print_prefix_match else 0
+                            _live_print_counts[file_path] = print_count
+
                         minus_btn = ft.Container(
                             content=ft.Text("−", size=13, color=DARK if print_count > 0 else LIGHT_GREY,
                                             text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD),
@@ -5841,12 +5962,17 @@ def main(page: ft.Page):
                             ink=print_count > 0,
                             tooltip="Réduire les impressions" if print_count > 0 else "",
                         )
+                        _print_minus_btn_refs[file_path] = minus_btn
+
+                        count_text_widget = ft.Text(
+                            str(print_count) if print_count > 0 else "·",
+                            size=11, color=YELLOW if print_count > 0 else LIGHT_GREY,
+                            text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD,
+                        )
+                        _print_count_text_refs[file_path] = count_text_widget
+
                         count_display = ft.Container(
-                            content=ft.Text(
-                                str(print_count) if print_count > 0 else "·",
-                                size=11, color=YELLOW if print_count > 0 else LIGHT_GREY,
-                                text_align=ft.TextAlign.CENTER, weight=ft.FontWeight.BOLD,
-                            ),
+                            content=count_text_widget,
                             width=22, height=26,
                             bgcolor=DARK,
                             alignment=ft.Alignment(0, 0),
