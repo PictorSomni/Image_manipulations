@@ -3200,8 +3200,6 @@ def main(page: ft.Page):
         """Sauvegarde les notes automatiquement quand on quitte l'onglet Bloc-notes."""
         _notepad_save()
 
-    tabs.on_change = _on_tab_change
-
     list_search_field.on_change    = _on_list_search_change
     list_search_field.on_submit    = _on_list_search_change
     list_sort_segment.on_change    = _on_list_sort_change
@@ -3441,6 +3439,7 @@ def main(page: ft.Page):
         length=4,
         selected_index=0,
         expand=True,
+        on_change=_on_tab_change,
         content=ft.Column(
             expand=True,
             spacing=0,
