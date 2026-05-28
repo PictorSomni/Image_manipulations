@@ -29,7 +29,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.6.6"
+__version__ = "2.6.7"
 
 
 
@@ -362,6 +362,7 @@ def main(page: ft.Page):
 
 
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
+    app_progress_bar = ft.ProgressBar(value=None, visible=False, color=GREEN, height=2)
     terminal_cmd_input = ft.TextField(
         hint_text="> Terminal",#  (tapez /note pour ouvrir le bloc-notes)",
         border_color=GREEN,
@@ -6728,6 +6729,11 @@ def main(page: ft.Page):
                     stdout_reader_thread.join()
                     stderr_reader_thread.join()
                     process.wait()
+                    app_progress_bar.visible = False
+                    try:
+                        page.update()
+                    except Exception:
+                        pass
                     log_to_terminal(f"[OK] {display_name} terminé", GREEN)
                     # Désélectionner les fichiers traités (sauf si le script en a sélectionné de nouveaux)
                     if selected_files and pending_file_selection["names"] is None:
@@ -6735,6 +6741,11 @@ def main(page: ft.Page):
                     # Rafraîchir la preview pour afficher les nouveaux dossiers/fichiers créés
                     request_refresh()
                 
+                app_progress_bar.visible = True
+                try:
+                    page.update()
+                except Exception:
+                    pass
                 threading.Thread(target=done, daemon=True).start()
         except Exception as err:
             log_to_terminal(f"[ERREUR] Erreur lors du lancement: {err}", RED)
@@ -7560,6 +7571,7 @@ def main(page: ft.Page):
                 ft.Container(
                     content=ft.Row([
                         ft.Column([
+                            app_progress_bar,
                             terminal_output,
                             terminal_cmd_row,
                         ], spacing=4, expand=True),

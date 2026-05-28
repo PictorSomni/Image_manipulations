@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.6.6"
+__version__ = "2.6.7"
 
 
 # ─── Extensions de fichiers ────────────────────────────────────────────────────────────
@@ -64,6 +64,28 @@ ID_X4_10x20_PHOTOS_BOTTOM = True
 # Recadrage.pyw. Une valeur plus élevée améliore la netteté au zoom mais ralentit le rendu.
 # Réduire sur les machines moins puissantes (ex. 1200 = taille canvas exacte).
 PREVIEW_MAX_PIXELS = 1024
+
+# ─── Recadrage.pyw — Valeurs par défaut des toggles ───────────────────────────────────────────
+# Chaque constante correspond à l'état initial d'un toggle (Switch ou bouton) dans Recadrage.pyw.
+RECADRAGE_TWO_IN_ONE      = False   # 2-en-1 (formats 10x15, 13x18, 15x20)
+RECADRAGE_BORDER_13x15    = False   # Mise en page 13x15 (format 10x15)
+RECADRAGE_BORDER_10x20    = False   # Mise en page 10x20 (format 10x15)
+RECADRAGE_BORDER_13x20    = False   # Mise en page 13x20 (format 13x18)
+RECADRAGE_BORDER_20x24    = False   # Mise en page 20x24 (format 18x24)
+RECADRAGE_BORDER_13x10    = False   # Mise en page 13x10 (format 10x10)
+RECADRAGE_BORDER_POLAROID = False   # Mise en page Polaroid (format 10x10)
+RECADRAGE_BORDER_ID2      = False   # Planche ID X2
+RECADRAGE_BORDER_ID4      = True    # Planche ID X4
+RECADRAGE_ID4_10x20       = True    # Format 10x20 pour la planche ID X4
+RECADRAGE_SAVE_TO_NETWORK = True    # Sauvegarder les ID X4 sur le réseau par défaut
+RECADRAGE_IS_BW           = False   # Noir et blanc
+RECADRAGE_IS_SHARPEN      = True    # Netteté
+RECADRAGE_FIT_IN          = False   # Mode Fit-in (image entière dans le format)
+RECADRAGE_SHOW_GRID       = True    # Afficher la grille de cadrage
+RECADRAGE_REMBG_BG_WHITE  = True    # Fond blanc après suppression IA (vs flou)
+RECADRAGE_REMBG_HUMAN_SEG = True    # Segmentation humain (vs généraliste)
+RECADRAGE_REMBG_PRECISE   = False   # Mode précis/lent (birefnet) vs rapide (u2net)
+RECADRAGE_SCROLL_ROTATES  = False   # Molette = rotation (Tab pour basculer)
 
 # ─── Cache partagé de miniatures ─────────────────────────────────────────────────────────────
 # Utilisé par Dashboard.pyw, SidePanel.pyw et kiosk_flet.pyw via thumb_cache.py.

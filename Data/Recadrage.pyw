@@ -35,13 +35,14 @@ SELECTED_FILES   : liste de noms de fichiers séparés par « | » à traiter
 
 Raccourcis clavier
 ------------------
-Entrée     : valider et passer à l'image suivante
-Backspace  : basculer l'orientation portrait / paysage
-Espace     : ignorer l'image courante et passer à la suivante
-Tab       : basculer le mode de défilement de la souris entre zoom et rotation
+Entrée              : valider et passer à l'image suivante
+Cmd+Backspace (macOS)
+Suppr (Win/Linux)   : basculer l'orientation portrait / paysage
+Espace              : ignorer l'image courante et passer à la suivante
+Tab                 : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.6.6"
+__version__ = "2.6.7"
 
 #############################################################
 #                          IMPORTS                          #
@@ -74,6 +75,7 @@ CONTROLS_WIDTH = 270    # Largeur de la colonne de contrôles
 DPI = CONSTANTS.DPI  # Résolution d'export
 PREVIEW_MAX_PIXELS = CONSTANTS.PREVIEW_MAX_PIXELS  # Taille max (px, côté le plus long) de la prévisualisation
 ID_X4_10x20_PHOTOS_BOTTOM = CONSTANTS.ID_X4_10x20_PHOTOS_BOTTOM  # True = photos moitié basse, False = photos moitié haute
+_IS_MAC = platform.system() == "Darwin"   # Raccourcis clavier spécifiques macOS
 
 # Formats d'impression (largeur_mm, hauteur_mm) - en portrait
 FORMATS = CONSTANTS.FORMATS
@@ -466,16 +468,16 @@ class PhotoCropper:
         self.canvas_is_portrait = True
         self.current_format = FORMATS["ID"]
         self.current_format_label = "ID"
-        self.border_13x15 = False
-        self.border_10x20 = False
-        self.border_13x20 = False
-        self.border_20x24 = False
-        self.border_13x10 = False
-        self.border_polaroid = False
-        self.border_id2 = False
-        self.border_id4 = True
-        self.id4_10x20 = True       # Planche ID X4 en format 10x20 (moitié haute blanche)
-        self.save_to_network = True  # Sauvegarder les ID X4 sur le réseau par défaut
+        self.border_13x15 = CONSTANTS.RECADRAGE_BORDER_13x15
+        self.border_10x20 = CONSTANTS.RECADRAGE_BORDER_10x20
+        self.border_13x20 = CONSTANTS.RECADRAGE_BORDER_13x20
+        self.border_20x24 = CONSTANTS.RECADRAGE_BORDER_20x24
+        self.border_13x10 = CONSTANTS.RECADRAGE_BORDER_13x10
+        self.border_polaroid = CONSTANTS.RECADRAGE_BORDER_POLAROID
+        self.border_id2 = CONSTANTS.RECADRAGE_BORDER_ID2
+        self.border_id4 = CONSTANTS.RECADRAGE_BORDER_ID4
+        self.id4_10x20 = CONSTANTS.RECADRAGE_ID4_10x20       # Planche ID X4 en format 10x20 (moitié haute blanche)
+        self.save_to_network = CONSTANTS.RECADRAGE_SAVE_TO_NETWORK  # Sauvegarder les ID X4 sur le réseau par défaut
         self.enhance_toggle = False  # Retro-compat snapshots anciens
         self.canvas_w = 800  # Valeur initiale, ajustée au chargement
         self.canvas_h = self.canvas_w * self.current_format[1] / self.current_format[0]
@@ -494,14 +496,14 @@ class PhotoCropper:
         self._last_rotation_render = 0.0  # Throttle rotation
         self._last_zoom_render = 0.0      # Throttle zoom
         self._bounds_cache: tuple | None = None  # Cache (scale, rotation, (bw, bh))
-        self._scroll_rotates = False       # Tab bascule défilement trackpad → rotation
+        self._scroll_rotates = CONSTANTS.RECADRAGE_SCROLL_ROTATES       # Tab bascule défilement trackpad → rotation
         self._gesture_scale_start = 1.0    # Scale au début du geste (suivi pour le zoom)
         self._gesture_rotation_prev = 0.0  # Rotation cumulée depuis le début du geste (radians)
 
 
 
         # Option noir et blanc
-        self.is_bw = False
+        self.is_bw = CONSTANTS.RECADRAGE_IS_BW
 
 
 
@@ -672,24 +674,24 @@ class PhotoCropper:
 
 
 
-        self.two_in_one_switch = ft.Switch(label="2 en 1", active_color=BLUE, value=False, visible=any(fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]), on_change=self.is_two_in_one_enabled)
-        self.border_switch_13x15 = ft.Switch(label="13x15", active_color=ORANGE, value=False, visible="10x15" in self.current_format_label, on_change=self.on_border_toggle_13x15)
-        self.border_switch_10x20 = ft.Switch(label="10x20", active_color=ORANGE, value=False, visible="10x15" in self.current_format_label, on_change=self.on_border_toggle_10x20)
-        self.border_switch_13x20 = ft.Switch(label="13x20", active_color=ORANGE, value=False, visible="13x18" in self.current_format_label, on_change=self.on_border_toggle_13x20)
-        self.border_switch_20x24 = ft.Switch(label="20x24", active_color=ORANGE, value=False, visible="18x24" in self.current_format_label, on_change=self.on_border_toggle_20x24)
-        self.border_switch_13x10 = ft.Switch(label="13x10", active_color=ORANGE, value=False, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_13x10)
-        self.border_switch_polaroid = ft.Switch(label="Polaroid", active_color=ORANGE, value=False, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_polaroid)
-        self.border_switch_ID2 = ft.Switch(label="ID X2", active_color=ORANGE, value=False, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id2)
-        self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=ORANGE, value=True, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id4)
-        self.id4_10x20_switch = ft.Switch(label="10x20", active_color=ORANGE, value=True, visible="ID" in self.current_format_label and self.border_id4, on_change=self.on_id4_10x20_toggle)
-        self.network_switch = ft.Switch(label="Sauver sur réseau", active_color=GREEN, value=True, visible="ID" in self.current_format_label, on_change=self.on_network_toggle)
-        self.sharpen_switch = ft.Switch(label="Netteté", active_color=BLUE, value=True, visible=True, on_change=self.on_sharpen_toggle)
-        self.is_sharpen = True
-        self.bw_switch = ft.Switch(label="Noir et blanc", active_color=YELLOW, value=False, on_change=self.on_bw_toggle)
-        self.is_fit_in = False
-        self.fit_in_switch = ft.Switch(label="Fit-in", active_color=VIOLET, value=False, on_change=self.on_fit_in_toggle)
-        self.show_grid = True
-        self.grid_switch = ft.Switch(label="Grille", active_color=BLUE, value=True, on_change=self.on_grid_toggle)
+        self.two_in_one_switch = ft.Switch(label="2 en 1", active_color=BLUE, value=CONSTANTS.RECADRAGE_TWO_IN_ONE, visible=any(fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]), on_change=self.is_two_in_one_enabled)
+        self.border_switch_13x15 = ft.Switch(label="13x15", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_13x15, visible="10x15" in self.current_format_label, on_change=self.on_border_toggle_13x15)
+        self.border_switch_10x20 = ft.Switch(label="10x20", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_10x20, visible="10x15" in self.current_format_label, on_change=self.on_border_toggle_10x20)
+        self.border_switch_13x20 = ft.Switch(label="13x20", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_13x20, visible="13x18" in self.current_format_label, on_change=self.on_border_toggle_13x20)
+        self.border_switch_20x24 = ft.Switch(label="20x24", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_20x24, visible="18x24" in self.current_format_label, on_change=self.on_border_toggle_20x24)
+        self.border_switch_13x10 = ft.Switch(label="13x10", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_13x10, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_13x10)
+        self.border_switch_polaroid = ft.Switch(label="Polaroid", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_POLAROID, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_polaroid)
+        self.border_switch_ID2 = ft.Switch(label="ID X2", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_ID2, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id2)
+        self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_ID4, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id4)
+        self.id4_10x20_switch = ft.Switch(label="10x20", active_color=ORANGE, value=CONSTANTS.RECADRAGE_ID4_10x20, visible="ID" in self.current_format_label and self.border_id4, on_change=self.on_id4_10x20_toggle)
+        self.network_switch = ft.Switch(label="Sauver sur réseau", active_color=GREEN, value=CONSTANTS.RECADRAGE_SAVE_TO_NETWORK, visible="ID" in self.current_format_label, on_change=self.on_network_toggle)
+        self.sharpen_switch = ft.Switch(label="Netteté", active_color=BLUE, value=CONSTANTS.RECADRAGE_IS_SHARPEN, visible=True, on_change=self.on_sharpen_toggle)
+        self.is_sharpen = CONSTANTS.RECADRAGE_IS_SHARPEN
+        self.bw_switch = ft.Switch(label="Noir et blanc", active_color=YELLOW, value=CONSTANTS.RECADRAGE_IS_BW, on_change=self.on_bw_toggle)
+        self.is_fit_in = CONSTANTS.RECADRAGE_FIT_IN
+        self.fit_in_switch = ft.Switch(label="Fit-in", active_color=VIOLET, value=CONSTANTS.RECADRAGE_FIT_IN, on_change=self.on_fit_in_toggle)
+        self.show_grid = CONSTANTS.RECADRAGE_SHOW_GRID
+        self.grid_switch = ft.Switch(label="Grille", active_color=BLUE, value=CONSTANTS.RECADRAGE_SHOW_GRID, on_change=self.on_grid_toggle)
 
 
 
@@ -698,9 +700,9 @@ class PhotoCropper:
         self._rembg_session_u2net = [None]  # u2net_human_seg / u2net
         self._rembg_original = None   # sauvegarde avant suppression du fond
         self._rembg_composite_cache = None  # (cache_key, PIL.Image RGB) — composite bg+mask à taille affichage
-        self.rembg_bg_white = True
-        self.rembg_human_seg = True
-        self.rembg_precise = False  # False = rapide (u2net), True = précis (birefnet)
+        self.rembg_bg_white = CONSTANTS.RECADRAGE_REMBG_BG_WHITE
+        self.rembg_human_seg = CONSTANTS.RECADRAGE_REMBG_HUMAN_SEG
+        self.rembg_precise = CONSTANTS.RECADRAGE_REMBG_PRECISE  # False = rapide (u2net), True = précis (birefnet)
         self._rembg_bg_label = ft.Text("Fond blanc", size=12, color=DARK)
         self.rembg_bg_btn = ft.Button(
             content=self._rembg_bg_label,
@@ -3294,7 +3296,7 @@ class PhotoCropper:
         et recharge l'image courante. Met à jour la visibilité des switches
         selon le format actif.
 
-        Raccourci clavier : Backspace.
+        Raccourci clavier : Cmd+Backspace (macOS) / Suppr (Windows, Linux).
 
         Parameters
         ----------
@@ -3999,7 +4001,7 @@ def main(page: ft.Page):
       2. Instanciation de `PhotoCropper`.
       3. Attachement du gestionnaire de clavier (`on_keyboard_event`) :
            - Entrée    → validate_and_next
-           - Backspace → toggle_orientation
+           - Cmd+Backspace (macOS) / Suppr → toggle_orientation
            - Espace    → ignore_image
       4. Construction de la mise en page complète :
            - Panneau gauche  : sliders de réglages (rotation, exposition,
@@ -4035,7 +4037,7 @@ def main(page: ft.Page):
         Raccourcis pris en charge :
           - ``Entrée``    → :meth:`validate_and_next`  – valider et passer
             à l'image suivante.
-          - ``Backspace`` → :meth:`toggle_orientation` – basculer
+          - ``Cmd+Backspace`` (macOS) / ``Suppr`` → :meth:`toggle_orientation` – basculer
             portrait / paysage.
           - ``Espace``    → :meth:`ignore_image`       – ignorer l'image
             courante sans l'exporter.
@@ -4052,7 +4054,7 @@ def main(page: ft.Page):
             app._update_shift_badge()
         elif event.key == "Enter":
             app.validate_and_next(event)
-        elif event.key == "Backspace":
+        elif (_IS_MAC and event.key == "Backspace" and event.meta) or (not _IS_MAC and event.key == "Delete"):
             app.toggle_orientation(event)
         elif event.key == "Escape":
             app.ignore_image(event)
