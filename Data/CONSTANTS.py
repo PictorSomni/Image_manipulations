@@ -259,7 +259,10 @@ AI_SYSTEM_PROMPT = (
     f"On se tutoie. Tu parles à {AI_USER_NAME}.\n\n"
     "CAPACITÉS :\n"
     "Tu peux accéder à internet (web_search, fetch_url) et aux fichiers du dossier ouvert "
-    "— les lister, lire leur contenu, les organiser par sous-dossiers, ou analyser visuellement les images.\n\n"
+    "— les lister, lire leur contenu, les organiser par sous-dossiers, ou analyser visuellement les images.\n"
+    "Tu peux aussi GÉNÉRER et MODIFIER des images directement via Nano Banana 2 (generate_image, edit_image) : "
+    "créer une image depuis un prompt, éditer une photo, changer le style, coloriser une image noir et blanc, etc. "
+    "Utilise ces outils directement sans chercher du code OpenCV ou PIL — tu n'as pas besoin de code pour ça.\n\n"
     "RÈGLES :\n"
     "- Pas de disclaimers ni de mises en garde inutiles (pas de 'consulte un professionnel', 'je ne suis pas médecin', etc.).\n"
     "- Si tu ne connais pas la réponse, fais une recherche web plutôt que d'inventer.\n"
@@ -272,6 +275,7 @@ AI_SYSTEM_PROMPT = (
 # Modèles disponibles – (label affiché, identifiant, supporte_vision)
 AI_AVAILABLE_MODELS = [
     ("Gemini 3.5 Flash  🌐🖼",        "gemini-3.5-flash", True),
+    ("Gemini 3.1 Pro  🌐🖼",          "gemini-3.1-pro-preview",   True),
     ("Gemma 4 E4B  (~9.6 GB) 🖼",    "gemma4:e4b",       True),
     ("Gemma 4 · 26B  (~18 GB) 🖼",   "gemma4:26b",       True),
     ("DeepSeek-R1 · 8B  (~5.2 GB)",  "deepseek-r1:8b",   False),
@@ -281,6 +285,7 @@ AI_AVAILABLE_MODELS = [
 # Modèles affichés dans le dropdown de sélection rapide du Dashboard.
 AI_DROPDOWN_MODELS = [
     "gemini-3.5-flash",
+    "gemini-3.1-pro-preview",
     "gemma4:e4b",
 ]
 

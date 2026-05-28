@@ -1426,6 +1426,31 @@ def _build_system_content(base_prompt, folder_path=None, today_date_str=None):
 
 # ─── Intégration Google Gemini ───────────────────────────────────────────────
 
+def _format_gemini_error(exc, *, prefix="Erreur Gemini"):
+    """Rend les erreurs Gemini plus lisibles sans masquer le message brut."""
+    import re as _re_ge
+
+    raw = str(exc).strip()
+    compact = " ".join(raw.split())
+    details = []
+
+    if "429" in compact or "RESOURCE_EXHAUSTED" in compact:
+        details.append("quota/rate limit Google atteint")
+    elif "503" in compact or "UNAVAILABLE" in compact:
+        details.append("service Google temporairement indisponible")
+
+    retry_match = _re_ge.search(r'retryDelay[^0-9]*(\d+(?:\.\d+)?)', compact)
+    if retry_match:
+        details.append(f"retryDelay={retry_match.group(1)}s")
+
+    if "GenerateContentResponse" in compact:
+        compact = compact.split("GenerateContentResponse", 1)[0].strip(" :-")
+
+    suffix = f" ({', '.join(details)})" if details else ""
+    if compact:
+        return f"[{prefix}{suffix} : {compact}]"
+    return f"[{prefix}{suffix}]"
+
 def _ollama_tools_to_gemini(tools):
     """
     Convertit une liste de définitions d'outils au format Ollama (JSON Schema)
@@ -1671,13 +1696,14 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
             if ("429" in _exc_str or "RESOURCE_EXHAUSTED" in _exc_str) and _attempt < _MAX_RETRIES:
                 _match = _re_retry.search(r"retryDelay[^0-9]*(\d+)", _exc_str)
                 _delay = int(_match.group(1)) + 2 if _match else 62
-                yield ("token", f"\n[Quota Gemini dépassé – nouvelle tentative dans {_delay}s…]\n")
+                _retry_msg = _format_gemini_error(exc, prefix="Erreur Gemini")
+                yield ("token", f"\n[{_retry_msg[1:-1]} – nouvelle tentative dans {_delay}s…]\n")
                 _time.sleep(_delay)
             elif ("503" in _exc_str or "UNAVAILABLE" in _exc_str) and _attempt < _MAX_RETRIES:
                 yield ("token", f"\n[Service Gemini indisponible – nouvelle tentative dans 10s…]\n")
                 _time.sleep(10)
             else:
-                yield ("token", f"\n[Erreur Gemini : {exc}]")
+                yield ("token", f"\n{_format_gemini_error(exc)}")
                 break
 
 
@@ -1713,7 +1739,7 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
     import time as _time_gi
     import re as _re_gi
 
-    _candidate_models = ["gemini-3.1-flash-image-preview", "gemini-2.5-flash-image"]
+    _candidate_models = ["gemini-3.1-flash-image-preview"]
     _last_error = None
 
     for _model in _candidate_models:
@@ -1784,4 +1810,4 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
                 # Si erreur irrémédiable ou épuisement des essais, on tente le modèle suivant immédiatement
                 break
 
-    return (f"[ERREUR Gemini Image] {_last_error}", None)
+    return (_format_gemini_error(_last_error, prefix="ERREUR Gemini Image"), None)
