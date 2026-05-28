@@ -9,7 +9,8 @@ Fonctions et constantes exposées :
   _ollama_chat_stream(url, model, messages)  — appel streaming à /api/chat, génère les tokens
 
   Outils dossier (partagés) :
-  _folder_tool_definitions(folder_path)      — retourne les 6 définitions d'outils dossier pour Ollama
+  _folder_tool_definitions(folder_path)      — retourne les 7 définitions d'outils dossier pour Ollama/Gemma
+  _gemini_tool_definitions(folder_path)       — version allégée pour Gemini (sans analyze_images)
   _folder_list_contents(folder_path)         — liste les fichiers avec taille et date
   _folder_read_file(folder_path, filename)   — lit le contenu texte d'un fichier
   _folder_create_file(folder_path, filename, content)
@@ -29,6 +30,11 @@ Fonctions et constantes exposées :
   _read_memory_file(target)                  — lit un fichier mémoire brut (str)
   _build_system_content(base_prompt, folder_path, today_date_str)
                                              — assemble le message système complet (system.md + mémoire + date + dossier)
+
+  Voix — STT / TTS :
+  _gemini_tts(text, ...)                     — génère l'audio TTS en une seule requête (bytes PCM)
+  _gemini_tts_stream(text, ...)              — génère et joue le TTS en streaming (latence réduite)
+  _voice_play_audio(pcm_bytes, ...)          — joue des bytes PCM via sounddevice
 """
 
 import ast as _ast
@@ -822,6 +828,25 @@ def _folder_tool_definitions(folder_path):
                 },
             },
         },
+    ]
+
+
+def _gemini_tool_definitions(folder_path):
+    """
+    Version allégée de _folder_tool_definitions pour les modèles Gemini.
+
+    Exclut analyze_images : Gemini est nativement multimodal, les images
+    peuvent être passées directement en base64 dans le message.
+    Exclut également les outils web (remplacés par google_search natif),
+    terminal et mémoire — ceux-ci ne doivent pas être passés ici mais
+    sont déjà absents car cette fonction ne retourne que les outils dossier.
+
+    À utiliser à la place de _folder_tool_definitions quand active_model
+    commence par 'gemini'.
+    """
+    return [
+        tool for tool in _folder_tool_definitions(folder_path)
+        if tool.get("function", {}).get("name") != "analyze_images"
     ]
 
 
@@ -1648,16 +1673,31 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
         yield ("token", f"[Erreur initialisation Gemini : {exc}]")
         return
 
-    gemini_tool = _ollama_tools_to_gemini(tools)
-    gemini_tools_list = [gemini_tool] if gemini_tool is not None else None
+    # web_search et fetch_url sont remplacés par google_search natif :
+    # Gemini gère la recherche en interne sans émettre de function_call,
+    # donc aucun round de tool n'est consommé pour les recherches web.
+    _WEB_TOOL_NAMES = {"web_search", "fetch_url"}
+    tools_sans_web = [
+        tool for tool in (tools or [])
+        if tool.get("function", {}).get("name") not in _WEB_TOOL_NAMES
+    ]
+    gemini_tool = _ollama_tools_to_gemini(tools_sans_web)
+    # Google Search natif toujours présent (remplace DuckDuckGo)
+    gemini_tools_list = [_gtypes.Tool(google_search=_gtypes.GoogleSearch())]
+    if gemini_tool is not None:
+        gemini_tools_list.append(gemini_tool)
 
     system_instr, gemini_contents = _ollama_messages_to_gemini(messages)
 
     config_kwargs: dict = {"temperature": temperature}
     if system_instr:
         config_kwargs["system_instruction"] = system_instr
-    if gemini_tools_list is not None:
-        config_kwargs["tools"] = gemini_tools_list
+    config_kwargs["tools"] = gemini_tools_list
+    # Requis quand on mélange un outil natif (google_search) et des function declarations :
+    if gemini_tool is not None:
+        config_kwargs["tool_config"] = _gtypes.ToolConfig(
+            include_server_side_tool_invocations=True
+        )
     config = _gtypes.GenerateContentConfig(**config_kwargs)
 
     # Accumulateur pour les function calls fragmentés sur plusieurs chunks
@@ -1858,7 +1898,7 @@ def _voice_transcribe(audio_data, sample_rate=16000, stt_model="base"):
     return (result.get("text") or "").strip()
 
 
-def _gemini_tts(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts"):
+def _gemini_tts(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts", language_code=None):
     """
     Génère de l'audio TTS via l'API Gemini.
 
@@ -1887,13 +1927,74 @@ def _gemini_tts(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts
                         prebuilt_voice_config=_gtypes.PrebuiltVoiceConfig(
                             voice_name=voice_name,
                         )
-                    )
+                    ),
+                    language_code=language_code,
                 ),
             ),
         )
         return response.candidates[0].content.parts[0].inline_data.data
     except Exception:
         return None
+
+
+def _gemini_tts_stream(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts", sample_rate=24000, language_code=None):
+    """
+    Génère et joue le TTS via l'API Gemini en pipeline chunk par chunk.
+
+    Le texte est découpé en morceaux de ~300 caractères aux frontières de phrases.
+    Le premier chunk démarre la lecture en ~1-2 s ; les suivants se génèrent
+    en parallèle pendant la lecture (pipelined).
+    language_code (ex : "fr", "en") est transmis à chaque appel TTS pour
+    garantir un accent cohérent sur l'ensemble de la réponse.
+    Bloquant : attend la fin de la lecture avant de retourner.
+    """
+    import re
+    import queue
+    import threading
+
+    # Découpe en phrases puis regroupe jusqu'à ~300 chars pour équilibrer
+    # latence (chunks courts) et cohérence vocale (contexte suffisant).
+    raw_sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+    chunks: list = []
+    current_chunk = ""
+    for sentence in raw_sentences:
+        if not sentence.strip():
+            continue
+        candidate = (current_chunk + " " + sentence).strip() if current_chunk else sentence
+        if current_chunk and len(candidate) > 300:
+            chunks.append(current_chunk)
+            current_chunk = sentence
+        else:
+            current_chunk = candidate
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    if not chunks:
+        return
+
+    _SENTINEL = object()
+    # maxsize=3 : on pré-génère jusqu'à 3 chunks d'avance
+    audio_queue: queue.Queue = queue.Queue(maxsize=3)
+
+    def _producer():
+        for chunk in chunks:
+            pcm = _gemini_tts(
+                chunk,
+                voice_name=voice_name,
+                tts_model=tts_model,
+                language_code=language_code,
+            )
+            if pcm:
+                audio_queue.put(pcm)
+        audio_queue.put(_SENTINEL)
+
+    threading.Thread(target=_producer, daemon=True).start()
+
+    while True:
+        item = audio_queue.get()
+        if item is _SENTINEL:
+            break
+        _voice_play_audio(item, sample_rate=sample_rate)
 
 
 def _voice_play_audio(pcm_bytes, sample_rate=24000):

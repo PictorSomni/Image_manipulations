@@ -66,12 +66,12 @@ from ai_tools import (
     _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream,
     _ollama_chat_stream_with_tools, _gemini_chat_stream_with_tools,
     _parse_text_tool_calls, _strip_text_tool_calls,
-    _format_ai_conversation, _folder_tool_definitions, _folder_list_contents,
+    _format_ai_conversation, _folder_tool_definitions, _gemini_tool_definitions, _folder_list_contents,
     _folder_read_file, _folder_create_file, _encode_image_for_analysis, _analyze_images_batched,
     _gemini_generate_image,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
     _update_memory_file, _build_system_content,
-    _voice_record_audio, _voice_transcribe, _gemini_tts, _voice_play_audio,
+    _voice_record_audio, _voice_transcribe, _gemini_tts, _gemini_tts_stream, _voice_play_audio,
 )
 import thumb_cache
 #############################################################
@@ -1872,14 +1872,14 @@ def main(page: ft.Page):
         return "\n".join(result)
 
     def _speak_bubble(text):
-        """Lit un texte via Gemini TTS (appelé dans un thread)."""
-        pcm_bytes = _gemini_tts(
+        """Lit un texte via Gemini TTS en streaming (appelé dans un thread)."""
+        _gemini_tts_stream(
             text,
             voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
             tts_model=CONSTANTS.AI_VOICE_TTS_MODEL,
+            sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
+            language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
         )
-        if pcm_bytes:
-            _voice_play_audio(pcm_bytes, sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE)
 
     def _ai_add_bubble(role, text):
         """Ajoute un message dans le panneau IA et retourne le contrôle (pour le streaming)."""
@@ -2095,7 +2095,10 @@ def main(page: ft.Page):
                 # ── Outils dossier (disponibles si un dossier est ouvert) ─────
                 _folder_path_for_tools = current_browse_folder["path"] or selected_folder["path"]
                 _FOLDER_TOOLS = _folder_tool_definitions(_folder_path_for_tools)
-                _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _FOLDER_TOOLS
+                if (active_model or "").startswith("gemini"):
+                    _ALL_TOOLS = _gemini_tool_definitions(_folder_path_for_tools)
+                else:
+                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _FOLDER_TOOLS
 
                 today = datetime.date.today().strftime("%d %B %Y")
                 _system_content = _build_system_content(
@@ -2144,7 +2147,7 @@ def main(page: ft.Page):
                 _turn_events = []          # Événements d'outils du tour courant (pour export)
 
                 # ── Boucle agentique (max 6 tours d'outils) ─────────────────────
-                for _tool_round in range(6):
+                for _tool_round in range(12):
                     # Streaming avec thinking natif Ollama et capture des tool_calls
                     _streamed = ""
                     _thinking = ""

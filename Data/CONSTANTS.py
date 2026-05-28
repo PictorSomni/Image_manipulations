@@ -325,6 +325,7 @@ AI_VOICE_TTS_ENABLED        = False    # Lire la réponse IA à voix haute aprè
 AI_VOICE_TTS_MODEL          = "gemini-2.5-flash-preview-tts"  # Modèle TTS Google
 AI_VOICE_TTS_VOICE          = "Kore"   # Voir AI_AVAILABLE_VOICES ci-dessous
 AI_VOICE_TTS_SAMPLE_RATE    = 24000    # Fréquence de sortie du TTS Gemini (Hz — ne pas modifier)
+AI_VOICE_TTS_LANGUAGE       = "fr"     # Code ISO 639-1 pour la langue de synthèse (ex : "fr", "en", "es")
 
 # Voix disponibles pour le sélecteur (noms officiels Google Gemini TTS)
 AI_AVAILABLE_VOICES = [
