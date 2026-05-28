@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.6.7"
+__version__ = "2.6.8"
 
 
 #############################################################
@@ -70,6 +70,7 @@ from ai_tools import (
     _folder_read_file, _folder_create_file, _encode_image_for_analysis, _analyze_images_batched,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
     _update_memory_file, _build_system_content,
+    _voice_record_audio, _voice_transcribe, _gemini_tts, _voice_play_audio,
 )
 #############################################################
 #                           MAIN                            #
@@ -490,6 +491,21 @@ def main(page: ft.Page):
         icon_color=BLUE,
         icon_size=18,
         tooltip="Envoyer",
+    )
+    ai_mic_btn_sp      = ft.IconButton(
+        icon=ft.Icons.MIC,
+        icon_color=LIGHT_GREY,
+        icon_size=18,
+        tooltip=f"Enregistrer {CONSTANTS.AI_VOICE_RECORDING_SECONDS} s puis envoyer",
+        visible=CONSTANTS.AI_VOICE_ENABLED,
+    )
+    ai_tts_enabled_sp = {"value": CONSTANTS.AI_VOICE_TTS_ENABLED}
+    ai_speaker_btn_sp  = ft.IconButton(
+        icon=ft.Icons.VOLUME_UP if CONSTANTS.AI_VOICE_TTS_ENABLED else ft.Icons.VOLUME_OFF,
+        icon_color=CONSTANTS.COLOR_BLUE if CONSTANTS.AI_VOICE_TTS_ENABLED else CONSTANTS.COLOR_LIGHT_GREY,
+        icon_size=18,
+        tooltip="Désactiver la lecture vocale" if CONSTANTS.AI_VOICE_TTS_ENABLED else "Activer la lecture vocale",
+        visible=CONSTANTS.AI_VOICE_ENABLED,
     )
     ai_clear_btn_sp    = ft.IconButton(
         icon=ft.Icons.DELETE_SWEEP,
@@ -1984,6 +2000,16 @@ def main(page: ft.Page):
                 result.append(line)
         return "\n".join(result)
 
+    def _speak_bubble_sp(text):
+        """Lit un texte via Gemini TTS (appelé dans un thread)."""
+        pcm_bytes = _gemini_tts(
+            text,
+            voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
+            tts_model=CONSTANTS.AI_VOICE_TTS_MODEL,
+        )
+        if pcm_bytes:
+            _voice_play_audio(pcm_bytes, sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE)
+
     def _ai_add_bubble_sp(role, text):
         """Ajoute un message dans le panneau IA et retourne le contrôle (pour le streaming)."""
         is_user  = role == "user"
@@ -2025,10 +2051,27 @@ def main(page: ft.Page):
             padding=ft.Padding(8, 4, 8, 4),
             expand=True,
         )
-        row = ft.Row(
-            [bubble],
-            alignment=ft.MainAxisAlignment.END if is_user else ft.MainAxisAlignment.START,
-        )
+        if not is_user and not is_think:
+            raw_text = text
+            speak_btn = ft.IconButton(
+                icon=ft.Icons.VOLUME_UP,
+                icon_color=LIGHT_GREY,
+                icon_size=14,
+                tooltip="Lire cette réponse",
+                on_click=lambda e, t=raw_text: threading.Thread(
+                    target=_speak_bubble_sp, args=(t,), daemon=True
+                ).start(),
+            )
+            row = ft.Row(
+                [bubble, speak_btn],
+                alignment=ft.MainAxisAlignment.START,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+            )
+        else:
+            row = ft.Row(
+                [bubble],
+                alignment=ft.MainAxisAlignment.END if is_user else ft.MainAxisAlignment.START,
+            )
         ai_chat_view_sp.controls.append(row)
         async def _update_and_scroll():
             try:
@@ -3041,6 +3084,7 @@ def main(page: ft.Page):
                     _ai_add_bubble_sp("assistant", "[Aucune réponse reçue]")
             except Exception as exc:
                 _ai_add_bubble_sp("assistant", f"[ERREUR] {exc}")
+                full_response = ""
             finally:
                 ai_streaming_sp["value"] = False
                 ai_stop_btn_sp.icon_color = LIGHT_GREY
@@ -3049,6 +3093,8 @@ def main(page: ft.Page):
                     page.update()
                 except Exception:
                     pass
+                if full_response and ai_tts_enabled_sp["value"]:
+                    threading.Thread(target=_speak_bubble_sp, args=(full_response,), daemon=True).start()
                 async def _refocus():
                     try:
                         await ai_input_field_sp.focus()
@@ -3073,10 +3119,81 @@ def main(page: ft.Page):
         page.run_task(_refocus)
         _send_ai_message_sp(message_text)
 
+    def _toggle_tts_sp():
+        """Active ou désactive la lecture vocale des réponses IA."""
+        ai_tts_enabled_sp["value"] = not ai_tts_enabled_sp["value"]
+        enabled = ai_tts_enabled_sp["value"]
+        ai_speaker_btn_sp.icon = ft.Icons.VOLUME_UP if enabled else ft.Icons.VOLUME_OFF
+        ai_speaker_btn_sp.icon_color = BLUE if enabled else LIGHT_GREY
+        ai_speaker_btn_sp.tooltip = "Désactiver la lecture vocale" if enabled else "Activer la lecture vocale"
+        try:
+            ai_speaker_btn_sp.update()
+        except Exception:
+            pass
+
+    def _on_voice_input_sp():
+        """Enregistre le micro, transcrit via Whisper et envoie le texte à l'IA."""
+        if ai_streaming_sp["value"]:
+            return
+        # Active le TTS automatiquement si pas encore activé
+        if not ai_tts_enabled_sp["value"]:
+            _toggle_tts_sp()
+        ai_mic_btn_sp.icon_color = CONSTANTS.COLOR_RED
+        ai_mic_btn_sp.disabled = True
+        ai_status_text_sp.value = f"🎙 Enregistrement ({CONSTANTS.AI_VOICE_RECORDING_SECONDS} s)…"
+        try:
+            ai_mic_btn_sp.update()
+            ai_status_text_sp.update()
+        except Exception:
+            pass
+
+        def _record_and_submit():
+            try:
+                audio_data = _voice_record_audio(
+                    duration_seconds=CONSTANTS.AI_VOICE_RECORDING_SECONDS,
+                    sample_rate=CONSTANTS.AI_VOICE_SAMPLE_RATE,
+                )
+                ai_status_text_sp.value = "🔄 Transcription…"
+                try:
+                    ai_status_text_sp.update()
+                except Exception:
+                    pass
+                transcribed_text = _voice_transcribe(
+                    audio_data,
+                    sample_rate=CONSTANTS.AI_VOICE_SAMPLE_RATE,
+                    stt_model=CONSTANTS.AI_VOICE_STT_MODEL,
+                )
+                if transcribed_text:
+                    ai_input_field_sp.value = transcribed_text
+                    try:
+                        ai_input_field_sp.update()
+                    except Exception:
+                        pass
+                    _on_ai_submit_sp()
+                else:
+                    ai_status_text_sp.value = "Aucun son détecté."
+                    try:
+                        ai_status_text_sp.update()
+                    except Exception:
+                        pass
+            except Exception as voice_exc:
+                _ai_add_bubble_sp("assistant", f"[Erreur micro] {voice_exc}")
+            finally:
+                ai_mic_btn_sp.icon_color = CONSTANTS.COLOR_LIGHT_GREY
+                ai_mic_btn_sp.disabled = False
+                try:
+                    ai_mic_btn_sp.update()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_record_and_submit, daemon=True).start()
+
     # Connexions boutons IA
     ai_input_field_sp.on_submit = lambda event: _on_ai_submit_sp()
     ai_send_btn_sp.on_click     = lambda event: _on_ai_submit_sp()
     ai_attach_btn_sp.on_click   = lambda event: page.run_task(_ai_pick_any_sp)
+    ai_mic_btn_sp.on_click      = lambda event: _on_voice_input_sp()
+    ai_speaker_btn_sp.on_click  = lambda event: _toggle_tts_sp()
     ai_stop_btn_sp.on_click     = _ai_stop_model_sp
     ai_clear_btn_sp.on_click    = _clear_ai_conversation_sp
     ai_copy_btn_sp.on_click     = lambda e: _export_ai_conversation_sp(to_notepad=False)
@@ -3404,6 +3521,7 @@ def main(page: ft.Page):
             ft.Container(expand=True),
             ai_copy_btn_sp,
             ai_clear_btn_sp,
+            ai_speaker_btn_sp,
             ft.IconButton(
                 icon=ft.Icons.SEND_TO_MOBILE,
                 icon_color=VIOLET,
@@ -3418,6 +3536,7 @@ def main(page: ft.Page):
                 ai_attach_row_sp,
                 ft.Row([
                     ai_attach_btn_sp,
+                    ai_mic_btn_sp,
                     ai_input_field_sp,
                     ai_send_btn_sp,
                 ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),

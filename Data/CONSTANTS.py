@@ -9,7 +9,7 @@ toucher aux scripts eux-mêmes.
 
 
 # ─── Version ───────────────────────────────────────────────────────
-__version__ = "2.6.7"
+__version__ = "2.6.8"
 
 
 # ─── Extensions de fichiers ────────────────────────────────────────────────────────────
@@ -311,6 +311,34 @@ AI_DROPDOWN_MODELS = [
     "gemma4:e4b",
 ]
 
+
+# ─── Voix — STT (reconnaissance vocale) ───────────────────────────────────────
+# Nécessite : pip install sounddevice  (+ libportaudio2 sur Linux)
+#             openai-whisper (déjà dans requirements.txt)
+AI_VOICE_ENABLED            = True     # Afficher le bouton micro dans Dashboard / SidePanel
+AI_VOICE_STT_MODEL          = "base"   # Modèle Whisper local : "tiny" | "base" | "small" | "medium" | "large"
+AI_VOICE_RECORDING_SECONDS  = 6        # Durée max d'enregistrement micro (secondes)
+AI_VOICE_SAMPLE_RATE        = 16000    # Fréquence d'échantillonnage micro (Hz)
+
+# ─── Voix — TTS (synthèse vocale Gemini) ──────────────────────────────────────
+AI_VOICE_TTS_ENABLED        = False    # Lire la réponse IA à voix haute après chaque réponse complète
+AI_VOICE_TTS_MODEL          = "gemini-2.5-flash-preview-tts"  # Modèle TTS Google
+AI_VOICE_TTS_VOICE          = "Kore"   # Voir AI_AVAILABLE_VOICES ci-dessous
+AI_VOICE_TTS_SAMPLE_RATE    = 24000    # Fréquence de sortie du TTS Gemini (Hz — ne pas modifier)
+
+# Voix disponibles pour le sélecteur (noms officiels Google Gemini TTS)
+AI_AVAILABLE_VOICES = [
+    "Puck",     # Voix décontractée masculine
+    "Charon",   # Voix neutre masculine
+    "Kore",     # Voix douce féminine
+    "Fenrir",   # Voix grave masculine
+    "Aoede",    # Voix légère féminine
+    "Leda",     # Voix claire féminine
+    "Orus",     # Voix profonde masculine
+    "Zephyr",   # Voix aérienne féminine
+    "Schedar",  # Voix chaleureuse masculine
+    "Gacrux",   # Voix ferme masculine
+]
 
 
 #══════════════════════════════════════════════════════════════

@@ -1816,3 +1816,96 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
                 break
 
     return (_format_gemini_error(_last_error, prefix="ERREUR Gemini Image"), None)
+
+
+# ─── Voix — STT / TTS ────────────────────────────────────────────────────────
+
+def _voice_record_audio(duration_seconds=6, sample_rate=16000):
+    """
+    Enregistre le microphone pendant ``duration_seconds`` secondes.
+
+    Retourne un ndarray float32 mono (forme plate).
+    Lève ImportError si sounddevice n'est pas installé.
+    """
+    import sounddevice as _sd
+    import numpy as _np
+
+    recording = _sd.rec(
+        int(duration_seconds * sample_rate),
+        samplerate=sample_rate,
+        channels=1,
+        dtype="float32",
+    )
+    _sd.wait()
+    return recording.flatten()
+
+
+def _voice_transcribe(audio_data, sample_rate=16000, stt_model="base"):
+    """
+    Transcrit un ndarray float32 (16 kHz, mono) via Whisper local.
+
+    Retourne le texte transcrit (str), ou une chaîne vide en cas d'échec.
+    Lève ImportError si openai-whisper n'est pas installé.
+    """
+    import whisper as _whisper
+    import numpy as _np
+
+    # Whisper attend du float32 normalisé à 16 kHz
+    audio_float32 = audio_data.astype(_np.float32)
+
+    model = _whisper.load_model(stt_model)
+    result = model.transcribe(audio_float32, fp16=False)
+    return (result.get("text") or "").strip()
+
+
+def _gemini_tts(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts"):
+    """
+    Génère de l'audio TTS via l'API Gemini.
+
+    Retourne les bytes PCM bruts (int16, mono, 24 kHz) ou None en cas d'erreur.
+    Lève ImportError si google-genai n'est pas installé.
+    """
+    try:
+        from google import genai as _genai
+        from google.genai import types as _gtypes
+    except ImportError:
+        return None
+
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        return None
+
+    try:
+        client = _genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=tts_model,
+            contents=text,
+            config=_gtypes.GenerateContentConfig(
+                response_modalities=["AUDIO"],
+                speech_config=_gtypes.SpeechConfig(
+                    voice_config=_gtypes.VoiceConfig(
+                        prebuilt_voice_config=_gtypes.PrebuiltVoiceConfig(
+                            voice_name=voice_name,
+                        )
+                    )
+                ),
+            ),
+        )
+        return response.candidates[0].content.parts[0].inline_data.data
+    except Exception:
+        return None
+
+
+def _voice_play_audio(pcm_bytes, sample_rate=24000):
+    """
+    Joue des bytes PCM bruts (int16, mono) via sounddevice.
+
+    Bloquant : attend la fin de la lecture avant de retourner.
+    Lève ImportError si sounddevice n'est pas installé.
+    """
+    import sounddevice as _sd
+    import numpy as _np
+
+    audio_array = _np.frombuffer(pcm_bytes, dtype=_np.int16).astype(_np.float32) / 32768.0
+    _sd.play(audio_array, samplerate=sample_rate)
+    _sd.wait()

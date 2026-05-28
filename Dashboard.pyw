@@ -29,7 +29,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.6.7"
+__version__ = "2.6.8"
 
 
 
@@ -71,6 +71,7 @@ from ai_tools import (
     _gemini_generate_image,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
     _update_memory_file, _build_system_content,
+    _voice_record_audio, _voice_transcribe, _gemini_tts, _voice_play_audio,
 )
 import thumb_cache
 #############################################################
@@ -495,6 +496,23 @@ def main(page: ft.Page):
         tooltip="Joindre une image, un document ou un fichier audio",
         on_click=lambda e: page.run_task(_ai_pick_any),
     )
+    ai_mic_button = ft.IconButton(
+        icon=ft.Icons.MIC,
+        icon_color=LIGHT_GREY,
+        icon_size=18,
+        tooltip=f"Enregistrer {CONSTANTS.AI_VOICE_RECORDING_SECONDS} s puis envoyer",
+        visible=CONSTANTS.AI_VOICE_ENABLED,
+        on_click=lambda e: _on_voice_input(),
+    )
+    ai_tts_enabled = {"value": CONSTANTS.AI_VOICE_TTS_ENABLED}
+    ai_speaker_button = ft.IconButton(
+        icon=ft.Icons.VOLUME_UP if CONSTANTS.AI_VOICE_TTS_ENABLED else ft.Icons.VOLUME_OFF,
+        icon_color=CONSTANTS.COLOR_BLUE if CONSTANTS.AI_VOICE_TTS_ENABLED else CONSTANTS.COLOR_LIGHT_GREY,
+        icon_size=18,
+        tooltip="Désactiver la lecture vocale" if CONSTANTS.AI_VOICE_TTS_ENABLED else "Activer la lecture vocale",
+        visible=CONSTANTS.AI_VOICE_ENABLED,
+        on_click=lambda e: _toggle_tts(),
+    )
 
     ai_container = ft.Container(
         content=ft.Column([
@@ -502,7 +520,7 @@ def main(page: ft.Page):
             ai_attach_row,
             ai_progress_bar,
             ft.Row(
-                [ai_attach_button, ai_input_field],
+                [ai_attach_button, ai_mic_button, ai_input_field, ai_send_button],
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
@@ -1853,6 +1871,16 @@ def main(page: ft.Page):
                 result.append(line)
         return "\n".join(result)
 
+    def _speak_bubble(text):
+        """Lit un texte via Gemini TTS (appelé dans un thread)."""
+        pcm_bytes = _gemini_tts(
+            text,
+            voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
+            tts_model=CONSTANTS.AI_VOICE_TTS_MODEL,
+        )
+        if pcm_bytes:
+            _voice_play_audio(pcm_bytes, sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE)
+
     def _ai_add_bubble(role, text):
         """Ajoute un message dans le panneau IA et retourne le contrôle (pour le streaming)."""
         is_user  = role == "user"
@@ -1894,10 +1922,27 @@ def main(page: ft.Page):
             padding=ft.Padding(8, 4, 8, 4),
             expand=True,
         )
-        row = ft.Row(
-            [bubble],
-            alignment=ft.MainAxisAlignment.END if is_user else ft.MainAxisAlignment.START,
-        )
+        if not is_user and not is_think:
+            raw_text = text
+            speak_btn = ft.IconButton(
+                icon=ft.Icons.VOLUME_UP,
+                icon_color=LIGHT_GREY,
+                icon_size=14,
+                tooltip="Lire cette réponse",
+                on_click=lambda e, t=raw_text: threading.Thread(
+                    target=_speak_bubble, args=(t,), daemon=True
+                ).start(),
+            )
+            row = ft.Row(
+                [bubble, speak_btn],
+                alignment=ft.MainAxisAlignment.START,
+                vertical_alignment=ft.CrossAxisAlignment.START,
+            )
+        else:
+            row = ft.Row(
+                [bubble],
+                alignment=ft.MainAxisAlignment.END if is_user else ft.MainAxisAlignment.START,
+            )
         ai_chat_view.controls.append(row)
         async def _update_and_scroll():
             try:
@@ -2738,6 +2783,7 @@ def main(page: ft.Page):
                     _ai_add_bubble("assistant", "[Aucune réponse reçue]")
             except Exception as exc:
                 _ai_add_bubble("assistant", f"[ERREUR] {exc}")
+                full_response = ""
             finally:
                 ai_streaming["value"] = False
                 ai_stop_button.icon_color = LIGHT_GREY
@@ -2746,6 +2792,8 @@ def main(page: ft.Page):
                     page.update()
                 except Exception:
                     pass
+                if full_response and ai_tts_enabled["value"]:
+                    threading.Thread(target=_speak_bubble, args=(full_response,), daemon=True).start()
                 async def _refocus_after_response():
                     try:
                         await ai_input_field.focus()
@@ -3319,6 +3367,75 @@ def main(page: ft.Page):
                 pass
         page.run_task(_refocus_ai)
         _send_ai_message(message_text)
+
+    def _toggle_tts():
+        """Active ou désactive la lecture vocale des réponses IA."""
+        ai_tts_enabled["value"] = not ai_tts_enabled["value"]
+        enabled = ai_tts_enabled["value"]
+        ai_speaker_button.icon = ft.Icons.VOLUME_UP if enabled else ft.Icons.VOLUME_OFF
+        ai_speaker_button.icon_color = BLUE if enabled else LIGHT_GREY
+        ai_speaker_button.tooltip = "Désactiver la lecture vocale" if enabled else "Activer la lecture vocale"
+        try:
+            ai_speaker_button.update()
+        except Exception:
+            pass
+
+    def _on_voice_input():
+        """Enregistre le micro, transcrit via Whisper et envoie le texte à l'IA."""
+        if ai_streaming["value"]:
+            return
+        # Active le TTS automatiquement si pas encore activé
+        if not ai_tts_enabled["value"]:
+            _toggle_tts()
+        ai_mic_button.icon_color = CONSTANTS.COLOR_RED
+        ai_mic_button.disabled = True
+        ai_status_text.value = f"🎙 Enregistrement ({CONSTANTS.AI_VOICE_RECORDING_SECONDS} s)…"
+        try:
+            ai_mic_button.update()
+            ai_status_text.update()
+        except Exception:
+            pass
+
+        def _record_and_submit():
+            try:
+                audio_data = _voice_record_audio(
+                    duration_seconds=CONSTANTS.AI_VOICE_RECORDING_SECONDS,
+                    sample_rate=CONSTANTS.AI_VOICE_SAMPLE_RATE,
+                )
+                ai_status_text.value = "🔄 Transcription…"
+                try:
+                    ai_status_text.update()
+                except Exception:
+                    pass
+                transcribed_text = _voice_transcribe(
+                    audio_data,
+                    sample_rate=CONSTANTS.AI_VOICE_SAMPLE_RATE,
+                    stt_model=CONSTANTS.AI_VOICE_STT_MODEL,
+                )
+                if transcribed_text:
+                    ai_input_field.value = transcribed_text
+                    try:
+                        ai_input_field.update()
+                    except Exception:
+                        pass
+                    _on_ai_submit()
+                else:
+                    ai_status_text.value = "Aucun son détecté."
+                    try:
+                        ai_status_text.update()
+                    except Exception:
+                        pass
+            except Exception as voice_exc:
+                _ai_add_bubble("assistant", f"[Erreur micro] {voice_exc}")
+            finally:
+                ai_mic_button.icon_color = CONSTANTS.COLOR_LIGHT_GREY
+                ai_mic_button.disabled = False
+                try:
+                    ai_mic_button.update()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_record_and_submit, daemon=True).start()
 
     def switch_to_terminal_mode():
         """Sauvegarde les notes/quitte l'IA et revient au terminal."""
@@ -7325,6 +7442,7 @@ def main(page: ft.Page):
         ai_stop_button,
         ai_folder_select_button,
         ai_clear_button,
+        ai_speaker_button,
         ft.Container(expand=True),
         ai_fullscreen_btn,
     ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)

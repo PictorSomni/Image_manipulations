@@ -47,5 +47,10 @@ python-docx>=1.1.0
 # API Google Gemini (requis par l'assistant IA — modèles Gemini)
 google-genai>=1.55.0
 
+# Enregistrement / lecture audio (requis par la saisie vocale — bouton micro)
+# Windows/macOS : fonctionne nativement.
+# Linux : apt install libportaudio2  (ou dnf install portaudio)
+sounddevice>=0.5.0
+
 # Certificats système pour HTTPS (requis par flet, rembg et iopaint)
 pip-system-certs
