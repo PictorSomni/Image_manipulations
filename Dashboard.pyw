@@ -2060,7 +2060,7 @@ def main(page: ft.Page):
                 _history = ai_conversation[-10:] if len(ai_conversation) > 10 else ai_conversation
                 messages = [
                     {"role": "system", "content": _system_content},
-                    *_history,
+                    *[{k: v for k, v in m.items() if k != "events"} for m in _history],
                 ]
 
                 # ── Debug log ───────────────────────────────────────────────
@@ -2095,6 +2095,7 @@ def main(page: ft.Page):
                 _text_response_retry_done = False
                 _create_file_done = False  # True dès que create_file a été exécuté
                 _read_file_done = False    # True dès que read_file_content a été exécuté
+                _turn_events = []          # Événements d'outils du tour courant (pour export)
 
                 # ── Boucle agentique (max 6 tours d'outils) ─────────────────────
                 for _tool_round in range(6):
@@ -2236,6 +2237,7 @@ def main(page: ft.Page):
                             if loading_ctrl is not None:
                                 loading_ctrl.value = f"🔍 {short_q}"
                             _ai_add_bubble("assistant", f"🔍 Recherche : {query}")
+                            _turn_events.append(f"🔍 Recherche : {query}")
                             _tool_tasks.append((fn_name, fn_args))
                         elif fn_name == "fetch_url":
                             url     = fn_args.get("url", "")
@@ -2244,11 +2246,13 @@ def main(page: ft.Page):
                             if loading_ctrl is not None:
                                 loading_ctrl.value = f"🌐 {short_u}"
                             _ai_add_bubble("assistant", f"🌐 Lecture : {url}")
+                            _turn_events.append(f"🌐 Lecture : {url}")
                             _tool_tasks.append((fn_name, fn_args))
                         elif fn_name == "list_folder_contents":
                             _folder_display = os.path.basename(_folder_path_for_tools) if _folder_path_for_tools else "?"
                             ai_status_text.value = "📂 Lecture du dossier…"
                             _ai_add_bubble("assistant", f"📂 Lecture du dossier « {_folder_display} »")
+                            _turn_events.append(f"📂 Lecture du dossier « {_folder_display} »")
                             try:
                                 page.update()
                             except Exception:
@@ -2258,6 +2262,7 @@ def main(page: ft.Page):
                             _read_filename = fn_args.get("filename", "")
                             ai_status_text.value = f"📄 Lecture : {_read_filename}…"
                             _ai_add_bubble("assistant", f"📄 Lecture : {_read_filename}")
+                            _turn_events.append(f"📄 Lecture : {_read_filename}")
                             try:
                                 page.update()
                             except Exception:
@@ -2405,6 +2410,7 @@ def main(page: ft.Page):
                                     "assistant",
                                     f"📸 Analyse de {_analyze_total} image(s) — lot 1/{_analyze_batches}…",
                                 )
+                                _turn_events.append(f"📸 Analyse de {_analyze_total} image(s)")
                                 def _on_analyze_progress(batch_num, total_batches):
                                     ai_status_text.value = f"📸 Analyse lot {batch_num}/{total_batches}…"
                                     if _analysis_progress_ctrl:
@@ -2453,6 +2459,7 @@ def main(page: ft.Page):
                                 _gi_src_bytes = None
                                 _gi_label = _gi_prompt[:60] + ("…" if len(_gi_prompt) > 60 else "")
                                 _ai_add_bubble("assistant", f"🎨 Génération : {_gi_label}")
+                                _turn_events.append(f"🎨 Génération : {_gi_label}")
                             else:  # edit_image
                                 _gi_src_name = fn_args.get("source_filename", "").strip()
                                 _gi_out_filename = (
@@ -2468,6 +2475,7 @@ def main(page: ft.Page):
                                         with open(_gi_src_path, "rb") as _f:
                                             _gi_src_bytes = _f.read()
                                 _ai_add_bubble("assistant", f"🎨 Édition : {_gi_src_name} → {_gi_out_filename}")
+                                _turn_events.append(f"🎨 Édition : {_gi_src_name} → {_gi_out_filename}")
                             import time as _time_gi_ui
                             import threading as _threading_gi
                             _gi_start_t = _time_gi_ui.time()
@@ -2525,6 +2533,7 @@ def main(page: ft.Page):
                                 _create_content = _clean_file_content(fn_args.get("content", ""))
                             ai_status_text.value = f"📝 Création : {_create_filename}…"
                             _ai_add_bubble("assistant", f"📝 Création du fichier : {_create_filename}")
+                            _turn_events.append(f"📝 Création du fichier : {_create_filename}")
                             try:
                                 page.update()
                             except Exception:
@@ -2593,6 +2602,7 @@ def main(page: ft.Page):
                                     _folder_tool_results.append((fn_name, "Commande annulée par l'utilisateur."))
                                     continue
                             ai_status_text.value = "💻 Exécution en cours…"
+                            _turn_events.append(f"💻 Commande : {_cmd}")
                             try:
                                 page.update()
                             except Exception:
@@ -2606,6 +2616,7 @@ def main(page: ft.Page):
                             _mem_content = fn_args.get("content", "")
                             _mem_old     = fn_args.get("old_text", "")
                             ai_status_text.value = f"🧠 Mise à jour mémoire ({_mem_target})…"
+                            _turn_events.append(f"🧠 Mémoire : {_mem_action} → {_mem_target}")
                             try:
                                 page.update()
                             except Exception:
@@ -2715,9 +2726,14 @@ def main(page: ft.Page):
                     _entry = {"role": "assistant", "content": full_response}
                     if _thinking:
                         _entry["thinking"] = _thinking
+                    if _turn_events:
+                        _entry["events"] = _turn_events
                     ai_conversation.append(_entry)
                     _ai_save_history()
                 else:
+                    if _turn_events:
+                        ai_conversation.append({"role": "assistant", "content": "[Aucune réponse reçue]", "events": _turn_events})
+                        _ai_save_history()
                     _ai_add_bubble("assistant", "[Aucune réponse reçue]")
             except Exception as exc:
                 _ai_add_bubble("assistant", f"[ERREUR] {exc}")

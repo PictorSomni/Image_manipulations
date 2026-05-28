@@ -513,6 +513,7 @@ def _format_ai_conversation(conversation, user_name="Toi", separator_width=80):
         role = message.get("role", "")
         content = message.get("content", "")
         thinking = message.get("thinking", "")
+        events = message.get("events", [])
         if role == "user":
             prefix = user_name
         elif role == "assistant":
@@ -523,9 +524,13 @@ def _format_ai_conversation(conversation, user_name="Toi", separator_width=80):
             thinking_lines = "\n".join(
                 f"> {line}" if line.strip() else ">" for line in thinking.split("\n")
             )
-            block = f"> 💭 **Réflexion**\n>\n{thinking_lines}\n\n# {prefix}\n\n{content.strip()}"
+            block = f"> 💭 **Réflexion**\n>\n{thinking_lines}\n\n# {prefix}\n\n"
         else:
-            block = f"# {prefix}\n\n{content.strip()}"
+            block = f"# {prefix}\n\n"
+        if events:
+            events_text = "\n".join(f"  • {e}" for e in events)
+            block += f"**Actions :**\n{events_text}\n\n"
+        block += content.strip()
         blocks.append(block.strip())
     return separator.join(blocks).strip()
 
