@@ -90,7 +90,7 @@ from ai_tools import (
     _folder_read_file, _folder_create_file, _encode_image_for_analysis, _analyze_images_batched,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
     _update_memory_file, _build_system_content,
-    _voice_record_audio, _voice_transcribe, _gemini_tts, _gemini_tts_stream, _voice_play_audio,
+    _gemini_tts_stream, _gemini_live_tts_stream,
 )
 #############################################################
 #                           MAIN                            #
@@ -504,7 +504,7 @@ def main(page: ft.Page):
         icon=ft.Icons.ATTACH_FILE,
         icon_color=LIGHT_GREY,
         icon_size=18,
-        tooltip="Joindre une image, un document ou un fichier audio",
+        tooltip="Joindre une image ou un document",
     )
     ai_send_btn_sp     = ft.IconButton(
         icon=ft.Icons.SEND,
@@ -512,20 +512,14 @@ def main(page: ft.Page):
         icon_size=18,
         tooltip="Envoyer",
     )
-    ai_mic_btn_sp      = ft.IconButton(
-        icon=ft.Icons.MIC,
-        icon_color=LIGHT_GREY,
-        icon_size=18,
-        tooltip=f"Enregistrer {CONSTANTS.AI_VOICE_RECORDING_SECONDS} s puis envoyer",
-        visible=CONSTANTS.AI_VOICE_ENABLED,
-    )
     ai_tts_enabled_sp = {"value": CONSTANTS.AI_VOICE_TTS_ENABLED}
+    ai_tts_stop_event_sp = {"event": None}
     ai_speaker_btn_sp  = ft.IconButton(
         icon=ft.Icons.VOLUME_UP if CONSTANTS.AI_VOICE_TTS_ENABLED else ft.Icons.VOLUME_OFF,
         icon_color=CONSTANTS.COLOR_BLUE if CONSTANTS.AI_VOICE_TTS_ENABLED else CONSTANTS.COLOR_LIGHT_GREY,
         icon_size=18,
         tooltip="Désactiver la lecture vocale" if CONSTANTS.AI_VOICE_TTS_ENABLED else "Activer la lecture vocale",
-        visible=CONSTANTS.AI_VOICE_ENABLED or CONSTANTS.AI_VOICE_TTS_BTN_VISIBLE,
+        visible=CONSTANTS.AI_VOICE_TTS_BTN_VISIBLE,
     )
     ai_clear_btn_sp    = ft.IconButton(
         icon=ft.Icons.DELETE_SWEEP,
@@ -2007,7 +2001,6 @@ def main(page: ft.Page):
     # ═══════════════════════════════════════════════════════════════════
 
     _AI_DOCUMENT_EXTS = CONSTANTS.AI_DOCUMENT_EXTS
-    _AI_AUDIO_EXTS     = CONSTANTS.AI_AUDIO_EXTS
 
     def _md_dark(text: str) -> str:
         """Remplace les blockquotes Markdown (fond bleu clair de Flutter)
@@ -2028,14 +2021,52 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
 
     def _speak_bubble_sp(text):
-        """Lit un texte via Gemini TTS en streaming (appelé dans un thread)."""
-        _gemini_tts_stream(
-            text,
-            voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
-            tts_model=CONSTANTS.AI_VOICE_TTS_MODEL,
-            sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
-            language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
-        )
+        """Lit un texte via Gemini TTS (mode configurable dans CONSTANTS.AI_VOICE_TTS_MODE)."""
+        # Arrêter le TTS précédent s'il tourne encore
+        if ai_tts_stop_event_sp["event"] is not None:
+            ai_tts_stop_event_sp["event"].set()
+        stop_event = threading.Event()
+        ai_tts_stop_event_sp["event"] = stop_event
+        mode_label = "Live" if CONSTANTS.AI_VOICE_TTS_MODE == "live" else "TTS"
+        ai_status_text_sp.value = f"🔊 {mode_label} — {CONSTANTS.AI_VOICE_TTS_VOICE}…"
+        try:
+            ai_status_text_sp.update()
+        except Exception:
+            pass
+        try:
+            if CONSTANTS.AI_VOICE_TTS_MODE == "live":
+                _gemini_live_tts_stream(
+                    text,
+                    model=CONSTANTS.AI_VOICE_LIVE_MODEL,
+                    voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
+                    sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
+                    language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
+                    stop_event=stop_event,
+                )
+            else:
+                _gemini_tts_stream(
+                    text,
+                    voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
+                    tts_model=CONSTANTS.AI_VOICE_TTS_MODEL,
+                    sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
+                    language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
+                    stop_event=stop_event,
+                )
+        except Exception as tts_exc:
+            ai_status_text_sp.value = f"[❌ TTS] {tts_exc}"
+            try:
+                ai_status_text_sp.update()
+            except Exception:
+                pass
+            return
+        finally:
+            if ai_tts_stop_event_sp["event"] is stop_event:
+                ai_tts_stop_event_sp["event"] = None
+        ai_status_text_sp.value = ""
+        try:
+            ai_status_text_sp.update()
+        except Exception:
+            pass
 
     def _ai_add_bubble_sp(role, text):
         """Ajoute un message dans le panneau IA et retourne le contrôle (pour le streaming)."""
@@ -2254,11 +2285,10 @@ def main(page: ft.Page):
                     padding=ft.Padding(4, 2, 4, 2),
                 )
             )
-        for file_entry in ai_pending_files_sp:
-            name = os.path.basename(file_entry["path"])
-            file_type = file_entry["type"]
-            icon_name = ft.Icons.AUDIO_FILE if file_type == "audio" else ft.Icons.DESCRIPTION
-            entry_ref = file_entry
+        for file_path in ai_pending_files_sp:
+            name = os.path.basename(file_path)
+            icon_name = ft.Icons.DESCRIPTION
+            entry_ref = file_path
             ai_attach_row_sp.controls.append(
                 ft.Container(
                     content=ft.Row([
@@ -2331,11 +2361,9 @@ def main(page: ft.Page):
         _ai_refresh_attach_row_sp()
 
     def _ai_attach_document_file_sp(file_path):
-        if any(entry["path"] == file_path for entry in ai_pending_files_sp):
+        if file_path in ai_pending_files_sp:
             return
-        ext = os.path.splitext(file_path)[1].lower()
-        file_type = "audio" if ext in _AI_AUDIO_EXTS else "document"
-        ai_pending_files_sp.append({"path": file_path, "type": file_type})
+        ai_pending_files_sp.append(file_path)
         _ai_refresh_attach_row_sp()
 
     def _ai_remove_file_sp(file_entry):
@@ -2343,39 +2371,10 @@ def main(page: ft.Page):
             ai_pending_files_sp.remove(file_entry)
         _ai_refresh_attach_row_sp()
 
-    def _ai_extract_file_content_sp(file_entry):
-        """Extrait le contenu textuel d'un document ou transcrit un fichier audio."""
-        file_path = file_entry["path"]
-        file_type = file_entry["type"]
+    def _ai_extract_file_content_sp(file_path):
+        """Extrait le contenu textuel d'un document."""
         ext = os.path.splitext(file_path)[1].lower()
         name = os.path.basename(file_path)
-        if file_type == "audio":
-            try:
-                import whisper as _whisper
-            except ImportError:
-                raise ImportError(
-                    "openai-whisper n'est pas installé.\n"
-                    "Installez-le avec : pip install openai-whisper"
-                )
-            import shutil as _shutil
-            if not _shutil.which("ffmpeg"):
-                _system = platform.system()
-                if _system == "Darwin":
-                    _ffmpeg_hint = "brew install ffmpeg"
-                elif _system == "Windows":
-                    _ffmpeg_hint = "winget install ffmpeg"
-                else:
-                    _ffmpeg_hint = "sudo apt install ffmpeg"
-                raise RuntimeError(
-                    f"ffmpeg est requis pour transcrire les fichiers audio.\n"
-                    f"Installez-le avec : {_ffmpeg_hint}"
-                )
-            whisper_model = _whisper.load_model("base")
-            result = whisper_model.transcribe(file_path)
-            transcribed_text = (result.get("text") or "").strip()
-            if not transcribed_text:
-                raise RuntimeError("La transcription est vide.")
-            return name, transcribed_text
         if ext == ".pdf":
             try:
                 import fitz as _fitz
@@ -2397,16 +2396,15 @@ def main(page: ft.Page):
             return name, text_file.read()
 
     async def _ai_pick_any_sp():
-        """Ouvre un sélecteur de fichier pour joindre une image, un document ou un fichier audio."""
+        """Ouvre un sélecteur de fichier pour joindre une image ou un document."""
         _image_exts_pick = {"jpg", "jpeg", "png", "gif", "bmp", "webp"}
         result = await ft.FilePicker().pick_files(
-            dialog_title="Joindre une image, un document ou un fichier audio",
+            dialog_title="Joindre une image ou un document",
             allowed_extensions=[
                 "jpg", "jpeg", "png", "gif", "bmp", "webp",
                 "txt", "md", "py", "js", "ts", "json", "csv", "xml",
                 "html", "htm", "yaml", "yml", "toml", "ini", "cfg", "log",
                 "rst", "pdf", "docx", "doc", "rtf",
-                "mp3", "wav", "m4a", "ogg", "flac", "aac", "opus",
             ],
             allow_multiple=True,
         )
@@ -2571,8 +2569,8 @@ def main(page: ft.Page):
             )
         if files_to_inject:
             files_label = "  ".join(
-                ("🎵" if entry["type"] == "audio" else "📄") + " " + os.path.basename(entry["path"])
-                for entry in files_to_inject
+                "📄 " + os.path.basename(file_path)
+                for file_path in files_to_inject
             )
             display_text = (display_text + "  " if display_text else "") + files_label
         _ai_add_bubble_sp("user", display_text)
@@ -2604,19 +2602,12 @@ def main(page: ft.Page):
 
                 if files_to_inject:
                     injected_blocks = []
-                    for file_entry in files_to_inject:
-                        file_name = os.path.basename(file_entry["path"])
+                    for file_path in files_to_inject:
+                        file_name = os.path.basename(file_path)
                         try:
-                            if file_entry["type"] == "audio":
-                                ai_status_text_sp.value = f"⏳ Transcription : {file_name}…"
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                            label, content = _ai_extract_file_content_sp(file_entry)
-                            type_label = "Transcription audio" if file_entry["type"] == "audio" else "Document"
+                            label, content = _ai_extract_file_content_sp(file_path)
                             injected_blocks.append(
-                                f"--- {type_label} : {label} ---\n{content[:50000]}\n--- Fin ---"
+                                f"--- Document : {label} ---\n{content[:50000]}\n--- Fin ---"
                             )
                         except Exception as extraction_exc:
                             _ai_add_bubble_sp("assistant", f"[ERREUR] {file_name} : {extraction_exc}")
@@ -3161,68 +3152,10 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    def _on_voice_input_sp():
-        """Enregistre le micro, transcrit via Whisper et envoie le texte à l'IA."""
-        if ai_streaming_sp["value"]:
-            return
-        # Active le TTS automatiquement si pas encore activé
-        if not ai_tts_enabled_sp["value"]:
-            _toggle_tts_sp()
-        ai_mic_btn_sp.icon_color = CONSTANTS.COLOR_RED
-        ai_mic_btn_sp.disabled = True
-        ai_status_text_sp.value = f"🎙 Enregistrement ({CONSTANTS.AI_VOICE_RECORDING_SECONDS} s)…"
-        try:
-            ai_mic_btn_sp.update()
-            ai_status_text_sp.update()
-        except Exception:
-            pass
-
-        def _record_and_submit():
-            try:
-                audio_data = _voice_record_audio(
-                    duration_seconds=CONSTANTS.AI_VOICE_RECORDING_SECONDS,
-                    sample_rate=CONSTANTS.AI_VOICE_SAMPLE_RATE,
-                )
-                ai_status_text_sp.value = "🔄 Transcription…"
-                try:
-                    ai_status_text_sp.update()
-                except Exception:
-                    pass
-                transcribed_text = _voice_transcribe(
-                    audio_data,
-                    sample_rate=CONSTANTS.AI_VOICE_SAMPLE_RATE,
-                    stt_model=CONSTANTS.AI_VOICE_STT_MODEL,
-                )
-                if transcribed_text:
-                    ai_input_field_sp.value = transcribed_text
-                    try:
-                        ai_input_field_sp.update()
-                    except Exception:
-                        pass
-                    _on_ai_submit_sp()
-                else:
-                    ai_status_text_sp.value = "Aucun son détecté."
-                    try:
-                        ai_status_text_sp.update()
-                    except Exception:
-                        pass
-            except Exception as voice_exc:
-                _ai_add_bubble_sp("assistant", f"[Erreur micro] {voice_exc}")
-            finally:
-                ai_mic_btn_sp.icon_color = CONSTANTS.COLOR_LIGHT_GREY
-                ai_mic_btn_sp.disabled = False
-                try:
-                    ai_mic_btn_sp.update()
-                except Exception:
-                    pass
-
-        threading.Thread(target=_record_and_submit, daemon=True).start()
-
     # Connexions boutons IA
     ai_input_field_sp.on_submit = lambda event: _on_ai_submit_sp()
     ai_send_btn_sp.on_click     = lambda event: _on_ai_submit_sp()
     ai_attach_btn_sp.on_click   = lambda event: page.run_task(_ai_pick_any_sp)
-    ai_mic_btn_sp.on_click      = lambda event: _on_voice_input_sp()
     ai_speaker_btn_sp.on_click  = lambda event: _toggle_tts_sp()
     ai_stop_btn_sp.on_click     = _ai_stop_model_sp
     ai_clear_btn_sp.on_click    = _clear_ai_conversation_sp
@@ -3567,7 +3500,6 @@ def main(page: ft.Page):
                 ai_attach_row_sp,
                 ft.Row([
                     ai_attach_btn_sp,
-                    ai_mic_btn_sp,
                     ai_input_field_sp,
                     ai_send_btn_sp,
                 ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),

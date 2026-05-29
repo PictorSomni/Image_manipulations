@@ -31,9 +31,10 @@ Fonctions et constantes exposées :
   _build_system_content(base_prompt, folder_path, today_date_str)
                                              — assemble le message système complet (system.md + mémoire + date + dossier)
 
-  Voix — STT / TTS :
+    Voix — TTS :
   _gemini_tts(text, ...)                     — génère l'audio TTS en une seule requête (bytes PCM)
-  _gemini_tts_stream(text, ...)              — génère et joue le TTS en streaming (latence réduite)
+  _gemini_tts_stream(text, ...)              — TTS multi-requêtes pipeline (compatible tous modèles)
+  _gemini_live_tts_stream(text, ...)         — TTS via Gemini Live WebSocket (voix cohérente, modèle Live)
   _voice_play_audio(pcm_bytes, ...)          — joue des bytes PCM via sounddevice
 """
 
@@ -1848,45 +1849,7 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
     return (_format_gemini_error(_last_error, prefix="ERREUR Gemini Image"), None)
 
 
-# ─── Voix — STT / TTS ────────────────────────────────────────────────────────
-
-def _voice_record_audio(duration_seconds=6, sample_rate=16000):
-    """
-    Enregistre le microphone pendant ``duration_seconds`` secondes.
-
-    Retourne un ndarray float32 mono (forme plate).
-    Lève ImportError si sounddevice n'est pas installé.
-    """
-    import sounddevice as _sd
-    import numpy as _np
-
-    recording = _sd.rec(
-        int(duration_seconds * sample_rate),
-        samplerate=sample_rate,
-        channels=1,
-        dtype="float32",
-    )
-    _sd.wait()
-    return recording.flatten()
-
-
-def _voice_transcribe(audio_data, sample_rate=16000, stt_model="base"):
-    """
-    Transcrit un ndarray float32 (16 kHz, mono) via Whisper local.
-
-    Retourne le texte transcrit (str), ou une chaîne vide en cas d'échec.
-    Lève ImportError si openai-whisper n'est pas installé.
-    """
-    import whisper as _whisper
-    import numpy as _np
-
-    # Whisper attend du float32 normalisé à 16 kHz
-    audio_float32 = audio_data.astype(_np.float32)
-
-    model = _whisper.load_model(stt_model)
-    result = model.transcribe(audio_float32, fp16=False)
-    return (result.get("text") or "").strip()
-
+# ─── Voix — TTS ───────────────────────────────────────────────────────────────
 
 def _gemini_tts(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts", language_code=None):
     """
@@ -1927,7 +1890,7 @@ def _gemini_tts(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts
         return None
 
 
-def _gemini_tts_stream(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts", sample_rate=24000, language_code=None):
+def _gemini_tts_stream(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts", sample_rate=24000, language_code=None, stop_event=None):
     """
     Génère et joue le TTS via l'API Gemini en pipeline chunk par chunk.
 
@@ -1936,6 +1899,8 @@ def _gemini_tts_stream(text, voice_name="Puck", tts_model="gemini-2.5-flash-prev
     en parallèle pendant la lecture (pipelined).
     language_code (ex : "fr", "en") est transmis à chaque appel TTS pour
     garantir un accent cohérent sur l'ensemble de la réponse.
+    stop_event (threading.Event) : si activé, interrompt immédiatement la lecture
+    et la génération en cours (barge-in).
     Bloquant : attend la fin de la lecture avant de retourner.
     """
     import re
@@ -1965,9 +1930,12 @@ def _gemini_tts_stream(text, voice_name="Puck", tts_model="gemini-2.5-flash-prev
     _SENTINEL = object()
     # maxsize=3 : on pré-génère jusqu'à 3 chunks d'avance
     audio_queue: queue.Queue = queue.Queue(maxsize=3)
+    chunks_failed = [0]
 
     def _producer():
         for chunk in chunks:
+            if stop_event is not None and stop_event.is_set():
+                break
             pcm = _gemini_tts(
                 chunk,
                 voice_name=voice_name,
@@ -1976,27 +1944,185 @@ def _gemini_tts_stream(text, voice_name="Puck", tts_model="gemini-2.5-flash-prev
             )
             if pcm:
                 audio_queue.put(pcm)
+            else:
+                chunks_failed[0] += 1
         audio_queue.put(_SENTINEL)
 
     threading.Thread(target=_producer, daemon=True).start()
 
+    audio_received = False
     while True:
-        item = audio_queue.get()
-        if item is _SENTINEL:
+        if stop_event is not None and stop_event.is_set():
             break
-        _voice_play_audio(item, sample_rate=sample_rate)
+        try:
+            item = audio_queue.get(timeout=0.1)
+        except Exception:
+            continue
+        if item is _SENTINEL:
+            if not audio_received and stop_event is None or (stop_event is not None and not stop_event.is_set()):
+                if chunks_failed[0] == len(chunks):
+                    raise RuntimeError(
+                        f"Aucun audio généré — vérifier la clé API et le modèle TTS ({tts_model})"
+                    )
+            break
+        audio_received = True
+        _voice_play_audio(item, sample_rate=sample_rate, stop_event=stop_event)
 
 
-def _voice_play_audio(pcm_bytes, sample_rate=24000):
+def _gemini_live_tts_stream(
+    text,
+    model="gemini-3.1-flash-live-preview",
+    voice_name="Kore",
+    sample_rate=24000,
+    language_code=None,
+    stop_event=None,
+):
+    """
+    Génère et joue le TTS via l'API Gemini Live (connexion WebSocket persistante).
+
+    Contrairement à _gemini_tts_stream qui enchaîne plusieurs requêtes indépendantes,
+    cette fonction utilise une seule session Live : la voix est parfaitement cohérente
+    du début à la fin (même intonation, même timbre, pas de rupture entre les phrases).
+
+    model          : modèle Gemini Live (ex. "gemini-3.5-flash-live")
+    voice_name     : voix Gemini (ex. "Kore", "Puck" — mêmes noms que le TTS classique)
+    sample_rate    : fréquence de sortie PCM (24000 Hz par défaut)
+    language_code  : code langue ISO 639-1 (ex. "fr") ou None pour auto-détection
+    stop_event     : threading.Event — si activé, interrompt la lecture (barge-in)
+
+    Bloquant : attend la fin de la lecture avant de retourner.
+    Lève ImportError si google-genai n'est pas installé ou si le modèle n'est pas disponible.
+    """
+    import asyncio as _asyncio
+    import queue as _queue
+    import threading as _threading
+
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        raise RuntimeError("Clé API Gemini introuvable — vérifier GEMINI_API_KEY")
+
+    audio_queue: _queue.Queue = _queue.Queue(maxsize=40)
+    _SENTINEL = object()
+    error_holder: list = [None]
+
+    async def _run_live():
+        try:
+            from google import genai as _genai
+            from google.genai import types as _gtypes
+
+            client = _genai.Client(api_key=api_key)
+            live_config = _gtypes.LiveConnectConfig(
+                response_modalities=["AUDIO"],
+                speech_config=_gtypes.SpeechConfig(
+                    voice_config=_gtypes.VoiceConfig(
+                        prebuilt_voice_config=_gtypes.PrebuiltVoiceConfig(
+                            voice_name=voice_name,
+                        )
+                    ),
+                    language_code=language_code,
+                ),
+            )
+            async with client.aio.live.connect(model=model, config=live_config) as session:
+                # Gemini 3.1 Live: pendant la conversation, envoyer le texte via
+                # send_realtime_input (send_client_content sert surtout à l'amorçage
+                # d'historique initial avec history_config dédié).
+                await session.send_realtime_input(text=text)
+                async for message in session.receive():
+                    if stop_event is not None and stop_event.is_set():
+                        break
+                    # Source officielle (Get_started_LiveAPI.py) : les données audio
+                    # sont dans server_content.model_turn.parts[n].inline_data.data
+                    server_content = getattr(message, "server_content", None)
+                    if server_content:
+                        model_turn = getattr(server_content, "model_turn", None)
+                        if model_turn:
+                            for part in getattr(model_turn, "parts", []):
+                                inline = getattr(part, "inline_data", None)
+                                if inline and getattr(inline, "data", None):
+                                    audio_queue.put(inline.data)
+                        if getattr(server_content, "turn_complete", False):
+                            break
+                    # Fallback : certaines versions SDK exposent .data directement
+                    elif getattr(message, "data", None):
+                        audio_queue.put(message.data)
+        except Exception as exc:
+            error_holder[0] = exc
+        finally:
+            audio_queue.put(_SENTINEL)
+
+    def _producer():
+        loop = _asyncio.new_event_loop()
+        _asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_run_live())
+        finally:
+            loop.close()
+
+    _threading.Thread(target=_producer, daemon=True).start()
+
+    # Lecture en streaming : on ouvre UN seul OutputStream sounddevice et on y
+    # écrit chaque chunk dès qu'il arrive — pas de latence d'accumulation, pas de
+    # saccades (un seul stream ouvert en continu, comme le cookbook officiel Google).
+    import sounddevice as _sd_tts
+
+    got_audio = False
+    output_stream = _sd_tts.RawOutputStream(
+        samplerate=sample_rate,
+        channels=1,
+        dtype="int16",
+        blocksize=1024,
+        latency="low",
+    )
+    output_stream.start()
+    try:
+        while True:
+            if stop_event is not None and stop_event.is_set():
+                break
+            try:
+                item = audio_queue.get(timeout=0.1)
+            except Exception:
+                continue
+            if item is _SENTINEL:
+                if error_holder[0] is not None:
+                    raise error_holder[0]
+                if not got_audio and (stop_event is None or not stop_event.is_set()):
+                    raise RuntimeError(
+                        f"Aucun audio reçu du modèle Live ({model}) — "
+                        "vérifier que le modèle est disponible sur votre compte"
+                    )
+                break
+            got_audio = True
+            output_stream.write(item)
+    finally:
+        # Attendre que le buffer interne du stream soit vidé avant de fermer
+        output_stream.stop()
+        output_stream.close()
+
+
+def _voice_play_audio(pcm_bytes, sample_rate=24000, stop_event=None):
     """
     Joue des bytes PCM bruts (int16, mono) via sounddevice.
 
+    stop_event (threading.Event) : si activé pendant la lecture, arrête
+    immédiatement la lecture (barge-in).
     Bloquant : attend la fin de la lecture avant de retourner.
     Lève ImportError si sounddevice n'est pas installé.
     """
     import sounddevice as _sd
     import numpy as _np
+    import time as _time
 
     audio_array = _np.frombuffer(pcm_bytes, dtype=_np.int16).astype(_np.float32) / 32768.0
     _sd.play(audio_array, samplerate=sample_rate)
+    if stop_event is None:
+        _sd.wait()
+        return
+    # Polling toutes les 20 ms pour réagir au barge-in
+    total_seconds = len(audio_array) / sample_rate
+    deadline = _time.monotonic() + total_seconds + 0.5
+    while _time.monotonic() < deadline:
+        if stop_event.is_set():
+            _sd.stop()
+            return
+        _time.sleep(0.02)
     _sd.wait()

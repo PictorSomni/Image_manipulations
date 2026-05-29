@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Constantes partagées entre Dashboard.pyw, les scripts du dossier Data/,
 SidePanel.pyw et kiosk_flet.pyw.
@@ -35,8 +35,7 @@ toucher aux scripts eux-mêmes.
 # 10. INTELLIGENCE ARTIFICIELLE ............................... ~L 285
 #     10.1 Modèles et paramètres
 #     10.2 Prompts système
-#     10.3 Voix - STT (reconnaissance vocale)
-#     10.4 Voix - TTS (synthèse vocale Gemini)
+#     10.3 Voix - TTS (synthèse vocale Gemini)
 # 11. KIOSK FLET .............................................. ~L 390
 #     11.1 Extensions et grille
 #     11.2 Panneau gauche
@@ -67,9 +66,6 @@ AI_DOCUMENT_EXTS = frozenset({
     ".txt", ".md", ".py", ".js", ".ts", ".json", ".csv", ".xml",
     ".html", ".htm", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".log",
     ".rst", ".pdf", ".docx", ".doc", ".rtf", ".odt",
-})
-AI_AUDIO_EXTS = frozenset({
-    ".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".opus", ".wma",
 })
 ROTATABLE_EXTS = frozenset({
     ".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp",
@@ -411,24 +407,17 @@ AI_FOLDER_SELECT_SYSTEM_PROMPT = (
 )
 
 
-# ── 10.3  Voix — STT (reconnaissance vocale) ─────────────────────────────────
-# Nécessite : pip install sounddevice  (+ libportaudio2 sur Linux)
-#             openai-whisper (déjà dans requirements.txt)
-
-AI_VOICE_ENABLED           = False    # Afficher le bouton micro dans Dashboard / SidePanel
-AI_VOICE_STT_MODEL         = "base"   # Modèle Whisper : "tiny" | "base" | "small" | "medium" | "large"
-AI_VOICE_RECORDING_SECONDS = 4        # Durée max d'enregistrement micro (secondes)
-AI_VOICE_SAMPLE_RATE       = 16000    # Fréquence d'échantillonnage micro (Hz)
-
-
-# ── 10.4  Voix — TTS (synthèse vocale Gemini) ────────────────────────────────
+# ── 10.3  Voix — TTS (synthèse vocale Gemini) ────────────────────────────────
 
 AI_VOICE_TTS_ENABLED     = False   # Lire la réponse IA à voix haute après chaque réponse complète
-AI_VOICE_TTS_BTN_VISIBLE = True    # Afficher le bouton TTS même si la dictée est désactivée
-AI_VOICE_TTS_MODEL       = "gemini-2.5-flash-preview-tts"   # Modèle TTS Google
+AI_VOICE_TTS_BTN_VISIBLE = True    # Afficher le bouton TTS même si la lecture auto est désactivée
+AI_VOICE_TTS_MODE        = "live"  # "live" = Gemini Live (voix conversationnelle) | "chunked" = lecture fidèle du texte
+AI_VOICE_TTS_MODEL       = "gemini-2.5-flash-preview-tts"   # Modèle TTS classique (mode "chunked")
+AI_VOICE_LIVE_MODEL      = "gemini-3.1-flash-live-preview"  # Modèle Gemini Live (mode "live")
 AI_VOICE_TTS_VOICE       = "Kore"   # Voir AI_AVAILABLE_VOICES ci-dessous
-AI_VOICE_TTS_SAMPLE_RATE = 24000    # Fréquence de sortie du TTS Gemini (Hz — ne pas modifier)
+AI_VOICE_TTS_SAMPLE_RATE = 24000    # Fréquence de sortie PCM (Hz — ne pas modifier)
 AI_VOICE_TTS_LANGUAGE    = "fr"     # Code ISO 639-1 pour la langue de synthèse
+AI_VOICE_TTS_SINGLE_SHOT_MAX_CHARS = 1200  # Longueur max (caractères) pour forcer une seule requête TTS
 
 # Voix disponibles pour le sélecteur (noms officiels Google Gemini TTS)
 AI_AVAILABLE_VOICES = [

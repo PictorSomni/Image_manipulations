@@ -37,7 +37,7 @@ Compatible **Windows**, **macOS** et **Linux**.
   - `analyze_images` — analyse visuellement les images par lots avec une question libre
 - **Sélection photo IA agentique** : nouveau mode de sélection avant développement RAW via l'outil `select_photos`. Analyse par lots de 5 images, critères professionnels de reportage (netteté, expression, exposition, cadrage), taux de sélection 30-60 % configurable.
 - **Modèle par défaut mis à jour** : Gemma 4 E4B (~9.6 GB, texte + vision natif) remplace les anciens `llama3.2:3b` + `llava:7b`. Liste étendue incluant Gemma 4 26B, DeepSeek-R1 (8B/14B), Llama 3.2 Vision, etc.
-- **Support documents et audio** : glisser-déposer ou joindre des fichiers texte, code, PDF, DOCX directement à l'IA ; support des fichiers audio (mp3, wav, m4a, flac…).
+- **Support documents** : glisser-déposer ou joindre des fichiers texte, code, PDF, DOCX directement à l'IA.
 - **Outils web et dossier centralisés** : les définitions d'outils et le contexte système sont partagés entre Dashboard et SidePanel via `ai_tools.py` (pas de duplication).
 
 ### Dashboard (v2.4)

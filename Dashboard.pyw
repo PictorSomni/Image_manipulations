@@ -86,7 +86,7 @@ from ai_tools import (
     _gemini_generate_image,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
     _update_memory_file, _build_system_content,
-    _voice_record_audio, _voice_transcribe, _gemini_tts, _gemini_tts_stream, _voice_play_audio,
+    _gemini_tts_stream, _gemini_live_tts_stream, _gemini_tts, _voice_play_audio,
 )
 import thumb_cache
 #############################################################
@@ -331,7 +331,7 @@ def main(page: ft.Page):
     ai_streaming       = {"value": False}
     ollama_process     = {"proc": None}  # Process ollama serve lancé par nous
     ai_pending_images  = []              # Images jointes en attente [{path, b64}]
-    ai_pending_files   = []              # Documents/audio joints en attente [{path, type}]
+    ai_pending_files   = []              # Documents joints en attente [path]
     _live_print_counts = {}     # {file_path: int} — cache local/live des nombres d'impressions avant renommage disque
     _print_rename_timers = {}   # {file_path: threading.Timer} — timers pour débouncer le renommage disque
     _print_count_text_refs = {} # {file_path: ft.Text}
@@ -508,24 +508,17 @@ def main(page: ft.Page):
         icon=ft.Icons.ATTACH_FILE,
         icon_color=LIGHT_GREY,
         icon_size=18,
-        tooltip="Joindre une image, un document ou un fichier audio",
+        tooltip="Joindre une image ou un document",
         on_click=lambda e: page.run_task(_ai_pick_any),
     )
-    ai_mic_button = ft.IconButton(
-        icon=ft.Icons.MIC,
-        icon_color=LIGHT_GREY,
-        icon_size=18,
-        tooltip=f"Enregistrer {CONSTANTS.AI_VOICE_RECORDING_SECONDS} s puis envoyer",
-        visible=CONSTANTS.AI_VOICE_ENABLED,
-        on_click=lambda e: _on_voice_input(),
-    )
     ai_tts_enabled = {"value": CONSTANTS.AI_VOICE_TTS_ENABLED}
+    ai_tts_stop_event = {"event": None}
     ai_speaker_button = ft.IconButton(
         icon=ft.Icons.VOLUME_UP if CONSTANTS.AI_VOICE_TTS_ENABLED else ft.Icons.VOLUME_OFF,
         icon_color=CONSTANTS.COLOR_BLUE if CONSTANTS.AI_VOICE_TTS_ENABLED else CONSTANTS.COLOR_LIGHT_GREY,
         icon_size=18,
         tooltip="Désactiver la lecture vocale" if CONSTANTS.AI_VOICE_TTS_ENABLED else "Activer la lecture vocale",
-        visible=CONSTANTS.AI_VOICE_ENABLED or CONSTANTS.AI_VOICE_TTS_BTN_VISIBLE,
+        visible=CONSTANTS.AI_VOICE_TTS_BTN_VISIBLE,
         on_click=lambda e: _toggle_tts(),
     )
 
@@ -535,7 +528,7 @@ def main(page: ft.Page):
             ai_attach_row,
             ai_progress_bar,
             ft.Row(
-                [ai_attach_button, ai_mic_button, ai_input_field, ai_send_button],
+                [ai_attach_button, ai_input_field, ai_send_button],
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
@@ -1415,12 +1408,44 @@ def main(page: ft.Page):
                     padding=ft.Padding(8, 4, 8, 4),
                     expand=True,
                 )
-                ai_chat_view.controls.append(
-                    ft.Row(
-                        [bubble],
-                        alignment=ft.MainAxisAlignment.END if is_user else ft.MainAxisAlignment.START,
+                if is_user:
+                    ai_chat_view.controls.append(
+                        ft.Row(
+                            [bubble],
+                            alignment=ft.MainAxisAlignment.END,
+                        )
                     )
-                )
+                else:
+                    raw_text = content
+
+                    def _speak_loaded_bubble_text(text_control, fallback_text):
+                        current_text = getattr(text_control, "value", "")
+                        if not isinstance(current_text, str) or not current_text.strip():
+                            current_text = fallback_text
+                        threading.Thread(
+                            target=_speak_bubble,
+                            args=(current_text,),
+                            kwargs={"force_chunked": True},
+                            daemon=True,
+                        ).start()
+
+                    speak_btn = ft.IconButton(
+                        icon=ft.Icons.VOLUME_UP,
+                        icon_color=LIGHT_GREY,
+                        icon_size=14,
+                        tooltip="Lire cette réponse (lecture fidèle)",
+                        on_click=lambda e, text_control=bubble_text, fallback_text=raw_text: _speak_loaded_bubble_text(
+                            text_control,
+                            fallback_text,
+                        ),
+                    )
+                    ai_chat_view.controls.append(
+                        ft.Row(
+                            [bubble, speak_btn],
+                            alignment=ft.MainAxisAlignment.START,
+                            vertical_alignment=ft.CrossAxisAlignment.START,
+                        )
+                    )
         except Exception:
             pass
 
@@ -1493,11 +1518,10 @@ def main(page: ft.Page):
                     padding=ft.Padding(4, 2, 4, 2),
                 )
             )
-        for file_entry in ai_pending_files:
-            name = os.path.basename(file_entry["path"])
-            file_type = file_entry["type"]
-            icon_name = ft.Icons.AUDIO_FILE if file_type == "audio" else ft.Icons.DESCRIPTION
-            entry_ref = file_entry
+        for file_path in ai_pending_files:
+            name = os.path.basename(file_path)
+            icon_name = ft.Icons.DESCRIPTION
+            entry_ref = file_path
             ai_attach_row.controls.append(
                 ft.Container(
                     content=ft.Row([
@@ -1572,66 +1596,30 @@ def main(page: ft.Page):
             ai_pending_images.remove(image_entry)
         _ai_refresh_attach_row()
 
-    # ── Extensions reconnues comme documents ou fichiers audio ────────
+    # ── Extensions reconnues comme documents ───────────────────────────
     _AI_DOCUMENT_EXTS = CONSTANTS.AI_DOCUMENT_EXTS
-    _AI_AUDIO_EXTS     = CONSTANTS.AI_AUDIO_EXTS
 
     def _ai_attach_document_file(file_path):
-        """Ajoute un document ou fichier audio aux pièces jointes en attente."""
-        if any(entry["path"] == file_path for entry in ai_pending_files):
+        """Ajoute un document aux pièces jointes en attente."""
+        if file_path in ai_pending_files:
             return
-        ext = os.path.splitext(file_path)[1].lower()
-        file_type = "audio" if ext in _AI_AUDIO_EXTS else "document"
-        ai_pending_files.append({"path": file_path, "type": file_type})
+        ai_pending_files.append(file_path)
         _ai_refresh_attach_row()
 
     def _ai_remove_file(file_entry):
-        """Retire un document/audio des pièces jointes en attente."""
+        """Retire un document des pièces jointes en attente."""
         if file_entry in ai_pending_files:
             ai_pending_files.remove(file_entry)
         _ai_refresh_attach_row()
 
-    def _ai_extract_file_content(file_entry):
+    def _ai_extract_file_content(file_path):
         """
-        Extrait le contenu textuel d'un document ou transcrit un fichier audio.
+        Extrait le contenu textuel d'un document.
         Retourne (nom_affiché, texte_extrait).
         Lève une exception si l'extraction échoue.
         """
-        file_path = file_entry["path"]
-        file_type = file_entry["type"]
         ext = os.path.splitext(file_path)[1].lower()
         name = os.path.basename(file_path)
-
-        if file_type == "audio":
-            try:
-                import whisper as _whisper
-            except ImportError:
-                raise ImportError(
-                    "openai-whisper n'est pas installé.\n"
-                    "Installez-le avec : pip install openai-whisper"
-                )
-            import shutil as _shutil
-            if not _shutil.which("ffmpeg"):
-                _system = platform.system()
-                if _system == "Darwin":
-                    _ffmpeg_hint = "brew install ffmpeg"
-                elif _system == "Windows":
-                    _ffmpeg_hint = "winget install ffmpeg  (ou https://ffmpeg.org/download.html)"
-                else:
-                    _ffmpeg_hint = "sudo apt install ffmpeg  (ou le gestionnaire de paquets de votre distro)"
-                raise RuntimeError(
-                    f"ffmpeg est requis pour transcrire les fichiers audio mais n'est pas installé.\n"
-                    f"Installez-le avec : {_ffmpeg_hint}"
-                )
-            whisper_model = _whisper.load_model("base")
-            try:
-                result = whisper_model.transcribe(file_path)
-            except Exception as whisper_error:
-                raise RuntimeError(f"Échec de la transcription : {whisper_error}")
-            transcribed_text = (result.get("text") or "").strip()
-            if not transcribed_text:
-                raise RuntimeError("La transcription est vide — vérifiez que le fichier audio contient de la parole.")
-            return name, transcribed_text
 
         # ── Documents ────────────────────────────────────────────────
         if ext == ".pdf":
@@ -1660,16 +1648,15 @@ def main(page: ft.Page):
             return name, text_file.read()
 
     async def _ai_pick_any():
-        """Ouvre un sélecteur de fichier pour joindre une image, un document ou un fichier audio."""
+        """Ouvre un sélecteur de fichier pour joindre une image ou un document."""
         _image_exts_pick = {"jpg", "jpeg", "png", "gif", "bmp", "webp"}
         result = await ft.FilePicker().pick_files(
-            dialog_title="Joindre une image, un document ou un fichier audio",
+            dialog_title="Joindre une image ou un document",
             allowed_extensions=[
                 "jpg", "jpeg", "png", "gif", "bmp", "webp",
                 "txt", "md", "py", "js", "ts", "json", "csv", "xml",
                 "html", "htm", "yaml", "yml", "toml", "ini", "cfg", "log",
                 "rst", "pdf", "docx", "doc", "rtf",
-                "mp3", "wav", "m4a", "ogg", "flac", "aac", "opus",
             ],
             allow_multiple=True,
         )
@@ -1683,7 +1670,7 @@ def main(page: ft.Page):
                         _ai_attach_document_file(picked_file.path)
 
     def ai_send_selected_images(e=None):
-        """Joint les fichiers image, document et audio sélectionnés dans la preview à la conversation IA."""
+        """Joint les fichiers image et document sélectionnés dans la preview à la conversation IA."""
         image_exts = CONSTANTS.IMAGE_EXTS
         image_paths = [
             file_path for file_path in selected_files
@@ -1691,7 +1678,7 @@ def main(page: ft.Page):
         ]
         file_paths = [
             file_path for file_path in selected_files
-            if os.path.splitext(file_path)[1].lower() in (_AI_DOCUMENT_EXTS | _AI_AUDIO_EXTS)
+            if os.path.splitext(file_path)[1].lower() in _AI_DOCUMENT_EXTS
         ]
         if not image_paths and not file_paths:
             log_to_terminal("[IA] Aucun fichier compatible sélectionné dans la preview", LIGHT_GREY)
@@ -1886,15 +1873,85 @@ def main(page: ft.Page):
                 result.append(line)
         return "\n".join(result)
 
-    def _speak_bubble(text):
-        """Lit un texte via Gemini TTS en streaming (appelé dans un thread)."""
-        _gemini_tts_stream(
-            text,
-            voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
-            tts_model=CONSTANTS.AI_VOICE_TTS_MODEL,
-            sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
-            language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
-        )
+    def _speak_bubble(text, force_chunked=False):
+        """Lit un texte via Gemini TTS.
+
+        force_chunked=True force la lecture fidèle du texte affiché (sans mode Live).
+        """
+        def _set_tts_feedback(status_text, show_progress):
+            ai_status_text.value = status_text
+            ai_progress_bar.visible = show_progress
+
+            async def _apply_ui_update():
+                try:
+                    page.update()
+                except Exception:
+                    try:
+                        ai_status_text.update()
+                        ai_progress_bar.update()
+                    except Exception:
+                        pass
+
+            try:
+                page.run_task(_apply_ui_update)
+            except Exception:
+                try:
+                    page.update()
+                except Exception:
+                    pass
+
+        # Arrêter le TTS précédent s'il tourne encore
+        if ai_tts_stop_event["event"] is not None:
+            ai_tts_stop_event["event"].set()
+        stop_event = threading.Event()
+        ai_tts_stop_event["event"] = stop_event
+        selected_tts_mode = "chunked" if force_chunked else CONSTANTS.AI_VOICE_TTS_MODE
+        if selected_tts_mode == "live":
+            _set_tts_feedback(f"🔊 Live — {CONSTANTS.AI_VOICE_TTS_VOICE}…", True)
+        else:
+            _set_tts_feedback(f"🔊 Préparation de la voix — {CONSTANTS.AI_VOICE_TTS_VOICE}…", True)
+        try:
+            if selected_tts_mode == "live":
+                _gemini_live_tts_stream(
+                    text,
+                    model=CONSTANTS.AI_VOICE_LIVE_MODEL,
+                    voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
+                    sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
+                    language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
+                    stop_event=stop_event,
+                )
+            else:
+                # One-shot par défaut pour un timbre stable sur toute la réponse.
+                pcm = _gemini_tts(
+                    text,
+                    voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
+                    tts_model=CONSTANTS.AI_VOICE_TTS_MODEL,
+                    language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
+                )
+                if pcm:
+                    _voice_play_audio(
+                        pcm,
+                        sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
+                        stop_event=stop_event,
+                    )
+                else:
+                    # Fallback de sécurité si la requête unique échoue.
+                    _gemini_tts_stream(
+                        text,
+                        voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
+                        tts_model=CONSTANTS.AI_VOICE_TTS_MODEL,
+                        sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
+                        language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
+                        stop_event=stop_event,
+                    )
+        except Exception as tts_exc:
+            _set_tts_feedback(f"[❌ TTS] {tts_exc}", False)
+            return
+        finally:
+            is_current_tts = ai_tts_stop_event["event"] is stop_event
+            if is_current_tts:
+                ai_tts_stop_event["event"] = None
+                _set_tts_feedback("", False)
 
     def _ai_add_bubble(role, text):
         """Ajoute un message dans le panneau IA et retourne le contrôle (pour le streaming)."""
@@ -1939,13 +1996,22 @@ def main(page: ft.Page):
         )
         if not is_user and not is_think:
             raw_text = text
+
+            def _speak_current_bubble_text(text_control, fallback_text):
+                current_text = getattr(text_control, "value", "")
+                if not isinstance(current_text, str) or not current_text.strip():
+                    current_text = fallback_text
+                _speak_bubble(current_text, force_chunked=True)
+
             speak_btn = ft.IconButton(
                 icon=ft.Icons.VOLUME_UP,
                 icon_color=LIGHT_GREY,
                 icon_size=14,
-                tooltip="Lire cette réponse",
-                on_click=lambda e, t=raw_text: threading.Thread(
-                    target=_speak_bubble, args=(t,), daemon=True
+                tooltip="Lire cette réponse (lecture fidèle)",
+                on_click=lambda e, text_control=bubble_text, fallback_text=raw_text: threading.Thread(
+                    target=_speak_current_bubble_text,
+                    args=(text_control, fallback_text),
+                    daemon=True,
                 ).start(),
             )
             row = ft.Row(
@@ -2011,7 +2077,7 @@ def main(page: ft.Page):
         ai_pending_images.clear()
         _ai_refresh_attach_row()
 
-        # Capturer et vider les documents/audio joints avant le thread
+        # Capturer et vider les documents joints avant le thread
         files_to_inject = list(ai_pending_files)
         ai_pending_files.clear()
         _ai_refresh_attach_row()
@@ -2047,8 +2113,8 @@ def main(page: ft.Page):
             display_text = f"🖼️ ({len(images_b64)} image(s))  {message_text}" if message_text else f"🖼️ {len(images_b64)} image(s) jointe(s)"
         if files_to_inject:
             files_label = "  ".join(
-                ("🎵" if entry["type"] == "audio" else "📄") + " " + os.path.basename(entry["path"])
-                for entry in files_to_inject
+                "📄 " + os.path.basename(file_path)
+                for file_path in files_to_inject
             )
             display_text = (display_text + "  " if display_text else "") + files_label
         _ai_add_bubble("user", display_text)
@@ -2080,22 +2146,15 @@ def main(page: ft.Page):
                         except Exception:
                             pass
 
-                # Extraire et injecter le contenu des documents/audio joints
+                # Extraire et injecter le contenu des documents joints
                 if files_to_inject:
                     injected_blocks = []
-                    for file_entry in files_to_inject:
-                        file_name = os.path.basename(file_entry["path"])
+                    for file_path in files_to_inject:
+                        file_name = os.path.basename(file_path)
                         try:
-                            if file_entry["type"] == "audio":
-                                ai_status_text.value = f"⏳ Transcription : {file_name}…"
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                            label, content = _ai_extract_file_content(file_entry)
-                            type_label = "Transcription audio" if file_entry["type"] == "audio" else "Document"
+                            label, content = _ai_extract_file_content(file_path)
                             injected_blocks.append(
-                                f"--- {type_label} : {label} ---\n{content[:50000]}\n--- Fin ---"
+                                f"--- Document : {label} ---\n{content[:50000]}\n--- Fin ---"
                             )
                         except Exception as extraction_exc:
                             _ai_add_bubble("assistant", f"[ERREUR] {file_name} : {extraction_exc}")
@@ -3383,63 +3442,6 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    def _on_voice_input():
-        """Enregistre le micro, transcrit via Whisper et envoie le texte à l'IA."""
-        if ai_streaming["value"]:
-            return
-        # Active le TTS automatiquement si pas encore activé
-        if not ai_tts_enabled["value"]:
-            _toggle_tts()
-        ai_mic_button.icon_color = CONSTANTS.COLOR_RED
-        ai_mic_button.disabled = True
-        ai_status_text.value = f"🎙 Enregistrement ({CONSTANTS.AI_VOICE_RECORDING_SECONDS} s)…"
-        try:
-            ai_mic_button.update()
-            ai_status_text.update()
-        except Exception:
-            pass
-
-        def _record_and_submit():
-            try:
-                audio_data = _voice_record_audio(
-                    duration_seconds=CONSTANTS.AI_VOICE_RECORDING_SECONDS,
-                    sample_rate=CONSTANTS.AI_VOICE_SAMPLE_RATE,
-                )
-                ai_status_text.value = "🔄 Transcription…"
-                try:
-                    ai_status_text.update()
-                except Exception:
-                    pass
-                transcribed_text = _voice_transcribe(
-                    audio_data,
-                    sample_rate=CONSTANTS.AI_VOICE_SAMPLE_RATE,
-                    stt_model=CONSTANTS.AI_VOICE_STT_MODEL,
-                )
-                if transcribed_text:
-                    ai_input_field.value = transcribed_text
-                    try:
-                        ai_input_field.update()
-                    except Exception:
-                        pass
-                    _on_ai_submit()
-                else:
-                    ai_status_text.value = "Aucun son détecté."
-                    try:
-                        ai_status_text.update()
-                    except Exception:
-                        pass
-            except Exception as voice_exc:
-                _ai_add_bubble("assistant", f"[Erreur micro] {voice_exc}")
-            finally:
-                ai_mic_button.icon_color = CONSTANTS.COLOR_LIGHT_GREY
-                ai_mic_button.disabled = False
-                try:
-                    ai_mic_button.update()
-                except Exception:
-                    pass
-
-        threading.Thread(target=_record_and_submit, daemon=True).start()
-
     def switch_to_terminal_mode():
         """Sauvegarde les notes/quitte l'IA et revient au terminal."""
         if note_mode["value"]:
@@ -3823,11 +3825,11 @@ def main(page: ft.Page):
         """Menu contextuel clic-droit : rotation + liste Ouvrir avec intégrée."""
         image_files = [f for f in files if os.path.splitext(f)[1].lower() in _ROTATABLE_EXTS]
         has_images = bool(image_files)
-        doc_audio_files = [
+        document_files = [
             f for f in files
-            if os.path.splitext(f)[1].lower() in (_AI_DOCUMENT_EXTS | _AI_AUDIO_EXTS)
+            if os.path.splitext(f)[1].lower() in _AI_DOCUMENT_EXTS
         ]
-        has_doc_audio = bool(doc_audio_files)
+        has_documents = bool(document_files)
 
         header_label = (
             os.path.basename(files[0]) if len(files) == 1
@@ -4078,16 +4080,16 @@ def main(page: ft.Page):
                 ))
             content_rows.append(ft.Row(icon_btns, spacing=0, alignment=ft.MainAxisAlignment.CENTER))
             content_rows.append(ft.Divider(height=8, color=GREY))
-        if has_doc_audio:
+        if has_documents:
             def _send_docs_to_ai(e=None):
                 _close()
-                for doc_path in doc_audio_files:
+                for doc_path in document_files:
                     _ai_attach_document_file(doc_path)
                 switch_to_ai_mode()
                 clear_selection(None)
 
             doc_label = (
-                f"{len(doc_audio_files)} fichier{'s' if len(doc_audio_files) > 1 else ''}"
+                f"{len(document_files)} fichier{'s' if len(document_files) > 1 else ''}"
             )
             content_rows.append(ft.Row([
                 ft.IconButton(
