@@ -833,21 +833,11 @@ def _folder_tool_definitions(folder_path):
 
 def _gemini_tool_definitions(folder_path):
     """
-    Version allégée de _folder_tool_definitions pour les modèles Gemini.
-
-    Exclut analyze_images : Gemini est nativement multimodal, les images
-    peuvent être passées directement en base64 dans le message.
-    Exclut également les outils web (remplacés par google_search natif),
-    terminal et mémoire — ceux-ci ne doivent pas être passés ici mais
-    sont déjà absents car cette fonction ne retourne que les outils dossier.
-
-    À utiliser à la place de _folder_tool_definitions quand active_model
-    commence par 'gemini'.
+    Retourne tous les outils dossier pour Gemini, y compris analyze_images.
+    Les outils web (web_search, fetch_url) sont filtrés dans
+    _gemini_chat_stream_with_tools et remplacés par google_search natif.
     """
-    return [
-        tool for tool in _folder_tool_definitions(folder_path)
-        if tool.get("function", {}).get("name") != "analyze_images"
-    ]
+    return _folder_tool_definitions(folder_path)
 
 
 def _folder_list_contents(folder_path):

@@ -2111,7 +2111,7 @@ def main(page: ft.Page):
                 _folder_path_for_tools = current_browse_folder["path"] or selected_folder["path"]
                 _FOLDER_TOOLS = _folder_tool_definitions(_folder_path_for_tools)
                 if (active_model or "").startswith("gemini"):
-                    _ALL_TOOLS = _gemini_tool_definitions(_folder_path_for_tools)
+                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
                 else:
                     _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _FOLDER_TOOLS
 
