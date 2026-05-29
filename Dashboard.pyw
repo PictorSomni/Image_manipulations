@@ -29,7 +29,22 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.6.8"
+__version__ = "2.6.9"
+
+# ==============================================================================
+# TABLE DES MATIÈRES — Dashboard.pyw
+# ==============================================================================
+# 1. IMPORTS & CONFIGURATION ....................................... ~L 55
+# 2. CONSTANTES .................................................... ~L 110
+# 3. INTERFACE PRINCIPALE main() .................................. ~L 128
+#    3.1  COULEURS ................................................. ~L 155
+#    3.2  PROPRIÉTÉS & ÉTAT ....................................... ~L 171
+#    3.3  ÉLÉMENTS UI ............................................. ~L 358
+#    3.4  MÉTHODES ................................................ ~L 727
+#    3.5  CONNEXIONS UI ........................................... ~L 7399
+#    3.6  STRIP MODE (bandeau tactile) ............................. ~L 7806
+#    3.7  INTERFACE FLET .......................................... ~L 7848
+# ==============================================================================
 
 
 
@@ -510,7 +525,7 @@ def main(page: ft.Page):
         icon_color=CONSTANTS.COLOR_BLUE if CONSTANTS.AI_VOICE_TTS_ENABLED else CONSTANTS.COLOR_LIGHT_GREY,
         icon_size=18,
         tooltip="Désactiver la lecture vocale" if CONSTANTS.AI_VOICE_TTS_ENABLED else "Activer la lecture vocale",
-        visible=CONSTANTS.AI_VOICE_ENABLED,
+        visible=CONSTANTS.AI_VOICE_ENABLED or CONSTANTS.AI_VOICE_TTS_BTN_VISIBLE,
         on_click=lambda e: _toggle_tts(),
     )
 
@@ -2525,33 +2540,18 @@ def main(page: ft.Page):
                                             _gi_src_bytes = _f.read()
                                 _ai_add_bubble("assistant", f"🎨 Édition : {_gi_src_name} → {_gi_out_filename}")
                                 _turn_events.append(f"🎨 Édition : {_gi_src_name} → {_gi_out_filename}")
-                            import time as _time_gi_ui
-                            import threading as _threading_gi
-                            _gi_start_t = _time_gi_ui.time()
-                            _gi_stop_evt = _threading_gi.Event()
-                            def _gi_progress_thread():
-                                while not _gi_stop_evt.wait(2.0):
-                                    _elapsed = int(_time_gi_ui.time() - _gi_start_t)
-                                    ai_status_text.value = f"🎨 Nano Banana 2 en cours… {_elapsed}s"
-                                    try:
-                                        page.update()
-                                    except Exception:
-                                        pass
-                            _gi_progress_t = _threading_gi.Thread(target=_gi_progress_thread, daemon=True)
-                            ai_status_text.value = "🎨 Nano Banana 2 en cours… 0s"
+                            ai_status_text.value = "🎨 Nano Banana 2 en cours…"
                             ai_progress_bar.visible = True
                             try:
                                 page.update()
                             except Exception:
                                 pass
-                            _gi_progress_t.start()
                             _gi_text, _gi_bytes = _gemini_generate_image(
                                 _gi_prompt,
                                 input_image_bytes=_gi_src_bytes,
                                 aspect_ratio=_gi_aspect,
                                 resolution=_gi_resolution,
                             )
-                            _gi_stop_evt.set()
                             ai_progress_bar.visible = False
                             if _gi_bytes:
                                 _gi_dest_folder = _folder_path_for_tools or os.path.join(app_directory, "Generated")
@@ -5196,8 +5196,18 @@ def main(page: ft.Page):
                 for error in errors:
                     log_to_terminal(f"[ERREUR] {error}", RED)
 
+            app_progress_bar.visible = False
+            try:
+                page.update()
+            except Exception:
+                pass
             refresh_preview()
 
+        app_progress_bar.visible = True
+        try:
+            page.update()
+        except Exception:
+            pass
         threading.Thread(target=_do_paste, daemon=True).start()
 
 
@@ -7692,8 +7702,8 @@ def main(page: ft.Page):
                 ft.Container(
                     content=ft.Row([
                         ft.Column([
-                            app_progress_bar,
                             terminal_output,
+                            app_progress_bar,
                             terminal_cmd_row,
                         ], spacing=4, expand=True),
                         ft.Column([

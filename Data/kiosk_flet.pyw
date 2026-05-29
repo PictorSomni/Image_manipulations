@@ -12,7 +12,7 @@ Remplace la version Qt6 originale (main.py) avec :
 Dépendances : flet, Pillow (PIL)
 """
 
-__version__ = "2.6.8"
+__version__ = "2.6.9"
 
 import flet as ft
 import os
@@ -1032,14 +1032,14 @@ def main(page: ft.Page) -> None:
     prev_page_btn = ft.IconButton(
         icon=ft.Icons.CHEVRON_LEFT,
         icon_color=C_BLUE,
-        icon_size=28,
+        icon_size=44,
         tooltip="Page précédente",
         on_click=lambda e: _go_to_page(kiosk_page["value"] - 1),
     )
     next_page_btn = ft.IconButton(
         icon=ft.Icons.CHEVRON_RIGHT,
         icon_color=C_BLUE,
-        icon_size=28,
+        icon_size=44,
         tooltip="Page suivante",
         on_click=lambda e: _go_to_page(kiosk_page["value"] + 1),
     )

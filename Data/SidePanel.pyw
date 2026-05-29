@@ -17,7 +17,27 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.6.8"
+__version__ = "2.6.9"
+
+# ==============================================================================
+# TABLE DES MATIÈRES — SidePanel.pyw
+# ==============================================================================
+# 1. IMPORTS ........................................................ ~L 24
+# 2. CONSTANTES ..................................................... ~L 44
+# 3. FONCTIONS UTILITAIRES .......................................... ~L 62
+# 4. INTERFACE PRINCIPALE main() .................................... ~L 80
+#    4.1  Couleurs .................................................. ~L 82
+#    4.2  Propriétés fenêtre ........................................ ~L 96
+#    4.3  Config persistante ........................................ ~L 106
+#    4.4  État partagé & données .................................... ~L 144
+#    4.5  ██  Fonctions — Onglet 1 (Fichiers) ...................... ~L 549
+#    4.6  ██  Fonctions — Onglet 2 (JSON) .......................... ~L 1495
+#    4.7  ██  Fonctions — Onglet 3 (Bloc-notes) .................... ~L 1914
+#    4.8  ██  Fonctions — Onglet 4 (IA) ............................ ~L 2025
+#    4.9  Fenêtre & événements ...................................... ~L 3308
+#    4.10 Construction de l'interface ............................... ~L 3341
+#    4.11 Initialisation ............................................ ~L 3662
+# ==============================================================================
 
 
 #############################################################
@@ -505,7 +525,7 @@ def main(page: ft.Page):
         icon_color=CONSTANTS.COLOR_BLUE if CONSTANTS.AI_VOICE_TTS_ENABLED else CONSTANTS.COLOR_LIGHT_GREY,
         icon_size=18,
         tooltip="Désactiver la lecture vocale" if CONSTANTS.AI_VOICE_TTS_ENABLED else "Activer la lecture vocale",
-        visible=CONSTANTS.AI_VOICE_ENABLED,
+        visible=CONSTANTS.AI_VOICE_ENABLED or CONSTANTS.AI_VOICE_TTS_BTN_VISIBLE,
     )
     ai_clear_btn_sp    = ft.IconButton(
         icon=ft.Icons.DELETE_SWEEP,
@@ -1001,6 +1021,7 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+    # ── Aperçu plein écran ─────────────────────────────────────────────────
     def _show_fullscreen_preview(file_path: str):
         """Prévisualisation plein écran — PageView + InteractiveViewer (zoom/pan) + sélection + impression."""
         # Construire la liste des images navigables (recherche/filtre actifs respectés)
@@ -1032,6 +1053,7 @@ def main(page: ft.Page):
                 cb.value = fpath in selected_files
             selection_count_text.value = _selection_label()
             _update_toggle_btn()
+            _render_preview()
             page.update()
 
         # ── Barre de titre ────────────────────────────────────────────────
@@ -1395,6 +1417,7 @@ def main(page: ft.Page):
             _persist()
             _copy_selection(None)  # copie automatique dès que la destination est choisie
 
+    # ── Copie & opérations sur fichiers ───────────────────────────────────
     def _on_status(topic, message):
         status_text.value = message
         page.update()
@@ -1999,6 +2022,10 @@ def main(page: ft.Page):
             else:
                 result.append(line)
         return "\n".join(result)
+
+    # ═════════════════════════════════════════════════════════════════════
+    #  ██  Fonctions — Onglet 4 (IA)
+    # ═════════════════════════════════════════════════════════════════════
 
     def _speak_bubble_sp(text):
         """Lit un texte via Gemini TTS en streaming (appelé dans un thread)."""
@@ -3283,6 +3310,7 @@ def main(page: ft.Page):
         _ai_save_history_sp()
         await page.window.close()
 
+    # ── Fenêtre & événements ──────────────────────────────────────────────────
     def _minimize(event):
         page.window.minimized = True
 

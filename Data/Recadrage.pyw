@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Recadrage.pyw — Outil de recadrage photo interactif (Flet / PIL)
 ================================================================
@@ -42,7 +42,35 @@ Espace              : ignorer l'image courante et passer à la suivante
 Tab                 : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.6.8"
+__version__ = "2.6.9"
+
+# ==============================================================================
+# TABLE DES MATIÈRES — Recadrage.pyw
+# ==============================================================================
+# 1. IMPORTS & CONFIGURATION ...................................... ~L 70
+# 2. COULEURS ..................................................... ~L 100
+# 3. CONSTANTES DE LAYOUT ......................................... ~L 115
+# 4. FONCTIONS UTILITAIRES (mm→px, sRGB, érosion alpha) ........... ~L 125
+# 5. CLASSE VerticalSlider ......................................... ~L 235
+# 6. CLASSE PhotoCropper ........................................... ~L 405
+#    6.1  __init__  — Initialisation de l'état ..................... ~L 430
+#    6.2  Statut inline ............................................ ~L 880
+#    6.3  Canvas & transformations ................................. ~L 925
+#    6.4  Chargement des images .................................... ~L 1090
+#    6.5  Traitement par lot ....................................... ~L 1300
+#    6.6  Calcul du recadrage ...................................... ~L 1390
+#    6.7  Mode Fit-in .............................................. ~L 1670
+#    6.8  Construction des planches (2-en-1, ID×4, Polaroid) ....... ~L 1730
+#    6.9  Amélioration & ajustements (couleurs, N&B, rembg) ........ ~L 1870
+#    6.10 Rendu (histogramme, aperçu) .............................. ~L 2080
+#    6.11 Gestionnaires de gestes (scroll, zoom, rotation) ......... ~L 2275
+#    6.12 Réinitialisations & sliders .............................. ~L 2400
+#    6.13 Format & orientation ..................................... ~L 3190
+#    6.14 Formats multiples & exemplaires .......................... ~L 3410
+#    6.15 Actions : validation & export ............................ ~L 3560
+#    6.16 Ignorer une image ........................................ ~L 3995
+# 7. INTERFACE PRINCIPALE main() .................................. ~L 4080
+# ==============================================================================
 
 #############################################################
 #                          IMPORTS                          #
@@ -97,7 +125,7 @@ WHITE        = CONSTANTS.COLOR_WHITE
 
 
 # ===================== Layout ===================== #
-LEFT_COL_WIDTH   = 200   # Largeur de la colonne de gauche (réglages sliders)
+LEFT_COL_WIDTH   = 250   # Largeur de la colonne de gauche (réglages sliders)
 RIGHT_COL_WIDTH  = 250   # Largeur de la colonne de droite (formats + histogramme + boutons)
 HISTOGRAM_HEIGHT = 85    # Hauteur de l'histogramme en pixels
 
@@ -233,8 +261,9 @@ class VerticalSlider:
     """
 
     _TRACK_W = 4
-    _THUMB_D = 22
-    _COL_W   = 50
+    _THUMB_D = 30
+    _COL_W   = 44
+    _LBL_OFFSET = 10  # espace entre le bord droit du thumb et le label
 
     def __init__(self, *, min_val, max_val, initial_val,
                  on_change=None, on_change_end=None, on_double_tap=None,
@@ -271,9 +300,9 @@ class VerticalSlider:
             top=0,
         )
         self._lbl = ft.Text(
-            "", size=10, color=active_color,
+            "", size=11, color=active_color,
             weight=ft.FontWeight.BOLD,
-            left=self._COL_W + 4, top=0,
+            left=self._COL_W + self._LBL_OFFSET, top=0,
         )
 
         self._gesture = ft.GestureDetector(
@@ -289,7 +318,7 @@ class VerticalSlider:
 
         self.control = ft.Stack(
             controls=[self._bg_track, self._fg_track, self._thumb, self._lbl, self._gesture],
-            width=self._COL_W,
+            width=self._COL_W + self._LBL_OFFSET + 50,  # place pour le label à droite
             height=track_height,
             clip_behavior=ft.ClipBehavior.NONE,
         )
@@ -456,9 +485,13 @@ class PhotoCropper:
 
 
         # Vider les éventuels résidus d'une session précédente
-        for cache_file in os.listdir(self._preview_tmp_dir):
-            try: os.remove(os.path.join(self._preview_tmp_dir, cache_file))
-            except OSError: pass
+        # (shutil.rmtree + makedirs est atomique et robuste même si le dossier
+        #  est sur un volume USB avec des fichiers encore ouverts/verrouillés)
+        try:
+            shutil.rmtree(self._preview_tmp_dir, ignore_errors=True)
+            os.makedirs(self._preview_tmp_dir, exist_ok=True)
+        except OSError:
+            pass
         self._preview_counter = 0
         self._prev_preview_path = None
 
@@ -523,7 +556,7 @@ class PhotoCropper:
         self.rotation_slider_col = ft.Column([
             ft.Text("ROTATION", size=10, weight=ft.FontWeight.BOLD, color=BLUE),
             self.rotation_slider.control,
-        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5, alignment=ft.MainAxisAlignment.CENTER)
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10, alignment=ft.MainAxisAlignment.CENTER)
 
         self.zoom_slider = VerticalSlider(
             min_val=1.0, max_val=3.0, initial_val=1.0,
@@ -537,18 +570,18 @@ class PhotoCropper:
         self.zoom_slider_col = ft.Column([
             ft.Text("ZOOM", size=10, weight=ft.FontWeight.BOLD, color=BLUE),
             self.zoom_slider.control,
-        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5, alignment=ft.MainAxisAlignment.CENTER)
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10, alignment=ft.MainAxisAlignment.CENTER)
 
 
 
         # Ombres (Shadows — similaire à Camera Raw)
-        self.shadows = 20.0
+        self.shadows = float(CONSTANTS.RECADRAGE_DEFAULT_SHADOWS)
         self.shadows_slider = ft.Slider(
             value=self.shadows,
             min=-100,
             max=100,
             divisions=20,
-            label="20",
+            label=str(CONSTANTS.RECADRAGE_DEFAULT_SHADOWS),
             active_color=YELLOW,
             on_change=self.on_shadows_label,
             on_change_end=self.on_shadows_end,
@@ -557,13 +590,13 @@ class PhotoCropper:
 
 
         # Hautes lumières (Highlights — similaire à Camera Raw)
-        self.highlights = 0.0
+        self.highlights = float(CONSTANTS.RECADRAGE_DEFAULT_HIGHLIGHTS)
         self.highlights_slider = ft.Slider(
             value=self.highlights,
             min=-100,
             max=100,
             divisions=20,
-            label="0",
+            label=str(CONSTANTS.RECADRAGE_DEFAULT_HIGHLIGHTS),
             active_color=YELLOW,
             on_change=self.on_highlights_label,
             on_change_end=self.on_highlights_end,
@@ -644,10 +677,11 @@ class PhotoCropper:
         self.gesture_detector = ft.GestureDetector(
             content=self.image_stack,
             mouse_cursor=ft.MouseCursor.MOVE,
-            on_scale_start=self.on_gesture_start,
-            on_scale_update=self.on_gesture_update,
-            on_scale_end=self.on_gesture_end,
-            on_scroll=self.on_gesture_scroll,
+            # on_scale_start=self.on_gesture_start,   # trackpad désactivé (génère des saccades)
+            # on_scale_update=self.on_gesture_update,  # trackpad désactivé
+            # on_scale_end=self.on_gesture_end,        # trackpad désactivé
+            on_pan_update=self.on_pan_update,           # déplacement souris
+            on_scroll=self.on_gesture_scroll,           # molette souris conservée
         )
 
 
@@ -700,7 +734,8 @@ class PhotoCropper:
         self._rembg_session_u2net = [None]  # u2net_human_seg / u2net
         self._rembg_original = None   # sauvegarde avant suppression du fond
         self._rembg_composite_cache = None  # (cache_key, PIL.Image RGB) — composite bg+mask à taille affichage
-        self.rembg_bg_white = CONSTANTS.RECADRAGE_REMBG_BG_WHITE
+        # 0 = fond blanc, 1 = fond gris clair, 2 = fond flou
+        self.rembg_bg_mode = 0 if CONSTANTS.RECADRAGE_REMBG_BG_WHITE else 2
         self.rembg_human_seg = CONSTANTS.RECADRAGE_REMBG_HUMAN_SEG
         self.rembg_precise = CONSTANTS.RECADRAGE_REMBG_PRECISE  # False = rapide (u2net), True = précis (birefnet)
         self._rembg_bg_label = ft.Text("Fond blanc", size=12, color=DARK)
@@ -713,6 +748,7 @@ class PhotoCropper:
                 shape=ft.RoundedRectangleBorder(radius=6),
             ),
             height=30,
+            width=90,
             tooltip="Fond blanc / Fond flou",
         )
         self._rembg_model_label = ft.Text("Humain", size=12, color=DARK)
@@ -769,47 +805,62 @@ class PhotoCropper:
 
 
 
+        # Barre de statut inline (remplace les toasters/snackbars)
+        self._status_text = ft.Text("", size=12, color=LIGHT_GREY, italic=True,
+                                    text_align=ft.TextAlign.CENTER, expand=True)
+        self._status_ring = ft.ProgressRing(width=14, height=14, stroke_width=2,
+                                            color=BLUE, visible=False)
+        self._status_row = ft.Row(
+            [self._status_ring, self._status_text],
+            spacing=6,
+            alignment=ft.MainAxisAlignment.CENTER,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+        )
+        self._status_clear_task = None
+
+
+
         # Sliders de réglages (panneau gauche)
         # Contraste
-        self.contrast = 0.0
+        self.contrast = float(CONSTANTS.RECADRAGE_DEFAULT_CONTRAST)
         self.contrast_slider = ft.Slider(
-            value=0, min=-20, max=20, divisions=40, label="0",
+            value=CONSTANTS.RECADRAGE_DEFAULT_CONTRAST, min=-20, max=20, divisions=40, label=str(CONSTANTS.RECADRAGE_DEFAULT_CONTRAST),
             active_color=YELLOW,
             on_change=self.on_contrast_label,
             on_change_end=self.on_contrast_end,
         )
 
         # Saturation
-        self.saturation = 20.0
+        self.saturation = float(CONSTANTS.RECADRAGE_DEFAULT_SATURATION)
         self.saturation_slider = ft.Slider(
-            value=20, min=-100, max=100, divisions=20, label="20",
+            value=CONSTANTS.RECADRAGE_DEFAULT_SATURATION, min=-100, max=100, divisions=20, label=str(CONSTANTS.RECADRAGE_DEFAULT_SATURATION),
             active_color=VIOLET,
             on_change=self.on_saturation_label,
             on_change_end=self.on_saturation_end,
         )
 
         # Exposition (Exposure — similaire à Camera Raw, +20 = doublement de la luminosité)
-        self.exposure = 10.0
+        self.exposure = float(CONSTANTS.RECADRAGE_DEFAULT_EXPOSURE)
         self.exposure_slider = ft.Slider(
-            value=10, min=-100, max=100, divisions=20, label="10",
+            value=CONSTANTS.RECADRAGE_DEFAULT_EXPOSURE, min=-100, max=100, divisions=20, label=str(CONSTANTS.RECADRAGE_DEFAULT_EXPOSURE),
             active_color=YELLOW,
             on_change=self.on_exposure_label,
             on_change_end=self.on_exposure_end,
         )
 
         # Teinte (Hue)
-        self.hue = 0.0
+        self.hue = float(CONSTANTS.RECADRAGE_DEFAULT_HUE)
         self.hue_slider = ft.Slider(
-            value=0, min=-180, max=180, divisions=36, label="0",
+            value=CONSTANTS.RECADRAGE_DEFAULT_HUE, min=-180, max=180, divisions=36, label=str(CONSTANTS.RECADRAGE_DEFAULT_HUE),
             active_color=VIOLET,
             on_change=self.on_hue_label,
             on_change_end=self.on_hue_end,
         )
 
         # Balance des blancs (temperature : - = froid/bleu, + = chaud/jaune)
-        self.white_balance = 0.0
+        self.white_balance = float(CONSTANTS.RECADRAGE_DEFAULT_WHITE_BALANCE)
         self.white_balance_slider = ft.Slider(
-            value=0, min=-100, max=100, divisions=20, label="0",
+            value=CONSTANTS.RECADRAGE_DEFAULT_WHITE_BALANCE, min=-100, max=100, divisions=20, label=str(CONSTANTS.RECADRAGE_DEFAULT_WHITE_BALANCE),
             active_color=VIOLET,
             on_change=self.on_wb_label,
             on_change_end=self.on_wb_end,
@@ -840,17 +891,46 @@ class PhotoCropper:
 
 
 
-# ===================== Snackbar ===================== #
-    def _snackbar(self, message, text_color=DARK, bg_color=BLUE):
-        self.page.show_dialog(ft.SnackBar(
-            ft.Text(message, color=text_color, size=16, text_align=ft.TextAlign.CENTER),
-            bgcolor=bg_color,
-            duration=3000,
-            behavior=ft.SnackBarBehavior.FLOATING,
-            padding=ft.Padding(21, 21, 21, 21),
-            shape=ft.RoundedRectangleBorder(radius=8),
-            ))
+# ===================== Statut inline ===================== #
+    def _set_status(self, message, processing=False):
+        """Affiche un message dans la barre de statut inline (remplace les toasters).
 
+        - processing=True  : spinner visible + message persistent jusqu'à nouvel appel.
+        - processing=False : message seul, disparaît après 3 secondes.
+        """
+        if "[ERREUR]" in message or "[ERROR]" in message:
+            color = RED
+        elif "[OK]" in message:
+            color = GREEN
+        else:
+            color = LIGHT_GREY
+
+        self._status_text.value = message
+        self._status_text.color = color
+        self._status_ring.visible = processing
+        try:
+            self._status_text.update()
+            self._status_ring.update()
+        except Exception:
+            pass
+        if not processing:
+            self.page.run_task(self._auto_clear_status)
+
+    async def _auto_clear_status(self):
+        """Efface automatiquement la barre de statut après 3 secondes."""
+        import asyncio
+        await asyncio.sleep(3)
+        self._status_text.value = ""
+        self._status_ring.visible = False
+        try:
+            self._status_text.update()
+            self._status_ring.update()
+        except Exception:
+            pass
+
+    # --- Ancien snackbar conservé pour compatibilité (non utilisé) ---
+    # def _snackbar(self, message, text_color=DARK, bg_color=BLUE):
+    #     self.page.show_dialog(ft.SnackBar(...))
 
 
     # ================================================================ #
@@ -1096,7 +1176,7 @@ class PhotoCropper:
 
         # Vérifier que le fichier existe et est accessible
         if not os.path.isfile(path) or not os.access(path, os.R_OK):
-            self._snackbar(f"Fichier inaccessible: {os.path.basename(path)}")
+            self._set_status(f"Fichier inaccessible: {os.path.basename(path)}")
             self.page.update()
 
             # Passer à l'image suivante automatiquement
@@ -1130,7 +1210,7 @@ class PhotoCropper:
             self.rembg_btn.selected = False
             self.original_width, self.original_height = source_image.size
         except Exception as e:
-            self._snackbar(f"Erreur lors du chargement: {os.path.basename(path)} - {str(e)}")
+            self._set_status(f"Erreur lors du chargement: {os.path.basename(path)} - {str(e)}")
             self.page.update()
 
             # Passer à l'image suivante automatiquement
@@ -1231,8 +1311,9 @@ class PhotoCropper:
             self._update_transform()
         self.page.run_task(_warmup_transform)
 
-
-
+    # ================================================================ #
+    #                    TRAITEMENT PAR LOT                           #
+    # ================================================================ #
     def batch_process_interactive(self, e):
         """
         Initialise le batch interactif en listant les images du dossier source.
@@ -1274,7 +1355,7 @@ class PhotoCropper:
         try:
             all_folder_files = os.listdir(source_folder_path)
         except Exception as e:
-            self._snackbar(f"Erreur lors de la lecture du dossier: {e}")
+            self._set_status(f"Erreur lors de la lecture du dossier: {e}")
             return
 
         image_filenames = [f for f in all_folder_files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.jpe', '.tif', '.tiff', '.bmp', '.dib', '.gif', '.webp', '.ico', '.pcx', '.tga', '.ppm', '.pgm', '.pbm', '.pnm')) and not f == "watermark.png"]
@@ -1283,15 +1364,15 @@ class PhotoCropper:
         if selected_files_filter:
             image_filenames = [f for f in image_filenames if f in selected_files_filter]
             if not image_filenames and total_image_count > 0:
-                self._snackbar(f"{total_image_count} image(s) trouvée(s) mais aucune ne correspond aux fichiers sélectionnés")
+                self._set_status(f"{total_image_count} image(s) trouvée(s) mais aucune ne correspond aux fichiers sélectionnés")
                 self.page.update()
                 return
 
         if not image_filenames:
             if len(all_folder_files) == 0:
-                self._snackbar("Le dossier est vide")
+                self._set_status("Le dossier est vide")
             else:
-                self._snackbar(f"Aucun fichier image valide trouvé dans le dossier (total : {len(all_folder_files)})")
+                self._set_status(f"Aucun fichier image valide trouvé dans le dossier (total : {len(all_folder_files)})")
             self.page.update()
             return
 
@@ -1307,7 +1388,7 @@ class PhotoCropper:
                     pass
 
         if not valid_image_paths:
-            self._snackbar(f"{len(image_filenames)} image(s) trouvée(s) mais aucune n'est accessible ou valide")
+            self._set_status(f"{len(image_filenames)} image(s) trouvée(s) mais aucune n'est accessible ou valide")
             self.page.update()
             return
 
@@ -1572,8 +1653,11 @@ class PhotoCropper:
             if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
                 erosion_radius = max(1, round(min(output_image.size) * self.rembg_erosion_pct / 100))
                 output_image = _erode_alpha(output_image, erosion_radius)
-            if getattr(self, 'rembg_bg_white', True):
+            _bg_mode = getattr(self, 'rembg_bg_mode', 0)
+            if _bg_mode == 0:
                 background_layer = Image.new("RGBA", output_image.size, (255, 255, 255, 255))
+            elif _bg_mode == 1:
+                background_layer = Image.new("RGBA", output_image.size, (230, 230, 230, 255))
             else:
                 original_image_for_blur = self._rembg_original if self._rembg_original is not None else None
                 if original_image_for_blur is not None:
@@ -1598,8 +1682,9 @@ class PhotoCropper:
 
         return output_image
 
-
-
+    # ================================================================ #
+    #                       MODE FIT-IN                               #
+    # ================================================================ #
     def _compute_fit_in(self, target_w_px, target_h_px):
         """
         Calcule l'image entière redimensionnée pour tenir dans le format
@@ -1629,8 +1714,11 @@ class PhotoCropper:
             if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
                 erosion_radius = max(1, round(min(source_image.size) * self.rembg_erosion_pct / 100))
                 source_image = _erode_alpha(source_image.copy(), erosion_radius)
-            if getattr(self, 'rembg_bg_white', True):
+            _bg_mode = getattr(self, 'rembg_bg_mode', 0)
+            if _bg_mode == 0:
                 background_layer = Image.new("RGBA", source_image.size, (255, 255, 255, 255))
+            elif _bg_mode == 1:
+                background_layer = Image.new("RGBA", source_image.size, (230, 230, 230, 255))
             else:
                 original_image_for_blur = self._rembg_original if self._rembg_original is not None else None
                 if original_image_for_blur is not None:
@@ -1794,8 +1882,9 @@ class PhotoCropper:
         framed_image.paste(base_image, (0, 0))
         return framed_image
 
-
-
+    # ================================================================ #
+    #              AMÉLIORATION & AJUSTEMENTS                         #
+    # ================================================================ #
     def _adaptive_enhance(self, input_image):
         """
         Améliore automatiquement les images sous-exposées ou ternes.
@@ -2003,8 +2092,9 @@ class PhotoCropper:
             pixel_array[..., 2] = np.clip(pixel_array[..., 2] * (1.0 + balance_strength), 0, 255)
         return Image.fromarray(pixel_array.astype(np.uint8), "RGB")
 
-
-
+    # ================================================================ #
+    #              RENDU (HISTOGRAMME & APERÇU)                       #
+    # ================================================================ #
     def _render_histogram(self, preview_img):
         """Génère un histogramme RGB et met à jour ``self.histogram_image``."""
 
@@ -2084,7 +2174,7 @@ class PhotoCropper:
                 id(self.current_pil_image), preview_width, preview_height,
                 round(self.canvas_w), self.canvas_is_portrait,
                 getattr(self, 'rembg_erosion_pct', 0.0),
-                getattr(self, 'rembg_bg_white', True),
+                getattr(self, 'rembg_bg_mode', 0),
             )
             if self._rembg_composite_cache is not None and self._rembg_composite_cache[0] == composite_cache_key:
                 # Cache valide : réutiliser le composite sans recalculer
@@ -2097,8 +2187,11 @@ class PhotoCropper:
                 if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
                     erosion_radius_scaled = max(1, round(min(preview_image.size) * self.rembg_erosion_pct / 100))
                     preview_image = _erode_alpha(preview_image, erosion_radius_scaled)
-                if getattr(self, 'rembg_bg_white', True):
+                _bg_mode = getattr(self, 'rembg_bg_mode', 0)
+                if _bg_mode == 0:
                     background_layer = Image.new("RGBA", preview_image.size, (255, 255, 255, 255))
+                elif _bg_mode == 1:
+                    background_layer = Image.new("RGBA", preview_image.size, (230, 230, 230, 255))
                 else:
                     # Utiliser l'image originale (opaque) comme source du flou pour éviter
                     # les débordements noirs des pixels transparents (alpha=0 → noir en RGBA→RGB)
@@ -2149,76 +2242,66 @@ class PhotoCropper:
     # ================================================================ #
     #                  NAVIGATION (PAN, ZOOM, ROTATION)                #
     # ================================================================ #
-    def on_gesture_start(self, e):
-        """Mémorise l'état au début d'un geste (pan, zoom, rotation)."""
 
+    # --- Méthodes trackpad désactivées (génèrent des saccades) ---------
+    # def on_gesture_start(self, e):
+    #     """Mémorise l'état au début d'un geste (pan, zoom, rotation)."""
+    #     if not self.image_paths or not hasattr(self, 'original_width'):
+    #         return
+    #     self._gesture_scale_start = self.scale
+    #     self._gesture_rotation_prev = 0.0
+
+    # def on_gesture_update(self, e):
+    #     """Met à jour scale, offset et rotation depuis un geste GestureDetector."""
+    #     if not self.image_paths or not hasattr(self, 'original_width'):
+    #         return
+    #     new_scale = max(1.0, min(10.0, self._gesture_scale_start * e.scale))
+    #     self.scale = new_scale
+    #     self.offset_x += e.focal_point_delta.x
+    #     self.offset_y += e.focal_point_delta.y
+    #     rotation_delta_rad = e.rotation - self._gesture_rotation_prev
+    #     self._gesture_rotation_prev = e.rotation
+    #     if abs(rotation_delta_rad) > 0.001:
+    #         rotation_delta_deg = math.degrees(rotation_delta_rad)
+    #         new_rotation = max(-15.0, min(15.0, self.rotation + rotation_delta_deg))
+    #         if new_rotation != self.rotation:
+    #             self.rotation = new_rotation
+    #             self.rotation_slider.value = self.rotation
+    #             self.rotation_slider.label = f"{self.rotation:.2f}°"
+    #             self.rotation_slider.update()
+    #     zoom_slider_val = min(self.scale, self.zoom_slider.max)
+    #     if abs(zoom_slider_val - self.zoom_slider.value) > 0.01:
+    #         self.zoom_slider.value = zoom_slider_val
+    #         self.zoom_slider.label = f"{self.scale:.2f}×"
+    #         self.zoom_slider.update()
+    #     now = time.time()
+    #     if now - self._last_pan_render < 0.033:
+    #         return
+    #     self._last_pan_render = now
+    #     self._clamp_offsets()
+    #     self._update_transform()
+
+    # def on_gesture_end(self, e):
+    #     """Rafraîchit la prévisualisation et l'histogramme après la fin d'un geste."""
+    #     if not self.image_paths or not hasattr(self, 'original_width'):
+    #         return
+    #     self._clamp_offsets()
+    #     self._update_transform()
+    #     self._render_preview()
+    #     self.page.update()
+    # --- Fin méthodes trackpad désactivées --------------------------------
+
+    # ================================================================ #
+    #              GESTIONNAIRES DE GESTES                            #
+    # ================================================================ #
+    def on_pan_update(self, e):
+        """Déplace l'image par glisser-déposer à la souris."""
         if not self.image_paths or not hasattr(self, 'original_width'):
             return
-        self._gesture_scale_start = self.scale
-        self._gesture_rotation_prev = 0.0
-
-
-
-    def on_gesture_update(self, e):
-        """
-        Met à jour scale, offset et rotation depuis un geste GestureDetector.
-
-        - `e.scale`                   : facteur de zoom cumulatif depuis le début du geste.
-        - `e.focal_point_delta.x/y`   : déplacement du point focal depuis le dernier événement (pixels).
-        - `e.rotation`                : rotation cumulée depuis le début du geste (radians) — twist deux doigts.
-        """
-
-        if not self.image_paths or not hasattr(self, 'original_width'):
-            return
-
-        # ── Zoom (pinch deux doigts) ────────────────────────────────────
-        new_scale = max(1.0, min(10.0, self._gesture_scale_start * e.scale))
-        self.scale = new_scale
-
-        # ── Pan (déplacement du point focal) ────────────────────────────
-        self.offset_x += e.focal_point_delta.x
-        self.offset_y += e.focal_point_delta.y
-
-        # ── Rotation (twist deux doigts) ─────────────────────────────────
-        rotation_delta_rad = e.rotation - self._gesture_rotation_prev
-        self._gesture_rotation_prev = e.rotation
-        if abs(rotation_delta_rad) > 0.001:
-            rotation_delta_deg = math.degrees(rotation_delta_rad)
-            new_rotation = max(-15.0, min(15.0, self.rotation + rotation_delta_deg))
-            if new_rotation != self.rotation:
-                self.rotation = new_rotation
-                self.rotation_slider.value = self.rotation
-                self.rotation_slider.label = f"{self.rotation:.2f}°"
-                self.rotation_slider.update()
-
-        # ── Mise à jour du slider de zoom ────────────────────────────────
-        zoom_slider_val = min(self.scale, self.zoom_slider.max)
-        if abs(zoom_slider_val - self.zoom_slider.value) > 0.01:
-            self.zoom_slider.value = zoom_slider_val
-            self.zoom_slider.label = f"{self.scale:.2f}×"
-            self.zoom_slider.update()
-
-        # ── Transforms GPU + clampage (throttlé à ~30 fps) ──────────────────
-        now = time.time()
-        if now - self._last_pan_render < 0.033:
-            return
-        self._last_pan_render = now
+        self.offset_x += e.local_delta.x
+        self.offset_y += e.local_delta.y
         self._clamp_offsets()
         self._update_transform()
-
-
-
-    def on_gesture_end(self, e):
-        """Rafraîchit la prévisualisation et l'histogramme après la fin d'un geste."""
-
-        if not self.image_paths or not hasattr(self, 'original_width'):
-            return
-        self._clamp_offsets()
-        self._update_transform()
-        self._render_preview()
-        self.page.update()
-
-
 
     def on_gesture_scroll(self, e):
         """
@@ -2258,7 +2341,7 @@ class PhotoCropper:
             msg = "Molette → Rotation activée"
         else:
             msg = "Molette → Zoom activé"
-        self._snackbar(msg)
+        self._set_status(msg)
         self.page.update()
 
 
@@ -2341,8 +2424,9 @@ class PhotoCropper:
         self._render_preview()
         self.page.update()
 
-
-
+    # ================================================================ #
+    #              RÉINITIALISATIONS & SLIDERS                        #
+    # ================================================================ #
     def reset_rotation(self, e):
         """
         Remet la rotation à zéro (0°).
@@ -2364,7 +2448,7 @@ class PhotoCropper:
             return
         self._clamp_offsets()
         self._update_transform()
-        self._snackbar("Rotation réinitialisée à 0°")
+        self._set_status("Rotation réinitialisée à 0°")
 
 
 
@@ -2382,7 +2466,7 @@ class PhotoCropper:
         self._update_transform()
         self._render_preview()
         self.page.update()
-        self._snackbar("Zoom réinitialisé à 1× et pan réinitialisé")
+        self._set_status("Zoom réinitialisé à 1× et pan réinitialisé")
 
 
 
@@ -2395,7 +2479,7 @@ class PhotoCropper:
         slider.update()
         self._render_preview()
         self.page.update()
-        self._snackbar("Slider réinitialisé")
+        self._set_status("Slider réinitialisé")
 
 
     # ================================================================ #
@@ -2524,17 +2608,24 @@ class PhotoCropper:
 
 
     def on_rembg_bg_toggle(self, e):
-        """Bascule fond blanc (GREY_200) ↔ fond flou (BLUE)."""
+        """Cycle blanc → gris clair → flou → blanc (3 états)."""
 
-        self.rembg_bg_white = not self.rembg_bg_white
-        if self.rembg_bg_white:
+        self.rembg_bg_mode = (self.rembg_bg_mode + 1) % 3
+        if self.rembg_bg_mode == 0:
             self._rembg_bg_label.value = "Fond blanc"
             self._rembg_bg_label.color = DARK
             self.rembg_bg_btn.bgcolor = ft.Colors.GREY_200
+            self.rembg_bg_btn.tooltip = "Fond blanc / Fond gris / Fond flou"
+        elif self.rembg_bg_mode == 1:
+            self._rembg_bg_label.value = "Fond gris"
+            self._rembg_bg_label.color = DARK
+            self.rembg_bg_btn.bgcolor = ft.Colors.GREY_400
+            self.rembg_bg_btn.tooltip = "Fond blanc / Fond gris / Fond flou"
         else:
             self._rembg_bg_label.value = "Fond flou"
             self._rembg_bg_label.color = DARK
             self.rembg_bg_btn.bgcolor = BLUE
+            self.rembg_bg_btn.tooltip = "Fond blanc / Fond gris / Fond flou"
         self.rembg_bg_btn.update()
         self._render_preview()
         self.page.update()
@@ -2585,7 +2676,7 @@ class PhotoCropper:
         ``current_pil_image`` reste en mode RGBA après traitement. L'aplatissement
         sur fond blanc (255,255,255) ou gris clair (220,220,220) est
         effectué à la volée dans ``_render_preview`` et à l'export, selon
-        ``self.rembg_bg_white`` (switch « Fond blanc »).
+        ``self.rembg_bg_mode`` (0=blanc, 1=gris clair, 2=flou).
 
         Parameters
         ----------
@@ -2594,10 +2685,10 @@ class PhotoCropper:
         """
 
         if not REMBG_AVAILABLE:
-            self._snackbar("[ERREUR] rembg non installé — pip install rembg onnxruntime")
+            self._set_status("[ERREUR] rembg non installé — pip install rembg onnxruntime")
             return
         if self.current_pil_image is None:
-            self._snackbar("[ERREUR] aucune image chargée")
+            self._set_status("[ERREUR] aucune image chargée")
             return
 
 
@@ -2607,13 +2698,13 @@ class PhotoCropper:
             self.current_pil_image = self._rembg_original
             self._rembg_original = None
             self.rembg_btn.selected = False
-            self._snackbar("Fond restauré")
+            self._set_status("Fond restauré")
             self._render_preview()
             self.page.update()
             return
 
         self.rembg_btn.disabled = True
-        self._snackbar("Suppression du fond en cours…")
+        self._set_status("Suppression du fond en cours…", processing=True)
         self.page.update()
 
 
@@ -2641,9 +2732,9 @@ class PhotoCropper:
             self._rembg_original = self.current_pil_image
             self.current_pil_image = result
             self.rembg_btn.selected = True
-            self._snackbar("[OK] Fond supprimé — recliquer pour restaurer")
+            self._set_status("[OK] Fond supprimé — recliquer pour restaurer")
         except Exception as ex:
-            self._snackbar(f"[ERREUR] rembg : {ex}")
+            self._set_status(f"[ERREUR] rembg : {ex}")
         finally:
             self.rembg_btn.disabled = False
             self._render_preview()
@@ -3050,23 +3141,12 @@ class PhotoCropper:
         self.highlights_slider.update()
         self._render_preview()
         self.page.update()
-        self._snackbar("Ombres et Hautes Lumières remises à 0")
+        self._set_status("Ombres et Hautes Lumières remises à 0")
 
 
 
     def reset_adjustments(self, e):
-        """
-        Réinitialise tous les réglages (exposition, contraste, saturation,
-        ombres, hautes lumières) à leurs valeurs neutres.
-
-        Met à jour les valeurs internes, les labels et les valeurs des
-        widgets Flet, puis regénère la prévisualisation.
-
-        Parameters
-        ----------
-        e : ft.ControlEvent
-            Événement du bouton « Réinit. réglages » (non utilisé directement).
-        """
+        """Remet tous les réglages à zéro (bouton « Tout à 0 »)."""
 
         self.contrast = 0.0
         self.contrast_slider.value = 0.0
@@ -3098,10 +3178,48 @@ class PhotoCropper:
         self.white_balance_slider.update()
         self._render_preview()
         self.page.update()
-        self._snackbar("Tous les réglages remis à 0")
+        self._set_status("Tous les réglages remis à 0")
 
 
 
+    def reset_to_defaults(self, e):
+        """Restaure les réglages à leurs valeurs par défaut (tels qu'au démarrage)."""
+
+        self.contrast = float(CONSTANTS.RECADRAGE_DEFAULT_CONTRAST)
+        self.contrast_slider.value = self.contrast
+        self.contrast_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_CONTRAST)
+        self.contrast_slider.update()
+        self.saturation = float(CONSTANTS.RECADRAGE_DEFAULT_SATURATION)
+        self.saturation_slider.value = self.saturation
+        self.saturation_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_SATURATION)
+        self.saturation_slider.update()
+        self.exposure = float(CONSTANTS.RECADRAGE_DEFAULT_EXPOSURE)
+        self.exposure_slider.value = self.exposure
+        self.exposure_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_EXPOSURE)
+        self.exposure_slider.update()
+        self.shadows = float(CONSTANTS.RECADRAGE_DEFAULT_SHADOWS)
+        self.shadows_slider.value = self.shadows
+        self.shadows_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_SHADOWS)
+        self.shadows_slider.update()
+        self.highlights = float(CONSTANTS.RECADRAGE_DEFAULT_HIGHLIGHTS)
+        self.highlights_slider.value = self.highlights
+        self.highlights_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_HIGHLIGHTS)
+        self.highlights_slider.update()
+        self.hue = float(CONSTANTS.RECADRAGE_DEFAULT_HUE)
+        self.hue_slider.value = self.hue
+        self.hue_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_HUE)
+        self.hue_slider.update()
+        self.white_balance = float(CONSTANTS.RECADRAGE_DEFAULT_WHITE_BALANCE)
+        self.white_balance_slider.value = self.white_balance
+        self.white_balance_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_WHITE_BALANCE)
+        self.white_balance_slider.update()
+        self._render_preview()
+        self.page.update()
+        self._set_status("Réglages par défaut restaurés")
+
+    # ================================================================ #
+    #                  FORMAT & ORIENTATION                           #
+    # ================================================================ #
     def change_ratio(self, e=None):
         """
         Change le format d'impression actif et met à jour l'interface.
@@ -3514,10 +3632,10 @@ class PhotoCropper:
         """
 
         if not self.image_paths or self.current_index >= len(self.image_paths):
-            self._snackbar("Toutes les images ont été traitées.")
+            self._set_status("Toutes les images ont été traitées.")
             return
 
-        self._snackbar("Enregistrement en cours...")
+        self._set_status("Enregistrement en cours...", processing=True)
 
         used_paths = set()
 
@@ -3875,7 +3993,7 @@ class PhotoCropper:
             snapshot_output_image.save(snapshot_saved_path, **jpeg_save_options)
             saved_file_path = snapshot_saved_path
 
-        self._snackbar(f"[OK] {os.path.basename(saved_file_path)} enregistré !")
+        self._set_status(f"[OK] {os.path.basename(saved_file_path)} enregistré !")
 
         if self.batch_mode:
             self.current_index += 1
@@ -3895,7 +4013,7 @@ class PhotoCropper:
                 self.canvas_container.visible = False
                 self.validate_button.visible = False
                 
-                self._snackbar("[OK] Toutes les images sont traitées !")
+                self._set_status("[OK] Toutes les images sont traitées !")
                 self.page.update()
                 asyncio.create_task(self.close_window())
                 return
@@ -3906,8 +4024,9 @@ class PhotoCropper:
             self.copies_text.value = "1"
             self.page.update()
 
-
-
+    # ================================================================ #
+    #                   IGNORER UNE IMAGE                             #
+    # ================================================================ #
     def ignore_image(self, e):
         """
         Ignore l'image courante sans l'exporter et passe à la suivante.
@@ -3925,18 +4044,18 @@ class PhotoCropper:
         """
 
         if not self.image_paths or self.current_index >= len(self.image_paths):
-            self._snackbar("Toutes les images ont été traitées.")
+            self._set_status("Toutes les images ont été traitées.")
             asyncio.create_task(self.close_window())
             return
 
         self.current_index += 1
 
         if self.current_index >= len(self.image_paths):
-            self._snackbar("Toutes les images ont été traitées.")
+            self._set_status("Toutes les images ont été traitées.")
             asyncio.create_task(self.close_window())
             return
 
-        self._snackbar("Image ignorée.")
+        self._set_status("Image ignorée.")
         self.extra_formats.clear()
         self._update_extra_formats_display()
         self.copies_count = 1
@@ -4131,9 +4250,9 @@ def main(page: ft.Page):
                                 ft.GestureDetector(content=app.shadows_slider, on_double_tap=lambda e: app._reset_slider(app.shadows_slider, 'shadows', 0.0, '0')),
                                 ft.Text("Contraste", size=12, color=LIGHT_GREY),
                                 ft.GestureDetector(content=app.contrast_slider, on_double_tap=lambda e: app._reset_slider(app.contrast_slider, 'contrast', 0.0, '0')),
-                            ], spacing=2),
+                            ], spacing=4),
                             bgcolor=DARK, border_radius=6,
-                            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=8),
                             border=ft.Border.all(1, YELLOW),
                         ),
                         ft.Divider(height=6),
@@ -4149,9 +4268,9 @@ def main(page: ft.Page):
                                 ft.GestureDetector(content=app.hue_slider, on_double_tap=lambda e: app._reset_slider(app.hue_slider, 'hue', 0.0, '0')),
                                 ft.Text("Balance des blancs  (−froid / +chaud)", size=12, color=LIGHT_GREY),
                                 ft.GestureDetector(content=app.white_balance_slider, on_double_tap=lambda e: app._reset_slider(app.white_balance_slider, 'white_balance', 0.0, '0')),
-                            ], spacing=2),
+                            ], spacing=4),
                             bgcolor=DARK, border_radius=6,
-                            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
+                            padding=ft.Padding.symmetric(horizontal=8, vertical=8),
                             border=ft.Border.all(1, VIOLET),
                         ),
                         ft.Divider(height=6),
@@ -4166,13 +4285,12 @@ def main(page: ft.Page):
                             bgcolor=DARK, border_radius=6,
                             padding=ft.Padding.symmetric(horizontal=8, vertical=6),
                             border=ft.Border.all(1, GREEN),
+                            width=LEFT_COL_WIDTH - 20,
                         ),
                         ft.Divider(height=6),
-                        ft.Container(
-                            content=ft.Button("Réinit. réglages", on_click=app.reset_adjustments, width=160, bgcolor=BG, color=WHITE),
-                            alignment=ft.Alignment.CENTER, padding=ft.Padding.only(top=4, bottom=4)
-                        ),
-                    ], spacing=2, scroll=ft.ScrollMode.AUTO),
+                        ft.Button("Tout à 0", on_click=app.reset_adjustments, bgcolor=BG, color=WHITE, width=LEFT_COL_WIDTH - 20),
+                        ft.Button("Réglages par défaut", on_click=app.reset_to_defaults, bgcolor=DARK, color=LIGHT_GREY, width=LEFT_COL_WIDTH - 20),
+                    ], spacing=4, scroll=ft.ScrollMode.AUTO),
                     width=LEFT_COL_WIDTH,
                     bgcolor=DARK,
                     padding=ft.Padding.symmetric(horizontal=10, vertical=12),
@@ -4255,6 +4373,8 @@ def main(page: ft.Page):
                                         ], horizontal_alignment=ft.CrossAxisAlignment.START, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
                                         ft.VerticalDivider(width=1, color=LIGHT_GREY),
                                     ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=130),
+                                    ft.Divider(height=1, color=GREY),
+                                    app._status_row,
                                 ], alignment=ft.MainAxisAlignment.START, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                                 padding=ft.Padding.only(top=6, bottom=6, left=12, right=12),
                                 alignment=ft.Alignment(0, -1),
@@ -4271,7 +4391,7 @@ def main(page: ft.Page):
                                     app.rotation_slider_col,
                                     app.canvas_container,
                                     app.zoom_slider_col,
-                                ], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=15),
+                                ], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=30),
                                 expand=True,
                                 alignment=ft.Alignment(0, 0),
                             ),
