@@ -42,7 +42,7 @@ Espace              : ignorer l'image courante et passer à la suivante
 Tab                 : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.6.9"
+__version__ = "2.7.0"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage.pyw
@@ -104,6 +104,7 @@ DPI = CONSTANTS.DPI  # Résolution d'export
 PREVIEW_MAX_PIXELS = CONSTANTS.PREVIEW_MAX_PIXELS  # Taille max (px, côté le plus long) de la prévisualisation
 ID_X4_10x20_PHOTOS_BOTTOM = CONSTANTS.ID_X4_10x20_PHOTOS_BOTTOM  # True = photos moitié basse, False = photos moitié haute
 _IS_MAC = platform.system() == "Darwin"   # Raccourcis clavier spécifiques macOS
+CANVAS_CHROME_WIDTH = 160  # Sliders latéraux + espacements autour du canevas
 
 # Formats d'impression (largeur_mm, hauteur_mm) - en portrait
 FORMATS = CONSTANTS.FORMATS
@@ -951,7 +952,12 @@ class PhotoCropper:
         `canvas_container` et `image_stack`.
         """
 
-        available_width = min(self.page.window.width - CONTROLS_WIDTH - 80, MAX_CANVAS_SIZE) if self.page.window.width else 800
+        if self.page.window.width:
+            right_panel_width = RIGHT_COL_WIDTH + 24  # colonne droite + séparateur/marges
+            usable_width = self.page.window.width - right_panel_width - CANVAS_CHROME_WIDTH - 40
+            available_width = min(max(usable_width, 320), MAX_CANVAS_SIZE)
+        else:
+            available_width = 800
         available_height = min(self.page.window.height - 380, MAX_CANVAS_SIZE) if self.page.window.height else 600
 
 

@@ -1849,6 +1849,73 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
     return (_format_gemini_error(_last_error, prefix="ERREUR Gemini Image"), None)
 
 
+def _gemini_refine_image_prompt(
+    intent_prompt,
+    user_request="",
+    mode="edit_image",
+    source_filename="",
+    model="gemini-3.5-flash",
+):
+    """
+    Raffine un prompt d'intention en prompt d'édition/génération très précis
+    pour Nano Banana 2.
+
+    Retourne toujours une chaîne exploitable : en cas d'échec, renvoie intent_prompt.
+    """
+    intent_prompt = (intent_prompt or "").strip()
+    if not intent_prompt:
+        return ""
+
+    try:
+        from google import genai as _genai_ref
+        from google.genai import types as _gtypes_ref
+    except ImportError:
+        return intent_prompt
+
+    _api_key = _get_gemini_api_key()
+    if not _api_key:
+        return intent_prompt
+
+    try:
+        _client_ref = _genai_ref.Client(api_key=_api_key)
+    except Exception:
+        return intent_prompt
+
+    _mode_label = "édition" if mode == "edit_image" else "génération"
+    _source_line = f"- Fichier source: {source_filename}\n" if source_filename else ""
+    _user_req_block = user_request.strip() if user_request else "(non fourni)"
+
+    _instruction = (
+        "Tu es un expert en prompt engineering pour un modèle image-to-image/text-to-image.\n"
+        "Ta mission: réécrire l'intention en un prompt d'image ULTRA PRÉCIS et directement exécutable.\n"
+        "Contraintes strictes:\n"
+        "- Réponds uniquement avec le prompt final, sans commentaire, sans Markdown, sans guillemets.\n"
+        "- Le prompt doit être concret, visuel, et inclure des garde-fous de fidélité au sujet.\n"
+        "- Pour une édition, préserver composition, proportions, cadrage, perspective, identité du sujet et détails importants,\n"
+        "  sauf si la demande explicite de les changer.\n"
+        "- Éviter les formulations vagues ('améliore', 'plus beau') sans critères visuels.\n"
+        "- Si l'intention est ambiguë, choisir l'interprétation la plus sûre et conservatrice.\n"
+        "- Écrire en français.\n\n"
+        f"Mode: {_mode_label}\n"
+        f"{_source_line}"
+        f"Demande utilisateur originale:\n{_user_req_block}\n\n"
+        f"Intention brute à raffiner:\n{intent_prompt}\n"
+    )
+
+    try:
+        _resp_ref = _client_ref.models.generate_content(
+            model=model,
+            contents=[_instruction],
+            config=_gtypes_ref.GenerateContentConfig(temperature=0.2),
+        )
+        _refined = (_resp_ref.text or "").strip()
+        if not _refined:
+            return intent_prompt
+        return _refined
+    except Exception:
+        return intent_prompt
+
+
 # ─── Voix — TTS ───────────────────────────────────────────────────────────────
 
 def _gemini_tts(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts", language_code=None):

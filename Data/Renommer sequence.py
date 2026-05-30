@@ -15,7 +15,7 @@ Variables d'environnement :
 Dépendances : modules standard (os, pathlib, sys)
 """
 
-__version__ = "2.6.9"
+__version__ = "2.7.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -23,6 +23,7 @@ __version__ = "2.6.9"
 import os
 from pathlib import Path
 import sys
+import CONSTANTS
 
 #############################################################
 #                           PATH                            #
@@ -37,10 +38,19 @@ SERIES_NAME = os.environ.get("SERIES_NAME", "").strip()
 selected_files_str = os.environ.get("SELECTED_FILES", "")
 selected_files_list = selected_files_str.split("|") if selected_files_str else None
 
-all_files = sorted([file.name for file in PATH.iterdir() if file.is_file() and file.name != "watermark.png"])
+all_files = sorted([
+    file.name
+    for file in PATH.iterdir()
+    if file.is_file()
+    and file.name != "watermark.png"
+    and file.name.lower() != CONSTANTS.THUMB_CACHE_DB_NAME.lower()
+])
 if selected_files_list:
     all_files_set = set(all_files)
-    FOLDER = [f for f in selected_files_list if f in all_files_set]
+    FOLDER = [
+        f for f in selected_files_list
+        if f in all_files_set and f.lower() != CONSTANTS.THUMB_CACHE_DB_NAME.lower()
+    ]
 else:
     FOLDER = all_files
 
@@ -51,6 +61,8 @@ else:
 for index, file in enumerate(FOLDER) :
     print(f"{index +1} / {len(FOLDER)}")
     file_path = PATH / file
+    if file_path.name.lower() == CONSTANTS.THUMB_CACHE_DB_NAME.lower():
+        continue
     filename = file_path.stem
     ext = file_path.suffix
     new_index = index + 1

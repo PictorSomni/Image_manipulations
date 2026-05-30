@@ -29,7 +29,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.6.9"
+__version__ = "2.7.0"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Dashboard.pyw
@@ -83,7 +83,7 @@ from ai_tools import (
     _parse_text_tool_calls, _strip_text_tool_calls,
     _format_ai_conversation, _folder_tool_definitions, _gemini_tool_definitions, _folder_list_contents,
     _folder_read_file, _folder_create_file, _encode_image_for_analysis, _analyze_images_batched,
-    _gemini_generate_image,
+    _gemini_generate_image, _gemini_refine_image_prompt,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
     _update_memory_file, _build_system_content,
     _gemini_tts_stream, _gemini_live_tts_stream, _gemini_tts, _voice_play_audio,
@@ -512,6 +512,7 @@ def main(page: ft.Page):
         on_click=lambda e: page.run_task(_ai_pick_any),
     )
     ai_tts_enabled = {"value": CONSTANTS.AI_VOICE_TTS_ENABLED}
+    ai_send_original_images = {"value": CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL}
     ai_tts_stop_event = {"event": None}
     ai_speaker_button = ft.IconButton(
         icon=ft.Icons.VOLUME_UP if CONSTANTS.AI_VOICE_TTS_ENABLED else ft.Icons.VOLUME_OFF,
@@ -520,6 +521,23 @@ def main(page: ft.Page):
         tooltip="Désactiver la lecture vocale" if CONSTANTS.AI_VOICE_TTS_ENABLED else "Activer la lecture vocale",
         visible=CONSTANTS.AI_VOICE_TTS_BTN_VISIBLE,
         on_click=lambda e: _toggle_tts(),
+    )
+    ai_image_mode_label = ft.Text(
+        "REEL" if CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL else "1024",
+        color=BLUE if CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL else LIGHT_GREY,
+        size=10,
+        weight=ft.FontWeight.BOLD,
+    )
+    ai_image_size_button = ft.IconButton(
+        icon=ft.Icons.IMAGE,
+        icon_color=BLUE if CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL else LIGHT_GREY,
+        icon_size=16,
+        tooltip=(
+            "Mode images IA en taille réelle (fichier original) — affecte uniquement les nouveaux fichiers joints"
+            if CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL
+            else "Mode images IA optimisé (1024px max) — affecte uniquement les nouveaux fichiers joints"
+        ),
+        on_click=lambda e: _toggle_ai_image_size_mode(),
     )
 
     ai_container = ft.Container(
@@ -827,12 +845,19 @@ def main(page: ft.Page):
             env = {**os.environ, "FOLDER_PATH": folder1}
             if f2:
                 env["SECOND_FOLDER"] = f2
-            # Si des fichiers sont sélectionnés dans folder1, les transmettre pour filtrer la comparaison
+            # Si des fichiers sont sélectionnés dans folder1, les transmettre.
+            # Cas spécial: 2 images exactement -> comparaison directe de cette paire.
             files_in_folder1 = [
                 f for f in selected_files
                 if os.path.isfile(f) and os.path.normpath(os.path.dirname(f)) == os.path.normpath(folder1)
             ]
-            if files_in_folder1:
+            image_files_in_folder1 = [
+                f for f in files_in_folder1
+                if os.path.splitext(f)[1].lower() in CONSTANTS.IMAGE_EXTS
+            ]
+            if len(image_files_in_folder1) == 2:
+                env["SELECTED_PAIR_FILES"] = "|".join(os.path.basename(f) for f in image_files_in_folder1)
+            elif files_in_folder1:
                 env["SELECTED_FILES"] = "|".join(os.path.basename(f) for f in files_in_folder1)
             comparaison_path = os.path.join(app_directory, "Data", "Comparaison.pyw")
             proc = subprocess.Popen([sys.executable, comparaison_path], env=env)
@@ -1497,12 +1522,22 @@ def main(page: ft.Page):
         ai_attach_row.controls.clear()
         for image_entry in ai_pending_images:
             name = os.path.basename(image_entry["path"])
+            image_mode = image_entry.get("mode", "optimized")
+            mode_text = "R" if image_mode == "original" else "1024"
+            mode_color = BLUE if image_mode == "original" else LIGHT_GREY
             # Copie locale pour la lambda
             entry_ref = image_entry
             ai_attach_row.controls.append(
                 ft.Container(
                     content=ft.Row([
                         ft.Icon(ft.Icons.IMAGE, size=13, color=ORANGE),
+                        ft.Container(
+                            content=ft.Text(mode_text, size=9, color=mode_color, weight=ft.FontWeight.BOLD),
+                            bgcolor=DARK,
+                            border=ft.Border.all(1, GREY),
+                            border_radius=3,
+                            padding=ft.Padding(3, 0, 3, 0),
+                        ),
                         ft.Text(name, size=11, color=ORANGE),
                         ft.IconButton(
                             icon=ft.Icons.CLOSE,
@@ -1547,25 +1582,31 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    def _ai_attach_image(image_path):
-        """Encode une image en base64 (redimensionnée à 1024px max) et l'ajoute aux pièces jointes."""
+    def _ai_attach_image(image_path, use_original=None):
+        """Encode une image en base64 (optimisé ou taille réelle) et l'ajoute aux pièces jointes."""
         # Vérifier si déjà jointe
         if any(entry["path"] == image_path for entry in ai_pending_images):
             return
+        if use_original is None:
+            use_original = ai_send_original_images["value"]
         try:
-            from PIL import Image as PilImage
-            import io as _io
-            with PilImage.open(image_path) as pil_img:
-                pil_img = pil_img.convert("RGB")
-                max_side = 1024
-                width, height = pil_img.size
-                if width > max_side or height > max_side:
-                    ratio = min(max_side / width, max_side / height)
-                    new_size = (int(width * ratio), int(height * ratio))
-                    pil_img = pil_img.resize(new_size, PilImage.LANCZOS)
-                buffer = _io.BytesIO()
-                pil_img.save(buffer, format="JPEG", quality=85)
-                b64_data = base64.b64encode(buffer.getvalue()).decode("utf-8")
+            if use_original:
+                with open(image_path, "rb") as image_file:
+                    b64_data = base64.b64encode(image_file.read()).decode("utf-8")
+            else:
+                from PIL import Image as PilImage
+                import io as _io
+                with PilImage.open(image_path) as pil_img:
+                    pil_img = pil_img.convert("RGB")
+                    max_side = 1024
+                    width, height = pil_img.size
+                    if width > max_side or height > max_side:
+                        ratio = min(max_side / width, max_side / height)
+                        new_size = (int(width * ratio), int(height * ratio))
+                        pil_img = pil_img.resize(new_size, PilImage.LANCZOS)
+                    buffer = _io.BytesIO()
+                    pil_img.save(buffer, format="JPEG", quality=85)
+                    b64_data = base64.b64encode(buffer.getvalue()).decode("utf-8")
         except Exception:
             # Fallback : lecture brute si Pillow échoue
             try:
@@ -1574,7 +1615,8 @@ def main(page: ft.Page):
             except Exception as exc:
                 _ai_add_bubble("assistant", f"[ERREUR] Impossible de lire l'image : {exc}")
                 return
-        ai_pending_images.append({"path": image_path, "b64": b64_data})
+        image_mode = "original" if use_original else "optimized"
+        ai_pending_images.append({"path": image_path, "b64": b64_data, "mode": image_mode})
         _ai_refresh_attach_row()
         # Avertir si le modèle vision configuré ne supporte pas réellement la vision
         vision_model = CONSTANTS.AI_MODEL_VISION
@@ -1685,7 +1727,7 @@ def main(page: ft.Page):
             return
         switch_to_ai_mode()
         for image_path in image_paths:
-            _ai_attach_image(image_path)
+            _ai_attach_image(image_path, use_original=CONSTANTS.AI_IMAGE_ATTACH_SELECTED_ORIGINAL)
         for file_path in file_paths:
             _ai_attach_document_file(file_path)
         total = len(image_paths) + len(file_paths)
@@ -2573,6 +2615,7 @@ def main(page: ft.Page):
                             _gi_prompt     = fn_args.get("prompt", "")
                             _gi_aspect     = fn_args.get("aspect_ratio", "1:1")
                             _gi_resolution = fn_args.get("resolution", "1K")
+                            _gi_src_name   = ""
                             # Fichier de sortie
                             if fn_name == "generate_image":
                                 _gi_out_filename = (
@@ -2599,6 +2642,26 @@ def main(page: ft.Page):
                                             _gi_src_bytes = _f.read()
                                 _ai_add_bubble("assistant", f"🎨 Édition : {_gi_src_name} → {_gi_out_filename}")
                                 _turn_events.append(f"🎨 Édition : {_gi_src_name} → {_gi_out_filename}")
+
+                            _gi_prompt_refined = _gi_prompt
+                            if (active_model or "").startswith("gemini") and _gi_prompt.strip():
+                                _gi_prompt_refined = _gemini_refine_image_prompt(
+                                    intent_prompt=_gi_prompt,
+                                    user_request=_original_user_request,
+                                    mode=fn_name,
+                                    source_filename=_gi_src_name,
+                                    model=active_model,
+                                )
+                                if _gi_prompt_refined != _gi_prompt:
+                                    if CONSTANTS.AI_SHOW_REFINED_IMAGE_PROMPT:
+                                        _ai_add_bubble(
+                                            "assistant",
+                                            "🧪 Prompt Nano Banana affiné automatiquement :\n\n"
+                                            f"{_gi_prompt_refined}",
+                                        )
+                                    else:
+                                        _ai_add_bubble("assistant", "🧪 Prompt Nano Banana affiné automatiquement.")
+
                             ai_status_text.value = "🎨 Nano Banana 2 en cours…"
                             ai_progress_bar.visible = True
                             try:
@@ -2606,7 +2669,7 @@ def main(page: ft.Page):
                             except Exception:
                                 pass
                             _gi_text, _gi_bytes = _gemini_generate_image(
-                                _gi_prompt,
+                                _gi_prompt_refined,
                                 input_image_bytes=_gi_src_bytes,
                                 aspect_ratio=_gi_aspect,
                                 resolution=_gi_resolution,
@@ -3441,6 +3504,26 @@ def main(page: ft.Page):
             ai_speaker_button.update()
         except Exception:
             pass
+
+    def _toggle_ai_image_size_mode():
+        """Bascule entre envoi optimisé (1024px) et taille réelle pour les images IA."""
+        ai_send_original_images["value"] = not ai_send_original_images["value"]
+        use_original = ai_send_original_images["value"]
+        ai_image_size_button.icon_color = BLUE if use_original else LIGHT_GREY
+        ai_image_mode_label.value = "REEL" if use_original else "1024"
+        ai_image_mode_label.color = BLUE if use_original else LIGHT_GREY
+        ai_image_size_button.tooltip = (
+            "Mode images IA en taille réelle (fichier original) — affecte uniquement les nouveaux fichiers joints"
+            if use_original
+            else "Mode images IA optimisé (1024px max) — affecte uniquement les nouveaux fichiers joints"
+        )
+        try:
+            ai_image_size_button.update()
+            ai_image_mode_label.update()
+        except Exception:
+            pass
+        mode_label = "taille réelle" if use_original else "optimisé (1024px max)"
+        log_to_terminal(f"[INFO] Envoi images IA : {mode_label}", LIGHT_GREY)
 
     def switch_to_terminal_mode():
         """Sauvegarde les notes/quitte l'IA et revient au terminal."""
@@ -4795,6 +4878,9 @@ def main(page: ft.Page):
         """Renomme un fichier ou un dossier via une boîte de dialogue."""
         current_name = os.path.basename(file_path)
         parent_dir = os.path.dirname(file_path)
+        if current_name.lower() == CONSTANTS.THUMB_CACHE_DB_NAME.lower():
+            log_to_terminal("[INFO] Le fichier .thumbcache.db est exclu du renommage.", BLUE)
+            return
         stem, ext = os.path.splitext(current_name)
 
         name_input = ft.TextField(
@@ -5217,6 +5303,9 @@ def main(page: ft.Page):
     def _apply_print_rename(file_path, new_count):
         basename = os.path.basename(file_path)
         folder = os.path.dirname(file_path)
+
+        if basename.lower() == CONSTANTS.THUMB_CACHE_DB_NAME.lower():
+            return
         
         if not os.path.exists(file_path):
             return
@@ -7456,6 +7545,8 @@ def main(page: ft.Page):
         ai_status_text,
         ai_stop_button,
         ai_folder_select_button,
+        ai_image_size_button,
+        ai_image_mode_label,
         ai_clear_button,
         ai_speaker_button,
         ft.Container(expand=True),

@@ -47,7 +47,7 @@ toucher aux scripts eux-mêmes.
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.6.9"
+__version__ = "2.7.0"
 
 
 # ==============================================================================
@@ -327,6 +327,9 @@ AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe
 AI_URL_MAX_CHARS = 12_000                    # Nb max de caractères extraits d'une URL
 AI_ORGANIZE_CONFIRM  = False                 # True = confirmation avant chaque tri de fichiers
 AI_TERMINAL_CONFIRM  = False                 # True = confirmation avant chaque commande terminal
+AI_IMAGE_ATTACH_DEFAULT_ORIGINAL = True      # True = images jointes manuellement en taille réelle par défaut
+AI_IMAGE_ATTACH_SELECTED_ORIGINAL = False    # True = images sélectionnées dans la preview en taille réelle
+AI_SHOW_REFINED_IMAGE_PROMPT = True          # True = affiche dans le chat le prompt final envoyé à Nano Banana
 AI_USER_NAME         = "Charles"             # Appellation dans l'export de conversation
 AI_SEPARATOR_WIDTH   = 80                    # Nb de '#' pour les séparateurs d'export
 

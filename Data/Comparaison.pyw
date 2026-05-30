@@ -16,11 +16,12 @@ Action "Valider" :
 Variables d'environnement :
   FOLDER_PATH    — dossier 1 (obligatoire si lancé depuis Dashboard).
   SECOND_FOLDER  — dossier 2 (optionnel ; sinon l'app demande le dossier).
+    SELECTED_PAIR_FILES — 2 noms d'images (séparés par "|") pour une comparaison directe.
 
 Dépendances : flet >= 0.84
 """
 
-__version__ = "2.6.9"
+__version__ = "2.7.0"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  IMPORTS
@@ -178,6 +179,8 @@ def main(page: ft.Page):
     folder2_path       = os.environ.get("SECOND_FOLDER", "").strip()
     selected_names_str = os.environ.get("SELECTED_FILES", "").strip()
     selected_names     = set(selected_names_str.split("|")) if selected_names_str else None
+    selected_pair_str  = os.environ.get("SELECTED_PAIR_FILES", "").strip()
+    selected_pair_names = [name for name in selected_pair_str.split("|") if name]
     pairs_list:  list  = []
     current_pair_index = 0
     selected_side      = 0  # 0 = gauche (folder1), 1 = droite (folder2)
@@ -437,8 +440,13 @@ def main(page: ft.Page):
             # Garder gauche (folder1)
             chosen_path   = file1
             rejected_path = file2
-            # Le rejeté vient de folder2 → AUTRES/{nom_dossier2}/
-            subfolder = aut_dir / Path(folder2_path).name
+            # Si le rejeté vient du dossier 1 (mode paire sélectionnée),
+            # le déplacer dans AUTRES/ directement.
+            if os.path.normpath(str(rejected_path.parent)) == os.path.normpath(folder1_path):
+                subfolder = aut_dir
+            else:
+                # Le rejeté vient de folder2 → AUTRES/{nom_dossier2}/
+                subfolder = aut_dir / Path(folder2_path).name
         else:
             # Garder droite (folder2)
             chosen_path   = file2
@@ -513,19 +521,38 @@ def main(page: ft.Page):
             page.update()
             return
 
-        if folder2_path and os.path.isdir(folder2_path):
-            images2 = _get_image_files(folder2_path)
-            folder2_label = folder2_path
-            if not images2:
-                status_text.value = f"Aucune image dans {os.path.basename(folder2_path)}."
+        if selected_pair_names:
+            if len(selected_pair_names) != 2:
+                status_text.value = "Le mode paire directe nécessite exactement 2 images sélectionnées."
                 page.update()
                 return
+            images1_by_name = {file.name: file for file in images1}
+            left_file = images1_by_name.get(selected_pair_names[0])
+            right_file = images1_by_name.get(selected_pair_names[1])
+            if not left_file or not right_file:
+                status_text.value = "Impossible de retrouver les 2 images sélectionnées dans le dossier courant."
+                page.update()
+                return
+            if left_file == right_file:
+                status_text.value = "Veuillez sélectionner 2 images différentes pour la comparaison."
+                page.update()
+                return
+            pairs_list = [(left_file, right_file)]
+            folder2_label = f"{folder1_path} (sélection)"
         else:
-            status_text.value = f"Dossier 2 introuvable : {repr(folder2_path)}"
-            page.update()
-            return
+            if folder2_path and os.path.isdir(folder2_path):
+                images2 = _get_image_files(folder2_path)
+                folder2_label = folder2_path
+                if not images2:
+                    status_text.value = f"Aucune image dans {os.path.basename(folder2_path)}."
+                    page.update()
+                    return
+            else:
+                status_text.value = f"Dossier 2 introuvable : {repr(folder2_path)}"
+                page.update()
+                return
 
-        pairs_list = _match_pairs(images1, images2)
+            pairs_list = _match_pairs(images1, images2)
 
         if not pairs_list:
             status_text.value = "Aucune correspondance de noms trouvée entre les deux dossiers."
@@ -783,7 +810,7 @@ def main(page: ft.Page):
 
 
     # ── Démarrage auto ────────────────────────────────────────────────────
-    if folder1_path and folder2_path:
+    if folder1_path and (folder2_path or selected_pair_names):
         _build_pairs_and_start()
     elif folder1_path:
         # folder1 est connu (lancé depuis Dashboard) : ouvrir directement le
