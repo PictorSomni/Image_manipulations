@@ -1472,6 +1472,51 @@ def _format_gemini_error(exc, *, prefix="Erreur Gemini"):
         return f"[{prefix}{suffix} : {compact}]"
     return f"[{prefix}{suffix}]"
 
+
+def _extract_gemini_feedback_messages(response):
+    """Extrait les signaux de blocage/arrêt Gemini (prompt_feedback, safety, finish_reason)."""
+    messages = []
+
+    def _normalize_enum_name(value):
+        raw = str(value).strip()
+        if not raw:
+            return ""
+        if "." in raw:
+            raw = raw.split(".")[-1]
+        return raw.upper()
+
+    prompt_feedback = getattr(response, "prompt_feedback", None)
+    if prompt_feedback is not None:
+        block_reason = getattr(prompt_feedback, "block_reason", None)
+        block_msg = getattr(prompt_feedback, "block_reason_message", None) or getattr(prompt_feedback, "message", None)
+        if block_reason and str(block_reason) not in {"BLOCK_REASON_UNSPECIFIED", "0"}:
+            messages.append(f"Prompt bloqué ({block_reason})")
+        if block_msg:
+            messages.append(str(block_msg).strip())
+
+    for cand in (getattr(response, "candidates", None) or []):
+        finish_reason = getattr(cand, "finish_reason", None)
+        finish_name = _normalize_enum_name(finish_reason) if finish_reason else ""
+        if finish_name and finish_name not in {"STOP", "FINISH_REASON_UNSPECIFIED", "UNSPECIFIED", "0"}:
+            messages.append(f"Arrêt modèle : {finish_reason}")
+
+        for rating in (getattr(cand, "safety_ratings", None) or []):
+            blocked = getattr(rating, "blocked", False)
+            if blocked:
+                category = getattr(rating, "category", "UNKNOWN")
+                probability = getattr(rating, "probability", "UNKNOWN")
+                messages.append(f"Blocage sécurité : {category} ({probability})")
+
+    # Dédupliquer en conservant l'ordre
+    deduped = []
+    seen = set()
+    for msg in messages:
+        key = msg.strip()
+        if key and key not in seen:
+            deduped.append(key)
+            seen.add(key)
+    return deduped
+
 def _ollama_tools_to_gemini(tools):
     """
     Convertit une liste de définitions d'outils au format Ollama (JSON Schema)
@@ -1699,12 +1744,18 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
 
     for _attempt in range(_MAX_RETRIES + 1):
         pending_tool_calls = []
+        emitted_feedback = set()
         try:
             for chunk in client.models.generate_content_stream(
                 model=model,
                 contents=gemini_contents,
                 config=config,
             ):
+                for _fb_msg in _extract_gemini_feedback_messages(chunk):
+                    if _fb_msg not in emitted_feedback:
+                        emitted_feedback.add(_fb_msg)
+                        yield ("token", f"\n[Gemini] {_fb_msg}\n")
+
                 if not chunk.candidates:
                     continue
                 for part in chunk.candidates[0].content.parts:
@@ -1775,7 +1826,10 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
     import time as _time_gi
     import re as _re_gi
 
-    _candidate_models = ["gemini-3.1-flash-image-preview"]
+    _candidate_models = [
+        "gemini-3.1-flash-image-preview",
+        "gemini-2.5-flash-image",
+    ]
     _last_error = None
 
     for _model in _candidate_models:
@@ -1784,9 +1838,18 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
             try:
                 _client = _genai_img.Client(api_key=_api_key)
 
-                # Construire le contenu : [image source optionnelle, puis prompt texte]
-                # Prompt en premier, puis image source (ordre recommandé par la doc Gemini)
-                _contents = [prompt]
+                # Construire le contenu : [prompt texte, image source optionnelle]
+                # On évite d'envoyer response_format, qui peut provoquer l'erreur
+                # "Extra inputs are not permitted" selon la version du SDK/API.
+                _prompt_with_constraints = prompt
+                if aspect_ratio != "1:1" or resolution != "1K":
+                    _prompt_with_constraints += (
+                        "\n\nContraintes de sortie :"
+                        f" ratio {aspect_ratio}, taille {resolution}."
+                        " Respecte ces contraintes si possible."
+                    )
+
+                _contents = [_prompt_with_constraints]
                 if input_image_bytes:
                     try:
                         from PIL import Image as _PILImg, ImageOps as _PILOps
@@ -1806,12 +1869,8 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
                             _gtypes_img.Part.from_bytes(data=input_image_bytes, mime_type="image/jpeg")
                         )
 
-                # Config de génération — response_format pour Gemini 3 (remplace image_config)
+                # Config minimale et robuste pour compatibilité multi-versions.
                 _cfg_kwargs: dict = {"response_modalities": ["TEXT", "IMAGE"]}
-                if aspect_ratio != "1:1" or resolution != "1K":
-                    _cfg_kwargs["response_format"] = {
-                        "image": {"aspect_ratio": aspect_ratio, "image_size": resolution}
-                    }
 
                 _response = _client.models.generate_content(
                     model=_model,
@@ -1821,14 +1880,43 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
 
                 _text_out = ""
                 _image_out = None
-                if _response.parts:
-                    for _part in _response.parts:
-                        if getattr(_part, "thought", False):
-                            continue
-                        if _part.text:
-                            _text_out += _part.text
-                        elif getattr(_part, "inline_data", None) is not None and _part.inline_data:
-                            _image_out = _part.inline_data.data  # bytes PNG/JPEG
+                _feedback_messages = _extract_gemini_feedback_messages(_response)
+
+                # Les SDK Gemini peuvent exposer les parts à différents niveaux
+                # (_response.parts ou _response.candidates[*].content.parts).
+                _parts = []
+                try:
+                    if getattr(_response, "parts", None):
+                        _parts.extend(_response.parts)
+                except Exception:
+                    pass
+                if not _parts:
+                    try:
+                        for _cand in (getattr(_response, "candidates", None) or []):
+                            _content = getattr(_cand, "content", None)
+                            _cand_parts = getattr(_content, "parts", None) if _content is not None else None
+                            if _cand_parts:
+                                _parts.extend(_cand_parts)
+                    except Exception:
+                        pass
+
+                for _part in _parts:
+                    if getattr(_part, "thought", False):
+                        continue
+                    _part_text = getattr(_part, "text", None)
+                    if _part_text:
+                        _text_out += _part_text
+                        continue
+                    _inline = getattr(_part, "inline_data", None)
+                    if _inline is not None and getattr(_inline, "data", None):
+                        _image_out = _inline.data  # bytes PNG/JPEG
+
+                if _feedback_messages:
+                    _feedback_text = "\n".join(f"[Gemini] {_m}" for _m in _feedback_messages)
+                    if _text_out:
+                        _text_out = (_text_out + "\n\n" + _feedback_text).strip()
+                    elif _image_out is None:
+                        _text_out = _feedback_text
 
                 return (_text_out.strip(), _image_out)
 

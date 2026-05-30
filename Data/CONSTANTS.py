@@ -47,7 +47,7 @@ toucher aux scripts eux-mêmes.
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.7.0"
+__version__ = "2.7.1"
 
 
 # ==============================================================================
@@ -323,6 +323,7 @@ AI_MODEL_TEXT   = "gemini-3.5-flash"         # Modèle texte par défaut
 AI_MODEL_VISION = "gemini-3.5-flash"         # Modèle vision par défaut
 AI_GEMINI_MODEL    = "gemini-3.5-flash"      # Modèle Gemini principal (API Google)
 AI_GEMINI_FALLBACK = "gemma4:e4b"            # Fallback Ollama local si hors-ligne
+AI_GEMINI_IMAGE_TIMEOUT = 180                 # Timeout max (s) pour generate/edit image via Gemini
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
 AI_URL_MAX_CHARS = 12_000                    # Nb max de caractères extraits d'une URL
 AI_ORGANIZE_CONFIRM  = False                 # True = confirmation avant chaque tri de fichiers

@@ -50,9 +50,5 @@ open_with.json
 .ai_conversation.json
 .ai_conversation_sp.json
 
-# Fichiers mémoire IA persistante — contenu personnel, ne pas versionner
-Data/memory.md
-Data/user.md
-Data/skills.md
-Data/system.md
+# Fichiers mémoire IA persistante
 Data/.thumbcache.db

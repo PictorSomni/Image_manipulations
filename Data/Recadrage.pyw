@@ -42,7 +42,7 @@ Espace              : ignorer l'image courante et passer à la suivante
 Tab                 : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.7.0"
+__version__ = "2.7.1"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage.pyw
@@ -108,6 +108,7 @@ CANVAS_CHROME_WIDTH = 160  # Sliders latéraux + espacements autour du canevas
 
 # Formats d'impression (largeur_mm, hauteur_mm) - en portrait
 FORMATS = CONSTANTS.FORMATS
+_CUSTOM_KEY = "Personnalisé"
 
 # ===================== COULEURS ===================== #
 DARK         = CONSTANTS.COLOR_DARK
@@ -319,7 +320,7 @@ class VerticalSlider:
 
         self.control = ft.Stack(
             controls=[self._bg_track, self._fg_track, self._thumb, self._lbl, self._gesture],
-            width=self._COL_W + self._LBL_OFFSET + 50,  # place pour le label à droite
+            width=self._COL_W,  # label déborde via clip_behavior=NONE sans occuper d'espace layout
             height=track_height,
             clip_behavior=ft.ClipBehavior.NONE,
         )
@@ -502,6 +503,9 @@ class PhotoCropper:
         self.canvas_is_portrait = True
         self.current_format = FORMATS["ID"]
         self.current_format_label = "ID"
+        self.custom_format = (100, 100)         # dimensions libres (Personnalisé)
+        self.custom_fields_row = None            # initialisé dans main() avant usage
+        self.custom_panel = None                 # container séparé, initialisé dans main()
         self.border_13x15 = CONSTANTS.RECADRAGE_BORDER_13x15
         self.border_10x20 = CONSTANTS.RECADRAGE_BORDER_10x20
         self.border_13x20 = CONSTANTS.RECADRAGE_BORDER_13x20
@@ -3244,7 +3248,37 @@ class PhotoCropper:
             Événement du RadioGroup ; `e.control.value` = clé du dict FORMATS.
         """
 
+        if e.control.value == _CUSTOM_KEY:
+            self.current_format_label = _CUSTOM_KEY
+            # Lire les champs si déjà initialisés
+            try:
+                w = float((self.custom_w_field.value or "").strip())
+                h = float((self.custom_h_field.value or "").strip())
+                if w > 0 and h > 0:
+                    self.current_format = (w, h)
+            except (ValueError, AttributeError):
+                self.current_format = self.custom_format
+            # Masquer tous les switches spéciaux
+            for sw in [
+                self.two_in_one_switch, self.border_switch_13x15,
+                self.border_switch_10x20, self.border_switch_13x20,
+                self.border_switch_20x24, self.border_switch_13x10,
+                self.border_switch_polaroid, self.border_switch_ID2,
+                self.border_switch_ID4, self.id4_10x20_switch,
+                self.network_switch,
+            ]:
+                sw.visible = False
+            if self.custom_panel is not None:
+                self.custom_panel.visible = True
+            self.update_canvas_size()
+            if self.image_paths:
+                self.load_image(preserve_orientation=True)
+            return
+
+        if self.custom_panel is not None:
+            self.custom_panel.visible = True
         self.current_format = FORMATS[e.control.value]
+        self.custom_format = self.current_format
         try:
             self.current_format_label = e.control.value
         except Exception:
@@ -4185,6 +4219,65 @@ def main(page: ft.Page):
             app.ignore_image(event)
     page.on_keyboard_event = on_key
 
+    # ── Champs de format personnalisé ────────────────────────────────
+    def _on_custom_dim_change(e):
+        """Met à jour current_format quand l'utilisateur modifie les champs personnalisés."""
+        if app.current_format_label != _CUSTOM_KEY:
+            return
+        try:
+            w = float((app.custom_w_field.value or "").strip())
+            h = float((app.custom_h_field.value or "").strip())
+            if w > 0 and h > 0:
+                app.current_format = (w, h)
+                app.update_canvas_size()
+                if app.image_paths:
+                    app.load_image(preserve_orientation=True)
+        except ValueError:
+            pass
+
+    app.custom_w_field = ft.TextField(
+        label="Largeur (mm)", value="100", width=105,
+        text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+        border_color=BLUE, bgcolor=BG,
+        disabled=True,
+        on_submit=_on_custom_dim_change, on_blur=_on_custom_dim_change,
+    )
+    app.custom_h_field = ft.TextField(
+        label="Hauteur (mm)", value="100", width=105,
+        text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+        border_color=BLUE, bgcolor=BG,
+        disabled=True,
+        on_submit=_on_custom_dim_change, on_blur=_on_custom_dim_change,
+    )
+    app.custom_fields_row = ft.Row(
+        [app.custom_w_field, app.custom_h_field],
+        spacing=6,
+        alignment=ft.MainAxisAlignment.CENTER,
+    )
+
+    app.custom_mode_switch = ft.Switch(
+        label="Format personnalisé (mm)",
+        value=False,
+        active_color=BLUE,
+    )
+
+    def _apply_custom_mode(enabled: bool):
+        app.custom_w_field.disabled = not enabled
+        app.custom_h_field.disabled = not enabled
+        app.format_radio_group.disabled = enabled
+        if enabled:
+            # Appliquer immédiatement les dimensions saisies en mode personnalisé
+            app.change_ratio(type("Evt", (), {"control": type("Ctl", (), {"value": _CUSTOM_KEY})()})())
+        else:
+            # Retour au format standard actuellement sélectionné
+            app.change_ratio(type("Evt", (), {"control": type("Ctl", (), {"value": app.format_radio_group.value})()})())
+        page.update()
+
+    def _on_custom_mode_toggle(e):
+        _apply_custom_mode(bool(e.control.value))
+
+    app.custom_mode_switch.on_change = _on_custom_mode_toggle
+
     app.format_radio_group = ft.RadioGroup(
         content=ft.Column(
             [ft.Radio(value=fmt, label=fmt, fill_color=BLUE) for fmt in FORMATS.keys()],
@@ -4192,6 +4285,19 @@ def main(page: ft.Page):
         ),
         value="ID",
         on_change=app.change_ratio,
+    )
+
+    app.custom_panel = ft.Container(
+        content=ft.Column([
+            ft.Text("Dimensions (mm)", size=11, color=BLUE, weight=ft.FontWeight.BOLD),
+            app.custom_mode_switch,
+            ft.Container(content=app.custom_fields_row, margin=ft.Margin.only(top=8)),
+        ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        visible=True,
+        border=ft.Border.all(1, BLUE),
+        bgcolor=DARK,
+        border_radius=8,
+        padding=ft.Padding.symmetric(horizontal=10, vertical=10),
     )
 
     controls = ft.Column([
@@ -4208,6 +4314,7 @@ def main(page: ft.Page):
             border_radius=8,
             padding=ft.Padding.symmetric(horizontal=10, vertical=12),
         ),
+        app.custom_panel,
         ft.Container(
             content=ft.Column([
                 app.two_in_one_switch,

@@ -29,7 +29,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.7.0"
+__version__ = "2.7.1"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Dashboard.pyw
@@ -2260,6 +2260,7 @@ def main(page: ft.Page):
                 _text_response_retry_done = False
                 _create_file_done = False  # True dès que create_file a été exécuté
                 _read_file_done = False    # True dès que read_file_content a été exécuté
+                _image_tool_done = False   # True dès qu'une génération/édition image a réussi
                 _turn_events = []          # Événements d'outils du tour courant (pour export)
 
                 # ── Boucle agentique (max 6 tours d'outils) ─────────────────────
@@ -2611,6 +2612,14 @@ def main(page: ft.Page):
                                     (fn_name, "\n\n".join(_analyze_results) or "Aucun résultat.")
                                 )
                         elif fn_name in ("generate_image", "edit_image"):
+                            if _image_tool_done:
+                                _folder_tool_results.append(
+                                    (fn_name, "Action ignorée : une image a déjà été générée/modifiée pour cette demande.")
+                                )
+                                continue
+                            # Une seule tentative image par demande utilisateur pour éviter
+                            # les boucles de prompts (réessais en chaîne côté modèle).
+                            _image_tool_done = True
                             import datetime as _dt_gi
                             _gi_prompt     = fn_args.get("prompt", "")
                             _gi_aspect     = fn_args.get("aspect_ratio", "1:1")
@@ -2662,18 +2671,41 @@ def main(page: ft.Page):
                                     else:
                                         _ai_add_bubble("assistant", "🧪 Prompt Nano Banana affiné automatiquement.")
 
+                            # Journaliser le prompt réellement envoyé pour qu'il soit
+                            # inclus dans l'export/copie de conversation IA.
+                            _turn_events.append(f"🧪 Prompt Nano Banana : {_gi_prompt_refined}")
+
                             ai_status_text.value = "🎨 Nano Banana 2 en cours…"
                             ai_progress_bar.visible = True
                             try:
                                 page.update()
                             except Exception:
                                 pass
-                            _gi_text, _gi_bytes = _gemini_generate_image(
-                                _gi_prompt_refined,
-                                input_image_bytes=_gi_src_bytes,
-                                aspect_ratio=_gi_aspect,
-                                resolution=_gi_resolution,
-                            )
+                            _gi_timeout_seconds = int(getattr(CONSTANTS, "AI_GEMINI_IMAGE_TIMEOUT", 180))
+                            _gi_result_holder = {"value": ("[ERREUR] Timeout Gemini image.", None)}
+                            _gi_done_event = threading.Event()
+
+                            def _run_gemini_image_call():
+                                try:
+                                    _gi_result_holder["value"] = _gemini_generate_image(
+                                        _gi_prompt_refined,
+                                        input_image_bytes=_gi_src_bytes,
+                                        aspect_ratio=_gi_aspect,
+                                        resolution=_gi_resolution,
+                                    )
+                                except Exception as _gi_exc:
+                                    _gi_result_holder["value"] = (f"[ERREUR] {str(_gi_exc)}", None)
+                                finally:
+                                    _gi_done_event.set()
+
+                            threading.Thread(target=_run_gemini_image_call, daemon=True).start()
+                            if not _gi_done_event.wait(timeout=_gi_timeout_seconds):
+                                _gi_text, _gi_bytes = (
+                                    f"[ERREUR] Timeout Gemini image après {_gi_timeout_seconds}s.",
+                                    None,
+                                )
+                            else:
+                                _gi_text, _gi_bytes = _gi_result_holder["value"]
                             ai_progress_bar.visible = False
                             if _gi_bytes:
                                 _gi_dest_folder = _folder_path_for_tools or os.path.join(app_directory, "Generated")
@@ -2687,21 +2719,46 @@ def main(page: ft.Page):
                                 _gi_result = f"Image sauvegardée : {_gi_save_path}"
                                 if _gi_text:
                                     _gi_result = _gi_text + f"\n\nFichier : {_gi_save_path}"
+                                _turn_events.append(f"✅ Image sauvegardée : {_gi_out_filename}")
                             else:
-                                _gi_result = _gi_text or "[ERREUR] Aucune image générée."
+                                _gi_result = "[ERREUR] Aucune image n'a été générée/sauvegardée."
+                                if _gi_text:
+                                    _gi_result += (
+                                        "\n\nRéponse texte du service (sans image):\n"
+                                        f"{_gi_text}"
+                                    )
+                                _turn_events.append("❌ Échec génération/édition image (aucun fichier créé)")
                             _folder_tool_results.append((fn_name, _gi_result))
                         elif fn_name == "create_file":
                             import datetime as _dt_cf
                             _create_filename = fn_args.get("filename", "").strip()
                             if not _create_filename:
                                 _create_filename = f"fichier_{_dt_cf.datetime.now():%Y%m%d_%H%M%S}.txt"
-                            # Si un listage de dossier est disponible ET qu'on n'est pas
-                            # dans un workflow d'édition (read_file_content déjà exécuté),
-                            # utiliser les données réelles plutôt que le contenu généré par Gemma.
-                            if _last_folder_listing and not _read_file_done:
+                            # Ne JAMAIS écraser un contenu déjà fourni (script, note, etc.)
+                            # par un listing de dossier. Le fallback listing ne s'applique
+                            # que si le modèle a envoyé un contenu vide.
+                            _create_content_raw = _clean_file_content(fn_args.get("content", ""))
+                            if _create_content_raw.strip():
+                                _create_content = _create_content_raw
+                            elif _last_folder_listing and not _read_file_done:
                                 _create_content = _last_folder_listing
                             else:
-                                _create_content = _clean_file_content(fn_args.get("content", ""))
+                                _create_content = ""
+
+                            # Garde-fou : éviter d'écrire un listing de dossier dans un script.
+                            _create_ext = os.path.splitext(_create_filename)[1].lower()
+                            _script_exts = {".py", ".pyw", ".sh", ".bat", ".ps1"}
+                            if (
+                                _create_ext in _script_exts
+                                and _create_content.strip().startswith("Dossier :")
+                            ):
+                                _folder_tool_results.append(
+                                    (
+                                        fn_name,
+                                        "Création annulée : contenu invalide pour un script (listing de dossier détecté).",
+                                    )
+                                )
+                                continue
                             ai_status_text.value = f"📝 Création : {_create_filename}…"
                             _ai_add_bubble("assistant", f"📝 Création du fichier : {_create_filename}")
                             _turn_events.append(f"📝 Création du fichier : {_create_filename}")
@@ -2829,11 +2886,33 @@ def main(page: ft.Page):
                         _create_file_just_done_tp = any(
                             name == "create_file" for name, _ in _all_tool_results
                         )
+                        _image_tool_results_tp = [
+                            str(result)
+                            for name, result in _all_tool_results
+                            if name in ("generate_image", "edit_image")
+                        ]
+                        _image_tool_success_tp = any(
+                            "Image sauvegardée :" in result
+                            for result in _image_tool_results_tp
+                        )
+                        _image_tool_failed_tp = bool(_image_tool_results_tp) and not _image_tool_success_tp
                         if _create_file_just_done_tp:
                             _injected_msg += (
                                 "\n\nLe fichier a été créé avec succès. "
                                 "La tâche est terminée — réponds à l'utilisateur "
                                 "pour confirmer ce qui a été fait, sans appeler d'autres outils."
+                            )
+                        elif _image_tool_success_tp:
+                            _injected_msg += (
+                                "\n\nL'image demandée a été générée/modifiée et sauvegardée avec succès. "
+                                "La tâche est terminée — réponds à l'utilisateur "
+                                "pour confirmer ce qui a été fait, sans appeler d'autres outils."
+                            )
+                        elif _image_tool_failed_tp:
+                            _injected_msg += (
+                                "\n\nLa génération/modification d'image a échoué (aucun fichier image créé). "
+                                "Réponds en expliquant clairement l'échec, sans prétendre qu'une image est disponible, "
+                                "et propose une action de relance."
                             )
                         else:
                             _injected_msg += (
@@ -2874,11 +2953,33 @@ def main(page: ft.Page):
                         _create_file_just_done = any(
                             name == "create_file" for name, _ in _all_tool_results
                         )
+                        _image_tool_results = [
+                            str(result)
+                            for name, result in _all_tool_results
+                            if name in ("generate_image", "edit_image")
+                        ]
+                        _image_tool_success = any(
+                            "Image sauvegardée :" in result
+                            for result in _image_tool_results
+                        )
+                        _image_tool_failed = bool(_image_tool_results) and not _image_tool_success
                         if _create_file_just_done:
                             messages.append({"role": "user", "content": (
                                 "Le fichier a été créé avec succès. "
                                 "La tâche est terminée — réponds à l'utilisateur "
                                 "pour confirmer ce qui a été fait, sans appeler d'autres outils."
+                            )})
+                        elif _image_tool_success:
+                            messages.append({"role": "user", "content": (
+                                "L'image demandée a été générée/modifiée et sauvegardée avec succès. "
+                                "La tâche est terminée — réponds à l'utilisateur "
+                                "pour confirmer ce qui a été fait, sans appeler d'autres outils."
+                            )})
+                        elif _image_tool_failed:
+                            messages.append({"role": "user", "content": (
+                                "La génération/modification d'image a échoué (aucun fichier image créé). "
+                                "Réponds en expliquant clairement l'échec, sans prétendre qu'une image est disponible, "
+                                "et propose une action de relance."
                             )})
                         else:
                             _results_lines = [f"[{_tn}]:\n{_tr}" for _tn, _tr in _all_tool_results]
@@ -6673,6 +6774,142 @@ def main(page: ft.Page):
             page.update()
             return
 
+        if app_name == "Recadrage force format.py" and series_name is None:
+            _format_items = list(CONSTANTS.FORMATS.items())
+            _default_format = "10x15" if "10x15" in CONSTANTS.FORMATS else (_format_items[0][0] if _format_items else "10x15")
+            _default_mm = CONSTANTS.FORMATS.get(_default_format, (102, 152))
+            _auto_scope_value = "selected" if selected_files else "all"
+
+            force_mode_state = {"manual": False}
+
+            force_format_dropdown = ft.Dropdown(
+                value=_default_format,
+                options=[ft.dropdown.Option(name) for name, _ in _format_items],
+                width=260,
+                text_size=13,
+                border_color=HOVER_YELLOW,
+                bgcolor=DARK,
+            )
+            force_manual_width = ft.TextField(
+                label="Largeur (mm)",
+                value=str(_default_mm[0]),
+                width=125,
+                text_size=13,
+                keyboard_type=ft.KeyboardType.NUMBER,
+                border_color=HOVER_YELLOW,
+                bgcolor=DARK,
+                disabled=True,
+            )
+            force_manual_height = ft.TextField(
+                label="Hauteur (mm)",
+                value=str(_default_mm[1]),
+                width=125,
+                text_size=13,
+                keyboard_type=ft.KeyboardType.NUMBER,
+                border_color=HOVER_YELLOW,
+                bgcolor=DARK,
+                disabled=True,
+            )
+            force_manual_switch = ft.Switch(
+                label="Saisie manuelle (mm)",
+                value=False,
+                active_color=HOVER_YELLOW,
+            )
+            force_scope_info = ft.Text(
+                "Portée auto : sélection en cours" if _auto_scope_value == "selected" else "Portée auto : tout le dossier",
+                size=12,
+                color=LIGHT_GREY,
+                text_align=ft.TextAlign.CENTER,
+            )
+            force_error_text = ft.Text("", size=12, color=RED, text_align=ft.TextAlign.CENTER)
+
+            force_fit_switch = ft.Switch(
+                label="Fit 100% (sans rognage)",
+                value=False,
+                active_color=HOVER_YELLOW,
+            )
+
+            def _update_force_mode_ui():
+                _manual = force_mode_state["manual"]
+                force_format_dropdown.disabled = _manual
+                force_manual_width.disabled = not _manual
+                force_manual_height.disabled = not _manual
+                page.update()
+
+            def _on_force_switch_change(e):
+                force_mode_state["manual"] = bool(e.control.value)
+                _update_force_mode_ui()
+
+            def _on_force_confirm(e):
+                try:
+                    if force_mode_state["manual"]:
+                        _w = int((force_manual_width.value or "").strip())
+                        _h = int((force_manual_height.value or "").strip())
+                        if _w <= 0 or _h <= 0:
+                            raise ValueError()
+                        _size_value = f"{_w}x{_h}"
+                    else:
+                        _fmt_name = (force_format_dropdown.value or "").strip()
+                        _fmt_mm = CONSTANTS.FORMATS.get(_fmt_name)
+                        if not _fmt_mm:
+                            raise ValueError()
+                        _size_value = f"{_fmt_mm[0]}x{_fmt_mm[1]}"
+
+                    _scope_value = "selected" if selected_files else "all"
+                    _fit_value = "fit" if force_fit_switch.value else "crop"
+
+                    force_crop_dialog.open = False
+                    page.update()
+                    launch_app(app_name, app_path, is_local, series_name=f"{_size_value}|{_scope_value}|{_fit_value}")
+                except Exception:
+                    force_error_text.value = "Taille invalide. Utilise des entiers en mm (ex: 102 et 152)."
+                    page.update()
+
+            def _on_force_cancel(e):
+                force_crop_dialog.open = False
+                page.update()
+
+            force_manual_switch.on_change = _on_force_switch_change
+
+            force_crop_dialog = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Recadrage force - format", text_align=ft.TextAlign.CENTER),
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "Choisis un format (CONSTANTS) ou saisis une taille manuelle en mm.",
+                            size=13,
+                            color=LIGHT_GREY,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        force_format_dropdown,
+                        force_manual_switch,
+                        ft.Row(
+                            [force_manual_width, force_manual_height],
+                            spacing=8,
+                            tight=True,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                        ),
+                        force_fit_switch,
+                        force_scope_info,
+                        force_error_text,
+                    ],
+                    tight=True,
+                    spacing=8,
+                    width=380,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                actions=[
+                    ft.TextButton("Annuler", on_click=_on_force_cancel),
+                    ft.TextButton("Lancer", on_click=_on_force_confirm),
+                ],
+                actions_alignment=ft.MainAxisAlignment.CENTER,
+            )
+            page.overlay.append(force_crop_dialog)
+            force_crop_dialog.open = True
+            _update_force_mode_ui()
+            return
+
         if app_name == "Renommer sequence.py" and series_name is None:
             _ask_text_before_launch("Renommer la série", "Nom de la série", "Ex: Mariage_Martin",
                                     app_name, app_path, is_local)
@@ -6866,6 +7103,16 @@ def main(page: ft.Page):
                     if len(parts) == 3:
                         env["FIT_203_OUTPUT_FOLDER"] = parts[2]
 
+
+                # Ajouter les dimensions/portée pour Recadrage force format.py
+                if app_name == "Recadrage force format.py" and series_name:
+                    parts = series_name.split("|")
+                    if len(parts) >= 1 and parts[0]:
+                        env["FORCE_CROP_SIZE"] = parts[0]
+                    if len(parts) >= 2 and parts[1] in ("selected", "all"):
+                        env["FORCE_CROP_SCOPE"] = parts[1]
+                    if len(parts) >= 3 and parts[2] == "fit":
+                        env["FORCE_CROP_FIT"] = "1"
 
                 # Paramètres Copyright
                 if app_name == "Copyright.py" and series_name:
@@ -7132,6 +7379,7 @@ def main(page: ft.Page):
         remerciements_path        = os.path.join(app_directory, "Data", "Remerciements.py")
         copier_nefs_path          = os.path.join(app_directory, "Data", "Copier NEFs sélection.py")
         separer_raw_jpg_path      = os.path.join(app_directory, "Data", "Séparer RAW et JPG.py")
+        recadrage_force_path      = os.path.join(app_directory, "Data", "Recadrage force format.py")
 
         quick_tools_col.controls = [
             _round_button(
@@ -7187,6 +7435,12 @@ def main(page: ft.Page):
                 YELLOW,
                 "Copier NEFs → SELECTION",
                 lambda e: launch_app("Copier NEFs sélection.py", copier_nefs_path, False),
+            ),
+            _round_button(
+                ft.Icons.CROP,
+                GREEN,
+                "Recadrage force (format)",
+                lambda e: launch_app("Recadrage force format.py", recadrage_force_path, False),
             ),
             # _round_button(
             #     ft.Icons.SMART_TOY,
