@@ -200,6 +200,9 @@ RECADRAGE_DEFAULT_HIGHLIGHTS    =   0   # Hautes lumières (-100 ... +100)
 RECADRAGE_DEFAULT_HUE           =   0   # Teinte          (-180 ... +180)
 RECADRAGE_DEFAULT_WHITE_BALANCE =   0   # Balance blancs  (-100 ... +100)
 
+# Recadrage force format.py : ecart entre les tuiles en mode fit (mm)
+RECADRAGE_FORCE_TILE_GAP_MM = 5
+
 
 # ==============================================================================
 # 6. INTERFACE (DASHBOARD)

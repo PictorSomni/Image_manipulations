@@ -48,6 +48,7 @@ PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 #############################################################
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 DPI = CONSTANTS.DPI
+TILE_GAP_MM = CONSTANTS.RECADRAGE_FORCE_TILE_GAP_MM
 _EXTS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp")
 _SIZE_RE = re.compile(r"^\s*(\d+)\s*x\s*(\d+)\s*$", re.IGNORECASE)
 
@@ -141,9 +142,9 @@ def process_fit(img: Image.Image, canvas_w: int, canvas_h: int) -> Image.Image:
     else:
         img_resized = img  # taille native, pas de resampling
 
-    # Combien de copies tiennent sur le canvas avec un espace mini de 5 mm ?
+    # Combien de copies tiennent sur le canvas avec un espace mini configurable ?
     # n*tile + (n-1)*gap <= canvas  =>  n <= (canvas + gap) / (tile + gap)
-    gap_px = mm_to_pixels(5, DPI)
+    gap_px = mm_to_pixels(TILE_GAP_MM, DPI)
     cols = (canvas_w + gap_px) // (fit_w + gap_px)
     rows = (canvas_h + gap_px) // (fit_h + gap_px)
     if cols < 1:
@@ -157,7 +158,7 @@ def process_fit(img: Image.Image, canvas_w: int, canvas_h: int) -> Image.Image:
         # Une seule image : coin (0, 0)
         canvas.paste(img_resized, (0, 0))
     else:
-        # Plusieurs copies : centrees, avec interstice minimum de 5 mm
+        # Plusieurs copies : centrees, avec interstice minimum configure
         total_w = cols * fit_w + (cols - 1) * gap_px
         total_h = rows * fit_h + (rows - 1) * gap_px
         offset_x = (canvas_w - total_w) // 2
