@@ -666,49 +666,90 @@ def main(page: ft.Page):
                     if is_image and not is_directory:
                         print_count   = print_counts["data"].get(file_path, 0)
                         format_value = print_formats["data"].get(file_path, "")
-                        show_print_controls = (
-                            file_path in selected_files
-                            or print_count > 0
-                            or bool(format_value)
+                        format_dropdown = ft.Dropdown(
+                            value=format_value or None,
+                            hint_text="Format",
+                            options=[ft.dropdown.Option(key=key, text=key)
+                                     for key in CONSTANTS.FORMATS.keys()],
+                            on_select=lambda event, p=file_path: _set_format(p, event.control.value or ""),
+                            text_size=11, height=32, width=112,
+                            content_padding=ft.Padding(8, 0, 8, 0),
+                            bgcolor=DARK, border_color=GREY,
                         )
-                        if show_print_controls:
-                            format_dropdown = ft.Dropdown(
-                                value=format_value or None,
-                                hint_text="Format",
-                                options=[ft.dropdown.Option(key=key, text=key)
-                                         for key in CONSTANTS.FORMATS.keys()],
-                                on_select=lambda event, p=file_path: _set_format(p, event.control.value or ""),
-                                text_size=11, height=36, width=110,
-                                content_padding=ft.Padding(8, 0, 0, 0),
-                                bgcolor=DARK, border_color=GREY,
-                            )
-                            count_label = ft.Text(str(print_count), size=12, color=WHITE, width=18,
-                                          text_align=ft.TextAlign.CENTER)
-                            count_text_refs["data"][file_path] = count_label
-                            extra_controls = [
-                                ft.Row([
-                                    ft.IconButton(
-                                        icon=ft.Icons.REMOVE, icon_size=14,
-                                        icon_color=ORANGE,
-                                        style=ft.ButtonStyle(padding=ft.Padding.all(2)),
-                                        on_click=lambda event, p=file_path: _dec_count(p),
-                                        tooltip="Moins d'impressions",
-                                    ),
-                                    count_label,
-                                    ft.IconButton(
-                                        icon=ft.Icons.ADD, icon_size=14,
-                                        icon_color=GREEN,
-                                        style=ft.ButtonStyle(padding=ft.Padding.all(2)),
-                                        on_click=lambda event, p=file_path: _inc_count(p),
-                                        tooltip="Plus d'impressions",
-                                    ),
-                                ], spacing=0, tight=True),
-                                format_dropdown,
-                            ]
-                        else:
-                            extra_controls = []
+
+                        count_label = ft.Text(
+                            str(print_count) if print_count > 0 else "·",
+                            size=11,
+                            color=YELLOW if print_count > 0 else LIGHT_GREY,
+                            text_align=ft.TextAlign.CENTER,
+                            weight=ft.FontWeight.BOLD,
+                        )
+                        count_text_refs["data"][file_path] = count_label
+
+                        minus_btn = ft.Container(
+                            content=ft.Text(
+                                "−",
+                                size=13,
+                                color=DARK if print_count > 0 else LIGHT_GREY,
+                                text_align=ft.TextAlign.CENTER,
+                                weight=ft.FontWeight.BOLD,
+                            ),
+                            width=26,
+                            height=26,
+                            bgcolor=ORANGE if print_count > 0 else GREY,
+                            border_radius=ft.BorderRadius(4, 0, 0, 4),
+                            alignment=ft.Alignment(0, 0),
+                            on_click=(lambda event, p=file_path: _dec_count(p)) if print_count > 0 else None,
+                            ink=print_count > 0,
+                            tooltip="Moins d'impressions" if print_count > 0 else "",
+                        )
+
+                        count_display = ft.Container(
+                            content=count_label,
+                            width=22,
+                            height=26,
+                            bgcolor=DARK,
+                            alignment=ft.Alignment(0, 0),
+                        )
+
+                        plus_btn = ft.Container(
+                            content=ft.Text(
+                                "+",
+                                size=13,
+                                color=DARK,
+                                text_align=ft.TextAlign.CENTER,
+                                weight=ft.FontWeight.BOLD,
+                            ),
+                            width=26,
+                            height=26,
+                            bgcolor=GREEN,
+                            border_radius=ft.BorderRadius(0, 4, 4, 0),
+                            alignment=ft.Alignment(0, 0),
+                            on_click=lambda event, p=file_path: _inc_count(p),
+                            ink=True,
+                            tooltip="Plus d'impressions",
+                        )
+
+                        print_controls = ft.Row(
+                            [minus_btn, count_display, plus_btn],
+                            spacing=0,
+                            tight=True,
+                        )
+
+                        extra_controls = [
+                            print_controls,
+                            format_dropdown,
+                        ]
                     else:
                         extra_controls = []
+
+                    filename_text = ft.Text(
+                        filename,
+                        size=13 if (is_image and not is_directory) else 16,
+                        color=WHITE,
+                        max_lines=1,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                    )
 
                     controls.append(
                         ft.Container(
@@ -716,8 +757,7 @@ def main(page: ft.Page):
                                 [
                                     checkbox,
                                     visual,
-                                    ft.Text(filename, size=13 if (is_image and not is_directory) else 16,
-                                            color=WHITE, expand=True),
+                                    ft.Container(content=filename_text, expand=True),
                                 ] + extra_controls,
                                 spacing=8,
                                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -752,6 +792,15 @@ def main(page: ft.Page):
             _sp_start_thumb_loader()
         except Exception as render_exception:
             status_text.value = f"[ERREUR] Rendu: {render_exception}"
+            preview_loading.visible = False
+            preview_list.controls.clear()
+            preview_list.controls.append(
+                ft.Text(
+                    f"Erreur de rendu: {render_exception}",
+                    color=RED,
+                    size=13,
+                )
+            )
             page.update()
 
     def _sp_start_thumb_loader():
@@ -953,18 +1002,22 @@ def main(page: ft.Page):
     def _dec_count(path):
         current_count = print_counts["data"].get(path, 0)
         if current_count > 0:
-            print_counts["data"][path] = current_count - 1
+            new_count = current_count - 1
+            print_counts["data"][path] = new_count
             count_widget = count_text_refs["data"].get(path)
             if count_widget:
-                count_widget.value = str(current_count - 1)
+                count_widget.value = str(new_count) if new_count > 0 else "·"
+                count_widget.color = YELLOW if new_count > 0 else LIGHT_GREY
                 count_widget.update()
 
     def _inc_count(path):
         current_count = print_counts["data"].get(path, 0)
-        print_counts["data"][path] = current_count + 1
+        new_count = current_count + 1
+        print_counts["data"][path] = new_count
         count_widget = count_text_refs["data"].get(path)
         if count_widget:
-            count_widget.value = str(current_count + 1)
+            count_widget.value = str(new_count)
+            count_widget.color = YELLOW
             count_widget.update()
 
     def _set_format(path, value):
@@ -1104,8 +1157,8 @@ def main(page: ft.Page):
             options=[
                 ft.dropdown.Option(key="", text="— aucun —"),
             ] + [ft.dropdown.Option(key=k, text=k) for k in CONSTANTS.FORMATS.keys()],
-            text_size=13, height=40, width=120,
-            content_padding=ft.Padding(8, 0, 0, 0),
+            text_size=13, height=40, width=132,
+            content_padding=ft.Padding(8, 0, 8, 0),
             bgcolor=GREY, border_color=BLUE,
         )
 
