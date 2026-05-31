@@ -73,7 +73,8 @@ _NOTEPAD_EXTS = CONSTANTS.NOTEPAD_EXTS
 _OS_JUNK = {
     ".ds_store", "thumbs.db", "thumbs.db:encryptable",
     "ehthumbs.db", "desktop.ini", ".directory",
-    CONSTANTS.THUMB_CACHE_DB_NAME,
+    CONSTANTS.THUMB_CACHE_DB_NAME.lower(),
+    ".thumbcache.db",
 }
 
 
@@ -168,7 +169,7 @@ def main(page: ft.Page):
     all_entries      = {"list": [], "error": ""}
     search_query     = {"value": ""}
     refresh_token    = {"value": 0}
-    PAGE_SIZE        = 100
+    PAGE_SIZE        = 60
     preview_page     = {"value": 0}
     recent_src_list  = {"data": _load_recent_shared()}
     file_filter_active = {"value": False}   # afficher uniquement la sélection
@@ -176,7 +177,7 @@ def main(page: ft.Page):
     print_formats    = {"data": {}}   # filepath → clé format (CONSTANTS.FORMATS)
     count_text_refs  = {"data": {}}   # filepath → ft.Text widget du compteur
     checkbox_refs    = {"data": {}}   # filepath → ft.Checkbox widget
-    _sp_thumb_cache        = {}  # {normpath: b64_string} — miniatures en mémoire
+    _sp_thumb_cache        = {}  # {normpath: bytes} — miniatures déjà lues (accélère les retours liste)
     _sp_pending_thumb_refs = {}  # {normpath: (ft.Container, file_path)}
     _sp_thumb_token        = {"value": 0}  # Incrémenté à chaque changement de dossier
 
@@ -545,7 +546,7 @@ def main(page: ft.Page):
             return ""
         return f"{count} fichier{'s' if count > 1 else ''} sélectionné{'s' if count > 1 else ''}"
 
-    def _update_toggle_btn():
+    def _update_toggle_btn(update_control=True):
         if search_query["value"]:
             query_lower = search_query["value"].lower()
             filtered_paths = {
@@ -564,10 +565,11 @@ def main(page: ft.Page):
             select_toggle_btn.icon       = ft.Icons.SELECT_ALL
             select_toggle_btn.icon_color = VIOLET
             select_toggle_btn.tooltip    = "Tout sélectionner"
-        try:
-            select_toggle_btn.update()
-        except Exception:
-            pass
+        if update_control:
+            try:
+                select_toggle_btn.update()
+            except Exception:
+                pass
 
 
 
@@ -577,11 +579,13 @@ def main(page: ft.Page):
         else:
             selected_files.discard(path)
         selection_count_text.value = _selection_label()
-        _update_toggle_btn()
+        _update_toggle_btn(update_control=False)
         page.update()
 
     def _render_preview():
         checkbox_refs["data"].clear()
+        count_text_refs["data"].clear()
+        _sp_pending_thumb_refs.clear()
         try:
             entries = all_entries["list"]
             if search_query["value"]:
@@ -662,39 +666,47 @@ def main(page: ft.Page):
                     if is_image and not is_directory:
                         print_count   = print_counts["data"].get(file_path, 0)
                         format_value = print_formats["data"].get(file_path, "")
-                        format_dropdown = ft.Dropdown(
-                            value=format_value or None,
-                            hint_text="Format",
-                            options=[ft.dropdown.Option(key=key, text=key)
-                                     for key in CONSTANTS.FORMATS.keys()],
-                            on_select=lambda event, p=file_path: _set_format(p, event.control.value or ""),
-                            text_size=11, height=36, width=110,
-                            content_padding=ft.Padding(8, 0, 0, 0),
-                            bgcolor=DARK, border_color=GREY,
+                        show_print_controls = (
+                            file_path in selected_files
+                            or print_count > 0
+                            or bool(format_value)
                         )
-                        count_label = ft.Text(str(print_count), size=12, color=WHITE, width=18,
-                                      text_align=ft.TextAlign.CENTER)
-                        count_text_refs["data"][file_path] = count_label
-                        extra_controls = [
-                            ft.Row([
-                                ft.IconButton(
-                                    icon=ft.Icons.REMOVE, icon_size=14,
-                                    icon_color=ORANGE,
-                                    style=ft.ButtonStyle(padding=ft.Padding.all(2)),
-                                    on_click=lambda event, p=file_path: _dec_count(p),
-                                    tooltip="Moins d'impressions",
-                                ),
-                                count_label,
-                                ft.IconButton(
-                                    icon=ft.Icons.ADD, icon_size=14,
-                                    icon_color=GREEN,
-                                    style=ft.ButtonStyle(padding=ft.Padding.all(2)),
-                                    on_click=lambda event, p=file_path: _inc_count(p),
-                                    tooltip="Plus d'impressions",
-                                ),
-                            ], spacing=0, tight=True),
-                            format_dropdown,
-                        ]
+                        if show_print_controls:
+                            format_dropdown = ft.Dropdown(
+                                value=format_value or None,
+                                hint_text="Format",
+                                options=[ft.dropdown.Option(key=key, text=key)
+                                         for key in CONSTANTS.FORMATS.keys()],
+                                on_select=lambda event, p=file_path: _set_format(p, event.control.value or ""),
+                                text_size=11, height=36, width=110,
+                                content_padding=ft.Padding(8, 0, 0, 0),
+                                bgcolor=DARK, border_color=GREY,
+                            )
+                            count_label = ft.Text(str(print_count), size=12, color=WHITE, width=18,
+                                          text_align=ft.TextAlign.CENTER)
+                            count_text_refs["data"][file_path] = count_label
+                            extra_controls = [
+                                ft.Row([
+                                    ft.IconButton(
+                                        icon=ft.Icons.REMOVE, icon_size=14,
+                                        icon_color=ORANGE,
+                                        style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                                        on_click=lambda event, p=file_path: _dec_count(p),
+                                        tooltip="Moins d'impressions",
+                                    ),
+                                    count_label,
+                                    ft.IconButton(
+                                        icon=ft.Icons.ADD, icon_size=14,
+                                        icon_color=GREEN,
+                                        style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+                                        on_click=lambda event, p=file_path: _inc_count(p),
+                                        tooltip="Plus d'impressions",
+                                    ),
+                                ], spacing=0, tight=True),
+                                format_dropdown,
+                            ]
+                        else:
+                            extra_controls = []
                     else:
                         extra_controls = []
 
@@ -734,8 +746,8 @@ def main(page: ft.Page):
                 next_page_btn.visible = False
                 page_indicator.value  = ""
 
-            _update_toggle_btn()
-            _update_file_filter_btn()
+            _update_toggle_btn(update_control=False)
+            _update_file_filter_btn(update_control=False)
             page.update()
             _sp_start_thumb_loader()
         except Exception as render_exception:
@@ -782,11 +794,9 @@ def main(page: ft.Page):
         selection_count_text.value   = ""
         preview_page["value"]        = 0
         _sp_thumb_token["value"]     += 1
-        _sp_thumb_cache.clear()
         _sp_pending_thumb_refs.clear()
         _add_recent_src(path)
         _rebuild_recent_src_menu()
-        thumb_cache.invalidate_stale(path)
         search_query["value"]       = ""
         search_field.value           = ""
         if file_filter_active["value"]:
@@ -926,7 +936,7 @@ def main(page: ft.Page):
         _update_file_filter_btn()
         _render_preview()
 
-    def _update_file_filter_btn():
+    def _update_file_filter_btn(update_control=True):
         selected_count = len(selected_files)
         if file_filter_active["value"]:
             file_filter_btn.icon_color = BLUE
@@ -934,10 +944,11 @@ def main(page: ft.Page):
         else:
             file_filter_btn.icon_color = VIOLET if selected_count else LIGHT_GREY
             file_filter_btn.tooltip    = f"Afficher uniquement la sélection ({selected_count} sélectionné(s))"
-        try:
-            file_filter_btn.update()
-        except Exception:
-            pass
+        if update_control:
+            try:
+                file_filter_btn.update()
+            except Exception:
+                pass
 
     def _dec_count(path):
         current_count = print_counts["data"].get(path, 0)
@@ -979,11 +990,12 @@ def main(page: ft.Page):
         preview_page["value"]  = 0
         _render_preview()
 
-    def _clear_search(event):
+    def _clear_search(event=None):
         search_query["value"] = ""
-        search_field.value    = ""
+        search_field.value = ""
+        preview_page["value"] = 0
         _render_preview()
-        page.update()
+        _update_toggle_btn()
         page.update()
 
     def _go_to_page(delta):
@@ -1025,8 +1037,9 @@ def main(page: ft.Page):
             entries = [entry for entry in entries if query_lower in entry[0].lower()]
         if file_filter_active["value"]:
             entries = [entry for entry in entries if entry[1] in selected_files]
-        page_start  = preview_page["value"] * PAGE_SIZE
-        entries     = entries[page_start : page_start + PAGE_SIZE]
+        else:
+            page_start  = preview_page["value"] * PAGE_SIZE
+            entries     = entries[page_start : page_start + PAGE_SIZE]
         image_paths = [fpath for (_name, fpath, is_dir, is_img, _ext) in entries if is_img and not is_dir]
         if not image_paths:
             return
@@ -1045,9 +1058,12 @@ def main(page: ft.Page):
                 page.overlay.remove(fs_overlay)
             for fpath, cb in checkbox_refs["data"].items():
                 cb.value = fpath in selected_files
+            for fpath, count_widget in count_text_refs["data"].items():
+                current_count = print_counts["data"].get(fpath, 0)
+                count_widget.value = str(current_count)
             selection_count_text.value = _selection_label()
-            _update_toggle_btn()
-            _render_preview()
+            _update_toggle_btn(update_control=False)
+            _update_file_filter_btn(update_control=False)
             page.update()
 
         # ── Barre de titre ────────────────────────────────────────────────

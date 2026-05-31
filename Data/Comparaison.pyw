@@ -9,9 +9,7 @@ de choisir quelle version conserver.
 
 Action "Valider" :
   · L'image choisie est copiée dans SELECTION/ (sous le dossier 1).
-  · L'image rejetée est déplacée dans AUTRES/{sous-dossier}/ :
-      - si elle provient du dossier 2 → AUTRES/{nom_dossier2}/{fichier}
-      - si elle provient du dossier 1 → AUTRES/{fichier}
+    · L'image non retenue reste à son emplacement d'origine.
 
 Variables d'environnement :
   FOLDER_PATH    — dossier 1 (obligatoire si lancé depuis Dashboard).
@@ -120,32 +118,28 @@ def _match_pairs(files1: list, files2: list) -> list:
 
 def _find_resume_index(pairs_list: list, base_dir: Path) -> int:
     """
-    Vérifie les dossiers SELECTION et AUTRES dans base_dir pour déterminer
-    quelles paires ont déjà été traitées, et retourne l'index de la première
-    paire non encore traitée.
+    Vérifie le dossier SELECTION dans base_dir pour déterminer quelles paires
+    ont déjà été traitées, et retourne l'index de la première paire non encore
+    traitée.
     """
     sel_dir = base_dir / "SELECTION"
-    aut_dir = base_dir / "AUTRES"
 
-    if not sel_dir.is_dir() and not aut_dir.is_dir():
+    if not sel_dir.is_dir():
         return 0
 
-    # Collecter tous les noms de fichiers déjà traités (SELECTION + AUTRES/*)
+    # Collecter tous les noms de fichiers déjà copiés dans SELECTION.
     processed_names: set[str] = set()
-    for folder in (sel_dir, aut_dir):
-        if folder.is_dir():
-            for file_entry in folder.rglob("*"):
-                if file_entry.is_file() and file_entry.suffix.lower() in IMAGE_EXTS:
-                    processed_names.add(file_entry.name.lower())
+    for file_entry in sel_dir.rglob("*"):
+        if file_entry.is_file() and file_entry.suffix.lower() in IMAGE_EXTS:
+            processed_names.add(file_entry.name.lower())
 
     if not processed_names:
         return 0
 
-    # Première paire dont file1 (dossier source) n'est pas encore traité.
-    # On ignore file2 car il vient d'un dossier externe et ses noms ne doivent
-    # pas influencer la reprise.
-    for pair_index, (file1, _) in enumerate(pairs_list):
-        if file1.name.lower() not in processed_names:
+    # Une paire est considérée comme traitée dès que l'image retenue a été
+    # copiée dans SELECTION. On teste donc les deux côtés.
+    for pair_index, (file1, file2) in enumerate(pairs_list):
+        if file1.name.lower() not in processed_names and file2.name.lower() not in processed_names:
             return pair_index
 
     return len(pairs_list)  # Toutes les paires ont déjà été traitées
@@ -435,41 +429,15 @@ def main(page: ft.Page):
         file1, file2 = pairs_list[current_pair_index]
         base_dir = Path(folder1_path)
         sel_dir  = base_dir / "SELECTION"
-        aut_dir  = base_dir / "AUTRES"
         sel_dir.mkdir(exist_ok=True)
-        aut_dir.mkdir(exist_ok=True)
 
         if selected_side == 0:
-            # Garder gauche (folder1)
-            chosen_path   = file1
-            rejected_path = file2
-            # Si le rejeté vient du dossier 1 (mode paire sélectionnée),
-            # le déplacer dans AUTRES/ directement.
-            if os.path.normpath(str(rejected_path.parent)) == os.path.normpath(folder1_path):
-                subfolder = aut_dir
-            else:
-                # Le rejeté vient de folder2 → AUTRES/{nom_dossier2}/
-                subfolder = aut_dir / Path(folder2_path).name
+            chosen_path = file1
         else:
-            # Garder droite (folder2)
-            chosen_path   = file2
-            rejected_path = file1
-            # Le rejeté vient de folder1 → AUTRES/ directement
-            subfolder = aut_dir
-
-        subfolder.mkdir(parents=True, exist_ok=True)
-
-        # En mode référence (dossier 2 = une seule image partagée par toutes les paires),
-        # ne jamais déplacer l'image de référence — seulement la copier si elle est rejetée.
-        is_reference_mode = pairs_list and all(pair[1] == pairs_list[0][1] for pair in pairs_list)
-        reject_is_reference = is_reference_mode and rejected_path == file2
+            chosen_path = file2
 
         try:
             shutil.copy2(str(chosen_path), str(sel_dir / chosen_path.name))
-            if reject_is_reference:
-                shutil.copy2(str(rejected_path), str(subfolder / rejected_path.name))
-            else:
-                shutil.move(str(rejected_path), str(subfolder / rejected_path.name))
             status_text.value = f"✓  {chosen_path.name}"
         except Exception as err:
             status_text.value = f"Erreur : {err}"

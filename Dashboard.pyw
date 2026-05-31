@@ -451,21 +451,21 @@ def main(page: ft.Page):
     expand_button_terminal = ft.IconButton(
         icon=ft.Icons.EXPAND_LESS,
         tooltip="Agrandir  (Ctrl+↑)",
-        icon_color=LIGHT_GREY,
+        icon_color=YELLOW,
         icon_size=16,
         on_click=lambda e: toggle_terminal_overlay(),
     )
     expand_button_overlay = ft.IconButton(
         icon=ft.Icons.EXPAND_LESS,
         tooltip="IA seule (Ctrl/Cmd+←)",
-        icon_color=LIGHT_GREY,
+        icon_color=YELLOW,
         icon_size=16,
         on_click=lambda e: toggle_ai_fullscreen(),
     )
     expand_button_notepad = ft.IconButton(
         icon=ft.Icons.EXPAND_LESS,
         tooltip="Bloc-notes seul (Ctrl/Cmd+→)",
-        icon_color=LIGHT_GREY,
+        icon_color=YELLOW,
         icon_size=16,
         on_click=lambda e: toggle_notepad_fullscreen(),
     )
@@ -838,6 +838,7 @@ def main(page: ft.Page):
         env: dict,
         *,
         restore_previous_maximized_state: bool = False,
+        on_exit_topic: str | None = None,
         popen_kwargs: dict = None,
     ):
         """Lance une app externe en minimisant Dashboard, puis restaure Dashboard à la fermeture."""
@@ -853,6 +854,8 @@ def main(page: ft.Page):
                 _restore_dashboard_window(bool(restore_maximized_state))
             else:
                 _restore_dashboard_window()
+            if on_exit_topic:
+                page.pubsub.send_all_on_topic(on_exit_topic, None)
 
         threading.Thread(target=_watch_process_closure, daemon=True).start()
 
@@ -934,6 +937,7 @@ def main(page: ft.Page):
                 [sys.executable, comparaison_path],
                 env,
                 restore_previous_maximized_state=bool(cycle_options.get("restore_previous_maximized_state", False)),
+                on_exit_topic="refresh",
             )
 
         if len(selected_image_files) == 2:
@@ -4501,7 +4505,14 @@ def main(page: ft.Page):
         _blank_gif = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
 
         entries = all_entries_data["list"]
-        image_paths = [entry_path for (_, entry_path, is_directory, is_image_file, _ext) in entries if is_image_file and not is_directory]
+        if show_only_selection["value"]:
+            image_paths = [
+                entry_path
+                for (_name, entry_path, is_directory, is_image_file, _ext) in entries
+                if is_image_file and not is_directory and entry_path in selected_files
+            ]
+        else:
+            image_paths = [entry_path for (_, entry_path, is_directory, is_image_file, _ext) in entries if is_image_file and not is_directory]
         if not image_paths:
             image_paths = [start_path]
         try:
@@ -4755,9 +4766,8 @@ def main(page: ft.Page):
                 page.overlay.remove(preview_overlay)
             # Restaurer la page preview sur l'image courante
             current_path = _current_path()
-            all_entry_paths = [ep for (_, ep, _d, _i, _e) in all_entries_data["list"]]
             try:
-                entry_index = all_entry_paths.index(current_path)
+                entry_index = image_paths.index(current_path)
                 preview_page["value"] = entry_index // PAGE_SIZE
             except ValueError:
                 pass
@@ -5401,26 +5411,32 @@ def main(page: ft.Page):
 
 
 
+    def _get_image_reference_date(file_path: str):
+        """Retourne la date de modification du fichier."""
+        try:
+            return datetime.date.fromtimestamp(os.path.getmtime(file_path))
+        except OSError:
+            return None
+
+
     def select_same_date(e):
-        """Sélectionne tous les fichiers du dossier pris à la même date (jour) que le fichier sélectionné."""
+        """Sélectionne tous les fichiers du dossier pris à la même date que le fichier sélectionné."""
         log_to_terminal("[CMD] select_same_date()", BLUE)
         if not selected_files:
             log_to_terminal("[ATTENTION] Aucun fichier sélectionné comme référence", ORANGE)
             return
         ref_path = selected_files[-1]
-        try:
-            ref_mtime = os.path.getmtime(ref_path)
-        except OSError:
+        ref_date = _get_image_reference_date(ref_path)
+        if ref_date is None:
             log_to_terminal("[ERREUR] Impossible de lire la date du fichier de référence", RED)
             return
-        ref_date = datetime.date.fromtimestamp(ref_mtime)
         added = 0
         for _name, fpath, is_dir, _is_img, _ext in all_entries_data["list"]:
             if is_dir:
                 continue
-            try:
-                fdate = datetime.date.fromtimestamp(os.path.getmtime(fpath))
-            except OSError:
+
+            fdate = _get_image_reference_date(fpath)
+            if fdate is None:
                 continue
             if fdate == ref_date and fpath not in selected_files:
                 selected_files.append(fpath)
@@ -8088,10 +8104,24 @@ def main(page: ft.Page):
         )
         ai_fullscreen_btn = ft.IconButton(
             icon=ft.Icons.FULLSCREEN,
-            icon_color=BLUE,
+            icon_color=GREEN,
             icon_size=16,
             tooltip="IA en plein écran",
             on_click=lambda e: toggle_ai_true_fullscreen(),
+        )
+        ai_copy_button = ft.IconButton(
+            icon=ft.Icons.COPY_ALL,
+            icon_color=BLUE,
+            icon_size=16,
+            tooltip="Copier la conversation IA",
+            on_click=lambda e: _export_ai_conversation(to_notepad=False),
+        )
+        ai_to_notepad_button = ft.IconButton(
+            icon=ft.Icons.SEND_TO_MOBILE,
+            icon_color=VIOLET,
+            icon_size=16,
+            tooltip="Transférer la conversation vers le bloc-notes",
+            on_click=lambda e: _export_ai_conversation(to_notepad=True),
         )
         ai_panel_header = ft.Row([
             ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=14),
@@ -8106,37 +8136,14 @@ def main(page: ft.Page):
             ai_image_mode_label,
             ai_clear_button,
             ai_speaker_button,
+            ai_copy_button,
+            ai_to_notepad_button,
             ft.Container(expand=True),
+            expand_button_overlay,
             ai_fullscreen_btn,
         ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         ai_panel_container = ft.Container(
-            content=ft.Row([
-                ft.Column([ai_panel_header, ai_container], spacing=4, expand=True),
-                ft.Column([
-                    expand_button_overlay,
-                    ft.IconButton(
-                        icon=ft.Icons.CLOSE,
-                        icon_color=RED,
-                        icon_size=16,
-                        tooltip="Fermer IA & Notes",
-                        on_click=lambda e: switch_to_terminal_mode(),
-                    ),
-                    ft.IconButton(
-                        icon=ft.Icons.COPY_ALL,
-                        icon_color=BLUE,
-                        icon_size=16,
-                        tooltip="Copier la conversation IA",
-                        on_click=lambda e: _export_ai_conversation(to_notepad=False),
-                    ),
-                    ft.IconButton(
-                        icon=ft.Icons.SEND_TO_MOBILE,
-                        icon_color=VIOLET,
-                        icon_size=16,
-                        tooltip="Transférer la conversation vers le bloc-notes",
-                        on_click=lambda e: _export_ai_conversation(to_notepad=True),
-                    ),
-                ], alignment=ft.MainAxisAlignment.END, spacing=0),
-            ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+            content=ft.Column([ai_panel_header, ai_container], spacing=4, expand=True),
             expand=True,
             bgcolor=DARK,
             border=ft.Border.all(1, BLUE),
@@ -8153,46 +8160,45 @@ def main(page: ft.Page):
         )
         notepad_fullscreen_btn = ft.IconButton(
             icon=ft.Icons.FULLSCREEN,
-            icon_color=VIOLET,
+            icon_color=GREEN,
             icon_size=16,
             tooltip="Bloc-notes en plein écran",
             on_click=lambda e: toggle_notepad_true_fullscreen(),
+        )
+        notepad_home_button = ft.IconButton(
+            icon=ft.Icons.HOME,
+            icon_color=VIOLET,
+            icon_size=16,
+            tooltip="Charger la note par défaut (.notes.md)",
+            on_click=lambda e: switch_to_note(),
+        )
+        notepad_preview_button = ft.IconButton(
+            icon=ft.Icons.VISIBILITY,
+            icon_color=LIGHT_GREY,
+            icon_size=16,
+            tooltip="Prévisualiser en Markdown",
+            on_click=lambda e: _notepad_toggle_preview(),
+        )
+        notepad_save_as_button = ft.IconButton(
+            icon=ft.Icons.SAVE_AS,
+            icon_color=BLUE,
+            icon_size=16,
+            tooltip="Sauvegarder les notes sous…",
+            on_click=lambda e: page.run_task(_notepad_save_as),
         )
         notepad_panel_header = ft.Row([
             notepad_header_icon,
             notepad_header_title,
             notepad_clear_button,
+            notepad_home_button,
+            notepad_preview_button,
+            notepad_save_as_button,
             ft.Container(expand=True),
+            expand_button_notepad,
             notepad_fullscreen_btn,
         ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         notepad_panel_container = ft.Container(
-            content=ft.Row([
-                ft.Column([notepad_panel_header, notepad_container], spacing=4, expand=True),
-                ft.Column([
-                    expand_button_notepad,
-                    ft.IconButton(
-                        icon=ft.Icons.HOME,
-                        icon_color=VIOLET,
-                        icon_size=16,
-                        tooltip="Charger la note par défaut (.notes.md)",
-                        on_click=lambda e: switch_to_note(),
-                    ),
-                    ft.IconButton(
-                        icon=ft.Icons.VISIBILITY,
-                        icon_color=LIGHT_GREY,
-                        icon_size=16,
-                        tooltip="Prévisualiser en Markdown",
-                        on_click=lambda e: _notepad_toggle_preview(),
-                    ),
-                    ft.IconButton(
-                        icon=ft.Icons.SAVE_AS,
-                        icon_color=BLUE,
-                        icon_size=16,
-                        tooltip="Sauvegarder les notes sous…",
-                        on_click=lambda e: page.run_task(_notepad_save_as),
-                    ),
-                ], alignment=ft.MainAxisAlignment.END, spacing=0),
-            ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+            content=ft.Column([notepad_panel_header, notepad_container], spacing=4, expand=True),
             expand=True,
             bgcolor=DARK,
             border=ft.Border.all(1, VIOLET),
@@ -8240,6 +8246,12 @@ def main(page: ft.Page):
     def _enter_solo_mode(panel_container, mode_name, do_update=True):
         """Bascule un panneau en mode solo pleine hauteur à gauche."""
         overlay_fullscreen["mode"] = mode_name
+        ai_is_solo = mode_name in ("ai", "ai_full")
+        notepad_is_solo = mode_name in ("notepad", "notepad_full")
+        expand_button_overlay.icon = ft.Icons.EXPAND_MORE if ai_is_solo else ft.Icons.EXPAND_LESS
+        expand_button_notepad.icon = ft.Icons.EXPAND_MORE if notepad_is_solo else ft.Icons.EXPAND_LESS
+        expand_button_overlay.tooltip = "Réduire IA seule (Ctrl/Cmd+←)" if ai_is_solo else "IA seule (Ctrl/Cmd+←)"
+        expand_button_notepad.tooltip = "Réduire Bloc-notes seul (Ctrl/Cmd+→)" if notepad_is_solo else "Bloc-notes seul (Ctrl/Cmd+→)"
         # Repositionner le panneau du bas selon le mode.
         if mode_name in ("ai_full", "notepad_full"):
             # Plein écran réel (moins WDA), conserve la preview en dessous.
@@ -8284,6 +8296,10 @@ def main(page: ft.Page):
     def _exit_solo_mode(do_update=True):
         """Restaure le mode deux panneaux depuis le mode solo."""
         overlay_fullscreen["mode"] = None
+        expand_button_overlay.icon = ft.Icons.EXPAND_LESS
+        expand_button_notepad.icon = ft.Icons.EXPAND_LESS
+        expand_button_overlay.tooltip = "IA seule (Ctrl/Cmd+←)"
+        expand_button_notepad.tooltip = "Bloc-notes seul (Ctrl/Cmd+→)"
         # Restaurer bottom_panel_container en barre de fond
         bottom_panel_container.top    = None
         bottom_panel_container.right  = 0
@@ -8366,6 +8382,10 @@ def main(page: ft.Page):
             overlay_fullscreen["mode"] = None
             ai_panel_container.visible = True
             notepad_panel_container.visible = True
+            expand_button_overlay.icon = ft.Icons.EXPAND_LESS
+            expand_button_notepad.icon = ft.Icons.EXPAND_LESS
+            expand_button_overlay.tooltip = "IA seule (Ctrl/Cmd+←)"
+            expand_button_notepad.tooltip = "Bloc-notes seul (Ctrl/Cmd+→)"
         if open_panels_button is not None:
             open_panels_button.icon       = ft.Icons.SMART_TOY
             open_panels_button.icon_color = RED if panels_are_open else BLUE
