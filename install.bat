@@ -32,6 +32,12 @@ if %errorlevel% neq 0 (
 echo pip detecte
 echo.
 
+echo Mise a jour de pip...
+python -m pip install --upgrade pip
+if %errorlevel% neq 0 (
+    echo [AVERTISSEMENT] Impossible de mettre pip a jour, poursuite de l'installation...
+)
+
 REM Vérifier ImageMagick (optionnel mais recommandé)
 echo Verification d'ImageMagick (requis pour la conversion d'images)...
 magick --version >nul 2>&1
@@ -54,7 +60,26 @@ if %errorlevel% neq 0 (
 
 echo.
 echo Installation des dependances Python...
-pip install -r requirements.txt --upgrade
+python -m pip install -r requirements.txt --upgrade
+if %errorlevel% neq 0 (
+    echo.
+    echo [AVERTISSEMENT] Echec de l'installation standard des dependances.
+    echo [INFO] Nouvelle tentative avec fallback ONNX CPU ^(si backend GPU indisponible sur cette machine^)...
+
+    set "TMP_REQ=%TEMP%\requirements_fallback_%RANDOM%.txt"
+    powershell -NoProfile -Command "(Get-Content 'requirements.txt') -replace '^onnxruntime-gpu>=.*$', 'onnxruntime>=1.16.0' | Set-Content '%TMP_REQ%'"
+
+    python -m pip install -r "%TMP_REQ%" --upgrade
+    del /f /q "%TMP_REQ%" >nul 2>&1
+
+    if %errorlevel% neq 0 (
+        echo [ERREUR] Installation des dependances impossible.
+        pause
+        exit /b 1
+    )
+
+    echo [OK] Installation terminee avec fallback ONNX CPU.
+)
 
 echo.
 echo Verification d'Ollama (IA locale)...
@@ -87,6 +112,6 @@ echo.
 echo Pour lancer le Dashboard :
 echo   run.bat
 echo ou
-echo   python Dashboard.py
+echo   python Dashboard.pyw
 echo.
 pause

@@ -1,2 +1,1 @@
-Quand l'utilisateur fournit une image à modifier (sauf pour un upscale), toujours renvoyer la nouvelle image générée dans les mêmes dimensions ou avec le même aspect ratio que l'originale. §
-Toujours renvoyer une nouvelle image dans les mêmes dimensions que l'originale lors d'une modification (sauf s'il s'agit d'un upscale).
+Quand l'utilisateur fournit une image à modifier (sauf pour un upscale), toujours renvoyer la nouvelle image générée dans les mêmes dimensions ou avec le même aspect ratio que l'originale. 

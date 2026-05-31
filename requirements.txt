@@ -13,9 +13,10 @@ numpy>=2.0.0
 # Conversion PDF en images
 PyMuPDF>=1.23.0
 
-# Suppression de fond par IA (requis par Recadrage.pyw)
+# Suppression de fond par IA (requis par Recadrage manuel.pyw)
 rembg>=2.0.75
-onnxruntime-gpu>=1.16.0 #onnxruntime>=1.16.0 sous macOS
+# Backend ONNX GPU (fallback CPU automatique si aucun GPU compatible detecte)
+onnxruntime-gpu>=1.16.0
 
 # Amélioration par IA (requis par Augmentation IA.py)
 spandrel>=0.3.0

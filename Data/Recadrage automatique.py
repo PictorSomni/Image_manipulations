@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Recadre des images au format cible (mm) en mode "force".
+Recadre des images au format cible (mm) en mode "automatique".
 
 Deux modes :
   - Mode crop (defaut) : recadrage plein-format via ImageOps.fit (remplit exactement).
@@ -21,7 +21,7 @@ Sortie :
   Un sous-dossier nomme d'apres la taille cible (ex: "10x15" ou "12x17").
 """
 
-__version__ = "2.7.1"
+__version__ = "2.7.2"
 
 #############################################################
 #                          IMPORTS                          #

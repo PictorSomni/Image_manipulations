@@ -17,11 +17,12 @@ Variables d'environnement :
   FOLDER_PATH    — dossier 1 (obligatoire si lancé depuis Dashboard).
   SECOND_FOLDER  — dossier 2 (optionnel ; sinon l'app demande le dossier).
     SELECTED_PAIR_FILES — 2 noms d'images (séparés par "|") pour une comparaison directe.
+    SELECTED_PAIR_PATHS — 2 chemins complets (séparés par "|") pour une comparaison directe.
 
 Dépendances : flet >= 0.84
 """
 
-__version__ = "2.7.1"
+__version__ = "2.7.2"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  IMPORTS
@@ -179,6 +180,8 @@ def main(page: ft.Page):
     folder2_path       = os.environ.get("SECOND_FOLDER", "").strip()
     selected_names_str = os.environ.get("SELECTED_FILES", "").strip()
     selected_names     = set(selected_names_str.split("|")) if selected_names_str else None
+    selected_pair_paths_str = os.environ.get("SELECTED_PAIR_PATHS", "").strip()
+    selected_pair_paths = [Path(path) for path in selected_pair_paths_str.split("|") if path]
     selected_pair_str  = os.environ.get("SELECTED_PAIR_FILES", "").strip()
     selected_pair_names = [name for name in selected_pair_str.split("|") if name]
     pairs_list:  list  = []
@@ -505,25 +508,39 @@ def main(page: ft.Page):
     #  INITIALISATION DES PAIRES
     # ═════════════════════════════════════════════════════════════════════
     def _build_pairs_and_start():
-        nonlocal pairs_list, current_pair_index, selected_side
+        nonlocal pairs_list, current_pair_index, selected_side, folder1_path, folder2_path
 
-        if not folder1_path or not os.path.isdir(folder1_path):
-            status_text.value = f"Dossier 1 introuvable : {repr(folder1_path)}"
-            page.update()
-            return
-
-        images1 = _get_image_files(folder1_path)
-        # Filtrer images1 si des fichiers spécifiques ont été sélectionnés dans Dashboard
-        if selected_names:
-            images1 = [file for file in images1 if file.name in selected_names]
-        if not images1:
-            status_text.value = f"Aucune image correspondante dans {os.path.basename(folder1_path)}."
-            page.update()
-            return
-
-        if selected_pair_names:
+        if selected_pair_paths:
+            if len(selected_pair_paths) != 2:
+                status_text.value = "Le mode paire directe nécessite exactement 2 images sélectionnées."
+                page.update()
+                return
+            left_file, right_file = selected_pair_paths
+            if not left_file.is_file() or not right_file.is_file():
+                status_text.value = "Impossible de retrouver les 2 images sélectionnées."
+                page.update()
+                return
+            if left_file == right_file:
+                status_text.value = "Veuillez sélectionner 2 images différentes pour la comparaison."
+                page.update()
+                return
+            folder1_path = str(left_file.parent)
+            folder2_path = str(right_file.parent)
+            pairs_list = [(left_file, right_file)]
+            folder2_label = f"{folder2_path} (sélection directe)"
+        elif selected_pair_names:
             if len(selected_pair_names) != 2:
                 status_text.value = "Le mode paire directe nécessite exactement 2 images sélectionnées."
+                page.update()
+                return
+            if not folder1_path or not os.path.isdir(folder1_path):
+                status_text.value = f"Dossier 1 introuvable : {repr(folder1_path)}"
+                page.update()
+                return
+            images1 = _get_image_files(folder1_path)
+            images1 = [file for file in images1 if file.name in selected_names] if selected_names else images1
+            if not images1:
+                status_text.value = f"Aucune image correspondante dans {os.path.basename(folder1_path)}."
                 page.update()
                 return
             images1_by_name = {file.name: file for file in images1}
@@ -540,6 +557,20 @@ def main(page: ft.Page):
             pairs_list = [(left_file, right_file)]
             folder2_label = f"{folder1_path} (sélection)"
         else:
+            if not folder1_path or not os.path.isdir(folder1_path):
+                status_text.value = f"Dossier 1 introuvable : {repr(folder1_path)}"
+                page.update()
+                return
+
+            images1 = _get_image_files(folder1_path)
+            # Filtrer images1 si des fichiers spécifiques ont été sélectionnés dans Dashboard
+            if selected_names:
+                images1 = [file for file in images1 if file.name in selected_names]
+            if not images1:
+                status_text.value = f"Aucune image correspondante dans {os.path.basename(folder1_path)}."
+                page.update()
+                return
+
             if folder2_path and os.path.isdir(folder2_path):
                 images2 = _get_image_files(folder2_path)
                 folder2_label = folder2_path

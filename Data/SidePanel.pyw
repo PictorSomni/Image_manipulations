@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.7.1"
+__version__ = "2.7.2"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — SidePanel.pyw
@@ -3238,10 +3238,8 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
 
     async def _close(event):
-        _persist()
-        _notepad_save()
-        _ai_save_history_sp()
         await page.window.close()
+        os._exit(0)
 
     # ── Fenêtre & événements ──────────────────────────────────────────────────
     def _minimize(event):
@@ -3253,9 +3251,7 @@ def main(page: ft.Page):
 
     def _on_window_event(event):
         if event.data == "close":
-            _persist()
-            _notepad_save()
-            _ai_save_history_sp()
+            os._exit(0)
 
     page.window.on_event = _on_window_event
 

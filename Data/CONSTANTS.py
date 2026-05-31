@@ -18,7 +18,7 @@ toucher aux scripts eux-mêmes.
 #    4.2  Formats d impression
 #    4.3  Planche ID X4
 #    4.4  2-en-1 et Fit 203
-# 5. RECADRAGE.PYW ............................................ ~L 115
+# 5. RECADRAGE MANUEL.PYW ...................................... ~L 115
 #    5.1  Performance de prévisualisation
 #    5.2  Toggles (états initiaux)
 #    5.3  Réglages image par défaut
@@ -47,7 +47,7 @@ toucher aux scripts eux-mêmes.
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.7.1"
+__version__ = "2.7.2"
 
 
 # ==============================================================================
@@ -108,20 +108,25 @@ FORMATS = {
     "9x13"   : (89,  127),
     "10x10"  : (102, 102),
     "10x15"  : (102, 152),
+    "10x20"  : (102, 203),
     "13x13"  : (127, 127),
+    "13x15"  : (127, 152),
     "13x18"  : (127, 178),
     "15x20"  : (152, 203),
     "15x15"  : (152, 152),
     "18x24"  : (178, 240),
     "20x20"  : (203, 203),
+    "20x24"  : (203, 240),
     "20x30"  : (203, 305),
     "A4"     : (210, 297),
     "A3"     : (297, 420),
     "30x30"  : (305, 305),
     "30x40"  : (305, 405),
     "30x45"  : (305, 455),
+    "40x40"  : (405, 405),
     "40x50"  : (405, 505),
     "40x60"  : (405, 605),
+    "50x50"  : (505, 505),
     "50x70"  : (505, 705),
     "60x80"  : (605, 805),
     "60x90"  : (605, 905),
@@ -156,7 +161,7 @@ FIT_203_FORMATS = [
 
 
 # ==============================================================================
-# 5. RECADRAGE.PYW
+# 5. RECADRAGE MANUEL.PYW
 # ==============================================================================
 
 # ── 5.1  Performance de prévisualisation ──────────────────────────────────────
@@ -200,8 +205,8 @@ RECADRAGE_DEFAULT_HIGHLIGHTS    =   0   # Hautes lumières (-100 ... +100)
 RECADRAGE_DEFAULT_HUE           =   0   # Teinte          (-180 ... +180)
 RECADRAGE_DEFAULT_WHITE_BALANCE =   0   # Balance blancs  (-100 ... +100)
 
-# Recadrage force format.py : ecart entre les tuiles en mode fit (mm)
-RECADRAGE_FORCE_TILE_GAP_MM = 5
+# Recadrage automatique (mode fit) : ecart entre les tuiles (mm)
+RECADRAGE_FORCE_TILE_GAP_MM = 3
 
 
 # ==============================================================================
@@ -210,8 +215,8 @@ RECADRAGE_FORCE_TILE_GAP_MM = 5
 
 # ── 6.1  Fenêtre principale ───────────────────────────────────────────────────
 
-WINDOW_WIDTH       = 1300
-WINDOW_HEIGHT      = 910
+WINDOW_WIDTH       = 1350
+WINDOW_HEIGHT      = 920
 MAXIMIZED          = True
 TERMINAL_FONT_SIZE = 16    # Taille du texte dans le terminal, le bloc-notes et les options
 TERMINAL_HEIGHT    = 170   # Hauteur du panneau terminal compact (px) — toujours visible
@@ -256,7 +261,7 @@ CLEAN_DAYS = 60   # Fichiers plus vieux que N jours sont supprimés
 # True  = supprime directement le .zip source après décompression (sans confirmation)
 # False = affiche une boîte de dialogue Oui/Non avant de supprimer
 
-DELETE_ZIP_AFTER_EXTRACT = True
+DELETE_ZIP_AFTER_EXTRACT = False
 
 
 # ==============================================================================
@@ -439,6 +444,13 @@ AI_AVAILABLE_VOICES = [
     "Schedar",  # Voix chaleureuse masculine
     "Gacrux",   # Voix ferme masculine
 ]
+
+
+# ── 10.4  Augmentation IA — aperçu SAM2 ─────────────────────────────────────
+
+# Rayon de flou des bords du masque SAM2, exprimé en fraction de la plus petite
+# dimension du rendu (0 = pas de flou, 0.01 = ~1 % → ~8 px sur 800 px).
+SAM2_MASK_FEATHER_RATIO = 0.001
 
 
 # ==============================================================================

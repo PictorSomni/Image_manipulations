@@ -29,6 +29,12 @@ fi
 echo "[OK] pip détecté"
 echo ""
 
+# Utiliser le pip du Python detecte pour eviter les conflits d'environnement
+PIP_CMD=(python3 -m pip)
+
+echo "Mise a jour de pip..."
+"${PIP_CMD[@]}" install --upgrade pip
+
 # Installer ImageMagick (requis pour Wand) si pas présent
 echo "Vérification d'ImageMagick (requis pour la conversion d'images)..."
 if ! command -v convert &> /dev/null; then
@@ -51,7 +57,36 @@ fi
 
 echo ""
 echo "Installation des dependances Python..."
-pip3 install -r requirements.txt --upgrade
+if ! "${PIP_CMD[@]}" install -r requirements.txt --upgrade; then
+    echo ""
+    echo "[AVERTISSEMENT] Echec de l'installation standard des dependances."
+    echo "[INFO] Nouvelle tentative avec fallback ONNX CPU (si backend GPU indisponible sur cette machine)..."
+
+    TMP_REQ="$(mktemp)"
+    awk '
+        BEGIN { replaced = 0 }
+        /^onnxruntime-gpu>=/ {
+            print "onnxruntime>=1.16.0"
+            replaced = 1
+            next
+        }
+        { print }
+        END {
+            if (replaced == 0) {
+                print "onnxruntime>=1.16.0"
+            }
+        }
+    ' requirements.txt > "$TMP_REQ"
+
+    if ! "${PIP_CMD[@]}" install -r "$TMP_REQ" --upgrade; then
+        rm -f "$TMP_REQ"
+        echo "[ERREUR] Installation des dependances impossible."
+        exit 1
+    fi
+
+    rm -f "$TMP_REQ"
+    echo "[OK] Installation terminee avec fallback ONNX CPU."
+fi
 
 echo ""
 echo "Verification d'Ollama (IA locale)..."
@@ -77,5 +112,5 @@ echo ""
 echo "Pour lancer le Dashboard :"
 echo "  ./run.sh"
 echo "ou"
-echo "  python3 Dashboard.py"
+echo "  python3 Dashboard.pyw"
 echo ""

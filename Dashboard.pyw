@@ -16,20 +16,25 @@ Ce module fournit une interface graphique Flet permettant de :
 Raccourcis clavier :
   Ctrl/Cmd+A  — sélectionner tout / désélectionner tout.
   Ctrl/Cmd+C  — copier les fichiers sélectionnés dans le presse-papiers interne.
+  Ctrl/Cmd+D  — sélectionner tous les fichiers de la même date que la référence.
   Ctrl/Cmd+↓ — basculer entre Terminal/Favoris et IA+Notes.
   Ctrl/Cmd+I  — inverser la sélection.
   Ctrl/Cmd+N  — créer un nouveau dossier.
+  Ctrl/Cmd+R  — rafraîchir la prévisualisation.
   Ctrl/Cmd+V  — coller dans le dossier actuel.
-  Ctrl/Cmd+↑ — agrandir/réduire le terminal.
-  Ctrl/Cmd+← — Bloc-notes en plein écran (quand IA+Notes ouvert).
-  Ctrl/Cmd+→ — IA en plein écran (quand IA+Notes ouvert).
+    Ctrl/Cmd+↑ — agrandir/réduire le terminal.
+    Ctrl/Cmd+← — IA en mode colonne (avec preview à droite).
+    Ctrl/Cmd+→ — Bloc-notes en mode colonne (avec preview à droite).
+    Ctrl/Cmd+Shift+← — IA en plein écran réel (moins la barre du haut).
+    Ctrl/Cmd+Shift+→ — Bloc-notes en plein écran réel (moins la barre du haut).
 
 Dépendances :
   flet >= 0.80, modules standard (os, subprocess, sys, platform, shutil,
   threading, re, zipfile, time).
 """
 
-__version__ = "2.7.1"
+__version__ = "2.7.2"
+overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Dashboard.pyw
@@ -169,7 +174,10 @@ def main(page: ft.Page):
     page.window.title_bar_buttons_hidden = True
     page.window.width = CONSTANTS.WINDOW_WIDTH
     page.window.height = CONSTANTS.WINDOW_HEIGHT
-    page.window.maximized = CONSTANTS.MAXIMIZED
+    if platform.system() == "Darwin" and CONSTANTS.MAXIMIZED:
+        page.window.maximized = False
+    else:
+        page.window.maximized = CONSTANTS.MAXIMIZED
     page.window.icon = "assets/icon.png"
 
     async def on_window_event(event):
@@ -181,9 +189,18 @@ def main(page: ft.Page):
                 except Exception:
                     pass
         elif event.data in ("resize", "maximize", "unmaximize"):
-            if overlay_fullscreen["mode"] in ("ai", "notepad"):
-                win_w = page.window.width or CONSTANTS.WINDOW_WIDTH
-                bottom_panel_container.width = int((win_w - 8) * 6 / 15 + 4)
+            if bottom_panel_container is None:
+                return
+            if overlay_fullscreen["mode"] in ("ai", "notepad", "ai_full", "notepad_full"):
+                if overlay_fullscreen["mode"] in ("ai_full", "notepad_full"):
+                    bottom_panel_container.left = 0
+                    bottom_panel_container.right = 0
+                    bottom_panel_container.width = None
+                    bottom_panel_container.top = 0
+                    bottom_panel_container.height = None
+                else:
+                    win_w = page.window.width or CONSTANTS.WINDOW_WIDTH
+                    bottom_panel_container.width = int((win_w - 8) * 6 / 15 + 4)
                 try:
                     bottom_panel_container.update()
                 except Exception:
@@ -291,15 +308,15 @@ def main(page: ft.Page):
         "Transfert vers TEMP.py": (True, BLUE),
         "Conversion JPG.py": (False, BLUE),
         "Renommer sequence.py": (False, BLUE),
-        "Format 13x15.py": (False, HOVER_YELLOW),
-        "Fit 203.py": (False, HOVER_YELLOW),
-        "Recadrage.pyw": (False, BLUE),
+        "Comparaison.pyw": (False, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Comparaison.pyw")),
+        "Recadrage automatique.py": (False, GREEN, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Recadrage automatique.py")),
+        "Recadrage manuel.pyw": (False, RED, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Recadrage manuel.pyw")),
         "Redimensionner filigrane.py": (False, WHITE),
         "2 en 1.py": (False, HOVER_YELLOW),
         "Redimensionner.py": (False, WHITE),
         "Augmentation IA.py": (False, VIOLET),
         "Copyright.py": (False, VIOLET),
-        "Comparaison.pyw": (False, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Comparaison.pyw")),
+        "IA / Bloc-notes": (True, BLUE),
     }
 
 
@@ -324,7 +341,9 @@ def main(page: ft.Page):
     command_history = []           # Historique des commandes du terminal
     history_index = {"value": -1}  # -1 = nouvelle saisie en cours
     history_draft = {"value": ""}  # Saisie en cours avant navigation dans l'historique
+    terminal_is_expanded = {"value": False}
     terminal_input_focused = {"value": False}
+    keyboard_shortcuts_suspended = {"count": 0}
     _solo_left_state   = {"container": None}   # Référence au conteneur solo (mode pleine hauteur)
     ai_mode            = {"value": False}
     ai_conversation    = []              # Historique de conversation [{role, content}]
@@ -438,17 +457,17 @@ def main(page: ft.Page):
     )
     expand_button_overlay = ft.IconButton(
         icon=ft.Icons.EXPAND_LESS,
-        tooltip="Agrandir  (Ctrl+↑)",
+        tooltip="IA seule (Ctrl/Cmd+←)",
         icon_color=LIGHT_GREY,
         icon_size=16,
-        on_click=lambda e: toggle_terminal_overlay(),
+        on_click=lambda e: toggle_ai_fullscreen(),
     )
     expand_button_notepad = ft.IconButton(
         icon=ft.Icons.EXPAND_LESS,
-        tooltip="Agrandir  (Ctrl+↑)",
+        tooltip="Bloc-notes seul (Ctrl/Cmd+→)",
         icon_color=LIGHT_GREY,
         icon_size=16,
-        on_click=lambda e: toggle_terminal_overlay(),
+        on_click=lambda e: toggle_notepad_fullscreen(),
     )
 
     notepad_container = ft.Container(
@@ -772,15 +791,6 @@ def main(page: ft.Page):
     page.pubsub.subscribe_topic("quit", on_quit_request)
 
 
-    def on_restore_window(topic, message):
-        """Restaure la fenêtre Dashboard quand Side Panel se ferme."""
-        page.window.minimized = False
-        page.window.maximized = True
-        page.update()
-
-    page.pubsub.subscribe_topic("restore_window", on_restore_window)
-
-
     def on_deselect_request(topic, message):
         """Callback pour désélectionner tous les fichiers depuis un thread de fond."""
         selected_files.clear()
@@ -794,9 +804,62 @@ def main(page: ft.Page):
     # S'abonner au canal deselect
     page.pubsub.subscribe_topic("deselect", on_deselect_request)
 
+    dashboard_window_cycle_config = {
+        "SidePanel.pyw": {"restore_previous_maximized_state": True},
+        "Comparaison.pyw": {"restore_previous_maximized_state": True},
+        "Recadrage manuel.pyw": {"restore_previous_maximized_state": True},
+        "Augmentation IA.py": {"restore_previous_maximized_state": True},
+    }
+
+    def _get_dashboard_window_cycle_options(app_name: str):
+        """Retourne la configuration de cycle fenêtre pour une app, ou None."""
+        return dashboard_window_cycle_config.get(app_name)
+
+
+    def _restore_dashboard_window(previous_maximized_state: bool = None):
+        """Restaure Dashboard (dé-minimisation, état maximisé optionnel, puis premier plan)."""
+        page.window.minimized = False
+
+        if previous_maximized_state is not None:
+            if previous_maximized_state and platform.system() == "Darwin":
+                page.window.maximized = False
+                page.update()
+                time.sleep(0.05)
+                page.window.maximized = True
+            else:
+                page.window.maximized = bool(previous_maximized_state)
+
+        page.run_task(page.window.to_front)
+        page.update()
+
+
+    def _launch_with_dashboard_restore(
+        command: list,
+        env: dict,
+        *,
+        restore_previous_maximized_state: bool = False,
+        popen_kwargs: dict = None,
+    ):
+        """Lance une app externe en minimisant Dashboard, puis restaure Dashboard à la fermeture."""
+        process_kwargs = dict(popen_kwargs or {})
+        restore_maximized_state = bool(page.window.maximized) if restore_previous_maximized_state else None
+        process = subprocess.Popen(command, env=env, **process_kwargs)
+        page.window.minimized = True
+        page.update()
+
+        def _watch_process_closure():
+            process.wait()
+            if restore_previous_maximized_state:
+                _restore_dashboard_window(bool(restore_maximized_state))
+            else:
+                _restore_dashboard_window()
+
+        threading.Thread(target=_watch_process_closure, daemon=True).start()
+
 
     def _launch_side_panel(extra_env: dict = None):
         """Lance Side Panel, minimise Dashboard, puis le restaure à la fermeture de Side Panel."""
+        cycle_options = _get_dashboard_window_cycle_options("SidePanel.pyw") or {}
         env = {
             **os.environ,
             "SELECTEUR_INITIAL_FOLDER": (
@@ -805,22 +868,16 @@ def main(page: ft.Page):
         }
         if extra_env:
             env.update(extra_env)
-        proc = subprocess.Popen(
+
+        _launch_with_dashboard_restore(
             [sys.executable, os.path.join(app_directory, "Data", "SidePanel.pyw")],
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            env,
+            restore_previous_maximized_state=bool(cycle_options.get("restore_previous_maximized_state", False)),
+            popen_kwargs={
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+            },
         )
-        page.window.minimized = True
-        page.update()
-
-        def _watch():
-            proc.wait()
-            page.window.minimized = False
-            page.run_task(page.window.to_front)
-            page.update()
-
-        threading.Thread(target=_watch, daemon=True).start()
 
 
 
@@ -828,9 +885,18 @@ def main(page: ft.Page):
         """Lance Comparaison.pyw, minimise Dashboard, puis le restaure à la fermeture."""
         browse = current_browse_folder["path"] or ""
         base   = selected_folder["path"] or ""
+        selected_image_files = [
+            file_path for file_path in selected_files
+            if os.path.isfile(file_path)
+            and os.path.splitext(file_path)[1].lower() in CONSTANTS.IMAGE_EXTS
+        ]
 
-        # Dossier 1 : dossier courant de navigation (ou le dossier sélectionné)
+        # Dossier 1 : dossier de la paire sélectionnée si possible,
+        # sinon dossier courant de navigation (ou le dossier sélectionné).
         folder1 = browse or base
+        if len(selected_image_files) == 2:
+            folder1 = os.path.normpath(os.path.dirname(selected_image_files[0]))
+
         if not folder1:
             log_to_terminal("[ERREUR] Veuillez sélectionner un dossier avant de lancer la Comparaison", RED)
             return
@@ -842,35 +908,37 @@ def main(page: ft.Page):
             folder2 = second_folder
 
         def _do_launch(f2: str):
+            cycle_options = _get_dashboard_window_cycle_options("Comparaison.pyw") or {}
             env = {**os.environ, "FOLDER_PATH": folder1}
             if f2:
                 env["SECOND_FOLDER"] = f2
             # Si des fichiers sont sélectionnés dans folder1, les transmettre.
             # Cas spécial: 2 images exactement -> comparaison directe de cette paire.
-            files_in_folder1 = [
-                f for f in selected_files
-                if os.path.isfile(f) and os.path.normpath(os.path.dirname(f)) == os.path.normpath(folder1)
-            ]
-            image_files_in_folder1 = [
-                f for f in files_in_folder1
-                if os.path.splitext(f)[1].lower() in CONSTANTS.IMAGE_EXTS
-            ]
-            if len(image_files_in_folder1) == 2:
-                env["SELECTED_PAIR_FILES"] = "|".join(os.path.basename(f) for f in image_files_in_folder1)
-            elif files_in_folder1:
-                env["SELECTED_FILES"] = "|".join(os.path.basename(f) for f in files_in_folder1)
+            if len(selected_image_files) == 2:
+                env["SELECTED_PAIR_FILES"] = "|".join(os.path.basename(f) for f in selected_image_files)
+                env["SELECTED_PAIR_PATHS"] = "|".join(selected_image_files)
+            else:
+                files_in_folder1 = [
+                    f for f in selected_files
+                    if os.path.isfile(f) and os.path.normpath(os.path.dirname(f)) == os.path.normpath(folder1)
+                ]
+                image_files_in_folder1 = [
+                    f for f in files_in_folder1
+                    if os.path.splitext(f)[1].lower() in CONSTANTS.IMAGE_EXTS
+                ]
+
+                if image_files_in_folder1:
+                    env["SELECTED_FILES"] = "|".join(os.path.basename(f) for f in image_files_in_folder1)
             comparaison_path = os.path.join(app_directory, "Data", "Comparaison.pyw")
-            proc = subprocess.Popen([sys.executable, comparaison_path], env=env)
-            page.window.minimized = True
-            page.update()
+            _launch_with_dashboard_restore(
+                [sys.executable, comparaison_path],
+                env,
+                restore_previous_maximized_state=bool(cycle_options.get("restore_previous_maximized_state", False)),
+            )
 
-            def _watch():
-                proc.wait()
-                page.window.minimized = False
-                page.window.maximized = True
-                page.update()
-
-            threading.Thread(target=_watch, daemon=True).start()
+        if len(selected_image_files) == 2:
+            _do_launch("")
+            return
 
         # Si le second dossier est déjà connu, lancer directement
         if folder2:
@@ -1006,9 +1074,35 @@ def main(page: ft.Page):
 
 
 
+    def run_refresh_preview_command():
+        """Exécute un rafraîchissement manuel de la preview et journalise la commande."""
+        log_to_terminal("[CMD] refresh_preview(force_reload=True)", BLUE)
+        refresh_preview(force_reload=True)
+
+
+
+    def _suspend_keyboard_shortcuts() -> None:
+        """Suspend temporairement les raccourcis globaux (ex: pendant une saisie en dialog)."""
+        keyboard_shortcuts_suspended["count"] += 1
+
+
+
+    def _resume_keyboard_shortcuts() -> None:
+        """Réactive les raccourcis globaux suspendus."""
+        keyboard_shortcuts_suspended["count"] = max(0, keyboard_shortcuts_suspended["count"] - 1)
+
+
+
     def on_keyboard_event(e: ft.KeyboardEvent):
         """Gestionnaire des événements clavier pour les raccourcis"""
         ctrl_pressed = e.ctrl or e.meta
+        shift_pressed = bool(getattr(e, "shift", False))
+        key_upper = (e.key or "").upper()
+
+        # Si une boîte de dialogue de saisie est ouverte, laisser le champ texte
+        # gérer ses propres raccourcis (copier/coller/supprimer, etc.).
+        if keyboard_shortcuts_suspended["count"] > 0:
+            return
 
         # Ctrl+↑ / Ctrl+↓ sont globaux : fonctionnent quelle que soit la zone active
         if ctrl_pressed and e.key in ("Arrow Up", "ArrowUp"):
@@ -1023,6 +1117,12 @@ def main(page: ft.Page):
             return
 
         if ctrl_pressed and (ai_mode["value"] or note_mode["value"]):
+            if shift_pressed and e.key in ("Arrow Left", "ArrowLeft"):
+                toggle_ai_true_fullscreen()
+                return
+            if shift_pressed and e.key in ("Arrow Right", "ArrowRight"):
+                toggle_notepad_true_fullscreen()
+                return
             if e.key in ("Arrow Left", "ArrowLeft"):
                 toggle_ai_fullscreen()
                 return
@@ -1030,7 +1130,19 @@ def main(page: ft.Page):
                 toggle_notepad_fullscreen()
                 return
 
+        # Raccourcis globaux de gestion fichiers, même si le terminal a le focus.
+        if ctrl_pressed and key_upper == "R":
+            run_refresh_preview_command()
+            return
+        if ctrl_pressed and key_upper == "D":
+            select_same_date(None)
+            return
+
         if terminal_input_focused["value"]:
+            # Laisser le champ terminal gérer ses raccourcis d'édition
+            # (Ctrl/Cmd+C, Ctrl/Cmd+V, Backspace, Delete, etc.)
+            if ctrl_pressed or e.key in ("Delete", "Backspace"):
+                return
             if e.key in ("Arrow Up", "ArrowUp"):
                 if command_history:
                     if history_index["value"] == -1:
@@ -1062,19 +1174,17 @@ def main(page: ft.Page):
             return
 
         if ctrl_pressed:
-            if e.key == "A":
+            if key_upper == "A":
                 toggle_select_all(None)
-            elif e.key == "C":
+            elif key_upper == "C":
                 copy_selected_files(None)
-            elif e.key == "I":
+            elif key_upper == "I":
                 invert_selection(None)
-            elif e.key == "N":
+            elif key_upper == "N":
                 create_new_folder(None)
-            elif e.key == "R":
-                refresh_preview(force_reload=True)
-            elif e.key == "V":
+            elif key_upper == "V":
                 paste_files(None)
-            elif e.key == "X":
+            elif key_upper == "X":
                 cut_selected_files(None)
         elif e.key in ("Delete", "Backspace"):
             delete_selected_files(None)
@@ -1618,7 +1728,7 @@ def main(page: ft.Page):
         image_mode = "original" if use_original else "optimized"
         ai_pending_images.append({"path": image_path, "b64": b64_data, "mode": image_mode})
         _ai_refresh_attach_row()
-        # Avertir si le modèle vision configuré ne supporte pas réellement la vision
+        # Avertir si la configuration vision n'est pas reconnue
         vision_model = CONSTANTS.AI_MODEL_VISION
         is_vision = any(
             vision_model == entry[1] or vision_model.startswith(entry[1] + ":")
@@ -1628,7 +1738,7 @@ def main(page: ft.Page):
         if not is_vision:
             _ai_add_bubble(
                 "assistant",
-                f"⚠️ Le modèle vision configuré ({vision_model}) n'est pas reconnu comme modèle vision.\n"
+                "⚠️ La configuration vision actuelle n'est pas reconnue comme compatible.\n"
                 "Vérifiez AI_MODEL_VISION dans CONSTANTS.py.",
             )
 
@@ -1801,7 +1911,7 @@ def main(page: ft.Page):
         if not model_present:
             pull_status_ctrl = _ai_add_bubble(
                 "assistant",
-                f"⬇️ Téléchargement de {model_name}…\n"
+                "⬇️ Téléchargement du composant IA…\n"
                 "(première utilisation — peut prendre quelques minutes)",
             )
             try:
@@ -1823,17 +1933,17 @@ def main(page: ft.Page):
                         if total:
                             pct = int(completed / total * 100)
                             pull_status_ctrl.value = (
-                                f"⬇️ {model_name} — {status} {pct}%"
+                                f"⬇️ Téléchargement — {status} {pct}%"
                             )
                         elif status:
                             pull_status_ctrl.value = (
-                                f"⬇️ {model_name} — {status}"
+                                f"⬇️ Téléchargement — {status}"
                             )
                         try:
                             page.update()
                         except Exception:
                             pass
-                pull_status_ctrl.value = f"✅ {model_name} téléchargé et prêt !"
+                pull_status_ctrl.value = "✅ Composant IA téléchargé et prêt !"
                 try:
                     page.update()
                 except Exception:
@@ -2078,7 +2188,7 @@ def main(page: ft.Page):
         return bubble_text
 
     def _ai_add_image_bubble(image_path):
-        """Affiche une image générée par Nano Banana 2 dans le chat IA."""
+        """Affiche une image générée dans le chat IA."""
         img_widget = ft.Image(
             src=image_path,
             width=400,
@@ -2665,17 +2775,17 @@ def main(page: ft.Page):
                                     if CONSTANTS.AI_SHOW_REFINED_IMAGE_PROMPT:
                                         _ai_add_bubble(
                                             "assistant",
-                                            "🧪 Prompt Nano Banana affiné automatiquement :\n\n"
+                                            "🧪 Prompt image affiné automatiquement :\n\n"
                                             f"{_gi_prompt_refined}",
                                         )
                                     else:
-                                        _ai_add_bubble("assistant", "🧪 Prompt Nano Banana affiné automatiquement.")
+                                        _ai_add_bubble("assistant", "🧪 Prompt image affiné automatiquement.")
 
                             # Journaliser le prompt réellement envoyé pour qu'il soit
                             # inclus dans l'export/copie de conversation IA.
-                            _turn_events.append(f"🧪 Prompt Nano Banana : {_gi_prompt_refined}")
+                            _turn_events.append(f"🧪 Prompt image : {_gi_prompt_refined}")
 
-                            ai_status_text.value = "🎨 Nano Banana 2 en cours…"
+                            ai_status_text.value = "🎨 Génération d'image en cours…"
                             ai_progress_bar.visible = True
                             try:
                                 page.update()
@@ -4457,9 +4567,8 @@ def main(page: ft.Page):
             for idx in range(len(image_paths)):
                 img_ctrl = ft.Image(
                     src=_blank_gif,
-                    width=win_w,
-                    height=win_h,
                     fit=ft.BoxFit.CONTAIN,
+                    expand=True,
                     gapless_playback=True,
                     error_content=ft.Container(
                         content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=ft.Colors.WHITE54, size=64),
@@ -4478,6 +4587,7 @@ def main(page: ft.Page):
                     max_scale=10.0,
                     pan_enabled=True,
                     scale_enabled=True,
+                    constrained=True,
                     width=win_w,
                     height=win_h,
                     clip_behavior=ft.ClipBehavior.HARD_EDGE,
@@ -4567,9 +4677,8 @@ def main(page: ft.Page):
             _fb_win_h = page.window.height or 800
             _fb_img_ctrl = ft.Image(
                 src=_blank_gif,
-                width=_fb_win_w,
-                height=_fb_win_h,
                 fit=ft.BoxFit.CONTAIN,
+                expand=True,
                 gapless_playback=True,
                 error_content=ft.Container(
                     content=ft.Icon(ft.Icons.BROKEN_IMAGE, color=ft.Colors.WHITE54, size=64),
@@ -4584,6 +4693,7 @@ def main(page: ft.Page):
                 max_scale=10.0,
                 pan_enabled=True,
                 scale_enabled=True,
+                constrained=True,
                 width=_fb_win_w,
                 height=_fb_win_h,
                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
@@ -5003,17 +5113,21 @@ def main(page: ft.Page):
             rename_dialog.open = False
             page.update()
             if new_name == current_name:
+                _resume_keyboard_shortcuts()
                 return
             try:
                 os.rename(file_path, new_path)
                 log_to_terminal(f"[OK] Renommé: {current_name} → {new_name}", GREEN)
                 refresh_preview(reset_page=False)
+                _resume_keyboard_shortcuts()
             except Exception as err:
                 log_to_terminal(f"[ERREUR] Renommage: {err}", RED)
+                _resume_keyboard_shortcuts()
 
         def _cancel_rename(e):
             rename_dialog.open = False
             page.update()
+            _resume_keyboard_shortcuts()
 
         rename_dialog = ft.AlertDialog(
             title=ft.Text("Renommer"),
@@ -5024,6 +5138,7 @@ def main(page: ft.Page):
             ],
         )
         page.overlay.append(rename_dialog)
+        _suspend_keyboard_shortcuts()
         rename_dialog.open = True
         page.update()
 
@@ -5102,21 +5217,25 @@ def main(page: ft.Page):
                     log_to_terminal(f"[ERREUR] Le dossier '{folder_name}' existe déjà", RED)
                     dialog.open = False
                     page.update()
+                    _resume_keyboard_shortcuts()
                 else:
                     os.makedirs(new_folder_path)
                     log_to_terminal(f"[OK] Dossier créé: {folder_name}", BLUE)
                     dialog.open = False
                     page.update()
+                    _resume_keyboard_shortcuts()
                     navigate_to_folder(new_folder_path)
             except Exception as err:
                 log_to_terminal(f"[ERREUR] Erreur lors de la création du dossier: {err}", RED)
                 dialog.open = False
                 page.update()
+                _resume_keyboard_shortcuts()
         
         def cancel_create(e):
             """Annule la création du dossier et ferme la boîte de dialogue."""
             dialog.open = False
             page.update()
+            _resume_keyboard_shortcuts()
         
         folder_name_input = ft.TextField(
             label="Nom du dossier",
@@ -5133,6 +5252,7 @@ def main(page: ft.Page):
             ],
         )
         page.overlay.append(dialog)
+        _suspend_keyboard_shortcuts()
         dialog.open = True
         page.update()
 
@@ -5283,6 +5403,7 @@ def main(page: ft.Page):
 
     def select_same_date(e):
         """Sélectionne tous les fichiers du dossier pris à la même date (jour) que le fichier sélectionné."""
+        log_to_terminal("[CMD] select_same_date()", BLUE)
         if not selected_files:
             log_to_terminal("[ATTENTION] Aucun fichier sélectionné comme référence", ORANGE)
             return
@@ -6578,7 +6699,7 @@ def main(page: ft.Page):
         Parameters
         ----------
         app_name : str
-            Nom du fichier script (ex. ``"Recadrage.pyw"``).
+            Nom du fichier script (ex. ``"Recadrage manuel.pyw"``).
         app_path : str
             Chemin absolu vers le script.
         is_local : bool
@@ -6774,7 +6895,7 @@ def main(page: ft.Page):
             page.update()
             return
 
-        if app_name == "Recadrage force format.py" and series_name is None:
+        if app_name == "Recadrage automatique.py" and series_name is None:
             _format_items = list(CONSTANTS.FORMATS.items())
             _default_format = "10x15" if "10x15" in CONSTANTS.FORMATS else (_format_items[0][0] if _format_items else "10x15")
             _default_mm = CONSTANTS.FORMATS.get(_default_format, (102, 152))
@@ -6787,7 +6908,7 @@ def main(page: ft.Page):
                 options=[ft.dropdown.Option(name) for name, _ in _format_items],
                 width=260,
                 text_size=13,
-                border_color=HOVER_YELLOW,
+                border_color=GREEN,
                 bgcolor=DARK,
             )
             force_manual_width = ft.TextField(
@@ -6796,7 +6917,7 @@ def main(page: ft.Page):
                 width=125,
                 text_size=13,
                 keyboard_type=ft.KeyboardType.NUMBER,
-                border_color=HOVER_YELLOW,
+                border_color=GREEN,
                 bgcolor=DARK,
                 disabled=True,
             )
@@ -6806,14 +6927,14 @@ def main(page: ft.Page):
                 width=125,
                 text_size=13,
                 keyboard_type=ft.KeyboardType.NUMBER,
-                border_color=HOVER_YELLOW,
+                border_color=GREEN,
                 bgcolor=DARK,
                 disabled=True,
             )
             force_manual_switch = ft.Switch(
                 label="Saisie manuelle (mm)",
                 value=False,
-                active_color=HOVER_YELLOW,
+                active_color=GREEN,
             )
             force_scope_info = ft.Text(
                 "Portée auto : sélection en cours" if _auto_scope_value == "selected" else "Portée auto : tout le dossier",
@@ -6826,7 +6947,7 @@ def main(page: ft.Page):
             force_fit_switch = ft.Switch(
                 label="Fit 100% (sans rognage)",
                 value=False,
-                active_color=HOVER_YELLOW,
+                active_color=GREEN,
             )
 
             def _update_force_mode_ui():
@@ -6856,7 +6977,7 @@ def main(page: ft.Page):
                         _size_value = f"{_fmt_mm[0]}x{_fmt_mm[1]}"
 
                     _scope_value = "selected" if selected_files else "all"
-                    _fit_value = "fit" if force_fit_switch.value else "crop"
+                    _fit_value = "1" if force_fit_switch.value else "0"
 
                     force_crop_dialog.open = False
                     page.update()
@@ -6873,7 +6994,7 @@ def main(page: ft.Page):
 
             force_crop_dialog = ft.AlertDialog(
                 modal=True,
-                title=ft.Text("Recadrage force - format", text_align=ft.TextAlign.CENTER),
+                title=ft.Text("Recadrage automatique - format", text_align=ft.TextAlign.CENTER, color=GREEN),
                 content=ft.Column(
                     [
                         ft.Text(
@@ -6900,8 +7021,8 @@ def main(page: ft.Page):
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 actions=[
-                    ft.TextButton("Annuler", on_click=_on_force_cancel),
-                    ft.TextButton("Lancer", on_click=_on_force_confirm),
+                    ft.TextButton("Annuler", on_click=_on_force_cancel, style=ft.ButtonStyle(color=GREEN)),
+                    ft.TextButton("Lancer", on_click=_on_force_confirm, style=ft.ButtonStyle(color=GREEN)),
                 ],
                 actions_alignment=ft.MainAxisAlignment.CENTER,
             )
@@ -6976,6 +7097,7 @@ def main(page: ft.Page):
                         proc.wait()
                         page.window.minimized = False
                         page.window.maximized = True
+                        page.run_task(page.window.to_front)
                         page.update()
                         if nav_path and os.path.isdir(nav_path):
                             navigate_to_folder(nav_path)
@@ -7036,6 +7158,14 @@ def main(page: ft.Page):
                 env["PYTHONIOENCODING"] = "utf-8"
                 env["DATA_PATH"] = os.path.join(app_directory, "Data")
                 env["FOLDER_PATH"] = current_browse_folder["path"] or selected_folder["path"]
+
+                cycle_options = _get_dashboard_window_cycle_options(app_name) or {}
+                should_apply_dashboard_window_cycle = bool(cycle_options)
+                previous_maximized_state_for_cycle = (
+                    bool(page.window.maximized)
+                    if should_apply_dashboard_window_cycle and bool(cycle_options.get("restore_previous_maximized_state", False))
+                    else None
+                )
 
 
 
@@ -7104,15 +7234,15 @@ def main(page: ft.Page):
                         env["FIT_203_OUTPUT_FOLDER"] = parts[2]
 
 
-                # Ajouter les dimensions/portée pour Recadrage force format.py
-                if app_name == "Recadrage force format.py" and series_name:
+                # Ajouter les dimensions/portée pour Recadrage automatique.py
+                if app_name == "Recadrage automatique.py" and series_name:
                     parts = series_name.split("|")
                     if len(parts) >= 1 and parts[0]:
                         env["FORCE_CROP_SIZE"] = parts[0]
                     if len(parts) >= 2 and parts[1] in ("selected", "all"):
                         env["FORCE_CROP_SCOPE"] = parts[1]
-                    if len(parts) >= 3 and parts[2] == "fit":
-                        env["FORCE_CROP_FIT"] = "1"
+                    _fit_token = parts[2].strip().lower() if len(parts) >= 3 else "0"
+                    env["FORCE_CROP_FIT"] = "1" if _fit_token in ("1", "fit", "true", "yes", "on") else "0"
 
                 # Paramètres Copyright
                 if app_name == "Copyright.py" and series_name:
@@ -7143,6 +7273,10 @@ def main(page: ft.Page):
                         ctypes.windll.user32.AllowSetForegroundWindow(process.pid)
                     except Exception:
                         pass
+
+                if should_apply_dashboard_window_cycle:
+                    page.window.minimized = True
+                    page.update()
 
 
 
@@ -7197,6 +7331,8 @@ def main(page: ft.Page):
                     stdout_reader_thread.join()
                     stderr_reader_thread.join()
                     process.wait()
+                    if should_apply_dashboard_window_cycle:
+                        _restore_dashboard_window(previous_maximized_state_for_cycle)
                     app_progress_bar.visible = False
                     try:
                         page.update()
@@ -7263,7 +7399,8 @@ def main(page: ft.Page):
             is_local = app_config[0]
             app_color = app_config[1]
             app_path = app_config[2] if len(app_config) > 2 else os.path.join(app_directory, "Data", app_name)
-            if not os.path.exists(app_path):
+            is_special_gemini_panel = app_name == "IA / Bloc-notes"
+            if not is_special_gemini_panel and not os.path.exists(app_path):
                 continue
 
             if app_name == "Redimensionner.py":
@@ -7302,6 +7439,47 @@ def main(page: ft.Page):
                         ink=True,
                     )
                 )
+            elif is_special_gemini_panel:
+                open_panels_title = ft.Text(
+                    "Outils IA",
+                    size=11,
+                    color=BLUE,
+                    text_align=ft.TextAlign.CENTER,
+                    weight=ft.FontWeight.W_500,
+                )
+                open_panels_caption = ft.Text(
+                    "IA / Bloc-notes",
+                    size=12,
+                    color=BLUE,
+                    text_align=ft.TextAlign.CENTER,
+                    weight=ft.FontWeight.W_500,
+                )
+                open_panels_card = ft.Container(
+                    content=ft.Column(
+                        [
+                            open_panels_title,
+                            open_panels_button,
+                            open_panels_caption,
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=3,
+                    ),
+                    expand=True,
+                    alignment=ft.Alignment(0, 0),
+                    bgcolor=GREY,
+                    border=ft.Border.all(1, RED if (ai_mode["value"] or note_mode["value"]) else BLUE),
+                    padding=ft.Padding(10, 10, 10, 10),
+                    border_radius=4,
+                    on_click=lambda e: toggle_panels_open(),
+                    ink=True,
+                )
+                open_panels_card_state["control"] = open_panels_card
+                open_panels_card_state["title"] = open_panels_title
+                open_panels_card_state["caption"] = open_panels_caption
+                items.append(
+                    open_panels_card
+                )
             else:
                 if app_name == "SidePanel.pyw":
                     on_click_handler = lambda e: _launch_side_panel()
@@ -7311,6 +7489,8 @@ def main(page: ft.Page):
                     on_click_handler = lambda e, name=app_name, path=app_path, local=is_local: launch_app(name, path, local)
                 display_name = (
                     "Side Panel" if app_name == "SidePanel.pyw"
+                    else "Recadrage automatique" if app_name == "Recadrage automatique.py"
+                    else "Recadrage manuel" if app_name == "Recadrage manuel.pyw"
                     else (app_name[:-4] if app_name.endswith(".pyw") else app_name[:-3])
                 )
                 items.append(
@@ -7379,7 +7559,7 @@ def main(page: ft.Page):
         remerciements_path        = os.path.join(app_directory, "Data", "Remerciements.py")
         copier_nefs_path          = os.path.join(app_directory, "Data", "Copier NEFs sélection.py")
         separer_raw_jpg_path      = os.path.join(app_directory, "Data", "Séparer RAW et JPG.py")
-        recadrage_force_path      = os.path.join(app_directory, "Data", "Recadrage force format.py")
+        recadrage_automatique_path = os.path.join(app_directory, "Data", "Recadrage automatique.py")
 
         quick_tools_col.controls = [
             _round_button(
@@ -7436,18 +7616,6 @@ def main(page: ft.Page):
                 "Copier NEFs → SELECTION",
                 lambda e: launch_app("Copier NEFs sélection.py", copier_nefs_path, False),
             ),
-            _round_button(
-                ft.Icons.CROP,
-                GREEN,
-                "Recadrage force (format)",
-                lambda e: launch_app("Recadrage force format.py", recadrage_force_path, False),
-            ),
-            # _round_button(
-            #     ft.Icons.SMART_TOY,
-            #     BLUE,
-            #     "Envoyer à l'IA",
-            #     ai_send_selected_images,
-            # ),
             _round_button(
                 ft.Icons.NOTE_ADD,
                 BLUE,
@@ -7722,7 +7890,8 @@ def main(page: ft.Page):
 # ===================== CONNEXIONS UI ===================== #
     # ── Champ dossier ────────────────────────────────────────────────
     folder_path.on_submit = on_folder_path_submit
-    folder_path.on_blur = on_folder_path_blur
+    folder_path.on_focus = lambda e: _suspend_keyboard_shortcuts()
+    folder_path.on_blur = lambda e: (on_folder_path_blur(e), _resume_keyboard_shortcuts())
 
 
 
@@ -7740,6 +7909,8 @@ def main(page: ft.Page):
     # ── Recherche preview ─────────────────────────────────────────────
     search_field.on_change = _on_search_change
     search_field.on_submit = _on_search_change
+    search_field.on_focus = lambda e: _suspend_keyboard_shortcuts()
+    search_field.on_blur = lambda e: _resume_keyboard_shortcuts()
     search_close_btn.on_click = _clear_search
 
 
@@ -7747,6 +7918,21 @@ def main(page: ft.Page):
     # ── Redimensionnement ─────────────────────────────────────────────
     resize_input.on_change = on_resize_input_change
     resize_watermark_input.on_change = on_resize_watermark_input_change
+    resize_input.on_focus = lambda e: _suspend_keyboard_shortcuts()
+    resize_input.on_blur = lambda e: _resume_keyboard_shortcuts()
+    resize_watermark_input.on_focus = lambda e: _suspend_keyboard_shortcuts()
+    resize_watermark_input.on_blur = lambda e: _resume_keyboard_shortcuts()
+
+
+    # Bouton global utilisé dans la grille pour ouvrir/fermer IA + bloc-notes.
+    open_panels_button = ft.IconButton(
+        icon=ft.Icons.SMART_TOY,
+        tooltip="Ouvrir IA & Bloc-notes",
+        icon_color=BLUE,
+        icon_size=16,
+        on_click=lambda e: toggle_panels_open(),
+    )
+    open_panels_card_state = {"control": None, "title": None, "caption": None}
 
 
 
@@ -7757,152 +7943,262 @@ def main(page: ft.Page):
     _rebuild_favorites_panel()
     _ai_load_history()
     _initial_drives = _get_removable_drives()
+    overlay_container = None
+    ai_panel_container = None
+    notepad_panel_container = None
+    bottom_panel_container = None
     if _initial_drives:
-        removable_drives_state["list"] = _initial_drives
-        _rebuild_drives_panel(_initial_drives)
-    threading.Thread(target=_poll_removable_drives, daemon=True).start()
+        def update_overlay_visibility():
+            """Affiche ou masque l'overlay (IA à gauche + Notes à droite)."""
+            panels_are_open = ai_mode["value"] or note_mode["value"]
+            # Nettoyage du mode solo si les panneaux se ferment
+            if not panels_are_open and overlay_fullscreen["mode"] in ("ai", "notepad"):
+                # Restaurer bottom_panel_container au mode normal
+                if bottom_panel_container is not None:
+                    bottom_panel_container.top    = None
+                    bottom_panel_container.right  = 0
+                    bottom_panel_container.width  = None
+                    bottom_panel_container.height = CONSTANTS.TERMINAL_HEIGHT
+                if ai_panel_container is not None:
+                    ai_panel_container.visible = True
+                if notepad_panel_container is not None:
+                    notepad_panel_container.visible = True
+                _terminal_spacer.height = CONSTANTS.TERMINAL_HEIGHT
+            if overlay_container is not None:
+                overlay_container.visible = panels_are_open
+            if not panels_are_open:
+                overlay_fullscreen["mode"] = None
+                if ai_panel_container is not None:
+                    ai_panel_container.visible = True
+                if notepad_panel_container is not None:
+                    notepad_panel_container.visible = True
+            if open_panels_button is not None:
+                open_panels_button.icon       = ft.Icons.SMART_TOY
+                open_panels_button.icon_color = RED if panels_are_open else BLUE
+                open_panels_button.tooltip    = "Fermer IA & Notes" if panels_are_open else "Ouvrir IA & Bloc-notes"
+            open_panels_card = open_panels_card_state["control"]
+            if open_panels_card is not None:
+                open_panels_card.bgcolor = GREY
+                open_panels_card.border = ft.Border.all(1, RED if panels_are_open else BLUE)
+                title_control = open_panels_card_state["title"]
+                caption_control = open_panels_card_state["caption"]
+                if title_control is not None:
+                    title_control.color = RED if panels_are_open else BLUE
+                if caption_control is not None:
+                    caption_control.color = RED if panels_are_open else BLUE
+                try:
+                    if open_panels_button is not None:
+                        open_panels_button.update()
+                    if title_control is not None:
+                        title_control.update()
+                    if caption_control is not None:
+                        caption_control.update()
+                    open_panels_card.update()
+                except Exception:
+                    pass
 
 
-    terminal_is_expanded = {"value": False}
 
-    # ── Système d'overlay (IA + Notes simultanés) ──────────────────────────
-    # En-tête du panneau IA (gauche)
-    ai_clear_button = ft.IconButton(
-        icon=ft.Icons.DELETE_SWEEP,
-        icon_color=LIGHT_GREY,
-        icon_size=16,
-        tooltip="Effacer la conversation IA",
-        on_click=lambda e: _clear_ai_conversation(),
-    )
-    ai_folder_select_button = ft.IconButton(
-        icon=ft.Icons.AUTO_AWESOME,
-        icon_color=YELLOW,
-        icon_size=16,
-        tooltip="Sélection IA — analyser les images du dossier et copier les meilleures dans SELECTION/",
-        on_click=lambda e: _ai_analyze_folder_for_selection(),
-    )
+        def toggle_panels_open():
+            if ai_mode["value"] or note_mode["value"]:
+                switch_to_terminal_mode()
+            else:
+                note_target_file["path"] = notes_file_path
+                load_notes()
+                note_mode["value"] = True
+                ai_mode["value"]   = True
+                terminal_output.visible  = False
+                terminal_cmd_row.visible = False
+                update_overlay_visibility()
+                terminal_output.update()
+                terminal_cmd_row.update()
+                try:
+                    page.update()
+                except Exception:
+                    pass
 
-    ai_fullscreen_btn = ft.IconButton(
-        icon=ft.Icons.FULLSCREEN,
-        icon_color=BLUE,
-        icon_size=16,
-        tooltip="IA seule (prend la place de l'apps_list + terminal) / Restaurer les deux panneaux",
-        on_click=lambda e: toggle_ai_fullscreen(),
-    )
 
-    ai_panel_header = ft.Row([
-        ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=14),
-        ft.Text("IA", color=BLUE, size=11, weight=ft.FontWeight.BOLD),
-        ft.Container(width=4),
-        ai_model_dropdown,
-        ft.Container(width=4),
-        ai_status_text,
-        ai_stop_button,
-        ai_folder_select_button,
-        ai_image_size_button,
-        ai_image_mode_label,
-        ai_clear_button,
-        ai_speaker_button,
-        ft.Container(expand=True),
-        ai_fullscreen_btn,
-    ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        bottom_panel_container = ft.Container(
+            content=ft.Stack([
+                ft.Row([
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Column([
+                                terminal_output,
+                                app_progress_bar,
+                                terminal_cmd_row,
+                            ], spacing=4, expand=True),
+                            ft.Column([
+                                expand_button_terminal,
+                                ft.IconButton(
+                                    icon=ft.Icons.COPY_ALL,
+                                    tooltip="Copier le terminal",
+                                    on_click=lambda e: copy_terminal_to_clipboard(),
+                                    icon_color=BLUE,
+                                    icon_size=16,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.CLEAR_ALL,
+                                    tooltip="Effacer le terminal",
+                                    on_click=clear_terminal,
+                                    icon_color=RED,
+                                    icon_size=16,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.SEND,
+                                    icon_color=GREEN,
+                                    icon_size=16,
+                                    tooltip="Envoyer la commande",
+                                    on_click=on_terminal_command_submit,
+                                ),
+                            ], alignment=ft.MainAxisAlignment.END, spacing=0),
+                        ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+                        expand=True,
+                        border=ft.Border.all(1, GREEN),
+                        border_radius=8,
+                        bgcolor=DARK,
+                        padding=5,
+                    ),
+                    ft.Row([
+                        favorites_panel,
+                        drives_panel,
+                    ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+                ], spacing=8, expand=True),
+                overlay_container if overlay_container is not None else ft.Container(),
+            ]),
+            height=CONSTANTS.TERMINAL_HEIGHT,
+            bgcolor=BACKGROUND,
+            bottom=0,
+            left=0,
+            right=0,
+        )
+        ai_clear_button = ft.IconButton(
+            icon=ft.Icons.DELETE_SWEEP,
+            icon_color=LIGHT_GREY,
+            icon_size=16,
+            tooltip="Effacer la conversation IA",
+            on_click=lambda e: _clear_ai_conversation(),
+        )
+        ai_folder_select_button = ft.IconButton(
+            icon=ft.Icons.AUTO_AWESOME,
+            icon_color=YELLOW,
+            icon_size=16,
+            tooltip="Sélection IA — analyser les images du dossier et copier les meilleures dans SELECTION/",
+            on_click=lambda e: _ai_analyze_folder_for_selection(),
+        )
+        ai_fullscreen_btn = ft.IconButton(
+            icon=ft.Icons.FULLSCREEN,
+            icon_color=BLUE,
+            icon_size=16,
+            tooltip="IA en plein écran",
+            on_click=lambda e: toggle_ai_true_fullscreen(),
+        )
+        ai_panel_header = ft.Row([
+            ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=14),
+            ft.Text("IA", color=BLUE, size=11, weight=ft.FontWeight.BOLD),
+            ft.Container(width=4),
+            ai_model_dropdown,
+            ft.Container(width=4),
+            ai_status_text,
+            ai_stop_button,
+            ai_folder_select_button,
+            ai_image_size_button,
+            ai_image_mode_label,
+            ai_clear_button,
+            ai_speaker_button,
+            ft.Container(expand=True),
+            ai_fullscreen_btn,
+        ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        ai_panel_container = ft.Container(
+            content=ft.Row([
+                ft.Column([ai_panel_header, ai_container], spacing=4, expand=True),
+                ft.Column([
+                    expand_button_overlay,
+                    ft.IconButton(
+                        icon=ft.Icons.CLOSE,
+                        icon_color=RED,
+                        icon_size=16,
+                        tooltip="Fermer IA & Notes",
+                        on_click=lambda e: switch_to_terminal_mode(),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.COPY_ALL,
+                        icon_color=BLUE,
+                        icon_size=16,
+                        tooltip="Copier la conversation IA",
+                        on_click=lambda e: _export_ai_conversation(to_notepad=False),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.SEND_TO_MOBILE,
+                        icon_color=VIOLET,
+                        icon_size=16,
+                        tooltip="Transférer la conversation vers le bloc-notes",
+                        on_click=lambda e: _export_ai_conversation(to_notepad=True),
+                    ),
+                ], alignment=ft.MainAxisAlignment.END, spacing=0),
+            ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+            expand=True,
+            bgcolor=DARK,
+            border=ft.Border.all(1, BLUE),
+            border_radius=8,
+            padding=5,
+        )
 
-    # En-tête du panneau Notes (droite)
-    notepad_clear_button = ft.IconButton(
-        icon=ft.Icons.DELETE_SWEEP,
-        icon_color=ORANGE,
-        icon_size=16,
-        tooltip="Effacer tout le bloc-notes",
-        on_click=lambda e: _notepad_clear(),
-    )
-
-    notepad_fullscreen_btn = ft.IconButton(
-        icon=ft.Icons.FULLSCREEN,
-        icon_color=VIOLET,
-        icon_size=16,
-        tooltip="Bloc-notes seul (prend la place de l'apps_list + terminal) / Restaurer les deux panneaux",
-        on_click=lambda e: toggle_notepad_fullscreen(),
-    )
-
-    notepad_panel_header = ft.Row([
-        notepad_header_icon,
-        notepad_header_title,
-        notepad_clear_button,
-        ft.Container(expand=True),
-        notepad_fullscreen_btn,
-    ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-
-    overlay_fullscreen = {"mode": None}  # None, "ai", "notepad"
-
-    ai_panel_container = ft.Container(
-        content=ft.Row([
-            ft.Column([ai_panel_header, ai_container], spacing=4, expand=True),
-            ft.Column([
-                expand_button_overlay,
-                ft.IconButton(
-                    icon=ft.Icons.CLOSE,
-                    icon_color=RED,
-                    icon_size=16,
-                    tooltip="Fermer IA & Notes",
-                    on_click=lambda e: switch_to_terminal_mode(),
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.COPY_ALL,
-                    icon_color=BLUE,
-                    icon_size=16,
-                    tooltip="Copier la conversation IA",
-                    on_click=lambda e: _export_ai_conversation(to_notepad=False),
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.SEND_TO_MOBILE,
-                    icon_color=VIOLET,
-                    icon_size=16,
-                    tooltip="Transférer la conversation vers le bloc-notes",
-                    on_click=lambda e: _export_ai_conversation(to_notepad=True),
-                ),
-            ], alignment=ft.MainAxisAlignment.END, spacing=0),
-        ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-        expand=True,
-        bgcolor=DARK,
-        border=ft.Border.all(1, BLUE),
-        border_radius=8,
-        padding=5,
-    )
-
-    notepad_panel_container = ft.Container(
-        content=ft.Row([
-            ft.Column([notepad_panel_header, notepad_container], spacing=4, expand=True),
-            ft.Column([
-                expand_button_notepad,
-                ft.IconButton(
-                    icon=ft.Icons.HOME,
-                    icon_color=VIOLET,
-                    icon_size=16,
-                    tooltip="Charger la note par défaut (.notes.md)",
-                    on_click=lambda e: switch_to_note(),
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.VISIBILITY,
-                    icon_color=LIGHT_GREY,
-                    icon_size=16,
-                    tooltip="Prévisualiser en Markdown",
-                    on_click=lambda e: _notepad_toggle_preview(),
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.SAVE_AS,
-                    icon_color=BLUE,
-                    icon_size=16,
-                    tooltip="Sauvegarder les notes sous…",
-                    on_click=lambda e: page.run_task(_notepad_save_as),
-                ),
-            ], alignment=ft.MainAxisAlignment.END, spacing=0),
-        ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-        expand=True,
-        bgcolor=DARK,
-        border=ft.Border.all(1, VIOLET),
-        border_radius=8,
-        padding=5,
-    )
+        notepad_clear_button = ft.IconButton(
+            icon=ft.Icons.DELETE_SWEEP,
+            icon_color=ORANGE,
+            icon_size=16,
+            tooltip="Effacer tout le bloc-notes",
+            on_click=lambda e: _notepad_clear(),
+        )
+        notepad_fullscreen_btn = ft.IconButton(
+            icon=ft.Icons.FULLSCREEN,
+            icon_color=VIOLET,
+            icon_size=16,
+            tooltip="Bloc-notes en plein écran",
+            on_click=lambda e: toggle_notepad_true_fullscreen(),
+        )
+        notepad_panel_header = ft.Row([
+            notepad_header_icon,
+            notepad_header_title,
+            notepad_clear_button,
+            ft.Container(expand=True),
+            notepad_fullscreen_btn,
+        ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        notepad_panel_container = ft.Container(
+            content=ft.Row([
+                ft.Column([notepad_panel_header, notepad_container], spacing=4, expand=True),
+                ft.Column([
+                    expand_button_notepad,
+                    ft.IconButton(
+                        icon=ft.Icons.HOME,
+                        icon_color=VIOLET,
+                        icon_size=16,
+                        tooltip="Charger la note par défaut (.notes.md)",
+                        on_click=lambda e: switch_to_note(),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.VISIBILITY,
+                        icon_color=LIGHT_GREY,
+                        icon_size=16,
+                        tooltip="Prévisualiser en Markdown",
+                        on_click=lambda e: _notepad_toggle_preview(),
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.SAVE_AS,
+                        icon_color=BLUE,
+                        icon_size=16,
+                        tooltip="Sauvegarder les notes sous…",
+                        on_click=lambda e: page.run_task(_notepad_save_as),
+                    ),
+                ], alignment=ft.MainAxisAlignment.END, spacing=0),
+            ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+            expand=True,
+            bgcolor=DARK,
+            border=ft.Border.all(1, VIOLET),
+            border_radius=8,
+            padding=5,
+        )
 
     overlay_container = ft.Container(
         content=ft.Row([
@@ -7913,6 +8209,12 @@ def main(page: ft.Page):
         bgcolor=BACKGROUND,
         left=0, right=0, top=0, bottom=0,
     )
+
+    if bottom_panel_container is not None:
+        try:
+            bottom_panel_container.content.controls[1] = overlay_container
+        except Exception:
+            pass
 
     # ── Spacer et conteneur solo (mode pleine hauteur gauche) ─────────────────
     # _terminal_spacer : réserve la hauteur du terminal dans la colonne principale.
@@ -7930,25 +8232,52 @@ def main(page: ft.Page):
     )
     _solo_left_state["container"] = _solo_left_container
 
+    def _expanded_terminal_height():
+        """Calcule une hauteur terminal étendue robuste même pendant un resize/maximize."""
+        win_h = page.window.height or CONSTANTS.WINDOW_HEIGHT
+        return max(CONSTANTS.TERMINAL_HEIGHT, int(win_h - CONSTANTS.WDA_HEIGHT))
+
     def _enter_solo_mode(panel_container, mode_name, do_update=True):
         """Bascule un panneau en mode solo pleine hauteur à gauche."""
         overlay_fullscreen["mode"] = mode_name
-        # Repositionner bottom_panel_container en colonne gauche pleine hauteur.
-        # On ne déplace pas les widgets (reparenting rompt les événements Flet).
-        win_w = page.window.width or CONSTANTS.WINDOW_WIDTH
-        bottom_panel_container.width  = int((win_w - 8) * 6 / 15 + 4)
+        # Repositionner le panneau du bas selon le mode.
+        if mode_name in ("ai_full", "notepad_full"):
+            # Plein écran réel (moins WDA), conserve la preview en dessous.
+            bottom_panel_container.width = None
+            bottom_panel_container.left = 0
+            bottom_panel_container.right = 0
+        else:
+            # Mode colonne gauche avec preview_list visible à droite.
+            win_w = page.window.width or CONSTANTS.WINDOW_WIDTH
+            bottom_panel_container.width = int((win_w - 8) * 6 / 15 + 4)
+            bottom_panel_container.left = 0
+            bottom_panel_container.right = None
         bottom_panel_container.top    = 0
-        bottom_panel_container.right  = None
         bottom_panel_container.height = None
         # Masquer le panneau inactif ; l'actif reste dans overlay_container
-        ai_panel_container.visible      = (mode_name == "ai")
-        notepad_panel_container.visible = (mode_name == "notepad")
-        overlay_container.visible = True
+        if ai_panel_container is not None:
+            ai_panel_container.visible = (mode_name in ("ai", "ai_full"))
+        if notepad_panel_container is not None:
+            notepad_panel_container.visible = (mode_name in ("notepad", "notepad_full"))
+        if overlay_container is not None:
+            overlay_container.visible = True
         _terminal_spacer.height = 0
-        # Mettre à jour le bouton du panneau actif pour indiquer « réduire »
-        _active_btn = ai_fullscreen_btn if mode_name == "ai" else notepad_fullscreen_btn
-        _active_btn.icon    = ft.Icons.FULLSCREEN_EXIT
-        _active_btn.tooltip = "Réduire / Revenir aux deux panneaux"
+        # Mettre à jour les boutons plein écran (header IA / Notes)
+        if mode_name == "ai_full":
+            ai_fullscreen_btn.icon = ft.Icons.FULLSCREEN_EXIT
+            ai_fullscreen_btn.tooltip = "Quitter le plein écran IA"
+            notepad_fullscreen_btn.icon = ft.Icons.FULLSCREEN
+            notepad_fullscreen_btn.tooltip = "Bloc-notes en plein écran"
+        elif mode_name == "notepad_full":
+            notepad_fullscreen_btn.icon = ft.Icons.FULLSCREEN_EXIT
+            notepad_fullscreen_btn.tooltip = "Quitter le plein écran Bloc-notes"
+            ai_fullscreen_btn.icon = ft.Icons.FULLSCREEN
+            ai_fullscreen_btn.tooltip = "IA en plein écran"
+        else:
+            ai_fullscreen_btn.icon = ft.Icons.FULLSCREEN
+            ai_fullscreen_btn.tooltip = "IA en plein écran"
+            notepad_fullscreen_btn.icon = ft.Icons.FULLSCREEN
+            notepad_fullscreen_btn.tooltip = "Bloc-notes en plein écran"
         if do_update:
             page.update()
 
@@ -7958,20 +8287,23 @@ def main(page: ft.Page):
         # Restaurer bottom_panel_container en barre de fond
         bottom_panel_container.top    = None
         bottom_panel_container.right  = 0
+        bottom_panel_container.left   = 0
         bottom_panel_container.width  = None
         bottom_panel_container.height = (
-            page.window.height - CONSTANTS.WDA_HEIGHT
+            _expanded_terminal_height()
             if terminal_is_expanded["value"]
             else CONSTANTS.TERMINAL_HEIGHT
         )
-        ai_panel_container.visible      = True
-        notepad_panel_container.visible = True
+        if ai_panel_container is not None:
+            ai_panel_container.visible = True
+        if notepad_panel_container is not None:
+            notepad_panel_container.visible = True
         _terminal_spacer.height = CONSTANTS.TERMINAL_HEIGHT
         # Restaurer les deux boutons à leur icône d'origine
         ai_fullscreen_btn.icon    = ft.Icons.FULLSCREEN
-        ai_fullscreen_btn.tooltip = "IA seule (prend la place de l'apps_list + terminal) / Restaurer les deux panneaux"
+        ai_fullscreen_btn.tooltip = "IA en plein écran"
         notepad_fullscreen_btn.icon    = ft.Icons.FULLSCREEN
-        notepad_fullscreen_btn.tooltip = "Bloc-notes seul (prend la place de l'apps_list + terminal) / Restaurer les deux panneaux"
+        notepad_fullscreen_btn.tooltip = "Bloc-notes en plein écran"
         if do_update:
             page.update()
 
@@ -7995,14 +8327,35 @@ def main(page: ft.Page):
         else:
             _enter_solo_mode(notepad_panel_container, "notepad")
 
+    def toggle_ai_true_fullscreen():
+        """Plein écran réel IA (moins WDA)."""
+        if overlay_fullscreen["mode"] == "ai_full":
+            _exit_solo_mode()
+        elif overlay_fullscreen["mode"] in ("ai", "notepad", "notepad_full"):
+            _exit_solo_mode(do_update=False)
+            _enter_solo_mode(ai_panel_container, "ai_full")
+        else:
+            _enter_solo_mode(ai_panel_container, "ai_full")
+
+    def toggle_notepad_true_fullscreen():
+        """Plein écran réel Bloc-notes (moins WDA)."""
+        if overlay_fullscreen["mode"] == "notepad_full":
+            _exit_solo_mode()
+        elif overlay_fullscreen["mode"] in ("notepad", "ai", "ai_full"):
+            _exit_solo_mode(do_update=False)
+            _enter_solo_mode(notepad_panel_container, "notepad_full")
+        else:
+            _enter_solo_mode(notepad_panel_container, "notepad_full")
+
     def update_overlay_visibility():
         """Affiche ou masque l'overlay (IA à gauche + Notes à droite)."""
         panels_are_open = ai_mode["value"] or note_mode["value"]
         # Nettoyage du mode solo si les panneaux se ferment
-        if not panels_are_open and overlay_fullscreen["mode"] in ("ai", "notepad"):
+        if not panels_are_open and overlay_fullscreen["mode"] in ("ai", "notepad", "ai_full", "notepad_full"):
             # Restaurer bottom_panel_container au mode normal
             bottom_panel_container.top    = None
             bottom_panel_container.right  = 0
+            bottom_panel_container.left   = 0
             bottom_panel_container.width  = None
             bottom_panel_container.height = CONSTANTS.TERMINAL_HEIGHT
             ai_panel_container.visible      = True
@@ -8013,111 +8366,53 @@ def main(page: ft.Page):
             overlay_fullscreen["mode"] = None
             ai_panel_container.visible = True
             notepad_panel_container.visible = True
-        open_panels_button.icon       = ft.Icons.SMART_TOY
-        open_panels_button.icon_color = RED if panels_are_open else BLUE
-        open_panels_button.tooltip    = "Fermer IA & Notes" if panels_are_open else "Ouvrir IA & Bloc-notes"
-
-    open_panels_button = ft.IconButton(
-        icon=ft.Icons.SMART_TOY,
-        tooltip="Ouvrir IA & Bloc-notes",
-        icon_color=BLUE,
-        icon_size=16,
-        on_click=lambda e: toggle_panels_open(),
-    )
-
-    def toggle_panels_open():
-        if ai_mode["value"] or note_mode["value"]:
-            switch_to_terminal_mode()
-        else:
-            note_target_file["path"] = notes_file_path
-            load_notes()
-            note_mode["value"] = True
-            ai_mode["value"]   = True
-            terminal_output.visible  = False
-            terminal_cmd_row.visible = False
-            update_overlay_visibility()
-            terminal_output.update()
-            terminal_cmd_row.update()
+        if open_panels_button is not None:
+            open_panels_button.icon       = ft.Icons.SMART_TOY
+            open_panels_button.icon_color = RED if panels_are_open else BLUE
+            open_panels_button.tooltip    = "Fermer IA & Notes" if panels_are_open else "Ouvrir IA & Bloc-notes"
+        open_panels_card = open_panels_card_state["control"]
+        if open_panels_card is not None:
+            open_panels_card.bgcolor = GREY
+            open_panels_card.border = ft.Border.all(1, RED if panels_are_open else BLUE)
+            title_control = open_panels_card_state["title"]
+            caption_control = open_panels_card_state["caption"]
+            if title_control is not None:
+                title_control.color = RED if panels_are_open else BLUE
+            if caption_control is not None:
+                caption_control.color = RED if panels_are_open else BLUE
             try:
-                page.update()
+                if open_panels_button is not None:
+                    open_panels_button.update()
+                if title_control is not None:
+                    title_control.update()
+                if caption_control is not None:
+                    caption_control.update()
+                open_panels_card.update()
             except Exception:
                 pass
 
-    bottom_panel_container = ft.Container(
-        content=ft.Stack([
-            ft.Row([
-                ft.Container(
-                    content=ft.Row([
-                        ft.Column([
-                            terminal_output,
-                            app_progress_bar,
-                            terminal_cmd_row,
-                        ], spacing=4, expand=True),
-                        ft.Column([
-                            expand_button_terminal,
-                            open_panels_button,
-                            ft.IconButton(
-                                icon=ft.Icons.COPY_ALL,
-                                tooltip="Copier le terminal",
-                                on_click=lambda e: copy_terminal_to_clipboard(),
-                                icon_color=BLUE,
-                                icon_size=16,
-                            ),
-                            ft.IconButton(
-                                icon=ft.Icons.CLEAR_ALL,
-                                tooltip="Effacer le terminal",
-                                on_click=clear_terminal,
-                                icon_color=RED,
-                                icon_size=16,
-                            ),
-                            ft.IconButton(
-                                icon=ft.Icons.SEND,
-                                icon_color=GREEN,
-                                icon_size=16,
-                                tooltip="Envoyer la commande",
-                                on_click=on_terminal_command_submit,
-                            ),
-                        ], alignment=ft.MainAxisAlignment.END, spacing=0),
-                    ], spacing=4, expand=True, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-                    expand=True,
-                    border=ft.Border.all(1, GREEN),
-                    border_radius=8,
-                    bgcolor=DARK,
-                    padding=5,
-                ),
-                ft.Row([
-                    favorites_panel,
-                    drives_panel,
-                ], expand=True, spacing=8, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-            ], spacing=8, expand=True),
-            overlay_container,
-        ]),
-        height=CONSTANTS.TERMINAL_HEIGHT,
-        bgcolor=BACKGROUND,
-        bottom=0,
-        left=0,
-        right=0,
-    )
-
     def toggle_terminal_overlay():
+        if overlay_fullscreen["mode"] in ("ai", "notepad", "ai_full", "notepad_full"):
+            return
         terminal_is_expanded["value"] = not terminal_is_expanded["value"]
         is_expanded = terminal_is_expanded["value"]
-        bottom_panel_container.height = page.window.height - CONSTANTS.WDA_HEIGHT if is_expanded else CONSTANTS.TERMINAL_HEIGHT
+        bottom_panel_container.height = _expanded_terminal_height() if is_expanded else CONSTANTS.TERMINAL_HEIGHT
         new_icon    = ft.Icons.EXPAND_MORE if is_expanded else ft.Icons.EXPAND_LESS
         new_tooltip = "Réduire  (Ctrl+↑)" if is_expanded else "Agrandir  (Ctrl+↑)"
-        for expand_button in (expand_button_terminal, expand_button_overlay, expand_button_notepad):
+        for expand_button in (expand_button_terminal,):
             expand_button.icon    = new_icon
             expand_button.tooltip = new_tooltip
         page.update()
         # Réaffirmer la visibilité de l'overlay après le page.update() pour éviter
         # que Flet ne la réinitialise à sa valeur initiale (False) lors du re-render.
         if ai_mode["value"] or note_mode["value"]:
-            overlay_container.visible = True
-            overlay_container.update()
+            if overlay_container is not None:
+                overlay_container.visible = True
+                overlay_container.update()
 
     expand_button_terminal.on_click = lambda e: toggle_terminal_overlay()
-    expand_button_overlay.on_click  = lambda e: toggle_terminal_overlay()
-    expand_button_notepad.on_click  = lambda e: toggle_terminal_overlay()
+    expand_button_overlay.on_click  = lambda e: toggle_ai_fullscreen()
+    expand_button_notepad.on_click  = lambda e: toggle_notepad_fullscreen()
 
     def _open_bluetooth():
         if not _strip_state["active"]:
@@ -8234,7 +8529,7 @@ def main(page: ft.Page):
                     icon_color=BLUE,
                     bgcolor=GREY,
                     tooltip="Rafraîchir (Ctrl+R)",
-                    on_click=lambda e: refresh_preview(force_reload=True),
+                    on_click=lambda e: run_refresh_preview_command(),
                 ),
                 ft.IconButton(
                     icon=ft.Icons.OPEN_IN_NEW,
@@ -8417,6 +8712,10 @@ def main(page: ft.Page):
     if CONSTANTS.MAXIMIZED:
         async def _delayed_maximize():
             await asyncio.sleep(0.15)
+            if platform.system() == "Darwin":
+                page.window.maximized = False
+                page.update()
+                await asyncio.sleep(0.05)
             page.window.maximized = True
             page.update()
         page.run_task(_delayed_maximize)

@@ -1,6 +1,6 @@
 ﻿# -*- coding: utf-8 -*-
 """
-Recadrage.pyw — Outil de recadrage photo interactif (Flet / PIL)
+Recadrage manuel.pyw — Outil de recadrage photo interactif (Flet / PIL)
 ================================================================
 
 Application de bureau multi-plateforme permettant de recadrer des photos
@@ -42,10 +42,10 @@ Espace              : ignorer l'image courante et passer à la suivante
 Tab                 : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.7.1"
+__version__ = "2.7.2"
 
 # ==============================================================================
-# TABLE DES MATIÈRES — Recadrage.pyw
+# TABLE DES MATIÈRES — Recadrage manuel.pyw
 # ==============================================================================
 # 1. IMPORTS & CONFIGURATION ...................................... ~L 70
 # 2. COULEURS ..................................................... ~L 100
@@ -85,7 +85,7 @@ import shutil
 import platform
 import re
 import time
-from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageCms
+from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageCms, ImageDraw
 import asyncio
 import contextlib
 import math
@@ -1078,35 +1078,77 @@ class PhotoCropper:
         exactement à ce que l'export peut produire, évitant tout bord blanc.
         """
 
-        # Couverture réelle en pixels écran — identique à l'export (_compute_crop_with_canvas)
-        border_safety_factor = (1.0 + 2.0 / min(self.original_width, self.original_height)
-                 if (self.original_width > 4 and self.original_height > 4) else 1.0)
-        effective_width  = self.base_scale * self.original_width * self.scale * border_safety_factor
-        effective_height = self.base_scale * self.original_height * self.scale * border_safety_factor
-
-        if self.rotation != 0:
+        # En mode crop, impose un zoom minimal dépendant de la rotation pour
+        # garantir que le canevas reste toujours entièrement couvert.
+        if not getattr(self, "is_fit_in", False) and hasattr(self, "original_width"):
+            border_safety_factor = (
+                1.0 + 2.0 / min(self.original_width, self.original_height)
+                if (self.original_width > 4 and self.original_height > 4)
+                else 1.0
+            )
+            base_effective_w = self.base_scale * self.original_width * border_safety_factor
+            base_effective_h = self.base_scale * self.original_height * border_safety_factor
             rotation_radians = math.radians(self.rotation)
             cos_angle = abs(math.cos(rotation_radians))
             sin_angle = abs(math.sin(rotation_radians))
-            rotated_width  = effective_width * cos_angle + effective_height * sin_angle
-            rotated_height = effective_width * sin_angle + effective_height * cos_angle
-        else:
-            rotated_width  = effective_width
-            rotated_height = effective_height
+            required_width = self.canvas_w * cos_angle + self.canvas_h * sin_angle
+            required_height = self.canvas_w * sin_angle + self.canvas_h * cos_angle
+            min_scale_for_rotation = max(
+                required_width / max(base_effective_w, 1e-6),
+                required_height / max(base_effective_h, 1e-6),
+                1.0,
+            )
+            if self.scale < min_scale_for_rotation:
+                self.scale = min_scale_for_rotation
 
-        horizontal_overflow = rotated_width - self.canvas_w
-        if horizontal_overflow < 0.5:
-            self.offset_x = 0
-        else:
-            max_horizontal_offset = horizontal_overflow / 2
-            self.offset_x = min(max_horizontal_offset, max(-max_horizontal_offset, self.offset_x))
+        # Couverture réelle en pixels écran — identique à l'export (_compute_crop_with_canvas)
+        border_safety_factor = (
+            1.0 + 2.0 / min(self.original_width, self.original_height)
+            if (self.original_width > 4 and self.original_height > 4)
+            else 1.0
+        )
+        effective_width = self.base_scale * self.original_width * self.scale * border_safety_factor
+        effective_height = self.base_scale * self.original_height * self.scale * border_safety_factor
 
-        vertical_overflow = rotated_height - self.canvas_h
-        if vertical_overflow < 0.5:
-            self.offset_y = 0
+        # Clamp robuste en rotation : on borne les offsets dans le repère local
+        # de l'image tournée, puis on reconvertit dans le repère écran.
+        rotation_radians = math.radians(self.rotation)
+        cos_rotation = math.cos(rotation_radians)
+        sin_rotation = math.sin(rotation_radians)
+
+        half_canvas_width = self.canvas_w / 2.0
+        half_canvas_height = self.canvas_h / 2.0
+        half_image_width = effective_width / 2.0
+        half_image_height = effective_height / 2.0
+
+        projected_half_canvas_x = (
+            abs(cos_rotation) * half_canvas_width
+            + abs(sin_rotation) * half_canvas_height
+        )
+        projected_half_canvas_y = (
+            abs(sin_rotation) * half_canvas_width
+            + abs(cos_rotation) * half_canvas_height
+        )
+
+        max_local_offset_x = half_image_width - projected_half_canvas_x
+        max_local_offset_y = half_image_height - projected_half_canvas_y
+
+        # Offsets courants exprimés dans le repère local de l'image.
+        local_offset_x = cos_rotation * self.offset_x + sin_rotation * self.offset_y
+        local_offset_y = -sin_rotation * self.offset_x + cos_rotation * self.offset_y
+
+        if max_local_offset_x <= 0.0:
+            local_offset_x = 0.0
         else:
-            max_vertical_offset = vertical_overflow / 2
-            self.offset_y = min(max_vertical_offset, max(-max_vertical_offset, self.offset_y))
+            local_offset_x = min(max_local_offset_x, max(-max_local_offset_x, local_offset_x))
+
+        if max_local_offset_y <= 0.0:
+            local_offset_y = 0.0
+        else:
+            local_offset_y = min(max_local_offset_y, max(-max_local_offset_y, local_offset_y))
+
+        self.offset_x = cos_rotation * local_offset_x - sin_rotation * local_offset_y
+        self.offset_y = sin_rotation * local_offset_x + cos_rotation * local_offset_y
 
 
 
@@ -1152,13 +1194,19 @@ class PhotoCropper:
         
 
 
-        # Réinitialiser les valeurs de transformation
+        # Réinitialiser les valeurs de transformation (zoom + rotation + offsets)
         self.scale = 1.0
+        self.rotation = 0.0
         self.offset_x = 0.0
         self.offset_y = 0.0
         if hasattr(self, 'zoom_slider'):
             self.zoom_slider.value = 1.0
             self.zoom_slider.label = "1.00×"
+            self.zoom_slider.update()
+        if hasattr(self, 'rotation_slider'):
+            self.rotation_slider.value = 0.0
+            self.rotation_slider.label = "0.00°"
+            self.rotation_slider.update()
 
         path = self.image_paths[self.current_index]
 
@@ -2106,23 +2154,48 @@ class PhotoCropper:
     #              RENDU (HISTOGRAMME & APERÇU)                       #
     # ================================================================ #
     def _render_histogram(self, preview_img):
-        """Génère un histogramme RGB et met à jour ``self.histogram_image``."""
+        """Génère un histogramme de luminance (N&B) lisible pour l'exposition."""
 
         histogram_width, histogram_height = RIGHT_COL_WIDTH, HISTOGRAM_HEIGHT
-        pixel_array = np.array(preview_img.convert("RGB"), dtype=np.uint8)
-        pixel_array = pixel_array[::4, ::4]  # sous-échantillonnage pour la vitesse
-        histogram_canvas = np.full((histogram_height, histogram_width, 3), (30, 30, 38), dtype=np.int32)
-        channel_colors = np.array([[80, 20, 20], [20, 70, 20], [20, 20, 80]], dtype=np.int32)
-        row_index_array = np.arange(histogram_height)[:, np.newaxis]  # (H, 1)
-        for channel_index in range(3):
-            pixel_counts, _ = np.histogram(pixel_array[..., channel_index], bins=histogram_width, range=(0, 256))
-            max_pixel_count = max(int(pixel_counts.max()), 1)
-            bar_heights = np.clip((pixel_counts * histogram_height // max_pixel_count), 0, histogram_height).astype(int)
-            bar_start_row = histogram_height - bar_heights[np.newaxis, :]  # (1, W)
-            colored_mask = row_index_array >= bar_start_row                 # (H, W)
-            histogram_canvas += colored_mask[:, :, np.newaxis] * channel_colors[channel_index]
-        histogram_canvas = np.clip(histogram_canvas, 0, 255).astype(np.uint8)
-        histogram_pil_image = Image.fromarray(histogram_canvas, "RGB")
+        luminance_array = np.asarray(preview_img.convert("L"), dtype=np.uint8)
+
+        # Histogramme réel 256 bins (0..255) sur l'image affichée.
+        counts_256 = np.bincount(luminance_array.ravel(), minlength=256)[:256].astype(np.float32)
+
+        # Remap 256 bins -> largeur du widget sans interpolation continue,
+        # pour ne pas inventer de valeurs dans des zones vides.
+        if histogram_width < 256:
+            counts = np.zeros(histogram_width, dtype=np.float32)
+            mapped_x = (np.arange(256, dtype=np.int32) * histogram_width) // 256
+            mapped_x = np.clip(mapped_x, 0, histogram_width - 1)
+            np.add.at(counts, mapped_x, counts_256)
+        elif histogram_width > 256:
+            mapped_x = np.round(np.linspace(0, 255, histogram_width)).astype(np.int32)
+            counts = counts_256[mapped_x]
+        else:
+            counts = counts_256.copy()
+
+        # Échelle robuste : limite l'impact d'un pic extrême pour mieux lire
+        # les valeurs intermédiaires, tout en gardant un histogramme intuitif.
+        peak_reference = max(float(np.percentile(counts, 99.9)), 1.0)
+        heights = np.clip((counts / peak_reference) * (histogram_height - 1), 0, histogram_height - 1)
+
+        histogram_image = Image.new("RGBA", (histogram_width, histogram_height), (20, 20, 26, 255))
+        draw = ImageDraw.Draw(histogram_image, "RGBA")
+        baseline_y = histogram_height - 1
+        # Tronque le bruit visuel de fond: les barres trop faibles sont ignorées.
+        min_visible_height_px = 2.0
+        for x in range(histogram_width):
+            if counts[x] <= 0:
+                continue
+            if float(heights[x]) < min_visible_height_px:
+                continue
+            top_y = baseline_y - int(round(float(heights[x])))
+            top_y = max(0, min(baseline_y, top_y))
+            draw.line([(x, baseline_y), (x, top_y)], fill=(235, 235, 235, 220), width=1)
+            draw.point((x, top_y), fill=(248, 248, 248, 245))
+
+        histogram_pil_image = histogram_image.convert("RGB")
         png_buffer = io.BytesIO()
         histogram_pil_image.save(png_buffer, format="PNG")
         self.histogram_image.src = "data:image/png;base64," + base64.b64encode(png_buffer.getvalue()).decode()
@@ -2133,7 +2206,7 @@ class PhotoCropper:
 
 
 
-    def _render_preview(self):
+    def _render_preview(self, *, update_histogram: bool = True):
         """
         Génère et affiche la prévisualisation dans le canvas Flet.
 
@@ -2245,7 +2318,8 @@ class PhotoCropper:
         preview_image.save(jpeg_buffer, format="JPEG", quality=70)
         self.image_display.src = "data:image/jpeg;base64," + base64.b64encode(jpeg_buffer.getvalue()).decode()
         self.image_display.update()
-        self._render_histogram(preview_image)
+        if update_histogram:
+            self._render_histogram(preview_image)
 
 
 
@@ -2340,6 +2414,9 @@ class PhotoCropper:
                 self.zoom_slider.label = f"{self.scale:.2f}×"
                 self.zoom_slider.update()
         self._clamp_offsets()
+        self.zoom_slider.value = min(self.scale, self.zoom_slider.max)
+        self.zoom_slider.label = f"{self.scale:.2f}×"
+        self.zoom_slider.update()
         self._update_transform()
 
 
@@ -2383,6 +2460,9 @@ class PhotoCropper:
             return
         self._last_rotation_render = now
         self._clamp_offsets()
+        self.zoom_slider.value = min(self.scale, self.zoom_slider.max)
+        self.zoom_slider.label = f"{self.scale:.2f}×"
+        self.zoom_slider.update()
         self._update_transform()
 
 
@@ -2392,8 +2472,9 @@ class PhotoCropper:
 
         if not self.image_paths or not hasattr(self, 'original_width'):
             return
-        self._render_preview()
-        self.page.update()
+        # Rotation = transform géométrique uniquement : ne pas relancer le rendu PIL.
+        self._clamp_offsets()
+        self._update_transform()
 
 
 
@@ -2421,6 +2502,9 @@ class PhotoCropper:
             return
         self._last_zoom_render = now
         self._clamp_offsets()
+        e.control.value = min(self.scale, e.control.max)
+        e.control.label = f"{self.scale:.2f}×"
+        e.control.update()
         self._update_transform()
 
 
@@ -2430,9 +2514,9 @@ class PhotoCropper:
 
         if not self.image_paths or not hasattr(self, 'original_width'):
             return
+        # Zoom = transform géométrique uniquement : ne pas relancer le rendu PIL.
         self._clamp_offsets()
-        self._render_preview()
-        self.page.update()
+        self._update_transform()
 
     # ================================================================ #
     #              RÉINITIALISATIONS & SLIDERS                        #
@@ -2474,8 +2558,6 @@ class PhotoCropper:
         if not self.image_paths or not hasattr(self, 'original_width'):
             return
         self._update_transform()
-        self._render_preview()
-        self.page.update()
         self._set_status("Zoom réinitialisé à 1× et pan réinitialisé")
 
 
@@ -4236,14 +4318,14 @@ def main(page: ft.Page):
             pass
 
     app.custom_w_field = ft.TextField(
-        label="Largeur (mm)", value="100", width=105,
+        label="Largeur", value="100", width=105,
         text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
         border_color=BLUE, bgcolor=BG,
         disabled=True,
         on_submit=_on_custom_dim_change, on_blur=_on_custom_dim_change,
     )
     app.custom_h_field = ft.TextField(
-        label="Hauteur (mm)", value="100", width=105,
+        label="Hauteur", value="100", width=105,
         text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
         border_color=BLUE, bgcolor=BG,
         disabled=True,
@@ -4256,7 +4338,7 @@ def main(page: ft.Page):
     )
 
     app.custom_mode_switch = ft.Switch(
-        label="Format personnalisé (mm)",
+        label="Taille manuelle",
         value=False,
         active_color=BLUE,
     )

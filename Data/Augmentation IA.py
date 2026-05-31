@@ -52,7 +52,7 @@ sont téléchargés dans ``~/.cache/enhance_id/`` au premier usage (~350 Mo au t
 
 """
 
-__version__ = "2.7.1"
+__version__ = "2.7.2"
 
 ###############################################################
 #                         IMPORTS                             #
@@ -74,7 +74,7 @@ import asyncio
 import math
 import urllib.request
 import importlib.util
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageOps
 import numpy as np
 
 # Détection de disponibilité sans import lourd (torch ≈ 2-5 s, rembg ≈ 1-2 s)
@@ -478,6 +478,11 @@ async def main(page: ft.Page) -> None:
         "sam2_threshold":    0.0,     # seuil de binarisation du masque
         # Inpainting
         "inpaint_radius":    20,        # Rayon TELEA (inpaintRadius)
+        # Aperçu central
+        "preview_max_size":   (1800, 1200),  # (largeur, hauteur) de rendu de l'aperçu
+        "preview_view_size":  (1800, 1200),  # (largeur, hauteur) du viewport SAM2
+        "sam2_source_size":   None,          # (largeur, hauteur) de l'image source rendue dans le preview
+        "sam2_render_box":    None,          # (x, y, w, h) de l'image dans le canvas preview
     }
 
     # Sessions rembg (une par modèle pour éviter le rechargement)
@@ -502,7 +507,7 @@ async def main(page: ft.Page) -> None:
     # ---- Zone de prévisualisation ---- #
     preview_img = ft.Image(
         src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
-        fit=ft.BoxFit.FILL,    # taille fixe contrôlée par width/height
+        fit=ft.BoxFit.CONTAIN,  # conserve les proportions pour un vrai zoom visuel
         gapless_playback=True,
         visible=False,
     )
@@ -521,15 +526,30 @@ async def main(page: ft.Page) -> None:
             page.update()
             return
         orig = state["orig_img"]
-        pw, ph = preview_size
+        view_w, view_h = preview_size
+        src_w, src_h = state.get("sam2_source_size") or orig.size
+        render_box = state.get("sam2_render_box")
+        if render_box is None:
+            render_w = view_w
+            render_h = view_h
+            offset_x = 0.0
+            offset_y = 0.0
+        else:
+            offset_x, offset_y, render_w, render_h = render_box
         _pos = getattr(e, "local_position", None)
         if _pos is None:
             sam2_status.value = "⚠️ Événement invalide — réessayez"
             page.update()
             return
         ox, oy = _pos.x, _pos.y
-        img_x = int(ox / pw * orig.width)
-        img_y = int(oy / ph * orig.height)
+        if ox < offset_x or oy < offset_y or ox > offset_x + render_w or oy > offset_y + render_h:
+            sam2_status.value = "Cliquez dans l'image affichée, pas dans la marge"
+            page.update()
+            return
+        rel_x = (ox - offset_x) / max(render_w, 1e-6)
+        rel_y = (oy - offset_y) / max(render_h, 1e-6)
+        img_x = int(rel_x * orig.width)
+        img_y = int(rel_y * orig.height)
         img_x = max(0, min(img_x, orig.width  - 1))
         img_y = max(0, min(img_y, orig.height - 1))
         state["sam2_points"].append((img_x, img_y, label))
@@ -675,10 +695,17 @@ async def main(page: ft.Page) -> None:
         on_secondary_tap_down=_on_preview_secondary_tap,
         mouse_cursor=ft.MouseCursor.CELL if SAM2_AVAILABLE else ft.MouseCursor.BASIC,
     )
-    # Wrapper centré : expand=True pour remplir le panneau,
-    # alignment pour centrer le gesture (thumbnail-sized) dans l'espace disponible.
-    preview_centered = ft.Container(
+    preview_viewer = ft.InteractiveViewer(
         content=preview_gesture,
+        constrained=True,
+        min_scale=0.6,
+        max_scale=10.0,
+        pan_enabled=True,
+        scale_enabled=True,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+    )
+    preview_centered = ft.Container(
+        content=preview_viewer,
         expand=True,
         alignment=ft.Alignment(0, 0),
     )
@@ -1007,9 +1034,14 @@ async def main(page: ft.Page) -> None:
         base = state["processed"] if state["processed"] is not None else state["orig_img"]
         if base is None:
             return
-        max_px = state.get("preview_max_px", 700)
-        thumb = base.copy()
-        thumb.thumbnail((max_px, max_px), Image.Resampling.BILINEAR)
+        max_w, max_h = state.get("preview_view_size", state.get("preview_max_size", (1800, 1200)))
+        # Rendu portrait-friendly : la photo garde ses proportions à l'intérieur
+        # d'un canvas plein panneau (constrained InteractiveViewer).
+        thumb = ImageOps.contain(
+            base,
+            (max_w, max_h),
+            method=Image.Resampling.BILINEAR,
+        )
         # Érosion / dilatation au format d'affichage (ne modifie pas state["processed"])
         morph = state["morph_pct"]
         if morph < 0 and state["processed"] is not None and thumb.mode == "RGBA":
@@ -1020,42 +1052,61 @@ async def main(page: ft.Page) -> None:
             scaled_radius = round(min(thumb.size) * morph / 100)
             if scaled_radius > 0:
                 thumb = _dilate_alpha(thumb, scaled_radius)
-        # Mode "avant" retiré
-        if state["bg_blur"] and thumb.mode != "RGBA":
-            display = thumb.convert("RGB")
-        elif state["bg_blur"]:
-            display = apply_background(thumb, None, state["orig_img"])
+        render_w, render_h = thumb.size
+        offset_x = max(0, (max_w - render_w) // 2)
+        offset_y = max(0, (max_h - render_h) // 2)
+        state["sam2_render_box"] = (offset_x, offset_y, render_w, render_h)
+        # Construit un canvas plein panneau, puis on y centre l'image.
+        if state["bg_blur"]:
+            bg = base.convert("RGB").resize((max_w, max_h), Image.Resampling.BILINEAR)
+            bg = bg.filter(ImageFilter.GaussianBlur(radius=64))
+            display = bg.convert("RGBA")
+            pasted = thumb.convert("RGBA") if thumb.mode != "RGBA" else thumb
+            display.paste(pasted, (offset_x, offset_y), pasted.split()[3] if pasted.mode == "RGBA" else None)
+            display = display.convert("RGB")
         elif state["bg_transparent"]:
-            # Damier pour visualiser la transparence
-            rgba = thumb.convert("RGBA")
-            chk = _make_checkerboard(rgba.size)
-            display = Image.alpha_composite(chk, rgba).convert("RGB")
+            chk = _make_checkerboard((max_w, max_h))
+            pasted = thumb.convert("RGBA") if thumb.mode != "RGBA" else thumb
+            chk.paste(pasted, (offset_x, offset_y), pasted.split()[3] if pasted.mode == "RGBA" else None)
+            display = chk.convert("RGB")
         else:
-            display = apply_background(thumb, BG_COLORS[state["bg_color"]], state["orig_img"])
+            display = Image.new("RGB", (max_w, max_h), BG_COLORS[state["bg_color"]])
+            pasted = thumb.convert("RGBA") if thumb.mode != "RGBA" else thumb
+            display_rgba = display.convert("RGBA")
+            display_rgba.paste(pasted, (offset_x, offset_y), pasted.split()[3] if pasted.mode == "RGBA" else None)
+            display = display_rgba.convert("RGB")
         # Superposition du masque SAM2 en aperçu (bleu semi-transparent)
         if state.get("sam2_preview_mask") is not None:
             mask = state["sam2_preview_mask"]
             # Binarisation à 0.5 : évite l'affichage des zones à faible probabilité
             mask_binary = ((mask >= 0.5) * 255).astype(np.uint8)
             mask_img = Image.fromarray(mask_binary, "L")
-            mask_resized = mask_img.resize(display.size, Image.Resampling.NEAREST)
+            mask_resized = mask_img.resize((render_w, render_h), Image.Resampling.NEAREST)
             # Dilatation visuelle : montre en temps réel l'expansion du masque
             dil = max(0.0, state.get("morph_pct", 0))
             if dil > 0:
-                display_dil = max(1, round(min(display.size) * dil / 100))
+                display_dil = max(1, round(min(render_w, render_h) * dil / 100))
                 for _ in range(display_dil):
                     mask_resized = mask_resized.filter(ImageFilter.MaxFilter(3))
-            overlay_rgba = Image.new("RGBA", display.size, (69, 184, 245, 180))
-            mask_alpha = mask_resized.point(lambda p: 180 if p > 0 else 0)
+            # Flou des bords du masque pour éviter les contours trop nets
+            feather_radius = max(1.0, min(render_w, render_h) * CONSTANTS.SAM2_MASK_FEATHER_RATIO)
+            mask_resized = mask_resized.filter(ImageFilter.GaussianBlur(radius=feather_radius))
+            overlay_rgba = Image.new("RGBA", (render_w, render_h), (69, 184, 245, 180))
+            # On garde la valeur réelle (0-255) pour un alpha progressif aux bords
+            mask_alpha = mask_resized.point(lambda p: round(p * 180 / 255))
             overlay_rgba.putalpha(mask_alpha)
-            display = Image.alpha_composite(display.convert("RGBA"), overlay_rgba).convert("RGB")
+            if display.mode != "RGBA":
+                display = display.convert("RGBA")
+            display.paste(overlay_rgba, (offset_x, offset_y), overlay_rgba.split()[3])
+            display = display.convert("RGB")
         preview_img.src = f"data:image/jpeg;base64,{image_to_b64(display)}"
-        # Taille explicite : le GestureDetector aura exactement ces dimensions,
-        # donc e.local_position est directement en pixels thumbnail.
-        tw, th = display.size
-        preview_img.width  = tw
-        preview_img.height = th
-        state["sam2_preview_size"] = display.size  # (w, h) identique
+        # Le widget occupe la taille du viewport ; le contenu est centré dedans.
+        view_w, view_h = state.get("preview_view_size", display.size)
+        preview_img.width  = view_w
+        preview_img.height = view_h
+        preview_img.expand = True
+        state["sam2_preview_size"] = (view_w, view_h)
+        state["sam2_source_size"] = base.size
         preview_img.visible = True
         preview_placeholder.visible = False
         save_btn.disabled = state["processed"] is None
@@ -1096,6 +1147,8 @@ async def main(page: ft.Page) -> None:
             state["sam2_points"].clear()
             state["sam2_preview_size"] = None
             state["sam2_preview_mask"] = None
+            state["sam2_source_size"] = img.size
+            state["sam2_render_box"] = None
 
             process_btn.text    = "Supprimer le fond (IA)"
             process_btn.bgcolor = VIOLET if REMBG_AVAILABLE else GREY
@@ -2100,11 +2153,12 @@ async def main(page: ft.Page) -> None:
         # e.width/e.height sont fournis par Flet lors d'un resize réel
         w = int(getattr(e, 'width', None) or page.width or 1200)
         h = int(getattr(e, 'height', None) or page.height or 800)
-        new_max = max(400, min(w - 320, h - 100))
-        state["preview_max_px"] = new_max
+        state["preview_view_size"] = (
+            max(640, w - 380),
+            max(480, h - 120),
+        )
         if state["orig_img"] is not None:
             _render_preview()
-            page.update()
 
     page.on_resized = _on_page_resize
     _on_page_resize()  # valeur initiale (fenoêtre non encore maximisée)
@@ -2255,21 +2309,28 @@ async def main(page: ft.Page) -> None:
     # sont déjà dans le cache Inductor ou si aucun modèle n'est présent).
     await _run_compile_warmup()
 
-    if all_images:
-        asyncio.create_task(_load_image(0))
-    else:
-        status_text.value = f"Aucune image trouvée dans : {source_folder}"
-        page.update()
-
-
-    # ── Mettre la fenêtre en plein écran ────────────────────────────────────────────────
-    async def _maximize():
+    # ── Démarrage : maximiser d'abord, puis charger l'image ──────────────────────────────
+    async def _startup():
+        # 1. Maximiser la fenêtre et attendre qu'elle ait vraiment changé de taille
+        pre_w = page.window.width or 0
         page.window.maximized = True
         page.update()
-        await asyncio.sleep(0.25)  # laisse le layout se stabiliser
-        _on_page_resize()  # recalcule et re-rend la preview à la bonne taille
+        for _ in range(40):
+            await asyncio.sleep(0.1)
+            if (page.window.width or 0) != pre_w:
+                break
+        # Sur macOS l'animation de maximisation dure ~400 ms après le changement de taille
+        await asyncio.sleep(0.5)
+        _on_page_resize()           # preview_view_size = dimensions plein écran
 
-    page.run_task(_maximize)
+        # 2. Charger la première image maintenant que le viewport est correct
+        if all_images:
+            await _load_image(0)
+        else:
+            status_text.value = f"Aucune image trouvée dans : {source_folder}"
+            page.update()
+
+    page.run_task(_startup)
 
 ###############################################################
 #                        POINT D'ENTRÉE                       #
