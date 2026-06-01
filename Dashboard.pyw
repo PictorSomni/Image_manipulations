@@ -806,6 +806,7 @@ def main(page: ft.Page):
 
     dashboard_window_cycle_config = {
         "SidePanel.pyw": {"restore_previous_maximized_state": True},
+        "kiosk_flet.pyw": {"restore_previous_maximized_state": True},
         "Comparaison.pyw": {"restore_previous_maximized_state": True},
         "Recadrage manuel.pyw": {"restore_previous_maximized_state": True},
         "Augmentation IA.py": {"restore_previous_maximized_state": True},
@@ -963,26 +964,25 @@ def main(page: ft.Page):
 
 
     def _launch_kiosk_flet():
-        """Lance kiosk_flet.pyw, minimise Dashboard, puis le restaure à la fermeture."""
+        """Lance kiosk_flet.pyw avec le cycle fenêtre standard (comme SidePanel)."""
+        cycle_options = _get_dashboard_window_cycle_options("kiosk_flet.pyw") or {}
         folder = current_browse_folder["path"] or selected_folder["path"] or ""
-        env = {**os.environ}
-        if folder:
-            env["FOLDER_PATH"] = folder
-        env["TARIFF_TYPE"] = kiosk_tariff["value"]
+        env = {
+            **os.environ,
+            "FOLDER_PATH": folder,
+            "TARIFF_TYPE": kiosk_tariff["value"],
+        }
         kiosk_path = os.path.join(app_directory, "Data", "kiosk_flet.pyw")
-        proc = subprocess.Popen([sys.executable, kiosk_path], env=env,
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        page.window.minimized = True
-        page.update()
-
-        def _watch():
-            proc.wait()
-            page.window.minimized = False
-            page.window.maximized = True
-            page.update()
-            refresh_preview(reset_page=False)
-
-        threading.Thread(target=_watch, daemon=True).start()
+        _launch_with_dashboard_restore(
+            [sys.executable, kiosk_path],
+            env,
+            restore_previous_maximized_state=bool(cycle_options.get("restore_previous_maximized_state", False)),
+            on_exit_topic="refresh",
+            popen_kwargs={
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+            },
+        )
 
     _kiosk_tariff_label = ft.Text("PRINTS", size=12, color=DARK)
     kiosk_tariff_btn = ft.Button(
