@@ -89,6 +89,11 @@ if _SOURCE_FILES_ENV:
         elif _path.is_file():
             SOURCE_FILES_FROM_DASHBOARD.append(_path)
 
+CONFIRM_DELETE_SELECTED_FROM_DASHBOARD = (
+    bool(SOURCE_FILES_FROM_DASHBOARD)
+    and bool(getattr(CONSTANTS, "TRANSFER_TEMP_CONFIRM_DELETE_SELECTED", False))
+)
+
 # Colors
 DARK       = CONSTANTS.COLOR_DARK
 BG         = CONSTANTS.COLOR_BACKGROUND
@@ -239,45 +244,46 @@ def main(page: ft.Page):
             progress_bar.visible = False
             progress_bar.update()
 
-            # Confirmation avant suppression des fichiers source
-            confirm_event = asyncio.Event()
-            confirm_result = {"delete": False}
+            should_confirm_delete = CONFIRM_DELETE_SELECTED_FROM_DASHBOARD
+            if should_confirm_delete:
+                confirm_event = asyncio.Event()
+                confirm_result = {"delete": False}
 
-            def _do_delete(e):
-                confirm_result["delete"] = True
-                confirm_dialog.open = False
-                page.update()
-                confirm_event.set()
+                def _do_delete(e):
+                    confirm_result["delete"] = True
+                    confirm_dialog.open = False
+                    page.update()
+                    confirm_event.set()
 
-            def _skip_delete(e):
-                confirm_dialog.open = False
-                page.update()
-                confirm_event.set()
+                def _skip_delete(e):
+                    confirm_dialog.open = False
+                    page.update()
+                    confirm_event.set()
 
-            confirm_dialog = ft.AlertDialog(
-                title=ft.Text("Supprimer les fichiers source ?"),
-                content=ft.Text(
-                    f"{total} fichier(s) du dossier source seront définitivement supprimés."
-                ),
-                actions=[
-                    ft.TextButton("Conserver", on_click=_skip_delete),
-                    ft.TextButton(
-                        "Supprimer",
-                        on_click=_do_delete,
-                        style=ft.ButtonStyle(color=ft.Colors.RED),
+                confirm_dialog = ft.AlertDialog(
+                    title=ft.Text("Supprimer les fichiers source ?"),
+                    content=ft.Text(
+                        f"{total} fichier(s) sélectionné(s) seront définitivement supprimés de leur dossier d'origine."
                     ),
-                ],
-            )
-            page.overlay.append(confirm_dialog)
-            confirm_dialog.open = True
-            page.update()
-            await confirm_event.wait()
+                    actions=[
+                        ft.TextButton("Conserver", on_click=_skip_delete),
+                        ft.TextButton(
+                            "Supprimer",
+                            on_click=_do_delete,
+                            style=ft.ButtonStyle(color=ft.Colors.RED),
+                        ),
+                    ],
+                )
+                page.overlay.append(confirm_dialog)
+                confirm_dialog.open = True
+                page.update()
+                await confirm_event.wait()
 
-            if not confirm_result["delete"]:
-                status_text.value = "Suppression annulée — fichiers conservés."
-                status_text.color = ORANGE
-                status_text.update()
-                return
+                if not confirm_result["delete"]:
+                    status_text.value = "Suppression annulée — fichiers conservés."
+                    status_text.color = ORANGE
+                    status_text.update()
+                    return
 
             for source_file in source_files:
                 source_file.unlink()
@@ -342,7 +348,7 @@ def main(page: ft.Page):
     )
 
 
-if LAUNCHED_FROM_DASHBOARD:
+if LAUNCHED_FROM_DASHBOARD and not CONFIRM_DELETE_SELECTED_FROM_DASHBOARD:
     try:
         dest = _resolve_volume_path(DEFAULT_DEST)
         source_files = (

@@ -3953,6 +3953,9 @@ def main(page: ft.Page):
             log_to_terminal("[ATTENTION] Aucune image à imprimer", ORANGE)
             return False
 
+        if not _strip_state["active"]:
+            _toggle_strip()
+
         printed_count = 0
         for file_path in image_files:
             try:

@@ -259,6 +259,7 @@ REMERCIEMENTS_ALPHA   = 0.42   # Opacité filigrane
 # Peut être surchargé via la variable d'environnement DEST_FOLDER.
 
 TEMP_FOLDER = "Z:/temp"
+TRANSFER_TEMP_CONFIRM_DELETE_SELECTED = True   # True = demande confirmation avant suppression des originaux si SOURCE_FILES est fourni par Dashboard
 
 
 # ── 7.2  Nettoyage automatique ────────────────────────────────────────────────
