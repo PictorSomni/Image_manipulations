@@ -874,12 +874,14 @@ class PhotoCropper:
 
 
         # Histogramme miniature
+        self.show_histogram = CONSTANTS.RECADRAGE_SHOW_HISTOGRAM
         self.histogram_image = ft.Image(
             src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
             width=RIGHT_COL_WIDTH,
             height=HISTOGRAM_HEIGHT,
             fit=ft.BoxFit.FILL,
             gapless_playback=True,
+            visible=self.show_histogram,
         )
 
 
@@ -2156,6 +2158,9 @@ class PhotoCropper:
     def _render_histogram(self, preview_img):
         """Génère un histogramme de luminance (N&B) lisible pour l'exposition."""
 
+        if not self.show_histogram:
+            return
+
         histogram_width, histogram_height = RIGHT_COL_WIDTH, HISTOGRAM_HEIGHT
         luminance_array = np.asarray(preview_img.convert("L"), dtype=np.uint8)
 
@@ -2318,7 +2323,7 @@ class PhotoCropper:
         preview_image.save(jpeg_buffer, format="JPEG", quality=70)
         self.image_display.src = "data:image/jpeg;base64," + base64.b64encode(jpeg_buffer.getvalue()).decode()
         self.image_display.update()
-        if update_histogram:
+        if update_histogram and self.show_histogram:
             self._render_histogram(preview_image)
 
 
@@ -4371,7 +4376,6 @@ def main(page: ft.Page):
 
     app.custom_panel = ft.Container(
         content=ft.Column([
-            ft.Text("Dimensions (mm)", size=11, color=BLUE, weight=ft.FontWeight.BOLD),
             app.custom_mode_switch,
             ft.Container(content=app.custom_fields_row, margin=ft.Margin.only(top=8)),
         ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -4380,6 +4384,7 @@ def main(page: ft.Page):
         bgcolor=DARK,
         border_radius=8,
         padding=ft.Padding.symmetric(horizontal=10, vertical=10),
+        height=CONSTANTS.RECADRAGE_CUSTOM_PANEL_HEIGHT,
     )
 
     controls = ft.Column([
@@ -4390,7 +4395,7 @@ def main(page: ft.Page):
                 ft.Divider(height=4),
                 app.format_radio_group,
             ], scroll=ft.ScrollMode.AUTO),
-            height=400,
+            height=CONSTANTS.RECADRAGE_FORMAT_LIST_HEIGHT,
             border=ft.Border.all(1, GREY),
             bgcolor=DARK,
             border_radius=8,
@@ -4413,10 +4418,10 @@ def main(page: ft.Page):
             ], spacing=0),
             height=180,
         ),
-        ft.Divider(height=8),
-        ft.Text("Histogramme", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
+        ft.Divider(height=8, visible=app.show_histogram),
+        ft.Text("Histogramme", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER, visible=app.show_histogram),
         app.histogram_image,
-        ft.Divider(height=4),
+        ft.Divider(height=4, visible=app.show_histogram),
         app.validate_button,
         app.ignore_button
     ], width=RIGHT_COL_WIDTH)

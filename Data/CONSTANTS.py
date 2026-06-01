@@ -171,6 +171,15 @@ FIT_203_FORMATS = [
 PREVIEW_MAX_PIXELS = 1024
 
 
+# ── 5.2  Affichage et hauteurs de panneaux ────────────────────────────────────
+# Désactiver l'histogramme permet de gagner de la place verticale et d'éviter
+# son recalcul pendant les rafraîchissements du preview.
+
+RECADRAGE_SHOW_HISTOGRAM       = True   # Afficher et calculer l'histogramme
+RECADRAGE_FORMAT_LIST_HEIGHT    = 350    # Hauteur de la liste des formats
+RECADRAGE_CUSTOM_PANEL_HEIGHT   = 96     # Hauteur du panneau Dimensions (mm)
+
+
 # ── 5.2  Toggles — états initiaux ─────────────────────────────────────────────
 # Chaque constante correspond à l'état initial d'un toggle (Switch ou bouton).
 

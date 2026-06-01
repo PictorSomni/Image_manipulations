@@ -6283,6 +6283,7 @@ def main(page: ft.Page):
         drives_panel.visible = bool(drives)
         try:
             drives_panel.update()
+            page.update()
         except Exception:
             pass
 
@@ -6293,6 +6294,9 @@ def main(page: ft.Page):
         _rebuild_drives_panel(drives)
 
     page.pubsub.subscribe_topic("drives_changed", _on_drives_changed)
+
+    _rebuild_drives_panel(_initial_drives)
+    threading.Thread(target=_poll_removable_drives, daemon=True).start()
 
 
 
