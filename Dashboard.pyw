@@ -1190,7 +1190,7 @@ def main(page: ft.Page):
                 paste_files(None)
             elif key_upper == "X":
                 cut_selected_files(None)
-        elif e.key in ("Delete", "Backspace"):
+        elif e.key == "Delete" or (e.key == "Backspace" and bool(getattr(e, "meta", False))):
             delete_selected_files(None)
 
     # Activer la gestion des événements clavier
@@ -4015,6 +4015,7 @@ def main(page: ft.Page):
                     else:
                         zip_archive.write(item_path, arcname=os.path.basename(item_path))
             log_to_terminal(f"[OK] Archive créée : {os.path.basename(candidate)}", YELLOW)
+            page.pubsub.send_all_on_topic("deselect", None)
             refresh_preview()
         except Exception as ex:
             log_to_terminal(f"[ERREUR] Zip : {ex}", RED)
@@ -6603,17 +6604,19 @@ def main(page: ft.Page):
                             entries_data.append((name, path, is_dir, is_image, ext))
 
                             # Mémoriser le mtime à chaque scan pour détecter les modifications externes.
-                            # Sur rafraîchissement explicite (force_reload), invalider le cache si le fichier a changé.
+                            # Sur rafraîchissement explicite (force_reload), invalider systématiquement
+                            # les miniatures en mémoire pour refléter les remplacements de fichiers
+                            # sous le même nom dès le prochain rendu.
                             if is_image and not is_dir:
                                 normalized_path = os.path.normpath(path)
                                 try:
                                     current_mtime = entry.stat().st_mtime
                                 except OSError:
                                     continue
-                                stored_mtime = _image_last_mtime.get(normalized_path)
-                                if force_reload and stored_mtime is not None and current_mtime != stored_mtime:
-                                    # Invalider le cache et régénérer la miniature
+                                if force_reload:
+                                    # Invalider le cache visuel local puis régénérer.
                                     _thumb_cache.pop(normalized_path, None)
+                                    _image_cache_busters.pop(normalized_path, None)
                                     new_b64 = thumb_cache.get_or_generate(path)
                                     if new_b64:
                                         _image_cache_busters[normalized_path] = new_b64

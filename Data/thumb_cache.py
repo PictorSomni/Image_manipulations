@@ -47,10 +47,27 @@ CREATE TABLE IF NOT EXISTS thumbs (
     size_px   INTEGER NOT NULL,
     grayscale INTEGER NOT NULL DEFAULT 0,
     mtime     REAL    NOT NULL,
+    mtime_ns  INTEGER NOT NULL DEFAULT 0,
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    ctime_ns  INTEGER NOT NULL DEFAULT 0,
     b64       TEXT    NOT NULL,
     PRIMARY KEY (filename, size_px, grayscale)
 )
 """
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    """Ajoute les colonnes de signature fichier si la DB provient d'une ancienne version."""
+    existing_columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(thumbs)").fetchall()
+    }
+    if "mtime_ns" not in existing_columns:
+        conn.execute("ALTER TABLE thumbs ADD COLUMN mtime_ns INTEGER NOT NULL DEFAULT 0")
+    if "size_bytes" not in existing_columns:
+        conn.execute("ALTER TABLE thumbs ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0")
+    if "ctime_ns" not in existing_columns:
+        conn.execute("ALTER TABLE thumbs ADD COLUMN ctime_ns INTEGER NOT NULL DEFAULT 0")
 
 
 def _get_db_lock(folder_path: str) -> threading.Lock:
@@ -82,6 +99,7 @@ def _open_db(db_path: str) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute(_CREATE_TABLE_SQL)
+    _ensure_schema(conn)
     conn.commit()
     return conn
 
@@ -132,9 +150,14 @@ def get_or_generate(
     grayscale_int = 1 if grayscale else 0
 
     try:
-        mtime = os.path.getmtime(image_path)
+        stat_result = os.stat(image_path)
     except OSError:
         return None
+    mtime = stat_result.st_mtime
+    mtime_ns = getattr(stat_result, "st_mtime_ns", int(mtime * 1_000_000_000))
+    size_bytes = stat_result.st_size
+    ctime = getattr(stat_result, "st_ctime", mtime)
+    ctime_ns = getattr(stat_result, "st_ctime_ns", int(ctime * 1_000_000_000))
 
     lock = _get_db_lock(folder_path)
     db_path = _get_db_path(folder_path)
@@ -145,20 +168,31 @@ def get_or_generate(
                 conn = _open_db(db_path)
                 try:
                     row = conn.execute(
-                        "SELECT mtime, b64 FROM thumbs"
+                        "SELECT mtime, mtime_ns, size_bytes, ctime_ns, b64 FROM thumbs"
                         " WHERE filename=? AND size_px=? AND grayscale=?",
                         (filename, size_px, grayscale_int),
                     ).fetchone()
-                    if row and abs(row[0] - mtime) < 0.5:
-                        return base64.b64decode(row[1])
+                    if row:
+                        row_mtime, row_mtime_ns, row_size, row_ctime_ns, row_b64 = row
+                        # Compatibilité avec anciens enregistrements : si signature absente (0),
+                        # on retombe sur l'ancienne comparaison au mtime.
+                        if row_mtime_ns and row_size and row_ctime_ns:
+                            if (
+                                row_mtime_ns == mtime_ns
+                                and row_size == size_bytes
+                                and row_ctime_ns == ctime_ns
+                            ):
+                                return base64.b64decode(row_b64)
+                        elif abs(row_mtime - mtime) < 0.5:
+                            return base64.b64decode(row_b64)
                     # Absent ou périmé — générer, puis insérer
                     b64 = _generate_b64(image_path, size_px, quality, grayscale)
                     if b64 is not None:
                         conn.execute(
                             "INSERT OR REPLACE INTO thumbs"
-                            "(filename, size_px, grayscale, mtime, b64)"
-                            " VALUES(?,?,?,?,?)",
-                            (filename, size_px, grayscale_int, mtime, b64),
+                            "(filename, size_px, grayscale, mtime, mtime_ns, size_bytes, ctime_ns, b64)"
+                            " VALUES(?,?,?,?,?,?,?,?)",
+                            (filename, size_px, grayscale_int, mtime, mtime_ns, size_bytes, ctime_ns, b64),
                         )
                         conn.commit()
                     return base64.b64decode(b64) if b64 is not None else None
@@ -170,14 +204,14 @@ def get_or_generate(
     # ── Fallback session (dossier en lecture seule) ───────────────────────────
     fallback_key = (folder_path, filename, size_px, grayscale_int)
     if fallback_key in _session_fallback:
-        cached_mtime, cached_bytes = _session_fallback[fallback_key]
-        if abs(cached_mtime - mtime) < 0.5:
+        cached_signature, cached_bytes = _session_fallback[fallback_key]
+        if cached_signature == (mtime_ns, size_bytes, ctime_ns):
             return cached_bytes
 
     b64 = _generate_b64(image_path, size_px, quality, grayscale)
     if b64 is not None:
         image_bytes = base64.b64decode(b64)
-        _session_fallback[fallback_key] = (mtime, image_bytes)
+        _session_fallback[fallback_key] = ((mtime_ns, size_bytes, ctime_ns), image_bytes)
         return image_bytes
     return None
 
@@ -223,14 +257,27 @@ def invalidate_stale(folder_path: str) -> None:
             conn = _open_db(db_path)
             try:
                 rows = conn.execute(
-                    "SELECT DISTINCT filename, mtime FROM thumbs"
+                    "SELECT DISTINCT filename, mtime, mtime_ns, size_bytes, ctime_ns FROM thumbs"
                 ).fetchall()
                 stale_filenames = []
-                for filename, cached_mtime in rows:
+                for filename, cached_mtime, cached_mtime_ns, cached_size, cached_ctime_ns in rows:
                     file_path = os.path.join(folder_path, filename)
                     try:
-                        current_mtime = os.path.getmtime(file_path)
-                        if abs(current_mtime - cached_mtime) >= 0.5:
+                        stat_result = os.stat(file_path)
+                        current_mtime = stat_result.st_mtime
+                        current_mtime_ns = getattr(stat_result, "st_mtime_ns", int(current_mtime * 1_000_000_000))
+                        current_size = stat_result.st_size
+                        ctime = getattr(stat_result, "st_ctime", current_mtime)
+                        current_ctime_ns = getattr(stat_result, "st_ctime_ns", int(ctime * 1_000_000_000))
+
+                        if cached_mtime_ns and cached_size and cached_ctime_ns:
+                            if (
+                                current_mtime_ns != cached_mtime_ns
+                                or current_size != cached_size
+                                or current_ctime_ns != cached_ctime_ns
+                            ):
+                                stale_filenames.append(filename)
+                        elif abs(current_mtime - cached_mtime) >= 0.5:
                             stale_filenames.append(filename)
                     except OSError:
                         stale_filenames.append(filename)  # Fichier disparu
