@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.7.2"
+__version__ = "2.7.3"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -3942,6 +3942,38 @@ def main(page: ft.Page):
 
 
 
+    def _print_files_with_default_app(files: list):
+        """Utilise l'application par défaut de l'OS pour imprimer ou ouvrir les images."""
+        image_files = [
+            file_path for file_path in files
+            if os.path.isfile(file_path)
+            and os.path.splitext(file_path)[1].lower() in CONSTANTS.IMAGE_EXTS
+        ]
+        if not image_files:
+            log_to_terminal("[ATTENTION] Aucune image à imprimer", ORANGE)
+            return False
+
+        printed_count = 0
+        for file_path in image_files:
+            try:
+                if platform.system() == "Windows":
+                    os.startfile(file_path, "print")
+                else:
+                    open_file_with_default_app(file_path)
+                printed_count += 1
+            except Exception as err:
+                log_to_terminal(f"[ERREUR] Impression {os.path.basename(file_path)}: {err}", RED)
+
+        if printed_count:
+            if platform.system() == "Windows":
+                log_to_terminal(f"[OK] Impression lancée pour {printed_count} image(s)", GREEN)
+            else:
+                log_to_terminal(f"[OK] Ouverture dans l'application par défaut pour {printed_count} image(s)", GREEN)
+            return True
+        return False
+
+
+
     # ── Ouvrir avec (menu clic-droit) ─────────────────────────────────
     def _load_open_with_programs() -> list:
         """Charge la liste des programmes depuis open_with.json."""
@@ -4308,6 +4340,11 @@ def main(page: ft.Page):
                 switch_to_ai_mode()
                 clear_selection(None)
 
+            def _print_images(e=None):
+                _close()
+                if _print_files_with_default_app(image_files):
+                    clear_selection(None)
+
             def _show_exif_data(e=None):
                 _close()
                 exif_path = image_files[0]
@@ -4359,6 +4396,11 @@ def main(page: ft.Page):
                     icon=ft.Icons.SMART_TOY, icon_color=BLUE, icon_size=22,
                     tooltip=f"Envoyer à l'IA ({len(image_files)} image{'s' if len(image_files) > 1 else ''})",
                     on_click=_send_images_to_ai,
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.PRINT, icon_color=GREEN, icon_size=22,
+                    tooltip=f"Imprimer ({len(image_files)} image{'s' if len(image_files) > 1 else ''})",
+                    on_click=_print_images,
                 ),
                 ft.IconButton(
                     icon=ft.Icons.ROTATE_LEFT, icon_color=HOVER_YELLOW, icon_size=22,

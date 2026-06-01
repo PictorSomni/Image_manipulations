@@ -47,7 +47,7 @@ toucher aux scripts eux-mêmes.
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.7.2"
+__version__ = "2.7.3"
 
 
 # ==============================================================================
@@ -112,6 +112,7 @@ FORMATS = {
     "13x13"  : (127, 127),
     "13x15"  : (127, 152),
     "13x18"  : (127, 178),
+    "13x20"  : (127, 203),
     "15x20"  : (152, 203),
     "15x15"  : (152, 152),
     "18x24"  : (178, 240),
@@ -175,7 +176,7 @@ PREVIEW_MAX_PIXELS = 1024
 # Désactiver l'histogramme permet de gagner de la place verticale et d'éviter
 # son recalcul pendant les rafraîchissements du preview.
 
-RECADRAGE_SHOW_HISTOGRAM       = True   # Afficher et calculer l'histogramme
+RECADRAGE_SHOW_HISTOGRAM       = False   # Afficher et calculer l'histogramme
 RECADRAGE_FORMAT_LIST_HEIGHT    = 350    # Hauteur de la liste des formats
 RECADRAGE_CUSTOM_PANEL_HEIGHT   = 110     # Hauteur du panneau Dimensions (mm)
 
