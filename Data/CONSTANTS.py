@@ -175,9 +175,9 @@ PREVIEW_MAX_PIXELS = 1024
 # Désactiver l'histogramme permet de gagner de la place verticale et d'éviter
 # son recalcul pendant les rafraîchissements du preview.
 
-RECADRAGE_SHOW_HISTOGRAM       = True   # Afficher et calculer l'histogramme
+RECADRAGE_SHOW_HISTOGRAM       = False   # Afficher et calculer l'histogramme
 RECADRAGE_FORMAT_LIST_HEIGHT    = 350    # Hauteur de la liste des formats
-RECADRAGE_CUSTOM_PANEL_HEIGHT   = 96     # Hauteur du panneau Dimensions (mm)
+RECADRAGE_CUSTOM_PANEL_HEIGHT   = 110     # Hauteur du panneau Dimensions (mm)
 
 
 # ── 5.2  Toggles — états initiaux ─────────────────────────────────────────────

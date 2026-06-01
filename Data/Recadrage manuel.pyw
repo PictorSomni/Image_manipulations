@@ -4571,7 +4571,6 @@ def main(page: ft.Page):
                                             ),
                                             app.grid_switch,
                                         ], horizontal_alignment=ft.CrossAxisAlignment.START, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
-                                        ft.VerticalDivider(width=1, color=LIGHT_GREY),
                                     ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=130),
                                     ft.Divider(height=1, color=GREY),
                                     app._status_row,

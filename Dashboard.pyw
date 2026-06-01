@@ -6295,9 +6295,6 @@ def main(page: ft.Page):
 
     page.pubsub.subscribe_topic("drives_changed", _on_drives_changed)
 
-    _rebuild_drives_panel(_initial_drives)
-    threading.Thread(target=_poll_removable_drives, daemon=True).start()
-
 
 
     def _poll_removable_drives():
@@ -7963,11 +7960,13 @@ def main(page: ft.Page):
     _rebuild_favorites_panel()
     _ai_load_history()
     _initial_drives = _get_removable_drives()
+    _rebuild_drives_panel(_initial_drives)
+    threading.Thread(target=_poll_removable_drives, daemon=True).start()
     overlay_container = None
     ai_panel_container = None
     notepad_panel_container = None
     bottom_panel_container = None
-    if _initial_drives:
+    if _initial_drives is not None:
         def update_overlay_visibility():
             """Affiche ou masque l'overlay (IA à gauche + Notes à droite)."""
             panels_are_open = ai_mode["value"] or note_mode["value"]
