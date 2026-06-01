@@ -4550,6 +4550,18 @@ def main(page: ft.Page):
         """Affiche un lecteur d'image avec PageView swipeable (support écran tactile)."""
         _blank_gif = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
 
+        def _resolve_viewer_image_src(path: str) -> str:
+            """Retourne une source sûre pour la visionneuse plein écran.
+
+            ``_image_cache_busters`` peut contenir une miniature base64 (prévue pour
+            la liste de preview). En plein écran, on force l'image originale dans ce cas.
+            """
+            normalized_path = os.path.normpath(path)
+            cached_value = _image_cache_busters.get(normalized_path)
+            if isinstance(cached_value, str) and cached_value.startswith("data:image"):
+                return path
+            return cached_value if cached_value else path
+
         entries = all_entries_data["list"]
         if show_only_selection["value"]:
             image_paths = [
@@ -4665,9 +4677,7 @@ def main(page: ft.Page):
             if load_index in pages_loaded:
                 return
             path = image_paths[load_index]
-            normalized = os.path.normpath(path)
-            cached = _image_cache_busters.get(normalized)
-            src = cached if cached else path
+            src = _resolve_viewer_image_src(path)
             if load_index in page_image_controls:
                 page_image_controls[load_index].src = src
             pages_loaded.add(load_index)
@@ -4766,9 +4776,7 @@ def main(page: ft.Page):
                 """Met à jour l'image affichée en mode fallback (sans PageView)."""
                 old_idx = state["index"]
                 path = image_paths[new_idx] if image_paths else ""
-                normalized = os.path.normpath(path) if path else ""
-                cached = _image_cache_busters.get(normalized) if normalized else None
-                _fb_img_ctrl.src = cached if cached else path
+                _fb_img_ctrl.src = _resolve_viewer_image_src(path) if path else ""
                 page_image_controls.clear()
                 page_image_controls[new_idx] = _fb_img_ctrl
                 pages_loaded.discard(old_idx)
@@ -4921,9 +4929,7 @@ def main(page: ft.Page):
 
             def _do_rotate():
                 _rotate_files([path], direction)
-                normalized = os.path.normpath(path)
-                cached = _image_cache_busters.get(normalized)
-                src = cached if cached else path
+                src = _resolve_viewer_image_src(path)
                 cur_idx = state["index"]
                 if cur_idx in page_image_controls:
                     page_image_controls[cur_idx].src = src
