@@ -2193,8 +2193,20 @@ def main(page: ft.Page):
 
     def _ai_add_image_bubble(image_path):
         """Affiche une image générée dans le chat IA."""
+        image_src = image_path
+        try:
+            if os.path.isfile(image_path):
+                cached_image = thumb_cache.get_or_generate(image_path)
+                if cached_image:
+                    image_src = cached_image
+                else:
+                    with open(image_path, "rb") as image_file:
+                        image_src = image_file.read()
+        except Exception:
+            image_src = image_path
+
         img_widget = ft.Image(
-            src=image_path,
+            src=image_src,
             width=400,
             border_radius=8,
             fit=ft.BoxFit.CONTAIN,
@@ -2832,7 +2844,11 @@ def main(page: ft.Page):
                                     page.pubsub.send_all_on_topic("refresh", None)
                                 _gi_result = f"Image sauvegardée : {_gi_save_path}"
                                 if _gi_text:
-                                    _gi_result = _gi_text + f"\n\nFichier : {_gi_save_path}"
+                                    _gi_result += (
+                                        "\n\n"
+                                        f"Réponse du service : {_gi_text}\n"
+                                        f"Fichier : {_gi_save_path}"
+                                    )
                                 _turn_events.append(f"✅ Image sauvegardée : {_gi_out_filename}")
                             else:
                                 _gi_result = "[ERREUR] Aucune image n'a été générée/sauvegardée."
@@ -2985,6 +3001,31 @@ def main(page: ft.Page):
                         (_t_name, _result)
                         for (_t_name, _), _result in zip(_tool_tasks, _web_tool_results)
                     ]
+                    _image_tool_results_now = [
+                        str(result)
+                        for name, result in _all_tool_results
+                        if name in ("generate_image", "edit_image")
+                    ]
+                    _image_tool_success_now = any(
+                        "Image sauvegardée :" in result
+                        for result in _image_tool_results_now
+                    )
+                    if _image_tool_success_now:
+                        _saved_result = next(
+                            (result for result in _image_tool_results_now if "Image sauvegardée :" in result),
+                            "",
+                        )
+                        _saved_path = ""
+                        if _saved_result:
+                            _saved_path = _saved_result.split("Image sauvegardée :", 1)[1].splitlines()[0].strip()
+                        _saved_name = os.path.basename(_saved_path) if _saved_path else ""
+                        full_response = (
+                            f"✅ Image générée et sauvegardée : {_saved_name}"
+                            if _saved_name else
+                            "✅ Image générée et sauvegardée."
+                        )
+                        _remove_loading()
+                        break
                     # Mémoriser le dernier résultat list_folder_contents pour
                     # l'auto-création si Gemma refuse d'appeler create_file.
                     for _t_name, _t_result in _all_tool_results:
@@ -3020,7 +3061,8 @@ def main(page: ft.Page):
                             _injected_msg += (
                                 "\n\nL'image demandée a été générée/modifiée et sauvegardée avec succès. "
                                 "La tâche est terminée — réponds à l'utilisateur "
-                                "pour confirmer ce qui a été fait, sans appeler d'autres outils."
+                                "avec une confirmation très courte, sans répéter ni reformuler le prompt image, "
+                                "et sans appeler d'autres outils."
                             )
                         elif _image_tool_failed_tp:
                             _injected_msg += (
@@ -3087,7 +3129,8 @@ def main(page: ft.Page):
                             messages.append({"role": "user", "content": (
                                 "L'image demandée a été générée/modifiée et sauvegardée avec succès. "
                                 "La tâche est terminée — réponds à l'utilisateur "
-                                "pour confirmer ce qui a été fait, sans appeler d'autres outils."
+                                "avec une confirmation très courte, sans répéter ni reformuler le prompt image, "
+                                "et sans appeler d'autres outils."
                             )})
                         elif _image_tool_failed:
                             messages.append({"role": "user", "content": (
@@ -3126,6 +3169,7 @@ def main(page: ft.Page):
                 full_response = ""
             finally:
                 ai_streaming["value"] = False
+                ai_progress_bar.visible = False
                 ai_stop_button.icon_color = LIGHT_GREY
                 ai_status_text.value = ""
                 try:
