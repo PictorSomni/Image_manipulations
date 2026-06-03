@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.7.3"
+__version__ = "2.7.4"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -57,6 +57,7 @@ overlay_fullscreen = {"mode": None}
 #                          IMPORTS                          #
 #############################################################
 import flet as ft
+import flet_code_editor as fce
 import os
 import subprocess
 import sys
@@ -419,18 +420,27 @@ def main(page: ft.Page):
     note_mode            = {"value": False}
     note_target_file     = {"path": notes_file_path}
 
-    notepad_field = ft.TextField(
-        multiline=True,
-        expand=True,
-        min_lines=4,
+    #-------------------- ANCIEN BLOC-NOTES (ft.TextField multiline) --------------------
+    # notepad_field = ft.TextField(
+    #     multiline=True,
+    #     expand=True,
+    #     min_lines=4,
+    #     text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
+    #     color=WHITE,
+    #     border_color=ft.Colors.TRANSPARENT,
+    #     border_radius=6,
+    #     bgcolor=DARK,
+    #     filled=True,
+    #     hint_text="Écrivez vos notes ici…",
+    #     hint_style=ft.TextStyle(color=LIGHT_GREY, italic=True),
+    # )
+    
+    #-------------------- NOUVEAU BLOC-NOTES (fce.CodeEditor avec support Markdown) --------------------
+    notepad_field = fce.CodeEditor(
         text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
-        color=WHITE,
-        border_color=ft.Colors.TRANSPARENT,
-        border_radius=6,
-        bgcolor=DARK,
-        filled=True,
-        hint_text="Écrivez vos notes ici…",
-        hint_style=ft.TextStyle(color=LIGHT_GREY, italic=True),
+        language=fce.CodeLanguage.PYTHON,
+        code_theme=fce.CodeTheme.ATOM_ONE_DARK,
+        expand=True,
     )
     notepad_is_preview       = {"value": False}
     notepad_markdown_preview = ft.Markdown(
@@ -1373,12 +1383,26 @@ def main(page: ft.Page):
 
 
     def load_notes():
-        """Charge le contenu du bloc-notes depuis le fichier cible."""
+        """Charge le contenu du bloc-notes depuis le fichier cible et adapte la coloration syntaxique."""
         # Toujours revenir en mode édition lors du chargement d'un nouveau fichier
         if notepad_is_preview["value"]:
             notepad_is_preview["value"] = False
             notepad_field.visible = True
             notepad_preview_scroll.visible = False
+            
+        # Détection dynamique de l'extension pour appliquer la bonne coloration
+        path = note_target_file.get("path", "")
+        ext = os.path.splitext(path)[1].lower() if path else ""
+        
+        if ext in [".py", ".pyw"]:
+            notepad_field.language = fce.CodeLanguage.PYTHON
+        elif ext == ".json":
+            notepad_field.language = fce.CodeLanguage.JSON
+        elif ext in [".md", ".markdown"]:
+            notepad_field.language = fce.CodeLanguage.MARKDOWN
+        else:
+            notepad_field.language = fce.CodeLanguage.PLAIN_TEXT
+
         try:
             if os.path.exists(note_target_file["path"]):
                 with open(note_target_file["path"], "r", encoding="utf-8") as _f:
@@ -1392,7 +1416,6 @@ def main(page: ft.Page):
             notepad_markdown_preview.value = content
             notepad_preview_scroll.visible = True
             notepad_field.visible = False
-
 
 
     def _open_notepad_ui(title, icon, color, hint):
