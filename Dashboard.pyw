@@ -807,6 +807,7 @@ def main(page: ft.Page):
 
     dashboard_window_cycle_config = {
         "SidePanel.pyw": {"restore_previous_maximized_state": True},
+        "kiosk_flet.pyw": {"restore_previous_maximized_state": True},
         "Comparaison.pyw": {"restore_previous_maximized_state": True},
         "Recadrage manuel.pyw": {"restore_previous_maximized_state": True},
         "Augmentation IA.py": {"restore_previous_maximized_state": True},
@@ -964,26 +965,25 @@ def main(page: ft.Page):
 
 
     def _launch_kiosk_flet():
-        """Lance kiosk_flet.pyw, minimise Dashboard, puis le restaure à la fermeture."""
+        """Lance kiosk_flet.pyw avec le cycle fenêtre standard (comme SidePanel)."""
+        cycle_options = _get_dashboard_window_cycle_options("kiosk_flet.pyw") or {}
         folder = current_browse_folder["path"] or selected_folder["path"] or ""
-        env = {**os.environ}
-        if folder:
-            env["FOLDER_PATH"] = folder
-        env["TARIFF_TYPE"] = kiosk_tariff["value"]
+        env = {
+            **os.environ,
+            "FOLDER_PATH": folder,
+            "TARIFF_TYPE": kiosk_tariff["value"],
+        }
         kiosk_path = os.path.join(app_directory, "Data", "kiosk_flet.pyw")
-        proc = subprocess.Popen([sys.executable, kiosk_path], env=env,
-                                  stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        page.window.minimized = True
-        page.update()
-
-        def _watch():
-            proc.wait()
-            page.window.minimized = False
-            page.window.maximized = True
-            page.update()
-            refresh_preview(reset_page=False)
-
-        threading.Thread(target=_watch, daemon=True).start()
+        _launch_with_dashboard_restore(
+            [sys.executable, kiosk_path],
+            env,
+            restore_previous_maximized_state=bool(cycle_options.get("restore_previous_maximized_state", False)),
+            on_exit_topic="refresh",
+            popen_kwargs={
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+            },
+        )
 
     _kiosk_tariff_label = ft.Text("PRINTS", size=12, color=DARK)
     kiosk_tariff_btn = ft.Button(
@@ -2254,8 +2254,20 @@ def main(page: ft.Page):
 
     def _ai_add_image_bubble(image_path):
         """Affiche une image générée dans le chat IA."""
+        image_src = image_path
+        try:
+            if os.path.isfile(image_path):
+                cached_image = thumb_cache.get_or_generate(image_path)
+                if cached_image:
+                    image_src = cached_image
+                else:
+                    with open(image_path, "rb") as image_file:
+                        image_src = image_file.read()
+        except Exception:
+            image_src = image_path
+
         img_widget = ft.Image(
-            src=image_path,
+            src=image_src,
             width=400,
             border_radius=8,
             fit=ft.BoxFit.CONTAIN,
@@ -2893,7 +2905,11 @@ def main(page: ft.Page):
                                     page.pubsub.send_all_on_topic("refresh", None)
                                 _gi_result = f"Image sauvegardée : {_gi_save_path}"
                                 if _gi_text:
-                                    _gi_result = _gi_text + f"\n\nFichier : {_gi_save_path}"
+                                    _gi_result += (
+                                        "\n\n"
+                                        f"Réponse du service : {_gi_text}\n"
+                                        f"Fichier : {_gi_save_path}"
+                                    )
                                 _turn_events.append(f"✅ Image sauvegardée : {_gi_out_filename}")
                             else:
                                 _gi_result = "[ERREUR] Aucune image n'a été générée/sauvegardée."
@@ -3046,6 +3062,31 @@ def main(page: ft.Page):
                         (_t_name, _result)
                         for (_t_name, _), _result in zip(_tool_tasks, _web_tool_results)
                     ]
+                    _image_tool_results_now = [
+                        str(result)
+                        for name, result in _all_tool_results
+                        if name in ("generate_image", "edit_image")
+                    ]
+                    _image_tool_success_now = any(
+                        "Image sauvegardée :" in result
+                        for result in _image_tool_results_now
+                    )
+                    if _image_tool_success_now:
+                        _saved_result = next(
+                            (result for result in _image_tool_results_now if "Image sauvegardée :" in result),
+                            "",
+                        )
+                        _saved_path = ""
+                        if _saved_result:
+                            _saved_path = _saved_result.split("Image sauvegardée :", 1)[1].splitlines()[0].strip()
+                        _saved_name = os.path.basename(_saved_path) if _saved_path else ""
+                        full_response = (
+                            f"✅ Image générée et sauvegardée : {_saved_name}"
+                            if _saved_name else
+                            "✅ Image générée et sauvegardée."
+                        )
+                        _remove_loading()
+                        break
                     # Mémoriser le dernier résultat list_folder_contents pour
                     # l'auto-création si Gemma refuse d'appeler create_file.
                     for _t_name, _t_result in _all_tool_results:
@@ -3081,7 +3122,8 @@ def main(page: ft.Page):
                             _injected_msg += (
                                 "\n\nL'image demandée a été générée/modifiée et sauvegardée avec succès. "
                                 "La tâche est terminée — réponds à l'utilisateur "
-                                "pour confirmer ce qui a été fait, sans appeler d'autres outils."
+                                "avec une confirmation très courte, sans répéter ni reformuler le prompt image, "
+                                "et sans appeler d'autres outils."
                             )
                         elif _image_tool_failed_tp:
                             _injected_msg += (
@@ -3148,7 +3190,8 @@ def main(page: ft.Page):
                             messages.append({"role": "user", "content": (
                                 "L'image demandée a été générée/modifiée et sauvegardée avec succès. "
                                 "La tâche est terminée — réponds à l'utilisateur "
-                                "pour confirmer ce qui a été fait, sans appeler d'autres outils."
+                                "avec une confirmation très courte, sans répéter ni reformuler le prompt image, "
+                                "et sans appeler d'autres outils."
                             )})
                         elif _image_tool_failed:
                             messages.append({"role": "user", "content": (
@@ -3187,6 +3230,7 @@ def main(page: ft.Page):
                 full_response = ""
             finally:
                 ai_streaming["value"] = False
+                ai_progress_bar.visible = False
                 ai_stop_button.icon_color = LIGHT_GREY
                 ai_status_text.value = ""
                 try:
@@ -4667,6 +4711,18 @@ def main(page: ft.Page):
         """Affiche un lecteur d'image avec PageView swipeable (support écran tactile)."""
         _blank_gif = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
 
+        def _resolve_viewer_image_src(path: str) -> str:
+            """Retourne une source sûre pour la visionneuse plein écran.
+
+            ``_image_cache_busters`` peut contenir une miniature base64 (prévue pour
+            la liste de preview). En plein écran, on force l'image originale dans ce cas.
+            """
+            normalized_path = os.path.normpath(path)
+            cached_value = _image_cache_busters.get(normalized_path)
+            if isinstance(cached_value, str) and cached_value.startswith("data:image"):
+                return path
+            return cached_value if cached_value else path
+
         entries = all_entries_data["list"]
         if show_only_selection["value"]:
             image_paths = [
@@ -4782,9 +4838,7 @@ def main(page: ft.Page):
             if load_index in pages_loaded:
                 return
             path = image_paths[load_index]
-            normalized = os.path.normpath(path)
-            cached = _image_cache_busters.get(normalized)
-            src = cached if cached else path
+            src = _resolve_viewer_image_src(path)
             if load_index in page_image_controls:
                 page_image_controls[load_index].src = src
             pages_loaded.add(load_index)
@@ -4883,9 +4937,7 @@ def main(page: ft.Page):
                 """Met à jour l'image affichée en mode fallback (sans PageView)."""
                 old_idx = state["index"]
                 path = image_paths[new_idx] if image_paths else ""
-                normalized = os.path.normpath(path) if path else ""
-                cached = _image_cache_busters.get(normalized) if normalized else None
-                _fb_img_ctrl.src = cached if cached else path
+                _fb_img_ctrl.src = _resolve_viewer_image_src(path) if path else ""
                 page_image_controls.clear()
                 page_image_controls[new_idx] = _fb_img_ctrl
                 pages_loaded.discard(old_idx)
@@ -5038,9 +5090,7 @@ def main(page: ft.Page):
 
             def _do_rotate():
                 _rotate_files([path], direction)
-                normalized = os.path.normpath(path)
-                cached = _image_cache_busters.get(normalized)
-                src = cached if cached else path
+                src = _resolve_viewer_image_src(path)
                 cur_idx = state["index"]
                 if cur_idx in page_image_controls:
                     page_image_controls[cur_idx].src = src

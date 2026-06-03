@@ -603,7 +603,47 @@ def _folder_tool_definitions(folder_path):
     Retourne [] si folder_path est None ou n'est pas un dossier valide.
     """
     if not folder_path or not _os.path.isdir(folder_path):
-        return []
+        # Autoriser la génération d'image même sans dossier ouvert :
+        # le Dashboard sauvegarde alors dans app_directory/Generated.
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "generate_image",
+                    "description": (
+                        "Génère une image à partir d'un prompt texte avec Nano Banana 2 "
+                        "(gemini-3.1-flash-image-preview). "
+                        "L'image est sauvegardée et affichée dans le chat. "
+                        "Utilise cet outil quand l'utilisateur demande de créer, dessiner ou générer une image."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "prompt": {
+                                "type": "string",
+                                "description": (
+                                    "Description détaillée de l'image à générer. "
+                                    "Plus la description est précise, meilleur est le résultat."
+                                ),
+                            },
+                            "filename": {
+                                "type": "string",
+                                "description": (
+                                    "Nom du fichier de sortie (ex. 'portrait.png'). "
+                                    "Laisser vide pour nommer automatiquement."
+                                ),
+                            },
+                            "aspect_ratio": {
+                                "type": "string",
+                                "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+                                "description": "Format de l'image. Défaut : 1:1.",
+                            },
+                        },
+                        "required": ["prompt"],
+                    },
+                },
+            },
+        ]
     return [
         {
             "type": "function",

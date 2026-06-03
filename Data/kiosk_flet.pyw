@@ -63,6 +63,15 @@ def main(page: ft.Page) -> None:
     C_WHITE      = KIOSK_CONSTANT.COLOR_WHITE
     C_YELLOW     = KIOSK_CONSTANT.COLOR_YELLOW
 
+    def _border_all(width: int | float, color: str) -> ft.Border:
+        """Compatibilité Flet: remplace border.all indisponible sur certaines versions."""
+        side = ft.BorderSide(width, color)
+        return ft.Border(top=side, right=side, bottom=side, left=side)
+
+    def _cleanup_temp_dir() -> None:
+        """Hook de nettoyage conservé pour compatibilité (ancien flux kiosque)."""
+        return
+
     # ── Configuration de la fenêtre ───────────────────────────────────────
     page.title = "Kiosk Photo"
     page.theme_mode = ft.ThemeMode.DARK
@@ -141,7 +150,7 @@ def main(page: ft.Page) -> None:
         card_data["count_text"].value = str(count)
         card_data["count_text"].color = C_GREEN if count > 0 else C_LIGHT_GREY
         card_data["count_text"].update()
-        card_data["card"].border = ft.Border.all(2, C_GREEN if count > 0 else C_GREY)
+        card_data["card"].border = _border_all(2, C_GREEN if count > 0 else C_GREY)
         card_data["card"].update()
 
     def _update_size_buttons() -> None:
@@ -646,7 +655,7 @@ def main(page: ft.Page) -> None:
                 tight=True,
             ),
             bgcolor=C_GREY,
-            border=ft.Border.all(2, C_GREY),
+            border=_border_all(2, C_GREY),
             border_radius=10,
             padding=8,
         )
@@ -1112,14 +1121,21 @@ def main(page: ft.Page) -> None:
         width=KIOSK_CONSTANT.LEFT_PANEL_WIDTH,
     )
 
-    async def _close_window():
-        """Ferme la fenêtre proprement depuis le thread UI."""
+    async def _close_window(event=None):
+        """Bloc de fermeture aligné sur SidePanel pour terminer le process proprement."""
         _cleanup_temp_dir()
         try:
             await page.window.close()
-        except RuntimeError:
+        except Exception:
             pass
-        sys.exit(0)
+        os._exit(0)
+
+    def _on_window_event(event) -> None:
+        if getattr(event, "data", "") == "close":
+            _cleanup_temp_dir()
+            os._exit(0)
+
+    page.window.on_event = _on_window_event
 
     # ── Tableau des tarifs ────────────────────────────────────────────────
     def _show_price_table(e) -> None:
@@ -1138,7 +1154,7 @@ def main(page: ft.Page) -> None:
                     ft.DataColumn(ft.Text("Prix unitaire", color=C_LIGHT_GREY, weight=ft.FontWeight.W_600), numeric=True),
                 ],
                 rows=rows,
-                border=ft.border.all(1, C_GREY),
+                border=_border_all(1, C_GREY),
                 border_radius=8,
                 heading_row_color=C_GREY,
             )
@@ -1157,7 +1173,7 @@ def main(page: ft.Page) -> None:
                     *[ft.DataColumn(ft.Text(lbl, color=C_LIGHT_GREY, weight=ft.FontWeight.W_600), numeric=True) for lbl in tier_labels],
                 ],
                 rows=rows,
-                border=ft.border.all(1, C_GREY),
+                border=_border_all(1, C_GREY),
                 border_radius=8,
                 heading_row_color=C_GREY,
             )

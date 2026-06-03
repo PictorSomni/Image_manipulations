@@ -1102,6 +1102,16 @@ def main(page: ft.Page):
         _prev_keyboard_handler = page.on_keyboard_event
         _blank_gif = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
 
+        def _resolve_fullscreen_source(image_path: str) -> str:
+            """Retourne une source sûre pour le plein écran.
+
+            Si une URI base64 de miniature est fournie par erreur, on force
+            l'utilisation du chemin image original.
+            """
+            if isinstance(image_path, str) and image_path.startswith("data:image"):
+                return _cur()
+            return image_path
+
         def _cur() -> str:
             return image_paths[state["index"]]
 
@@ -1243,7 +1253,7 @@ def main(page: ft.Page):
                 return
             pages_loaded.add(load_index)
             if load_index in page_image_controls:
-                page_image_controls[load_index].src = image_paths[load_index]
+                page_image_controls[load_index].src = _resolve_fullscreen_source(image_paths[load_index])
 
             async def _apply():
                 try:
@@ -1319,7 +1329,7 @@ def main(page: ft.Page):
 
             def _fb_navigate(new_idx: int) -> None:
                 old_idx = state["index"]
-                _fb_img_ctrl.src = image_paths[new_idx] if image_paths else _blank_gif
+                _fb_img_ctrl.src = _resolve_fullscreen_source(image_paths[new_idx]) if image_paths else _blank_gif
                 page_image_controls.clear()
                 page_image_controls[new_idx] = _fb_img_ctrl
                 pages_loaded.discard(old_idx)
