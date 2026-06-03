@@ -4065,11 +4065,30 @@ def main(page: ft.Page):
 
     def _print_files_with_default_app(files: list):
         """Utilise l'application par défaut de l'OS pour imprimer ou ouvrir les images."""
+        files_to_print = list(files) if files else []
+
+        # Si aucun fichier n'est sélectionné, on récupère tous les fichiers du dossier en cours
+        if not files_to_print:
+            active_dir = current_browse_folder["path"] or selected_folder["path"]
+            if active_dir and os.path.isdir(active_dir):
+                try:
+                    files_to_print = [
+                        os.path.join(active_dir, f)
+                        for f in os.listdir(active_dir)
+                        if os.path.isfile(os.path.join(active_dir, f))
+                    ]
+                except Exception as dir_err:
+                    log_to_terminal(f"[ERREUR] Impossible de lister le dossier : {dir_err}", RED)
+                    return False
+
+        # On filtre STRICTEMENT sur les extensions d'images configurées dans CONSTANTS.py
+        # Cela élimine d'office les PDF, dossiers, scripts, zip, etc. !
         image_files = [
-            file_path for file_path in files
+            file_path for file_path in files_to_print
             if os.path.isfile(file_path)
             and os.path.splitext(file_path)[1].lower() in CONSTANTS.IMAGE_EXTS
         ]
+
         if not image_files:
             log_to_terminal("[ATTENTION] Aucune image à imprimer", ORANGE)
             return False
@@ -4120,9 +4139,16 @@ def main(page: ft.Page):
                 print_thread.start()
                 printed_count = len(image_files)
 
+            elif platform.system() == "Darwin":
+                # Sous macOS, on ouvre toutes les images d'un coup dans la même instance (ex: Aperçu)
+                import subprocess
+                subprocess.call(["open"] + image_files)
+                printed_count = len(image_files)
+
             else:
-                # Pour macOS/Linux, on envoie la liste à ton helper existant
-                open_file_with_default_app(image_files)
+                # Pour Linux ou autre, on boucle sur ton helper existant
+                for file_path in image_files:
+                    open_file_with_default_app(file_path)
                 printed_count = len(image_files)
 
         except Exception as err:
@@ -4428,6 +4454,7 @@ def main(page: ft.Page):
                             if _open_files_with(program, files):
                                 clear_selection(None)
                         return _open_with_clicked
+                    
                     def _create_delete_handler(program):
                         def _delete_program_clicked(e):
                             current_programs = _load_open_with_programs()
@@ -4562,7 +4589,7 @@ def main(page: ft.Page):
                     on_click=_send_images_to_ai,
                 ),
                 ft.IconButton(
-                    icon=ft.Icons.PRINT, icon_color=GREEN, icon_size=22,
+                    icon=ft.Icons.PRINT, icon_color=ORANGE, icon_size=22,
                     tooltip=f"Imprimer ({len(image_files)} image{'s' if len(image_files) > 1 else ''})",
                     on_click=_print_images,
                 ),
@@ -8813,6 +8840,14 @@ def main(page: ft.Page):
                     tooltip="Recevoir un fichier via Bluetooth",
                     on_click=lambda e: _open_bluetooth(),
                 ),
+                ft.IconButton(
+                    icon=ft.Icons.PRINT,
+                    icon_color=ORANGE,
+                    bgcolor=GREY,
+                    tooltip="Imprimer les images sélectionnées",
+                    on_click=lambda e: _print_files_with_default_app(selected_files),
+                ),
+
 
                 ft.Container(expand=True),
                 strip_btn,

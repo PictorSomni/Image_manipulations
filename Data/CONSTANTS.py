@@ -60,10 +60,10 @@ IMAGE_EXTS = frozenset({
 })
 NOTEPAD_EXTS = frozenset({
     ".txt", ".md", ".log", ".ini", ".cfg", ".yaml", ".yml",
-    ".rtf", ".py", ".toml", ".sh", ".bat", ".csv",
+    ".rtf", ".py", ".pyw", ".toml", ".sh", ".bat", ".csv",
 })
 AI_DOCUMENT_EXTS = frozenset({
-    ".txt", ".md", ".py", ".js", ".ts", ".json", ".csv", ".xml",
+    ".txt", ".md", ".py", ".pyw", ".js", ".ts", ".json", ".csv", ".xml",
     ".html", ".htm", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".log",
     ".rst", ".pdf", ".docx", ".doc", ".rtf", ".odt",
 })
