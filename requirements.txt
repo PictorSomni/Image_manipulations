@@ -51,3 +51,6 @@ sounddevice>=0.5.0
 
 # Certificats système pour HTTPS (requis par flet, rembg et iopaint)
 pip-system-certs
+
+# Windows : accès aux fonctionnalités spécifiques (ex: notifications, clipboard)
+pywin32

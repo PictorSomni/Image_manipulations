@@ -281,6 +281,7 @@ def main(page: ft.Page):
             pass
 
 
+
     def _resolve_favorite_path(p: str) -> str:
         """Sur macOS, résout /Volumes/NOM vers /Volumes/NOM-1 si nécessaire.
         Cas 1 : NOM n'existe pas → cherche NOM-1, -2…
@@ -1294,6 +1295,8 @@ def main(page: ft.Page):
         except Exception as export_error:
             log_to_terminal(f"[ERREUR] Export bloc-notes : {export_error}", RED)
 
+
+
     def _notepad_clear():
         """Efface tout le contenu du bloc-notes (sans sauvegarder)."""
         notepad_field.value = ""
@@ -1306,6 +1309,8 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+
+
     def _prepare_notepad_markdown(text: str) -> str:
         """Prépare le texte brut pour l'affichage Markdown en préservant les sauts
         de ligne : deux espaces en fin de ligne non vide (force <br>), et &nbsp;
@@ -1317,6 +1322,8 @@ def main(page: ft.Page):
             else:
                 processed_lines.append(line + "  ")
         return "\n".join(processed_lines)
+
+
 
     def _notepad_toggle_preview():
         """Bascule entre édition et prévisualisation Markdown du bloc-notes."""
@@ -1334,6 +1341,8 @@ def main(page: ft.Page):
             page.update()
         except Exception:
             pass
+
+
 
     def save_notes():
         """Sauvegarde le contenu du bloc-notes dans le fichier cible."""
@@ -1361,6 +1370,8 @@ def main(page: ft.Page):
                 os._exit(0)
             page.run_task(_restart_async)
 
+
+
     def load_notes():
         """Charge le contenu du bloc-notes depuis le fichier cible."""
         # Toujours revenir en mode édition lors du chargement d'un nouveau fichier
@@ -1381,6 +1392,8 @@ def main(page: ft.Page):
             notepad_markdown_preview.value = content
             notepad_preview_scroll.visible = True
             notepad_field.visible = False
+
+
 
     def _open_notepad_ui(title, icon, color, hint):
         """Affiche la zone bloc-notes (+ IA) avec le titre et la couleur donnés."""
@@ -1407,10 +1420,14 @@ def main(page: ft.Page):
                 pass
         page.run_task(_focus_note)
 
+
+
     def switch_to_note():
         """Bascule la zone bas en mode bloc-notes (fichier .notes.md)."""
         note_target_file["path"] = notes_file_path
         _open_notepad_ui("Notes", ft.Icons.EDIT_NOTE, VIOLET, "Écrivez vos notes ici…")
+
+
 
     def switch_to_options():
         """Bascule la zone bas en mode édition CONSTANTS.py."""
@@ -1418,11 +1435,15 @@ def main(page: ft.Page):
         _open_notepad_ui("CONSTANTS.py", ft.Icons.TUNE, ORANGE, "Modifiez les constantes ici…")
         return
 
+
+
     def open_file_in_notepad(file_path):
         """Ouvre un fichier texte dans le bloc-notes intégré et affiche le panneau."""
         note_target_file["path"] = file_path
         title = os.path.basename(file_path)
         _open_notepad_ui(title, ft.Icons.DESCRIPTION, VIOLET, "")
+
+
 
     def _create_and_open_info_txt(e=None):
         """Crée INFO.txt dans le dossier courant (si inexistant) et l'ouvre dans le bloc-notes."""
@@ -1440,6 +1461,8 @@ def main(page: ft.Page):
                 return
             refresh_preview(reset_page=False)
         open_file_in_notepad(file_path)
+
+
 
     # ── Intelligence artificielle ──────────────────────────────────────
     def switch_to_ai_mode():
@@ -1480,6 +1503,8 @@ def main(page: ft.Page):
                 pass
         page.run_task(_focus_ai)
 
+
+
     def _clear_ai_conversation():
         """Efface l'historique de la conversation IA et supprime le fichier .ai_conversation.json."""
         ai_conversation.clear()
@@ -1495,6 +1520,8 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+
+
     def _ai_save_history():
         """Sauvegarde ai_conversation dans .ai_conversation.json."""
         try:
@@ -1508,6 +1535,8 @@ def main(page: ft.Page):
                 json.dump(serializable, history_file, ensure_ascii=False, indent=2)
         except Exception:
             pass
+
+
 
     def _ai_load_history():
         """Charge .ai_conversation.json dans ai_conversation et reconstruit ai_chat_view."""
@@ -1588,6 +1617,8 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+
+
     def _export_ai_conversation(to_notepad=False, event=None):
         """Copie la conversation IA dans le presse-papiers, et la transfère dans le bloc-notes si demandé."""
         if not ai_conversation:
@@ -1611,6 +1642,8 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
+
+
     def _ai_stop_model():
         """Libère le modèle chargé en RAM via `ollama stop`."""
         def _run_stop():
@@ -1629,6 +1662,8 @@ def main(page: ft.Page):
             except Exception:
                 pass
         threading.Thread(target=_run_stop, daemon=True).start()
+
+
 
     # ── Gestion des images jointes ────────────────────────────────────
     def _ai_refresh_attach_row():
@@ -1696,6 +1731,8 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+
+
     def _ai_attach_image(image_path, use_original=None):
         """Encode une image en base64 (optimisé ou taille réelle) et l'ajoute aux pièces jointes."""
         # Vérifier si déjà jointe
@@ -1746,11 +1783,15 @@ def main(page: ft.Page):
                 "Vérifiez AI_MODEL_VISION dans CONSTANTS.py.",
             )
 
+
+
     def _ai_remove_image(image_entry):
         """Retire une image des pièces jointes en attente."""
         if image_entry in ai_pending_images:
             ai_pending_images.remove(image_entry)
         _ai_refresh_attach_row()
+
+
 
     # ── Extensions reconnues comme documents ───────────────────────────
     _AI_DOCUMENT_EXTS = CONSTANTS.AI_DOCUMENT_EXTS
@@ -1762,11 +1803,15 @@ def main(page: ft.Page):
         ai_pending_files.append(file_path)
         _ai_refresh_attach_row()
 
+
+
     def _ai_remove_file(file_entry):
         """Retire un document des pièces jointes en attente."""
         if file_entry in ai_pending_files:
             ai_pending_files.remove(file_entry)
         _ai_refresh_attach_row()
+
+
 
     def _ai_extract_file_content(file_path):
         """
@@ -1803,6 +1848,8 @@ def main(page: ft.Page):
         with open(file_path, "r", encoding="utf-8", errors="replace") as text_file:
             return name, text_file.read()
 
+
+
     async def _ai_pick_any():
         """Ouvre un sélecteur de fichier pour joindre une image ou un document."""
         _image_exts_pick = {"jpg", "jpeg", "png", "gif", "bmp", "webp"}
@@ -1825,6 +1872,8 @@ def main(page: ft.Page):
                     else:
                         _ai_attach_document_file(picked_file.path)
 
+
+
     def ai_send_selected_images(e=None):
         """Joint les fichiers image et document sélectionnés dans la preview à la conversation IA."""
         image_exts = CONSTANTS.IMAGE_EXTS
@@ -1846,6 +1895,8 @@ def main(page: ft.Page):
             _ai_attach_document_file(file_path)
         total = len(image_paths) + len(file_paths)
         log_to_terminal(f"[IA] {total} fichier(s) joint(s)", BLUE)
+
+
 
     def _ensure_ollama_ready(model_name=None):
         """
@@ -1958,6 +2009,8 @@ def main(page: ft.Page):
 
         return True
 
+
+
     def _clean_file_content(raw_content):
         """
         Retire les artefacts de raisonnement inline de Gemma (chain-of-thought)
@@ -2015,6 +2068,8 @@ def main(page: ft.Page):
         result = _re_cfc.sub(r'\n{3,}', '\n\n', '\n'.join(clean_lines))
         return result.strip()
 
+
+
     def _md_dark(text: str) -> str:
         """Remplace les blockquotes Markdown (fond bleu clair de Flutter)
         par un équivalent lisible sur thème sombre."""
@@ -2028,6 +2083,8 @@ def main(page: ft.Page):
             else:
                 result.append(line)
         return "\n".join(result)
+
+
 
     def _speak_bubble(text, force_chunked=False):
         """Lit un texte via Gemini TTS.
@@ -2108,6 +2165,8 @@ def main(page: ft.Page):
             if is_current_tts:
                 ai_tts_stop_event["event"] = None
                 _set_tts_feedback("", False)
+
+
 
     def _ai_add_bubble(role, text):
         """Ajoute un message dans le panneau IA et retourne le contrôle (pour le streaming)."""
@@ -2190,6 +2249,8 @@ def main(page: ft.Page):
                 pass
         page.run_task(_update_and_scroll)
         return bubble_text
+
+
 
     def _ai_add_image_bubble(image_path):
         """Affiche une image générée dans le chat IA."""
@@ -3143,7 +3204,11 @@ def main(page: ft.Page):
 
         threading.Thread(target=_run, daemon=True).start()
 
+
+
     # ── Sélection IA du dossier ───────────────────────────────────────────────
+
+
 
     def _copy_to_selection_folder(folder_path, filenames):
         """
@@ -3171,6 +3236,8 @@ def main(page: ft.Page):
             except Exception as copy_exc:
                 errors.append(f"{filename} : {copy_exc}")
         return selection_dir, copied_count, errors
+
+
 
     def _ai_analyze_folder_for_selection():
         """Affiche la boîte de dialogue de critères et lance la sélection IA du dossier."""
@@ -3247,6 +3314,8 @@ def main(page: ft.Page):
             await asyncio.sleep(0.15)
             await criteria_field.focus()
         page.run_task(_focus_criteria)
+
+
 
     def _ai_folder_select_run(folder_path, criteria_text):
         """Thread : traite toutes les images par lots, mise à jour live de la bulle de progression."""
@@ -3691,6 +3760,8 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
+
+
     def _on_ai_submit():
         """Récupère le texte saisi, vide le champ et envoie le message à l'IA."""
         message_text = ai_input_field.value.strip()
@@ -3708,6 +3779,8 @@ def main(page: ft.Page):
         page.run_task(_refocus_ai)
         _send_ai_message(message_text)
 
+
+
     def _toggle_tts():
         """Active ou désactive la lecture vocale des réponses IA."""
         ai_tts_enabled["value"] = not ai_tts_enabled["value"]
@@ -3719,6 +3792,8 @@ def main(page: ft.Page):
             ai_speaker_button.update()
         except Exception:
             pass
+
+
 
     def _toggle_ai_image_size_mode():
         """Bascule entre envoi optimisé (1024px) et taille réelle pour les images IA."""
@@ -3739,6 +3814,8 @@ def main(page: ft.Page):
             pass
         mode_label = "taille réelle" if use_original else "optimisé (1024px max)"
         log_to_terminal(f"[INFO] Envoi images IA : {mode_label}", LIGHT_GREY)
+
+
 
     def switch_to_terminal_mode():
         """Sauvegarde les notes/quitte l'IA et revient au terminal."""
@@ -3957,19 +4034,59 @@ def main(page: ft.Page):
             _toggle_strip()
 
         printed_count = 0
-        for file_path in image_files:
-            try:
-                if platform.system() == "Windows":
-                    os.startfile(file_path, "print")
-                else:
-                    open_file_with_default_app(file_path)
-                printed_count += 1
-            except Exception as err:
-                log_to_terminal(f"[ERREUR] Impression {os.path.basename(file_path)}: {err}", RED)
+        try:
+            if platform.system() == "Windows":
+                # Imports dynamiques pour le thread et COM
+                try:
+                    import win32com.client
+                    import pythoncom
+                except ImportError:
+                    log_to_terminal(
+                        "[ERREUR] Le module 'pywin32' est requis pour l'impression groupée sous Windows.\n"
+                        "Lance : pip install pywin32", 
+                        RED
+                    )
+                    return False
+
+                # On définit la fonction qui va s'exécuter en tâche de fond
+                def _run_wia_wizard(paths):
+                    # Initialisation de COM obligatoire pour ce nouveau thread
+                    pythoncom.CoInitialize()
+                    try:
+                        wia_dialog = win32com.client.Dispatch("WIA.CommonDialog")
+                        wia_vector = win32com.client.Dispatch("WIA.Vector")
+                        for file_path in paths:
+                            abs_path = os.path.abspath(file_path)
+                            wia_vector.Add(abs_path)
+                        
+                        # Cet appel va bloquer son propre thread, mais pas l'interface de l'app !
+                        wia_dialog.ShowPhotoPrintingWizard(wia_vector)
+                    except Exception as thread_err:
+                        log_to_terminal(f"[ERREUR] Assistant d'impression : {thread_err}", RED)
+                    finally:
+                        # Libération propre des ressources COM pour ce thread
+                        pythoncom.CoUninitialize()
+
+                # On lance le thread en mode "daemon" pour qu'il ne bloque pas la fermeture de l'app
+                print_thread = threading.Thread(
+                    target=_run_wia_wizard, 
+                    args=(image_files,), 
+                    daemon=True
+                )
+                print_thread.start()
+                printed_count = len(image_files)
+
+            else:
+                # Pour macOS/Linux, on envoie la liste à ton helper existant
+                open_file_with_default_app(image_files)
+                printed_count = len(image_files)
+
+        except Exception as err:
+            log_to_terminal(f"[ERREUR] Impression : {err}", RED)
 
         if printed_count:
             if platform.system() == "Windows":
-                log_to_terminal(f"[OK] Impression lancée pour {printed_count} image(s)", GREEN)
+                log_to_terminal(f"[OK] Assistant d'impression lancé en arrière-plan pour {printed_count} image(s)", GREEN)
             else:
                 log_to_terminal(f"[OK] Ouverture dans l'application par défaut pour {printed_count} image(s)", GREEN)
             return True
@@ -5112,6 +5229,8 @@ def main(page: ft.Page):
         )
         _launch_side_panel({"SELECTEUR_JSON_PATH": file_path})
 
+
+
     def on_file_click(file_path, is_dir):
         """
         Gère le clic sur un élément de la preview.
@@ -5246,6 +5365,7 @@ def main(page: ft.Page):
         page.overlay.append(dialog)
         dialog.open = True
         page.update()
+
 
 
     def create_new_folder(e):
@@ -5463,6 +5583,7 @@ def main(page: ft.Page):
             return datetime.date.fromtimestamp(os.path.getmtime(file_path))
         except OSError:
             return None
+
 
 
     def select_same_date(e):
@@ -5728,6 +5849,8 @@ def main(page: ft.Page):
                     log_to_terminal(f"[OK] {renamed_count} fichier(s) renommé(s) avec le préfixe 1X_", GREEN)
                     page.pubsub.send_all_on_topic("refresh", None)
 
+
+
     def _increment_print_count(file_path):
         """Incrémente le compteur d'impressions de façon réactive et débouncée."""
         if file_path in _live_print_counts:
@@ -5763,6 +5886,8 @@ def main(page: ft.Page):
         timer = threading.Timer(1.5, _apply_print_rename, args=(file_path, new_count))
         _print_rename_timers[file_path] = timer
         timer.start()
+
+
 
     def _decrement_print_count(file_path):
         """Décrémente le compteur d'impressions de façon réactive et débouncée."""
@@ -5829,6 +5954,7 @@ def main(page: ft.Page):
         selection_count_text.value = _selection_label()
         _update_select_toggle_button()
         selection_count_text.update()
+
 
 
     def _update_visible_checkboxes():
@@ -5987,6 +6113,8 @@ def main(page: ft.Page):
         search_query["value"] = typed_text
         preview_page["value"] = 0
         _render_preview_page()
+
+
 
     def _clear_search(e):
         """Efface la recherche et restaure tous les fichiers."""
@@ -8294,6 +8422,8 @@ def main(page: ft.Page):
         win_h = page.window.height or CONSTANTS.WINDOW_HEIGHT
         return max(CONSTANTS.TERMINAL_HEIGHT, int(win_h - CONSTANTS.WDA_HEIGHT))
 
+
+
     def _enter_solo_mode(panel_container, mode_name, do_update=True):
         """Bascule un panneau en mode solo pleine hauteur à gauche."""
         overlay_fullscreen["mode"] = mode_name
@@ -8344,6 +8474,8 @@ def main(page: ft.Page):
         if do_update:
             page.update()
 
+
+
     def _exit_solo_mode(do_update=True):
         """Restaure le mode deux panneaux depuis le mode solo."""
         overlay_fullscreen["mode"] = None
@@ -8374,6 +8506,8 @@ def main(page: ft.Page):
         if do_update:
             page.update()
 
+
+
     def toggle_ai_fullscreen():
         """Mode solo IA : panel IA pleine hauteur à gauche, preview_list visible à droite."""
         if overlay_fullscreen["mode"] == "ai":
@@ -8383,6 +8517,8 @@ def main(page: ft.Page):
             _enter_solo_mode(ai_panel_container, "ai")
         else:
             _enter_solo_mode(ai_panel_container, "ai")
+
+
 
     def toggle_notepad_fullscreen():
         """Mode solo Bloc-notes : panel notes pleine hauteur à gauche, preview_list visible à droite."""
@@ -8394,6 +8530,8 @@ def main(page: ft.Page):
         else:
             _enter_solo_mode(notepad_panel_container, "notepad")
 
+
+
     def toggle_ai_true_fullscreen():
         """Plein écran réel IA (moins WDA)."""
         if overlay_fullscreen["mode"] == "ai_full":
@@ -8404,6 +8542,8 @@ def main(page: ft.Page):
         else:
             _enter_solo_mode(ai_panel_container, "ai_full")
 
+
+
     def toggle_notepad_true_fullscreen():
         """Plein écran réel Bloc-notes (moins WDA)."""
         if overlay_fullscreen["mode"] == "notepad_full":
@@ -8413,6 +8553,8 @@ def main(page: ft.Page):
             _enter_solo_mode(notepad_panel_container, "notepad_full")
         else:
             _enter_solo_mode(notepad_panel_container, "notepad_full")
+
+
 
     def update_overlay_visibility():
         """Affiche ou masque l'overlay (IA à gauche + Notes à droite)."""
@@ -8462,6 +8604,8 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
+
+
     def toggle_terminal_overlay():
         if overlay_fullscreen["mode"] in ("ai", "notepad", "ai_full", "notepad_full"):
             return
@@ -8481,6 +8625,8 @@ def main(page: ft.Page):
                 overlay_container.visible = True
                 overlay_container.update()
 
+
+
     expand_button_terminal.on_click = lambda e: toggle_terminal_overlay()
     expand_button_overlay.on_click  = lambda e: toggle_ai_fullscreen()
     expand_button_notepad.on_click  = lambda e: toggle_notepad_fullscreen()
@@ -8492,6 +8638,7 @@ def main(page: ft.Page):
             subprocess.Popen(["fsquirt.exe", "/Receive"])
         else:
             subprocess.Popen(["open", "-a", "Bluetooth File Exchange"])
+
 
 
 # ── Strip mode (réduction en bandeau pour écrans tactiles) ────────────────────
