@@ -19,10 +19,10 @@ Variables d'environnement :
   LAUNCHED_FROM_DASHBOARD  — ``"1"`` si lancé via le Dashboard.
   SOURCE_FILES             — chemins complets séparés par | (fichiers ou dossiers).
 
-Dépendances : flet >= 0.21, modules standard (pathlib, shutil, datetime)
+Dépendances : flet >= 0.84, modules standard (pathlib, shutil, datetime)
 """
 
-__version__ = "2.7.4"
+__version__ = "2.7.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -33,7 +33,6 @@ from datetime import datetime
 import sys
 import os
 import subprocess
-import asyncio
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 import flet as ft
@@ -77,6 +76,7 @@ def _resolve_volume_path(p: Path) -> Path:
 DEFAULT_SOURCE = Path.home() / "Downloads"
 DEFAULT_DEST   = _resolve_volume_path(Path(os.environ.get("DEST_FOLDER", CONSTANTS.TEMP_FOLDER)))
 LAUNCHED_FROM_DASHBOARD = os.environ.get("LAUNCHED_FROM_DASHBOARD") == "1"
+DELETE_AFTER_TRANSFER = os.environ.get("DELETE_AFTER_TRANSFER", "").strip() == "1"
 
 # Fichiers/dossiers spécifiques passés par le Dashboard (chemins complets séparés par |)
 _SOURCE_FILES_ENV = os.environ.get("SOURCE_FILES", "")
@@ -89,10 +89,8 @@ if _SOURCE_FILES_ENV:
         elif _path.is_file():
             SOURCE_FILES_FROM_DASHBOARD.append(_path)
 
-CONFIRM_DELETE_SELECTED_FROM_DASHBOARD = (
-    bool(SOURCE_FILES_FROM_DASHBOARD)
-    and bool(getattr(CONSTANTS, "TRANSFER_TEMP_CONFIRM_DELETE_SELECTED", False))
-)
+# Le dialog de suppression est maintenant dans le Dashboard
+# Pas de confirmation ici : supprimer silencieusement si DELETE_AFTER_TRANSFER=1
 
 # Colors
 DARK       = CONSTANTS.COLOR_DARK
@@ -134,6 +132,8 @@ def main(page: ft.Page):
     page.window.resizable = False
     page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
     page.vertical_alignment = ft.MainAxisAlignment.START
+    page.run_task(page.window.to_front)
+
 
     source_label = ft.Text(str(DEFAULT_SOURCE), color=GREEN, size=12)
     # Sur macOS, ne pas appeler .exists() ici — déclenche la dialog auth sur les partages réseau.
@@ -244,49 +244,10 @@ def main(page: ft.Page):
             progress_bar.visible = False
             progress_bar.update()
 
-            should_confirm_delete = CONFIRM_DELETE_SELECTED_FROM_DASHBOARD
-            if should_confirm_delete:
-                confirm_event = asyncio.Event()
-                confirm_result = {"delete": False}
-
-                def _do_delete(e):
-                    confirm_result["delete"] = True
-                    confirm_dialog.open = False
-                    page.update()
-                    confirm_event.set()
-
-                def _skip_delete(e):
-                    confirm_dialog.open = False
-                    page.update()
-                    confirm_event.set()
-
-                confirm_dialog = ft.AlertDialog(
-                    title=ft.Text("Supprimer les fichiers source ?"),
-                    content=ft.Text(
-                        f"{total} fichier(s) sélectionné(s) seront définitivement supprimés de leur dossier d'origine."
-                    ),
-                    actions=[
-                        ft.TextButton("Conserver", on_click=_skip_delete),
-                        ft.TextButton(
-                            "Supprimer",
-                            on_click=_do_delete,
-                            style=ft.ButtonStyle(color=ft.Colors.RED),
-                        ),
-                    ],
-                )
-                page.overlay.append(confirm_dialog)
-                confirm_dialog.open = True
-                page.update()
-                await confirm_event.wait()
-
-                if not confirm_result["delete"]:
-                    status_text.value = "Suppression annulée — fichiers conservés."
-                    status_text.color = ORANGE
-                    status_text.update()
-                    return
-
-            for source_file in source_files:
-                source_file.unlink()
+            # Suppression silencieuse si DELETE_AFTER_TRANSFER=1 (confirmé au Dashboard)
+            if DELETE_AFTER_TRANSFER and SOURCE_FILES_FROM_DASHBOARD:
+                for source_file in source_files:
+                    source_file.unlink()
 
             print(f"[ok] {total} fichier(s) copiés vers {dest_folder}", flush=True)
             print(f"NAVIGATE_TO:{dest_folder}", flush=True)
@@ -311,8 +272,10 @@ def main(page: ft.Page):
 
     launch_button.on_click = run_copy
 
-    async def close_window(e):
+    async def close_window(event):
         await page.window.close()
+        os._exit(0)
+
 
     if LAUNCHED_FROM_DASHBOARD:
         page.run_task(run_copy, None)
@@ -348,7 +311,7 @@ def main(page: ft.Page):
     )
 
 
-if LAUNCHED_FROM_DASHBOARD and not CONFIRM_DELETE_SELECTED_FROM_DASHBOARD:
+if LAUNCHED_FROM_DASHBOARD:
     try:
         dest = _resolve_volume_path(DEFAULT_DEST)
         source_files = (
@@ -363,8 +326,9 @@ if LAUNCHED_FROM_DASHBOARD and not CONFIRM_DELETE_SELECTED_FROM_DASHBOARD:
         for idx, f in enumerate(source_files, 1):
             copy2(f, dest_folder / f.name)
             print(f"Copie : {idx}/{len(source_files)} \u2014 {f.name}", flush=True)
-        for f in source_files:
-            f.unlink()
+        if DELETE_AFTER_TRANSFER:
+            for f in source_files:
+                f.unlink()
         print(f"[ok] {len(source_files)} fichier(s) copiés vers {dest_folder}", flush=True)
         print(f"NAVIGATE_TO:{dest_folder}", flush=True)
     except Exception as _e:

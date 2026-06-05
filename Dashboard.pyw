@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.7.4"
+__version__ = "2.7.5"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -7368,6 +7368,79 @@ def main(page: ft.Page):
                     env["LAUNCHED_FROM_DASHBOARD"] = "1"
                     if selected_files:
                         env["SOURCE_FILES"] = "|".join(str(f) for f in selected_files)
+                        
+                        # Afficher un dialog de confirmation de suppression AVANT de lancer
+                        def _launch_transfer_with_delete_choice(delete_after: bool):
+                            env["DELETE_AFTER_TRANSFER"] = "1" if delete_after else "0"
+                            transfer_confirm_dialog.open = False
+                            page.update()
+                            
+                            # Lancer le subprocess maintenant
+                            process = subprocess.Popen(
+                                [sys.executable, "-u", app_path],
+                                env=env,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                text=True,
+                                encoding="utf-8",
+                                errors="replace",
+                                bufsize=1,
+                                universal_newlines=True
+                            )
+                            
+                            # Minimise Dashboard pour laisser la place à l'app lancée
+                            if app_path.endswith(".pyw"):
+                                page.window.minimized = True
+                                page.update()
+
+                                def _watch_local(proc=process):
+                                    proc.wait()
+                                    page.window.minimized = False
+                                    page.window.maximized = True
+                                    page.run_task(page.window.to_front)
+                                    page.update()
+
+                                threading.Thread(target=_watch_local, daemon=True).start()
+                            
+                            # Lire la sortie en temps réel (même code que le subprocess normal)
+                            def read_output(pipe, color):
+                                for line in iter(pipe.readline, ''):
+                                    if not line:
+                                        break
+                                    if 'Session closed by remote host' in line or 'Segmentation fault' in line:
+                                        continue
+                                    if line.startswith("NAVIGATE_TO:"):
+                                        nav_path = line.replace("NAVIGATE_TO:", "").strip()
+                                        if os.path.isdir(nav_path):
+                                            page.pubsub.send_all_on_topic("navigate", nav_path)
+                                    else:
+                                        log_to_terminal(line.rstrip(), color)
+                            
+                            threading.Thread(target=read_output, args=(process.stdout, GREEN), daemon=True).start()
+                            threading.Thread(target=read_output, args=(process.stderr, RED), daemon=True).start()
+                            return
+                        
+                        def _confirm_delete(e):
+                            _launch_transfer_with_delete_choice(True)
+                        
+                        def _skip_delete(e):
+                            _launch_transfer_with_delete_choice(False)
+                        
+                        transfer_confirm_dialog = ft.AlertDialog(
+                            title=ft.Text("Supprimer les fichiers après transfert ?"),
+                            content=ft.Text(
+                                f"{len(selected_files)} fichier(s) sélectionné(s) seront transférés.\n\n"
+                                "Supprimer les fichiers source après la copie réussie ?"
+                            ),
+                            actions=[
+                                ft.TextButton("Conserver", on_click=_skip_delete),
+                                ft.TextButton("Supprimer", on_click=_confirm_delete, style=ft.ButtonStyle(color=ft.Colors.RED)),
+                            ],
+                        )
+                        page.overlay.append(transfer_confirm_dialog)
+                        transfer_confirm_dialog.open = True
+                        page.update()
+                        return
                 
                 process = subprocess.Popen(
                     [sys.executable, "-u", app_path],
