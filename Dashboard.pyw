@@ -5815,11 +5815,12 @@ def main(page: ft.Page):
         if not os.path.exists(file_path):
             return
             
-        print_prefix_match = re.match(r'^(\d+)X_', basename)
-        print_prefix_pattern = re.compile(r'^\d+X_')
+        print_prefix_match = re.match(r'^(\d+)X_', basename, re.IGNORECASE)
+        print_prefix_pattern = re.compile(r'^\d+X_', re.IGNORECASE)
+        
         if print_prefix_match:
             current_count = int(print_prefix_match.group(1))
-            clean_basename = re.sub(r'^\d+X_', '', basename)
+            clean_basename = re.sub(r'^\d+X_', '', basename, flags=re.IGNORECASE)
         else:
             current_count = 0
             clean_basename = basename
@@ -5830,7 +5831,11 @@ def main(page: ft.Page):
             new_name = clean_basename
             
         new_path = os.path.join(folder, new_name)
-        if new_path != file_path:
+        
+        norm_file_path = os.path.normpath(file_path).lower()
+        norm_new_path = os.path.normpath(new_path).lower()
+        
+        if norm_new_path != norm_file_path:
             try:
                 os.rename(file_path, new_path)
                 log_to_terminal(f"[Impressions] {basename} → {new_name}", GREEN)
@@ -5839,7 +5844,7 @@ def main(page: ft.Page):
                 if file_path in selected_files:
                     selected_files[selected_files.index(file_path)] = new_path
                     
-                # Mettre à jour le dictionnaire de live counts avec la nouvelle clé de fichier
+                # Mettre à jour le dictionnaire de live counts
                 _live_print_counts[new_path] = new_count
                 _live_print_counts.pop(file_path, None)
                 
@@ -5848,8 +5853,15 @@ def main(page: ft.Page):
                     _print_count_text_refs[new_path] = _print_count_text_refs.pop(file_path)
                 if file_path in _print_minus_btn_refs:
                     _print_minus_btn_refs[new_path] = _print_minus_btn_refs.pop(file_path)
+                    
+                    # Mettre à jour l'action du bouton Moins pour le nouveau chemin
+                    minus_ref = _print_minus_btn_refs[new_path]
+                    minus_ref.on_click = (lambda e, p=new_path: _decrement_print_count(p)) if new_count > 0 else None
+                    try:
+                        minus_ref.update()
+                    except Exception:
+                        pass  # Ignorer si le bouton n'est plus monté dans la page
                 
-                # Déclencher un refresh en arrière-plan pour rescanner proprement
                 page.pubsub.send_all_on_topic("refresh", None)
             except Exception as err:
                 log_to_terminal(f"[ERREUR] {err}", RED)
@@ -5859,21 +5871,20 @@ def main(page: ft.Page):
         if new_count <= 0:
             renamed_count = 0
             for file_name in os.listdir(folder):
-                # Ignorer les fichiers cachés et fichiers système/junk
                 if file_name.startswith(".") or file_name.lower() in _OS_JUNK:
                     continue
                 entry_path = os.path.join(folder, file_name)
-                if not os.path.isfile(entry_path) or entry_path == new_path:
+                if not os.path.isfile(entry_path) or os.path.normpath(entry_path).lower() == norm_new_path:
                     continue
                 if not print_prefix_pattern.match(file_name):
                     continue
-                clean_other_basename = re.sub(r'^\d+X_', '', file_name)
+                clean_other_basename = re.sub(r'^\d+X_', '', file_name, flags=re.IGNORECASE)
                 clean_entry_path = os.path.join(folder, clean_other_basename)
                 try:
                     os.rename(entry_path, clean_entry_path)
                     if entry_path in selected_files:
                         selected_files[selected_files.index(entry_path)] = clean_entry_path
-                    # Mettre à jour live counts et UI instantanément pour les autres fichiers
+                    
                     _live_print_counts[clean_entry_path] = 0
                     _live_print_counts.pop(entry_path, None)
                     
@@ -5881,15 +5892,22 @@ def main(page: ft.Page):
                         txt_ref = _print_count_text_refs[entry_path]
                         txt_ref.value = "·"
                         txt_ref.color = LIGHT_GREY
-                        txt_ref.update()
+                        try:
+                            txt_ref.update()
+                        except Exception:
+                            pass  # Ignorer si le texte n'est plus monté
                         _print_count_text_refs[clean_entry_path] = _print_count_text_refs.pop(entry_path)
+                        
                     if entry_path in _print_minus_btn_refs:
                         minus_ref = _print_minus_btn_refs[entry_path]
                         minus_ref.content.color = LIGHT_GREY
                         minus_ref.bgcolor = GREY
                         minus_ref.on_click = None
                         minus_ref.ink = False
-                        minus_ref.update()
+                        try:
+                            minus_ref.update()
+                        except Exception:
+                            pass  # Ignorer si le bouton n'est plus monté
                         _print_minus_btn_refs[clean_entry_path] = _print_minus_btn_refs.pop(entry_path)
                         
                     renamed_count += 1
@@ -5899,55 +5917,56 @@ def main(page: ft.Page):
                 log_to_terminal(f"[OK] Préfixe retiré de {renamed_count} fichier(s)", GREEN)
                 page.pubsub.send_all_on_topic("refresh", None)
                 
-        # 2. Gérer l'auto-préfixe 1X_ si besoin (uniquement sur fichiers non-cachés et non-junk)
-        elif current_count == 0 and new_count > 0:
-            others_have_prefix = any(
-                print_prefix_pattern.match(file_name)
-                for file_name in os.listdir(folder)
-                if file_name != new_name and os.path.isfile(os.path.join(folder, file_name)) and not file_name.startswith(".") and file_name.lower() not in _OS_JUNK
-            )
-            if not others_have_prefix:
-                renamed_count = 0
-                for file_name in os.listdir(folder):
-                    # Ignorer les fichiers cachés et fichiers système/junk
-                    if file_name.startswith(".") or file_name.lower() in _OS_JUNK:
-                        continue
-                    entry_path = os.path.join(folder, file_name)
-                    if not os.path.isfile(entry_path) or entry_path == new_path:
-                        continue
-                    if print_prefix_pattern.match(file_name):
-                        continue
-                    new_file_name = f"1X_{file_name}"
-                    new_entry_path = os.path.join(folder, new_file_name)
-                    try:
-                        os.rename(entry_path, new_entry_path)
-                        if entry_path in selected_files:
-                            selected_files[selected_files.index(entry_path)] = new_entry_path
-                        # Mettre à jour live counts et UI instantanément
-                        _live_print_counts[new_entry_path] = 1
-                        _live_print_counts.pop(entry_path, None)
-                        
-                        if entry_path in _print_count_text_refs:
-                            txt_ref = _print_count_text_refs[entry_path]
-                            txt_ref.value = "1"
-                            txt_ref.color = YELLOW
+        # 2. Gérer l'auto-préfixe 1X_ si besoin
+        elif current_count <= 0 and new_count > 0:
+            renamed_count = 0
+            for file_name in os.listdir(folder):
+                if file_name.startswith(".") or file_name.lower() in _OS_JUNK:
+                    continue
+                entry_path = os.path.join(folder, file_name)
+                if not os.path.isfile(entry_path) or os.path.normpath(entry_path).lower() == norm_new_path:
+                    continue
+                if print_prefix_pattern.match(file_name):
+                    continue
+                    
+                new_file_name = f"1X_{file_name}"
+                new_entry_path = os.path.join(folder, new_file_name)
+                try:
+                    os.rename(entry_path, new_entry_path)
+                    if entry_path in selected_files:
+                        selected_files[selected_files.index(entry_path)] = new_entry_path
+                    
+                    _live_print_counts[new_entry_path] = 1
+                    _live_print_counts.pop(entry_path, None)
+                    
+                    if entry_path in _print_count_text_refs:
+                        txt_ref = _print_count_text_refs[entry_path]
+                        txt_ref.value = "1"
+                        txt_ref.color = YELLOW
+                        try:
                             txt_ref.update()
-                            _print_count_text_refs[new_entry_path] = _print_count_text_refs.pop(entry_path)
-                        if entry_path in _print_minus_btn_refs:
-                            minus_ref = _print_minus_btn_refs[entry_path]
-                            minus_ref.content.color = DARK
-                            minus_ref.bgcolor = ORANGE
-                            minus_ref.on_click = lambda e, p=new_entry_path: _decrement_print_count(p)
-                            minus_ref.ink = True
+                        except Exception:
+                            pass  # Ignorer si le texte n'est plus monté
+                        _print_count_text_refs[new_entry_path] = _print_count_text_refs.pop(entry_path)
+                        
+                    if entry_path in _print_minus_btn_refs:
+                        minus_ref = _print_minus_btn_refs[entry_path]
+                        minus_ref.content.color = DARK
+                        minus_ref.bgcolor = ORANGE
+                        minus_ref.on_click = lambda e, p=new_entry_path: _decrement_print_count(p)
+                        minus_ref.ink = True
+                        try:
                             minus_ref.update()
-                            _print_minus_btn_refs[new_entry_path] = _print_minus_btn_refs.pop(entry_path)
-                            
-                        renamed_count += 1
-                    except Exception as err:
-                        log_to_terminal(f"[ERREUR] {file_name}: {err}", RED)
-                if renamed_count:
-                    log_to_terminal(f"[OK] {renamed_count} fichier(s) renommé(s) avec le préfixe 1X_", GREEN)
-                    page.pubsub.send_all_on_topic("refresh", None)
+                        except Exception:
+                            pass  # Ignorer si le bouton n'est plus monté
+                        _print_minus_btn_refs[new_entry_path] = _print_minus_btn_refs.pop(entry_path)
+                        
+                    renamed_count += 1
+                except Exception as err:
+                    log_to_terminal(f"[ERREUR] {file_name}: {err}", RED)
+            if renamed_count:
+                log_to_terminal(f"[OK] {renamed_count} fichier(s) renommé(s) avec le préfixe 1X_", GREEN)
+                page.pubsub.send_all_on_topic("refresh", None)
 
 
 
@@ -5957,7 +5976,7 @@ def main(page: ft.Page):
             current_count = _live_print_counts[file_path]
         else:
             basename = os.path.basename(file_path)
-            print_prefix_match = re.match(r'^(\d+)X_', basename)
+            print_prefix_match = re.match(r'^(\d+)X_', basename, re.IGNORECASE)
             current_count = int(print_prefix_match.group(1)) if print_prefix_match else 0
             _live_print_counts[file_path] = current_count
             
@@ -5988,14 +6007,13 @@ def main(page: ft.Page):
         timer.start()
 
 
-
     def _decrement_print_count(file_path):
         """Décrémente le compteur d'impressions de façon réactive et débouncée."""
         if file_path in _live_print_counts:
             current_count = _live_print_counts[file_path]
         else:
             basename = os.path.basename(file_path)
-            print_prefix_match = re.match(r'^(\d+)X_', basename)
+            print_prefix_match = re.match(r'^(\d+)X_', basename, re.IGNORECASE)
             current_count = int(print_prefix_match.group(1)) if print_prefix_match else 0
             _live_print_counts[file_path] = current_count
             
