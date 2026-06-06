@@ -27,7 +27,7 @@ Sortie :
   Un sous-dossier nomme d'apres la taille cible (ex: "10x15" ou "12x17").
 """
 
-__version__ = "2.8.0"
+__version__ = "2.8.1"
 
 #############################################################
 #                          IMPORTS                          #
@@ -265,15 +265,20 @@ def pack_tiles_into_canvases(tiles_list: list, canvas_w: int, canvas_h: int) -> 
                 'source_name': tile_dict['source_name']
             })
         
-        # Centrer le groupe de tuiles
+        # Gérer le positionnement : haut-gauche si une seule tuile peut rentrer, centré sinon
         first_tile = resized_tiles[0]
         cols, rows = calculate_tile_grid(first_tile['width'], first_tile['height'], canvas_w, canvas_h)
         
-        # Calculer l'espace total avec toutes les tuiles (en supposant qu'elles ont toutes la même dimension)
-        total_w = cols * first_tile['width'] + max(0, (cols - 1)) * gap_px
-        total_h = rows * first_tile['height'] + max(0, (rows - 1)) * gap_px
-        offset_x = (canvas_w - total_w) // 2
-        offset_y = (canvas_h - total_h) // 2
+        if cols == 1 and rows == 1:
+            # Une seule image rentre dans le format : on la cale en haut à gauche (0, 0)
+            offset_x = 0
+            offset_y = 0
+        else:
+            # Plusieurs tuiles rentrent : on centre la grille de tuiles sur le canvas
+            total_w = cols * first_tile['width'] + max(0, (cols - 1)) * gap_px
+            total_h = rows * first_tile['height'] + max(0, (rows - 1)) * gap_px
+            offset_x = (canvas_w - total_w) // 2
+            offset_y = (canvas_h - total_h) // 2
         
         # Placer les tuiles en grille
         tile_index = 0
