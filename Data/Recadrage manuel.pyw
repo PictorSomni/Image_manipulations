@@ -42,7 +42,7 @@ Espace              : ignorer l'image courante et passer à la suivante
 Tab                 : basculer le mode de défilement de la souris entre zoom et rotation
 """
 
-__version__ = "2.7.5"
+__version__ = "2.7.6"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw

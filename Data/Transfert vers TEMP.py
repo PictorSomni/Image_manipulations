@@ -22,7 +22,7 @@ Variables d'environnement :
 Dépendances : flet >= 0.84, modules standard (pathlib, shutil, datetime)
 """
 
-__version__ = "2.7.5"
+__version__ = "2.7.6"
 
 #############################################################
 #                          IMPORTS                          #
@@ -245,7 +245,8 @@ def main(page: ft.Page):
             progress_bar.update()
 
             # Suppression silencieuse si DELETE_AFTER_TRANSFER=1 (confirmé au Dashboard)
-            if DELETE_AFTER_TRANSFER and SOURCE_FILES_FROM_DASHBOARD:
+            # OU si aucun fichier n'était sélectionné au départ (on vide alors Downloads par défaut)
+            if DELETE_AFTER_TRANSFER or not SOURCE_FILES_FROM_DASHBOARD:
                 for source_file in source_files:
                     source_file.unlink()
 
@@ -326,7 +327,8 @@ if LAUNCHED_FROM_DASHBOARD:
         for idx, f in enumerate(source_files, 1):
             copy2(f, dest_folder / f.name)
             print(f"Copie : {idx}/{len(source_files)} \u2014 {f.name}", flush=True)
-        if DELETE_AFTER_TRANSFER:
+        # Même logique de suppression pour le mode Dashboard direct
+        if DELETE_AFTER_TRANSFER or not SOURCE_FILES_FROM_DASHBOARD:
             for f in source_files:
                 f.unlink()
         print(f"[ok] {len(source_files)} fichier(s) copiés vers {dest_folder}", flush=True)
@@ -337,4 +339,3 @@ if LAUNCHED_FROM_DASHBOARD:
     sys.exit(0)
 
 ft.run(main)
-
