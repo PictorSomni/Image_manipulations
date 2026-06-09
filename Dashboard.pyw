@@ -7942,6 +7942,7 @@ def main(page: ft.Page):
         images_en_pdf_path        = os.path.join(app_directory, "Data", "Images en PDF.py")
         remerciements_path        = os.path.join(app_directory, "Data", "Remerciements.py")
         copier_nefs_path          = os.path.join(app_directory, "Data", "Copier NEFs sélection.py")
+        copier_selection_path       = os.path.join(app_directory, "Data", "Copier sélection.py")
         separer_raw_jpg_path      = os.path.join(app_directory, "Data", "Séparer RAW et JPG.py")
         recadrage_automatique_path = os.path.join(app_directory, "Data", "Recadrage automatique.py")
 
@@ -7993,6 +7994,12 @@ def main(page: ft.Page):
                 YELLOW,
                 "Séparer RAW et JPG",
                 lambda e: launch_app("Séparer RAW et JPG.py", separer_raw_jpg_path, False),
+            ),
+            _round_button(
+                ft.Icons.FOLDER_COPY,
+                YELLOW,
+                "Copier sélection → SELECTION",
+                lambda e: launch_app("Copier sélection.py", copier_selection_path, False),
             ),
             _round_button(
                 ft.Icons.IMAGE_SEARCH_OUTLINED,
