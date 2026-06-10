@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.7.7"
+__version__ = "2.7.8"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -1401,7 +1401,7 @@ def main(page: ft.Page):
         elif ext in [".md", ".markdown"]:
             notepad_field.language = fce.CodeLanguage.MARKDOWN
         else:
-            notepad_field.language = fce.CodeLanguage.PLAIN_TEXT
+            notepad_field.language = fce.CodeLanguage.PLAINTEXT
 
         try:
             if os.path.exists(note_target_file["path"]):

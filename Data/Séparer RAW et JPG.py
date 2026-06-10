@@ -12,7 +12,7 @@ Variables d'environnement :
 Dépendances : flet >= 0.21, modules standard (pathlib, shutil)
 """
 
-__version__ = "2.7.7"
+__version__ = "2.7.8"
 
 #############################################################
 #                          IMPORTS                          #
