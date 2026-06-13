@@ -8,7 +8,7 @@ Fonctions et constantes exposées :
   _ollama_chat_once(url, model, messages)    — appel non-streaming à /api/chat, retourne le dict message
   _ollama_chat_stream(url, model, messages)  — appel streaming à /api/chat, génère les tokens
 
-  Outils dossier (partagés) :
+Outils dossier (partagés) :
   _folder_tool_definitions(folder_path)      — retourne les 7 définitions d'outils dossier pour Ollama/Gemma
   _gemini_tool_definitions(folder_path)       — version allégée pour Gemini (sans analyze_images)
   _folder_list_contents(folder_path)         — liste les fichiers avec taille et date
@@ -19,7 +19,7 @@ Fonctions et constantes exposées :
   _analyze_images_batched(...)               — analyse des images par lots et retourne les résultats
   _gemini_generate_image(prompt, ...)        — génère/modifie une image via Nano Banana 2
 
-  Helpers système (partagés) :
+Helpers système (partagés) :
   _WEB_TOOLS                                 — liste des 2 définitions d'outils web (web_search + fetch_url)
   _TERMINAL_TOOLS                            — définition de l'outil run_terminal_command
   _MEMORY_TOOLS                              — définition de l'outil update_memory_file
@@ -31,7 +31,7 @@ Fonctions et constantes exposées :
   _build_system_content(base_prompt, folder_path, today_date_str)
                                              — assemble le message système complet (system.md + mémoire + date + dossier)
 
-    Voix — TTS :
+Voix — TTS :
   _gemini_tts(text, ...)                     — génère l'audio TTS en une seule requête (bytes PCM)
   _gemini_tts_stream(text, ...)              — TTS multi-requêtes pipeline (compatible tous modèles)
   _gemini_live_tts_stream(text, ...)         — TTS via Gemini Live WebSocket (voix cohérente, modèle Live)
@@ -44,6 +44,8 @@ import re
 import urllib.request
 import urllib.parse
 import html.parser
+
+import CONSTANTS
 
 
 class _HTMLTextExtractor(html.parser.HTMLParser):
@@ -926,7 +928,7 @@ def _folder_create_file(folder_path, filename, content):
         return f"Erreur lors de la création du fichier : {exc}"
 
 
-def _folder_read_file(folder_path, filename, document_exts=None, max_chars=20_000):
+def _folder_read_file(folder_path, filename, document_exts=None, max_chars=CONSTANTS.AI_FILE_MAX_CHARS):
     """
     Lit le contenu texte d'un fichier du dossier.
     Retourne le contenu ou un message d'erreur.
@@ -1079,7 +1081,7 @@ def _analyze_images_batched(
 import subprocess as _subprocess
 
 
-def _run_terminal_command(command, cwd=None, timeout=60):
+def _run_terminal_command(command, cwd=None, timeout=120):
     """
     Exécute une commande shell et retourne la sortie combinée stdout + stderr.
     cwd : répertoire de travail (dossier ouvert si fourni).
@@ -1398,32 +1400,39 @@ _MEMORY_TOOLS = [
 ]
 
 
-def _build_system_content(base_prompt, folder_path=None, today_date_str=None):
+def _build_system_content(folder_path=None, today_date_str=None):
     """
     Assemble le contenu complet du message système envoyé à l'IA.
 
-    Lit system.md si disponible (sinon utilise base_prompt comme fallback).
-    Injecte ensuite memory.md, user.md, skills.md avec indicateurs d'utilisation.
+    Lit system.md (obligatoire), puis injecte memory.md, user.md, skills.md.
     Ajoute la date du jour et le contexte du dossier ouvert.
 
     Args:
-        base_prompt     : prompt de base (str), utilisé si system.md est absent.
         folder_path     : chemin absolu du dossier ouvert, ou None.
         today_date_str  : date du jour pré-formatée (ex. "25 mai 2026"), ou None.
 
     Returns:
         Chaîne complète prête à être passée comme message système.
+
+    Raises:
+        FileNotFoundError : si system.md est absent.
+        OSError           : si system.md ne peut pas être lu.
     """
     # ── Prompt système de base ────────────────────────────────────────────────
     system_md_path = _os.path.join(_DATA_DIR, "system.md")
-    if _os.path.exists(system_md_path):
-        try:
-            with open(system_md_path, encoding="utf-8") as file_handle:
-                system_content = file_handle.read().strip()
-        except OSError:
-            system_content = base_prompt
-    else:
-        system_content = base_prompt
+    if not _os.path.exists(system_md_path):
+        raise FileNotFoundError(
+            f"Fichier system.md introuvable : {system_md_path}\n"
+            "L'IA ne peut pas démarrer sans ce fichier."
+        )
+    try:
+        with open(system_md_path, encoding="utf-8") as file_handle:
+            system_content = file_handle.read().strip()
+    except OSError as exc:
+        raise OSError(
+            f"Impossible de lire system.md : {exc}\n"
+            "L'IA ne peut pas démarrer sans ce fichier."
+        ) from exc
 
     # ── Fichiers mémoire persistante ──────────────────────────────────────────
     _memory_label_map = {
@@ -2320,4 +2329,283 @@ def _voice_play_audio(pcm_bytes, sample_rate=24000, stop_event=None):
             _sd.stop()
             return
         _time.sleep(0.02)
+
+
+# ── Claude (Anthropic) ────────────────────────────────────────────────────────
+
+def _get_anthropic_api_key():
+    """Récupère ANTHROPIC_API_KEY depuis l'env, un fichier .env ou le shell de login."""
+    import os
+    import re
+    import subprocess
+
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if key:
+        return key
+
+    for env_dir in [
+        os.getcwd(),
+        os.path.dirname(os.path.abspath(__file__)),
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    ]:
+        env_path = os.path.join(env_dir, ".env")
+        if os.path.exists(env_path):
+            try:
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip() and not line.startswith("#") and "=" in line:
+                            k, v = line.split("=", 1)
+                            if k.strip() == "ANTHROPIC_API_KEY":
+                                key = v.strip().strip('"').strip("'")
+                                if key:
+                                    os.environ["ANTHROPIC_API_KEY"] = key
+                                    return key
+            except Exception:
+                pass
+
+    if os.name != "nt":
+        for shell in ["/bin/zsh", "/bin/bash"]:
+            if os.path.exists(shell):
+                try:
+                    result = subprocess.run(
+                        [shell, "-l", "-c", "echo $ANTHROPIC_API_KEY"],
+                        capture_output=True, text=True, timeout=2,
+                    )
+                    key = result.stdout.strip()
+                    if key:
+                        os.environ["ANTHROPIC_API_KEY"] = key
+                        return key
+                except Exception:
+                    pass
+
+        home = os.path.expanduser("~")
+        for rc_file in [".zshrc", ".bashrc", ".bash_profile", ".profile"]:
+            rc_path = os.path.join(home, rc_file)
+            if os.path.isfile(rc_path):
+                try:
+                    with open(rc_path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read()
+                    match = re.search(
+                        r'(?:export\s+)?ANTHROPIC_API_KEY\s*=\s*["\']?(.*?)["\']?\s*(?:#|$)',
+                        content,
+                    )
+                    if match:
+                        key = match.group(1).strip()
+                        if key:
+                            os.environ["ANTHROPIC_API_KEY"] = key
+                            return key
+                except Exception:
+                    pass
+
+    return ""
+
+
+def _ollama_tools_to_claude(tools):
+    """Convertit les définitions d'outils Ollama au format Anthropic Claude."""
+    if not tools:
+        return []
+    claude_tools = []
+    for tool in tools:
+        fn = tool.get("function", tool)
+        claude_tools.append({
+            "name": fn.get("name", ""),
+            "description": fn.get("description", ""),
+            "input_schema": fn.get("parameters", {"type": "object", "properties": {}}),
+        })
+    return claude_tools
+
+
+def _ollama_messages_to_claude(messages):
+    """
+    Convertit une liste de messages Ollama/Gemini au format Anthropic Claude.
+    Retourne (system_prompt: str | None, claude_messages: list).
+
+    Gère : system, user, assistant (avec/sans tool_calls), tool (résultats).
+    Les IDs des tool_calls sont trackés pour apparier tool_use et tool_result.
+    """
+    import json as _json
+
+    system_parts = []
+    result = []
+    _pending_ids = {}  # tool_name -> [id, ...]
+
+    for msg in messages:
+        role    = msg.get("role", "")
+        content = msg.get("content", "")
+
+        if role == "system":
+            system_parts.append(content)
+
+        elif role == "user":
+            if result and result[-1]["role"] == "user":
+                prev = result[-1]["content"]
+                if isinstance(prev, list):
+                    prev.append({"type": "text", "text": content})
+                else:
+                    result[-1]["content"] = str(prev) + "\n" + content
+            else:
+                result.append({"role": "user", "content": content})
+
+        elif role == "assistant":
+            tool_calls = msg.get("tool_calls", [])
+            if tool_calls:
+                blocks = []
+                if content:
+                    blocks.append({"type": "text", "text": content})
+                for tc in tool_calls:
+                    fn      = tc.get("function", {})
+                    tc_name = fn.get("name", "")
+                    tc_id   = tc.get("id") or f"toolu_{tc_name}_{len(result)}"
+                    blocks.append({
+                        "type":  "tool_use",
+                        "id":    tc_id,
+                        "name":  tc_name,
+                        "input": fn.get("arguments", {}),
+                    })
+                    _pending_ids.setdefault(tc_name, []).append(tc_id)
+                result.append({"role": "assistant", "content": blocks})
+            else:
+                if content:
+                    result.append({"role": "assistant", "content": content})
+
+        elif role == "tool":
+            tool_name = msg.get("name", msg.get("tool_name", ""))
+            ids   = _pending_ids.get(tool_name, [])
+            tc_id = ids.pop(0) if ids else f"toolu_{tool_name}"
+            tr_block = {"type": "tool_result", "tool_use_id": tc_id, "content": content}
+
+            if (result and result[-1]["role"] == "user"
+                    and isinstance(result[-1]["content"], list)
+                    and result[-1]["content"]
+                    and result[-1]["content"][-1].get("type") == "tool_result"):
+                result[-1]["content"].append(tr_block)
+            else:
+                result.append({"role": "user", "content": [tr_block]})
+
+    # Assurer que le premier message est un message user
+    while result and result[0]["role"] != "user":
+        result.pop(0)
+
+    # Fusionner les messages consécutifs de même rôle (Claude ne les accepte pas séparés)
+    merged = []
+    for m in result:
+        if merged and merged[-1]["role"] == m["role"]:
+            prev_c = merged[-1]["content"]
+            curr_c = m["content"]
+            if isinstance(prev_c, str) and isinstance(curr_c, str):
+                merged[-1]["content"] = prev_c + "\n" + curr_c
+            elif isinstance(prev_c, list) and isinstance(curr_c, list):
+                merged[-1]["content"].extend(curr_c)
+            elif isinstance(prev_c, str) and isinstance(curr_c, list):
+                merged[-1]["content"] = [{"type": "text", "text": prev_c}] + curr_c
+            else:
+                merged.append(m)
+        else:
+            merged.append(m)
+
+    return ("\n\n".join(system_parts) if system_parts else None), merged
+
+
+def _claude_chat_stream_with_tools(model, messages, tools=None, temperature=0.7):
+    """
+    Version Anthropic Claude de _gemini_chat_stream_with_tools.
+    Génère les mêmes tuples : ("token", str), ("thinking", str), ("tool_calls", list).
+
+    tool_calls items sont compatibles format Ollama :
+      [{"id": str, "function": {"name": str, "arguments": dict}}, ...]
+
+    Nécessite ANTHROPIC_API_KEY dans les variables d'environnement.
+    """
+    try:
+        import anthropic as _anthropic
+    except ImportError:
+        yield ("token", (
+            "[Erreur : anthropic n'est pas installé. "
+            "Exécute : pip install anthropic]"
+        ))
+        return
+
+    api_key = _get_anthropic_api_key()
+    if not api_key:
+        yield ("token", (
+            "[Erreur : ANTHROPIC_API_KEY n'est pas définie. "
+            "Configurez-la dans votre .zshrc ou dans un fichier .env : "
+            "ANTHROPIC_API_KEY=votre_cle]"
+        ))
+        return
+
+    try:
+        client = _anthropic.Anthropic(api_key=api_key)
+    except Exception as exc:
+        yield ("token", f"[Erreur initialisation Claude : {exc}]")
+        return
+
+    system_prompt, claude_messages = _ollama_messages_to_claude(messages)
+    if not claude_messages:
+        yield ("token", "[Erreur : aucun message utilisateur valide]")
+        return
+
+    claude_tools = _ollama_tools_to_claude(tools) if tools else None
+
+    kwargs = {
+        "model":       model,
+        "max_tokens":  16384,
+        "temperature": temperature,
+        "messages":    claude_messages,
+    }
+    if system_prompt:
+        kwargs["system"] = system_prompt
+    if claude_tools:
+        kwargs["tools"] = claude_tools
+
+    tool_calls_out    = []
+    current_tool      = None
+    current_tool_json = ""
+
+    try:
+        with client.messages.stream(**kwargs) as stream:
+            for event in stream:
+                etype = getattr(event, "type", None)
+
+                if etype == "content_block_start":
+                    cb = getattr(event, "content_block", None)
+                    if cb and getattr(cb, "type", None) == "tool_use":
+                        current_tool      = {"id": cb.id, "name": cb.name}
+                        current_tool_json = ""
+
+                elif etype == "content_block_delta":
+                    delta = getattr(event, "delta", None)
+                    if delta is None:
+                        continue
+                    delta_type = getattr(delta, "type", None)
+                    if delta_type == "text_delta":
+                        yield ("token", delta.text)
+                    elif delta_type == "thinking_delta":
+                        yield ("thinking", delta.thinking)
+                    elif delta_type == "input_json_delta":
+                        current_tool_json += getattr(delta, "partial_json", "")
+
+                elif etype == "content_block_stop":
+                    if current_tool is not None:
+                        try:
+                            import json as _j
+                            tool_input = _j.loads(current_tool_json) if current_tool_json else {}
+                        except Exception:
+                            tool_input = {}
+                        tool_calls_out.append({
+                            "id": current_tool["id"],
+                            "function": {
+                                "name":      current_tool["name"],
+                                "arguments": tool_input,
+                            },
+                        })
+                        current_tool      = None
+                        current_tool_json = ""
+
+    except Exception as exc:
+        yield ("token", f"[Erreur Claude : {exc}]")
+        return
+
+    if tool_calls_out:
+        yield ("tool_calls", tool_calls_out)
     _sd.wait()

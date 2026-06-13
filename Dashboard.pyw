@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.7.8"
+__version__ = "2.7.9"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -93,6 +93,7 @@ from ai_tools import (
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
     _update_memory_file, _build_system_content,
     _gemini_tts_stream, _gemini_live_tts_stream, _gemini_tts, _voice_play_audio,
+    _claude_chat_stream_with_tools,
 )
 import thumb_cache
 #############################################################
@@ -192,8 +193,8 @@ def main(page: ft.Page):
         elif event.data in ("resize", "maximize", "unmaximize"):
             if bottom_panel_container is None:
                 return
-            if overlay_fullscreen["mode"] in ("ai", "notepad", "ai_full", "notepad_full"):
-                if overlay_fullscreen["mode"] in ("ai_full", "notepad_full"):
+            if overlay_fullscreen["mode"] in ("ai", "notepad", "ai_full", "notepad_full", "both_full"):
+                if overlay_fullscreen["mode"] in ("ai_full", "notepad_full", "both_full"):
                     bottom_panel_container.left = 0
                     bottom_panel_container.right = 0
                     bottom_panel_container.width = None
@@ -440,6 +441,7 @@ def main(page: ft.Page):
         text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
         language=fce.CodeLanguage.PYTHON,
         code_theme=fce.CodeTheme.ATOM_ONE_DARK,
+        gutter_style=fce.GutterStyle(width=85),
         expand=True,
     )
     notepad_is_preview       = {"value": False}
@@ -447,7 +449,17 @@ def main(page: ft.Page):
         "",
         selectable=True,
         extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+
         code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
+
+        md_style_sheet=ft.MarkdownStyleSheet(
+            blockquote_text_style=ft.TextStyle(color=WHITE), # Texte blanc
+            blockquote_decoration=ft.BoxDecoration(
+                bgcolor=GREY, # Fond sombre au lieu du bleu clair
+                border=ft.Border.all(1, BLUE),
+                border_radius=5,
+            ),
+        ),
         expand=True,
     )
     notepad_preview_scroll = ft.ListView(
@@ -460,23 +472,23 @@ def main(page: ft.Page):
     notepad_header_title = ft.Text("Notes", color=VIOLET, size=12, weight=ft.FontWeight.BOLD)
 
     expand_button_terminal = ft.IconButton(
-        icon=ft.Icons.EXPAND_LESS,
+        icon=ft.Icons.VERTICAL_SPLIT,
         tooltip="Agrandir  (Ctrl+↑)",
         icon_color=YELLOW,
         icon_size=16,
         on_click=lambda e: toggle_terminal_overlay(),
     )
     expand_button_overlay = ft.IconButton(
-        icon=ft.Icons.EXPAND_LESS,
+        icon=ft.Icons.OPEN_IN_FULL,
         tooltip="IA seule (Ctrl/Cmd+←)",
-        icon_color=YELLOW,
+        icon_color=BLUE,
         icon_size=16,
         on_click=lambda e: toggle_ai_fullscreen(),
     )
     expand_button_notepad = ft.IconButton(
-        icon=ft.Icons.EXPAND_LESS,
+        icon=ft.Icons.OPEN_IN_FULL,
         tooltip="Bloc-notes seul (Ctrl/Cmd+→)",
-        icon_color=YELLOW,
+        icon_color=VIOLET,
         icon_size=16,
         on_click=lambda e: toggle_notepad_fullscreen(),
     )
@@ -1672,7 +1684,7 @@ def main(page: ft.Page):
         def _run_stop():
             try:
                 current_model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_TEXT
-                if not (current_model or "").startswith("gemini"):
+                if not (current_model or "").startswith(("gemini", "claude")):
                     subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_VISION], timeout=10)
                     subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_TEXT],   timeout=10)
             except Exception:
@@ -1930,8 +1942,8 @@ def main(page: ft.Page):
         """        
         if model_name is None:
             model_name = CONSTANTS.AI_MODEL_TEXT
-        # Les modèles Gemini n'ont pas besoin d'Ollama
-        if (model_name or "").startswith("gemini"):
+        # Les modèles Gemini et Claude n'ont pas besoin d'Ollama
+        if (model_name or "").startswith(("gemini", "claude")):
             return True
         def _is_ollama_up():
             try:
@@ -2428,7 +2440,7 @@ def main(page: ft.Page):
 
                 today = datetime.date.today().strftime("%d %B %Y")
                 _system_content = _build_system_content(
-                    CONSTANTS.AI_SYSTEM_PROMPT, _folder_path_for_tools, today
+                    _folder_path_for_tools, today
                 )
                 # Limiter l'historique aux 10 derniers messages pour éviter
                 # que les petits modèles locaux perdent de vue la question courante
@@ -2438,22 +2450,66 @@ def main(page: ft.Page):
                     *[{k: v for k, v in m.items() if k != "events"} for m in _history],
                 ]
 
-                # ── Debug log ───────────────────────────────────────────────
-                import json as _json_debug, datetime as _dt_debug
-                _DEBUG_LOG = "/tmp/ai_dashboard_debug.log"
-                def _dbg(label: str, data) -> None:
+                # ── Journal permanent en Markdown ────────────────
+                _DEBUG_MD = f"{app_directory}/ai_conversations_debug.md"
+
+                def _log_exchange_to_md(user_text: str, assistant_text: str, thinking_text: str = "", events_list: list = None) -> None:
+                    """Ajoute l'échange au journal permanent en Markdown et le limite à ~500 lignes."""
                     try:
-                        with open(_DEBUG_LOG, "a", encoding="utf-8") as _df:
-                            ts = _dt_debug.datetime.now().strftime("%H:%M:%S")
-                            _df.write(f"\n{'='*60}\n[{ts}] {label}\n")
-                            if isinstance(data, (dict, list)):
-                                _df.write(_json_debug.dumps(data, ensure_ascii=False, indent=2))
-                            else:
-                                _df.write(str(data))
-                            _df.write("\n")
+                        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        
+                        # Construire le bloc Markdown de cet échange
+                        block = []
+                        block.append(f"## 💬 Échange du {timestamp}")
+                        block.append(f"**👤 Utilisateur :**\n{user_text.strip()}\n")
+                        
+                        if thinking_text.strip():
+                            # On préfixe chaque ligne de la réflexion par "> " pour utiliser notre superbe blockquote stylisé !
+                            formatted_thinking = "\n".join(f"> {line}" for line in thinking_text.strip().splitlines())
+                            block.append(f"💭 **Réflexion :**\n{formatted_thinking}\n")
+                            
+                        block.append(f"**🤖 Assistant :**\n{assistant_text.strip()}\n")
+                        
+                        if events_list:
+                            block.append("🛠️ **Événements d'outils**") # Titre en gras pour faire plus propre
+                            for evt in events_list:
+                                block.append(f"- {evt}")
+                            block.append("\n")
+                            
+                        block.append("---\n")
+                        new_entry = "\n".join(block)
+                        
+                        # Lire l'historique existant
+                        existing_content = ""
+                        if os.path.exists(_DEBUG_MD):
+                            with open(_DEBUG_MD, "r", encoding="utf-8") as f:
+                                existing_content = f.read()
+                        
+                        # Combiner l'ancien et le nouveau journal
+                        full_md = existing_content + "\n" + new_entry
+                        lines = full_md.splitlines()
+                        
+                        # Limiter à environ 500 lignes
+                        if len(lines) > 500:
+                            # On prend les 500 dernières lignes
+                            truncated_lines = lines[-500:]
+                            
+                            # On cherche le premier début d'échange "## 💬" pour couper proprement
+                            start_idx = 0
+                            for idx, line in enumerate(truncated_lines):
+                                if line.startswith("## 💬"):
+                                    start_idx = idx
+                                    break
+                            
+                            # Si on a trouvé un début d'échange, on repart de là, sinon on prend les 500 brutes
+                            final_lines = truncated_lines[start_idx:] if start_idx > 0 else truncated_lines
+                            full_md = "*(Historique plus ancien tronqué pour rester sous 500 lignes)*\n\n" + "\n".join(final_lines)
+                        
+                        # Écrire dans le fichier permanent
+                        with open(_DEBUG_MD, "w", encoding="utf-8") as f:
+                            f.write(full_md.strip() + "\n")
                     except Exception:
                         pass
-                _dbg("INIT_MESSAGES", messages)
 
                 # Capturer la demande originale de l'utilisateur (avant tout tour d'outil)
                 # pour la réinjecter dans les rounds suivants et éviter que Gemma l'oublie.
@@ -2481,7 +2537,6 @@ def main(page: ft.Page):
                     _stream_tool_calls = []
                     _text_parsed_tools = False  # True si tool_calls viennent du parseur texte
                     thinking_ctrl = None
-                    _dbg(f"ROUND_{_tool_round}_START_messages_count={len(messages)}", messages)
                     _stream_token_count = 0
                     _STREAM_UPDATE_EVERY = 5
 
@@ -2493,19 +2548,19 @@ def main(page: ft.Page):
                         except Exception:
                             pass
 
-                    for _evt, _dat in (
-                        _gemini_chat_stream_with_tools(
+                    if (active_model or "").startswith("gemini"):
+                        _stream_iter = _gemini_chat_stream_with_tools(
                             active_model, messages,
-                            tools=_ALL_TOOLS,
-                            temperature=CONSTANTS.AI_TEMPERATURE,
-                        )
-                        if (active_model or "").startswith("gemini") else
-                        _ollama_chat_stream_with_tools(
+                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE)
+                    elif (active_model or "").startswith("claude"):
+                        _stream_iter = _claude_chat_stream_with_tools(
+                            active_model, messages,
+                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE)
+                    else:
+                        _stream_iter = _ollama_chat_stream_with_tools(
                             CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                            tools=_ALL_TOOLS,
-                            temperature=CONSTANTS.AI_TEMPERATURE,
-                        )
-                    ):
+                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE)
+                    for _evt, _dat in _stream_iter:
                         if _evt == "tool_calls":
                             _stream_tool_calls.extend(_dat)
                         elif _evt == "thinking":
@@ -2527,12 +2582,8 @@ def main(page: ft.Page):
                                 page.run_task(_scroll_and_update)
 
                     tool_calls = _stream_tool_calls
-                    _dbg(f"ROUND_{_tool_round}_AFTER_STREAM", {
-                        "_streamed_raw": _streamed,
-                        "_stream_tool_calls_native": _stream_tool_calls,
-                    })
                     if not _streamed and not _stream_tool_calls:
-                        if not (active_model or "").startswith("gemini"):
+                        if not (active_model or "").startswith(("gemini", "claude")):
                             _fallback = _ollama_chat_once(
                                 CONSTANTS.AI_OLLAMA_URL, active_model, messages,
                                 tools=_ALL_TOOLS,
@@ -2548,11 +2599,6 @@ def main(page: ft.Page):
                             _text_parsed_tools = True
                             _streamed_for_history = _streamed  # Garder <tool_code> pour l'historique Gemma
                             _streamed = _strip_text_tool_calls(_streamed)
-                    _dbg(f"ROUND_{_tool_round}_AFTER_PARSE", {
-                        "_text_parsed_tools": _text_parsed_tools,
-                        "tool_calls": tool_calls,
-                        "_streamed_after_strip": _streamed[:600] if _streamed else "",
-                    })
 
                     if not tool_calls:
                         full_response = _strip_text_tool_calls(_streamed)
@@ -3163,10 +3209,6 @@ def main(page: ft.Page):
                                 "N'écris pas la réponse finale avant d'avoir utilisé tous les outils nécessaires."
                             )
                         messages.append({"role": "user", "content": _injected_msg})
-                        _dbg(f"ROUND_{_tool_round}_RESULTS_INJECTED", {
-                            "assistant_msg_appended": messages[-2],
-                            "user_results_msg": _injected_msg[:1000],
-                        })
                     else:
                         # Stratégie hybride pour Gemma 4 via Ollama :
                         # Round 0 → tool_responses dans le message assistant
@@ -3235,6 +3277,27 @@ def main(page: ft.Page):
                             )})
                     _remove_loading()
 
+                # Capturer le message original de l'utilisateur pour le log
+                _last_user_text = next(
+                    (m["content"] for m in reversed(ai_conversation) if m["role"] == "user"),
+                    message_text
+                )
+                
+                # Enrichir le log avec les pièces jointes si présentes
+                _log_user_text = _last_user_text
+                _attachments_info = []
+                if "images_paths" in locals() and images_paths:
+                    _attachments_info.append(f"🖼️ **Image(s) jointe(s) :** {', '.join(os.path.basename(p) for p in images_paths)}")
+                if "files_to_inject" in locals() and files_to_inject:
+                    _attachments_info.append(f"📁 **Document(s) joint(s) :** {', '.join(os.path.basename(p) for p in files_to_inject)}")
+                
+                if _attachments_info:
+                    _attachments_str = "\n".join(_attachments_info)
+                    if _log_user_text.strip():
+                        _log_user_text = f"{_log_user_text.strip()}\n\n{_attachments_str}"
+                    else:
+                        _log_user_text = _attachments_str
+
                 if full_response:
                     _entry = {"role": "assistant", "content": full_response}
                     if _thinking:
@@ -3243,11 +3306,19 @@ def main(page: ft.Page):
                         _entry["events"] = _turn_events
                     ai_conversation.append(_entry)
                     _ai_save_history()
+                    
+                    # 📝 Log permanent dans le fichier Markdown
+                    _log_exchange_to_md(_log_user_text, full_response, _thinking, _turn_events)
                 else:
+                    _fallback_response = "[Aucune réponse reçue]"
                     if _turn_events:
-                        ai_conversation.append({"role": "assistant", "content": "[Aucune réponse reçue]", "events": _turn_events})
+                        ai_conversation.append({"role": "assistant", "content": _fallback_response, "events": _turn_events})
                         _ai_save_history()
-                    _ai_add_bubble("assistant", "[Aucune réponse reçue]")
+                    _ai_add_bubble("assistant", _fallback_response)
+                    
+                    # 📝 Log permanent même s'il n'y a pas eu de réponse
+                    _log_exchange_to_md(_log_user_text, _fallback_response, _thinking, _turn_events)
+                    
             except Exception as exc:
                 _ai_add_bubble("assistant", f"[ERREUR] {exc}")
                 full_response = ""
@@ -3568,20 +3639,17 @@ def main(page: ft.Page):
                 thinking_text = ""
                 token_counter = 0
                 try:
-                    for event_type, event_data in (
-                        _gemini_chat_stream_with_tools(
-                            active_model, messages,
-                            tools=[select_photos_tool],
-                            temperature=0.3,
-                        )
-                        if (active_model or "").startswith("gemini") else
-                        _ollama_chat_stream_with_tools(
+                    if (active_model or "").startswith("gemini"):
+                        _folder_stream_iter = _gemini_chat_stream_with_tools(
+                            active_model, messages, tools=[select_photos_tool], temperature=0.3)
+                    elif (active_model or "").startswith("claude"):
+                        _folder_stream_iter = _claude_chat_stream_with_tools(
+                            active_model, messages, tools=[select_photos_tool], temperature=0.3)
+                    else:
+                        _folder_stream_iter = _ollama_chat_stream_with_tools(
                             CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                            tools=[select_photos_tool],
-                            temperature=0.3,
-                            timeout=600,
-                        )
-                    ):
+                            tools=[select_photos_tool], temperature=0.3, timeout=600)
+                    for event_type, event_data in _folder_stream_iter:
                         if not ai_streaming["value"]:
                             break
                         if event_type == "thinking":
@@ -8336,10 +8404,11 @@ def main(page: ft.Page):
     _initial_drives = _get_removable_drives()
     _rebuild_drives_panel(_initial_drives)
     threading.Thread(target=_poll_removable_drives, daemon=True).start()
-    overlay_container = None
-    ai_panel_container = None
+    overlay_container       = None
+    ai_panel_container      = None
     notepad_panel_container = None
-    bottom_panel_container = None
+    bottom_panel_container  = None
+    ai_both_fullscreen_btn  = None
     if _initial_drives is not None:
         def update_overlay_visibility():
             """Affiche ou masque l'overlay (IA à gauche + Notes à droite)."""
@@ -8500,6 +8569,13 @@ def main(page: ft.Page):
             tooltip="Transférer la conversation vers le bloc-notes",
             on_click=lambda e: _export_ai_conversation(to_notepad=True),
         )
+        ai_both_fullscreen_btn = ft.IconButton(
+            icon=ft.Icons.VERTICAL_SPLIT,
+            icon_color=YELLOW,
+            icon_size=16,
+            tooltip="IA + Bloc-notes côte à côte (plein écran)",
+            on_click=lambda e: toggle_both_fullscreen(),
+        )
         ai_panel_header = ft.Row([
             ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=14),
             ft.Text("IA", color=BLUE, size=11, weight=ft.FontWeight.BOLD),
@@ -8516,6 +8592,7 @@ def main(page: ft.Page):
             ai_copy_button,
             ai_to_notepad_button,
             ft.Container(expand=True),
+            ai_both_fullscreen_btn,
             expand_button_overlay,
             ai_fullscreen_btn,
         ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -8627,8 +8704,8 @@ def main(page: ft.Page):
         overlay_fullscreen["mode"] = mode_name
         ai_is_solo = mode_name in ("ai", "ai_full")
         notepad_is_solo = mode_name in ("notepad", "notepad_full")
-        expand_button_overlay.icon = ft.Icons.EXPAND_MORE if ai_is_solo else ft.Icons.EXPAND_LESS
-        expand_button_notepad.icon = ft.Icons.EXPAND_MORE if notepad_is_solo else ft.Icons.EXPAND_LESS
+        expand_button_overlay.icon = ft.Icons.CLOSE_FULLSCREEN if ai_is_solo else ft.Icons.OPEN_IN_FULL
+        expand_button_notepad.icon = ft.Icons.CLOSE_FULLSCREEN if notepad_is_solo else ft.Icons.OPEN_IN_FULL
         expand_button_overlay.tooltip = "Réduire IA seule (Ctrl/Cmd+←)" if ai_is_solo else "IA seule (Ctrl/Cmd+←)"
         expand_button_notepad.tooltip = "Réduire Bloc-notes seul (Ctrl/Cmd+→)" if notepad_is_solo else "Bloc-notes seul (Ctrl/Cmd+→)"
         # Repositionner le panneau du bas selon le mode.
@@ -8677,8 +8754,8 @@ def main(page: ft.Page):
     def _exit_solo_mode(do_update=True):
         """Restaure le mode deux panneaux depuis le mode solo."""
         overlay_fullscreen["mode"] = None
-        expand_button_overlay.icon = ft.Icons.EXPAND_LESS
-        expand_button_notepad.icon = ft.Icons.EXPAND_LESS
+        expand_button_overlay.icon = ft.Icons.OPEN_IN_FULL
+        expand_button_notepad.icon = ft.Icons.OPEN_IN_FULL
         expand_button_overlay.tooltip = "IA seule (Ctrl/Cmd+←)"
         expand_button_notepad.tooltip = "Bloc-notes seul (Ctrl/Cmd+→)"
         # Restaurer bottom_panel_container en barre de fond
@@ -8697,10 +8774,13 @@ def main(page: ft.Page):
             notepad_panel_container.visible = True
         _terminal_spacer.height = CONSTANTS.TERMINAL_HEIGHT
         # Restaurer les deux boutons à leur icône d'origine
-        ai_fullscreen_btn.icon    = ft.Icons.FULLSCREEN
-        ai_fullscreen_btn.tooltip = "IA en plein écran"
+        ai_fullscreen_btn.icon         = ft.Icons.FULLSCREEN
+        ai_fullscreen_btn.tooltip      = "IA en plein écran"
         notepad_fullscreen_btn.icon    = ft.Icons.FULLSCREEN
         notepad_fullscreen_btn.tooltip = "Bloc-notes en plein écran"
+        if ai_both_fullscreen_btn is not None:
+            ai_both_fullscreen_btn.icon    = ft.Icons.VERTICAL_SPLIT
+            ai_both_fullscreen_btn.tooltip = "IA + Bloc-notes côte à côte (plein écran)"
         if do_update:
             page.update()
 
@@ -8710,7 +8790,7 @@ def main(page: ft.Page):
         """Mode solo IA : panel IA pleine hauteur à gauche, preview_list visible à droite."""
         if overlay_fullscreen["mode"] == "ai":
             _exit_solo_mode()
-        elif overlay_fullscreen["mode"] == "notepad":
+        elif overlay_fullscreen["mode"] in ("notepad", "both_full"):
             _exit_solo_mode(do_update=False)
             _enter_solo_mode(ai_panel_container, "ai")
         else:
@@ -8734,7 +8814,7 @@ def main(page: ft.Page):
         """Plein écran réel IA (moins WDA)."""
         if overlay_fullscreen["mode"] == "ai_full":
             _exit_solo_mode()
-        elif overlay_fullscreen["mode"] in ("ai", "notepad", "notepad_full"):
+        elif overlay_fullscreen["mode"] in ("ai", "notepad", "notepad_full", "both_full"):
             _exit_solo_mode(do_update=False)
             _enter_solo_mode(ai_panel_container, "ai_full")
         else:
@@ -8746,11 +8826,40 @@ def main(page: ft.Page):
         """Plein écran réel Bloc-notes (moins WDA)."""
         if overlay_fullscreen["mode"] == "notepad_full":
             _exit_solo_mode()
-        elif overlay_fullscreen["mode"] in ("notepad", "ai", "ai_full"):
+        elif overlay_fullscreen["mode"] in ("notepad", "ai", "ai_full", "both_full"):
             _exit_solo_mode(do_update=False)
             _enter_solo_mode(notepad_panel_container, "notepad_full")
         else:
             _enter_solo_mode(notepad_panel_container, "notepad_full")
+
+
+
+    def toggle_both_fullscreen():
+        """IA + Bloc-notes côte à côte en plein écran réel."""
+        if overlay_fullscreen["mode"] == "both_full":
+            _exit_solo_mode()
+            return
+        if overlay_fullscreen["mode"] is not None:
+            _exit_solo_mode(do_update=False)
+        overlay_fullscreen["mode"] = "both_full"
+        ai_panel_container.visible      = True
+        notepad_panel_container.visible = True
+        overlay_container.visible       = True
+        bottom_panel_container.top    = 0
+        bottom_panel_container.height = None
+        bottom_panel_container.left   = 0
+        bottom_panel_container.right  = 0
+        bottom_panel_container.width  = None
+        _terminal_spacer.height = 0
+        expand_button_overlay.icon     = ft.Icons.OPEN_IN_FULL
+        expand_button_notepad.icon     = ft.Icons.OPEN_IN_FULL
+        expand_button_overlay.tooltip  = "IA seule (Ctrl/Cmd+←)"
+        expand_button_notepad.tooltip  = "Bloc-notes seul (Ctrl/Cmd+→)"
+        ai_both_fullscreen_btn.icon    = ft.Icons.CLOSE_FULLSCREEN
+        ai_both_fullscreen_btn.tooltip = "Fermer le mode côte à côte"
+        ai_fullscreen_btn.icon         = ft.Icons.FULLSCREEN
+        notepad_fullscreen_btn.icon    = ft.Icons.FULLSCREEN
+        page.update()
 
 
 
@@ -8773,8 +8882,8 @@ def main(page: ft.Page):
             overlay_fullscreen["mode"] = None
             ai_panel_container.visible = True
             notepad_panel_container.visible = True
-            expand_button_overlay.icon = ft.Icons.EXPAND_LESS
-            expand_button_notepad.icon = ft.Icons.EXPAND_LESS
+            expand_button_overlay.icon = ft.Icons.OPEN_IN_FULL
+            expand_button_notepad.icon = ft.Icons.OPEN_IN_FULL
             expand_button_overlay.tooltip = "IA seule (Ctrl/Cmd+←)"
             expand_button_notepad.tooltip = "Bloc-notes seul (Ctrl/Cmd+→)"
         if open_panels_button is not None:
@@ -8810,7 +8919,7 @@ def main(page: ft.Page):
         terminal_is_expanded["value"] = not terminal_is_expanded["value"]
         is_expanded = terminal_is_expanded["value"]
         bottom_panel_container.height = _expanded_terminal_height() if is_expanded else CONSTANTS.TERMINAL_HEIGHT
-        new_icon    = ft.Icons.EXPAND_MORE if is_expanded else ft.Icons.EXPAND_LESS
+        new_icon    = ft.Icons.CLOSE_FULLSCREEN if is_expanded else ft.Icons.VERTICAL_SPLIT
         new_tooltip = "Réduire  (Ctrl+↑)" if is_expanded else "Agrandir  (Ctrl+↑)"
         for expand_button in (expand_button_terminal,):
             expand_button.icon    = new_icon

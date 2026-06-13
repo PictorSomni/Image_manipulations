@@ -7,6 +7,8 @@ Modifier ce fichier pour changer les paramètres globaux de l application sans
 toucher aux scripts eux-mêmes.
 """
 
+import os
+
 # ==============================================================================
 # TABLE DES MATIÈRES
 # ==============================================================================
@@ -47,7 +49,7 @@ toucher aux scripts eux-mêmes.
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.7.8"
+__version__ = "2.7.9"
 
 
 # ==============================================================================
@@ -295,15 +297,14 @@ if _platform.system() == "Windows":
         r"\\diskstation\travaux en cours\Z2026\TEMP",
     ]
 else:
-    import os as _os
+    
     _travaux = "/Volumes/TRAVAUX EN COURS"
-    if not _os.path.ismount(_travaux):
+    if not os.path.ismount(_travaux):
         for _suffix in ["-1", "-2", "-3", "-4"]:
             _candidate = f"{_travaux}{_suffix}"
-            if _os.path.ismount(_candidate):
+            if os.path.ismount(_candidate):
                 _travaux = _candidate
                 break
-    del _os
     KIOSK_GAUCHE_SRC  = "/Volumes/kiosk-data/it-HotFolder"
     KIOSK_GAUCHE_DEST = f"{_travaux}/Z2026/KIOSK/KIOSK GAUCHE"
     KIOSK_DROITE_SRC  = "/Volumes/kiosk-data-1/it-HotFolder"
@@ -341,10 +342,11 @@ AI_OLLAMA_URL   = "http://localhost:11434"   # URL de l'API Ollama locale
 AI_MODEL_TEXT   = "gemini-3.5-flash"         # Modèle texte par défaut
 AI_MODEL_VISION = "gemini-3.5-flash"         # Modèle vision par défaut
 AI_GEMINI_MODEL    = "gemini-3.5-flash"      # Modèle Gemini principal (API Google)
-AI_GEMINI_FALLBACK = "gemma4:e4b"            # Fallback Ollama local si hors-ligne
-AI_GEMINI_IMAGE_TIMEOUT = 180                 # Timeout max (s) pour generate/edit image via Gemini
+AI_GEMINI_FALLBACK = "gemma4:e4b-mlx" if os.name == "darwin" else "gemma4:e4b"            # Fallback Ollama local si hors-ligne
+AI_GEMINI_IMAGE_TIMEOUT = 180                # Timeout max (s) pour generate/edit image via Gemini
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
-AI_URL_MAX_CHARS = 12_000                    # Nb max de caractères extraits d'une URL
+AI_URL_MAX_CHARS = 20_000                    # Nb max de caractères extraits d'une URL
+AI_FILE_MAX_CHARS = 500_000                  # Nb max de caractères lus dans un fichier du dossier
 AI_ORGANIZE_CONFIRM  = False                 # True = confirmation avant chaque tri de fichiers
 AI_TERMINAL_CONFIRM  = False                 # True = confirmation avant chaque commande terminal
 AI_IMAGE_ATTACH_DEFAULT_ORIGINAL = True      # True = images jointes manuellement en taille réelle par défaut
@@ -364,16 +366,17 @@ AI_AVAILABLE_MODELS = [
     ("Gemini 3.5 Flash  🌐🖼",        "gemini-3.5-flash",         True),
     ("Gemini 3.1 Pro  🌐🖼",          "gemini-3.1-pro-preview",   True),
     ("Gemma 4 E4B  (~9.6 GB) 🖼",    "gemma4:e4b",               True),
-    ("Gemma 4 · 26B  (~18 GB) 🖼",   "gemma4:26b",               True),
-    ("DeepSeek-R1 · 8B  (~5.2 GB)",  "deepseek-r1:8b",           False),
-    ("DeepSeek-R1 · 14B  (~9 GB)",   "deepseek-r1:14b",          False),
+    ("Gemma 4 E4B - MLX  (~9.6 GB)🍎", "gemma4:e4b-mlx", False),        
+    ("Gemma 4 · 12B  (~7.6 GB) 🖼",   "gemma4:12b",               True),
+    ("Gemma 4 12B - MLX  (6.8GB GB)🍎", "gemma4:12b-mlx", False),    
 ]
 
 # Modèles affichés dans le dropdown de sélection rapide du Dashboard
 AI_DROPDOWN_MODELS = [
     "gemini-3.5-flash",
     "gemini-3.1-pro-preview",
-    "gemma4:e4b",
+    "claude-sonnet-4-6",
+    "gemma4:e4b-mlx",
 ]
 
 

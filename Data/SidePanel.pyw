@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.7.8"
+__version__ = "2.7.9"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — SidePanel.pyw
@@ -44,6 +44,7 @@ __version__ = "2.7.8"
 #                          IMPORTS                          #
 #############################################################
 import flet as ft
+import flet_code_editor as fce
 import os
 import shutil
 import threading
@@ -92,6 +93,7 @@ from ai_tools import (
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
     _update_memory_file, _build_system_content,
     _gemini_tts_stream, _gemini_live_tts_stream,
+    _claude_chat_stream_with_tools,
 )
 #############################################################
 #                           MAIN                            #
@@ -203,11 +205,11 @@ def main(page: ft.Page):
     #  ██████████  État  ──  Onglet 4 (IA)
     # ───────────────────────────────────────────────────────────────────
     ai_history_file_path  = os.path.normpath(os.path.join(app_dir, "..", ".ai_conversation.json"))
-    ai_conversation_sp    = []
-    ai_streaming_sp       = {"value": False}
-    ollama_process_sp     = {"proc": None}
-    ai_pending_images_sp  = []
-    ai_pending_files_sp   = []
+    ai_conversation    = []
+    ai_streaming       = {"value": False}
+    ollama_process     = {"proc": None}
+    ai_pending_images  = []
+    ai_pending_files   = []
 
     # ═════════════════════════════════════════════════════════════════════
     #  ██  Helpers persistance
@@ -443,18 +445,12 @@ def main(page: ft.Page):
     #  ██  Éléments UI — Onglet 3 (Bloc-notes)
     # ═════════════════════════════════════════════════════════════════════
 
-    notepad_field = ft.TextField(
-        multiline=True,
-        expand=True,
-        min_lines=4,
+    notepad_field = fce.CodeEditor(
         text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
-        color=WHITE,
-        border_color=ft.Colors.TRANSPARENT,
-        border_radius=6,
-        bgcolor=DARK,
-        filled=True,
-        hint_text="Écrivez vos notes ici…",
-        hint_style=ft.TextStyle(color=LIGHT_GREY, italic=True),
+        language=fce.CodeLanguage.PLAINTEXT,
+        code_theme=fce.CodeTheme.ATOM_ONE_DARK,
+        gutter_style=fce.GutterStyle(width=56),
+        expand=True,
     )
     notepad_markdown_preview = ft.Markdown(
         "",
@@ -480,8 +476,8 @@ def main(page: ft.Page):
     #  ██  Éléments UI — Onglet 4 (IA)
     # ═══════════════════════════════════════════════════════════════════
 
-    ai_chat_view_sp = ft.ListView(expand=True, spacing=4, auto_scroll=True)
-    ai_input_field_sp = ft.TextField(
+    ai_chat_view = ft.ListView(expand=True, spacing=4, auto_scroll=True)
+    ai_input_field = ft.TextField(
         hint_text="Posez votre question… (Entrée pour envoyer)",
         border_color=BLUE,
         text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
@@ -491,44 +487,54 @@ def main(page: ft.Page):
         bgcolor=DARK,
         shift_enter=True,
     )
-    ai_model_label_sp  = ft.Text(CONSTANTS.AI_MODEL_TEXT, color=LIGHT_GREY, size=11, italic=True)
-    ai_status_text_sp  = ft.Text("", color=LIGHT_GREY, size=11, italic=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
-    ai_stop_btn_sp     = ft.IconButton(
+    ai_model_dropdown = ft.Dropdown(
+        value=CONSTANTS.AI_MODEL_TEXT,
+        options=[ft.dropdown.Option(model) for model in CONSTANTS.AI_DROPDOWN_MODELS],
+        text_size=11,
+        dense=True,
+        color=LIGHT_GREY,
+        bgcolor=DARK,
+        border_color=GREY,
+        content_padding=ft.Padding.symmetric(horizontal=6, vertical=0),
+        width=150,
+    )
+    ai_status_text  = ft.Text("", color=LIGHT_GREY, size=11, italic=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+    ai_stop_button     = ft.IconButton(
         icon=ft.Icons.STOP_CIRCLE,
         icon_color=LIGHT_GREY,
         icon_size=16,
         tooltip="Libérer le modèle (ollama stop)",
         visible=True,
     )
-    ai_attach_row_sp   = ft.Row([], spacing=4, visible=False, wrap=True)
-    ai_attach_btn_sp   = ft.IconButton(
+    ai_attach_row   = ft.Row([], spacing=4, visible=False, wrap=True)
+    ai_attach_button   = ft.IconButton(
         icon=ft.Icons.ATTACH_FILE,
         icon_color=LIGHT_GREY,
         icon_size=18,
         tooltip="Joindre une image ou un document",
     )
-    ai_send_btn_sp     = ft.IconButton(
+    ai_send_button     = ft.IconButton(
         icon=ft.Icons.SEND,
         icon_color=BLUE,
         icon_size=18,
         tooltip="Envoyer",
     )
-    ai_tts_enabled_sp = {"value": CONSTANTS.AI_VOICE_TTS_ENABLED}
-    ai_tts_stop_event_sp = {"event": None}
-    ai_speaker_btn_sp  = ft.IconButton(
+    ai_tts_enabled = {"value": CONSTANTS.AI_VOICE_TTS_ENABLED}
+    ai_tts_stop_event = {"event": None}
+    ai_speaker_button  = ft.IconButton(
         icon=ft.Icons.VOLUME_UP if CONSTANTS.AI_VOICE_TTS_ENABLED else ft.Icons.VOLUME_OFF,
         icon_color=CONSTANTS.COLOR_BLUE if CONSTANTS.AI_VOICE_TTS_ENABLED else CONSTANTS.COLOR_LIGHT_GREY,
         icon_size=18,
         tooltip="Désactiver la lecture vocale" if CONSTANTS.AI_VOICE_TTS_ENABLED else "Activer la lecture vocale",
         visible=CONSTANTS.AI_VOICE_TTS_BTN_VISIBLE,
     )
-    ai_clear_btn_sp    = ft.IconButton(
+    ai_clear_button    = ft.IconButton(
         icon=ft.Icons.DELETE_SWEEP,
         icon_color=LIGHT_GREY,
         icon_size=16,
         tooltip="Effacer la conversation IA",
     )
-    ai_copy_btn_sp     = ft.IconButton(
+    ai_copy_button     = ft.IconButton(
         icon=ft.Icons.COPY_ALL,
         icon_color=LIGHT_GREY,
         icon_size=16,
@@ -2068,6 +2074,17 @@ def main(page: ft.Page):
     def _open_file_in_notepad(file_path):
         """Ouvre un fichier texte dans l'onglet Notes."""
         note_target_file["path"] = file_path
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext in (".py", ".pyw"):
+            notepad_field.language = fce.CodeLanguage.PYTHON
+        elif ext == ".json":
+            notepad_field.language = fce.CodeLanguage.JSON
+        elif ext in (".md",):
+            notepad_field.language = fce.CodeLanguage.MARKDOWN
+        elif ext in (".js", ".ts"):
+            notepad_field.language = fce.CodeLanguage.JAVASCRIPT
+        else:
+            notepad_field.language = fce.CodeLanguage.PLAINTEXT
         _notepad_load()
         tabs.selected_index = 2
         try:
@@ -2099,17 +2116,17 @@ def main(page: ft.Page):
     #  ██  Fonctions — Onglet 4 (IA)
     # ═════════════════════════════════════════════════════════════════════
 
-    def _speak_bubble_sp(text):
+    def _speak_bubble(text):
         """Lit un texte via Gemini TTS (mode configurable dans CONSTANTS.AI_VOICE_TTS_MODE)."""
         # Arrêter le TTS précédent s'il tourne encore
-        if ai_tts_stop_event_sp["event"] is not None:
-            ai_tts_stop_event_sp["event"].set()
+        if ai_tts_stop_event["event"] is not None:
+            ai_tts_stop_event["event"].set()
         stop_event = threading.Event()
-        ai_tts_stop_event_sp["event"] = stop_event
+        ai_tts_stop_event["event"] = stop_event
         mode_label = "Live" if CONSTANTS.AI_VOICE_TTS_MODE == "live" else "TTS"
-        ai_status_text_sp.value = f"🔊 {mode_label} — {CONSTANTS.AI_VOICE_TTS_VOICE}…"
+        ai_status_text.value = f"🔊 {mode_label} — {CONSTANTS.AI_VOICE_TTS_VOICE}…"
         try:
-            ai_status_text_sp.update()
+            ai_status_text.update()
         except Exception:
             pass
         try:
@@ -2132,22 +2149,24 @@ def main(page: ft.Page):
                     stop_event=stop_event,
                 )
         except Exception as tts_exc:
-            ai_status_text_sp.value = f"[❌ TTS] {tts_exc}"
+            ai_status_text.value = f"[❌ TTS] {tts_exc}"
             try:
-                ai_status_text_sp.update()
+                ai_status_text.update()
             except Exception:
                 pass
             return
         finally:
-            if ai_tts_stop_event_sp["event"] is stop_event:
-                ai_tts_stop_event_sp["event"] = None
-        ai_status_text_sp.value = ""
+            if ai_tts_stop_event["event"] is stop_event:
+                ai_tts_stop_event["event"] = None
+        ai_status_text.value = ""
         try:
-            ai_status_text_sp.update()
+            ai_status_text.update()
         except Exception:
             pass
 
-    def _ai_add_bubble_sp(role, text):
+    _fs_ai = {"chat_view": None}  # Référence vers la vue plein écran active (ou None)
+
+    def _ai_add_bubble(role, text):
         """Ajoute un message dans le panneau IA et retourne le contrôle (pour le streaming)."""
         is_user  = role == "user"
         is_think = role == "think"
@@ -2196,7 +2215,7 @@ def main(page: ft.Page):
                 icon_size=14,
                 tooltip="Lire cette réponse",
                 on_click=lambda e, t=raw_text: threading.Thread(
-                    target=_speak_bubble_sp, args=(t,), daemon=True
+                    target=_speak_bubble, args=(t,), daemon=True
                 ).start(),
             )
             row = ft.Row(
@@ -2209,23 +2228,24 @@ def main(page: ft.Page):
                 [bubble],
                 alignment=ft.MainAxisAlignment.END if is_user else ft.MainAxisAlignment.START,
             )
-        ai_chat_view_sp.controls.append(row)
+        _target_view = _fs_ai["chat_view"] if _fs_ai["chat_view"] is not None else ai_chat_view
+        _target_view.controls.append(row)
         async def _update_and_scroll():
             try:
                 page.update()
                 await asyncio.sleep(0)
-                await ai_chat_view_sp.scroll_to(offset=-1)
+                await _target_view.scroll_to(offset=-1)
             except Exception:
                 pass
         page.run_task(_update_and_scroll)
         return bubble_text
 
-    def _ai_save_history_sp():
+    def _ai_save_history():
         """Sauvegarde la conversation dans .ai_conversation.json."""
         try:
             serializable = [
                 {"role": message["role"], "content": message["content"]}
-                for message in ai_conversation_sp
+                for message in ai_conversation
                 if message.get("role") in ("user", "assistant")
             ]
             with open(ai_history_file_path, "w", encoding="utf-8") as file_handle:
@@ -2233,7 +2253,7 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    def _ai_load_history_sp():
+    def _ai_load_history():
         """Charge .ai_conversation.json et reconstruit la vue."""
         if not os.path.isfile(ai_history_file_path):
             return
@@ -2245,7 +2265,7 @@ def main(page: ft.Page):
                 content = message.get("content", "")
                 if role not in ("user", "assistant"):
                     continue
-                ai_conversation_sp.append({"role": role, "content": content})
+                ai_conversation.append({"role": role, "content": content})
                 is_user = role == "user"
                 if is_user:
                     bubble_text = ft.Text(
@@ -2271,7 +2291,7 @@ def main(page: ft.Page):
                     padding=ft.Padding(8, 4, 8, 4),
                     expand=True,
                 )
-                ai_chat_view_sp.controls.append(
+                ai_chat_view.controls.append(
                     ft.Row(
                         [bubble],
                         alignment=ft.MainAxisAlignment.END if is_user else ft.MainAxisAlignment.START,
@@ -2280,11 +2300,193 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    def _clear_ai_conversation_sp(event=None):
+    def _rebuild_ai_chat_view():
+        """Reconstruit ai_chat_view depuis ai_conversation (appelé à la fermeture du plein écran)."""
+        ai_chat_view.controls.clear()
+        for message in ai_conversation:
+            role    = message.get("role")
+            content = message.get("content", "")
+            if role not in ("user", "assistant"):
+                continue
+            is_user = role == "user"
+            if is_user:
+                btext = ft.Text(content, size=CONSTANTS.TERMINAL_FONT_SIZE, color=BLUE, font_family="monospace", selectable=True, no_wrap=False)
+            else:
+                btext = ft.Markdown(_md_dark(content), selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB, code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK, expand=True)
+            bub = ft.Container(content=btext, bgcolor=DARK if is_user else GREY, border_radius=6, padding=ft.Padding(8, 4, 8, 4), expand=True)
+            if is_user:
+                row = ft.Row([bub], alignment=ft.MainAxisAlignment.END)
+            else:
+                raw = content
+                spk = ft.IconButton(icon=ft.Icons.VOLUME_UP, icon_color=LIGHT_GREY, icon_size=14, tooltip="Lire", on_click=lambda e, t=raw: threading.Thread(target=_speak_bubble, args=(t,), daemon=True).start())
+                row = ft.Row([bub, spk], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.START)
+            ai_chat_view.controls.append(row)
+
+    def _open_ai_notepad_fullscreen(event=None):
+        """Ouvre l'IA et le bloc-notes côte à côte en plein écran."""
+        # ── Vue chat plein écran ─────────────────────────────────────────────
+        fs_chat_view = ft.ListView(expand=True, spacing=4, auto_scroll=True)
+        for message in ai_conversation:
+            role    = message.get("role")
+            content = message.get("content", "")
+            if role not in ("user", "assistant"):
+                continue
+            is_user = role == "user"
+            if is_user:
+                btext = ft.Text(content, size=CONSTANTS.TERMINAL_FONT_SIZE, color=BLUE, font_family="monospace", selectable=True, no_wrap=False)
+            else:
+                btext = ft.Markdown(_md_dark(content), selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB, code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK, expand=True)
+            bub = ft.Container(content=btext, bgcolor=DARK if is_user else GREY, border_radius=6, padding=ft.Padding(8, 4, 8, 4), expand=True)
+            if is_user:
+                row = ft.Row([bub], alignment=ft.MainAxisAlignment.END)
+            else:
+                raw = content
+                spk = ft.IconButton(icon=ft.Icons.VOLUME_UP, icon_color=LIGHT_GREY, icon_size=14, tooltip="Lire", on_click=lambda e, t=raw: threading.Thread(target=_speak_bubble, args=(t,), daemon=True).start())
+                row = ft.Row([bub, spk], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.START)
+            fs_chat_view.controls.append(row)
+
+        _fs_ai["chat_view"] = fs_chat_view
+
+        # ── Dropdown modèle synchronisé ──────────────────────────────────────
+        fs_model_dd = ft.Dropdown(
+            value=ai_model_dropdown.value,
+            options=[ft.dropdown.Option(m) for m in CONSTANTS.AI_DROPDOWN_MODELS],
+            text_size=11, dense=True, color=LIGHT_GREY, bgcolor=DARK, border_color=GREY,
+            content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=150,
+        )
+        fs_model_dd.on_change = lambda e: setattr(ai_model_dropdown, "value", e.control.value)
+
+        # ── Bloc-notes synchronisé ───────────────────────────────────────────
+        fs_notepad = fce.CodeEditor(
+            text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
+            language=notepad_field.language,
+            code_theme=fce.CodeTheme.ATOM_ONE_DARK,
+            gutter_style=fce.GutterStyle(width=56),
+            expand=True,
+        )
+        fs_notepad.value = notepad_field.value or ""
+
+        # ── Champ de saisie IA plein écran ──────────────────────────────────
+        fs_ai_input = ft.TextField(
+            hint_text="Posez votre question… (Entrée pour envoyer, Maj+Entrée = nouvelle ligne)",
+            bgcolor=DARK, color=WHITE, border_color=GREY, expand=True,
+            multiline=True, shift_enter=True,
+            text_style=ft.TextStyle(size=CONSTANTS.TERMINAL_FONT_SIZE),
+        )
+
+        def _fs_submit(event=None):
+            if not (fs_ai_input.value or "").strip():
+                return
+            ai_input_field.value = fs_ai_input.value
+            fs_ai_input.value = ""
+            try:
+                fs_ai_input.update()
+            except Exception:
+                pass
+            _on_ai_submit()
+
+        fs_ai_input.on_submit = _fs_submit
+
+        # ── Boutons plein écran ──────────────────────────────────────────────
+        fs_send_btn    = ft.IconButton(ft.Icons.SEND,         icon_color=BLUE,       icon_size=18, tooltip="Envoyer",              on_click=_fs_submit)
+        fs_attach_btn  = ft.IconButton(ft.Icons.ATTACH_FILE,  icon_color=LIGHT_GREY, icon_size=18, tooltip="Joindre un fichier",    on_click=lambda e: page.run_task(_ai_pick_any))
+        fs_stop_btn    = ft.IconButton(ft.Icons.STOP_CIRCLE,  icon_color=LIGHT_GREY, icon_size=16, tooltip="Libérer le modèle",     on_click=lambda e: _ai_stop_model())
+        fs_copy_btn    = ft.IconButton(ft.Icons.COPY,         icon_color=LIGHT_GREY, icon_size=16, tooltip="Copier la conversation", on_click=lambda e: _export_ai_conversation(to_notepad=False))
+        fs_clear_btn   = ft.IconButton(ft.Icons.DELETE_SWEEP, icon_color=LIGHT_GREY, icon_size=16, tooltip="Effacer la conversation", on_click=lambda e: _clear_ai_conversation())
+        fs_speaker_btn = ft.IconButton(
+            icon=ft.Icons.VOLUME_UP if ai_tts_enabled["value"] else ft.Icons.VOLUME_OFF,
+            icon_color=BLUE if ai_tts_enabled["value"] else LIGHT_GREY,
+            icon_size=16, tooltip="TTS",
+            on_click=lambda e: _toggle_tts(),
+        )
+        fs_transfer_btn = ft.IconButton(
+            icon=ft.Icons.SEND_TO_MOBILE, icon_color=VIOLET, icon_size=16,
+            tooltip="Transférer la conversation vers le bloc-notes",
+            on_click=lambda e: _export_ai_conversation(to_notepad=True),
+        )
+        fs_close_btn = ft.IconButton(ft.Icons.CLOSE_FULLSCREEN, icon_color=LIGHT_GREY, icon_size=18, tooltip="Fermer le plein écran")
+
+        # ── Layout ───────────────────────────────────────────────────────────
+        ai_left_panel = ft.Column([
+            ft.Row([
+                ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=14),
+                ft.Text("IA", color=BLUE, size=12, weight=ft.FontWeight.BOLD),
+                ft.Container(width=4),
+                fs_model_dd,
+                ft.Container(expand=True),
+                fs_stop_btn, fs_copy_btn, fs_clear_btn, fs_speaker_btn, fs_transfer_btn,
+            ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Container(
+                content=ft.Column([
+                    fs_chat_view,
+                    ft.Row([fs_attach_btn, fs_ai_input, fs_send_btn],
+                           spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ], spacing=4, expand=True),
+                expand=True,
+                border=ft.Border.all(1, BLUE), border_radius=8, bgcolor=DARK,
+                padding=ft.Padding(6, 6, 6, 6),
+            ),
+        ], expand=True, spacing=6)
+
+        notepad_right_panel = ft.Column([
+            ft.Row([
+                ft.Icon(ft.Icons.CODE, color=VIOLET, size=14),
+                ft.Text("Bloc-notes", color=VIOLET, size=12, weight=ft.FontWeight.BOLD),
+            ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Container(
+                content=fs_notepad,
+                expand=True,
+                border=ft.Border.all(1, VIOLET), border_radius=8, bgcolor=DARK,
+                padding=ft.Padding(6, 6, 6, 6),
+            ),
+        ], expand=True, spacing=6)
+
+        def _close_fs(event=None):
+            _fs_ai["chat_view"] = None
+            if fs_notepad.value is not None:
+                notepad_field.value = fs_notepad.value
+                _notepad_save()
+            if fs_overlay in page.overlay:
+                page.overlay.remove(fs_overlay)
+            _rebuild_ai_chat_view()
+            try:
+                page.update()
+            except Exception:
+                pass
+
+        fs_close_btn.on_click = _close_fs
+
+        fs_overlay = ft.Container(
+            content=ft.Column([
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.OPEN_IN_FULL, color=BLUE, size=14),
+                        ft.Text("IA + Bloc-notes", color=WHITE, size=13, weight=ft.FontWeight.BOLD),
+                        ft.Container(expand=True),
+                        fs_close_btn,
+                    ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    bgcolor="#0d0f14",
+                    padding=ft.Padding(8, 4, 4, 4),
+                ),
+                ft.Row([
+                    ft.Container(content=ai_left_panel,        expand=True, padding=ft.Padding(8, 4, 4, 8)),
+                    ft.VerticalDivider(width=1, color=GREY),
+                    ft.Container(content=notepad_right_panel, expand=True, padding=ft.Padding(4, 4, 8, 8)),
+                ], expand=True, spacing=0, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+            ], expand=True, spacing=0),
+            bgcolor=DARK, expand=True,
+        )
+
+        page.overlay.append(fs_overlay)
+        page.update()
+
+    def _clear_ai_conversation(event=None):
         """Efface l'historique de la conversation IA."""
-        ai_conversation_sp.clear()
-        ai_chat_view_sp.controls.clear()
-        ai_status_text_sp.value = ""
+        ai_conversation.clear()
+        ai_chat_view.controls.clear()
+        if _fs_ai["chat_view"] is not None:
+            _fs_ai["chat_view"].controls.clear()
+        ai_status_text.value = ""
         try:
             if os.path.isfile(ai_history_file_path):
                 os.remove(ai_history_file_path)
@@ -2295,11 +2497,11 @@ def main(page: ft.Page):
         except Exception:
             pass
 
-    def _export_ai_conversation_sp(to_notepad=False, event=None):
+    def _export_ai_conversation(to_notepad=False, event=None):
         """Copie la conversation IA dans le presse-papiers, et la transfère dans le bloc-notes si demandé."""
-        if not ai_conversation_sp:
+        if not ai_conversation:
             return
-        text = _format_ai_conversation(ai_conversation_sp, CONSTANTS.AI_USER_NAME, CONSTANTS.AI_SEPARATOR_WIDTH)
+        text = _format_ai_conversation(ai_conversation, CONSTANTS.AI_USER_NAME, CONSTANTS.AI_SEPARATOR_WIDTH)
         async def _copy():
             try:
                 await ft.Clipboard().set(text)
@@ -2321,31 +2523,31 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
-    def _ai_stop_model_sp(event=None):
+    def _ai_stop_model(event=None):
         """Libère le modèle chargé en RAM via `ollama stop`."""
         def _run_stop():
             try:
-                current_model = CONSTANTS.AI_MODEL_TEXT
-                if not (current_model or "").startswith("gemini"):
+                current_model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_TEXT
+                if not (current_model or "").startswith(("gemini", "claude")):
                     subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_VISION], timeout=10)
                     subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_TEXT],   timeout=10)
             except Exception:
                 pass
-            ai_stop_btn_sp.icon_color = LIGHT_GREY
-            ai_status_text_sp.value = ""
+            ai_stop_button.icon_color = LIGHT_GREY
+            ai_status_text.value = ""
             try:
                 page.update()
             except Exception:
                 pass
         threading.Thread(target=_run_stop, daemon=True).start()
 
-    def _ai_refresh_attach_row_sp():
+    def _ai_refresh_attach_row():
         """Reconstruit la barre de pièces jointes visuellement."""
-        ai_attach_row_sp.controls.clear()
-        for image_entry in ai_pending_images_sp:
+        ai_attach_row.controls.clear()
+        for image_entry in ai_pending_images:
             name = os.path.basename(image_entry["path"])
             entry_ref = image_entry
-            ai_attach_row_sp.controls.append(
+            ai_attach_row.controls.append(
                 ft.Container(
                     content=ft.Row([
                         ft.Icon(ft.Icons.IMAGE, size=13, color=ORANGE),
@@ -2356,7 +2558,7 @@ def main(page: ft.Page):
                             icon_size=12,
                             tooltip="Retirer",
                             style=ft.ButtonStyle(padding=ft.Padding.all(2)),
-                            on_click=lambda event, ref=entry_ref: _ai_remove_image_sp(ref),
+                            on_click=lambda event, ref=entry_ref: _ai_remove_image(ref),
                         ),
                     ], spacing=2, tight=True),
                     bgcolor=GREY,
@@ -2364,11 +2566,11 @@ def main(page: ft.Page):
                     padding=ft.Padding(4, 2, 4, 2),
                 )
             )
-        for file_path in ai_pending_files_sp:
+        for file_path in ai_pending_files:
             name = os.path.basename(file_path)
             icon_name = ft.Icons.DESCRIPTION
             entry_ref = file_path
-            ai_attach_row_sp.controls.append(
+            ai_attach_row.controls.append(
                 ft.Container(
                     content=ft.Row([
                         ft.Icon(icon_name, size=13, color=YELLOW),
@@ -2379,7 +2581,7 @@ def main(page: ft.Page):
                             icon_size=12,
                             tooltip="Retirer",
                             style=ft.ButtonStyle(padding=ft.Padding.all(2)),
-                            on_click=lambda event, ref=entry_ref: _ai_remove_file_sp(ref),
+                            on_click=lambda event, ref=entry_ref: _ai_remove_file(ref),
                         ),
                     ], spacing=2, tight=True),
                     bgcolor=GREY,
@@ -2387,15 +2589,15 @@ def main(page: ft.Page):
                     padding=ft.Padding(4, 2, 4, 2),
                 )
             )
-        ai_attach_row_sp.visible = bool(ai_pending_images_sp) or bool(ai_pending_files_sp)
+        ai_attach_row.visible = bool(ai_pending_images) or bool(ai_pending_files)
         try:
             page.update()
         except Exception:
             pass
 
-    def _ai_attach_image_sp(image_path):
+    def _ai_attach_image(image_path):
         """Encode une image en base64 (redimensionnée à 1024px max) et l'ajoute aux pièces jointes."""
-        if any(entry["path"] == image_path for entry in ai_pending_images_sp):
+        if any(entry["path"] == image_path for entry in ai_pending_images):
             return
         try:
             from PIL import Image as PilImage
@@ -2416,10 +2618,10 @@ def main(page: ft.Page):
                 with open(image_path, "rb") as image_file:
                     b64_data = base64.b64encode(image_file.read()).decode("utf-8")
             except Exception as exc:
-                _ai_add_bubble_sp("assistant", f"[ERREUR] Impossible de lire l'image : {exc}")
+                _ai_add_bubble("assistant", f"[ERREUR] Impossible de lire l'image : {exc}")
                 return
-        ai_pending_images_sp.append({"path": image_path, "b64": b64_data})
-        _ai_refresh_attach_row_sp()
+        ai_pending_images.append({"path": image_path, "b64": b64_data})
+        _ai_refresh_attach_row()
         # Avertir si le modèle vision configuré ne supporte pas réellement la vision
         vision_model = CONSTANTS.AI_MODEL_VISION
         is_vision = any(
@@ -2428,29 +2630,29 @@ def main(page: ft.Page):
             if entry[2]
         )
         if not is_vision:
-            _ai_add_bubble_sp(
+            _ai_add_bubble(
                 "assistant",
                 f"⚠️ Le modèle vision configuré ({vision_model}) n'est pas reconnu comme modèle vision.\n"
                 "Vérifiez AI_MODEL_VISION dans CONSTANTS.py.",
             )
 
-    def _ai_remove_image_sp(image_entry):
-        if image_entry in ai_pending_images_sp:
-            ai_pending_images_sp.remove(image_entry)
-        _ai_refresh_attach_row_sp()
+    def _ai_remove_image(image_entry):
+        if image_entry in ai_pending_images:
+            ai_pending_images.remove(image_entry)
+        _ai_refresh_attach_row()
 
-    def _ai_attach_document_file_sp(file_path):
-        if file_path in ai_pending_files_sp:
+    def _ai_attach_document_file(file_path):
+        if file_path in ai_pending_files:
             return
-        ai_pending_files_sp.append(file_path)
-        _ai_refresh_attach_row_sp()
+        ai_pending_files.append(file_path)
+        _ai_refresh_attach_row()
 
-    def _ai_remove_file_sp(file_entry):
-        if file_entry in ai_pending_files_sp:
-            ai_pending_files_sp.remove(file_entry)
-        _ai_refresh_attach_row_sp()
+    def _ai_remove_file(file_entry):
+        if file_entry in ai_pending_files:
+            ai_pending_files.remove(file_entry)
+        _ai_refresh_attach_row()
 
-    def _ai_extract_file_content_sp(file_path):
+    def _ai_extract_file_content(file_path):
         """Extrait le contenu textuel d'un document."""
         ext = os.path.splitext(file_path)[1].lower()
         name = os.path.basename(file_path)
@@ -2474,7 +2676,7 @@ def main(page: ft.Page):
         with open(file_path, "r", encoding="utf-8", errors="replace") as text_file:
             return name, text_file.read()
 
-    async def _ai_pick_any_sp():
+    async def _ai_pick_any():
         """Ouvre un sélecteur de fichier pour joindre une image ou un document."""
         _image_exts_pick = {"jpg", "jpeg", "png", "gif", "bmp", "webp"}
         result = await ft.FilePicker().pick_files(
@@ -2492,16 +2694,16 @@ def main(page: ft.Page):
                 if picked_file.path:
                     ext = os.path.splitext(picked_file.path)[1].lstrip(".").lower()
                     if ext in _image_exts_pick:
-                        _ai_attach_image_sp(picked_file.path)
+                        _ai_attach_image(picked_file.path)
                     else:
-                        _ai_attach_document_file_sp(picked_file.path)
+                        _ai_attach_document_file(picked_file.path)
 
-    def _ensure_ollama_ready_sp(model_name=None):
+    def _ensure_ollama_ready(model_name=None):
         """Vérifie qu'Ollama est lancé et que le modèle est disponible."""
         if model_name is None:
             model_name = CONSTANTS.AI_MODEL_TEXT
         # Les modèles Gemini n'ont pas besoin d'Ollama
-        if (model_name or "").startswith("gemini"):
+        if (model_name or "").startswith(("gemini", "claude")):
             return True
 
         def _is_ollama_up():
@@ -2514,15 +2716,15 @@ def main(page: ft.Page):
                 return False
 
         if not _is_ollama_up():
-            _ai_add_bubble_sp("assistant", "⚙️ Démarrage d'Ollama en arrière-plan…")
+            _ai_add_bubble("assistant", "⚙️ Démarrage d'Ollama en arrière-plan…")
             try:
-                ollama_process_sp["proc"] = subprocess.Popen(
+                ollama_process["proc"] = subprocess.Popen(
                     ["ollama", "serve"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
             except FileNotFoundError:
-                _ai_add_bubble_sp(
+                _ai_add_bubble(
                     "assistant",
                     "[ERREUR] Ollama n'est pas installé sur cette machine.\n"
                     "Téléchargez-le sur https://ollama.com",
@@ -2533,7 +2735,7 @@ def main(page: ft.Page):
                 if _is_ollama_up():
                     break
             else:
-                _ai_add_bubble_sp(
+                _ai_add_bubble(
                     "assistant",
                     "[ERREUR] Ollama n'a pas démarré dans les délais impartis.",
                 )
@@ -2555,7 +2757,7 @@ def main(page: ft.Page):
             model_present = False
 
         if not model_present:
-            pull_status_ctrl = _ai_add_bubble_sp(
+            pull_status_ctrl = _ai_add_bubble(
                 "assistant",
                 f"⬇️ Téléchargement de {model_name}…\n"
                 "(première utilisation — peut prendre quelques minutes)",
@@ -2591,39 +2793,34 @@ def main(page: ft.Page):
                 except Exception:
                     pass
             except Exception as exc:
-                _ai_add_bubble_sp("assistant", f"[ERREUR] Téléchargement du modèle : {exc}")
+                _ai_add_bubble("assistant", f"[ERREUR] Téléchargement du modèle : {exc}")
                 return False
 
         return True
 
-    def _send_ai_message_sp(message_text):
+    def _send_ai_message(message_text):
         """Envoie un message à Ollama et streame la réponse dans le panneau IA."""
-        if ai_streaming_sp["value"]:
+        if ai_streaming["value"]:
             return
-        if not message_text.strip() and not ai_pending_images_sp and not ai_pending_files_sp:
+        if not message_text.strip() and not ai_pending_images and not ai_pending_files:
             return
-        ai_streaming_sp["value"] = True
-        ai_stop_btn_sp.icon_color = RED
-        ai_status_text_sp.value = "⏳ En cours…"
+        ai_streaming["value"] = True
+        ai_stop_button.icon_color = RED
+        ai_status_text.value = "⏳ En cours…"
         try:
             page.update()
         except Exception:
             pass
 
-        images_b64 = [entry["b64"] for entry in ai_pending_images_sp]
-        ai_pending_images_sp.clear()
-        _ai_refresh_attach_row_sp()
+        images_b64 = [entry["b64"] for entry in ai_pending_images]
+        ai_pending_images.clear()
+        _ai_refresh_attach_row()
 
-        files_to_inject = list(ai_pending_files_sp)
-        ai_pending_files_sp.clear()
-        _ai_refresh_attach_row_sp()
+        files_to_inject = list(ai_pending_files)
+        ai_pending_files.clear()
+        _ai_refresh_attach_row()
 
-        active_model = CONSTANTS.AI_MODEL_VISION if images_b64 else CONSTANTS.AI_MODEL_TEXT
-        ai_model_label_sp.value = f"{active_model}  {'🖼' if images_b64 else '💬'}"
-        try:
-            ai_model_label_sp.update()
-        except Exception:
-            pass
+        active_model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_TEXT
 
         url_pattern = re.compile(r'https?://[^\s<>"\)\]]+', re.IGNORECASE)
         found_urls = url_pattern.findall(message_text)
@@ -2638,7 +2835,7 @@ def main(page: ft.Page):
         user_message = {"role": "user", "content": enriched_text}
         if images_b64:
             user_message["images"] = images_b64
-        ai_conversation_sp.append(user_message)
+        ai_conversation.append(user_message)
 
         display_text = message_text
         if images_b64:
@@ -2652,23 +2849,23 @@ def main(page: ft.Page):
                 for file_path in files_to_inject
             )
             display_text = (display_text + "  " if display_text else "") + files_label
-        _ai_add_bubble_sp("user", display_text)
+        _ai_add_bubble("user", display_text)
 
         def _run():
             full_response = ""
             response_text_ctrl = None
             try:
-                if not _ensure_ollama_ready_sp(active_model):
+                if not _ensure_ollama_ready(active_model):
                     return
 
-                loading_ctrl = _ai_add_bubble_sp("assistant", "⏳ Réflexion en cours…")
+                loading_ctrl = _ai_add_bubble("assistant", "⏳ Réflexion en cours…")
 
                 def _remove_loading():
                     nonlocal loading_ctrl
                     if loading_ctrl is not None:
                         try:
-                            ai_chat_view_sp.controls = [
-                                row for row in ai_chat_view_sp.controls
+                            ai_chat_view.controls = [
+                                row for row in ai_chat_view.controls
                                 if not (
                                     hasattr(row, "controls") and row.controls
                                     and hasattr(row.controls[0], "content")
@@ -2684,15 +2881,15 @@ def main(page: ft.Page):
                     for file_path in files_to_inject:
                         file_name = os.path.basename(file_path)
                         try:
-                            label, content = _ai_extract_file_content_sp(file_path)
+                            label, content = _ai_extract_file_content(file_path)
                             injected_blocks.append(
                                 f"--- Document : {label} ---\n{content[:50000]}\n--- Fin ---"
                             )
                         except Exception as extraction_exc:
-                            _ai_add_bubble_sp("assistant", f"[ERREUR] {file_name} : {extraction_exc}")
+                            _ai_add_bubble("assistant", f"[ERREUR] {file_name} : {extraction_exc}")
                     if injected_blocks:
-                        ai_conversation_sp[-1]["content"] += "\n\n" + "\n\n".join(injected_blocks)
-                    ai_status_text_sp.value = "⏳ En cours…"
+                        ai_conversation[-1]["content"] += "\n\n" + "\n\n".join(injected_blocks)
+                    ai_status_text.value = "⏳ En cours…"
                     try:
                         page.update()
                     except Exception:
@@ -2708,15 +2905,76 @@ def main(page: ft.Page):
                     _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _FOLDER_TOOLS
                 # Limiter l'historique aux 10 derniers messages pour éviter
                 # que les petits modèles locaux perdent de vue la question courante
-                _history = ai_conversation_sp[-10:] if len(ai_conversation_sp) > 10 else ai_conversation_sp
+                _history = ai_conversation[-10:] if len(ai_conversation) > 10 else ai_conversation
                 _system_content = _build_system_content(
-                    CONSTANTS.AI_SYSTEM_PROMPT, _folder_path_for_tools, today
+                    _folder_path_for_tools, today
                 )
                 messages = [
                     {"role": "system", "content": _system_content},
                     *_history,
                 ]
 
+                # ── Debug log & Journal permanent en Markdown ────────────────
+                _DEBUG_MD = f"{os.path.dirname(app_dir)}/ai_conversations_debug.md"
+
+                def _log_exchange_to_md(user_text: str, assistant_text: str, thinking_text: str = "", events_list: list = None) -> None:
+                    """Ajoute l'échange au journal permanent en Markdown et le limite à ~500 lignes."""
+                    try:
+                        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        
+                        # Construire le bloc Markdown de cet échange
+                        block = []
+                        block.append(f"## 💬 Échange du {timestamp}")
+                        block.append(f"**👤 Utilisateur :**\n{user_text.strip()}\n")
+                        
+                        if thinking_text.strip():
+                            # On préfixe chaque ligne de la réflexion par "> " pour utiliser notre superbe blockquote stylisé !
+                            formatted_thinking = "\n".join(f"> {line}" for line in thinking_text.strip().splitlines())
+                            block.append(f"💭 **Réflexion :**\n{formatted_thinking}\n")
+                            
+                        block.append(f"**🤖 Assistant :**\n{assistant_text.strip()}\n")
+                        
+                        if events_list:
+                            block.append("🛠️ **Événements d'outils**") # Titre en gras pour faire plus propre
+                            for evt in events_list:
+                                block.append(f"- {evt}")
+                            block.append("\n")
+                            
+                        block.append("---\n")
+                        new_entry = "\n".join(block)
+                        
+                        # Lire l'historique existant
+                        existing_content = ""
+                        if os.path.exists(_DEBUG_MD):
+                            with open(_DEBUG_MD, "r", encoding="utf-8") as f:
+                                existing_content = f.read()
+                        
+                        # Combiner l'ancien et le nouveau journal
+                        full_md = existing_content + "\n" + new_entry
+                        lines = full_md.splitlines()
+                        
+                        # Limiter à environ 500 lignes
+                        if len(lines) > 500:
+                            # On prend les 500 dernières lignes
+                            truncated_lines = lines[-500:]
+                            
+                            # On cherche le premier début d'échange "## 💬" pour couper proprement
+                            start_idx = 0
+                            for idx, line in enumerate(truncated_lines):
+                                if line.startswith("## 💬"):
+                                    start_idx = idx
+                                    break
+                            
+                            # Si on a trouvé un début d'échange, on repart de là, sinon on prend les 500 brutes
+                            final_lines = truncated_lines[start_idx:] if start_idx > 0 else truncated_lines
+                            full_md = "*(Historique plus ancien tronqué pour rester sous 500 lignes)*\n\n" + "\n".join(final_lines)
+                        
+                        # Écrire dans le fichier permanent
+                        with open(_DEBUG_MD, "w", encoding="utf-8") as f:
+                            f.write(full_md.strip() + "\n")
+                    except Exception:
+                        pass
+                
                 # ── Boucle agentique (max 6 tours d'outils) ─────────────────────
                 for _tool_round in range(12):
                     # Streaming avec thinking natif Ollama et capture des tool_calls
@@ -2725,6 +2983,7 @@ def main(page: ft.Page):
                     _stream_tool_calls = []
                     _text_parsed_tools = False  # True si tool_calls viennent du parseur texte
                     thinking_ctrl = None
+                    _turn_events = []          # Événements d'outils du tour courant (pour export)
                     _stream_token_count = 0
                     _STREAM_UPDATE_EVERY = 5
 
@@ -2732,30 +2991,30 @@ def main(page: ft.Page):
                         try:
                             page.update()
                             await asyncio.sleep(0)
-                            await ai_chat_view_sp.scroll_to(offset=-1)
+                            await ai_chat_view.scroll_to(offset=-1)
                         except Exception:
                             pass
 
-                    for _evt, _dat in (
-                        _gemini_chat_stream_with_tools(
+                    if (active_model or "").startswith("gemini"):
+                        _stream_iter = _gemini_chat_stream_with_tools(
                             active_model, messages,
-                            tools=_ALL_TOOLS,
-                            temperature=CONSTANTS.AI_TEMPERATURE,
-                        )
-                        if (active_model or "").startswith("gemini") else
-                        _ollama_chat_stream_with_tools(
+                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE)
+                    elif (active_model or "").startswith("claude"):
+                        _stream_iter = _claude_chat_stream_with_tools(
+                            active_model, messages,
+                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE)
+                    else:
+                        _stream_iter = _ollama_chat_stream_with_tools(
                             CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                            tools=_ALL_TOOLS,
-                            temperature=CONSTANTS.AI_TEMPERATURE,
-                        )
-                    ):
+                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE)
+                    for _evt, _dat in _stream_iter:
                         if _evt == "tool_calls":
                             _stream_tool_calls.extend(_dat)
                         elif _evt == "thinking":
                             _thinking += _dat
                             if thinking_ctrl is None:
                                 _remove_loading()
-                                thinking_ctrl = _ai_add_bubble_sp("think", _dat)
+                                thinking_ctrl = _ai_add_bubble("think", _dat)
                             else:
                                 thinking_ctrl.value = f"💭 {_thinking}"
                                 page.run_task(_scroll_and_update)
@@ -2764,7 +3023,7 @@ def main(page: ft.Page):
                             _stream_token_count += 1
                             if response_text_ctrl is None:
                                 _remove_loading()
-                                response_text_ctrl = _ai_add_bubble_sp("assistant", _dat)
+                                response_text_ctrl = _ai_add_bubble("assistant", _dat)
                             elif _stream_token_count % _STREAM_UPDATE_EVERY == 0:
                                 response_text_ctrl.value = _md_dark(_streamed)
                                 page.run_task(_scroll_and_update)
@@ -2772,7 +3031,7 @@ def main(page: ft.Page):
                     tool_calls = _stream_tool_calls
                     # Fallback non-streaming si le stream n'a rien renvoyé (Ollama uniquement)
                     if not _streamed and not _stream_tool_calls:
-                        if not (active_model or "").startswith("gemini"):
+                        if not (active_model or "").startswith(("gemini", "claude")):
                             _fallback = _ollama_chat_once(
                                 CONSTANTS.AI_OLLAMA_URL, active_model, messages,
                                 tools=_ALL_TOOLS,
@@ -2804,7 +3063,7 @@ def main(page: ft.Page):
                                     except Exception:
                                         pass
                         if _thinking and thinking_ctrl is None:
-                            _ai_add_bubble_sp("think", _thinking)
+                            _ai_add_bubble("think", _thinking)
                         if response_text_ctrl is not None and full_response:
                             response_text_ctrl.value = _md_dark(full_response)
                             try:
@@ -2813,7 +3072,7 @@ def main(page: ft.Page):
                                 pass
                         elif full_response:
                             _remove_loading()
-                            response_text_ctrl = _ai_add_bubble_sp("assistant", full_response)
+                            response_text_ctrl = _ai_add_bubble("assistant", full_response)
                         break
 
                     # Tour d'outils — finaliser le texte préliminaire streamé si présent
@@ -2844,23 +3103,23 @@ def main(page: ft.Page):
                         if fn_name == "web_search":
                             query   = fn_args.get("query", "")
                             short_q = (query[:45] + "…") if len(query) > 45 else query
-                            ai_status_text_sp.value = f"🔍 {short_q}"
+                            ai_status_text.value = f"🔍 {short_q}"
                             if loading_ctrl is not None:
                                 loading_ctrl.value = f"🔍 {short_q}"
-                            _ai_add_bubble_sp("assistant", f"🔍 Recherche : {query}")
+                            _ai_add_bubble("assistant", f"🔍 Recherche : {query}")
                             _tool_tasks.append((fn_name, fn_args))
                         elif fn_name == "fetch_url":
                             url     = fn_args.get("url", "")
                             short_u = (url[:45] + "…") if len(url) > 45 else url
-                            ai_status_text_sp.value = f"🌐 {short_u}"
+                            ai_status_text.value = f"🌐 {short_u}"
                             if loading_ctrl is not None:
                                 loading_ctrl.value = f"🌐 {short_u}"
-                            _ai_add_bubble_sp("assistant", f"🌐 Lecture : {url}")
+                            _ai_add_bubble("assistant", f"🌐 Lecture : {url}")
                             _tool_tasks.append((fn_name, fn_args))
                         elif fn_name == "list_folder_contents":
                             _folder_display = os.path.basename(_folder_path_for_tools) if _folder_path_for_tools else "?"
-                            ai_status_text_sp.value = "📂 Lecture du dossier…"
-                            _ai_add_bubble_sp("assistant", f"📂 Lecture du dossier « {_folder_display} »")
+                            ai_status_text.value = "📂 Lecture du dossier…"
+                            _ai_add_bubble("assistant", f"📂 Lecture du dossier « {_folder_display} »")
                             try:
                                 page.update()
                             except Exception:
@@ -2868,8 +3127,8 @@ def main(page: ft.Page):
                             _folder_tool_results.append((fn_name, _folder_list_contents(_folder_path_for_tools)))
                         elif fn_name == "read_file_content":
                             _read_filename = fn_args.get("filename", "")
-                            ai_status_text_sp.value = f"📄 Lecture : {_read_filename}…"
-                            _ai_add_bubble_sp("assistant", f"📄 Lecture : {_read_filename}")
+                            ai_status_text.value = f"📄 Lecture : {_read_filename}…"
+                            _ai_add_bubble("assistant", f"📄 Lecture : {_read_filename}")
                             try:
                                 page.update()
                             except Exception:
@@ -2886,28 +3145,28 @@ def main(page: ft.Page):
                             elif not _folder_path_for_tools:
                                 _folder_tool_results.append((fn_name, "Aucun dossier ouvert."))
                             else:
-                                _org_confirmed_sp = True
+                                _org_confirmed = True
                                 if CONSTANTS.AI_ORGANIZE_CONFIRM:
-                                    ai_status_text_sp.value = "📂 Organisation — en attente de confirmation…"
+                                    ai_status_text.value = "📂 Organisation — en attente de confirmation…"
                                     try:
                                         page.update()
                                     except Exception:
                                         pass
-                                    _confirm_event_sp  = threading.Event()
-                                    _confirm_result_sp = {"confirmed": False}
+                                    _confirm_event  = threading.Event()
+                                    _confirm_result = {"confirmed": False}
 
-                                    def _on_org_confirm_sp(event=None):
-                                        _confirm_result_sp["confirmed"] = True
-                                        _organize_dlg_sp.open = False
+                                    def _on_org_confirm(event=None):
+                                        _confirm_result["confirmed"] = True
+                                        _organize_dlg.open = False
                                         page.update()
-                                        _confirm_event_sp.set()
+                                        _confirm_event.set()
 
-                                    def _on_org_cancel_sp(event=None):
-                                        _organize_dlg_sp.open = False
+                                    def _on_org_cancel(event=None):
+                                        _organize_dlg.open = False
                                         page.update()
-                                        _confirm_event_sp.set()
+                                        _confirm_event.set()
 
-                                    _action_rows_sp = [
+                                    _action_rows = [
                                         ft.Text(
                                             f"• {_act.get('filename', '?')}  →  "
                                             f"{_act.get('destination_subfolder', '?')}/",
@@ -2916,10 +3175,10 @@ def main(page: ft.Page):
                                         for _act in _org_actions[:40]
                                     ]
                                     if len(_org_actions) > 40:
-                                        _action_rows_sp.append(
+                                        _action_rows.append(
                                             ft.Text(f"… et {len(_org_actions) - 40} autres", size=12, color=LIGHT_GREY)
                                         )
-                                    _organize_dlg_sp = ft.AlertDialog(
+                                    _organize_dlg = ft.AlertDialog(
                                         modal=True,
                                         title=ft.Text("📂 Organiser les fichiers"),
                                         content=ft.Column(
@@ -2930,34 +3189,34 @@ def main(page: ft.Page):
                                                 ),
                                                 ft.Container(height=6),
                                                 ft.Column(
-                                                    _action_rows_sp,
+                                                    _action_rows,
                                                     scroll=ft.ScrollMode.AUTO,
-                                                    height=min(320, len(_action_rows_sp) * 24),
+                                                    height=min(320, len(_action_rows) * 24),
                                                 ),
                                             ],
                                             tight=True,
                                             width=500,
                                         ),
                                         actions=[
-                                            ft.TextButton("Annuler", on_click=_on_org_cancel_sp),
+                                            ft.TextButton("Annuler", on_click=_on_org_cancel),
                                             ft.ElevatedButton(
                                                 "Exécuter",
                                                 bgcolor=BLUE,
                                                 color=WHITE,
-                                                on_click=_on_org_confirm_sp,
+                                                on_click=_on_org_confirm,
                                             ),
                                         ],
                                         actions_alignment=ft.MainAxisAlignment.END,
                                     )
-                                    page.overlay.append(_organize_dlg_sp)
-                                    _organize_dlg_sp.open = True
+                                    page.overlay.append(_organize_dlg)
+                                    _organize_dlg.open = True
                                     try:
                                         page.update()
                                     except Exception:
                                         pass
-                                    _confirm_event_sp.wait(timeout=300)
-                                    _org_confirmed_sp = _confirm_result_sp["confirmed"]
-                                if not _org_confirmed_sp:
+                                    _confirm_event.wait(timeout=300)
+                                    _org_confirmed = _confirm_result["confirmed"]
+                                if not _org_confirmed:
                                     _folder_tool_results.append((fn_name, "Organisation annulée par l'utilisateur."))
                                 else:
                                     _executed_moves = []
@@ -3005,21 +3264,21 @@ def main(page: ft.Page):
                                 _folder_tool_results.append((fn_name, "Aucune image trouvée."))
                             else:
                                 _analyze_model = active_model
-                                _analysis_progress_ctrl_sp = _ai_add_bubble_sp(
+                                _analysis_progress_ctrl = _ai_add_bubble(
                                     "assistant",
                                     f"📸 Analyse de {len(_analyze_candidates)} image(s)…",
                                 )
-                                def _on_analyze_progress_sp(batch_num, total_batches):
-                                    ai_status_text_sp.value = f"📸 Analyse lot {batch_num}/{total_batches}…"
-                                    if _analysis_progress_ctrl_sp:
-                                        _analysis_progress_ctrl_sp.value = _md_dark(
+                                def _on_analyze_progress(batch_num, total_batches):
+                                    ai_status_text.value = f"📸 Analyse lot {batch_num}/{total_batches}…"
+                                    if _analysis_progress_ctrl:
+                                        _analysis_progress_ctrl.value = _md_dark(
                                             f"📸 Analyse — lot {batch_num}/{total_batches}…"
                                         )
                                     try:
                                         page.update()
                                     except Exception:
                                         pass
-                                _analyze_results_sp = _analyze_images_batched(
+                                _analyze_results = _analyze_images_batched(
                                     CONSTANTS.AI_OLLAMA_URL,
                                     _analyze_model,
                                     _folder_path_for_tools,
@@ -3029,11 +3288,11 @@ def main(page: ft.Page):
                                     image_exts=CONSTANTS.IMAGE_EXTS,
                                     max_size=CONSTANTS.AI_FOLDER_SELECT_IMAGE_SIZE,
                                     quality=CONSTANTS.AI_FOLDER_SELECT_QUALITY,
-                                    on_progress=_on_analyze_progress_sp,
-                                    is_running=lambda: ai_streaming_sp["value"],
+                                    on_progress=_on_analyze_progress,
+                                    is_running=lambda: ai_streaming["value"],
                                 )
-                                if _analysis_progress_ctrl_sp:
-                                    _analysis_progress_ctrl_sp.value = _md_dark(
+                                if _analysis_progress_ctrl:
+                                    _analysis_progress_ctrl.value = _md_dark(
                                         f"📸 {len(_analyze_candidates)} image(s) analysée(s)."
                                     )
                                 try:
@@ -3041,7 +3300,7 @@ def main(page: ft.Page):
                                 except Exception:
                                     pass
                                 _folder_tool_results.append(
-                                    (fn_name, "\n\n".join(_analyze_results_sp) or "Aucun résultat.")
+                                    (fn_name, "\n\n".join(_analyze_results) or "Aucun résultat.")
                                 )
                         elif fn_name == "create_file":
                             import datetime as _dt_cf
@@ -3049,8 +3308,8 @@ def main(page: ft.Page):
                             if not _create_filename:
                                 _create_filename = f"fichier_{_dt_cf.datetime.now():%Y%m%d_%H%M%S}.txt"
                             _create_content  = fn_args.get("content", "")
-                            ai_status_text_sp.value = f"📝 Création : {_create_filename}…"
-                            _ai_add_bubble_sp("assistant", f"📝 Création du fichier : {_create_filename}")
+                            ai_status_text.value = f"📝 Création : {_create_filename}…"
+                            _ai_add_bubble("assistant", f"📝 Création du fichier : {_create_filename}")
                             try:
                                 page.update()
                             except Exception:
@@ -3068,18 +3327,18 @@ def main(page: ft.Page):
                                 _cmd_confirm_event  = threading.Event()
                                 _cmd_confirm_result = {"confirmed": False}
 
-                                def _on_cmd_confirm_sp(event=None):
+                                def _on_cmd_confirm(event=None):
                                     _cmd_confirm_result["confirmed"] = True
-                                    _cmd_dlg_sp.open = False
+                                    _cmd_dlg.open = False
                                     page.update()
                                     _cmd_confirm_event.set()
 
-                                def _on_cmd_cancel_sp(event=None):
-                                    _cmd_dlg_sp.open = False
+                                def _on_cmd_cancel(event=None):
+                                    _cmd_dlg.open = False
                                     page.update()
                                     _cmd_confirm_event.set()
 
-                                _cmd_dlg_sp = ft.AlertDialog(
+                                _cmd_dlg = ft.AlertDialog(
                                     modal=True,
                                     title=ft.Text("💻 Exécuter une commande"),
                                     content=ft.Column(
@@ -3097,18 +3356,18 @@ def main(page: ft.Page):
                                         width=500,
                                     ),
                                     actions=[
-                                        ft.TextButton("Annuler", on_click=_on_cmd_cancel_sp),
+                                        ft.TextButton("Annuler", on_click=_on_cmd_cancel),
                                         ft.ElevatedButton(
                                             "Exécuter",
                                             bgcolor=BLUE,
                                             color=WHITE,
-                                            on_click=_on_cmd_confirm_sp,
+                                            on_click=_on_cmd_confirm,
                                         ),
                                     ],
                                     actions_alignment=ft.MainAxisAlignment.END,
                                 )
-                                page.overlay.append(_cmd_dlg_sp)
-                                _cmd_dlg_sp.open = True
+                                page.overlay.append(_cmd_dlg)
+                                _cmd_dlg.open = True
                                 try:
                                     page.update()
                                 except Exception:
@@ -3117,7 +3376,7 @@ def main(page: ft.Page):
                                 if not _cmd_confirm_result["confirmed"]:
                                     _folder_tool_results.append((fn_name, "Commande annulée par l'utilisateur."))
                                     continue
-                            ai_status_text_sp.value = "💻 Exécution en cours…"
+                            ai_status_text.value = "💻 Exécution en cours…"
                             try:
                                 page.update()
                             except Exception:
@@ -3130,7 +3389,7 @@ def main(page: ft.Page):
                             _mem_action  = fn_args.get("action", "")
                             _mem_content = fn_args.get("content", "")
                             _mem_old     = fn_args.get("old_text", "")
-                            ai_status_text_sp.value = f"🧠 Mise à jour mémoire ({_mem_target})…"
+                            ai_status_text.value = f"🧠 Mise à jour mémoire ({_mem_target})…"
                             try:
                                 page.update()
                             except Exception:
@@ -3144,7 +3403,7 @@ def main(page: ft.Page):
                         pass
                     # ── Injecter les résultats d'outils dans l'historique ────────────────
                     # Exécuter tous les outils web/URL en parallèle
-                    def _run_tool_sp(task):
+                    def _run_tool(task):
                         name, args = task
                         if name == "web_search":
                             return _web_search(args.get("query", ""))
@@ -3152,7 +3411,7 @@ def main(page: ft.Page):
                             return _fetch_url_content(args.get("url", ""), max_chars=CONSTANTS.AI_URL_MAX_CHARS)
                         return ""
                     with concurrent.futures.ThreadPoolExecutor() as _pool:
-                        _web_tool_results = list(_pool.map(_run_tool_sp, _tool_tasks))
+                        _web_tool_results = list(_pool.map(_run_tool, _tool_tasks))
                     _all_tool_results = _folder_tool_results + [
                         (_t_name, _result)
                         for (_t_name, _), _result in zip(_tool_tasks, _web_tool_results)
@@ -3174,71 +3433,92 @@ def main(page: ft.Page):
                         )})
                     _remove_loading()
 
+                # Sécurité au cas où la boucle d'outils n'aurait pas été exécutée
+                _turn_events = locals().get('_turn_events', [])
+                _thinking = locals().get('_thinking', "")
+
+                _last_user_text = next(
+                    (m["content"] for m in reversed(ai_conversation) if m["role"] == "user"),
+                    message_text
+                )
+
                 if full_response:
                     _entry = {"role": "assistant", "content": full_response}
                     if _thinking:
                         _entry["thinking"] = _thinking
-                    ai_conversation_sp.append(_entry)
-                    _ai_save_history_sp()
+                    if _turn_events:
+                        _entry["events"] = _turn_events
+                    ai_conversation.append(_entry)
+                    _ai_save_history()
+
+                    # 📝 Log permanent dans le fichier Markdown
+                    _log_exchange_to_md(_last_user_text, full_response, _thinking, _turn_events)
                 else:
-                    _ai_add_bubble_sp("assistant", "[Aucune réponse reçue]")
+                    _fallback_response = "[Aucune réponse reçue]"
+                    if _turn_events:
+                        ai_conversation.append({"role": "assistant", "content": _fallback_response, "events": _turn_events})
+                        _ai_save_history()
+                    _ai_add_bubble("assistant", _fallback_response)
+
+                    # 📝 Log permanent même s'il n'y a pas eu de réponse
+                    _log_exchange_to_md(_last_user_text, _fallback_response, _thinking, _turn_events)
             except Exception as exc:
-                _ai_add_bubble_sp("assistant", f"[ERREUR] {exc}")
+                _ai_add_bubble("assistant", f"[ERREUR] {exc}")
                 full_response = ""
             finally:
-                ai_streaming_sp["value"] = False
-                ai_stop_btn_sp.icon_color = LIGHT_GREY
-                ai_status_text_sp.value = ""
+                ai_streaming["value"] = False
+                ai_stop_button.icon_color = LIGHT_GREY
+                ai_status_text.value = ""
                 try:
                     page.update()
                 except Exception:
                     pass
-                if full_response and ai_tts_enabled_sp["value"]:
-                    threading.Thread(target=_speak_bubble_sp, args=(full_response,), daemon=True).start()
+                if full_response and ai_tts_enabled["value"]:
+                    threading.Thread(target=_speak_bubble, args=(full_response,), daemon=True).start()
                 async def _refocus():
                     try:
-                        await ai_input_field_sp.focus()
+                        await ai_input_field.focus()
                     except Exception:
                         pass
                 page.run_task(_refocus)
 
         threading.Thread(target=_run, daemon=True).start()
 
-    def _on_ai_submit_sp():
+    def _on_ai_submit():
         """Récupère le texte saisi, vide le champ et envoie le message à l'IA."""
-        message_text = ai_input_field_sp.value.strip()
-        if not message_text and not ai_pending_images_sp and not ai_pending_files_sp:
+        message_text = ai_input_field.value.strip()
+        if not message_text and not ai_pending_images and not ai_pending_files:
             return
-        ai_input_field_sp.value = ""
-        ai_input_field_sp.update()
+        ai_input_field.value = ""
+        ai_input_field.update()
         async def _refocus():
             try:
-                await ai_input_field_sp.focus()
+                await ai_input_field.focus()
             except Exception:
                 pass
         page.run_task(_refocus)
-        _send_ai_message_sp(message_text)
+        _send_ai_message(message_text)
 
-    def _toggle_tts_sp():
+    def _toggle_tts():
         """Active ou désactive la lecture vocale des réponses IA."""
-        ai_tts_enabled_sp["value"] = not ai_tts_enabled_sp["value"]
-        enabled = ai_tts_enabled_sp["value"]
-        ai_speaker_btn_sp.icon = ft.Icons.VOLUME_UP if enabled else ft.Icons.VOLUME_OFF
-        ai_speaker_btn_sp.icon_color = BLUE if enabled else LIGHT_GREY
-        ai_speaker_btn_sp.tooltip = "Désactiver la lecture vocale" if enabled else "Activer la lecture vocale"
+        ai_tts_enabled["value"] = not ai_tts_enabled["value"]
+        enabled = ai_tts_enabled["value"]
+        ai_speaker_button.icon = ft.Icons.VOLUME_UP if enabled else ft.Icons.VOLUME_OFF
+        ai_speaker_button.icon_color = BLUE if enabled else LIGHT_GREY
+        ai_speaker_button.tooltip = "Désactiver la lecture vocale" if enabled else "Activer la lecture vocale"
         try:
-            ai_speaker_btn_sp.update()
+            ai_speaker_button.update()
         except Exception:
             pass
 
     # Connexions boutons IA
-    ai_input_field_sp.on_submit = lambda event: _on_ai_submit_sp()
-    ai_send_btn_sp.on_click     = lambda event: _on_ai_submit_sp()
-    ai_attach_btn_sp.on_click   = lambda event: page.run_task(_ai_pick_any_sp)
-    ai_speaker_btn_sp.on_click  = lambda event: _toggle_tts_sp()
-    ai_stop_btn_sp.on_click     = _ai_stop_model_sp
-    ai_clear_btn_sp.on_click    = _clear_ai_conversation_sp
-    ai_copy_btn_sp.on_click     = lambda e: _export_ai_conversation_sp(to_notepad=False)
+    ai_input_field.on_submit = lambda event: _on_ai_submit()
+    ai_send_button.on_click     = lambda event: _on_ai_submit()
+    ai_attach_button.on_click   = lambda event: page.run_task(_ai_pick_any)
+    ai_speaker_button.on_click  = lambda event: _toggle_tts()
+    ai_stop_button.on_click     = _ai_stop_model
+    ai_clear_button.on_click    = _clear_ai_conversation
+    ai_copy_button.on_click     = lambda e: _export_ai_conversation(to_notepad=False)
 
     async def _new_json_file(event):
         """Crée un nouveau fichier JSON vide : choix du dossier puis du nom."""
@@ -3553,30 +3833,37 @@ def main(page: ft.Page):
             ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=16),
             ft.Text("IA", color=BLUE, size=13, weight=ft.FontWeight.BOLD),
             ft.Container(width=4),
-            ai_model_label_sp,
+            ai_model_dropdown,
             ft.Container(width=4),
-            ft.Container(content=ai_status_text_sp, width=160),
-            ai_stop_btn_sp,
+            ft.Container(content=ai_status_text, width=160),
+            ai_stop_button,
             ft.Container(expand=True),
-            ai_copy_btn_sp,
-            ai_clear_btn_sp,
-            ai_speaker_btn_sp,
+            ai_copy_button,
+            ai_clear_button,
+            ai_speaker_button,
             ft.IconButton(
                 icon=ft.Icons.SEND_TO_MOBILE,
                 icon_color=VIOLET,
                 icon_size=16,
                 tooltip="Transférer la conversation vers le bloc-notes",
-                on_click=lambda e: _export_ai_conversation_sp(to_notepad=True),
+                on_click=lambda e: _export_ai_conversation(to_notepad=True),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.OPEN_IN_FULL,
+                icon_color=LIGHT_GREY,
+                icon_size=16,
+                tooltip="IA + Bloc-notes côte à côte (plein écran)",
+                on_click=_open_ai_notepad_fullscreen,
             ),
         ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ft.Container(
             content=ft.Column([
-                ai_chat_view_sp,
-                ai_attach_row_sp,
+                ai_chat_view,
+                ai_attach_row,
                 ft.Row([
-                    ai_attach_btn_sp,
-                    ai_input_field_sp,
-                    ai_send_btn_sp,
+                    ai_attach_button,
+                    ai_input_field,
+                    ai_send_button,
                 ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ], spacing=4, expand=True),
             expand=True,
@@ -3676,7 +3963,7 @@ def main(page: ft.Page):
     _rebuild_recent_src_menu()
     _rebuild_recent_json_menu()
     _notepad_load()
-    _ai_load_history_sp()
+    _ai_load_history()
     if os.path.isfile(json_path["value"]):
         _load_and_render()
     else:
