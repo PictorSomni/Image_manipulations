@@ -1,0 +1,33 @@
+# Augmentation IA — Dépendances optionnelles
+# Dashboard Image Manipulation
+#
+# IMPORTANT : ce fichier installe Pillow 9.5.0, incompatible avec Pillow>=12
+# requis par le reste de l'application. Installer dans un environnement virtuel
+# séparé, ou accepter la rétrogradation de Pillow si Augmentation IA.py est la
+# priorité sur cette machine.
+#
+# Installation :
+#   pip install -r requirements-augmentation.txt
+#
+# Puis pour SAM2 (non disponible sur PyPI) :
+#   pip install git+https://github.com/facebookresearch/sam2.git
+#
+# Puis télécharger les modèles IOPaint :
+#   iopaint download --model lama   (~100 MB)
+#   iopaint download --model mat    (~400 MB)
+
+# Pillow épinglé — requis par iopaint et ses dépendances (basicsr, realesrgan…)
+Pillow==9.5.0
+
+# Inpainting IA (LaMa, MAT, SDXL…)
+iopaint>=1.6.0
+
+# Super-résolution par réseau de neurones
+spandrel>=0.3.0
+
+# Backend PyTorch (CPU/GPU selon la machine)
+torch>=2.5.1
+
+# Synthèse par patches sans IA (remplace opencv-python si déjà installé)
+# pip uninstall opencv-python avant d'installer ce paquet
+opencv-contrib-python>=4.8.0

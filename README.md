@@ -1,4 +1,4 @@
-# 📸 Dashboard Image Manipulation
+# Dashboard Image Manipulation
 
 Application de gestion et manipulation d'images avec interface graphique.  
 Compatible **Windows**, **macOS** et **Linux**.
@@ -11,79 +11,197 @@ Compatible **Windows**, **macOS** et **Linux**.
 
 ---
 
-## ✨ Résumé utilisateur
+## Résumé utilisateur
 
 Dashboard est un poste de travail tout-en-un pour trier, préparer, retoucher et exporter des photos en série, sans quitter la même interface.
 
 ### Ce que vous pouvez faire au quotidien
 
-- **Parcourir et trier rapidement vos dossiers** : navigation, recherche, tri A→Z / Z→A / date, pagination des gros volumes, zipper/dézipper une sélection de fichiers.
-- **Prévisualiser et sélectionner vos images** : sélection multiple, inversion, filtrage sur la sélection, suppression, création de dossiers, copier/couper/coller.
+- **Parcourir et trier vos dossiers** : navigation, recherche, tri A→Z / Z→A / date, pagination, favoris, périphériques amovibles.
+- **Sélectionner vos images** : sélection multiple, inversion, filtrage, copier/couper/coller, copie dans un dossier SELECTION, suppression, renommage.
 - **Ouvrir les images en plein écran** : navigation clavier, rotation, suppression directe depuis la visionneuse.
-- **Lancer les outils de production en un clic** : recadrage, redimensionnement, conversion JPG, 2-en-1, PDF, noir et blanc, netteté, métadonnées, tri RAW/JPG, etc.
-- **Utiliser des apps connexes intégrées** : Side Panel (utilitaires de fichiers/listes), Comparaison (deux dossiers côte à côte), Kiosk (flux d'impression).
-- **Utiliser l'IA locale pour accélérer le tri et l'analyse** : chat, analyse d'images, sélection assistée, organisation de fichiers, lecture de documents.
-- **Prendre des notes et ajuster les options sans sortir de l'app** : bloc-notes intégré, édition rapide options de l'app via la commande "/option", terminal intégré.
+- **Lancer les outils de production en un clic** : recadrage, redimensionnement, conversion JPG, 2-en-1, PDF, noir et blanc, netteté, métadonnées, tri RAW/JPG, impression, etc.
+- **Utiliser des apps connexes intégrées** : Side Panel (utilitaires fichiers/listes), Comparaison (deux dossiers côte à côte), Kiosk (flux d'impression).
+- **Déléguer à l'IA** : l'assistant peut gérer vos fichiers, analyser vos images, naviguer dans vos dossiers, sélectionner des photos selon des critères visuels, générer et modifier des images, écrire du code — tout depuis le chat.
+- **Prendre des notes et éditer du code** : éditeur de code intégré avec coloration syntaxique, lecture/écriture accessible depuis l'IA.
 
 ### Points forts
 
-- **Pensé pour le volume** : traitement par lots, automatisations et scripts spécialisés photo.
-- **Confort d'utilisation** : raccourcis clavier, actions contextuelles, interface unique pour éviter les allers-retours.
+- **Pensé pour le volume** : traitement par lots, automatisations, scripts spécialisés photo.
+- **IA autonome** : l'assistant peut naviguer, sélectionner, créer, déplacer et supprimer des fichiers sans sortir de l'interface.
 - **Multi-plateforme** : Windows, macOS et Linux.
-- **Local-first** : vos images restent sur votre machine. Possibilité d'utiliser une IA locale comme Gemma via Ollama.
+- **Local-first** : vos images restent sur votre machine. Possibilité d'utiliser des modèles locaux via Ollama (Gemma, etc.).
 
-### Exemples de flux simples
+---
 
-1. Ouvrir un dossier client → sélectionner les meilleures images → lancer Recadrage ou Redimensionner.
-2. Séparer RAW/JPG → copier les NEF liés à la sélection → exporter en JPG/PDF.
-3. Ouvrir Comparaison pour deux dossiers → valider → finaliser dans Kiosk.
+## Fonctionnalités
 
-#### Dashboard (global)
+### Gestion de fichiers
 
-- Ctrl/Cmd + Up : agrandir ou reduire la zone basse.
-- Ctrl/Cmd + Down : basculer entre Terminal et IA + Notes.
-- Esc : revenir au mode Terminal depuis IA/Notes.
+| Fonctionnalité | Description |
+|---|---|
+| Navigation | Parcourir les dossiers, accéder aux favoris, aux volumes montés et aux périphériques amovibles |
+| Recherche | Recherche en temps réel par nom de fichier dans la prévisualisation |
+| Tri | A→Z, Z→A, par date (croissant/décroissant) |
+| Sélection | Multiple, inversion, tout sélectionner, filtrer sur la sélection, sélectionner par date |
+| Copier/Coller | Copier ou couper une sélection, coller dans un autre dossier |
+| Copie SELECTION | Copier la sélection dans un sous-dossier `SELECTION` en un clic |
+| Dossiers | Créer, renommer, supprimer |
+| ZIP | Double-cliquer sur un .zip pour extraire ; compresser depuis l'IA |
+| Renommage en séquence | Script de renommage numérique en séquence |
 
-#### Gestion de fichiers
+### Outils de production
 
-- Ctrl/Cmd + A : selectionner/deselectionner tout.
-- Ctrl/Cmd + I : inverser la selection.
-- Ctrl/Cmd + C : copier la selection.
-- Ctrl/Cmd + X : couper la selection.
-- Ctrl/Cmd + V : coller dans le dossier courant.
-- Ctrl/Cmd + N : creer un nouveau dossier.
-- Ctrl/Cmd + R : rafraichir la previsualisation.
-- Ctrl/Cmd + D : selectionner tous les fichiers de la meme date que le fichier de reference selectionne.
-- Delete / Backspace : supprimer la selection.
+| Outil | Description |
+|---|---|
+| Recadrage manuel | Recadrage interactif avec formats photo professionnels, suppression de fond par IA (rembg), planches ID |
+| Recadrage automatique | Recadrage automatique (mode fit ou crop) vers un format cible |
+| Redimensionner | Redimensionnement en lot (dimension max, qualité JPEG) |
+| Redimensionner + filigrane | Redimensionnement avec incrustation de filigrane |
+| Conversion JPG | Conversion de formats divers (PNG, TIFF, BMP…) vers JPG |
+| Images en PDF | Assembler une sélection d'images en un seul PDF |
+| 2-en-1 | Composer deux tirages identiques sur une feuille (ex. 2 × 10x15 sur 15x20) |
+| Fit 203 | Placer une image dans un format supérieur avec bords blancs |
+| Noir et blanc | Conversion N&B en lot |
+| Netteté | Amélioration de la netteté en lot |
+| Métadonnées | Nettoyage ou copie des métadonnées EXIF |
+| Tri RAW/JPG | Séparer automatiquement les fichiers RAW et JPG |
+| Copier NEFs de la sélection | Copier les RAW correspondant aux JPG sélectionnés |
+| Impression | Fichiers d'impression avec compteur de copies par image |
+| Transfert vers TEMP | Copier/déplacer la sélection vers le dossier TEMP réseau (avec confirmation) |
+| Copyright | Ajouter un copyright en filigrane |
+| Remerciements | Génération de tirages de remerciements personnalisés |
+| Nettoyer anciens fichiers | Supprimer les fichiers plus vieux que N jours |
+| Fichiers identiques / manquants | Comparer deux dossiers |
 
-#### IA et Notes
+### Apps connexes
 
-- Ctrl/Cmd + flèche de gauche : IA seule en mode colonne (preview a droite, quand IA/Notes est ouvert).
-- Ctrl/Cmd + flèche de droite : bloc-notes seul en mode colonne (preview a droite, quand IA/Notes est ouvert).
-- Ctrl/Cmd + Shift + flèche de gauche : IA en plein ecran reel (moins la barre du haut).
-- Ctrl/Cmd + Shift + flèche de droite : bloc-notes en plein ecran reel (moins la barre du haut).
+| App | Description |
+|---|---|
+| Side Panel | Panneau latéral : utilitaires de fichiers, listes, outils complémentaires |
+| Comparaison | Visualiser deux dossiers côte à côte pour valider une sélection |
+| Kiosk gauche / droite | Flux d'impression pour bornes photo (HotFolder → réseau) |
+| Kiosk Flet | Interface Kiosk complète avec gestion des tarifs et commandes |
 
-#### Visionneuse plein ecran
+### Assistant IA
 
-- flèche de gauche / flèche de droite : image precedente/suivante.
-- [ / ] : rotation gauche/droite.
-- Delete / Backspace : supprimer l'image courante.
-- Esc : fermer la visionneuse.
+L'IA (Gemini par défaut, ou modèles Ollama locaux) est intégrée directement dans le Dashboard.
 
-## Installation rapide
+#### Capacités générales
+- Chat texte et analyse d'images jointes
+- Lecture de fichiers (`.txt`, `.md`, `.py`, `.json`, `.pdf`, `.docx`, `.csv`…)
+- Recherche web (DuckDuckGo ou Google natif pour Gemini)
+- Lecture d'URLs
+- Mémoire persistante entre sessions (`memory.md`, `user.md`, `skills.md`)
+
+#### Outils fichiers (autonomes)
+| Outil IA | Description |
+|---|---|
+| `list_folder_contents` | Lister le contenu d'un dossier avec taille et date |
+| `read_file_content` | Lire le contenu d'un fichier texte |
+| `create_file` | Créer ou modifier un fichier (crée les sous-dossiers si besoin) |
+| `delete_files` | Supprimer des fichiers/dossiers (confirmation par défaut) |
+| `move_file` | Déplacer ou renommer un fichier/dossier |
+| `copy_file` | Copier un fichier ou dossier (récursif) |
+| `create_folder` | Créer un dossier (mkdir -p) |
+| `read_exif` | Lire les métadonnées EXIF (date, appareil, objectif, GPS…) |
+| `zip_files` | Créer une archive ZIP |
+| `unzip_file` | Extraire une archive ZIP |
+| `organize_files` | Déplacer des fichiers vers des sous-dossiers thématiques |
+| `analyze_images` | Analyser visuellement les images du dossier (chercher des critères) |
+| `generate_image` | Générer une image depuis un prompt texte (Gemini image generation) |
+| `edit_image` | Modifier une image existante via prompt texte |
+| `run_terminal_command` | Exécuter des commandes shell (confirmation avant exécution) |
+
+#### Outils interface
+| Outil IA | Description |
+|---|---|
+| `navigate_to_folder` | Ouvrir un dossier dans le navigateur de fichiers |
+| `select_files_in_ui` | Sélectionner ou désélectionner des fichiers dans l'interface |
+| `read_notepad` | Lire le contenu du bloc-notes intégré |
+| `write_notepad` | Écrire dans le bloc-notes (remplacer, ajouter au début ou à la fin) |
+
+#### Synthèse vocale (TTS)
+- Lecture automatique des réponses ou à la demande (bouton dédié)
+- Mode **Live** (Gemini Live — voix naturelle et conversationnelle)
+- Mode **Chunked** (lecture fidèle du texte, tous modèles)
+- 10 voix au choix (Kore, Puck, Charon, Fenrir, Aoede, Leda, Orus, Zephyr, Schedar, Gacrux)
+
+#### Modèles disponibles
+| Modèle | Type | Vision |
+|---|---|---|
+| Gemini 3.5 Flash | Cloud Google | Oui |
+| Gemini 3.1 Pro | Cloud Google | Oui |
+| Claude Sonnet 4.6 | Cloud Anthropic | Oui |
+| Gemma 4 E4B MLX (~9.6 GB) | Local Ollama (Apple Silicon) | Non |
+| Gemma 4 · E4B (~9.6 GB) | Local Ollama | Oui |
+| Gemma 4 · 12B (~7.6 GB) | Local Ollama | Oui |
+
+---
+
+## Raccourcis clavier
+
+### Dashboard (global)
+
+| Raccourci | Action |
+|---|---|
+| Ctrl/Cmd + Haut | Agrandir ou réduire la zone basse |
+| Ctrl/Cmd + Bas | Basculer entre Terminal et IA + Notes |
+| Esc | Revenir au mode Terminal depuis IA/Notes |
+
+### Gestion de fichiers
+
+| Raccourci | Action |
+|---|---|
+| Ctrl/Cmd + A | Sélectionner / désélectionner tout |
+| Ctrl/Cmd + I | Inverser la sélection |
+| Ctrl/Cmd + C | Copier la sélection |
+| Ctrl/Cmd + X | Couper la sélection |
+| Ctrl/Cmd + V | Coller dans le dossier courant |
+| Ctrl/Cmd + N | Créer un nouveau dossier |
+| Ctrl/Cmd + R | Rafraîchir la prévisualisation |
+| Ctrl/Cmd + D | Sélectionner tous les fichiers de la même date que le fichier de référence sélectionné |
+| Delete / Backspace | Supprimer la sélection |
+
+### IA et Notes
+
+| Raccourci | Action |
+|---|---|
+| Ctrl/Cmd + Flèche gauche | IA seule en mode colonne (preview à droite) |
+| Ctrl/Cmd + Flèche droite | Bloc-notes seul en mode colonne (preview à droite) |
+| Ctrl/Cmd + Shift + Flèche gauche | IA en plein écran (moins la barre du haut) |
+| Ctrl/Cmd + Shift + Flèche droite | Bloc-notes en plein écran (moins la barre du haut) |
+
+### Visionneuse plein écran
+
+| Raccourci | Action |
+|---|---|
+| Flèche gauche / droite | Image précédente / suivante |
+| [ / ] | Rotation gauche / droite |
+| Delete / Backspace | Supprimer l'image courante |
+| Esc | Fermer la visionneuse |
+
+---
+
+## Installation
+
+### Prérequis
+
+- **Python 3.12+** — https://www.python.org/downloads/
+- **ImageMagick** — requis pour la conversion d'images (Wand)
 
 ### Windows
 
-1. Installer Python 3.12+ : https://www.python.org/downloads/
+1. Installer Python 3.12+ (cocher "Add Python to PATH").
 2. Ouvrir le dossier du projet.
 3. Double-cliquer sur `install.bat`.
-4. Quand l'installation est terminee, lancer `run.bat`.
+4. Lancer avec `run.bat`.
 
 ### macOS / Linux
 
-1. Installer Python 3.12+ : https://www.python.org/downloads/
-2. Ouvrir un terminal a la racine du projet.
-3. Rendre les scripts executables (une seule fois) :
+1. Installer Python 3.12+.
+2. Ouvrir un terminal à la racine du projet.
+3. Rendre les scripts exécutables (une seule fois) :
 
 ```bash
 chmod +x install.sh run.sh
@@ -95,48 +213,96 @@ chmod +x install.sh run.sh
 ./install.sh
 ```
 
-5. Quand l'installation est terminee, lancer :
+5. Lancer le Dashboard :
 
 ```bash
 ./run.sh
 ```
 
-## Important
+### Ce que font les scripts d'installation
 
-- Les scripts `install.bat` et `install.sh` installent automatiquement les dependances Python.
-- Les scripts verifient aussi ImageMagick et Ollama, puis affichent quoi faire si besoin.
-- Suivre les messages affiches pendant l'installation suffit dans la grande majorite des cas.
+- Installent les dépendances Python (`requirements.txt`).
+- Vérifient la présence d'ImageMagick et proposent l'installation si absent.
+- Installent Ollama (IA locale) et téléchargent un modèle de base (`llama3.2:3b`).
+
+### Dépendances optionnelles — Augmentation IA
+
+Les fonctionnalités d'inpainting, super-résolution et synthèse par patches (`Augmentation IA.py`) nécessitent des paquets lourds (~5–10 GB) qui ne sont **pas** installés par défaut car ils entrent en conflit avec la version de Pillow utilisée par le reste de l'application (voir note dans `requirements.txt`).
+
+Pour les installer manuellement dans un environnement isolé :
+
+```bash
+pip install -r requirements-augmentation.txt
+```
+
+> **Note :** IOPaint requiert `Pillow<10.0.0`, incompatible avec `Pillow>=10.0.0` requis par le reste de l'application. Cette fonctionnalité sera revue prochainement.
+
+Pour SAM2 (segmentation interactive) :
+
+```bash
+pip install git+https://github.com/facebookresearch/sam2.git
+```
+
+Puis télécharger les modèles IOPaint :
+
+```bash
+iopaint download --model lama    # ~100 MB
+iopaint download --model mat     # ~400 MB
+```
+
+---
 
 ## Utilisation de base
 
 1. Ouvrir Dashboard.
-2. Choisir un dossier avec `Parcourir`.
-3. Selectionner les images a traiter.
-4. Lancer l'application voulue depuis la grille (ou outils rapides).
-5. Suivre les logs dans le terminal integre.
+2. Choisir un dossier avec `Parcourir` (ou depuis les favoris).
+3. Sélectionner les images à traiter.
+4. Lancer l'application voulue depuis la grille ou les outils rapides.
+5. Suivre les logs dans le terminal intégré.
 
-## Mise a jour
+### Utiliser l'IA
 
-### Windows
+- Ouvrir le panneau IA avec `Ctrl/Cmd + Bas`.
+- Poser une question, joindre des images, ou demander à l'IA de gérer des fichiers.
+- L'IA peut naviguer dans vos dossiers, sélectionner des photos selon des critères visuels, créer des fichiers, archiver, analyser — sans intervention manuelle.
+- Les suppressions et commandes terminal demandent toujours une confirmation.
+- La commande `/option` dans le chat ouvre le panneau de configuration de l'app.
 
-```cmd
-update.bat
-```
+---
 
-### macOS / Linux
+## Mise à jour
 
-```bash
-./update.sh
-```
+La mise à jour s'effectue depuis le menu de l'application (bouton **Mise à jour** dans la barre du haut). Elle :
+- Récupère les dernières modifications depuis le dépôt Git.
+- Met à jour les dépendances Python si `requirements.txt` a changé.
+- Propose un redémarrage automatique.
 
-## Depannage rapide
+---
 
-### Python non detecte
+## Dépannage
 
-Reinstaller Python depuis https://www.python.org/downloads/ et verifier l'ajout au PATH.
+### Python non détecté
+
+Réinstaller Python depuis https://www.python.org/downloads/ et vérifier l'ajout au PATH.
 
 ### Erreur module manquant
 
 Relancer simplement le script d'installation (`install.bat` ou `./install.sh`).
 
-Si le script affiche une action manuelle (ex: ImageMagick ou Ollama), suivre exactement l'instruction proposee, puis relancer le script.
+### ImageMagick absent
+
+- Linux : `sudo apt install imagemagick` ou `sudo dnf install ImageMagick`
+- macOS : `brew install imagemagick`
+- Windows : https://imagemagick.org/script/download.php#windows (choisir `...-Q16-HDRI-x64-dll.exe`)
+
+### Clé API Gemini
+
+Définir la variable d'environnement `GEMINI_API_KEY` dans `.zshrc`, `.bashrc` ou un fichier `.env` à la racine du projet.
+
+### Ollama non détecté
+
+Installer depuis https://ollama.com/download puis relancer l'installation.
+
+### Problème GPU / ONNX
+
+Le script d'installation bascule automatiquement sur le backend CPU (`onnxruntime`) si aucun GPU compatible n'est détecté.

@@ -1,57 +1,99 @@
-# Dashboard Image Manipulation - Dependencies
-# Compatible: Windows, macOS, Linux
+# Dashboard Image Manipulation - Dépendances
+# Compatible : Windows, macOS, Linux
 
-# Interface graphique
-flet>=0.84.0
-flet-desktop>=0.84.0
-flet-code-editor
+# ──────────────────────────────────────────────────────────────────────────────
+# INTERFACE GRAPHIQUE
+# ──────────────────────────────────────────────────────────────────────────────
 
-# Traitement d'images
-Pillow>=12.1.0,<13.0.0
+flet>=0.85.0
+flet-desktop>=0.85.0
+flet-code-editor>=0.85.0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# TRAITEMENT D'IMAGES
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Pillow 12.x — version courante, requis par flet, rembg et les scripts internes.
+# IMPORTANT : IOPaint requiert Pillow<10.0.0 et n'est pas compatible avec cette
+# version. IOPaint est donc optionnel (voir requirements-augmentation.txt).
+Pillow>=12.1.0
+
+# ImageMagick Python binding (requis par plusieurs scripts de conversion)
 Wand>=0.6.11
-numpy>=2.0.0
 
-# Conversion PDF en images
+numpy>=1.24.0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# CONVERSION PDF EN IMAGES
+# ──────────────────────────────────────────────────────────────────────────────
+
 PyMuPDF>=1.23.0
 
-# Suppression de fond par IA (requis par Recadrage manuel.pyw)
-rembg>=2.0.75
-# Backend ONNX GPU (fallback CPU automatique si aucun GPU compatible detecte)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SUPPRESSION DE FOND PAR IA
+# Requis par : Recadrage manuel.pyw
+# ──────────────────────────────────────────────────────────────────────────────
+
+rembg>=2.0.57
+
+# Backend ONNX GPU — fallback CPU automatique si aucun GPU compatible détecté.
+# Le script d'installation bascule sur 'onnxruntime' (CPU) si ce paquet échoue.
 onnxruntime-gpu>=1.16.0
 
-# Amélioration par IA (requis par Augmentation IA.py)
-spandrel>=0.3.0
-torch>=2.5.1
 
-# Segmentation interactive SAM2 (requis par Augmentation IA.py)
-# Installation :
-#   pip install git+https://github.com/facebookresearch/sam2.git
-# sam2  # pas disponible sur PyPI
+# ──────────────────────────────────────────────────────────────────────────────
+# ASSISTANT IA
+# ──────────────────────────────────────────────────────────────────────────────
 
-# Inpainting IA (requis par Augmentation IA.py)
-iopaint>=1.6.0
-# Après installation, télécharger les modèles :
-#   iopaint download --model lama   (~100 MB, déjà inclus)
-#   iopaint download --model mat    (~400 MB, meilleur pour objets/personnes)
-
-# Synthèse par patches sans IA (requis par Augmentation IA.py)
-# Remplace opencv-python si déjà installé :
-#   pip uninstall opencv-python && pip install opencv-contrib-python
-opencv-contrib-python>=4.8.0
-
-# Lecture de fichiers Word (requis par l'assistant IA — documents .docx joints)
-python-docx>=1.1.0
-
-# API Google Gemini (requis par l'assistant IA — modèles Gemini)
+# API Google Gemini (modèles Gemini 3.x, génération d'images, TTS)
 google-genai>=1.55.0
 
-# Lecture audio TTS (requis par la synthèse vocale Gemini)
-# Windows/macOS : fonctionne nativement.
-# Linux : apt install libportaudio2  (ou dnf install portaudio)
+# Lecture de fichiers Word (.docx) joints à l'assistant IA
+python-docx>=1.1.0
+
+# Synthèse vocale TTS — Windows/macOS : fonctionne nativement.
+# Linux : sudo apt install libportaudio2  (ou sudo dnf install portaudio)
 sounddevice>=0.5.0
 
-# Certificats système pour HTTPS (requis par flet, rembg et iopaint)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# RÉSEAU & CERTIFICATS
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Certificats système pour les requêtes HTTPS (requis par flet, rembg, google-genai)
 pip-system-certs
 
-# Windows : accès aux fonctionnalités spécifiques (ex: notifications, clipboard)
-pywin32
+
+# ──────────────────────────────────────────────────────────────────────────────
+# WINDOWS UNIQUEMENT
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Accès aux fonctionnalités système Windows (clipboard, notifications…)
+# Ignoré automatiquement sur macOS et Linux.
+pywin32; sys_platform == "win32"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# OPTIONNEL — AUGMENTATION IA  (Augmentation IA.py)
+# ──────────────────────────────────────────────────────────────────────────────
+# Ces paquets sont volumineux (~5–10 GB) et en conflit avec Pillow>=12.
+# Ils ne sont PAS installés par défaut.
+#
+# Pour les installer : pip install -r requirements-augmentation.txt
+#
+# Contenu :
+#   iopaint>=1.6.0              — inpainting IA (LaMa, MAT…)
+#   spandrel>=0.3.0             — super-résolution
+#   torch>=2.5.1                — backend PyTorch
+#   opencv-contrib-python>=4.8.0 — synthèse par patches (remplace opencv-python)
+#   Pillow==9.5.0               — version épinglée, requise par iopaint
+#
+# Segmentation interactive SAM2 (non disponible sur PyPI) :
+#   pip install git+https://github.com/facebookresearch/sam2.git
+#
+# Modèles IOPaint à télécharger après installation :
+#   iopaint download --model lama   (~100 MB)
+#   iopaint download --model mat    (~400 MB)
