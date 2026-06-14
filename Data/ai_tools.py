@@ -249,7 +249,7 @@ def _ollama_chat_once(ollama_url, model, messages, tools=None, temperature=0.7, 
         "stream": False,
         "think": True,
         "keep_alive": keep_alive,
-        "options": {"temperature": temperature},
+        "options": {"temperature": temperature, "num_ctx": 8192, "num_predict": -1},
     }
     if tools:
         body["tools"] = tools
@@ -295,9 +295,9 @@ def _ollama_chat_stream(ollama_url, model, messages, temperature=0.7, keep_alive
                 break
 
 
-def _ollama_chat_stream_with_tools(ollama_url, model, messages, tools=None, temperature=0.7, keep_alive=-1, timeout=300):
+def _ollama_chat_stream_with_tools(ollama_url, model, messages, tools=None, temperature=0.7, keep_alive=-1, timeout=300, think=False):
     """
-    Streaming /api/chat avec thinking natif Ollama (think: true) et capture des tool_calls.
+    Streaming /api/chat avec thinking natif Ollama et capture des tool_calls.
 
     Génère des tuples :
       ("token",     str)  — token texte au fur et à mesure
@@ -308,9 +308,13 @@ def _ollama_chat_stream_with_tools(ollama_url, model, messages, tools=None, temp
         "model": model,
         "messages": messages,
         "stream": True,
-        "think": True,
+        "think": think,
         "keep_alive": keep_alive,
-        "options": {"temperature": temperature},
+        "options": {
+            "temperature": temperature,
+            "num_ctx": 8192,    # prompt système + 19 outils ≈ 4300 tokens ; 2048 (défaut) est trop court
+            "num_predict": -1,  # pas de limite sur la longueur de la réponse générée
+        },
     }
     if tools:
         body["tools"] = tools
@@ -1494,6 +1498,25 @@ def _run_terminal_command(command, cwd=None, timeout=120):
     Exécute une commande shell et retourne la sortie combinée stdout + stderr.
     cwd : répertoire de travail (dossier ouvert si fourni).
     """
+    import os as _os_tc
+    _env = _os_tc.environ.copy()
+    # Ajouter les chemins qui manquent dans les apps lancées hors terminal
+    if _os_tc.name == "nt":  # Windows
+        _sep = ";"
+        _home = _os_tc.environ.get("USERPROFILE", "C:\\Users\\User")
+        _extra = _sep.join([
+            _os_tc.path.join(_home, "AppData", "Local", "Programs", "Ollama"),
+            "C:\\Program Files\\Ollama",
+            "C:\\Program Files\\Git\\bin",
+            _os_tc.path.join(_home, "AppData\\Local\\Microsoft\\WindowsApps"),
+        ])
+    else:  # macOS / Linux
+        _sep = ":"
+        _extra = _sep.join([
+            "/usr/local/bin", "/opt/homebrew/bin", "/opt/homebrew/sbin",
+            "/usr/local/sbin", _os_tc.path.expanduser("~/.local/bin"), "/snap/bin",
+        ])
+    _env["PATH"] = _extra + _sep + _env.get("PATH", "")
     try:
         result = _subprocess.run(
             command,
@@ -1502,6 +1525,7 @@ def _run_terminal_command(command, cwd=None, timeout=120):
             text=True,
             cwd=cwd,
             timeout=timeout,
+            env=_env,
         )
         output = result.stdout
         if result.stderr:

@@ -342,7 +342,7 @@ AI_OLLAMA_URL   = "http://localhost:11434"   # URL de l'API Ollama locale
 AI_MODEL_TEXT   = "gemini-3.5-flash"         # Modèle texte par défaut
 AI_MODEL_VISION = "gemini-3.5-flash"         # Modèle vision par défaut
 AI_GEMINI_MODEL    = "gemini-3.5-flash"      # Modèle Gemini principal (API Google)
-AI_GEMINI_FALLBACK = "gemma4:e4b-mlx" if os.name == "darwin" else "gemma4:e4b"            # Fallback Ollama local si hors-ligne
+AI_GEMINI_FALLBACK = "gemma4:e4b"            # Fallback Ollama local si hors-ligne
 AI_GEMINI_IMAGE_TIMEOUT = 180                # Timeout max (s) pour generate/edit image via Gemini
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
 AI_HISTORY_LIMIT_CLOUD = 20                  # Nb max de messages envoyés à l'IA (Gemini / Claude)
@@ -352,7 +352,7 @@ AI_FILE_MAX_CHARS = 500_000                  # Nb max de caractères lus dans un
 AI_ORGANIZE_CONFIRM  = False                 # True = confirmation avant chaque tri de fichiers
 AI_TERMINAL_CONFIRM  = False                 # True = confirmation avant chaque commande terminal
 AI_DELETE_CONFIRM    = True                  # True = confirmation avant chaque suppression de fichiers
-AI_IMAGE_ATTACH_DEFAULT_ORIGINAL = True      # True = images jointes manuellement en taille réelle par défaut
+AI_IMAGE_ATTACH_DEFAULT_ORIGINAL = False     # True = images jointes manuellement en taille réelle par défaut
 AI_IMAGE_ATTACH_SELECTED_ORIGINAL = False    # True = images sélectionnées dans la preview en taille réelle
 AI_SHOW_REFINED_IMAGE_PROMPT = True          # True = affiche dans le chat le prompt final envoyé à Nano Banana
 AI_USER_NAME         = "Charles"             # Appellation dans l'export de conversation
@@ -379,7 +379,7 @@ AI_DROPDOWN_MODELS = [
     "gemini-3.5-flash",
     "gemini-3.1-pro-preview",
     "claude-sonnet-4-6",
-    "gemma4:e4b-mlx",
+    "gemma4:e4b",
 ]
 
 

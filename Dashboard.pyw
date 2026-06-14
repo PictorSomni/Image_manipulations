@@ -580,13 +580,13 @@ def main(page: ft.Page):
     )
     ai_image_mode_label = ft.Text(
         "REEL" if CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL else "1024",
-        color=BLUE if CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL else LIGHT_GREY,
+        color=GREEN if CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL else BLUE,
         size=10,
         weight=ft.FontWeight.BOLD,
     )
     ai_image_size_button = ft.IconButton(
         icon=ft.Icons.IMAGE,
-        icon_color=BLUE if CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL else LIGHT_GREY,
+        icon_color=GREEN if CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL else BLUE,
         icon_size=16,
         tooltip=(
             "Mode images IA en taille réelle (fichier original) — affecte uniquement les nouveaux fichiers joints"
@@ -2354,6 +2354,7 @@ def main(page: ft.Page):
         if not message_text.strip() and not ai_pending_images and not ai_pending_files:
             return
         ai_streaming["value"] = True
+        ai_stop_button.visible = True
         ai_stop_button.icon_color = RED
         ai_status_text.value = "⏳ En cours…"
         try:
@@ -2479,9 +2480,16 @@ def main(page: ft.Page):
                 # Limiter l'historique : 20 tours pour les modèles cloud capables, 10 pour les modèles locaux
                 _history_limit = CONSTANTS.AI_HISTORY_LIMIT_CLOUD if (active_model or "").startswith(("gemini", "claude")) else CONSTANTS.AI_HISTORY_LIMIT_LOCAL
                 _history = ai_conversation[-_history_limit:] if len(ai_conversation) > _history_limit else ai_conversation
+                # Pour les modèles Ollama : retirer le champ "thinking" de l'historique.
+                # Gemma (et la plupart des modèles locaux) n'est pas un modèle thinking natif
+                # d'Ollama — ses tokens <think> passent dans msg.content. Si on renvoie le
+                # contenu "thinking" extrait dans les messages suivants, Ollama le réinjecte
+                # dans la fenêtre de contexte et la réponse réelle rétrécit tour après tour.
+                _is_cloud = (active_model or "").startswith(("gemini", "claude"))
+                _skip_keys = {"events"} if _is_cloud else {"events", "thinking"}
                 messages = [
                     {"role": "system", "content": _system_content},
-                    *[{k: v for k, v in m.items() if k != "events"} for m in _history],
+                    *[{k: v for k, v in m.items() if k not in _skip_keys} for m in _history],
                 ]
 
                 # ── Journal permanent en Markdown ────────────────
@@ -2593,7 +2601,8 @@ def main(page: ft.Page):
                     else:
                         _stream_iter = _ollama_chat_stream_with_tools(
                             CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE)
+                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE,
+                            think=True)
                     for _evt, _dat in _stream_iter:
                         if _evt == "tool_calls":
                             _stream_tool_calls.extend(_dat)
@@ -2608,13 +2617,21 @@ def main(page: ft.Page):
                         else:  # "token"
                             _streamed += _dat
                             _stream_token_count += 1
+                            # Texte visible : supprimer les blocs <think>…</think> complets
+                            # et tout ce qui suit un <think> non encore fermé.
+                            _visible = re.sub(r'<think>.*?</think>', '', _streamed, flags=re.DOTALL)
+                            if '<think>' in _visible:
+                                _visible = _visible[:_visible.index('<think>')]
+                            _visible = _visible.strip()
                             if response_text_ctrl is None:
-                                _remove_loading()
-                                response_text_ctrl = _ai_add_bubble("assistant", _dat)
+                                if _visible:
+                                    _remove_loading()
+                                    response_text_ctrl = _ai_add_bubble("assistant", _visible)
                             elif _stream_token_count % _STREAM_UPDATE_EVERY == 0:
-                                response_text_ctrl.value = _md_dark(_streamed)
+                                response_text_ctrl.value = _md_dark(_visible)
                                 page.run_task(_scroll_and_update)
 
+                    _remove_loading()  # Garantit la suppression même si aucun contenu visible n'est arrivé
                     tool_calls = _stream_tool_calls
                     if not _streamed and not _stream_tool_calls:
                         if not (active_model or "").startswith(("gemini", "claude")):
@@ -2636,18 +2653,22 @@ def main(page: ft.Page):
 
                     if not tool_calls:
                         full_response = _strip_text_tool_calls(_streamed)
-                        # Fallback XML <think> si pas de thinking natif (modèles non supportés)
+                        # Nettoyage des blocs <think> dans le contenu (think=False, Ollama ≥ 0.7)
                         if not _thinking and "<think>" in full_response:
                             _think_match = re.search(r'<think>(.*?)</think>', full_response, re.DOTALL)
                             if _think_match:
+                                # Bloc complet <think>…</think>
                                 _thinking = _think_match.group(1).strip()
                                 full_response = re.sub(r'<think>.*?</think>', '', full_response, flags=re.DOTALL).strip()
-                                if response_text_ctrl is not None:
-                                    response_text_ctrl.value = _md_dark(full_response)
-                                    try:
-                                        page.update()
-                                    except Exception:
-                                        pass
+                            else:
+                                # Bloc <think> non fermé (stream interrompu en plein thinking)
+                                full_response = full_response.split("<think>", 1)[0].strip()
+                            if response_text_ctrl is not None:
+                                response_text_ctrl.value = _md_dark(full_response)
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
                         if _thinking and thinking_ctrl is None:
                             _ai_add_bubble("think", _thinking)
                         if response_text_ctrl is not None and full_response:
@@ -3670,9 +3691,9 @@ def main(page: ft.Page):
         """Bascule entre envoi optimisé (1024px) et taille réelle pour les images IA."""
         ai_send_original_images["value"] = not ai_send_original_images["value"]
         use_original = ai_send_original_images["value"]
-        ai_image_size_button.icon_color = BLUE if use_original else LIGHT_GREY
+        ai_image_size_button.icon_color = GREEN if use_original else BLUE
         ai_image_mode_label.value = "REEL" if use_original else "1024"
-        ai_image_mode_label.color = BLUE if use_original else LIGHT_GREY
+        ai_image_mode_label.color = GREEN if use_original else BLUE
         ai_image_size_button.tooltip = (
             "Mode images IA en taille réelle (fichier original) — affecte uniquement les nouveaux fichiers joints"
             if use_original
@@ -8311,8 +8332,12 @@ def main(page: ft.Page):
             ft.Container(width=4),
             ai_model_dropdown,
             ft.Container(width=4),
-            ai_status_text,
-            ai_stop_button,
+            ft.Container(
+                content=ft.Row([ai_stop_button], spacing=0),
+                border=ft.Border.all(1, GREY),
+                border_radius=6,
+                padding=ft.Padding(0, 0, 0, 0),
+            ),
             ai_image_size_button,
             ai_image_mode_label,
             ai_clear_button,
@@ -8977,8 +9002,6 @@ def main(page: ft.Page):
         _solo_left_container,
         ], expand=True, ref=_main_stack_ref),
     )
-
-
 
     if CONSTANTS.MAXIMIZED:
         async def _delayed_maximize():

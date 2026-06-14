@@ -507,7 +507,6 @@ def main(page: ft.Page):
         icon_color=LIGHT_GREY,
         icon_size=16,
         tooltip="Libérer le modèle (ollama stop)",
-        visible=True,
     )
     ai_attach_row   = ft.Row([], spacing=4, visible=False, wrap=True)
     ai_attach_button   = ft.IconButton(
@@ -2393,7 +2392,8 @@ def main(page: ft.Page):
         # ── Boutons plein écran ──────────────────────────────────────────────
         fs_send_btn    = ft.IconButton(ft.Icons.SEND,         icon_color=BLUE,       icon_size=18, tooltip="Envoyer",              on_click=_fs_submit)
         fs_attach_btn  = ft.IconButton(ft.Icons.ATTACH_FILE,  icon_color=LIGHT_GREY, icon_size=18, tooltip="Joindre un fichier",    on_click=lambda e: page.run_task(_ai_pick_any))
-        fs_stop_btn    = ft.IconButton(ft.Icons.STOP_CIRCLE,  icon_color=LIGHT_GREY, icon_size=16, tooltip="Libérer le modèle",     on_click=lambda e: _ai_stop_model())
+        _fs_is_cloud = (ai_model_dropdown.value or "").startswith(("gemini", "claude"))
+        fs_stop_btn    = ft.IconButton(ft.Icons.STOP_CIRCLE,  icon_color=LIGHT_GREY, icon_size=16, tooltip="Libérer le modèle",     on_click=lambda e: _ai_stop_model(), visible=not _fs_is_cloud)
         fs_copy_btn    = ft.IconButton(ft.Icons.COPY,         icon_color=LIGHT_GREY, icon_size=16, tooltip="Copier la conversation", on_click=lambda e: _export_ai_conversation(to_notepad=False))
         fs_clear_btn   = ft.IconButton(ft.Icons.DELETE_SWEEP, icon_color=LIGHT_GREY, icon_size=16, tooltip="Effacer la conversation", on_click=lambda e: _clear_ai_conversation())
         fs_speaker_btn = ft.IconButton(
@@ -2808,6 +2808,7 @@ def main(page: ft.Page):
         if not message_text.strip() and not ai_pending_images and not ai_pending_files:
             return
         ai_streaming["value"] = True
+        ai_stop_button.visible = True
         ai_stop_button.icon_color = RED
         ai_status_text.value = "⏳ En cours…"
         try:
@@ -2920,9 +2921,14 @@ def main(page: ft.Page):
                     _system_content += f"\n\nFICHIERS SÉLECTIONNÉS DANS L'INTERFACE ({len(selected_files)}) :\n{_sel_list}"
                     if len(selected_files) > 50:
                         _system_content += f"\n(… et {len(selected_files) - 50} autres non listés)"
+                # Pour les modèles Ollama : retirer "thinking" et "events" de l'historique.
+                # Gemma injecte ses tokens <think> dans msg.content ; réinjecter le thinking
+                # extrait pollue la fenêtre de contexte et tronque les réponses tour après tour.
+                _is_cloud = (active_model or "").startswith(("gemini", "claude"))
+                _skip_keys = {"events"} if _is_cloud else {"events", "thinking"}
                 messages = [
                     {"role": "system", "content": _system_content},
-                    *_history,
+                    *[{k: v for k, v in m.items() if k not in _skip_keys} for m in _history],
                 ]
 
                 # ── Debug log & Journal permanent en Markdown ────────────────
@@ -3017,7 +3023,8 @@ def main(page: ft.Page):
                     else:
                         _stream_iter = _ollama_chat_stream_with_tools(
                             CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE)
+                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE,
+                            think=True)
                     for _evt, _dat in _stream_iter:
                         if _evt == "tool_calls":
                             _stream_tool_calls.extend(_dat)
@@ -3032,13 +3039,21 @@ def main(page: ft.Page):
                         else:  # "token"
                             _streamed += _dat
                             _stream_token_count += 1
+                            # Texte visible : supprimer les blocs <think>…</think> complets
+                            # et tout ce qui suit un <think> non encore fermé.
+                            _visible = re.sub(r'<think>.*?</think>', '', _streamed, flags=re.DOTALL)
+                            if '<think>' in _visible:
+                                _visible = _visible[:_visible.index('<think>')]
+                            _visible = _visible.strip()
                             if response_text_ctrl is None:
-                                _remove_loading()
-                                response_text_ctrl = _ai_add_bubble("assistant", _dat)
+                                if _visible:
+                                    _remove_loading()
+                                    response_text_ctrl = _ai_add_bubble("assistant", _visible)
                             elif _stream_token_count % _STREAM_UPDATE_EVERY == 0:
-                                response_text_ctrl.value = _md_dark(_streamed)
+                                response_text_ctrl.value = _md_dark(_visible)
                                 page.run_task(_scroll_and_update)
 
+                    _remove_loading()  # Garantit la suppression même si aucun contenu visible n'est arrivé
                     tool_calls = _stream_tool_calls
                     # Fallback non-streaming si le stream n'a rien renvoyé (Ollama uniquement)
                     if not _streamed and not _stream_tool_calls:
@@ -3061,18 +3076,22 @@ def main(page: ft.Page):
 
                     if not tool_calls:
                         full_response = _strip_text_tool_calls(_streamed)
-                        # Fallback XML <think> si pas de thinking natif (modèles non supportés)
+                        # Nettoyage des blocs <think> dans le contenu (think=False, Ollama ≥ 0.7)
                         if not _thinking and "<think>" in full_response:
                             _think_match = re.search(r'<think>(.*?)</think>', full_response, re.DOTALL)
                             if _think_match:
+                                # Bloc complet <think>…</think>
                                 _thinking = _think_match.group(1).strip()
                                 full_response = re.sub(r'<think>.*?</think>', '', full_response, flags=re.DOTALL).strip()
-                                if response_text_ctrl is not None:
-                                    response_text_ctrl.value = _md_dark(full_response)
-                                    try:
-                                        page.update()
-                                    except Exception:
-                                        pass
+                            else:
+                                # Bloc <think> non fermé (stream interrompu en plein thinking)
+                                full_response = full_response.split("<think>", 1)[0].strip()
+                            if response_text_ctrl is not None:
+                                response_text_ctrl.value = _md_dark(full_response)
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
                         if _thinking and thinking_ctrl is None:
                             _ai_add_bubble("think", _thinking)
                         if response_text_ctrl is not None and full_response:
@@ -4092,34 +4111,39 @@ def main(page: ft.Page):
     #  ██  Layout — Onglet 4 (IA)
     # ═════════════════════════════════════════════════════════════════════
 
+    _ai_tab4_header = ft.Row([
+        ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=16),
+        ft.Text("IA", color=BLUE, size=13, weight=ft.FontWeight.BOLD),
+        ft.Container(width=4),
+        ai_model_dropdown,
+        ft.Container(width=4),
+        ft.Container(
+            content=ft.Row([ai_stop_button], spacing=0),
+            border=ft.Border.all(1, GREY),
+            border_radius=6,
+            padding=ft.Padding(0, 0, 0, 0),
+        ),
+        ft.Container(expand=True),
+        ai_copy_button,
+        ai_clear_button,
+        ai_speaker_button,
+        ft.IconButton(
+            icon=ft.Icons.SEND_TO_MOBILE,
+            icon_color=VIOLET,
+            icon_size=16,
+            tooltip="Transférer la conversation vers le bloc-notes",
+            on_click=lambda e: _export_ai_conversation(to_notepad=True),
+        ),
+        ft.IconButton(
+            icon=ft.Icons.OPEN_IN_FULL,
+            icon_color=LIGHT_GREY,
+            icon_size=16,
+            tooltip="IA + Bloc-notes côte à côte (plein écran)",
+            on_click=_open_ai_notepad_fullscreen,
+        ),
+    ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER)
     tab4 = ft.Column([
-        ft.Row([
-            ft.Icon(ft.Icons.SMART_TOY, color=BLUE, size=16),
-            ft.Text("IA", color=BLUE, size=13, weight=ft.FontWeight.BOLD),
-            ft.Container(width=4),
-            ai_model_dropdown,
-            ft.Container(width=4),
-            ft.Container(content=ai_status_text, width=160),
-            ai_stop_button,
-            ft.Container(expand=True),
-            ai_copy_button,
-            ai_clear_button,
-            ai_speaker_button,
-            ft.IconButton(
-                icon=ft.Icons.SEND_TO_MOBILE,
-                icon_color=VIOLET,
-                icon_size=16,
-                tooltip="Transférer la conversation vers le bloc-notes",
-                on_click=lambda e: _export_ai_conversation(to_notepad=True),
-            ),
-            ft.IconButton(
-                icon=ft.Icons.OPEN_IN_FULL,
-                icon_color=LIGHT_GREY,
-                icon_size=16,
-                tooltip="IA + Bloc-notes côte à côte (plein écran)",
-                on_click=_open_ai_notepad_fullscreen,
-            ),
-        ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        _ai_tab4_header,
         ft.Container(
             content=ft.Column([
                 ai_chat_view,
@@ -4222,7 +4246,6 @@ def main(page: ft.Page):
     )
 
     page.add(tabs)
-
     # ── Initialisation ───────────────────────────────────────────────────
     _rebuild_recent_src_menu()
     _rebuild_recent_json_menu()
