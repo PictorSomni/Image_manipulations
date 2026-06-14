@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.7.9"
+__version__ = "2.8.0"
 
 
 # ==============================================================================
@@ -345,10 +345,13 @@ AI_GEMINI_MODEL    = "gemini-3.5-flash"      # Modèle Gemini principal (API Goo
 AI_GEMINI_FALLBACK = "gemma4:e4b-mlx" if os.name == "darwin" else "gemma4:e4b"            # Fallback Ollama local si hors-ligne
 AI_GEMINI_IMAGE_TIMEOUT = 180                # Timeout max (s) pour generate/edit image via Gemini
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
+AI_HISTORY_LIMIT_CLOUD = 20                  # Nb max de messages envoyés à l'IA (Gemini / Claude)
+AI_HISTORY_LIMIT_LOCAL = 10                  # Nb max de messages envoyés à l'IA (modèles Ollama locaux)
 AI_URL_MAX_CHARS = 20_000                    # Nb max de caractères extraits d'une URL
 AI_FILE_MAX_CHARS = 500_000                  # Nb max de caractères lus dans un fichier du dossier
 AI_ORGANIZE_CONFIRM  = False                 # True = confirmation avant chaque tri de fichiers
 AI_TERMINAL_CONFIRM  = False                 # True = confirmation avant chaque commande terminal
+AI_DELETE_CONFIRM    = True                  # True = confirmation avant chaque suppression de fichiers
 AI_IMAGE_ATTACH_DEFAULT_ORIGINAL = True      # True = images jointes manuellement en taille réelle par défaut
 AI_IMAGE_ATTACH_SELECTED_ORIGINAL = False    # True = images sélectionnées dans la preview en taille réelle
 AI_SHOW_REFINED_IMAGE_PROMPT = True          # True = affiche dans le chat le prompt final envoyé à Nano Banana
@@ -396,40 +399,6 @@ AI_SYSTEM_PROMPT = (
     "- Cite toujours tes sources avec les URLs complètes quand tu fais une recherche web.\n"
     "- Quand tu organises des fichiers, explique ta logique clairement.\n\n"
     "Reste naturel et engageant, n'hésite pas à utiliser des émoticônes ou de l'humour quand c'est pertinent."
-)
-
-AI_FOLDER_SELECT_SYSTEM_PROMPT = (
-    "Tu es un éditeur photo professionnel spécialisé dans la sélection avant développement RAW.\n\n"
-    "CONTEXTE IMPORTANT :\n"
-    "Base ta sélection sur le POTENTIEL de chaque image (composition, contrastes, lumière, couleur, expression, moment) "
-    "et non sur son rendu final. L'utilisateur retouchera ensuite les fichiers RAW correspondants.\n\n"
-    "Il s'agit soit d'un reportage photo (événement, mariage, portrait…), soit des paysages / ambiances."
-    "Si tu vois une série de portraits, il est probablement composé de personnes différentes (même si certaines sont toujours mises en avant) — "
-    "Tu analyses le reportage par petits groupes successifs ; "
-    "applique des critères cohérents à travers tous les groupes.\n\n"
-    "CRITÈRES D'EXCLUSION (écarte uniquement si le défaut est clairement visible) :\n"
-    "- Photos nettement floues ou avec un mouvement non intentionnel sur le sujet principal\n"
-    "- Ombres complètement bouchées sans aucun détail récupérable\n"
-    "- Yeux clairement fermés sur le/les sujet(s) principal(aux)\n"
-    "- Mise au point clairement manquée sur le sujet principal\n"
-    "- Cadrage clairement raté (sujet tronqué de façon non artistique, horizon très fortement penché)\n"
-    "- Photos quasi-identiques prises en rafale du MÊME instant et du MÊME sujet "
-    "(même cadre, même milliseconde) — ne retenir que la meilleure. "
-    "NE PAS confondre avec des portraits de personnes différentes.\n\n"
-    "CRITÈRES DE SÉLECTION POSITIFS :\n"
-    "- Netteté sur le sujet principal (même légèrement plate en JPEG brut)\n"
-    "- Exposition maîtrisée — un style lumineux, clair ou high-key est une qualité, pas un défaut\n"
-    "- Expression authentique, émotion ou moment décisif\n"
-    "- Composition équilibrée ou cadrage intéressant\n\n"
-    "QUANTITÉ : sélectionne entre 30 % et 60 % des photos du groupe. "
-    "Ne renvoie jamais une liste vide sauf si TOUTES les photos du groupe "
-    "présentent un défaut rédhibitoire (flou net, yeux fermés, hors sujet total).\n\n"
-    "OBLIGATION ABSOLUE : tu DOIS appeler l'outil select_photos avec le paramètre "
-    "selected_files contenant EXPLICITEMENT le nom exact de chaque fichier retenu "
-    "(ex. NZ6_0176.jpeg). "
-    "Ne jamais écrire les noms uniquement dans le champ reason ou dans le texte libre. "
-    "Si tu mentionnes dans reason que tu as sélectionné des photos, ces mêmes photos "
-    "DOIVENT obligatoirement figurer dans selected_files — sinon elles seront perdues."
 )
 
 

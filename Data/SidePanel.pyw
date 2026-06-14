@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.7.9"
+__version__ = "2.8.0"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — SidePanel.pyw
@@ -89,8 +89,11 @@ from ai_tools import (
     _ollama_chat_stream_with_tools, _gemini_chat_stream_with_tools,
     _parse_text_tool_calls, _strip_text_tool_calls,
     _format_ai_conversation, _folder_tool_definitions, _gemini_tool_definitions, _folder_list_contents,
-    _folder_read_file, _folder_create_file, _encode_image_for_analysis, _analyze_images_batched,
-    _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
+    _folder_read_file, _folder_create_file, _folder_delete_files, _folder_move_file,
+    _folder_copy_file, _folder_create_folder, _resolve_path,
+    _folder_read_exif, _folder_zip_files, _folder_unzip_file,
+    _encode_image_for_analysis, _analyze_images_batched,
+    _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _NOTEPAD_TOOLS, _UI_TOOLS, _run_terminal_command,
     _update_memory_file, _build_system_content,
     _gemini_tts_stream, _gemini_live_tts_stream,
     _claude_chat_stream_with_tools,
@@ -2900,15 +2903,23 @@ def main(page: ft.Page):
                 _folder_path_for_tools = current_src["path"]
                 _FOLDER_TOOLS = _folder_tool_definitions(_folder_path_for_tools)
                 if (active_model or "").startswith("gemini"):
-                    _ALL_TOOLS = _gemini_tool_definitions(_folder_path_for_tools)
+                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
                 else:
-                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _FOLDER_TOOLS
-                # Limiter l'historique aux 10 derniers messages pour éviter
-                # que les petits modèles locaux perdent de vue la question courante
-                _history = ai_conversation[-10:] if len(ai_conversation) > 10 else ai_conversation
+                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _FOLDER_TOOLS
+                # Limiter l'historique : 20 tours pour les modèles cloud capables, 10 pour les modèles locaux
+                _history_limit = CONSTANTS.AI_HISTORY_LIMIT_CLOUD if (active_model or "").startswith(("gemini", "claude")) else CONSTANTS.AI_HISTORY_LIMIT_LOCAL
+                _history = ai_conversation[-_history_limit:] if len(ai_conversation) > _history_limit else ai_conversation
                 _system_content = _build_system_content(
                     _folder_path_for_tools, today
                 )
+                if _folder_path_for_tools:
+                    _system_content += f"\n\nDOSSIER ACTUELLEMENT OUVERT : {_folder_path_for_tools}"
+                if selected_files:
+                    _sel_basenames = [os.path.basename(f) for f in selected_files]
+                    _sel_list = "\n".join(f"- {n}" for n in _sel_basenames[:50])
+                    _system_content += f"\n\nFICHIERS SÉLECTIONNÉS DANS L'INTERFACE ({len(selected_files)}) :\n{_sel_list}"
+                    if len(selected_files) > 50:
+                        _system_content += f"\n(… et {len(selected_files) - 50} autres non listés)"
                 messages = [
                     {"role": "system", "content": _system_content},
                     *_history,
@@ -3118,13 +3129,15 @@ def main(page: ft.Page):
                             _tool_tasks.append((fn_name, fn_args))
                         elif fn_name == "list_folder_contents":
                             _folder_display = os.path.basename(_folder_path_for_tools) if _folder_path_for_tools else "?"
+                            _list_path = fn_args.get("path", "").strip() or _folder_path_for_tools or ""
+                            _folder_display = os.path.basename(_list_path) if _list_path else "?"
                             ai_status_text.value = "📂 Lecture du dossier…"
                             _ai_add_bubble("assistant", f"📂 Lecture du dossier « {_folder_display} »")
                             try:
                                 page.update()
                             except Exception:
                                 pass
-                            _folder_tool_results.append((fn_name, _folder_list_contents(_folder_path_for_tools)))
+                            _folder_tool_results.append((fn_name, _folder_list_contents(_list_path)))
                         elif fn_name == "read_file_content":
                             _read_filename = fn_args.get("filename", "")
                             ai_status_text.value = f"📄 Lecture : {_read_filename}…"
@@ -3397,6 +3410,249 @@ def main(page: ft.Page):
                             _folder_tool_results.append(
                                 (fn_name, _update_memory_file(_mem_target, _mem_action, _mem_content, _mem_old))
                             )
+                        elif fn_name == "read_notepad":
+                            _np_current = notepad_field.value or ""
+                            ai_status_text.value = "📝 Lecture du bloc-notes…"
+                            _ai_add_bubble("assistant", "📝 Lecture du bloc-notes")
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _folder_tool_results.append(
+                                (fn_name, _np_current if _np_current.strip() else "(Bloc-notes vide)")
+                            )
+                        elif fn_name == "write_notepad":
+                            _np_content = fn_args.get("content", "")
+                            _np_action  = fn_args.get("action", "replace")
+                            if _np_action == "replace":
+                                notepad_field.value = _np_content
+                            elif _np_action == "append":
+                                notepad_field.value = (notepad_field.value or "") + "\n" + _np_content
+                            elif _np_action == "prepend":
+                                notepad_field.value = _np_content + "\n" + (notepad_field.value or "")
+                            if notepad_is_preview["value"]:
+                                notepad_markdown_preview.value = _prepare_notepad_markdown(notepad_field.value or "")
+                            _notepad_save()
+                            try:
+                                notepad_field.update()
+                                if notepad_is_preview["value"]:
+                                    notepad_markdown_preview.update()
+                            except Exception:
+                                pass
+                            ai_status_text.value = "📝 Bloc-notes mis à jour"
+                            _ai_add_bubble("assistant", f"📝 Bloc-notes mis à jour ({_np_action})")
+                            _folder_tool_results.append(
+                                (fn_name, f"Bloc-notes mis à jour ({_np_action}). Longueur : {len(notepad_field.value or '')} caractères.")
+                            )
+                        elif fn_name == "navigate_to_folder":
+                            _nav_path = fn_args.get("path", "").strip()
+                            if not _nav_path or not os.path.isdir(_nav_path):
+                                _folder_tool_results.append((fn_name, f"Dossier introuvable : {_nav_path or '(vide)'}"))
+                            else:
+                                _navigate(_nav_path)
+                                _folder_path_for_tools = _nav_path
+                                ai_status_text.value = f"📂 Navigation → {os.path.basename(_nav_path)}"
+                                _ai_add_bubble("assistant", f"📂 Navigation vers : {_nav_path}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, f"Dossier ouvert : {_nav_path}"))
+                        elif fn_name == "select_files_in_ui":
+                            _sel_names = fn_args.get("filenames", [])
+                            _sel_mode  = fn_args.get("mode", "replace")
+                            _folder_for_sel = _folder_path_for_tools or ""
+                            if not _folder_for_sel:
+                                _folder_tool_results.append((fn_name, "Aucun dossier ouvert pour sélectionner des fichiers."))
+                            else:
+                                if _sel_mode == "replace":
+                                    selected_files.clear()
+                                _changed = 0
+                                for _sel_name in _sel_names:
+                                    _sel_path = os.path.join(_folder_for_sel, os.path.basename(_sel_name))
+                                    if os.path.exists(_sel_path):
+                                        if _sel_mode == "remove":
+                                            if _sel_path in selected_files:
+                                                selected_files.discard(_sel_path)
+                                                _changed += 1
+                                        else:
+                                            if _sel_path not in selected_files:
+                                                selected_files.add(_sel_path)
+                                                _changed += 1
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _verb = "retiré(s)" if _sel_mode == "remove" else "sélectionné(s)"
+                                ai_status_text.value = f"✅ {_changed} fichier(s) {_verb}"
+                                _ai_add_bubble("assistant", f"✅ {_changed} fichier(s) {_verb}. Sélection totale : {len(selected_files)} fichier(s).")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append(
+                                    (fn_name, f"{_changed} fichier(s) {_verb}. Sélection totale : {len(selected_files)} fichier(s).")
+                                )
+                        elif fn_name == "delete_files":
+                            _del_paths   = fn_args.get("paths", [])
+                            _del_summary = fn_args.get("summary", "")
+                            if not _del_paths:
+                                _folder_tool_results.append((fn_name, "Aucun fichier à supprimer."))
+                            else:
+                                _del_confirmed = True
+                                if CONSTANTS.AI_DELETE_CONFIRM:
+                                    ai_status_text.value = "🗑️ Suppression — en attente de confirmation…"
+                                    try:
+                                        page.update()
+                                    except Exception:
+                                        pass
+                                    _del_event  = threading.Event()
+                                    _del_result = {"confirmed": False}
+
+                                    def _on_del_confirm(event=None):
+                                        _del_result["confirmed"] = True
+                                        _del_dlg.open = False
+                                        page.update()
+                                        _del_event.set()
+
+                                    def _on_del_cancel(event=None):
+                                        _del_dlg.open = False
+                                        page.update()
+                                        _del_event.set()
+
+                                    _del_rows = [
+                                        ft.Text(f"• {p}", size=12, color=WHITE)
+                                        for p in _del_paths[:40]
+                                    ]
+                                    if len(_del_paths) > 40:
+                                        _del_rows.append(ft.Text(f"… et {len(_del_paths) - 40} autres", size=12, color=LIGHT_GREY))
+                                    _del_dlg = ft.AlertDialog(
+                                        modal=True,
+                                        title=ft.Text("🗑️ Supprimer des fichiers"),
+                                        content=ft.Column(
+                                            [
+                                                ft.Text(_del_summary or "Fichiers à supprimer :", size=13, color=WHITE),
+                                                ft.Container(height=6),
+                                                ft.Column(
+                                                    _del_rows,
+                                                    scroll=ft.ScrollMode.AUTO,
+                                                    height=min(320, len(_del_rows) * 24),
+                                                ),
+                                            ],
+                                            tight=True,
+                                            width=500,
+                                        ),
+                                        actions=[
+                                            ft.TextButton("Annuler", on_click=_on_del_cancel),
+                                            ft.ElevatedButton(
+                                                "Supprimer",
+                                                bgcolor=ft.Colors.RED_700,
+                                                color=WHITE,
+                                                on_click=_on_del_confirm,
+                                            ),
+                                        ],
+                                        actions_alignment=ft.MainAxisAlignment.END,
+                                    )
+                                    page.overlay.append(_del_dlg)
+                                    _del_dlg.open = True
+                                    try:
+                                        page.update()
+                                    except Exception:
+                                        pass
+                                    _del_event.wait(timeout=300)
+                                    _del_confirmed = _del_result["confirmed"]
+                                if not _del_confirmed:
+                                    _folder_tool_results.append((fn_name, "Suppression annulée."))
+                                else:
+                                    _del_res = _folder_delete_files(_folder_path_for_tools, _del_paths)
+                                    page.pubsub.send_all_on_topic("refresh", None)
+                                    ai_status_text.value = "🗑️ Suppression effectuée"
+                                    _ai_add_bubble("assistant", f"🗑️ Suppression effectuée")
+                                    _turn_events.append("🗑️ Suppression effectuée")
+                                    try:
+                                        page.update()
+                                    except Exception:
+                                        pass
+                                    _folder_tool_results.append((fn_name, _del_res))
+                        elif fn_name == "move_file":
+                            _mv_src = fn_args.get("source", "").strip()
+                            _mv_dst = fn_args.get("destination", "").strip()
+                            if not _mv_src or not _mv_dst:
+                                _folder_tool_results.append((fn_name, "Paramètres source ou destination manquants."))
+                            else:
+                                _mv_res = _folder_move_file(_folder_path_for_tools, _mv_src, _mv_dst)
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _ai_add_bubble("assistant", f"📦 Déplacement : {os.path.basename(_mv_src)} → {_mv_dst}")
+                                _turn_events.append(f"📦 Déplacement : {os.path.basename(_mv_src)} → {_mv_dst}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, _mv_res))
+                        elif fn_name == "copy_file":
+                            _cp_src = fn_args.get("source", "").strip()
+                            _cp_dst = fn_args.get("destination", "").strip()
+                            if not _cp_src or not _cp_dst:
+                                _folder_tool_results.append((fn_name, "Paramètres source ou destination manquants."))
+                            else:
+                                _cp_res = _folder_copy_file(_folder_path_for_tools, _cp_src, _cp_dst)
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _ai_add_bubble("assistant", f"📋 Copie : {os.path.basename(_cp_src)} → {_cp_dst}")
+                                _turn_events.append(f"📋 Copie : {os.path.basename(_cp_src)} → {_cp_dst}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, _cp_res))
+                        elif fn_name == "create_folder":
+                            _mkdir_path = fn_args.get("path", "").strip()
+                            if not _mkdir_path:
+                                _folder_tool_results.append((fn_name, "Chemin manquant."))
+                            else:
+                                _mkdir_res = _folder_create_folder(_folder_path_for_tools, _mkdir_path)
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _ai_add_bubble("assistant", f"📁 Dossier créé : {_mkdir_path}")
+                                _turn_events.append(f"📁 Dossier créé : {_mkdir_path}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, _mkdir_res))
+                        elif fn_name == "read_exif":
+                            _exif_files = fn_args.get("filenames", [])
+                            if not _exif_files:
+                                _folder_tool_results.append((fn_name, "Aucun fichier fourni."))
+                            else:
+                                _exif_res = _folder_read_exif(_folder_path_for_tools, _exif_files)
+                                _folder_tool_results.append((fn_name, _exif_res))
+                        elif fn_name == "zip_files":
+                            _zip_paths = fn_args.get("paths", [])
+                            _zip_name = fn_args.get("zip_name", "archive") or "archive"
+                            _zip_dest = fn_args.get("destination", "") or None
+                            if not _zip_paths:
+                                _folder_tool_results.append((fn_name, "Aucun fichier fourni."))
+                            else:
+                                _zip_res = _folder_zip_files(_folder_path_for_tools, _zip_paths, _zip_name, _zip_dest)
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _ai_add_bubble("assistant", f"🗜️ Archive créée : {_zip_name}")
+                                _turn_events.append(f"🗜️ Archive créée : {_zip_name}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, _zip_res))
+                        elif fn_name == "unzip_file":
+                            _unzip_src = fn_args.get("source", "").strip()
+                            _unzip_dest = fn_args.get("destination", "") or None
+                            if not _unzip_src:
+                                _folder_tool_results.append((fn_name, "Source manquante."))
+                            else:
+                                _unzip_res = _folder_unzip_file(_folder_path_for_tools, _unzip_src, _unzip_dest)
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _ai_add_bubble("assistant", f"📦 Extrait : {os.path.basename(_unzip_src)}")
+                                _turn_events.append(f"📦 Extrait : {os.path.basename(_unzip_src)}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, _unzip_res))
                     try:
                         page.update()
                     except Exception:
@@ -3455,10 +3711,18 @@ def main(page: ft.Page):
                     _log_exchange_to_md(_last_user_text, full_response, _thinking, _turn_events)
                 else:
                     _fallback_response = "[Aucune réponse reçue]"
-                    if _turn_events:
-                        ai_conversation.append({"role": "assistant", "content": _fallback_response, "events": _turn_events})
+                    if _thinking:
+                        # La réflexion a déjà été affichée — sauvegarder sans ajouter de bulle d'erreur par-dessus
+                        _entry = {"role": "assistant", "content": _fallback_response, "thinking": _thinking}
+                        if _turn_events:
+                            _entry["events"] = _turn_events
+                        ai_conversation.append(_entry)
                         _ai_save_history()
-                    _ai_add_bubble("assistant", _fallback_response)
+                    else:
+                        if _turn_events:
+                            ai_conversation.append({"role": "assistant", "content": _fallback_response, "events": _turn_events})
+                            _ai_save_history()
+                        _ai_add_bubble("assistant", _fallback_response)
 
                     # 📝 Log permanent même s'il n'y a pas eu de réponse
                     _log_exchange_to_md(_last_user_text, _fallback_response, _thinking, _turn_events)

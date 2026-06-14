@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.7.9"
+__version__ = "2.8.0"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -88,9 +88,12 @@ from ai_tools import (
     _ollama_chat_stream_with_tools, _gemini_chat_stream_with_tools,
     _parse_text_tool_calls, _strip_text_tool_calls,
     _format_ai_conversation, _folder_tool_definitions, _gemini_tool_definitions, _folder_list_contents,
-    _folder_read_file, _folder_create_file, _encode_image_for_analysis, _analyze_images_batched,
+    _folder_read_file, _folder_create_file, _folder_delete_files, _folder_move_file,
+    _folder_copy_file, _folder_create_folder, _resolve_path,
+    _folder_read_exif, _folder_zip_files, _folder_unzip_file,
+    _encode_image_for_analysis, _analyze_images_batched,
     _gemini_generate_image, _gemini_refine_image_prompt,
-    _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _run_terminal_command,
+    _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _NOTEPAD_TOOLS, _UI_TOOLS, _run_terminal_command,
     _update_memory_file, _build_system_content,
     _gemini_tts_stream, _gemini_live_tts_stream, _gemini_tts, _voice_play_audio,
     _claude_chat_stream_with_tools,
@@ -109,6 +112,8 @@ _OS_JUNK = {
     ".directory", ".spotlight-v100", ".trashes",
     ".thumbcache.db",
 }
+
+
 
 def _is_os_junk(entry):
     """Retourne True si l'entrée est un fichier système à ignorer."""
@@ -182,6 +187,8 @@ def main(page: ft.Page):
         page.window.maximized = CONSTANTS.MAXIMIZED
     page.window.icon = "assets/icon.png"
 
+
+
     async def on_window_event(event):
         if event.data == "close":
             proc = ollama_process["proc"]
@@ -208,6 +215,8 @@ def main(page: ft.Page):
                 except Exception:
                     pass
 
+
+
     page.window.on_event = on_window_event
     selected_folder = {"path": None}
     current_browse_folder = {"path": None}
@@ -221,6 +230,8 @@ def main(page: ft.Page):
 
     # ── Dossiers récents ──────────────────────────────────────────────
     recent_folders_file_path = os.path.join(app_directory, ".recent_folders.json")
+
+
 
     def _load_recent() -> list:
         try:
@@ -258,6 +269,8 @@ def main(page: ft.Page):
 
     # ── Programmes "Ouvrir avec" ──────────────────────────────────────
     open_with_config_file_path = os.path.join(app_directory, "open_with.json")
+
+
 
     def _load_favorites() -> list:
         try:
@@ -321,6 +334,7 @@ def main(page: ft.Page):
         "Copyright.py": (False, VIOLET),
         "IA / Bloc-notes": (True, BLUE),
     }
+
 
 
     # ===================== Valeurs par défaut ===================== #
@@ -814,6 +828,7 @@ def main(page: ft.Page):
     page.pubsub.subscribe_topic("quit", on_quit_request)
 
 
+
     def on_deselect_request(topic, message):
         """Callback pour désélectionner tous les fichiers depuis un thread de fond."""
         selected_files.clear()
@@ -835,9 +850,12 @@ def main(page: ft.Page):
         "Augmentation IA.py": {"restore_previous_maximized_state": True},
     }
 
+
+
     def _get_dashboard_window_cycle_options(app_name: str):
         """Retourne la configuration de cycle fenêtre pour une app, ou None."""
         return dashboard_window_cycle_config.get(app_name)
+
 
 
     def _restore_dashboard_window(previous_maximized_state: bool = None):
@@ -855,6 +873,7 @@ def main(page: ft.Page):
 
         page.run_task(page.window.to_front)
         page.update()
+
 
 
     def _launch_with_dashboard_restore(
@@ -882,6 +901,7 @@ def main(page: ft.Page):
                 page.pubsub.send_all_on_topic(on_exit_topic, None)
 
         threading.Thread(target=_watch_process_closure, daemon=True).start()
+
 
 
     def _launch_side_panel(extra_env: dict = None):
@@ -1007,6 +1027,8 @@ def main(page: ft.Page):
             },
         )
 
+
+
     _kiosk_tariff_label = ft.Text("PRINTS", size=12, color=DARK)
     kiosk_tariff_btn = ft.Button(
         content=_kiosk_tariff_label,
@@ -1019,6 +1041,8 @@ def main(page: ft.Page):
         width=76,
         tooltip="Tarif kiosk actif — cliquer pour changer (STUDIOS / PRINTS)",
     )
+
+
 
     def _toggle_kiosk_tariff(e) -> None:
         kiosk_tariff["value"] = "PRINTS" if kiosk_tariff["value"] == "STUDIOS" else "STUDIOS"
@@ -2321,6 +2345,8 @@ def main(page: ft.Page):
                 pass
         page.run_task(_upd)
 
+
+
     def _send_ai_message(message_text):
         """Envoie un message à Ollama et streame la réponse dans le panneau IA."""
         if ai_streaming["value"]:
@@ -2434,17 +2460,25 @@ def main(page: ft.Page):
                 _folder_path_for_tools = current_browse_folder["path"] or selected_folder["path"]
                 _FOLDER_TOOLS = _folder_tool_definitions(_folder_path_for_tools)
                 if (active_model or "").startswith("gemini"):
-                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
+                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
                 else:
-                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _FOLDER_TOOLS
+                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _FOLDER_TOOLS
 
                 today = datetime.date.today().strftime("%d %B %Y")
                 _system_content = _build_system_content(
                     _folder_path_for_tools, today
                 )
-                # Limiter l'historique aux 10 derniers messages pour éviter
-                # que les petits modèles locaux perdent de vue la question courante
-                _history = ai_conversation[-10:] if len(ai_conversation) > 10 else ai_conversation
+                if _folder_path_for_tools:
+                    _system_content += f"\n\nDOSSIER ACTUELLEMENT OUVERT : {_folder_path_for_tools}"
+                if selected_files:
+                    _sel_basenames = [os.path.basename(f) for f in selected_files]
+                    _sel_list = "\n".join(f"- {n}" for n in _sel_basenames[:50])
+                    _system_content += f"\n\nFICHIERS SÉLECTIONNÉS DANS L'INTERFACE ({len(selected_files)}) :\n{_sel_list}"
+                    if len(selected_files) > 50:
+                        _system_content += f"\n(… et {len(selected_files) - 50} autres non listés)"
+                # Limiter l'historique : 20 tours pour les modèles cloud capables, 10 pour les modèles locaux
+                _history_limit = CONSTANTS.AI_HISTORY_LIMIT_CLOUD if (active_model or "").startswith(("gemini", "claude")) else CONSTANTS.AI_HISTORY_LIMIT_LOCAL
+                _history = ai_conversation[-_history_limit:] if len(ai_conversation) > _history_limit else ai_conversation
                 messages = [
                     {"role": "system", "content": _system_content},
                     *[{k: v for k, v in m.items() if k != "events"} for m in _history],
@@ -2671,7 +2705,8 @@ def main(page: ft.Page):
                             _turn_events.append(f"🌐 Lecture : {url}")
                             _tool_tasks.append((fn_name, fn_args))
                         elif fn_name == "list_folder_contents":
-                            _folder_display = os.path.basename(_folder_path_for_tools) if _folder_path_for_tools else "?"
+                            _list_path = fn_args.get("path", "").strip() or _folder_path_for_tools or ""
+                            _folder_display = os.path.basename(_list_path) if _list_path else "?"
                             ai_status_text.value = "📂 Lecture du dossier…"
                             _ai_add_bubble("assistant", f"📂 Lecture du dossier « {_folder_display} »")
                             _turn_events.append(f"📂 Lecture du dossier « {_folder_display} »")
@@ -2679,7 +2714,7 @@ def main(page: ft.Page):
                                 page.update()
                             except Exception:
                                 pass
-                            _folder_tool_results.append((fn_name, _folder_list_contents(_folder_path_for_tools)))
+                            _folder_tool_results.append((fn_name, _folder_list_contents(_list_path)))
                         elif fn_name == "read_file_content":
                             _read_filename = fn_args.get("filename", "")
                             ai_status_text.value = f"📄 Lecture : {_read_filename}…"
@@ -3112,6 +3147,252 @@ def main(page: ft.Page):
                             _folder_tool_results.append(
                                 (fn_name, _update_memory_file(_mem_target, _mem_action, _mem_content, _mem_old))
                             )
+                        elif fn_name == "read_notepad":
+                            _np_current = notepad_field.value or ""
+                            ai_status_text.value = "📝 Lecture du bloc-notes…"
+                            _ai_add_bubble("assistant", "📝 Lecture du bloc-notes")
+                            _turn_events.append("📝 Lecture du bloc-notes")
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _folder_tool_results.append(
+                                (fn_name, _np_current if _np_current.strip() else "(Bloc-notes vide)")
+                            )
+                        elif fn_name == "write_notepad":
+                            _np_content = fn_args.get("content", "")
+                            _np_action  = fn_args.get("action", "replace")
+                            if _np_action == "replace":
+                                notepad_field.value = _np_content
+                            elif _np_action == "append":
+                                notepad_field.value = (notepad_field.value or "") + "\n" + _np_content
+                            elif _np_action == "prepend":
+                                notepad_field.value = _np_content + "\n" + (notepad_field.value or "")
+                            if notepad_is_preview["value"]:
+                                notepad_markdown_preview.value = _prepare_notepad_markdown(notepad_field.value or "")
+                            try:
+                                notepad_field.update()
+                                if notepad_is_preview["value"]:
+                                    notepad_markdown_preview.update()
+                            except Exception:
+                                pass
+                            ai_status_text.value = "📝 Bloc-notes mis à jour"
+                            _ai_add_bubble("assistant", f"📝 Bloc-notes mis à jour ({_np_action})")
+                            _turn_events.append(f"📝 Bloc-notes mis à jour ({_np_action})")
+                            _folder_tool_results.append(
+                                (fn_name, f"Bloc-notes mis à jour ({_np_action}). Longueur : {len(notepad_field.value or '')} caractères.")
+                            )
+                        elif fn_name == "navigate_to_folder":
+                            _nav_path = fn_args.get("path", "").strip()
+                            if not _nav_path or not os.path.isdir(_nav_path):
+                                _folder_tool_results.append((fn_name, f"Dossier introuvable : {_nav_path or '(vide)'}"))
+                            else:
+                                navigate_to_folder(_nav_path)
+                                _folder_path_for_tools = _nav_path
+                                ai_status_text.value = f"📂 Navigation → {os.path.basename(_nav_path)}"
+                                _ai_add_bubble("assistant", f"📂 Navigation vers : {_nav_path}")
+                                _turn_events.append(f"📂 Navigation vers : {_nav_path}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, f"Dossier ouvert : {_nav_path}"))
+                        elif fn_name == "select_files_in_ui":
+                            _sel_names = fn_args.get("filenames", [])
+                            _sel_mode  = fn_args.get("mode", "replace")
+                            _folder_for_sel = _folder_path_for_tools or ""
+                            if not _folder_for_sel:
+                                _folder_tool_results.append((fn_name, "Aucun dossier ouvert pour sélectionner des fichiers."))
+                            else:
+                                if _sel_mode == "replace":
+                                    selected_files.clear()
+                                _changed = 0
+                                for _sel_name in _sel_names:
+                                    _sel_path = os.path.join(_folder_for_sel, os.path.basename(_sel_name))
+                                    if os.path.exists(_sel_path):
+                                        if _sel_mode == "remove":
+                                            if _sel_path in selected_files:
+                                                selected_files.remove(_sel_path)
+                                                _changed += 1
+                                        else:
+                                            if _sel_path not in selected_files:
+                                                selected_files.append(_sel_path)
+                                                _changed += 1
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _verb = "retiré(s)" if _sel_mode == "remove" else "sélectionné(s)"
+                                ai_status_text.value = f"✅ {_changed} fichier(s) {_verb}"
+                                _ai_add_bubble("assistant", f"✅ {_changed} fichier(s) {_verb}. Sélection totale : {len(selected_files)} fichier(s).")
+                                _turn_events.append(f"✅ Sélection : {_changed} fichier(s) {_verb}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append(
+                                    (fn_name, f"{_changed} fichier(s) {_verb}. Sélection totale : {len(selected_files)} fichier(s).")
+                                )
+                        elif fn_name == "delete_files":
+                            _del_paths   = fn_args.get("paths", [])
+                            _del_summary = fn_args.get("summary", "")
+                            if not _del_paths:
+                                _folder_tool_results.append((fn_name, "Aucun fichier à supprimer."))
+                            else:
+                                _del_confirmed = True
+                                if CONSTANTS.AI_DELETE_CONFIRM:
+                                    ai_status_text.value = "🗑️ Suppression — en attente de confirmation…"
+                                    try:
+                                        page.update()
+                                    except Exception:
+                                        pass
+                                    _del_event  = threading.Event()
+                                    _del_result = {"confirmed": False}
+
+                                    def _on_del_confirm(event=None):
+                                        _del_result["confirmed"] = True
+                                        _del_dlg.open = False
+                                        page.update()
+                                        _del_event.set()
+
+                                    def _on_del_cancel(event=None):
+                                        _del_dlg.open = False
+                                        page.update()
+                                        _del_event.set()
+
+                                    _del_rows = [
+                                        ft.Text(f"• {p}", size=12, color=WHITE)
+                                        for p in _del_paths[:40]
+                                    ]
+                                    if len(_del_paths) > 40:
+                                        _del_rows.append(ft.Text(f"… et {len(_del_paths) - 40} autres", size=12, color=LIGHT_GREY))
+                                    _del_dlg = ft.AlertDialog(
+                                        modal=True,
+                                        title=ft.Text("🗑️ Supprimer des fichiers"),
+                                        content=ft.Column(
+                                            [
+                                                ft.Text(_del_summary or "Fichiers à supprimer :", size=13, color=WHITE),
+                                                ft.Container(height=6),
+                                                ft.Column(
+                                                    _del_rows,
+                                                    scroll=ft.ScrollMode.AUTO,
+                                                    height=min(320, len(_del_rows) * 24),
+                                                ),
+                                            ],
+                                            tight=True,
+                                            width=500,
+                                        ),
+                                        actions=[
+                                            ft.TextButton("Annuler", on_click=_on_del_cancel),
+                                            ft.ElevatedButton(
+                                                "Supprimer",
+                                                bgcolor=ft.Colors.RED_700,
+                                                color=WHITE,
+                                                on_click=_on_del_confirm,
+                                            ),
+                                        ],
+                                        actions_alignment=ft.MainAxisAlignment.END,
+                                    )
+                                    page.overlay.append(_del_dlg)
+                                    _del_dlg.open = True
+                                    try:
+                                        page.update()
+                                    except Exception:
+                                        pass
+                                    _del_event.wait(timeout=300)
+                                    _del_confirmed = _del_result["confirmed"]
+                                if not _del_confirmed:
+                                    _folder_tool_results.append((fn_name, "Suppression annulée."))
+                                else:
+                                    _del_res = _folder_delete_files(_folder_path_for_tools, _del_paths)
+                                    page.pubsub.send_all_on_topic("refresh", None)
+                                    ai_status_text.value = "🗑️ Suppression effectuée"
+                                    _ai_add_bubble("assistant", f"🗑️ Suppression effectuée")
+                                    _turn_events.append("🗑️ Suppression effectuée")
+                                    try:
+                                        page.update()
+                                    except Exception:
+                                        pass
+                                    _folder_tool_results.append((fn_name, _del_res))
+                        elif fn_name == "move_file":
+                            _mv_src = fn_args.get("source", "").strip()
+                            _mv_dst = fn_args.get("destination", "").strip()
+                            if not _mv_src or not _mv_dst:
+                                _folder_tool_results.append((fn_name, "Paramètres source ou destination manquants."))
+                            else:
+                                _mv_res = _folder_move_file(_folder_path_for_tools, _mv_src, _mv_dst)
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _ai_add_bubble("assistant", f"📦 Déplacement : {os.path.basename(_mv_src)} → {_mv_dst}")
+                                _turn_events.append(f"📦 Déplacement : {os.path.basename(_mv_src)} → {_mv_dst}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, _mv_res))
+                        elif fn_name == "copy_file":
+                            _cp_src = fn_args.get("source", "").strip()
+                            _cp_dst = fn_args.get("destination", "").strip()
+                            if not _cp_src or not _cp_dst:
+                                _folder_tool_results.append((fn_name, "Paramètres source ou destination manquants."))
+                            else:
+                                _cp_res = _folder_copy_file(_folder_path_for_tools, _cp_src, _cp_dst)
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _ai_add_bubble("assistant", f"📋 Copie : {os.path.basename(_cp_src)} → {_cp_dst}")
+                                _turn_events.append(f"📋 Copie : {os.path.basename(_cp_src)} → {_cp_dst}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, _cp_res))
+                        elif fn_name == "create_folder":
+                            _mkdir_path = fn_args.get("path", "").strip()
+                            if not _mkdir_path:
+                                _folder_tool_results.append((fn_name, "Chemin manquant."))
+                            else:
+                                _mkdir_res = _folder_create_folder(_folder_path_for_tools, _mkdir_path)
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _ai_add_bubble("assistant", f"📁 Dossier créé : {_mkdir_path}")
+                                _turn_events.append(f"📁 Dossier créé : {_mkdir_path}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, _mkdir_res))
+                        elif fn_name == "read_exif":
+                            _exif_files = fn_args.get("filenames", [])
+                            if not _exif_files:
+                                _folder_tool_results.append((fn_name, "Aucun fichier fourni."))
+                            else:
+                                _exif_res = _folder_read_exif(_folder_path_for_tools, _exif_files)
+                                _folder_tool_results.append((fn_name, _exif_res))
+                        elif fn_name == "zip_files":
+                            _zip_paths = fn_args.get("paths", [])
+                            _zip_name = fn_args.get("zip_name", "archive") or "archive"
+                            _zip_dest = fn_args.get("destination", "") or None
+                            if not _zip_paths:
+                                _folder_tool_results.append((fn_name, "Aucun fichier fourni."))
+                            else:
+                                _zip_res = _folder_zip_files(_folder_path_for_tools, _zip_paths, _zip_name, _zip_dest)
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _ai_add_bubble("assistant", f"🗜️ Archive créée : {_zip_name}")
+                                _turn_events.append(f"🗜️ Archive créée : {_zip_name}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, _zip_res))
+                        elif fn_name == "unzip_file":
+                            _unzip_src = fn_args.get("source", "").strip()
+                            _unzip_dest = fn_args.get("destination", "") or None
+                            if not _unzip_src:
+                                _folder_tool_results.append((fn_name, "Source manquante."))
+                            else:
+                                _unzip_res = _folder_unzip_file(_folder_path_for_tools, _unzip_src, _unzip_dest)
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _ai_add_bubble("assistant", f"📦 Extrait : {os.path.basename(_unzip_src)}")
+                                _turn_events.append(f"📦 Extrait : {os.path.basename(_unzip_src)}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, _unzip_res))
                     try:
                         page.update()
                     except Exception:
@@ -3311,11 +3592,19 @@ def main(page: ft.Page):
                     _log_exchange_to_md(_log_user_text, full_response, _thinking, _turn_events)
                 else:
                     _fallback_response = "[Aucune réponse reçue]"
-                    if _turn_events:
-                        ai_conversation.append({"role": "assistant", "content": _fallback_response, "events": _turn_events})
+                    if _thinking:
+                        # La réflexion a déjà été affichée — sauvegarder sans ajouter de bulle d'erreur par-dessus
+                        _entry = {"role": "assistant", "content": _fallback_response, "thinking": _thinking}
+                        if _turn_events:
+                            _entry["events"] = _turn_events
+                        ai_conversation.append(_entry)
                         _ai_save_history()
-                    _ai_add_bubble("assistant", _fallback_response)
-                    
+                    else:
+                        if _turn_events:
+                            ai_conversation.append({"role": "assistant", "content": _fallback_response, "events": _turn_events})
+                            _ai_save_history()
+                        _ai_add_bubble("assistant", _fallback_response)
+
                     # 📝 Log permanent même s'il n'y a pas eu de réponse
                     _log_exchange_to_md(_log_user_text, _fallback_response, _thinking, _turn_events)
                     
@@ -3341,559 +3630,6 @@ def main(page: ft.Page):
                 page.run_task(_refocus_after_response)
 
         threading.Thread(target=_run, daemon=True).start()
-
-
-
-    # ── Sélection IA du dossier ───────────────────────────────────────────────
-
-
-
-    def _copy_to_selection_folder(folder_path, filenames):
-        """
-        Copie les fichiers dans un dossier SELECTION (SELECTION_2, … si déjà existant).
-        Retourne (selection_dir, copied_count, errors).
-        """
-        selection_base = os.path.join(folder_path, "SELECTION")
-        selection_dir  = selection_base
-        counter = 2
-        while os.path.exists(selection_dir):
-            selection_dir = f"{selection_base}_{counter}"
-            counter += 1
-        os.makedirs(selection_dir, exist_ok=True)
-        copied_count = 0
-        errors = []
-        for filename in filenames:
-            source_path      = os.path.join(folder_path, filename)
-            destination_path = os.path.join(selection_dir, filename)
-            if not os.path.isfile(source_path):
-                errors.append(f"Introuvable : {filename}")
-                continue
-            try:
-                shutil.copy2(source_path, destination_path)
-                copied_count += 1
-            except Exception as copy_exc:
-                errors.append(f"{filename} : {copy_exc}")
-        return selection_dir, copied_count, errors
-
-
-
-    def _ai_analyze_folder_for_selection():
-        """Affiche la boîte de dialogue de critères et lance la sélection IA du dossier."""
-        if ai_streaming["value"]:
-            return
-        folder_path = current_browse_folder["path"] or selected_folder["path"]
-        if not folder_path or not os.path.isdir(folder_path):
-            _ai_add_bubble("assistant", "⚠️ Aucun dossier sélectionné.")
-            return
-
-        criteria_field = ft.TextField(
-            hint_text=(
-                "Ex 1 : Mariage civil — reportage de 4h. Priorité aux portraits des mariés et aux "
-                "interactions avec la famille. Sourires, regards complices, moments spontanés.\n"
-                "Ex 2 : Reportage commandé par la commune — sélection générale des meilleurs moments, "
-                "mais aussi et surtout les photos où les élus interagissent avec les citoyens."
-            ),
-            border_color=BLUE,
-            color=WHITE,
-            bgcolor=DARK,
-            multiline=True,
-            min_lines=3,
-            max_lines=8,
-            expand=True,
-        )
-
-        def _do_analyze(event=None):
-            criteria_dlg.open = False
-            page.update()
-            criteria_text = criteria_field.value.strip()
-            threading.Thread(
-                target=_ai_folder_select_run,
-                args=(folder_path, criteria_text),
-                daemon=True,
-            ).start()
-
-        criteria_dlg = ft.AlertDialog(
-            modal=True,
-            title=ft.Text("✨ Sélection IA"),
-            content=ft.Column([
-                ft.Text(
-                    f"Dossier : {os.path.basename(folder_path)}",
-                    color=LIGHT_GREY, size=12,
-                ),
-                ft.Container(height=8),
-                ft.Text("Contexte de l'événement et critères spécifiques :", size=13, color=WHITE),
-                ft.Container(height=4),
-                criteria_field,
-                ft.Container(height=6),
-                ft.Text(
-                    "Les critères de qualité de base (flou, exposition, yeux fermés…) "
-                    "sont appliqués automatiquement.",
-                    color=LIGHT_GREY, size=11, italic=True,
-                ),
-            ], tight=True, width=520),
-            actions=[
-                ft.TextButton("Annuler", on_click=lambda e: (
-                    setattr(criteria_dlg, "open", False) or page.update()
-                )),
-                ft.Button(
-                    "Analyser",
-                    bgcolor=BLUE,
-                    color=WHITE,
-                    on_click=_do_analyze,
-                ),
-            ],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        page.overlay.append(criteria_dlg)
-        criteria_dlg.open = True
-        page.update()
-
-        async def _focus_criteria():
-            await asyncio.sleep(0.15)
-            await criteria_field.focus()
-        page.run_task(_focus_criteria)
-
-
-
-    def _ai_folder_select_run(folder_path, criteria_text):
-        """Thread : traite toutes les images par lots, mise à jour live de la bulle de progression."""
-        ai_streaming["value"] = True
-        ai_stop_button.icon_color = RED
-        ai_status_text.value = "⏳ Sélection IA…"
-        try:
-            page.update()
-        except Exception:
-            pass
-
-        try:
-            # ── Collecter les images du dossier ───────────────────────────────
-            image_extensions = CONSTANTS.IMAGE_EXTS
-            all_images = sorted([
-                entry.name for entry in os.scandir(folder_path)
-                if entry.is_file()
-                and os.path.splitext(entry.name)[1].lower() in image_extensions
-            ])
-            if not all_images:
-                _ai_add_bubble(
-                    "assistant",
-                    f"⚠️ Aucune image trouvée dans « {os.path.basename(folder_path)} ».",
-                )
-                return
-
-            active_model  = ai_model_dropdown.value or CONSTANTS.AI_MODEL_VISION
-            batch_size    = (
-                CONSTANTS.AI_GEMINI_FOLDER_BATCH_SIZE
-                if (active_model or "").startswith("gemini")
-                else CONSTANTS.AI_FOLDER_SELECT_BATCH_SIZE
-            )
-            total_images  = len(all_images)
-            total_batches = (total_images + batch_size - 1) // batch_size
-
-            criteria_display  = criteria_text or "(critères généraux)"
-            user_bubble_text  = (
-                f"✨ **Sélection IA** — {os.path.basename(folder_path)}\n"
-                f"{criteria_display}\n\n"
-                f"_{total_images} image(s) — {total_batches} lot(s) de {batch_size} max_"
-            )
-            _ai_add_bubble("user", user_bubble_text)
-            ai_conversation.append({"role": "user", "content": user_bubble_text})
-
-            # ── Bulle de progression live (mise à jour après chaque lot) ─────
-            progress_lines = [
-                f"**Analyse IA en cours** — {os.path.basename(folder_path)}",
-                f"_{total_images} photo(s) / {total_batches} lot(s) de {batch_size} max_",
-                "",
-            ]
-            progress_ctrl = _ai_add_bubble("assistant", "\n".join(progress_lines))
-            # Entrée assistant dans ai_conversation — maintenue synchronisée par _refresh_progress
-            ai_conversation.append({"role": "assistant", "content": ""})
-
-            async def _async_update():
-                try:
-                    page.update()
-                    await asyncio.sleep(0)
-                except Exception:
-                    pass
-
-            def _refresh_progress():
-                try:
-                    content = "\n".join(progress_lines)
-                    progress_ctrl.value = _md_dark(content)
-                    # Garder ai_conversation synchronisé pour que l'export fonctionne
-                    if ai_conversation and ai_conversation[-1].get("role") == "assistant":
-                        ai_conversation[-1]["content"] = content
-                    page.run_task(_async_update)
-                except Exception:
-                    pass
-
-            # ── Définition de l'outil ─────────────────────────────────────────
-            select_photos_tool = {
-                "type": "function",
-                "function": {
-                    "name": "select_photos",
-                    "description": (
-                        "Sélectionne les meilleures photos du groupe courant. "
-                        "Appelle cette fonction avec la liste des noms de fichiers retenus."
-                    ),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "selected_files": {
-                                "type": "array",
-                                "items": {"type": "string"},
-                                "description": "Noms de fichiers JPG à conserver dans ce groupe",
-                            },
-                            "reason": {
-                                "type": "string",
-                                "description": "Justification concise des choix pour ce groupe",
-                            },
-                        },
-                        "required": ["selected_files", "reason"],
-                    },
-                },
-            }
-
-            # ── System prompt : critères universels + contexte utilisateur ────
-            system_content = CONSTANTS.AI_FOLDER_SELECT_SYSTEM_PROMPT
-            if criteria_text:
-                system_content += (
-                    f"\n\nCONTEXTE ET CRITÈRES SPÉCIFIQUES DU REPORTAGE :\n{criteria_text}"
-                )
-
-            if not _ensure_ollama_ready(active_model):
-                return
-
-            # ── Boucle de lots ────────────────────────────────────────────────
-            all_selected_files = []
-            lot_errors         = []
-
-            for batch_index, batch_start in enumerate(range(0, total_images, batch_size)):
-                if not ai_streaming["value"]:
-                    break
-
-                batch_number = batch_index + 1
-                batch_images = all_images[batch_start : batch_start + batch_size]
-                batch_end    = batch_start + len(batch_images)
-
-                # ── Encodage ──────────────────────────────────────────────────
-                progress_lines.append(
-                    f"⏳ **Lot {batch_number}/{total_batches}** — "
-                    f"encodage (photos {batch_start + 1}–{batch_end} / {total_images})…"
-                )
-                ai_status_text.value = (
-                    f"⏳ Lot {batch_number}/{total_batches} — "
-                    f"encodage ({batch_start + 1}–{batch_end}/{total_images})…"
-                )
-                _refresh_progress()
-
-                images_b64    = []
-                encoded_names = []
-                for filename in batch_images:
-                    b64 = _encode_image_for_analysis(
-                        os.path.join(folder_path, filename),
-                        max_size=CONSTANTS.AI_FOLDER_SELECT_IMAGE_SIZE,
-                        quality=CONSTANTS.AI_FOLDER_SELECT_QUALITY,
-                    )
-                    if b64:
-                        images_b64.append(b64)
-                        encoded_names.append(filename)
-
-                if not images_b64:
-                    progress_lines[-1] = (
-                        f"⚠️ **Lot {batch_number}/{total_batches}** "
-                        f"(photos {batch_start + 1}–{batch_end}) — aucune image encodable"
-                    )
-                    lot_errors.append(f"Lot {batch_number} : aucune image encodable")
-                    progress_lines.append("")
-                    _refresh_progress()
-                    continue
-
-                # ── Appel IA (streaming avec pensée en direct) ───────────────
-                progress_lines[-1] = (
-                    f"⏳ **Lot {batch_number}/{total_batches}** — "
-                    f"analyse IA (photos {batch_start + 1}–{batch_end} / {total_images})…"
-                )
-                ai_status_text.value = (
-                    f"⏳ Lot {batch_number}/{total_batches} — "
-                    f"analyse IA ({batch_start + 1}–{batch_end}/{total_images})…"
-                )
-                status_line_idx   = len(progress_lines) - 1  # ligne de statut à remplacer par le résultat
-                progress_lines.append("")                      # placeholder pour la pensée en direct
-                live_thinking_idx = len(progress_lines) - 1
-                _refresh_progress()
-
-                user_prompt = (
-                    f"Groupe {batch_number} sur {total_batches} "
-                    f"(photos {batch_start + 1} à {batch_end} sur {total_images} au total).\n"
-                    f"Fichiers de ce groupe : {', '.join(encoded_names)}.\n\n"
-                    "Analyse chaque photo de ce groupe et appelle obligatoirement l'outil "
-                    "select_photos avec les fichiers retenus et une justification brève."
-                )
-                messages = [
-                    {"role": "system", "content": system_content},
-                    {"role": "user",   "content": user_prompt, "images": images_b64},
-                ]
-
-                tool_calls    = []
-                text_content  = ""
-                thinking_text = ""
-                token_counter = 0
-                try:
-                    if (active_model or "").startswith("gemini"):
-                        _folder_stream_iter = _gemini_chat_stream_with_tools(
-                            active_model, messages, tools=[select_photos_tool], temperature=0.3)
-                    elif (active_model or "").startswith("claude"):
-                        _folder_stream_iter = _claude_chat_stream_with_tools(
-                            active_model, messages, tools=[select_photos_tool], temperature=0.3)
-                    else:
-                        _folder_stream_iter = _ollama_chat_stream_with_tools(
-                            CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                            tools=[select_photos_tool], temperature=0.3, timeout=600)
-                    for event_type, event_data in _folder_stream_iter:
-                        if not ai_streaming["value"]:
-                            break
-                        if event_type == "thinking":
-                            thinking_text += event_data
-                            token_counter += 1
-                            if token_counter % 15 == 0:
-                                progress_lines[live_thinking_idx] = f"💭 {thinking_text}"
-                                _refresh_progress()
-                        elif event_type == "token":
-                            text_content += event_data
-                        elif event_type == "tool_calls":
-                            tool_calls.extend(event_data)
-                except Exception as call_exc:
-                    progress_lines[status_line_idx] = (
-                        f"❌ **Lot {batch_number}/{total_batches}** "
-                        f"(photos {batch_start + 1}–{batch_end}) — erreur : {call_exc}"
-                    )
-                    progress_lines[live_thinking_idx] = ""
-                    lot_errors.append(f"Lot {batch_number} : {call_exc}")
-                    progress_lines.append("")
-                    _refresh_progress()
-                    continue
-
-                thinking_text = thinking_text.strip()
-
-                # Repli 1 : format texte Gemma natif
-                if not tool_calls and text_content:
-                    text_calls = _parse_text_tool_calls(text_content)
-                    if text_calls:
-                        tool_calls   = text_calls
-                        text_content = _strip_text_tool_calls(text_content)
-
-                # Repli 2 : liste JSON brute dans le texte
-                if not tool_calls and text_content:
-                    json_match = re.search(
-                        r'\[\s*"[^"]*\.jpe?g"(?:\s*,\s*"[^"]*\.jpe?g")*\s*\]',
-                        text_content, re.IGNORECASE,
-                    )
-                    if json_match:
-                        try:
-                            parsed_list = json.loads(json_match.group(0))
-                            if isinstance(parsed_list, list):
-                                tool_calls = [{
-                                    "function": {
-                                        "name": "select_photos",
-                                        "arguments": {
-                                            "selected_files": parsed_list,
-                                            "reason": "(extrait du texte)",
-                                        },
-                                    }
-                                }]
-                        except Exception:
-                            pass
-
-                # Repli 3 : noms de fichiers mentionnés en prose libre
-                # (tolérant jpg/jpeg — l'IA peut écrire .jpg pour un fichier .jpeg)
-                if not tool_calls and text_content:
-                    stem_to_actual = {}
-                    for actual_name in encoded_names:
-                        stem = re.sub(r'\.jpe?g$', '', actual_name, flags=re.IGNORECASE).lower()
-                        stem_to_actual[stem] = actual_name
-                    mentioned_stems = re.findall(r'\b([\w\-]+)\.jpe?g\b', text_content, re.IGNORECASE)
-                    found_in_batch = []
-                    seen_names = set()
-                    for mentioned_stem in mentioned_stems:
-                        actual_name = stem_to_actual.get(mentioned_stem.lower())
-                        if actual_name and actual_name not in seen_names:
-                            found_in_batch.append(actual_name)
-                            seen_names.add(actual_name)
-                    if found_in_batch:
-                        tool_calls = [{
-                            "function": {
-                                "name": "select_photos",
-                                "arguments": {
-                                    "selected_files": found_in_batch,
-                                    "reason": "(noms extraits du texte libre)",
-                                },
-                            }
-                        }]
-
-                # ── Extraire la sélection du lot ──────────────────────────────
-                # Index stem → nom réel : tolère la confusion .jpg/.jpeg du modèle
-                stem_to_encoded = {}
-                for actual_name in encoded_names:
-                    stem = re.sub(r'\.jpe?g$', '', actual_name, flags=re.IGNORECASE).lower()
-                    stem_to_encoded[stem] = actual_name
-
-                def _resolve_filename(file_name):
-                    """Résout un nom de fichier (avec ou sans extension, .jpg ou .jpeg) vers le nom réel."""
-                    if not isinstance(file_name, str):
-                        return None
-                    file_name = file_name.strip().strip('"\'() ')
-                    if file_name in encoded_names:
-                        return file_name
-                    stem = re.sub(r'\.jpe?g$', '', file_name, flags=re.IGNORECASE).lower()
-                    return stem_to_encoded.get(stem)
-
-                def _extract_filenames_from_text(text):
-                    """Extrait les noms de fichiers mentionnés dans un texte libre (avec extension)."""
-                    found = []
-                    seen = set()
-                    for mentioned_stem in re.findall(r'\b([\w\-]+)\.jpe?g\b', text, re.IGNORECASE):
-                        actual_name = stem_to_encoded.get(mentioned_stem.lower())
-                        if actual_name and actual_name not in seen:
-                            found.append(actual_name)
-                            seen.add(actual_name)
-                    return found
-
-                batch_selected = []
-                batch_reason   = ""
-                for tool_call in tool_calls:
-                    fn = tool_call.get("function", {})
-                    if fn.get("name") != "select_photos":
-                        continue
-                    args = fn.get("arguments", {})
-                    # Certains modèles retournent arguments comme chaîne JSON
-                    if isinstance(args, str):
-                        try:
-                            args = json.loads(args)
-                        except Exception:
-                            args = {}
-                    if not isinstance(args, dict):
-                        args = {}
-                    raw_files = args.get("selected_files", [])
-                    # Certains modèles retournent selected_files comme chaîne séparée par des virgules
-                    if isinstance(raw_files, str):
-                        raw_files = [f for f in re.split(r'[,\n;]+', raw_files) if f.strip()]
-                    resolved = []
-                    seen_resolved = set()
-                    for entry in raw_files:
-                        # Certains modèles retournent une liste de dicts {"name": "..."}
-                        if isinstance(entry, dict):
-                            entry = entry.get("name") or entry.get("filename") or ""
-                        actual_name = _resolve_filename(entry)
-                        if actual_name and actual_name not in seen_resolved:
-                            resolved.append(actual_name)
-                            seen_resolved.add(actual_name)
-                    batch_selected = resolved
-                    batch_reason   = args.get("reason", "") or ""
-
-                # Repli 4 : noms de fichiers dans le champ reason du tool call
-                # (modèle a listé les fichiers dans reason plutôt que dans selected_files)
-                if not batch_selected and batch_reason:
-                    found_in_reason = _extract_filenames_from_text(batch_reason)
-                    if found_in_reason:
-                        batch_selected = found_in_reason
-
-                # Repli 5 : stems sans extension dans le champ reason
-                # (modèle a écrit "NZ6_0450" sans ".jpeg" dans la justification)
-                if not batch_selected and batch_reason:
-                    found_stems = []
-                    seen_stems = set()
-                    for stem_candidate in re.findall(r'\b([\w\-]+)\b', batch_reason):
-                        actual_name = stem_to_encoded.get(stem_candidate.lower())
-                        if actual_name and actual_name not in seen_stems:
-                            found_stems.append(actual_name)
-                            seen_stems.add(actual_name)
-                    if found_stems:
-                        batch_selected = found_stems
-
-                # ── Mettre à jour la bulle avec le résultat du lot ────────────
-                if batch_selected:
-                    progress_lines[status_line_idx] = (
-                        f"✅ **Lot {batch_number}/{total_batches}** "
-                        f"(photos {batch_start + 1}–{batch_end} / {total_images})"
-                    )
-                    shown_files = batch_selected[:5]
-                    suffix = (
-                        f" _+{len(batch_selected) - 5} autres_"
-                        if len(batch_selected) > 5 else ""
-                    )
-                    progress_lines.append(
-                        "— `" + "` `".join(shown_files) + f"`{suffix}"
-                    )
-                else:
-                    _claims_selection = bool(batch_reason) and any(
-                        keyword in batch_reason.lower()
-                        for keyword in ("sélectionné", "selectionné", "retenu", "choisi", "conservé", "gardé")
-                    )
-                    if _claims_selection:
-                        progress_lines[status_line_idx] = (
-                            f"⚠️ **Lot {batch_number}/{total_batches}** "
-                            f"(photos {batch_start + 1}–{batch_end}) — "
-                            f"_aucun fichier identifiable (le modèle a sélectionné sans nommer les fichiers)_"
-                        )
-                    else:
-                        progress_lines[status_line_idx] = (
-                            f"— **Lot {batch_number}/{total_batches}** "
-                            f"(photos {batch_start + 1}–{batch_end}) — _aucune retenue_"
-                        )
-
-                if batch_reason:
-                    progress_lines.append(f"— _{batch_reason[:200]}_")
-
-                if batch_selected:
-                    progress_lines.append(f"— **{len(batch_selected)} retenue(s)**")
-
-                # Vider le placeholder de pensée live (déjà affiché en direct)
-                progress_lines[live_thinking_idx] = ""
-
-                progress_lines.append("")  # ligne vide entre les lots
-                all_selected_files.extend(batch_selected)
-                _refresh_progress()
-
-            # ── Résumé final ──────────────────────────────────────────────────
-            was_stopped = not ai_streaming["value"]
-
-            if not all_selected_files:
-                stop_note = " _(analyse interrompue)_" if was_stopped else ""
-                progress_lines.append(f"ℹ️ **Aucune photo sélectionnée.**{stop_note}")
-                _refresh_progress()
-                return
-
-            selection_dir, copied_count, copy_errors = _copy_to_selection_folder(
-                folder_path, all_selected_files
-            )
-            selection_name = os.path.basename(selection_dir)
-
-            progress_lines.append("---")
-            progress_lines.append(
-                f"### ✅ {copied_count} photo(s) sélectionnée(s) sur {total_images}"
-            )
-            progress_lines.append(f"Copiées dans `{selection_name}/`")
-            if was_stopped:
-                progress_lines.append("_⚠️ Analyse interrompue — sélection partielle._")
-            if lot_errors:
-                progress_lines.append(f"⚠️ Lots en erreur : {'; '.join(lot_errors)}")
-            if copy_errors:
-                progress_lines.append(f"❌ Erreurs de copie : {'; '.join(copy_errors[:5])}")
-            progress_lines.append(f"📂 `{selection_dir}`")
-            _refresh_progress()
-
-            page.pubsub.send_all_on_topic("refresh", None)
-
-        except Exception as exc:
-            _ai_add_bubble("assistant", f"[ERREUR sélection IA] {exc}")
-        finally:
-            ai_streaming["value"] = False
-            ai_stop_button.icon_color = LIGHT_GREY
-            ai_status_text.value = ""
-            try:
-                page.update()
-            except Exception:
-                pass
 
 
 
@@ -8541,13 +8277,6 @@ def main(page: ft.Page):
             tooltip="Effacer la conversation IA",
             on_click=lambda e: _clear_ai_conversation(),
         )
-        ai_folder_select_button = ft.IconButton(
-            icon=ft.Icons.AUTO_AWESOME,
-            icon_color=YELLOW,
-            icon_size=16,
-            tooltip="Sélection IA — analyser les images du dossier et copier les meilleures dans SELECTION/",
-            on_click=lambda e: _ai_analyze_folder_for_selection(),
-        )
         ai_fullscreen_btn = ft.IconButton(
             icon=ft.Icons.FULLSCREEN,
             icon_color=GREEN,
@@ -8584,7 +8313,6 @@ def main(page: ft.Page):
             ft.Container(width=4),
             ai_status_text,
             ai_stop_button,
-            ai_folder_select_button,
             ai_image_size_button,
             ai_image_mode_label,
             ai_clear_button,
@@ -8691,6 +8419,8 @@ def main(page: ft.Page):
         left=0, top=0, bottom=0,
     )
     _solo_left_state["container"] = _solo_left_container
+
+
 
     def _expanded_terminal_height():
         """Calcule une hauteur terminal étendue robuste même pendant un resize/maximize."""
@@ -8938,6 +8668,8 @@ def main(page: ft.Page):
     expand_button_overlay.on_click  = lambda e: toggle_ai_fullscreen()
     expand_button_notepad.on_click  = lambda e: toggle_notepad_fullscreen()
 
+
+
     def _open_bluetooth():
         if not _strip_state["active"]:
             _toggle_strip()
@@ -8958,6 +8690,8 @@ def main(page: ft.Page):
         bgcolor=DARK,
         icon_size=18,
     )
+
+
 
     def _toggle_strip(e=None):
         stack = _main_stack_ref.current
@@ -8986,6 +8720,8 @@ def main(page: ft.Page):
             strip_btn.tooltip = "Réduire en bandeau (écran tactile)"
             strip_btn.icon_color = LIGHT_GREY
         page.update()
+
+
 
     strip_btn.on_click = _toggle_strip
 
@@ -9242,6 +8978,8 @@ def main(page: ft.Page):
         ], expand=True, ref=_main_stack_ref),
     )
 
+
+
     if CONSTANTS.MAXIMIZED:
         async def _delayed_maximize():
             await asyncio.sleep(0.15)
@@ -9277,5 +9015,7 @@ if sys.platform == "win32":
     _original_exception_handler = _loop.get_exception_handler()
     _loop.set_exception_handler(_silence_proactor_pipe_errors)
     asyncio.set_event_loop(_loop)
+
+
 
 ft.run(main, assets_dir="assets")

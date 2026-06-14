@@ -600,62 +600,37 @@ _FOLDER_IMAGE_EXTS_DEFAULT = frozenset({
 
 def _folder_tool_definitions(folder_path):
     """
-    Retourne la liste des 4 définitions d'outils dossier pour l'API Ollama
-    (list_folder_contents, read_file_content, organize_files, analyze_images).
-    Retourne [] si folder_path est None ou n'est pas un dossier valide.
+    Retourne les définitions d'outils pour l'API Ollama/Claude.
+    Les outils fichiers (lecture, écriture, suppression, déplacement…) sont toujours disponibles
+    car ils acceptent des chemins absolus. Les outils dossier (organize_files, analyze_images,
+    edit_image) nécessitent un dossier ouvert valide.
     """
-    if not folder_path or not _os.path.isdir(folder_path):
-        # Autoriser la génération d'image même sans dossier ouvert :
-        # le Dashboard sauvegarde alors dans app_directory/Generated.
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": "generate_image",
-                    "description": (
-                        "Génère une image à partir d'un prompt texte avec Nano Banana 2 "
-                        "(gemini-3.1-flash-image-preview). "
-                        "L'image est sauvegardée et affichée dans le chat. "
-                        "Utilise cet outil quand l'utilisateur demande de créer, dessiner ou générer une image."
-                    ),
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "prompt": {
-                                "type": "string",
-                                "description": (
-                                    "Description détaillée de l'image à générer. "
-                                    "Plus la description est précise, meilleur est le résultat."
-                                ),
-                            },
-                            "filename": {
-                                "type": "string",
-                                "description": (
-                                    "Nom du fichier de sortie (ex. 'portrait.png'). "
-                                    "Laisser vide pour nommer automatiquement."
-                                ),
-                            },
-                            "aspect_ratio": {
-                                "type": "string",
-                                "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
-                                "description": "Format de l'image. Défaut : 1:1.",
-                            },
-                        },
-                        "required": ["prompt"],
-                    },
-                },
-            },
-        ]
-    return [
+    folder_valid = bool(folder_path and _os.path.isdir(folder_path))
+
+    tools = [
+        # ── Outils fichiers (toujours disponibles, acceptent chemins absolus) ──
         {
             "type": "function",
             "function": {
                 "name": "list_folder_contents",
                 "description": (
-                    "Liste tous les fichiers et sous-dossiers du dossier "
-                    "actuellement ouvert, avec taille et date de modification."
+                    "Liste les fichiers et sous-dossiers d'un dossier avec taille et date. "
+                    "Si 'path' est omis, liste le dossier actuellement ouvert dans l'interface. "
+                    "Accepte un chemin absolu pour lister n'importe quel dossier du système."
                 ),
-                "parameters": {"type": "object", "properties": {}, "required": []},
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": (
+                                "Chemin absolu du dossier à lister. "
+                                "Laisser vide pour lister le dossier actuellement ouvert."
+                            ),
+                        }
+                    },
+                    "required": [],
+                },
             },
         },
         {
@@ -663,15 +638,17 @@ def _folder_tool_definitions(folder_path):
             "function": {
                 "name": "read_file_content",
                 "description": (
-                    "Lit le contenu d'un fichier texte du dossier ouvert. "
-                    "Extensions supportées : txt, md, py, js, json, csv, yaml…"
+                    "Lit le contenu d'un fichier texte. "
+                    "Accepte un chemin absolu (ex. '/Users/charles/projet/script.py') "
+                    "ou un nom de fichier relatif au dossier ouvert. "
+                    "Extensions supportées : txt, md, py, js, json, csv, yaml, pyw, toml…"
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "filename": {
                             "type": "string",
-                            "description": "Nom du fichier à lire",
+                            "description": "Chemin absolu ou nom de fichier relatif au dossier ouvert",
                         }
                     },
                     "required": ["filename"],
@@ -681,74 +658,21 @@ def _folder_tool_definitions(folder_path):
         {
             "type": "function",
             "function": {
-                "name": "organize_files",
-                "description": (
-                    "Déplace des fichiers du dossier ouvert vers des sous-dossiers. "
-                    "Une boîte de confirmation est présentée à l'utilisateur avant toute exécution. "
-                    "IMPORTANT : utilise le dossier parent pour la catégorie générale "
-                    "(ex. 'Audio' pour un fichier .mp3), et un sous-dossier imbriqué uniquement "
-                    "pour les sous-catégories bien distinctes "
-                    "(ex. 'Audio/Midi' pour les fichiers .mid/.midi). "
-                    "Ne range pas un fichier générique dans un sous-dossier spécialisé."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "actions": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "filename": {
-                                        "type": "string",
-                                        "description": "Nom du fichier à déplacer",
-                                    },
-                                    "destination_subfolder": {
-                                        "type": "string",
-                                        "description": (
-                                            "Sous-dossier de destination (créé si absent). "
-                                            "Peut être imbriqué avec '/' (ex. 'Audio/Midi'). "
-                                            "Préférer le dossier parent pour les types généraux, "
-                                            "les sous-dossiers pour les sous-catégories précises."
-                                        ),
-                                    },
-                                },
-                                "required": ["filename", "destination_subfolder"],
-                            },
-                            "description": "Liste des déplacements à effectuer",
-                        },
-                        "summary": {
-                            "type": "string",
-                            "description": "Résumé de l'organisation proposée",
-                        },
-                    },
-                    "required": ["actions"],
-                },
-            },
-        },
-        {
-            "type": "function",
-            "function": {
                 "name": "create_file",
                 "description": (
-                    "Crée ou écrase un fichier dans le dossier ouvert avec le contenu fourni. "
-                    "Fonctionne aussi pour modifier un fichier existant : lire son contenu "
-                    "avec read_file_content, modifier le texte en mémoire, puis appeler "
-                    "create_file avec le même nom de fichier et le nouveau contenu complet. "
-                    "Idéal pour générer des scripts (.py, .sh, .bat), des notes (.txt, .md), "
-                    "des fichiers de configuration, ou tout autre fichier texte. "
-                    "IMPORTANT : le paramètre 'filename' est obligatoire. "
-                    "Le contenu doit être basé uniquement sur les données réelles "
-                    "obtenues des outils précédents — ne pas inventer de données. "
-                    "Le paramètre 'content' doit contenir UNIQUEMENT le contenu du fichier, "
-                    "sans aucun message conversationnel, question ou commentaire destiné à l'utilisateur."
+                    "Crée ou remplace un fichier texte avec le contenu fourni. "
+                    "Accepte un chemin absolu (ex. '/Users/charles/projet/script.py') "
+                    "ou un nom/chemin relatif au dossier ouvert (ex. 'sous-dossier/notes.md'). "
+                    "Crée automatiquement les répertoires parents si nécessaire. "
+                    "Fonctionne aussi pour modifier un fichier existant : lire avec read_file_content, "
+                    "modifier en mémoire, puis réécrire avec create_file."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "filename": {
                             "type": "string",
-                            "description": "Nom du fichier à créer (ex. script.py, notes.txt)",
+                            "description": "Chemin absolu ou nom/chemin relatif au dossier ouvert",
                         },
                         "content": {
                             "type": "string",
@@ -762,14 +686,112 @@ def _folder_tool_definitions(folder_path):
         {
             "type": "function",
             "function": {
-                "name": "analyze_images",
+                "name": "delete_files",
                 "description": (
-                    "Analyse visuellement les images du dossier ouvert pour répondre "
-                    "à une question. Exemples : trouver les personnes portant du rouge, "
-                    "identifier les photos floues, décrire chaque image, "
-                    "trouver les photos prises en extérieur. "
-                    "N'utilise PAS cet outil si l'image est déjà jointe directement "
-                    "dans le message de l'utilisateur — réponds directement à partir de cette image."
+                    "Supprime une liste de fichiers ou dossiers. "
+                    "Accepte des chemins absolus ou relatifs au dossier ouvert. "
+                    "Une confirmation est demandée à l'utilisateur avant la suppression "
+                    "(désactivable via CONSTANTS.AI_DELETE_CONFIRM). "
+                    "Les dossiers sont supprimés récursivement avec leur contenu."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "paths": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Liste des chemins à supprimer (absolus ou relatifs au dossier ouvert)",
+                        },
+                        "summary": {
+                            "type": "string",
+                            "description": "Résumé de ce qui sera supprimé et pourquoi",
+                        },
+                    },
+                    "required": ["paths"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "move_file",
+                "description": (
+                    "Déplace ou renomme un fichier ou dossier. "
+                    "Source et destination acceptent des chemins absolus ou relatifs au dossier ouvert. "
+                    "Si la destination est un dossier existant, le fichier y est déplacé. "
+                    "Sinon, le fichier est renommé/déplacé au chemin exact spécifié."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "description": "Chemin source (absolu ou relatif au dossier ouvert)",
+                        },
+                        "destination": {
+                            "type": "string",
+                            "description": "Chemin destination (absolu ou relatif au dossier ouvert)",
+                        },
+                    },
+                    "required": ["source", "destination"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "copy_file",
+                "description": (
+                    "Copie un fichier ou un dossier (copie récursive pour les dossiers). "
+                    "Source et destination acceptent des chemins absolus ou relatifs au dossier ouvert."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "description": "Chemin source (absolu ou relatif au dossier ouvert)",
+                        },
+                        "destination": {
+                            "type": "string",
+                            "description": "Chemin destination (absolu ou relatif au dossier ouvert)",
+                        },
+                    },
+                    "required": ["source", "destination"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "create_folder",
+                "description": (
+                    "Crée un dossier et ses parents si nécessaire (équivalent de mkdir -p). "
+                    "Accepte un chemin absolu ou relatif au dossier ouvert."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Chemin absolu ou relatif au dossier ouvert",
+                        }
+                    },
+                    "required": ["path"],
+                },
+            },
+        },
+        # ── EXIF / ZIP (toujours disponibles, acceptent chemins absolus) ──────
+        {
+            "type": "function",
+            "function": {
+                "name": "read_exif",
+                "description": (
+                    "Lit les métadonnées EXIF d'une ou plusieurs images "
+                    "(date de prise, appareil, objectif, réglages exposition, coordonnées GPS…). "
+                    "Accepte des chemins absolus ou relatifs au dossier ouvert. "
+                    "Utile pour trier par date réelle de prise de vue, identifier l'appareil, "
+                    "ou récupérer une localisation GPS."
                 ),
                 "parameters": {
                     "type": "object",
@@ -777,20 +799,71 @@ def _folder_tool_definitions(folder_path):
                         "filenames": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": (
-                                "Liste des noms de fichiers images à analyser. "
-                                "Laisser vide pour analyser toutes les images du dossier."
-                            ),
-                        },
-                        "question": {
-                            "type": "string",
-                            "description": "Question visuelle à poser pour chaque image",
-                        },
+                            "description": "Liste de fichiers images (chemins absolus ou relatifs au dossier ouvert)",
+                        }
                     },
-                    "required": ["question"],
+                    "required": ["filenames"],
                 },
             },
         },
+        {
+            "type": "function",
+            "function": {
+                "name": "zip_files",
+                "description": (
+                    "Crée une archive ZIP à partir d'une liste de fichiers et/ou dossiers. "
+                    "Accepte des chemins absolus ou relatifs au dossier ouvert. "
+                    "L'archive est créée dans le dossier ouvert par défaut "
+                    "(ou dans 'destination' si fourni)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "paths": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Liste des fichiers/dossiers à archiver",
+                        },
+                        "zip_name": {
+                            "type": "string",
+                            "description": "Nom de l'archive (ex. 'photos_2024.zip'). Défaut : 'archive.zip'.",
+                        },
+                        "destination": {
+                            "type": "string",
+                            "description": "Dossier de destination (absolu ou relatif). Défaut : dossier ouvert.",
+                        },
+                    },
+                    "required": ["paths"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "unzip_file",
+                "description": (
+                    "Extrait une archive ZIP. "
+                    "Accepte un chemin absolu ou relatif au dossier ouvert. "
+                    "Détecte automatiquement si l'archive contient un dossier racine unique "
+                    "pour éviter les dossiers imbriqués inutiles."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "source": {
+                            "type": "string",
+                            "description": "Chemin du fichier .zip (absolu ou relatif au dossier ouvert)",
+                        },
+                        "destination": {
+                            "type": "string",
+                            "description": "Dossier de destination (optionnel). Par défaut : même dossier que le .zip.",
+                        },
+                    },
+                    "required": ["source"],
+                },
+            },
+        },
+        # ── Génération d'image (toujours disponible) ───────────────────────────
         {
             "type": "function",
             "function": {
@@ -828,50 +901,137 @@ def _folder_tool_definitions(folder_path):
                 },
             },
         },
-        {
-            "type": "function",
-            "function": {
-                "name": "edit_image",
-                "description": (
-                    "Modifie une image existante du dossier ouvert avec un prompt texte "
-                    "via Nano Banana 2 (gemini-3.1-flash-image-preview). "
-                    "Idéal pour : changer le style, ajouter/supprimer des éléments, "
-                    "changer les couleurs, transformer une photo en illustration. "
-                    "L'image modifiée est sauvegardée dans le dossier ouvert."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "source_filename": {
-                            "type": "string",
-                            "description": "Nom du fichier image source à modifier (dans le dossier ouvert).",
+    ]
+
+    if folder_valid:
+        tools += [
+            # ── Outils dossier (nécessitent un dossier ouvert) ────────────────
+            {
+                "type": "function",
+                "function": {
+                    "name": "organize_files",
+                    "description": (
+                        "Déplace des fichiers du dossier ouvert vers des sous-dossiers. "
+                        "Une boîte de confirmation est présentée à l'utilisateur avant toute exécution. "
+                        "IMPORTANT : utilise le dossier parent pour la catégorie générale "
+                        "(ex. 'Audio' pour un fichier .mp3), et un sous-dossier imbriqué uniquement "
+                        "pour les sous-catégories bien distinctes "
+                        "(ex. 'Audio/Midi' pour les fichiers .mid/.midi). "
+                        "Ne range pas un fichier générique dans un sous-dossier spécialisé."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "actions": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "filename": {
+                                            "type": "string",
+                                            "description": "Nom du fichier à déplacer",
+                                        },
+                                        "destination_subfolder": {
+                                            "type": "string",
+                                            "description": (
+                                                "Sous-dossier de destination (créé si absent). "
+                                                "Peut être imbriqué avec '/' (ex. 'Audio/Midi'). "
+                                                "Préférer le dossier parent pour les types généraux, "
+                                                "les sous-dossiers pour les sous-catégories précises."
+                                            ),
+                                        },
+                                    },
+                                    "required": ["filename", "destination_subfolder"],
+                                },
+                                "description": "Liste des déplacements à effectuer",
+                            },
+                            "summary": {
+                                "type": "string",
+                                "description": "Résumé de l'organisation proposée",
+                            },
                         },
-                        "prompt": {
-                            "type": "string",
-                            "description": (
-                                "Instructions de modification, ex. : "
-                                "'Transforme en style aquarelle', "
-                                "'Remplace le fond par un coucher de soleil'."
-                            ),
-                        },
-                        "output_filename": {
-                            "type": "string",
-                            "description": (
-                                "Nom du fichier de sortie (ex. 'photo_aquarelle.png'). "
-                                "Laisser vide pour nommer automatiquement."
-                            ),
-                        },
-                        "aspect_ratio": {
-                            "type": "string",
-                            "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
-                            "description": "Format de sortie. Défaut : même que l'original.",
-                        },
+                        "required": ["actions"],
                     },
-                    "required": ["source_filename", "prompt"],
                 },
             },
-        },
-    ]
+            {
+                "type": "function",
+                "function": {
+                    "name": "analyze_images",
+                    "description": (
+                        "Analyse visuellement les images du dossier ouvert pour répondre "
+                        "à une question. Exemples : trouver les personnes portant du rouge, "
+                        "identifier les photos floues, décrire chaque image, "
+                        "trouver les photos prises en extérieur. "
+                        "N'utilise PAS cet outil si l'image est déjà jointe directement "
+                        "dans le message de l'utilisateur — réponds directement à partir de cette image."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "filenames": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": (
+                                    "Liste des noms de fichiers images à analyser. "
+                                    "Laisser vide pour analyser toutes les images du dossier."
+                                ),
+                            },
+                            "question": {
+                                "type": "string",
+                                "description": "Question visuelle à poser pour chaque image",
+                            },
+                        },
+                        "required": ["question"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "edit_image",
+                    "description": (
+                        "Modifie une image existante du dossier ouvert avec un prompt texte "
+                        "via Nano Banana 2 (gemini-3.1-flash-image-preview). "
+                        "Idéal pour : changer le style, ajouter/supprimer des éléments, "
+                        "changer les couleurs, transformer une photo en illustration. "
+                        "L'image modifiée est sauvegardée dans le dossier ouvert."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "source_filename": {
+                                "type": "string",
+                                "description": "Nom du fichier image source à modifier (dans le dossier ouvert).",
+                            },
+                            "prompt": {
+                                "type": "string",
+                                "description": (
+                                    "Instructions de modification, ex. : "
+                                    "'Transforme en style aquarelle', "
+                                    "'Remplace le fond par un coucher de soleil'."
+                                ),
+                            },
+                            "output_filename": {
+                                "type": "string",
+                                "description": (
+                                    "Nom du fichier de sortie (ex. 'photo_aquarelle.png'). "
+                                    "Laisser vide pour nommer automatiquement."
+                                ),
+                            },
+                            "aspect_ratio": {
+                                "type": "string",
+                                "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
+                                "description": "Format de sortie. Défaut : même que l'original.",
+                            },
+                        },
+                        "required": ["source_filename", "prompt"],
+                    },
+                },
+            },
+        ]
+
+    return tools
 
 
 def _gemini_tool_definitions(folder_path):
@@ -913,34 +1073,46 @@ def _folder_list_contents(folder_path):
 
 def _folder_create_file(folder_path, filename, content):
     """
-    Crée un fichier texte dans le dossier ouvert avec le contenu fourni.
-    Retourne un message de succès ou d'erreur.
+    Crée ou remplace un fichier texte.
+    Accepte un chemin absolu ou un nom/chemin relatif au dossier ouvert.
+    Crée les répertoires parents si nécessaire.
     """
     try:
-        safe_name = _os.path.basename(filename)
-        if not safe_name:
+        if not filename:
             return "Nom de fichier invalide."
-        file_path = _os.path.join(folder_path, safe_name)
+        file_path = _resolve_path(folder_path, filename)
+        _os.makedirs(_os.path.dirname(_os.path.abspath(file_path)), exist_ok=True)
         with open(file_path, "w", encoding="utf-8") as file_handle:
             file_handle.write(content)
-        return f"Fichier créé : {safe_name} ({len(content)} caractère(s))"
+        return f"Fichier créé : {file_path} ({len(content)} caractère(s))"
     except Exception as exc:
         return f"Erreur lors de la création du fichier : {exc}"
 
 
+def _resolve_path(folder_path, path_arg):
+    """Résout path_arg en chemin absolu. Absolu → inchangé. Relatif → joint à folder_path."""
+    if _os.path.isabs(path_arg):
+        return path_arg
+    return _os.path.join(folder_path, path_arg) if folder_path else path_arg
+
+
 def _folder_read_file(folder_path, filename, document_exts=None, max_chars=CONSTANTS.AI_FILE_MAX_CHARS):
     """
-    Lit le contenu texte d'un fichier du dossier.
-    Retourne le contenu ou un message d'erreur.
+    Lit le contenu texte d'un fichier.
+    Accepte un chemin absolu ou un nom/chemin relatif au dossier ouvert.
     """
     if document_exts is None:
         document_exts = _FOLDER_DOCUMENT_EXTS_DEFAULT
     try:
-        file_path = _os.path.join(folder_path, _os.path.basename(filename))
+        if _os.path.isabs(filename):
+            file_path = filename
+        else:
+            file_path = _os.path.join(folder_path, filename) if folder_path else filename
+            # Vérification d'extension seulement pour les chemins relatifs
+            if _os.path.splitext(filename)[1].lower() not in document_exts:
+                return f"Type de fichier non lisible en texte : {filename}"
         if not _os.path.isfile(file_path):
-            return f"Fichier introuvable : {filename}"
-        if _os.path.splitext(filename)[1].lower() not in document_exts:
-            return f"Type de fichier non lisible en texte : {filename}"
+            return f"Fichier introuvable : {file_path}"
         with open(file_path, "r", encoding="utf-8", errors="replace") as file_handle:
             content = file_handle.read(max_chars)
         if len(content) == max_chars:
@@ -948,6 +1120,242 @@ def _folder_read_file(folder_path, filename, document_exts=None, max_chars=CONST
         return content
     except Exception as exc:
         return f"Erreur : {exc}"
+
+
+def _folder_delete_files(folder_path, paths):
+    """
+    Supprime une liste de fichiers ou dossiers vides.
+    Chaque entrée peut être un chemin absolu ou relatif au dossier ouvert.
+    """
+    import shutil as _shutil_del
+    results = []
+    for p in paths:
+        target = _resolve_path(folder_path, p)
+        try:
+            if not _os.path.exists(target):
+                results.append(f"✗ Introuvable : {target}")
+            elif _os.path.isdir(target):
+                _shutil_del.rmtree(target)
+                results.append(f"✓ Dossier supprimé : {target}")
+            else:
+                _os.remove(target)
+                results.append(f"✓ Supprimé : {_os.path.basename(target)}")
+        except Exception as exc:
+            results.append(f"✗ Erreur ({_os.path.basename(target)}) : {exc}")
+    return "\n".join(results) if results else "Aucun fichier à supprimer."
+
+
+def _folder_move_file(folder_path, source, destination):
+    """
+    Déplace ou renomme un fichier ou dossier.
+    Source et destination peuvent être des chemins absolus ou relatifs au dossier ouvert.
+    """
+    import shutil as _shutil_mv
+    try:
+        src = _resolve_path(folder_path, source)
+        dst = _resolve_path(folder_path, destination)
+        if not _os.path.exists(src):
+            return f"Source introuvable : {src}"
+        if _os.path.isdir(dst):
+            dst = _os.path.join(dst, _os.path.basename(src))
+        _os.makedirs(_os.path.dirname(_os.path.abspath(dst)), exist_ok=True)
+        _shutil_mv.move(src, dst)
+        return f"Déplacé : {src} → {dst}"
+    except Exception as exc:
+        return f"Erreur lors du déplacement : {exc}"
+
+
+def _folder_copy_file(folder_path, source, destination):
+    """
+    Copie un fichier ou un dossier (récursif).
+    Source et destination peuvent être des chemins absolus ou relatifs au dossier ouvert.
+    """
+    import shutil as _shutil_cp
+    try:
+        src = _resolve_path(folder_path, source)
+        dst = _resolve_path(folder_path, destination)
+        if not _os.path.exists(src):
+            return f"Source introuvable : {src}"
+        if _os.path.isdir(src):
+            if _os.path.isdir(dst):
+                dst = _os.path.join(dst, _os.path.basename(src))
+            _shutil_cp.copytree(src, dst)
+        else:
+            if _os.path.isdir(dst):
+                dst = _os.path.join(dst, _os.path.basename(src))
+            _os.makedirs(_os.path.dirname(_os.path.abspath(dst)), exist_ok=True)
+            _shutil_cp.copy2(src, dst)
+        return f"Copié : {src} → {dst}"
+    except Exception as exc:
+        return f"Erreur lors de la copie : {exc}"
+
+
+def _folder_create_folder(folder_path, path):
+    """
+    Crée un dossier (et ses parents si nécessaire).
+    Accepte un chemin absolu ou relatif au dossier ouvert.
+    """
+    try:
+        target = _resolve_path(folder_path, path)
+        _os.makedirs(target, exist_ok=True)
+        return f"Dossier créé : {target}"
+    except Exception as exc:
+        return f"Erreur lors de la création du dossier : {exc}"
+
+
+def _folder_read_exif(folder_path, paths):
+    """
+    Lit les métadonnées EXIF d'une liste d'images.
+    Retourne les infos clés (date, appareil, objectif, réglages, GPS).
+    """
+    try:
+        from PIL import Image as _PilImg
+        from PIL.ExifTags import TAGS as _ETAGS
+    except ImportError:
+        return "Erreur : Pillow n'est pas installé."
+
+    _WANTED = {
+        "DateTimeOriginal", "DateTime", "Make", "Model", "LensModel",
+        "ExposureTime", "FNumber", "ISOSpeedRatings", "FocalLength",
+        "Flash", "WhiteBalance", "Software",
+    }
+
+    def _to_float(v):
+        if hasattr(v, "numerator"):
+            return float(v)
+        if isinstance(v, tuple) and len(v) == 2:
+            return v[0] / v[1] if v[1] else 0.0
+        return float(v)
+
+    def _fmt(tag, val):
+        try:
+            if tag == "ExposureTime":
+                f = _to_float(val)
+                return f"1/{round(1/f)}s" if f < 1 else f"{f:.1f}s"
+            if tag == "FNumber":
+                return f"f/{_to_float(val):.1f}"
+            if tag == "FocalLength":
+                return f"{_to_float(val):.0f} mm"
+        except Exception:
+            pass
+        return str(val).strip()
+
+    results = []
+    for p in paths:
+        file_path = _resolve_path(folder_path, p)
+        label = _os.path.basename(file_path)
+        try:
+            with _PilImg.open(file_path) as img:
+                exif = img.getexif()
+                if not exif:
+                    results.append(f"{label} : Pas de données EXIF.")
+                    continue
+                lines = [f"{label} :"]
+                for tag_id, val in exif.items():
+                    name = _ETAGS.get(tag_id, "")
+                    if name in _WANTED:
+                        lines.append(f"  {name} : {_fmt(name, val)}")
+                gps_ifd = exif.get_ifd(34853)
+                if gps_ifd:
+                    lat_dms = gps_ifd.get(2)
+                    lat_ref = gps_ifd.get(1, "N")
+                    lon_dms = gps_ifd.get(4)
+                    lon_ref = gps_ifd.get(3, "E")
+                    if lat_dms and lon_dms:
+                        def _dms(dms, ref):
+                            d, m, s = [_to_float(x) for x in dms]
+                            dd = d + m / 60 + s / 3600
+                            return -dd if ref in ("S", "W") else dd
+                        lines.append(f"  GPS : {_dms(lat_dms, lat_ref):.6f}, {_dms(lon_dms, lon_ref):.6f}")
+                if len(lines) == 1:
+                    lines.append("  (Aucune donnée EXIF exploitable)")
+                results.append("\n".join(lines))
+        except Exception as exc:
+            results.append(f"{label} : Erreur — {exc}")
+    return "\n\n".join(results) if results else "Aucun fichier fourni."
+
+
+def _folder_zip_files(folder_path, paths, zip_name="archive", destination=None):
+    """
+    Crée une archive ZIP à partir d'une liste de fichiers/dossiers.
+    Accepte des chemins absolus ou relatifs au dossier ouvert.
+    """
+    import zipfile as _zf
+    if not paths:
+        return "Aucun fichier à zipper."
+    if destination:
+        dest_dir = _resolve_path(folder_path, destination)
+    elif folder_path and _os.path.isdir(folder_path):
+        dest_dir = folder_path
+    else:
+        first = _resolve_path(folder_path, paths[0])
+        dest_dir = _os.path.dirname(first)
+    base = zip_name if zip_name else "archive"
+    if not base.lower().endswith(".zip"):
+        base += ".zip"
+    candidate = _os.path.join(dest_dir, base)
+    stem, ext = _os.path.splitext(candidate)
+    counter = 1
+    while _os.path.exists(candidate):
+        candidate = f"{stem}_{counter}{ext}"
+        counter += 1
+    log = []
+    try:
+        with _zf.ZipFile(candidate, "w", _zf.ZIP_DEFLATED) as archive:
+            for p in paths:
+                item = _resolve_path(folder_path, p)
+                if not _os.path.exists(item):
+                    log.append(f"✗ Introuvable : {item}")
+                    continue
+                if _os.path.isdir(item):
+                    dir_name = _os.path.basename(item)
+                    for root, _dirs, files in _os.walk(item):
+                        for fname in files:
+                            full = _os.path.join(root, fname)
+                            archive.write(full, arcname=_os.path.join(dir_name, _os.path.relpath(full, item)))
+                    log.append(f"✓ Dossier : {_os.path.basename(item)}")
+                else:
+                    archive.write(item, arcname=_os.path.basename(item))
+                    log.append(f"✓ Fichier : {_os.path.basename(item)}")
+        return f"Archive créée : {candidate}\n" + "\n".join(log)
+    except Exception as exc:
+        return f"Erreur lors de la création de l'archive : {exc}"
+
+
+def _folder_unzip_file(folder_path, source, destination=None):
+    """
+    Extrait une archive ZIP dans le dossier de destination.
+    Détecte automatiquement si l'archive a un dossier racine unique.
+    """
+    import zipfile as _zf
+    file_path = _resolve_path(folder_path, source)
+    if not _os.path.isfile(file_path):
+        return f"Fichier introuvable : {file_path}"
+    if not file_path.lower().endswith(".zip"):
+        return f"Ce n'est pas un fichier .zip : {_os.path.basename(file_path)}"
+    if destination:
+        extract_to = _resolve_path(folder_path, destination)
+        _os.makedirs(extract_to, exist_ok=True)
+    else:
+        dest_dir = _os.path.dirname(file_path)
+        zip_name = _os.path.splitext(_os.path.basename(file_path))[0]
+        try:
+            with _zf.ZipFile(file_path, "r") as zf:
+                names = zf.namelist()
+                top_levels = {n.split("/")[0] for n in names if n}
+                if len(top_levels) == 1 and any("/" in n for n in names):
+                    extract_to = dest_dir
+                else:
+                    extract_to = _os.path.join(dest_dir, zip_name)
+                    _os.makedirs(extract_to, exist_ok=True)
+        except Exception as exc:
+            return f"Erreur à l'ouverture de l'archive : {exc}"
+    try:
+        with _zf.ZipFile(file_path, "r") as zf:
+            zf.extractall(extract_to)
+        return f"Extrait dans : {extract_to}"
+    except Exception as exc:
+        return f"Erreur lors de l'extraction : {exc}"
 
 
 def _encode_image_for_analysis(image_path, max_size=1024, quality=70):
@@ -1400,6 +1808,106 @@ _MEMORY_TOOLS = [
 ]
 
 
+# ─── Outils bloc-notes ───────────────────────────────────────────────────────
+
+_NOTEPAD_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_notepad",
+            "description": (
+                "Lit le contenu actuel du bloc-notes (éditeur de texte intégré). "
+                "Utilise cet outil pour consulter les notes de l'utilisateur avant de les modifier."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "write_notepad",
+            "description": (
+                "Écrit du contenu dans le bloc-notes intégré. "
+                "Utilise 'replace' pour remplacer tout le contenu, "
+                "'append' pour ajouter à la fin, 'prepend' pour ajouter au début."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "Texte à écrire dans le bloc-notes",
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["replace", "append", "prepend"],
+                        "description": "replace : remplace tout le contenu. append : ajoute à la fin. prepend : ajoute au début.",
+                    },
+                },
+                "required": ["content", "action"],
+            },
+        },
+    },
+]
+
+
+# ─── Outils interface utilisateur ────────────────────────────────────────────
+
+_UI_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "navigate_to_folder",
+            "description": (
+                "Navigue vers un dossier dans l'interface (change le dossier courant affiché dans le navigateur de fichiers). "
+                "Utilise cet outil pour ouvrir un dossier sans que l'utilisateur ait à le faire manuellement."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Chemin absolu du dossier à ouvrir",
+                    },
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "select_files_in_ui",
+            "description": (
+                "Sélectionne ou désélectionne des fichiers dans l'interface (dans le dossier courant). "
+                "Particulièrement utile après analyze_images pour sélectionner automatiquement "
+                "les fichiers correspondant à des critères (ex: images floues, portraits, etc.)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filenames": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Liste des noms de fichiers à traiter (noms seuls, sans chemin complet)",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["replace", "add", "remove"],
+                        "description": "replace : remplace toute la sélection actuelle. add : ajoute à la sélection existante. remove : retire de la sélection.",
+                    },
+                },
+                "required": ["filenames", "mode"],
+            },
+        },
+    },
+]
+
+
 def _build_system_content(folder_path=None, today_date_str=None):
     """
     Assemble le contenu complet du message système envoyé à l'IA.
@@ -1794,6 +2302,8 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
     for _attempt in range(_MAX_RETRIES + 1):
         pending_tool_calls = []
         emitted_feedback = set()
+        _emitted_tokens = False
+        _emitted_thinking = False
         try:
             for chunk in client.models.generate_content_stream(
                 model=model,
@@ -1804,12 +2314,14 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
                     if _fb_msg not in emitted_feedback:
                         emitted_feedback.add(_fb_msg)
                         yield ("token", f"\n[Gemini] {_fb_msg}\n")
+                        _emitted_tokens = True
 
                 if not chunk.candidates:
                     continue
                 for part in chunk.candidates[0].content.parts:
                     # Tokens de réflexion (thinking)
                     if getattr(part, "thought", False) and part.text:
+                        _emitted_thinking = True
                         yield ("thinking", part.text)
                     # Appel d'outil
                     elif part.function_call is not None:
@@ -1820,11 +2332,15 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
                         })
                     # Token de texte
                     elif part.text:
+                        _emitted_tokens = True
                         yield ("token", part.text)
 
             # Émettre les tool_calls accumulés en une seule fois
             if pending_tool_calls:
                 yield ("tool_calls", pending_tool_calls)
+            elif not _emitted_tokens and not _emitted_thinking:
+                # Silence complet : flux coupé, réponse bloquée ou erreur silencieuse
+                yield ("token", "*(Gemini n'a produit aucune réponse — réponse bloquée ou flux interrompu. Essaie de reformuler ou renvoie le message.)*")
             break  # succès
 
         except Exception as exc:
