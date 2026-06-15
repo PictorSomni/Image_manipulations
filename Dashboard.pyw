@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.8.0"
+__version__ = "2.8.1"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -4024,16 +4024,43 @@ def main(page: ft.Page):
 
 
 
+    def _resolve_exe_path(exe: str) -> str:
+        """
+        Si le chemin exe n'existe pas et contient 'WindowsApps' avec un numéro de version,
+        cherche automatiquement la nouvelle version installée via glob.
+        Retourne le chemin résolu (ou l'original si rien n'est trouvé).
+        """
+        if not exe or os.path.isfile(exe):
+            return exe
+        if "WindowsApps" not in exe:
+            return exe
+        import glob as _glob
+        # Remplace x.x.x.x par * pour trouver la nouvelle version
+        pattern = re.sub(r'_\d+\.\d+\.\d+\.\d+_', '_*_', exe)
+        matches = _glob.glob(pattern)
+        return matches[0] if matches else exe
+
     def _open_files_with(prog: dict, files: list):
         """Ouvre une liste de fichiers avec le programme spécifié."""
         exe = prog.get("exe", "")
         if not exe:
             return
         try:
+            resolved = _resolve_exe_path(exe)
+            if resolved != exe:
+                # Mise à jour silencieuse du chemin dans open_with.json
+                prog["exe"] = resolved
+                all_progs = _load_open_with_programs()
+                for p in all_progs:
+                    if p.get("label") == prog.get("label") and p.get("exe") == exe:
+                        p["exe"] = resolved
+                        break
+                _save_open_with_programs(all_progs)
+                log_to_terminal(f"[INFO] Chemin mis à jour automatiquement pour {prog['label']}", ORANGE)
             if platform.system() == "Darwin":
-                subprocess.Popen(["open", "-a", exe] + files)
+                subprocess.Popen(["open", "-a", resolved] + files)
             else:
-                subprocess.Popen([exe] + files)
+                subprocess.Popen([resolved] + files)
             display_names = ", ".join(os.path.basename(file_path) for file_path in files[:3])
             overflow_suffix = f" (+{len(files) - 3})" if len(files) > 3 else ""
             log_to_terminal(f"[OK] Ouvert avec {prog['label']}: {display_names}{overflow_suffix}", GREEN)
@@ -4589,13 +4616,19 @@ def main(page: ft.Page):
         def _resolve_viewer_image_src(path: str) -> str:
             """Retourne une source sûre pour la visionneuse plein écran.
 
-            ``_image_cache_busters`` peut contenir une miniature base64 (prévue pour
-            la liste de preview). En plein écran, on force l'image originale dans ce cas.
+            ``_image_cache_busters`` contient des bytes de miniature (thumb_cache) ou
+            une str data-URL ou un chemin temp. Dans tous les cas non-str, on retourne
+            le chemin original pour afficher l'image complète en plein écran.
             """
             normalized_path = os.path.normpath(path)
             cached_value = _image_cache_busters.get(normalized_path)
+            # bytes = miniature PIL générée par thumb_cache → utiliser le fichier original
+            if isinstance(cached_value, (bytes, bytearray)):
+                return path
+            # data-URL str = miniature encodée → utiliser le fichier original
             if isinstance(cached_value, str) and cached_value.startswith("data:image"):
                 return path
+            # Chemin temp (cache-buster) ou None
             return cached_value if cached_value else path
 
         entries = all_entries_data["list"]
@@ -4713,7 +4746,17 @@ def main(page: ft.Page):
             if load_index in pages_loaded:
                 return
             path = image_paths[load_index]
-            src = _resolve_viewer_image_src(path)
+            normalized = os.path.normpath(path)
+            # Si le fichier a été modifié (signalé par _image_cache_busters), on lit
+            # les bytes bruts du fichier pour contourner le cache URL de Flutter.
+            if normalized in _image_cache_busters:
+                try:
+                    with open(path, "rb") as _f:
+                        src: object = _f.read()
+                except Exception:
+                    src = _resolve_viewer_image_src(path)
+            else:
+                src = _resolve_viewer_image_src(path)
             if load_index in page_image_controls:
                 page_image_controls[load_index].src = src
             pages_loaded.add(load_index)

@@ -40,9 +40,12 @@ Cmd+Backspace (macOS)
 Suppr (Win/Linux)   : basculer l'orientation portrait / paysage
 Espace              : ignorer l'image courante et passer à la suivante
 Tab                 : basculer le mode de défilement de la souris entre zoom et rotation
++  /  =             : zoom avant
+-                   : zoom arrière
+0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.8.0"
+__version__ = "2.8.1"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -4304,6 +4307,24 @@ def main(page: ft.Page):
             app.toggle_orientation(event)
         elif event.key == "Escape":
             app.ignore_image(event)
+        elif event.key in ("+", "=", "Add") and not event.meta and not event.ctrl:
+            if app.image_paths and hasattr(app, 'original_width'):
+                app.scale = min(10.0, app.scale * 1.2)
+                app.zoom_slider.value = min(app.scale, app.zoom_slider.max)
+                app.zoom_slider.label = f"{app.scale:.2f}×"
+                app.zoom_slider.update()
+                app._clamp_offsets()
+                app._update_transform()
+        elif event.key in ("-", "Subtract") and not event.meta and not event.ctrl:
+            if app.image_paths and hasattr(app, 'original_width'):
+                app.scale = max(1.0, app.scale / 1.2)
+                app.zoom_slider.value = min(app.scale, app.zoom_slider.max)
+                app.zoom_slider.label = f"{app.scale:.2f}×"
+                app.zoom_slider.update()
+                app._clamp_offsets()
+                app._update_transform()
+        elif event.key == "0" and not event.meta and not event.ctrl:
+            app.reset_zoom(event)
     page.on_keyboard_event = on_key
 
     # ── Champs de format personnalisé ────────────────────────────────
