@@ -24,7 +24,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.8.1"
+__version__ = "2.8.2"
 
 import flet as ft
 import flet.canvas as cv
@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 from ai_tools import _gemini_generate_image
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 
 ###############################################################
 #                        PALETTE                              #
@@ -175,7 +175,7 @@ async def main(page: ft.Page) -> None:
 
     preview_img = ft.Image(
         src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
-        fit=ft.BoxFit.NONE,
+        fit=ft.BoxFit.CONTAIN,
         gapless_playback=True,
         visible=False,
     )
@@ -302,14 +302,21 @@ async def main(page: ft.Page) -> None:
         info = state["render_info"]
         if info is None:
             return
-        tw, th, ox, oy, sx, sy = info
         vw, vh = state["view_size"]
 
-        thumb = img.convert("RGB").resize((tw, th), Image.Resampling.BILINEAR)
-        canvas_img = Image.new("RGB", (vw, vh), (30, 30, 30))
-        canvas_img.paste(thumb, (ox, oy))
+        # Encode à résolution native (plafonnée à 3000px côté le plus long)
+        # BoxFit.CONTAIN gère l'affichage — le zoom révèle les vrais pixels
+        ow, oh = img.size
+        MAX_PX = 3000
+        if max(ow, oh) > MAX_PX:
+            s = MAX_PX / max(ow, oh)
+            preview_data = img.convert("RGB").resize(
+                (round(ow * s), round(oh * s)), Image.Resampling.LANCZOS
+            )
+        else:
+            preview_data = img.convert("RGB")
 
-        preview_img.src = f"data:image/jpeg;base64,{image_to_b64(canvas_img)}"
+        preview_img.src = f"data:image/jpeg;base64,{image_to_b64(preview_data)}"
         preview_img.width        = vw
         preview_img.height       = vh
         preview_img.visible      = True
@@ -476,12 +483,25 @@ async def main(page: ft.Page) -> None:
         save_btn.disabled    = True
         progress_bar.value   = None
         progress_bar.visible = True
-        status_text.value    = "Envoi à Gemini…"
-        page.update()
+        status_text.value    = "Envoi à Gemini… (0s)"
 
         sel = state["selection"]
         sel_w = sel[2] - sel[0]
         sel_h = sel[3] - sel[1]
+
+        # Effacer la sélection et repasser en mode navigation immédiatement
+        state["selection"]         = None
+        state["drag_start"]        = None
+        state["drag_current"]      = None
+        state["sel_mode"]          = False
+        mode_btn.text              = "Activer sélection"
+        mode_btn.icon              = ft.Icons.CROP_FREE
+        mode_btn.bgcolor           = GREY
+        image_gesture.visible      = False
+        preview_viewer.pan_enabled = True
+        _update_sel_canvas()
+
+        page.update()
 
         # Recadrage de la zone sélectionnée depuis l'image de travail
         crop = (state["work_img"] or state["orig_img"]).convert("RGB").crop(sel)
@@ -491,11 +511,26 @@ async def main(page: ft.Page) -> None:
             crop.save(buf, format="JPEG", quality=95)
             return _gemini_generate_image(prompt_text, input_image_bytes=buf.getvalue())
 
+        _elapsed = {"s": 0}
+
+        async def _tick():
+            while state["working"]:
+                await asyncio.sleep(1)
+                _elapsed["s"] += 1
+                if state["working"]:
+                    status_text.value = f"Envoi à Gemini… ({_elapsed['s']}s)"
+                    page.update()
+
+        _timer_task = asyncio.create_task(_tick())
+
         try:
-            text_resp, image_bytes = await asyncio.to_thread(_do_gemini)
+            text_resp, image_bytes = await asyncio.wait_for(
+                asyncio.to_thread(_do_gemini),
+                timeout=120.0,
+            )
 
             if image_bytes is None:
-                status_text.value = f"[ERREUR Gemini] {text_resp}"
+                status_text.value = f"[Gemini] {text_resp or 'Aucune image reçue.'}"
                 page.update()
                 return
 
@@ -504,11 +539,27 @@ async def main(page: ft.Page) -> None:
             gemini_fit = gemini_img.resize((sel_w, sel_h), Image.Resampling.LANCZOS)
 
             # Sauvegarde de l'état pour annulation
-            state["undo_img"] = (state["work_img"] or state["orig_img"]).copy()
+            base = (state["work_img"] or state["orig_img"]).copy()
+            state["undo_img"] = base.copy()
 
-            # Collage dans l'image de travail
-            new_work = (state["work_img"] or state["orig_img"]).copy()
-            new_work.paste(gemini_fit, (sel[0], sel[1]))
+            # Collage dur dans un calque intermédiaire
+            gemini_layer = base.copy()
+            gemini_layer.paste(gemini_fit, (sel[0], sel[1]))
+
+            # Masque de fondu : rectangle blanc inséré de feather px → flou gaussien
+            orig_w, orig_h = base.size
+            feather = max(2, int(max(orig_w, orig_h) * 0.01))
+            mask = Image.new("L", base.size, 0)
+            mx1, my1 = sel[0] + feather, sel[1] + feather
+            mx2, my2 = sel[2] - feather, sel[3] - feather
+            _draw = ImageDraw.Draw(mask)
+            if mx2 > mx1 and my2 > my1:
+                _draw.rectangle([mx1, my1, mx2, my2], fill=255)
+            else:
+                _draw.rectangle([sel[0], sel[1], sel[2], sel[3]], fill=128)
+            mask = mask.filter(ImageFilter.GaussianBlur(radius=feather))
+
+            new_work = Image.composite(gemini_layer, base, mask)
             state["work_img"]  = new_work
             state["modified"]  = True
 
@@ -523,9 +574,12 @@ async def main(page: ft.Page) -> None:
             if text_resp:
                 status_text.value += f"  |  « {text_resp[:80]} »"
 
+        except asyncio.TimeoutError:
+            status_text.value = "[ERREUR] Gemini n'a pas répondu en 2 minutes. Vérifiez votre connexion ou réessayez."
         except Exception as ex:
             status_text.value = f"[ERREUR] {ex}"
         finally:
+            _timer_task.cancel()
             state["working"]     = False
             progress_bar.visible = False
             has_sel    = state["selection"] is not None
@@ -856,6 +910,7 @@ async def main(page: ft.Page) -> None:
         content=ft.Stack([preview_img, sel_canvas, image_gesture]),
         width=_vw,
         height=_vh,
+        bgcolor="#1e1e1e",
     )
 
     preview_viewer = ft.InteractiveViewer(
@@ -966,7 +1021,9 @@ async def main(page: ft.Page) -> None:
     # ── Dialog de confirmation de fermeture ──────────────────────────────────
 
     async def _force_close() -> None:
-        await page.window.close()
+        page.window.visible = False
+        page.update()
+        await page.window.destroy()
 
     async def _dialog_save() -> None:
         close_dialog.open = False

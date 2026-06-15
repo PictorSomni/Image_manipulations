@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.8.1"
+__version__ = "2.8.2"
 
 
 # ==============================================================================
@@ -485,3 +485,36 @@ PRINTS = {
 }
 
 SIZES = STUDIOS   # Alias conservé pour compatibilité ascendante
+
+
+# ==============================================================================
+# 12. DÉBRUITAGE & GRAIN PELLICULE
+# ==============================================================================
+
+# ── 12.1  Débruitage (Denoiser.py) ───────────────────────────────────────────
+# Algorithme Non-Local Means (OpenCV fastNlMeansDenoisingColored).
+# h          : force sur la luminance  (3-5 = léger, 8-12 = moyen, 15-25 = fort)
+# h_color    : force sur la couleur    (idem, généralement h_color ≤ h)
+# template   : taille de la fenêtre de comparaison (doit être impair, typiquement 7)
+# search     : taille de la fenêtre de recherche   (doit être impair, typiquement 21)
+
+DENOISE_H               = 8     # Force luminance
+DENOISE_H_COLOR         = 8     # Force couleur
+DENOISE_TEMPLATE_WINDOW = 7     # Fenêtre de comparaison (px, impair)
+DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
+
+
+# ── 12.2  Grain pellicule (Grain pellicule.py) ────────────────────────────────
+# Simulation de grain argentique avec pondération par luminance.
+# amount            : intensité du grain  (0.0 = aucun, 0.05 = fin ISO 100, 0.15 = ISO 800, 0.30 = ISO 3200)
+# size              : taille du grain en pixels (1.0 = pixel, 1.5-2.5 = gros grain)
+# color_ratio       : part de grain couleur mélangée au grain monochrome
+#                     0.0 = grain 100 % monochrome (aucune variation de teinte)
+#                     0.3 = légère variation chromatique (réaliste, style film négatif)
+#                     1.0 = variation couleur maximale par canal R/G/B
+# shadow_boost      : multiplicateur de grain dans les ombres vs hautes lumières (>1 = plus dans les ombres)
+
+GRAIN_AMOUNT       = 0.02    # Intensité du grain
+GRAIN_SIZE         = 3       # Taille des grains (px)
+GRAIN_COLOR_RATIO  = 0.3     # Part de grain couleur (0.0 = mono pur, 1.0 = couleur pleine)
+GRAIN_SHADOW_BOOST = 1.8     # Renforcement du grain dans les ombres

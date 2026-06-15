@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.8.1"
+__version__ = "2.8.2"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -3011,7 +3011,18 @@ def main(page: ft.Page):
                                     _gi_done_event.set()
 
                             threading.Thread(target=_run_gemini_image_call, daemon=True).start()
-                            if not _gi_done_event.wait(timeout=_gi_timeout_seconds):
+                            _gi_start_time = time.time()
+                            _gi_elapsed_s = 0
+                            while not _gi_done_event.wait(timeout=1.0):
+                                _gi_elapsed_s = int(time.time() - _gi_start_time)
+                                if _gi_elapsed_s >= _gi_timeout_seconds:
+                                    break
+                                ai_status_text.value = f"🎨 Génération d'image en cours… ({_gi_elapsed_s}s)"
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                            if not _gi_done_event.is_set():
                                 _gi_text, _gi_bytes = (
                                     f"[ERREUR] Timeout Gemini image après {_gi_timeout_seconds}s.",
                                     None,
@@ -3457,6 +3468,7 @@ def main(page: ft.Page):
                             "✅ Image générée et sauvegardée."
                         )
                         _remove_loading()
+                        _ai_add_bubble("assistant", full_response)
                         break
                     # Mémoriser le dernier résultat list_folder_contents pour
                     # l'auto-création si Gemma refuse d'appeler create_file.
@@ -7806,6 +7818,8 @@ def main(page: ft.Page):
 
         noir_et_blanc_path        = os.path.join(app_directory, "Data", "N&B.py")
         ameliorer_nettete_path    = os.path.join(app_directory, "Data", "Ameliorer nettete.py")
+        denoiser_path             = os.path.join(app_directory, "Data", "Denoiser.py")
+        grain_pellicule_path      = os.path.join(app_directory, "Data", "Grain pellicule.py")
         nettoyer_metadonnees_path = os.path.join(app_directory, "Data", "Nettoyer metadonnees.py")
         copyright_path            = os.path.join(app_directory, "Data", "Copyright.py")
         images_en_pdf_path        = os.path.join(app_directory, "Data", "Images en PDF.py")
@@ -7833,6 +7847,18 @@ def main(page: ft.Page):
                 WHITE,
                 "Améliorer netteté",
                 lambda e: launch_app("Ameliorer nettete.py", ameliorer_nettete_path, False),
+            ),
+            _round_button(
+                ft.Icons.DEBLUR,
+                BLUE,
+                "Débruiter (Non-Local Means)",
+                lambda e: launch_app("Denoiser.py", denoiser_path, False),
+            ),
+            _round_button(
+                ft.Icons.GRAIN,
+                ORANGE,
+                "Grain pellicule",
+                lambda e: launch_app("Grain pellicule.py", grain_pellicule_path, False),
             ),
             _round_button(
                 ft.Icons.CLEANING_SERVICES,

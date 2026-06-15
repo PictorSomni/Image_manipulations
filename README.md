@@ -64,6 +64,8 @@ Dashboard est un poste de travail tout-en-un pour trier, préparer, retoucher et
 | Fit 203 | Placer une image dans un format supérieur avec bords blancs |
 | Noir et blanc | Conversion N&B en lot |
 | Netteté | Amélioration de la netteté en lot |
+| Débruitage | Réduction du bruit par algorithme Non-Local Means (OpenCV NLM), configurable en intensité |
+| Grain pellicule | Simulation de grain argentique avec pondération par luminance (plus fort dans les ombres), intensité, taille et part chromatique réglables |
 | Métadonnées | Nettoyage ou copie des métadonnées EXIF |
 | Tri RAW/JPG | Séparer automatiquement les fichiers RAW et JPG |
 | Copier NEFs de la sélection | Copier les RAW correspondant aux JPG sélectionnés |
