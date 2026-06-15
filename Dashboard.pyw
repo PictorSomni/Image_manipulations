@@ -6810,6 +6810,7 @@ def main(page: ft.Page):
             return
         preview_page["value"] = new_pg
         _render_preview_page()
+        preview_list.scroll_to(offset=0, duration=0)
 
 
 

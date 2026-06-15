@@ -32,6 +32,7 @@ import os
 import io
 import base64
 import asyncio
+import importlib.util
 from pathlib import Path
 import sys
 
@@ -57,6 +58,34 @@ WHITE      = CONSTANTS.COLOR_WHITE
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".webp"}
 DPI = CONSTANTS.DPI
 
+# ---- Modèles IA locaux (.pth / .safetensors via spandrel) ----
+_MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+os.makedirs(_MODELS_DIR, exist_ok=True)
+
+ESRGAN_AVAILABLE = (
+    importlib.util.find_spec("torch")    is not None
+    and importlib.util.find_spec("spandrel") is not None
+)
+
+
+def _pick_torch_device() -> str:
+    import torch as _t
+    if _t.cuda.is_available():
+        return "cuda"
+    if getattr(_t.backends, "mps", None) and _t.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
+def _list_pth_models() -> list[str]:
+    """Retourne les noms de fichiers .pth / .safetensors trouvés dans _MODELS_DIR, triés."""
+    if not os.path.isdir(_MODELS_DIR):
+        return []
+    return sorted(
+        e.name for e in os.scandir(_MODELS_DIR)
+        if e.name.lower().endswith((".pth", ".safetensors"))
+    )
+
 ###############################################################
 #                       UTILITAIRES                           #
 ###############################################################
@@ -77,6 +106,8 @@ async def main(page: ft.Page) -> None:
     page.title = f"Retouche IA par sélection  v{__version__}"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG_UI
+    page.window.title_bar_hidden = True
+    page.window.title_bar_buttons_hidden = True
     await page.window.to_front()
 
     # ── Collecte des images ──────────────────────────────────────────────────
@@ -112,7 +143,11 @@ async def main(page: ft.Page) -> None:
         "view_size":    (1200, 800),
         "working":      False,
         "sel_mode":     False,  # True = sélection, False = navigation
+        "modified":     False,  # True si des modifications n'ont pas été enregistrées
     }
+
+    # Cache spandrel : un objet ModelDescriptor par fichier modèle
+    _custom_model_cache: dict = {}
 
     # ── Éléments UI ──────────────────────────────────────────────────────────
     status_text    = ft.Text("", size=12, color=LIGHT_GREY)
@@ -198,15 +233,7 @@ async def main(page: ft.Page) -> None:
             },
         ),
         disabled=True,
-        tooltip="Écraser le fichier original",
-    )
-    saveas_btn = ft.Button(
-        "Enregistrer sous…",
-        icon=ft.Icons.SAVE_AS,
-        bgcolor=GREY,
-        color=WHITE,
-        disabled=True,
-        tooltip="Sauvegarder sous un nouveau nom ou emplacement",
+        tooltip="Enregistrer dans le sous-dossier Retouche/",
     )
     open_btn = ft.Button(
         "Ouvrir une image",
@@ -350,6 +377,7 @@ async def main(page: ft.Page) -> None:
             state["orig_img"]        = img.copy()
             state["work_img"]        = img.copy()
             state["undo_img"]        = None
+            state["modified"]        = False
             state["selection"]       = None
             state["drag_start"]      = None
             state["drag_current"]    = None
@@ -363,7 +391,6 @@ async def main(page: ft.Page) -> None:
             send_btn.disabled  = True
             undo_btn.disabled  = True
             save_btn.disabled  = True
-            saveas_btn.disabled = True
             _render_preview()
         except Exception as ex:
             status_text.value = f"[ERREUR] {ex}"
@@ -447,7 +474,6 @@ async def main(page: ft.Page) -> None:
         send_btn.disabled    = True
         undo_btn.disabled    = True
         save_btn.disabled    = True
-        saveas_btn.disabled  = True
         progress_bar.value   = None
         progress_bar.visible = True
         status_text.value    = "Envoi à Gemini…"
@@ -483,11 +509,11 @@ async def main(page: ft.Page) -> None:
             # Collage dans l'image de travail
             new_work = (state["work_img"] or state["orig_img"]).copy()
             new_work.paste(gemini_fit, (sel[0], sel[1]))
-            state["work_img"] = new_work
+            state["work_img"]  = new_work
+            state["modified"]  = True
 
             undo_btn.disabled   = False
             save_btn.disabled   = False
-            saveas_btn.disabled = False
 
             gemini_dims = f"{gemini_img.width}×{gemini_img.height}"
             status_text.value = (
@@ -551,6 +577,7 @@ async def main(page: ft.Page) -> None:
                     quality=100, subsampling=0,
                 )
             state["source_path"] = path
+            state["modified"]    = False
             status_text.value = f"[OK] Enregistré : {os.path.basename(path)}"
             page.update()
             return True
@@ -566,28 +593,20 @@ async def main(page: ft.Page) -> None:
         else:
             await page.window.close()  # type: ignore[misc]
 
-    async def on_save(e) -> None:
-        path = state["source_path"]
-        if not path or state["work_img"] is None:
-            return
-        if await _save_to(path):
-            await _advance_after_save()
+    def _retouche_path() -> str | None:
+        src = state["source_path"]
+        if not src:
+            return None
+        retouche_dir = os.path.join(os.path.dirname(src), "Retouche")
+        os.makedirs(retouche_dir, exist_ok=True)
+        return os.path.join(retouche_dir, os.path.basename(src))
 
-    async def on_saveas(e) -> None:
+    async def on_save(e) -> None:
         if state["work_img"] is None:
             return
-        base = os.path.splitext(os.path.basename(state["source_path"] or "image"))[0]
-        path = await ft.FilePicker().save_file(
-            dialog_title="Enregistrer sous…",
-            file_name=f"{base}_retouche.jpg",
-            allowed_extensions=["jpg", "jpeg", "png", "tif", "tiff"],
-        )
-        if path:
-            if not any(path.lower().endswith(ext)
-                       for ext in (".jpg", ".jpeg", ".png", ".tif", ".tiff")):
-                path += ".jpg"
-            if await _save_to(path):
-                await _advance_after_save()
+        path = _retouche_path()
+        if path and await _save_to(path):
+            await _advance_after_save()
 
     # ── Ouverture manuelle ───────────────────────────────────────────────────
 
@@ -626,11 +645,186 @@ async def main(page: ft.Page) -> None:
     async def on_next(e) -> None:
         await _load_image(state["index"] + 1)
 
+    # ── Éléments UI — modèles locaux ────────────────────────────────────────
+
+    def _build_model_options() -> list[ft.dropdown.Option]:
+        names = _list_pth_models()
+        if not names:
+            return [ft.dropdown.Option(key="", text="Aucun modèle (.pth / .safetensors) dans models/")]
+        return [ft.dropdown.Option(key=n, text=n) for n in names]
+
+    model_dropdown = ft.Dropdown(
+        options=_build_model_options(),
+        value=(_list_pth_models() or [""])[0],
+        bgcolor=GREY,
+        color=WHITE,
+        border_color=LIGHT_GREY,
+        text_size=11,
+        dense=True,
+        expand=True,
+        disabled=not ESRGAN_AVAILABLE,
+    )
+    run_model_btn = ft.IconButton(
+        icon=ft.Icons.PLAY_ARROW,
+        icon_color=DARK,
+        bgcolor=BLUE if ESRGAN_AVAILABLE else GREY,
+        tooltip="Lancer le modèle sélectionné sur l'image",
+        disabled=not ESRGAN_AVAILABLE or not _list_pth_models(),
+    )
+    refresh_models_btn = ft.IconButton(
+        icon=ft.Icons.REFRESH,
+        icon_color=WHITE,
+        bgcolor=GREY,
+        tooltip="Rafraîchir la liste des modèles",
+    )
+    enhance_progress_bar = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
+    enhance_status = ft.Text("", size=11, color=LIGHT_GREY)
+
+    # ── Callbacks — modèles locaux ───────────────────────────────────────────
+
+    def on_refresh_models(e) -> None:
+        model_dropdown.options = _build_model_options()
+        names = _list_pth_models()
+        model_dropdown.value   = names[0] if names else ""
+        run_model_btn.disabled = not ESRGAN_AVAILABLE or not names
+        page.update()
+
+    async def on_run_model(e) -> None:
+        base = state["work_img"] or state["orig_img"]
+        model_name = model_dropdown.value
+        if base is None or state["working"] or not model_name:
+            return
+
+        state["working"]             = True
+        run_model_btn.disabled       = True
+        refresh_models_btn.disabled  = True
+        send_btn.disabled            = True
+        enhance_progress_bar.value   = None
+        enhance_progress_bar.visible = True
+        enhance_status.value         = f"Chargement de {model_name}…"
+        page.update()
+
+        has_alpha = (base.mode == "RGBA")
+        alpha     = base.split()[3] if has_alpha else None
+
+        def _progress_cb(value, label: str = "") -> None:
+            enhance_progress_bar.value = value
+            if label:
+                enhance_status.value = label
+            page.update()
+
+        def _do_run():
+            import torch as _torch
+            import numpy as _np
+            from spandrel import ModelLoader as _ModelLoader
+            model_path = os.path.join(_MODELS_DIR, model_name)
+            if model_name not in _custom_model_cache:
+                _dev = _pick_torch_device()
+                _progress_cb(None, f"Chargement de {model_name}…")
+                desc = _ModelLoader().load_from_file(model_path)
+                desc.to(_dev)
+                desc.model.eval()
+                _custom_model_cache[model_name] = desc
+            desc  = _custom_model_cache[model_name]
+            _dev  = next(iter(desc.model.parameters())).device
+            use_fp16 = (_dev.type == "cuda")
+
+            rgb = _np.array(base.convert("RGB")).astype(_np.float32) / 255.0
+            h, w = rgb.shape[:2]
+
+            TILE    = 512 if _dev.type == "cuda" else (384 if _dev.type == "mps" else 256)
+            OVERLAP = TILE // 16
+            STEP    = TILE - OVERLAP
+
+            def _scale_factor():
+                probe = _torch.zeros(1, 3, 4, 4, device=_dev)
+                if use_fp16:
+                    probe = probe.half()
+                with _torch.inference_mode():
+                    return desc(probe).shape[-1] // 4
+
+            scale       = _scale_factor()
+            out_h, out_w = h * scale, w * scale
+            out_np_full = _np.zeros((out_h, out_w, 3), dtype=_np.float32)
+            weight_map  = _np.zeros((out_h, out_w, 1), dtype=_np.float32)
+
+            def _make_weight(th, tw):
+                wy  = _np.ones(th, dtype=_np.float32)
+                wx  = _np.ones(tw, dtype=_np.float32)
+                fade = min(OVERLAP, th // 2, tw // 2)
+                ramp = _np.linspace(0.0, 1.0, fade, dtype=_np.float32)
+                wy[:fade] = ramp;  wy[-fade:] = ramp[::-1]
+                wx[:fade] = ramp;  wx[-fade:] = ramp[::-1]
+                return _np.outer(wy, wx)[:, :, _np.newaxis]
+
+            ys = list(range(0, h - TILE, STEP)) + [max(0, h - TILE)]
+            xs = list(range(0, w - TILE, STEP)) + [max(0, w - TILE)]
+            if h <= TILE and w <= TILE:
+                ys, xs = [0], [0]
+
+            total_tiles = len(ys) * len(xs)
+            done_tiles  = 0
+            _progress_cb(0.0, f"Traitement — tuile 0/{total_tiles}")
+
+            with _torch.inference_mode():
+                for y0 in ys:
+                    y1 = min(y0 + TILE, h)
+                    for x0 in xs:
+                        x1 = min(x0 + TILE, w)
+                        tile_np = rgb[y0:y1, x0:x1]
+                        tile_t  = _torch.from_numpy(tile_np).permute(2, 0, 1).unsqueeze(0).to(_dev)
+                        if use_fp16:
+                            tile_t = tile_t.half()
+                        out_tile = desc(tile_t).squeeze(0).permute(1, 2, 0).clamp(0, 1)
+                        if use_fp16:
+                            out_tile = out_tile.float()
+                        out_tile_np = out_tile.cpu().numpy()
+                        oy0, ox0 = y0 * scale, x0 * scale
+                        oy1, ox1 = oy0 + out_tile_np.shape[0], ox0 + out_tile_np.shape[1]
+                        w_tile = _make_weight(out_tile_np.shape[0], out_tile_np.shape[1])
+                        out_np_full[oy0:oy1, ox0:ox1] += out_tile_np * w_tile
+                        weight_map  [oy0:oy1, ox0:ox1] += w_tile
+                        done_tiles += 1
+                        _progress_cb(
+                            done_tiles / total_tiles,
+                            f"Traitement — tuile {done_tiles}/{total_tiles}",
+                        )
+
+            out_np = ((_np.array(out_np_full) / _np.maximum(weight_map, 1e-6)).clip(0, 1) * 255).astype(_np.uint8)
+            out = Image.fromarray(out_np)
+            if has_alpha and alpha is not None:
+                out = out.convert("RGBA")
+                out.putalpha(alpha.resize(out.size, Image.Resampling.LANCZOS))
+            return out
+
+        try:
+            result = await asyncio.to_thread(_do_run)
+            state["undo_img"]  = state["work_img"]
+            state["work_img"]  = result
+            state["modified"]  = True
+            undo_btn.disabled   = False
+            save_btn.disabled   = False
+            enhance_status.value = f"[OK] {model_name} → {result.width}×{result.height} px"
+        except Exception as ex:
+            enhance_status.value = f"[ERREUR] {model_name} : {ex}"
+        finally:
+            state["working"]             = False
+            enhance_progress_bar.visible = False
+            run_model_btn.disabled       = not ESRGAN_AVAILABLE or not _list_pth_models()
+            refresh_models_btn.disabled  = False
+            has_sel    = state["selection"] is not None
+            has_prompt = bool(prompt_field.value and prompt_field.value.strip())
+            send_btn.disabled = not (has_sel and has_prompt)
+            page.update()
+            _render_preview()
+
+    run_model_btn.on_click      = on_run_model
+    refresh_models_btn.on_click = on_refresh_models
+
     # ── Câblage des événements ───────────────────────────────────────────────
     send_btn.on_click      = on_send_gemini
     undo_btn.on_click      = on_undo
     save_btn.on_click      = on_save
-    saveas_btn.on_click    = on_saveas
     open_btn.on_click      = on_open
     clear_sel_btn.on_click = on_clear_selection
     prompt_field.on_change = on_prompt_change
@@ -725,6 +919,18 @@ async def main(page: ft.Page) -> None:
             send_btn,
             progress_bar,
             ft.Divider(color=GREY),
+            # Amélioration IA — modèles locaux
+            ft.Text("Amélioration IA (modèles locaux)", size=13,
+                    weight=ft.FontWeight.BOLD, color=WHITE),
+            ft.Text("📂 Data/models/", size=10, color=LIGHT_GREY),
+            ft.Row(
+                [model_dropdown, refresh_models_btn, run_model_btn],
+                spacing=4,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            enhance_progress_bar,
+            enhance_status,
+            ft.Divider(color=GREY),
             # Undo
             undo_btn,
             ft.Divider(color=GREY),
@@ -732,7 +938,6 @@ async def main(page: ft.Page) -> None:
             ft.Text("Enregistrement", size=13,
                     weight=ft.FontWeight.BOLD, color=WHITE),
             save_btn,
-            saveas_btn,
             ft.Container(expand=True),
             status_text,
         ],
@@ -758,31 +963,108 @@ async def main(page: ft.Page) -> None:
         spacing=0,
     )
 
-    page.add(
+    # ── Dialog de confirmation de fermeture ──────────────────────────────────
+
+    async def _force_close() -> None:
+        await page.window.close()
+
+    async def _dialog_save() -> None:
+        close_dialog.open = False
+        page.update()
+        path = _retouche_path()
+        if path and await _save_to(path):
+            await _force_close()
+
+    close_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Modifications non enregistrées"),
+        content=ft.Text(
+            "L'image a été modifiée mais n'a pas été enregistrée.\n"
+            "Que souhaitez-vous faire ?"
+        ),
+        actions=[
+            ft.TextButton(
+                "Enregistrer",
+                on_click=lambda e: page.run_task(_dialog_save),
+            ),
+            ft.TextButton(
+                "Quitter sans enregistrer",
+                style=ft.ButtonStyle(color=RED),
+                on_click=lambda e: page.run_task(_force_close),
+            ),
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
+    page.overlay.append(close_dialog)
+
+    async def on_close_btn(e) -> None:
+        if state["modified"]:
+            close_dialog.open = True
+            page.update()
+        else:
+            await _force_close()
+
+    title_bar = ft.WindowDragArea(
         ft.Row(
             [
                 ft.Container(
-                    content=left_panel,
-                    padding=ft.Padding(12, 14, 12, 14),
-                    bgcolor=DARK,
-                    border_radius=10,
-                    border=ft.Border.all(1, GREY),
+                    ft.Text(
+                        f"Retouche IA par sélection  v{__version__}",
+                        size=13,
+                        color=LIGHT_GREY,
+                        expand=True,
+                    ),
+                    bgcolor=BG_UI,
+                    padding=10,
+                    expand=True,
                 ),
-                ft.Container(width=12),
-                center_panel,
+                ft.IconButton(
+                    icon=ft.Icons.CLOSE,
+                    icon_color=LIGHT_GREY,
+                    tooltip="Fermer",
+                    on_click=on_close_btn,
+                    style=ft.ButtonStyle(
+                        overlay_color=ft.Colors.with_opacity(0.15, RED),
+                    ),
+                ),
+            ],
+        )
+    )
+
+    page.add(
+        ft.Column(
+            [
+                title_bar,
+                ft.Row(
+                    [
+                        ft.Container(
+                            content=left_panel,
+                            padding=ft.Padding(12, 14, 12, 14),
+                            bgcolor=DARK,
+                            border_radius=10,
+                            border=ft.Border.all(1, GREY),
+                        ),
+                        ft.Container(width=12),
+                        center_panel,
+                    ],
+                    expand=True,
+                    vertical_alignment=ft.CrossAxisAlignment.START,
+                ),
             ],
             expand=True,
-            vertical_alignment=ft.CrossAxisAlignment.START,
+            spacing=0,
         )
     )
 
     # ── Resize ───────────────────────────────────────────────────────────────
 
+    _TITLEBAR_H = 32
+
     def _on_page_resize(e=None) -> None:
         w = int(getattr(e, "width",  None) or page.width  or 1200)
         h = int(getattr(e, "height", None) or page.height or 800)
         vw = max(640, w - 340)
-        vh = max(480, h - 60)
+        vh = max(480, h - _TITLEBAR_H - 60)
         state["view_size"] = (vw, vh)
         inner_container.width  = vw
         inner_container.height = vh
