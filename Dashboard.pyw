@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.8.3"
+__version__ = "2.8.4"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -987,6 +987,14 @@ def main(page: ft.Page):
         if len(selected_image_files) == 2:
             _do_launch("")
             return
+
+        # Si un ou deux dossiers sont sélectionnés dans la preview_list, les utiliser
+        selected_dirs = [f for f in selected_files if os.path.isdir(f)]
+        if len(selected_dirs) >= 2 and not folder2:
+            folder1 = os.path.normpath(selected_dirs[0])
+            folder2 = os.path.normpath(selected_dirs[1])
+        elif len(selected_dirs) == 1 and not folder2:
+            folder2 = os.path.normpath(selected_dirs[0])
 
         # Si le second dossier est déjà connu, lancer directement
         if folder2:
@@ -5427,6 +5435,37 @@ def main(page: ft.Page):
 
 
 
+    def copy_to_selection_folder(e):
+        """Copie les fichiers sélectionnés dans SELECTION/ et navigue vers ce dossier."""
+        if not selected_files:
+            log_to_terminal("[ATTENTION] Aucun fichier sélectionné", ORANGE)
+            return
+        folder = current_browse_folder["path"] or selected_folder["path"]
+        if not folder:
+            log_to_terminal("[ERREUR] Aucun dossier ouvert", RED)
+            return
+        selection_folder = os.path.join(folder, "SELECTION")
+        os.makedirs(selection_folder, exist_ok=True)
+        copied = 0
+        errors = 0
+        for src in list(selected_files):
+            if not os.path.isfile(src):
+                continue
+            dst = os.path.join(selection_folder, os.path.basename(src))
+            try:
+                shutil.copy2(src, dst)
+                copied += 1
+            except Exception as ex:
+                log_to_terminal(f"[ERREUR] {os.path.basename(src)} : {ex}", RED)
+                errors += 1
+        if copied:
+            log_to_terminal(f"[OK] {copied} fichier(s) copié(s) dans SELECTION/", BLUE)
+        if errors:
+            log_to_terminal(f"[ATTENTION] {errors} erreur(s)", ORANGE)
+        navigate_to_folder(selection_folder)
+
+
+
     def cut_selected_files(e):
         """Coupe les fichiers sélectionnés (déplacement à la destination)"""
         if not selected_files:
@@ -6822,7 +6861,9 @@ def main(page: ft.Page):
             return
         preview_page["value"] = new_pg
         _render_preview_page()
-        preview_list.scroll_to(offset=0, duration=0)
+        async def _scroll_top():
+            await preview_list.scroll_to(offset=0, duration=0)
+        page.run_task(_scroll_top)
 
 
 
@@ -7239,9 +7280,12 @@ def main(page: ft.Page):
                         hint_text="0.03 fin · 0.10 ISO 400 · 0.20 ISO 1600",
                         text_size=12,
                         keyboard_type=ft.KeyboardType.NUMBER,
+                        border=ft.InputBorder.OUTLINE,
                         border_color=color,
+                        focused_border_color=color,
                         bgcolor=DARK,
                         height=56,
+                        expand=True,
                     ),
                     "size": ft.TextField(
                         label="Taille (px)",
@@ -7249,9 +7293,12 @@ def main(page: ft.Page):
                         hint_text="1 fin · 2-3 moyen · 4-5 gros",
                         text_size=12,
                         keyboard_type=ft.KeyboardType.NUMBER,
+                        border=ft.InputBorder.OUTLINE,
                         border_color=color,
+                        focused_border_color=color,
                         bgcolor=DARK,
                         height=56,
+                        expand=True,
                     ),
                     "color": ft.TextField(
                         label="Couleur (color_ratio)",
@@ -7259,19 +7306,25 @@ def main(page: ft.Page):
                         hint_text="0.0 mono · 0.3 subtil · 1.0 plein",
                         text_size=12,
                         keyboard_type=ft.KeyboardType.NUMBER,
+                        border=ft.InputBorder.OUTLINE,
                         border_color=color,
+                        focused_border_color=color,
                         bgcolor=DARK,
                         height=56,
+                        expand=True,
                     ),
                     "shadow": ft.TextField(
-                        label="Ombres (shadow_boost)",
+                        label="Concentration mi-tons",
                         value=str(shadow_val),
-                        hint_text="1.0 uniforme · 1.8 réaliste · 3.0 fort",
+                        hint_text="1.0 large · 2.0 centré · 3.0 serré",
                         text_size=12,
                         keyboard_type=ft.KeyboardType.NUMBER,
+                        border=ft.InputBorder.OUTLINE,
                         border_color=color,
+                        focused_border_color=color,
                         bgcolor=DARK,
                         height=56,
+                        expand=True,
                     ),
                 }
                 container = ft.Container(
@@ -7290,6 +7343,7 @@ def main(page: ft.Page):
                 )
                 return container, fields
 
+            _grain1_enabled = {"value": True}
             _g1_container, _g1 = _grain_group(
                 "Couche 1",
                 ORANGE,
@@ -7298,6 +7352,16 @@ def main(page: ft.Page):
                 CONSTANTS.GRAIN_COLOR_RATIO,
                 CONSTANTS.GRAIN_SHADOW_BOOST,
             )
+            _grain1_switch = ft.Switch(value=True, active_color=ORANGE)
+
+            def _on_grain1_toggle(e):
+                _grain1_enabled["value"] = bool(e.control.value)
+                _g1_container.opacity = 1.0 if _grain1_enabled["value"] else 0.3
+                for f in _g1.values():
+                    f.disabled = not _grain1_enabled["value"]
+                page.update()
+
+            _grain1_switch.on_change = _on_grain1_toggle
 
             _grain2_enabled = {"value": True}
             _g2_container, _g2 = _grain_group(
@@ -7310,7 +7374,6 @@ def main(page: ft.Page):
             )
 
             _grain2_switch = ft.Switch(
-                label="Activer la couche 2",
                 value=True,
                 active_color=ORANGE,
             )
@@ -7323,6 +7386,237 @@ def main(page: ft.Page):
                 page.update()
 
             _grain2_switch.on_change = _on_grain2_toggle
+
+            # ── Halation ──────────────────────────────────────────────────────
+            _halation_enabled = {"value": True}
+            _halation_fields = {
+                "threshold": ft.TextField(
+                    label="Seuil (threshold)",
+                    value=str(CONSTANTS.HALATION_THRESHOLD),
+                    hint_text="0.55 large · 0.65 standard · 0.80 éclats seuls",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=RED, focused_border_color=RED,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "radius": ft.TextField(
+                    label="Rayon (% image)",
+                    value=str(CONSTANTS.HALATION_RADIUS),
+                    hint_text="1 discret · 5 standard · 15 prononcé",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=RED, focused_border_color=RED,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "intensity": ft.TextField(
+                    label="Intensité",
+                    value=str(CONSTANTS.HALATION_INTENSITY),
+                    hint_text="0.1 léger · 0.6 standard · 1.0 fort",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=RED, focused_border_color=RED,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "red_shift": ft.TextField(
+                    label="Décalage rouge",
+                    value=str(CONSTANTS.HALATION_RED_SHIFT),
+                    hint_text="0.0 neutre · 0.5 chaud · 1.0 rouge vif",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=RED, focused_border_color=RED,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+            }
+            _halation_container = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text("Halation", size=12, color=RED, weight=ft.FontWeight.BOLD),
+                        ft.Row([_halation_fields["threshold"], _halation_fields["radius"]], spacing=8),
+                        ft.Row([_halation_fields["intensity"], _halation_fields["red_shift"]], spacing=8),
+                    ],
+                    spacing=6, tight=True,
+                ),
+                border=ft.Border.all(1, RED),
+                border_radius=6,
+                padding=ft.Padding(10, 8, 10, 8),
+            )
+            _halation_switch = ft.Switch(value=True, active_color=RED)
+
+            def _on_halation_toggle(e):
+                _halation_enabled["value"] = bool(e.control.value)
+                _halation_container.opacity = 1.0 if _halation_enabled["value"] else 0.3
+                for f in _halation_fields.values():
+                    f.disabled = not _halation_enabled["value"]
+                page.update()
+
+            _halation_switch.on_change = _on_halation_toggle
+
+            # ── Bloom ─────────────────────────────────────────────────────────
+            _bloom_enabled = {"value": True}
+            _bloom_fields = {
+                "radius": ft.TextField(
+                    label="Rayon (% image)",
+                    value=str(CONSTANTS.BLOOM_RADIUS),
+                    hint_text="2 discret · 10 standard · 20 prononcé",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=BLUE, focused_border_color=BLUE,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "intensity": ft.TextField(
+                    label="Intensité",
+                    value=str(CONSTANTS.BLOOM_INTENSITY),
+                    hint_text="0.1 léger · 0.3 standard · 0.6 fort",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=BLUE, focused_border_color=BLUE,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+            }
+            _bloom_container = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text("Bloom (Soft Light)", size=12, color=BLUE, weight=ft.FontWeight.BOLD),
+                        ft.Row([_bloom_fields["radius"], _bloom_fields["intensity"]], spacing=8),
+                    ],
+                    spacing=6, tight=True,
+                ),
+                border=ft.Border.all(1, BLUE),
+                border_radius=6,
+                padding=ft.Padding(10, 8, 10, 8),
+            )
+            _bloom_switch = ft.Switch(value=True, active_color=BLUE)
+
+            def _on_bloom_toggle(e):
+                _bloom_enabled["value"] = bool(e.control.value)
+                _bloom_container.opacity = 1.0 if _bloom_enabled["value"] else 0.3
+                for f in _bloom_fields.values():
+                    f.disabled = not _bloom_enabled["value"]
+                page.update()
+
+            _bloom_switch.on_change = _on_bloom_toggle
+
+            # ── Courbe tonale argentique ───────────────────────────────────────
+            _curve_enabled = {"value": True}
+            _curve_fields = {
+                "shoulder_start": ft.TextField(
+                    label="Épaulement — seuil",
+                    value=str(CONSTANTS.CURVE_SHOULDER_START),
+                    hint_text="0.70 large · 0.80 standard · 0.90 conservateur",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=GREEN, focused_border_color=GREEN,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "shoulder_strength": ft.TextField(
+                    label="Épaulement — force",
+                    value=str(CONSTANTS.CURVE_SHOULDER_STRENGTH),
+                    hint_text="0.2 doux · 0.5 standard · 1.5 fort",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=GREEN, focused_border_color=GREEN,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "toe_start": ft.TextField(
+                    label="Pied — seuil",
+                    value=str(CONSTANTS.CURVE_TOE_START),
+                    hint_text="0.03–0.12 (luma)",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=GREEN, focused_border_color=GREEN,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "toe_lift": ft.TextField(
+                    label="Pied — relèvement",
+                    value=str(CONSTANTS.CURVE_TOE_LIFT),
+                    hint_text="0 = aucun · 0.08 subtil · 0.20 prononcé",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=GREEN, focused_border_color=GREEN,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+            }
+            _curve_container = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Text("Courbe tonale argentique", size=12, color=GREEN, weight=ft.FontWeight.BOLD),
+                        ft.Row([_curve_fields["shoulder_start"], _curve_fields["shoulder_strength"]], spacing=8),
+                        ft.Row([_curve_fields["toe_start"],      _curve_fields["toe_lift"]],          spacing=8),
+                    ],
+                    spacing=6, tight=True,
+                ),
+                border=ft.Border.all(1, GREEN),
+                border_radius=6,
+                padding=ft.Padding(10, 8, 10, 8),
+            )
+            _curve_switch = ft.Switch(value=True, active_color=GREEN)
+
+            def _on_curve_toggle(e):
+                _curve_enabled["value"] = bool(e.control.value)
+                _curve_container.opacity = 1.0 if _curve_enabled["value"] else 0.3
+                for f in _curve_fields.values():
+                    f.disabled = not _curve_enabled["value"]
+                page.update()
+
+            _curve_switch.on_change = _on_curve_toggle
+
+            # ── Désaturation des extrêmes ──────────────────────────────────────
+            _desat_enabled = {"value": True}
+            _desat_fields = {
+                "shadow_threshold": ft.TextField(
+                    label="Seuil ombres",
+                    value=str(CONSTANTS.DESAT_SHADOW_THRESHOLD),
+                    hint_text="0.15 fort · 0.25 standard · 0.40 large",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=VIOLET, focused_border_color=VIOLET,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "shadow_intensity": ft.TextField(
+                    label="Intensité ombres",
+                    value=str(CONSTANTS.DESAT_SHADOW_INTENSITY),
+                    hint_text="0.3 subtil · 0.6 standard · 1.0 gris pur",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=VIOLET, focused_border_color=VIOLET,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "highlight_threshold": ft.TextField(
+                    label="Seuil hautes lumières",
+                    value=str(CONSTANTS.DESAT_HIGHLIGHT_THRESHOLD),
+                    hint_text="0.75 large · 0.85 standard · 0.95 fort",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=VIOLET, focused_border_color=VIOLET,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "highlight_intensity": ft.TextField(
+                    label="Intensité hautes lumières",
+                    value=str(CONSTANTS.DESAT_HIGHLIGHT_INTENSITY),
+                    hint_text="0.2 subtil · 0.5 standard · 1.0 gris pur",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=VIOLET, focused_border_color=VIOLET,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "midtone_boost": ft.TextField(
+                    label="Boost saturation mi-tons",
+                    value=str(CONSTANTS.DESAT_MIDTONE_BOOST),
+                    hint_text="0 = aucun · 0.15 subtil · 0.30 prononcé",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=VIOLET, focused_border_color=VIOLET,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+            }
+            _desat_container = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Row([_desat_fields["shadow_threshold"],   _desat_fields["shadow_intensity"]], spacing=8),
+                        ft.Row([_desat_fields["highlight_threshold"], _desat_fields["highlight_intensity"]], spacing=8),
+                        ft.Row([_desat_fields["midtone_boost"]], spacing=8),
+                    ],
+                    spacing=6, tight=True,
+                ),
+                border=ft.Border.all(1, VIOLET),
+                border_radius=6,
+                padding=ft.Padding(10, 8, 10, 8),
+            )
+            _desat_switch = ft.Switch(value=True, active_color=VIOLET)
+
+            def _on_desat_toggle(e):
+                _desat_enabled["value"] = bool(e.control.value)
+                _desat_container.opacity = 1.0 if _desat_enabled["value"] else 0.3
+                for f in _desat_fields.values():
+                    f.disabled = not _desat_enabled["value"]
+                page.update()
+
+            _desat_switch.on_change = _on_desat_toggle
 
             _grain_error_text = ft.Text("", size=12, color=RED, text_align=ft.TextAlign.CENTER)
 
@@ -7338,14 +7632,45 @@ def main(page: ft.Page):
             def _on_grain_confirm(e):
                 try:
                     a1, s1, c1, sh1 = _parse_grain_group(_g1)
-                    token = f"{a1}|{s1}|{c1}|{sh1}"
-                    if _grain2_enabled["value"]:
-                        a2, s2, c2, sh2 = _parse_grain_group(_g2)
-                        token += f"|{a2}|{s2}|{c2}|{sh2}"
+                    a2, s2, c2, sh2 = _parse_grain_group(_g2)
+                    ht   = float((_halation_fields["threshold"].value or "").replace(",", ".").strip())
+                    hr   = float((_halation_fields["radius"].value or "").replace(",", ".").strip())
+                    hi   = float((_halation_fields["intensity"].value or "").replace(",", ".").strip())
+                    hred = float((_halation_fields["red_shift"].value or "").replace(",", ".").strip())
+                    br   = float((_bloom_fields["radius"].value or "").replace(",", ".").strip())
+                    bi   = float((_bloom_fields["intensity"].value or "").replace(",", ".").strip())
+                    dst  = float((_desat_fields["shadow_threshold"].value or "").replace(",", ".").strip())
+                    dsi  = float((_desat_fields["shadow_intensity"].value or "").replace(",", ".").strip())
+                    dht  = float((_desat_fields["highlight_threshold"].value or "").replace(",", ".").strip())
+                    dhi  = float((_desat_fields["highlight_intensity"].value or "").replace(",", ".").strip())
+                    dmb  = float((_desat_fields["midtone_boost"].value or "").replace(",", ".").strip())
+                    css  = float((_curve_fields["shoulder_start"].value or "").replace(",", ".").strip())
+                    cstr = float((_curve_fields["shoulder_strength"].value or "").replace(",", ".").strip())
+                    cts  = float((_curve_fields["toe_start"].value or "").replace(",", ".").strip())
+                    ctl  = float((_curve_fields["toe_lift"].value or "").replace(",", ".").strip())
+                    if not (0.0 <= ht <= 1.0) or hr <= 0 or not (0.0 <= hi <= 1.0) or not (0.0 <= hred <= 1.0):
+                        raise ValueError()
+                    if br <= 0 or not (0.0 <= bi <= 1.0):
+                        raise ValueError()
+                    if not (0.0 <= dst <= 1.0) or not (0.0 <= dsi <= 1.0):
+                        raise ValueError()
+                    if not (0.0 <= dht <= 1.0) or not (0.0 <= dhi <= 1.0):
+                        raise ValueError()
+                    if dmb < 0:
+                        raise ValueError()
+                    if not (0.0 <= css <= 1.0) or cstr < 0 or cts < 0 or ctl < 0:
+                        raise ValueError()
                 except Exception:
                     _grain_error_text.value = "Valeurs invalides. Vérifie les champs."
                     page.update()
                     return
+                g1 = 1 if _grain1_enabled["value"] else 0
+                g2 = 1 if _grain2_enabled["value"] else 0
+                h  = 1 if _halation_enabled["value"] else 0
+                b  = 1 if _bloom_enabled["value"] else 0
+                d  = 1 if _desat_enabled["value"] else 0
+                cv = 1 if _curve_enabled["value"] else 0
+                token = f"{g1}|{a1}|{s1}|{c1}|{sh1}|{g2}|{a2}|{s2}|{c2}|{sh2}|{h}|{ht}|{hr}|{hi}|{hred}|{b}|{br}|{bi}|{d}|{dst}|{dsi}|{dht}|{dhi}|{cv}|{css}|{cstr}|{cts}|{ctl}|{dmb}"
                 _grain_dlg.open = False
                 page.update()
                 launch_app(app_name, app_path, is_local, series_name=token)
@@ -7360,19 +7685,66 @@ def main(page: ft.Page):
                 content=ft.Column(
                     [
                         ft.Text(
-                            "Les valeurs par défaut viennent de CONSTANTS.py (section 12.2).",
+                            "Les valeurs par défaut viennent de CONSTANTS.py (section 12).",
                             size=11,
                             color=LIGHT_GREY,
                             text_align=ft.TextAlign.CENTER,
                         ),
-                        _g1_container,
-                        _grain2_switch,
-                        _g2_container,
+                        ft.ExpansionTile(
+                            leading=_grain1_switch,
+                            title=ft.Text("Grain — Couche 1", color=ORANGE, weight=ft.FontWeight.BOLD, size=13),
+                            expanded=False,
+                            maintain_state=True,
+                            tile_padding=ft.Padding(8, 0, 8, 0),
+                            controls=[_g1_container],
+                        ),
+                        ft.ExpansionTile(
+                            leading=_grain2_switch,
+                            title=ft.Text("Grain — Couche 2", color=ORANGE, weight=ft.FontWeight.BOLD, size=13),
+                            expanded=False,
+                            maintain_state=True,
+                            tile_padding=ft.Padding(8, 0, 8, 0),
+                            controls=[_g2_container],
+                        ),
+                        ft.ExpansionTile(
+                            leading=_halation_switch,
+                            title=ft.Text("Halation", color=RED, weight=ft.FontWeight.BOLD, size=13),
+                            expanded=False,
+                            maintain_state=True,
+                            tile_padding=ft.Padding(8, 0, 8, 0),
+                            controls=[_halation_container],
+                        ),
+                        ft.ExpansionTile(
+                            leading=_bloom_switch,
+                            title=ft.Text("Bloom (Soft Light)", color=BLUE, weight=ft.FontWeight.BOLD, size=13),
+                            expanded=False,
+                            maintain_state=True,
+                            tile_padding=ft.Padding(8, 0, 8, 0),
+                            controls=[_bloom_container],
+                        ),
+                        ft.ExpansionTile(
+                            leading=_desat_switch,
+                            title=ft.Text("Désaturation des extrêmes", color=VIOLET, weight=ft.FontWeight.BOLD, size=13),
+                            expanded=False,
+                            maintain_state=True,
+                            tile_padding=ft.Padding(8, 0, 8, 0),
+                            controls=[_desat_container],
+                        ),
+                        ft.ExpansionTile(
+                            leading=_curve_switch,
+                            title=ft.Text("Courbe tonale", color=GREEN, weight=ft.FontWeight.BOLD, size=13),
+                            expanded=False,
+                            maintain_state=True,
+                            tile_padding=ft.Padding(8, 0, 8, 0),
+                            controls=[_curve_container],
+                        ),
                         _grain_error_text,
                     ],
                     tight=True,
-                    spacing=10,
-                    width=420,
+                    spacing=4,
+                    width=500,
+                    height=370,
+                    scroll=ft.ScrollMode.AUTO,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
                 actions=[
@@ -7677,16 +8049,40 @@ def main(page: ft.Page):
                 # Paramètres Grain pellicule
                 if app_name == "Grain pellicule.py" and series_name:
                     parts = series_name.split("|")
-                    if len(parts) >= 4:
-                        env["GRAIN_AMOUNT"]       = parts[0]
-                        env["GRAIN_SIZE"]         = parts[1]
-                        env["GRAIN_COLOR_RATIO"]  = parts[2]
-                        env["GRAIN_SHADOW_BOOST"] = parts[3]
-                    if len(parts) == 8:
-                        env["GRAIN2_AMOUNT"]       = parts[4]
-                        env["GRAIN2_SIZE"]         = parts[5]
-                        env["GRAIN2_COLOR_RATIO"]  = parts[6]
-                        env["GRAIN2_SHADOW_BOOST"] = parts[7]
+                    if len(parts) >= 18:
+                        # Format 23 parties : G1|a1|s1|c1|sh1|G2|a2|s2|c2|sh2|H|ht|hr|hi|hred|B|br|bi|D|dst|dsi|dht|dhi
+                        env["GRAIN1_ENABLED"]     = parts[0]
+                        env["GRAIN_AMOUNT"]       = parts[1]
+                        env["GRAIN_SIZE"]         = parts[2]
+                        env["GRAIN_COLOR_RATIO"]  = parts[3]
+                        env["GRAIN_SHADOW_BOOST"] = parts[4]
+                        if parts[5] == "1":
+                            env["GRAIN2_AMOUNT"]       = parts[6]
+                            env["GRAIN2_SIZE"]         = parts[7]
+                            env["GRAIN2_COLOR_RATIO"]  = parts[8]
+                            env["GRAIN2_SHADOW_BOOST"] = parts[9]
+                        env["HALATION_ENABLED"]   = parts[10]
+                        env["HALATION_THRESHOLD"] = parts[11]
+                        env["HALATION_RADIUS"]    = parts[12]
+                        env["HALATION_INTENSITY"] = parts[13]
+                        env["HALATION_RED_SHIFT"] = parts[14]
+                        env["BLOOM_ENABLED"]      = parts[15]
+                        env["BLOOM_RADIUS"]       = parts[16]
+                        env["BLOOM_INTENSITY"]    = parts[17]
+                        if len(parts) >= 23:
+                            env["DESAT_ENABLED"]             = parts[18]
+                            env["DESAT_SHADOW_THRESHOLD"]    = parts[19]
+                            env["DESAT_SHADOW_INTENSITY"]    = parts[20]
+                            env["DESAT_HIGHLIGHT_THRESHOLD"] = parts[21]
+                            env["DESAT_HIGHLIGHT_INTENSITY"] = parts[22]
+                        if len(parts) >= 28:
+                            env["CURVE_ENABLED"]           = parts[23]
+                            env["CURVE_SHOULDER_START"]    = parts[24]
+                            env["CURVE_SHOULDER_STRENGTH"] = parts[25]
+                            env["CURVE_TOE_START"]         = parts[26]
+                            env["CURVE_TOE_LIFT"]          = parts[27]
+                        if len(parts) >= 29:
+                            env["DESAT_MIDTONE_BOOST"]     = parts[28]
 
 
                 # (si aucun n'est sélectionné, la variable sera vide)
@@ -7743,6 +8139,10 @@ def main(page: ft.Page):
                                     # Stocker pour que on_preview_ready l'applique
                                     # avec les données fraîches du prochain scan.
                                     pending_file_selection["names"] = selected_names
+                                elif line_stripped.startswith("NAVIGATE_TO:"):
+                                    nav_path = line_stripped[len("NAVIGATE_TO:"):].strip()
+                                    if os.path.isdir(nav_path):
+                                        page.pubsub.send_all_on_topic("navigate", nav_path)
                                 else:
                                     log_to_terminal(line_stripped, color)
                     except Exception as read_err:
@@ -9173,6 +9573,13 @@ def main(page: ft.Page):
                         select_toggle_button,
                         invert_selection_button,
                         select_same_date_button,
+                        ft.IconButton(
+                            icon=ft.Icons.SNIPPET_FOLDER,
+                            tooltip="Copier la sélection dans SELECTION/",
+                            on_click=copy_to_selection_folder,
+                            icon_color=BLUE,
+                            icon_size=20,
+                        ),
                         ft.IconButton(
                             icon=ft.Icons.DELETE_SWEEP,
                             tooltip="Supprimer les fichiers sélectionnés",

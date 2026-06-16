@@ -1,4 +1,4 @@
-__version__ = "2.8.3"
+__version__ = "2.8.4"
 
 #############################################################
 #                          IMPORTS                          #
@@ -40,3 +40,4 @@ for index, file_name in enumerate(files_to_process):
 
 
 print("Terminé !")
+print(f"NAVIGATE_TO:{folder_path / 'SELECTION'}")

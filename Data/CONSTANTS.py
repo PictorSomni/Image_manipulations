@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.8.3"
+__version__ = "2.8.4"
 
 
 # ==============================================================================
@@ -512,14 +512,72 @@ DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
 #                     0.0 = grain 100 % monochrome (aucune variation de teinte)
 #                     0.3 = légère variation chromatique (réaliste, style film négatif)
 #                     1.0 = variation couleur maximale par canal R/G/B
-# shadow_boost      : multiplicateur de grain dans les ombres vs hautes lumières (>1 = plus dans les ombres)
+# shadow_boost      : concentration du grain sur les mi-tons (1 = large/plat, 2 = centré, 3 = serré)
 
-GRAIN_AMOUNT       = 0.02    # Intensité du grain
-GRAIN_SIZE         = 3       # Taille des grains (px)
-GRAIN_COLOR_RATIO  = 0.4     # Part de grain couleur (0.0 = mono pur, 1.0 = couleur pleine)
-GRAIN_SHADOW_BOOST = 1.2     # Renforcement du grain dans les ombres
+GRAIN_AMOUNT       = 0.015     # Intensité du grain
+GRAIN_SIZE         = 4       # Taille des grains (px)
+GRAIN_COLOR_RATIO  = 0.3     # Part de grain couleur (0.0 = mono pur, 1.0 = couleur pleine)
+GRAIN_SHADOW_BOOST = 2    # Concentration sur les mi-tons (1 = large, 2 = centré, 3 = serré)
 
-GRAIN2_AMOUNT       = 0.04   # Couche 2 — intensité
-GRAIN2_SIZE         = 1    # Couche 2 — taille (px)
-GRAIN2_COLOR_RATIO  = 0.2   # Couche 2 — part couleur
-GRAIN2_SHADOW_BOOST = 1.6    # Couche 2 — renforcement ombres
+GRAIN2_AMOUNT       = 0.025   # Couche 2 — intensité
+GRAIN2_SIZE         = 2      # Couche 2 — taille (px)
+GRAIN2_COLOR_RATIO  = 0.2    # Couche 2 — part couleur
+GRAIN2_SHADOW_BOOST = 3    # Couche 2 — concentration mi-tons
+
+
+# ── 12.3  Halation & Bloom (Grain pellicule.py) ──────────────────────────────
+# Halation : halo rougeâtre autour des hautes lumières, reproduisant la lumière
+#            qui rebondit sur la base du film et expose l'émulsion une seconde fois.
+# threshold  : luminance minimale pour qualifier un pixel de haute lumière
+#              (0.55 = hautes lumières larges, 0.65 = standard, 0.80 = éclats seuls)
+# radius     : rayon du flou exprimé en % de la plus petite dimension de l'image
+#              (1 = discret, 5 = standard, 15 = très prononcé)
+# intensity  : intensité additive (0.0 = aucun, 0.4 = visible, 1.0 = très fort)
+# red_shift  : force du décalage chaud/rouge   (0.0 = neutre, 0.8 = standard, 1.0 = rouge vif)
+
+HALATION_ENABLED    = True
+HALATION_THRESHOLD  = 0.6   # 0.55 large · 0.65 standard · 0.80 éclats seuls
+HALATION_RADIUS     = 5      # % de la plus petite dimension
+HALATION_INTENSITY  = 0.32   # additif : 0.1 discret · 0.3 visible · 0.6 fort
+HALATION_RED_SHIFT  = 0.32    # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
+
+# Bloom : glow général obtenu en superposant l'image floutée en mode Screen.
+# radius    : rayon du flou exprimé en % de la plus petite dimension de l'image
+#             (2 = discret, 6 = standard, 15 = prononcé)
+# intensity : intensité additive (0.0 = aucun, 0.4 = visible, 1.0 = très fort)
+
+BLOOM_ENABLED    = True
+BLOOM_RADIUS     = 9
+BLOOM_INTENSITY  = 0.42
+
+# ── 12.4  Désaturation des extrêmes + boost mi-tons (Grain pellicule.py) ──────
+# Les films argentiques perdent de la saturation dans les ombres très sombres
+# et dans les hautes lumières très claires (compression des couleurs aux extrêmes).
+# shadow_threshold    : luma en dessous duquel l'effet s'applique (0.0–1.0)
+# shadow_intensity    : force de la désaturation dans les ombres   (0.0 = aucun, 1.0 = gris pur)
+# highlight_threshold : luma au-dessus duquel l'effet s'applique   (0.0–1.0)
+# highlight_intensity : force de la désaturation dans les hautes lumières
+# midtone_boost       : saturation supplémentaire dans les mi-tons (0 = aucun, 0.3 = prononcé)
+#                       masque = (1 - shadow_mask) × (1 - highlight_mask) — pic en plein mi-ton
+
+DESAT_ENABLED             = True
+DESAT_SHADOW_THRESHOLD    = 0.20   # ombres sous 25 % de luminosité
+DESAT_SHADOW_INTENSITY    = 1.0    # désaturation dans les noirs
+DESAT_HIGHLIGHT_THRESHOLD = 0.8   # hautes lumières au-dessus de 80 %
+DESAT_HIGHLIGHT_INTENSITY = 1.0    # désaturation dans les blancs
+DESAT_MIDTONE_BOOST       = 0.25  # boost de saturation en mi-tons (0 = aucun, 0.3 = prononcé)
+
+
+# ── 12.5  Courbe tonale argentique (Grain pellicule.py) ──────────────────────
+# Courbe non-linéaire appliquée après le bloom/halation pour reproduire la
+# caractéristique du film : épaulement dans les HL + pied dans les ombres.
+# shoulder_start    : seuil à partir duquel les HL sont compressées (0.70–0.90)
+# shoulder_strength : force de l'épaulement (0 = linéaire, 0.5 = standard, 1.5 = fort)
+# toe_start         : seuil en dessous duquel les ombres sont relevées (0.03–0.12)
+# toe_lift          : amplitude du relèvement des noirs (0 = aucun, 0.10 = subtil)
+
+CURVE_ENABLED           = True
+CURVE_SHOULDER_START    = 0.8   # 0.70 large · 0.80 standard · 0.90 conservateur
+CURVE_SHOULDER_STRENGTH = 0.5   # 0.2 doux · 0.5 standard · 1.5 fort
+CURVE_TOE_START         = 0.2   # seuil du pied (luma)
+CURVE_TOE_LIFT          = 0.3   # 0 = aucun · 0.08 subtil · 0.20 prononcé

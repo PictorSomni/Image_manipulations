@@ -45,7 +45,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.8.3"
+__version__ = "2.8.4"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -4344,16 +4344,16 @@ def main(page: ft.Page):
             pass
 
     app.custom_w_field = ft.TextField(
-        label="Largeur", value="100", width=105,
+        label="Largeur", value="100", expand=True,
         text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
-        border_color=BLUE, bgcolor=BG,
+        border=ft.InputBorder.OUTLINE, border_color=BLUE, focused_border_color=BLUE, bgcolor=BG,
         disabled=True,
         on_submit=_on_custom_dim_change, on_blur=_on_custom_dim_change,
     )
     app.custom_h_field = ft.TextField(
-        label="Hauteur", value="100", width=105,
+        label="Hauteur", value="100", expand=True,
         text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
-        border_color=BLUE, bgcolor=BG,
+        border=ft.InputBorder.OUTLINE, border_color=BLUE, focused_border_color=BLUE, bgcolor=BG,
         disabled=True,
         on_submit=_on_custom_dim_change, on_blur=_on_custom_dim_change,
     )
@@ -4405,7 +4405,6 @@ def main(page: ft.Page):
         bgcolor=DARK,
         border_radius=8,
         padding=ft.Padding.symmetric(horizontal=10, vertical=10),
-        height=CONSTANTS.RECADRAGE_CUSTOM_PANEL_HEIGHT,
     )
 
     controls = ft.Column([

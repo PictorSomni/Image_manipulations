@@ -20,7 +20,7 @@ Variables d'environnement :
 Dépendances : flet >= 0.84
 """
 
-__version__ = "2.8.3"
+__version__ = "2.8.4"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  IMPORTS
@@ -467,7 +467,10 @@ def main(page: ft.Page):
 
         async def _close_after_delay():
             await asyncio.sleep(1.5)
-            await page.window.close()
+            try:
+                await page.window.close()
+            except Exception:
+                pass
             os._exit(0)  # Garantit la fin du processus pour que Dashboard détecte la fermeture
 
         page.run_task(_close_after_delay)
