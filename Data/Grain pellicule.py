@@ -26,7 +26,7 @@ Variables d'environnement :
 Dépendances : OpenCV (cv2), NumPy, Pillow (PIL)
 """
 
-__version__ = "2.8.2"
+__version__ = "2.8.3"
 
 #############################################################
 #                          IMPORTS                          #
@@ -60,35 +60,42 @@ total = len(files_to_process)
 output_folder = folder_path / "GRAIN"
 output_folder.mkdir(exist_ok=True)
 
-AMOUNT       = CONSTANTS.GRAIN_AMOUNT
-SIZE         = CONSTANTS.GRAIN_SIZE
-COLOR_RATIO  = CONSTANTS.GRAIN_COLOR_RATIO
-SHADOW_BOOST = CONSTANTS.GRAIN_SHADOW_BOOST
+AMOUNT       = float(os.environ.get("GRAIN_AMOUNT",       CONSTANTS.GRAIN_AMOUNT))
+SIZE         = float(os.environ.get("GRAIN_SIZE",         CONSTANTS.GRAIN_SIZE))
+COLOR_RATIO  = float(os.environ.get("GRAIN_COLOR_RATIO",  CONSTANTS.GRAIN_COLOR_RATIO))
+SHADOW_BOOST = float(os.environ.get("GRAIN_SHADOW_BOOST", CONSTANTS.GRAIN_SHADOW_BOOST))
+
+_GRAIN2_AMOUNT_RAW = os.environ.get("GRAIN2_AMOUNT")
+GRAIN2_ENABLED = _GRAIN2_AMOUNT_RAW is not None
+AMOUNT2       = float(_GRAIN2_AMOUNT_RAW or CONSTANTS.GRAIN2_AMOUNT)
+SIZE2         = float(os.environ.get("GRAIN2_SIZE",         CONSTANTS.GRAIN2_SIZE))
+COLOR_RATIO2  = float(os.environ.get("GRAIN2_COLOR_RATIO",  CONSTANTS.GRAIN2_COLOR_RATIO))
+SHADOW_BOOST2 = float(os.environ.get("GRAIN2_SHADOW_BOOST", CONSTANTS.GRAIN2_SHADOW_BOOST))
 
 
-def add_film_grain(pil_img: Image.Image) -> Image.Image:
+def add_film_grain(
+    pil_img: Image.Image,
+    amount: float,
+    size: float,
+    color_ratio: float,
+    shadow_boost: float,
+) -> Image.Image:
     """Applique un grain argentique simulé à une image PIL RGB."""
     img = np.array(pil_img, dtype=np.float32) / 255.0
     h, w = img.shape[:2]
 
-    # Grain généré à résolution réduite → interpolé → grains de taille SIZE pixels
-    grain_h = max(1, round(h / SIZE))
-    grain_w = max(1, round(w / SIZE))
+    grain_h = max(1, round(h / size))
+    grain_w = max(1, round(w / size))
 
     rng = np.random.default_rng()
-    # Grain monochrome (même valeur sur les 3 canaux) + grain couleur (indépendant par canal)
-    # COLOR_RATIO contrôle la part de variation chromatique : 0.0 = mono pur, 1.0 = couleur pleine
-    grain_mono  = rng.normal(0.0, AMOUNT, (grain_h, grain_w, 1)).astype(np.float32)
-    grain_color = rng.normal(0.0, AMOUNT, (grain_h, grain_w, 3)).astype(np.float32)
-    grain_small = np.repeat(grain_mono, 3, axis=2) * (1.0 - COLOR_RATIO) + grain_color * COLOR_RATIO
+    grain_mono  = rng.normal(0.0, amount, (grain_h, grain_w, 1)).astype(np.float32)
+    grain_color = rng.normal(0.0, amount, (grain_h, grain_w, 3)).astype(np.float32)
+    grain_small = np.repeat(grain_mono, 3, axis=2) * (1.0 - color_ratio) + grain_color * color_ratio
 
-    # Réinterpolation bicubique pour un grain à taille réaliste
     grain = cv2.resize(grain_small, (w, h), interpolation=cv2.INTER_CUBIC)
 
-    # Masque de luminance : pondère le grain (fort dans les ombres, faible dans les lumières)
     luma = (0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2])
-    # Courbe non linéaire : maximum vers luma ~0.2, quasi nul à 1.0
-    shadow_weight = (1.0 - luma ** 1.2) ** SHADOW_BOOST
+    shadow_weight = (1.0 - luma ** 1.2) ** shadow_boost
     shadow_weight = np.clip(shadow_weight, 0.0, 1.0)[:, :, np.newaxis]
 
     result = np.clip(img + grain * shadow_weight, 0.0, 1.0)
@@ -105,7 +112,9 @@ for index, file_name in enumerate(files_to_process):
     except Exception:
         continue
 
-    result = add_film_grain(pil_img)
+    result = add_film_grain(pil_img, AMOUNT, SIZE, COLOR_RATIO, SHADOW_BOOST)
+    if GRAIN2_ENABLED:
+        result = add_film_grain(result, AMOUNT2, SIZE2, COLOR_RATIO2, SHADOW_BOOST2)
     stem = Path(file_name).stem
     result.save(str(output_folder / f"{stem}.jpg"), format="JPEG", subsampling=0, quality=100)
 

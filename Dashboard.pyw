@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.8.2"
+__version__ = "2.8.3"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -7228,6 +7228,164 @@ def main(page: ft.Page):
                                     app_name, app_path, is_local)
             return
 
+        if app_name == "Grain pellicule.py" and series_name is None:
+
+            def _grain_group(label, color, amount_val, size_val, color_val, shadow_val):
+                """Retourne (container, dict_of_fields) pour un groupe de 4 champs."""
+                fields = {
+                    "amount": ft.TextField(
+                        label="Intensité (amount)",
+                        value=str(amount_val),
+                        hint_text="0.03 fin · 0.10 ISO 400 · 0.20 ISO 1600",
+                        text_size=12,
+                        keyboard_type=ft.KeyboardType.NUMBER,
+                        border_color=color,
+                        bgcolor=DARK,
+                        height=56,
+                    ),
+                    "size": ft.TextField(
+                        label="Taille (px)",
+                        value=str(size_val),
+                        hint_text="1 fin · 2-3 moyen · 4-5 gros",
+                        text_size=12,
+                        keyboard_type=ft.KeyboardType.NUMBER,
+                        border_color=color,
+                        bgcolor=DARK,
+                        height=56,
+                    ),
+                    "color": ft.TextField(
+                        label="Couleur (color_ratio)",
+                        value=str(color_val),
+                        hint_text="0.0 mono · 0.3 subtil · 1.0 plein",
+                        text_size=12,
+                        keyboard_type=ft.KeyboardType.NUMBER,
+                        border_color=color,
+                        bgcolor=DARK,
+                        height=56,
+                    ),
+                    "shadow": ft.TextField(
+                        label="Ombres (shadow_boost)",
+                        value=str(shadow_val),
+                        hint_text="1.0 uniforme · 1.8 réaliste · 3.0 fort",
+                        text_size=12,
+                        keyboard_type=ft.KeyboardType.NUMBER,
+                        border_color=color,
+                        bgcolor=DARK,
+                        height=56,
+                    ),
+                }
+                container = ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Text(label, size=12, color=color, weight=ft.FontWeight.BOLD),
+                            ft.Row([fields["amount"], fields["size"]], spacing=8),
+                            ft.Row([fields["color"], fields["shadow"]], spacing=8),
+                        ],
+                        spacing=6,
+                        tight=True,
+                    ),
+                    border=ft.Border.all(1, color),
+                    border_radius=6,
+                    padding=ft.Padding(10, 8, 10, 8),
+                )
+                return container, fields
+
+            _g1_container, _g1 = _grain_group(
+                "Couche 1",
+                ORANGE,
+                CONSTANTS.GRAIN_AMOUNT,
+                CONSTANTS.GRAIN_SIZE,
+                CONSTANTS.GRAIN_COLOR_RATIO,
+                CONSTANTS.GRAIN_SHADOW_BOOST,
+            )
+
+            _grain2_enabled = {"value": True}
+            _g2_container, _g2 = _grain_group(
+                "Couche 2",
+                LIGHT_GREY,
+                CONSTANTS.GRAIN2_AMOUNT,
+                CONSTANTS.GRAIN2_SIZE,
+                CONSTANTS.GRAIN2_COLOR_RATIO,
+                CONSTANTS.GRAIN2_SHADOW_BOOST,
+            )
+
+            _grain2_switch = ft.Switch(
+                label="Activer la couche 2",
+                value=True,
+                active_color=ORANGE,
+            )
+
+            def _on_grain2_toggle(e):
+                _grain2_enabled["value"] = bool(e.control.value)
+                _g2_container.opacity = 1.0 if _grain2_enabled["value"] else 0.3
+                for f in _g2.values():
+                    f.disabled = not _grain2_enabled["value"]
+                page.update()
+
+            _grain2_switch.on_change = _on_grain2_toggle
+
+            _grain_error_text = ft.Text("", size=12, color=RED, text_align=ft.TextAlign.CENTER)
+
+            def _parse_grain_group(fields):
+                amount = float((fields["amount"].value or "").replace(",", ".").strip())
+                size   = float((fields["size"].value or "").replace(",", ".").strip())
+                color  = float((fields["color"].value or "").replace(",", ".").strip())
+                shadow = float((fields["shadow"].value or "").replace(",", ".").strip())
+                if amount < 0 or size <= 0 or not (0.0 <= color <= 1.0) or shadow < 0:
+                    raise ValueError()
+                return amount, size, color, shadow
+
+            def _on_grain_confirm(e):
+                try:
+                    a1, s1, c1, sh1 = _parse_grain_group(_g1)
+                    token = f"{a1}|{s1}|{c1}|{sh1}"
+                    if _grain2_enabled["value"]:
+                        a2, s2, c2, sh2 = _parse_grain_group(_g2)
+                        token += f"|{a2}|{s2}|{c2}|{sh2}"
+                except Exception:
+                    _grain_error_text.value = "Valeurs invalides. Vérifie les champs."
+                    page.update()
+                    return
+                _grain_dlg.open = False
+                page.update()
+                launch_app(app_name, app_path, is_local, series_name=token)
+
+            def _on_grain_cancel(e):
+                _grain_dlg.open = False
+                page.update()
+
+            _grain_dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Grain pellicule — paramètres", text_align=ft.TextAlign.CENTER, color=ORANGE),
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "Les valeurs par défaut viennent de CONSTANTS.py (section 12.2).",
+                            size=11,
+                            color=LIGHT_GREY,
+                            text_align=ft.TextAlign.CENTER,
+                        ),
+                        _g1_container,
+                        _grain2_switch,
+                        _g2_container,
+                        _grain_error_text,
+                    ],
+                    tight=True,
+                    spacing=10,
+                    width=420,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                actions=[
+                    ft.TextButton("Annuler", on_click=_on_grain_cancel, style=ft.ButtonStyle(color=ORANGE)),
+                    ft.TextButton("Lancer", on_click=_on_grain_confirm, style=ft.ButtonStyle(color=ORANGE)),
+                ],
+                actions_alignment=ft.MainAxisAlignment.CENTER,
+            )
+            page.overlay.append(_grain_dlg)
+            _grain_dlg.open = True
+            page.update()
+            return
+
         if not is_local and not (current_browse_folder["path"] or selected_folder["path"]):
             log_to_terminal("[ERREUR] Veuillez sélectionner un dossier avant de lancer cette application", RED)
             return
@@ -7515,6 +7673,20 @@ def main(page: ft.Page):
                     env["COPYRIGHT_MODE"] = mode_part
                     if mode_part == "custom" and custom_part:
                         env["COPYRIGHT_CUSTOM"] = custom_part
+
+                # Paramètres Grain pellicule
+                if app_name == "Grain pellicule.py" and series_name:
+                    parts = series_name.split("|")
+                    if len(parts) >= 4:
+                        env["GRAIN_AMOUNT"]       = parts[0]
+                        env["GRAIN_SIZE"]         = parts[1]
+                        env["GRAIN_COLOR_RATIO"]  = parts[2]
+                        env["GRAIN_SHADOW_BOOST"] = parts[3]
+                    if len(parts) == 8:
+                        env["GRAIN2_AMOUNT"]       = parts[4]
+                        env["GRAIN2_SIZE"]         = parts[5]
+                        env["GRAIN2_COLOR_RATIO"]  = parts[6]
+                        env["GRAIN2_SHADOW_BOOST"] = parts[7]
 
 
                 # (si aucun n'est sélectionné, la variable sera vide)

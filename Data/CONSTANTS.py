@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.8.2"
+__version__ = "2.8.3"
 
 
 # ==============================================================================
@@ -498,8 +498,8 @@ SIZES = STUDIOS   # Alias conservé pour compatibilité ascendante
 # template   : taille de la fenêtre de comparaison (doit être impair, typiquement 7)
 # search     : taille de la fenêtre de recherche   (doit être impair, typiquement 21)
 
-DENOISE_H               = 8     # Force luminance
-DENOISE_H_COLOR         = 8     # Force couleur
+DENOISE_H               = 4     # Force luminance
+DENOISE_H_COLOR         = 4     # Force couleur
 DENOISE_TEMPLATE_WINDOW = 7     # Fenêtre de comparaison (px, impair)
 DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
 
@@ -516,5 +516,10 @@ DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
 
 GRAIN_AMOUNT       = 0.02    # Intensité du grain
 GRAIN_SIZE         = 3       # Taille des grains (px)
-GRAIN_COLOR_RATIO  = 0.3     # Part de grain couleur (0.0 = mono pur, 1.0 = couleur pleine)
-GRAIN_SHADOW_BOOST = 1.8     # Renforcement du grain dans les ombres
+GRAIN_COLOR_RATIO  = 0.4     # Part de grain couleur (0.0 = mono pur, 1.0 = couleur pleine)
+GRAIN_SHADOW_BOOST = 1.2     # Renforcement du grain dans les ombres
+
+GRAIN2_AMOUNT       = 0.04   # Couche 2 — intensité
+GRAIN2_SIZE         = 1    # Couche 2 — taille (px)
+GRAIN2_COLOR_RATIO  = 0.2   # Couche 2 — part couleur
+GRAIN2_SHADOW_BOOST = 1.6    # Couche 2 — renforcement ombres
