@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.8.4"
+__version__ = "2.8.5"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -7288,9 +7288,9 @@ def main(page: ft.Page):
                         expand=True,
                     ),
                     "size": ft.TextField(
-                        label="Taille (px)",
+                        label="Taille (% min. dim.)",
                         value=str(size_val),
-                        hint_text="1 fin · 2-3 moyen · 4-5 gros",
+                        hint_text="0.1 fin · 0.3 moyen · 0.6 gros",
                         text_size=12,
                         keyboard_type=ft.KeyboardType.NUMBER,
                         border=ft.InputBorder.OUTLINE,
@@ -9573,13 +9573,6 @@ def main(page: ft.Page):
                         select_toggle_button,
                         invert_selection_button,
                         select_same_date_button,
-                        ft.IconButton(
-                            icon=ft.Icons.SNIPPET_FOLDER,
-                            tooltip="Copier la sélection dans SELECTION/",
-                            on_click=copy_to_selection_folder,
-                            icon_color=BLUE,
-                            icon_size=20,
-                        ),
                         ft.IconButton(
                             icon=ft.Icons.DELETE_SWEEP,
                             tooltip="Supprimer les fichiers sélectionnés",

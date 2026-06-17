@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.8.4"
+__version__ = "2.8.5"
 
 
 # ==============================================================================
@@ -499,7 +499,7 @@ SIZES = STUDIOS   # Alias conservé pour compatibilité ascendante
 # search     : taille de la fenêtre de recherche   (doit être impair, typiquement 21)
 
 DENOISE_H               = 4     # Force luminance
-DENOISE_H_COLOR         = 4     # Force couleur
+DENOISE_H_COLOR         = 2     # Force couleur
 DENOISE_TEMPLATE_WINDOW = 7     # Fenêtre de comparaison (px, impair)
 DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
 
@@ -507,20 +507,20 @@ DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
 # ── 12.2  Grain pellicule (Grain pellicule.py) ────────────────────────────────
 # Simulation de grain argentique avec pondération par luminance.
 # amount            : intensité du grain  (0.0 = aucun, 0.05 = fin ISO 100, 0.15 = ISO 800, 0.30 = ISO 3200)
-# size              : taille du grain en pixels (1.0 = pixel, 1.5-2.5 = gros grain)
+# size              : taille du grain en % de la plus petite dimension (0.1 = fin, 0.3 = moyen, 0.6 = gros)
 # color_ratio       : part de grain couleur mélangée au grain monochrome
 #                     0.0 = grain 100 % monochrome (aucune variation de teinte)
 #                     0.3 = légère variation chromatique (réaliste, style film négatif)
 #                     1.0 = variation couleur maximale par canal R/G/B
 # shadow_boost      : concentration du grain sur les mi-tons (1 = large/plat, 2 = centré, 3 = serré)
 
-GRAIN_AMOUNT       = 0.015     # Intensité du grain
-GRAIN_SIZE         = 4       # Taille des grains (px)
+GRAIN_AMOUNT       = 0.013     # Intensité du grain
+GRAIN_SIZE         = 0.09     # Taille des grains (% de la plus petite dimension)
 GRAIN_COLOR_RATIO  = 0.3     # Part de grain couleur (0.0 = mono pur, 1.0 = couleur pleine)
 GRAIN_SHADOW_BOOST = 2    # Concentration sur les mi-tons (1 = large, 2 = centré, 3 = serré)
 
-GRAIN2_AMOUNT       = 0.025   # Couche 2 — intensité
-GRAIN2_SIZE         = 2      # Couche 2 — taille (px)
+GRAIN2_AMOUNT       = 0.02   # Couche 2 — intensité
+GRAIN2_SIZE         = 0.05   # Couche 2 — taille (% de la plus petite dimension)
 GRAIN2_COLOR_RATIO  = 0.2    # Couche 2 — part couleur
 GRAIN2_SHADOW_BOOST = 3    # Couche 2 — concentration mi-tons
 

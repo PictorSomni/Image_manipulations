@@ -17,7 +17,7 @@ avec le même nom de base en JPEG qualité maximale.
 
 Paramètres configurables dans CONSTANTS.py (section 12.2) :
   GRAIN_AMOUNT       — intensité  (0.05 = ISO 100, 0.10 = ISO 400, 0.20 = ISO 1600)
-  GRAIN_SIZE         — taille en pixels (1.0 = grain fin, 2.0-3.0 = gros grain)
+  GRAIN_SIZE         — taille en % de la plus petite dimension (0.1 = fin, 0.3 = moyen, 0.6 = gros)
   GRAIN_COLOR_RATIO  — part de grain couleur (0.0 = mono pur, 0.3 = subtil, 1.0 = plein)
   GRAIN_SHADOW_BOOST — concentration sur les mi-tons (1.0 = large, 2.0 = centré, 3.0 = serré)
 
@@ -28,7 +28,7 @@ Variables d'environnement :
 Dépendances : OpenCV (cv2), NumPy, Pillow (PIL)
 """
 
-__version__ = "2.8.4"
+__version__ = "2.8.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -189,8 +189,9 @@ def add_film_grain(
     img = np.array(pil_img, dtype=np.float32) / 255.0
     h, w = img.shape[:2]
 
-    grain_h = max(1, round(h / size))
-    grain_w = max(1, round(w / size))
+    size_px = max(1.0, size / 100.0 * min(h, w))
+    grain_h = max(1, round(h / size_px))
+    grain_w = max(1, round(w / size_px))
 
     rng = np.random.default_rng()
     grain_mono  = rng.normal(0.0, amount, (grain_h, grain_w, 1)).astype(np.float32)

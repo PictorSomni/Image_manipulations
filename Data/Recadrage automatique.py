@@ -27,7 +27,7 @@ Sortie :
   Un sous-dossier nomme d'apres la taille cible (ex: "10x15" ou "12x17").
 """
 
-__version__ = "2.8.4"
+__version__ = "2.8.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -418,29 +418,49 @@ if fit_mode:
         stem_counts = {}
         for _, _, stem in all_canvases:
             stem_counts[stem] = stem_counts.get(stem, 0) + 1
-        
+
+        # Exception single-fit : si une image avec préfixe NX_ ne tient qu'une seule
+        # fois dans le canvas (cols=1, rows=1), on reporte le N sur le nom de fichier
+        # exporté et on ne génère qu'un seul canvas au lieu de N identiques.
+        single_fit_stems = {
+            stem
+            for stem, count in stem_counts.items()
+            if count > 1 and all(
+                len(ct) == 1
+                for _, ct, s in all_canvases
+                if s == stem
+            )
+        }
+
+        saved_count = 0
         stem_indices = {}
+        already_saved = set()
         for canvas, canvas_tiles, stem in all_canvases:
-            canvas_rgb = canvas.convert("RGB")
-            
-            total_for_stem = stem_counts[stem]
-            if total_for_stem == 1:
-                # Fichier unique pour ce nom : pas besoin de numéro
-                out_filename = f"{folder_name}_{stem}.jpg"
+            if stem in single_fit_stems:
+                if stem in already_saved:
+                    continue
+                already_saved.add(stem)
+                n = stem_counts[stem]
+                out_filename = f"{n}X_{folder_name}_{stem}.jpg"
             else:
-                # Plusieurs pages pour le même nom : on ajoute un index propre (_1, _2, ...)
-                current_idx = stem_indices.get(stem, 1)
-                out_filename = f"{folder_name}_{stem}_{current_idx}.jpg"
-                stem_indices[stem] = current_idx + 1
-            
+                total_for_stem = stem_counts[stem]
+                if total_for_stem == 1:
+                    out_filename = f"{folder_name}_{stem}.jpg"
+                else:
+                    current_idx = stem_indices.get(stem, 1)
+                    out_filename = f"{folder_name}_{stem}_{current_idx}.jpg"
+                    stem_indices[stem] = current_idx + 1
+
+            canvas_rgb = canvas.convert("RGB")
             out_path = output_folder / out_filename
             canvas_rgb.save(out_path, dpi=(DPI, DPI), format="JPEG", subsampling=0, quality=100)
-            
+            saved_count += 1
+
             print(f"✓ {out_filename} ({len(canvas_tiles)} tuile(s))")
             for source_name, x, y in canvas_tiles:
                 print(f"   - {source_name}")
-        
-        ok_count = len(all_canvases)
+
+        ok_count = saved_count
     else:
         ok_count = 0
         err_count = len(images)
