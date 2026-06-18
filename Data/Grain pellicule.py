@@ -28,7 +28,7 @@ Variables d'environnement :
 Dépendances : OpenCV (cv2), NumPy, Pillow (PIL)
 """
 
-__version__ = "2.8.6"
+__version__ = "2.8.7"
 
 #############################################################
 #                          IMPORTS                          #
@@ -74,6 +74,9 @@ SIZE2         = float(os.environ.get("GRAIN2_SIZE",         CONSTANTS.GRAIN2_SIZ
 COLOR_RATIO2  = float(os.environ.get("GRAIN2_COLOR_RATIO",  CONSTANTS.GRAIN2_COLOR_RATIO))
 SHADOW_BOOST2 = float(os.environ.get("GRAIN2_SHADOW_BOOST", CONSTANTS.GRAIN2_SHADOW_BOOST))
 
+CHROMA_SHIFT  = float(os.environ.get("GRAIN_CHROMA_SHIFT",  CONSTANTS.GRAIN_CHROMA_SHIFT))
+CHROMA_SHIFT2 = float(os.environ.get("GRAIN2_CHROMA_SHIFT", CONSTANTS.GRAIN2_CHROMA_SHIFT))
+
 GRAIN1_ENABLED     = os.environ.get("GRAIN1_ENABLED", "1") == "1"
 
 HALATION_ENABLED   = os.environ.get("HALATION_ENABLED", "1") == "1"
@@ -98,6 +101,10 @@ CURVE_SHOULDER_START    = float(os.environ.get("CURVE_SHOULDER_START",    CONSTA
 CURVE_SHOULDER_STRENGTH = float(os.environ.get("CURVE_SHOULDER_STRENGTH", CONSTANTS.CURVE_SHOULDER_STRENGTH))
 CURVE_TOE_START         = float(os.environ.get("CURVE_TOE_START",         CONSTANTS.CURVE_TOE_START))
 CURVE_TOE_LIFT          = float(os.environ.get("CURVE_TOE_LIFT",          CONSTANTS.CURVE_TOE_LIFT))
+
+CA_ENABLED     = os.environ.get("CA_ENABLED", "1") == "1"
+CA_STRENGTH    = float(os.environ.get("CA_STRENGTH",    CONSTANTS.CA_STRENGTH))
+CA_AXIAL_RATIO = float(os.environ.get("CA_AXIAL_RATIO", CONSTANTS.CA_AXIAL_RATIO))
 
 
 def add_filmic_curve(
@@ -184,8 +191,13 @@ def add_film_grain(
     size: float,
     color_ratio: float,
     shadow_boost: float,
+    chroma_shift: float = 0.0,
 ) -> Image.Image:
-    """Applique un grain argentique simulé à une image PIL RGB."""
+    """Applique un grain argentique simulé à une image PIL RGB.
+
+    chroma_shift > 0 : grain indépendant par canal R/G/B avec décalage spatial,
+    simulant le désalignement physique des couches d'émulsion argentique.
+    """
     img = np.array(pil_img, dtype=np.float32) / 255.0
     h, w = img.shape[:2]
 
@@ -194,11 +206,29 @@ def add_film_grain(
     grain_w = max(1, round(w / size_px))
 
     rng = np.random.default_rng()
-    grain_mono  = rng.normal(0.0, amount, (grain_h, grain_w, 1)).astype(np.float32)
-    grain_color = rng.normal(0.0, amount, (grain_h, grain_w, 3)).astype(np.float32)
-    grain_small = np.repeat(grain_mono, 3, axis=2) * (1.0 - color_ratio) + grain_color * color_ratio
+    grain_mono = rng.normal(0.0, amount, (grain_h, grain_w, 1)).astype(np.float32)
 
-    grain = cv2.resize(grain_small, (w, h), interpolation=cv2.INTER_CUBIC)
+    if chroma_shift > 0.0:
+        # Couches d'émulsion indépendantes : grain distinct par canal, chacun agrandi séparément
+        gr = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
+        gg = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
+        gb = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
+        # Décalage diagonal opposé entre R et B (G = référence)
+        shift = round(chroma_shift / 100.0 * min(h, w))
+        if shift > 0:
+            gr = np.roll(gr, shift=( shift,  shift), axis=(0, 1))
+            gb = np.roll(gb, shift=(-shift, -shift), axis=(0, 1))
+        mono_full = cv2.resize(grain_mono[:, :, 0], (w, h), interpolation=cv2.INTER_CUBIC)
+        mono_w = 1.0 - color_ratio
+        grain = np.stack([
+            mono_full * mono_w + gr * color_ratio,
+            mono_full * mono_w + gg * color_ratio,
+            mono_full * mono_w + gb * color_ratio,
+        ], axis=-1)
+    else:
+        grain_color = rng.normal(0.0, amount, (grain_h, grain_w, 3)).astype(np.float32)
+        grain_small = np.repeat(grain_mono, 3, axis=2) * (1.0 - color_ratio) + grain_color * color_ratio
+        grain = cv2.resize(grain_small, (w, h), interpolation=cv2.INTER_CUBIC)
 
     luma = (0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2])
     # Parabole centrée sur les mi-tons avec plancher : peak à luma=0.5 (×1.0),
@@ -290,6 +320,45 @@ def add_bloom(
     return Image.fromarray((np.clip(result, 0.0, 1.0) * 255).astype(np.uint8))
 
 
+def add_chromatic_aberration(
+    pil_img: Image.Image,
+    strength: float,
+    axial_ratio: float = 0.15,
+) -> Image.Image:
+    """Aberration chromatique radiale + axiale : R agrandi, B rétréci, G = référence.
+
+    strength    : intensité en % de la diagonale (0.3 = subtil · 1.0 = prononcé · 2.0 = fort)
+    axial_ratio : part de translation uniforme ajoutée (0 = purement radial, 0.15 = subtil au centre)
+    """
+    if strength <= 0:
+        return pil_img
+    img = np.array(pil_img, dtype=np.float32) / 255.0
+    h, w = img.shape[:2]
+    cy, cx = h / 2.0, w / 2.0
+
+    scale = strength / 100.0
+    scale_r = 1.0 + scale
+    scale_b = max(1e-6, 1.0 - scale)
+
+    y_grid, x_grid = np.mgrid[0:h, 0:w].astype(np.float32)
+    dx = x_grid - cx
+    dy = y_grid - cy
+
+    axial = strength / 100.0 * min(h, w) * axial_ratio
+
+    map_x_r = (cx + dx / scale_r + axial).astype(np.float32)
+    map_y_r = (cy + dy / scale_r + axial).astype(np.float32)
+    map_x_b = (cx + dx / scale_b - axial).astype(np.float32)
+    map_y_b = (cy + dy / scale_b - axial).astype(np.float32)
+
+    r = cv2.remap(img[:, :, 0], map_x_r, map_y_r, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    g = img[:, :, 1]
+    b = cv2.remap(img[:, :, 2], map_x_b, map_y_b, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
+    result = np.clip(np.stack([r, g, b], axis=-1), 0.0, 1.0)
+    return Image.fromarray((result * 255).astype(np.uint8))
+
+
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -301,6 +370,9 @@ for index, file_name in enumerate(files_to_process):
         continue
 
     result = pil_img
+    if CA_ENABLED:
+        print("  → Aberrations chromatiques...")
+        result = add_chromatic_aberration(result, CA_STRENGTH, CA_AXIAL_RATIO)
     if DESAT_ENABLED:
         print("  → Désaturation des extrêmes...")
         result = add_desaturate_extremes(result, DESAT_SHADOW_THRESHOLD, DESAT_SHADOW_INTENSITY,
@@ -318,10 +390,10 @@ for index, file_name in enumerate(files_to_process):
                                   CURVE_TOE_START, CURVE_TOE_LIFT)
     if GRAIN1_ENABLED:
         print("  → Grain 1...")
-        result = add_film_grain(result, AMOUNT, SIZE, COLOR_RATIO, SHADOW_BOOST)
+        result = add_film_grain(result, AMOUNT, SIZE, COLOR_RATIO, SHADOW_BOOST, CHROMA_SHIFT)
     if GRAIN2_ENABLED:
         print("  → Grain 2...")
-        result = add_film_grain(result, AMOUNT2, SIZE2, COLOR_RATIO2, SHADOW_BOOST2)
+        result = add_film_grain(result, AMOUNT2, SIZE2, COLOR_RATIO2, SHADOW_BOOST2, CHROMA_SHIFT2)
     stem = Path(file_name).stem
     result.save(str(output_folder / f"{stem}.jpg"), format="JPEG", subsampling=0, quality=100)
 

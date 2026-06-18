@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.8.6"
+__version__ = "2.8.7"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -7365,8 +7365,8 @@ def main(page: ft.Page):
 
         if app_name == "Grain pellicule.py" and series_name is None:
 
-            def _grain_group(label, color, amount_val, size_val, color_val, shadow_val):
-                """Retourne (container, dict_of_fields) pour un groupe de 4 champs."""
+            def _grain_group(label, color, amount_val, size_val, color_val, shadow_val, chroma_shift_val):
+                """Retourne (container, dict_of_fields) pour un groupe de 5 champs."""
                 fields = {
                     "amount": ft.TextField(
                         label="Intensité (amount)",
@@ -7420,6 +7420,19 @@ def main(page: ft.Page):
                         height=56,
                         expand=True,
                     ),
+                    "chroma_shift": ft.TextField(
+                        label="Décalage inter-canal (%)",
+                        value=str(chroma_shift_val),
+                        hint_text="0 = désactivé · 0.1 subtil · 0.3 prononcé",
+                        text_size=12,
+                        keyboard_type=ft.KeyboardType.NUMBER,
+                        border=ft.InputBorder.OUTLINE,
+                        border_color=color,
+                        focused_border_color=color,
+                        bgcolor=DARK,
+                        height=56,
+                        expand=True,
+                    ),
                 }
                 container = ft.Container(
                     content=ft.Column(
@@ -7427,6 +7440,7 @@ def main(page: ft.Page):
                             ft.Text(label, size=12, color=color, weight=ft.FontWeight.BOLD),
                             ft.Row([fields["amount"], fields["size"]], spacing=8),
                             ft.Row([fields["color"], fields["shadow"]], spacing=8),
+                            ft.Row([fields["chroma_shift"]], spacing=8),
                         ],
                         spacing=6,
                         tight=True,
@@ -7445,6 +7459,7 @@ def main(page: ft.Page):
                 CONSTANTS.GRAIN_SIZE,
                 CONSTANTS.GRAIN_COLOR_RATIO,
                 CONSTANTS.GRAIN_SHADOW_BOOST,
+                CONSTANTS.GRAIN_CHROMA_SHIFT,
             )
             _grain1_switch = ft.Switch(value=True, active_color=ORANGE)
 
@@ -7465,6 +7480,7 @@ def main(page: ft.Page):
                 CONSTANTS.GRAIN2_SIZE,
                 CONSTANTS.GRAIN2_COLOR_RATIO,
                 CONSTANTS.GRAIN2_SHADOW_BOOST,
+                CONSTANTS.GRAIN2_CHROMA_SHIFT,
             )
 
             _grain2_switch = ft.Switch(
@@ -7712,21 +7728,64 @@ def main(page: ft.Page):
 
             _desat_switch.on_change = _on_desat_toggle
 
+            # ── Aberrations chromatiques ──────────────────────────────────────
+            _ca_enabled = {"value": True}
+            _ca_fields = {
+                "strength": ft.TextField(
+                    label="Intensité (% diagonale)",
+                    value=str(CONSTANTS.CA_STRENGTH),
+                    hint_text="0.3 subtil · 1.0 prononcé · 2.0 fort",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=YELLOW, focused_border_color=YELLOW,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "axial_ratio": ft.TextField(
+                    label="Composante axiale",
+                    value=str(CONSTANTS.CA_AXIAL_RATIO),
+                    hint_text="0 = purement radial · 0.15 subtil · 0.4 fort",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=YELLOW, focused_border_color=YELLOW,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+            }
+            _ca_container = ft.Container(
+                content=ft.Column(
+                    [
+                        ft.Row([_ca_fields["strength"], _ca_fields["axial_ratio"]], spacing=8),
+                    ],
+                    spacing=6, tight=True,
+                ),
+                border=ft.Border.all(1, YELLOW),
+                border_radius=6,
+                padding=ft.Padding(10, 8, 10, 8),
+            )
+            _ca_switch = ft.Switch(value=True, active_color=YELLOW)
+
+            def _on_ca_toggle(e):
+                _ca_enabled["value"] = bool(e.control.value)
+                _ca_container.opacity = 1.0 if _ca_enabled["value"] else 0.3
+                for f in _ca_fields.values():
+                    f.disabled = not _ca_enabled["value"]
+                page.update()
+
+            _ca_switch.on_change = _on_ca_toggle
+
             _grain_error_text = ft.Text("", size=12, color=RED, text_align=ft.TextAlign.CENTER)
 
             def _parse_grain_group(fields):
-                amount = float((fields["amount"].value or "").replace(",", ".").strip())
-                size   = float((fields["size"].value or "").replace(",", ".").strip())
-                color  = float((fields["color"].value or "").replace(",", ".").strip())
-                shadow = float((fields["shadow"].value or "").replace(",", ".").strip())
-                if amount < 0 or size <= 0 or not (0.0 <= color <= 1.0) or shadow < 0:
+                amount       = float((fields["amount"].value or "").replace(",", ".").strip())
+                size         = float((fields["size"].value or "").replace(",", ".").strip())
+                color        = float((fields["color"].value or "").replace(",", ".").strip())
+                shadow       = float((fields["shadow"].value or "").replace(",", ".").strip())
+                chroma_shift = float((fields["chroma_shift"].value or "0").replace(",", ".").strip())
+                if amount < 0 or size <= 0 or not (0.0 <= color <= 1.0) or shadow < 0 or chroma_shift < 0:
                     raise ValueError()
-                return amount, size, color, shadow
+                return amount, size, color, shadow, chroma_shift
 
             def _on_grain_confirm(e):
                 try:
-                    a1, s1, c1, sh1 = _parse_grain_group(_g1)
-                    a2, s2, c2, sh2 = _parse_grain_group(_g2)
+                    a1, s1, c1, sh1, cs1 = _parse_grain_group(_g1)
+                    a2, s2, c2, sh2, cs2 = _parse_grain_group(_g2)
                     ht   = float((_halation_fields["threshold"].value or "").replace(",", ".").strip())
                     hr   = float((_halation_fields["radius"].value or "").replace(",", ".").strip())
                     hi   = float((_halation_fields["intensity"].value or "").replace(",", ".").strip())
@@ -7754,6 +7813,10 @@ def main(page: ft.Page):
                         raise ValueError()
                     if not (0.0 <= css <= 1.0) or cstr < 0 or cts < 0 or ctl < 0:
                         raise ValueError()
+                    ca_s = float((_ca_fields["strength"].value or "0").replace(",", ".").strip())
+                    ca_ax = float((_ca_fields["axial_ratio"].value or "0").replace(",", ".").strip())
+                    if ca_s < 0 or ca_ax < 0:
+                        raise ValueError()
                 except Exception:
                     _grain_error_text.value = "Valeurs invalides. Vérifie les champs."
                     page.update()
@@ -7764,7 +7827,8 @@ def main(page: ft.Page):
                 b  = 1 if _bloom_enabled["value"] else 0
                 d  = 1 if _desat_enabled["value"] else 0
                 cv = 1 if _curve_enabled["value"] else 0
-                token = f"{g1}|{a1}|{s1}|{c1}|{sh1}|{g2}|{a2}|{s2}|{c2}|{sh2}|{h}|{ht}|{hr}|{hi}|{hred}|{b}|{br}|{bi}|{d}|{dst}|{dsi}|{dht}|{dhi}|{cv}|{css}|{cstr}|{cts}|{ctl}|{dmb}"
+                ca = 1 if _ca_enabled["value"] else 0
+                token = f"{g1}|{a1}|{s1}|{c1}|{sh1}|{g2}|{a2}|{s2}|{c2}|{sh2}|{h}|{ht}|{hr}|{hi}|{hred}|{b}|{br}|{bi}|{d}|{dst}|{dsi}|{dht}|{dhi}|{cv}|{css}|{cstr}|{cts}|{ctl}|{dmb}|{cs1}|{cs2}|{ca}|{ca_s}|{ca_ax}"
                 _grain_dlg.open = False
                 page.update()
                 launch_app(app_name, app_path, is_local, series_name=token)
@@ -7832,12 +7896,20 @@ def main(page: ft.Page):
                             tile_padding=ft.Padding(8, 0, 8, 0),
                             controls=[_curve_container],
                         ),
+                        ft.ExpansionTile(
+                            leading=_ca_switch,
+                            title=ft.Text("Aberrations chromatiques", color=YELLOW, weight=ft.FontWeight.BOLD, size=13),
+                            expanded=False,
+                            maintain_state=True,
+                            tile_padding=ft.Padding(8, 0, 8, 0),
+                            controls=[_ca_container],
+                        ),
                         _grain_error_text,
                     ],
                     tight=True,
                     spacing=4,
                     width=500,
-                    height=370,
+                    height=460,
                     scroll=ft.ScrollMode.AUTO,
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                 ),
@@ -8153,7 +8225,7 @@ def main(page: ft.Page):
                 if app_name == "Grain pellicule.py" and series_name:
                     parts = series_name.split("|")
                     if len(parts) >= 18:
-                        # Format 23 parties : G1|a1|s1|c1|sh1|G2|a2|s2|c2|sh2|H|ht|hr|hi|hred|B|br|bi|D|dst|dsi|dht|dhi
+                        # Format 31 parties : G1|a1|s1|c1|sh1|G2|a2|s2|c2|sh2|H|ht|hr|hi|hred|B|br|bi|D|dst|dsi|dht|dhi|cv|css|cstr|cts|ctl|dmb|cs1|cs2
                         env["GRAIN1_ENABLED"]     = parts[0]
                         env["GRAIN_AMOUNT"]       = parts[1]
                         env["GRAIN_SIZE"]         = parts[2]
@@ -8186,6 +8258,14 @@ def main(page: ft.Page):
                             env["CURVE_TOE_LIFT"]          = parts[27]
                         if len(parts) >= 29:
                             env["DESAT_MIDTONE_BOOST"]     = parts[28]
+                        if len(parts) >= 31:
+                            env["GRAIN_CHROMA_SHIFT"]  = parts[29]
+                            env["GRAIN2_CHROMA_SHIFT"] = parts[30]
+                        if len(parts) >= 33:
+                            env["CA_ENABLED"]  = parts[31]
+                            env["CA_STRENGTH"] = parts[32]
+                        if len(parts) >= 34:
+                            env["CA_AXIAL_RATIO"] = parts[33]
 
 
                 # (si aucun n'est sélectionné, la variable sera vide)

@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.8.6"
+__version__ = "2.8.7"
 
 
 # ==============================================================================
@@ -513,16 +513,21 @@ DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
 #                     0.3 = légère variation chromatique (réaliste, style film négatif)
 #                     1.0 = variation couleur maximale par canal R/G/B
 # shadow_boost      : concentration du grain sur les mi-tons (1 = large/plat, 2 = centré, 3 = serré)
+# chroma_shift      : décalage spatial en % de la plus petite dimension entre les canaux R/G/B
+#                     (simule le désalignement des couches d'émulsion argentique).
+#                     0 = désactivé, 0.1 = subtil, 0.3 = prononcé.
 
-GRAIN_AMOUNT       = 0.013     # Intensité du grain
+GRAIN_AMOUNT       = 0.018     # Intensité du grain
 GRAIN_SIZE         = 0.09     # Taille des grains (% de la plus petite dimension)
 GRAIN_COLOR_RATIO  = 0.3     # Part de grain couleur (0.0 = mono pur, 1.0 = couleur pleine)
 GRAIN_SHADOW_BOOST = 2    # Concentration sur les mi-tons (1 = large, 2 = centré, 3 = serré)
+GRAIN_CHROMA_SHIFT = 0.3  # Décalage spatial inter-canal en % de la plus petite dimension (0 = désactivé)
 
-GRAIN2_AMOUNT       = 0.02   # Couche 2 — intensité
+GRAIN2_AMOUNT       = 0.03   # Couche 2 — intensité
 GRAIN2_SIZE         = 0.05   # Couche 2 — taille (% de la plus petite dimension)
 GRAIN2_COLOR_RATIO  = 0.2    # Couche 2 — part couleur
 GRAIN2_SHADOW_BOOST = 3    # Couche 2 — concentration mi-tons
+GRAIN2_CHROMA_SHIFT = 0.3  # Couche 2 — décalage inter-canal en % de la plus petite dimension
 
 
 # ── 12.3  Halation & Bloom (Grain pellicule.py) ──────────────────────────────
@@ -581,3 +586,15 @@ CURVE_SHOULDER_START    = 0.8   # 0.70 large · 0.80 standard · 0.90 conservate
 CURVE_SHOULDER_STRENGTH = 0.5   # 0.2 doux · 0.5 standard · 1.5 fort
 CURVE_TOE_START         = 0.2   # seuil du pied (luma)
 CURVE_TOE_LIFT          = 0.3   # 0 = aucun · 0.08 subtil · 0.20 prononcé
+
+
+# ── 12.6  Aberrations chromatiques optiques (Grain pellicule.py) ─────────────
+# Simule le désalignement focal des canaux R/G/B d'une vieille optique :
+# le canal R est légèrement agrandi (zoom radial vers l'extérieur) et le canal B
+# légèrement rétréci, G restant la référence. L'effet produit des franges colorées
+# sur les bords des contrastes, accentuées vers les coins de l'image.
+# strength : intensité en % de la diagonale (0.3 = subtil, 1.0 = prononcé, 2.0 = fort)
+
+CA_ENABLED     = True
+CA_STRENGTH    = 0.1   # % de la diagonale de l'image
+CA_AXIAL_RATIO = 0.32  # part de la composante axiale (0 = purement radial, 1 = égal au radial)
