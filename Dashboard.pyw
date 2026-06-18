@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.8.5"
+__version__ = "2.8.6"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -323,14 +323,17 @@ def main(page: ft.Page):
     apps = {
         "Transfert vers TEMP.py": (True, BLUE),
         "Conversion JPG.py": (False, BLUE),
-        "Renommer sequence.py": (False, BLUE),
+        "Renommer séquence.py": (False, BLUE),
         "Comparaison.pyw": (False, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Comparaison.pyw")),
         "Recadrage automatique.py": (False, GREEN, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Recadrage automatique.py")),
         "Recadrage manuel.pyw": (False, RED, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Recadrage manuel.pyw")),
+        "Fichiers identiques.py": (False, VIOLET),
+        "Débruiter.py": (False, BLUE),
+        "Grain pellicule.py": (False, YELLOW),
         "Redimensionner filigrane.py": (False, WHITE),
         "2 en 1.py": (False, HOVER_YELLOW),
         "Redimensionner.py": (False, WHITE),
-        "Augmentation IA.py": (False, VIOLET),
+        "Augmentation IA.py": (False, YELLOW),
         "Copyright.py": (False, VIOLET),
         "IA / Bloc-notes": (True, BLUE),
     }
@@ -6918,7 +6921,7 @@ def main(page: ft.Page):
         Lance un script Data/ en tant que sous-processus Python avec les variables
         d'environnement appropriées.
 
-        Pour certains scripts (``Renommer sequence.py``, ``Images en PDF.py``),
+        Pour certains scripts (``Renommer séquence.py``, ``Images en PDF.py``),
         affiche d'abord une boîte de dialogue pour recueillir un paramètre
         (nom de série / nom du PDF) avant de relancer la fonction.
 
@@ -6945,7 +6948,7 @@ def main(page: ft.Page):
 
 
 
-        # Pour Renommer sequence.py, demander le nom de la série avant de lancer
+        # Pour Renommer séquence.py, demander le nom de la série avant de lancer
         if app_name == "Copyright.py" and series_name is None:
             copyright_custom_field = ft.TextField(
                 prefix="© ",
@@ -7264,9 +7267,100 @@ def main(page: ft.Page):
             _update_force_mode_ui()
             return
 
-        if app_name == "Renommer sequence.py" and series_name is None:
+        if app_name == "Renommer séquence.py" and series_name is None:
             _ask_text_before_launch("Renommer la série", "Nom de la série", "Ex: Mariage_Martin",
                                     app_name, app_path, is_local)
+            return
+
+        if app_name == "Débruiter.py" and series_name is None:
+            _dn_fields = {
+                "h": ft.TextField(
+                    label="Force luminance (h)",
+                    value=str(CONSTANTS.DENOISE_H),
+                    hint_text="1 léger · 4 standard · 10 fort",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=BLUE, focused_border_color=BLUE,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "h_color": ft.TextField(
+                    label="Force couleur (hColor)",
+                    value=str(CONSTANTS.DENOISE_H_COLOR),
+                    hint_text="1 léger · 2 standard · 6 fort",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=BLUE, focused_border_color=BLUE,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "template": ft.TextField(
+                    label="Fenêtre comparaison (impair)",
+                    value=str(CONSTANTS.DENOISE_TEMPLATE_WINDOW),
+                    hint_text="5 · 7 standard · 11",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=BLUE, focused_border_color=BLUE,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+                "search": ft.TextField(
+                    label="Fenêtre recherche (impair)",
+                    value=str(CONSTANTS.DENOISE_SEARCH_WINDOW),
+                    hint_text="11 rapide · 21 standard · 35 lent",
+                    text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
+                    border=ft.InputBorder.OUTLINE, border_color=BLUE, focused_border_color=BLUE,
+                    bgcolor=DARK, height=56, expand=True,
+                ),
+            }
+            _dn_error = ft.Text("", size=12, color=RED, text_align=ft.TextAlign.CENTER)
+
+            def _on_dn_confirm(e):
+                try:
+                    h    = int((_dn_fields["h"].value or "").strip())
+                    hc   = int((_dn_fields["h_color"].value or "").strip())
+                    tmpl = int((_dn_fields["template"].value or "").strip())
+                    srch = int((_dn_fields["search"].value or "").strip())
+                    if h <= 0 or hc <= 0 or tmpl <= 0 or srch <= 0:
+                        raise ValueError()
+                    if tmpl % 2 == 0 or srch % 2 == 0:
+                        _dn_error.value = "Les fenêtres doivent être impaires."
+                        page.update()
+                        return
+                except Exception:
+                    _dn_error.value = "Valeurs invalides — entiers positifs impairs requis."
+                    page.update()
+                    return
+                token = f"{h}|{hc}|{tmpl}|{srch}"
+                _dn_dlg.open = False
+                page.update()
+                launch_app(app_name, app_path, is_local, series_name=token)
+
+            def _on_dn_cancel(e):
+                _dn_dlg.open = False
+                page.update()
+
+            _dn_dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Débruiter — paramètres NLM", text_align=ft.TextAlign.CENTER, color=BLUE),
+                content=ft.Column(
+                    [
+                        ft.Text(
+                            "Les valeurs par défaut viennent de CONSTANTS.py (section 12.1).",
+                            size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER,
+                        ),
+                        ft.Row([_dn_fields["h"], _dn_fields["h_color"]], spacing=8),
+                        ft.Row([_dn_fields["template"], _dn_fields["search"]], spacing=8),
+                        _dn_error,
+                    ],
+                    tight=True,
+                    spacing=10,
+                    width=420,
+                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                actions=[
+                    ft.TextButton("Annuler", on_click=_on_dn_cancel, style=ft.ButtonStyle(color=BLUE)),
+                    ft.TextButton("Lancer", on_click=_on_dn_confirm, style=ft.ButtonStyle(color=BLUE)),
+                ],
+                actions_alignment=ft.MainAxisAlignment.CENTER,
+            )
+            page.overlay.append(_dn_dlg)
+            _dn_dlg.open = True
+            page.update()
             return
 
         if app_name == "Grain pellicule.py" and series_name is None:
@@ -7999,8 +8093,8 @@ def main(page: ft.Page):
 
 
 
-                # Ajouter le nom de la série pour Renommer sequence.py
-                if app_name == "Renommer sequence.py" and series_name:
+                # Ajouter le nom de la série pour Renommer séquence.py
+                if app_name == "Renommer séquence.py" and series_name:
                     env["SERIES_NAME"] = series_name
 
 
@@ -8045,6 +8139,15 @@ def main(page: ft.Page):
                     env["COPYRIGHT_MODE"] = mode_part
                     if mode_part == "custom" and custom_part:
                         env["COPYRIGHT_CUSTOM"] = custom_part
+
+                # Paramètres Débruiter
+                if app_name == "Débruiter.py" and series_name:
+                    parts = series_name.split("|")
+                    if len(parts) >= 4:
+                        env["DENOISE_H"]               = parts[0]
+                        env["DENOISE_H_COLOR"]         = parts[1]
+                        env["DENOISE_TEMPLATE_WINDOW"] = parts[2]
+                        env["DENOISE_SEARCH_WINDOW"]   = parts[3]
 
                 # Paramètres Grain pellicule
                 if app_name == "Grain pellicule.py" and series_name:
@@ -8372,7 +8475,6 @@ def main(page: ft.Page):
         """Construit la colonne d'icônes rondes (outils rapides)."""
         two_in_one_path = os.path.join(app_directory, "Data", "2 en 1.py")
         side_panel_path = os.path.join(app_directory, "Data", "SidePanel.pyw")
-        fichiers_identiques_path = os.path.join(app_directory, "Data", "Fichiers identiques.py")
 
         def _round_button(icon, color, tooltip, on_click):
             return ft.Container(
@@ -8389,10 +8491,8 @@ def main(page: ft.Page):
             )
 
         noir_et_blanc_path        = os.path.join(app_directory, "Data", "N&B.py")
-        ameliorer_nettete_path    = os.path.join(app_directory, "Data", "Ameliorer nettete.py")
-        denoiser_path             = os.path.join(app_directory, "Data", "Denoiser.py")
-        grain_pellicule_path      = os.path.join(app_directory, "Data", "Grain pellicule.py")
-        nettoyer_metadonnees_path = os.path.join(app_directory, "Data", "Nettoyer metadonnees.py")
+        ameliorer_nettete_path    = os.path.join(app_directory, "Data", "Améliorer netteté.py")
+        nettoyer_metadonnees_path = os.path.join(app_directory, "Data", "Nettoyer metadonnées.py")
         copyright_path            = os.path.join(app_directory, "Data", "Copyright.py")
         images_en_pdf_path        = os.path.join(app_directory, "Data", "Images en PDF.py")
         remerciements_path        = os.path.join(app_directory, "Data", "Remerciements.py")
@@ -8403,12 +8503,6 @@ def main(page: ft.Page):
 
         quick_tools_col.controls = [
             _round_button(
-                ft.Icons.MANAGE_SEARCH,
-                GREEN,
-                "Fichiers identiques",
-                lambda e: launch_app("Fichiers identiques.py", fichiers_identiques_path, False),
-            ),
-            _round_button(
                 ft.Icons.MONOCHROME_PHOTOS,
                 WHITE,
                 "N&B",
@@ -8418,25 +8512,13 @@ def main(page: ft.Page):
                 ft.Icons.AUTO_GRAPH,
                 WHITE,
                 "Améliorer netteté",
-                lambda e: launch_app("Ameliorer nettete.py", ameliorer_nettete_path, False),
-            ),
-            _round_button(
-                ft.Icons.DEBLUR,
-                BLUE,
-                "Débruiter (Non-Local Means)",
-                lambda e: launch_app("Denoiser.py", denoiser_path, False),
-            ),
-            _round_button(
-                ft.Icons.GRAIN,
-                ORANGE,
-                "Grain pellicule",
-                lambda e: launch_app("Grain pellicule.py", grain_pellicule_path, False),
+                lambda e: launch_app("Améliorer netteté.py", ameliorer_nettete_path, False),
             ),
             _round_button(
                 ft.Icons.CLEANING_SERVICES,
                 RED,
                 "Nettoyer métadonnées",
-                lambda e: launch_app("Nettoyer metadonnees.py", nettoyer_metadonnees_path, False),
+                lambda e: launch_app("Nettoyer metadonnées.py", nettoyer_metadonnees_path, False),
             ),
             _round_button(
                 ft.Icons.PICTURE_AS_PDF,
