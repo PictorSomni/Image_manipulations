@@ -24,7 +24,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.8.7"
+__version__ = "2.8.8"
 
 import flet as ft
 import flet.canvas as cv
@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 from ai_tools import _gemini_generate_image
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image
 
 ###############################################################
 #                        PALETTE                              #
@@ -397,8 +397,9 @@ async def main(page: ft.Page) -> None:
             sel_info.value     = "Aucune sélection — clic + glisser pour définir une zone"
             send_btn.disabled  = True
             undo_btn.disabled  = True
-            save_btn.disabled  = True
-            expand_btn.disabled = False
+            save_btn.disabled   = True
+            inpaint_btn.disabled = False
+            expand_btn.disabled  = False
             _render_preview()
         except Exception as ex:
             status_text.value = f"[ERREUR] {ex}"
@@ -454,6 +455,14 @@ async def main(page: ft.Page) -> None:
             )
             has_prompt = bool(prompt_field.value and prompt_field.value.strip())
             send_btn.disabled = not has_prompt
+            # Désactiver la sélection et ouvrir le dialog inpainting
+            state["sel_mode"]          = False
+            inpaint_btn.text           = "Retouche IA"
+            inpaint_btn.icon           = ft.Icons.AUTO_FIX_HIGH
+            inpaint_btn.bgcolor        = GREY
+            image_gesture.visible      = False
+            preview_viewer.pan_enabled = True
+            inpaint_dialog.open        = True
         else:
             state["selection"] = None
             sel_info.value = "Sélection trop petite — recommencez"
@@ -461,6 +470,7 @@ async def main(page: ft.Page) -> None:
 
         sel_info.update()
         _update_sel_canvas()
+        page.update()
 
     def _on_pan_cancel(e) -> None:
         state["drag_start"]   = None
@@ -491,13 +501,14 @@ async def main(page: ft.Page) -> None:
         sel_h = sel[3] - sel[1]
 
         # Effacer la sélection et repasser en mode navigation immédiatement
+        inpaint_dialog.open        = False
         state["selection"]         = None
         state["drag_start"]        = None
         state["drag_current"]      = None
         state["sel_mode"]          = False
-        mode_btn.text              = "Activer sélection"
-        mode_btn.icon              = ft.Icons.CROP_FREE
-        mode_btn.bgcolor           = GREY
+        inpaint_btn.text           = "Retouche IA"
+        inpaint_btn.icon           = ft.Icons.AUTO_FIX_HIGH
+        inpaint_btn.bgcolor        = GREY
         image_gesture.visible      = False
         preview_viewer.pan_enabled = True
         _update_sel_canvas()
@@ -543,24 +554,9 @@ async def main(page: ft.Page) -> None:
             base = (state["work_img"] or state["orig_img"]).copy()
             state["undo_img"] = base.copy()
 
-            # Collage dur dans un calque intermédiaire
-            gemini_layer = base.copy()
-            gemini_layer.paste(gemini_fit, (sel[0], sel[1]))
-
-            # Masque de fondu : rectangle blanc inséré de feather px → flou gaussien
-            orig_w, orig_h = base.size
-            feather = max(2, int(max(orig_w, orig_h) * 0.01))
-            mask = Image.new("L", base.size, 0)
-            mx1, my1 = sel[0] + feather, sel[1] + feather
-            mx2, my2 = sel[2] - feather, sel[3] - feather
-            _draw = ImageDraw.Draw(mask)
-            if mx2 > mx1 and my2 > my1:
-                _draw.rectangle([mx1, my1, mx2, my2], fill=255)
-            else:
-                _draw.rectangle([sel[0], sel[1], sel[2], sel[3]], fill=128)
-            mask = mask.filter(ImageFilter.GaussianBlur(radius=feather))
-
-            new_work = Image.composite(gemini_layer, base, mask)
+            # Collage direct, image brute Gemini
+            new_work = base.copy()
+            new_work.paste(gemini_fit, (sel[0], sel[1]))
             state["work_img"]  = new_work
             state["modified"]  = True
 
@@ -1071,19 +1067,47 @@ async def main(page: ft.Page) -> None:
         page.update()
 
         def _do_expand():
-            canvas = Image.new("RGB", (new_w, new_h), (128, 128, 128))
-            canvas.paste(img.convert("RGB"), (left, top))
-            buf = io.BytesIO()
-            canvas.save(buf, format="JPEG", quality=92)
+            import numpy as _np2
+            img_rgb = img.convert("RGB")
+            orig_np = _np2.array(img_rgb, dtype=_np2.uint8)
+
+            canvas_np = _np2.zeros((new_h, new_w, 3), dtype=_np2.uint8)
+            canvas_np[top:top + ih, left:left + iw] = orig_np
+            if top   > 0: canvas_np[:top,       left:left + iw] = orig_np[0:1]
+            if bot   > 0: canvas_np[top + ih:,  left:left + iw] = orig_np[-1:]
+            if left  > 0: canvas_np[top:top + ih, :left]        = orig_np[:, 0:1]
+            if right > 0: canvas_np[top:top + ih, left + iw:]   = orig_np[:, -1:]
+            if top  > 0 and left  > 0: canvas_np[:top,      :left]      = orig_np[0,  0]
+            if top  > 0 and right > 0: canvas_np[:top,      left + iw:] = orig_np[0,  -1]
+            if bot  > 0 and left  > 0: canvas_np[top + ih:, :left]      = orig_np[-1, 0]
+            if bot  > 0 and right > 0: canvas_np[top + ih:, left + iw:] = orig_np[-1, -1]
+
+            sides = ", ".join(filter(None, [
+                f"haut {top} px"     if top   else "",
+                f"bas {bot} px"      if bot   else "",
+                f"gauche {left} px"  if left  else "",
+                f"droite {right} px" if right else "",
+            ]))
             prompt = (
-                "Cette image comporte des zones grises neutres "
-                "ajoutées autour de la photo centrale. "
-                "Complète ces zones de façon naturelle et cohérente "
-                "en continuant la scène : respecte le style, "
-                "l'éclairage et les couleurs de la zone centrale. "
-                "Ne modifie pas la zone centrale."
+                f"Cette image ({new_w}×{new_h} px) montre une photo centrale "
+                f"({iw}×{ih} px) entourée de zones remplies avec les pixels de bord "
+                f"répétés : {sides}. Ces zones répètent simplement la couleur du bord "
+                "de la photo. Remplace-les par une extension naturelle et cohérente de "
+                "la scène en continuant le style, l'éclairage, les couleurs et les "
+                "textures visibles aux bords de la photo centrale. "
+                "Ne modifie absolument pas la zone centrale."
             )
-            return _gemini_generate_image(prompt, input_image_bytes=buf.getvalue())
+            buf = io.BytesIO()
+            Image.fromarray(canvas_np).save(buf, format="JPEG", quality=92)
+            _, img_bytes = _gemini_generate_image(
+                prompt, input_image_bytes=buf.getvalue()
+            )
+            if not img_bytes:
+                return None
+
+            return Image.open(io.BytesIO(img_bytes)).convert("RGB").resize(
+                (new_w, new_h), Image.Resampling.LANCZOS
+            )
 
         _elapsed = {"s": 0}
 
@@ -1098,17 +1122,12 @@ async def main(page: ft.Page) -> None:
         _timer_task = asyncio.create_task(_tick())
 
         try:
-            text_resp, image_bytes = await asyncio.wait_for(
-                asyncio.to_thread(_do_expand), timeout=120.0
+            result = await asyncio.wait_for(
+                asyncio.to_thread(_do_expand), timeout=300.0
             )
-            if image_bytes is None:
-                status_text.value = f"[Gemini] {text_resp or 'Aucune image reçue.'}"
+            if result is None:
+                status_text.value = "[Gemini] Aucune image reçue."
                 return
-
-            result = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize(
-                (new_w, new_h), Image.Resampling.LANCZOS
-            )
-            result.paste(img.convert("RGB"), (left, top))
 
             state["undo_img"] = (state["work_img"] or state["orig_img"]).copy()
             state["work_img"] = result
@@ -1116,8 +1135,6 @@ async def main(page: ft.Page) -> None:
             undo_btn.disabled  = False
             save_btn.disabled  = False
             status_text.value  = f"[OK] {iw}×{ih} → {new_w}×{new_h} px"
-            if text_resp:
-                status_text.value += f"  |  « {text_resp[:60]} »"
 
         except asyncio.TimeoutError:
             status_text.value = "[ERREUR] Gemini n'a pas répondu en 2 minutes."
@@ -1190,30 +1207,48 @@ async def main(page: ft.Page) -> None:
     undo_btn.on_click      = on_undo
     save_btn.on_click      = on_save
     open_btn.on_click      = on_open
-    clear_sel_btn.on_click = on_clear_selection
     prompt_field.on_change = on_prompt_change
     prev_btn.on_click      = on_prev
     next_btn.on_click      = on_next
 
-    # ── Mode toggle ──────────────────────────────────────────────────────────
-    mode_btn = ft.Button(
-        "Activer sélection",
-        icon=ft.Icons.CROP_FREE,
+    # ── Bouton Retouche IA (remplace mode_btn) ───────────────────────────────
+    inpaint_btn = ft.Button(
+        "Retouche IA",
+        icon=ft.Icons.AUTO_FIX_HIGH,
         bgcolor=GREY,
         color=WHITE,
-        tooltip="Basculer entre navigation (zoom/déplacement) et sélection de zone",
+        disabled=True,
+        tooltip="Activer la sélection — glisser pour définir la zone à retoucher",
     )
+
+    # ── Bouton Ignorer / Suivant ─────────────────────────────────────────────
+    ignore_btn = ft.Button(
+        "Ignorer / Suivant",
+        icon=ft.Icons.SKIP_NEXT,
+        bgcolor=GREY,
+        color=WHITE,
+        tooltip="Ignorer cette image et passer à la suivante",
+    )
+
+    async def on_ignore(_) -> None:
+        next_index = state["index"] + 1
+        if next_index < len(all_images):
+            await _load_image(next_index)
+        else:
+            await page.window.close()
+
+    ignore_btn.on_click = on_ignore
 
     # ── Gesture detector (rubber band, à l'intérieur de l'InteractiveViewer) ──
     image_gesture = ft.GestureDetector()
-    image_gesture.content               = ft.Container(expand=True)   # zone de hit-test transparente
+    image_gesture.content               = ft.Container(expand=True)
     image_gesture.on_pan_start          = _on_pan_start
     image_gesture.on_pan_update         = _on_pan_update
     image_gesture.on_pan_end            = _on_pan_end
     image_gesture.on_pan_cancel         = _on_pan_cancel
     image_gesture.on_secondary_tap_down = lambda e: on_clear_selection(e)
     image_gesture.mouse_cursor          = ft.MouseCursor.PRECISE
-    image_gesture.visible               = False   # caché en mode navigation
+    image_gesture.visible               = False
 
     _vw, _vh = state["view_size"]
     inner_container = ft.Container(
@@ -1231,63 +1266,68 @@ async def main(page: ft.Page) -> None:
         max_scale=10.0,
     )
 
-    async def on_mode_toggle(_) -> None:
+    async def on_inpaint_btn(_) -> None:
         state["sel_mode"] = not state["sel_mode"]
         if state["sel_mode"]:
-            mode_btn.text              = "Activer navigation"  # type: ignore[attr-defined]
-            mode_btn.icon              = ft.Icons.PAN_TOOL
-            mode_btn.bgcolor           = BLUE
+            inpaint_btn.text           = "Annuler sélection"
+            inpaint_btn.icon           = ft.Icons.CROP_FREE
+            inpaint_btn.bgcolor        = BLUE
             image_gesture.visible      = True
             preview_viewer.pan_enabled = False
         else:
-            mode_btn.text              = "Activer sélection"   # type: ignore[attr-defined]
-            mode_btn.icon              = ft.Icons.CROP_FREE
-            mode_btn.bgcolor           = GREY
+            inpaint_btn.text           = "Retouche IA"
+            inpaint_btn.icon           = ft.Icons.AUTO_FIX_HIGH
+            inpaint_btn.bgcolor        = GREY
             image_gesture.visible      = False
             preview_viewer.pan_enabled = True
             state["drag_start"]        = None
             state["drag_current"]      = None
             _update_sel_canvas()
-        mode_btn.update()
+        inpaint_btn.update()
         image_gesture.update()
         preview_viewer.update()
 
-    mode_btn.on_click = on_mode_toggle
+    inpaint_btn.on_click = on_inpaint_btn
+
+    # ── Dialog inpainting ────────────────────────────────────────────────────
+    def _reopen_selection() -> None:
+        inpaint_dialog.open        = False
+        state["sel_mode"]          = True
+        state["selection"]         = None
+        state["drag_start"]        = None
+        state["drag_current"]      = None
+        inpaint_btn.text           = "Annuler sélection"
+        inpaint_btn.icon           = ft.Icons.CROP_FREE
+        inpaint_btn.bgcolor        = BLUE
+        image_gesture.visible      = True
+        preview_viewer.pan_enabled = False
+        _update_sel_canvas()
+        page.update()
+
+    inpaint_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Retouche IA (Gemini)"),
+        content=ft.Column(
+            [sel_info, prompt_field, progress_bar],
+            tight=True,
+            spacing=10,
+            width=420,
+        ),
+        actions=[
+            ft.TextButton(
+                "Redessiner",
+                on_click=lambda e: _reopen_selection(),
+            ),
+            send_btn,
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
+    page.overlay.append(inpaint_dialog)
 
     # ── Mise en page ─────────────────────────────────────────────────────────
     left_panel = ft.Column(
         [
-            # Ouverture et navigation
-            open_btn,
-            ft.Row(
-                [prev_btn, image_label, next_btn],
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            counter_text,
-            ft.Divider(color=GREY),
-            # Sélection
-            ft.Text("Zone sélectionnée", size=13,
-                    weight=ft.FontWeight.BOLD, color=WHITE),
-            mode_btn,
-            ft.Text(
-                "Navigation : glisser/molette = zoom & déplacement\n"
-                "Sélection : glisser = zone  |  clic droit = effacer",
-                size=10, color=LIGHT_GREY,
-            ),
-            sel_info,
-            clear_sel_btn,
-            ft.Divider(color=GREY),
-            # Retouche IA
-            ft.Text("Retouche IA (Gemini)", size=13,
-                    weight=ft.FontWeight.BOLD, color=WHITE),
-            prompt_field,
-            send_btn,
-            progress_bar,
-            ft.Divider(color=GREY),
-            # Amélioration IA — modèles locaux
-            ft.Text("Amélioration IA (modèles locaux)", size=13,
-                    weight=ft.FontWeight.BOLD, color=WHITE),
-            ft.Text("📂 Data/models/", size=10, color=LIGHT_GREY),
+            ft.Text("Modèle IA local", size=12, color=LIGHT_GREY),
             ft.Row(
                 [model_dropdown, refresh_models_btn, run_model_btn],
                 spacing=4,
@@ -1296,19 +1336,13 @@ async def main(page: ft.Page) -> None:
             enhance_progress_bar,
             enhance_status,
             ft.Divider(color=GREY),
-            # Extension IA — outpainting
-            ft.Text("Extension IA (Gemini)", size=13,
-                    weight=ft.FontWeight.BOLD, color=WHITE),
+            inpaint_btn,
             expand_btn,
+            undo_btn,
             expand_progress,
             ft.Divider(color=GREY),
-            # Undo
-            undo_btn,
-            ft.Divider(color=GREY),
-            # Enregistrement
-            ft.Text("Enregistrement", size=13,
-                    weight=ft.FontWeight.BOLD, color=WHITE),
             save_btn,
+            ignore_btn,
             ft.Container(expand=True),
             status_text,
         ],
