@@ -517,13 +517,13 @@ DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
 #                     (simule le désalignement des couches d'émulsion argentique).
 #                     0 = désactivé, 0.1 = subtil, 0.3 = prononcé.
 
-GRAIN_AMOUNT       = 0.018     # Intensité du grain
+GRAIN_AMOUNT       = 0.01     # Intensité du grain
 GRAIN_SIZE         = 0.09     # Taille des grains (% de la plus petite dimension)
 GRAIN_COLOR_RATIO  = 0.3     # Part de grain couleur (0.0 = mono pur, 1.0 = couleur pleine)
 GRAIN_SHADOW_BOOST = 2    # Concentration sur les mi-tons (1 = large, 2 = centré, 3 = serré)
 GRAIN_CHROMA_SHIFT = 0.3  # Décalage spatial inter-canal en % de la plus petite dimension (0 = désactivé)
 
-GRAIN2_AMOUNT       = 0.03   # Couche 2 — intensité
+GRAIN2_AMOUNT       = 0.02   # Couche 2 — intensité
 GRAIN2_SIZE         = 0.05   # Couche 2 — taille (% de la plus petite dimension)
 GRAIN2_COLOR_RATIO  = 0.2    # Couche 2 — part couleur
 GRAIN2_SHADOW_BOOST = 3    # Couche 2 — concentration mi-tons
@@ -543,8 +543,8 @@ GRAIN2_CHROMA_SHIFT = 0.3  # Couche 2 — décalage inter-canal en % de la plus 
 HALATION_ENABLED    = True
 HALATION_THRESHOLD  = 0.6   # 0.55 large · 0.65 standard · 0.80 éclats seuls
 HALATION_RADIUS     = 5      # % de la plus petite dimension
-HALATION_INTENSITY  = 0.32   # additif : 0.1 discret · 0.3 visible · 0.6 fort
-HALATION_RED_SHIFT  = 0.32    # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
+HALATION_INTENSITY  = 0.36   # additif : 0.1 discret · 0.3 visible · 0.6 fort
+HALATION_RED_SHIFT  = 0.42    # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
 
 # Bloom : glow général obtenu en superposant l'image floutée en mode Screen.
 # radius    : rayon du flou exprimé en % de la plus petite dimension de l'image
@@ -552,8 +552,8 @@ HALATION_RED_SHIFT  = 0.32    # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
 # intensity : intensité additive (0.0 = aucun, 0.4 = visible, 1.0 = très fort)
 
 BLOOM_ENABLED    = True
-BLOOM_RADIUS     = 9
-BLOOM_INTENSITY  = 0.42
+BLOOM_RADIUS     = 7
+BLOOM_INTENSITY  = 0.21
 
 # ── 12.4  Désaturation des extrêmes + boost mi-tons (Grain pellicule.py) ──────
 # Les films argentiques perdent de la saturation dans les ombres très sombres
@@ -570,7 +570,7 @@ DESAT_SHADOW_THRESHOLD    = 0.20   # ombres sous 25 % de luminosité
 DESAT_SHADOW_INTENSITY    = 1.0    # désaturation dans les noirs
 DESAT_HIGHLIGHT_THRESHOLD = 0.8   # hautes lumières au-dessus de 80 %
 DESAT_HIGHLIGHT_INTENSITY = 1.0    # désaturation dans les blancs
-DESAT_MIDTONE_BOOST       = 0.25  # boost de saturation en mi-tons (0 = aucun, 0.3 = prononcé)
+DESAT_MIDTONE_BOOST       = 0.1  # boost de saturation en mi-tons (0 = aucun, 0.3 = prononcé)
 
 
 # ── 12.5  Courbe tonale argentique (Grain pellicule.py) ──────────────────────
@@ -582,10 +582,10 @@ DESAT_MIDTONE_BOOST       = 0.25  # boost de saturation en mi-tons (0 = aucun, 0
 # toe_lift          : amplitude du relèvement des noirs (0 = aucun, 0.10 = subtil)
 
 CURVE_ENABLED           = True
-CURVE_SHOULDER_START    = 0.8   # 0.70 large · 0.80 standard · 0.90 conservateur
+CURVE_SHOULDER_START    = 0.7   # 0.70 large · 0.80 standard · 0.90 conservateur
 CURVE_SHOULDER_STRENGTH = 0.5   # 0.2 doux · 0.5 standard · 1.5 fort
-CURVE_TOE_START         = 0.2   # seuil du pied (luma)
-CURVE_TOE_LIFT          = 0.3   # 0 = aucun · 0.08 subtil · 0.20 prononcé
+CURVE_TOE_START         = 0.3   # seuil du pied (luma)
+CURVE_TOE_LIFT          = 0.2   # 0 = aucun · 0.08 subtil · 0.20 prononcé
 
 
 # ── 12.6  Aberrations chromatiques optiques (Grain pellicule.py) ─────────────
@@ -596,5 +596,5 @@ CURVE_TOE_LIFT          = 0.3   # 0 = aucun · 0.08 subtil · 0.20 prononcé
 # strength : intensité en % de la diagonale (0.3 = subtil, 1.0 = prononcé, 2.0 = fort)
 
 CA_ENABLED     = True
-CA_STRENGTH    = 0.1   # % de la diagonale de l'image
-CA_AXIAL_RATIO = 0.32  # part de la composante axiale (0 = purement radial, 1 = égal au radial)
+CA_STRENGTH    = 0.02   # % de la diagonale de l'image
+CA_AXIAL_RATIO = 0.42  # part de la composante axiale (0 = purement radial, 1 = égal au radial)
