@@ -288,7 +288,7 @@ def main(page: ft.Page):
                 ft.IconButton(icon=ft.Icons.CLOSE, icon_size=16,
                               on_click=_close, tooltip="Fermer"),
             ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            bgcolor=DARK, padding=ft.Padding(10, 6, 6, 6),
+            bgcolor=BACKGROUND, padding=ft.Padding(10, 6, 6, 6),
         )
     )
 

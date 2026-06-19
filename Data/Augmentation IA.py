@@ -398,6 +398,7 @@ async def main(page: ft.Page) -> None:
             send_btn.disabled  = True
             undo_btn.disabled  = True
             save_btn.disabled  = True
+            expand_btn.disabled = False
             _render_preview()
         except Exception as ex:
             status_text.value = f"[ERREUR] {ex}"
@@ -875,6 +876,315 @@ async def main(page: ft.Page) -> None:
     run_model_btn.on_click      = on_run_model
     refresh_models_btn.on_click = on_refresh_models
 
+    # ── Extension IA — outpainting ───────────────────────────────────────────
+
+    _PREV_SZ  = 280
+    _BLUE_MAX = 150
+
+    _ep: dict = {
+        "bx": 0, "by": 0, "bw": _BLUE_MAX, "bh": _BLUE_MAX,
+        "rx1": 0, "ry1": 0, "rx2": _BLUE_MAX, "ry2": _BLUE_MAX,
+        "scale_x": 1.0, "scale_y": 1.0,
+        "dragging": None, "drag_origin": None, "drag_r_origin": None,
+    }
+
+    ep_top_lbl    = ft.Text("Haut : 0 px",    size=11, color=LIGHT_GREY)
+    ep_bot_lbl    = ft.Text("Bas : 0 px",     size=11, color=LIGHT_GREY)
+    ep_left_lbl   = ft.Text("Gauche : 0 px",  size=11, color=LIGHT_GREY)
+    ep_right_lbl  = ft.Text("Droite : 0 px",  size=11, color=LIGHT_GREY)
+    ep_canvas     = cv.Canvas(width=_PREV_SZ, height=_PREV_SZ, shapes=[])
+    ep_status_lbl = ft.Text("", size=11, color=LIGHT_GREY)
+    expand_progress = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
+
+    def _ep_margins() -> tuple[int, int, int, int]:
+        e = _ep
+        return (
+            max(0, round((e["by"]                    - e["ry1"]) * e["scale_y"])),
+            max(0, round((e["ry2"] - e["by"] - e["bh"]) * e["scale_y"])),
+            max(0, round((e["bx"]                    - e["rx1"]) * e["scale_x"])),
+            max(0, round((e["rx2"] - e["bx"] - e["bw"]) * e["scale_x"])),
+        )
+
+    def _ep_redraw() -> None:
+        e = _ep
+        shapes = ep_canvas.shapes
+        shapes.clear()
+        shapes.append(cv.Rect(
+            x=0, y=0, width=_PREV_SZ, height=_PREV_SZ,
+            paint=ft.Paint(color="#2a2a2a", style=ft.PaintingStyle.FILL),
+        ))
+        rw, rh = e["rx2"] - e["rx1"], e["ry2"] - e["ry1"]
+        shapes.append(cv.Rect(
+            x=e["rx1"], y=e["ry1"], width=rw, height=rh,
+            paint=ft.Paint(
+                color=ft.Colors.with_opacity(0.12, ft.Colors.RED_400),
+                style=ft.PaintingStyle.FILL,
+            ),
+        ))
+        shapes.append(cv.Rect(
+            x=e["rx1"], y=e["ry1"], width=rw, height=rh,
+            paint=ft.Paint(
+                color=ft.Colors.RED_400,
+                style=ft.PaintingStyle.STROKE,
+                stroke_width=2.0,
+            ),
+        ))
+        shapes.append(cv.Rect(
+            x=e["bx"], y=e["by"], width=e["bw"], height=e["bh"],
+            paint=ft.Paint(
+                color=ft.Colors.with_opacity(0.25, ft.Colors.BLUE_400),
+                style=ft.PaintingStyle.FILL,
+            ),
+        ))
+        shapes.append(cv.Rect(
+            x=e["bx"], y=e["by"], width=e["bw"], height=e["bh"],
+            paint=ft.Paint(
+                color=ft.Colors.BLUE_400,
+                style=ft.PaintingStyle.STROKE,
+                stroke_width=2.0,
+            ),
+        ))
+        H = 8
+        mid_rx = (e["rx1"] + e["rx2"]) / 2
+        mid_ry = (e["ry1"] + e["ry2"]) / 2
+        for hx, hy in [
+            (mid_rx - H / 2, e["ry1"] - H / 2),
+            (mid_rx - H / 2, e["ry2"] - H / 2),
+            (e["rx1"] - H / 2, mid_ry - H / 2),
+            (e["rx2"] - H / 2, mid_ry - H / 2),
+        ]:
+            shapes.append(cv.Rect(
+                x=hx, y=hy, width=H, height=H,
+                paint=ft.Paint(color=ft.Colors.RED_400, style=ft.PaintingStyle.FILL),
+            ))
+        ep_canvas.update()
+        top, bot, left, right = _ep_margins()
+        ep_top_lbl.value = f"Haut : {top} px"
+        ep_top_lbl.update()
+        ep_bot_lbl.value = f"Bas : {bot} px"
+        ep_bot_lbl.update()
+        ep_left_lbl.value = f"Gauche : {left} px"
+        ep_left_lbl.update()
+        ep_right_lbl.value = f"Droite : {right} px"
+        ep_right_lbl.update()
+
+    def _ep_reset() -> None:
+        img = state["work_img"] or state["orig_img"]
+        if img is None:
+            return
+        iw, ih = img.size
+        if iw >= ih:
+            bw, bh = _BLUE_MAX, max(1, round(_BLUE_MAX * ih / iw))
+        else:
+            bw, bh = max(1, round(_BLUE_MAX * iw / ih)), _BLUE_MAX
+        bx, by = (_PREV_SZ - bw) // 2, (_PREV_SZ - bh) // 2
+        _ep.update({
+            "bx": bx, "by": by, "bw": bw, "bh": bh,
+            "rx1": bx, "ry1": by, "rx2": bx + bw, "ry2": by + bh,
+            "scale_x": iw / bw, "scale_y": ih / bh,
+            "dragging": None, "drag_origin": None, "drag_r_origin": None,
+        })
+
+    _HIT_TOL = 10
+
+    def _ep_hit_edge(cx: float, cy: float) -> str | None:
+        e = _ep
+        t = _HIT_TOL
+        checks = [
+            ("top",    abs(cy - e["ry1"]) < t and e["rx1"] - t < cx < e["rx2"] + t),
+            ("bottom", abs(cy - e["ry2"]) < t and e["rx1"] - t < cx < e["rx2"] + t),
+            ("left",   abs(cx - e["rx1"]) < t and e["ry1"] - t < cy < e["ry2"] + t),
+            ("right",  abs(cx - e["rx2"]) < t and e["ry1"] - t < cy < e["ry2"] + t),
+        ]
+        for name, condition in checks:
+            if condition:
+                return name
+        return None
+
+    def _on_ep_pan_start(ev) -> None:
+        cx, cy = float(ev.local_position.x), float(ev.local_position.y)
+        _ep["dragging"]      = _ep_hit_edge(cx, cy)
+        _ep["drag_origin"]   = (cx, cy)
+        _ep["drag_r_origin"] = (_ep["rx1"], _ep["ry1"], _ep["rx2"], _ep["ry2"])
+
+    def _on_ep_pan_update(ev) -> None:
+        e = _ep
+        if not e["dragging"]:
+            return
+        cx, cy = float(ev.local_position.x), float(ev.local_position.y)
+        ox, oy = e["drag_origin"]
+        orx1, ory1, orx2, ory2 = e["drag_r_origin"]
+        dx, dy = cx - ox, cy - oy
+        if e["dragging"] == "top":
+            e["ry1"] = max(0, min(ory1 + dy, e["by"]))
+        elif e["dragging"] == "bottom":
+            e["ry2"] = min(_PREV_SZ, max(ory2 + dy, e["by"] + e["bh"]))
+        elif e["dragging"] == "left":
+            e["rx1"] = max(0, min(orx1 + dx, e["bx"]))
+        elif e["dragging"] == "right":
+            e["rx2"] = min(_PREV_SZ, max(orx2 + dx, e["bx"] + e["bw"]))
+        _ep_redraw()
+
+    def _on_ep_pan_end(_) -> None:
+        _ep["dragging"] = None
+
+    ep_gesture = ft.GestureDetector(
+        content=ft.Container(width=_PREV_SZ, height=_PREV_SZ),
+        on_pan_start=_on_ep_pan_start,
+        on_pan_update=_on_ep_pan_update,
+        on_pan_end=_on_ep_pan_end,
+        mouse_cursor=ft.MouseCursor.PRECISE,
+    )
+
+    expand_btn = ft.Button(
+        "Étendre l'image…",
+        icon=ft.Icons.PHOTO_SIZE_SELECT_LARGE,
+        bgcolor=GREY,
+        color=WHITE,
+        disabled=True,
+        tooltip="Étendre le canevas via Gemini (outpainting)",
+    )
+
+    async def on_expand_gemini(_) -> None:
+        top, bot, left, right = _ep_margins()
+        if top + bot + left + right == 0:
+            ep_status_lbl.value = "Glissez les bords rouges pour définir des marges."
+            ep_status_lbl.update()
+            return
+        img = state["work_img"] or state["orig_img"]
+        if img is None or state["working"]:
+            return
+
+        expand_dialog.open = False
+        page.update()
+
+        state["working"]        = True
+        send_btn.disabled       = True
+        expand_btn.disabled     = True
+        expand_progress.value   = None
+        expand_progress.visible = True
+        iw, ih = img.size
+        new_w, new_h = iw + left + right, ih + top + bot
+        status_text.value = (
+            f"Extension… {iw}×{ih} → {new_w}×{new_h} px  (↑{top} ↓{bot} ←{left} →{right})"
+        )
+        page.update()
+
+        def _do_expand():
+            canvas = Image.new("RGB", (new_w, new_h), (128, 128, 128))
+            canvas.paste(img.convert("RGB"), (left, top))
+            buf = io.BytesIO()
+            canvas.save(buf, format="JPEG", quality=92)
+            prompt = (
+                "Cette image comporte des zones grises neutres "
+                "ajoutées autour de la photo centrale. "
+                "Complète ces zones de façon naturelle et cohérente "
+                "en continuant la scène : respecte le style, "
+                "l'éclairage et les couleurs de la zone centrale. "
+                "Ne modifie pas la zone centrale."
+            )
+            return _gemini_generate_image(prompt, input_image_bytes=buf.getvalue())
+
+        _elapsed = {"s": 0}
+
+        async def _tick():
+            while state["working"]:
+                await asyncio.sleep(1)
+                _elapsed["s"] += 1
+                if state["working"]:
+                    status_text.value = f"Extension… ({_elapsed['s']}s)"
+                    page.update()
+
+        _timer_task = asyncio.create_task(_tick())
+
+        try:
+            text_resp, image_bytes = await asyncio.wait_for(
+                asyncio.to_thread(_do_expand), timeout=120.0
+            )
+            if image_bytes is None:
+                status_text.value = f"[Gemini] {text_resp or 'Aucune image reçue.'}"
+                return
+
+            result = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize(
+                (new_w, new_h), Image.Resampling.LANCZOS
+            )
+            result.paste(img.convert("RGB"), (left, top))
+
+            state["undo_img"] = (state["work_img"] or state["orig_img"]).copy()
+            state["work_img"] = result
+            state["modified"] = True
+            undo_btn.disabled  = False
+            save_btn.disabled  = False
+            status_text.value  = f"[OK] {iw}×{ih} → {new_w}×{new_h} px"
+            if text_resp:
+                status_text.value += f"  |  « {text_resp[:60]} »"
+
+        except asyncio.TimeoutError:
+            status_text.value = "[ERREUR] Gemini n'a pas répondu en 2 minutes."
+        except Exception as ex:
+            status_text.value = f"[ERREUR] {ex}"
+        finally:
+            _timer_task.cancel()
+            state["working"]        = False
+            expand_progress.visible = False
+            expand_btn.disabled     = state["orig_img"] is None
+            has_sel    = state["selection"] is not None
+            has_prompt = bool(prompt_field.value and prompt_field.value.strip())
+            send_btn.disabled = not (has_sel and has_prompt)
+            _render_preview()
+
+    def _open_expand_dialog(_) -> None:
+        _ep_reset()
+        ep_status_lbl.value = ""
+        expand_dialog.open  = True
+        page.update()
+        _ep_redraw()
+
+    expand_btn.on_click = _open_expand_dialog
+
+    expand_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Étendre l'image (Outpainting)"),
+        content=ft.Column(
+            [
+                ft.Text(
+                    "Glissez les bords du rectangle rouge pour définir les marges d'extension.",
+                    size=11, color=LIGHT_GREY,
+                ),
+                ft.Container(
+                    content=ft.Stack([ep_canvas, ep_gesture]),
+                    width=_PREV_SZ, height=_PREV_SZ,
+                    border=ft.Border.all(1, GREY),
+                    border_radius=6,
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                ),
+                ft.Row(
+                    [
+                        ft.Column([ep_top_lbl, ep_bot_lbl],    spacing=2),
+                        ft.Column([ep_left_lbl, ep_right_lbl], spacing=2),
+                    ],
+                    spacing=24,
+                ),
+                ep_status_lbl,
+            ],
+            spacing=10,
+            tight=True,
+        ),
+        actions=[
+            ft.TextButton(
+                "Annuler",
+                on_click=lambda e: (setattr(expand_dialog, "open", False), page.update()),
+            ),
+            ft.TextButton(
+                "Valider",
+                style=ft.ButtonStyle(color=BLUE),
+                on_click=lambda e: page.run_task(on_expand_gemini, e),
+            ),
+        ],
+        actions_alignment=ft.MainAxisAlignment.END,
+    )
+    page.overlay.append(expand_dialog)
+
     # ── Câblage des événements ───────────────────────────────────────────────
     send_btn.on_click      = on_send_gemini
     undo_btn.on_click      = on_undo
@@ -985,6 +1295,12 @@ async def main(page: ft.Page) -> None:
             ),
             enhance_progress_bar,
             enhance_status,
+            ft.Divider(color=GREY),
+            # Extension IA — outpainting
+            ft.Text("Extension IA (Gemini)", size=13,
+                    weight=ft.FontWeight.BOLD, color=WHITE),
+            expand_btn,
+            expand_progress,
             ft.Divider(color=GREY),
             # Undo
             undo_btn,
