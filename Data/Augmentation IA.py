@@ -24,7 +24,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.8.8"
+__version__ = "2.8.9"
 
 import flet as ft
 import flet.canvas as cv
@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 from ai_tools import _gemini_generate_image
 
-from PIL import Image
+from PIL import Image, ImageFilter
 
 ###############################################################
 #                        PALETTE                              #
@@ -50,6 +50,7 @@ BG_UI      = CONSTANTS.COLOR_BACKGROUND
 GREY       = CONSTANTS.COLOR_GREY
 LIGHT_GREY = CONSTANTS.COLOR_LIGHT_GREY
 BLUE       = CONSTANTS.COLOR_BLUE
+VIOLET     = CONSTANTS.COLOR_VIOLET
 GREEN      = CONSTANTS.COLOR_GREEN
 ORANGE     = CONSTANTS.COLOR_ORANGE
 RED        = CONSTANTS.COLOR_RED
@@ -66,6 +67,7 @@ ESRGAN_AVAILABLE = (
     importlib.util.find_spec("torch")    is not None
     and importlib.util.find_spec("spandrel") is not None
 )
+REMBG_AVAILABLE = importlib.util.find_spec("rembg") is not None
 
 
 def _pick_torch_device() -> str:
@@ -144,6 +146,9 @@ async def main(page: ft.Page) -> None:
         "working":      False,
         "sel_mode":     False,  # True = sélection, False = navigation
         "modified":     False,  # True si des modifications n'ont pas été enregistrées
+        "rembg_active": False,  # True si le fond a été supprimé
+        "rembg_rgba":   None,   # Image RGBA résultat rembg (conservé pour changer le fond)
+        "rembg_before": None,   # work_img avant suppression du fond
     }
 
     # Cache spandrel : un objet ModelDescriptor par fichier modèle
@@ -308,13 +313,19 @@ async def main(page: ft.Page) -> None:
         # BoxFit.CONTAIN gère l'affichage — le zoom révèle les vrais pixels
         ow, oh = img.size
         MAX_PX = 3000
+        if img.mode == "RGBA":
+            _bg = Image.new("RGB", img.size, (180, 180, 180))
+            _bg.paste(img.convert("RGB"), mask=img.split()[3])
+            img_for_preview = _bg
+        else:
+            img_for_preview = img.convert("RGB")
         if max(ow, oh) > MAX_PX:
             s = MAX_PX / max(ow, oh)
-            preview_data = img.convert("RGB").resize(
+            preview_data = img_for_preview.resize(
                 (round(ow * s), round(oh * s)), Image.Resampling.LANCZOS
             )
         else:
-            preview_data = img.convert("RGB")
+            preview_data = img_for_preview
 
         preview_img.src = f"data:image/jpeg;base64,{image_to_b64(preview_data)}"
         preview_img.width        = vw
@@ -400,6 +411,13 @@ async def main(page: ft.Page) -> None:
             save_btn.disabled   = True
             inpaint_btn.disabled = False
             expand_btn.disabled  = False
+            rembg_apply_btn.disabled = not REMBG_AVAILABLE
+            state["rembg_active"] = False
+            state["rembg_rgba"]   = None
+            state["rembg_before"] = None
+            rembg_apply_btn.text    = "Supprimer le fond"
+            rembg_apply_btn.bgcolor = GREY if REMBG_AVAILABLE else GREY
+            rembg_status.value = ""
             _render_preview()
         except Exception as ex:
             status_text.value = f"[ERREUR] {ex}"
@@ -650,7 +668,10 @@ async def main(page: ft.Page) -> None:
             return None
         retouche_dir = os.path.join(os.path.dirname(src), "Retouche")
         os.makedirs(retouche_dir, exist_ok=True)
-        return os.path.join(retouche_dir, os.path.basename(src))
+        basename = os.path.basename(src)
+        if state["rembg_active"] and rembg_dropdown.value == "Transparent":
+            basename = os.path.splitext(basename)[0] + ".png"
+        return os.path.join(retouche_dir, basename)
 
     async def on_save(e) -> None:
         if state["work_img"] is None:
@@ -1202,6 +1223,158 @@ async def main(page: ft.Page) -> None:
     )
     page.overlay.append(expand_dialog)
 
+    # ── Suppression de fond (rembg) ──────────────────────────────────────────
+
+    rembg_dropdown = ft.Dropdown(
+        options=[
+            ft.dropdown.Option("Blanc"),
+            ft.dropdown.Option("Gris"),
+            ft.dropdown.Option("Flou"),
+            ft.dropdown.Option("Transparent"),
+        ],
+        value="Blanc",
+        bgcolor=GREY,
+        color=WHITE,
+        border_color=LIGHT_GREY,
+        text_size=11,
+        dense=True,
+        expand=True,
+        disabled=not REMBG_AVAILABLE,
+        tooltip="Type de fond après suppression" if REMBG_AVAILABLE else "pip install rembg onnxruntime",
+    )
+    rembg_apply_btn = ft.Button(
+        "Supprimer le fond",
+        icon=ft.Icons.AUTO_FIX_HIGH,
+        bgcolor=GREY,
+        color=WHITE,
+        disabled=True,
+        tooltip="Supprimer le fond via rembg" if REMBG_AVAILABLE else "pip install rembg onnxruntime",
+    )
+    rembg_progress = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
+    rembg_status   = ft.Text("", size=11, color=LIGHT_GREY)
+
+    _rembg_precise = [False]   # False = u2net, True = birefnet
+    _rembg_human   = [True]    # True = portrait/human_seg, False = general
+    _rembg_sessions: dict = {}
+
+    _rembg_precise_label = ft.Text("Rapide", size=12, color=DARK)
+    rembg_precise_btn = ft.Button(
+        content=_rembg_precise_label,
+        bgcolor=BLUE if REMBG_AVAILABLE else GREY,
+        disabled=not REMBG_AVAILABLE,
+        style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=8, vertical=2)),
+        tooltip="Rapide (u2net) / Précis (birefnet)",
+    )
+
+    _rembg_model_label = ft.Text("Humain", size=12, color=DARK)
+    rembg_model_btn = ft.Button(
+        content=_rembg_model_label,
+        bgcolor=VIOLET if REMBG_AVAILABLE else GREY,
+        disabled=not REMBG_AVAILABLE,
+        style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=8, vertical=2)),
+        tooltip="Portrait / Généraliste",
+    )
+
+    def on_rembg_precise_toggle(e) -> None:
+        _rembg_precise[0] = not _rembg_precise[0]
+        _rembg_precise_label.value = "Précis" if _rembg_precise[0] else "Rapide"
+        rembg_precise_btn.bgcolor  = VIOLET   if _rembg_precise[0] else BLUE
+        rembg_precise_btn.update()
+
+    def on_rembg_model_toggle(e) -> None:
+        _rembg_human[0] = not _rembg_human[0]
+        _rembg_model_label.value = "Humain"   if _rembg_human[0] else "Général"
+        rembg_model_btn.bgcolor  = VIOLET     if _rembg_human[0] else ORANGE
+        rembg_model_btn.update()
+
+    rembg_precise_btn.on_click = on_rembg_precise_toggle
+    rembg_model_btn.on_click   = on_rembg_model_toggle
+
+    def _rembg_apply_composite() -> None:
+        rgba = state["rembg_rgba"]
+        if rgba is None:
+            return
+        mode = rembg_dropdown.value
+        if mode == "Transparent":
+            state["work_img"] = rgba.copy()
+            return
+        w, h = rgba.size
+        if mode == "Gris":
+            bg = Image.new("RGBA", (w, h), (230, 230, 230, 255))
+        elif mode == "Flou":
+            bg = state["rembg_before"].convert("RGB").filter(
+                ImageFilter.GaussianBlur(radius=64)
+            ).convert("RGBA")
+        else:
+            bg = Image.new("RGBA", (w, h), (255, 255, 255, 255))
+        bg.paste(rgba, mask=rgba.split()[3])
+        state["work_img"] = bg.convert("RGB")
+
+    def on_rembg_bg_change(e) -> None:
+        if not state["rembg_active"]:
+            return
+        _rembg_apply_composite()
+        _render_preview()
+
+    async def on_rembg_toggle(e) -> None:
+        if state["work_img"] is None or state["working"]:
+            return
+        if state["rembg_active"]:
+            state["work_img"]     = state["rembg_before"]
+            state["rembg_rgba"]   = None
+            state["rembg_before"] = None
+            state["rembg_active"] = False
+            rembg_apply_btn.text    = "Supprimer le fond"
+            rembg_apply_btn.bgcolor = GREY
+            rembg_status.value = "Fond restauré"
+            _render_preview()
+            page.update()
+            return
+
+        state["working"]         = True
+        rembg_apply_btn.disabled = True
+        rembg_progress.value     = None
+        rembg_progress.visible   = True
+        rembg_status.value       = "Suppression du fond…"
+        page.update()
+
+        base = state["work_img"].copy()
+
+        def _do_rembg():
+            import rembg as _rembg
+            if _rembg_precise[0]:
+                model = "birefnet-portrait" if _rembg_human[0] else "birefnet-general"
+            else:
+                model = "u2net_human_seg" if _rembg_human[0] else "u2net"
+            if model not in _rembg_sessions:
+                _rembg_sessions[model] = _rembg.new_session(model)
+            return _rembg.remove(base.convert("RGB"), session=_rembg_sessions[model])
+
+        try:
+            rgba = await asyncio.to_thread(_do_rembg)
+            state["rembg_before"] = base
+            state["rembg_rgba"]   = rgba
+            state["rembg_active"] = True
+            _rembg_apply_composite()
+            state["modified"]       = True
+            undo_btn.disabled       = False
+            save_btn.disabled       = False
+            rembg_apply_btn.text    = "Restaurer le fond"
+            rembg_apply_btn.bgcolor = ORANGE
+            rembg_status.value      = "[OK] Fond supprimé"
+        except Exception as ex:
+            rembg_status.value = f"[ERREUR] {ex}"
+        finally:
+            state["working"]         = False
+            rembg_progress.visible   = False
+            rembg_apply_btn.disabled = False
+            page.update()
+            if state["rembg_active"]:
+                _render_preview()
+
+    rembg_apply_btn.on_click = on_rembg_toggle
+    rembg_dropdown.on_change = on_rembg_bg_change
+
     # ── Câblage des événements ───────────────────────────────────────────────
     send_btn.on_click      = on_send_gemini
     undo_btn.on_click      = on_undo
@@ -1338,8 +1511,15 @@ async def main(page: ft.Page) -> None:
             ft.Divider(color=GREY),
             inpaint_btn,
             expand_btn,
-            undo_btn,
             expand_progress,
+            undo_btn,
+            ft.Divider(color=GREY),
+            ft.Text("Suppression de fond", size=12, color=LIGHT_GREY),
+            rembg_dropdown,
+            rembg_apply_btn,
+            ft.Row([rembg_precise_btn, rembg_model_btn], spacing=6),
+            rembg_progress,
+            rembg_status,
             ft.Divider(color=GREY),
             save_btn,
             ignore_btn,

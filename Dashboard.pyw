@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.8.8"
+__version__ = "2.8.9"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -3683,6 +3683,9 @@ def main(page: ft.Page):
         # Autoriser l'envoi sans texte si des images ou fichiers sont joints
         if not message_text and not ai_pending_images and not ai_pending_files:
             return
+        # Ne pas effacer le champ si une réponse est déjà en cours
+        if ai_streaming["value"]:
+            return
         ai_input_field.value = ""
         ai_input_field.update()
 
@@ -7185,6 +7188,11 @@ def main(page: ft.Page):
                 value=False,
                 active_color=GREEN,
             )
+            force_white_border_switch = ft.Switch(
+                label="Bord blanc 5mm",
+                value=False,
+                active_color=GREEN,
+            )
 
             def _update_force_mode_ui():
                 _manual = force_mode_state["manual"]
@@ -7214,10 +7222,11 @@ def main(page: ft.Page):
 
                     _scope_value = "selected" if selected_files else "all"
                     _fit_value = "1" if force_fit_switch.value else "0"
+                    _wb_value = "1" if force_white_border_switch.value else "0"
 
                     force_crop_dialog.open = False
                     page.update()
-                    launch_app(app_name, app_path, is_local, series_name=f"{_size_value}|{_scope_value}|{_fit_value}")
+                    launch_app(app_name, app_path, is_local, series_name=f"{_size_value}|{_scope_value}|{_fit_value}|{_wb_value}")
                 except Exception:
                     force_error_text.value = "Taille invalide. Utilise des entiers en mm (ex: 102 et 152)."
                     page.update()
@@ -7248,6 +7257,7 @@ def main(page: ft.Page):
                             alignment=ft.MainAxisAlignment.CENTER,
                         ),
                         force_fit_switch,
+                        force_white_border_switch,
                         force_scope_info,
                         force_error_text,
                     ],
@@ -8204,6 +8214,8 @@ def main(page: ft.Page):
                         env["FORCE_CROP_SCOPE"] = parts[1]
                     _fit_token = parts[2].strip().lower() if len(parts) >= 3 else "0"
                     env["FORCE_CROP_FIT"] = "1" if _fit_token in ("1", "fit", "true", "yes", "on") else "0"
+                    _wb_token = parts[3].strip().lower() if len(parts) >= 4 else "0"
+                    env["FORCE_CROP_WHITE_BORDER"] = "1" if _wb_token in ("1", "true", "yes", "on") else "0"
 
                 # Paramètres Copyright
                 if app_name == "Copyright.py" and series_name:

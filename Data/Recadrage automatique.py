@@ -27,7 +27,7 @@ Sortie :
   Un sous-dossier nomme d'apres la taille cible (ex: "10x15" ou "12x17").
 """
 
-__version__ = "2.8.8"
+__version__ = "2.8.9"
 
 #############################################################
 #                          IMPORTS                          #
@@ -317,6 +317,7 @@ if scope not in {"selected", "all"}:
     scope = "selected"
 
 fit_mode = os.environ.get("FORCE_CROP_FIT", "0").strip() == "1"
+white_border_mode = os.environ.get("FORCE_CROP_WHITE_BORDER", "0").strip() == "1"
 
 width_mm, height_mm = parse_target_size_mm()
 images = list_images(scope)
@@ -484,7 +485,18 @@ else:
                 if img.width < img.height:
                     img = img.rotate(90, expand=True)
                     rotated_back = True
-                result = ImageOps.fit(img, (width_px, height_px), method=Image.Resampling.LANCZOS)
+                if white_border_mode:
+                    border_px = mm_to_pixels(5, DPI)
+                    inner_w = width_px - 2 * border_px
+                    inner_h = height_px - 2 * border_px
+                    ratio = min(inner_w / img.width, inner_h / img.height)
+                    new_w = round(img.width * ratio)
+                    new_h = round(img.height * ratio)
+                    fitted = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                    result = Image.new("RGB", (width_px, height_px), (255, 255, 255))
+                    result.paste(fitted, ((width_px - new_w) // 2, (height_px - new_h) // 2))
+                else:
+                    result = ImageOps.fit(img, (width_px, height_px), method=Image.Resampling.LANCZOS)
                 if rotated_back:
                     result = result.rotate(270, expand=True)
 

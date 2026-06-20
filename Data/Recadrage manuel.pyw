@@ -45,7 +45,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.8.8"
+__version__ = "2.8.9"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -441,7 +441,7 @@ class PhotoCropper:
         is_bw, is_sharpen, fit_in, contrast, saturation, exposure,
         shadows, highlights, enhance_toggle
     Mise en page / planches
-        border_13x15, border_20x24, border_13x10, border_polaroid,
+        border_polaroid,
         border_id2, border_id4, copies_count, extra_formats
     Cache prévisualisation
         _preview_tmp_dir, _preview_counter, _prev_preview_path
@@ -509,11 +509,6 @@ class PhotoCropper:
         self.custom_format = (100, 100)         # dimensions libres (Personnalisé)
         self.custom_fields_row = None            # initialisé dans main() avant usage
         self.custom_panel = None                 # container séparé, initialisé dans main()
-        self.border_13x15 = CONSTANTS.RECADRAGE_BORDER_13x15
-        self.border_10x20 = CONSTANTS.RECADRAGE_BORDER_10x20
-        self.border_13x20 = CONSTANTS.RECADRAGE_BORDER_13x20
-        self.border_20x24 = CONSTANTS.RECADRAGE_BORDER_20x24
-        self.border_13x10 = CONSTANTS.RECADRAGE_BORDER_13x10
         self.border_polaroid = CONSTANTS.RECADRAGE_BORDER_POLAROID
         self.border_id2 = CONSTANTS.RECADRAGE_BORDER_ID2
         self.border_id4 = CONSTANTS.RECADRAGE_BORDER_ID4
@@ -716,12 +711,6 @@ class PhotoCropper:
 
 
 
-        self.two_in_one_switch = ft.Switch(label="2 en 1", active_color=BLUE, value=CONSTANTS.RECADRAGE_TWO_IN_ONE, visible=any(fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]), on_change=self.is_two_in_one_enabled)
-        self.border_switch_13x15 = ft.Switch(label="13x15", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_13x15, visible="10x15" in self.current_format_label, on_change=self.on_border_toggle_13x15)
-        self.border_switch_10x20 = ft.Switch(label="10x20", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_10x20, visible="10x15" in self.current_format_label, on_change=self.on_border_toggle_10x20)
-        self.border_switch_13x20 = ft.Switch(label="13x20", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_13x20, visible="13x18" in self.current_format_label, on_change=self.on_border_toggle_13x20)
-        self.border_switch_20x24 = ft.Switch(label="20x24", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_20x24, visible="18x24" in self.current_format_label, on_change=self.on_border_toggle_20x24)
-        self.border_switch_13x10 = ft.Switch(label="13x10", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_13x10, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_13x10)
         self.border_switch_polaroid = ft.Switch(label="Polaroid", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_POLAROID, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_polaroid)
         self.border_switch_ID2 = ft.Switch(label="ID X2", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_ID2, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id2)
         self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_ID4, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id4)
@@ -732,6 +721,8 @@ class PhotoCropper:
         self.bw_switch = ft.Switch(label="Noir et blanc", active_color=YELLOW, value=CONSTANTS.RECADRAGE_IS_BW, on_change=self.on_bw_toggle)
         self.is_fit_in = CONSTANTS.RECADRAGE_FIT_IN
         self.fit_in_switch = ft.Switch(label="Fit-in", active_color=VIOLET, value=CONSTANTS.RECADRAGE_FIT_IN, on_change=self.on_fit_in_toggle)
+        self.white_border = CONSTANTS.RECADRAGE_WHITE_BORDER
+        self.white_border_switch = ft.Switch(label="Bord blanc 5mm", active_color=WHITE, value=CONSTANTS.RECADRAGE_WHITE_BORDER, on_change=self.on_white_border_toggle)
         self.show_grid = CONSTANTS.RECADRAGE_SHOW_GRID
         self.grid_switch = ft.Switch(label="Grille", active_color=BLUE, value=CONSTANTS.RECADRAGE_SHOW_GRID, on_change=self.on_grid_toggle)
 
@@ -1314,34 +1305,10 @@ class PhotoCropper:
         self._clamp_offsets()
         self._update_transform()
 
-        if "10x15" in self.current_format_label:
-            self.border_switch_13x15.visible = True
-            self.border_switch_13x15.value = self.border_13x15
-            self.border_switch_10x20.visible = True
-            self.border_switch_10x20.value = self.border_10x20
-        else:
-            self.border_switch_13x15.visible = False
-            self.border_switch_10x20.visible = False
-
-        if "13x18" in self.current_format_label:
-            self.border_switch_13x20.visible = True
-            self.border_switch_13x20.value = self.border_13x20
-        else:
-            self.border_switch_13x20.visible = False
-
-        if "18x24" in self.current_format_label:
-            self.border_switch_20x24.visible = True
-            self.border_switch_20x24.value = self.border_20x24
-        else:
-            self.border_switch_20x24.visible = False
-
         if "10x10" in self.current_format_label:
-            self.border_switch_13x10.visible = True
-            self.border_switch_13x10.value = self.border_13x10
             self.border_switch_polaroid.visible = True
             self.border_switch_polaroid.value = self.border_polaroid
         else:
-            self.border_switch_13x10.visible = False
             self.border_switch_polaroid.visible = False
 
         if "ID" in self.current_format_label:
@@ -1806,144 +1773,6 @@ class PhotoCropper:
         return output_canvas
 
 
-
-    # ================================================================ #
-    #                    CONSTRUCTION DES PLANCHES                     #
-    # ================================================================ #
-    def is_two_in_one_enabled(self):
-        """
-        Indique si le mode « 2 en 1 » est actif pour le format courant.
-
-        Returns
-        -------
-        bool
-            True si le switch « 2 en 1 » est coché ET que le format
-            courant est compatible (10x15, 13x18 ou 15x20).
-        """
-
-        return bool(self.two_in_one_switch.value) and any(
-            fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"]
-        )
-
-
-
-    def _force_portrait(self, image):
-        """
-        Tourne l'image de 90° (sens antihoraire) si elle est en paysage.
-
-        Utilisé avant d'assembler les panneaux 2-en-1 pour s'assurer que
-        chaque vignette est en orientation portrait, quel que soit le sens
-        de l'image source.
-
-        Parameters
-        ----------
-        image : PIL.Image.Image
-            Image à normaliser.
-
-        Returns
-        -------
-        PIL.Image.Image
-            Image en orientation portrait (height ≥ width).
-        """
-
-        if image.width > image.height:
-            return image.rotate(90, expand=True)
-        return image
-
-
-
-    def _build_two_in_one_image(self, first_image, target_w_px, target_h_px):
-        """
-        Assemble une planche « 2 en 1 » en divisant le côté le plus long
-        du format en deux panneaux égaux.
-
-        Logique de découpage
-        ---------------------
-        Si target_w_px ≥ target_h_px (format paysage) : les deux copies
-        sont posées côte à côte, chacune sur la moitié de la largeur.
-        Sinon (format portrait) : les deux copies sont empilées, chacune
-        sur la moitié de la hauteur.
-
-        Chaque panneau utilise `ImageOps.fit` (recadrage centré) pour
-        s'ajuster exactement aux dimensions du demi-format.
-
-        Parameters
-        ----------
-        first_image : PIL.Image.Image
-            Image recadrée représentant un exemplaire (produit par
-            `_compute_crop` / `_compute_fit_in`).
-        target_w_px, target_h_px : int
-            Dimensions totales de la planche finale en pixels.
-
-        Returns
-        -------
-        PIL.Image.Image
-            Planche 2-en-1 en mode RGB aux dimensions (target_w_px, target_h_px).
-        """
-
-        divide_horizontally = target_w_px >= target_h_px
-
-        if divide_horizontally:
-            panel_width  = target_w_px // 2
-            panel_height = target_h_px
-            first_panel_position  = (0, 0)
-            second_panel_position = (panel_width, 0)
-        else:
-            panel_width  = target_w_px
-            panel_height = target_h_px // 2
-            first_panel_position  = (0, 0)
-            second_panel_position = (0, panel_height)
-
-        first_image = self._force_portrait(first_image.convert("RGB"))
-        first_panel = ImageOps.fit(first_image, (panel_width, panel_height), method=Image.Resampling.BICUBIC)
-
-        second_panel = first_panel.copy()
-
-        assembled_image = Image.new("RGB", (target_w_px, target_h_px), "white")
-        assembled_image.paste(first_panel, first_panel_position)
-        assembled_image.paste(second_panel, second_panel_position)
-        return assembled_image
-
-
-
-    def _build_two_in_one_10x15_to_13x15(self, first_image):
-        """
-        Cas particulier 2-en-1 pour le format 10x15 avec bord 13x15.
-
-        Composition :
-          - Deux panneaux de 76×102 mm (moitié de la largeur 10x15 arrondie)
-            assemblés côte à côte sur une base de 152×102 mm.
-          - La base est ensuite étendue à 152×127 mm avec du blanc en bas
-            pour correspondre au format 13x15 (127 mm de hauteur).
-
-        Parameters
-        ----------
-        first_image : PIL.Image.Image
-            Image recadrée 10x15 (un exemplaire).
-
-        Returns
-        -------
-        PIL.Image.Image
-            Planche 13x15 en mode RGB avec les deux copies en haut et la
-            marge blanche en bas.
-        """
-
-        panel_width  = mm_to_pixels(76)
-        panel_height = mm_to_pixels(102)
-        base_width   = mm_to_pixels(152)
-        base_height  = mm_to_pixels(102)
-        final_height = mm_to_pixels(127)
-
-        first_image = self._force_portrait(first_image.convert("RGB"))
-        photo_panel = ImageOps.fit(first_image, (panel_width, panel_height), method=Image.Resampling.BICUBIC)
-
-        base_image = Image.new("RGB", (base_width, base_height), "white")
-        base_image.paste(photo_panel, (0, 0))
-        base_image.paste(photo_panel, (panel_width, 0))
-
-        framed_image = Image.new("RGB", (base_width, final_height), "white")
-        framed_image.paste(base_image, (0, 0))
-        return framed_image
 
     # ================================================================ #
     #              AMÉLIORATION & AJUSTEMENTS                         #
@@ -2640,6 +2469,12 @@ class PhotoCropper:
 
 
 
+    def on_white_border_toggle(self, e):
+        self.white_border = bool(e.control.value)
+        self.page.update()
+
+
+
     def on_sharpen_toggle(self, e):
         """
         Active ou désactive le filtre de netteté (UnsharpMask).
@@ -2861,88 +2696,6 @@ class PhotoCropper:
 
 
 
-    def on_border_toggle_13x15(self, e):
-        """
-        Active / désactive l'ajout d'une bordure blanche pour passer du
-        format 10x15 au format 13x15.
-
-        Quand activé, la photo 10x15 est collée sur un fond blanc de
-        127×152 mm (portrait) ou 152×127 mm (paysage).
-
-        Parameters
-        ----------
-        e : ft.ControlEvent
-            Événement du Switch « 13x15 ».
-        """
-
-        self.border_13x15 = bool(e.control.value)
-        if self.border_13x15:
-            self.border_10x20 = False
-            self.border_switch_10x20.value = False
-            self.border_switch_10x20.update()
-
-
-
-    def on_border_toggle_10x20(self, e):
-        """Active / désactive le cadre 10x20 pour une photo 10x15.
-        Mutuellement exclusif avec 13x15."""
-
-        self.border_10x20 = bool(e.control.value)
-        if self.border_10x20:
-            self.border_13x15 = False
-            self.border_switch_13x15.value = False
-            self.border_switch_13x15.update()
-
-
-
-
-    def on_border_toggle_13x20(self, e):
-        """Active / désactive le cadre 13x20 pour une photo 13x18."""
-
-        self.border_13x20 = bool(e.control.value)
-
-
-
-    def on_border_toggle_20x24(self, e):
-        """
-        Active / désactive l'ajout d'une bordure blanche pour passer du
-        format 18x24 au format 20x24.
-
-        La largeur de l'image 18x24 est agrandie avec du blanc pour
-        atteindre le ratio 203÷240 (20x24).
-
-        Parameters
-        ----------
-        e : ft.ControlEvent
-            Événement du Switch « 20x24 ».
-        """
-
-        self.border_20x24 = bool(e.control.value)
-
-
-
-    def on_border_toggle_13x10(self, e):
-        """
-        Active / désactive l'ajout d'une bordure blanche pour passer du
-        format 10x10 au format 13x10.
-
-        Mutuellement exclusif avec le mode Polaroid : activer 13x10
-        désactive automatiquement Polaroid.
-
-        Parameters
-        ----------
-        e : ft.ControlEvent
-            Événement du Switch « 13x10 ».
-        """
-
-        self.border_13x10 = bool(e.control.value)
-        if self.border_13x10:
-            self.border_polaroid = False
-            self.border_switch_polaroid.value = False
-            self.page.update()
-
-
-
     def on_border_toggle_polaroid(self, e):
         """
         Active / désactive le cadre Polaroid.
@@ -2958,10 +2711,7 @@ class PhotoCropper:
         """
 
         self.border_polaroid = bool(e.control.value)
-        if self.border_polaroid:
-            self.border_13x10 = False
-            self.border_switch_13x10.value = False
-            self.page.update()
+        self.page.update()
 
 
 
@@ -3350,9 +3100,6 @@ class PhotoCropper:
                 self.current_format = self.custom_format
             # Masquer tous les switches spéciaux
             for sw in [
-                self.two_in_one_switch, self.border_switch_13x15,
-                self.border_switch_10x20, self.border_switch_13x20,
-                self.border_switch_20x24, self.border_switch_13x10,
                 self.border_switch_polaroid, self.border_switch_ID2,
                 self.border_switch_ID4, self.id4_10x20_switch,
                 self.network_switch,
@@ -3373,113 +3120,8 @@ class PhotoCropper:
             self.current_format_label = e.control.value
         except Exception:
             pass
-        if "10x15" in self.current_format_label:
-            self.two_in_one_switch.visible = True
-            self.two_in_one_switch.value = False
-            self.border_switch_13x15.visible = True
-            self.border_switch_13x15.value = self.border_13x15
-            self.border_switch_10x20.visible = True
-            self.border_switch_10x20.value = self.border_10x20
-            self.border_switch_13x20.visible = False
-            self.border_switch_13x20.value = False
-            self.border_13x20 = False
-            self.border_switch_20x24.visible = False
-            self.border_switch_20x24.value = False
-            self.border_20x24 = False
-            self.border_switch_13x10.visible = False
-            self.border_switch_13x10.value = False
-            self.border_13x10 = False
-            self.border_switch_ID2.visible = False
-            self.border_switch_ID2.value = False
-            self.border_switch_ID4.visible = False
-            self.border_switch_ID4.value = False
-            self.network_switch.visible = False
-            self.id4_10x20_switch.visible = False
-            self.border_switch_polaroid.visible = False
-            self.border_switch_polaroid.value = False
-            self.border_polaroid = False
-        elif "13x18" in self.current_format_label:
-            self.two_in_one_switch.visible = True
-            self.two_in_one_switch.value = False
-            self.border_switch_13x15.visible = False
-            self.border_switch_10x20.visible = False
-            self.border_switch_10x20.value = False
-            self.border_10x20 = False
-            self.border_switch_13x20.visible = True
-            self.border_switch_13x20.value = self.border_13x20
-            self.border_switch_20x24.visible = False
-            self.border_switch_20x24.value = False
-            self.border_20x24 = False
-            self.border_switch_13x10.visible = False
-            self.border_switch_13x10.value = False
-            self.border_13x10 = False
-            self.border_switch_ID2.visible = False
-            self.border_switch_ID2.value = False
-            self.border_switch_ID4.visible = False
-            self.border_switch_ID4.value = False
-            self.network_switch.visible = False
-            self.id4_10x20_switch.visible = False
-            self.border_switch_polaroid.visible = False
-            self.border_switch_polaroid.value = False
-            self.border_polaroid = False
-        elif "15x20" in self.current_format_label:
-            self.two_in_one_switch.visible = True
-            self.two_in_one_switch.value = False
-            self.border_switch_13x15.visible = False
-            self.border_switch_10x20.visible = False
-            self.border_switch_10x20.value = False
-            self.border_10x20 = False
-            self.border_switch_13x20.visible = False
-            self.border_switch_13x20.value = False
-            self.border_13x20 = False
-            self.border_switch_20x24.visible = False
-            self.border_switch_20x24.value = False
-            self.border_20x24 = False
-            self.border_switch_13x10.visible = False
-            self.border_switch_13x10.value = False
-            self.border_13x10 = False
-            self.border_switch_ID2.visible = False
-            self.border_switch_ID2.value = False
-            self.border_switch_ID4.visible = False
-            self.border_switch_ID4.value = False
-            self.network_switch.visible = False
-            self.id4_10x20_switch.visible = False
-            self.border_switch_polaroid.visible = False
-            self.border_switch_polaroid.value = False
-            self.border_polaroid = False
-        elif "18x24" in self.current_format_label:
-            self.two_in_one_switch.visible = False
-            self.border_switch_20x24.visible = True
-            self.border_switch_13x15.visible = False
-            self.border_switch_10x20.visible = False
-            self.border_switch_10x20.value = False
-            self.border_10x20 = False
-            self.border_switch_13x20.visible = False
-            self.border_switch_13x20.value = False
-            self.border_13x20 = False
-            self.border_switch_13x10.visible = False
-            self.border_switch_13x10.value = False
-            self.border_13x10 = False
-            self.border_switch_ID2.visible = False
-            self.border_switch_ID2.value = False
-            self.border_switch_ID4.visible = False
-            self.border_switch_ID4.value = False
-            self.network_switch.visible = False
-            self.id4_10x20_switch.visible = False
-            self.border_switch_polaroid.visible = False
-            self.border_switch_polaroid.value = False
-            self.border_polaroid = False
-        elif "10x10" in self.current_format_label:
-            self.two_in_one_switch.visible = False
-            self.border_switch_13x10.visible = True
+        if "10x10" in self.current_format_label:
             self.border_switch_polaroid.visible = True
-            self.border_switch_13x15.visible = False
-            self.border_switch_10x20.visible = False
-            self.border_switch_10x20.value = False
-            self.border_10x20 = False
-            self.border_switch_13x20.visible = False
-            self.border_switch_13x20.value = False
-            self.border_13x20 = False
             self.border_switch_ID2.visible = False
             self.border_switch_ID2.value = False
             self.border_switch_ID4.visible = False
@@ -3487,40 +3129,15 @@ class PhotoCropper:
             self.network_switch.visible = False
             self.id4_10x20_switch.visible = False
         elif "ID" in self.current_format_label:
-            self.two_in_one_switch.visible = False
             self.border_switch_ID2.visible = True
             self.border_switch_ID4.visible = True
             self.id4_10x20_switch.visible = self.border_id4
             self.network_switch.visible = True
             self.sharpen_switch.value = True
-            self.border_switch_13x15.visible = False
-            self.border_switch_10x20.visible = False
-            self.border_switch_10x20.value = False
-            self.border_10x20 = False
-            self.border_switch_13x20.visible = False
-            self.border_switch_13x20.value = False
-            self.border_13x20 = False
-            self.border_switch_13x10.visible = False
-            self.border_switch_13x10.value = False
-            self.border_13x10 = False
             self.border_switch_polaroid.visible = False
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
         else:
-            self.two_in_one_switch.visible = False
-            self.border_switch_13x15.visible = False
-            self.border_switch_10x20.visible = False
-            self.border_switch_10x20.value = False
-            self.border_10x20 = False
-            self.border_switch_13x20.visible = False
-            self.border_switch_13x20.value = False
-            self.border_13x20 = False
-            self.border_switch_20x24.visible = False
-            self.border_switch_20x24.value = False
-            self.border_20x24 = False
-            self.border_switch_13x10.visible = False
-            self.border_switch_13x10.value = False
-            self.border_13x10 = False
             self.border_switch_ID2.visible = False
             self.border_switch_ID2.value = False
             self.border_switch_ID4.visible = False
@@ -3557,9 +3174,6 @@ class PhotoCropper:
         if self.image_paths:
             self.load_image(preserve_orientation=True)
 
-        self.two_in_one_switch.visible = True if (any(fmt in self.current_format_label for fmt in ["10x15", "13x18", "15x20"])) else False
-        self.border_switch_13x15.visible = True if "10x15" in self.current_format_label else False
-        self.border_switch_13x10.visible = True if "10x10" in self.current_format_label else False
         self.border_switch_polaroid.visible = True if "10x10" in self.current_format_label else False
         self.border_switch_ID2.visible = True if "ID" in self.current_format_label else False
         self.border_switch_ID4.visible = True if "ID" in self.current_format_label else False
@@ -3649,11 +3263,7 @@ class PhotoCropper:
             "offset_y": self.offset_y,
             "rotation": self.rotation,
             "copies": self.copies_count,
-            "border_13x15": self.border_13x15,
-            "border_10x20": self.border_10x20,
-            "border_13x20": self.border_13x20,
             "is_bw": self.is_bw,
-            "two_in_one": bool(self.two_in_one_switch.value),
             "is_sharpen": self.is_sharpen,
             "enhance_toggle": False,
             "fit_in": self.is_fit_in,
@@ -3833,81 +3443,19 @@ class PhotoCropper:
         if self.highlights != 0:
             output_image = self._apply_highlights(output_image, self.highlights)
 
-        two_in_one_applied = False
-        if self.is_two_in_one_enabled():
-            if self.border_13x15 and "10x15" in format_short_name:
-                output_image = self._build_two_in_one_10x15_to_13x15(output_image)
-                format_short_name = "13x15"
-            else:
-                output_image = self._build_two_in_one_image(output_image, output_width_px, output_height_px)
-            two_in_one_applied = True
+        if self.white_border:
+            border_px = mm_to_pixels(5)
+            inner_w = output_width_px - 2 * border_px
+            inner_h = output_height_px - 2 * border_px
+            ratio = min(inner_w / output_image.width, inner_h / output_image.height)
+            new_w = round(output_image.width * ratio)
+            new_h = round(output_image.height * ratio)
+            fitted = output_image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            canvas = Image.new("RGB", (output_width_px, output_height_px), "white")
+            canvas.paste(fitted, ((output_width_px - new_w) // 2, (output_height_px - new_h) // 2))
+            output_image = canvas
 
-        if (not two_in_one_applied) and self.border_13x15 and "10x15" in format_short_name:
-            if output_is_portrait:
-                source_width_px, source_height_px = mm_to_pixels(102), mm_to_pixels(152)
-                output_framed_width_px, output_framed_height_px = mm_to_pixels(127), mm_to_pixels(152)
-            else:
-                source_width_px, source_height_px = mm_to_pixels(152), mm_to_pixels(102)
-                output_framed_width_px, output_framed_height_px = mm_to_pixels(152), mm_to_pixels(127)
-            fitted_photo = ImageOps.fit(output_image, (source_width_px, source_height_px), method=Image.Resampling.BICUBIC)
-            framed_image = Image.new("RGB", (output_framed_width_px, output_framed_height_px), "white")
-            framed_image.paste(fitted_photo, (0, 0))
-            output_image = framed_image
-            format_short_name = "13x15"
-
-        if (not two_in_one_applied) and self.border_10x20 and "10x15" in format_short_name:
-            if output_is_portrait:
-                source_width_px, source_height_px = mm_to_pixels(102), mm_to_pixels(152)
-                output_framed_width_px, output_framed_height_px = mm_to_pixels(102), mm_to_pixels(203)
-            else:
-                source_width_px, source_height_px = mm_to_pixels(152), mm_to_pixels(102)
-                output_framed_width_px, output_framed_height_px = mm_to_pixels(203), mm_to_pixels(102)
-            fitted_photo = ImageOps.fit(output_image, (source_width_px, source_height_px), method=Image.Resampling.BICUBIC)
-            framed_image = Image.new("RGB", (output_framed_width_px, output_framed_height_px), "white")
-            framed_image.paste(fitted_photo, (0, 0))
-            output_image = framed_image
-            format_short_name = "10x20"
-
-        if (not two_in_one_applied) and self.border_13x20 and "13x18" in format_short_name:
-            if output_is_portrait:
-                source_width_px, source_height_px = mm_to_pixels(127), mm_to_pixels(178)
-                output_framed_width_px, output_framed_height_px = mm_to_pixels(127), mm_to_pixels(203)
-            else:
-                source_width_px, source_height_px = mm_to_pixels(178), mm_to_pixels(127)
-                output_framed_width_px, output_framed_height_px = mm_to_pixels(203), mm_to_pixels(127)
-            fitted_photo = ImageOps.fit(output_image, (source_width_px, source_height_px), method=Image.Resampling.BICUBIC)
-            framed_image = Image.new("RGB", (output_framed_width_px, output_framed_height_px), "white")
-            framed_image.paste(fitted_photo, (0, 0))
-            output_image = framed_image
-            format_short_name = "13x20"
-
-        if (not two_in_one_applied) and self.border_20x24 and "18x24" in format_short_name:
-            ratio_20_24 = 203 / 240
-            if output_is_portrait:
-                framed_width_px = int(output_image.height * ratio_20_24)
-                framed_image = Image.new("RGB", (framed_width_px, output_image.height), "white")
-                framed_image.paste(output_image, (0, 0))
-            else:
-                framed_height_px = int(output_image.width * ratio_20_24)
-                framed_image = Image.new("RGB", (output_image.width, framed_height_px), "white")
-                framed_image.paste(output_image, (0, 0))
-            output_image = framed_image
-            format_short_name = "20x24"
-
-        if (not two_in_one_applied) and self.border_13x10 and "10x10" in format_short_name:
-            ratio_13_10 = 127 / 102
-            if output_is_portrait:
-                framed_height_px = int(output_image.width * ratio_13_10)
-                framed_image = Image.new("RGB", (output_image.width, framed_height_px), "white")
-                framed_image.paste(output_image, (0, 0))
-            else:
-                framed_width_px = int(output_image.height * ratio_13_10)
-                framed_image = Image.new("RGB", (framed_width_px, output_image.height), "white")
-                framed_image.paste(output_image, (0, 0))
-            output_image = framed_image
-            format_short_name = "13x10"
-
-        if (not two_in_one_applied) and self.border_polaroid and "10x10" in format_short_name:
+        if self.border_polaroid and "10x10" in format_short_name:
             POLAROID_WIDTH_PX = mm_to_pixels(127)
             POLAROID_HEIGHT_PX = mm_to_pixels(152)
             framed_image = Image.new("RGB", (POLAROID_WIDTH_PX, POLAROID_HEIGHT_PX), "white")
@@ -3917,7 +3465,7 @@ class PhotoCropper:
             output_image = framed_image
             format_short_name = "Polaroid"
 
-        if (not two_in_one_applied) and self.border_id4 and "ID" in self.current_format_label:
+        if self.border_id4 and "ID" in self.current_format_label:
             SPACING_PX = mm_to_pixels(5)
             id_photo = output_image
             if id_photo.height > id_photo.width:
@@ -3958,7 +3506,7 @@ class PhotoCropper:
             output_image = sheet_image
             output_filename = f"{copies_count_prefix}ID {self.current_index + 1:02}.jpg"
 
-        elif (not two_in_one_applied) and self.border_id2 and "ID" in self.current_format_label:
+        elif self.border_id2 and "ID" in self.current_format_label:
             SHEET_WIDTH_PX  = mm_to_pixels(102)
             SHEET_HEIGHT_PX = mm_to_pixels(102)
             SPACING_PX = mm_to_pixels(5)
@@ -4039,8 +3587,6 @@ class PhotoCropper:
             else:
                 snapshot_output_image = self._compute_crop_from_snapshot(snapshot)
 
-            snapshot_two_in_one_applied = False
-
             # Appliquer les réglages couleur AVANT les bordures pour que les
             # zones blanches ajoutées (13x15, Polaroid…) restent blanc pur.
             original_contrast, original_saturation, original_exposure = self.contrast, self.saturation, self.exposure
@@ -4057,53 +3603,6 @@ class PhotoCropper:
                 snapshot_output_image = self._apply_shadows(snapshot_output_image, snapshot["shadows"])
             if snapshot.get("highlights", 0) != 0:
                 snapshot_output_image = self._apply_highlights(snapshot_output_image, snapshot["highlights"])
-
-            if snapshot.get("two_in_one", False):
-                if snapshot.get("border_13x15", False) and "10x15" in snapshot_format_short_name:
-                    snapshot_output_image = self._build_two_in_one_10x15_to_13x15(snapshot_output_image)
-                    snapshot_format_short_name = "13x15"
-                else:
-                    snapshot_output_image = self._build_two_in_one_image(snapshot_output_image, snapshot_output_width_px, snapshot_output_height_px)
-                snapshot_two_in_one_applied = True
-
-            if (not snapshot_two_in_one_applied) and snapshot.get("border_13x15", False) and "10x15" in snapshot_format_short_name:
-                if snapshot_is_portrait:
-                    snapshot_source_width, snapshot_source_height = mm_to_pixels(102), mm_to_pixels(152)
-                    snapshot_framed_width, snapshot_framed_height = mm_to_pixels(127), mm_to_pixels(152)
-                else:
-                    snapshot_source_width, snapshot_source_height = mm_to_pixels(152), mm_to_pixels(102)
-                    snapshot_framed_width, snapshot_framed_height = mm_to_pixels(152), mm_to_pixels(127)
-                snapshot_fitted_photo = ImageOps.fit(snapshot_output_image, (snapshot_source_width, snapshot_source_height), method=Image.Resampling.LANCZOS)
-                snapshot_framed_image = Image.new("RGB", (snapshot_framed_width, snapshot_framed_height), "white")
-                snapshot_framed_image.paste(snapshot_fitted_photo, (0, 0))
-                snapshot_output_image = snapshot_framed_image
-                snapshot_format_short_name = "13x15"
-
-            if (not snapshot_two_in_one_applied) and snapshot.get("border_10x20", False) and "10x15" in snapshot_format_short_name:
-                if snapshot_is_portrait:
-                    snapshot_source_width, snapshot_source_height = mm_to_pixels(102), mm_to_pixels(152)
-                    snapshot_framed_width, snapshot_framed_height = mm_to_pixels(102), mm_to_pixels(203)
-                else:
-                    snapshot_source_width, snapshot_source_height = mm_to_pixels(152), mm_to_pixels(102)
-                    snapshot_framed_width, snapshot_framed_height = mm_to_pixels(203), mm_to_pixels(102)
-                snapshot_fitted_photo = ImageOps.fit(snapshot_output_image, (snapshot_source_width, snapshot_source_height), method=Image.Resampling.LANCZOS)
-                snapshot_framed_image = Image.new("RGB", (snapshot_framed_width, snapshot_framed_height), "white")
-                snapshot_framed_image.paste(snapshot_fitted_photo, (0, 0))
-                snapshot_output_image = snapshot_framed_image
-                snapshot_format_short_name = "10x20"
-
-            if (not snapshot_two_in_one_applied) and snapshot.get("border_13x20", False) and "13x18" in snapshot_format_short_name:
-                if snapshot_is_portrait:
-                    snapshot_source_width, snapshot_source_height = mm_to_pixels(127), mm_to_pixels(178)
-                    snapshot_framed_width, snapshot_framed_height = mm_to_pixels(127), mm_to_pixels(203)
-                else:
-                    snapshot_source_width, snapshot_source_height = mm_to_pixels(178), mm_to_pixels(127)
-                    snapshot_framed_width, snapshot_framed_height = mm_to_pixels(203), mm_to_pixels(127)
-                snapshot_fitted_photo = ImageOps.fit(snapshot_output_image, (snapshot_source_width, snapshot_source_height), method=Image.Resampling.LANCZOS)
-                snapshot_framed_image = Image.new("RGB", (snapshot_framed_width, snapshot_framed_height), "white")
-                snapshot_framed_image.paste(snapshot_fitted_photo, (0, 0))
-                snapshot_output_image = snapshot_framed_image
-                snapshot_format_short_name = "13x20"
 
             os.makedirs(snapshot_format_short_name, exist_ok=True)
             snapshot_copies_count = snapshot.get("copies", 1)
@@ -4424,19 +3923,13 @@ def main(page: ft.Page):
         app.custom_panel,
         ft.Container(
             content=ft.Column([
-                app.two_in_one_switch,
-                app.border_switch_13x15,
-                app.border_switch_10x20,
-                app.border_switch_13x20,
-                app.border_switch_20x24,
-                app.border_switch_13x10,
                 app.border_switch_polaroid,
                 app.border_switch_ID2,
                 app.border_switch_ID4,
                 app.id4_10x20_switch,
                 app.network_switch,
             ], spacing=0),
-            height=180,
+            padding=ft.Padding.only(bottom=8),
         ),
         ft.Divider(height=8, visible=app.show_histogram),
         ft.Text("Histogramme", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER, visible=app.show_histogram),
@@ -4563,6 +4056,7 @@ def main(page: ft.Page):
                                         ft.Column([
                                             app.bw_switch,
                                             app.fit_in_switch,
+                                            app.white_border_switch,
                                         ], horizontal_alignment=ft.CrossAxisAlignment.START, spacing=4),
                                         ft.VerticalDivider(width=1, color=LIGHT_GREY),                                            
                                         ft.Column([

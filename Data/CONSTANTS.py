@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.8.8"
+__version__ = "2.8.9"
 
 
 # ==============================================================================
@@ -186,12 +186,6 @@ RECADRAGE_CUSTOM_PANEL_HEIGHT   = 110     # Hauteur du panneau Dimensions (mm)
 # ── 5.2  Toggles — états initiaux ─────────────────────────────────────────────
 # Chaque constante correspond à l'état initial d'un toggle (Switch ou bouton).
 
-RECADRAGE_TWO_IN_ONE      = False   # 2-en-1 (formats 10x15, 13x18, 15x20)
-RECADRAGE_BORDER_13x15    = False   # Mise en page 13x15 (format 10x15)
-RECADRAGE_BORDER_10x20    = False   # Mise en page 10x20 (format 10x15)
-RECADRAGE_BORDER_13x20    = False   # Mise en page 13x20 (format 13x18)
-RECADRAGE_BORDER_20x24    = False   # Mise en page 20x24 (format 18x24)
-RECADRAGE_BORDER_13x10    = False   # Mise en page 13x10 (format 10x10)
 RECADRAGE_BORDER_POLAROID = False   # Mise en page Polaroid (format 10x10)
 RECADRAGE_BORDER_ID2      = False   # Planche ID X2
 RECADRAGE_BORDER_ID4      = True    # Planche ID X4
@@ -200,6 +194,7 @@ RECADRAGE_SAVE_TO_NETWORK = True    # Sauvegarder les ID X4 sur le réseau par d
 RECADRAGE_IS_BW           = False   # Noir et blanc
 RECADRAGE_IS_SHARPEN      = True    # Netteté activée
 RECADRAGE_FIT_IN          = False   # Mode Fit-in (image entière dans le format)
+RECADRAGE_WHITE_BORDER    = False   # Bord blanc 5 mm (image réduite, canvas inchangé)
 RECADRAGE_SHOW_GRID       = True    # Afficher la grille de cadrage
 RECADRAGE_REMBG_BG_WHITE  = True    # Fond blanc après suppression IA (vs flou)
 RECADRAGE_REMBG_HUMAN_SEG = True    # Segmentation humain (vs généraliste)
