@@ -2582,8 +2582,15 @@ def main(page: ft.Page):
                 _image_tool_done = False   # True dès qu'une génération/édition image a réussi
                 _turn_events = []          # Événements d'outils du tour courant (pour export)
 
-                # ── Boucle agentique (max 6 tours d'outils) ─────────────────────
-                for _tool_round in range(12):
+                # ── Boucle agentique (jusqu'à 200 tours, auto-continuation intégrée) ──
+                for _tool_round in range(200):
+                    # Tous les 40 tours, injecter un rappel silencieux pour que
+                    # le modèle ne s'arrête pas mentalement en cours de tâche longue.
+                    if _tool_round > 0 and _tool_round % 40 == 0 and ai_streaming["value"]:
+                        messages.append({"role": "user", "content": (
+                            "Continue la tâche en cours. "
+                            "Reprends là où tu t'es arrêté."
+                        )})
                     # Streaming avec thinking natif Ollama et capture des tool_calls
                     _streamed = ""
                     _thinking = ""
@@ -2906,10 +2913,7 @@ def main(page: ft.Page):
                                         _analysis_progress_ctrl.value = _md_dark(
                                             f"📸 Analyse — lot {batch_num}/{total_batches}…"
                                         )
-                                    try:
-                                        page.update()
-                                    except Exception:
-                                        pass
+                                    page.run_task(_scroll_and_update)
                                 _analyze_results = _analyze_images_batched(
                                     CONSTANTS.AI_OLLAMA_URL,
                                     _analyze_model,
@@ -3601,6 +3605,13 @@ def main(page: ft.Page):
                                 "le contenu recopié mot pour mot depuis les résultats."
                             )})
                     _remove_loading()
+                else:
+                    # 200 tours épuisés sans que Gemini ait terminé — cas exceptionnel
+                    _ai_add_bubble("assistant", (
+                        "*(Limite de 200 tours agentiques atteinte — "
+                        "envoie un nouveau message pour continuer.)*"
+                    ))
+                    full_response = ""
 
                 # Capturer le message original de l'utilisateur pour le log
                 _last_user_text = next(

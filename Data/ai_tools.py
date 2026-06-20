@@ -1458,6 +1458,7 @@ def _analyze_images_batched(
         )
         try:
             if model.startswith("gemini"):
+                import concurrent.futures as _cf_ab
                 from google import genai as _genai_ab
                 from google.genai import types as _gtypes_ab
                 import base64 as _b64_ab
@@ -1469,12 +1470,22 @@ def _analyze_images_batched(
                     for b64 in b64_list
                 ]
                 _parts_ab.append(_gtypes_ab.Part(text=prompt))
-                _resp_ab = _client_ab.models.generate_content(
-                    model=model,
-                    contents=[_gtypes_ab.Content(role="user", parts=_parts_ab)],
-                    config=_gtypes_ab.GenerateContentConfig(temperature=0.2),
-                )
-                results.append(_resp_ab.text or "")
+                _contents_ab = [_gtypes_ab.Content(role="user", parts=_parts_ab)]
+                _config_ab = _gtypes_ab.GenerateContentConfig(temperature=0.2)
+                with _cf_ab.ThreadPoolExecutor(max_workers=1) as _ex_ab:
+                    _fut_ab = _ex_ab.submit(
+                        _client_ab.models.generate_content,
+                        model=model,
+                        contents=_contents_ab,
+                        config=_config_ab,
+                    )
+                    try:
+                        _resp_ab = _fut_ab.result(timeout=120)
+                        results.append(_resp_ab.text or "")
+                    except _cf_ab.TimeoutError:
+                        results.append(
+                            f"(lot {batch_num} — timeout Gemini après 120 s)"
+                        )
             else:
                 response = _ollama_chat_once(
                     ollama_url,
