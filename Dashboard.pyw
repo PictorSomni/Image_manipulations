@@ -388,6 +388,11 @@ def main(page: ft.Page):
 
 
 # ===================== ÉLÉMENTS UI ===================== #
+    def _short_path(p, max_len=35):
+        if not p or len(p) <= max_len:
+            return p or ""
+        return "…" + p[-(max_len - 1):]
+
     folder_path = ft.TextField(
         label="Dossier sélectionné",
         hint_text="Cliquez sur Parcourir... ou collez un chemin",
@@ -3873,7 +3878,7 @@ def main(page: ft.Page):
             navigate_to_folder(raw)
         else:
             folder_path.error_text = "Dossier introuvable"
-            folder_path.value = selected_folder.get("path", "") or ""
+            folder_path.value = _short_path(selected_folder.get("path", "") or "")
             folder_path.update()
 
 
@@ -3881,7 +3886,7 @@ def main(page: ft.Page):
     def on_folder_path_blur(e):
         """Restaure le chemin courant si le champ est laissé invalide."""
         folder_path.error_text = None
-        folder_path.value = selected_folder.get("path", "") or ""
+        folder_path.value = _short_path(selected_folder.get("path", "") or "")
         folder_path.update()
 
 
@@ -4566,7 +4571,8 @@ def main(page: ft.Page):
         new_path = _resolve_favorite_path(new_path)
         current_browse_folder["path"] = new_path
         selected_folder["path"] = new_path
-        folder_path.value = new_path
+        folder_path.value = _short_path(new_path)
+        folder_path.update()
         selected_files.clear()
         selection_count_text.value = ""
         search_query["value"] = ""
@@ -8683,7 +8689,7 @@ def main(page: ft.Page):
         if folder:
             selected_folder["path"] = os.path.normpath(folder)
             current_browse_folder["path"] = selected_folder["path"]
-            folder_path.value = selected_folder["path"]
+            folder_path.value = _short_path(selected_folder["path"])
             folder_path.update()
             selected_files.clear()
             search_query["value"] = ""
