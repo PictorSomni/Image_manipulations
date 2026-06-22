@@ -2386,9 +2386,8 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
                 _retry_msg = _format_gemini_error(exc, prefix="Erreur Gemini")
                 yield ("token", f"\n[{_retry_msg[1:-1]} – nouvelle tentative dans {_delay}s…]\n")
                 _time.sleep(_delay)
-            elif ("503" in _exc_str or "UNAVAILABLE" in _exc_str) and _attempt < _MAX_RETRIES:
-                yield ("token", f"\n[Service Gemini indisponible – nouvelle tentative dans 10s…]\n")
-                _time.sleep(10)
+            elif "503" in _exc_str or "UNAVAILABLE" in _exc_str:
+                raise  # ponytail: laisser remonter → chaîne fallback Dashboard/SidePanel prend le relais
             else:
                 yield ("token", f"\n{_format_gemini_error(exc)}")
                 break
