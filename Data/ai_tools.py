@@ -3160,3 +3160,1103 @@ def _claude_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
     if tool_calls_out:
         yield ("tool_calls", tool_calls_out)
     _sd.wait()
+
+
+# ==============================================================================
+# ─── Outil édition partielle (Edit) ──────────────────────────────────────────
+# ==============================================================================
+
+def _edit_file(folder_path, filepath, old_string, new_string):
+    """Remplace la première occurrence exacte de old_string par new_string dans un fichier."""
+    resolved = _resolve_path(folder_path, filepath) if folder_path else filepath
+    if not resolved or not _os.path.isfile(resolved):
+        return f"[Erreur] Fichier introuvable : {filepath}"
+    try:
+        with open(resolved, "r", encoding="utf-8", errors="replace") as fh:
+            content = fh.read()
+        if old_string not in content:
+            return (
+                f"[Erreur] Chaîne introuvable dans {_os.path.basename(resolved)}. "
+                "Vérifiez les espaces, sauts de ligne et la casse."
+            )
+        new_content = content.replace(old_string, new_string, 1)
+        with open(resolved, "w", encoding="utf-8") as fh:
+            fh.write(new_content)
+        diff = new_content.count("\n") - content.count("\n")
+        sign = "+" if diff >= 0 else ""
+        return f"[OK] {_os.path.basename(resolved)} modifié ({sign}{diff} ligne(s))."
+    except Exception as exc:
+        return f"[Erreur] {exc}"
+
+
+_EDIT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "edit_file",
+            "description": (
+                "Remplace une portion précise d'un fichier texte (old_string → new_string). "
+                "Contrairement à create_file qui réécrit tout le fichier, edit_file effectue "
+                "une substitution chirurgicale de la première occurrence exacte de old_string. "
+                "Idéal pour corriger une ligne, modifier une valeur ou insérer du code à un endroit précis. "
+                "Utilise read_file_content avant pour obtenir le texte exact à remplacer."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {
+                        "type": "string",
+                        "description": "Chemin absolu ou relatif au dossier ouvert",
+                    },
+                    "old_string": {
+                        "type": "string",
+                        "description": "Texte exact à remplacer (doit être unique dans le fichier)",
+                    },
+                    "new_string": {
+                        "type": "string",
+                        "description": "Texte de remplacement",
+                    },
+                },
+                "required": ["filepath", "old_string", "new_string"],
+            },
+        },
+    },
+]
+
+
+# ==============================================================================
+# ─── Outils recherche (Grep / Glob) ──────────────────────────────────────────
+# ==============================================================================
+
+import glob as _glob_mod
+
+
+def _search_in_files(
+    folder_path, pattern, path=None, file_glob="*",
+    max_results=50, case_sensitive=False,
+):
+    """Recherche un pattern regex dans les fichiers texte d'un dossier (récursif)."""
+    search_root = path if (path and _os.path.isdir(path)) else folder_path
+    if not search_root:
+        return "[Erreur] Aucun dossier spécifié."
+    flags = 0 if case_sensitive else re.IGNORECASE
+    try:
+        compiled = re.compile(pattern, flags)
+    except re.error as exc:
+        return f"[Erreur] Pattern invalide : {exc}"
+    results = []
+    count = 0
+    try:
+        all_files = sorted(
+            _glob_mod.glob(_os.path.join(search_root, "**", file_glob), recursive=True)
+        )
+    except Exception as exc:
+        return f"[Erreur] {exc}"
+    for filepath in all_files:
+        if not _os.path.isfile(filepath):
+            continue
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="ignore") as fh:
+                for lineno, line in enumerate(fh, 1):
+                    if compiled.search(line):
+                        rel = _os.path.relpath(filepath, search_root)
+                        results.append(f"{rel}:{lineno}: {line.rstrip()}")
+                        count += 1
+                        if count >= max_results:
+                            results.append(f"\n… limité à {max_results} résultats.")
+                            return "\n".join(results)
+        except Exception:
+            continue
+    if not results:
+        return f"Aucun résultat pour « {pattern} » dans {_os.path.basename(search_root)}/."
+    return f"{count} correspondance(s) :\n" + "\n".join(results)
+
+
+def _find_files(folder_path, pattern, base_path=None, max_results=200):
+    """Trouve des fichiers correspondant à un motif glob (récursif)."""
+    search_root = base_path if (base_path and _os.path.isdir(base_path)) else folder_path
+    if not search_root:
+        return "[Erreur] Aucun dossier spécifié."
+    try:
+        matches = sorted(
+            _glob_mod.glob(_os.path.join(search_root, "**", pattern), recursive=True)
+        )
+    except Exception as exc:
+        return f"[Erreur] {exc}"
+    if not matches:
+        return f"Aucun fichier trouvé pour « {pattern} »."
+    lines = []
+    for p in matches[:max_results]:
+        rel = _os.path.relpath(p, search_root)
+        if _os.path.isdir(p):
+            lines.append(f"📁 {rel}/")
+        else:
+            size = _os.path.getsize(p)
+            lines.append(f"📄 {rel}  ({size:,} o)")
+    if len(matches) > max_results:
+        lines.append(f"… et {len(matches) - max_results} autres.")
+    total = len(matches)
+    shown = min(total, max_results)
+    return f"{shown}/{total} fichier(s) :\n" + "\n".join(lines)
+
+
+_SEARCH_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "search_in_files",
+            "description": (
+                "Recherche un motif regex dans le contenu des fichiers texte (équivalent de grep). "
+                "Retourne les lignes correspondantes avec leur chemin et numéro de ligne. "
+                "Utile pour trouver une fonction, une variable, une valeur de config "
+                "ou tout texte dans des fichiers source."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Expression régulière à rechercher",
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Dossier de recherche (absolu). Défaut : dossier ouvert.",
+                    },
+                    "file_glob": {
+                        "type": "string",
+                        "description": "Filtre de fichiers (ex. '*.py', '*.json'). Défaut : tous.",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Nombre maximum de résultats. Défaut : 50.",
+                    },
+                    "case_sensitive": {
+                        "type": "boolean",
+                        "description": "Sensible à la casse. Défaut : false.",
+                    },
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_files",
+            "description": (
+                "Trouve des fichiers par motif glob récursif (équivalent de find). "
+                "Exemples : '*.py' pour tous les scripts Python, '*.json' pour tous les JSON, "
+                "'photo_*.jpg' pour les fichiers photo. Retourne chemins et tailles."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Motif glob, ex. '*.py', 'rapport*.pdf', '*.json'",
+                    },
+                    "base_path": {
+                        "type": "string",
+                        "description": "Dossier de base (absolu). Défaut : dossier ouvert.",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Nombre maximum de résultats. Défaut : 200.",
+                    },
+                },
+                "required": ["pattern"],
+            },
+        },
+    },
+]
+
+
+# ==============================================================================
+# ─── Outil git ────────────────────────────────────────────────────────────────
+# ==============================================================================
+
+_SAFE_GIT_SUBCMDS = {
+    "status", "log", "diff", "show", "branch", "add", "commit",
+    "push", "pull", "fetch", "checkout", "stash", "merge", "tag",
+    "remote", "config", "--version", "init", "clone",
+}
+
+
+def _git_command(args, cwd=None):
+    """Exécute une sous-commande git (liste autorisée seulement)."""
+    if not args:
+        return "[Erreur] Aucun argument fourni."
+    subcmd = str(args[0]).lstrip("-")
+    if subcmd not in _SAFE_GIT_SUBCMDS:
+        allowed = ", ".join(sorted(_SAFE_GIT_SUBCMDS))
+        return f"[Refusé] Sous-commande git non autorisée : {args[0]}.\nAutorisées : {allowed}"
+    try:
+        result = _subprocess.run(
+            ["git"] + [str(a) for a in args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            encoding="utf-8",
+            errors="replace",
+        )
+        out = (result.stdout or "").strip()
+        err = (result.stderr or "").strip()
+        if result.returncode != 0:
+            return f"[git exit {result.returncode}]\n{err or out}"
+        return out or "(commande exécutée sans sortie)"
+    except FileNotFoundError:
+        return "[Erreur] git n'est pas installé ou introuvable dans le PATH."
+    except _subprocess.TimeoutExpired:
+        return "[Timeout] La commande git a dépassé 30 secondes."
+    except Exception as exc:
+        return f"[Erreur] {exc}"
+
+
+_GIT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "git_command",
+            "description": (
+                "Exécute une commande git sur un dépôt local. "
+                "Sous-commandes autorisées : status, log, diff, show, branch, add, commit, "
+                "push, pull, fetch, checkout, stash, merge, tag, remote, config, init, clone. "
+                "Exemples : ['status'], ['log', '--oneline', '-10'], ['diff', 'HEAD~1'], "
+                "['commit', '-m', 'message'], ['add', 'fichier.py']."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Arguments git sans le mot 'git', ex. ['log', '--oneline', '-5']",
+                    },
+                    "cwd": {
+                        "type": "string",
+                        "description": "Répertoire du dépôt (absolu). Défaut : dossier ouvert.",
+                    },
+                },
+                "required": ["args"],
+            },
+        },
+    },
+]
+
+
+# ==============================================================================
+# ─── Outil gestion de tâches (TodoWrite) ─────────────────────────────────────
+# ==============================================================================
+
+_TASKS_FILE = _os.path.join(_DATA_DIR, ".tasks.json")
+_STATUS_ICON = {"todo": "⬜", "in_progress": "🔄", "done": "✅"}
+
+
+def _manage_tasks(action, task_id=None, title=None, status=None, notes=None):
+    """CRUD sur une liste de tâches persistante (.tasks.json)."""
+    import datetime as _dt_t
+
+    def _load():
+        try:
+            with open(_TASKS_FILE, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception:
+            return []
+
+    def _save(tasks):
+        with open(_TASKS_FILE, "w", encoding="utf-8") as fh:
+            json.dump(tasks, fh, ensure_ascii=False, indent=2)
+
+    tasks = _load()
+
+    if action == "list":
+        if not tasks:
+            return "Aucune tâche."
+        lines = []
+        for t in tasks:
+            icon = _STATUS_ICON.get(t.get("status", "todo"), "⬜")
+            line = f"{icon} [{t['id']}] {t['title']}"
+            if t.get("notes"):
+                line += f"\n      ↳ {t['notes']}"
+            lines.append(line)
+        return "\n".join(lines)
+
+    elif action == "add":
+        if not title:
+            return "[Erreur] Paramètre 'title' requis."
+        next_id = str(
+            max((int(t["id"]) for t in tasks if str(t.get("id", "0")).isdigit()), default=0) + 1
+        )
+        tasks.append({
+            "id": next_id,
+            "title": title,
+            "status": status or "todo",
+            "notes": notes or "",
+            "created": _dt_t.datetime.now().isoformat(),
+        })
+        _save(tasks)
+        return f"[OK] Tâche #{next_id} ajoutée : {title}"
+
+    elif action == "update":
+        if task_id is None:
+            return "[Erreur] Paramètre 'task_id' requis."
+        for t in tasks:
+            if str(t.get("id")) == str(task_id):
+                if status is not None:
+                    t["status"] = status
+                if title is not None:
+                    t["title"] = title
+                if notes is not None:
+                    t["notes"] = notes
+                _save(tasks)
+                return f"[OK] Tâche #{task_id} mise à jour."
+        return f"[Erreur] Tâche #{task_id} introuvable."
+
+    elif action == "delete":
+        if task_id is None:
+            return "[Erreur] Paramètre 'task_id' requis."
+        before = len(tasks)
+        tasks = [t for t in tasks if str(t.get("id")) != str(task_id)]
+        if len(tasks) == before:
+            return f"[Erreur] Tâche #{task_id} introuvable."
+        _save(tasks)
+        return f"[OK] Tâche #{task_id} supprimée."
+
+    elif action == "clear":
+        _save([])
+        return "[OK] Liste de tâches vidée."
+
+    return (
+        f"[Erreur] Action inconnue : {action}. "
+        "Valeurs acceptées : list, add, update, delete, clear."
+    )
+
+
+_TASK_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "manage_tasks",
+            "description": (
+                "Gère une liste de tâches persistante (équivalent de TodoWrite). "
+                "Permet de suivre les travaux en cours avec des statuts : todo, in_progress, done. "
+                "Actions : list (lister), add (ajouter), update (modifier), delete (supprimer), clear (vider)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "add", "update", "delete", "clear"],
+                        "description": "Action à effectuer",
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "ID de la tâche (requis pour update et delete)",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Titre de la tâche (requis pour add)",
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": ["todo", "in_progress", "done"],
+                        "description": "Statut de la tâche",
+                    },
+                    "notes": {
+                        "type": "string",
+                        "description": "Notes supplémentaires",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+]
+
+
+# ==============================================================================
+# ─── Outil lecture PDF ────────────────────────────────────────────────────────
+# ==============================================================================
+
+def _parse_pdf_pages(pages_str, total):
+    """Convertit '1-3,5' en liste d'indices 0-based valides."""
+    indices = set()
+    for part in str(pages_str).split(","):
+        part = part.strip()
+        if "-" in part:
+            a, b = part.split("-", 1)
+            try:
+                indices.update(range(int(a.strip()) - 1, int(b.strip())))
+            except ValueError:
+                pass
+        elif part.isdigit():
+            indices.add(int(part) - 1)
+    return sorted(i for i in indices if 0 <= i < total)
+
+
+def _read_pdf(folder_path, filepath, pages=None, max_chars=40000):
+    """Extrait le texte d'un PDF (pypdf en priorité, PyMuPDF en fallback)."""
+    resolved = _resolve_path(folder_path, filepath) if folder_path else filepath
+    if not resolved or not _os.path.isfile(resolved):
+        return f"[Erreur] Fichier introuvable : {filepath}"
+
+    def _format(parts, total):
+        full = "\n\n".join(parts) or "(Aucun texte extractible)"
+        if len(full) > max_chars:
+            return full[:max_chars] + f"\n\n… (tronqué à {max_chars} caractères sur {len(full)})"
+        return full
+
+    # PyMuPDF en priorité : meilleure extraction, gère les encodages complexes
+    try:
+        import fitz as _fitz
+        doc = _fitz.open(resolved)
+        total = doc.page_count
+        idxs = _parse_pdf_pages(pages, total) if pages else range(total)
+        parts = []
+        for i in idxs:
+            if 0 <= i < total:
+                text = doc[i].get_text().strip()
+                if text:
+                    parts.append(f"[Page {i + 1}/{total}]\n{text}")
+        return _format(parts, total)
+    except ImportError:
+        pass
+
+    # pypdf en fallback (pure Python, extraction basique)
+    try:
+        import pypdf as _pypdf
+        reader = _pypdf.PdfReader(resolved)
+        total = len(reader.pages)
+        idxs = _parse_pdf_pages(pages, total) if pages else range(total)
+        parts = []
+        for i in idxs:
+            if 0 <= i < total:
+                text = (reader.pages[i].extract_text() or "").strip()
+                if text:
+                    parts.append(f"[Page {i + 1}/{total}]\n{text}")
+        return _format(parts, total)
+    except ImportError:
+        pass
+
+    return "[Erreur] Aucun module PDF disponible. Installez PyMuPDF : pip install pymupdf"
+
+
+_PDF_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_pdf",
+            "description": (
+                "Extrait le texte d'un fichier PDF. "
+                "Utile pour lire des contrats, factures, manuels ou documents PDF "
+                "avec des modèles qui ne supportent pas nativement les PDF (Ollama, Claude). "
+                "Supporte les chemins absolus ou relatifs au dossier ouvert."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {
+                        "type": "string",
+                        "description": "Chemin du fichier PDF (absolu ou relatif au dossier ouvert)",
+                    },
+                    "pages": {
+                        "type": "string",
+                        "description": "Pages à extraire, ex. '1-5', '3', '1,4,7'. Défaut : toutes.",
+                    },
+                },
+                "required": ["filepath"],
+            },
+        },
+    },
+]
+
+
+# ==============================================================================
+# ─── Outil sous-agent (délégation IA) ────────────────────────────────────────
+# ==============================================================================
+
+_NETWORK_EXC_NAMES = frozenset({
+    "ConnectError", "TimeoutException", "ConnectTimeout", "ReadTimeout",
+    "NetworkError", "ProxyError", "RemoteDisconnected", "IncompleteRead",
+})
+
+
+def _is_network_error(exc):
+    """Vrai si l'exception signale une coupure réseau plutôt qu'une erreur API."""
+    if type(exc).__name__ in _NETWORK_EXC_NAMES:
+        return True
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
+        return True
+    msg = str(exc).lower()
+    return any(kw in msg for kw in (
+        "connection refused", "failed to connect", "network is unreachable",
+        "name or service not known", "nodename nor servname",
+        "connection timed out", "timed out", "no route to host",
+    ))
+
+
+def _call_ai_text_with_fallback(msgs, model=None):
+    """
+    Appel IA texte avec chaîne de fallback automatique :
+      1. model (ou AI_MODEL_TEXT)     — Gemini 3.5 Flash par défaut
+      2. AI_GEMINI_FALLBACK_CLOUD     — Gemini 3.1 Pro si modèle indisponible/quota
+      3. AI_GEMINI_FALLBACK (Ollama)  — Gemma local si coupure réseau
+
+    Retourne (texte, modèle_utilisé, erreur_ou_None).
+    """
+    primary   = model or CONSTANTS.AI_MODEL_TEXT or ""
+    cloud_fb  = getattr(CONSTANTS, "AI_GEMINI_FALLBACK_CLOUD", "")
+    local_fb  = getattr(CONSTANTS, "AI_GEMINI_FALLBACK", "")
+
+    def _stream_cloud(mdl):
+        parts = []
+        if mdl.startswith("gemini"):
+            for evt, dat in _gemini_chat_stream_with_tools(mdl, msgs, tools=None):
+                if evt == "token":
+                    parts.append(dat)
+        else:
+            for evt, dat in _claude_chat_stream_with_tools(mdl, msgs, tools=None):
+                if evt == "token":
+                    parts.append(dat)
+        return "".join(parts).strip() or "(Aucune réponse)"
+
+    def _run_ollama(mdl):
+        resp = _ollama_chat_once(CONSTANTS.AI_OLLAMA_URL, mdl, msgs)
+        return resp.get("content", "(Aucune réponse)")
+
+    if not (primary.startswith("gemini") or primary.startswith("claude")):
+        # Modèle Ollama dès le départ — pas de fallback cloud
+        try:
+            return _run_ollama(primary), primary, None
+        except Exception as exc:
+            return f"[Erreur] {exc}", None, str(exc)
+
+    # ── Niveau 1 : modèle principal ──────────────────────────────────────────
+    try:
+        return _stream_cloud(primary), primary, None
+    except Exception as exc1:
+        network_down = _is_network_error(exc1)
+
+        # ── Niveau 2 : cloud fallback (si réseau OK mais modèle indisponible) ─
+        if not network_down and cloud_fb and cloud_fb != primary:
+            try:
+                return _stream_cloud(cloud_fb), cloud_fb, str(exc1)
+            except Exception as exc2:
+                network_down = _is_network_error(exc2)
+                if not network_down:
+                    # Les deux Gemini ont échoué pour raison modèle → Ollama
+                    if local_fb:
+                        try:
+                            return _run_ollama(local_fb), local_fb, f"{exc1} | {exc2}"
+                        except Exception as exc3:
+                            return (
+                                f"[Erreur] {exc1} | {exc2} | Ollama: {exc3}",
+                                None, str(exc3),
+                            )
+                    return f"[Erreur] {exc1} | {exc2}", None, str(exc2)
+                # exc2 est réseau → tomber sur Ollama
+
+        # ── Niveau 3 : Ollama local ───────────────────────────────────────────
+        if local_fb:
+            try:
+                return _run_ollama(local_fb), local_fb, str(exc1)
+            except Exception as exc3:
+                return f"[Erreur réseau] {exc1} | Ollama: {exc3}", None, str(exc3)
+
+        return f"[Erreur] {exc1}", None, str(exc1)
+
+
+def _ask_subagent(task, context=None, model=None):
+    """Délègue une tâche focalisée à un appel IA distinct (sans outils, résultat direct)."""
+    user_content = f"Contexte :\n{context}\n\nTâche :\n{task}" if context else task
+    msgs = [
+        {"role": "system", "content": (
+            "Tu es un assistant spécialisé appelé en sous-tâche. "
+            "Réponds de façon concise et précise, en te concentrant uniquement sur la demande."
+        )},
+        {"role": "user", "content": user_content},
+    ]
+    result, used_model, err = _call_ai_text_with_fallback(msgs, model=model)
+    primary = model or CONSTANTS.AI_MODEL_TEXT or ""
+    if err and used_model and used_model != primary:
+        return f"[↩ {used_model}]\n{result}"
+    return result
+
+
+_SUBAGENT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_subagent",
+            "description": (
+                "Délègue une sous-tâche à une instance IA distincte (appel focalisé sans outils). "
+                "Utile pour paralléliser le raisonnement : rédiger un texte, traduire, résumer, "
+                "classer ou analyser un contenu de façon autonome pendant que tu construis ta réponse. "
+                "À utiliser pour des tâches qui ne nécessitent pas d'accès aux fichiers ou au terminal."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": "Tâche précise à confier au sous-agent",
+                    },
+                    "context": {
+                        "type": "string",
+                        "description": "Contexte additionnel (optionnel)",
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Modèle à utiliser. Défaut : modèle actif.",
+                    },
+                },
+                "required": ["task"],
+            },
+        },
+    },
+]
+
+
+# ==============================================================================
+# ─── Outil planification (Schedule) ──────────────────────────────────────────
+# ==============================================================================
+
+def _schedule_task(action, name=None, command=None, when=None):
+    """Crée, liste ou supprime des tâches planifiées (schtasks Windows / crontab Unix)."""
+    import platform as _plat
+    import datetime as _dt
+
+    is_win = _plat.system() == "Windows"
+    _MARKER = "# SCHED_TASK:"
+
+    # ── Helpers crontab (Linux / macOS) ──────────────────────────────────────
+
+    def _crontab_read():
+        r = _subprocess.run(["crontab", "-l"], capture_output=True,
+                            text=True, encoding="utf-8", errors="replace")
+        return r.stdout if r.returncode == 0 else ""
+
+    def _crontab_write(content):
+        r = _subprocess.run(["crontab", "-"], input=content, text=True,
+                            encoding="utf-8", capture_output=True, timeout=15)
+        return r.returncode == 0, (r.stderr or r.stdout).strip()
+
+    def _crontab_remove(task_name):
+        """Retire les lignes d'une tâche nommée ; retourne (found, new_content)."""
+        marker = f"{_MARKER} {task_name}"
+        lines = _crontab_read().splitlines()
+        out, skip, found = [], False, False
+        for line in lines:
+            if skip:
+                skip = False
+                found = True
+                continue
+            if line.strip() == marker:
+                skip = True
+                continue
+            out.append(line)
+        return found, "\n".join(out) + "\n"
+
+    def _when_to_cron(when_str):
+        """
+        Convertit 'HH:MM' (aujourd'hui) ou 'YYYY-MM-DD HH:MM' en expression cron.
+        Accepte aussi une expression cron déjà formée (5 champs).
+        """
+        parts = when_str.strip().split()
+        # Expression cron déjà formée : "30 14 * * 1"
+        if len(parts) == 5 and all(
+            c.isdigit() or c in "*,-/?" for c in "".join(parts)
+        ):
+            return " ".join(parts), None
+        # YYYY-MM-DD HH:MM
+        if len(parts) == 2 and "-" in parts[0]:
+            try:
+                y, mo, d = parts[0].split("-")
+                h, mi = parts[1].split(":")
+                return f"{int(mi)} {int(h)} {int(d)} {int(mo)} *", None
+            except Exception:
+                pass
+        # HH:MM → aujourd'hui
+        if len(parts) == 1 and ":" in parts[0]:
+            try:
+                h, mi = parts[0].split(":")
+                now = _dt.datetime.now()
+                return f"{int(mi)} {int(h)} {now.day} {now.month} *", None
+            except Exception:
+                pass
+        return None, (
+            f"Format 'when' non reconnu : {when_str!r}. "
+            "Utilisez 'YYYY-MM-DD HH:MM', 'HH:MM' ou une expression cron '30 14 * * *'."
+        )
+
+    # ── list ─────────────────────────────────────────────────────────────────
+
+    if action == "list":
+        if is_win:
+            r = _subprocess.run(
+                ["schtasks", "/query", "/fo", "TABLE"],
+                capture_output=True, text=True, timeout=15,
+                encoding="utf-8", errors="replace",
+            )
+            return (r.stdout or r.stderr or "(Aucune tâche planifiée)").strip()
+        else:
+            out = _crontab_read().strip()
+            return out if out else "(Aucune entrée crontab)"
+
+    # ── create ────────────────────────────────────────────────────────────────
+
+    elif action == "create":
+        if not name or not command or not when:
+            return "[Erreur] 'name', 'command' et 'when' sont requis."
+
+        if is_win:
+            parts = when.strip().split()
+            if len(parts) == 2:
+                try:
+                    y, m, d = parts[0].split("-")
+                    date_arg = f"{d}/{m}/{y}"
+                except Exception:
+                    date_arg = parts[0]
+                args = ["schtasks", "/create", "/tn", name, "/tr", command,
+                        "/sc", "ONCE", "/sd", date_arg, "/st", parts[1], "/f"]
+            else:
+                args = ["schtasks", "/create", "/tn", name, "/tr", command,
+                        "/sc", "ONCE", "/st", when.strip(), "/f"]
+            r = _subprocess.run(args, capture_output=True, text=True,
+                                timeout=15, encoding="utf-8", errors="replace")
+            if r.returncode == 0:
+                return f"[OK] Tâche « {name} » planifiée pour {when} : {command}"
+            return f"[Erreur schtasks] {(r.stderr or r.stdout).strip()}"
+
+        else:
+            cron_expr, err = _when_to_cron(when)
+            if err:
+                return f"[Erreur] {err}"
+            # Remplacer si la tâche existe déjà
+            _, new_content = _crontab_remove(name)
+            new_content = (new_content.rstrip("\n") + "\n"
+                           + f"{_MARKER} {name}\n"
+                           + f"{cron_expr} {command}\n")
+            ok, msg = _crontab_write(new_content)
+            if ok:
+                return f"[OK] Tâche « {name} » planifiée ({cron_expr}) : {command}"
+            return f"[Erreur crontab] {msg}"
+
+    # ── delete ────────────────────────────────────────────────────────────────
+
+    elif action == "delete":
+        if not name:
+            return "[Erreur] 'name' est requis."
+
+        if is_win:
+            r = _subprocess.run(
+                ["schtasks", "/delete", "/tn", name, "/f"],
+                capture_output=True, text=True, timeout=15,
+                encoding="utf-8", errors="replace",
+            )
+            if r.returncode == 0:
+                return f"[OK] Tâche « {name} » supprimée."
+            return f"[Erreur schtasks] {(r.stderr or r.stdout).strip()}"
+
+        else:
+            found, new_content = _crontab_remove(name)
+            if not found:
+                return f"[Erreur] Tâche « {name} » introuvable dans le crontab."
+            ok, msg = _crontab_write(new_content)
+            if ok:
+                return f"[OK] Tâche « {name} » supprimée du crontab."
+            return f"[Erreur crontab] {msg}"
+
+    return f"[Erreur] Action inconnue : {action!r}. Valeurs : list, create, delete."
+
+
+_SCHEDULE_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "schedule_task",
+            "description": (
+                "Planifie, liste ou supprime des tâches programmées via le planificateur OS "
+                "(Planificateur de tâches Windows / crontab Linux-macOS). "
+                "Permet d'exécuter automatiquement une commande à une heure donnée. "
+                "Exemples : lancer un script de sauvegarde la nuit, "
+                "déclencher un traitement d'images à heure précise."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "create", "delete"],
+                        "description": "list : lister. create : planifier. delete : supprimer.",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Nom unique de la tâche planifiée",
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "Commande à exécuter (chemin absolu recommandé)",
+                    },
+                    "when": {
+                        "type": "string",
+                        "description": "Heure d'exécution : 'HH:MM' (aujourd'hui) ou 'YYYY-MM-DD HH:MM'",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+]
+
+
+# ── http_request ─────────────────────────────────────────────────────────────
+
+import urllib.request as _urllib_req
+import urllib.error as _urllib_err
+import json as _json_mod
+
+
+def _http_request(method, url, headers=None, body=None, timeout=30):
+    """Requête HTTP avec méthode, headers et body custom."""
+    method = (method or "GET").upper()
+    headers = dict(headers or {})
+    data = None
+    if body:
+        if isinstance(body, dict):
+            body = _json_mod.dumps(body)
+            headers.setdefault("Content-Type", "application/json")
+        data = body.encode("utf-8") if isinstance(body, str) else body
+    try:
+        req = _urllib_req.Request(url, data=data, headers=headers, method=method)
+        with _urllib_req.urlopen(req, timeout=int(timeout or 30)) as resp:
+            status = resp.status
+            raw = resp.read().decode("utf-8", errors="replace")
+            ct = resp.headers.get("Content-Type", "")
+            if "json" in ct:
+                try:
+                    raw = _json_mod.dumps(_json_mod.loads(raw), indent=2, ensure_ascii=False)
+                except Exception:
+                    pass
+            truncated = raw[:10000]
+            suffix = "\n[…tronqué à 10 000 chars]" if len(raw) > 10000 else ""
+            return f"[HTTP {status}] {method} {url}\n{truncated}{suffix}"
+    except _urllib_err.HTTPError as exc:
+        try:
+            err_body = exc.read().decode("utf-8", errors="replace")[:2000]
+        except Exception:
+            err_body = ""
+        return f"[HTTP {exc.code}] {method} {url}\n{err_body}"
+    except Exception as exc:
+        return f"[Erreur] {method} {url} : {exc}"
+
+
+_HTTP_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "http_request",
+            "description": (
+                "Effectue une requête HTTP (GET, POST, PUT, DELETE, PATCH) "
+                "avec méthode, headers et body personnalisables. "
+                "Utile pour interagir avec des APIs REST, webhooks, services locaux."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "method": {
+                        "type": "string",
+                        "description": "Méthode HTTP : GET, POST, PUT, DELETE, PATCH",
+                    },
+                    "url": {
+                        "type": "string",
+                        "description": "URL cible (https://… ou http://localhost/…)",
+                    },
+                    "headers": {
+                        "type": "object",
+                        "description": (
+                            "Headers HTTP (dict clé/valeur). "
+                            "Ex : {\"Authorization\": \"Bearer token\", "
+                            "\"Content-Type\": \"application/json\"}"
+                        ),
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": (
+                            "Corps de la requête (string JSON, form-data, etc.). "
+                            "Pour du JSON, passer une chaîne JSON valide."
+                        ),
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout en secondes (défaut : 30)",
+                    },
+                },
+                "required": ["method", "url"],
+            },
+        },
+    },
+]
+
+
+# ── read_spreadsheet ──────────────────────────────────────────────────────────
+
+def _read_spreadsheet(folder_path, filepath, sheet=None, max_rows=100):
+    """Lit un fichier tableur (CSV / .xlsx / .xls / .ods) et retourne un tableau texte."""
+    resolved = _resolve_path(folder_path, filepath) if folder_path else filepath
+    if not resolved or not _os.path.isfile(resolved):
+        return f"[Erreur] Fichier introuvable : {filepath}"
+
+    ext = _os.path.splitext(resolved)[1].lower()
+    name = _os.path.basename(resolved)
+    max_rows = min(int(max_rows or 100), 500)
+
+    def _fmt(sheet_name, headers, rows, total, all_sheets):
+        lines = []
+        if len(all_sheets) > 1:
+            others = ", ".join(s for s in all_sheets if s != sheet_name)
+            lines.append(f"Feuille : « {sheet_name} »  (autres : {others})")
+        else:
+            lines.append(f"Feuille : « {sheet_name} »")
+        lines.append(f"Colonnes ({len(headers)}) : {' | '.join(str(h) for h in headers)}")
+        lines.append(f"Lignes : {len(rows)} affichées / {total} total")
+        lines.append("")
+        for row in rows:
+            lines.append(" | ".join("" if c is None else str(c) for c in row))
+        return "\n".join(lines)
+
+    # ── CSV ──────────────────────────────────────────────────────────────────
+    if ext == ".csv":
+        import csv as _csv_mod
+        for enc in ("utf-8-sig", "utf-8", "latin-1", "cp1252"):
+            try:
+                with open(resolved, "r", encoding=enc, newline="") as fh:
+                    rows = list(_csv_mod.reader(fh))
+                if not rows:
+                    return f"[OK] {name} est vide."
+                headers = rows[0]
+                return _fmt("(CSV)", headers, rows[1:max_rows + 1],
+                            max(0, len(rows) - 1), ["(CSV)"])
+            except UnicodeDecodeError:
+                continue
+        return f"[Erreur] Encodage non reconnu pour {name}."
+
+    # ── xlsx / xlsm ──────────────────────────────────────────────────────────
+    if ext in (".xlsx", ".xlsm", ".xltx", ".xltm"):
+        try:
+            import openpyxl as _openpyxl
+            wb = _openpyxl.load_workbook(resolved, read_only=True, data_only=True)
+            all_sheets = wb.sheetnames
+            ws = wb[sheet] if sheet and sheet in all_sheets else wb.active
+            sname = ws.title
+            rows = []
+            for row in ws.iter_rows(values_only=True):
+                rows.append(list(row))
+                if len(rows) > max_rows + 1:
+                    break
+            wb.close()
+            if not rows:
+                return f"[OK] Feuille « {sname} » vide."
+            headers = [f"Col{i+1}" if c is None else str(c)
+                       for i, c in enumerate(rows[0])]
+            total = (ws.max_row or len(rows)) - 1
+            return _fmt(sname, headers, rows[1:], total, all_sheets)
+        except ImportError:
+            return f"[Erreur] Module manquant pour {ext}. Installez : pip install openpyxl"
+
+    # ── xls (ancien format) ───────────────────────────────────────────────────
+    if ext == ".xls":
+        try:
+            import xlrd as _xlrd
+            wb = _xlrd.open_workbook(resolved)
+            all_sheets = wb.sheet_names()
+            ws = wb.sheet_by_name(sheet) if sheet and sheet in all_sheets \
+                else wb.sheet_by_index(0)
+            rows = [[ws.cell_value(r, c) for c in range(ws.ncols)]
+                    for r in range(min(ws.nrows, max_rows + 1))]
+            if not rows:
+                return f"[OK] Feuille « {ws.name} » vide."
+            return _fmt(ws.name, [str(h) for h in rows[0]],
+                        rows[1:], ws.nrows - 1, all_sheets)
+        except ImportError:
+            return f"[Erreur] Module manquant pour {ext}. Installez : pip install xlrd"
+
+    # ── ods / fods ────────────────────────────────────────────────────────────
+    if ext in (".ods", ".fods"):
+        try:
+            import odf.opendocument as _odfdoc
+            import odf.table as _odftable
+            import odf.text as _odftext
+
+            doc = _odfdoc.load(resolved)
+            sheets = doc.spreadsheet.getElementsByType(_odftable.Table)
+            all_sheets = [s.getAttribute("name") for s in sheets]
+            ws = next(
+                (s for s in sheets if s.getAttribute("name") == sheet), None
+            ) if sheet else (sheets[0] if sheets else None)
+            if ws is None:
+                return f"[Erreur] Aucune feuille trouvée dans {name}."
+            sname = ws.getAttribute("name")
+            rows = []
+            for tr in ws.getElementsByType(_odftable.TableRow):
+                cells = []
+                for cell in tr.getElementsByType(_odftable.TableCell):
+                    txt = " ".join(
+                        (p.firstChild.data if p.firstChild else "")
+                        for p in cell.getElementsByType(_odftext.P)
+                    )
+                    rep = int(cell.getAttribute("numbercolumnsrepeated") or 1)
+                    cells.extend([txt] * rep)
+                while cells and cells[-1] == "":
+                    cells.pop()
+                if cells:
+                    rows.append(cells)
+                if len(rows) > max_rows + 1:
+                    break
+            if not rows:
+                return f"[OK] Feuille « {sname} » vide."
+            return _fmt(sname, rows[0], rows[1:], len(rows) - 1, all_sheets)
+        except ImportError:
+            return f"[Erreur] Module manquant pour {ext}. Installez : pip install odfpy"
+
+    return (f"[Erreur] Format non supporté : {ext}. "
+            f"Formats acceptés : .csv, .xlsx, .xlsm, .xls, .ods, .fods")
+
+
+_SPREADSHEET_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_spreadsheet",
+            "description": (
+                "Lit un fichier tableur (CSV, .xlsx, .xls, .ods) et retourne "
+                "les noms de colonnes et les premières lignes sous forme de tableau texte. "
+                "Utile pour analyser des données, répondre à des questions sur un fichier Excel "
+                "client, ou extraire des informations structurées."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {
+                        "type": "string",
+                        "description": "Chemin du fichier (relatif au dossier ouvert ou absolu)",
+                    },
+                    "sheet": {
+                        "type": "string",
+                        "description": (
+                            "Nom de la feuille à lire (optionnel — défaut : première feuille). "
+                            "Les autres feuilles disponibles sont listées dans la réponse."
+                        ),
+                    },
+                    "max_rows": {
+                        "type": "integer",
+                        "description": "Nombre de lignes à retourner (défaut : 100, max : 500)",
+                    },
+                },
+                "required": ["filepath"],
+            },
+        },
+    },
+]

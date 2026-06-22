@@ -54,6 +54,11 @@ google-genai>=1.55.0
 # Lecture de fichiers Word (.docx) joints à l'assistant IA
 python-docx>=1.1.0
 
+# Lecture de fichiers tableur joints à l'assistant IA
+openpyxl>=3.1.0          # .xlsx / .xlsm
+xlrd>=2.0.1              # .xls (ancien format Excel)
+odfpy>=1.4.1             # .ods / .fods (LibreOffice / OpenOffice)
+
 # Synthèse vocale TTS — Windows/macOS : fonctionne nativement.
 # Linux : sudo apt install libportaudio2  (ou sudo dnf install portaudio)
 sounddevice>=0.5.0

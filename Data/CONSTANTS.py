@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.8.9"
+__version__ = "2.9.0"
 
 
 # ==============================================================================
@@ -225,9 +225,10 @@ RECADRAGE_FORCE_TILE_GAP_MM = 3
 WINDOW_WIDTH       = 1350
 WINDOW_HEIGHT      = 920
 MAXIMIZED          = True
-TERMINAL_FONT_SIZE = 16    # Taille du texte dans le terminal, le bloc-notes et les options
-TERMINAL_HEIGHT    = 170   # Hauteur du panneau terminal compact (px) — toujours visible
-WDA_HEIGHT         = 100   # Hauteur de la WindowDragArea (barre de titre custom, en px)
+TERMINAL_FONT_SIZE    = 16   # Taille du texte dans le terminal, le bloc-notes et les options
+TERMINAL_HEIGHT       = 170  # Hauteur du panneau terminal compact (px) — toujours visible
+WDA_HEIGHT            = 100  # Hauteur de la WindowDragArea (barre de titre custom, en px)
+NOTEPAD_AUTOSAVE_DELAY = 10  # Délai (secondes) avant sauvegarde automatique du bloc-notes
 
 
 # ── 6.2  Redimensionnement & filigrane ────────────────────────────────────────
@@ -333,11 +334,12 @@ THUMB_CACHE_DB_NAME = ".thumbcache.db"   # Nom du fichier SQLite dans chaque dos
 
 # ── 10.1  Modèles & paramètres ────────────────────────────────────────────────
 
-AI_OLLAMA_URL   = "http://localhost:11434"   # URL de l'API Ollama locale
-AI_MODEL_TEXT   = "gemini-3.5-flash"         # Modèle texte par défaut
-AI_MODEL_VISION = "gemini-3.5-flash"         # Modèle vision par défaut
-AI_GEMINI_MODEL    = "gemini-3.5-flash"      # Modèle Gemini principal (API Google)
-AI_GEMINI_FALLBACK = "gemma4:e4b"            # Fallback Ollama local si hors-ligne
+AI_OLLAMA_URL          = "http://localhost:11434"      # URL de l'API Ollama locale
+AI_MODEL_TEXT          = "gemini-3.5-flash"           # Modèle texte par défaut
+AI_MODEL_VISION        = "gemini-3.5-flash"           # Modèle vision par défaut
+AI_GEMINI_MODEL        = "gemini-3.5-flash"           # Modèle Gemini principal (API Google)
+AI_GEMINI_FALLBACK_CLOUD = "gemini-3.1-pro-preview"  # Fallback cloud si modèle indisponible
+AI_GEMINI_FALLBACK     = "gemma4:e4b"                 # Fallback Ollama local si hors-ligne
 AI_GEMINI_IMAGE_TIMEOUT = 180                # Timeout max (s) pour generate/edit image via Gemini
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
 AI_HISTORY_LIMIT_CLOUD = 20                  # Nb max de messages envoyés à l'IA (Gemini / Claude)
@@ -548,7 +550,7 @@ HALATION_RED_SHIFT  = 0.42    # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
 
 BLOOM_ENABLED    = True
 BLOOM_RADIUS     = 7
-BLOOM_INTENSITY  = 0.21
+BLOOM_INTENSITY  = 0.25
 
 # ── 12.4  Désaturation des extrêmes + boost mi-tons (Grain pellicule.py) ──────
 # Les films argentiques perdent de la saturation dans les ombres très sombres
@@ -591,5 +593,5 @@ CURVE_TOE_LIFT          = 0.2   # 0 = aucun · 0.08 subtil · 0.20 prononcé
 # strength : intensité en % de la diagonale (0.3 = subtil, 1.0 = prononcé, 2.0 = fort)
 
 CA_ENABLED     = True
-CA_STRENGTH    = 0.02   # % de la diagonale de l'image
+CA_STRENGTH    = 0.03   # % de la diagonale de l'image
 CA_AXIAL_RATIO = 0.42  # part de la composante axiale (0 = purement radial, 1 = égal au radial)

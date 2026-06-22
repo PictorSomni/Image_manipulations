@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.8.9"
+__version__ = "2.9.0"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — SidePanel.pyw
@@ -94,6 +94,11 @@ from ai_tools import (
     _folder_read_exif, _folder_zip_files, _folder_unzip_file,
     _encode_image_for_analysis, _analyze_images_batched,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _NOTEPAD_TOOLS, _UI_TOOLS, _run_terminal_command,
+    _EDIT_TOOLS, _SEARCH_TOOLS, _GIT_TOOLS, _TASK_TOOLS, _PDF_TOOLS, _SUBAGENT_TOOLS, _SCHEDULE_TOOLS,
+    _HTTP_TOOLS, _SPREADSHEET_TOOLS,
+    _edit_file, _search_in_files, _find_files, _git_command, _manage_tasks, _read_pdf,
+    _ask_subagent, _schedule_task, _http_request, _read_spreadsheet,
+    _is_network_error,
     _update_memory_file, _build_system_content,
     _gemini_tts_stream, _gemini_live_tts_stream,
     _claude_chat_stream_with_tools,
@@ -2903,10 +2908,13 @@ def main(page: ft.Page):
                 # ── Outils dossier (disponibles si un dossier est ouvert) ─────
                 _folder_path_for_tools = current_src["path"]
                 _FOLDER_TOOLS = _folder_tool_definitions(_folder_path_for_tools)
+                _NEW_TOOLS = (_EDIT_TOOLS + _SEARCH_TOOLS + _GIT_TOOLS + _TASK_TOOLS
+                              + _PDF_TOOLS + _SUBAGENT_TOOLS + _SCHEDULE_TOOLS
+                              + _HTTP_TOOLS + _SPREADSHEET_TOOLS)
                 if (active_model or "").startswith("gemini"):
-                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
+                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
                 else:
-                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _FOLDER_TOOLS
+                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _FOLDER_TOOLS
                 # Limiter l'historique : 20 tours pour les modèles cloud capables, 10 pour les modèles locaux
                 _history_limit = CONSTANTS.AI_HISTORY_LIMIT_CLOUD if (active_model or "").startswith(("gemini", "claude")) else CONSTANTS.AI_HISTORY_LIMIT_LOCAL
                 _history = ai_conversation[-_history_limit:] if len(ai_conversation) > _history_limit else ai_conversation
@@ -3012,54 +3020,104 @@ def main(page: ft.Page):
                         except Exception:
                             pass
 
-                    if (active_model or "").startswith("gemini"):
-                        _stream_iter = _gemini_chat_stream_with_tools(
-                            active_model, messages,
-                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE)
-                    elif (active_model or "").startswith("claude"):
-                        _stream_iter = _claude_chat_stream_with_tools(
-                            active_model, messages,
-                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE)
-                    else:
-                        _stream_iter = _ollama_chat_stream_with_tools(
-                            CONSTANTS.AI_OLLAMA_URL, active_model, messages,
-                            tools=_ALL_TOOLS, temperature=CONSTANTS.AI_TEMPERATURE,
-                            think=True)
-                    for _evt, _dat in _stream_iter:
-                        if _evt == "tool_calls":
-                            _stream_tool_calls.extend(_dat)
-                        elif _evt == "thinking":
-                            _thinking += _dat
-                            if thinking_ctrl is None:
-                                _remove_loading()
-                                thinking_ctrl = _ai_add_bubble("think", _dat)
+                    # ── Chaîne de fallback : Gemini 3.5 → Gemini 3.1 Pro → Gemma ─────
+                    _fb_chain = [active_model or ""]
+                    if _fb_chain[0].startswith("gemini"):
+                        _c_fb = getattr(CONSTANTS, "AI_GEMINI_FALLBACK_CLOUD", "")
+                        if _c_fb and _c_fb != _fb_chain[0]:
+                            _fb_chain.append(_c_fb)
+                    _l_fb = getattr(CONSTANTS, "AI_GEMINI_FALLBACK", "")
+                    if _l_fb and _l_fb not in _fb_chain:
+                        _fb_chain.append(_l_fb)
+
+                    _fb_last_exc = None
+                    _fb_skip_cloud = False
+                    _fb_model_used = active_model or ""
+                    for _fb_i, _fb_model in enumerate(_fb_chain):
+                        if _fb_skip_cloud and _fb_model.startswith(("gemini", "claude")):
+                            continue
+                        if _fb_model.startswith(("gemini", "claude")):
+                            _fb_tools = (_WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS
+                                         + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS
+                                         + _gemini_tool_definitions(_folder_path_for_tools))
+                        else:
+                            _fb_tools = (_WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS
+                                         + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS
+                                         + _FOLDER_TOOLS)
+                        try:
+                            if _fb_model.startswith("gemini"):
+                                _stream_iter = _gemini_chat_stream_with_tools(
+                                    _fb_model, messages,
+                                    tools=_fb_tools, temperature=CONSTANTS.AI_TEMPERATURE)
+                            elif _fb_model.startswith("claude"):
+                                _stream_iter = _claude_chat_stream_with_tools(
+                                    _fb_model, messages,
+                                    tools=_fb_tools, temperature=CONSTANTS.AI_TEMPERATURE)
                             else:
-                                thinking_ctrl.value = f"💭 {_thinking}"
-                                page.run_task(_scroll_and_update)
-                        else:  # "token"
-                            _streamed += _dat
-                            _stream_token_count += 1
-                            # Texte visible : supprimer les blocs <think>…</think> complets
-                            # et tout ce qui suit un <think> non encore fermé.
-                            _visible = re.sub(r'<think>.*?</think>', '', _streamed, flags=re.DOTALL)
-                            if '<think>' in _visible:
-                                _visible = _visible[:_visible.index('<think>')]
-                            _visible = _visible.strip()
-                            if response_text_ctrl is None:
-                                if _visible:
-                                    _remove_loading()
-                                    response_text_ctrl = _ai_add_bubble("assistant", _visible)
-                            elif _stream_token_count % _STREAM_UPDATE_EVERY == 0:
-                                response_text_ctrl.value = _md_dark(_visible)
-                                page.run_task(_scroll_and_update)
+                                _stream_iter = _ollama_chat_stream_with_tools(
+                                    CONSTANTS.AI_OLLAMA_URL, _fb_model, messages,
+                                    tools=_fb_tools, temperature=CONSTANTS.AI_TEMPERATURE,
+                                    think=True)
+                            for _evt, _dat in _stream_iter:
+                                if _evt == "tool_calls":
+                                    _stream_tool_calls.extend(_dat)
+                                elif _evt == "thinking":
+                                    _thinking += _dat
+                                    if thinking_ctrl is None:
+                                        _remove_loading()
+                                        thinking_ctrl = _ai_add_bubble("think", _dat)
+                                    else:
+                                        thinking_ctrl.value = f"💭 {_thinking}"
+                                        page.run_task(_scroll_and_update)
+                                else:  # "token"
+                                    _streamed += _dat
+                                    _stream_token_count += 1
+                                    _visible = re.sub(
+                                        r'<think>.*?</think>', '', _streamed, flags=re.DOTALL)
+                                    if '<think>' in _visible:
+                                        _visible = _visible[:_visible.index('<think>')]
+                                    _visible = _visible.strip()
+                                    if response_text_ctrl is None:
+                                        if _visible:
+                                            _remove_loading()
+                                            response_text_ctrl = _ai_add_bubble(
+                                                "assistant", _visible)
+                                    elif _stream_token_count % _STREAM_UPDATE_EVERY == 0:
+                                        response_text_ctrl.value = _md_dark(_visible)
+                                        page.run_task(_scroll_and_update)
+                            _fb_model_used = _fb_model
+                            _ALL_TOOLS = _fb_tools
+                            break  # succès
+                        except Exception as exc:
+                            if _streamed or _stream_tool_calls or response_text_ctrl is not None:
+                                raise
+                            _fb_last_exc = exc
+                            _fb_skip_cloud = _fb_skip_cloud or _is_network_error(exc)
+                            _fb_next = next(
+                                (m for m in _fb_chain[_fb_i + 1:]
+                                 if not (_fb_skip_cloud and m.startswith(("gemini", "claude")))),
+                                None,
+                            )
+                            if _fb_next is not None and loading_ctrl is not None:
+                                loading_ctrl.value = (
+                                    f"⚠️ {_fb_model} indisponible"
+                                    f" — basculement vers {_fb_next}…"
+                                )
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                    else:
+                        if _fb_last_exc:
+                            raise _fb_last_exc
 
                     _remove_loading()  # Garantit la suppression même si aucun contenu visible n'est arrivé
                     tool_calls = _stream_tool_calls
                     # Fallback non-streaming si le stream n'a rien renvoyé (Ollama uniquement)
                     if not _streamed and not _stream_tool_calls:
-                        if not (active_model or "").startswith(("gemini", "claude")):
+                        if not _fb_model_used.startswith(("gemini", "claude")):
                             _fallback = _ollama_chat_once(
-                                CONSTANTS.AI_OLLAMA_URL, active_model, messages,
+                                CONSTANTS.AI_OLLAMA_URL, _fb_model_used, messages,
                                 tools=_ALL_TOOLS,
                                 temperature=CONSTANTS.AI_TEMPERATURE,
                             )
@@ -3672,6 +3730,159 @@ def main(page: ft.Page):
                                 except Exception:
                                     pass
                                 _folder_tool_results.append((fn_name, _unzip_res))
+                        elif fn_name == "edit_file":
+                            _ef_path = fn_args.get("filepath", "").strip()
+                            _ef_old  = fn_args.get("old_string", "")
+                            _ef_new  = fn_args.get("new_string", "")
+                            if not _ef_path or _ef_old == "":
+                                _folder_tool_results.append((fn_name, "Paramètres filepath / old_string manquants."))
+                            else:
+                                ai_status_text.value = f"✏️ Édition : {os.path.basename(_ef_path)}…"
+                                _ai_add_bubble("assistant", f"✏️ Édition : {_ef_path}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _ef_res = _edit_file(_folder_path_for_tools, _ef_path, _ef_old, _ef_new)
+                                page.pubsub.send_all_on_topic("refresh", None)
+                                _folder_tool_results.append((fn_name, _ef_res))
+                        elif fn_name == "search_in_files":
+                            _si_pattern = fn_args.get("pattern", "")
+                            _si_path    = (fn_args.get("path", "") or "").strip() or None
+                            _si_glob    = fn_args.get("file_glob", "*") or "*"
+                            _si_max     = int(fn_args.get("max_results", 50) or 50)
+                            _si_case    = bool(fn_args.get("case_sensitive", False))
+                            if not _si_pattern:
+                                _folder_tool_results.append((fn_name, "Paramètre 'pattern' manquant."))
+                            else:
+                                ai_status_text.value = f"🔎 Grep : {_si_pattern}…"
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _si_res = _search_in_files(
+                                    _folder_path_for_tools, _si_pattern,
+                                    path=_si_path, file_glob=_si_glob,
+                                    max_results=_si_max, case_sensitive=_si_case,
+                                )
+                                _folder_tool_results.append((fn_name, _si_res))
+                        elif fn_name == "find_files":
+                            _ff_pattern  = fn_args.get("pattern", "")
+                            _ff_basepath = (fn_args.get("base_path", "") or "").strip() or None
+                            _ff_max      = int(fn_args.get("max_results", 200) or 200)
+                            if not _ff_pattern:
+                                _folder_tool_results.append((fn_name, "Paramètre 'pattern' manquant."))
+                            else:
+                                ai_status_text.value = f"🔎 Glob : {_ff_pattern}…"
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _ff_res = _find_files(
+                                    _folder_path_for_tools, _ff_pattern,
+                                    base_path=_ff_basepath, max_results=_ff_max,
+                                )
+                                _folder_tool_results.append((fn_name, _ff_res))
+                        elif fn_name == "git_command":
+                            _git_args = fn_args.get("args", [])
+                            _git_cwd  = (fn_args.get("cwd", "") or "").strip() or _folder_path_for_tools or None
+                            if not _git_args:
+                                _folder_tool_results.append((fn_name, "Paramètre 'args' manquant."))
+                            else:
+                                _git_label = " ".join(str(a) for a in _git_args[:3])
+                                ai_status_text.value = f"🔀 git {_git_label}…"
+                                _ai_add_bubble("assistant", f"🔀 git {' '.join(str(a) for a in _git_args)}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _git_res = _git_command(_git_args, cwd=_git_cwd)
+                                _folder_tool_results.append((fn_name, _git_res))
+                        elif fn_name == "manage_tasks":
+                            _task_res = _manage_tasks(
+                                fn_args.get("action", "list"),
+                                task_id=fn_args.get("task_id") or None,
+                                title=fn_args.get("title") or None,
+                                status=fn_args.get("status") or None,
+                                notes=fn_args.get("notes") or None,
+                            )
+                            _folder_tool_results.append((fn_name, _task_res))
+                        elif fn_name == "read_pdf":
+                            _pdf_path  = fn_args.get("filepath", "").strip()
+                            _pdf_pages = fn_args.get("pages") or None
+                            if not _pdf_path:
+                                _folder_tool_results.append((fn_name, "Paramètre 'filepath' manquant."))
+                            else:
+                                ai_status_text.value = f"📄 PDF : {os.path.basename(_pdf_path)}…"
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _pdf_res = _read_pdf(_folder_path_for_tools, _pdf_path, pages=_pdf_pages)
+                                _folder_tool_results.append((fn_name, _pdf_res))
+                        elif fn_name == "ask_subagent":
+                            _sa_task    = fn_args.get("task", "")
+                            _sa_context = fn_args.get("context") or None
+                            _sa_model   = fn_args.get("model") or None
+                            if not _sa_task:
+                                _folder_tool_results.append((fn_name, "Paramètre 'task' manquant."))
+                            else:
+                                _sa_short = (_sa_task[:50] + "…") if len(_sa_task) > 50 else _sa_task
+                                ai_status_text.value = f"🤖 Sous-agent : {_sa_short}…"
+                                _ai_add_bubble("assistant", f"🤖 Sous-agent : {_sa_short}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _sa_res = _ask_subagent(_sa_task, context=_sa_context, model=_sa_model)
+                                _folder_tool_results.append((fn_name, _sa_res))
+                        elif fn_name == "schedule_task":
+                            ai_status_text.value = f"⏰ Planificateur : {fn_args.get('action', 'list')}…"
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _sched_res = _schedule_task(
+                                fn_args.get("action", "list"),
+                                name=fn_args.get("name") or None,
+                                command=fn_args.get("command") or None,
+                                when=fn_args.get("when") or None,
+                            )
+                            _folder_tool_results.append((fn_name, _sched_res))
+                        elif fn_name == "http_request":
+                            _hr_method = (fn_args.get("method", "GET") or "GET").upper()
+                            _hr_url = fn_args.get("url", "").strip()
+                            if not _hr_url:
+                                _folder_tool_results.append((fn_name, "Paramètre 'url' manquant."))
+                            else:
+                                ai_status_text.value = f"🌐 {_hr_method} {_hr_url[:60]}…"
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _hr_res = _http_request(
+                                    _hr_method, _hr_url,
+                                    headers=fn_args.get("headers") or None,
+                                    body=fn_args.get("body") or None,
+                                    timeout=fn_args.get("timeout") or 30,
+                                )
+                                _folder_tool_results.append((fn_name, _hr_res))
+                        elif fn_name == "read_spreadsheet":
+                            _ss_path = fn_args.get("filepath", "").strip()
+                            if not _ss_path:
+                                _folder_tool_results.append((fn_name, "Paramètre 'filepath' manquant."))
+                            else:
+                                ai_status_text.value = f"📊 Tableur : {os.path.basename(_ss_path)}…"
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _ss_res = _read_spreadsheet(
+                                    _folder_path_for_tools, _ss_path,
+                                    sheet=fn_args.get("sheet") or None,
+                                    max_rows=fn_args.get("max_rows") or 100,
+                                )
+                                _folder_tool_results.append((fn_name, _ss_res))
                     try:
                         page.update()
                     except Exception:
