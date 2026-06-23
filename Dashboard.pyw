@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.9.1"
+__version__ = "2.9.2"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -92,7 +92,7 @@ from ai_tools import (
     _folder_copy_file, _folder_create_folder, _resolve_path,
     _folder_read_exif, _folder_zip_files, _folder_unzip_file,
     _encode_image_for_analysis, _analyze_images_batched,
-    _gemini_generate_image, _gemini_refine_image_prompt,
+    _gemini_generate_image, _gemini_refine_image_prompt, _gemini_generate_music,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _NOTEPAD_TOOLS, _UI_TOOLS, _run_terminal_command,
     _EDIT_TOOLS, _SEARCH_TOOLS, _GIT_TOOLS, _TASK_TOOLS, _PDF_TOOLS, _SUBAGENT_TOOLS, _SCHEDULE_TOOLS,
     _HTTP_TOOLS, _SPREADSHEET_TOOLS,
@@ -1501,8 +1501,6 @@ def main(page: ft.Page):
 
     def _open_notepad_ui(title, icon, color, hint):
         """Affiche la zone bloc-notes (+ IA) avec le titre et la couleur donnés."""
-        if note_mode["value"]:
-            save_notes()
         notepad_header_icon.name  = icon
         notepad_header_icon.color = color
         notepad_header_title.value = title
@@ -1530,6 +1528,8 @@ def main(page: ft.Page):
 
     def switch_to_note():
         """Bascule la zone bas en mode bloc-notes (fichier .notes.md)."""
+        if note_mode["value"]:
+            save_notes()
         note_target_file["path"] = notes_file_path
         _open_notepad_ui("Notes", ft.Icons.EDIT_NOTE, VIOLET, "Écrivez vos notes ici…")
 
@@ -1537,6 +1537,8 @@ def main(page: ft.Page):
 
     def switch_to_options():
         """Bascule la zone bas en mode édition CONSTANTS.py."""
+        if note_mode["value"]:
+            save_notes()
         note_target_file["path"] = constants_file_path
         _open_notepad_ui("CONSTANTS.py", ft.Icons.TUNE, ORANGE, "Modifiez les constantes ici…")
         return
@@ -1545,6 +1547,8 @@ def main(page: ft.Page):
 
     def open_file_in_notepad(file_path):
         """Ouvre un fichier texte dans le bloc-notes intégré et affiche le panneau."""
+        if note_mode["value"]:
+            save_notes()
         note_target_file["path"] = file_path
         title = os.path.basename(file_path)
         _open_notepad_ui(title, ft.Icons.DESCRIPTION, VIOLET, "")
@@ -3160,6 +3164,69 @@ def main(page: ft.Page):
                                     )
                                 _turn_events.append("❌ Échec génération/édition image (aucun fichier créé)")
                             _folder_tool_results.append((fn_name, _gi_result))
+                        elif fn_name == "generate_music":
+                            import datetime as _dt_gm
+                            _gm_prompt   = fn_args.get("prompt", "")
+                            _gm_model    = fn_args.get("model", "lyria-3-clip-preview")
+                            _gm_filename = (
+                                fn_args.get("filename", "").strip()
+                                or f"music_{_dt_gm.datetime.now():%Y%m%d_%H%M%S}.mp3"
+                            )
+                            _gm_label = _gm_prompt[:60] + ("…" if len(_gm_prompt) > 60 else "")
+                            _ai_add_bubble("assistant", f"🎵 Génération musique : {_gm_label}")
+                            _turn_events.append(f"🎵 Génération musique : {_gm_label}")
+                            ai_status_text.value = "🎵 Génération musicale en cours…"
+                            ai_progress_bar.visible = True
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _gm_result_holder = {"value": (None, None, "Timeout")}
+                            _gm_done_event = threading.Event()
+
+                            def _run_music_call():
+                                try:
+                                    _gm_result_holder["value"] = _gemini_generate_music(
+                                        _gm_prompt, model=_gm_model
+                                    )
+                                except Exception as _gm_exc:
+                                    _gm_result_holder["value"] = (None, None, str(_gm_exc))
+                                finally:
+                                    _gm_done_event.set()
+
+                            threading.Thread(target=_run_music_call, daemon=True).start()
+                            _gm_start = time.time()
+                            while not _gm_done_event.wait(timeout=1.0):
+                                _gm_elapsed = int(time.time() - _gm_start)
+                                if _gm_elapsed >= 180:
+                                    break
+                                ai_status_text.value = (
+                                    f"🎵 Génération musicale en cours… ({_gm_elapsed}s)"
+                                )
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                            ai_progress_bar.visible = False
+                            _gm_bytes, _gm_lyrics, _gm_err = _gm_result_holder["value"]
+                            if _gm_bytes:
+                                _gm_dest = _folder_path_for_tools or os.path.join(
+                                    app_directory, "Generated"
+                                )
+                                os.makedirs(_gm_dest, exist_ok=True)
+                                _gm_save_path = os.path.join(_gm_dest, _gm_filename)
+                                with open(_gm_save_path, "wb") as _fout:
+                                    _fout.write(_gm_bytes)
+                                if _folder_path_for_tools:
+                                    page.pubsub.send_all_on_topic("refresh", None)
+                                _gm_result = f"Musique sauvegardée : {_gm_save_path}"
+                                if _gm_lyrics:
+                                    _gm_result += f"\n\nParoles / Structure :\n{_gm_lyrics}"
+                                _turn_events.append(f"✅ Musique sauvegardée : {_gm_filename}")
+                            else:
+                                _gm_result = f"[ERREUR] Génération musicale échouée : {_gm_err}"
+                                _turn_events.append("❌ Échec génération musicale")
+                            _folder_tool_results.append((fn_name, _gm_result))
                         elif fn_name == "create_file":
                             import datetime as _dt_cf
                             _create_filename = fn_args.get("filename", "").strip()

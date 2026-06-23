@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.9.1"
+__version__ = "2.9.2"
 
 
 # ==============================================================================
@@ -405,7 +405,7 @@ AI_SYSTEM_PROMPT = (
 AI_VOICE_TTS_ENABLED     = False   # Lire la réponse IA à voix haute après chaque réponse complète
 AI_VOICE_TTS_BTN_VISIBLE = True    # Afficher le bouton TTS même si la lecture auto est désactivée
 AI_VOICE_TTS_MODE        = "live"  # "live" = Gemini Live (voix conversationnelle) | "chunked" = lecture fidèle du texte
-AI_VOICE_TTS_MODEL       = "gemini-2.5-flash-preview-tts"   # Modèle TTS classique (mode "chunked")
+AI_VOICE_TTS_MODEL       = "gemini-3.1-flash-tts-preview"   # Modèle TTS classique (mode "chunked")
 AI_VOICE_LIVE_MODEL      = "gemini-3.1-flash-live-preview"  # Modèle Gemini Live (mode "live")
 AI_VOICE_TTS_VOICE       = "Kore"   # Voir AI_AVAILABLE_VOICES ci-dessous
 AI_VOICE_TTS_SAMPLE_RATE = 24000    # Fréquence de sortie PCM (Hz — ne pas modifier)
@@ -432,6 +432,12 @@ AI_AVAILABLE_VOICES = [
 # Rayon de flou des bords du masque SAM2, exprimé en fraction de la plus petite
 # dimension du rendu (0 = pas de flou, 0.01 = ~1 % → ~8 px sur 800 px).
 SAM2_MASK_FEATHER_RATIO = 0.001
+
+
+# ── 10.5  Musique — Lyria ─────────────────────────────────────────────────────
+
+AI_MUSIC_CLIP_MODEL = "lyria-3-clip-preview"   # Clip 30 s fixe
+AI_MUSIC_PRO_MODEL  = "lyria-3-pro-preview"    # Pro ~2 min, structuré
 
 
 # ==============================================================================

@@ -15,7 +15,7 @@ Variables d'environnement :
 Dépendances : modules standard (os, pathlib, sys)
 """
 
-__version__ = "2.9.1"
+__version__ = "2.9.2"
 
 #############################################################
 #                          IMPORTS                          #
@@ -42,14 +42,14 @@ all_files = sorted([
     file.name
     for file in PATH.iterdir()
     if file.is_file()
+    and not file.name.startswith(".")
     and file.name != "watermark.png"
-    and file.name.lower() != CONSTANTS.THUMB_CACHE_DB_NAME.lower()
 ])
 if selected_files_list:
     all_files_set = set(all_files)
     FOLDER = [
         f for f in selected_files_list
-        if f in all_files_set and f.lower() != CONSTANTS.THUMB_CACHE_DB_NAME.lower()
+        if f in all_files_set and not f.startswith(".")
     ]
 else:
     FOLDER = all_files
@@ -61,8 +61,6 @@ else:
 for index, file in enumerate(FOLDER) :
     print(f"{index +1} / {len(FOLDER)}")
     file_path = PATH / file
-    if file_path.name.lower() == CONSTANTS.THUMB_CACHE_DB_NAME.lower():
-        continue
     filename = file_path.stem
     ext = file_path.suffix
     new_index = index + 1

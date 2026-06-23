@@ -54,7 +54,7 @@ Dashboard est un poste de travail tout-en-un pour trier, préparer, retoucher et
 
 | Outil | Description |
 |---|---|
-| Recadrage manuel | Recadrage interactif avec formats photo professionnels, suppression de fond par IA (rembg), planches ID |
+| Recadrage manuel | Recadrage interactif avec formats photo professionnels (mm ou pixels personnalisables), suppression de fond par IA (rembg), planches ID |
 | Recadrage automatique | Recadrage automatique (mode fit ou crop) vers un format cible |
 | Redimensionner | Redimensionnement en lot (dimension max, qualité JPEG) |
 | Redimensionner + filigrane | Redimensionnement avec incrustation de filigrane |
@@ -65,7 +65,8 @@ Dashboard est un poste de travail tout-en-un pour trier, préparer, retoucher et
 | Noir et blanc | Conversion N&B en lot |
 | Netteté | Amélioration de la netteté en lot |
 | Débruitage | Réduction du bruit par algorithme Non-Local Means (OpenCV NLM), configurable en intensité |
-| Grain pellicule | Simulation de grain argentique avec pondération par luminance (plus fort dans les ombres), intensité, taille et part chromatique réglables |
+| Grain pellicule | Simulation de grain argentique sur deux passes indépendantes, avec pondération par luminance, halation, aberrations chromatiques, bloom, désaturation des extrêmes et courbes tonales. Intensité, taille (en % de l'image) et part chromatique réglables par passe. |
+| Augmentation IA | Inpainting interactif (sélection au lasso d'une zone, modification par Gemini) et outpainting (extension du cadre par Gemini) |
 | Métadonnées | Nettoyage ou copie des métadonnées EXIF |
 | Tri RAW/JPG | Séparer automatiquement les fichiers RAW et JPG |
 | Copier NEFs de la sélection | Copier les RAW correspondant aux JPG sélectionnés |
@@ -95,6 +96,7 @@ L'IA (Gemini par défaut, ou modèles Ollama locaux) est intégrée directement 
 - Recherche web (DuckDuckGo ou Google natif pour Gemini)
 - Lecture d'URLs
 - Mémoire persistante entre sessions (`memory.md`, `user.md`, `skills.md`)
+- **Fallback automatique** : Gemini 3.5 Flash → Gemini 3.1 Pro (quota/indispo) → Gemma local (hors-ligne)
 
 #### Outils fichiers (autonomes)
 | Outil IA | Description |
@@ -113,6 +115,17 @@ L'IA (Gemini par défaut, ou modèles Ollama locaux) est intégrée directement 
 | `analyze_images` | Analyser visuellement les images du dossier (chercher des critères) |
 | `generate_image` | Générer une image depuis un prompt texte (Gemini image generation) |
 | `edit_image` | Modifier une image existante via prompt texte |
+| `generate_music` | Générer un morceau de musique via Lyria 3 (30 s ou ~2 min) — sauvegardé en MP3 dans le dossier ouvert |
+| `edit_file` | Remplacement chirurgical `old_string → new_string` dans un fichier (sans réécrire le fichier entier) |
+| `search_in_files` | Recherche regex récursive dans les fichiers, avec filtre glob et sensibilité à la casse |
+| `find_files` | Recherche de fichiers par motif glob (`*.py`, `rapport*.pdf`…) |
+| `git_command` | Commandes Git : status, log, diff, add, commit, push, pull, checkout… (liste blanche) |
+| `manage_tasks` | Todo-list persistante en JSON (`.tasks.json`) avec états todo / in-progress / done |
+| `read_pdf` | Extraction de texte PDF page par page (PyMuPDF prioritaire, pypdf en fallback) |
+| `ask_subagent` | Déléguer une tâche à une instance IA distincte sans outils (recherche, synthèse, rédaction) |
+| `schedule_task` | Planificateur OS — `schtasks` (Windows) / `crontab` (Linux-macOS) |
+| `http_request` | Requêtes HTTP GET/POST/PUT/DELETE/PATCH avec headers et body personnalisés |
+| `read_spreadsheet` | Lecture structurée de fichiers CSV, `.xlsx`, `.xls` et `.ods` |
 | `run_terminal_command` | Exécuter des commandes shell (confirmation avant exécution) |
 
 #### Outils interface

@@ -18,6 +18,10 @@ Outils dossier (partagés) :
   _encode_image_for_analysis(image_path)     — encode une image en base64 JPEG pour un modèle vision
   _analyze_images_batched(...)               — analyse des images par lots et retourne les résultats
   _gemini_generate_image(prompt, ...)        — génère/modifie une image via Nano Banana 2
+  _gemini_interactions_create(input, ...)   — Interactions API : appel simple avec previous_interaction_id
+  _gemini_interactions_get(interaction_id)  — Interactions API : polling pour background=True (agents)
+  _gemini_generate_music(prompt, model, images)
+                                             — génère de la musique via Lyria 3 (retourne bytes MP3/WAV)
 
 Helpers système (partagés) :
   _WEB_TOOLS                                 — liste des 2 définitions d'outils web (web_search + fetch_url)
@@ -899,6 +903,52 @@ def _folder_tool_definitions(folder_path):
                             "type": "string",
                             "enum": ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3"],
                             "description": "Format de l'image. Défaut : 1:1.",
+                        },
+                    },
+                    "required": ["prompt"],
+                },
+            },
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "generate_music",
+                "description": (
+                    "Génère de la musique via Lyria 3 (Google). "
+                    "L'audio MP3 est sauvegardé dans le dossier ouvert ou Generated/. "
+                    "Utilise cet outil quand l'utilisateur demande de créer ou générer "
+                    "de la musique, une chanson, un morceau, une ambiance sonore, etc."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {
+                            "type": "string",
+                            "description": (
+                                "Description détaillée de la musique à générer. "
+                                "Inclure : genre, instruments, tempo (BPM), ambiance, "
+                                "structure ([Intro] [Verse] [Chorus]…). "
+                                "Plus le prompt est précis, meilleur est le résultat."
+                            ),
+                        },
+                        "filename": {
+                            "type": "string",
+                            "description": (
+                                "Nom du fichier de sortie (ex. 'theme_principal.mp3'). "
+                                "Laisser vide pour nommer automatiquement."
+                            ),
+                        },
+                        "model": {
+                            "type": "string",
+                            "enum": [
+                                "lyria-3-clip-preview",
+                                "lyria-3-pro-preview",
+                            ],
+                            "description": (
+                                "Modèle Lyria. "
+                                "lyria-3-clip-preview : 30 s fixe (défaut). "
+                                "lyria-3-pro-preview : ~2 min avec structure complète."
+                            ),
                         },
                     },
                     "required": ["prompt"],
@@ -2317,7 +2367,9 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
 
     system_instr, gemini_contents = _ollama_messages_to_gemini(messages)
 
-    config_kwargs: dict = {"temperature": temperature}
+    config_kwargs: dict = {}
+    if not model.startswith("gemini-3.5"):
+        config_kwargs["temperature"] = temperature
     if system_instr:
         config_kwargs["system_instruction"] = system_instr
     config_kwargs["tools"] = gemini_tools_list
@@ -2396,7 +2448,7 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
 def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", resolution="1K"):
     """
     Génère ou modifie une image avec Nano Banana 2.
-    Utilise gemini-3.1-flash-image-preview avec bascule automatique (fallback) vers gemini-2.5-flash-image si surchargé ou indisponible.
+    Utilise gemini-3.1-flash-image-preview avec bascule automatique (fallback) vers gemini-3.1-flash-image si surchargé ou indisponible.
 
     - prompt            : description textuelle de l'image souhaitée
     - input_image_bytes : bytes de l'image source pour édition (None = génération pure)
@@ -2427,7 +2479,7 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
 
     _candidate_models = [
         "gemini-3.1-flash-image-preview",
-        "gemini-2.5-flash-image",
+        "gemini-3.1-flash-image",
     ]
     _last_error = None
 
@@ -2553,21 +2605,6 @@ def _gemini_refine_image_prompt(
     if not intent_prompt:
         return ""
 
-    try:
-        from google import genai as _genai_ref
-        from google.genai import types as _gtypes_ref
-    except ImportError:
-        return intent_prompt
-
-    _api_key = _get_gemini_api_key()
-    if not _api_key:
-        return intent_prompt
-
-    try:
-        _client_ref = _genai_ref.Client(api_key=_api_key)
-    except Exception:
-        return intent_prompt
-
     _mode_label = "édition" if mode == "edit_image" else "génération"
     _source_line = f"- Fichier source: {source_filename}\n" if source_filename else ""
     _user_req_block = user_request.strip() if user_request else "(non fourni)"
@@ -2589,23 +2626,170 @@ def _gemini_refine_image_prompt(
         f"Intention brute à raffiner:\n{intent_prompt}\n"
     )
 
+    result, _ = _gemini_interactions_create(_instruction, model=model)
+    return result.strip() if result.strip() else intent_prompt
+
+
+# ─── Interactions API ─────────────────────────────────────────────────────────
+
+def _gemini_interactions_create(
+    input_text,
+    model="gemini-3.5-flash",
+    previous_interaction_id=None,
+    system_instruction=None,
+    background=False,
+    agent=None,
+):
+    """
+    Appel simple Interactions API Gemini (non-streaming, sans outils).
+    Supporte les conversations à états via previous_interaction_id.
+
+    Agents disponibles :
+      "deep-research-preview-04-2026"     — Deep Research rapide
+      "deep-research-max-preview-04-2026" — Deep Research exhaustif
+      "antigravity-preview-05-2026"       — Agent généraliste (code, web, fichiers)
+
+    Les agents nécessitent background=True. Utiliser _gemini_interactions_get()
+    pour récupérer le résultat.
+
+    Retourne (output_text: str, interaction_id: str | None).
+    """
     try:
-        _resp_ref = _client_ref.models.generate_content(
-            model=model,
-            contents=[_instruction],
-            config=_gtypes_ref.GenerateContentConfig(temperature=0.2),
-        )
-        _refined = (_resp_ref.text or "").strip()
-        if not _refined:
-            return intent_prompt
-        return _refined
+        from google import genai as _genai_ia
+    except ImportError:
+        return ("", None)
+
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        return ("", None)
+
+    try:
+        client = _genai_ia.Client(api_key=api_key)
     except Exception:
-        return intent_prompt
+        return ("", None)
+
+    kwargs = {"input": input_text}
+    if agent:
+        kwargs["agent"] = agent
+    else:
+        kwargs["model"] = model
+    if previous_interaction_id:
+        kwargs["previous_interaction_id"] = previous_interaction_id
+    if system_instruction:
+        kwargs["system_instruction"] = system_instruction
+    if background:
+        kwargs["background"] = True
+
+    try:
+        interaction = client.interactions.create(**kwargs)
+        return (interaction.output_text or "", interaction.id)
+    except Exception as exc:
+        return (_format_gemini_error(exc), None)
+
+
+def _gemini_interactions_get(interaction_id):
+    """
+    Récupère l'état d'une Interaction (polling pour background=True).
+    Retourne (status: str, output_text: str, error: str | None).
+    status ∈ {"completed", "failed", "in_progress", "unknown"}
+    """
+    try:
+        from google import genai as _genai_ig
+    except ImportError:
+        return ("unknown", "", "google-genai not installed")
+
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        return ("unknown", "", "GEMINI_API_KEY not set")
+
+    try:
+        client = _genai_ig.Client(api_key=api_key)
+        interaction = client.interactions.get(interaction_id)
+        status = getattr(interaction, "status", "unknown")
+        text = getattr(interaction, "output_text", "") or ""
+        return (status, text, None)
+    except Exception as exc:
+        return ("unknown", "", str(exc))
+
+
+# ─── Musique — Lyria ──────────────────────────────────────────────────────────
+
+def _gemini_generate_music(prompt, model="lyria-3-clip-preview", images=None):
+    """
+    Génère de la musique via Lyria 3 (Interactions API, google-genai >= 2.9.0).
+    Modèles : "lyria-3-clip-preview" (30 s, 48 kHz stéréo MP3)
+              "lyria-3-pro-preview"  (~2 min, structuré)
+    images   : liste de chemins d'images (PIL requis) pour input multimodal.
+    Retourne (audio_bytes: bytes | None, lyrics: str | None, error: str | None).
+    Le 2e bloc texte (métadonnées JSON : BPM, clé, structure) est ignoré.
+    """
+    try:
+        from google import genai as _genai_m
+    except ImportError:
+        return (None, None, "google-genai non installé")
+
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        return (None, None, "GEMINI_API_KEY non défini")
+
+    try:
+        if images:
+            from PIL import Image as _PIL_Image
+            input_content = [prompt] + [_PIL_Image.open(p) for p in images]
+        else:
+            input_content = prompt
+
+        client = _genai_m.Client(api_key=api_key)
+        interaction = client.interactions.create(
+            model=model,
+            input=input_content,
+            response_modalities=["audio", "text"],
+        )
+
+        import base64
+        text_parts = []
+        audio_bytes = None
+
+        for step in (getattr(interaction, "steps", None) or []):
+            stype = getattr(step, "type", None)
+            if stype == "text":
+                t = getattr(step, "text", None)
+                if t:
+                    text_parts.append(t)
+            elif stype == "audio":
+                raw = getattr(step, "data", None)
+                if raw and audio_bytes is None:
+                    audio_bytes = base64.b64decode(raw)
+            elif stype == "model_output":
+                for block in (getattr(step, "content", None) or []):
+                    if getattr(block, "text", None):
+                        text_parts.append(block.text)
+                    elif getattr(block, "type", None) == "audio":
+                        raw = getattr(block, "data", None)
+                        if raw and audio_bytes is None:
+                            audio_bytes = base64.b64decode(raw)
+
+        # Fallback inline_data (bytes directs, pas base64)
+        if audio_bytes is None:
+            for step in (getattr(interaction, "steps", None) or []):
+                inline = getattr(step, "inline_data", None)
+                if inline:
+                    audio_bytes = inline.data
+                    break
+
+        lyrics = text_parts[0] if text_parts else None
+
+        if audio_bytes is None:
+            return (None, lyrics, "Aucune donnée audio dans la réponse")
+
+        return (audio_bytes, lyrics, None)
+    except Exception as exc:
+        return (None, None, _format_gemini_error(exc))
 
 
 # ─── Voix — TTS ───────────────────────────────────────────────────────────────
 
-def _gemini_tts(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts", language_code=None):
+def _gemini_tts(text, voice_name="Puck", tts_model="gemini-3.1-flash-tts-preview", language_code=None):
     """
     Génère de l'audio TTS via l'API Gemini.
 
@@ -2644,7 +2828,7 @@ def _gemini_tts(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts
         return None
 
 
-def _gemini_tts_stream(text, voice_name="Puck", tts_model="gemini-2.5-flash-preview-tts", sample_rate=24000, language_code=None, stop_event=None):
+def _gemini_tts_stream(text, voice_name="Puck", tts_model="gemini-3.1-flash-tts-preview", sample_rate=24000, language_code=None, stop_event=None):
     """
     Génère et joue le TTS via l'API Gemini en pipeline chunk par chunk.
 
