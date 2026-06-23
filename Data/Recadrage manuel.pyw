@@ -45,7 +45,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.9.0"
+__version__ = "2.9.1"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -3095,6 +3095,9 @@ class PhotoCropper:
                 w = float((self.custom_w_field.value or "").strip())
                 h = float((self.custom_h_field.value or "").strip())
                 if w > 0 and h > 0:
+                    if getattr(self, 'custom_unit', 'mm') == 'px':
+                        w = w * 25.4 / DPI
+                        h = h * 25.4 / DPI
                     self.current_format = (w, h)
             except (ValueError, AttributeError):
                 self.current_format = self.custom_format
@@ -3835,6 +3838,9 @@ def main(page: ft.Page):
             w = float((app.custom_w_field.value or "").strip())
             h = float((app.custom_h_field.value or "").strip())
             if w > 0 and h > 0:
+                if getattr(app, 'custom_unit', 'mm') == 'px':
+                    w = w * 25.4 / DPI
+                    h = h * 25.4 / DPI
                 app.current_format = (w, h)
                 app.update_canvas_size()
                 if app.image_paths:
@@ -3843,14 +3849,14 @@ def main(page: ft.Page):
             pass
 
     app.custom_w_field = ft.TextField(
-        label="Largeur", value="100", expand=True,
+        label="Largeur (mm)", value="100", expand=True,
         text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
         border=ft.InputBorder.OUTLINE, border_color=BLUE, focused_border_color=BLUE, bgcolor=BG,
         disabled=True,
         on_submit=_on_custom_dim_change, on_blur=_on_custom_dim_change,
     )
     app.custom_h_field = ft.TextField(
-        label="Hauteur", value="100", expand=True,
+        label="Hauteur (mm)", value="100", expand=True,
         text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
         border=ft.InputBorder.OUTLINE, border_color=BLUE, focused_border_color=BLUE, bgcolor=BG,
         disabled=True,
@@ -3862,6 +3868,42 @@ def main(page: ft.Page):
         alignment=ft.MainAxisAlignment.CENTER,
     )
 
+    app.custom_unit = "mm"
+
+    def _on_unit_change(e):
+        new_unit = e.control.value
+        try:
+            w = float((app.custom_w_field.value or "").strip())
+            h = float((app.custom_h_field.value or "").strip())
+            if w > 0 and h > 0:
+                if app.custom_unit == "mm" and new_unit == "px":
+                    w = round(w / 25.4 * DPI)
+                    h = round(h / 25.4 * DPI)
+                elif app.custom_unit == "px" and new_unit == "mm":
+                    w = round(w * 25.4 / DPI, 1)
+                    h = round(h * 25.4 / DPI, 1)
+                app.custom_w_field.value = str(w)
+                app.custom_h_field.value = str(h)
+        except ValueError:
+            pass
+        app.custom_unit = new_unit
+        app.custom_w_field.label = f"Largeur ({new_unit})"
+        app.custom_h_field.label = f"Hauteur ({new_unit})"
+        page.update()
+
+    app.unit_dropdown = ft.Dropdown(
+        value="mm",
+        options=[ft.dropdown.Option("mm"), ft.dropdown.Option("px")],
+        width=90,
+        text_size=12,
+        bgcolor=BG,
+        border_color=BLUE,
+        focused_border_color=BLUE,
+        on_select=_on_unit_change,
+        content_padding=ft.Padding.symmetric(horizontal=8, vertical=0),
+        disabled=True,
+    )
+
     app.custom_mode_switch = ft.Switch(
         label="Taille manuelle",
         value=False,
@@ -3871,6 +3913,7 @@ def main(page: ft.Page):
     def _apply_custom_mode(enabled: bool):
         app.custom_w_field.disabled = not enabled
         app.custom_h_field.disabled = not enabled
+        app.unit_dropdown.disabled = not enabled
         app.format_radio_group.disabled = enabled
         if enabled:
             # Appliquer immédiatement les dimensions saisies en mode personnalisé
@@ -3898,6 +3941,11 @@ def main(page: ft.Page):
         content=ft.Column([
             app.custom_mode_switch,
             ft.Container(content=app.custom_fields_row, margin=ft.Margin.only(top=8)),
+            ft.Row(
+                [ft.Text("Unité :", size=12, color=LIGHT_GREY), app.unit_dropdown],
+                spacing=8,
+                alignment=ft.MainAxisAlignment.CENTER,
+            ),
         ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         visible=True,
         border=ft.Border.all(1, BLUE),

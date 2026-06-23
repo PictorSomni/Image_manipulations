@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.9.0"
+__version__ = "2.9.1"
 
 
 # ==============================================================================
@@ -63,6 +63,7 @@ IMAGE_EXTS = frozenset({
 NOTEPAD_EXTS = frozenset({
     ".txt", ".md", ".log", ".ini", ".cfg", ".yaml", ".yml",
     ".rtf", ".py", ".pyw", ".toml", ".sh", ".bat", ".csv",
+    ".desktop", ".astro"
 })
 AI_DOCUMENT_EXTS = frozenset({
     ".txt", ".md", ".py", ".pyw", ".js", ".ts", ".json", ".csv", ".xml",
