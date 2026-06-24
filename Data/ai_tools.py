@@ -1431,6 +1431,58 @@ def _encode_image_for_analysis(image_path, max_size=1024, quality=70):
         return None
 
 
+def _take_screenshot(max_size=1920, quality=75):
+    """Capture l'écran et retourne {"text": str, "b64": str} ou None en cas d'échec."""
+    try:
+        import base64 as _base64
+        import io as _io
+        import sys as _sys
+        from PIL import Image as _PilImage
+
+        img = None
+        try:
+            from PIL import ImageGrab as _ImageGrab
+            img = _ImageGrab.grab()
+        except Exception:
+            pass
+
+        # ponytail: fallback Linux via outils système — scrot est le plus courant
+        if img is None and _sys.platform.startswith("linux"):
+            import subprocess as _sp
+            import tempfile as _tf
+            import os as _os2
+            with _tf.NamedTemporaryFile(suffix=".png", delete=False) as _tmp:
+                _tmp_path = _tmp.name
+            try:
+                for _cmd in (
+                    ["scrot", _tmp_path],
+                    ["gnome-screenshot", "-f", _tmp_path],
+                    ["import", "-window", "root", _tmp_path],
+                ):
+                    if _sp.call(_cmd, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL) == 0:
+                        img = _PilImage.open(_tmp_path)
+                        img.load()
+                        break
+            finally:
+                try:
+                    _os2.unlink(_tmp_path)
+                except Exception:
+                    pass
+
+        if img is None:
+            return None
+
+        w, h = img.size
+        img = img.convert("RGB")
+        img.thumbnail((max_size, max_size), _PilImage.LANCZOS)
+        buf = _io.BytesIO()
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        b64 = _base64.b64encode(buf.getvalue()).decode("utf-8")
+        return {"text": f"Screenshot capturé ({w}×{h} px).", "b64": b64}
+    except Exception:
+        return None
+
+
 def _analyze_images_batched(
     ollama_url,
     model,
@@ -1895,6 +1947,27 @@ _MEMORY_TOOLS = [
 
 # ─── Outils bloc-notes ───────────────────────────────────────────────────────
 
+_SCREENSHOT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "take_screenshot",
+            "description": (
+                "Capture une image de l'écran de l'utilisateur. "
+                "Utilise cet outil quand l'utilisateur demande de regarder son écran, "
+                "de voir un site web, une application ou tout ce qui est affiché. "
+                "Retourne une image que tu peux analyser visuellement."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+]
+
+
 _NOTEPAD_TOOLS = [
     {
         "type": "function",
@@ -1917,8 +1990,10 @@ _NOTEPAD_TOOLS = [
             "name": "write_notepad",
             "description": (
                 "Écrit du contenu dans le bloc-notes intégré. "
-                "Utilise 'replace' pour remplacer tout le contenu, "
-                "'append' pour ajouter à la fin, 'prepend' pour ajouter au début."
+                "RÈGLE ABSOLUE : appelle TOUJOURS read_notepad d'abord pour vérifier si le bloc-notes contient déjà du texte. "
+                "Si le bloc-notes n'est pas vide, utilise 'append' par défaut — "
+                "n'utilise 'replace' que si l'utilisateur demande EXPLICITEMENT d'effacer ou de remplacer le contenu existant. "
+                "'prepend' pour ajouter au début."
             ),
             "parameters": {
                 "type": "object",
@@ -2060,19 +2135,28 @@ def _build_system_content(folder_path=None, today_date_str=None):
         system_content += (
             f"\n\nDOSSIER OUVERT : « {folder_name} » (`{folder_path}`).\n"
             "Outils disponibles pour ce dossier : list_folder_contents, "
-            "read_file_content, organize_files, analyze_images, create_file, "
-            "generate_image, edit_image.\n"
+            "read_file_content, create_file, edit_file, delete_files, move_file, "
+            "copy_file, create_folder, organize_files, search_in_files, find_files, "
+            "analyze_images, generate_image, edit_image, read_exif, "
+            "zip_files, unzip_file.\n"
             "Utilise-les quand l'utilisateur te demande d'explorer, résumer, "
             "organiser ou analyser visuellement le contenu de ce dossier. "
             "Pour toute question sur ce que contiennent les images "
             "(couleurs, personnes, lieux, objets…), utilise analyze_images. "
             "Pour générer une nouvelle image depuis un prompt texte, utilise generate_image. "
             "Pour modifier une image existante du dossier, utilise edit_image. "
-            "RÈGLE ABSOLUE : pour lister le contenu du dossier, utilise TOUJOURS "
-            "list_folder_contents — JAMAIS ls, find ou toute autre commande shell via run_terminal_command. "
-            "Pour créer un fichier (script, note, liste, config…), utilise TOUJOURS create_file — "
-            "JAMAIS run_terminal_command avec une redirection (>, tee, etc.). "
-            "Le paramètre 'content' doit contenir UNIQUEMENT le texte final du fichier, "
+            "RÈGLES ABSOLUES :\n"
+            "- Pour lister le contenu du dossier, utilise TOUJOURS "
+            "list_folder_contents — JAMAIS ls, find ou toute autre commande shell via run_terminal_command.\n"
+            "- Pour modifier un fichier texte existant, utilise TOUJOURS edit_file "
+            "(lit → remplace old_string par new_string) — "
+            "JAMAIS créer une copie .txt ou un nouveau fichier à la place de l'original. "
+            "Si tu dois réécrire entièrement le fichier, utilise create_file sur le même chemin.\n"
+            "- Pour créer un nouveau fichier (script, note, liste, config…), utilise TOUJOURS create_file — "
+            "JAMAIS run_terminal_command avec une redirection (>, tee, etc.).\n"
+            "- Pour chercher du texte dans des fichiers, utilise search_in_files (grep) — "
+            "JAMAIS run_terminal_command avec grep ou rg.\n"
+            "Le paramètre 'content' de create_file doit contenir UNIQUEMENT le texte final du fichier, "
             "recopié mot pour mot depuis les résultats des outils — "
             "sans aucun raisonnement, auto-correction, note entre parenthèses ou placeholder."
         )

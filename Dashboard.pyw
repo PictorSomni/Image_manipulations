@@ -91,9 +91,10 @@ from ai_tools import (
     _folder_read_file, _folder_create_file, _folder_delete_files, _folder_move_file,
     _folder_copy_file, _folder_create_folder, _resolve_path,
     _folder_read_exif, _folder_zip_files, _folder_unzip_file,
-    _encode_image_for_analysis, _analyze_images_batched,
+    _encode_image_for_analysis, _analyze_images_batched, _take_screenshot,
     _gemini_generate_image, _gemini_refine_image_prompt, _gemini_generate_music,
-    _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _NOTEPAD_TOOLS, _UI_TOOLS, _run_terminal_command,
+    _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _SCREENSHOT_TOOLS, _NOTEPAD_TOOLS,
+    _UI_TOOLS, _run_terminal_command,
     _EDIT_TOOLS, _SEARCH_TOOLS, _GIT_TOOLS, _TASK_TOOLS, _PDF_TOOLS, _SUBAGENT_TOOLS, _SCHEDULE_TOOLS,
     _HTTP_TOOLS, _SPREADSHEET_TOOLS,
     _edit_file, _search_in_files, _find_files, _git_command, _manage_tasks, _read_pdf,
@@ -2515,9 +2516,9 @@ def main(page: ft.Page):
                               + _PDF_TOOLS + _SUBAGENT_TOOLS + _SCHEDULE_TOOLS
                               + _HTTP_TOOLS + _SPREADSHEET_TOOLS)
                 if (active_model or "").startswith("gemini"):
-                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
+                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
                 else:
-                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _FOLDER_TOOLS
+                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _FOLDER_TOOLS
 
                 today = datetime.date.today().strftime("%d %B %Y")
                 _system_content = _build_system_content(
@@ -2669,11 +2670,11 @@ def main(page: ft.Page):
                             continue
                         if _fb_model.startswith(("gemini", "claude")):
                             _fb_tools = (_WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS
-                                         + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS
+                                         + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS
                                          + _gemini_tool_definitions(_folder_path_for_tools))
                         else:
                             _fb_tools = (_WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS
-                                         + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS
+                                         + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS
                                          + _FOLDER_TOOLS)
                         try:
                             if _fb_model.startswith("gemini"):
@@ -2814,6 +2815,7 @@ def main(page: ft.Page):
                     # Afficher tous les indicateurs, collecter les tâches
                     _tool_tasks = []
                     _folder_tool_results = []  # traités séquentiellement avant le pool
+                    _screenshot_b64s = []
                     for tc in tool_calls:
                         fn      = tc.get("function", {})
                         fn_name = fn.get("name", "")
@@ -3385,6 +3387,20 @@ def main(page: ft.Page):
                             _folder_tool_results.append(
                                 (fn_name, f"Bloc-notes mis à jour ({_np_action}). Longueur : {len(notepad_field.value or '')} caractères.")
                             )
+                        elif fn_name == "take_screenshot":
+                            ai_status_text.value = "📸 Capture d'écran…"
+                            _ai_add_bubble("assistant", "📸 Capture d'écran")
+                            _turn_events.append("📸 Capture d'écran")
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _ss_capture = _take_screenshot()
+                            if _ss_capture:
+                                _screenshot_b64s.append(_ss_capture["b64"])
+                                _folder_tool_results.append((fn_name, _ss_capture["text"]))
+                            else:
+                                _folder_tool_results.append((fn_name, "Échec de la capture d'écran."))
                         elif fn_name == "navigate_to_folder":
                             _nav_path = fn_args.get("path", "").strip()
                             if not _nav_path or not os.path.isdir(_nav_path):
@@ -3768,6 +3784,12 @@ def main(page: ft.Page):
                         (_t_name, _result)
                         for (_t_name, _), _result in zip(_tool_tasks, _web_tool_results)
                     ]
+                    if _screenshot_b64s:
+                        messages.append({
+                            "role": "user",
+                            "content": "Voici la/les capture(s) d'écran demandée(s) :",
+                            "images": _screenshot_b64s,
+                        })
                     _image_tool_results_now = [
                         str(result)
                         for name, result in _all_tool_results
