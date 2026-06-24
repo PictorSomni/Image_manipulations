@@ -58,17 +58,24 @@ else:
 #                           MAIN                            #
 #############################################################
 
-for index, file in enumerate(FOLDER) :
-    print(f"{index +1} / {len(FOLDER)}")
+# Phase 1 : noms temporaires pour éviter les collisions entre fichiers
+# ponytail: deux passes, car Path.rename() écrase silencieusement la cible
+temp_map = []
+for index, file in enumerate(FOLDER):
     file_path = PATH / file
-    filename = file_path.stem
     ext = file_path.suffix
-    new_index = index + 1
+    temp = PATH / f"__seq_tmp_{index:06}{ext}"
+    file_path.rename(temp)
+    temp_map.append((temp, ext))
 
+# Phase 2 : noms finaux
+for index, (temp, ext) in enumerate(temp_map):
+    new_index = index + 1
+    print(f"{new_index} / {len(temp_map)}")
     if SERIES_NAME:
         new_name = f"{SERIES_NAME}_{new_index:03}{ext}"
     else:
         new_name = f"{new_index:03}{ext}"
+    temp.rename(PATH / new_name)
 
-    file_path.rename(PATH / new_name)
 sys.exit(1)
