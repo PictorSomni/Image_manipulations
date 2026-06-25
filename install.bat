@@ -83,25 +83,39 @@ if %errorlevel% neq 0 (
 
 echo.
 echo Verification d'Ollama (IA locale)...
-ollama --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [INFO] Ollama n'est pas installe. Installation en cours...
+set "_OLLAMA_EXE="
+where ollama >nul 2>&1
+if %errorlevel% equ 0 (
+    set "_OLLAMA_EXE=ollama"
+) else if exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" (
+    set "_OLLAMA_EXE=%LOCALAPPDATA%\Programs\Ollama\ollama.exe"
+) else if exist "%PROGRAMFILES%\Ollama\ollama.exe" (
+    set "_OLLAMA_EXE=%PROGRAMFILES%\Ollama\ollama.exe"
+)
+
+if defined _OLLAMA_EXE (
+    echo [OK] Ollama detecte.
+    echo [INFO] Telechargement du modele texte par defaut ^(llama3.2:3b^)...
+    "%_OLLAMA_EXE%" pull llama3.2:3b
+    echo [OK] Modele pret.
+) else (
+    echo [INFO] Ollama non detecte. Installation en cours...
     powershell -Command "Invoke-WebRequest -Uri 'https://ollama.com/download/OllamaSetup.exe' -OutFile '%TEMP%\OllamaSetup.exe'; Start-Process '%TEMP%\OllamaSetup.exe' -Wait"
-    ollama --version >nul 2>&1
-    if %errorlevel% neq 0 (
-        echo [AVERTISSEMENT] Impossible d'installer Ollama automatiquement.
-        echo [INFO] Installez-le manuellement depuis https://ollama.com/download
-    ) else (
+    where ollama >nul 2>&1
+    if %errorlevel% equ 0 (
         echo [OK] Ollama installe.
         echo [INFO] Telechargement du modele texte par defaut ^(llama3.2:3b^)...
         ollama pull llama3.2:3b
         echo [OK] Modele pret.
+    ) else if exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" (
+        echo [OK] Ollama installe.
+        echo [INFO] Telechargement du modele texte par defaut ^(llama3.2:3b^)...
+        "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" pull llama3.2:3b
+        echo [OK] Modele pret.
+    ) else (
+        echo [AVERTISSEMENT] Impossible d'installer Ollama automatiquement.
+        echo [INFO] Installez-le manuellement depuis https://ollama.com/download
     )
-) else (
-    echo [OK] Ollama detecte.
-    echo [INFO] Telechargement du modele texte par defaut ^(llama3.2:3b^)...
-    ollama pull llama3.2:3b
-    echo [OK] Modele pret.
 )
 
 echo.

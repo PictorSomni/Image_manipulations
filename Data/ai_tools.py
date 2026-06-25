@@ -1431,8 +1431,11 @@ def _encode_image_for_analysis(image_path, max_size=1024, quality=70):
         return None
 
 
-def _take_screenshot(max_size=1920, quality=75):
-    """Capture l'écran et retourne {"text": str, "b64": str} ou None en cas d'échec."""
+def _take_screenshot(max_size=1920, quality=75, region=None):
+    """
+    Capture l'écran et retourne {"text": str, "b64": str} ou None en cas d'échec.
+    region : [x, y, width, height] pour capturer une zone précise (optionnel).
+    """
     try:
         import base64 as _base64
         import io as _io
@@ -1440,11 +1443,22 @@ def _take_screenshot(max_size=1920, quality=75):
         from PIL import Image as _PilImage
 
         img = None
+        _region_pag = tuple(region) if region else None
+
+        # pyautogui en premier — cross-platform, support région natif
         try:
-            from PIL import ImageGrab as _ImageGrab
-            img = _ImageGrab.grab()
+            import pyautogui as _pag
+            img = _pag.screenshot(region=_region_pag)
         except Exception:
             pass
+
+        # ponytail: fallback PIL si pyautogui absent
+        if img is None:
+            try:
+                from PIL import ImageGrab as _ImageGrab
+                img = _ImageGrab.grab()
+            except Exception:
+                pass
 
         # ponytail: fallback Linux via outils système — scrot est le plus courant
         if img is None and _sys.platform.startswith("linux"):
@@ -1478,9 +1492,60 @@ def _take_screenshot(max_size=1920, quality=75):
         buf = _io.BytesIO()
         img.save(buf, format="JPEG", quality=quality, optimize=True)
         b64 = _base64.b64encode(buf.getvalue()).decode("utf-8")
-        return {"text": f"Screenshot capturé ({w}×{h} px).", "b64": b64}
+        region_str = f" région ({region[0]},{region[1]} {region[2]}×{region[3]})" if region else ""
+        return {"text": f"Screenshot capturé ({w}×{h} px{region_str}).", "b64": b64}
     except Exception:
         return None
+
+
+def _mouse_click(x, y, button="left", clicks=1):
+    """Clique à la position (x, y) sur l'écran."""
+    try:
+        import pyautogui as _pag
+        _pag.click(x, y, button=button, clicks=int(clicks))
+        return f"Clic {button} à ({x}, {y}){f' ×{clicks}' if int(clicks) > 1 else ''}."
+    except ImportError:
+        return "[Erreur] pyautogui n'est pas installé. Installe : pip install pyautogui"
+    except Exception as exc:
+        return f"[Erreur] {exc}"
+
+
+def _keyboard_type(text):
+    """Saisit du texte via le presse-papiers (unicode complet, cross-platform)."""
+    import platform as _plt
+    import subprocess as _spc
+    try:
+        import pyautogui as _pag
+    except ImportError:
+        return "[Erreur] pyautogui n'est pas installé. Installe : pip install pyautogui"
+    try:
+        plat = _plt.system()
+        if plat == "Darwin":
+            _spc.run(["pbcopy"], input=text.encode("utf-8"), check=True)
+            _pag.hotkey("command", "v")
+        elif plat == "Windows":
+            _spc.run(["clip"], input=text.encode("utf-16-le"), check=True)
+            _pag.hotkey("ctrl", "v")
+        else:
+            _spc.run(["xclip", "-selection", "clipboard"],
+                     input=text.encode("utf-8"), check=True)
+            _pag.hotkey("ctrl", "v")
+        short = (text[:40] + "…") if len(text) > 40 else text
+        return f"Texte saisi : « {short} »"
+    except Exception as exc:
+        return f"[Erreur] {exc}"
+
+
+def _keyboard_hotkey(*keys):
+    """Appuie sur un raccourci clavier."""
+    try:
+        import pyautogui as _pag
+        _pag.hotkey(*keys)
+        return f"Raccourci : {'+'.join(keys)}"
+    except ImportError:
+        return "[Erreur] pyautogui n'est pas installé. Installe : pip install pyautogui"
+    except Exception as exc:
+        return f"[Erreur] {exc}"
 
 
 def _analyze_images_batched(
@@ -1956,12 +2021,93 @@ _SCREENSHOT_TOOLS = [
                 "Capture une image de l'écran de l'utilisateur. "
                 "Utilise cet outil quand l'utilisateur demande de regarder son écran, "
                 "de voir un site web, une application ou tout ce qui est affiché. "
-                "Retourne une image que tu peux analyser visuellement."
+                "Retourne une image que tu peux analyser visuellement. "
+                "Paramètre optionnel region pour capturer une zone précise et réduire la taille envoyée."
             ),
             "parameters": {
                 "type": "object",
-                "properties": {},
+                "properties": {
+                    "region": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "Zone à capturer [x, y, largeur, hauteur] en pixels. Omis = plein écran.",
+                    },
+                },
                 "required": [],
+            },
+        },
+    },
+]
+
+
+_PYAUTOGUI_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "mouse_click",
+            "description": (
+                "Clique à une position précise sur l'écran. "
+                "Utilise take_screenshot avant pour identifier les coordonnées. "
+                "button : 'left' (défaut), 'right', 'middle'. "
+                "clicks : 1 (défaut), 2 pour double-clic."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "x": {"type": "integer", "description": "Coordonnée X en pixels"},
+                    "y": {"type": "integer", "description": "Coordonnée Y en pixels"},
+                    "button": {
+                        "type": "string",
+                        "enum": ["left", "right", "middle"],
+                        "description": "Bouton de la souris (défaut : left)",
+                    },
+                    "clicks": {
+                        "type": "integer",
+                        "description": "Nombre de clics (1 = simple, 2 = double)",
+                    },
+                },
+                "required": ["x", "y"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "keyboard_type",
+            "description": (
+                "Saisit du texte dans le champ actif (celui qui a le focus clavier). "
+                "Supporte tous les caractères unicode via le presse-papiers. "
+                "Utilise mouse_click d'abord pour donner le focus au bon champ."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "description": "Texte à saisir"},
+                },
+                "required": ["text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "keyboard_hotkey",
+            "description": (
+                "Appuie sur un raccourci clavier. "
+                "Exemples : ['ctrl', 'c'] pour copier, ['alt', 'F4'] pour fermer, "
+                "['ctrl', 'alt', 't'] pour ouvrir un terminal. "
+                "Sur macOS, utilise 'command' à la place de 'ctrl'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keys": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Touches à appuyer simultanément, ex: ['ctrl', 'c']",
+                    },
+                },
+                "required": ["keys"],
             },
         },
     },
@@ -3454,6 +3600,63 @@ def _edit_file(folder_path, filepath, old_string, new_string):
         return f"[OK] {_os.path.basename(resolved)} modifié ({sign}{diff} ligne(s))."
     except Exception as exc:
         return f"[Erreur] {exc}"
+
+
+def _read_file_lines(folder_path, filepath, start_line=1, end_line=None):
+    """Lit une plage de lignes d'un fichier, avec numéros de ligne."""
+    resolved = _resolve_path(folder_path, filepath) if folder_path else filepath
+    if not resolved or not _os.path.isfile(resolved):
+        return f"Fichier introuvable : {filepath}"
+    try:
+        with open(resolved, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+        total = len(lines)
+        start = max(1, int(start_line or 1))
+        end = min(total, int(end_line or total))
+        if start > total:
+            return f"Ligne de départ ({start}) dépasse le total ({total} lignes)."
+        selected = lines[start - 1:end]
+        header = f"[{_os.path.basename(resolved)} — lignes {start}–{end} / {total}]\n"
+        return header + "".join(
+            f"{start + i:>6} │ {line}" for i, line in enumerate(selected)
+        )
+    except Exception as exc:
+        return f"Erreur : {exc}"
+
+
+_READ_LINES_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "read_file_lines",
+            "description": (
+                "Lit une plage de lignes précise d'un fichier texte. "
+                "Indispensable pour les gros fichiers (Dashboard.pyw, SidePanel.pyw…) : "
+                "utiliser search_in_files pour trouver les numéros de ligne, "
+                "puis read_file_lines pour lire uniquement la section pertinente. "
+                "Retourne les lignes numérotées pour faciliter l'utilisation avec edit_file."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {
+                        "type": "string",
+                        "description": "Chemin absolu ou relatif au dossier ouvert",
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Première ligne à lire (1-indexé, défaut : 1)",
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "Dernière ligne à lire incluse (défaut : fin du fichier)",
+                    },
+                },
+                "required": ["filepath"],
+            },
+        },
+    },
+]
 
 
 _EDIT_TOOLS = [

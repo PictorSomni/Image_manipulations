@@ -45,7 +45,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.9.2"
+__version__ = "2.9.3"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw

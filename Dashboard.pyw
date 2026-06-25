@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.9.2"
+__version__ = "2.9.3"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -95,10 +95,11 @@ from ai_tools import (
     _gemini_generate_image, _gemini_refine_image_prompt, _gemini_generate_music,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _SCREENSHOT_TOOLS, _NOTEPAD_TOOLS,
     _UI_TOOLS, _run_terminal_command,
-    _EDIT_TOOLS, _SEARCH_TOOLS, _GIT_TOOLS, _TASK_TOOLS, _PDF_TOOLS, _SUBAGENT_TOOLS, _SCHEDULE_TOOLS,
-    _HTTP_TOOLS, _SPREADSHEET_TOOLS,
-    _edit_file, _search_in_files, _find_files, _git_command, _manage_tasks, _read_pdf,
+    _EDIT_TOOLS, _READ_LINES_TOOLS, _SEARCH_TOOLS, _GIT_TOOLS, _TASK_TOOLS, _PDF_TOOLS, _SUBAGENT_TOOLS, _SCHEDULE_TOOLS,
+    _HTTP_TOOLS, _SPREADSHEET_TOOLS, _PYAUTOGUI_TOOLS,
+    _edit_file, _read_file_lines, _search_in_files, _find_files, _git_command, _manage_tasks, _read_pdf,
     _ask_subagent, _schedule_task, _http_request, _read_spreadsheet,
+    _mouse_click, _keyboard_type, _keyboard_hotkey,
     _is_network_error,
     _update_memory_file, _build_system_content,
     _gemini_tts_stream, _gemini_live_tts_stream, _gemini_tts, _voice_play_audio,
@@ -2512,9 +2513,9 @@ def main(page: ft.Page):
                 # ── Outils dossier (disponibles si un dossier est ouvert) ─────
                 _folder_path_for_tools = current_browse_folder["path"] or selected_folder["path"]
                 _FOLDER_TOOLS = _folder_tool_definitions(_folder_path_for_tools)
-                _NEW_TOOLS = (_EDIT_TOOLS + _SEARCH_TOOLS + _GIT_TOOLS + _TASK_TOOLS
+                _NEW_TOOLS = (_EDIT_TOOLS + _READ_LINES_TOOLS + _SEARCH_TOOLS + _GIT_TOOLS + _TASK_TOOLS
                               + _PDF_TOOLS + _SUBAGENT_TOOLS + _SCHEDULE_TOOLS
-                              + _HTTP_TOOLS + _SPREADSHEET_TOOLS)
+                              + _HTTP_TOOLS + _SPREADSHEET_TOOLS + _PYAUTOGUI_TOOLS)
                 if (active_model or "").startswith("gemini"):
                     _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
                 else:
@@ -3390,6 +3391,7 @@ def main(page: ft.Page):
                                 (fn_name, f"Bloc-notes mis à jour ({_np_action}). Longueur : {len(notepad_field.value or '')} caractères.")
                             )
                         elif fn_name == "take_screenshot":
+                            _ss_region = fn_args.get("region") or None
                             ai_status_text.value = "📸 Capture d'écran…"
                             _ai_add_bubble("assistant", "📸 Capture d'écran")
                             _turn_events.append("📸 Capture d'écran")
@@ -3397,12 +3399,51 @@ def main(page: ft.Page):
                                 page.update()
                             except Exception:
                                 pass
-                            _ss_capture = _take_screenshot()
+                            _ss_capture = _take_screenshot(region=_ss_region)
                             if _ss_capture:
                                 _screenshot_b64s.append(_ss_capture["b64"])
                                 _folder_tool_results.append((fn_name, _ss_capture["text"]))
                             else:
                                 _folder_tool_results.append((fn_name, "Échec de la capture d'écran."))
+                        elif fn_name == "mouse_click":
+                            _mc_x      = int(fn_args.get("x", 0))
+                            _mc_y      = int(fn_args.get("y", 0))
+                            _mc_button = fn_args.get("button", "left")
+                            _mc_clicks = fn_args.get("clicks", 1)
+                            ai_status_text.value = f"🖱️ Clic ({_mc_x}, {_mc_y})…"
+                            _ai_add_bubble("assistant", f"🖱️ Clic {_mc_button} à ({_mc_x}, {_mc_y})")
+                            _turn_events.append(f"🖱️ Clic à ({_mc_x}, {_mc_y})")
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _folder_tool_results.append(
+                                (fn_name, _mouse_click(_mc_x, _mc_y, _mc_button, _mc_clicks))
+                            )
+                        elif fn_name == "keyboard_type":
+                            _kt_text = fn_args.get("text", "")
+                            _kt_short = (_kt_text[:30] + "…") if len(_kt_text) > 30 else _kt_text
+                            ai_status_text.value = f"⌨️ Saisie : {_kt_short}…"
+                            _ai_add_bubble("assistant", f"⌨️ Saisie : « {_kt_short} »")
+                            _turn_events.append(f"⌨️ Saisie : « {_kt_short} »")
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _folder_tool_results.append((fn_name, _keyboard_type(_kt_text)))
+                        elif fn_name == "keyboard_hotkey":
+                            _kh_keys = fn_args.get("keys", [])
+                            _kh_str  = "+".join(_kh_keys)
+                            ai_status_text.value = f"⌨️ Raccourci : {_kh_str}…"
+                            _ai_add_bubble("assistant", f"⌨️ Raccourci : {_kh_str}")
+                            _turn_events.append(f"⌨️ Raccourci : {_kh_str}")
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _folder_tool_results.append(
+                                (fn_name, _keyboard_hotkey(*_kh_keys))
+                            )
                         elif fn_name == "navigate_to_folder":
                             _nav_path = fn_args.get("path", "").strip()
                             if not _nav_path or not os.path.isdir(_nav_path):
@@ -3630,6 +3671,22 @@ def main(page: ft.Page):
                                 _ef_res = _edit_file(_folder_path_for_tools, _ef_path, _ef_old, _ef_new)
                                 page.pubsub.send_all_on_topic("refresh", None)
                                 _folder_tool_results.append((fn_name, _ef_res))
+                        elif fn_name == "read_file_lines":
+                            _rl_path  = fn_args.get("filepath", "").strip()
+                            _rl_start = fn_args.get("start_line", 1)
+                            _rl_end   = fn_args.get("end_line", None)
+                            if not _rl_path:
+                                _folder_tool_results.append((fn_name, "Paramètre filepath manquant."))
+                            else:
+                                _rl_end_str = str(_rl_end) if _rl_end else "fin"
+                                ai_status_text.value = f"📄 Lignes {_rl_start}–{_rl_end_str} : {os.path.basename(_rl_path)}…"
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append(
+                                    (fn_name, _read_file_lines(_folder_path_for_tools, _rl_path, _rl_start, _rl_end))
+                                )
                         elif fn_name == "search_in_files":
                             _si_pattern = fn_args.get("pattern", "")
                             _si_path    = (fn_args.get("path", "") or "").strip() or None

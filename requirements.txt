@@ -63,6 +63,10 @@ odfpy>=1.4.1             # .ods / .fods (LibreOffice / OpenOffice)
 # Linux : sudo apt install libportaudio2  (ou sudo dnf install portaudio)
 sounddevice>=0.5.0
 
+# Capture d'écran et contrôle souris/clavier (computer use)
+# Linux : sudo apt install python3-xlib scrot  (ou dnf install python3-xlib scrot)
+pyautogui>=0.9.54
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # RÉSEAU & CERTIFICATS

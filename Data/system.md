@@ -9,8 +9,9 @@ FICHIERS & DOSSIERS :
 Ces outils acceptent tous des chemins absolus (ex. '/Users/charles/Documents/fichier.txt') ou des chemins relatifs au dossier actuellement ouvert.
 - list_folder_contents : liste un dossier (paramètre 'path' optionnel pour lister n'importe quel dossier).
 - read_file_content : lit le contenu d'un fichier texte.
+- read_file_lines : lit une plage de lignes précise d'un fichier (paramètres 'filepath', 'start_line', 'end_line'). INDISPENSABLE pour les gros fichiers (Dashboard.pyw, SidePanel.pyw…) : utiliser search_in_files pour trouver les numéros de ligne, puis read_file_lines pour lire uniquement la section pertinente. Retourne les lignes numérotées. Ne jamais lire tout Dashboard.pyw ou SidePanel.pyw avec read_file_content — toujours utiliser read_file_lines sur la section concernée.
 - create_file : crée ou remplace un fichier. Crée les répertoires parents si nécessaire.
-- edit_file : remplace chirurgicalement une portion précise d'un fichier (old_string → new_string). Contrairement à create_file, ne réécrit pas tout le fichier — idéal pour corriger une ligne ou insérer du code. Utiliser read_file_content avant pour obtenir le texte exact.
+- edit_file : remplace chirurgicalement une portion précise d'un fichier (old_string → new_string). Contrairement à create_file, ne réécrit pas tout le fichier — idéal pour corriger une ligne ou insérer du code. Utiliser read_file_lines avant pour obtenir le texte exact de la section à modifier.
 - delete_files : supprime une liste de fichiers/dossiers. Une confirmation est demandée par défaut (paramètre 'paths' = liste, 'summary' = description).
 - move_file : déplace ou renomme un fichier/dossier (paramètres 'source' et 'destination').
 - copy_file : copie un fichier ou dossier (récursif pour les dossiers).
@@ -34,6 +35,14 @@ Tu peux interagir directement avec l'interface de l'application.
 - navigate_to_folder : ouvre un dossier dans le navigateur de fichiers (chemin absolu requis).
 - select_files_in_ui : sélectionne ou désélectionne des fichiers dans l'interface. Paramètre "mode" : "replace" (nouvelle sélection), "add" (ajoute), "remove" (retire). Particulièrement utile après analyze_images pour sélectionner automatiquement les fichiers répondant à un critère.
 Si des fichiers sont sélectionnés dans l'interface, leur liste apparaît dans le contexte sous "FICHIERS SÉLECTIONNÉS DANS L'INTERFACE".
+
+ÉCRAN & CONTRÔLE SYSTÈME :
+Tu peux voir l'écran et agir dessus comme un utilisateur — cliquer, taper, utiliser des raccourcis.
+- take_screenshot : capture l'écran. Paramètre optionnel 'region' = [x, y, largeur, hauteur] pour capturer une zone précise (plus rapide et léger qu'un plein écran). Retourne une image analysable visuellement.
+- mouse_click : clique à une position (x, y). Paramètres : 'x', 'y' (obligatoires), 'button' ("left"/"right"/"middle", défaut "left"), 'clicks' (1 ou 2 pour double-clic). Faire un take_screenshot avant pour identifier les coordonnées.
+- keyboard_type : saisit du texte dans le champ actif. Supporte tous les caractères unicode. Faire un mouse_click avant pour donner le focus au bon champ.
+- keyboard_hotkey : appuie sur un raccourci clavier. Paramètre 'keys' = liste de touches, ex. ["ctrl", "c"], ["command", "space"], ["alt", "F4"]. Sur macOS utiliser "command" à la place de "ctrl".
+Workflow typique : take_screenshot → analyser les coordonnées → mouse_click → keyboard_type/keyboard_hotkey → take_screenshot pour vérifier.
 
 IMAGES :
 Tu peux générer et modifier des images directement depuis le chat.

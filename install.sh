@@ -90,13 +90,26 @@ fi
 
 echo ""
 echo "Verification d'Ollama (IA locale)..."
-if command -v ollama &> /dev/null; then
-    echo "[OK] Ollama detecte, mise a jour..."
-    ollama pull llama3.2:3b   || true
+_ollama_bin=""
+for _p in \
+    "$(command -v ollama 2>/dev/null)" \
+    "/usr/local/bin/ollama" \
+    "/opt/homebrew/bin/ollama" \
+    "/opt/homebrew/sbin/ollama" \
+    "$HOME/.local/bin/ollama"; do
+    if [ -x "$_p" ]; then
+        _ollama_bin="$_p"
+        break
+    fi
+done
+
+if [ -n "$_ollama_bin" ]; then
+    echo "[OK] Ollama detecte ($_ollama_bin), mise a jour du modele..."
+    "$_ollama_bin" pull llama3.2:3b || true
 else
-    echo "[INFO] Installation d'Ollama..."
+    echo "[INFO] Ollama non detecte. Installation en cours..."
     curl -fsSL https://ollama.com/install.sh | sh
-    if command -v ollama &> /dev/null; then
+    if command -v ollama &> /dev/null || [ -x "/usr/local/bin/ollama" ]; then
         echo "[OK] Ollama installe."
     else
         echo "[AVERTISSEMENT] Impossible d'installer Ollama automatiquement."
