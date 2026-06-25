@@ -2783,6 +2783,8 @@ def main(page: ft.Page):
                                     pass
                         if _thinking and thinking_ctrl is None:
                             _ai_add_bubble("think", _thinking)
+                        if _fb_model_used != (active_model or ""):
+                            full_response = full_response + f"\n\n*↩ {_fb_model_used}*"
                         if response_text_ctrl is not None and full_response:
                             response_text_ctrl.value = _md_dark(full_response)
                             try:
