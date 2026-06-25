@@ -117,6 +117,7 @@ L'IA (Gemini par défaut, ou modèles Ollama locaux) est intégrée directement 
 | `edit_image` | Modifier une image existante via prompt texte |
 | `generate_music` | Générer un morceau de musique via Lyria 3 (30 s ou ~2 min) — sauvegardé en MP3 dans le dossier ouvert |
 | `edit_file` | Remplacement chirurgical `old_string → new_string` dans un fichier (sans réécrire le fichier entier) |
+| `read_file_lines` | Lire une plage de lignes précise d'un fichier (`start_line`, `end_line`). Indispensable pour les grands fichiers : utiliser `search_in_files` pour trouver les numéros de ligne, puis `read_file_lines` pour lire uniquement la section pertinente |
 | `search_in_files` | Recherche regex récursive dans les fichiers, avec filtre glob et sensibilité à la casse |
 | `find_files` | Recherche de fichiers par motif glob (`*.py`, `rapport*.pdf`…) |
 | `git_command` | Commandes Git : status, log, diff, add, commit, push, pull, checkout… (liste blanche) |
@@ -135,6 +136,18 @@ L'IA (Gemini par défaut, ou modèles Ollama locaux) est intégrée directement 
 | `select_files_in_ui` | Sélectionner ou désélectionner des fichiers dans l'interface |
 | `read_notepad` | Lire le contenu du bloc-notes intégré |
 | `write_notepad` | Écrire dans le bloc-notes (remplacer, ajouter au début ou à la fin) |
+
+#### Outils écran & contrôle système (computer use)
+L'IA peut voir l'écran et interagir avec n'importe quelle application comme un utilisateur.
+
+| Outil IA | Description |
+|---|---|
+| `take_screenshot` | Capturer l'écran (pyautogui). Paramètre optionnel `region` = `[x, y, largeur, hauteur]` pour capturer une zone précise et réduire la taille envoyée au modèle |
+| `mouse_click` | Cliquer à une position `(x, y)`. Paramètres : `button` (`left`/`right`/`middle`), `clicks` (1 ou 2 pour double-clic) |
+| `keyboard_type` | Saisir du texte dans le champ actif. Supporte l'unicode complet via le presse-papiers |
+| `keyboard_hotkey` | Appuyer sur un raccourci clavier, ex. `["ctrl", "c"]`, `["command", "space"]`, `["alt", "F4"]` |
+
+> Workflow typique : `take_screenshot` → identifier les coordonnées → `mouse_click` → `keyboard_type` / `keyboard_hotkey` → `take_screenshot` pour vérifier.
 
 #### Synthèse vocale (TTS)
 - Lecture automatique des réponses ou à la demande (bouton dédié)
