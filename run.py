@@ -59,7 +59,7 @@ def main():
         sys.exit(1)
     
     # Vérifier que Dashboard.py existe
-    dashboard_path = Path(__file__).parent / "Dashboard.py"
+    dashboard_path = Path(__file__).parent / "Dashboard.pyw"
     if not dashboard_path.exists():
         print("[ERREUR] Fichier Dashboard.py introuvable dans le dossier courant")
         sys.exit(1)

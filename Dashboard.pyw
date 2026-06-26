@@ -61,7 +61,9 @@ import flet_code_editor as fce
 import os
 import subprocess
 import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data"))
+from Data import ai_tools
 import CONSTANTS
 import platform
 import shutil
@@ -10051,6 +10053,7 @@ def main(page: ft.Page):
         _solo_left_container,
         ], expand=True, ref=_main_stack_ref),
     )
+    # log_to_terminal(f"Gemini API Key: {ai_tools._get_gemini_api_key()}", color=BLUE)
 
     if CONSTANTS.MAXIMIZED:
         async def _delayed_maximize():

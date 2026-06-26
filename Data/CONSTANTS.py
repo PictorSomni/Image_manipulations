@@ -365,7 +365,7 @@ AI_FOLDER_SELECT_QUALITY     = 70    # Qualité JPEG des images envoyées à l'I
 # Modèles disponibles — (label affiché, identifiant, supporte_vision)
 AI_AVAILABLE_MODELS = [
     ("Gemini 3.5 Flash  🌐🖼",        "gemini-3.5-flash",         True),
-    ("Gemini 3.1 Pro  🌐🖼",          "gemini-3.1-pro-preview",   True),
+    ("Gemini 3.1 Flash Lite  🌐🖼",          "gemini-3.1-flash-lite",   True),
     ("Gemma 4 E4B  (~9.6 GB) 🖼",    "gemma4:e4b",               True),
     ("Gemma 4 E4B - MLX  (~9.6 GB)🍎", "gemma4:e4b-mlx", False),        
     ("Gemma 4 · 12B  (~7.6 GB) 🖼",   "gemma4:12b",               True),
@@ -375,7 +375,7 @@ AI_AVAILABLE_MODELS = [
 # Modèles affichés dans le dropdown de sélection rapide du Dashboard
 AI_DROPDOWN_MODELS = [
     "gemini-3.5-flash",
-    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-lite",
     "claude-sonnet-4-6",
     "gemma4:e4b",
 ]
