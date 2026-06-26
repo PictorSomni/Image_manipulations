@@ -59,7 +59,6 @@ import concurrent.futures
 import time
 import base64
 import urllib.request
-import urllib.error
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
 import thumb_cache
@@ -104,6 +103,9 @@ from ai_tools import (
     _update_memory_file, _build_system_content,
     _gemini_tts_stream, _gemini_live_tts_stream,
     _claude_chat_stream_with_tools,
+    _md_dark,
+    _ai_save_history as _ai_save_history_fn,
+    _ensure_ollama_ready as _ensure_ollama_ready_fn,
 )
 #############################################################
 #                           MAIN                            #
@@ -2107,19 +2109,7 @@ def main(page: ft.Page):
 
     _AI_DOCUMENT_EXTS = CONSTANTS.AI_DOCUMENT_EXTS
 
-    def _md_dark(text: str) -> str:
-        """Remplace les blockquotes Markdown (fond bleu clair de Flutter)
-        par un équivalent lisible sur thème sombre."""
-        lines = text.split("\n")
-        result = []
-        for line in lines:
-            if line.startswith("> "):
-                result.append("**›** " + line[2:])
-            elif line == ">":
-                result.append("")
-            else:
-                result.append(line)
-        return "\n".join(result)
+    # _md_dark importé depuis ai_tools
 
     # ═════════════════════════════════════════════════════════════════════
     #  ██  Fonctions — Onglet 4 (IA)
@@ -2250,17 +2240,7 @@ def main(page: ft.Page):
         return bubble_text
 
     def _ai_save_history():
-        """Sauvegarde la conversation dans .ai_conversation.json."""
-        try:
-            serializable = [
-                {"role": message["role"], "content": message["content"]}
-                for message in ai_conversation
-                if message.get("role") in ("user", "assistant")
-            ]
-            with open(ai_history_file_path, "w", encoding="utf-8") as file_handle:
-                json.dump(serializable, file_handle, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        _ai_save_history_fn(ai_conversation, ai_history_file_path)
 
     def _ai_load_history():
         """Charge .ai_conversation.json et reconstruit la vue."""
@@ -2709,104 +2689,11 @@ def main(page: ft.Page):
                         _ai_attach_document_file(picked_file.path)
 
     def _ensure_ollama_ready(model_name=None):
-        """Vérifie qu'Ollama est lancé et que le modèle est disponible."""
         if model_name is None:
             model_name = CONSTANTS.AI_MODEL_TEXT
-        # Les modèles Gemini n'ont pas besoin d'Ollama
-        if (model_name or "").startswith(("gemini", "claude")):
-            return True
-
-        def _is_ollama_up():
-            try:
-                with urllib.request.urlopen(
-                    f"{CONSTANTS.AI_OLLAMA_URL}/api/tags", timeout=3
-                ) as resp:
-                    return resp.status == 200
-            except Exception:
-                return False
-
-        if not _is_ollama_up():
-            _ai_add_bubble("assistant", "⚙️ Démarrage d'Ollama en arrière-plan…")
-            try:
-                ollama_process["proc"] = subprocess.Popen(
-                    ["ollama", "serve"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except FileNotFoundError:
-                _ai_add_bubble(
-                    "assistant",
-                    "[ERREUR] Ollama n'est pas installé sur cette machine.\n"
-                    "Téléchargez-le sur https://ollama.com",
-                )
-                return False
-            for _ in range(40):
-                time.sleep(0.5)
-                if _is_ollama_up():
-                    break
-            else:
-                _ai_add_bubble(
-                    "assistant",
-                    "[ERREUR] Ollama n'a pas démarré dans les délais impartis.",
-                )
-                return False
-
-        try:
-            with urllib.request.urlopen(
-                f"{CONSTANTS.AI_OLLAMA_URL}/api/tags", timeout=5
-            ) as resp:
-                available_names = [
-                    model.get("name", "")
-                    for model in json.loads(resp.read().decode("utf-8")).get("models", [])
-                ]
-            model_present = any(
-                name == model_name or name.startswith(model_name + ":")
-                for name in available_names
-            )
-        except Exception:
-            model_present = False
-
-        if not model_present:
-            pull_status_ctrl = _ai_add_bubble(
-                "assistant",
-                f"⬇️ Téléchargement de {model_name}…\n"
-                "(première utilisation — peut prendre quelques minutes)",
-            )
-            try:
-                pull_payload = json.dumps(
-                    {"name": model_name, "stream": True}
-                ).encode("utf-8")
-                pull_request = urllib.request.Request(
-                    f"{CONSTANTS.AI_OLLAMA_URL}/api/pull",
-                    data=pull_payload,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                with urllib.request.urlopen(pull_request, timeout=3600) as pull_resp:
-                    for raw_line in pull_resp:
-                        chunk = json.loads(raw_line.decode("utf-8"))
-                        status = chunk.get("status", "")
-                        completed = chunk.get("completed", 0)
-                        total = chunk.get("total", 0)
-                        if total:
-                            pct = int(completed / total * 100)
-                            pull_status_ctrl.value = f"⬇️ {model_name} — {status} {pct}%"
-                        elif status:
-                            pull_status_ctrl.value = f"⬇️ {model_name} — {status}"
-                        try:
-                            page.update()
-                        except Exception:
-                            pass
-                pull_status_ctrl.value = f"✅ {model_name} téléchargé et prêt !"
-                try:
-                    page.update()
-                except Exception:
-                    pass
-            except Exception as exc:
-                _ai_add_bubble("assistant", f"[ERREUR] Téléchargement du modèle : {exc}")
-                return False
-
-        return True
+        return _ensure_ollama_ready_fn(
+            model_name, _ai_add_bubble, page, ollama_process
+        )
 
     def _send_ai_message(message_text):
         """Envoie un message à Ollama et streame la réponse dans le panneau IA."""
@@ -3398,10 +3285,9 @@ def main(page: ft.Page):
                                     (fn_name, "\n\n".join(_analyze_results) or "Aucun résultat.")
                                 )
                         elif fn_name == "create_file":
-                            import datetime as _dt_cf
                             _create_filename = fn_args.get("filename", "").strip()
                             if not _create_filename:
-                                _create_filename = f"fichier_{_dt_cf.datetime.now():%Y%m%d_%H%M%S}.txt"
+                                _create_filename = f"fichier_{datetime.datetime.now():%Y%m%d_%H%M%S}.txt"
                             _create_content  = fn_args.get("content", "")
                             ai_status_text.value = f"📝 Création : {_create_filename}…"
                             _ai_add_bubble("assistant", f"📝 Création du fichier : {_create_filename}")

@@ -43,6 +43,7 @@ Voix — TTS :
 """
 
 import ast as _ast
+import gzip
 import json
 import re
 import urllib.request
@@ -52,9 +53,11 @@ import html.parser
 import CONSTANTS
 
 
+_GEMINI_API_KEY_CACHE = None
+
+
 class _HTMLTextExtractor(html.parser.HTMLParser):
-    """Extrait le texte brut d'un document HTML en ignorant les balises de bruit."""
-    # Balises dont tout le contenu est ignoré
+    """Extrait le texte brut d'un document HTML de façon propre et structurée."""
     _SKIP_TAGS = {
         "script", "style", "noscript", "head",
         "nav", "header", "footer", "aside",
@@ -62,8 +65,13 @@ class _HTMLTextExtractor(html.parser.HTMLParser):
         "iframe", "figure", "figcaption", "picture",
         "dialog", "menu", "menuitem",
     }
-    # Balises sémantiques de contenu principal (priorité si présentes)
     _CONTENT_TAGS = {"main", "article", "section"}
+    
+    # Balises induisant un saut de ligne sémantique
+    _BLOCK_TAGS = {
+        "p", "div", "h1", "h2", "h3", "h4", "h5", "h6", 
+        "li", "tr", "td", "blockquote", "pre", "code", "br"
+    }
 
     def __init__(self):
         super().__init__()
@@ -77,38 +85,56 @@ class _HTMLTextExtractor(html.parser.HTMLParser):
             self._skip_depth += 1
         if tag in self._CONTENT_TAGS:
             self._content_depth += 1
+        if tag in self._BLOCK_TAGS:
+            self._parts.append("\n")
+            if self._content_depth > 0:
+                self._content_parts.append("\n")
 
     def handle_endtag(self, tag):
         if tag in self._SKIP_TAGS and self._skip_depth > 0:
             self._skip_depth -= 1
         if tag in self._CONTENT_TAGS and self._content_depth > 0:
             self._content_depth -= 1
+        if tag in self._BLOCK_TAGS:
+            self._parts.append("\n")
+            if self._content_depth > 0:
+                self._content_parts.append("\n")
 
     def handle_data(self, data):
         if self._skip_depth > 0:
             return
-        stripped = data.strip()
-        if not stripped:
+        if not data.strip():
             return
-        self._parts.append(stripped)
+        self._parts.append(data)
         if self._content_depth > 0:
-            self._content_parts.append(stripped)
+            self._content_parts.append(data)
 
     def get_text(self):
-        # Privilégier le contenu sémantique (main/article/section) si suffisant
         target = self._content_parts if len(self._content_parts) > 20 else self._parts
-        return "\n".join(target)
+        raw_text = "".join(target)
+        # Normalisation des espaces et tabulations
+        text = re.sub(r"[ \t]+", " ", raw_text)
+        # Normalisation des sauts de lignes successifs
+        text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
+        lines = [line.strip() for line in text.split("\n")]
+        return "\n".join(line for line in lines if line).strip()
 
 
 def _get_gemini_api_key():
     """Tente de récupérer la clé d'API Gemini de façon extrêmement robuste sur Windows, macOS et Linux."""
+    global _GEMINI_API_KEY_CACHE
+    if _GEMINI_API_KEY_CACHE is not None:
+        return _GEMINI_API_KEY_CACHE
+
     import os
     import re
     import subprocess
     
+    key = ""
     # 1. Directement dans l'environnement
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     if key:
+        _GEMINI_API_KEY_CACHE = key
         return key
         
     # 2. Dans un fichier .env (relatif au dossier de l'app ou racine du dépôt)
@@ -124,6 +150,7 @@ def _get_gemini_api_key():
                                 key = v.strip().strip('"').strip("'")
                                 if key:
                                     os.environ["GEMINI_API_KEY"] = key
+                                    _GEMINI_API_KEY_CACHE = key
                                     return key
             except Exception:
                 pass
@@ -140,6 +167,7 @@ def _get_gemini_api_key():
                     key = result.stdout.strip()
                     if key:
                         os.environ["GEMINI_API_KEY"] = key
+                        _GEMINI_API_KEY_CACHE = key
                         return key
                 except Exception:
                     pass
@@ -158,6 +186,7 @@ def _get_gemini_api_key():
                         key = match.group(1).strip()
                         if key:
                             os.environ["GEMINI_API_KEY"] = key
+                            _GEMINI_API_KEY_CACHE = key
                             return key
                 except Exception:
                     pass
@@ -175,27 +204,64 @@ def _fetch_url_content(url, max_chars=12_000):
     try:
         req = urllib.request.Request(
             url,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; ImageManipBot/1.0)"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (compatible; ImageManipBot/1.0)",
+                "Accept-Encoding": "gzip, deflate",
+            },
         )
         with urllib.request.urlopen(req, timeout=15) as response:
             content_type = response.headers.get("Content-Type", "")
+            content_encoding = response.headers.get("Content-Encoding", "").lower()
+            
             charset = "utf-8"
-            if "charset=" in content_type:
-                charset = content_type.split("charset=")[-1].split(";")[0].strip()
+            if "charset=" in content_type.lower():
+                try:
+                    charset = content_type.lower().split("charset=")[-1].split(";")[0].strip()
+                except Exception:
+                    pass
+                    
             raw_bytes = response.read()
-        raw_text = raw_bytes.decode(charset, errors="replace")
+            if "gzip" in content_encoding:
+                try:
+                    raw_bytes = gzip.decompress(raw_bytes)
+                except Exception as gz_err:
+                    return f"[Erreur de décompression Gzip : {gz_err}]"
+                    
+        try:
+            raw_text = raw_bytes.decode(charset, errors="replace")
+        except LookupError:
+            raw_text = raw_bytes.decode("utf-8", errors="replace")
+            
         if "</" in raw_text or "<br" in raw_text.lower():
             extractor = _HTMLTextExtractor()
             extractor.feed(raw_text)
             plain_text = extractor.get_text()
         else:
             plain_text = raw_text
+            
         plain_text = re.sub(r"\n{3,}", "\n\n", plain_text).strip()
         if len(plain_text) > max_chars:
             plain_text = plain_text[:max_chars] + f"\n\n[… contenu tronqué à {max_chars} caractères]"
         return plain_text
     except Exception as fetch_error:
         return f"[Impossible de récupérer l'URL : {fetch_error}]"
+
+
+def _clean_ddg_url(url):
+    """Extrait la vraie URL de destination à partir d'un lien de redirection DuckDuckGo."""
+    if not url:
+        return ""
+    if url.startswith("//"):
+        url = "https:" + url
+    if "uddg=" in url or "/l/?" in url:
+        try:
+            parsed = urllib.parse.urlparse(url)
+            query_params = urllib.parse.parse_qs(parsed.query)
+            if "uddg" in query_params:
+                return urllib.parse.unquote(query_params["uddg"][0])
+        except Exception:
+            pass
+    return url
 
 
 class _DDGResultsParser(html.parser.HTMLParser):
@@ -212,7 +278,9 @@ class _DDGResultsParser(html.parser.HTMLParser):
         a = dict(attrs)
         cls = a.get("class") or ""
         if tag == "a" and "result__a" in cls:
-            self._current   = {"title": "", "url": a.get("href", ""), "snippet": ""}
+            raw_url = a.get("href", "")
+            clean_url = _clean_ddg_url(raw_url)
+            self._current   = {"title": "", "url": clean_url, "snippet": ""}
             self._capturing = "title"
             self._buf       = []
         elif tag == "a" and "result__snippet" in cls:
@@ -291,7 +359,10 @@ def _ollama_chat_stream(ollama_url, model, messages, temperature=0.7, keep_alive
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         for raw_line in resp:
-            chunk = json.loads(raw_line.decode("utf-8"))
+            try:
+                chunk = json.loads(raw_line.decode("utf-8"))
+            except json.JSONDecodeError:
+                continue
             token = chunk.get("message", {}).get("content", "")
             if token:
                 yield token
@@ -331,7 +402,10 @@ def _ollama_chat_stream_with_tools(ollama_url, model, messages, tools=None, temp
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         for raw_line in resp:
-            chunk = json.loads(raw_line.decode("utf-8"))
+            try:
+                chunk = json.loads(raw_line.decode("utf-8"))
+            except json.JSONDecodeError:
+                continue
             msg = chunk.get("message", {})
             thinking = msg.get("thinking", "")
             if thinking:
@@ -344,6 +418,145 @@ def _ollama_chat_stream_with_tools(ollama_url, model, messages, tools=None, temp
                 yield ("tool_calls", tool_calls)
             if chunk.get("done"):
                 break
+
+
+def _md_dark(text: str) -> str:
+    """Remplace les blockquotes Markdown par un équivalent lisible sur thème sombre."""
+    lines = text.split("\n")
+    result = []
+    for line in lines:
+        if line.startswith("> "):
+            result.append("**›** " + line[2:])
+        elif line == ">":
+            result.append("")
+        else:
+            result.append(line)
+    return "\n".join(result)
+
+
+def _ai_save_history(conversation, file_path):
+    """Sauvegarde la conversation dans un fichier JSON (role + content uniquement)."""
+    try:
+        serializable = [
+            {"role": msg["role"], "content": msg["content"]}
+            for msg in conversation
+            if msg.get("role") in ("user", "assistant")
+        ]
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(serializable, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _ensure_ollama_ready(model_name, add_bubble_fn, page, ollama_process):
+    """
+    Vérifie qu'Ollama est lancé et que le modèle est disponible.
+    Lance le serveur et/ou télécharge le modèle si nécessaire.
+    Retourne True si tout est prêt, False en cas d'erreur bloquante.
+    Doit être appelé depuis un thread secondaire (bloquant).
+    """
+    import time as _time
+    if (model_name or "").startswith(("gemini", "claude")):
+        return True
+
+    def _is_ollama_up():
+        try:
+            with urllib.request.urlopen(
+                f"{CONSTANTS.AI_OLLAMA_URL}/api/tags", timeout=3
+            ) as resp:
+                return resp.status == 200
+        except Exception:
+            return False
+
+    if not _is_ollama_up():
+        add_bubble_fn("assistant", "⚙️ Démarrage d'Ollama en arrière-plan…")
+        try:
+            ollama_process["proc"] = _subprocess.Popen(
+                ["ollama", "serve"],
+                stdout=_subprocess.DEVNULL,
+                stderr=_subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            add_bubble_fn(
+                "assistant",
+                "[ERREUR] Ollama n'est pas installé sur cette machine.\n"
+                "Téléchargez-le sur https://ollama.com",
+            )
+            return False
+        for _ in range(40):
+            _time.sleep(0.5)
+            if _is_ollama_up():
+                break
+        else:
+            add_bubble_fn(
+                "assistant",
+                "[ERREUR] Ollama n'a pas démarré dans les délais impartis.",
+            )
+            return False
+
+    try:
+        with urllib.request.urlopen(
+            f"{CONSTANTS.AI_OLLAMA_URL}/api/tags", timeout=5
+        ) as resp:
+            available_names = [
+                m.get("name", "")
+                for m in json.loads(resp.read().decode("utf-8")).get("models", [])
+            ]
+        model_present = any(
+            name == model_name or name.startswith(model_name + ":")
+            for name in available_names
+        )
+    except Exception:
+        model_present = False
+
+    if not model_present:
+        pull_status_ctrl = add_bubble_fn(
+            "assistant",
+            f"⬇️ Téléchargement de {model_name}…\n"
+            "(première utilisation — peut prendre quelques minutes)",
+        )
+        try:
+            pull_payload = json.dumps(
+                {"name": model_name, "stream": True}
+            ).encode("utf-8")
+            pull_req = urllib.request.Request(
+                f"{CONSTANTS.AI_OLLAMA_URL}/api/pull",
+                data=pull_payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(pull_req, timeout=3600) as pull_resp:
+                for raw_line in pull_resp:
+                    try:
+                        chunk = json.loads(raw_line.decode("utf-8"))
+                    except json.JSONDecodeError:
+                        continue
+                    status = chunk.get("status", "")
+                    completed = chunk.get("completed", 0)
+                    total = chunk.get("total", 0)
+                    if total:
+                        pct = int(completed / total * 100)
+                        pull_status_ctrl.value = (
+                            f"⬇️ {model_name} — {status} {pct}%"
+                        )
+                    elif status:
+                        pull_status_ctrl.value = f"⬇️ {model_name} — {status}"
+                    try:
+                        page.update()
+                    except Exception:
+                        pass
+            pull_status_ctrl.value = f"✅ {model_name} téléchargé et prêt !"
+            try:
+                page.update()
+            except Exception:
+                pass
+        except Exception as exc:
+            add_bubble_fn(
+                "assistant", f"[ERREUR] Téléchargement du modèle : {exc}"
+            )
+            return False
+
+    return True
 
 
 def _eval_str_node(node):
@@ -1165,6 +1378,12 @@ def _folder_read_file(folder_path, filename, document_exts=None, max_chars=CONST
             # Vérification d'extension seulement pour les chemins relatifs
             if _os.path.splitext(filename)[1].lower() not in document_exts:
                 return f"Type de fichier non lisible en texte : {filename}"
+        if folder_path:
+            # ponytail: realpath résout symlinks + ../ avant la comparaison
+            real_file = _os.path.realpath(file_path)
+            real_folder = _os.path.realpath(folder_path)
+            if not real_file.startswith(real_folder + _os.sep) and real_file != real_folder:
+                return "Accès refusé : fichier hors du dossier autorisé."
         if not _os.path.isfile(file_path):
             return f"Fichier introuvable : {file_path}"
         with open(file_path, "r", encoding="utf-8", errors="replace") as file_handle:
@@ -2608,6 +2827,8 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
         config_kwargs["tool_config"] = _gtypes.ToolConfig(
             include_server_side_tool_invocations=True
         )
+    # Activer la réflexion (thinking) pour les modèles compatibles (Gemini 2.5, 3.1, 3.5, etc.)
+    config_kwargs["thinking_config"] = _gtypes.ThinkingConfig(include_thoughts=True)
     config = _gtypes.GenerateContentConfig(**config_kwargs)
 
     # Accumulateur pour les function calls fragmentés sur plusieurs chunks

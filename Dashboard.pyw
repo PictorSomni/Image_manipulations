@@ -104,6 +104,9 @@ from ai_tools import (
     _update_memory_file, _build_system_content,
     _gemini_tts_stream, _gemini_live_tts_stream, _gemini_tts, _voice_play_audio,
     _claude_chat_stream_with_tools,
+    _md_dark,
+    _ai_save_history as _ai_save_history_fn,
+    _ensure_ollama_ready as _ensure_ollama_ready_fn,
 )
 import thumb_cache
 #############################################################
@@ -1613,18 +1616,7 @@ def main(page: ft.Page):
 
 
     def _ai_save_history():
-        """Sauvegarde ai_conversation dans .ai_conversation.json."""
-        try:
-            # Ne sauvegarder que role + content (pas les images base64)
-            serializable = [
-                {"role": message["role"], "content": message["content"]}
-                for message in ai_conversation
-                if message.get("role") in ("user", "assistant")
-            ]
-            with open(ai_history_file_path, "w", encoding="utf-8") as history_file:
-                json.dump(serializable, history_file, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        _ai_save_history_fn(ai_conversation, ai_history_file_path)
 
 
 
@@ -1989,115 +1981,11 @@ def main(page: ft.Page):
 
 
     def _ensure_ollama_ready(model_name=None):
-        """
-        Vérifie qu'Ollama est lancé et que le modèle est disponible.
-        Lance le serveur et/ou télécharge le modèle si nécessaire.
-        Retourne True si tout est prêt, False en cas d'erreur bloquante.
-        Doit être appelé depuis un thread secondaire (bloquant).
-        """        
         if model_name is None:
             model_name = CONSTANTS.AI_MODEL_TEXT
-        # Les modèles Gemini et Claude n'ont pas besoin d'Ollama
-        if (model_name or "").startswith(("gemini", "claude")):
-            return True
-        def _is_ollama_up():
-            try:
-                with urllib.request.urlopen(
-                    f"{CONSTANTS.AI_OLLAMA_URL}/api/tags", timeout=3
-                ) as resp:
-                    return resp.status == 200
-            except Exception:
-                return False
-
-        # ── 1. Démarrer Ollama si nécessaire ──────────────────────────
-        if not _is_ollama_up():
-            _ai_add_bubble("assistant", "⚙️ Démarrage d'Ollama en arrière-plan…")
-            try:
-                ollama_process["proc"] = subprocess.Popen(
-                    ["ollama", "serve"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except FileNotFoundError:
-                _ai_add_bubble(
-                    "assistant",
-                    "[ERREUR] Ollama n'est pas installé sur cette machine.\n"
-                    "Téléchargez-le sur https://ollama.com",
-                )
-                return False
-            # Attendre jusqu'à 20 s que le serveur réponde
-            for _ in range(40):
-                time.sleep(0.5)
-                if _is_ollama_up():
-                    break
-            else:
-                _ai_add_bubble(
-                    "assistant",
-                    "[ERREUR] Ollama n'a pas démarré dans les délais impartis.",
-                )
-                return False
-
-        # ── 2. Vérifier si le modèle est présent ──────────────────────
-        try:
-            with urllib.request.urlopen(
-                f"{CONSTANTS.AI_OLLAMA_URL}/api/tags", timeout=5
-            ) as resp:
-                available_names = [
-                    model.get("name", "")
-                    for model in json.loads(resp.read().decode("utf-8")).get("models", [])
-                ]
-            model_present = any(
-                name == model_name or name.startswith(model_name + ":")
-                for name in available_names
-            )
-        except Exception:
-            model_present = False
-
-        if not model_present:
-            pull_status_ctrl = _ai_add_bubble(
-                "assistant",
-                "⬇️ Téléchargement du composant IA…\n"
-                "(première utilisation — peut prendre quelques minutes)",
-            )
-            try:
-                pull_payload = json.dumps(
-                    {"name": model_name, "stream": True}
-                ).encode("utf-8")
-                pull_request = urllib.request.Request(
-                    f"{CONSTANTS.AI_OLLAMA_URL}/api/pull",
-                    data=pull_payload,
-                    headers={"Content-Type": "application/json"},
-                    method="POST",
-                )
-                with urllib.request.urlopen(pull_request, timeout=3600) as pull_resp:
-                    for raw_line in pull_resp:
-                        chunk = json.loads(raw_line.decode("utf-8"))
-                        status = chunk.get("status", "")
-                        completed = chunk.get("completed", 0)
-                        total = chunk.get("total", 0)
-                        if total:
-                            pct = int(completed / total * 100)
-                            pull_status_ctrl.value = (
-                                f"⬇️ Téléchargement — {status} {pct}%"
-                            )
-                        elif status:
-                            pull_status_ctrl.value = (
-                                f"⬇️ Téléchargement — {status}"
-                            )
-                        try:
-                            page.update()
-                        except Exception:
-                            pass
-                pull_status_ctrl.value = "✅ Composant IA téléchargé et prêt !"
-                try:
-                    page.update()
-                except Exception:
-                    pass
-            except Exception as exc:
-                _ai_add_bubble("assistant", f"[ERREUR] Téléchargement du modèle : {exc}")
-                return False
-
-        return True
+        return _ensure_ollama_ready_fn(
+            model_name, _ai_add_bubble, page, ollama_process
+        )
 
 
 
@@ -2111,25 +1999,24 @@ def main(page: ft.Page):
             tronque tout le reste (le contenu qui suit est invalide).
           - Retire les lignes de méta-commentaire isolées.
         """
-        import re as _re_cfc
         # Tokens spéciaux Gemma et balises tool_call résiduelles
-        content = _re_cfc.sub(r'<channel\|>', '', raw_content)
-        content = _re_cfc.sub(r'<\|[^|>]+\|>', '', content)
-        content = _re_cfc.sub(r'<\|tool_call>.*?(?:<tool_call\|>|$)', '', content, flags=_re_cfc.DOTALL)
+        content = re.sub(r'<channel\|>', '', raw_content)
+        content = re.sub(r'<\|[^|>]+\|>', '', content)
+        content = re.sub(r'<\|tool_call>.*?(?:<tool_call\|>|$)', '', content, flags=re.DOTALL)
 
         lines = content.split('\n')
         clean_lines = []
 
         # Patterns de TRONCATURE : dès qu'une de ces lignes apparaît, tout ce qui suit
         # est du raisonnement Gemma — on coupe ici.
-        _TRUNCATE_RE = _re_cfc.compile(
+        _TRUNCATE_RE = re.compile(
             r'^\s*(?:Wait[,\s—]|Hmm[,\s.]|Actually[,\s—]|I see a discrepancy|'
             r'I notice that|Let me reconsider|Let me re-|I need to re-|'
             r'OK so[,\s]|OK, so[,\s]|I will re-run|I should re-)',
-            _re_cfc.IGNORECASE,
+            re.IGNORECASE,
         )
         # Patterns de lignes individuelles à ignorer (sans tronquer le reste)
-        _SKIP_RE = _re_cfc.compile(
+        _SKIP_RE = re.compile(
             r'^\s*(?:'
             r'\((?:Note|Wait|Self-correction|Correction|Assuming|Final attempt|'
             r'I will|Since the|The prompt|This was|Using the|Given that|'
@@ -2139,7 +2026,7 @@ def main(page: ft.Page):
             r'I will stop|I will provide|I will list|I will present|'
             r'Since the prompt|The file list has been|I will assume)'
             r')',
-            _re_cfc.IGNORECASE,
+            re.IGNORECASE,
         )
         for line in lines:
             # Troncature : début du raisonnement Gemma → arrêt immédiat
@@ -2149,30 +2036,18 @@ def main(page: ft.Page):
                 continue
             # Retire les parenthèses de raisonnement en fin de ligne
             # ex: "fichier.jpg  (Note: Correction: ...)" → "fichier.jpg"
-            line = _re_cfc.sub(
+            line = re.sub(
                 r'\s*\((?:Note|Wait|Self-correction|Correction):.*',
-                '', line, flags=_re_cfc.IGNORECASE,
+                '', line, flags=re.IGNORECASE,
             )
             clean_lines.append(line)
         # Supprime les blocs de 3+ lignes vides consécutives
-        result = _re_cfc.sub(r'\n{3,}', '\n\n', '\n'.join(clean_lines))
+        result = re.sub(r'\n{3,}', '\n\n', '\n'.join(clean_lines))
         return result.strip()
 
 
 
-    def _md_dark(text: str) -> str:
-        """Remplace les blockquotes Markdown (fond bleu clair de Flutter)
-        par un équivalent lisible sur thème sombre."""
-        lines = text.split("\n")
-        result = []
-        for line in lines:
-            if line.startswith("> "):
-                result.append("**›** " + line[2:])
-            elif line == ">":
-                result.append("")
-            else:
-                result.append(line)
-        return "\n".join(result)
+    # _md_dark importé depuis ai_tools
 
 
 
@@ -3023,7 +2898,6 @@ def main(page: ft.Page):
                             # Une seule tentative image par demande utilisateur pour éviter
                             # les boucles de prompts (réessais en chaîne côté modèle).
                             _image_tool_done = True
-                            import datetime as _dt_gi
                             _gi_prompt     = fn_args.get("prompt", "")
                             _gi_aspect     = fn_args.get("aspect_ratio", "1:1")
                             _gi_resolution = fn_args.get("resolution", "1K")
@@ -3032,7 +2906,7 @@ def main(page: ft.Page):
                             if fn_name == "generate_image":
                                 _gi_out_filename = (
                                     fn_args.get("filename", "").strip()
-                                    or f"generated_{_dt_gi.datetime.now():%Y%m%d_%H%M%S}.png"
+                                    or f"generated_{datetime.datetime.now():%Y%m%d_%H%M%S}.png"
                                 )
                                 _gi_src_bytes = None
                                 _gi_label = _gi_prompt[:60] + ("…" if len(_gi_prompt) > 60 else "")
@@ -3042,7 +2916,7 @@ def main(page: ft.Page):
                                 _gi_src_name = fn_args.get("source_filename", "").strip()
                                 _gi_out_filename = (
                                     fn_args.get("output_filename", "").strip()
-                                    or f"edited_{_dt_gi.datetime.now():%Y%m%d_%H%M%S}.png"
+                                    or f"edited_{datetime.datetime.now():%Y%m%d_%H%M%S}.png"
                                 )
                                 _gi_src_bytes = None
                                 if _gi_src_name and _folder_path_for_tools:
@@ -3148,12 +3022,11 @@ def main(page: ft.Page):
                                 _turn_events.append("❌ Échec génération/édition image (aucun fichier créé)")
                             _folder_tool_results.append((fn_name, _gi_result))
                         elif fn_name == "generate_music":
-                            import datetime as _dt_gm
                             _gm_prompt   = fn_args.get("prompt", "")
                             _gm_model    = fn_args.get("model", "lyria-3-clip-preview")
                             _gm_filename = (
                                 fn_args.get("filename", "").strip()
-                                or f"music_{_dt_gm.datetime.now():%Y%m%d_%H%M%S}.mp3"
+                                or f"music_{datetime.datetime.now():%Y%m%d_%H%M%S}.mp3"
                             )
                             _gm_label = _gm_prompt[:60] + ("…" if len(_gm_prompt) > 60 else "")
                             _ai_add_bubble("assistant", f"🎵 Génération musique : {_gm_label}")
@@ -3211,10 +3084,9 @@ def main(page: ft.Page):
                                 _turn_events.append("❌ Échec génération musicale")
                             _folder_tool_results.append((fn_name, _gm_result))
                         elif fn_name == "create_file":
-                            import datetime as _dt_cf
                             _create_filename = fn_args.get("filename", "").strip()
                             if not _create_filename:
-                                _create_filename = f"fichier_{_dt_cf.datetime.now():%Y%m%d_%H%M%S}.txt"
+                                _create_filename = f"fichier_{datetime.datetime.now():%Y%m%d_%H%M%S}.txt"
                             # Ne JAMAIS écraser un contenu déjà fourni (script, note, etc.)
                             # par un listing de dossier. Le fallback listing ne s'applique
                             # que si le modèle a envoyé un contenu vide.

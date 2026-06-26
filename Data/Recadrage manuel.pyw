@@ -81,8 +81,7 @@ __version__ = "2.9.4"
 import flet as ft
 import os
 import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
 import shutil
 import platform
@@ -929,9 +928,6 @@ class PhotoCropper:
         except Exception:
             pass
 
-    # --- Ancien snackbar conservé pour compatibilité (non utilisé) ---
-    # def _snackbar(self, message, text_color=DARK, bg_color=BLUE):
-    #     self.page.show_dialog(ft.SnackBar(...))
 
 
     # ================================================================ #
@@ -2165,53 +2161,6 @@ class PhotoCropper:
     #                  NAVIGATION (PAN, ZOOM, ROTATION)                #
     # ================================================================ #
 
-    # --- Méthodes trackpad désactivées (génèrent des saccades) ---------
-    # def on_gesture_start(self, e):
-    #     """Mémorise l'état au début d'un geste (pan, zoom, rotation)."""
-    #     if not self.image_paths or not hasattr(self, 'original_width'):
-    #         return
-    #     self._gesture_scale_start = self.scale
-    #     self._gesture_rotation_prev = 0.0
-
-    # def on_gesture_update(self, e):
-    #     """Met à jour scale, offset et rotation depuis un geste GestureDetector."""
-    #     if not self.image_paths or not hasattr(self, 'original_width'):
-    #         return
-    #     new_scale = max(1.0, min(10.0, self._gesture_scale_start * e.scale))
-    #     self.scale = new_scale
-    #     self.offset_x += e.focal_point_delta.x
-    #     self.offset_y += e.focal_point_delta.y
-    #     rotation_delta_rad = e.rotation - self._gesture_rotation_prev
-    #     self._gesture_rotation_prev = e.rotation
-    #     if abs(rotation_delta_rad) > 0.001:
-    #         rotation_delta_deg = math.degrees(rotation_delta_rad)
-    #         new_rotation = max(-15.0, min(15.0, self.rotation + rotation_delta_deg))
-    #         if new_rotation != self.rotation:
-    #             self.rotation = new_rotation
-    #             self.rotation_slider.value = self.rotation
-    #             self.rotation_slider.label = f"{self.rotation:.2f}°"
-    #             self.rotation_slider.update()
-    #     zoom_slider_val = min(self.scale, self.zoom_slider.max)
-    #     if abs(zoom_slider_val - self.zoom_slider.value) > 0.01:
-    #         self.zoom_slider.value = zoom_slider_val
-    #         self.zoom_slider.label = f"{self.scale:.2f}×"
-    #         self.zoom_slider.update()
-    #     now = time.time()
-    #     if now - self._last_pan_render < 0.033:
-    #         return
-    #     self._last_pan_render = now
-    #     self._clamp_offsets()
-    #     self._update_transform()
-
-    # def on_gesture_end(self, e):
-    #     """Rafraîchit la prévisualisation et l'histogramme après la fin d'un geste."""
-    #     if not self.image_paths or not hasattr(self, 'original_width'):
-    #         return
-    #     self._clamp_offsets()
-    #     self._update_transform()
-    #     self._render_preview()
-    #     self.page.update()
-    # --- Fin méthodes trackpad désactivées --------------------------------
 
     # ================================================================ #
     #              GESTIONNAIRES DE GESTES                            #
