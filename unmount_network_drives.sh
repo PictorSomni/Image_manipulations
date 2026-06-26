@@ -20,7 +20,22 @@ else
     done
 fi
 
-# ── 2. Remontage ─────────────────────────────────────────────────────────────
+# ── 2. Nettoyage stubs APFS (-1) ─────────────────────────────────────────────
+# Quand macOS crée NAME et NAME-1 simultanément, NAME est un stub vide.
+# On démonte NAME-1 et on supprime le stub NAME pour un remontage propre.
+
+for vol_with_suffix in /Volumes/*-[0-9]; do
+    [ -d "$vol_with_suffix" ] || continue
+    base="${vol_with_suffix%-*}"
+    [ -d "$base" ] || continue
+    echo "Stub détecté : $base (stub) + $vol_with_suffix"
+    echo "  Démontage : $vol_with_suffix"
+    diskutil unmount "$vol_with_suffix" 2>/dev/null || umount -f "$vol_with_suffix" 2>/dev/null
+    echo "  Suppression du stub : $base"
+    rmdir "$base" 2>/dev/null || echo "  Impossible de supprimer $base (non vide ?)"
+done
+
+# ── 3. Remontage ─────────────────────────────────────────────────────────────
 
 # if [ ${#SHARES[@]} -eq 0 ]; then
 # echo "Aucun partage configuré."

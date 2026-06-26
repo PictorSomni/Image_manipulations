@@ -310,28 +310,6 @@ def main(page: ft.Page):
 
 
 
-    def _resolve_favorite_path(p: str) -> str:
-        """Sur macOS, résout /Volumes/NOM vers /Volumes/NOM-1 si nécessaire.
-        Cas 1 : NOM n'existe pas → cherche NOM-1, -2…
-        Cas 2 : NOM existe mais NOM-1 aussi → NOM est un stub, préférer NOM-1."""
-        if sys.platform != "darwin":
-            return p
-        if not p.startswith("/Volumes/"):
-            return p
-        rest = p[len("/Volumes/"):]
-        vol_name = rest.split("/")[0]
-        sub_path = rest[len(vol_name):]
-        # Cherche le variant -N avec le numéro le plus élevé qui existe
-        for suffix in ["-1", "-2", "-3", "-4"]:
-            candidate_vol = f"/Volumes/{vol_name}{suffix}"
-            candidate = f"{candidate_vol}{sub_path}"
-            if os.path.isdir(candidate_vol):
-                return candidate
-        # Aucun variant -N : retourne le chemin original (existant ou non)
-        return p
-
-
-
     # Configuration: nom du fichier -> True si l'app est locale (pas besoin de dossier sélectionné)
     apps = {
         "Transfert vers TEMP.py": (True, BLUE),
@@ -4955,7 +4933,6 @@ def main(page: ft.Page):
             return
         if note_mode["value"]:
             save_notes()
-        new_path = _resolve_favorite_path(new_path)
         current_browse_folder["path"] = new_path
         selected_folder["path"] = new_path
         folder_path.value = _short_path(new_path)
@@ -6585,25 +6562,6 @@ def main(page: ft.Page):
                 for entry in os.scandir("/Volumes"):
                     if entry.is_dir() and os.path.ismount(entry.path) and entry.name not in macos_system_volumes and not entry.name.startswith("."):
                         drives.append((entry.name, entry.path))
-                # macOS crée parfois NAME et NAME-1 simultanément (stub APFS + nouveau montage).
-                # Dans ce cas, NAME est le stub vide et NAME-1 est le vrai volume :
-                # on garde l'entrée NAME mais on la fait pointer vers NAME-1.
-                _sfx_re = re.compile(r'^(.*?)-(\d+)$')
-                _drive_names = {n for n, _ in drives}
-                _replacements = {}
-                for _dn, _dp in drives:
-                    _m = _sfx_re.match(_dn)
-                    if _m:
-                        _base, _n = _m.group(1), int(_m.group(2))
-                        if _base in _drive_names:
-                            _prev = _replacements.get(_base)
-                            if _prev is None or _n > _prev[0]:
-                                _replacements[_base] = (_n, _dp)
-                if _replacements:
-                    _skip = {_dn for _dn, _ in drives
-                             if _sfx_re.match(_dn) and _sfx_re.match(_dn).group(1) in _replacements}
-                    drives = [(_dn, _replacements[_dn][1]) if _dn in _replacements else (_dn, _dp)
-                              for _dn, _dp in drives if _dn not in _skip]
 
             elif platform.system() == "Windows":
                 import ctypes
@@ -6654,9 +6612,8 @@ def main(page: ft.Page):
                 p = fav["path"]
                 display_name = fav["label"] or os.path.basename(p) or p
                 def _nav(e, path=p):
-                    resolved = _resolve_favorite_path(path)
-                    if os.path.isdir(resolved):
-                        navigate_to_folder(resolved)
+                    if os.path.isdir(path):
+                        navigate_to_folder(path)
                     else:
                         log_to_terminal(f"[ERREUR] Dossier introuvable : {path}", RED)
                 def _remove(e, path=p):
