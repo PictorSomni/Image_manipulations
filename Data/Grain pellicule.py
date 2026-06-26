@@ -28,7 +28,7 @@ Variables d'environnement :
 Dépendances : OpenCV (cv2), NumPy, Pillow (PIL)
 """
 
-__version__ = "2.9.3"
+__version__ = "2.9.4"
 
 #############################################################
 #                          IMPORTS                          #

@@ -45,7 +45,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.9.3"
+__version__ = "2.9.4"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -1873,12 +1873,13 @@ class PhotoCropper:
 
         working_image = input_image.convert("RGB")
         if self.exposure != 0:
-            # Exposition : gamma inverse (+ = plus clair, - = plus sombre)
-            # +100 multiplie la lumière x2, -100 la divise par 2
-            exposure_factor = 2 ** (self.exposure / 100.0)
-            exposure_lookup_table = np.clip(np.arange(256, dtype=np.float32) * exposure_factor, 0, 255).astype(np.uint8)
-            pixel_array = np.array(working_image, dtype=np.uint8)
-            working_image = Image.fromarray(exposure_lookup_table[pixel_array], "RGB")
+            # Exposition LAB additive : décalage du canal L uniquement.
+            # ±100 slider → ±50 px sur L (≈ ±20 L*), chrominance inchangée.
+            offset = int(self.exposure * 0.5)
+            lab = working_image.convert("LAB")
+            l_ch, a_ch, b_ch = lab.split()
+            lut = np.clip(np.arange(256) + offset, 0, 255).astype(np.uint8).tolist()
+            working_image = Image.merge("LAB", (l_ch.point(lut), a_ch, b_ch)).convert("RGB")
         if self.contrast != 0:
             working_image = ImageEnhance.Contrast(working_image).enhance(1.0 + self.contrast / 100.0)
         if self.saturation != 0:

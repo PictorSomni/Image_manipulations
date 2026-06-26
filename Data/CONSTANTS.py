@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.9.3"
+__version__ = "2.9.4"
 
 
 # ==============================================================================
@@ -207,8 +207,8 @@ RECADRAGE_SCROLL_ROTATES  = False   # Molette = rotation (Tab pour basculer)
 
 RECADRAGE_DEFAULT_CONTRAST      =   0   # Contraste       (-20 ... +20)
 RECADRAGE_DEFAULT_SATURATION    =  30   # Saturation      (-100 ... +100)
-RECADRAGE_DEFAULT_EXPOSURE      =  10   # Exposition      (-100 ... +100)
-RECADRAGE_DEFAULT_SHADOWS       =  20   # Ombres          (-100 ... +100)
+RECADRAGE_DEFAULT_EXPOSURE      =  20   # Exposition      (-100 ... +100)
+RECADRAGE_DEFAULT_SHADOWS       =  10   # Ombres          (-100 ... +100)
 RECADRAGE_DEFAULT_HIGHLIGHTS    =   0   # Hautes lumières (-100 ... +100)
 RECADRAGE_DEFAULT_HUE           =   0   # Teinte          (-180 ... +180)
 RECADRAGE_DEFAULT_WHITE_BALANCE =   0   # Balance blancs  (-100 ... +100)
