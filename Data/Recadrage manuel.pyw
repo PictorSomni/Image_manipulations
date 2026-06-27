@@ -36,8 +36,7 @@ SELECTED_FILES   : liste de noms de fichiers séparés par « | » à traiter
 Raccourcis clavier
 ------------------
 Entrée              : valider et passer à l'image suivante
-Cmd+Backspace (macOS)
-Suppr (Win/Linux)   : basculer l'orientation portrait / paysage
+Backspace / Suppr    : basculer l'orientation portrait / paysage
 Espace              : ignorer l'image courante et passer à la suivante
 Tab                 : basculer le mode de défilement de la souris entre zoom et rotation
 +  /  =             : zoom avant
@@ -45,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.9.4"
+__version__ = "2.9.5"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -708,6 +707,17 @@ class PhotoCropper:
             on_click=self.ignore_image,
         )
 
+        # Bouton pour revenir à l'image précédente
+        self.previous_button = ft.Button(
+            "Précédent",
+            icon=ft.Icons.ARROW_BACK,
+            bgcolor=ORANGE,
+            color=DARK,
+            on_click=self.go_previous,
+            disabled=True,
+        )
+        self._last_saved_paths = []  # fichiers du dernier validate, pour annulation
+
 
 
         self.border_switch_polaroid = ft.Switch(label="Polaroid", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_POLAROID, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_polaroid)
@@ -950,7 +960,7 @@ class PhotoCropper:
 
         if self.page.window.width:
             right_panel_width = RIGHT_COL_WIDTH + 24  # colonne droite + séparateur/marges
-            usable_width = self.page.window.width - right_panel_width - CANVAS_CHROME_WIDTH - 40
+            usable_width = self.page.window.width - right_panel_width - CANVAS_CHROME_WIDTH - LEFT_COL_WIDTH - 40
             available_width = min(max(usable_width, 320), MAX_CANVAS_SIZE)
         else:
             available_width = 800
@@ -1324,6 +1334,8 @@ class PhotoCropper:
             self.sharpen_switch.value = self.sharpen_switch.value
 
         self.page.title = f"Crop: {os.path.basename(path)} ({self.current_index + 1}/{len(self.image_paths)})"
+        if hasattr(self, 'previous_button'):
+            self.previous_button.disabled = self.current_index <= 0
         self.page.update()
 
         # Warmup GPU : micro-décalage 100 ms après le chargement pour forcer la
@@ -1402,16 +1414,12 @@ class PhotoCropper:
             self.page.update()
             return
 
-        valid_image_paths = []
-        for image_filename in image_filenames:
-            image_path = os.path.join(source_folder_path, image_filename)
-            if os.path.isfile(image_path) and os.access(image_path, os.R_OK):
-                try:
-                    with Image.open(image_path) as test_image:
-                        test_image.verify()
-                    valid_image_paths.append(image_path)
-                except Exception:
-                    pass
+        valid_image_paths = [
+            os.path.join(source_folder_path, f)
+            for f in image_filenames
+            if os.path.isfile(os.path.join(source_folder_path, f))
+            and os.access(os.path.join(source_folder_path, f), os.R_OK)
+        ]
 
         if not valid_image_paths:
             self._set_status(f"{len(image_filenames)} image(s) trouvée(s) mais aucune n'est accessible ou valide")
@@ -3328,6 +3336,7 @@ class PhotoCropper:
             self._set_status("Toutes les images ont été traitées.")
             return
 
+        self._last_saved_paths = []
         self._set_status("Enregistrement en cours...", processing=True)
 
         used_paths = set()
@@ -3508,6 +3517,7 @@ class PhotoCropper:
             os.makedirs(output_directory, exist_ok=True)
             saved_file_path = unique_path(os.path.join(output_directory, output_filename))
             output_image.save(saved_file_path, **jpeg_save_options)
+            self._last_saved_paths.append(saved_file_path)
 
         # Exports formats supplémentaires (ou tous les exports si extra_formats non vide)
         for snapshot_index, snapshot in enumerate(self.extra_formats, start=1):
@@ -3573,6 +3583,7 @@ class PhotoCropper:
             snapshot_output_image = convert_to_srgb(snapshot_output_image, getattr(self, 'icc_profile', None))
 
             snapshot_output_image.save(snapshot_saved_path, **jpeg_save_options)
+            self._last_saved_paths.append(snapshot_saved_path)
             saved_file_path = snapshot_saved_path
 
         self._set_status(f"[OK] {os.path.basename(saved_file_path)} enregistré !")
@@ -3594,6 +3605,7 @@ class PhotoCropper:
                 self.copies_text.value = "1"
                 self.canvas_container.visible = False
                 self.validate_button.visible = False
+                self.previous_button.visible = False
                 
                 self._set_status("[OK] Toutes les images sont traitées !")
                 self.page.update()
@@ -3631,6 +3643,7 @@ class PhotoCropper:
             return
 
         self.current_index += 1
+        self._last_saved_paths = []
 
         if self.current_index >= len(self.image_paths):
             self._set_status("Toutes les images ont été traitées.")
@@ -3644,6 +3657,29 @@ class PhotoCropper:
         self.copies_text.value = "1"
         self.load_image(preserve_orientation=False)
         self.page.update()
+
+
+
+    def go_previous(self, e):
+        """Revient à l'image précédente et supprime les fichiers exportés lors du dernier validate."""
+        if not self.image_paths or self.current_index <= 0:
+            return
+        dirs_to_check = set()
+        for path in self._last_saved_paths:
+            with contextlib.suppress(OSError):
+                os.remove(path)
+                dirs_to_check.add(os.path.dirname(path))
+        for d in dirs_to_check:
+            with contextlib.suppress(OSError):
+                if not os.listdir(d):
+                    os.rmdir(d)
+        self._last_saved_paths = []
+        self.current_index -= 1
+        self.extra_formats.clear()
+        self._update_extra_formats_display()
+        self.copies_count = 1
+        self.copies_text.value = "1"
+        self.load_image(preserve_orientation=False)
 
 
 
@@ -3755,13 +3791,13 @@ def main(page: ft.Page):
             app._update_shift_badge()
         elif event.key == "Enter":
             app.validate_and_next(event)
-        elif (_IS_MAC and event.key == "Backspace" and event.meta) or (not _IS_MAC and event.key == "Delete"):
+        elif event.key in ("Backspace", "Delete"):
             app.toggle_orientation(event)
         elif event.key == "Escape":
             app.ignore_image(event)
         elif event.key in ("+", "=", "Add") and not event.meta and not event.ctrl:
             if app.image_paths and hasattr(app, 'original_width'):
-                app.scale = min(10.0, app.scale * 1.2)
+                app.scale = min(10.0, app.scale * 1.05)
                 app.zoom_slider.value = min(app.scale, app.zoom_slider.max)
                 app.zoom_slider.label = f"{app.scale:.2f}×"
                 app.zoom_slider.update()
@@ -3769,7 +3805,7 @@ def main(page: ft.Page):
                 app._update_transform()
         elif event.key in ("-", "Subtract") and not event.meta and not event.ctrl:
             if app.image_paths and hasattr(app, 'original_width'):
-                app.scale = max(1.0, app.scale / 1.2)
+                app.scale = max(1.0, app.scale / 1.05)
                 app.zoom_slider.value = min(app.scale, app.zoom_slider.max)
                 app.zoom_slider.label = f"{app.scale:.2f}×"
                 app.zoom_slider.update()
@@ -3934,6 +3970,7 @@ def main(page: ft.Page):
         app.histogram_image,
         ft.Divider(height=4, visible=app.show_histogram),
         app.validate_button,
+        app.previous_button,
         app.ignore_button
     ], width=RIGHT_COL_WIDTH)
 

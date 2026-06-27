@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.9.4"
+__version__ = "2.9.5"
 
 
 # ==============================================================================
@@ -336,10 +336,10 @@ THUMB_CACHE_DB_NAME = ".thumbcache.db"   # Nom du fichier SQLite dans chaque dos
 # ── 10.1  Modèles & paramètres ────────────────────────────────────────────────
 
 AI_OLLAMA_URL          = "http://localhost:11434"      # URL de l'API Ollama locale
-AI_MODEL_TEXT          = "gemini-3.5-flash"           # Modèle texte par défaut
-AI_MODEL_VISION        = "gemini-3.5-flash"           # Modèle vision par défaut
-AI_GEMINI_MODEL        = "gemini-3.5-flash"           # Modèle Gemini principal (API Google)
-AI_GEMINI_FALLBACK_CLOUD = "gemini-3.1-pro-preview"  # Fallback cloud si modèle indisponible
+AI_MODEL_TEXT          = "gemini-3.1-flash-lite"           # Modèle texte par défaut
+AI_MODEL_VISION        = "gemini-3.1-flash-lite"           # Modèle vision par défaut
+AI_GEMINI_MODEL        = "gemini-3.1-flash-lite"           # Modèle Gemini principal (API Google)
+AI_GEMINI_FALLBACK_CLOUD = "gemini-3.5-flash"  # Fallback cloud si modèle indisponible
 AI_GEMINI_FALLBACK     = "gemma4:e4b"                 # Fallback Ollama local si hors-ligne
 AI_GEMINI_IMAGE_TIMEOUT = 180                # Timeout max (s) pour generate/edit image via Gemini
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
@@ -374,8 +374,8 @@ AI_AVAILABLE_MODELS = [
 
 # Modèles affichés dans le dropdown de sélection rapide du Dashboard
 AI_DROPDOWN_MODELS = [
-    "gemini-3.5-flash",
     "gemini-3.1-flash-lite",
+    "gemini-3.5-flash",
     "claude-sonnet-4-6",
     "gemma4:e4b",
 ]

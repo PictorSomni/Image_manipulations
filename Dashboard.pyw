@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.9.4"
+__version__ = "2.9.5"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
