@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.9.5"
+__version__ = "2.9.6"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -76,6 +76,7 @@ import datetime
 import concurrent.futures
 import time
 import hashlib
+import io
 import urllib.request
 import base64
 
@@ -4468,7 +4469,7 @@ def main(page: ft.Page):
                     save_kwargs = {}
                     image_format = "JPEG" if ext in (".jpg", ".jpeg") else "PNG"
                     if image_format == "JPEG":
-                        save_kwargs["quality"] = 95
+                        save_kwargs["quality"] = 100
                         save_kwargs["subsampling"] = 0
                     # Sauvegarder le fichier original
                     result.save(file_path, **save_kwargs)
@@ -5028,12 +5029,20 @@ def main(page: ft.Page):
                 return
             path = image_paths[load_index]
             normalized = os.path.normpath(path)
-            # Si le fichier a été modifié (signalé par _image_cache_busters), on lit
-            # les bytes bruts du fichier pour contourner le cache URL de Flutter.
+            # Si le fichier a été modifié (signalé par _image_cache_busters), on
+            # envoie des bytes pour contourner le cache URL de Flutter.
+            # On passe par Pillow pour limiter la taille en mémoire.
             if normalized in _image_cache_busters:
                 try:
-                    with open(path, "rb") as _f:
-                        src: object = _f.read()
+                    _max_px = max(
+                        int(page.window.width or 2560),
+                        int(page.window.height or 1440),
+                    )
+                    with _PILImage.open(path) as _img:
+                        _img.thumbnail((_max_px, _max_px), _PILImage.NEAREST)
+                        _buf = io.BytesIO()
+                        _img.convert("RGB").save(_buf, "JPEG", quality=90)
+                    src: object = _buf.getvalue()
                 except Exception:
                     src = _resolve_viewer_image_src(path)
             else:
@@ -5288,8 +5297,28 @@ def main(page: ft.Page):
                 return
 
             def _do_rotate():
-                _rotate_files([path], direction)
-                src = _resolve_viewer_image_src(path)
+                # Affichage immédiat : rotation en mémoire → data-URL
+                src = None
+                if _PILImage:
+                    try:
+                        with _PILImage.open(path) as _img:
+                            _rotated = _img.rotate(
+                                90 if direction == "left" else -90,
+                                expand=True,
+                            )
+                            _rotated.thumbnail((2560, 2560), _PILImage.NEAREST)
+                            _buf = io.BytesIO()
+                            _rotated.convert("RGB").save(
+                                _buf, "JPEG", quality=85
+                            )
+                        src = (
+                            "data:image/jpeg;base64,"
+                            + base64.b64encode(_buf.getvalue()).decode()
+                        )
+                    except Exception:
+                        pass
+                if src is None:
+                    src = _resolve_viewer_image_src(path)
                 cur_idx = state["index"]
                 if cur_idx in page_image_controls:
                     page_image_controls[cur_idx].src = src
@@ -5298,6 +5327,11 @@ def main(page: ft.Page):
                     page.update()
                 except Exception:
                     pass
+                # Sauvegarde du fichier en arrière-plan
+                threading.Thread(
+                    target=_rotate_files, args=([path], direction),
+                    daemon=True,
+                ).start()
 
             threading.Thread(target=_do_rotate, daemon=True).start()
 

@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.9.5"
+__version__ = "2.9.6"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -734,6 +734,8 @@ class PhotoCropper:
         self.white_border_switch = ft.Switch(label="Bord blanc 5mm", active_color=WHITE, value=CONSTANTS.RECADRAGE_WHITE_BORDER, on_change=self.on_white_border_toggle)
         self.show_grid = CONSTANTS.RECADRAGE_SHOW_GRID
         self.grid_switch = ft.Switch(label="Grille", active_color=BLUE, value=CONSTANTS.RECADRAGE_SHOW_GRID, on_change=self.on_grid_toggle)
+        # "resolution" = recadrage mm×DPI (défaut), "ratio" = crop natif, "none" = retouche seule
+        self.crop_mode = "resolution"
 
 
 
@@ -968,12 +970,19 @@ class PhotoCropper:
 
 
 
-        # Calculer le ratio du format choisi
-        format_width, format_height = self.current_format
-        if self.canvas_is_portrait:
-            target_aspect_ratio = format_width / format_height  # portrait: largeur < hauteur
+        # Calculer le ratio cible
+        if (
+            getattr(self, 'crop_mode', 'resolution') == 'none'
+            and getattr(self, 'original_width', 0) > 0
+            and getattr(self, 'original_height', 0) > 0
+        ):
+            target_aspect_ratio = self.original_width / self.original_height
         else:
-            target_aspect_ratio = format_height / format_width  # paysage: largeur > hauteur
+            format_width, format_height = self.current_format
+            if self.canvas_is_portrait:
+                target_aspect_ratio = format_width / format_height
+            else:
+                target_aspect_ratio = format_height / format_width
 
         self.canvas_w = available_width
         self.canvas_h = self.canvas_w / target_aspect_ratio
@@ -1557,7 +1566,13 @@ class PhotoCropper:
         format_dimensions = snapshot["dims"]
         is_portrait = snapshot["is_portrait"]
         fmt_w_mm, fmt_h_mm = format_dimensions
-        if is_portrait:
+        if snapshot.get("crop_mode", "resolution") == "ratio":
+            _fw = fmt_w_mm if is_portrait else fmt_h_mm
+            _fh = fmt_h_mm if is_portrait else fmt_w_mm
+            _k = min(self.original_width / _fw, self.original_height / _fh)
+            target_w_px = max(1, math.floor(_fw * _k))
+            target_h_px = max(1, math.floor(_fh * _k))
+        elif is_portrait:
             target_w_px = mm_to_pixels(fmt_w_mm)
             target_h_px = mm_to_pixels(fmt_h_mm)
         else:
@@ -2433,6 +2448,17 @@ class PhotoCropper:
 
 
 
+    def on_crop_mode_change(self, e):
+        """Bascule entre Résolution / Ratio / Aucun recadrage."""
+        idx = int(e.control.selected_index)
+        self.crop_mode = ("resolution", "ratio", "none")[max(0, min(2, idx))]
+        if self.image_paths:
+            self.load_image(preserve_orientation=True)
+        else:
+            self.page.update()
+
+
+
     def on_sharpen_toggle(self, e):
         """
         Active ou désactive le filtre de netteté (UnsharpMask).
@@ -3236,6 +3262,7 @@ class PhotoCropper:
             "hue": self.hue,
             "white_balance": self.white_balance,
             "rembg_active": self.rembg_btn.selected,
+            "crop_mode": getattr(self, 'crop_mode', 'resolution'),
         }
         self.extra_formats.append(snapshot)
         self._update_extra_formats_display()
@@ -3376,24 +3403,61 @@ class PhotoCropper:
                     return candidate_path
                 suffix_number += 1
 
+        _crop_mode = getattr(self, 'crop_mode', 'resolution')
         output_is_portrait = self.canvas_is_portrait
         format_width_mm, format_height_mm = self.current_format
-        if output_is_portrait:
+
+        # Dimensions de sortie selon le mode
+        if _crop_mode == 'ratio':
+            # Ratio natif : plus grand crop possible à ce ratio depuis l'image source
+            _fw = format_width_mm if output_is_portrait else format_height_mm
+            _fh = format_height_mm if output_is_portrait else format_width_mm
+            _k = min(self.original_width / _fw, self.original_height / _fh)
+            output_width_px = max(1, math.floor(_fw * _k))
+            output_height_px = max(1, math.floor(_fh * _k))
+        elif _crop_mode == 'none':
+            output_width_px = self.original_width
+            output_height_px = self.original_height
+        elif output_is_portrait:
             output_width_px = mm_to_pixels(format_width_mm)
             output_height_px = mm_to_pixels(format_height_mm)
         else:
             output_width_px = mm_to_pixels(format_height_mm)
             output_height_px = mm_to_pixels(format_width_mm)
 
-        if self.is_fit_in:
+        # Image de sortie selon le mode
+        if _crop_mode == 'none':
+            _src = self.current_pil_image
+            if _src.mode == 'RGBA':
+                if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
+                    _r = max(1, round(min(_src.size) * self.rembg_erosion_pct / 100))
+                    _src = _erode_alpha(_src.copy(), _r)
+                _bg_m = getattr(self, 'rembg_bg_mode', 0)
+                if _bg_m == 2 and self._rembg_original is not None:
+                    _bg = self._rembg_original.convert('RGB').filter(
+                        ImageFilter.GaussianBlur(radius=64)).convert('RGBA')
+                else:
+                    _c = (230, 230, 230, 255) if _bg_m == 1 else (255, 255, 255, 255)
+                    _bg = Image.new('RGBA', _src.size, _c)
+                output_image = Image.alpha_composite(_bg, _src).convert('RGB')
+            else:
+                output_image = _src.convert('RGB')
+            if self.is_bw:
+                output_image = output_image.convert('L').convert('RGB')
+        elif self.is_fit_in:
             output_image = self._compute_fit_in(output_width_px, output_height_px)
         else:
             output_image = self._compute_crop(output_width_px, output_height_px)
 
         source_filename = os.path.basename(self.image_paths[self.current_index])
         base_filename, _ = os.path.splitext(source_filename)
-        base_filename = re.sub(r'^\d+X_', '', base_filename)  # retirer le préfixe NX_ existant pour ne pas le doubler
-        format_short_name = self.current_format_label.split()[0]
+        base_filename = re.sub(r'^\d+X_', '', base_filename)
+        if _crop_mode == 'none':
+            format_short_name = 'Retouche'
+        elif _crop_mode == 'ratio':
+            format_short_name = 'Ratio'
+        else:
+            format_short_name = self.current_format_label.split()[0]
         copies_count_prefix = f"{self.copies_count}X_"
         output_filename = copies_count_prefix + base_filename + ".jpg"
 
@@ -3405,7 +3469,7 @@ class PhotoCropper:
         if self.highlights != 0:
             output_image = self._apply_highlights(output_image, self.highlights)
 
-        if self.white_border:
+        if _crop_mode != 'none' and self.white_border:
             border_px = mm_to_pixels(5)
             inner_w = output_width_px - 2 * border_px
             inner_h = output_height_px - 2 * border_px
@@ -3427,7 +3491,7 @@ class PhotoCropper:
             output_image = framed_image
             format_short_name = "Polaroid"
 
-        if self.border_id4 and "ID" in self.current_format_label:
+        if _crop_mode != 'none' and self.border_id4 and "ID" in self.current_format_label:
             SPACING_PX = mm_to_pixels(5)
             id_photo = output_image
             if id_photo.height > id_photo.width:
@@ -3468,7 +3532,7 @@ class PhotoCropper:
             output_image = sheet_image
             output_filename = f"{copies_count_prefix}ID {self.current_index + 1:02}.jpg"
 
-        elif self.border_id2 and "ID" in self.current_format_label:
+        elif _crop_mode != 'none' and self.border_id2 and "ID" in self.current_format_label:
             SHEET_WIDTH_PX  = mm_to_pixels(102)
             SHEET_HEIGHT_PX = mm_to_pixels(102)
             SPACING_PX = mm_to_pixels(5)
@@ -3527,14 +3591,35 @@ class PhotoCropper:
 
             snapshot_format_dimensions = snapshot["dims"]
             snapshot_width_mm, snapshot_height_mm = snapshot_format_dimensions
-            if snapshot_is_portrait:
+            _snap_mode = snapshot.get("crop_mode", "resolution")
+            if _snap_mode == "ratio":
+                _fw = snapshot_width_mm if snapshot_is_portrait else snapshot_height_mm
+                _fh = snapshot_height_mm if snapshot_is_portrait else snapshot_width_mm
+                _k = min(self.original_width / _fw, self.original_height / _fh)
+                snapshot_output_width_px = max(1, math.floor(_fw * _k))
+                snapshot_output_height_px = max(1, math.floor(_fh * _k))
+                snapshot_format_short_name = "Ratio"
+            elif _snap_mode == "none":
+                snapshot_output_width_px = self.original_width
+                snapshot_output_height_px = self.original_height
+                snapshot_format_short_name = "Retouche"
+            elif snapshot_is_portrait:
                 snapshot_output_width_px = mm_to_pixels(snapshot_width_mm)
                 snapshot_output_height_px = mm_to_pixels(snapshot_height_mm)
             else:
                 snapshot_output_width_px = mm_to_pixels(snapshot_height_mm)
                 snapshot_output_height_px = mm_to_pixels(snapshot_width_mm)
 
-            if snapshot.get("fit_in", False):
+            if _snap_mode == "none":
+                _ss = self.current_pil_image
+                if _ss.mode == 'RGBA':
+                    _sb = Image.new('RGBA', _ss.size, (255, 255, 255, 255))
+                    snapshot_output_image = Image.alpha_composite(_sb, _ss).convert('RGB')
+                else:
+                    snapshot_output_image = _ss.convert('RGB')
+                if snapshot.get("is_bw", False):
+                    snapshot_output_image = snapshot_output_image.convert('L').convert('RGB')
+            elif snapshot.get("fit_in", False):
                 saved_bw_for_snapshot = self.is_bw
                 self.is_bw = snapshot.get("is_bw", False)
                 # Si rembg n'était pas actif lors du snapshot mais l'est maintenant,
@@ -3941,6 +4026,16 @@ def main(page: ft.Page):
     )
 
     controls = ft.Column([
+        ft.CupertinoSlidingSegmentedButton(
+            selected_index=0,
+            controls=[
+                ft.Text("Résolution", size=12),
+                ft.Text("Ratio", size=12),
+                ft.Text("Aucun", size=12),
+            ],
+            on_change=app.on_crop_mode_change,
+            padding=ft.Padding.symmetric(horizontal=4, vertical=4),
+        ),
         ft.Container(
             # ── Panneau droite : Choix des dimensions des photos ──────────────────────
             content=ft.Column([
