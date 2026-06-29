@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.9.6"
+__version__ = "2.9.7"
 
 
 # ==============================================================================
@@ -116,7 +116,8 @@ FORMATS = {
     "13x15"  : (127, 152),
     "13x18"  : (127, 178),
     "13x20"  : (127, 203),
-    "15x15"  : (152, 152),    
+    "15x15"  : (152, 152),
+    "15x18"  : (152, 178),    
     "15x20"  : (152, 203),
     "18x24"  : (178, 240),
     "20x20"  : (203, 203),
@@ -206,9 +207,9 @@ RECADRAGE_SCROLL_ROTATES  = False   # Molette = rotation (Tab pour basculer)
 # ── 5.3  Réglages image — valeurs par défaut ──────────────────────────────────
 
 RECADRAGE_DEFAULT_CONTRAST      =   0   # Contraste       (-20 ... +20)
-RECADRAGE_DEFAULT_SATURATION    =  30   # Saturation      (-100 ... +100)
+RECADRAGE_DEFAULT_SATURATION    =  20   # Saturation      (-100 ... +100)
 RECADRAGE_DEFAULT_EXPOSURE      =  20   # Exposition      (-100 ... +100)
-RECADRAGE_DEFAULT_SHADOWS       =  10   # Ombres          (-100 ... +100)
+RECADRAGE_DEFAULT_SHADOWS       =  0   # Ombres          (-100 ... +100)
 RECADRAGE_DEFAULT_HIGHLIGHTS    =   0   # Hautes lumières (-100 ... +100)
 RECADRAGE_DEFAULT_HUE           =   0   # Teinte          (-180 ... +180)
 RECADRAGE_DEFAULT_WHITE_BALANCE =   0   # Balance blancs  (-100 ... +100)

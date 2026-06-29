@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.9.6"
+__version__ = "2.9.7"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -199,8 +199,6 @@ def main(page: ft.Page):
     else:
         page.window.maximized = CONSTANTS.MAXIMIZED
     page.window.icon = "assets/icon.png"
-
-
 
     async def on_window_event(event):
         if event.data == "close":
@@ -1195,7 +1193,6 @@ def main(page: ft.Page):
             if e.key in ("Arrow Right", "ArrowRight"):
                 toggle_notepad_fullscreen()
                 return
-
         # Raccourcis globaux de gestion fichiers, même si le terminal a le focus.
         if ctrl_pressed and key_upper == "R":
             run_refresh_preview_command()
@@ -9490,7 +9487,11 @@ def main(page: ft.Page):
             notepad_fullscreen_btn,
         ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
         notepad_panel_container = ft.Container(
-            content=ft.Column([notepad_panel_header, notepad_container], spacing=4, expand=True),
+            content=ft.Column(
+                [notepad_panel_header, notepad_container],
+                spacing=4,
+                expand=True,
+            ),
             expand=True,
             bgcolor=DARK,
             border=ft.Border.all(1, VIOLET),
