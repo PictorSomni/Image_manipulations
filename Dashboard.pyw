@@ -8626,9 +8626,16 @@ def main(page: ft.Page):
                     On attend les threads de lecture pour s'assurer que SELECTED_FILES:
                     a bien été traité avant de déclencher le refresh.
                     """
-                    stdout_reader_thread.join()
-                    stderr_reader_thread.join()
                     process.wait()
+                    # Fermer les pipes côté Dashboard pour débloquer les threads de lecture
+                    # si un sous-processus enfant (ex. Flutter) a hérité les handles.
+                    for _pipe in (process.stdout, process.stderr):
+                        try:
+                            _pipe.close()
+                        except Exception:
+                            pass
+                    stdout_reader_thread.join(timeout=3)
+                    stderr_reader_thread.join(timeout=3)
                     if should_apply_dashboard_window_cycle:
                         _restore_dashboard_window(previous_maximized_state_for_cycle)
                     app_progress_bar.visible = False
