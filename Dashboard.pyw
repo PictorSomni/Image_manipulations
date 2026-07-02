@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.9.7"
+__version__ = "2.9.8"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -3128,8 +3128,9 @@ def main(page: ft.Page):
                         elif fn_name == "run_terminal_command":
                             _cmd      = fn_args.get("command", "")
                             _cmd_desc = fn_args.get("description", _cmd)
+                            _cmd_admin = bool(fn_args.get("admin", False))
                             _cwd = _folder_path_for_tools if _folder_path_for_tools else None
-                            if CONSTANTS.AI_TERMINAL_CONFIRM:
+                            if CONSTANTS.AI_TERMINAL_CONFIRM or _cmd_admin:
                                 _cmd_confirm_event  = threading.Event()
                                 _cmd_confirm_result = {"confirmed": False}
 
@@ -3144,20 +3145,33 @@ def main(page: ft.Page):
                                     page.update()
                                     _cmd_confirm_event.set()
 
+                                _cmd_dlg_content = [
+                                    ft.Text(_cmd_desc, size=13, color=WHITE),
+                                    ft.Container(height=8),
+                                    ft.Container(
+                                        ft.Text(_cmd, size=12, font_family="monospace", color=YELLOW),
+                                        bgcolor=DARK,
+                                        padding=10,
+                                        border_radius=6,
+                                    ),
+                                ]
+                                if _cmd_admin:
+                                    _cmd_dlg_content.append(ft.Container(height=8))
+                                    _cmd_dlg_content.append(
+                                        ft.Text(
+                                            "🔐 Une invite d'administrateur du système "
+                                            "s'affichera ensuite (mot de passe/Touch ID/UAC).",
+                                            size=12, color=YELLOW,
+                                        )
+                                    )
                                 _cmd_dlg = ft.AlertDialog(
                                     modal=True,
-                                    title=ft.Text("💻 Exécuter une commande"),
+                                    title=ft.Text(
+                                        "🔐 Exécuter en administrateur" if _cmd_admin
+                                        else "💻 Exécuter une commande"
+                                    ),
                                     content=ft.Column(
-                                        [
-                                            ft.Text(_cmd_desc, size=13, color=WHITE),
-                                            ft.Container(height=8),
-                                            ft.Container(
-                                                ft.Text(_cmd, size=12, font_family="monospace", color=YELLOW),
-                                                bgcolor=DARK,
-                                                padding=10,
-                                                border_radius=6,
-                                            ),
-                                        ],
+                                        _cmd_dlg_content,
                                         tight=True,
                                         width=500,
                                     ),
@@ -3189,7 +3203,7 @@ def main(page: ft.Page):
                             except Exception:
                                 pass
                             _folder_tool_results.append(
-                                (fn_name, _run_terminal_command(_cmd, cwd=_cwd))
+                                (fn_name, _run_terminal_command(_cmd, cwd=_cwd, admin=_cmd_admin))
                             )
                         elif fn_name == "update_memory_file":
                             _mem_target  = fn_args.get("target", "")

@@ -27,8 +27,11 @@ Helpers système (partagés) :
   _WEB_TOOLS                                 — liste des 2 définitions d'outils web (web_search + fetch_url)
   _TERMINAL_TOOLS                            — définition de l'outil run_terminal_command
   _MEMORY_TOOLS                              — définition de l'outil update_memory_file
-  _run_terminal_command(command, cwd, timeout)
+  _run_terminal_command(command, cwd, timeout, admin)
                                              — exécute une commande shell et retourne la sortie
+                                               (admin=True → élévation via _run_elevated)
+  _run_elevated(command, cwd, timeout)       — exécute une commande avec élévation de
+                                               privilèges (UAC / osascript / pkexec selon l'OS)
   _update_memory_file(target, action, content, old_text)
                                              — met à jour memory.md / user.md / skills.md (retourne JSON)
   _read_memory_file(target)                  — lit un fichier mémoire brut (str)
@@ -1890,11 +1893,90 @@ def _analyze_images_batched(
 import subprocess as _subprocess
 
 
-def _run_terminal_command(command, cwd=None, timeout=120):
+def _run_elevated(command, cwd=None, timeout=120):
+    """
+    Exécute une commande shell avec élévation de privilèges (admin/root),
+    via l'invite native de l'OS (jamais de mot de passe géré par l'appli) :
+      - macOS   : osascript ... with administrator privileges
+      - Linux   : pkexec (nécessite un agent PolicyKit graphique, ex. KDE/GNOME)
+      - Windows : Start-Process -Verb RunAs (UAC), sortie récupérée via un
+                  script .bat temporaire (une élévation UAC ne partage pas
+                  ses flux stdout/stderr avec le process parent)
+    """
+    import platform as _platform_el
+    import shlex as _shlex_el
+
+    system = _platform_el.system()
+    command = command.strip()
+    if command.startswith("sudo "):
+        command = command[5:]
+
+    try:
+        if system == "Darwin":
+            if cwd:
+                command = f"cd {_shlex_el.quote(cwd)} && {command}"
+            _escaped = command.replace("\\", "\\\\").replace('"', '\\"')
+            result = _subprocess.run(
+                ["osascript", "-e",
+                 f'do shell script "{_escaped}" with administrator privileges'],
+                capture_output=True, text=True, timeout=timeout,
+            )
+            output = (result.stdout + result.stderr).strip()
+
+        elif system == "Linux":
+            if cwd:
+                command = f"cd {_shlex_el.quote(cwd)} && {command}"
+            result = _subprocess.run(
+                ["pkexec", "bash", "-c", command],
+                capture_output=True, text=True, timeout=timeout,
+            )
+            output = (result.stdout + result.stderr).strip()
+
+        elif system == "Windows":
+            import tempfile
+            import os as _os_el
+            _script_fd, _script_path = tempfile.mkstemp(suffix=".bat")
+            _out_path = _script_path + ".out"
+            with _os_el.fdopen(_script_fd, "w") as f:
+                if cwd:
+                    f.write(f'cd /d "{cwd}"\n')
+                f.write(f'{command} > "{_out_path}" 2>&1\n')
+            _ps = (
+                f'Start-Process -FilePath "{_script_path}" '
+                f'-Verb RunAs -Wait -WindowStyle Hidden'
+            )
+            _subprocess.run(
+                ["powershell", "-NoProfile", "-Command", _ps],
+                timeout=timeout,
+            )
+            output = ""
+            if _os_el.path.exists(_out_path):
+                with open(_out_path, encoding="utf-8", errors="replace") as f:
+                    output = f.read().strip()
+                _os_el.remove(_out_path)
+            _os_el.remove(_script_path)
+
+        else:
+            return f"[Erreur] OS non reconnu pour l'élévation : {system}"
+
+        return output or "(Commande exécutée en administrateur, pas de sortie)"
+
+    except _subprocess.TimeoutExpired:
+        return f"[Timeout : la commande a dépassé {timeout} secondes]"
+    except FileNotFoundError as exc:
+        return f"[Erreur : outil d'élévation introuvable ({exc})]"
+    except Exception as exc:
+        return f"[Erreur d'exécution élevée : {exc}]"
+
+
+def _run_terminal_command(command, cwd=None, timeout=120, admin=False):
     """
     Exécute une commande shell et retourne la sortie combinée stdout + stderr.
     cwd : répertoire de travail (dossier ouvert si fourni).
+    admin : si True, exécute via _run_elevated (invite native OS).
     """
+    if admin:
+        return _run_elevated(command, cwd=cwd, timeout=timeout)
     import os as _os_tc
     _env = _os_tc.environ.copy()
     # Ajouter les chemins qui manquent dans les apps lancées hors terminal
@@ -1951,7 +2033,11 @@ _TERMINAL_TOOLS = [
                 "NE PAS utiliser pour lister le contenu d'un dossier "
                 "(utiliser list_folder_contents à la place) ni pour créer un fichier texte "
                 "(utiliser create_file à la place). "
-                "Une confirmation est toujours demandée à l'utilisateur avant exécution."
+                "Une confirmation est toujours demandée à l'utilisateur avant exécution. "
+                "Si la commande nécessite des droits administrateur/root, "
+                "mettre admin=true au lieu d'écrire 'sudo' dans command : "
+                "cela déclenche l'invite native du système (UAC sur Windows, "
+                "mot de passe/Touch ID sur macOS, PolicyKit sur Linux)."
             ),
             "parameters": {
                 "type": "object",
@@ -1963,6 +2049,14 @@ _TERMINAL_TOOLS = [
                     "description": {
                         "type": "string",
                         "description": "Explication courte de ce que fait la commande",
+                    },
+                    "admin": {
+                        "type": "boolean",
+                        "description": (
+                            "true si la commande nécessite des droits "
+                            "administrateur/root (déclenche l'invite native "
+                            "de l'OS). Ne jamais préfixer command par 'sudo'."
+                        ),
                     },
                 },
                 "required": ["command"],
