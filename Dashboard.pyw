@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.9.8"
+__version__ = "2.9.9"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -329,8 +329,8 @@ def main(page: ft.Page):
         "2 en 1.py": (False, HOVER_YELLOW),
         "Redimensionner.py": (False, WHITE),
         "Augmentation IA.py": (False, YELLOW),
+        "Compression web.py": (False, ORANGE),
         "Copyright.py": (False, VIOLET),
-        "IA / Bloc-notes": (True, BLUE),
     }
 
 
@@ -339,6 +339,7 @@ def main(page: ft.Page):
 
     resize_size = {"value": str(CONSTANTS.RESIZE_DEFAULT)}  # Taille par défaut pour le redimensionnement
     resize_watermark_size = {"value": str(CONSTANTS.RESIZE_DEFAULT)}  # Taille par défaut pour le redimensionnement avec watermark
+    web_quality = {"value": str(CONSTANTS.WEB_QUALITY)}  # Qualité JPEG par défaut pour la compression web
     sort_mode = {"value": 2}  # 0 = A→Z, 1 = Z→A, 2 = par date de modification
     show_only_selection = {"value": False}  # True = afficher uniquement les fichiers sélectionnés
     removable_drives_state = {"list": []}  # [(name, path), ...]
@@ -728,6 +729,16 @@ def main(page: ft.Page):
     )
     resize_watermark_input = ft.TextField(
         value=str(CONSTANTS.RESIZE_DEFAULT),
+        width=80,
+        height=35,
+        text_size=13,
+        text_align=ft.TextAlign.CENTER,
+        keyboard_type=ft.KeyboardType.NUMBER,
+        border_color=ORANGE,
+        content_padding=ft.Padding(5, 5, 5, 5),
+    )
+    web_quality_input = ft.TextField(
+        value=str(CONSTANTS.WEB_QUALITY),
         width=80,
         height=35,
         text_size=13,
@@ -8446,6 +8457,12 @@ def main(page: ft.Page):
 
 
 
+                # Ajouter la qualité de sortie pour Compression web.py
+                if app_name == "Compression web.py":
+                    env["WEB_QUALITY"] = web_quality["value"]
+
+
+
                 # Ajouter le dossier pour Transfert vers TEMP.py
                 if app_name == "Transfert vers TEMP.py":
                     if platform.system() == "Windows":
@@ -8704,6 +8721,20 @@ def main(page: ft.Page):
 
 
 
+    def on_web_quality_input_change(e):
+        """Met à jour la qualité JPEG cible pour la compression web."""
+        web_quality["value"] = e.control.value
+
+
+
+    def launch_web_quality(e):
+        """Lance Compression web.py avec la qualité saisie dans web_quality_input."""
+        app_path = os.path.join(app_directory, "Data", "Compression web.py")
+        if os.path.exists(app_path):
+            launch_app("Compression web.py", app_path, False)
+
+
+
     def refresh_apps():
         """
         Reconstruit la grille des applications disponibles.
@@ -8718,8 +8749,7 @@ def main(page: ft.Page):
             is_local = app_config[0]
             app_color = app_config[1]
             app_path = app_config[2] if len(app_config) > 2 else os.path.join(app_directory, "Data", app_name)
-            is_special_gemini_panel = app_name == "IA / Bloc-notes"
-            if not is_special_gemini_panel and not os.path.exists(app_path):
+            if not os.path.exists(app_path):
                 continue
 
             if app_name == "Redimensionner.py":
@@ -8758,46 +8788,23 @@ def main(page: ft.Page):
                         ink=True,
                     )
                 )
-            elif is_special_gemini_panel:
-                open_panels_title = ft.Text(
-                    "Outils IA",
-                    size=11,
-                    color=BLUE,
-                    text_align=ft.TextAlign.CENTER,
-                    weight=ft.FontWeight.W_500,
-                )
-                open_panels_caption = ft.Text(
-                    "IA / Bloc-notes",
-                    size=12,
-                    color=BLUE,
-                    text_align=ft.TextAlign.CENTER,
-                    weight=ft.FontWeight.W_500,
-                )
-                open_panels_card = ft.Container(
-                    content=ft.Column(
-                        [
-                            open_panels_title,
-                            open_panels_button,
-                            open_panels_caption,
-                        ],
-                        alignment=ft.MainAxisAlignment.CENTER,
-                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                        spacing=3,
-                    ),
-                    expand=True,
-                    alignment=ft.Alignment(0, 0),
-                    bgcolor=GREY,
-                    border=ft.Border.all(1, RED if (ai_mode["value"] or note_mode["value"]) else BLUE),
-                    padding=ft.Padding(10, 10, 10, 10),
-                    border_radius=4,
-                    on_click=lambda e: toggle_panels_open(),
-                    ink=True,
-                )
-                open_panels_card_state["control"] = open_panels_card
-                open_panels_card_state["title"] = open_panels_title
-                open_panels_card_state["caption"] = open_panels_caption
+            elif app_name == "Compression web.py":
                 items.append(
-                    open_panels_card
+                    ft.Container(
+                        content=ft.Column([
+                            ft.Text("Compression web", size=13, color=app_color, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                            web_quality_input,
+                            ft.Text("qualité", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=3),
+                        expand=True,
+                        alignment=ft.Alignment(0, 0),
+                        bgcolor=GREY,
+                        border=ft.Border.all(1, app_color),
+                        padding=ft.Padding(5, 8, 5, 8),
+                        border_radius=4,
+                        on_click=launch_web_quality,
+                        ink=True,
+                    )
                 )
             else:
                 if app_name == "SidePanel.pyw":
@@ -8940,6 +8947,12 @@ def main(page: ft.Page):
                 BLUE,
                 "Créer INFO.txt dans le dossier courant",
                 _create_and_open_info_txt,
+            ),
+            _round_button(
+                ft.Icons.SMART_TOY,
+                BLUE,
+                "Ouvrir/fermer IA & Bloc-notes",
+                lambda e: toggle_panels_open(),
             ),
         ]
 
@@ -9237,22 +9250,13 @@ def main(page: ft.Page):
     # ── Redimensionnement ─────────────────────────────────────────────
     resize_input.on_change = on_resize_input_change
     resize_watermark_input.on_change = on_resize_watermark_input_change
+    web_quality_input.on_change = on_web_quality_input_change
     resize_input.on_focus = lambda e: _suspend_keyboard_shortcuts()
     resize_input.on_blur = lambda e: _resume_keyboard_shortcuts()
     resize_watermark_input.on_focus = lambda e: _suspend_keyboard_shortcuts()
     resize_watermark_input.on_blur = lambda e: _resume_keyboard_shortcuts()
-
-
-    # Bouton global utilisé dans la grille pour ouvrir/fermer IA + bloc-notes.
-    open_panels_button = ft.IconButton(
-        icon=ft.Icons.SMART_TOY,
-        tooltip="Ouvrir IA & Bloc-notes",
-        icon_color=BLUE,
-        icon_size=16,
-        on_click=lambda e: toggle_panels_open(),
-    )
-    open_panels_card_state = {"control": None, "title": None, "caption": None}
-
+    web_quality_input.on_focus = lambda e: _suspend_keyboard_shortcuts()
+    web_quality_input.on_blur = lambda e: _resume_keyboard_shortcuts()
 
 
     # ── Initialisation ────────────────────────────────────────────────
@@ -9294,30 +9298,6 @@ def main(page: ft.Page):
                     ai_panel_container.visible = True
                 if notepad_panel_container is not None:
                     notepad_panel_container.visible = True
-            if open_panels_button is not None:
-                open_panels_button.icon       = ft.Icons.SMART_TOY
-                open_panels_button.icon_color = RED if panels_are_open else BLUE
-                open_panels_button.tooltip    = "Fermer IA & Notes" if panels_are_open else "Ouvrir IA & Bloc-notes"
-            open_panels_card = open_panels_card_state["control"]
-            if open_panels_card is not None:
-                open_panels_card.bgcolor = GREY
-                open_panels_card.border = ft.Border.all(1, RED if panels_are_open else BLUE)
-                title_control = open_panels_card_state["title"]
-                caption_control = open_panels_card_state["caption"]
-                if title_control is not None:
-                    title_control.color = RED if panels_are_open else BLUE
-                if caption_control is not None:
-                    caption_control.color = RED if panels_are_open else BLUE
-                try:
-                    if open_panels_button is not None:
-                        open_panels_button.update()
-                    if title_control is not None:
-                        title_control.update()
-                    if caption_control is not None:
-                        caption_control.update()
-                    open_panels_card.update()
-                except Exception:
-                    pass
 
 
 
@@ -9672,6 +9652,9 @@ def main(page: ft.Page):
 
 
 
+
+
+
     def toggle_ai_true_fullscreen():
         """Plein écran réel IA (moins WDA)."""
         if overlay_fullscreen["mode"] == "ai_full":
@@ -9748,30 +9731,6 @@ def main(page: ft.Page):
             expand_button_notepad.icon = ft.Icons.OPEN_IN_FULL
             expand_button_overlay.tooltip = "IA seule (Ctrl/Cmd+←)"
             expand_button_notepad.tooltip = "Bloc-notes seul (Ctrl/Cmd+→)"
-        if open_panels_button is not None:
-            open_panels_button.icon       = ft.Icons.SMART_TOY
-            open_panels_button.icon_color = RED if panels_are_open else BLUE
-            open_panels_button.tooltip    = "Fermer IA & Notes" if panels_are_open else "Ouvrir IA & Bloc-notes"
-        open_panels_card = open_panels_card_state["control"]
-        if open_panels_card is not None:
-            open_panels_card.bgcolor = GREY
-            open_panels_card.border = ft.Border.all(1, RED if panels_are_open else BLUE)
-            title_control = open_panels_card_state["title"]
-            caption_control = open_panels_card_state["caption"]
-            if title_control is not None:
-                title_control.color = RED if panels_are_open else BLUE
-            if caption_control is not None:
-                caption_control.color = RED if panels_are_open else BLUE
-            try:
-                if open_panels_button is not None:
-                    open_panels_button.update()
-                if title_control is not None:
-                    title_control.update()
-                if caption_control is not None:
-                    caption_control.update()
-                open_panels_card.update()
-            except Exception:
-                pass
 
 
 

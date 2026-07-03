@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.9.8"
+__version__ = "2.9.9"
 
 
 # ==============================================================================
@@ -240,6 +240,7 @@ RESIZE_DEFAULT       = 640    # Dimension max par défaut (y compris remerciemen
 RESIZE_QUALITY       = 80     # Qualité JPEG des miniatures (0-100)
 DASHBOARD_THUMB_SIZE = 50     # Taille des miniatures dans le panneau de prévisualisation (px)
 WATERMARK_ALPHA      = 0.35   # Opacité du filigrane (0.0 = invisible, 1.0 = opaque)
+WEB_QUALITY          = 75     # Qualité JPEG par défaut pour la compression web (0-100)
 
 
 # ── 6.3  Remerciements ────────────────────────────────────────────────────────
