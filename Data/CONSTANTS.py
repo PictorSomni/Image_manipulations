@@ -549,8 +549,8 @@ GRAIN2_CHROMA_SHIFT = 0.3  # Couche 2 — décalage inter-canal en % de la plus 
 
 HALATION_ENABLED    = True
 HALATION_THRESHOLD  = 0.6   # 0.55 large · 0.65 standard · 0.80 éclats seuls
-HALATION_RADIUS     = 5      # % de la plus petite dimension
-HALATION_INTENSITY  = 0.36   # additif : 0.1 discret · 0.3 visible · 0.6 fort
+HALATION_RADIUS     = 3      # % de la plus petite dimension
+HALATION_INTENSITY  = 0.4   # additif : 0.1 discret · 0.3 visible · 0.6 fort
 HALATION_RED_SHIFT  = 0.42    # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
 
 # Bloom : glow général obtenu en superposant l'image floutée en mode Screen.
@@ -559,8 +559,8 @@ HALATION_RED_SHIFT  = 0.42    # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
 # intensity : intensité additive (0.0 = aucun, 0.4 = visible, 1.0 = très fort)
 
 BLOOM_ENABLED    = True
-BLOOM_RADIUS     = 7
-BLOOM_INTENSITY  = 0.25
+BLOOM_RADIUS     = 10
+BLOOM_INTENSITY  = 0.3
 
 # ── 12.4  Désaturation des extrêmes + boost mi-tons (Grain pellicule.py) ──────
 # Les films argentiques perdent de la saturation dans les ombres très sombres
@@ -603,5 +603,5 @@ CURVE_TOE_LIFT          = 0.2   # 0 = aucun · 0.08 subtil · 0.20 prononcé
 # strength : intensité en % de la diagonale (0.3 = subtil, 1.0 = prononcé, 2.0 = fort)
 
 CA_ENABLED     = True
-CA_STRENGTH    = 0.03   # % de la diagonale de l'image
+CA_STRENGTH    = 0.04   # % de la diagonale de l'image
 CA_AXIAL_RATIO = 0.42  # part de la composante axiale (0 = purement radial, 1 = égal au radial)
