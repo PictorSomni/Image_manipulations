@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "2.9.9"
+__version__ = "3.0.0"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — SidePanel.pyw
@@ -92,6 +92,7 @@ from ai_tools import (
     _folder_copy_file, _folder_create_folder, _resolve_path,
     _folder_read_exif, _folder_zip_files, _folder_unzip_file,
     _encode_image_for_analysis, _analyze_images_batched, _take_screenshot,
+    _gemini_generate_image, _gemini_refine_image_prompt, _gemini_generate_music,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _SCREENSHOT_TOOLS, _NOTEPAD_TOOLS,
     _UI_TOOLS, _run_terminal_command,
     _EDIT_TOOLS, _READ_LINES_TOOLS, _SEARCH_TOOLS, _GIT_TOOLS, _TASK_TOOLS, _PDF_TOOLS, _SUBAGENT_TOOLS, _SCHEDULE_TOOLS,
@@ -511,6 +512,7 @@ def main(page: ft.Page):
         width=150,
     )
     ai_status_text  = ft.Text("", color=LIGHT_GREY, size=11, italic=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+    ai_progress_bar = ft.ProgressBar(value=None, visible=False, color=BLUE, height=2)
     ai_stop_button     = ft.IconButton(
         icon=ft.Icons.STOP_CIRCLE,
         icon_color=LIGHT_GREY,
@@ -2239,6 +2241,41 @@ def main(page: ft.Page):
         page.run_task(_update_and_scroll)
         return bubble_text
 
+    def _ai_add_image_bubble(image_path):
+        """Affiche une image générée dans le chat IA."""
+        image_src = image_path
+        try:
+            if os.path.isfile(image_path):
+                cached_image = thumb_cache.get_or_generate(image_path)
+                if cached_image:
+                    image_src = cached_image
+                else:
+                    with open(image_path, "rb") as image_file:
+                        image_src = image_file.read()
+        except Exception:
+            image_src = image_path
+
+        img_widget = ft.Image(
+            src=image_src,
+            width=400,
+            border_radius=8,
+            fit=ft.BoxFit.CONTAIN,
+        )
+        row = ft.Row(
+            [ft.Container(img_widget, border_radius=8)],
+            alignment=ft.MainAxisAlignment.START,
+        )
+        _target_view = _fs_ai["chat_view"] if _fs_ai["chat_view"] is not None else ai_chat_view
+        _target_view.controls.append(row)
+        async def _upd():
+            try:
+                page.update()
+                await asyncio.sleep(0)
+                await _target_view.scroll_to(offset=-1)
+            except Exception:
+                pass
+        page.run_task(_upd)
+
     def _ai_save_history():
         _ai_save_history_fn(ai_conversation, ai_history_file_path)
 
@@ -2395,6 +2432,8 @@ def main(page: ft.Page):
             on_click=lambda e: _export_ai_conversation(to_notepad=True),
         )
         fs_close_btn = ft.IconButton(ft.Icons.CLOSE_FULLSCREEN, icon_color=LIGHT_GREY, icon_size=18, tooltip="Fermer le plein écran")
+        fs_status_text = ft.Text("", color=LIGHT_GREY, size=11, italic=True, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
+        fs_progress_bar = ft.ProgressBar(value=None, visible=ai_progress_bar.visible, color=BLUE, height=2)
 
         # ── Layout ───────────────────────────────────────────────────────────
         ai_left_panel = ft.Column([
@@ -2403,12 +2442,14 @@ def main(page: ft.Page):
                 ft.Text("IA", color=BLUE, size=12, weight=ft.FontWeight.BOLD),
                 ft.Container(width=4),
                 fs_model_dd,
-                ft.Container(expand=True),
+                ft.Container(width=8),
+                ft.Container(content=fs_status_text, expand=True),
                 fs_stop_btn, fs_copy_btn, fs_clear_btn, fs_speaker_btn, fs_transfer_btn,
             ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Container(
                 content=ft.Column([
                     fs_chat_view,
+                    fs_progress_bar,
                     ft.Row([fs_attach_btn, fs_ai_input, fs_send_btn],
                            spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                 ], spacing=4, expand=True),
@@ -2430,6 +2471,23 @@ def main(page: ft.Page):
                 padding=ft.Padding(6, 6, 6, 6),
             ),
         ], expand=True, spacing=6)
+
+        def _fs_status_sync_loop():
+            """Reflète ai_status_text/ai_progress_bar (mis à jour par le tour d'outils
+            en arrière-plan) sur les contrôles plein écran, tant que cette fenêtre est ouverte."""
+            _last_text, _last_visible = None, None
+            while _fs_ai.get("chat_view") is fs_chat_view:
+                if ai_status_text.value != _last_text or ai_progress_bar.visible != _last_visible:
+                    _last_text = fs_status_text.value = ai_status_text.value
+                    _last_visible = fs_progress_bar.visible = ai_progress_bar.visible
+                    try:
+                        fs_status_text.update()
+                        fs_progress_bar.update()
+                    except Exception:
+                        pass
+                time.sleep(0.3)
+
+        threading.Thread(target=_fs_status_sync_loop, daemon=True).start()
 
         def _close_fs(event=None):
             _fs_ai["chat_view"] = None
@@ -2889,6 +2947,16 @@ def main(page: ft.Page):
                     except Exception:
                         pass
                 
+                # Capturer la demande originale de l'utilisateur (avant tout tour d'outil)
+                # pour affiner le prompt d'image si generate_image/edit_image est appelé.
+                _original_user_request = next(
+                    (m["content"] for m in reversed(messages) if m["role"] == "user"),
+                    "",
+                )
+                if len(_original_user_request) > 400:
+                    _original_user_request = _original_user_request[:400] + "…"
+                _image_tool_done = False  # True dès qu'une génération/édition image a réussi
+
                 # ── Boucle agentique (max 6 tours d'outils) ─────────────────────
                 for _tool_round in range(12):
                     # Streaming avec thinking natif Ollama et capture des tool_calls
@@ -3284,6 +3352,176 @@ def main(page: ft.Page):
                                 _folder_tool_results.append(
                                     (fn_name, "\n\n".join(_analyze_results) or "Aucun résultat.")
                                 )
+                        elif fn_name in ("generate_image", "edit_image"):
+                            if _image_tool_done:
+                                _folder_tool_results.append(
+                                    (fn_name, "Action ignorée : une image a déjà été générée/modifiée pour cette demande.")
+                                )
+                                continue
+                            # Une seule tentative image par demande utilisateur pour éviter
+                            # les boucles de prompts (réessais en chaîne côté modèle).
+                            _image_tool_done = True
+                            _gi_prompt     = fn_args.get("prompt", "")
+                            _gi_aspect     = fn_args.get("aspect_ratio", "1:1")
+                            _gi_resolution = fn_args.get("resolution", "1K")
+                            _gi_src_name   = ""
+                            if fn_name == "generate_image":
+                                _gi_out_filename = (
+                                    fn_args.get("filename", "").strip()
+                                    or f"generated_{datetime.datetime.now():%Y%m%d_%H%M%S}.png"
+                                )
+                                _gi_src_bytes = None
+                                _gi_label = _gi_prompt[:60] + ("…" if len(_gi_prompt) > 60 else "")
+                                _ai_add_bubble("assistant", f"🎨 Génération : {_gi_label}")
+                            else:  # edit_image
+                                _gi_src_name = fn_args.get("source_filename", "").strip()
+                                _gi_out_filename = (
+                                    fn_args.get("output_filename", "").strip()
+                                    or f"edited_{datetime.datetime.now():%Y%m%d_%H%M%S}.png"
+                                )
+                                _gi_src_bytes = None
+                                if _gi_src_name and _folder_path_for_tools:
+                                    _gi_src_path = os.path.join(
+                                        _folder_path_for_tools, os.path.basename(_gi_src_name)
+                                    )
+                                    if os.path.isfile(_gi_src_path):
+                                        with open(_gi_src_path, "rb") as _f:
+                                            _gi_src_bytes = _f.read()
+                                _ai_add_bubble("assistant", f"🎨 Édition : {_gi_src_name} → {_gi_out_filename}")
+
+                            _gi_prompt_refined = _gi_prompt
+                            if (active_model or "").startswith("gemini") and _gi_prompt.strip():
+                                _gi_prompt_refined = _gemini_refine_image_prompt(
+                                    intent_prompt=_gi_prompt,
+                                    user_request=_original_user_request,
+                                    mode=fn_name,
+                                    source_filename=_gi_src_name,
+                                    model=active_model,
+                                )
+                                if _gi_prompt_refined != _gi_prompt:
+                                    _ai_add_bubble("assistant", "🧪 Prompt image affiné automatiquement.")
+
+                            ai_status_text.value = "🎨 Génération d'image en cours…"
+                            ai_progress_bar.visible = True
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _gi_timeout_seconds = int(getattr(CONSTANTS, "AI_GEMINI_IMAGE_TIMEOUT", 180))
+                            _gi_result_holder = {"value": ("[ERREUR] Timeout Gemini image.", None)}
+                            _gi_done_event = threading.Event()
+
+                            def _run_gemini_image_call():
+                                try:
+                                    _gi_result_holder["value"] = _gemini_generate_image(
+                                        _gi_prompt_refined,
+                                        input_image_bytes=_gi_src_bytes,
+                                        aspect_ratio=_gi_aspect,
+                                        resolution=_gi_resolution,
+                                    )
+                                except Exception as _gi_exc:
+                                    _gi_result_holder["value"] = (f"[ERREUR] {str(_gi_exc)}", None)
+                                finally:
+                                    _gi_done_event.set()
+
+                            threading.Thread(target=_run_gemini_image_call, daemon=True).start()
+                            _gi_start_time = time.time()
+                            while not _gi_done_event.wait(timeout=1.0):
+                                _gi_elapsed_s = int(time.time() - _gi_start_time)
+                                if _gi_elapsed_s >= _gi_timeout_seconds:
+                                    break
+                                ai_status_text.value = f"🎨 Génération d'image en cours… ({_gi_elapsed_s}s)"
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                            if not _gi_done_event.is_set():
+                                _gi_text, _gi_bytes = (
+                                    f"[ERREUR] Timeout Gemini image après {_gi_timeout_seconds}s.",
+                                    None,
+                                )
+                            else:
+                                _gi_text, _gi_bytes = _gi_result_holder["value"]
+                            ai_progress_bar.visible = False
+                            if _gi_bytes:
+                                _gi_dest_folder = _folder_path_for_tools or os.path.join(app_dir, "Generated")
+                                os.makedirs(_gi_dest_folder, exist_ok=True)
+                                _gi_save_path = os.path.join(_gi_dest_folder, _gi_out_filename)
+                                with open(_gi_save_path, "wb") as _fout:
+                                    _fout.write(_gi_bytes)
+                                _ai_add_image_bubble(_gi_save_path)
+                                if _folder_path_for_tools:
+                                    page.pubsub.send_all_on_topic("refresh", None)
+                                _gi_result = f"Image sauvegardée : {_gi_save_path}"
+                                if _gi_text:
+                                    _gi_result += (
+                                        "\n\n"
+                                        f"Réponse du service : {_gi_text}\n"
+                                        f"Fichier : {_gi_save_path}"
+                                    )
+                            else:
+                                _gi_result = "[ERREUR] Aucune image n'a été générée/sauvegardée."
+                                if _gi_text:
+                                    _gi_result += (
+                                        "\n\nRéponse texte du service (sans image):\n"
+                                        f"{_gi_text}"
+                                    )
+                            _folder_tool_results.append((fn_name, _gi_result))
+                        elif fn_name == "generate_music":
+                            _gm_prompt   = fn_args.get("prompt", "")
+                            _gm_model    = fn_args.get("model", "lyria-3-clip-preview")
+                            _gm_filename = (
+                                fn_args.get("filename", "").strip()
+                                or f"music_{datetime.datetime.now():%Y%m%d_%H%M%S}.mp3"
+                            )
+                            _gm_label = _gm_prompt[:60] + ("…" if len(_gm_prompt) > 60 else "")
+                            _ai_add_bubble("assistant", f"🎵 Génération musique : {_gm_label}")
+                            ai_status_text.value = "🎵 Génération musicale en cours…"
+                            ai_progress_bar.visible = True
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _gm_result_holder = {"value": (None, None, "Timeout")}
+                            _gm_done_event = threading.Event()
+
+                            def _run_music_call():
+                                try:
+                                    _gm_result_holder["value"] = _gemini_generate_music(
+                                        _gm_prompt, model=_gm_model
+                                    )
+                                except Exception as _gm_exc:
+                                    _gm_result_holder["value"] = (None, None, str(_gm_exc))
+                                finally:
+                                    _gm_done_event.set()
+
+                            threading.Thread(target=_run_music_call, daemon=True).start()
+                            _gm_start = time.time()
+                            while not _gm_done_event.wait(timeout=1.0):
+                                _gm_elapsed = int(time.time() - _gm_start)
+                                if _gm_elapsed >= 180:
+                                    break
+                                ai_status_text.value = f"🎵 Génération musicale en cours… ({_gm_elapsed}s)"
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                            ai_progress_bar.visible = False
+                            _gm_bytes, _gm_lyrics, _gm_err = _gm_result_holder["value"]
+                            if _gm_bytes:
+                                _gm_dest = _folder_path_for_tools or os.path.join(app_dir, "Generated")
+                                os.makedirs(_gm_dest, exist_ok=True)
+                                _gm_save_path = os.path.join(_gm_dest, _gm_filename)
+                                with open(_gm_save_path, "wb") as _fout:
+                                    _fout.write(_gm_bytes)
+                                if _folder_path_for_tools:
+                                    page.pubsub.send_all_on_topic("refresh", None)
+                                _gm_result = f"Musique sauvegardée : {_gm_save_path}"
+                                if _gm_lyrics:
+                                    _gm_result += f"\n\nParoles / Structure :\n{_gm_lyrics}"
+                            else:
+                                _gm_result = f"[ERREUR] Génération musicale échouée : {_gm_err}"
+                            _folder_tool_results.append((fn_name, _gm_result))
                         elif fn_name == "create_file":
                             _create_filename = fn_args.get("filename", "").strip()
                             if not _create_filename:
@@ -3940,6 +4178,7 @@ def main(page: ft.Page):
                 ai_streaming["value"] = False
                 ai_stop_button.icon_color = LIGHT_GREY
                 ai_status_text.value = ""
+                ai_progress_bar.visible = False
                 try:
                     page.update()
                 except Exception:
@@ -4311,7 +4550,8 @@ def main(page: ft.Page):
             border_radius=6,
             padding=ft.Padding(0, 0, 0, 0),
         ),
-        ft.Container(expand=True),
+        ft.Container(width=8),
+        ft.Container(content=ai_status_text, expand=True),
         ai_copy_button,
         ai_clear_button,
         ai_speaker_button,
@@ -4336,6 +4576,7 @@ def main(page: ft.Page):
             content=ft.Column([
                 ai_chat_view,
                 ai_attach_row,
+                ai_progress_bar,
                 ft.Row([
                     ai_attach_button,
                     ai_input_field,

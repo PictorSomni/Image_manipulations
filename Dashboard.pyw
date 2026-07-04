@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "2.9.9"
+__version__ = "3.0.0"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -79,6 +79,7 @@ import hashlib
 import io
 import urllib.request
 import base64
+import webbrowser
 
 try:
     from PIL import Image as _PILImage
@@ -8944,7 +8945,7 @@ def main(page: ft.Page):
             ),
             _round_button(
                 ft.Icons.NOTE_ADD,
-                BLUE,
+                VIOLET,
                 "Créer INFO.txt dans le dossier courant",
                 _create_and_open_info_txt,
             ),
@@ -9421,6 +9422,8 @@ def main(page: ft.Page):
                 border_radius=6,
                 padding=ft.Padding(0, 0, 0, 0),
             ),
+            ft.Container(width=8),
+            ft.Container(content=ai_status_text, expand=True),
             ai_image_size_button,
             ai_image_mode_label,
             ai_clear_button,
@@ -9932,10 +9935,13 @@ def main(page: ft.Page):
                         ),
                         ft.Container(width=32),  # Espacement entre le titre et les boutons
                         ft.IconButton(
-                            icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT_SHARP,
-                            tooltip="Kiosk gauche",
-                            on_click=lambda e: launch_app("Kiosk gauche.py", os.path.join(app_directory, "Data", "Kiosk gauche.py"), True),
-                            icon_color=VIOLET,
+                            icon=ft.Icons.PUBLIC,
+                            tooltip="Ouvrir le navigateur par défaut",
+                            on_click=lambda e: (
+                                webbrowser.open("https://www.google.com"),
+                                _toggle_strip() if not _strip_state["active"] else None,
+                            ),
+                            icon_color=BLUE,
                             bgcolor=DARK,
                             icon_size=18,
                         ),

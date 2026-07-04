@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.9.9"
+__version__ = "3.0.0"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -511,6 +511,8 @@ class PhotoCropper:
         self.border_id2 = CONSTANTS.RECADRAGE_BORDER_ID2
         self.border_id4 = CONSTANTS.RECADRAGE_BORDER_ID4
         self.id4_10x20 = CONSTANTS.RECADRAGE_ID4_10x20       # Planche ID X4 en format 10x20 (moitié haute blanche)
+        self._id4_10x20_pending = None  # id_photo de la 1ère identité en attente de sa paire
+        self._id4_10x20_seq = 0  # compteur séquentiel des feuillets 10x20 sauvegardés (ID_01, ID_02, ...)
         self.save_to_network = CONSTANTS.RECADRAGE_SAVE_TO_NETWORK  # Sauvegarder les ID X4 sur le réseau par défaut
         self.enhance_toggle = False  # Retro-compat snapshots anciens
         self.canvas_w = 800  # Valeur initiale, ajustée au chargement
@@ -1438,6 +1440,8 @@ class PhotoCropper:
         self.image_paths = valid_image_paths
         self.current_index = 0
         self.batch_mode = True
+        self._id4_10x20_pending = None
+        self._id4_10x20_seq = 0
         self.load_image(preserve_orientation=False)
 
 
@@ -3496,8 +3500,25 @@ class PhotoCropper:
             id_photo = output_image
             if id_photo.height > id_photo.width:
                 id_photo = id_photo.rotate(90, expand=True)
+            id4_10x20_seq_filename = None
             if self.id4_10x20:
-                # Format 10x20 : moitié haute blanche, 4 photos dans la moitié basse
+                has_next_image = self.current_index + 1 < len(self.image_paths)
+                if self._id4_10x20_pending is None and has_next_image:
+                    # 1ère identité de la paire : mise en attente, la 2e ira à droite du
+                    # même feuillet. ponytail: pas d'export des extra_formats pour cette
+                    # identité en attente, cas marginal avec le mode ID X4 10x20.
+                    self._id4_10x20_pending = id_photo
+                    self._set_status("Identité mise en attente, recadrez la suivante...")
+                    self.current_index += 1
+                    self.extra_formats.clear()
+                    self._update_extra_formats_display()
+                    self.copies_count = 1
+                    self.copies_text.value = "1"
+                    self.load_image(preserve_orientation=False)
+                    return
+
+                # Format 10x20 : une identité par moitié (grille 2x2 = 4 copies chacune).
+                # S'il n'y a qu'une identité isolée en fin de batch, l'autre moitié reste blanche (comme avant).
                 SHEET_WIDTH_PX  = mm_to_pixels(102)
                 SHEET_HEIGHT_PX = mm_to_pixels(203)
                 sheet_image = Image.new("RGB", (SHEET_WIDTH_PX, SHEET_HEIGHT_PX), "white")
@@ -3505,15 +3526,30 @@ class PhotoCropper:
                 total_width  = id_photo.width  * 2 + SPACING_PX
                 total_height = id_photo.height * 2 + SPACING_PX
                 start_x = (SHEET_WIDTH_PX - total_width)  // 2
-                if ID_X4_10x20_PHOTOS_BOTTOM:
-                    start_y = half_height + (half_height - total_height) // 2
+                bottom_y = half_height + (half_height - total_height) // 2
+                top_y = (half_height - total_height) // 2
+
+                def _paste_id4_block(photo, y_offset):
+                    for row in range(2):
+                        for col in range(2):
+                            paste_x = start_x + col * (photo.width + SPACING_PX)
+                            paste_y = y_offset + row * (photo.height + SPACING_PX)
+                            sheet_image.paste(photo, (paste_x, paste_y))
+
+                first_half_y = bottom_y if ID_X4_10x20_PHOTOS_BOTTOM else top_y
+                second_half_y = top_y if ID_X4_10x20_PHOTOS_BOTTOM else bottom_y
+                if self._id4_10x20_pending is not None:
+                    first_photo = self._id4_10x20_pending
+                    self._id4_10x20_pending = None
+                    _paste_id4_block(first_photo, first_half_y)
+                    _paste_id4_block(id_photo, second_half_y)
                 else:
-                    start_y = (half_height - total_height) // 2
-                for row in range(2):
-                    for col in range(2):
-                        paste_x = start_x + col * (id_photo.width  + SPACING_PX)
-                        paste_y = start_y + row * (id_photo.height + SPACING_PX)
-                        sheet_image.paste(id_photo, (paste_x, paste_y))
+                    # dernière identité isolée du batch : une seule moitié, 4 copies comme avant
+                    _paste_id4_block(id_photo, first_half_y)
+                # Numérotation séquentielle des feuillets sauvegardés (ID_01, ID_02, ...),
+                # indépendante de l'index des photos sources consommées par paire.
+                self._id4_10x20_seq += 1
+                id4_10x20_seq_filename = f"{copies_count_prefix}ID {self._id4_10x20_seq:02}.jpg"
                 format_short_name = "ID_X4_10x20"
             else:
                 SHEET_WIDTH_PX  = mm_to_pixels(127)
@@ -3530,7 +3566,7 @@ class PhotoCropper:
                         sheet_image.paste(id_photo, (paste_x, paste_y))
                 format_short_name = "ID_X4"
             output_image = sheet_image
-            output_filename = f"{copies_count_prefix}ID {self.current_index + 1:02}.jpg"
+            output_filename = id4_10x20_seq_filename or f"{copies_count_prefix}ID {self.current_index + 1:02}.jpg"
 
         elif _crop_mode != 'none' and self.border_id2 and "ID" in self.current_format_label:
             SHEET_WIDTH_PX  = mm_to_pixels(102)
