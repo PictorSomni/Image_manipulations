@@ -9935,6 +9935,14 @@ def main(page: ft.Page):
                         ),
                         ft.Container(width=32),  # Espacement entre le titre et les boutons
                         ft.IconButton(
+                            icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT_SHARP,
+                            tooltip="Kiosk gauche",
+                            on_click=lambda e: launch_app("Kiosk gauche.py", os.path.join(app_directory, "Data", "Kiosk gauche.py"), True),
+                            icon_color=VIOLET,
+                            bgcolor=DARK,
+                            icon_size=18,
+                        ),
+                        ft.IconButton(
                             icon=ft.Icons.PUBLIC,
                             tooltip="Ouvrir le navigateur par défaut",
                             on_click=lambda e: (
@@ -9942,14 +9950,6 @@ def main(page: ft.Page):
                                 _toggle_strip() if not _strip_state["active"] else None,
                             ),
                             icon_color=BLUE,
-                            bgcolor=DARK,
-                            icon_size=18,
-                        ),
-                        ft.IconButton(
-                            icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_RIGHT_SHARP,
-                            tooltip="Kiosk droite",
-                            on_click=lambda e: launch_app("Kiosk droite.py", os.path.join(app_directory, "Data", "Kiosk droite.py"), True),
-                            icon_color=VIOLET,
                             bgcolor=DARK,
                             icon_size=18,
                         ),
