@@ -390,7 +390,7 @@ def main(page: ft.Page):
 
 
 # ===================== ÉLÉMENTS UI ===================== #
-    def _short_path(p, max_len=35):
+    def _short_path(p, max_len=25):
         if not p or len(p) <= max_len:
             return p or ""
         return "…" + p[-(max_len - 1):]
