@@ -1160,6 +1160,9 @@ def main(page: ft.Page):
             return
         preview_page["value"] = new_page_index
         _render_preview()
+        async def _scroll_top():
+            await preview_list.scroll_to(offset=0, duration=0)
+        page.run_task(_scroll_top)
 
     def _go_parent(event):
         if current_src["path"]:

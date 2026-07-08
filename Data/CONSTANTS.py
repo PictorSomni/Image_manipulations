@@ -351,13 +351,15 @@ def is_os_junk(name, is_dir=False):
     """
     Retourne True si `name` (nom de fichier/dossier, sans le chemin) est un
     fichier système à ignorer : ceux de OS_JUNK_NAMES, les sidecars macOS
-    AppleDouble ('._xxx'), la corbeille Windows et les corbeilles Linux
-    ('.Trash-1000/', un dossier par utilisateur).
+    AppleDouble ('._xxx'), les sidecars SQLite WAL du cache de miniatures
+    ('.thumbcache.db-shm', '.thumbcache.db-wal'), la corbeille Windows et
+    les corbeilles Linux ('.Trash-1000/', un dossier par utilisateur).
     """
     name_lower = name.lower()
     return (
         name_lower in OS_JUNK_NAMES
         or name_lower.startswith("._")
+        or name_lower.startswith(THUMB_CACHE_DB_NAME.lower() + "-")
         or name == "$RECYCLE.BIN"
         or (is_dir and name.startswith(".Trash-"))
     )
