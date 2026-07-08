@@ -39,9 +39,10 @@ PyMuPDF>=1.23.0
 
 rembg>=2.0.57
 
-# Backend ONNX GPU — fallback CPU automatique si aucun GPU compatible détecté.
-# Le script d'installation bascule sur 'onnxruntime' (CPU) si ce paquet échoue.
-onnxruntime-gpu>=1.16.0
+# Backend ONNX : GPU sur Windows/Linux, CPU sur macOS (onnxruntime-gpu n'a pas
+# de wheel macOS et échoue à l'installation).
+onnxruntime-gpu; sys_platform != "darwin"
+onnxruntime; sys_platform == "darwin"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

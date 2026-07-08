@@ -1765,12 +1765,39 @@ def _take_screenshot(max_size=1920, quality=75, region=None):
         return None
 
 
+def _mouse_warp_macos(x, y):
+    """
+    macOS uniquement : repositionne le curseur via CGWarpMouseCursorPosition.
+
+    Après une longue session d'appels répétés, le déplacement standard de
+    pyautogui (CGEventPost d'un évènement mouseMoved) reste parfois bloqué :
+    la file d'évènements HID sature et le curseur ne bouge plus, sans lever
+    d'erreur. CGWarpMouseCursorPosition force la position au niveau système,
+    contournement plus fiable que le simple post d'évènement.
+    """
+    try:
+        import Quartz as _Quartz
+        _Quartz.CGWarpMouseCursorPosition((x, y))
+        _Quartz.CGAssociateMouseAndMouseCursorPosition(True)
+        return True
+    except Exception:
+        return False
+
+
 def _mouse_click(x, y, button="left", clicks=1):
     """Clique à la position (x, y) sur l'écran, et vérifie que le curseur y est bien arrivé."""
     try:
         import pyautogui as _pag
-        _pag.click(x, y, button=button, clicks=int(clicks))
-        _actual_x, _actual_y = _pag.position()
+        _is_macos = _sys.platform == "darwin"
+
+        for _attempt in range(2):
+            if _is_macos:
+                _mouse_warp_macos(x, y)
+            _pag.click(x, y, button=button, clicks=int(clicks))
+            _actual_x, _actual_y = _pag.position()
+            if abs(_actual_x - x) <= 3 and abs(_actual_y - y) <= 3:
+                break
+
         _suffix = f' ×{clicks}' if int(clicks) > 1 else ''
         if abs(_actual_x - x) > 3 or abs(_actual_y - y) > 3:
             return (

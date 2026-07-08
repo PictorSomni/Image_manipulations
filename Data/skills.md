@@ -1,4 +1,4 @@
-Procédure de rédaction pour fiches produits Prestashop (Mug personnalisé, etc.) : rédiger le texte et le donner dans le chat pour que Charles le copie/colle lui-même. Ne PAS essayer de remplir Prestashop directement via l'écran (clic/saisie automatisés) — tenté et abandonné (peu fiable : pas de retour visuel sur la position réelle du curseur dans les captures d'écran, champs Prestashop piégeux).
+Procédure de rédaction pour fiches produits Prestashop (Mug personnalisé, etc.) : rédiger le texte et le donner dans le chat pour que Charles le copie/colle lui-même.
 
 1. Récapitulatif (max 800 caractères)
 2. Courte description (si nécessaire)
