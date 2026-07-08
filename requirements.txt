@@ -77,6 +77,21 @@ pip-system-certs
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# IDENTIFIANTS / MOTS DE PASSE
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Coffre à secrets natif de l'OS : Windows Credential Manager, macOS Keychain,
+# Secret Service sur Linux (voir Data/credentials.py).
+# Linux headless : sudo apt install gnome-keyring  (ou pip install secretstorage)
+keyring>=25.0.0
+
+# Client SSH pur Python — permet de fournir le mot de passe en mémoire
+# (résolu via credentials.py) sans jamais l'exposer en ligne de commande.
+# Utilisé par l'outil IA ssh_command (Data/ai_tools.py).
+paramiko>=3.4.0
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # WINDOWS UNIQUEMENT
 # ──────────────────────────────────────────────────────────────────────────────
 

@@ -49,11 +49,27 @@ import ast as _ast
 import gzip
 import json
 import re
+import sys as _sys
 import urllib.request
 import urllib.parse
 import html.parser
 
 import CONSTANTS
+
+# Rend le processus DPI-aware sous Windows : sans ça, si l'affichage a une
+# mise à l'échelle > 100%, Windows "virtualise" les coordonnées de la souris
+# (SetCursorPos/click) sur une résolution logique réduite alors que les
+# captures d'écran (pyautogui.screenshot) restent en pixels physiques —
+# décalage systématique entre ce que le modèle voit et où le clic atterrit.
+if _sys.platform == "win32":
+    try:
+        import ctypes as _ctypes_dpi
+        _ctypes_dpi.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+    except Exception:
+        try:
+            _ctypes_dpi.windll.user32.SetProcessDPIAware()  # fallback Windows 7/8
+        except Exception:
+            pass
 
 
 _GEMINI_API_KEY_CACHE = None
@@ -1710,22 +1726,59 @@ def _take_screenshot(max_size=1920, quality=75, region=None):
 
         w, h = img.size
         img = img.convert("RGB")
+
+        # Dessiner la position du curseur (absent des captures natives) pour
+        # que le modèle voie où la souris se trouve réellement.
+        try:
+            import pyautogui as _pag
+            from PIL import ImageDraw as _ImageDraw
+            _cx, _cy = _pag.position()
+            if region:
+                _cx -= region[0]
+                _cy -= region[1]
+            if 0 <= _cx < w and 0 <= _cy < h:
+                _draw = _ImageDraw.Draw(img)
+                _r = max(8, w // 150)
+                _draw.ellipse(
+                    [_cx - _r, _cy - _r, _cx + _r, _cy + _r],
+                    outline="red", width=max(2, _r // 4),
+                )
+                _draw.line([_cx - _r * 2, _cy, _cx + _r * 2, _cy], fill="red", width=2)
+                _draw.line([_cx, _cy - _r * 2, _cx, _cy + _r * 2], fill="red", width=2)
+        except Exception:
+            pass
+
         img.thumbnail((max_size, max_size), _PilImage.LANCZOS)
         buf = _io.BytesIO()
         img.save(buf, format="JPEG", quality=quality, optimize=True)
         b64 = _base64.b64encode(buf.getvalue()).decode("utf-8")
         region_str = f" région ({region[0]},{region[1]} {region[2]}×{region[3]})" if region else ""
-        return {"text": f"Screenshot capturé ({w}×{h} px{region_str}).", "b64": b64}
+        return {
+            "text": (
+                f"Screenshot capturé ({w}×{h} px{region_str}). "
+                "Le cercle rouge avec croix marque la position actuelle du curseur "
+                "(absent nativement des captures) — pas un élément de l'interface."
+            ),
+            "b64": b64,
+        }
     except Exception:
         return None
 
 
 def _mouse_click(x, y, button="left", clicks=1):
-    """Clique à la position (x, y) sur l'écran."""
+    """Clique à la position (x, y) sur l'écran, et vérifie que le curseur y est bien arrivé."""
     try:
         import pyautogui as _pag
         _pag.click(x, y, button=button, clicks=int(clicks))
-        return f"Clic {button} à ({x}, {y}){f' ×{clicks}' if int(clicks) > 1 else ''}."
+        _actual_x, _actual_y = _pag.position()
+        _suffix = f' ×{clicks}' if int(clicks) > 1 else ''
+        if abs(_actual_x - x) > 3 or abs(_actual_y - y) > 3:
+            return (
+                f"[ATTENTION] Clic {button} demandé à ({x}, {y}){_suffix} mais le curseur "
+                f"est en réalité en ({_actual_x}, {_actual_y}) après le clic — le curseur "
+                f"n'a probablement pas atteint la bonne position, le clic a pu manquer sa cible."
+            )
+        return f"Clic {button} à ({x}, {y}){_suffix}."
     except ImportError:
         return "[Erreur] pyautogui n'est pas installé. Installe : pip install pyautogui"
     except Exception as exc:
@@ -4880,6 +4933,81 @@ _HTTP_TOOLS = [
                     },
                 },
                 "required": ["method", "url"],
+            },
+        },
+    },
+]
+
+
+# ── ssh_command ───────────────────────────────────────────────────────────────
+# Le mot de passe est fourni par l'appelant (résolu via credentials.py côté
+# Dashboard/SidePanel, avec boîte de dialogue si besoin) : cette fonction ne
+# le stocke jamais et ne le fait jamais réapparaître dans le texte retourné.
+
+def _ssh_command(host, username, password, command, port=22, timeout=30):
+    """Exécute une commande shell sur un hôte distant via SSH."""
+    try:
+        import paramiko
+    except ImportError:
+        return "[Erreur] Le module 'paramiko' est requis (pip install paramiko)."
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            host, port=int(port or 22), username=username, password=password,
+            timeout=int(timeout or 30),
+        )
+        _stdin, stdout, stderr = client.exec_command(command, timeout=int(timeout or 30))
+        out = stdout.read().decode("utf-8", errors="replace")
+        err = stderr.read().decode("utf-8", errors="replace")
+        exit_code = stdout.channel.recv_exit_status()
+    except Exception as exc:
+        return f"[Erreur SSH] {username}@{host} : {exc}"
+    finally:
+        client.close()
+
+    result = out + (f"\n[stderr]\n{err}" if err else "")
+    truncated = result[:10000]
+    suffix = "\n[…tronqué à 10 000 chars]" if len(result) > 10000 else ""
+    return f"[SSH exit={exit_code}] {username}@{host}:{port} $ {command}\n{truncated}{suffix}"
+
+
+_SSH_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "ssh_command",
+            "description": (
+                "Exécute une commande shell sur un serveur distant via SSH "
+                "(mot de passe résolu via un coffre à identifiants local, "
+                "jamais visible du modèle — préciser juste host/username/command)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "host": {
+                        "type": "string",
+                        "description": "Adresse ou nom d'hôte du serveur (ex : monobjet.example.com)",
+                    },
+                    "username": {
+                        "type": "string",
+                        "description": "Nom d'utilisateur SSH",
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "Commande shell à exécuter sur l'hôte distant",
+                    },
+                    "port": {
+                        "type": "integer",
+                        "description": "Port SSH (défaut : 22)",
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "description": "Timeout en secondes (défaut : 30)",
+                    },
+                },
+                "required": ["host", "username", "command"],
             },
         },
     },

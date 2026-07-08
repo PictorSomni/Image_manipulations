@@ -46,7 +46,10 @@ $RECYCLE.BIN/
 open_with.json
 .DS_Store
 .sidepanel_config.json
+.recadrage_auto_config.json
 .notes.md
+.adresses.md
+.mots_cles.json
 .ai_conversation.json
 .ai_conversation_sp.json
 

@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "3.0.0"
+__version__ = "3.0.1"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -65,6 +65,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data"))
 from Data import ai_tools
 import CONSTANTS
+import credentials
 import platform
 import shutil
 import threading
@@ -100,9 +101,9 @@ from ai_tools import (
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _SCREENSHOT_TOOLS, _NOTEPAD_TOOLS,
     _UI_TOOLS, _run_terminal_command,
     _EDIT_TOOLS, _READ_LINES_TOOLS, _SEARCH_TOOLS, _GIT_TOOLS, _TASK_TOOLS, _PDF_TOOLS, _SUBAGENT_TOOLS, _SCHEDULE_TOOLS,
-    _HTTP_TOOLS, _SPREADSHEET_TOOLS, _PYAUTOGUI_TOOLS,
+    _HTTP_TOOLS, _SPREADSHEET_TOOLS, _PYAUTOGUI_TOOLS, _SSH_TOOLS,
     _edit_file, _read_file_lines, _search_in_files, _find_files, _git_command, _manage_tasks, _read_pdf,
-    _ask_subagent, _schedule_task, _http_request, _read_spreadsheet,
+    _ask_subagent, _schedule_task, _http_request, _read_spreadsheet, _ssh_command,
     _mouse_click, _keyboard_type, _keyboard_hotkey,
     _is_network_error,
     _update_memory_file, _build_system_content,
@@ -120,24 +121,9 @@ _IMAGE_VIEWER_EXTS = CONSTANTS.IMAGE_EXTS
 _NOTEPAD_EXTS      = CONSTANTS.NOTEPAD_EXTS
 _ANSI_ESCAPE       = re.compile(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\[\?[0-9;]*[a-zA-Z]')
 
-_OS_JUNK = {
-    ".ds_store", "thumbs.db", "thumbs.db:encryptable",
-    "ehthumbs.db", "ehthumbs_vista.db", "desktop.ini",
-    ".directory", ".spotlight-v100", ".trashes",
-    ".thumbcache.db",
-}
-
-
-
 def _is_os_junk(entry):
     """Retourne True si l'entrée est un fichier système à ignorer."""
-    name_lower = entry.name.lower()
-    return (
-        name_lower in _OS_JUNK
-        or name_lower.startswith("._")
-        or entry.name == "$RECYCLE.BIN"
-        or (entry.name.startswith(".Trash-") and entry.is_dir())
-    )
+    return CONSTANTS.is_os_junk(entry.name, entry.is_dir())
 
 
 
@@ -310,6 +296,25 @@ def main(page: ft.Page):
         try:
             with open(favorites_file_path, "w", encoding="utf-8") as f:
                 json.dump(folders, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+
+
+    # ── Dernier format utilisé pour "Recadrage automatique" ────────────
+    recadrage_auto_config_path = os.path.join(app_directory, ".recadrage_auto_config.json")
+
+    def _load_recadrage_auto_config() -> dict:
+        try:
+            with open(recadrage_auto_config_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_recadrage_auto_config(config: dict) -> None:
+        try:
+            with open(recadrage_auto_config_path, "w", encoding="utf-8") as f:
+                json.dump(config, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
 
@@ -1305,6 +1310,79 @@ def main(page: ft.Page):
 
 
 
+    # ================================================================ #
+    #                          IDENTIFIANTS                            #
+    # ================================================================ #
+    def get_or_ask_credential(service, username, timeout=300):
+        """
+        Retourne le mot de passe stocké pour (service, username) via le
+        coffre natif de l'OS (Data/credentials.py). S'il n'existe pas,
+        ouvre une boîte de dialogue pour le saisir (masqué) et l'enregistre
+        pour les prochains appels. Renvoie None si l'utilisateur annule.
+        """
+        existing = credentials.get_credential(service, username)
+        if existing is not None:
+            return existing
+
+        _cred_event = threading.Event()
+        _cred_result = {"value": None}
+
+        password_field = ft.TextField(
+            label=f"Mot de passe pour {username}@{service}",
+            password=True,
+            can_reveal_password=True,
+            autofocus=True,
+            width=360,
+            on_submit=lambda e: _on_cred_confirm(e),
+        )
+
+        def _on_cred_confirm(e=None):
+            value = password_field.value or ""
+            if value:
+                credentials.set_credential(service, username, value)
+                _cred_result["value"] = value
+            _cred_dlg.open = False
+            try:
+                page.update()
+            except Exception:
+                pass
+            _cred_event.set()
+
+        def _on_cred_cancel(e=None):
+            _cred_dlg.open = False
+            try:
+                page.update()
+            except Exception:
+                pass
+            _cred_event.set()
+
+        _cred_dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"🔐 Identifiant requis : {service}"),
+            content=ft.Column(
+                [
+                    ft.Text(f"Aucun mot de passe enregistré pour {username}@{service}.", size=13),
+                    password_field,
+                ],
+                tight=True, width=360,
+            ),
+            actions=[
+                ft.TextButton("Annuler", on_click=_on_cred_cancel),
+                ft.Button("Enregistrer", bgcolor=BLUE, color=WHITE, on_click=_on_cred_confirm),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.overlay.append(_cred_dlg)
+        _cred_dlg.open = True
+        try:
+            page.update()
+        except Exception:
+            pass
+        _cred_event.wait(timeout=timeout)
+        return _cred_result["value"]
+
+
+
     def clear_terminal(e):
         """Efface le contenu du terminal"""
         terminal_output.controls.clear()
@@ -2265,6 +2343,30 @@ def main(page: ft.Page):
 
 
 
+    def _ai_add_screenshot_bubble(b64_str):
+        """Affiche dans le chat IA la capture d'écran telle que le modèle la voit (debug)."""
+        img_widget = ft.Image(
+            src=base64.b64decode(b64_str),
+            width=350,
+            border_radius=8,
+            fit=ft.BoxFit.CONTAIN,
+        )
+        row = ft.Row(
+            [ft.Container(img_widget, border=ft.Border.all(1, LIGHT_GREY), border_radius=8)],
+            alignment=ft.MainAxisAlignment.START,
+        )
+        ai_chat_view.controls.append(row)
+        async def _upd():
+            try:
+                page.update()
+                await asyncio.sleep(0)
+                await ai_chat_view.scroll_to(offset=-1)
+            except Exception:
+                pass
+        page.run_task(_upd)
+
+
+
     def _send_ai_message(message_text):
         """Envoie un message à Ollama et streame la réponse dans le panneau IA."""
         if ai_streaming["value"]:
@@ -2380,7 +2482,7 @@ def main(page: ft.Page):
                 _FOLDER_TOOLS = _folder_tool_definitions(_folder_path_for_tools)
                 _NEW_TOOLS = (_EDIT_TOOLS + _READ_LINES_TOOLS + _SEARCH_TOOLS + _GIT_TOOLS + _TASK_TOOLS
                               + _PDF_TOOLS + _SUBAGENT_TOOLS + _SCHEDULE_TOOLS
-                              + _HTTP_TOOLS + _SPREADSHEET_TOOLS + _PYAUTOGUI_TOOLS)
+                              + _HTTP_TOOLS + _SPREADSHEET_TOOLS + _PYAUTOGUI_TOOLS + _SSH_TOOLS)
                 if (active_model or "").startswith("gemini"):
                     _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
                 else:
@@ -2390,6 +2492,7 @@ def main(page: ft.Page):
                 _system_content = _build_system_content(
                     _folder_path_for_tools, today
                 )
+                _system_content += f"\n\nRACINE DU PROJET (chemin absolu, pour .mots_cles.json etc.) : {app_directory}"
                 if _folder_path_for_tools:
                     _system_content += f"\n\nDOSSIER ACTUELLEMENT OUVERT : {_folder_path_for_tools}"
                 if selected_files:
@@ -3279,6 +3382,7 @@ def main(page: ft.Page):
                             if _ss_capture:
                                 _screenshot_b64s.append(_ss_capture["b64"])
                                 _folder_tool_results.append((fn_name, _ss_capture["text"]))
+                                _ai_add_screenshot_bubble(_ss_capture["b64"])
                             else:
                                 _folder_tool_results.append((fn_name, "Échec de la capture d'écran."))
                         elif fn_name == "mouse_click":
@@ -3684,6 +3788,28 @@ def main(page: ft.Page):
                                     timeout=fn_args.get("timeout") or 30,
                                 )
                                 _folder_tool_results.append((fn_name, _hr_res))
+                        elif fn_name == "ssh_command":
+                            _ssh_host = fn_args.get("host", "").strip()
+                            _ssh_user = fn_args.get("username", "").strip()
+                            _ssh_cmd  = fn_args.get("command", "")
+                            if not _ssh_host or not _ssh_user or not _ssh_cmd:
+                                _folder_tool_results.append((fn_name, "Paramètres 'host', 'username' et 'command' requis."))
+                            else:
+                                ai_status_text.value = f"🔐 SSH {_ssh_user}@{_ssh_host}…"
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _ssh_pwd = get_or_ask_credential(_ssh_host, _ssh_user)
+                                if _ssh_pwd is None:
+                                    _folder_tool_results.append((fn_name, "Connexion annulée par l'utilisateur (mot de passe non fourni)."))
+                                else:
+                                    _ssh_res = _ssh_command(
+                                        _ssh_host, _ssh_user, _ssh_pwd, _ssh_cmd,
+                                        port=fn_args.get("port") or 22,
+                                        timeout=fn_args.get("timeout") or 30,
+                                    )
+                                    _folder_tool_results.append((fn_name, _ssh_res))
                         elif fn_name == "read_spreadsheet":
                             _ss_path = fn_args.get("filepath", "").strip()
                             if not _ss_path:
@@ -3700,6 +3826,11 @@ def main(page: ft.Page):
                                     max_rows=fn_args.get("max_rows") or 100,
                                 )
                                 _folder_tool_results.append((fn_name, _ss_res))
+                    # Remonter les erreurs/avertissements d'outils dans le chat (visible même
+                    # quand le terminal est masqué en mode IA), pas seulement au modèle.
+                    for _tr_name, _tr_result in _folder_tool_results:
+                        if isinstance(_tr_result, str) and _tr_result.startswith(("[Erreur]", "[ATTENTION]")):
+                            _ai_add_bubble("assistant", f"⚠️ {_tr_name} : {_tr_result}")
                     try:
                         page.update()
                     except Exception:
@@ -5740,6 +5871,89 @@ def main(page: ft.Page):
 
 
 
+    def _batch_set_print_count(e):
+        """Règle le nombre d'impressions de toutes les images du dossier courant."""
+        folder = current_browse_folder["path"] or selected_folder["path"]
+        if not folder:
+            log_to_terminal("[ERREUR] Aucun dossier sélectionné", RED)
+            return
+        try:
+            image_names = [
+                f for f in os.listdir(folder)
+                if os.path.isfile(os.path.join(folder, f))
+                and os.path.splitext(f)[1].lower() in CONSTANTS.IMAGE_EXTS
+            ]
+        except Exception as err:
+            log_to_terminal(f"[ERREUR] {err}", RED)
+            return
+        if not image_names:
+            log_to_terminal("[ATTENTION] Aucune image dans ce dossier", ORANGE)
+            return
+
+        count_input = ft.TextField(
+            label="Nombre d'impressions",
+            value="1",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            autofocus=True,
+        )
+
+        def _confirm_batch_print(e):
+            try:
+                new_count = max(0, int(count_input.value.strip()))
+            except (ValueError, AttributeError):
+                log_to_terminal("[ERREUR] Nombre invalide", RED)
+                return
+            dialog.open = False
+            page.update()
+            _resume_keyboard_shortcuts()
+
+            renamed = 0
+            for name in image_names:
+                file_path = os.path.join(folder, name)
+                if not os.path.exists(file_path):
+                    continue
+                clean_name = re.sub(r'^\d+X_', '', name, flags=re.IGNORECASE)
+                new_name = f"{new_count}X_{clean_name}" if new_count > 0 else clean_name
+                new_path = os.path.join(folder, new_name)
+                if new_path == file_path:
+                    renamed += 1
+                    continue
+                try:
+                    os.rename(file_path, new_path)
+                    _live_print_counts.pop(file_path, None)
+                    _live_print_counts[new_path] = new_count
+                    renamed += 1
+                except Exception as err:
+                    log_to_terminal(f"[ERREUR] {name}: {err}", RED)
+
+            log_to_terminal(
+                f"[OK] Impressions réglées à {new_count} pour {renamed} image(s)", GREEN
+            )
+            page.pubsub.send_all_on_topic("refresh", None)
+            refresh_preview()
+
+        def _cancel_batch_print(e):
+            dialog.open = False
+            page.update()
+            _resume_keyboard_shortcuts()
+
+        count_input.on_submit = _confirm_batch_print
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("Impressions pour toutes les images du dossier"),
+            content=count_input,
+            actions=[
+                ft.TextButton("Annuler", on_click=_cancel_batch_print),
+                ft.TextButton("Appliquer", on_click=_confirm_batch_print),
+            ],
+        )
+        page.overlay.append(dialog)
+        _suspend_keyboard_shortcuts()
+        dialog.open = True
+        page.update()
+
+
+
     def copy_selected_files(e):
         """Copie les fichiers sélectionnés dans le presse-papiers"""
         if not selected_files:
@@ -5968,77 +6182,129 @@ def main(page: ft.Page):
         # Snapshot du presse-papiers avant de lancer le thread
         files_to_paste = list(clipboard["files"])
         is_cut = clipboard["cut"]
-        count = len(files_to_paste)
-        action_label = "déplacement" if is_cut else "copie"
-        log_to_terminal(f"[...] {action_label.capitalize()} de {count} élément(s) en cours…", ORANGE)
 
-        def _do_paste():
-            copied_count = 0
-            errors = []
+        def _start_paste(conflict_strategy):
+            """conflict_strategy: 'keep_both' | 'overwrite' | 'keep_newest'"""
+            count = len(files_to_paste)
+            action_label = "déplacement" if is_cut else "copie"
+            log_to_terminal(f"[...] {action_label.capitalize()} de {count} élément(s) en cours…", ORANGE)
 
-            for source_path in files_to_paste:
-                if not os.path.exists(source_path):
-                    errors.append(f"{os.path.basename(source_path)}: fichier source introuvable")
-                    continue
+            def _do_paste():
+                copied_count = 0
+                errors = []
 
-                dest_path = os.path.join(target_folder, os.path.basename(source_path))
+                for source_path in files_to_paste:
+                    if not os.path.exists(source_path):
+                        errors.append(f"{os.path.basename(source_path)}: fichier source introuvable")
+                        continue
 
-                # Si le fichier existe déjà, ajouter un suffixe
-                if os.path.exists(dest_path):
-                    base_name = os.path.basename(source_path)
-                    name, ext = os.path.splitext(base_name)
-                    counter = 1
-                    while os.path.exists(dest_path):
-                        new_name = f"{name} ({counter}){ext}"
-                        dest_path = os.path.join(target_folder, new_name)
-                        counter += 1
+                    dest_path = os.path.join(target_folder, os.path.basename(source_path))
+                    skip = False
 
-                try:
-                    if os.path.isdir(source_path):
-                        shutil.copytree(source_path, dest_path)
-                    else:
-                        shutil.copy2(source_path, dest_path)
-                    copied_count += 1
+                    if os.path.exists(dest_path):
+                        if conflict_strategy == "keep_both":
+                            base_name = os.path.basename(source_path)
+                            name, ext = os.path.splitext(base_name)
+                            counter = 1
+                            while os.path.exists(dest_path):
+                                new_name = f"{name} ({counter}){ext}"
+                                dest_path = os.path.join(target_folder, new_name)
+                                counter += 1
+                        elif conflict_strategy == "keep_newest":
+                            try:
+                                if os.path.getmtime(source_path) <= os.path.getmtime(dest_path):
+                                    skip = True
+                            except OSError:
+                                pass
+                        # "overwrite" : rien à faire, la copie écrase dest_path directement
 
-                    # Si mode couper : supprimer la source après copie réussie
+                    if skip:
+                        continue
+
+                    try:
+                        if os.path.isdir(source_path):
+                            shutil.copytree(
+                                source_path, dest_path,
+                                dirs_exist_ok=(conflict_strategy != "keep_both"),
+                            )
+                        else:
+                            shutil.copy2(source_path, dest_path)
+                        copied_count += 1
+
+                        # Si mode couper : supprimer la source après copie réussie
+                        if is_cut:
+                            try:
+                                if os.path.isdir(source_path):
+                                    shutil.rmtree(source_path)
+                                else:
+                                    os.remove(source_path)
+                                if source_path in selected_files:
+                                    selected_files.remove(source_path)
+                            except Exception as del_err:
+                                errors.append(f"Suppression source {os.path.basename(source_path)}: {del_err}")
+                    except Exception as err:
+                        errors.append(f"{os.path.basename(source_path)}: {err}")
+
+                if copied_count > 0:
+                    action = "déplacé" if is_cut else "collé"
+                    log_to_terminal(f"[OK] {copied_count} élément(s) {action}(s)", BLUE)
                     if is_cut:
-                        try:
-                            if os.path.isdir(source_path):
-                                shutil.rmtree(source_path)
-                            else:
-                                os.remove(source_path)
-                            if source_path in selected_files:
-                                selected_files.remove(source_path)
-                        except Exception as del_err:
-                            errors.append(f"Suppression source {os.path.basename(source_path)}: {del_err}")
-                except Exception as err:
-                    errors.append(f"{os.path.basename(source_path)}: {err}")
+                        clipboard["files"] = []
+                        clipboard["cut"] = False
+                        selection_count_text.value = _selection_label()
 
-            if copied_count > 0:
-                action = "déplacé" if is_cut else "collé"
-                log_to_terminal(f"[OK] {copied_count} élément(s) {action}(s)", BLUE)
-                if is_cut:
-                    clipboard["files"] = []
-                    clipboard["cut"] = False
-                    selection_count_text.value = _selection_label()
+                if errors:
+                    for error in errors:
+                        log_to_terminal(f"[ERREUR] {error}", RED)
 
-            if errors:
-                for error in errors:
-                    log_to_terminal(f"[ERREUR] {error}", RED)
+                app_progress_bar.visible = False
+                try:
+                    page.update()
+                except Exception:
+                    pass
+                refresh_preview()
 
-            app_progress_bar.visible = False
+            app_progress_bar.visible = True
             try:
                 page.update()
             except Exception:
                 pass
-            refresh_preview()
+            threading.Thread(target=_do_paste, daemon=True).start()
 
-        app_progress_bar.visible = True
-        try:
-            page.update()
-        except Exception:
-            pass
-        threading.Thread(target=_do_paste, daemon=True).start()
+        # Détecter les conflits de noms avant de lancer la copie
+        conflicts = [
+            f for f in files_to_paste
+            if os.path.exists(os.path.join(target_folder, os.path.basename(f)))
+        ]
+        if not conflicts:
+            _start_paste("keep_both")
+            return
+
+        def _pick_strategy(strategy):
+            def handler(e):
+                conflict_dialog.open = False
+                page.update()
+                _start_paste(strategy)
+            return handler
+
+        conflict_dialog = ft.AlertDialog(
+            title=ft.Text("Fichiers déjà présents"),
+            content=ft.Text(
+                f"{len(conflicts)} fichier(s) sur {len(files_to_paste)} "
+                "existent déjà dans le dossier de destination.\nQue faire ?"
+            ),
+            actions=[
+                ft.TextButton("Garder les 2", on_click=_pick_strategy("keep_both")),
+                ft.TextButton("Garder le plus récent", on_click=_pick_strategy("keep_newest")),
+                ft.TextButton(
+                    "Écraser", on_click=_pick_strategy("overwrite"),
+                    style=ft.ButtonStyle(color=ft.Colors.RED),
+                ),
+            ],
+        )
+        page.overlay.append(conflict_dialog)
+        conflict_dialog.open = True
+        page.update()
 
 
 
@@ -6108,7 +6374,7 @@ def main(page: ft.Page):
         if new_count <= 0:
             renamed_count = 0
             for file_name in os.listdir(folder):
-                if file_name.startswith(".") or file_name.lower() in _OS_JUNK:
+                if file_name.startswith(".") or CONSTANTS.is_os_junk(file_name):
                     continue
                 entry_path = os.path.join(folder, file_name)
                 if not os.path.isfile(entry_path) or os.path.normpath(entry_path).lower() == norm_new_path:
@@ -6158,7 +6424,7 @@ def main(page: ft.Page):
         elif current_count <= 0 and new_count > 0:
             renamed_count = 0
             for file_name in os.listdir(folder):
-                if file_name.startswith(".") or file_name.lower() in _OS_JUNK:
+                if file_name.startswith(".") or CONSTANTS.is_os_junk(file_name):
                     continue
                 entry_path = os.path.join(folder, file_name)
                 if not os.path.isfile(entry_path) or os.path.normpath(entry_path).lower() == norm_new_path:
@@ -7428,11 +7694,13 @@ def main(page: ft.Page):
 
         if app_name == "Recadrage automatique.py" and series_name is None:
             _format_items = list(CONSTANTS.FORMATS.items())
-            _default_format = "10x15" if "10x15" in CONSTANTS.FORMATS else (_format_items[0][0] if _format_items else "10x15")
+            _saved_config = _load_recadrage_auto_config()
+            _fallback_format = "10x15" if "10x15" in CONSTANTS.FORMATS else (_format_items[0][0] if _format_items else "10x15")
+            _default_format = _saved_config.get("format") if _saved_config.get("format") in CONSTANTS.FORMATS else _fallback_format
             _default_mm = CONSTANTS.FORMATS.get(_default_format, (102, 152))
             _auto_scope_value = "selected" if selected_files else "all"
 
-            force_mode_state = {"manual": False}
+            force_mode_state = {"manual": bool(_saved_config.get("manual", False))}
 
             force_format_dropdown = ft.Dropdown(
                 value=_default_format,
@@ -7441,30 +7709,31 @@ def main(page: ft.Page):
                 text_size=13,
                 border_color=GREEN,
                 bgcolor=DARK,
+                disabled=force_mode_state["manual"],
             )
             force_manual_width = ft.TextField(
                 label="Largeur (mm)",
-                value=str(_default_mm[0]),
+                value=str(_saved_config.get("manual_w", _default_mm[0])),
                 width=125,
                 text_size=13,
                 keyboard_type=ft.KeyboardType.NUMBER,
                 border_color=GREEN,
                 bgcolor=DARK,
-                disabled=True,
+                disabled=not force_mode_state["manual"],
             )
             force_manual_height = ft.TextField(
                 label="Hauteur (mm)",
-                value=str(_default_mm[1]),
+                value=str(_saved_config.get("manual_h", _default_mm[1])),
                 width=125,
                 text_size=13,
                 keyboard_type=ft.KeyboardType.NUMBER,
                 border_color=GREEN,
                 bgcolor=DARK,
-                disabled=True,
+                disabled=not force_mode_state["manual"],
             )
             force_manual_switch = ft.Switch(
                 label="Saisie manuelle (mm)",
-                value=False,
+                value=force_mode_state["manual"],
                 active_color=GREEN,
             )
             force_scope_info = ft.Text(
@@ -7477,12 +7746,12 @@ def main(page: ft.Page):
 
             force_fit_switch = ft.Switch(
                 label="Fit 100% (sans rognage)",
-                value=False,
+                value=bool(_saved_config.get("fit", False)),
                 active_color=GREEN,
             )
             force_white_border_switch = ft.Switch(
                 label="Bord blanc 5mm",
-                value=False,
+                value=bool(_saved_config.get("white_border", False)),
                 active_color=GREEN,
             )
 
@@ -7516,6 +7785,15 @@ def main(page: ft.Page):
                     _fit_value = "1" if force_fit_switch.value else "0"
                     _wb_value = "1" if force_white_border_switch.value else "0"
 
+                    _save_recadrage_auto_config({
+                        "format": force_format_dropdown.value,
+                        "manual": force_mode_state["manual"],
+                        "manual_w": force_manual_width.value,
+                        "manual_h": force_manual_height.value,
+                        "fit": force_fit_switch.value,
+                        "white_border": force_white_border_switch.value,
+                    })
+
                     force_crop_dialog.open = False
                     page.update()
                     launch_app(app_name, app_path, is_local, series_name=f"{_size_value}|{_scope_value}|{_fit_value}|{_wb_value}")
@@ -7541,15 +7819,31 @@ def main(page: ft.Page):
                             text_align=ft.TextAlign.CENTER,
                         ),
                         force_format_dropdown,
-                        force_manual_switch,
-                        ft.Row(
-                            [force_manual_width, force_manual_height],
-                            spacing=8,
-                            tight=True,
-                            alignment=ft.MainAxisAlignment.CENTER,
+                        ft.Container(
+                            content=ft.Column(
+                                [
+                                    force_manual_switch,
+                                    ft.Row(
+                                        [force_manual_width, force_manual_height],
+                                        spacing=8,
+                                        tight=True,
+                                        alignment=ft.MainAxisAlignment.CENTER,
+                                    ),
+                                ],
+                                spacing=8,
+                                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                            ),
+                            border=ft.Border.all(1, GREEN),
+                            bgcolor=DARK,
+                            border_radius=8,
+                            padding=ft.Padding.symmetric(horizontal=10, vertical=10),
                         ),
-                        force_fit_switch,
-                        force_white_border_switch,
+                        ft.Column(
+                            [force_fit_switch, force_white_border_switch],
+                            spacing=16,
+                            horizontal_alignment=ft.CrossAxisAlignment.START,
+                            width=380,
+                        ),
                         force_scope_info,
                         force_error_text,
                     ],
@@ -8985,6 +9279,100 @@ def main(page: ft.Page):
 
 
 
+    async def _sync_two_folders(e):
+        """
+        Synchronise le dossier courant avec un 2e dossier (sous-dossiers inclus).
+
+        Pour chaque fichier, la version la plus récente (mtime) est copiée du
+        côté qui ne l'a pas ou qui a une version plus ancienne. Aucun fichier
+        n'est jamais supprimé.
+        """
+        folder_a = current_browse_folder["path"] or selected_folder["path"]
+        if not folder_a:
+            log_to_terminal("[ERREUR] Aucun dossier ouvert à synchroniser", RED)
+            return
+
+        folder_b = await ft.FilePicker().get_directory_path(
+            dialog_title="Choisir le 2e dossier à synchroniser"
+        )
+        if not folder_b:
+            return
+        folder_a = os.path.normpath(folder_a)
+        folder_b = os.path.normpath(folder_b)
+        if folder_a.lower() == folder_b.lower():
+            log_to_terminal("[ERREUR] Les 2 dossiers sont identiques", RED)
+            return
+
+        def _collect_files(src_root, dst_root):
+            """Liste (src_path, dst_dir, dst_path, name) pour chaque fichier de src_root."""
+            tasks = []
+            for src_dir, _, files in os.walk(src_root):
+                rel = os.path.relpath(src_dir, src_root)
+                dst_dir = dst_root if rel == "." else os.path.join(dst_root, rel)
+                for name in files:
+                    if CONSTANTS.is_os_junk(name):
+                        continue
+                    tasks.append((os.path.join(src_dir, name), dst_dir, os.path.join(dst_dir, name), name))
+            return tasks
+
+        def _do_sync():
+            tasks = _collect_files(folder_a, folder_b) + _collect_files(folder_b, folder_a)
+            total = len(tasks)
+            log_to_terminal(f"[...] {total} fichier(s) à comparer…", ORANGE)
+
+            progress_text = ft.Text("", size=CONSTANTS.TERMINAL_FONT_SIZE, color=BLUE, font_family="monospace")
+            terminal_output.controls.append(progress_text)
+            try:
+                page.update()
+            except Exception:
+                pass
+
+            copied = 0
+            errors = []
+            last_update = 0
+            for i, (src_path, dst_dir, dst_path, name) in enumerate(tasks, start=1):
+                progress_text.value = f"[{i}/{total}] {name}"
+                now = time.time()
+                if now - last_update >= 0.1 or i == total:
+                    last_update = now
+                    try:
+                        progress_text.update()
+                    except Exception:
+                        pass
+                try:
+                    if not os.path.exists(dst_path) or (
+                        os.path.getmtime(src_path) > os.path.getmtime(dst_path)
+                    ):
+                        os.makedirs(dst_dir, exist_ok=True)
+                        shutil.copy2(src_path, dst_path)
+                        copied += 1
+                except Exception as err:
+                    errors.append(f"{name}: {err}")
+
+            if copied:
+                log_to_terminal(f"[OK] {copied} fichier(s) synchronisé(s)", GREEN)
+            else:
+                log_to_terminal("[OK] Dossiers déjà synchronisés", BLUE)
+            for err in errors:
+                log_to_terminal(f"[ERREUR] {err}", RED)
+
+            app_progress_bar.visible = False
+            try:
+                page.update()
+            except Exception:
+                pass
+            refresh_preview()
+
+        log_to_terminal(f"[...] Synchronisation avec {folder_b} en cours…", ORANGE)
+        app_progress_bar.visible = True
+        try:
+            page.update()
+        except Exception:
+            pass
+        threading.Thread(target=_do_sync, daemon=True).start()
+
+
+
     async def close_window(e):
         """Ferme la fenêtre principale de l'application de façon asynchrone."""
         await page.window.close()
@@ -9011,7 +9399,7 @@ def main(page: ft.Page):
 
 
             # ── Sauvegarde mémoire des fichiers utilisateur avant git ─
-            user_data_filenames = [".recent_folders.json", ".favorites.json", ".pip_cache.json"]
+            user_data_filenames = [".recent_folders.json", ".favorites.json", ".pip_cache.json", ".recadrage_auto_config.json"]
             user_data_backups = {}
             for file_name in user_data_filenames:
                 file_path = os.path.join(app_directory, file_name)
@@ -9907,6 +10295,13 @@ def main(page: ft.Page):
                     tooltip="Imprimer les images sélectionnées",
                     on_click=lambda e: _print_files_with_default_app(selected_files),
                 ),
+                ft.IconButton(
+                    icon=ft.Icons.FORMAT_LIST_NUMBERED,
+                    icon_color=ORANGE,
+                    bgcolor=GREY,
+                    tooltip="Régler le nombre d'impressions de toutes les images du dossier",
+                    on_click=_batch_set_print_count,
+                ),
 
 
                 ft.Container(expand=True),
@@ -9958,6 +10353,14 @@ def main(page: ft.Page):
                             tooltip="Nettoyer anciens fichiers (> 60 jours)",
                             on_click=lambda e: launch_app("Nettoyer anciens fichiers.py", os.path.join(app_directory, "Data", "Nettoyer anciens fichiers.py"), True),
                             icon_color=ORANGE,
+                            bgcolor=GREY,
+                            icon_size=18,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.SYNC,
+                            tooltip="Synchroniser le dossier courant avec un autre dossier (sous-dossiers inclus)",
+                            on_click=_sync_two_folders,
+                            icon_color=GREEN,
                             bgcolor=GREY,
                             icon_size=18,
                         ),

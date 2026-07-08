@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "3.0.0"
+__version__ = "3.0.1"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — SidePanel.pyw
@@ -62,6 +62,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
 import thumb_cache
+import credentials
 
 
 #############################################################
@@ -70,17 +71,8 @@ import thumb_cache
 _IMAGE_EXTS   = CONSTANTS.IMAGE_EXTS
 _NOTEPAD_EXTS = CONSTANTS.NOTEPAD_EXTS
 
-_OS_JUNK = {
-    ".ds_store", "thumbs.db", "thumbs.db:encryptable",
-    "ehthumbs.db", "desktop.ini", ".directory",
-    CONSTANTS.THUMB_CACHE_DB_NAME.lower(),
-    ".thumbcache.db",
-}
-
-
 def _is_os_junk(entry):
-    filename_lower = entry.name.lower()
-    return filename_lower in _OS_JUNK or filename_lower.startswith("._")
+    return CONSTANTS.is_os_junk(entry.name, entry.is_dir())
 
 
 from ai_tools import (
@@ -96,9 +88,9 @@ from ai_tools import (
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _SCREENSHOT_TOOLS, _NOTEPAD_TOOLS,
     _UI_TOOLS, _run_terminal_command,
     _EDIT_TOOLS, _READ_LINES_TOOLS, _SEARCH_TOOLS, _GIT_TOOLS, _TASK_TOOLS, _PDF_TOOLS, _SUBAGENT_TOOLS, _SCHEDULE_TOOLS,
-    _HTTP_TOOLS, _SPREADSHEET_TOOLS, _PYAUTOGUI_TOOLS,
+    _HTTP_TOOLS, _SPREADSHEET_TOOLS, _PYAUTOGUI_TOOLS, _SSH_TOOLS,
     _edit_file, _read_file_lines, _search_in_files, _find_files, _git_command, _manage_tasks, _read_pdf,
-    _ask_subagent, _schedule_task, _http_request, _read_spreadsheet,
+    _ask_subagent, _schedule_task, _http_request, _read_spreadsheet, _ssh_command,
     _mouse_click, _keyboard_type, _keyboard_hotkey,
     _is_network_error,
     _update_memory_file, _build_system_content,
@@ -223,6 +215,77 @@ def main(page: ft.Page):
     ollama_process     = {"proc": None}
     ai_pending_images  = []
     ai_pending_files   = []
+
+    # ═════════════════════════════════════════════════════════════════════
+    #  ██  Identifiants
+    # ═════════════════════════════════════════════════════════════════════
+    def get_or_ask_credential(service, username, timeout=300):
+        """
+        Retourne le mot de passe stocké pour (service, username) via le
+        coffre natif de l'OS (Data/credentials.py). S'il n'existe pas,
+        ouvre une boîte de dialogue pour le saisir (masqué) et l'enregistre
+        pour les prochains appels. Renvoie None si l'utilisateur annule.
+        """
+        existing = credentials.get_credential(service, username)
+        if existing is not None:
+            return existing
+
+        _cred_event = threading.Event()
+        _cred_result = {"value": None}
+
+        password_field = ft.TextField(
+            label=f"Mot de passe pour {username}@{service}",
+            password=True,
+            can_reveal_password=True,
+            autofocus=True,
+            width=360,
+            on_submit=lambda e: _on_cred_confirm(e),
+        )
+
+        def _on_cred_confirm(e=None):
+            value = password_field.value or ""
+            if value:
+                credentials.set_credential(service, username, value)
+                _cred_result["value"] = value
+            _cred_dlg.open = False
+            try:
+                page.update()
+            except Exception:
+                pass
+            _cred_event.set()
+
+        def _on_cred_cancel(e=None):
+            _cred_dlg.open = False
+            try:
+                page.update()
+            except Exception:
+                pass
+            _cred_event.set()
+
+        _cred_dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"🔐 Identifiant requis : {service}"),
+            content=ft.Column(
+                [
+                    ft.Text(f"Aucun mot de passe enregistré pour {username}@{service}.", size=13),
+                    password_field,
+                ],
+                tight=True, width=360,
+            ),
+            actions=[
+                ft.TextButton("Annuler", on_click=_on_cred_cancel),
+                ft.Button("Enregistrer", bgcolor=BLUE, color=WHITE, on_click=_on_cred_confirm),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.overlay.append(_cred_dlg)
+        _cred_dlg.open = True
+        try:
+            page.update()
+        except Exception:
+            pass
+        _cred_event.wait(timeout=timeout)
+        return _cred_result["value"]
 
     # ═════════════════════════════════════════════════════════════════════
     #  ██  Helpers persistance
@@ -985,6 +1048,25 @@ def main(page: ft.Page):
                 _clear_selection()
             else:
                 _select_all()
+
+    def _send_selection_to_ai(event=None):
+        """Joint les images/documents sélectionnés à la conversation IA (onglet IA)."""
+        if not selected_files:
+            return
+        image_paths = [p for p in selected_files if os.path.splitext(p)[1].lower() in _IMAGE_EXTS]
+        doc_paths = [p for p in selected_files if os.path.splitext(p)[1].lower() in _AI_DOCUMENT_EXTS]
+        if not image_paths and not doc_paths:
+            return
+        for image_path in image_paths:
+            _ai_attach_image(image_path)
+        for doc_path in doc_paths:
+            _ai_attach_document_file(doc_path)
+        _clear_selection()
+        tabs.selected_index = 3
+        try:
+            tabs.update()
+        except Exception:
+            pass
 
     def _invert(event):
         entries = all_entries["list"]
@@ -1775,6 +1857,12 @@ def main(page: ft.Page):
         _render_list()
         page.update()
 
+    def _on_refresh_topic(topic, message):
+        """Recharge la liste JSON depuis le disque quand l'IA modifie un fichier."""
+        _load_and_render()
+
+    page.pubsub.subscribe_topic("refresh", _on_refresh_topic)
+
     def _open_json_in_list(path: str):
         """Charge un fichier JSON dans l'onglet Liste et bascule sur cet onglet."""
         json_path["value"]    = path
@@ -2263,6 +2351,29 @@ def main(page: ft.Page):
         )
         row = ft.Row(
             [ft.Container(img_widget, border_radius=8)],
+            alignment=ft.MainAxisAlignment.START,
+        )
+        _target_view = _fs_ai["chat_view"] if _fs_ai["chat_view"] is not None else ai_chat_view
+        _target_view.controls.append(row)
+        async def _upd():
+            try:
+                page.update()
+                await asyncio.sleep(0)
+                await _target_view.scroll_to(offset=-1)
+            except Exception:
+                pass
+        page.run_task(_upd)
+
+    def _ai_add_screenshot_bubble(b64_str):
+        """Affiche dans le chat IA la capture d'écran telle que le modèle la voit (debug)."""
+        img_widget = ft.Image(
+            src=base64.b64decode(b64_str),
+            width=350,
+            border_radius=8,
+            fit=ft.BoxFit.CONTAIN,
+        )
+        row = ft.Row(
+            [ft.Container(img_widget, border=ft.Border.all(1, LIGHT_GREY), border_radius=8)],
             alignment=ft.MainAxisAlignment.START,
         )
         _target_view = _fs_ai["chat_view"] if _fs_ai["chat_view"] is not None else ai_chat_view
@@ -2857,7 +2968,7 @@ def main(page: ft.Page):
                 _FOLDER_TOOLS = _folder_tool_definitions(_folder_path_for_tools)
                 _NEW_TOOLS = (_EDIT_TOOLS + _READ_LINES_TOOLS + _SEARCH_TOOLS + _GIT_TOOLS + _TASK_TOOLS
                               + _PDF_TOOLS + _SUBAGENT_TOOLS + _SCHEDULE_TOOLS
-                              + _HTTP_TOOLS + _SPREADSHEET_TOOLS + _PYAUTOGUI_TOOLS)
+                              + _HTTP_TOOLS + _SPREADSHEET_TOOLS + _PYAUTOGUI_TOOLS + _SSH_TOOLS)
                 if (active_model or "").startswith("gemini"):
                     _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
                 else:
@@ -2868,6 +2979,7 @@ def main(page: ft.Page):
                 _system_content = _build_system_content(
                     _folder_path_for_tools, today
                 )
+                _system_content += f"\n\nRACINE DU PROJET (chemin absolu, pour .mots_cles.json etc.) : {os.path.dirname(app_dir)}"
                 if _folder_path_for_tools:
                     _system_content += f"\n\nDOSSIER ACTUELLEMENT OUVERT : {_folder_path_for_tools}"
                 if selected_files:
@@ -3676,6 +3788,7 @@ def main(page: ft.Page):
                             if _ss_capture:
                                 _screenshot_b64s.append(_ss_capture["b64"])
                                 _folder_tool_results.append((fn_name, _ss_capture["text"]))
+                                _ai_add_screenshot_bubble(_ss_capture["b64"])
                             else:
                                 _folder_tool_results.append((fn_name, "Échec de la capture d'écran."))
                         elif fn_name == "mouse_click":
@@ -4076,6 +4189,28 @@ def main(page: ft.Page):
                                     timeout=fn_args.get("timeout") or 30,
                                 )
                                 _folder_tool_results.append((fn_name, _hr_res))
+                        elif fn_name == "ssh_command":
+                            _ssh_host = fn_args.get("host", "").strip()
+                            _ssh_user = fn_args.get("username", "").strip()
+                            _ssh_cmd  = fn_args.get("command", "")
+                            if not _ssh_host or not _ssh_user or not _ssh_cmd:
+                                _folder_tool_results.append((fn_name, "Paramètres 'host', 'username' et 'command' requis."))
+                            else:
+                                ai_status_text.value = f"🔐 SSH {_ssh_user}@{_ssh_host}…"
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _ssh_pwd = get_or_ask_credential(_ssh_host, _ssh_user)
+                                if _ssh_pwd is None:
+                                    _folder_tool_results.append((fn_name, "Connexion annulée par l'utilisateur (mot de passe non fourni)."))
+                                else:
+                                    _ssh_res = _ssh_command(
+                                        _ssh_host, _ssh_user, _ssh_pwd, _ssh_cmd,
+                                        port=fn_args.get("port") or 22,
+                                        timeout=fn_args.get("timeout") or 30,
+                                    )
+                                    _folder_tool_results.append((fn_name, _ssh_res))
                         elif fn_name == "read_spreadsheet":
                             _ss_path = fn_args.get("filepath", "").strip()
                             if not _ss_path:
@@ -4092,6 +4227,11 @@ def main(page: ft.Page):
                                     max_rows=fn_args.get("max_rows") or 100,
                                 )
                                 _folder_tool_results.append((fn_name, _ss_res))
+                    # Remonter les erreurs/avertissements d'outils dans le chat (visible même
+                    # quand le terminal est masqué en mode IA), pas seulement au modèle.
+                    for _tr_name, _tr_result in _folder_tool_results:
+                        if isinstance(_tr_result, str) and _tr_result.startswith(("[Erreur]", "[ATTENTION]")):
+                            _ai_add_bubble("assistant", f"⚠️ {_tr_name} : {_tr_result}")
                     try:
                         page.update()
                     except Exception:
@@ -4391,6 +4531,11 @@ def main(page: ft.Page):
             file_filter_btn,
             select_toggle_btn,
             invert_btn,
+            ft.IconButton(
+                icon=ft.Icons.SMART_TOY, icon_color=BLUE,
+                icon_size=18, tooltip="Envoyer la sélection à l'IA",
+                on_click=_send_selection_to_ai,
+            ),
             search_field,
             search_close_btn,
             ft.Container(expand=True),
@@ -4455,6 +4600,11 @@ def main(page: ft.Page):
                 icon=ft.Icons.NOTE_ADD_OUTLINED, icon_color=YELLOW,
                 icon_size=18, tooltip="Créer un nouveau fichier JSON",
                 on_click=_new_json_file,
+            ),
+            ft.IconButton(
+                icon=ft.Icons.REFRESH, icon_color=BLUE,
+                icon_size=18, tooltip="Rafraîchir (relire le fichier depuis le disque)",
+                on_click=lambda e: _load_and_render(),
             ),
         ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
 

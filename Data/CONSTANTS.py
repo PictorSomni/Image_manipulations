@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "3.0.0"
+__version__ = "3.0.1"
 
 
 # ==============================================================================
@@ -330,6 +330,37 @@ del _platform
 THUMB_CACHE_SIZE    = 280                # Taille (px, côté le plus long) des miniatures
 THUMB_CACHE_QUALITY = 60                 # Qualité JPEG (0-100)
 THUMB_CACHE_DB_NAME = ".thumbcache.db"   # Nom du fichier SQLite dans chaque dossier
+
+
+# ==============================================================================
+# 9bis. FICHIERS SYSTÈME À IGNORER (miniatures/cache OS)
+# ==============================================================================
+# Utilisé partout où on liste/copie/synchronise des fichiers, pour ne jamais
+# copier les fichiers système générés par macOS/Windows/Linux (Finder, Explorer,
+# gestionnaires de fichiers Linux…).
+
+OS_JUNK_NAMES = frozenset({
+    ".ds_store", "thumbs.db", "thumbs.db:encryptable",
+    "ehthumbs.db", "ehthumbs_vista.db", "desktop.ini",
+    ".directory", ".spotlight-v100", ".trashes",
+    THUMB_CACHE_DB_NAME.lower(),
+})
+
+
+def is_os_junk(name, is_dir=False):
+    """
+    Retourne True si `name` (nom de fichier/dossier, sans le chemin) est un
+    fichier système à ignorer : ceux de OS_JUNK_NAMES, les sidecars macOS
+    AppleDouble ('._xxx'), la corbeille Windows et les corbeilles Linux
+    ('.Trash-1000/', un dossier par utilisateur).
+    """
+    name_lower = name.lower()
+    return (
+        name_lower in OS_JUNK_NAMES
+        or name_lower.startswith("._")
+        or name == "$RECYCLE.BIN"
+        or (is_dir and name.startswith(".Trash-"))
+    )
 
 
 # ==============================================================================
