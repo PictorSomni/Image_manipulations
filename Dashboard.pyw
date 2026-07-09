@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "3.0.2"
+__version__ = "3.0.3"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -9249,12 +9249,6 @@ def main(page: ft.Page):
                 "Créer INFO.txt dans le dossier courant",
                 _create_and_open_info_txt,
             ),
-            _round_button(
-                ft.Icons.SMART_TOY,
-                BLUE,
-                "Ouvrir/fermer IA & Bloc-notes",
-                lambda e: toggle_panels_open(),
-            ),
         ]
 
 
@@ -9937,6 +9931,12 @@ def main(page: ft.Page):
         return max(CONSTANTS.TERMINAL_HEIGHT, int(win_h - CONSTANTS.WDA_HEIGHT))
 
 
+    def _overlay_default_height():
+        """Hauteur par défaut de la zone IA + Bloc-notes (deux panneaux) : moitié de la fenêtre."""
+        win_h = page.window.height or CONSTANTS.WINDOW_HEIGHT
+        return max(CONSTANTS.TERMINAL_HEIGHT, win_h // 2)
+
+
 
     def _enter_solo_mode(panel_container, mode_name, do_update=True):
         """Bascule un panneau en mode solo pleine hauteur à gauche."""
@@ -10002,11 +10002,7 @@ def main(page: ft.Page):
         bottom_panel_container.right  = 0
         bottom_panel_container.left   = 0
         bottom_panel_container.width  = None
-        bottom_panel_container.height = (
-            _expanded_terminal_height()
-            if terminal_is_expanded["value"]
-            else CONSTANTS.TERMINAL_HEIGHT
-        )
+        bottom_panel_container.height = _overlay_default_height()
         if ai_panel_container is not None:
             ai_panel_container.visible = True
         if notepad_panel_container is not None:
@@ -10108,9 +10104,9 @@ def main(page: ft.Page):
     def update_overlay_visibility():
         """Affiche ou masque l'overlay (IA à gauche + Notes à droite)."""
         panels_are_open = ai_mode["value"] or note_mode["value"]
-        # Nettoyage du mode solo si les panneaux se ferment
-        if not panels_are_open and overlay_fullscreen["mode"] in ("ai", "notepad", "ai_full", "notepad_full"):
-            # Restaurer bottom_panel_container au mode normal
+        was_open = overlay_container.visible
+        # Nettoyage du mode solo/plein écran si les panneaux se ferment
+        if not panels_are_open:
             bottom_panel_container.top    = None
             bottom_panel_container.right  = 0
             bottom_panel_container.left   = 0
@@ -10120,6 +10116,10 @@ def main(page: ft.Page):
             notepad_panel_container.visible = True
             _terminal_spacer.height = CONSTANTS.TERMINAL_HEIGHT
         overlay_container.visible = panels_are_open
+        if panels_are_open and not was_open and overlay_fullscreen["mode"] is None:
+            # Ouverture : IA + Bloc-notes démarrent à la moitié de la fenêtre
+            # plutôt qu'à la hauteur compacte du terminal.
+            bottom_panel_container.height = _overlay_default_height()
         if not panels_are_open:
             overlay_fullscreen["mode"] = None
             ai_panel_container.visible = True
@@ -10132,7 +10132,10 @@ def main(page: ft.Page):
 
 
     def toggle_terminal_overlay():
-        if overlay_fullscreen["mode"] in ("ai", "notepad", "ai_full", "notepad_full"):
+        if overlay_fullscreen["mode"] in ("ai", "notepad", "ai_full", "notepad_full", "both_full"):
+            # Depuis un mode solo/plein écran, Ctrl+↑ revient à la vue à deux
+            # panneaux (moitié de fenêtre) plutôt que d'écraser la hauteur.
+            _exit_solo_mode()
             return
         terminal_is_expanded["value"] = not terminal_is_expanded["value"]
         is_expanded = terminal_is_expanded["value"]
@@ -10367,6 +10370,14 @@ def main(page: ft.Page):
                             tooltip="Synchroniser le dossier courant avec un autre dossier (sous-dossiers inclus)",
                             on_click=_sync_two_folders,
                             icon_color=GREEN,
+                            bgcolor=GREY,
+                            icon_size=18,
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.SMART_TOY,
+                            tooltip="Ouvrir/fermer IA & Bloc-notes",
+                            on_click=lambda e: toggle_panels_open(),
+                            icon_color=BLUE,
                             bgcolor=GREY,
                             icon_size=18,
                         ),
