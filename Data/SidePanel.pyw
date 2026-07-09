@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "3.0.1"
+__version__ = "3.0.2"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — SidePanel.pyw
@@ -3072,8 +3072,15 @@ def main(page: ft.Page):
                     _original_user_request = _original_user_request[:400] + "…"
                 _image_tool_done = False  # True dès qu'une génération/édition image a réussi
 
-                # ── Boucle agentique (max 6 tours d'outils) ─────────────────────
-                for _tool_round in range(12):
+                # ── Boucle agentique (jusqu'à 200 tours, auto-continuation intégrée) ──
+                for _tool_round in range(200):
+                    # Tous les 40 tours, injecter un rappel silencieux pour que
+                    # le modèle ne s'arrête pas mentalement en cours de tâche longue.
+                    if _tool_round > 0 and _tool_round % 40 == 0 and ai_streaming["value"]:
+                        messages.append({"role": "user", "content": (
+                            "Continue la tâche en cours. "
+                            "Reprends là où tu t'es arrêté."
+                        )})
                     # Streaming avec thinking natif Ollama et capture des tool_calls
                     _streamed = ""
                     _thinking = ""

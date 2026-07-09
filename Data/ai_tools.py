@@ -3065,6 +3065,10 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
                 _time.sleep(_delay)
             elif "503" in _exc_str or "UNAVAILABLE" in _exc_str:
                 raise  # ponytail: laisser remonter → chaîne fallback Dashboard/SidePanel prend le relais
+            elif _is_network_error(exc) and _attempt < _MAX_RETRIES:
+                _delay = 5 * (_attempt + 1)
+                yield ("token", f"\n[Connexion perdue avec Gemini – nouvelle tentative dans {_delay}s…]\n")
+                _time.sleep(_delay)
             else:
                 yield ("token", f"\n{_format_gemini_error(exc)}")
                 break
