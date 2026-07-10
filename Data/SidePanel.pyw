@@ -120,6 +120,13 @@ def main(page: ft.Page):
     RED          = CONSTANTS.COLOR_RED
     WHITE        = CONSTANTS.COLOR_WHITE
 
+    # Rôles sémantiques (voir CONSTANTS §3bis) : la couleur = un sens.
+    ICON_NEUTRAL = CONSTANTS.ICON_NEUTRAL
+    ICON_ACTION  = CONSTANTS.ICON_ACTION
+    ICON_DANGER  = CONSTANTS.ICON_DANGER
+    ICON_LAUNCH  = CONSTANTS.ICON_LAUNCH
+    ICON_WARN    = CONSTANTS.ICON_WARN
+
     # Fond clair par défaut de flutter_markdown pour le code/blockquote,
     # illisible avec le texte blanc du thème sombre : on le recolore.
     AI_MD_STYLE = ft.MarkdownStyleSheet(
@@ -4564,7 +4571,7 @@ def main(page: ft.Page):
             src_path_field,
             recent_src_btn,
             ft.IconButton(
-                icon=ft.Icons.FOLDER_OPEN, icon_color=RED,
+                icon=ft.Icons.FOLDER_OPEN, icon_color=ICON_ACTION,
                 icon_size=20, tooltip="Parcourir...",
                 on_click=_pick_src,
             ),
@@ -4817,7 +4824,7 @@ def main(page: ft.Page):
                                 ft.Icon(ft.Icons.SPLITSCREEN, color=ORANGE, size=18),
                                 ft.Text(
                                     f"SIDE PANEL  {__version__}",
-                                    size=15, color=WHITE,
+                                    size=CONSTANTS.TEXT_LG, color=WHITE,
                                     weight=ft.FontWeight.W_500,
                                 ),
                             ], spacing=6),

@@ -338,7 +338,7 @@ def main(page: ft.Page):
         "Renommer séquence.py": (False, BLUE),
         "Comparaison.pyw": (False, VIOLET, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Comparaison.pyw")),
         "Recadrage automatique.py": (False, GREEN, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Recadrage automatique.py")),
-        "Recadrage manuel.pyw": (False, RED, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Recadrage manuel.pyw")),
+        "Recadrage manuel.pyw": (False, RED, os.path.join(os.path.dirname(os.path.abspath(__file__)), "Data", "Recadrage manuel.pyw")),  # rouge voulu (repère habituel de Charles)
         "Fichiers identiques.py": (False, VIOLET),
         "Débruiter.py": (False, BLUE),
         "Grain pellicule.py": (False, YELLOW),
@@ -346,7 +346,7 @@ def main(page: ft.Page):
         "2 en 1.py": (False, HOVER_YELLOW),
         "Redimensionner.py": (False, WHITE),
         "Augmentation IA.py": (False, YELLOW),
-        "Compression web.py": (False, ORANGE),
+        "Compression web.py": (False, WHITE),  # contour neutre : champ central vert distinctif
         "Copyright.py": (False, VIOLET),
     }
 
@@ -768,7 +768,8 @@ def main(page: ft.Page):
         text_size=13,
         text_align=ft.TextAlign.CENTER,
         keyboard_type=ft.KeyboardType.NUMBER,
-        border_color=ORANGE,
+        # Vert : zone centrale distincte des 2 Redimensionner (bleu / orange).
+        border_color=GREEN,
         content_padding=ft.Padding(5, 5, 5, 5),
     )
 
@@ -10271,7 +10272,14 @@ def main(page: ft.Page):
         ft.WindowDragArea(
             ft.Row([
                 ft.Container(
-                    ft.Text(f"DASHBOARD {__version__}", size=24, color=WHITE),
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.SPACE_DASHBOARD, color=BLUE, size=18),
+                        ft.Text(
+                            f"DASHBOARD  {__version__}",
+                            size=CONSTANTS.TEXT_LG, color=WHITE,
+                            weight=ft.FontWeight.W_500,
+                        ),
+                    ], spacing=8),
                     bgcolor=BACKGROUND,
                     padding=10,
                 ),
@@ -10318,7 +10326,7 @@ def main(page: ft.Page):
                 recent_folders_btn,
                 ft.IconButton(
                     icon=ft.Icons.FOLDER_OPEN,
-                    icon_color=RED,
+                    icon_color=BLUE,
                     bgcolor=GREY,
                     tooltip="Parcourir…",
                     on_click=pick_folder,
@@ -10337,26 +10345,36 @@ def main(page: ft.Page):
                     tooltip="Ouvrir l'explorateur",
                     on_click=lambda e: (open_in_file_explorer(current_browse_folder["path"] or selected_folder["path"]), _toggle_strip() if not _strip_state["active"] else None),
                 ),
-                ft.IconButton(
-                    icon=ft.Icons.BLUETOOTH,
-                    icon_color=ft.Colors.LIGHT_BLUE_300,
-                    bgcolor=GREY,
-                    tooltip="Recevoir un fichier via Bluetooth",
-                    on_click=lambda e: _open_bluetooth(),
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.PRINT,
-                    icon_color=ORANGE,
-                    bgcolor=GREY,
-                    tooltip="Imprimer les images sélectionnées",
-                    on_click=lambda e: _print_files_with_default_app(selected_files),
-                ),
-                ft.IconButton(
-                    icon=ft.Icons.FORMAT_LIST_NUMBERED,
-                    icon_color=ORANGE,
-                    bgcolor=GREY,
-                    tooltip="Régler le nombre d'impressions de toutes les images du dossier",
-                    on_click=_batch_set_print_count,
+                # ── Groupe « accès tactile » (bluetooth / impression) ──────────
+                ft.Container(
+                    content=ft.Row([
+                        ft.IconButton(
+                            icon=ft.Icons.BLUETOOTH,
+                            icon_color=ft.Colors.LIGHT_BLUE_300,
+                            bgcolor=DARK,
+                            tooltip="Recevoir un fichier via Bluetooth",
+                            on_click=lambda e: _open_bluetooth(),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.PRINT,
+                            icon_color=ORANGE,
+                            bgcolor=DARK,
+                            tooltip="Imprimer les images sélectionnées",
+                            on_click=lambda e: _print_files_with_default_app(selected_files),
+                        ),
+                        ft.IconButton(
+                            icon=ft.Icons.FORMAT_LIST_NUMBERED,
+                            icon_color=ORANGE,
+                            bgcolor=DARK,
+                            tooltip="Régler le nombre d'impressions de toutes les images du dossier",
+                            on_click=_batch_set_print_count,
+                        ),
+                    ], spacing=4, tight=True,
+                        vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                    border=ft.Border.all(1, ORANGE),
+                    border_radius=10,
+                    padding=ft.Padding(4, 2, 4, 2),
+                    margin=ft.Margin(6, 0, 6, 0),
                 ),
 
 

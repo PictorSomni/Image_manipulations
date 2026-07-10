@@ -94,6 +94,34 @@ COLOR_RED          = "#F17171"
 COLOR_WHITE        = "#c7ccd8"
 
 
+# ── 3bis. SYSTÈME DE DESIGN — rôles & échelle ─────────────────────────────────
+# Principe : une icône colorée doit porter un SENS, pas une décoration.
+# Par défaut une icône d'action est NEUTRE ; la couleur signale un rôle précis.
+# Modifier ici recolore toute l'interface d'un coup.
+
+# Rôles de couleur (référencent la palette ci-dessus).
+# IMPORTANT : ne PAS utiliser de neutre (gris OU blanc) sur une icône seule —
+# ça se lit « désactivé » et c'est terne. Toute icône d'action doit être
+# COLORÉE. ICON_NEUTRAL est réservé au contour d'une carte dont la zone
+# centrale est déjà colorée (ex. cartes Redimensionner), jamais à une icône.
+ICON_NEUTRAL = COLOR_WHITE        # contour de carte uniquement, pas d'icône
+ICON_ACTION  = COLOR_BLUE         # action primaire / fréquente (parcourir, rafraîchir)
+ICON_DANGER  = COLOR_RED          # DESTRUCTIF uniquement (supprimer, effacer)
+ICON_LAUNCH  = COLOR_VIOLET       # lancer une autre application (kiosk, side panel)
+ICON_WARN    = COLOR_ORANGE       # action à impact (impression, nettoyage)
+
+# Échelle typographique — 5 crans, éviter les tailles hors échelle.
+TEXT_XS = 11   # légendes, méta, compteurs
+TEXT_SM = 13   # corps, listes
+TEXT_MD = 16   # sous-titres, titres de section
+TEXT_LG = 20   # titres de zone
+TEXT_XL = 24   # titre d'application
+
+# Tailles d'icônes standard (barres d'outils).
+ICON_SM = 18
+ICON_MD = 20
+
+
 # ==============================================================================
 # 4. IMPRESSION
 # ==============================================================================
@@ -596,9 +624,9 @@ GRAIN2_CHROMA_SHIFT = 0.3  # Couche 2 — décalage inter-canal en % de la plus 
 # red_shift  : force du décalage chaud/rouge   (0.0 = neutre, 0.8 = standard, 1.0 = rouge vif)
 
 HALATION_ENABLED    = True
-HALATION_THRESHOLD  = 0.6   # 0.55 large · 0.65 standard · 0.80 éclats seuls
-HALATION_RADIUS     = 3      # % de la plus petite dimension
-HALATION_INTENSITY  = 0.4   # additif : 0.1 discret · 0.3 visible · 0.6 fort
+HALATION_THRESHOLD  = 0.64   # 0.55 large · 0.65 standard · 0.80 éclats seuls
+HALATION_RADIUS     = 5      # % de la plus petite dimension
+HALATION_INTENSITY  = 0.5   # additif : 0.1 discret · 0.3 visible · 0.6 fort
 HALATION_RED_SHIFT  = 0.42    # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
 
 # Bloom : glow général obtenu en superposant l'image floutée en mode Screen.
@@ -607,8 +635,8 @@ HALATION_RED_SHIFT  = 0.42    # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
 # intensity : intensité additive (0.0 = aucun, 0.4 = visible, 1.0 = très fort)
 
 BLOOM_ENABLED    = True
-BLOOM_RADIUS     = 10
-BLOOM_INTENSITY  = 0.3
+BLOOM_RADIUS     = 16
+BLOOM_INTENSITY  = 0.42
 
 # ── 12.4  Désaturation des extrêmes + boost mi-tons (Grain pellicule.py) ──────
 # Les films argentiques perdent de la saturation dans les ombres très sombres
@@ -638,7 +666,7 @@ DESAT_MIDTONE_BOOST       = 0.1  # boost de saturation en mi-tons (0 = aucun, 0.
 
 CURVE_ENABLED           = True
 CURVE_SHOULDER_START    = 0.7   # 0.70 large · 0.80 standard · 0.90 conservateur
-CURVE_SHOULDER_STRENGTH = 0.5   # 0.2 doux · 0.5 standard · 1.5 fort
+CURVE_SHOULDER_STRENGTH = 0.72   # 0.2 doux · 0.5 standard · 1.5 fort
 CURVE_TOE_START         = 0.3   # seuil du pied (luma)
 CURVE_TOE_LIFT          = 0.2   # 0 = aucun · 0.08 subtil · 0.20 prononcé
 
@@ -651,5 +679,5 @@ CURVE_TOE_LIFT          = 0.2   # 0 = aucun · 0.08 subtil · 0.20 prononcé
 # strength : intensité en % de la diagonale (0.3 = subtil, 1.0 = prononcé, 2.0 = fort)
 
 CA_ENABLED     = True
-CA_STRENGTH    = 0.04   # % de la diagonale de l'image
-CA_AXIAL_RATIO = 0.42  # part de la composante axiale (0 = purement radial, 1 = égal au radial)
+CA_STRENGTH    = 0.064   # % de la diagonale de l'image
+CA_AXIAL_RATIO = 0.64  # part de la composante axiale (0 = purement radial, 1 = égal au radial)
