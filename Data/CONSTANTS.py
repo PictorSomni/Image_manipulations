@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "3.0.5"
+__version__ = "3.0.6"
 
 
 # ==============================================================================
@@ -469,6 +469,20 @@ AI_AVAILABLE_VOICES = [
 # Rayon de flou des bords du masque SAM2, exprimé en fraction de la plus petite
 # dimension du rendu (0 = pas de flou, 0.01 = ~1 % → ~8 px sur 800 px).
 SAM2_MASK_FEATHER_RATIO = 0.001
+
+# Adoucissement des bords lors du recollage d'une retouche Gemini (Retouche IA).
+# Le rayon vaut RATIO × plus petit côté de la sélection, borné à MIN px minimum.
+# Plus grand = raccord plus fondu (mais retouche plus diluée sur les bords).
+AI_RETOUCH_FEATHER_RATIO = 0.166   # ~1/6 de la plus petite dimension
+AI_RETOUCH_FEATHER_MIN   = 12      # rayon minimum en px
+
+# Consigne ajoutée automatiquement à chaque retouche IA (inpainting), pour que
+# Gemini ne modifie que ce qui est demandé et préserve le reste de la zone.
+# Le prompt de l'utilisateur est ajouté après cette consigne.
+AI_RETOUCH_SYSTEM_PROMPT = (
+    "Respecte le reste de l'image telle qu'elle est, sans toucher ni aux "
+    "formes, couleurs et lumières. Modification demandée : "
+)
 
 
 # ── 10.5  Musique — Lyria ─────────────────────────────────────────────────────

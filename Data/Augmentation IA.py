@@ -24,7 +24,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "3.0.5"
+__version__ = "3.0.6"
 
 import flet as ft
 import flet.canvas as cv
@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 from ai_tools import _gemini_generate_image
 
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 ###############################################################
 #                        PALETTE                              #
@@ -149,6 +149,10 @@ async def main(page: ft.Page) -> None:
         "rembg_active": False,  # True si le fond a été supprimé
         "rembg_rgba":   None,   # Image RGBA résultat rembg (conservé pour changer le fond)
         "rembg_before": None,   # work_img avant suppression du fond
+        # Cache de la dernière retouche Gemini pour réajuster le fondu à la volée
+        "retouch_fit":  None,   # Image RGB brute Gemini, redimensionnée à la sélection
+        "retouch_base": None,   # Image de travail avant collage de la retouche
+        "retouch_sel":  None,   # (x1, y1, x2, y2) de la retouche
     }
 
     # Cache spandrel : un objet ModelDescriptor par fichier modèle
@@ -163,6 +167,17 @@ async def main(page: ft.Page) -> None:
     sel_info       = ft.Text(
         "Aucune sélection — clic + glisser pour définir une zone",
         size=11, color=LIGHT_GREY,
+    )
+
+    # Slider de fondu des bords, visible seulement après une retouche Gemini.
+    feather_slider = ft.Slider(
+        min=0, max=0.4, divisions=40,
+        value=CONSTANTS.AI_RETOUCH_FEATHER_RATIO,
+        label="{value}", active_color=BLUE,
+    )
+    feather_row = ft.Column(
+        [ft.Text("Fondu des bords", size=11, color=LIGHT_GREY), feather_slider],
+        spacing=0, visible=False,
     )
 
     prompt_field = ft.TextField(
@@ -497,6 +512,39 @@ async def main(page: ft.Page) -> None:
 
     # ── Envoi à Gemini ───────────────────────────────────────────────────────
 
+    def _composite_retouch(ratio: float) -> None:
+        """Recolle la retouche Gemini cachée avec un fondu de bords `ratio`.
+
+        Opération légère (paste + flou gaussien) : aucun appel réseau. Utilisé
+        au premier collage puis à chaque mouvement du slider de fondu.
+        """
+        fit  = state["retouch_fit"]
+        base = state["retouch_base"]
+        sel  = state["retouch_sel"]
+        if fit is None or base is None or sel is None:
+            return
+        w, h = fit.size
+        feather = max(
+            CONSTANTS.AI_RETOUCH_FEATHER_MIN,
+            int(min(w, h) * ratio),
+        )
+        feather = min(feather, min(w, h) // 2)   # jamais au-delà du centre
+        mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask).rectangle(
+            (feather, feather, w - feather, h - feather), fill=255,
+        )
+        mask = mask.filter(ImageFilter.GaussianBlur(feather))
+        new_work = base.copy()
+        new_work.paste(fit, (sel[0], sel[1]), mask)
+        state["work_img"] = new_work
+        state["modified"] = True
+
+    def on_feather_change(e) -> None:
+        _composite_retouch(feather_slider.value)
+        _render_preview()
+
+    feather_slider.on_change = on_feather_change
+
     async def on_send_gemini(e) -> None:
         if state["orig_img"] is None or state["selection"] is None or state["working"]:
             return
@@ -536,10 +584,12 @@ async def main(page: ft.Page) -> None:
         # Recadrage de la zone sélectionnée depuis l'image de travail
         crop = (state["work_img"] or state["orig_img"]).convert("RGB").crop(sel)
 
+        full_prompt = CONSTANTS.AI_RETOUCH_SYSTEM_PROMPT + prompt_text
+
         def _do_gemini():
             buf = io.BytesIO()
             crop.save(buf, format="JPEG", quality=95)
-            return _gemini_generate_image(prompt_text, input_image_bytes=buf.getvalue())
+            return _gemini_generate_image(full_prompt, input_image_bytes=buf.getvalue())
 
         _elapsed = {"s": 0}
 
@@ -572,11 +622,14 @@ async def main(page: ft.Page) -> None:
             base = (state["work_img"] or state["orig_img"]).copy()
             state["undo_img"] = base.copy()
 
-            # Collage direct, image brute Gemini
-            new_work = base.copy()
-            new_work.paste(gemini_fit, (sel[0], sel[1]))
-            state["work_img"]  = new_work
-            state["modified"]  = True
+            # Cache pour réajuster le fondu à la volée via le slider (sans
+            # rappeler Gemini), puis premier collage au fondu par défaut.
+            state["retouch_fit"]  = gemini_fit
+            state["retouch_base"] = base
+            state["retouch_sel"]  = sel
+            feather_slider.value  = CONSTANTS.AI_RETOUCH_FEATHER_RATIO
+            feather_row.visible   = True
+            _composite_retouch(CONSTANTS.AI_RETOUCH_FEATHER_RATIO)
 
             undo_btn.disabled   = False
             save_btn.disabled   = False
@@ -609,6 +662,8 @@ async def main(page: ft.Page) -> None:
             return
         state["work_img"] = state["undo_img"]
         state["undo_img"] = None
+        state["retouch_fit"] = None   # cache obsolète après annulation
+        feather_row.visible  = False
         undo_btn.disabled = True
         status_text.value = "Retouche annulée"
         _render_preview()
@@ -1512,6 +1567,7 @@ async def main(page: ft.Page) -> None:
             inpaint_btn,
             expand_btn,
             expand_progress,
+            feather_row,
             undo_btn,
             ft.Divider(color=GREY),
             ft.Text("Suppression de fond", size=12, color=LIGHT_GREY),
