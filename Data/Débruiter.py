@@ -19,7 +19,7 @@ Variables d'environnement :
 Dépendances : OpenCV (cv2), Pillow (PIL)
 """
 
-__version__ = "3.0.3"
+__version__ = "3.0.4"
 
 #############################################################
 #                          IMPORTS                          #

@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "3.0.3"
+__version__ = "3.0.4"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -110,6 +110,7 @@ from ai_tools import (
     _gemini_tts_stream, _gemini_live_tts_stream, _gemini_tts, _voice_play_audio,
     _claude_chat_stream_with_tools,
     _md_dark,
+    _compact_history_summary,
     _ai_save_history as _ai_save_history_fn,
     _ensure_ollama_ready as _ensure_ollama_ready_fn,
 )
@@ -170,6 +171,16 @@ def main(page: ft.Page):
     ORANGE      = CONSTANTS.COLOR_ORANGE
     RED         = CONSTANTS.COLOR_RED
     WHITE       = CONSTANTS.COLOR_WHITE
+
+    # Fond clair par défaut de flutter_markdown pour le code/blockquote,
+    # illisible avec le texte blanc du thème sombre : on le recolore.
+    AI_MD_STYLE = ft.MarkdownStyleSheet(
+        code_text_style=ft.TextStyle(bgcolor=DARK, color=WHITE),
+        codeblock_decoration=ft.BoxDecoration(bgcolor=DARK, border=ft.Border.all(1, BLUE), border_radius=5),
+        blockquote_decoration=ft.BoxDecoration(bgcolor=GREY, border=ft.Border.all(1, BLUE), border_radius=5),
+        blockquote_text_style=ft.TextStyle(color=WHITE),
+        p_text_style=ft.TextStyle(size=CONSTANTS.TERMINAL_FONT_SIZE),
+    )
 
 
 
@@ -369,6 +380,7 @@ def main(page: ft.Page):
     _solo_left_state   = {"container": None}   # Référence au conteneur solo (mode pleine hauteur)
     ai_mode            = {"value": False}
     ai_conversation    = []              # Historique de conversation [{role, content}]
+    ai_history_compaction_state = {"summary": "", "summarized_count": 0}
     ai_streaming       = {"value": False}
     ollama_process     = {"proc": None}  # Process ollama serve lancé par nous
     ai_pending_images  = []              # Images jointes en attente [{path, b64}]
@@ -456,7 +468,7 @@ def main(page: ft.Page):
     if _HAS_CODE_EDITOR:
         notepad_field = fce.CodeEditor(
             text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
-            language=fce.CodeLanguage.PYTHON,
+            language=getattr(fce.CodeLanguage, CONSTANTS.NOTEPAD_DEFAULT_LANGUAGE),
             code_theme=fce.CodeTheme.ATOM_ONE_DARK,
             gutter_style=fce.GutterStyle(width=85),
             expand=True,
@@ -1697,6 +1709,8 @@ def main(page: ft.Page):
     def _clear_ai_conversation():
         """Efface l'historique de la conversation IA et supprime le fichier .ai_conversation.json."""
         ai_conversation.clear()
+        ai_history_compaction_state["summary"] = ""
+        ai_history_compaction_state["summarized_count"] = 0
         ai_chat_view.controls.clear()
         ai_status_text.value = ""
         try:
@@ -1712,7 +1726,7 @@ def main(page: ft.Page):
 
 
     def _ai_save_history():
-        _ai_save_history_fn(ai_conversation, ai_history_file_path)
+        _ai_save_history_fn(ai_conversation, ai_history_file_path, ai_history_compaction_state)
 
 
 
@@ -1722,7 +1736,12 @@ def main(page: ft.Page):
             return
         try:
             with open(ai_history_file_path, "r", encoding="utf-8") as history_file:
-                saved_messages = json.load(history_file)
+                saved_data = json.load(history_file)
+            if isinstance(saved_data, dict):
+                saved_messages = saved_data.get("messages", [])
+                ai_history_compaction_state.update(saved_data.get("history_compaction") or {})
+            else:
+                saved_messages = saved_data  # Ancien format : liste brute, pas de résumé sauvegardé
             for message in saved_messages:
                 role = message.get("role")
                 content = message.get("content", "")
@@ -1745,6 +1764,7 @@ def main(page: ft.Page):
                         selectable=True,
                         extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                         code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
+                        md_style_sheet=AI_MD_STYLE,
                         expand=True,
                     )
                 bubble = ft.Container(
@@ -2257,9 +2277,7 @@ def main(page: ft.Page):
                 selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
-                md_style_sheet=ft.MarkdownStyleSheet(
-                    p_text_style=ft.TextStyle(size=CONSTANTS.TERMINAL_FONT_SIZE),
-                ),
+                md_style_sheet=AI_MD_STYLE,
                 expand=True,
             )
         bubble = ft.Container(
@@ -2510,6 +2528,12 @@ def main(page: ft.Page):
                 # Limiter l'historique : 20 tours pour les modèles cloud capables, 10 pour les modèles locaux
                 _history_limit = CONSTANTS.AI_HISTORY_LIMIT_CLOUD if (active_model or "").startswith(("gemini", "claude")) else CONSTANTS.AI_HISTORY_LIMIT_LOCAL
                 _history = ai_conversation[-_history_limit:] if len(ai_conversation) > _history_limit else ai_conversation
+                # Résume les tours qui sortent de la fenêtre au lieu de les oublier silencieusement
+                _history_summary = _compact_history_summary(
+                    ai_conversation, _history_limit, ai_history_compaction_state
+                )
+                if _history_summary:
+                    _system_content += f"\n\nRÉSUMÉ DES ÉCHANGES PRÉCÉDENTS (hors fenêtre récente) :\n{_history_summary}"
                 # Pour les modèles Ollama : retirer le champ "thinking" de l'historique.
                 # Gemma (et la plupart des modèles locaux) n'est pas un modèle thinking natif
                 # d'Ollama — ses tokens <think> passent dans msg.content. Si on renvoie le
@@ -3355,6 +3379,11 @@ def main(page: ft.Page):
                         elif fn_name == "write_notepad":
                             _np_content = fn_args.get("content", "")
                             _np_action  = fn_args.get("action", "replace")
+                            # ponytail: jamais de remplacement silencieux d'un bloc-notes non
+                            # vide — on retombe sur append tant que Charles n'a pas confirmé.
+                            _np_blocked_replace = _np_action == "replace" and bool((notepad_field.value or "").strip())
+                            if _np_blocked_replace:
+                                _np_action = "append"
                             if _np_action == "replace":
                                 notepad_field.value = _np_content
                             elif _np_action == "append":
@@ -3369,12 +3398,20 @@ def main(page: ft.Page):
                                     notepad_markdown_preview.update()
                             except Exception:
                                 pass
-                            ai_status_text.value = "📝 Bloc-notes mis à jour"
-                            _ai_add_bubble("assistant", f"📝 Bloc-notes mis à jour ({_np_action})")
-                            _turn_events.append(f"📝 Bloc-notes mis à jour ({_np_action})")
-                            _folder_tool_results.append(
-                                (fn_name, f"Bloc-notes mis à jour ({_np_action}). Longueur : {len(notepad_field.value or '')} caractères.")
-                            )
+                            if _np_blocked_replace:
+                                ai_status_text.value = "📝 Remplacement refusé — ajouté à la suite"
+                                _ai_add_bubble("assistant", "📝 Remplacement refusé (bloc-notes non vide) — contenu ajouté à la suite. Demande confirmation à Charles avant un vrai remplacement.")
+                                _turn_events.append("📝 Remplacement refusé — ajouté à la suite (append)")
+                                _folder_tool_results.append(
+                                    (fn_name, "Remplacement refusé : le bloc-notes n'est pas vide. Contenu ajouté en 'append' à la place. Si un remplacement complet est vraiment nécessaire, demande confirmation explicite à Charles dans le chat avant de réessayer.")
+                                )
+                            else:
+                                ai_status_text.value = "📝 Bloc-notes mis à jour"
+                                _ai_add_bubble("assistant", f"📝 Bloc-notes mis à jour ({_np_action})")
+                                _turn_events.append(f"📝 Bloc-notes mis à jour ({_np_action})")
+                                _folder_tool_results.append(
+                                    (fn_name, f"Bloc-notes mis à jour ({_np_action}). Longueur : {len(notepad_field.value or '')} caractères.")
+                                )
                         elif fn_name == "take_screenshot":
                             _ss_region = fn_args.get("region") or None
                             ai_status_text.value = "📸 Capture d'écran…"

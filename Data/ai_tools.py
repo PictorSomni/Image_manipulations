@@ -37,6 +37,10 @@ Helpers système (partagés) :
   _read_memory_file(target)                  — lit un fichier mémoire brut (str)
   _build_system_content(base_prompt, folder_path, today_date_str)
                                              — assemble le message système complet (system.md + mémoire + date + dossier)
+  _get_gemini_cached_content(client, model, system_instr, raw_tools)
+                                             — réutilise/crée un cache de contexte Gemini (cachedContent)
+  _compact_history_summary(ai_conversation, history_limit, state)
+                                             — résume (Gemini, repli Gemma) les tours qui sortent de la fenêtre d'historique, pour tous les modèles
 
 Voix — TTS :
   _gemini_tts(text, ...)                     — génère l'audio TTS en une seule requête (bytes PCM)
@@ -47,9 +51,11 @@ Voix — TTS :
 
 import ast as _ast
 import gzip
+import hashlib as _hashlib
 import json
 import re
 import sys as _sys
+import time as _time
 import urllib.request
 import urllib.parse
 import html.parser
@@ -453,16 +459,25 @@ def _md_dark(text: str) -> str:
     return "\n".join(result)
 
 
-def _ai_save_history(conversation, file_path):
-    """Sauvegarde la conversation dans un fichier JSON (role + content uniquement)."""
+def _ai_save_history(conversation, file_path, history_compaction=None):
+    """
+    Sauvegarde la conversation (role + content) dans un fichier JSON, avec
+    l'état de compactage de l'historique (résumé cumulatif — voir
+    _compact_history_summary) pour qu'il survive à un redémarrage de l'app
+    ou à un changement de machine.
+    """
     try:
         serializable = [
             {"role": msg["role"], "content": msg["content"]}
             for msg in conversation
             if msg.get("role") in ("user", "assistant")
         ]
+        payload = {
+            "messages": serializable,
+            "history_compaction": history_compaction or {"summary": "", "summarized_count": 0},
+        }
         with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(serializable, f, ensure_ascii=False, indent=2)
+            json.dump(payload, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
@@ -2530,8 +2545,10 @@ _NOTEPAD_TOOLS = [
             "description": (
                 "Écrit du contenu dans le bloc-notes intégré. "
                 "RÈGLE ABSOLUE : appelle TOUJOURS read_notepad d'abord pour vérifier si le bloc-notes contient déjà du texte. "
-                "Si le bloc-notes n'est pas vide, utilise 'append' par défaut — "
-                "n'utilise 'replace' que si l'utilisateur demande EXPLICITEMENT d'effacer ou de remplacer le contenu existant. "
+                "Ne remplace JAMAIS ('replace') le contenu existant sans avoir d'abord demandé confirmation explicite "
+                "à Charles dans la conversation et attendu sa réponse — même s'il semble le demander. "
+                "Par défaut et en cas de doute, utilise 'append' (aucune confirmation nécessaire pour ajouter). "
+                "Si le bloc-notes n'est pas vide, un appel avec action='replace' sera automatiquement rétrogradé en 'append' par l'application. "
                 "'prepend' pour ajouter au début."
             ),
             "parameters": {
@@ -2939,6 +2956,161 @@ def _ollama_messages_to_gemini(messages):
     return system_instr, gemini_contents
 
 
+# ── Cache de contexte Gemini ─────────────────────────────────────────────────
+# system.md + memoire/user/skills + les ~18 definitions d'outils sont
+# quasi-identiques a chaque tour (~9000 tokens) et etaient jusqu'ici renvoyes
+# et factures en entier a chaque message. Gemini permet de les mettre en
+# cache cote serveur (cachedContent) : on ne paie le plein tarif que la
+# premiere fois, les tours suivants relisent le cache pour une fraction du
+# prix, tant que system_instruction/tools n'ont pas change.
+_GEMINI_CACHE_REGISTRY = {}   # cache_key (sha256) -> (cache_name, expire_epoch)
+_GEMINI_CACHE_TTL_SECONDS = 3600
+_GEMINI_CACHE_MIN_CHARS = 4000  # sous ce seuil l'API refuse la mise en cache de toute facon
+
+
+def _get_gemini_cached_content(client, model, system_instr, raw_tools):
+    """
+    Retourne le nom d'un cachedContent Gemini reutilisable pour (model,
+    system_instr, raw_tools), ou None si la mise en cache n'est pas possible
+    ou pas utile (contenu trop court, modele non supporte, erreur API…).
+    Un nouveau cache est cree automatiquement des que le contenu change.
+    """
+    if not system_instr or len(system_instr) < _GEMINI_CACHE_MIN_CHARS:
+        return None
+    try:
+        from google.genai import types as _gtypes
+    except ImportError:
+        return None
+
+    cache_key = _hashlib.sha256(
+        (model + "\0" + system_instr + "\0" + json.dumps(raw_tools or [], sort_keys=True)).encode("utf-8")
+    ).hexdigest()
+
+    now = _time.time()
+    cached = _GEMINI_CACHE_REGISTRY.get(cache_key)
+    if cached and cached[1] > now:
+        return cached[0]
+
+    gemini_tool = _ollama_tools_to_gemini(raw_tools)
+    gemini_tools_list = [_gtypes.Tool(google_search=_gtypes.GoogleSearch())]
+    if gemini_tool is not None:
+        gemini_tools_list.append(gemini_tool)
+
+    try:
+        cache = client.caches.create(
+            model=model,
+            config=_gtypes.CreateCachedContentConfig(
+                system_instruction=system_instr,
+                tools=gemini_tools_list,
+                ttl=f"{_GEMINI_CACHE_TTL_SECONDS}s",
+            ),
+        )
+    except Exception:
+        # Modele non supporte, contenu encore trop court selon l'API, quota, etc.
+        # On se rabat silencieusement sur l'ancien comportement (pas de cache).
+        return None
+
+    _GEMINI_CACHE_REGISTRY[cache_key] = (cache.name, now + _GEMINI_CACHE_TTL_SECONDS - 60)
+    return cache.name
+
+
+# ── Compactage de l'historique de conversation ───────────────────────────────
+# La fenêtre glissante (AI_HISTORY_LIMIT_CLOUD) tronque déjà les tours trop
+# anciens sans rien renvoyer à leur sujet — mais le modèle perd toute mémoire
+# de ce qui précède. On remplace la troncature sèche par un résumé court et
+# cumulatif des tours qui sortent de la fenêtre, injecté dans le message
+# système à la place du texte brut (beaucoup moins de tokens que les tours
+# originaux, tout en gardant le fil de la conversation).
+
+def _summarize_turns(model, turns, previous_summary=""):
+    """
+    Condense une liste de messages {"role", "content"} qui sortent de la
+    fenêtre d'historique en un court résumé, fusionné avec le résumé
+    précédent s'il y en a un.
+
+    Essaie Gemini d'abord (rapide, peu coûteux) ; si aucune clé n'est
+    disponible ou que l'appel échoue (hors-ligne, quota…), se rabat sur un
+    modèle Ollama local (Gemma — CONSTANTS.AI_GEMINI_FALLBACK, le même
+    modèle utilisé pour le fallback normal du chat). Ne lève jamais
+    d'exception : retourne le résumé précédent inchangé si les deux échouent.
+    """
+    turns_text = "\n\n".join(
+        f"{turn.get('role', '?').upper()} : {turn.get('content', '')}"
+        for turn in turns
+        if turn.get("role") in ("user", "assistant") and isinstance(turn.get("content"), str)
+    ).strip()
+    if not turns_text:
+        return previous_summary
+
+    prompt = (
+        "Résume en un paragraphe court (10 lignes maximum) les faits, décisions "
+        "et éléments de contexte importants de cet échange, à conserver pour la "
+        "suite de la conversation. Si un résumé précédent est fourni, mets-le à "
+        "jour et fusionne-le — ne le duplique pas.\n\n"
+    )
+    if previous_summary:
+        prompt += f"RÉSUMÉ PRÉCÉDENT :\n{previous_summary}\n\n"
+    prompt += f"NOUVEL ÉCHANGE À RÉSUMER :\n{turns_text}"
+
+    api_key = _get_gemini_api_key()
+    if api_key:
+        try:
+            from google import genai as _genai
+            from google.genai import types as _gtypes
+            client = _genai.Client(api_key=api_key)
+            response = client.models.generate_content(
+                model=model,
+                contents=[_gtypes.Content(role="user", parts=[_gtypes.Part(text=prompt)])],
+                config=_gtypes.GenerateContentConfig(temperature=0.3),
+            )
+            summary = (response.text or "").strip()
+            if summary:
+                return summary
+        except Exception:
+            pass  # Gemini indisponible (hors-ligne, quota, clé invalide…) : on tente Gemma.
+
+    try:
+        message = _ollama_chat_once(
+            CONSTANTS.AI_OLLAMA_URL, CONSTANTS.AI_GEMINI_FALLBACK,
+            [{"role": "user", "content": prompt}],
+        )
+        summary = re.sub(r"<think>.*?</think>", "", message.get("content") or "", flags=re.DOTALL).strip()
+        return summary or previous_summary
+    except Exception:
+        return previous_summary
+
+
+def _compact_history_summary(ai_conversation, history_limit, state):
+    """
+    Met à jour et retourne le résumé cumulatif des tours qui sortent de la
+    fenêtre d'historique récente (les `history_limit` derniers tours restent
+    envoyés bruts par ailleurs — cette fonction ne fait que produire le texte
+    de résumé à injecter dans le message système).
+
+    `state` est un dict mutable {"summary": str, "summarized_count": int},
+    persisté dans .ai_conversation.json par l'appelant (voir _ai_save_history/
+    _ai_load_history) pour survivre à un redémarrage.
+
+    Le résumé est produit par _summarize_turns : Gemini en priorité (rapide,
+    peu coûteux), avec repli automatique sur Gemma en local (Ollama) si
+    Gemini n'est pas joignable — utile aussi pour les modèles Ollama locaux
+    eux-mêmes, qui souffrent d'un prompt long (démarrage/traitement plus
+    lents) : un historique compacté leur fait autant, sinon plus, de bien
+    que pour Gemini.
+    """
+    already = state.get("summarized_count", 0)
+    overflow_end = len(ai_conversation) - history_limit
+    if overflow_end > already:
+        new_turns = ai_conversation[already:overflow_end]
+        if new_turns:
+            state["summary"] = _summarize_turns(
+                CONSTANTS.AI_GEMINI_MODEL, new_turns, state.get("summary", "")
+            )
+        state["summarized_count"] = overflow_end
+
+    return state.get("summary", "")
+
+
 def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7):
     """
     Version Gemini de _ollama_chat_stream_with_tools.
@@ -2990,12 +3162,21 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
 
     system_instr, gemini_contents = _ollama_messages_to_gemini(messages)
 
+    # Cache de contexte : si system_instr + tools sont identiques à un appel
+    # récent, on réutilise le cache serveur au lieu de renvoyer ~9000 tokens
+    # en clair. cached_content est alors exclusif avec system_instruction/tools
+    # (l'API les tire du cache) — on ne les fixe donc que si pas de cache.
+    _cached_content_name = _get_gemini_cached_content(client, model, system_instr, tools_sans_web)
+
     config_kwargs: dict = {}
     if not model.startswith("gemini-3.5"):
         config_kwargs["temperature"] = temperature
-    if system_instr:
-        config_kwargs["system_instruction"] = system_instr
-    config_kwargs["tools"] = gemini_tools_list
+    if _cached_content_name:
+        config_kwargs["cached_content"] = _cached_content_name
+    else:
+        if system_instr:
+            config_kwargs["system_instruction"] = system_instr
+        config_kwargs["tools"] = gemini_tools_list
     # Requis quand on mélange un outil natif (google_search) et des function declarations :
     if gemini_tool is not None:
         config_kwargs["tool_config"] = _gtypes.ToolConfig(

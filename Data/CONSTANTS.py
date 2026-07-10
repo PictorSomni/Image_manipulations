@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "3.0.3"
+__version__ = "3.0.4"
 
 
 # ==============================================================================
@@ -232,6 +232,7 @@ TERMINAL_FONT_SIZE    = 16   # Taille du texte dans le terminal, le bloc-notes e
 TERMINAL_HEIGHT       = 170  # Hauteur du panneau terminal compact (px) — toujours visible
 WDA_HEIGHT            = 100  # Hauteur de la WindowDragArea (barre de titre custom, en px)
 NOTEPAD_AUTOSAVE_DELAY = 10  # Délai (secondes) avant sauvegarde automatique du bloc-notes
+NOTEPAD_DEFAULT_LANGUAGE = "MARKDOWN"  # Langage de coloration syntaxique par défaut du bloc-notes (voir fce.CodeLanguage)
 
 
 # ── 6.2  Redimensionnement & filigrane ────────────────────────────────────────
@@ -379,7 +380,7 @@ AI_GEMINI_FALLBACK_CLOUD = "gemini-3.5-flash"  # Fallback cloud si modèle indis
 AI_GEMINI_FALLBACK     = "gemma4:e4b"                 # Fallback Ollama local si hors-ligne
 AI_GEMINI_IMAGE_TIMEOUT = 180                # Timeout max (s) pour generate/edit image via Gemini
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
-AI_HISTORY_LIMIT_CLOUD = 20                  # Nb max de messages envoyés à l'IA (Gemini / Claude)
+AI_HISTORY_LIMIT_CLOUD = 10                  # Nb max de messages envoyés à l'IA (Gemini / Claude)
 AI_HISTORY_LIMIT_LOCAL = 10                  # Nb max de messages envoyés à l'IA (modèles Ollama locaux)
 AI_URL_MAX_CHARS = 20_000                    # Nb max de caractères extraits d'une URL
 AI_FILE_MAX_CHARS = 500_000                  # Nb max de caractères lus dans un fichier du dossier
