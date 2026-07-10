@@ -2996,14 +2996,23 @@ def _get_gemini_cached_content(client, model, system_instr, raw_tools):
     if gemini_tool is not None:
         gemini_tools_list.append(gemini_tool)
 
+    cache_config_kwargs = {
+        "system_instruction": system_instr,
+        "tools": gemini_tools_list,
+        "ttl": f"{_GEMINI_CACHE_TTL_SECONDS}s",
+    }
+    # tool_config fait partie du contenu mis en cache au même titre que
+    # system_instruction/tools : l'API refuse qu'on le refixe sur la requête
+    # une fois cached_content utilisé (erreur 400 INVALID_ARGUMENT sinon).
+    if gemini_tool is not None:
+        cache_config_kwargs["tool_config"] = _gtypes.ToolConfig(
+            include_server_side_tool_invocations=True
+        )
+
     try:
         cache = client.caches.create(
             model=model,
-            config=_gtypes.CreateCachedContentConfig(
-                system_instruction=system_instr,
-                tools=gemini_tools_list,
-                ttl=f"{_GEMINI_CACHE_TTL_SECONDS}s",
-            ),
+            config=_gtypes.CreateCachedContentConfig(**cache_config_kwargs),
         )
     except Exception:
         # Modele non supporte, contenu encore trop court selon l'API, quota, etc.
@@ -3164,8 +3173,9 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
 
     # Cache de contexte : si system_instr + tools sont identiques à un appel
     # récent, on réutilise le cache serveur au lieu de renvoyer ~9000 tokens
-    # en clair. cached_content est alors exclusif avec system_instruction/tools
-    # (l'API les tire du cache) — on ne les fixe donc que si pas de cache.
+    # en clair. cached_content est alors exclusif avec system_instruction/tools/
+    # tool_config (l'API les tire du cache, elle-même configurée avec les mêmes
+    # valeurs) — on ne les fixe donc sur la requête que si pas de cache.
     _cached_content_name = _get_gemini_cached_content(client, model, system_instr, tools_sans_web)
 
     config_kwargs: dict = {}
@@ -3177,11 +3187,11 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
         if system_instr:
             config_kwargs["system_instruction"] = system_instr
         config_kwargs["tools"] = gemini_tools_list
-    # Requis quand on mélange un outil natif (google_search) et des function declarations :
-    if gemini_tool is not None:
-        config_kwargs["tool_config"] = _gtypes.ToolConfig(
-            include_server_side_tool_invocations=True
-        )
+        # Requis quand on mélange un outil natif (google_search) et des function declarations :
+        if gemini_tool is not None:
+            config_kwargs["tool_config"] = _gtypes.ToolConfig(
+                include_server_side_tool_invocations=True
+            )
     # Activer la réflexion (thinking) pour les modèles compatibles (Gemini 2.5, 3.1, 3.5, etc.)
     config_kwargs["thinking_config"] = _gtypes.ThinkingConfig(include_thoughts=True)
     config = _gtypes.GenerateContentConfig(**config_kwargs)
