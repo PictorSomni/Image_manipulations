@@ -3773,9 +3773,18 @@ def main(page: ft.Page):
                                 page.update()
                             except Exception:
                                 pass
-                            _folder_tool_results.append(
-                                (fn_name, _update_memory_file(_mem_target, _mem_action, _mem_content, _mem_old))
-                            )
+                            _mem_result = _update_memory_file(_mem_target, _mem_action, _mem_content, _mem_old)
+                            # Bulle de statut indépendante du texte final de l'IA : si l'appel
+                            # échoue, Charles le voit tout de suite même si la réponse prétend le contraire.
+                            try:
+                                _mem_ok = json.loads(_mem_result).get("success", False)
+                            except Exception:
+                                _mem_ok = False
+                            if _mem_ok:
+                                _ai_add_bubble("assistant", f"🧠 Mémoire mise à jour ({_mem_target} / {_mem_action})")
+                            else:
+                                _ai_add_bubble("assistant", f"⚠️ Échec mise à jour mémoire ({_mem_target} / {_mem_action}) — voir détails ci-dessous")
+                            _folder_tool_results.append((fn_name, _mem_result))
                         elif fn_name == "read_notepad":
                             _np_current = notepad_field.value or ""
                             ai_status_text.value = "📝 Lecture du bloc-notes…"

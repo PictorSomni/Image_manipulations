@@ -2384,7 +2384,15 @@ _MEMORY_TOOLS = [
                 "Actions :\n"
                 "  - 'add'     : ajoute une nouvelle entrée\n"
                 "  - 'replace' : remplace l'entrée contenant old_text par content\n"
-                "  - 'remove'  : supprime l'entrée contenant old_text"
+                "  - 'remove'  : supprime l'entrée contenant old_text\n"
+                "IMPORTANT — le fichier est une liste d'entrées séparées par '§' (visibles telles quelles "
+                "dans les sections MÉMOIRE/PROFIL UTILISATEUR/SKILLS injectées plus haut dans ce prompt) : "
+                "'replace'/'remove' ciblent UNE SEULE entrée à la fois. old_text doit être un extrait exact "
+                "et unique tiré d'UNE SEULE entrée existante — jamais un texte qui couvre plusieurs entrées "
+                "ou le fichier entier. Pour corriger plusieurs entrées, appelle cet outil séparément pour "
+                "chacune. Si l'appel retourne success:false (old_text introuvable ou ambigu), NE PRÉTENDS "
+                "JAMAIS que la mise à jour a réussi : indique l'échec à Charles et corrige old_text à partir "
+                "de current_entries/matches renvoyés, ou réessaie avec un extrait plus court et plus précis."
             ),
             "parameters": {
                 "type": "object",
