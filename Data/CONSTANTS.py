@@ -687,5 +687,5 @@ CURVE_TOE_LIFT          = 0.2   # 0 = aucun · 0.08 subtil · 0.20 prononcé
 # strength : intensité en % de la diagonale (0.3 = subtil, 1.0 = prononcé, 2.0 = fort)
 
 CA_ENABLED     = True
-CA_STRENGTH    = 0.064   # % de la diagonale de l'image
+CA_STRENGTH    = 0.04   # % de la diagonale de l'image
 CA_AXIAL_RATIO = 0.64  # part de la composante axiale (0 = purement radial, 1 = égal au radial)
