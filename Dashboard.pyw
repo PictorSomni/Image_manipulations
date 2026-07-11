@@ -598,7 +598,10 @@ def main(page: ft.Page):
         on_click=lambda e: _on_ai_submit(),
     )
     # Dictée vocale : cliquer pour démarrer, recliquer pour arrêter + transcrire
-    _mic_state = {"rec": None, "active": False}
+    # ``side_panel_priority`` : vrai tant que Side Panel a été lancé depuis
+    # Dashboard (voir _launch_side_panel) — Dashboard s'efface alors sur F13
+    # pour éviter un double enregistrement/envoi.
+    _mic_state = {"rec": None, "active": False, "side_panel_priority": False}
     ai_mic_button = ft.IconButton(
         icon=ft.Icons.MIC_NONE,
         icon_color=LIGHT_GREY,
@@ -940,6 +943,7 @@ def main(page: ft.Page):
         *,
         restore_previous_maximized_state: bool = False,
         on_exit_topic: str | None = None,
+        on_exit: callable = None,
         popen_kwargs: dict = None,
     ):
         """Lance une app externe en minimisant Dashboard, puis restaure Dashboard à la fermeture."""
@@ -957,6 +961,8 @@ def main(page: ft.Page):
                 _restore_dashboard_window()
             if on_exit_topic:
                 page.pubsub.send_all_on_topic(on_exit_topic, None)
+            if on_exit:
+                on_exit()
 
         threading.Thread(target=_watch_process_closure, daemon=True).start()
 
@@ -974,10 +980,19 @@ def main(page: ft.Page):
         if extra_env:
             env.update(extra_env)
 
+        # Side Panel gère aussi le bouton F13 : tant qu'il tourne (lancé
+        # depuis Dashboard), Dashboard s'efface pour éviter un double
+        # enregistrement/envoi du message dicté.
+        _mic_state["side_panel_priority"] = True
+
+        def _on_side_panel_exit():
+            _mic_state["side_panel_priority"] = False
+
         _launch_with_dashboard_restore(
             [sys.executable, os.path.join(app_directory, "Data", "SidePanel.pyw")],
             env,
             restore_previous_maximized_state=bool(cycle_options.get("restore_previous_maximized_state", False)),
+            on_exit=_on_side_panel_exit,
             popen_kwargs={
                 "stdout": subprocess.DEVNULL,
                 "stderr": subprocess.DEVNULL,
@@ -4308,6 +4323,11 @@ def main(page: ft.Page):
         déclenchement accidentel. Appui maintenu = enregistre, relâchement =
         transcrit et envoie directement le message à l'IA, même si
         Dashboard n'a pas le focus (raccourci global).
+
+        SidePanel.pyw est prioritaire sur ce raccourci : s'il a été lancé
+        depuis Dashboard (bouton « Side Panel »), Dashboard ignore F13 tant
+        que Side Panel tourne (voir ``_mic_state["side_panel_priority"]``
+        dans ``_launch_side_panel``).
         """
         try:
             from pynput import keyboard as _pynput_kb
@@ -4333,11 +4353,11 @@ def main(page: ft.Page):
             _mic_stop(auto_send=True)
 
         def _on_press(key):
-            if _is_f13(key):
+            if _is_f13(key) and not _mic_state["side_panel_priority"]:
                 page.run_task(_press_async)
 
         def _on_release(key):
-            if _is_f13(key):
+            if _is_f13(key) and not _mic_state["side_panel_priority"]:
                 page.run_task(_release_async)
 
         try:
