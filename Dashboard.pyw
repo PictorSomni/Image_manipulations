@@ -4220,8 +4220,13 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
-    def _mic_stop():
-        """Arrête l'enregistrement, transcrit via Gemini et insère le texte."""
+    def _mic_stop(auto_send=False):
+        """Arrête l'enregistrement, transcrit via Gemini et insère le texte.
+
+        Si ``auto_send`` est vrai (relâchement du bouton F13), le message
+        est envoyé à l'IA aussitôt transcrit, sans attendre une validation
+        manuelle — permet de dicter sans revenir devant l'application.
+        """
         if not _mic_state["active"]:
             return
         _mic_state["active"] = False
@@ -4273,14 +4278,19 @@ def main(page: ft.Page):
             async def _apply():
                 if text:
                     existing = (ai_input_field.value or "").rstrip()
-                    ai_input_field.value = (
-                        f"{existing} {text}" if existing else text)
+                    combined = f"{existing} {text}" if existing else text
                     ai_status_text.value = ""
-                    ai_input_field.update()
-                    try:
-                        await ai_input_field.focus()
-                    except Exception:
-                        pass
+                    if auto_send and not ai_streaming["value"]:
+                        ai_input_field.value = ""
+                        ai_input_field.update()
+                        _send_ai_message(combined.strip())
+                    else:
+                        ai_input_field.value = combined
+                        ai_input_field.update()
+                        try:
+                            await ai_input_field.focus()
+                        except Exception:
+                            pass
                 else:
                     ai_status_text.value = "Aucun texte reconnu"
                 try:
@@ -4296,7 +4306,8 @@ def main(page: ft.Page):
 
         F13 n'est produite par aucun clavier standard — aucun risque de
         déclenchement accidentel. Appui maintenu = enregistre, relâchement =
-        transcrit, même si Dashboard n'a pas le focus (raccourci global).
+        transcrit et envoie directement le message à l'IA, même si
+        Dashboard n'a pas le focus (raccourci global).
         """
         try:
             from pynput import keyboard as _pynput_kb
@@ -4319,7 +4330,7 @@ def main(page: ft.Page):
             _mic_start()
 
         async def _release_async():
-            _mic_stop()
+            _mic_stop(auto_send=True)
 
         def _on_press(key):
             if _is_f13(key):
