@@ -33,7 +33,7 @@ Dépendances :
   threading, re, zipfile, time).
 """
 
-__version__ = "3.0.6"
+__version__ = "3.0.7"
 overlay_fullscreen = {"mode": None}
 
 # ==============================================================================
@@ -108,6 +108,7 @@ from ai_tools import (
     _is_network_error,
     _update_memory_file, _build_system_content,
     _gemini_tts_stream, _gemini_live_tts_stream, _gemini_tts, _voice_play_audio,
+    _MicRecorder, _gemini_transcribe_audio,
     _claude_chat_stream_with_tools,
     _md_dark,
     _compact_history_summary,
@@ -210,6 +211,12 @@ def main(page: ft.Page):
             if proc is not None and proc.poll() is None:
                 try:
                     proc.terminate()
+                except Exception:
+                    pass
+            hotkey_listener = _mic_state.get("hotkey_listener")
+            if hotkey_listener is not None:
+                try:
+                    hotkey_listener.stop()
                 except Exception:
                     pass
         elif event.data in ("resize", "maximize", "unmaximize"):
@@ -590,6 +597,15 @@ def main(page: ft.Page):
         tooltip="Envoyer",
         on_click=lambda e: _on_ai_submit(),
     )
+    # Dictée vocale : cliquer pour démarrer, recliquer pour arrêter + transcrire
+    _mic_state = {"rec": None, "active": False}
+    ai_mic_button = ft.IconButton(
+        icon=ft.Icons.MIC_NONE,
+        icon_color=LIGHT_GREY,
+        icon_size=20,
+        tooltip="Cliquer pour dicter (Gemini) — recliquer pour arrêter",
+        on_click=lambda e: _mic_toggle(),
+    )
     ai_attach_button = ft.IconButton(
         icon=ft.Icons.ATTACH_FILE,
         icon_color=LIGHT_GREY,
@@ -632,7 +648,8 @@ def main(page: ft.Page):
             ai_attach_row,
             ai_progress_bar,
             ft.Row(
-                [ai_attach_button, ai_input_field, ai_send_button],
+                [ai_attach_button, ai_input_field, ai_mic_button,
+                 ai_send_button],
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
@@ -1844,20 +1861,29 @@ def main(page: ft.Page):
 
 
     def _ai_stop_model():
-        """Libère le modèle chargé en RAM via `ollama stop`."""
+        """Interrompt la génération en cours et débloque l'interface.
+
+        Pour un modèle cloud (Gemini/Claude) on ne peut pas décharger la RAM,
+        mais on remet `ai_streaming` à False immédiatement : la boucle agent
+        s'arrête au prochain point de contrôle et l'UI est libérée même si
+        l'appel réseau est figé (le thread se terminera au pire au timeout HTTP).
+        """
+        # Débloquer l'UI tout de suite, quel que soit le modèle.
+        ai_streaming["value"] = False
+        ai_stop_button.visible = False
+        ai_stop_button.icon_color = LIGHT_GREY
+        ai_status_text.value = "⏹ Interrompu"
+        try:
+            page.update()
+        except Exception:
+            pass
+
         def _run_stop():
             try:
                 current_model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_TEXT
                 if not (current_model or "").startswith(("gemini", "claude")):
                     subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_VISION], timeout=10)
                     subprocess.run(["ollama", "stop", CONSTANTS.AI_MODEL_TEXT],   timeout=10)
-            except Exception:
-                pass
-            ai_stop_button.visible = False
-            ai_stop_button.icon_color = LIGHT_GREY
-            ai_status_text.value = ""
-            try:
-                page.update()
             except Exception:
                 pass
         threading.Thread(target=_run_stop, daemon=True).start()
@@ -4139,11 +4165,222 @@ def main(page: ft.Page):
 
 
 
+    def _mic_toggle():
+        """Bascule l'enregistrement micro (clic pour démarrer / arrêter)."""
+        if _mic_state["active"]:
+            _mic_stop()
+        else:
+            _mic_start()
+
+    def _mic_start():
+        """Démarre l'enregistrement micro."""
+        if _mic_state["active"]:
+            return
+
+        def _on_ready():
+            # Appelé depuis le thread audio dès que le micro capte réellement.
+            async def _flip():
+                if not _mic_state["active"]:
+                    return
+                ai_mic_button.icon = ft.Icons.STOP_CIRCLE
+                ai_mic_button.icon_color = RED
+                ai_mic_button.tooltip = "Enregistrement… cliquer pour arrêter"
+                ai_status_text.value = (
+                    "🎤 Parlez maintenant… (recliquer pour arrêter)")
+                for control in (ai_mic_button, ai_status_text):
+                    try:
+                        control.update()
+                    except Exception:
+                        pass
+            page.run_task(_flip)
+
+        try:
+            recorder = _MicRecorder(
+                sample_rate=CONSTANTS.AI_VOICE_STT_SAMPLE_RATE)
+            recorder.start(on_ready=_on_ready)
+        except Exception as mic_error:
+            log_to_terminal(f"[ERREUR] Micro : {mic_error}", RED)
+            ai_status_text.value = "Micro indisponible"
+            try:
+                ai_status_text.update()
+            except Exception:
+                pass
+            return
+        _mic_state["rec"] = recorder
+        _mic_state["active"] = True
+        # État « préparation » tant que le micro n'a pas démarré (~1 s sous
+        # Windows) : évite de perdre le début de la phrase.
+        ai_mic_button.icon = ft.Icons.MIC
+        ai_mic_button.icon_color = ORANGE
+        ai_mic_button.tooltip = "Préparation du micro…"
+        ai_status_text.value = "⏳ Préparation du micro… (attendez le rouge)"
+        for control in (ai_mic_button, ai_status_text):
+            try:
+                control.update()
+            except Exception:
+                pass
+
+    def _mic_stop():
+        """Arrête l'enregistrement, transcrit via Gemini et insère le texte."""
+        if not _mic_state["active"]:
+            return
+        _mic_state["active"] = False
+        recorder = _mic_state["rec"]
+        _mic_state["rec"] = None
+        ai_mic_button.icon = ft.Icons.MIC_NONE
+        ai_mic_button.icon_color = LIGHT_GREY
+        ai_mic_button.tooltip = "Cliquer pour dicter (Gemini) — recliquer pour arrêter"
+        ai_status_text.value = "Transcription en cours…"
+        for control in (ai_mic_button, ai_status_text):
+            try:
+                control.update()
+            except Exception:
+                pass
+
+        def _worker():
+            text = None
+            try:
+                wav = recorder.stop() if recorder else None
+                if wav:
+                    # Diagnostic : durée réellement captée + sauvegarde du WAV
+                    # (permet de distinguer un souci de capture d'un souci de
+                    # transcription Gemini).
+                    try:
+                        import os
+                        import tempfile
+                        rate = getattr(recorder, "sample_rate", 0) or 1
+                        dur = (len(wav) - 44) / 2.0 / rate
+                        dbg = os.path.join(tempfile.gettempdir(),
+                                           "dictee_debug.wav")
+                        with open(dbg, "wb") as debug_file:
+                            debug_file.write(wav)
+                        elapsed = getattr(recorder, "elapsed", 0.0)
+                        overflows = getattr(recorder, "_overflows", 0)
+                        log_to_terminal(
+                            f"[IA] Dictée : {dur:.1f}s captées @ {rate} Hz "
+                            f"(bouton tenu {elapsed:.1f}s, {overflows} "
+                            f"overflow(s)) → {dbg}", BLUE)
+                    except Exception:
+                        pass
+                    text = _gemini_transcribe_audio(
+                        wav,
+                        language_code=CONSTANTS.AI_VOICE_STT_LANGUAGE,
+                        model=CONSTANTS.AI_VOICE_STT_MODEL,
+                    )
+            except Exception as stt_error:
+                log_to_terminal(f"[ERREUR] Transcription : {stt_error}", RED)
+
+            async def _apply():
+                if text:
+                    existing = (ai_input_field.value or "").rstrip()
+                    ai_input_field.value = (
+                        f"{existing} {text}" if existing else text)
+                    ai_status_text.value = ""
+                    ai_input_field.update()
+                    try:
+                        await ai_input_field.focus()
+                    except Exception:
+                        pass
+                else:
+                    ai_status_text.value = "Aucun texte reconnu"
+                try:
+                    ai_status_text.update()
+                except Exception:
+                    pass
+            page.run_task(_apply)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _mic_hotkey_start():
+        """Écoute F13 en tâche de fond : bouton PTT matériel (CircuitPython).
+
+        F13 n'est produite par aucun clavier standard — aucun risque de
+        déclenchement accidentel. Appui maintenu = enregistre, relâchement =
+        transcrit, même si Dashboard n'a pas le focus (raccourci global).
+        """
+        try:
+            from pynput import keyboard as _pynput_kb
+        except ImportError:
+            log_to_terminal(
+                "[IA] pynput absent : bouton micro physique (F13) "
+                "indisponible (pip install pynput).", ORANGE)
+            return
+
+        f13 = getattr(_pynput_kb.Key, "f13", None)
+
+        def _is_f13(key):
+            if f13 is not None and key == f13:
+                return True
+            # Windows : VK_F13 = 124 — repli si Key.f13 n'existe pas sur
+            # cette version/plateforme de pynput.
+            return getattr(key, "vk", None) == 124
+
+        async def _press_async():
+            _mic_start()
+
+        async def _release_async():
+            _mic_stop()
+
+        def _on_press(key):
+            if _is_f13(key):
+                page.run_task(_press_async)
+
+        def _on_release(key):
+            if _is_f13(key):
+                page.run_task(_release_async)
+
+        try:
+            listener = _pynput_kb.Listener(
+                on_press=_on_press, on_release=_on_release)
+            listener.daemon = True
+            listener.start()
+        except Exception as hotkey_error:
+            log_to_terminal(
+                f"[ERREUR] Bouton micro physique (F13) : {hotkey_error}",
+                RED)
+            return
+        _mic_state["hotkey_listener"] = listener
+        log_to_terminal("[IA] Bouton micro physique (F13) actif.", BLUE)
+
+    _mic_hotkey_start()
+
+    async def _ai_paste_clipboard(auto_send=False):
+        """Colle le presse-papiers dans le champ IA (dictée vocale Wispr Flow).
+
+        Les champs Flutter n'acceptent pas l'insertion directe des outils de
+        dictée ; on récupère donc le texte via le presse-papiers. Si
+        ``auto_send`` est vrai, le message est envoyé dans la foulée.
+        """
+        try:
+            clip = await ft.Clipboard().get()
+        except Exception as paste_error:
+            log_to_terminal(f"[ERREUR] Presse-papiers : {paste_error}", RED)
+            return
+        if not clip or not clip.strip():
+            ai_status_text.value = "Presse-papiers vide"
+            try:
+                ai_status_text.update()
+            except Exception:
+                pass
+            return
+        clip = clip.strip()
+        existing = (ai_input_field.value or "").rstrip()
+        ai_input_field.value = f"{existing} {clip}" if existing else clip
+        ai_input_field.update()
+        try:
+            await ai_input_field.focus()
+        except Exception:
+            pass
+        if auto_send:
+            _on_ai_submit()
+
     def _on_ai_submit():
         """Récupère le texte saisi, vide le champ et envoie le message à l'IA."""
         message_text = ai_input_field.value.strip()
-        # Autoriser l'envoi sans texte si des images ou fichiers sont joints
+        # Champ vide : coller le presse-papiers (dictée vocale) puis envoyer.
+        # Autoriser aussi l'envoi sans texte si des images/fichiers sont joints.
         if not message_text and not ai_pending_images and not ai_pending_files:
+            page.run_task(_ai_paste_clipboard, True)
             return
         # Ne pas effacer le champ si une réponse est déjà en cours
         if ai_streaming["value"]:

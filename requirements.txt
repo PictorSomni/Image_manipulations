@@ -68,6 +68,12 @@ sounddevice>=0.5.0
 # Linux : sudo apt install python3-xlib scrot  (ou dnf install python3-xlib scrot)
 pyautogui>=0.9.54
 
+# Raccourci clavier global push-to-talk (touche F13 d'un bouton dédié) pour
+# la dictée vocale. macOS : nécessite d'accorder l'autorisation
+# Accessibilité au processus Python (Préférences Système > Confidentialité).
+# Linux : nécessite X11 (pas de support Wayland natif).
+pynput>=1.7.6
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # RÉSEAU & CERTIFICATS

@@ -49,7 +49,7 @@ import os
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "3.0.6"
+__version__ = "3.0.7"
 
 
 # ==============================================================================
@@ -407,6 +407,7 @@ AI_GEMINI_MODEL        = "gemini-3.1-flash-lite"           # Modèle Gemini prin
 AI_GEMINI_FALLBACK_CLOUD = "gemini-3.5-flash"  # Fallback cloud si modèle indisponible
 AI_GEMINI_FALLBACK     = "gemma4:e4b"                 # Fallback Ollama local si hors-ligne
 AI_GEMINI_IMAGE_TIMEOUT = 180                # Timeout max (s) pour generate/edit image via Gemini
+AI_GEMINI_STREAM_TIMEOUT_MS = 120_000        # Timeout (ms) du streaming Gemini : au-delà de ce délai sans chunk, l'appel lève une erreur au lieu de figer l'app
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
 AI_HISTORY_LIMIT_CLOUD = 10                  # Nb max de messages envoyés à l'IA (Gemini / Claude)
 AI_HISTORY_LIMIT_LOCAL = 10                  # Nb max de messages envoyés à l'IA (modèles Ollama locaux)
@@ -423,9 +424,9 @@ AI_SEPARATOR_WIDTH   = 80                    # Nb de '#' pour les séparateurs d
 
 # Taille des lots pour la sélection IA de photos
 AI_FOLDER_SELECT_BATCH_SIZE  = 5    # Nb d'images par appel IA (Ollama) — petits lots
-AI_GEMINI_FOLDER_BATCH_SIZE  = 20   # Nb d'images par appel IA (Gemini) — grands lots
+AI_GEMINI_FOLDER_BATCH_SIZE  = 6    # Nb d'images par appel IA (Gemini). Petit = bien meilleur jugement par image (le modèle « regarde » vraiment chacune) ; coût ~identique, juste plus de requêtes.
 AI_FOLDER_SELECT_IMAGE_SIZE  = 1024  # Résolution max (px) envoyée à l'IA
-AI_FOLDER_SELECT_QUALITY     = 70    # Qualité JPEG des images envoyées à l'IA
+AI_FOLDER_SELECT_QUALITY     = 85    # Qualité JPEG des images envoyées à l'IA (assez fin pour juger netteté / dos vs visages / écharpes)
 
 # Modèles disponibles — (label affiché, identifiant, supporte_vision)
 AI_AVAILABLE_MODELS = [
@@ -476,6 +477,13 @@ AI_VOICE_TTS_VOICE       = "Kore"   # Voir AI_AVAILABLE_VOICES ci-dessous
 AI_VOICE_TTS_SAMPLE_RATE = 24000    # Fréquence de sortie PCM (Hz — ne pas modifier)
 AI_VOICE_TTS_LANGUAGE    = "fr"     # Code ISO 639-1 pour la langue de synthèse
 AI_VOICE_TTS_SINGLE_SHOT_MAX_CHARS = 1200  # Longueur max (caractères) pour forcer une seule requête TTS
+
+# ── Dictée vocale — STT (transcription Gemini, push-to-talk) ─────────────────
+# Bouton micro dans les zones IA : maintenir pour parler, relâcher pour
+# transcrire. L'audio est envoyé à Gemini (aucun fournisseur externe).
+AI_VOICE_STT_MODEL       = "gemini-3.1-flash-lite"  # Modèle de transcription (le moins cher)
+AI_VOICE_STT_LANGUAGE    = "fr"     # Langue de dictée par défaut (ISO 639-1)
+AI_VOICE_STT_SAMPLE_RATE = 0        # 0 = fréquence native du micro (recommandé ; forcer une fréquence déforme l'audio)
 
 # Voix disponibles pour le sélecteur (noms officiels Google Gemini TTS)
 AI_AVAILABLE_VOICES = [

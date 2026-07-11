@@ -47,6 +47,10 @@ Voix — TTS :
   _gemini_tts_stream(text, ...)              — TTS multi-requêtes pipeline (compatible tous modèles)
   _gemini_live_tts_stream(text, ...)         — TTS via Gemini Live WebSocket (voix cohérente, modèle Live)
   _voice_play_audio(pcm_bytes, ...)          — joue des bytes PCM via sounddevice
+
+Dictée — STT (push-to-talk) :
+  _MicRecorder(sample_rate)                  — enregistre le micro (start/stop → WAV bytes)
+  _gemini_transcribe_audio(wav_bytes, ...)   — transcrit un WAV via Gemini, retourne le texte
 """
 
 import ast as _ast
@@ -1260,10 +1264,17 @@ def _folder_tool_definitions(folder_path):
                 "function": {
                     "name": "analyze_images",
                     "description": (
-                        "Analyse visuellement les images du dossier ouvert pour répondre "
-                        "à une question. Exemples : trouver les personnes portant du rouge, "
-                        "identifier les photos floues, décrire chaque image, "
-                        "trouver les photos prises en extérieur. "
+                        "Analyse visuellement les images du dossier ouvert, une par une, "
+                        "pour répondre à une question. Exemples : trouver les personnes "
+                        "portant du rouge, identifier les photos floues, décrire chaque image, "
+                        "sélectionner les meilleures photos selon des critères. "
+                        "IMPORTANT : mets dans 'question' TOUS les critères de l'utilisateur, "
+                        "de façon précise et exhaustive — ce qu'il faut GARDER comme ce qu'il "
+                        "faut ÉCARTER (ex. : garder les photos de groupe nettes et les "
+                        "personnes mises en valeur ; écarter les photos de dos, floues ou ratées). "
+                        "La qualité du tri dépend directement de la précision de cette question. "
+                        "Fonde ensuite ta sélection sur le verdict renvoyé pour chaque fichier, "
+                        "sans deviner. "
                         "N'utilise PAS cet outil si l'image est déjà jointe directement "
                         "dans le message de l'utilisateur — réponds directement à partir de cette image."
                     ),
@@ -1935,10 +1946,17 @@ def _analyze_images_batched(
             continue
 
         prompt = (
-            f"Question : {question}\n"
-            f"Images de ce groupe ({len(encoded_names)}) : {', '.join(encoded_names)}.\n"
-            "Pour chaque image, donne une réponse concise au format :\n"
-            "NomFichier : réponse"
+            f"Tâche : {question}\n\n"
+            f"Voici {len(encoded_names)} image(s), dans cet ordre : "
+            f"{', '.join(encoded_names)}.\n"
+            "Examine CHAQUE image individuellement et avec rigueur (netteté, "
+            "cadrage, qui est visible et comment, dos vs visages, etc.). "
+            "Réponds sur UNE ligne par image, au format strict :\n"
+            "NomFichier : verdict précis pour CETTE image, répondant "
+            "directement à la tâche. Si l'image ne correspond pas aux "
+            "critères, dis-le explicitement et pourquoi.\n"
+            "Ne regroupe pas les images, ne sois pas complaisant, n'invente "
+            "rien : juge ce que tu vois réellement sur chaque photo."
         )
         try:
             if model.startswith("gemini"):
@@ -3158,7 +3176,15 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
         return
 
     try:
-        client = _genai.Client(api_key=api_key)
+        # Timeout HTTP (read) : si le flux reste figé au-delà de ce délai sans
+        # renvoyer de chunk, l'appel lève une erreur au lieu de pendre à
+        # l'infini (sinon la boucle agent bloque toute l'app). Les retries
+        # ci-dessous reprennent alors le tour.
+        client = _genai.Client(
+            api_key=api_key,
+            http_options=_gtypes.HttpOptions(
+                timeout=CONSTANTS.AI_GEMINI_STREAM_TIMEOUT_MS),
+        )
     except Exception as exc:
         yield ("token", f"[Erreur initialisation Gemini : {exc}]")
         return
@@ -3891,6 +3917,217 @@ def _voice_play_audio(pcm_bytes, sample_rate=24000, stop_event=None):
             _sd.stop()
             return
         _time.sleep(0.02)
+
+
+# ── Dictée vocale — STT (push-to-talk) ────────────────────────────────────────
+
+class _MicRecorder:
+    """Enregistreur micro push-to-talk basé sur sounddevice.
+
+    ``start()`` ouvre un flux d'entrée et accumule les échantillons ;
+    ``stop()`` ferme le flux et retourne les octets WAV (PCM 16 bits, mono)
+    prêts à être envoyés à Gemini, ou ``None`` si rien n'a été capté.
+    Chaque instance ne sert qu'à un seul enregistrement.
+    """
+
+    def __init__(self, sample_rate=None):
+        # sample_rate falsy (0/None) → fréquence native du micro. Forcer une
+        # fréquence non supportée par le périphérique déforme l'audio (l'audio
+        # part trop vite/lent) et casse la transcription.
+        self.sample_rate = sample_rate or None
+        self._stream = None
+        self._device = None
+        self._frames = []
+        self._ready = False
+        self._on_ready = None
+        self._overflows = 0     # nb de callbacks signalant une perte (xrun BT)
+        self._t_start = None    # horloge de démarrage (mesure des pertes)
+        self.elapsed = 0.0      # durée réelle d'enregistrement (mur)
+
+    @staticmethod
+    def _resolve_input_device(_sd):
+        """Retourne l'index du micro par défaut via une API stable.
+
+        Laissé au défaut implicite, PortAudio tombe sur le « Mappeur de sons
+        Microsoft » (device virtuel de Windows) qui interrompt la capture au
+        bout de ~3 s. On cible donc le micro **par défaut de WASAPI** (l'API
+        moderne de Windows, celle qu'utilise Wispr Flow), puis MME, puis
+        DirectSound. Retourne None si rien de fiable → repli sur le défaut
+        implicite de PortAudio.
+        """
+        try:
+            hostapis = _sd.query_hostapis()
+            devices = _sd.query_devices()
+        except Exception:
+            return None
+
+        # Noms écartés : Mappeur de sons (virtuel) et boucles de sortie.
+        exclude = ("mapp", "mixage", "stereo mix", "loopback",
+                   "primary", "principal")
+
+        def _is_valid(index):
+            if not isinstance(index, int) or index < 0:
+                return False
+            try:
+                info = devices[index]
+            except Exception:
+                return False
+            if info.get("max_input_channels", 0) <= 0:
+                return False
+            name = (info.get("name") or "").lower()
+            return not any(token in name for token in exclude)
+
+        for api_name in ("Windows WASAPI", "MME", "Windows DirectSound"):
+            for api_index, hostapi in enumerate(hostapis):
+                if hostapi.get("name") != api_name:
+                    continue
+                # 1) micro par défaut de cette API s'il est exploitable
+                index = hostapi.get("default_input_device", -1)
+                if _is_valid(index):
+                    return index
+                # 2) sinon, premier micro réel rattaché à cette API
+                for candidate, info in enumerate(devices):
+                    if (info.get("hostapi") == api_index
+                            and _is_valid(candidate)):
+                        return candidate
+        return None
+
+    def start(self, on_ready=None):
+        """Ouvre le flux micro et commence à accumuler l'audio.
+
+        Le périphérique met ~1 s à démarrer sous Windows (initialisation
+        pilote) : aucun échantillon n'arrive avant. ``on_ready`` est appelé
+        (depuis le thread audio) au tout premier échantillon capté, pour que
+        l'UI n'affiche « enregistrement » qu'une fois le micro réellement actif
+        et éviter de perdre le début de la phrase.
+        """
+        import sounddevice as _sd
+
+        self._device = self._resolve_input_device(_sd)
+
+        if not self.sample_rate:
+            try:
+                info = _sd.query_devices(
+                    self._device if self._device is not None else None,
+                    kind="input")
+                self.sample_rate = int(info["default_samplerate"])
+            except Exception:
+                self.sample_rate = 44100
+
+        import time as _time
+
+        self._frames = []
+        self._ready = False
+        self._on_ready = on_ready
+        self._overflows = 0
+        self._t_start = _time.monotonic()
+
+        def _callback(indata, frames, time_info, status):
+            if status:
+                # input_overflow = échantillons perdus (tampon trop court /
+                # source Bluetooth qui hoquette).
+                self._overflows += 1
+            if not self._ready:
+                self._ready = True
+                if self._on_ready is not None:
+                    try:
+                        self._on_ready()
+                    except Exception:
+                        pass
+            self._frames.append(indata.copy())
+
+        # latency="high" → gros tampon d'entrée : absorbe la gigue du lien
+        # Bluetooth (HFP) et limite les pertes d'échantillons en cours de route.
+        self._stream = _sd.InputStream(
+            device=self._device,
+            samplerate=self.sample_rate,
+            channels=1,
+            dtype="int16",
+            latency="high",
+            callback=_callback,
+        )
+        self._stream.start()
+
+    def stop(self):
+        import io
+        import time
+        import wave
+
+        import numpy as _np
+
+        if self._t_start is not None:
+            self.elapsed = time.monotonic() - self._t_start
+
+        if self._stream is not None:
+            # Laisser le tampon d'entrée se vider avant d'arrêter : en Bluetooth,
+            # l'audio capté arrive au callback avec un retard de transport ; sans
+            # cette pause, la fin de la phrase (encore « en vol ») est perdue.
+            try:
+                latency = float(getattr(self._stream, "latency", 0.0) or 0.0)
+            except Exception:
+                latency = 0.0
+            time.sleep(min(max(latency + 0.3, 0.3), 1.0))
+            try:
+                self._stream.stop()
+                self._stream.close()
+            finally:
+                self._stream = None
+        if not self._frames:
+            return None
+        audio = _np.concatenate(self._frames, axis=0)
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)  # int16 → 2 octets
+            wav_file.setframerate(self.sample_rate)
+            wav_file.writeframes(audio.tobytes())
+        return buffer.getvalue()
+
+
+def _gemini_transcribe_audio(wav_bytes, language_code="fr",
+                             model="gemini-3.1-flash-lite"):
+    """Transcrit un audio WAV via Gemini et retourne le texte (ou None).
+
+    L'audio est envoyé comme Part inline (même mécanisme que les images),
+    avec une consigne stricte pour n'obtenir que la transcription brute.
+    Nécessite GEMINI_API_KEY. Retourne None en cas d'erreur ou d'audio vide.
+    """
+    try:
+        from google import genai as _genai
+        from google.genai import types as _gtypes
+    except ImportError:
+        return None
+
+    api_key = _get_gemini_api_key()
+    if not api_key or not wav_bytes:
+        return None
+
+    lang = language_code or "fr"
+    prompt = (
+        "Transcris fidèlement cet enregistrement audio. Réponds UNIQUEMENT "
+        "avec le texte prononcé, sans guillemets, sans commentaire et sans "
+        f"préambule. Langue attendue : {lang}. Si l'audio est vide ou "
+        "inaudible, réponds par une chaîne vide."
+    )
+    try:
+        client = _genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=model,
+            contents=[
+                _gtypes.Content(
+                    role="user",
+                    parts=[
+                        _gtypes.Part.from_bytes(
+                            data=wav_bytes, mime_type="audio/wav"),
+                        _gtypes.Part(text=prompt),
+                    ],
+                )
+            ],
+        )
+        text = (response.text or "").strip()
+        return text or None
+    except Exception:
+        return None
 
 
 # ── Claude (Anthropic) ────────────────────────────────────────────────────────
