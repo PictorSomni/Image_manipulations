@@ -599,8 +599,9 @@ def main(page: ft.Page):
     )
     # Dictée vocale : cliquer pour démarrer, recliquer pour arrêter + transcrire
     # ``side_panel_priority`` : vrai tant que Side Panel a été lancé depuis
-    # Dashboard (voir _launch_side_panel) — Dashboard s'efface alors sur F13
-    # pour éviter un double enregistrement/envoi.
+    # Dashboard (voir _launch_side_panel) — Dashboard s'efface alors sur la
+    # touche PTT (CONSTANTS.AI_VOICE_PTT_KEY) pour éviter un double
+    # enregistrement/envoi.
     _mic_state = {"rec": None, "active": False, "side_panel_priority": False}
     ai_mic_button = ft.IconButton(
         icon=ft.Icons.MIC_NONE,
@@ -980,9 +981,9 @@ def main(page: ft.Page):
         if extra_env:
             env.update(extra_env)
 
-        # Side Panel gère aussi le bouton F13 : tant qu'il tourne (lancé
-        # depuis Dashboard), Dashboard s'efface pour éviter un double
-        # enregistrement/envoi du message dicté.
+        # Side Panel gère aussi le bouton PTT (CONSTANTS.AI_VOICE_PTT_KEY) :
+        # tant qu'il tourne (lancé depuis Dashboard), Dashboard s'efface
+        # pour éviter un double enregistrement/envoi du message dicté.
         _mic_state["side_panel_priority"] = True
 
         def _on_side_panel_exit():
@@ -4238,7 +4239,7 @@ def main(page: ft.Page):
     def _mic_stop(auto_send=False):
         """Arrête l'enregistrement, transcrit via Gemini et insère le texte.
 
-        Si ``auto_send`` est vrai (relâchement du bouton F13), le message
+        Si ``auto_send`` est vrai (relâchement du bouton PTT), le message
         est envoyé à l'IA aussitôt transcrit, sans attendre une validation
         manuelle — permet de dicter sans revenir devant l'application.
         """
@@ -4317,34 +4318,34 @@ def main(page: ft.Page):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _mic_hotkey_start():
-        """Écoute F13 en tâche de fond : bouton PTT matériel (CircuitPython).
+        """Écoute CONSTANTS.AI_VOICE_PTT_KEY : bouton PTT (CircuitPython).
 
-        F13 n'est produite par aucun clavier standard — aucun risque de
-        déclenchement accidentel. Appui maintenu = enregistre, relâchement =
-        transcrit et envoie directement le message à l'IA, même si
-        Dashboard n'a pas le focus (raccourci global).
+        Touche f13-f20 (aucun clavier standard ne la produit — aucun risque
+        de déclenchement accidentel). Appui maintenu = enregistre,
+        relâchement = transcrit et envoie directement le message à l'IA,
+        même si Dashboard n'a pas le focus (raccourci global).
 
         SidePanel.pyw est prioritaire sur ce raccourci : s'il a été lancé
-        depuis Dashboard (bouton « Side Panel »), Dashboard ignore F13 tant
-        que Side Panel tourne (voir ``_mic_state["side_panel_priority"]``
+        depuis Dashboard (bouton « Side Panel »), Dashboard ignore la touche
+        tant que Side Panel tourne (voir ``_mic_state["side_panel_priority"]``
         dans ``_launch_side_panel``).
         """
+        ptt_name = CONSTANTS.AI_VOICE_PTT_KEY
         try:
             from pynput import keyboard as _pynput_kb
         except ImportError:
             log_to_terminal(
-                "[IA] pynput absent : bouton micro physique (F13) "
+                f"[IA] pynput absent : bouton micro physique ({ptt_name}) "
                 "indisponible (pip install pynput).", ORANGE)
             return
 
-        f13 = getattr(_pynput_kb.Key, "f13", None)
-
-        def _is_f13(key):
-            if f13 is not None and key == f13:
-                return True
-            # Windows : VK_F13 = 124 — repli si Key.f13 n'existe pas sur
-            # cette version/plateforme de pynput.
-            return getattr(key, "vk", None) == 124
+        ptt_key = getattr(_pynput_kb.Key, ptt_name, None)
+        if ptt_key is None:
+            log_to_terminal(
+                f"[ERREUR] Touche PTT inconnue de pynput : {ptt_name!r} "
+                "(voir CONSTANTS.AI_VOICE_PTT_KEY, doit être f13..f20).",
+                RED)
+            return
 
         async def _press_async():
             _mic_start()
@@ -4353,11 +4354,11 @@ def main(page: ft.Page):
             _mic_stop(auto_send=True)
 
         def _on_press(key):
-            if _is_f13(key) and not _mic_state["side_panel_priority"]:
+            if key == ptt_key and not _mic_state["side_panel_priority"]:
                 page.run_task(_press_async)
 
         def _on_release(key):
-            if _is_f13(key) and not _mic_state["side_panel_priority"]:
+            if key == ptt_key and not _mic_state["side_panel_priority"]:
                 page.run_task(_release_async)
 
         try:
@@ -4367,11 +4368,13 @@ def main(page: ft.Page):
             listener.start()
         except Exception as hotkey_error:
             log_to_terminal(
-                f"[ERREUR] Bouton micro physique (F13) : {hotkey_error}",
+                f"[ERREUR] Bouton micro physique ({ptt_name}) : "
+                f"{hotkey_error}",
                 RED)
             return
         _mic_state["hotkey_listener"] = listener
-        log_to_terminal("[IA] Bouton micro physique (F13) actif.", BLUE)
+        log_to_terminal(
+            f"[IA] Bouton micro physique ({ptt_name}) actif.", BLUE)
 
     _mic_hotkey_start()
 

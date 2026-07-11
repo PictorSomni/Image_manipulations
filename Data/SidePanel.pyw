@@ -4562,7 +4562,7 @@ def main(page: ft.Page):
     def _mic_stop(auto_send=False):
         """Arrête l'enregistrement, transcrit via Gemini et insère le texte.
 
-        Si ``auto_send`` est vrai (relâchement du bouton F13), le message
+        Si ``auto_send`` est vrai (relâchement du bouton PTT), le message
         est envoyé à l'IA aussitôt transcrit, sans attendre une validation
         manuelle — permet de dicter sans revenir devant l'application.
         """
@@ -4640,31 +4640,26 @@ def main(page: ft.Page):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _mic_hotkey_start():
-        """Écoute F13 en tâche de fond : bouton PTT matériel (CircuitPython).
+        """Écoute CONSTANTS.AI_VOICE_PTT_KEY : bouton PTT (CircuitPython).
 
-        F13 n'est produite par aucun clavier standard — aucun risque de
-        déclenchement accidentel. Appui maintenu = enregistre, relâchement =
-        transcrit et envoie directement le message à l'IA, même si
-        SidePanel n'a pas le focus (raccourci global).
+        Touche f13-f20 (aucun clavier standard ne la produit — aucun risque
+        de déclenchement accidentel). Appui maintenu = enregistre,
+        relâchement = transcrit et envoie directement le message à l'IA,
+        même si SidePanel n'a pas le focus (raccourci global).
 
         Priorité sur Dashboard.pyw : si Side Panel a été lancé depuis
-        Dashboard, Dashboard s'efface de lui-même sur F13 tant que ce
-        processus tourne (voir ``_mic_state["side_panel_priority"]`` dans
-        Dashboard.pyw) — Side Panel n'a rien à faire de son côté.
+        Dashboard, Dashboard s'efface de lui-même sur cette touche tant que
+        ce processus tourne (voir ``_mic_state["side_panel_priority"]``
+        dans Dashboard.pyw) — Side Panel n'a rien à faire de son côté.
         """
         try:
             from pynput import keyboard as _pynput_kb
         except ImportError:
             return
 
-        f13 = getattr(_pynput_kb.Key, "f13", None)
-
-        def _is_f13(key):
-            if f13 is not None and key == f13:
-                return True
-            # Windows : VK_F13 = 124 — repli si Key.f13 n'existe pas sur
-            # cette version/plateforme de pynput.
-            return getattr(key, "vk", None) == 124
+        ptt_key = getattr(_pynput_kb.Key, CONSTANTS.AI_VOICE_PTT_KEY, None)
+        if ptt_key is None:
+            return
 
         async def _press_async():
             _mic_start()
@@ -4673,11 +4668,11 @@ def main(page: ft.Page):
             _mic_stop(auto_send=True)
 
         def _on_press(key):
-            if _is_f13(key):
+            if key == ptt_key:
                 page.run_task(_press_async)
 
         def _on_release(key):
-            if _is_f13(key):
+            if key == ptt_key:
                 page.run_task(_release_async)
 
         try:

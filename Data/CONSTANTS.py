@@ -485,6 +485,12 @@ AI_VOICE_STT_MODEL       = "gemini-3.1-flash-lite"  # Modèle de transcription (
 AI_VOICE_STT_LANGUAGE    = "fr"     # Langue de dictée par défaut (ISO 639-1)
 AI_VOICE_STT_SAMPLE_RATE = 0        # 0 = fréquence native du micro (recommandé ; forcer une fréquence déforme l'audio)
 
+# Touche du bouton PTT matériel (macropad CircuitPython). Doit être un nom
+# d'attribut valide de pynput.keyboard.Key ("f13".."f20") — seule plage
+# portable sur Windows/macOS/Linux. Changer ici + reprogrammer le firmware
+# du macropad pour émettre la même touche.
+AI_VOICE_PTT_KEY = "f15"
+
 # Voix disponibles pour le sélecteur (noms officiels Google Gemini TTS)
 AI_AVAILABLE_VOICES = [
     "Puck",     # Voix décontractée masculine
