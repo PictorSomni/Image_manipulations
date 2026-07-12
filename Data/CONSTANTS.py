@@ -580,6 +580,12 @@ AI_PHOTO_SCORE_FILE = ".ai_photo_scores.json"
 MCP_SERVERS = [
     {"name": "notion", "transport": "http",
      "url": "https://mcp.notion.com/mcp", "auth": "oauth"},
+    # Canva (via Affinity) : serveur MCP distant hébergé, OAuth 2.1. Expose
+    # les outils Canva cloud (search-designs, generate-design, export…).
+    # Activer aussi le toggle « Enable Affinity MCP » dans les réglages
+    # d'Affinity.
+    {"name": "canva", "transport": "http",
+     "url": "https://mcp.canva.com/mcp", "auth": "oauth"},
 ]
 
 
