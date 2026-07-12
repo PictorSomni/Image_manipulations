@@ -4786,6 +4786,18 @@ def main(page: ft.Page):
         if ptt_key is None:
             return
 
+        # pynput ne livre pas toujours la même représentation à l'appui et
+        # au relâchement (X11/Linux : Key.f15 à l'appui, KeyCode brut au
+        # relâchement) — on compare aussi le vk pour reconnaître la même
+        # touche physique dans les deux sens.
+        target_vk = getattr(getattr(ptt_key, "value", ptt_key), "vk", None)
+
+        def _is_ptt(key):
+            if key == ptt_key:
+                return True
+            vk = getattr(getattr(key, "value", key), "vk", None)
+            return target_vk is not None and vk == target_vk
+
         async def _press_async():
             _mic_start()
 
@@ -4793,11 +4805,11 @@ def main(page: ft.Page):
             _mic_stop(auto_send=True)
 
         def _on_press(key):
-            if key == ptt_key:
+            if _is_ptt(key):
                 page.run_task(_press_async)
 
         def _on_release(key):
-            if key == ptt_key:
+            if _is_ptt(key):
                 page.run_task(_release_async)
 
         try:
