@@ -74,6 +74,11 @@ pyautogui>=0.9.54
 # Linux : nécessite X11 (pas de support Wayland natif).
 pynput>=1.7.6
 
+# Client MCP (Model Context Protocol) générique — voir Data/mcp_client.py.
+# Actif seulement si CONSTANTS.MCP_SERVERS contient au moins une entrée ;
+# sans ça, ce paquet n'est jamais importé (aucun coût si non installé).
+mcp>=1.28.0
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # RÉSEAU & CERTIFICATS

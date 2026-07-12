@@ -24,7 +24,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "3.0.6"
+__version__ = "3.1.0"
 
 import flet as ft
 import flet.canvas as cv

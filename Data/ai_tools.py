@@ -189,8 +189,12 @@ def _get_gemini_api_key():
         for shell in ["/bin/zsh", "/bin/bash"]:
             if os.path.exists(shell):
                 try:
+                    # "-li" (login + interactif), pas seulement "-l" : la
+                    # plupart des .bashrc (Debian/Raspberry Pi OS...)
+                    # commencent par "si non interactif, ne rien faire" et
+                    # s'arrêtent avant d'atteindre l'export de la clé sinon.
                     result = subprocess.run(
-                        [shell, "-l", "-c", "echo $GEMINI_API_KEY"],
+                        [shell, "-li", "-c", "echo $GEMINI_API_KEY"],
                         capture_output=True, text=True, timeout=2
                     )
                     key = result.stdout.strip()
@@ -210,7 +214,13 @@ def _get_gemini_api_key():
                     with open(rc_path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
                     # match "export GEMINI_API_KEY=xxx" or "GEMINI_API_KEY=xxx"
-                    match = re.search(r'(?:export\s+)?GEMINI_API_KEY\s*=\s*["\']?(.*?)["\']?\s*(?:#|$)', content)
+                    # re.MULTILINE : sans lui, "$" ne matche que la fin du
+                    # fichier entier (pas la fin de chaque ligne), donc la
+                    # recherche échouait dès que la ligne n'était pas la
+                    # toute dernière du fichier RC.
+                    match = re.search(
+                        r'(?:export\s+)?GEMINI_API_KEY\s*=\s*["\']?(.*?)["\']?\s*(?:#|$)',
+                        content, re.MULTILINE)
                     if match:
                         key = match.group(1).strip()
                         if key:
@@ -1301,6 +1311,67 @@ def _folder_tool_definitions(folder_path):
             {
                 "type": "function",
                 "function": {
+                    "name": "score_photos",
+                    "description": (
+                        "Note chaque image du dossier ouvert sur des critères fixes "
+                        "(netteté, cadrage, expression, exposition — voir "
+                        "CONSTANTS.AI_PHOTO_SCORE_CRITERIA) plus d'éventuels critères "
+                        "additionnels propres à ce tri précis. Contrairement à "
+                        "analyze_images (verdict libre), écrit un score structuré "
+                        "(note 0-10 + raison courte par critère, score global) dans "
+                        "un fichier .ai_photo_scores.json du dossier — exploitable "
+                        "ensuite par Dashboard pour copier automatiquement les images "
+                        "au-dessus du seuil, et par Charles pour affiner les notes à "
+                        "la main. Utilise cet outil (pas analyze_images) dès que "
+                        "Charles demande de 'noter', 'scorer' ou 'trier par qualité' "
+                        "ses photos. Si le contexte du tri (type de shooting, ce qui "
+                        "compte le plus) n'est pas clair, pose la question via "
+                        "ask_clarifying_question avant d'appeler cet outil plutôt que "
+                        "de deviner."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "filenames": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": (
+                                    "Liste des noms de fichiers images à noter. "
+                                    "Laisser vide pour noter toutes les images du dossier."
+                                ),
+                            },
+                            "contexte": {
+                                "type": "string",
+                                "description": (
+                                    "Contexte du tri pour affiner le jugement, ex. "
+                                    "'mariage, préférer les sourires naturels' ou "
+                                    "'photos d'identité, cadrage strict'. Laisser vide "
+                                    "si Charles n'a rien précisé."
+                                ),
+                            },
+                            "criteres_additionnels": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "nom": {"type": "string"},
+                                        "description": {"type": "string"},
+                                    },
+                                    "required": ["nom", "description"],
+                                },
+                                "description": (
+                                    "Critères propres à ce tri, en plus des critères "
+                                    "fixes (netteté, cadrage, expression, exposition)."
+                                ),
+                            },
+                        },
+                        "required": [],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
                     "name": "edit_image",
                     "description": (
                         "Modifie une image existante du dossier ouvert avec un prompt texte "
@@ -2002,6 +2073,286 @@ def _analyze_images_batched(
     return results
 
 
+def _score_images_batched(
+    ollama_url,
+    model,
+    folder_path,
+    filenames,
+    contexte="",
+    criteres_additionnels=None,
+    batch_size=5,
+    image_exts=None,
+    max_size=1024,
+    quality=70,
+    on_progress=None,
+    is_running=None,
+):
+    """
+    Note une liste d'images par lots sur les critères fixes de
+    CONSTANTS.AI_PHOTO_SCORE_CRITERIA (+ criteres_additionnels/contexte),
+    et écrit le résultat fusionné dans folder_path/CONSTANTS.AI_PHOTO_SCORE_FILE
+    (les entrées non retraitées à ce tour sont conservées).
+
+    Retourne une chaîne de résumé (nb noté, nb au-dessus du seuil).
+    """
+    if image_exts is None:
+        image_exts = _FOLDER_IMAGE_EXTS_DEFAULT
+    if not filenames:
+        try:
+            filenames = sorted([
+                entry.name for entry in _os.scandir(folder_path)
+                if entry.is_file()
+                and _os.path.splitext(entry.name)[1].lower() in image_exts
+            ])
+        except Exception:
+            filenames = []
+
+    criteres_additionnels = criteres_additionnels or []
+    criteres_lignes = [
+        f"- {cle} ({label})"
+        for cle, label in CONSTANTS.AI_PHOTO_SCORE_CRITERIA.items()
+    ]
+    criteres_cles = list(CONSTANTS.AI_PHOTO_SCORE_CRITERIA.keys())
+    for crit in criteres_additionnels:
+        nom  = (crit.get("nom") or "").strip()
+        desc = (crit.get("description") or "").strip()
+        if nom:
+            criteres_lignes.append(f"- {nom} ({desc})" if desc else f"- {nom}")
+            criteres_cles.append(nom)
+    criteres_bloc = "\n".join(criteres_lignes)
+
+    total         = len(filenames)
+    total_batches = (total + batch_size - 1) // batch_size if total else 0
+    scored        = {}   # nom de fichier -> dict de score
+
+    for batch_idx, batch_start in enumerate(range(0, total, batch_size)):
+        if is_running is not None and not is_running():
+            break
+        batch_num   = batch_idx + 1
+        batch_names = filenames[batch_start : batch_start + batch_size]
+        if on_progress:
+            on_progress(batch_num, total_batches)
+
+        b64_list      = []
+        encoded_names = []
+        for fname in batch_names:
+            b64 = _encode_image_for_analysis(
+                _os.path.join(folder_path, fname),
+                max_size=max_size,
+                quality=quality,
+            )
+            if b64:
+                b64_list.append(b64)
+                encoded_names.append(fname)
+        if not b64_list:
+            continue
+
+        prompt = (
+            "Tâche : note chaque image ci-dessous sur les critères suivants, "
+            "de 0 (très mauvais) à 10 (irréprochable) :\n"
+            f"{criteres_bloc}\n\n"
+            + (f"Contexte de ce tri : {contexte}\n\n" if contexte else "")
+            + f"Voici {len(encoded_names)} image(s), dans cet ordre : "
+              f"{', '.join(encoded_names)}.\n"
+            "Sois SÉVÈRE : ce tri sert à ne garder que les meilleurs "
+            "clichés qu'un photographe professionnel retouchera ensuite à "
+            "la main. Ne sur-note pas par complaisance — réserve les notes "
+            "hautes (8-10) aux images réellement irréprochables sur le "
+            "critère jugé. Pour CHAQUE image et CHAQUE critère, donne une "
+            "note et une raison courte (quelques mots) qui justifie la "
+            "note. Calcule aussi un score_global (moyenne des critères) et "
+            "un commentaire global d'une phrase."
+        )
+
+        _batch_scores = []
+        if model.startswith("gemini"):
+            try:
+                from google import genai as _genai_sc
+                from google.genai import types as _gtypes_sc
+                import base64 as _b64_sc
+                import concurrent.futures as _cf_sc
+
+                _crit_schema_sc = _gtypes_sc.Schema(
+                    type=_gtypes_sc.Type.OBJECT,
+                    properties={
+                        "note": _gtypes_sc.Schema(type=_gtypes_sc.Type.NUMBER),
+                        "raison": _gtypes_sc.Schema(type=_gtypes_sc.Type.STRING),
+                    },
+                    required=["note", "raison"],
+                )
+                _schema_sc = _gtypes_sc.Schema(
+                    type=_gtypes_sc.Type.ARRAY,
+                    items=_gtypes_sc.Schema(
+                        type=_gtypes_sc.Type.OBJECT,
+                        properties={
+                            "fichier": _gtypes_sc.Schema(
+                                type=_gtypes_sc.Type.STRING),
+                            "scores": _gtypes_sc.Schema(
+                                type=_gtypes_sc.Type.OBJECT,
+                                properties={
+                                    cle: _crit_schema_sc
+                                    for cle in criteres_cles
+                                },
+                                required=criteres_cles,
+                            ),
+                            "score_global": _gtypes_sc.Schema(
+                                type=_gtypes_sc.Type.NUMBER),
+                            "commentaire": _gtypes_sc.Schema(
+                                type=_gtypes_sc.Type.STRING),
+                        },
+                        required=[
+                            "fichier", "scores", "score_global", "commentaire"
+                        ],
+                    ),
+                )
+                _client_sc = _genai_sc.Client()
+                _parts_sc = [
+                    _gtypes_sc.Part.from_bytes(
+                        data=_b64_sc.b64decode(b64), mime_type="image/jpeg"
+                    )
+                    for b64 in b64_list
+                ]
+                _parts_sc.append(_gtypes_sc.Part(text=prompt))
+                _contents_sc = [_gtypes_sc.Content(role="user", parts=_parts_sc)]
+                _config_sc = _gtypes_sc.GenerateContentConfig(
+                    temperature=0.2,
+                    response_mime_type="application/json",
+                    response_schema=_schema_sc,
+                )
+                with _cf_sc.ThreadPoolExecutor(max_workers=1) as _ex_sc:
+                    _fut_sc = _ex_sc.submit(
+                        _client_sc.models.generate_content,
+                        model=model,
+                        contents=_contents_sc,
+                        config=_config_sc,
+                    )
+                    _resp_sc = _fut_sc.result(timeout=120)
+                    _batch_scores = json.loads(_resp_sc.text or "[]")
+            except Exception:
+                _batch_scores = []
+        else:
+            # Ollama : pas de sortie structurée garantie, best-effort JSON.
+            try:
+                _prompt_json = prompt + (
+                    "\n\nRéponds UNIQUEMENT avec un tableau JSON valide, "
+                    "sans texte autour, au format : "
+                    '[{"fichier": ..., "scores": {"<critere>": '
+                    '{"note": ..., "raison": ...}, ...}, '
+                    '"score_global": ..., "commentaire": ...}, ...]'
+                )
+                response = _ollama_chat_once(
+                    ollama_url,
+                    model,
+                    [{"role": "user", "content": _prompt_json,
+                      "images": b64_list}],
+                    temperature=0.2,
+                )
+                _batch_scores = json.loads(response.get("content", "") or "[]")
+            except Exception:
+                _batch_scores = []
+
+        for entry in _batch_scores:
+            if not isinstance(entry, dict):
+                continue
+            fname = (entry.get("fichier") or "").strip()
+            if fname in encoded_names:
+                scored[fname] = entry
+
+    # Fusion avec le fichier existant : seules les entrées retraitées à ce
+    # tour sont remplacées, le reste (dont d'éventuelles corrections
+    # manuelles) est conservé.
+    scores_path = _os.path.join(folder_path, CONSTANTS.AI_PHOTO_SCORE_FILE)
+    existing = []
+    if _os.path.isfile(scores_path):
+        try:
+            with open(scores_path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+        except Exception:
+            existing = []
+    merged = {
+        e.get("fichier", ""): e
+        for e in existing if isinstance(e, dict) and e.get("fichier")
+    }
+    merged.update(scored)
+    merged_list = list(merged.values())
+    try:
+        with open(scores_path, "w", encoding="utf-8") as f:
+            json.dump(merged_list, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+    above_threshold = sum(
+        1 for e in merged_list
+        if isinstance(e.get("score_global"), (int, float))
+        and e["score_global"] >= CONSTANTS.AI_PHOTO_SCORE_THRESHOLD
+    )
+    return (
+        f"{len(scored)} image(s) notée(s) sur {total} — "
+        f"{above_threshold}/{len(merged_list)} au total ≥ seuil "
+        f"{CONSTANTS.AI_PHOTO_SCORE_THRESHOLD} dans "
+        f"{CONSTANTS.AI_PHOTO_SCORE_FILE}."
+    )
+
+
+def _copy_scored_photos(folder_path):
+    """
+    Copie dans folder_path/CONSTANTS.AI_PHOTO_SCORE_SELECTION_FOLDER les
+    images du fichier de scores (CONSTANTS.AI_PHOTO_SCORE_FILE) dont le
+    score_global atteint CONSTANTS.AI_PHOTO_SCORE_THRESHOLD.
+
+    Retourne une chaîne de résumé (copiés / déjà présents / introuvables).
+    Action déterministe déclenchée par Charles (bouton Dashboard), pas un
+    outil IA — la copie n'est jamais décidée par le modèle seul.
+    """
+    import shutil as _shutil_cp2
+
+    scores_path = _os.path.join(folder_path, CONSTANTS.AI_PHOTO_SCORE_FILE)
+    if not _os.path.isfile(scores_path):
+        return f"Aucun fichier de scores trouvé ({CONSTANTS.AI_PHOTO_SCORE_FILE})."
+    try:
+        with open(scores_path, "r", encoding="utf-8") as f:
+            entries = json.load(f)
+    except Exception as exc:
+        return f"Fichier de scores illisible : {exc}"
+
+    dest_dir = _os.path.join(folder_path, CONSTANTS.AI_PHOTO_SCORE_SELECTION_FOLDER)
+    copied, already, missing = [], [], []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        score = entry.get("score_global")
+        if not isinstance(score, (int, float)):
+            continue
+        if score < CONSTANTS.AI_PHOTO_SCORE_THRESHOLD:
+            continue
+        fname = (entry.get("fichier") or "").strip()
+        if not fname:
+            continue
+        source = _os.path.join(folder_path, fname)
+        dest   = _os.path.join(dest_dir, fname)
+        if not _os.path.isfile(source):
+            missing.append(fname)
+            continue
+        if _os.path.isfile(dest):
+            already.append(fname)
+            continue
+        try:
+            _os.makedirs(dest_dir, exist_ok=True)
+            _shutil_cp2.copy2(source, dest)
+            copied.append(fname)
+        except Exception as exc:
+            missing.append(f"{fname} ({exc})")
+
+    lines = [f"{len(copied)} image(s) copiée(s) dans "
+             f"{CONSTANTS.AI_PHOTO_SCORE_SELECTION_FOLDER}/."]
+    if already:
+        lines.append(f"{len(already)} déjà présente(s).")
+    if missing:
+        lines.append(f"{len(missing)} introuvable(s)/erreur : "
+                      + ", ".join(missing[:10]))
+    return " ".join(lines)
+
+
 # ─── Outils terminal partagés ───────────────────────────────────────────────
 import subprocess as _subprocess
 
@@ -2644,6 +2995,42 @@ _UI_TOOLS = [
                     },
                 },
                 "required": ["filenames", "mode"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_clarifying_question",
+            "description": (
+                "Pose UNE question à choix limité à Charles pour lever une "
+                "ambiguïté AVANT d'agir, plutôt que de deviner ou de partir "
+                "dans une mauvaise direction. À utiliser dès qu'une demande "
+                "a plusieurs interprétations raisonnables ou qu'il manque "
+                "une information structurante (ex. : contexte d'un tri "
+                "photo, seuil à utiliser, dossier de destination). Ne PAS "
+                "l'utiliser pour des détails mineurs déductibles ou déjà "
+                "couverts par une valeur par défaut dans CONSTANTS.py — "
+                "une seule question à la fois, jamais en rafale."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "Question posée à Charles, claire et autonome.",
+                    },
+                    "options": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "2 à 5 choix courts et concrets parmi lesquels "
+                            "Charles peut choisir. Charles pourra toujours "
+                            "répondre autre chose si aucun ne convient."
+                        ),
+                    },
+                },
+                "required": ["question", "options"],
             },
         },
     },
@@ -3954,12 +4341,28 @@ class _MicRecorder:
         moderne de Windows, celle qu'utilise Wispr Flow), puis MME, puis
         DirectSound. Retourne None si rien de fiable → repli sur le défaut
         implicite de PortAudio.
+
+        Repli machine-spécifique (variable d'environnement AI_VOICE_MIC_DEVICE,
+        jamais committée) : sous-chaîne du nom de périphérique à préférer,
+        insensible à la casse. Utile quand le device "par défaut" du système
+        n'est en réalité pas câblé au micro physique — vu sur un Raspberry
+        Pi où "default"/"pulse" (ALSA/PulseAudio) capturaient du silence
+        pur alors que le device matériel brut du micro (DJI Mic 2 en USB)
+        fonctionnait. Lister les devices disponibles :
+          python3 -c "import sounddevice as sd; print(sd.query_devices())"
         """
         try:
             hostapis = _sd.query_hostapis()
             devices = _sd.query_devices()
         except Exception:
             return None
+
+        override = _os.environ.get("AI_VOICE_MIC_DEVICE", "").strip().lower()
+        if override:
+            for candidate, info in enumerate(devices):
+                if (info.get("max_input_channels", 0) > 0
+                        and override in (info.get("name") or "").lower()):
+                    return candidate
 
         # Noms écartés : Mappeur de sons (virtuel) et boucles de sortie.
         exclude = ("mapp", "mixage", "stereo mix", "loopback",
@@ -4109,25 +4512,27 @@ def _gemini_transcribe_audio(wav_bytes, language_code="fr",
         f"préambule. Langue attendue : {lang}. Si l'audio est vide ou "
         "inaudible, réponds par une chaîne vide."
     )
-    try:
-        client = _genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model=model,
-            contents=[
-                _gtypes.Content(
-                    role="user",
-                    parts=[
-                        _gtypes.Part.from_bytes(
-                            data=wav_bytes, mime_type="audio/wav"),
-                        _gtypes.Part(text=prompt),
-                    ],
-                )
-            ],
-        )
-        text = (response.text or "").strip()
-        return text or None
-    except Exception:
-        return None
+    # Pas de try/except ici : une erreur d'appel API (réseau, quota, clé
+    # invalide…) doit remonter à l'appelant, qui la logge déjà
+    # (Dashboard.pyw/_worker : "[ERREUR] Transcription : ..."). L'avaler
+    # silencieusement transformait toute panne réelle en un opaque "Aucun
+    # texte reconnu" sans piste de diagnostic.
+    client = _genai.Client(api_key=api_key)
+    response = client.models.generate_content(
+        model=model,
+        contents=[
+            _gtypes.Content(
+                role="user",
+                parts=[
+                    _gtypes.Part.from_bytes(
+                        data=wav_bytes, mime_type="audio/wav"),
+                    _gtypes.Part(text=prompt),
+                ],
+            )
+        ],
+    )
+    text = (response.text or "").strip()
+    return text or None
 
 
 # ── Claude (Anthropic) ────────────────────────────────────────────────────────
@@ -4166,8 +4571,11 @@ def _get_anthropic_api_key():
         for shell in ["/bin/zsh", "/bin/bash"]:
             if os.path.exists(shell):
                 try:
+                    # "-li" (login + interactif) : la plupart des .bashrc
+                    # (Debian/Raspberry Pi OS...) s'arrêtent avant l'export
+                    # de la clé si le shell n'est pas interactif.
                     result = subprocess.run(
-                        [shell, "-l", "-c", "echo $ANTHROPIC_API_KEY"],
+                        [shell, "-li", "-c", "echo $ANTHROPIC_API_KEY"],
                         capture_output=True, text=True, timeout=2,
                     )
                     key = result.stdout.strip()
@@ -4184,9 +4592,11 @@ def _get_anthropic_api_key():
                 try:
                     with open(rc_path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
+                    # re.MULTILINE : sinon "$" ne matche que la fin du
+                    # fichier, pas la fin de chaque ligne.
                     match = re.search(
                         r'(?:export\s+)?ANTHROPIC_API_KEY\s*=\s*["\']?(.*?)["\']?\s*(?:#|$)',
-                        content,
+                        content, re.MULTILINE,
                     )
                     if match:
                         key = match.group(1).strip()

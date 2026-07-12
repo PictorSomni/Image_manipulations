@@ -17,7 +17,7 @@ Side Panel — App compacte (demi-écran) avec quatre onglets :
 Peut être lancé indépendamment ou depuis Dashboard.pyw.
 """
 
-__version__ = "3.0.6"
+__version__ = "3.1.0"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — SidePanel.pyw
@@ -62,6 +62,7 @@ import urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
 import thumb_cache
+import mcp_client
 import credentials
 
 
@@ -84,6 +85,7 @@ from ai_tools import (
     _folder_copy_file, _folder_create_folder, _resolve_path,
     _folder_read_exif, _folder_zip_files, _folder_unzip_file,
     _encode_image_for_analysis, _analyze_images_batched, _take_screenshot,
+    _score_images_batched, _copy_scored_photos,
     _gemini_generate_image, _gemini_refine_image_prompt, _gemini_generate_music,
     _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _SCREENSHOT_TOOLS, _NOTEPAD_TOOLS,
     _UI_TOOLS, _run_terminal_command,
@@ -3101,10 +3103,11 @@ def main(page: ft.Page):
                 _NEW_TOOLS = (_EDIT_TOOLS + _READ_LINES_TOOLS + _SEARCH_TOOLS + _GIT_TOOLS + _TASK_TOOLS
                               + _PDF_TOOLS + _SUBAGENT_TOOLS + _SCHEDULE_TOOLS
                               + _HTTP_TOOLS + _SPREADSHEET_TOOLS + _PYAUTOGUI_TOOLS + _SSH_TOOLS)
+                _MCP_TOOLS = mcp_client.mcp_get_all_tools()
                 if (active_model or "").startswith("gemini"):
-                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
+                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _MCP_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
                 else:
-                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _FOLDER_TOOLS
+                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _MCP_TOOLS + _FOLDER_TOOLS
                 # Limiter l'historique : 20 tours pour les modèles cloud capables, 10 pour les modèles locaux
                 _history_limit = CONSTANTS.AI_HISTORY_LIMIT_CLOUD if (active_model or "").startswith(("gemini", "claude")) else CONSTANTS.AI_HISTORY_LIMIT_LOCAL
                 _history = ai_conversation[-_history_limit:] if len(ai_conversation) > _history_limit else ai_conversation
@@ -3253,10 +3256,12 @@ def main(page: ft.Page):
                         if _fb_model.startswith(("gemini", "claude")):
                             _fb_tools = (_WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS
                                          + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS
+                                         + _MCP_TOOLS
                                          + _gemini_tool_definitions(_folder_path_for_tools))
                         else:
                             _fb_tools = (_WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS
                                          + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS
+                                         + _MCP_TOOLS
                                          + _FOLDER_TOOLS)
                         try:
                             if _fb_model.startswith("gemini"):
@@ -3614,6 +3619,126 @@ def main(page: ft.Page):
                                 _folder_tool_results.append(
                                     (fn_name, "\n\n".join(_analyze_results) or "Aucun résultat.")
                                 )
+                        elif fn_name == "score_photos":
+                            _score_filenames = fn_args.get("filenames", [])
+                            _score_contexte  = fn_args.get("contexte", "")
+                            _score_criteres  = fn_args.get("criteres_additionnels", [])
+                            if not _score_filenames:
+                                _score_candidates = sorted([
+                                    entry.name for entry in os.scandir(_folder_path_for_tools)
+                                    if entry.is_file()
+                                    and os.path.splitext(entry.name)[1].lower() in CONSTANTS.IMAGE_EXTS
+                                ])
+                            else:
+                                _score_candidates = [
+                                    os.path.basename(fname) for fname in _score_filenames
+                                    if os.path.isfile(
+                                        os.path.join(_folder_path_for_tools, os.path.basename(fname))
+                                    )
+                                ]
+                            if not _score_candidates:
+                                _folder_tool_results.append((fn_name, "Aucune image trouvée."))
+                            else:
+                                _score_model = active_model
+                                _score_progress_ctrl = _ai_add_bubble(
+                                    "assistant",
+                                    f"🏆 Score de {len(_score_candidates)} image(s)…",
+                                )
+                                def _on_score_progress(batch_num, total_batches):
+                                    ai_status_text.value = f"🏆 Score lot {batch_num}/{total_batches}…"
+                                    if _score_progress_ctrl:
+                                        _score_progress_ctrl.value = _md_dark(
+                                            f"🏆 Score — lot {batch_num}/{total_batches}…"
+                                        )
+                                    try:
+                                        page.update()
+                                    except Exception:
+                                        pass
+                                _score_batch = (
+                                    CONSTANTS.AI_GEMINI_FOLDER_BATCH_SIZE
+                                    if (_score_model or "").startswith("gemini")
+                                    else CONSTANTS.AI_FOLDER_SELECT_BATCH_SIZE
+                                )
+                                _score_summary = _score_images_batched(
+                                    CONSTANTS.AI_OLLAMA_URL,
+                                    _score_model,
+                                    _folder_path_for_tools,
+                                    _score_candidates,
+                                    contexte=_score_contexte,
+                                    criteres_additionnels=_score_criteres,
+                                    batch_size=_score_batch,
+                                    image_exts=CONSTANTS.IMAGE_EXTS,
+                                    max_size=CONSTANTS.AI_FOLDER_SELECT_IMAGE_SIZE,
+                                    quality=CONSTANTS.AI_FOLDER_SELECT_QUALITY,
+                                    on_progress=_on_score_progress,
+                                    is_running=lambda: ai_streaming["value"],
+                                )
+                                if _score_progress_ctrl:
+                                    _score_progress_ctrl.value = _md_dark(f"🏆 {_score_summary}")
+                                try:
+                                    page.update()
+                                except Exception:
+                                    pass
+                                _folder_tool_results.append((fn_name, _score_summary))
+                        elif fn_name == "ask_clarifying_question":
+                            _q_question = fn_args.get("question", "")
+                            _q_options  = (fn_args.get("options") or [])[:5]
+                            _q_event    = threading.Event()
+                            _q_result   = {"answer": None}
+
+                            def _on_q_choice(choice):
+                                def _handler(event=None):
+                                    _q_result["answer"] = choice
+                                    _q_dlg.open = False
+                                    page.update()
+                                    _q_event.set()
+                                return _handler
+
+                            _q_other_field = ft.TextField(label="Autre réponse…", width=380)
+
+                            def _on_q_other(event=None):
+                                _q_result["answer"] = (
+                                    _q_other_field.value or ""
+                                ).strip() or "(pas de réponse précisée)"
+                                _q_dlg.open = False
+                                page.update()
+                                _q_event.set()
+
+                            _q_dlg = ft.AlertDialog(
+                                modal=True,
+                                title=ft.Text("❓ Question de l'IA"),
+                                content=ft.Column(
+                                    [
+                                        ft.Text(_q_question, size=13, color=WHITE),
+                                        ft.Container(height=8),
+                                        *[
+                                            ft.Button(opt, bgcolor=BLUE, color=WHITE, on_click=_on_q_choice(opt))
+                                            for opt in _q_options
+                                        ],
+                                        ft.Container(height=8),
+                                        ft.Row([
+                                            _q_other_field,
+                                            ft.TextButton("Envoyer", on_click=_on_q_other),
+                                        ]),
+                                    ],
+                                    tight=True,
+                                    width=440,
+                                ),
+                            )
+                            page.overlay.append(_q_dlg)
+                            _q_dlg.open = True
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _q_event.wait(timeout=600)
+                            _folder_tool_results.append(
+                                (fn_name, _q_result["answer"] or "(Charles n'a pas répondu à temps)")
+                            )
+                        elif fn_name.startswith("mcp__"):
+                            _folder_tool_results.append(
+                                (fn_name, mcp_client.mcp_call_tool(fn_name, fn_args))
+                            )
                         elif fn_name in ("generate_image", "edit_image"):
                             if _image_tool_done:
                                 _folder_tool_results.append(
