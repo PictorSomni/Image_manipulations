@@ -19,8 +19,10 @@ API publique :
 
 import asyncio
 import http.server
+import logging
 import os
 import threading
+import time
 import urllib.parse
 import webbrowser
 
@@ -28,6 +30,18 @@ import CONSTANTS
 import credentials
 
 _TOOL_PREFIX = "mcp__"
+
+# Un serveur MCP en échec est ignoré silencieusement pour ne pas bloquer
+# les autres (voir mcp_get_all_tools) — mais l'erreur réelle doit rester
+# quelque part consultable, plutôt que disparaître complètement (Dashboard/
+# SidePanel tournent en .pyw, sans console).
+_logger = logging.getLogger("mcp_client")
+if not _logger.handlers:
+    _log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".mcp_errors.log")
+    _handler = logging.FileHandler(_log_path, encoding="utf-8")
+    _handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    _logger.addHandler(_handler)
+    _logger.setLevel(logging.WARNING)
 
 # ── OAuth (serveurs MCP hébergés — Notion, et plus généralement tout
 # serveur SaaS distant, la spec MCP standardise OAuth 2.1 pour ce cas) ──
@@ -39,6 +53,14 @@ class _KeyringTokenStorage:
     """Persiste les tokens/infos client OAuth dans le coffre natif de
     l'OS (Data/credentials.py), par serveur — jamais en clair sur disque.
     Implémente le protocole mcp.client.auth.TokenStorage.
+
+    Persiste aussi l'expiration absolue du token (voir get_expiry) : le SDK
+    mcp ne la recalcule pas lui-même après un rechargement depuis le stockage
+    (seulement après une authorization/refresh fraîche), donc sans ça, un
+    token expiré est considéré valide jusqu'au premier 401 — qui déclenche
+    alors une réautorisation complète (navigateur) plutôt qu'un simple
+    rafraîchissement silencieux. D'où la reconnexion demandée à chaque
+    lancement de l'appli une fois le token expiré.
     """
 
     def __init__(self, server_name):
@@ -52,6 +74,17 @@ class _KeyringTokenStorage:
     async def set_tokens(self, tokens):
         credentials.set_credential(
             self._service, "tokens", tokens.model_dump_json())
+        if tokens.expires_in is not None:
+            expiry = time.time() + int(tokens.expires_in)
+            credentials.set_credential(self._service, "expiry", str(expiry))
+
+    def get_expiry(self):
+        """Expiration absolue (timestamp Unix) persistée, ou None si
+        inconnue/jamais enregistrée. Synchrone : lu juste après la
+        création de OAuthClientProvider, avant toute connexion réseau.
+        """
+        raw = credentials.get_credential(self._service, "expiry")
+        return float(raw) if raw else None
 
     async def get_client_info(self):
         from mcp.shared.auth import OAuthClientInformationFull
@@ -96,9 +129,8 @@ async def _oauth_callback_handler():
     await loop.run_in_executor(None, httpd.handle_request)
     return httpd.oauth_code, httpd.oauth_state
 
-_loop = None
-_loop_thread = None
-_loop_lock = threading.Lock()
+_loops = {}   # nom de serveur -> (event loop, thread) dédiés à CE serveur
+_loops_lock = threading.Lock()
 _sessions = {}   # nom de serveur -> mcp.ClientSession déjà connectée
 # Références fortes vers les context managers (stdio_client/streamablehttp_client
 # + ClientSession) : entrés manuellement via __aenter__ sans jamais être
@@ -108,29 +140,39 @@ _sessions = {}   # nom de serveur -> mcp.ClientSession déjà connectée
 _session_ctxs = {}   # nom de serveur -> (transport_ctx, session_ctx)
 
 
-def _ensure_loop():
-    """Démarre (une seule fois) le thread de fond avec sa boucle asyncio."""
-    global _loop, _loop_thread
-    with _loop_lock:
-        if _loop is not None:
-            return _loop
+def _ensure_loop(server_name):
+    """Boucle asyncio dédiée à `server_name` — jamais une boucle globale
+    partagée entre serveurs. Vécu : comfyui-mcp (package communautaire) a
+    fini par corrompre l'état interne d'anyio (cancel scope resté ouvert
+    dans une tâche déjà terminée) au point de faire tourner sa boucle en
+    boucle infinie, ce qui gelait TOUS les serveurs MCP pour le reste de
+    la session puisqu'ils partageaient la même boucle. Avec une boucle
+    par serveur, un tel blocage reste cantonné au serveur fautif.
+    """
+    with _loops_lock:
+        entry = _loops.get(server_name)
+        if entry is not None:
+            return entry[0]
         ready = threading.Event()
+        holder = {}
 
         def _run():
-            global _loop
-            _loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(_loop)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            holder["loop"] = loop
             ready.set()
-            _loop.run_forever()
+            loop.run_forever()
 
-        _loop_thread = threading.Thread(target=_run, daemon=True)
-        _loop_thread.start()
+        thread = threading.Thread(
+            target=_run, daemon=True, name=f"mcp-loop-{server_name}")
+        thread.start()
         ready.wait(timeout=5)
-        return _loop
+        _loops[server_name] = (holder["loop"], thread)
+        return holder["loop"]
 
 
-def _run_sync(coro, timeout=30):
-    loop = _ensure_loop()
+def _run_sync(server_name, coro, timeout=30):
+    loop = _ensure_loop(server_name)
     future = asyncio.run_coroutine_threadsafe(coro, loop)
     return future.result(timeout=timeout)
 
@@ -148,6 +190,7 @@ async def _connect_server(server_cfg):
         if server_cfg.get("auth") == "oauth":
             from mcp.client.auth import OAuthClientProvider
             from mcp.shared.auth import OAuthClientMetadata
+            token_storage = _KeyringTokenStorage(name)
             auth = OAuthClientProvider(
                 server_url=server_cfg["url"],
                 client_metadata=OAuthClientMetadata(
@@ -161,11 +204,28 @@ async def _connect_server(server_cfg):
                     # dynamique peut aboutir à un client jugé incompatible.
                     token_endpoint_auth_method="none",
                 ),
-                storage=_KeyringTokenStorage(name),
+                storage=token_storage,
                 redirect_handler=_oauth_redirect_handler,
                 callback_handler=_oauth_callback_handler,
                 timeout=300,
             )
+            # Le SDK ne recalcule l'expiration qu'après une authorization/
+            # refresh fraîche, jamais après un simple rechargement depuis le
+            # stockage — sans ça, un token expiré passe pour valide jusqu'au
+            # premier 401, qui déclenche une réautorisation complète
+            # (navigateur) au lieu d'un rafraîchissement silencieux. On la
+            # restaure nous-mêmes avant la première requête.
+            stored_expiry = token_storage.get_expiry()
+            if stored_expiry is not None:
+                auth.context.token_expiry_time = stored_expiry
+        elif server_cfg.get("auth") == "token":
+            # Jeton statique généré côté serveur MCP (page "Members" de
+            # PrestaShop par ex.), lié à un compte précis plutôt qu'à la
+            # session OAuth du navigateur — stocké via credentials.py,
+            # jamais en clair. Voir credentials.py "set" pour l'enregistrer.
+            token = credentials.get_credential(f"mcp_token_{name}", "token")
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
         else:
             token_env = server_cfg.get("headers_env")
             if token_env:
@@ -195,23 +255,75 @@ async def _connect_server(server_cfg):
     return session
 
 
+_pending_connects = {}   # nom de serveur -> Task de connexion en cours
+
+
 async def _get_or_connect(server_cfg):
     name = server_cfg["name"]
     if name in _sessions:
         return _sessions[name]
-    return await _connect_server(server_cfg)
+    task = _pending_connects.get(name)
+    if task is None:
+        task = asyncio.ensure_future(_connect_server(server_cfg))
+        _pending_connects[name] = task
+    try:
+        # Pas de asyncio.shield/wait_for ici : le timeout est appliqué
+        # côté _run_sync (future.result(timeout=...), dans le thread
+        # appelant, hors du monde async). Annuler cette tâche depuis
+        # l'extérieur (ce que faisait l'ancien asyncio.wait_for) est ce
+        # qui a fini par corrompre anyio (cancel scope fermé dans une
+        # tâche différente de celle qui l'a ouvert). Sans annulation
+        # asynchrone, la connexion en cours continue tranquillement sur
+        # sa boucle dédiée et le message suivant la retrouve en vol.
+        return await task
+    finally:
+        if task.done():
+            _pending_connects.pop(name, None)
 
 
-async def _list_all_tools():
+_DISCOVERY_TIMEOUT_PER_SERVER = 20   # secondes, par serveur
+
+
+async def _discover_server_tools(server_cfg):
+    session = await _get_or_connect(server_cfg)
+    result = await session.list_tools()
+    return result.tools
+
+
+async def _call_tool(server_cfg, tool_name, arguments):
+    session = await _get_or_connect(server_cfg)
+    result = await session.call_tool(tool_name, arguments)
+    parts = [c.text for c in result.content if getattr(c, "text", None)]
+    text = "\n".join(parts) or "(résultat vide)"
+    return f"Erreur : {text}" if result.isError else text
+
+
+def mcp_get_all_tools():
+    """Outils de tous les serveurs configurés, au format outil interne.
+
+    [] si CONSTANTS.MCP_SERVERS est vide. Chaque serveur tourne sur sa
+    propre boucle asyncio (_ensure_loop) avec son propre timeout de
+    _DISCOVERY_TIMEOUT_PER_SERVER secondes : un serveur en échec, lent,
+    ou dont la boucle se bloque est ignoré sans empêcher les autres de
+    répondre, et sans plus jamais bloquer les appels futurs (contrairement
+    à l'ancienne boucle unique partagée par tous les serveurs).
+    """
+    if not CONSTANTS.MCP_SERVERS:
+        return []
     tools = []
     for server_cfg in CONSTANTS.MCP_SERVERS:
         name = server_cfg["name"]
         try:
-            session = await _get_or_connect(server_cfg)
-            result = await session.list_tools()
-        except Exception:
+            server_tools = _run_sync(
+                name, _discover_server_tools(server_cfg),
+                timeout=_DISCOVERY_TIMEOUT_PER_SERVER,
+            )
+        except Exception as exc:
+            _logger.warning(
+                "découverte des outils échouée pour %r : %r", name, exc,
+                exc_info=True)
             continue
-        for tool in result.tools:
+        for tool in server_tools:
             tools.append({
                 "type": "function",
                 "function": {
@@ -224,48 +336,26 @@ async def _list_all_tools():
     return tools
 
 
-async def _call_tool(qualified_name, arguments):
+def mcp_call_tool(qualified_name, arguments):
+    """Appelle un outil MCP par son nom qualifié (mcp__<serveur>__<outil>).
+
+    Retourne toujours une chaîne (résultat ou message d'erreur lisible
+    par le modèle), ne lève jamais. Timeout à 300s (un appel d'outil, ex.
+    génération d'image, peut être long) sur la boucle dédiée à ce serveur.
+    """
     rest = qualified_name[len(_TOOL_PREFIX):]
     server_name, _, tool_name = rest.partition("__")
     server_cfg = next(
         (s for s in CONSTANTS.MCP_SERVERS if s["name"] == server_name), None)
     if server_cfg is None:
         return f"Serveur MCP inconnu : {server_name}"
-    session = await _get_or_connect(server_cfg)
-    result = await session.call_tool(tool_name, arguments)
-    parts = [c.text for c in result.content if getattr(c, "text", None)]
-    text = "\n".join(parts) or "(résultat vide)"
-    return f"Erreur : {text}" if result.isError else text
-
-
-def mcp_get_all_tools():
-    """Outils de tous les serveurs configurés, au format outil interne.
-
-    [] si CONSTANTS.MCP_SERVERS est vide (aucune connexion tentée) ou si
-    la découverte échoue globalement. Un serveur individuellement en
-    échec est ignoré sans empêcher les autres de répondre.
-
-    Timeout à 300s (pas 20s) : une première connexion à un serveur OAuth
-    (Notion...) attend que Charles clique "Autoriser" dans son
-    navigateur — sans incidence sur le cas courant (session déjà
-    authentifiée → réponse en quelques centaines de ms).
-    """
-    if not CONSTANTS.MCP_SERVERS:
-        return []
     try:
-        return _run_sync(_list_all_tools(), timeout=300)
-    except Exception:
-        return []
-
-
-def mcp_call_tool(qualified_name, arguments):
-    """Appelle un outil MCP par son nom qualifié (mcp__<serveur>__<outil>).
-
-    Retourne toujours une chaîne (résultat ou message d'erreur lisible
-    par le modèle), ne lève jamais. Timeout à 300s, même raison que
-    mcp_get_all_tools (premier appel OAuth potentiellement interactif).
-    """
-    try:
-        return _run_sync(_call_tool(qualified_name, arguments or {}), timeout=300)
+        return _run_sync(
+            server_name, _call_tool(server_cfg, tool_name, arguments or {}),
+            timeout=300,
+        )
     except Exception as exc:
+        _logger.warning(
+            "appel d'outil MCP %r échoué : %r", qualified_name, exc,
+            exc_info=True)
         return f"Erreur outil MCP {qualified_name} : {exc}"

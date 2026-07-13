@@ -253,7 +253,7 @@ RECADRAGE_FORCE_TILE_GAP_MM = 3
 
 # ── 6.1  Fenêtre principale ───────────────────────────────────────────────────
 
-WINDOW_WIDTH       = 1350
+WINDOW_WIDTH       = 1400
 WINDOW_HEIGHT      = 920
 MAXIMIZED          = True
 TERMINAL_FONT_SIZE    = 16   # Taille du texte dans le terminal, le bloc-notes et les options
@@ -582,9 +582,12 @@ AI_PHOTO_SCORE_FILE = ".ai_photo_scores.json"
 # dans l'IA (Dashboard/SidePanel), quel que soit le modèle actif — voir
 # Data/mcp_client.py. "auth": "oauth" déclenche un login navigateur au
 # premier appel (token ensuite gardé dans le coffre OS, voir
-# credentials.py) ; "headers_env" résout un jeton statique depuis une
-# variable d'environnement. Jamais de secret en dur ici (fichier
-# versionné) — même principe que credentials.py / DEST_FOLDER.
+# credentials.py) ; "auth": "token" lit un jeton statique déjà généré
+# côté serveur (ex. page "Members" de PrestaShop) depuis le coffre OS
+# (python credentials.py set mcp_token_<name> token) ; "headers_env"
+# résout un jeton statique depuis une variable d'environnement. Jamais
+# de secret en dur ici (fichier versionné) — même principe que
+# credentials.py / DEST_FOLDER.
 #
 # Autres exemples de forme :
 # {"name": "exemple", "transport": "stdio",
@@ -600,6 +603,30 @@ MCP_SERVERS = [
     # d'Affinity.
     {"name": "canva", "transport": "http",
      "url": "https://mcp.canva.com/mcp", "auth": "oauth"},
+    # PrestaShop MCP restreint l'accès aux emails listés dans sa page
+    # "Members" (back-office du module) — le login OAuth navigateur
+    # échoue si le compte connecté n'y figure pas. Jeton statique lié
+    # au membre commande@studiocleuze.be à la place.
+    {"name": "prestashop", "transport": "http",
+     "url": "https://monobjet.be/mcp", "auth": "token"},
+    # comfy-cloud : jamais autorisé (Charles utilise ComfyUI en local via
+    # comfyui-local ci-dessous) — laissé actif, cette entrée brûlait 20s
+    # (timeout OAuth par serveur) sur CHAQUE message, avant même d'atteindre
+    # comfyui-local dans la boucle de découverte. À réactiver seulement si
+    # Charles veut vraiment le service cloud en plus du local.
+    # {"name": "comfy-cloud", "transport": "http",
+    #  "url": "https://cloud.comfy.org/mcp", "auth": "oauth"},
+    # ComfyUI local (instance sur cette machine, http://127.0.0.1:8188) —
+    # serveur MCP communautaire (artokun/comfyui-mcp), lancé via npx en
+    # stdio. Nécessite Node.js et ComfyUI démarré avant l'appel.
+    # Désactivé temporairement le 2026-07-13 : échoue à 100% des tentatives
+    # depuis le début de la session avec McpError('Connection closed') dès
+    # session.initialize() — le sous-processus npx se ferme sans qu'on sache
+    # encore pourquoi. Charge inutile (tentative + échec) à chaque message
+    # en attendant. Réactiver une fois la cause trouvée.
+    # {"name": "comfyui-local", "transport": "stdio",
+    #  "command": "npx", "args": ["-y", "comfyui-mcp"],
+    #  "env": {"COMFYUI_URL": "http://127.0.0.1:8188"}},
 ]
 
 

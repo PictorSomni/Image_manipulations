@@ -4,6 +4,10 @@ __pycache__/
 .preview_cache
 _rc*
 
+# Logs de debug locaux (mcp_client.py / ai_tools.py)
+Data/.mcp_errors.log
+Data/.ai_tools_errors.log
+
 # Modèles IA (fichiers lourds)
 # Data/models/
 # *.pth

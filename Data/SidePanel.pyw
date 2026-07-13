@@ -637,13 +637,13 @@ def main(page: ft.Page):
     )
     ai_clear_button    = ft.IconButton(
         icon=ft.Icons.DELETE_SWEEP,
-        icon_color=LIGHT_GREY,
+        icon_color=RED,
         icon_size=16,
         tooltip="Effacer la conversation IA",
     )
     ai_copy_button     = ft.IconButton(
         icon=ft.Icons.COPY_ALL,
-        icon_color=LIGHT_GREY,
+        icon_color=BLUE,
         icon_size=16,
         tooltip="Copier la conversation IA",
     )
@@ -3009,6 +3009,7 @@ def main(page: ft.Page):
         ai_stop_button.visible = True
         ai_stop_button.icon_color = RED
         ai_status_text.value = "⏳ En cours…"
+        ai_progress_bar.visible = True
         try:
             page.update()
         except Exception:
@@ -3730,6 +3731,13 @@ def main(page: ft.Page):
                             _q_dlg.open = True
                             try:
                                 page.update()
+                                # Sur Windows/Flet, l'overlay ne se rend
+                                # visuellement que si la fenêtre a le focus —
+                                # sans ça, la question reste invisible si
+                                # Charles travaille ailleurs (vécu le 2026-07-13,
+                                # ~40 min perdues car "vas-y" tapé dans le chat
+                                # normal n'atteint jamais cette boîte de dialogue).
+                                page.run_task(page.window.to_front)
                             except Exception:
                                 pass
                             _q_event.wait(timeout=600)
@@ -3737,9 +3745,15 @@ def main(page: ft.Page):
                                 (fn_name, _q_result["answer"] or "(Charles n'a pas répondu à temps)")
                             )
                         elif fn_name.startswith("mcp__"):
-                            _folder_tool_results.append(
-                                (fn_name, mcp_client.mcp_call_tool(fn_name, fn_args))
-                            )
+                            ai_status_text.value = f"🔌 {fn_name}…"
+                            _ai_add_bubble("assistant", f"🔌 Outil MCP : {fn_name}")
+                            try:
+                                page.update()
+                            except Exception:
+                                pass
+                            _mcp_result = mcp_client.mcp_call_tool(fn_name, fn_args)
+                            _turn_events.append(f"🔌 Outil MCP : {fn_name}")
+                            _folder_tool_results.append((fn_name, _mcp_result))
                         elif fn_name in ("generate_image", "edit_image"):
                             if _image_tool_done:
                                 _folder_tool_results.append(
@@ -4611,6 +4625,23 @@ def main(page: ft.Page):
             except Exception as exc:
                 _ai_add_bubble("assistant", f"[ERREUR] {exc}")
                 full_response = ""
+                # Journal permanent même en cas de crash : un outil (MCP ou
+                # autre) peut avoir déjà eu un effet réel avant l'exception
+                # (ex. écriture Notion) — sans ça, cette trace disparaît
+                # silencieusement alors que l'action, elle, a bien eu lieu.
+                _turn_events = locals().get('_turn_events', [])
+                _thinking = locals().get('_thinking', "")
+                _last_user_text = locals().get('_last_user_text') or next(
+                    (m["content"] for m in reversed(ai_conversation) if m["role"] == "user"),
+                    message_text
+                )
+                if _turn_events:
+                    ai_conversation.append({
+                        "role": "assistant", "content": f"[ERREUR] {exc}",
+                        "events": _turn_events,
+                    })
+                    _ai_save_history()
+                _log_exchange_to_md(_last_user_text, f"[ERREUR] {exc}", _thinking, _turn_events)
             finally:
                 ai_streaming["value"] = False
                 ai_stop_button.icon_color = LIGHT_GREY

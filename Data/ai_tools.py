@@ -57,6 +57,8 @@ import ast as _ast
 import gzip
 import hashlib as _hashlib
 import json
+import logging
+import os as _os
 import re
 import sys as _sys
 import time as _time
@@ -65,6 +67,18 @@ import urllib.parse
 import html.parser
 
 import CONSTANTS
+
+# Erreurs "best-effort" (fallback silencieux volontaire) — voir chaque site
+# d'appel pour le contexte. Un sous-ensemble seulement est loggé ici : ceux
+# qui peuvent masquer un vrai bug (ex. arguments d'un tool call perdus),
+# pas les dizaines de fallbacks cosmétiques (DPI, audio, dates...).
+_logger = logging.getLogger("ai_tools")
+if not _logger.handlers:
+    _log_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".ai_tools_errors.log")
+    _handler = logging.FileHandler(_log_path, encoding="utf-8")
+    _handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    _logger.addHandler(_handler)
+    _logger.setLevel(logging.WARNING)
 
 # Rend le processus DPI-aware sous Windows : sans ça, si l'affichage a une
 # mise à l'échelle > 100%, Windows "virtualise" les coordonnées de la souris
@@ -3346,7 +3360,10 @@ def _ollama_messages_to_gemini(messages):
                 if isinstance(args, str):
                     try:
                         args = json.loads(args)
-                    except Exception:
+                    except Exception as exc:
+                        _logger.warning(
+                            "arguments de tool call (Gemini) illisibles, "
+                            "remplacés par {} : %r — brut : %r", exc, args)
                         args = {}
                 parts.append(_gtypes.Part.from_function_call(
                     name=fn.get("name", ""),
@@ -4845,7 +4862,10 @@ def _claude_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
                         try:
                             import json as _j
                             tool_input = _j.loads(current_tool_json) if current_tool_json else {}
-                        except Exception:
+                        except Exception as exc:
+                            _logger.warning(
+                                "arguments de tool call (Claude) illisibles, "
+                                "remplacés par {} : %r — brut : %r", exc, current_tool_json)
                             tool_input = {}
                         tool_calls_out.append({
                             "id": current_tool["id"],
