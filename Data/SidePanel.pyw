@@ -2261,6 +2261,7 @@ def main(page: ft.Page):
                     sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
                     language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
                     stop_event=stop_event,
+                    preroll_ms=CONSTANTS.AI_VOICE_TTS_PREROLL_MS,
                 )
             else:
                 _gemini_tts_stream(

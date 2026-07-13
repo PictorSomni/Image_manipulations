@@ -2276,6 +2276,7 @@ def main(page: ft.Page):
                     sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
                     language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
                     stop_event=stop_event,
+                    preroll_ms=CONSTANTS.AI_VOICE_TTS_PREROLL_MS,
                 )
             else:
                 # One-shot par défaut pour un timbre stable sur toute la réponse.
@@ -2520,6 +2521,80 @@ def main(page: ft.Page):
         def _run():
             full_response = ""
             response_text_ctrl = None
+            # ── Lecture vocale incrémentale (mode "live") ────────────────────
+            # Parler dès que le texte se génère au lieu d'attendre la réponse
+            # complète. Actif au 1er tour uniquement ; tout appel d'outil
+            # bascule sur la lecture classique de fin de réponse. Tout est
+            # enveloppé de try/except pour ne jamais perturber la boucle de
+            # chat. Désactivé par défaut (CONSTANTS.AI_VOICE_TTS_STREAM).
+            _tts_stream = {
+                "on": bool(
+                    ai_tts_enabled["value"]
+                    and CONSTANTS.AI_VOICE_TTS_MODE == "live"
+                    and getattr(CONSTANTS, "AI_VOICE_TTS_STREAM", False)),
+                "q": None, "stop": None, "fed": 0, "last": "",
+                "done": False, "aborted": False,
+            }
+
+            def _tts_stream_start():
+                import queue as _q
+                q = _q.Queue()
+                stop = threading.Event()
+                if ai_tts_stop_event["event"] is not None:
+                    ai_tts_stop_event["event"].set()
+                ai_tts_stop_event["event"] = stop
+                _tts_stream["q"] = q
+                _tts_stream["stop"] = stop
+                threading.Thread(
+                    target=_gemini_live_tts_stream, args=(q,),
+                    kwargs=dict(
+                        model=CONSTANTS.AI_VOICE_LIVE_MODEL,
+                        voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
+                        sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
+                        language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
+                        stop_event=stop,
+                        preroll_ms=CONSTANTS.AI_VOICE_TTS_PREROLL_MS,
+                    ), daemon=True).start()
+
+            def _tts_stream_abort():
+                _tts_stream["aborted"] = True
+                _tts_stream["on"] = False
+                if _tts_stream["stop"] is not None:
+                    _tts_stream["stop"].set()
+                if _tts_stream["q"] is not None:
+                    _tts_stream["q"].put(None)
+
+            def _tts_stream_feed(visible):
+                if _tts_stream["aborted"] or _tts_stream["q"] is None:
+                    return
+                # Ne jamais lire un appel d'outil textuel à voix haute.
+                if "<tool_code>" in visible or "```tool" in visible:
+                    _tts_stream_abort()
+                    return
+                _tts_stream["last"] = visible
+                new = visible[_tts_stream["fed"]:]
+                last_boundary = None
+                for last_boundary in re.finditer(r'[.!?]\s', new):
+                    pass
+                if last_boundary is None:
+                    return
+                cut = last_boundary.end()
+                # Premier envoi : attendre MIN_CHARS pour un chunk assez gros
+                # (moins de coutures = plus stable).
+                if _tts_stream["fed"] == 0 and cut < CONSTANTS.AI_VOICE_TTS_STREAM_MIN_CHARS:
+                    return
+                _tts_stream["q"].put(new[:cut])
+                _tts_stream["fed"] += cut
+
+            def _tts_stream_finish():
+                if _tts_stream["q"] is None or _tts_stream["aborted"]:
+                    return
+                tail = _tts_stream["last"][_tts_stream["fed"]:].strip()
+                if tail:
+                    _tts_stream["q"].put(tail)
+                _tts_stream["q"].put(None)
+                _tts_stream["done"] = True
+
             try:
                 # S'assurer qu'Ollama est prêt (serveur + modèle)
                 if not _ensure_ollama_ready(active_model):
@@ -2774,6 +2849,14 @@ def main(page: ft.Page):
                                     if '<think>' in _visible:
                                         _visible = _visible[:_visible.index('<think>')]
                                     _visible = _visible.strip()
+                                    if _tts_stream["on"] and _tool_round == 0:
+                                        try:
+                                            if _tts_stream["q"] is None and _visible:
+                                                _tts_stream_start()
+                                            if _tts_stream["q"] is not None:
+                                                _tts_stream_feed(_visible)
+                                        except Exception:
+                                            _tts_stream["on"] = False
                                     if response_text_ctrl is None:
                                         if _visible:
                                             _remove_loading()
@@ -2859,7 +2942,21 @@ def main(page: ft.Page):
                         elif full_response:
                             _remove_loading()
                             response_text_ctrl = _ai_add_bubble("assistant", full_response)
+                        if _tts_stream["on"] and _tool_round == 0 and _tts_stream["q"] is not None:
+                            try:
+                                _tts_stream_finish()
+                            except Exception:
+                                pass
                         break
+
+                    # Ce tour appelle un outil : la lecture incrémentale
+                    # démarrée au tour 0 devient caduque — on l'annule, la
+                    # réponse finale sera lue classiquement à la fin.
+                    if _tts_stream["q"] is not None and not _tts_stream["done"]:
+                        try:
+                            _tts_stream_abort()
+                        except Exception:
+                            pass
 
                     # Tour d'outils — finaliser le texte préliminaire streamé si présent
                     if response_text_ctrl is not None:
@@ -4311,7 +4408,7 @@ def main(page: ft.Page):
                     page.update()
                 except Exception:
                     pass
-                if full_response and ai_tts_enabled["value"]:
+                if full_response and ai_tts_enabled["value"] and not _tts_stream["done"]:
                     threading.Thread(target=_speak_bubble, args=(full_response,), daemon=True).start()
                 async def _refocus_after_response():
                     try:

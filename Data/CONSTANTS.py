@@ -478,6 +478,20 @@ AI_VOICE_TTS_SAMPLE_RATE = 24000    # Fréquence de sortie PCM (Hz — ne pas mo
 AI_VOICE_TTS_LANGUAGE    = "fr"     # Code ISO 639-1 pour la langue de synthèse
 AI_VOICE_TTS_SINGLE_SHOT_MAX_CHARS = 1200  # Longueur max (caractères) pour forcer une seule requête TTS
 
+# ── Réduction de latence du mode "live" ──────────────────────────────────────
+# Coussin audio (jitter buffer) : on accumule ce nombre de ms d'audio avant de
+# démarrer la lecture, pour éviter les trous si le réseau hoquette. 0 = démarrer
+# au premier échantillon (latence minimale, moins tolérant aux à-coups).
+AI_VOICE_TTS_PREROLL_MS = 400
+
+# Lecture incrémentale : commencer à parler dès que ~MIN_CHARS de texte propre
+# sont générés, sans attendre la réponse complète (mode "live" uniquement).
+# Chunks plus gros = plus stable mais démarrage plus tardif ; plus petits =
+# plus réactif mais coutures plus fréquentes. False = comportement d'origine
+# (parler une fois la réponse complète).
+AI_VOICE_TTS_STREAM = False
+AI_VOICE_TTS_STREAM_MIN_CHARS = 200
+
 # ── Dictée vocale — STT (transcription Gemini, push-to-talk) ─────────────────
 # Bouton micro dans les zones IA : maintenir pour parler, relâcher pour
 # transcrire. L'audio est envoyé à Gemini (aucun fournisseur externe).

@@ -4155,6 +4155,7 @@ def _gemini_live_tts_stream(
     sample_rate=24000,
     language_code=None,
     stop_event=None,
+    preroll_ms=0,
 ):
     """
     Génère et joue le TTS via l'API Gemini Live (connexion WebSocket persistante).
@@ -4163,11 +4164,17 @@ def _gemini_live_tts_stream(
     cette fonction utilise une seule session Live : la voix est parfaitement cohérente
     du début à la fin (même intonation, même timbre, pas de rupture entre les phrases).
 
+    text           : texte complet (str) OU queue.Queue de fragments de texte pour
+                     une lecture incrémentale — pousser les morceaux au fil de la
+                     génération, puis None pour signaler la fin. Même session Live
+                     dans les deux cas : voix et langue restent verrouillées.
     model          : modèle Gemini Live (ex. "gemini-3.5-flash-live")
     voice_name     : voix Gemini (ex. "Kore", "Puck" — mêmes noms que le TTS classique)
     sample_rate    : fréquence de sortie PCM (24000 Hz par défaut)
     language_code  : code langue ISO 639-1 (ex. "fr") ou None pour auto-détection
     stop_event     : threading.Event — si activé, interrompt la lecture (barge-in)
+    preroll_ms     : coussin audio accumulé avant de démarrer la lecture (jitter
+                     buffer) — lisse les à-coups réseau au prix d'un léger retard.
 
     Bloquant : attend la fin de la lecture avant de retourner.
     Lève ImportError si google-genai n'est pas installé ou si le modèle n'est pas disponible.
@@ -4175,6 +4182,8 @@ def _gemini_live_tts_stream(
     import asyncio as _asyncio
     import queue as _queue
     import threading as _threading
+
+    text_is_stream = isinstance(text, _queue.Queue)
 
     api_key = _get_gemini_api_key()
     if not api_key:
@@ -4205,7 +4214,22 @@ def _gemini_live_tts_stream(
                 # Gemini 3.1 Live: pendant la conversation, envoyer le texte via
                 # send_realtime_input (send_client_content sert surtout à l'amorçage
                 # d'historique initial avec history_config dédié).
-                await session.send_realtime_input(text=text)
+                feeder = None
+                if text_is_stream:
+                    # Mode incrémental : draine la file de fragments et les envoie
+                    # au fil de l'eau, sans bloquer la boucle d'événements.
+                    _loop = _asyncio.get_event_loop()
+
+                    async def _feed():
+                        while True:
+                            frag = await _loop.run_in_executor(None, text.get)
+                            if frag is None:
+                                break
+                            await session.send_realtime_input(text=frag)
+
+                    feeder = _asyncio.create_task(_feed())
+                else:
+                    await session.send_realtime_input(text=text)
                 async for message in session.receive():
                     if stop_event is not None and stop_event.is_set():
                         break
@@ -4220,10 +4244,16 @@ def _gemini_live_tts_stream(
                                 if inline and getattr(inline, "data", None):
                                     audio_queue.put(inline.data)
                         if getattr(server_content, "turn_complete", False):
-                            break
+                            # En mode incrémental, un turn_complete peut tomber
+                            # entre deux fragments : ne s'arrêter qu'une fois tout
+                            # le texte envoyé (feeder terminé).
+                            if feeder is None or feeder.done():
+                                break
                     # Fallback : certaines versions SDK exposent .data directement
                     elif getattr(message, "data", None):
                         audio_queue.put(message.data)
+                if feeder is not None and not feeder.done():
+                    feeder.cancel()
         except Exception as exc:
             error_holder[0] = exc
         finally:
@@ -4253,6 +4283,11 @@ def _gemini_live_tts_stream(
         latency="low",
     )
     output_stream.start()
+    # Coussin de pré-lecture : on accumule preroll_ms d'audio avant la 1re
+    # écriture pour absorber la gigue réseau (int16 mono → 2 octets/échantillon).
+    preroll_bytes = int(sample_rate * 2 * max(preroll_ms, 0) / 1000.0)
+    prebuf = bytearray()
+    started = preroll_bytes <= 0
     try:
         while True:
             if stop_event is not None and stop_event.is_set():
@@ -4269,9 +4304,20 @@ def _gemini_live_tts_stream(
                         f"Aucun audio reçu du modèle Live ({model}) — "
                         "vérifier que le modèle est disponible sur votre compte"
                     )
+                # Vider le coussin si la lecture n'a pas encore démarré (réponse
+                # plus courte que le pré-buffer).
+                if prebuf and (stop_event is None or not stop_event.is_set()):
+                    output_stream.write(bytes(prebuf))
                 break
             got_audio = True
-            output_stream.write(item)
+            if started:
+                output_stream.write(item)
+            else:
+                prebuf += item
+                if len(prebuf) >= preroll_bytes:
+                    output_stream.write(bytes(prebuf))
+                    prebuf = bytearray()
+                    started = True
     finally:
         # Attendre que le buffer interne du stream soit vidé avant de fermer
         output_stream.stop()
