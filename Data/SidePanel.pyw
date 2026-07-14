@@ -59,6 +59,7 @@ import concurrent.futures
 import time
 import base64
 import urllib.request
+from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
 import thumb_cache
@@ -77,32 +78,15 @@ def _is_os_junk(entry):
 
 
 from ai_tools import (
-    _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream,
-    _ollama_chat_stream_with_tools, _gemini_chat_stream_with_tools,
-    _parse_text_tool_calls, _strip_text_tool_calls,
-    _format_ai_conversation, _folder_tool_definitions, _gemini_tool_definitions, _folder_list_contents,
-    _folder_read_file, _folder_create_file, _folder_delete_files, _folder_move_file,
-    _folder_copy_file, _folder_create_folder, _resolve_path,
-    _folder_read_exif, _folder_zip_files, _folder_unzip_file,
-    _encode_image_for_analysis, _analyze_images_batched, _take_screenshot,
-    _score_images_batched, _copy_scored_photos,
-    _gemini_generate_image, _gemini_refine_image_prompt, _gemini_generate_music,
-    _WEB_TOOLS, _TERMINAL_TOOLS, _MEMORY_TOOLS, _SCREENSHOT_TOOLS, _NOTEPAD_TOOLS,
-    _UI_TOOLS, _run_terminal_command,
-    _EDIT_TOOLS, _READ_LINES_TOOLS, _SEARCH_TOOLS, _GIT_TOOLS, _TASK_TOOLS, _PDF_TOOLS, _SUBAGENT_TOOLS, _SCHEDULE_TOOLS,
-    _HTTP_TOOLS, _SPREADSHEET_TOOLS, _PYAUTOGUI_TOOLS, _SSH_TOOLS,
-    _edit_file, _read_file_lines, _search_in_files, _find_files, _git_command, _manage_tasks, _read_pdf,
-    _ask_subagent, _schedule_task, _http_request, _read_spreadsheet, _ssh_command,
-    _mouse_click, _keyboard_type, _keyboard_hotkey,
-    _is_network_error,
-    _update_memory_file, _build_system_content,
-    _gemini_tts_stream, _gemini_live_tts_stream,
-    _MicRecorder, _gemini_transcribe_audio,
-    _claude_chat_stream_with_tools,
-    _md_dark,
-    _compact_history_summary,
-    _ai_save_history as _ai_save_history_fn,
-    _ensure_ollama_ready as _ensure_ollama_ready_fn,
+    _fetch_url_content, _web_search, _ollama_chat_once, _ollama_chat_stream_with_tools,
+    _gemini_chat_stream_with_tools, _parse_text_tool_calls, _strip_text_tool_calls, _format_ai_conversation,
+    _folder_list_contents, _folder_read_file, _folder_create_file, _folder_delete_files,
+    _backup_file, build_tool_list, dispatch_folder_tool, DISPATCH_UNHANDLED,
+    _analyze_images_batched, _take_screenshot, _score_images_batched, _gemini_generate_image,
+    _gemini_refine_image_prompt, _gemini_generate_music, _run_terminal_command, _is_network_error,
+    _update_memory_file, _build_system_content, _gemini_tts_stream, _gemini_live_tts_stream,
+    _MicRecorder, _gemini_transcribe_audio, _claude_chat_stream_with_tools, _md_dark,
+    _compact_history_summary, _ai_save_history as _ai_save_history_fn, _ensure_ollama_ready as _ensure_ollama_ready_fn,
 )
 #############################################################
 #                           MAIN                            #
@@ -3101,15 +3085,8 @@ def main(page: ft.Page):
                 today = datetime.date.today().strftime("%d %B %Y")
                 # ── Outils dossier (disponibles si un dossier est ouvert) ─────
                 _folder_path_for_tools = current_src["path"]
-                _FOLDER_TOOLS = _folder_tool_definitions(_folder_path_for_tools)
-                _NEW_TOOLS = (_EDIT_TOOLS + _READ_LINES_TOOLS + _SEARCH_TOOLS + _GIT_TOOLS + _TASK_TOOLS
-                              + _PDF_TOOLS + _SUBAGENT_TOOLS + _SCHEDULE_TOOLS
-                              + _HTTP_TOOLS + _SPREADSHEET_TOOLS + _PYAUTOGUI_TOOLS + _SSH_TOOLS)
                 _MCP_TOOLS = mcp_client.mcp_get_all_tools()
-                if (active_model or "").startswith("gemini"):
-                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _MCP_TOOLS + _gemini_tool_definitions(_folder_path_for_tools)
-                else:
-                    _ALL_TOOLS = _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS + _MCP_TOOLS + _FOLDER_TOOLS
+                _ALL_TOOLS = build_tool_list(_folder_path_for_tools, _MCP_TOOLS)
                 # Limiter l'historique : 20 tours pour les modèles cloud capables, 10 pour les modèles locaux
                 _history_limit = CONSTANTS.AI_HISTORY_LIMIT_CLOUD if (active_model or "").startswith(("gemini", "claude")) else CONSTANTS.AI_HISTORY_LIMIT_LOCAL
                 _history = ai_conversation[-_history_limit:] if len(ai_conversation) > _history_limit else ai_conversation
@@ -3120,25 +3097,46 @@ def main(page: ft.Page):
                 _system_content = _build_system_content(
                     _folder_path_for_tools, today
                 )
-                if _history_summary:
-                    _system_content += f"\n\nRÉSUMÉ DES ÉCHANGES PRÉCÉDENTS (hors fenêtre récente) :\n{_history_summary}"
                 _system_content += f"\n\nRACINE DU PROJET (chemin absolu, pour .mots_cles.json etc.) : {os.path.dirname(app_dir)}"
                 if _folder_path_for_tools:
                     _system_content += f"\n\nDOSSIER ACTUELLEMENT OUVERT : {_folder_path_for_tools}"
+                # Contexte volatile (résumé d'historique, fichiers sélectionnés) :
+                # injecté dans le message utilisateur, PAS dans le prompt système,
+                # sinon il change à chaque tour et invalide le cache serveur
+                # (Gemini cachedContent / Claude prompt cache), qui repose sur un
+                # préfixe système+outils stable.
+                _volatile_ctx = ""
+                if _history_summary:
+                    _volatile_ctx += f"\n\nRÉSUMÉ DES ÉCHANGES PRÉCÉDENTS (hors fenêtre récente) :\n{_history_summary}"
                 if selected_files:
                     _sel_basenames = [os.path.basename(f) for f in selected_files]
                     _sel_list = "\n".join(f"- {n}" for n in _sel_basenames[:50])
-                    _system_content += f"\n\nFICHIERS SÉLECTIONNÉS DANS L'INTERFACE ({len(selected_files)}) :\n{_sel_list}"
+                    _volatile_ctx += f"\n\nFICHIERS SÉLECTIONNÉS DANS L'INTERFACE ({len(selected_files)}) :\n{_sel_list}"
                     if len(selected_files) > 50:
-                        _system_content += f"\n(… et {len(selected_files) - 50} autres non listés)"
+                        _volatile_ctx += f"\n(… et {len(selected_files) - 50} autres non listés)"
                 # Pour les modèles Ollama : retirer "thinking" et "events" de l'historique.
                 # Gemma injecte ses tokens <think> dans msg.content ; réinjecter le thinking
                 # extrait pollue la fenêtre de contexte et tronque les réponses tour après tour.
                 _is_cloud = (active_model or "").startswith(("gemini", "claude"))
                 _skip_keys = {"events"} if _is_cloud else {"events", "thinking"}
+                _msgs_hist = [
+                    {k: v for k, v in m.items() if k not in _skip_keys}
+                    for m in _history
+                ]
+                # Rattacher le contexte volatile au dernier tour utilisateur
+                # (ou en ajouter un) — hors du système pour préserver le cache.
+                if _volatile_ctx.strip():
+                    _ctx_block = "CONTEXTE ACTUEL (interface / mémoire) :" + _volatile_ctx
+                    if _msgs_hist and _msgs_hist[-1].get("role") == "user":
+                        _msgs_hist[-1] = dict(_msgs_hist[-1])
+                        _msgs_hist[-1]["content"] = (
+                            str(_msgs_hist[-1].get("content", "")) + "\n\n" + _ctx_block
+                        )
+                    else:
+                        _msgs_hist.append({"role": "user", "content": _ctx_block})
                 messages = [
                     {"role": "system", "content": _system_content},
-                    *[{k: v for k, v in m.items() if k not in _skip_keys} for m in _history],
+                    *_msgs_hist,
                 ]
 
                 # ── Debug log & Journal permanent en Markdown ────────────────
@@ -3255,16 +3253,7 @@ def main(page: ft.Page):
                     for _fb_i, _fb_model in enumerate(_fb_chain):
                         if _fb_skip_cloud and _fb_model.startswith(("gemini", "claude")):
                             continue
-                        if _fb_model.startswith(("gemini", "claude")):
-                            _fb_tools = (_WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS
-                                         + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS
-                                         + _MCP_TOOLS
-                                         + _gemini_tool_definitions(_folder_path_for_tools))
-                        else:
-                            _fb_tools = (_WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS
-                                         + _SCREENSHOT_TOOLS + _NOTEPAD_TOOLS + _UI_TOOLS + _NEW_TOOLS
-                                         + _MCP_TOOLS
-                                         + _FOLDER_TOOLS)
+                        _fb_tools = build_tool_list(_folder_path_for_tools, _MCP_TOOLS)
                         try:
                             if _fb_model.startswith("gemini"):
                                 _stream_iter = _gemini_chat_stream_with_tools(
@@ -3408,6 +3397,23 @@ def main(page: ft.Page):
                     _tool_tasks          = []
                     _folder_tool_results = []  # traités séquentiellement avant le pool
                     _screenshot_b64s     = []
+
+                    def _tool_ui_paint():
+                        try:
+                            page.update()
+                        except Exception:
+                            pass
+
+                    _tool_ui = SimpleNamespace(
+                        set_status=lambda t: setattr(ai_status_text, "value", t),
+                        bubble=lambda t: _ai_add_bubble("assistant", t),
+                        event=lambda t: _turn_events.append(t),
+                        refresh=lambda: page.pubsub.send_all_on_topic(
+                            "refresh", None
+                        ),
+                        paint=_tool_ui_paint,
+                        credential=get_or_ask_credential,
+                    )
                     for tc in tool_calls:
                         fn      = tc.get("function", {})
                         fn_name = fn.get("name", "")
@@ -3548,6 +3554,8 @@ def main(page: ft.Page):
                                             continue
                                         try:
                                             os.makedirs(_org_dest_dir, exist_ok=True)
+                                            if os.path.exists(_org_dest):
+                                                _backup_file(_org_dest)  # écrasement -> sauvegarde
                                             shutil.move(_org_source, _org_dest)
                                             _executed_moves.append(f"✓ {_org_filename} → {_org_subfolder}/")
                                         except Exception as _move_exc:
@@ -4102,42 +4110,6 @@ def main(page: ft.Page):
                                 _ai_add_screenshot_bubble(_ss_capture["b64"])
                             else:
                                 _folder_tool_results.append((fn_name, "Échec de la capture d'écran."))
-                        elif fn_name == "mouse_click":
-                            _mc_x      = int(fn_args.get("x", 0))
-                            _mc_y      = int(fn_args.get("y", 0))
-                            _mc_button = fn_args.get("button", "left")
-                            _mc_clicks = fn_args.get("clicks", 1)
-                            ai_status_text.value = f"🖱️ Clic ({_mc_x}, {_mc_y})…"
-                            _ai_add_bubble("assistant", f"🖱️ Clic {_mc_button} à ({_mc_x}, {_mc_y})")
-                            try:
-                                page.update()
-                            except Exception:
-                                pass
-                            _folder_tool_results.append(
-                                (fn_name, _mouse_click(_mc_x, _mc_y, _mc_button, _mc_clicks))
-                            )
-                        elif fn_name == "keyboard_type":
-                            _kt_text  = fn_args.get("text", "")
-                            _kt_short = (_kt_text[:30] + "…") if len(_kt_text) > 30 else _kt_text
-                            ai_status_text.value = f"⌨️ Saisie : {_kt_short}…"
-                            _ai_add_bubble("assistant", f"⌨️ Saisie : « {_kt_short} »")
-                            try:
-                                page.update()
-                            except Exception:
-                                pass
-                            _folder_tool_results.append((fn_name, _keyboard_type(_kt_text)))
-                        elif fn_name == "keyboard_hotkey":
-                            _kh_keys = fn_args.get("keys", [])
-                            _kh_str  = "+".join(_kh_keys)
-                            ai_status_text.value = f"⌨️ Raccourci : {_kh_str}…"
-                            _ai_add_bubble("assistant", f"⌨️ Raccourci : {_kh_str}")
-                            try:
-                                page.update()
-                            except Exception:
-                                pass
-                            _folder_tool_results.append(
-                                (fn_name, _keyboard_hotkey(*_kh_keys))
-                            )
                         elif fn_name == "navigate_to_folder":
                             _nav_path = fn_args.get("path", "").strip()
                             if not _nav_path or not os.path.isdir(_nav_path):
@@ -4265,279 +4237,12 @@ def main(page: ft.Page):
                                     except Exception:
                                         pass
                                     _folder_tool_results.append((fn_name, _del_res))
-                        elif fn_name == "move_file":
-                            _mv_src = fn_args.get("source", "").strip()
-                            _mv_dst = fn_args.get("destination", "").strip()
-                            if not _mv_src or not _mv_dst:
-                                _folder_tool_results.append((fn_name, "Paramètres source ou destination manquants."))
-                            else:
-                                _mv_res = _folder_move_file(_folder_path_for_tools, _mv_src, _mv_dst)
-                                page.pubsub.send_all_on_topic("refresh", None)
-                                _ai_add_bubble("assistant", f"📦 Déplacement : {os.path.basename(_mv_src)} → {_mv_dst}")
-                                _turn_events.append(f"📦 Déplacement : {os.path.basename(_mv_src)} → {_mv_dst}")
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _folder_tool_results.append((fn_name, _mv_res))
-                        elif fn_name == "copy_file":
-                            _cp_src = fn_args.get("source", "").strip()
-                            _cp_dst = fn_args.get("destination", "").strip()
-                            if not _cp_src or not _cp_dst:
-                                _folder_tool_results.append((fn_name, "Paramètres source ou destination manquants."))
-                            else:
-                                _cp_res = _folder_copy_file(_folder_path_for_tools, _cp_src, _cp_dst)
-                                page.pubsub.send_all_on_topic("refresh", None)
-                                _ai_add_bubble("assistant", f"📋 Copie : {os.path.basename(_cp_src)} → {_cp_dst}")
-                                _turn_events.append(f"📋 Copie : {os.path.basename(_cp_src)} → {_cp_dst}")
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _folder_tool_results.append((fn_name, _cp_res))
-                        elif fn_name == "create_folder":
-                            _mkdir_path = fn_args.get("path", "").strip()
-                            if not _mkdir_path:
-                                _folder_tool_results.append((fn_name, "Chemin manquant."))
-                            else:
-                                _mkdir_res = _folder_create_folder(_folder_path_for_tools, _mkdir_path)
-                                page.pubsub.send_all_on_topic("refresh", None)
-                                _ai_add_bubble("assistant", f"📁 Dossier créé : {_mkdir_path}")
-                                _turn_events.append(f"📁 Dossier créé : {_mkdir_path}")
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _folder_tool_results.append((fn_name, _mkdir_res))
-                        elif fn_name == "read_exif":
-                            _exif_files = fn_args.get("filenames", [])
-                            if not _exif_files:
-                                _folder_tool_results.append((fn_name, "Aucun fichier fourni."))
-                            else:
-                                _exif_res = _folder_read_exif(_folder_path_for_tools, _exif_files)
-                                _folder_tool_results.append((fn_name, _exif_res))
-                        elif fn_name == "zip_files":
-                            _zip_paths = fn_args.get("paths", [])
-                            _zip_name = fn_args.get("zip_name", "archive") or "archive"
-                            _zip_dest = fn_args.get("destination", "") or None
-                            if not _zip_paths:
-                                _folder_tool_results.append((fn_name, "Aucun fichier fourni."))
-                            else:
-                                _zip_res = _folder_zip_files(_folder_path_for_tools, _zip_paths, _zip_name, _zip_dest)
-                                page.pubsub.send_all_on_topic("refresh", None)
-                                _ai_add_bubble("assistant", f"🗜️ Archive créée : {_zip_name}")
-                                _turn_events.append(f"🗜️ Archive créée : {_zip_name}")
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _folder_tool_results.append((fn_name, _zip_res))
-                        elif fn_name == "unzip_file":
-                            _unzip_src = fn_args.get("source", "").strip()
-                            _unzip_dest = fn_args.get("destination", "") or None
-                            if not _unzip_src:
-                                _folder_tool_results.append((fn_name, "Source manquante."))
-                            else:
-                                _unzip_res = _folder_unzip_file(_folder_path_for_tools, _unzip_src, _unzip_dest)
-                                page.pubsub.send_all_on_topic("refresh", None)
-                                _ai_add_bubble("assistant", f"📦 Extrait : {os.path.basename(_unzip_src)}")
-                                _turn_events.append(f"📦 Extrait : {os.path.basename(_unzip_src)}")
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _folder_tool_results.append((fn_name, _unzip_res))
-                        elif fn_name == "edit_file":
-                            _ef_path = fn_args.get("filepath", "").strip()
-                            _ef_old  = fn_args.get("old_string", "")
-                            _ef_new  = fn_args.get("new_string", "")
-                            if not _ef_path or _ef_old == "":
-                                _folder_tool_results.append((fn_name, "Paramètres filepath / old_string manquants."))
-                            else:
-                                ai_status_text.value = f"✏️ Édition : {os.path.basename(_ef_path)}…"
-                                _ai_add_bubble("assistant", f"✏️ Édition : {_ef_path}")
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _ef_res = _edit_file(_folder_path_for_tools, _ef_path, _ef_old, _ef_new)
-                                page.pubsub.send_all_on_topic("refresh", None)
-                                _folder_tool_results.append((fn_name, _ef_res))
-                        elif fn_name == "read_file_lines":
-                            _rl_path  = fn_args.get("filepath", "").strip()
-                            _rl_start = fn_args.get("start_line", 1)
-                            _rl_end   = fn_args.get("end_line", None)
-                            if not _rl_path:
-                                _folder_tool_results.append((fn_name, "Paramètre filepath manquant."))
-                            else:
-                                _rl_end_str = str(_rl_end) if _rl_end else "fin"
-                                ai_status_text.value = f"📄 Lignes {_rl_start}–{_rl_end_str} : {os.path.basename(_rl_path)}…"
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _folder_tool_results.append(
-                                    (fn_name, _read_file_lines(_folder_path_for_tools, _rl_path, _rl_start, _rl_end))
-                                )
-                        elif fn_name == "search_in_files":
-                            _si_pattern = fn_args.get("pattern", "")
-                            _si_path    = (fn_args.get("path", "") or "").strip() or None
-                            _si_glob    = fn_args.get("file_glob", "*") or "*"
-                            _si_max     = int(fn_args.get("max_results", 50) or 50)
-                            _si_case    = bool(fn_args.get("case_sensitive", False))
-                            if not _si_pattern:
-                                _folder_tool_results.append((fn_name, "Paramètre 'pattern' manquant."))
-                            else:
-                                ai_status_text.value = f"🔎 Grep : {_si_pattern}…"
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _si_res = _search_in_files(
-                                    _folder_path_for_tools, _si_pattern,
-                                    path=_si_path, file_glob=_si_glob,
-                                    max_results=_si_max, case_sensitive=_si_case,
-                                )
-                                _folder_tool_results.append((fn_name, _si_res))
-                        elif fn_name == "find_files":
-                            _ff_pattern  = fn_args.get("pattern", "")
-                            _ff_basepath = (fn_args.get("base_path", "") or "").strip() or None
-                            _ff_max      = int(fn_args.get("max_results", 200) or 200)
-                            if not _ff_pattern:
-                                _folder_tool_results.append((fn_name, "Paramètre 'pattern' manquant."))
-                            else:
-                                ai_status_text.value = f"🔎 Glob : {_ff_pattern}…"
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _ff_res = _find_files(
-                                    _folder_path_for_tools, _ff_pattern,
-                                    base_path=_ff_basepath, max_results=_ff_max,
-                                )
-                                _folder_tool_results.append((fn_name, _ff_res))
-                        elif fn_name == "git_command":
-                            _git_args = fn_args.get("args", [])
-                            _git_cwd  = (fn_args.get("cwd", "") or "").strip() or _folder_path_for_tools or None
-                            if not _git_args:
-                                _folder_tool_results.append((fn_name, "Paramètre 'args' manquant."))
-                            else:
-                                _git_label = " ".join(str(a) for a in _git_args[:3])
-                                ai_status_text.value = f"🔀 git {_git_label}…"
-                                _ai_add_bubble("assistant", f"🔀 git {' '.join(str(a) for a in _git_args)}")
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _git_res = _git_command(_git_args, cwd=_git_cwd)
-                                _folder_tool_results.append((fn_name, _git_res))
-                        elif fn_name == "manage_tasks":
-                            _task_res = _manage_tasks(
-                                fn_args.get("action", "list"),
-                                task_id=fn_args.get("task_id") or None,
-                                title=fn_args.get("title") or None,
-                                status=fn_args.get("status") or None,
-                                notes=fn_args.get("notes") or None,
+                        else:
+                            _disp_r = dispatch_folder_tool(
+                                fn_name, fn_args, _folder_path_for_tools, _tool_ui
                             )
-                            _folder_tool_results.append((fn_name, _task_res))
-                        elif fn_name == "read_pdf":
-                            _pdf_path  = fn_args.get("filepath", "").strip()
-                            _pdf_pages = fn_args.get("pages") or None
-                            if not _pdf_path:
-                                _folder_tool_results.append((fn_name, "Paramètre 'filepath' manquant."))
-                            else:
-                                ai_status_text.value = f"📄 PDF : {os.path.basename(_pdf_path)}…"
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _pdf_res = _read_pdf(_folder_path_for_tools, _pdf_path, pages=_pdf_pages)
-                                _folder_tool_results.append((fn_name, _pdf_res))
-                        elif fn_name == "ask_subagent":
-                            _sa_task    = fn_args.get("task", "")
-                            _sa_context = fn_args.get("context") or None
-                            _sa_model   = fn_args.get("model") or None
-                            if not _sa_task:
-                                _folder_tool_results.append((fn_name, "Paramètre 'task' manquant."))
-                            else:
-                                _sa_short = (_sa_task[:50] + "…") if len(_sa_task) > 50 else _sa_task
-                                ai_status_text.value = f"🤖 Sous-agent : {_sa_short}…"
-                                _ai_add_bubble("assistant", f"🤖 Sous-agent : {_sa_short}")
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _sa_res = _ask_subagent(_sa_task, context=_sa_context, model=_sa_model)
-                                _folder_tool_results.append((fn_name, _sa_res))
-                        elif fn_name == "schedule_task":
-                            ai_status_text.value = f"⏰ Planificateur : {fn_args.get('action', 'list')}…"
-                            try:
-                                page.update()
-                            except Exception:
-                                pass
-                            _sched_res = _schedule_task(
-                                fn_args.get("action", "list"),
-                                name=fn_args.get("name") or None,
-                                command=fn_args.get("command") or None,
-                                when=fn_args.get("when") or None,
-                            )
-                            _folder_tool_results.append((fn_name, _sched_res))
-                        elif fn_name == "http_request":
-                            _hr_method = (fn_args.get("method", "GET") or "GET").upper()
-                            _hr_url = fn_args.get("url", "").strip()
-                            if not _hr_url:
-                                _folder_tool_results.append((fn_name, "Paramètre 'url' manquant."))
-                            else:
-                                ai_status_text.value = f"🌐 {_hr_method} {_hr_url[:60]}…"
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _hr_res = _http_request(
-                                    _hr_method, _hr_url,
-                                    headers=fn_args.get("headers") or None,
-                                    body=fn_args.get("body") or None,
-                                    timeout=fn_args.get("timeout") or 30,
-                                )
-                                _folder_tool_results.append((fn_name, _hr_res))
-                        elif fn_name == "ssh_command":
-                            _ssh_host = fn_args.get("host", "").strip()
-                            _ssh_user = fn_args.get("username", "").strip()
-                            _ssh_cmd  = fn_args.get("command", "")
-                            if not _ssh_host or not _ssh_user or not _ssh_cmd:
-                                _folder_tool_results.append((fn_name, "Paramètres 'host', 'username' et 'command' requis."))
-                            else:
-                                ai_status_text.value = f"🔐 SSH {_ssh_user}@{_ssh_host}…"
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _ssh_pwd = get_or_ask_credential(_ssh_host, _ssh_user)
-                                if _ssh_pwd is None:
-                                    _folder_tool_results.append((fn_name, "Connexion annulée par l'utilisateur (mot de passe non fourni)."))
-                                else:
-                                    _ssh_res = _ssh_command(
-                                        _ssh_host, _ssh_user, _ssh_pwd, _ssh_cmd,
-                                        port=fn_args.get("port") or 22,
-                                        timeout=fn_args.get("timeout") or 30,
-                                    )
-                                    _folder_tool_results.append((fn_name, _ssh_res))
-                        elif fn_name == "read_spreadsheet":
-                            _ss_path = fn_args.get("filepath", "").strip()
-                            if not _ss_path:
-                                _folder_tool_results.append((fn_name, "Paramètre 'filepath' manquant."))
-                            else:
-                                ai_status_text.value = f"📊 Tableur : {os.path.basename(_ss_path)}…"
-                                try:
-                                    page.update()
-                                except Exception:
-                                    pass
-                                _ss_res = _read_spreadsheet(
-                                    _folder_path_for_tools, _ss_path,
-                                    sheet=fn_args.get("sheet") or None,
-                                    max_rows=fn_args.get("max_rows") or 100,
-                                )
-                                _folder_tool_results.append((fn_name, _ss_res))
+                            if _disp_r is not DISPATCH_UNHANDLED:
+                                _folder_tool_results.append((fn_name, _disp_r))
                     # Remonter les erreurs/avertissements d'outils dans le chat (visible même
                     # quand le terminal est masqué en mode IA), pas seulement au modèle.
                     for _tr_name, _tr_result in _folder_tool_results:

@@ -416,9 +416,21 @@ AI_FILE_MAX_CHARS = 500_000                  # Nb max de caractères lus dans un
 AI_ORGANIZE_CONFIRM  = False                 # True = confirmation avant chaque tri de fichiers
 AI_TERMINAL_CONFIRM  = False                 # True = confirmation avant chaque commande terminal
 AI_DELETE_CONFIRM    = True                  # True = confirmation avant chaque suppression de fichiers
+# ── Sauvegarde avant modification (filet anti-perte de données) ───────────────
+# Avant TOUTE opération qui écrase/détruit des données — fichier local OU
+# mutation MCP (Notion, Canva…) — on écrit un instantané de l'état/appel dans
+# AI_BACKUP_DIRNAME. Général : s'applique à toute demande, pas à un service précis.
+AI_BACKUP_ENABLED  = True
+AI_BACKUP_DIRNAME  = ".ai_backups"           # Dossier de sauvegarde (créé sous Data/)
+AI_MCP_DESTRUCTIVE_KEYWORDS = (              # Un outil MCP dont le nom contient l'un de ces mots est sauvegardé avant exécution
+    "delete", "remove", "archive", "trash", "clear", "update", "patch",
+    "replace", "overwrite", "move", "drop", "set-", "destroy", "purge",
+)
 AI_IMAGE_ATTACH_DEFAULT_ORIGINAL = False     # True = images jointes manuellement en taille réelle par défaut
 AI_IMAGE_ATTACH_SELECTED_ORIGINAL = False    # True = images sélectionnées dans la preview en taille réelle
 AI_SHOW_REFINED_IMAGE_PROMPT = True          # True = affiche dans le chat le prompt final envoyé à Nano Banana
+AI_IMAGE_REFINER_MODEL = "gemini-3.5-flash"  # Modèle qui affine le prompt image (indépendant du cerveau de chat) — 1 appel/image, ~centimes, gros gain de qualité vs flash-lite
+AI_IMAGE_ITERATE_MAX_PASSES = 2              # Passes max de la boucle iterate_image (critique visuelle → régénération). Chaque passe = 1 génération Nano Banana. Arrêt anticipé si l'objectif est atteint.
 AI_USER_NAME         = "Charles"             # Appellation dans l'export de conversation
 AI_SEPARATOR_WIDTH   = 80                    # Nb de '#' pour les séparateurs d'export
 
@@ -456,7 +468,10 @@ AI_SYSTEM_PROMPT = (
     "— les lister, lire leur contenu, les organiser par sous-dossiers, ou analyser visuellement les images.\n"
     "Tu peux aussi GÉNÉRER et MODIFIER des images directement via Nano Banana 2 (generate_image, edit_image) : "
     "créer une image depuis un prompt, éditer une photo, changer le style, coloriser une image noir et blanc, etc. "
-    "Utilise ces outils directement sans chercher du code OpenCV ou PIL — tu n'as pas besoin de code pour ça.\n\n"
+    "Utilise ces outils directement sans chercher du code OpenCV ou PIL — tu n'as pas besoin de code pour ça.\n"
+    "Quand l'utilisateur demande d'AMÉLIORER / ITÉRER / PEAUFINER une image « jusqu'à ce que ce soit bon » "
+    "(plusieurs passes), utilise iterate_image (objectif précis) : chaque passe critique le rendu puis le régénère, "
+    "avec arrêt anticipé dès que l'objectif est atteint. Pour une seule retouche, edit_image suffit.\n\n"
     "RÈGLES :\n"
     "- Pas de disclaimers ni de mises en garde inutiles (pas de 'consulte un professionnel', 'je ne suis pas médecin', etc.).\n"
     "- Si tu ne connais pas la réponse, fais une recherche web plutôt que d'inventer.\n"

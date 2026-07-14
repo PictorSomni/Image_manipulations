@@ -1440,6 +1440,289 @@ def _gemini_tool_definitions(folder_path):
     return _folder_tool_definitions(folder_path)
 
 
+def build_tool_list(folder_path, mcp_tools=None, extra_tools=None):
+    """
+    Construit la liste complète d'outils envoyée au modèle — MUTUALISÉE entre
+    Dashboard et SidePanel (source unique, plus de double maintenance).
+
+    Paramètres :
+      folder_path : dossier ouvert (outils dossier + generate/edit/iterate image)
+      mcp_tools   : sortie de mcp_client.mcp_get_all_tools(), passée par
+                    l'appelant (ai_tools reste découplé de mcp_client)
+      extra_tools : outils propres à une seule app (ex. _IMAGE_ITERATE_TOOLS
+                    pour Dashboard) ; None ailleurs
+
+    L'ordre reproduit exactement l'assemblage historique (important pour la
+    stabilité du cache de préfixe outils). Le filtrage web_search/fetch_url
+    pour Gemini est fait en aval dans _gemini_chat_stream_with_tools : la liste
+    renvoyée est la même quel que soit le modèle.
+    """
+    new_tools = (
+        _EDIT_TOOLS + _READ_LINES_TOOLS + _SEARCH_TOOLS + _GIT_TOOLS
+        + _TASK_TOOLS + _PDF_TOOLS + _SUBAGENT_TOOLS + _SCHEDULE_TOOLS
+        + _HTTP_TOOLS + _SPREADSHEET_TOOLS + _PYAUTOGUI_TOOLS + _SSH_TOOLS
+        + list(extra_tools or [])
+    )
+    return (
+        _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS
+        + _NOTEPAD_TOOLS + _UI_TOOLS + new_tools + list(mcp_tools or [])
+        + _folder_tool_definitions(folder_path)
+    )
+
+
+# Sentinelle : renvoyée par dispatch_folder_tool quand fn_name n'appartient pas
+# au groupe d'outils « purs » géré ici (l'appelant traite alors ses propres
+# branches UI-lourdes : generate_image, organize_files, delete_files, etc.).
+DISPATCH_UNHANDLED = object()
+
+
+def dispatch_folder_tool(fn_name, fn_args, folder_path, ui):
+    """
+    Exécute une branche d'outil « pure » (résultat = chaîne) — MUTUALISÉE entre
+    Dashboard et SidePanel. Renvoie la chaîne résultat, ou DISPATCH_UNHANDLED si
+    fn_name n'est pas géré par ce groupe.
+
+    Traduction fidèle des branches read_exif → read_spreadsheet, jadis dupliquées
+    à l'identique dans les deux apps. L'appelant fait :
+        _r = dispatch_folder_tool(fn_name, fn_args, path, ui)
+        if _r is not DISPATCH_UNHANDLED:
+            _folder_tool_results.append((fn_name, _r))
+
+    `ui` est un objet fournissant les rappels d'interface (chaque app le construit
+    à partir de ses propres widgets) :
+      ui.set_status(text)      — texte de statut (sans repaint)
+      ui.bubble(text)          — bulle assistant dans le chat (sans repaint)
+      ui.event(text)           — événement du tour (export)
+      ui.refresh()             — rafraîchit la vue dossier
+      ui.paint()               — repaint (try/except géré côté app)
+      ui.credential(host, user)— demande/récupère un mot de passe (SSH), ou None
+    """
+    if fn_name == "move_file":
+        _mv_src = fn_args.get("source", "").strip()
+        _mv_dst = fn_args.get("destination", "").strip()
+        if not _mv_src or not _mv_dst:
+            return "Paramètres source ou destination manquants."
+        _mv_res = _folder_move_file(folder_path, _mv_src, _mv_dst)
+        ui.refresh()
+        ui.bubble(f"📦 Déplacement : {_os.path.basename(_mv_src)} → {_mv_dst}")
+        ui.event(f"📦 Déplacement : {_os.path.basename(_mv_src)} → {_mv_dst}")
+        ui.paint()
+        return _mv_res
+    elif fn_name == "copy_file":
+        _cp_src = fn_args.get("source", "").strip()
+        _cp_dst = fn_args.get("destination", "").strip()
+        if not _cp_src or not _cp_dst:
+            return "Paramètres source ou destination manquants."
+        _cp_res = _folder_copy_file(folder_path, _cp_src, _cp_dst)
+        ui.refresh()
+        ui.bubble(f"📋 Copie : {_os.path.basename(_cp_src)} → {_cp_dst}")
+        ui.event(f"📋 Copie : {_os.path.basename(_cp_src)} → {_cp_dst}")
+        ui.paint()
+        return _cp_res
+    elif fn_name == "create_folder":
+        _mkdir_path = fn_args.get("path", "").strip()
+        if not _mkdir_path:
+            return "Chemin manquant."
+        _mkdir_res = _folder_create_folder(folder_path, _mkdir_path)
+        ui.refresh()
+        ui.bubble(f"📁 Dossier créé : {_mkdir_path}")
+        ui.event(f"📁 Dossier créé : {_mkdir_path}")
+        ui.paint()
+        return _mkdir_res
+    elif fn_name == "mouse_click":
+        _mc_x = int(fn_args.get("x", 0))
+        _mc_y = int(fn_args.get("y", 0))
+        _mc_button = fn_args.get("button", "left")
+        _mc_clicks = fn_args.get("clicks", 1)
+        ui.set_status(f"🖱️ Clic ({_mc_x}, {_mc_y})…")
+        ui.bubble(f"🖱️ Clic {_mc_button} à ({_mc_x}, {_mc_y})")
+        ui.event(f"🖱️ Clic à ({_mc_x}, {_mc_y})")
+        ui.paint()
+        return _mouse_click(_mc_x, _mc_y, _mc_button, _mc_clicks)
+    elif fn_name == "keyboard_type":
+        _kt_text = fn_args.get("text", "")
+        _kt_short = (_kt_text[:30] + "…") if len(_kt_text) > 30 else _kt_text
+        ui.set_status(f"⌨️ Saisie : {_kt_short}…")
+        ui.bubble(f"⌨️ Saisie : « {_kt_short} »")
+        ui.event(f"⌨️ Saisie : « {_kt_short} »")
+        ui.paint()
+        return _keyboard_type(_kt_text)
+    elif fn_name == "keyboard_hotkey":
+        _kh_keys = fn_args.get("keys", [])
+        _kh_str = "+".join(_kh_keys)
+        ui.set_status(f"⌨️ Raccourci : {_kh_str}…")
+        ui.bubble(f"⌨️ Raccourci : {_kh_str}")
+        ui.event(f"⌨️ Raccourci : {_kh_str}")
+        ui.paint()
+        return _keyboard_hotkey(*_kh_keys)
+    elif fn_name == "read_exif":
+        _exif_files = fn_args.get("filenames", [])
+        if not _exif_files:
+            return "Aucun fichier fourni."
+        return _folder_read_exif(folder_path, _exif_files)
+    elif fn_name == "zip_files":
+        _zip_paths = fn_args.get("paths", [])
+        _zip_name = fn_args.get("zip_name", "archive") or "archive"
+        _zip_dest = fn_args.get("destination", "") or None
+        if not _zip_paths:
+            return "Aucun fichier fourni."
+        _zip_res = _folder_zip_files(folder_path, _zip_paths, _zip_name, _zip_dest)
+        ui.refresh()
+        ui.bubble(f"🗜️ Archive créée : {_zip_name}")
+        ui.event(f"🗜️ Archive créée : {_zip_name}")
+        ui.paint()
+        return _zip_res
+    elif fn_name == "unzip_file":
+        _unzip_src = fn_args.get("source", "").strip()
+        _unzip_dest = fn_args.get("destination", "") or None
+        if not _unzip_src:
+            return "Source manquante."
+        _unzip_res = _folder_unzip_file(folder_path, _unzip_src, _unzip_dest)
+        ui.refresh()
+        ui.bubble(f"📦 Extrait : {_os.path.basename(_unzip_src)}")
+        ui.event(f"📦 Extrait : {_os.path.basename(_unzip_src)}")
+        ui.paint()
+        return _unzip_res
+    elif fn_name == "edit_file":
+        _ef_path = fn_args.get("filepath", "").strip()
+        _ef_old = fn_args.get("old_string", "")
+        _ef_new = fn_args.get("new_string", "")
+        if not _ef_path or _ef_old == "":
+            return "Paramètres filepath / old_string manquants."
+        ui.set_status(f"✏️ Édition : {_os.path.basename(_ef_path)}…")
+        ui.bubble(f"✏️ Édition : {_ef_path}")
+        ui.paint()
+        _ef_res = _edit_file(folder_path, _ef_path, _ef_old, _ef_new)
+        ui.refresh()
+        return _ef_res
+    elif fn_name == "read_file_lines":
+        _rl_path = fn_args.get("filepath", "").strip()
+        _rl_start = fn_args.get("start_line", 1)
+        _rl_end = fn_args.get("end_line", None)
+        if not _rl_path:
+            return "Paramètre filepath manquant."
+        _rl_end_str = str(_rl_end) if _rl_end else "fin"
+        ui.set_status(
+            f"📄 Lignes {_rl_start}–{_rl_end_str} : {_os.path.basename(_rl_path)}…"
+        )
+        ui.paint()
+        return _read_file_lines(folder_path, _rl_path, _rl_start, _rl_end)
+    elif fn_name == "search_in_files":
+        _si_pattern = fn_args.get("pattern", "")
+        _si_path = (fn_args.get("path", "") or "").strip() or None
+        _si_glob = fn_args.get("file_glob", "*") or "*"
+        _si_max = int(fn_args.get("max_results", 50) or 50)
+        _si_case = bool(fn_args.get("case_sensitive", False))
+        if not _si_pattern:
+            return "Paramètre 'pattern' manquant."
+        ui.set_status(f"🔎 Grep : {_si_pattern}…")
+        ui.paint()
+        return _search_in_files(
+            folder_path, _si_pattern,
+            path=_si_path, file_glob=_si_glob,
+            max_results=_si_max, case_sensitive=_si_case,
+        )
+    elif fn_name == "find_files":
+        _ff_pattern = fn_args.get("pattern", "")
+        _ff_basepath = (fn_args.get("base_path", "") or "").strip() or None
+        _ff_max = int(fn_args.get("max_results", 200) or 200)
+        if not _ff_pattern:
+            return "Paramètre 'pattern' manquant."
+        ui.set_status(f"🔎 Glob : {_ff_pattern}…")
+        ui.paint()
+        return _find_files(
+            folder_path, _ff_pattern,
+            base_path=_ff_basepath, max_results=_ff_max,
+        )
+    elif fn_name == "git_command":
+        _git_args = fn_args.get("args", [])
+        _git_cwd = (fn_args.get("cwd", "") or "").strip() or folder_path or None
+        if not _git_args:
+            return "Paramètre 'args' manquant."
+        _git_label = " ".join(str(a) for a in _git_args[:3])
+        ui.set_status(f"🔀 git {_git_label}…")
+        ui.bubble(f"🔀 git {' '.join(str(a) for a in _git_args)}")
+        ui.paint()
+        return _git_command(_git_args, cwd=_git_cwd)
+    elif fn_name == "manage_tasks":
+        return _manage_tasks(
+            fn_args.get("action", "list"),
+            task_id=fn_args.get("task_id") or None,
+            title=fn_args.get("title") or None,
+            status=fn_args.get("status") or None,
+            notes=fn_args.get("notes") or None,
+        )
+    elif fn_name == "read_pdf":
+        _pdf_path = fn_args.get("filepath", "").strip()
+        _pdf_pages = fn_args.get("pages") or None
+        if not _pdf_path:
+            return "Paramètre 'filepath' manquant."
+        ui.set_status(f"📄 PDF : {_os.path.basename(_pdf_path)}…")
+        ui.paint()
+        return _read_pdf(folder_path, _pdf_path, pages=_pdf_pages)
+    elif fn_name == "ask_subagent":
+        _sa_task = fn_args.get("task", "")
+        _sa_context = fn_args.get("context") or None
+        _sa_model = fn_args.get("model") or None
+        if not _sa_task:
+            return "Paramètre 'task' manquant."
+        _sa_short = (_sa_task[:50] + "…") if len(_sa_task) > 50 else _sa_task
+        ui.set_status(f"🤖 Sous-agent : {_sa_short}…")
+        ui.bubble(f"🤖 Sous-agent : {_sa_short}")
+        ui.paint()
+        return _ask_subagent(_sa_task, context=_sa_context, model=_sa_model)
+    elif fn_name == "schedule_task":
+        ui.set_status(f"⏰ Planificateur : {fn_args.get('action', 'list')}…")
+        ui.paint()
+        return _schedule_task(
+            fn_args.get("action", "list"),
+            name=fn_args.get("name") or None,
+            command=fn_args.get("command") or None,
+            when=fn_args.get("when") or None,
+        )
+    elif fn_name == "http_request":
+        _hr_method = (fn_args.get("method", "GET") or "GET").upper()
+        _hr_url = fn_args.get("url", "").strip()
+        if not _hr_url:
+            return "Paramètre 'url' manquant."
+        ui.set_status(f"🌐 {_hr_method} {_hr_url[:60]}…")
+        ui.paint()
+        return _http_request(
+            _hr_method, _hr_url,
+            headers=fn_args.get("headers") or None,
+            body=fn_args.get("body") or None,
+            timeout=fn_args.get("timeout") or 30,
+        )
+    elif fn_name == "ssh_command":
+        _ssh_host = fn_args.get("host", "").strip()
+        _ssh_user = fn_args.get("username", "").strip()
+        _ssh_cmd = fn_args.get("command", "")
+        if not _ssh_host or not _ssh_user or not _ssh_cmd:
+            return "Paramètres 'host', 'username' et 'command' requis."
+        ui.set_status(f"🔐 SSH {_ssh_user}@{_ssh_host}…")
+        ui.paint()
+        _ssh_pwd = ui.credential(_ssh_host, _ssh_user)
+        if _ssh_pwd is None:
+            return "Connexion annulée par l'utilisateur (mot de passe non fourni)."
+        return _ssh_command(
+            _ssh_host, _ssh_user, _ssh_pwd, _ssh_cmd,
+            port=fn_args.get("port") or 22,
+            timeout=fn_args.get("timeout") or 30,
+        )
+    elif fn_name == "read_spreadsheet":
+        _ss_path = fn_args.get("filepath", "").strip()
+        if not _ss_path:
+            return "Paramètre 'filepath' manquant."
+        ui.set_status(f"📊 Tableur : {_os.path.basename(_ss_path)}…")
+        ui.paint()
+        return _read_spreadsheet(
+            folder_path, _ss_path,
+            sheet=fn_args.get("sheet") or None,
+            max_rows=fn_args.get("max_rows") or 100,
+        )
+    return DISPATCH_UNHANDLED
+
+
 def _folder_list_contents(folder_path):
     """
     Retourne une chaîne listant fichiers et sous-dossiers avec taille et date.
@@ -1468,6 +1751,52 @@ def _folder_list_contents(folder_path):
         return f"Erreur lors de la lecture du dossier : {exc}"
 
 
+def _backup_file(path):
+    """
+    Copie un fichier/dossier existant dans le dossier de sauvegarde AVANT qu'il
+    ne soit écrasé ou supprimé — filet anti-perte de données, général (appelé
+    par toute opération destructrice locale). Un index.jsonl trace
+    origine → sauvegarde pour permettre une restauration manuelle.
+
+    Ne lève jamais : retourne le chemin de sauvegarde, ou None si rien à sauver.
+    """
+    try:
+        if not getattr(CONSTANTS, "AI_BACKUP_ENABLED", True):
+            return None
+        if not path or not _os.path.exists(path):
+            return None
+        import shutil as _sh_bak
+        _dirname = getattr(CONSTANTS, "AI_BACKUP_DIRNAME", ".ai_backups")
+        _base_dir = _os.path.join(
+            _os.path.dirname(_os.path.abspath(__file__)), _dirname, "files")
+        _os.makedirs(_base_dir, exist_ok=True)
+        _ts = _time.strftime("%Y%m%d_%H%M%S")
+        _name = _os.path.basename(path.rstrip("/\\")) or "root"
+        _dest = _os.path.join(_base_dir, f"{_ts}_{_name}")
+        _n = 1
+        while _os.path.exists(_dest):
+            _dest = _os.path.join(_base_dir, f"{_ts}_{_name}_{_n}")
+            _n += 1
+        if _os.path.isdir(path):
+            _sh_bak.copytree(path, _dest)
+        else:
+            _sh_bak.copy2(path, _dest)
+        try:
+            with open(_os.path.join(_base_dir, "index.jsonl"),
+                      "a", encoding="utf-8") as _idx:
+                _idx.write(json.dumps(
+                    {"timestamp": _ts,
+                     "original": _os.path.abspath(path),
+                     "backup": _dest},
+                    ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+        return _dest
+    except Exception as exc:
+        _logger.warning("backup fichier échoué pour %r : %r", path, exc)
+        return None
+
+
 def _folder_create_file(folder_path, filename, content):
     """
     Crée ou remplace un fichier texte.
@@ -1478,6 +1807,8 @@ def _folder_create_file(folder_path, filename, content):
         if not filename:
             return "Nom de fichier invalide."
         file_path = _resolve_path(folder_path, filename)
+        if _os.path.exists(file_path):
+            _backup_file(file_path)  # écrasement -> on sauve l'ancienne version
         _os.makedirs(_os.path.dirname(_os.path.abspath(file_path)), exist_ok=True)
         with open(file_path, "w", encoding="utf-8") as file_handle:
             file_handle.write(content)
@@ -1538,9 +1869,11 @@ def _folder_delete_files(folder_path, paths):
             if not _os.path.exists(target):
                 results.append(f"✗ Introuvable : {target}")
             elif _os.path.isdir(target):
+                _backup_file(target)  # sauvegarde avant suppression
                 _shutil_del.rmtree(target)
                 results.append(f"✓ Dossier supprimé : {target}")
             else:
+                _backup_file(target)  # sauvegarde avant suppression
                 _os.remove(target)
                 results.append(f"✓ Supprimé : {_os.path.basename(target)}")
         except Exception as exc:
@@ -1561,6 +1894,8 @@ def _folder_move_file(folder_path, source, destination):
             return f"Source introuvable : {src}"
         if _os.path.isdir(dst):
             dst = _os.path.join(dst, _os.path.basename(src))
+        if _os.path.exists(dst):
+            _backup_file(dst)  # écrasement de la destination -> sauvegarde
         _os.makedirs(_os.path.dirname(_os.path.abspath(dst)), exist_ok=True)
         _shutil_mv.move(src, dst)
         return f"Déplacé : {src} → {dst}"
@@ -3868,24 +4203,209 @@ def _gemini_refine_image_prompt(
     _user_req_block = user_request.strip() if user_request else "(non fourni)"
 
     _instruction = (
-        "Tu es un expert en prompt engineering pour un modèle image-to-image/text-to-image.\n"
-        "Ta mission: réécrire l'intention en un prompt d'image ULTRA PRÉCIS et directement exécutable.\n"
-        "Contraintes strictes:\n"
-        "- Réponds uniquement avec le prompt final, sans commentaire, sans Markdown, sans guillemets.\n"
-        "- Le prompt doit être concret, visuel, et inclure des garde-fous de fidélité au sujet.\n"
-        "- Pour une édition, préserver composition, proportions, cadrage, perspective, identité du sujet et détails importants,\n"
-        "  sauf si la demande explicite de les changer.\n"
-        "- Éviter les formulations vagues ('améliore', 'plus beau') sans critères visuels.\n"
-        "- Si l'intention est ambiguë, choisir l'interprétation la plus sûre et conservatrice.\n"
+        "Tu es directeur artistique et expert en prompt engineering pour un "
+        "modèle image-to-image / text-to-image (Nano Banana 2).\n"
+        "Ta mission : transformer l'intention en UN prompt d'image ultra précis, "
+        "concret et directement exécutable.\n\n"
+        "Couvre systématiquement, en une formulation fluide (pas une liste) :\n"
+        "1. SUJET principal + détails clés\n"
+        "2. STYLE / medium (photo réaliste, aquarelle, 3D, illustration…)\n"
+        "3. LUMIÈRE & ambiance (direction, dureté, heure, humeur)\n"
+        "4. COMPOSITION / cadrage / angle\n"
+        "5. PALETTE de couleurs dominante\n"
+        "6. NIVEAU DE DÉTAIL & rendu (netteté, texture, qualité)\n\n"
+        "Règles strictes :\n"
+        "- Réponds UNIQUEMENT avec le prompt final : pas de commentaire, pas de "
+        "Markdown, pas de guillemets, pas de préambule.\n"
+        "- Interdit les mots vagues ('améliore', 'plus beau', 'sympa') sans "
+        "critère visuel concret.\n"
+        "- Pour une ÉDITION : préserver composition, proportions, cadrage, "
+        "perspective et identité du sujet, sauf demande explicite de les changer ; "
+        "ne décrire QUE ce qui change et ce qui doit rester intact.\n"
+        "- Intention ambiguë → interprétation la plus sûre et conservatrice.\n"
         "- Écrire en français.\n\n"
-        f"Mode: {_mode_label}\n"
+        "Exemple —\n"
+        "Intention : un chat mignon\n"
+        "Prompt : Portrait rapproché d'un chaton roux tigré aux grands yeux "
+        "verts, fourrure duveteuse très détaillée, assis sur un plaid en laine "
+        "crème ; lumière douce de fin d'après-midi venant de la gauche, ambiance "
+        "chaleureuse ; cadrage serré légèrement en plongée, faible profondeur de "
+        "champ, arrière-plan flou ; palette chaude ocre et crème ; rendu "
+        "photoréaliste net, textures fines.\n\n"
+        f"Mode : {_mode_label}\n"
         f"{_source_line}"
-        f"Demande utilisateur originale:\n{_user_req_block}\n\n"
-        f"Intention brute à raffiner:\n{intent_prompt}\n"
+        f"Demande utilisateur originale :\n{_user_req_block}\n\n"
+        f"Intention brute à raffiner :\n{intent_prompt}\n"
     )
 
     result, _ = _gemini_interactions_create(_instruction, model=model)
     return result.strip() if result.strip() else intent_prompt
+
+
+def _gemini_critique_image(image_bytes, goal, model="gemini-3.5-flash"):
+    """
+    Critique visuelle d'une image par rapport à un objectif.
+    Retourne "OK" si l'image atteint clairement l'objectif, sinon une liste
+    courte et actionnable de ce qu'il faut corriger.
+
+    Ne lève jamais : en l'absence de vision/clé/erreur, retourne "OK" pour ne
+    pas déclencher de régénération inutile (arrêt sûr de la boucle).
+    """
+    try:
+        from google import genai as _genai_c
+        from google.genai import types as _gt_c
+        import io as _io_c
+    except ImportError:
+        return "OK"
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        return "OK"
+    _instr = (
+        "Tu es directeur artistique. Voici une image et un objectif.\n"
+        f"OBJECTIF : {goal}\n\n"
+        "Si l'image atteint clairement l'objectif, réponds EXACTEMENT « OK » "
+        "(rien d'autre). Sinon, liste en 1 à 4 puces courtes et ACTIONNABLES "
+        "les défauts visuels concrets à corriger pour l'atteindre (pas de "
+        "généralités, pas de compliments). Écris en français."
+    )
+    try:
+        client = _genai_c.Client(api_key=api_key)
+        try:
+            from PIL import Image as _PILc, ImageOps as _POc
+            _pil = _POc.exif_transpose(
+                _PILc.open(_io_c.BytesIO(image_bytes))
+            ).convert("RGB")
+            _pil.thumbnail((1536, 1536), _PILc.Resampling.LANCZOS)
+            _buf = _io_c.BytesIO()
+            _pil.save(_buf, format="JPEG", quality=85)
+            _img_part = _gt_c.Part.from_bytes(
+                data=_buf.getvalue(), mime_type="image/jpeg"
+            )
+        except Exception:
+            _img_part = _gt_c.Part.from_bytes(
+                data=image_bytes, mime_type="image/jpeg"
+            )
+        resp = client.models.generate_content(
+            model=model, contents=[_instr, _img_part]
+        )
+        return (getattr(resp, "text", "") or "OK").strip() or "OK"
+    except Exception:
+        return "OK"
+
+
+def _iterate_image_loop(source_path, goal, max_passes,
+                        refiner_model="gemini-3.5-flash",
+                        aspect_ratio="1:1", resolution="1K"):
+    """
+    Améliore itérativement une image jusqu'à atteindre `goal`.
+
+    À chaque passe : critique visuelle du rendu courant (vision) ; si conforme
+    ("OK"), arrêt anticipé ; sinon on raffine un prompt d'édition (objectif +
+    critique) et on régénère via Nano Banana. Chaque version est sauvée en
+    nouveau fichier « <base>_iterN.<ext> » à côté de la source.
+
+    Retourne un dict, sans jamais lever :
+      {"final_path": str|None,
+       "passes": [ {"pass": int, "path": str, "critique": str, "ok": bool,
+                    "prompt": str, "error": str|None} ],
+       "error": str|None}
+    """
+    if not source_path or not _os.path.isfile(source_path):
+        return {"final_path": None, "passes": [],
+                "error": f"Image introuvable : {source_path}"}
+    try:
+        with open(source_path, "rb") as _f:
+            cur_bytes = _f.read()
+    except Exception as exc:
+        return {"final_path": None, "passes": [],
+                "error": f"Lecture impossible : {exc}"}
+
+    folder = _os.path.dirname(source_path)
+    base, ext = _os.path.splitext(_os.path.basename(source_path))
+    ext = ext or ".png"
+    passes = []
+    cur_path = source_path
+
+    for i in range(1, max(1, int(max_passes)) + 1):
+        critique = _gemini_critique_image(cur_bytes, goal, model=refiner_model)
+        if critique.strip().upper().startswith("OK"):
+            passes.append({"pass": i, "path": cur_path, "critique": "OK",
+                           "ok": True, "prompt": "", "error": None})
+            break
+        intent = (
+            f"Objectif visuel : {goal}\n"
+            f"Défauts à corriger sur l'image actuelle : {critique}"
+        )
+        edit_prompt = _gemini_refine_image_prompt(
+            intent_prompt=intent, user_request=goal, mode="edit_image",
+            source_filename=_os.path.basename(cur_path), model=refiner_model,
+        )
+        text, new_bytes = _gemini_generate_image(
+            edit_prompt, input_image_bytes=cur_bytes,
+            aspect_ratio=aspect_ratio, resolution=resolution,
+        )
+        if not new_bytes:
+            passes.append({"pass": i, "path": cur_path, "critique": critique,
+                           "ok": False, "prompt": edit_prompt, "error": text})
+            return {"final_path": cur_path, "passes": passes,
+                    "error": f"Passe {i} : aucune image générée ({text})"}
+        new_path = _os.path.join(folder, f"{base}_iter{i}{ext}")
+        try:
+            with open(new_path, "wb") as _fout:
+                _fout.write(new_bytes)
+        except Exception as exc:
+            return {"final_path": cur_path, "passes": passes,
+                    "error": f"Écriture impossible : {exc}"}
+        passes.append({"pass": i, "path": new_path, "critique": critique,
+                       "ok": False, "prompt": edit_prompt, "error": None})
+        cur_bytes, cur_path = new_bytes, new_path
+
+    return {"final_path": cur_path, "passes": passes, "error": None}
+
+
+# Outil autonome (annoncé uniquement par Dashboard, qui possède le dispatch).
+_IMAGE_ITERATE_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "iterate_image",
+            "description": (
+                "Améliore ITÉRATIVEMENT une image existante du dossier ouvert "
+                "jusqu'à atteindre un objectif : à chaque passe l'image est "
+                "évaluée visuellement puis régénérée pour corriger ses défauts, "
+                "avec arrêt anticipé dès que l'objectif est atteint. Utilise cet "
+                "outil UNIQUEMENT quand l'utilisateur demande explicitement "
+                "d'itérer / améliorer / peaufiner une image sur plusieurs passes "
+                "(« jusqu'à ce que ce soit bon »). Pour une seule modification, "
+                "utilise edit_image."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "source_filename": {
+                        "type": "string",
+                        "description": "Image source à améliorer (dans le dossier ouvert).",
+                    },
+                    "goal": {
+                        "type": "string",
+                        "description": (
+                            "Objectif visuel précis à atteindre — ce qui doit "
+                            "être vrai de l'image finale (concret, pas vague)."
+                        ),
+                    },
+                    "passes": {
+                        "type": "integer",
+                        "description": (
+                            "Nombre max de passes. Arrêt anticipé si l'objectif "
+                            "est atteint. Laisser vide pour la valeur par défaut."
+                        ),
+                    },
+                },
+                "required": ["source_filename", "goal"],
+            },
+        },
+    }
+]
 
 
 # ─── Interactions API ─────────────────────────────────────────────────────────
@@ -4825,9 +5345,19 @@ def _claude_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
         "temperature": temperature,
         "messages":    claude_messages,
     }
+    # Prompt caching (GA, aucun beta header) : on met un cache_control sur les
+    # deux gros préfixes statiques pour que les re-envois coûtent ~0,1×. Ordre
+    # de rendu : tools → system → messages. Le breakpoint sur le dernier outil
+    # cache tout le bloc d'outils et reste valide même quand le système change
+    # (changer le système n'invalide pas le cache des outils). Le breakpoint
+    # système cache system.md quand il est stable. En dessous du seuil minimal
+    # du modèle, le cache ne se crée pas silencieusement — sans effet néfaste.
+    _CACHE = {"type": "ephemeral"}
     if system_prompt:
-        kwargs["system"] = system_prompt
+        kwargs["system"] = [{"type": "text", "text": system_prompt,
+                             "cache_control": _CACHE}]
     if claude_tools:
+        claude_tools[-1] = {**claude_tools[-1], "cache_control": _CACHE}
         kwargs["tools"] = claude_tools
 
     tool_calls_out    = []
@@ -4904,6 +5434,7 @@ def _edit_file(folder_path, filepath, old_string, new_string):
                 "Vérifiez les espaces, sauts de ligne et la casse."
             )
         new_content = content.replace(old_string, new_string, 1)
+        _backup_file(resolved)  # sauvegarde avant écrasement
         with open(resolved, "w", encoding="utf-8") as fh:
             fh.write(new_content)
         diff = new_content.count("\n") - content.count("\n")

@@ -60,3 +60,6 @@ open_with.json
 # Fichiers mémoire IA persistante
 Data/.thumbcache.db
 ai_conversations_debug.md
+
+# Sauvegardes automatiques avant modification (backup anti-perte de données)
+.ai_backups/

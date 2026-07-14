@@ -19,6 +19,7 @@ API publique :
 
 import asyncio
 import http.server
+import json
 import logging
 import os
 import threading
@@ -182,6 +183,8 @@ async def _connect_server(server_cfg):
     from mcp import ClientSession
 
     name = server_cfg["name"]
+    ctx = None
+    session_ctx = None
     if server_cfg.get("transport") == "http":
         from mcp.client.streamable_http import streamablehttp_client
 
@@ -235,7 +238,6 @@ async def _connect_server(server_cfg):
 
         ctx = streamablehttp_client(
             server_cfg["url"], headers=headers or None, auth=auth)
-        read, write, _ = await ctx.__aenter__()
     else:
         from mcp import StdioServerParameters
         from mcp.client.stdio import stdio_client
@@ -245,14 +247,35 @@ async def _connect_server(server_cfg):
             env=server_cfg.get("env"),
         )
         ctx = stdio_client(params)
-        read, write = await ctx.__aenter__()
 
-    session_ctx = ClientSession(read, write)
-    session = await session_ctx.__aenter__()
-    await session.initialize()
-    _sessions[name] = session
-    _session_ctxs[name] = (ctx, session_ctx)
-    return session
+    try:
+        if server_cfg.get("transport") == "http":
+            read, write, _ = await ctx.__aenter__()
+        else:
+            read, write = await ctx.__aenter__()
+        session_ctx = ClientSession(read, write)
+        session = await session_ctx.__aenter__()
+        await session.initialize()
+        _sessions[name] = session
+        _session_ctxs[name] = (ctx, session_ctx)
+        return session
+    except BaseException as exc:
+        # Démontage dans LA MÊME tâche que __aenter__. Sinon un ctx entré mais
+        # jamais fermé (ex. échec 401 à initialize) est finalisé plus tard par
+        # le GC dans une autre tâche → "Attempted to exit cancel scope in a
+        # different task" + "Task exception was never retrieved" au terminal.
+        _tb = exc.__traceback__
+        if session_ctx is not None:
+            try:
+                await session_ctx.__aexit__(type(exc), exc, _tb)
+            except BaseException:
+                pass
+        if ctx is not None:
+            try:
+                await ctx.__aexit__(type(exc), exc, _tb)
+            except BaseException:
+                pass
+        raise
 
 
 _pending_connects = {}   # nom de serveur -> Task de connexion en cours
@@ -336,13 +359,59 @@ def mcp_get_all_tools():
     return tools
 
 
+def _backup_dir():
+    """Dossier de sauvegarde (sous Data/), créé à la demande."""
+    dirname = getattr(CONSTANTS, "AI_BACKUP_DIRNAME", ".ai_backups")
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), dirname)
+
+
+def _backup_mcp_mutation(qualified_name, arguments):
+    """Instantané d'une mutation MCP avant exécution (filet anti-perte).
+
+    Sauvegarde nom d'outil + arguments + horodatage dès que le nom de l'outil
+    évoque une opération destructrice (AI_MCP_DESTRUCTIVE_KEYWORDS). Générique :
+    tous les serveurs, pas seulement Notion. Ne lève jamais.
+    """
+    if not getattr(CONSTANTS, "AI_BACKUP_ENABLED", True):
+        return
+    _kw = getattr(CONSTANTS, "AI_MCP_DESTRUCTIVE_KEYWORDS", ())
+    _low = qualified_name.lower()
+    if not any(k in _low for k in _kw):
+        return
+    try:
+        _dir = os.path.join(_backup_dir(), "mcp")
+        os.makedirs(_dir, exist_ok=True)
+        _ts = time.strftime("%Y%m%d_%H%M%S")
+        _safe = "".join(c if c.isalnum() or c in "._-" else "_"
+                        for c in qualified_name)[:80]
+        _path = os.path.join(_dir, f"{_ts}_{_safe}.json")
+        _n = 1
+        while os.path.exists(_path):
+            _path = os.path.join(_dir, f"{_ts}_{_safe}_{_n}.json")
+            _n += 1
+        with open(_path, "w", encoding="utf-8") as _f:
+            json.dump(
+                {"timestamp": _ts, "tool": qualified_name,
+                 "arguments": arguments},
+                _f, ensure_ascii=False, indent=2, default=str,
+            )
+    except Exception as exc:
+        _logger.warning(
+            "backup MCP avant mutation échoué pour %r : %r",
+            qualified_name, exc)
+
+
 def mcp_call_tool(qualified_name, arguments):
     """Appelle un outil MCP par son nom qualifié (mcp__<serveur>__<outil>).
 
     Retourne toujours une chaîne (résultat ou message d'erreur lisible
     par le modèle), ne lève jamais. Timeout à 300s (un appel d'outil, ex.
     génération d'image, peut être long) sur la boucle dédiée à ce serveur.
+
+    Avant toute mutation destructrice, un instantané de l'appel est sauvegardé
+    (voir _backup_mcp_mutation).
     """
+    _backup_mcp_mutation(qualified_name, arguments)
     rest = qualified_name[len(_TOOL_PREFIX):]
     server_name, _, tool_name = rest.partition("__")
     server_cfg = next(
