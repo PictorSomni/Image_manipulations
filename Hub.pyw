@@ -3205,11 +3205,17 @@ def main(page: ft.Page):
                 history = ai_conversation[-CONSTANTS.AI_HISTORY_LIMIT_CLOUD:]
                 # Une troncature brute peut couper juste après un tour
                 # assistant(tool_calls), laissant une réponse d'outil
-                # orpheline en tête : Gemini exige un tour function_call
-                # immédiatement suivi de son function_response, sinon 400
-                # INVALID_ARGUMENT (cf. nettoyage MCP Notion, plusieurs
-                # paires d'appels d'outils dépassant la fenêtre).
-                while history and history[0].get("role") == "tool":
+                # orpheline en tête, OU couper juste avant ce tour, laissant
+                # le function_call lui-même en tête sans le tour "user" qui
+                # le précédait : Gemini exige qu'un tour function_call soit
+                # immédiatement précédé d'un tour user ou function_response,
+                # sinon 400 INVALID_ARGUMENT (cf. nettoyage MCP Notion,
+                # plusieurs paires d'appels d'outils dépassant la fenêtre).
+                while history and (
+                    history[0].get("role") == "tool"
+                    or (history[0].get("role") == "assistant"
+                        and history[0].get("tool_calls"))
+                ):
                     history = history[1:]
                 messages = [{"role": "system", "content": system_content}, *history]
 
