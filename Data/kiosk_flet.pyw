@@ -1323,11 +1323,11 @@ def main(page: ft.Page) -> None:
         width=KIOSK_CONSTANT.LEFT_PANEL_WIDTH,
     )
 
-    # Sortie protégée par code studio (HUB_SPEC §9) : ni la croix ni la
-    # fermeture système (Cmd+Q, Alt+F4, clic droit dock…) ne quittent
-    # directement — `prevent_close` intercepte l'événement OS et route vers
-    # le même dialogue de code que le bouton in-app.
-    def _do_exit() -> None:
+    # Sortie directe (pas de code) : usage en présentiel sur écran tactile,
+    # l'opérateur studio est physiquement là pour fermer le kiosque —
+    # HUB_SPEC §9 mis à jour en conséquence. `prevent_close` reste utile
+    # pour garantir _cleanup_temp_dir() avant fermeture (Cmd+Q, Alt+F4…).
+    def _do_exit(event=None) -> None:
         _cleanup_temp_dir()
         page.window.prevent_close = False
         try:
@@ -1336,52 +1336,9 @@ def main(page: ft.Page) -> None:
             pass
         os._exit(0)
 
-    exit_code_field = ft.TextField(
-        label="Code studio", password=True, can_reveal_password=True,
-        width=220, bgcolor=C_DARK, border_color=C_LIGHT_GREY, color=C_WHITE,
-        on_submit=lambda e: _confirm_exit(),
-    )
-    exit_error_text = ft.Text("", size=12, color=C_RED)
-
-    def _confirm_exit(e=None) -> None:
-        if exit_code_field.value == KIOSK_CONSTANT.KIOSK_EXIT_CODE:
-            exit_dialog.open = False
-            page.update()
-            _do_exit()
-        else:
-            exit_error_text.value = "Code incorrect."
-            page.update()
-
-    def _cancel_exit(e=None) -> None:
-        exit_dialog.open = False
-        exit_code_field.value = ""
-        exit_error_text.value = ""
-        page.update()
-
-    exit_dialog = ft.AlertDialog(
-        modal=True,
-        title=ft.Text("Sortie du mode kiosque"),
-        content=ft.Column([
-            ft.Text("Code studio requis pour quitter.", size=13),
-            exit_code_field, exit_error_text,
-        ], tight=True, spacing=8),
-        actions=[
-            ft.TextButton("Annuler", on_click=_cancel_exit),
-            ft.ElevatedButton("Déverrouiller", on_click=_confirm_exit),
-        ],
-    )
-
-    def _request_exit(event=None) -> None:
-        exit_code_field.value = ""
-        exit_error_text.value = ""
-        if exit_dialog not in page.overlay:
-            page.overlay.append(exit_dialog)
-        exit_dialog.open = True
-        page.update()
-
     def _on_window_event(event) -> None:
         if getattr(event, "data", "") == "close":
-            _request_exit()
+            _do_exit()
 
     page.window.prevent_close = True
     page.window.on_event = _on_window_event
@@ -1482,7 +1439,7 @@ def main(page: ft.Page) -> None:
                 icon_color=C_RED,
                 icon_size=22,
                 tooltip="Quitter",
-                on_click=_request_exit,
+                on_click=_do_exit,
                 visible=True,
                 style=ft.ButtonStyle(padding=ft.Padding.all(4)),
             ),

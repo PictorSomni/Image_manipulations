@@ -30,13 +30,14 @@ import subprocess
 import sys
 import shutil
 import threading
+import webbrowser
 import zipfile
 from types import SimpleNamespace
 
 import flet as ft
 import flet.canvas as ftcv
 import flet_code_editor as fce
-from PIL import Image as PILImage, ImageDraw as PILImageDraw
+from PIL import Image as PILImage, ImageDraw as PILImageDraw, ImageOps as PILImageOps
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "Data"))
@@ -69,6 +70,10 @@ SURFACES = [
 
 # Entre les 40px jugés "un peu grands" et l'ICON_MD=20 trop petit.
 LIST_THUMB_SIZE = 56
+
+# Hauteur de fenêtre en mode bandeau (strip mode) — juste assez pour la
+# barre de titre (cf. Dashboard.pyw CONSTANTS.WDA_HEIGHT, même principe).
+STRIP_HEIGHT = 64
 
 # Mêmes fichiers que Dashboard.pyw (racine du repo) : dossiers récents et
 # favoris partagés, pas de nouvel emplacement vide pour l'utilisateur.
@@ -126,6 +131,28 @@ def _save_favorites(favorites):
         pass
 
 
+# Même fichier que Dashboard.pyw:280 (open_with_config_file_path) : la
+# liste de programmes "Ouvrir avec" est partagée entre les deux apps.
+_OPEN_WITH_FILE = os.path.join(_APP_DIR, "open_with.json")
+
+
+def _load_open_with_programs():
+    try:
+        with open(_OPEN_WITH_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return [p for p in data if isinstance(p, dict) and "label" in p and "exe" in p]
+    except Exception:
+        return []
+
+
+def _save_open_with_programs(programs):
+    try:
+        with open(_OPEN_WITH_FILE, "w", encoding="utf-8") as f:
+            json.dump(programs, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
 _ORDER_FILE = os.path.join(_APP_DIR, ".order.json")
 
 
@@ -145,6 +172,50 @@ def _save_order(order):
     try:
         with open(_ORDER_FILE, "w", encoding="utf-8") as f:
             json.dump(order, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+# Même fichier que Dashboard.pyw:310 (recadrage_auto_config_path) : le
+# dernier format utilisé pour "Recadrage automatique" est partagé.
+_CROP_AUTO_FILE = os.path.join(_APP_DIR, ".recadrage_auto_config.json")
+
+
+def _load_crop_auto_config():
+    try:
+        with open(_CROP_AUTO_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_crop_auto_config(config):
+    try:
+        with open(_CROP_AUTO_FILE, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+_ORDER_BW_FILE = os.path.join(_APP_DIR, ".order_bw.json")
+
+
+def _load_order_bw():
+    # photo (chemin absolu) -> True si la commande doit être tirée en N&B.
+    # Fichier séparé de .order.json : {format: nombre} n'a pas de place
+    # naturelle pour un booléen sans fausser _order_lines/_order_totals.
+    try:
+        with open(_ORDER_BW_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return {p: bool(v) for p, v in data.items() if v}
+    except Exception:
+        return {}
+
+
+def _save_order_bw(order_bw):
+    try:
+        with open(_ORDER_BW_FILE, "w", encoding="utf-8") as f:
+            json.dump(order_bw, f, ensure_ascii=False, indent=2)
     except Exception:
         pass
 
@@ -173,29 +244,50 @@ def main(page: ft.Page):
     page.window.title_bar_buttons_hidden = True
     page.window.width  = 1280
     page.window.height = 860
+    # macOS ignore `maximized=True` tant que la fenêtre n'est pas encore
+    # affichée -> False ici, True après coup (cf. page.add plus bas), même
+    # séquence que Dashboard.pyw:183-186/10926-10934.
+    if platform.system() == "Darwin":
+        page.window.maximized = False
+    else:
+        page.window.maximized = True
     page.run_task(page.window.to_front)
 
     # ─── État partagé ────────────────────────────────────────────────────
     state = {"surface": "files", "folder": None, "view": "grid",
-             "thumb_size": 150, "thumb_token": 0,
+             "thumb_size": 320, "thumb_token": 0,
              "sort": "date", "search": "", "only_selected": False}
+    _strip_state = {"active": False, "saved_height": 860, "was_maximized": False}
     content = {"dirs": [], "imgs": [], "other": []}   # non filtrés
     selected = set()                     # chemins sélectionnés (images + dossiers)
     clipboard = {"paths": [], "mode": None}   # mode: "copy" | "cut" | None
+    # Compteur de suspension des raccourcis clavier (recherche/terminal
+    # focus) — même principe que Dashboard.pyw (_suspend/_resume_keyboard_
+    # shortcuts), via on_focus/on_blur plutôt qu'un appel manuel.
+    _kb_suspend = {"count": 0}
+
+    def _suspend_kb(event=None):
+        _kb_suspend["count"] += 1
+
+    def _resume_kb(event=None):
+        _kb_suspend["count"] = max(0, _kb_suspend["count"] - 1)
     thumb_mem = {}                       # cache mémoire path -> bytes miniature
     # Mode commande : path -> {format: nombre} — une photo peut avoir
     # plusieurs formats commandés. Édition via un clic sur la vignette
     # (badge « N tailles ») qui ouvre un petit dialogue, pas de clic droit.
     order = _load_order()
+    order_bw = _load_order_bw()
     order_mode = {"value": False}
     _ORDER_TARIFF = CONSTANTS.PRINTS
 
     # ═════════════════════════════════════════════════════════════════════
     #  Surface Fichiers (Explorateur) — liste ⇄ vignettes + sélection
     # ═════════════════════════════════════════════════════════════════════
-    files_path = ft.Text("Aucun dossier ouvert", size=CONSTANTS.TEXT_SM,
-                         color=WHITE, no_wrap=True, expand=True)
-    sel_count = ft.Text("", size=CONSTANTS.TEXT_XS, color=BLUE, no_wrap=True)
+    files_path = ft.Text("Aucun dossier ouvert", size=CONSTANTS.TEXT_MD,
+                         color=WHITE, no_wrap=True, expand=True,
+                         weight=ft.FontWeight.W_500)
+    sel_count = ft.Text("", size=CONSTANTS.TEXT_SM, color=BLUE, no_wrap=True,
+                        weight=ft.FontWeight.W_600)
     # Vue liste : ListView + ListTile, primitives éprouvées de Dashboard.
     files_list = ft.ListView(expand=True, spacing=2, padding=8)
     # Vue vignettes : GridView natif Flet (max_extent gère les colonnes tout
@@ -223,12 +315,14 @@ def main(page: ft.Page):
     def _dir_tile(path):
         checkbox = ft.Checkbox(
             value=path in selected, active_color=BLUE,
+            scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
             on_change=lambda e, p=path: _set_selected(p, e.control.value))
         return ft.ListTile(
             leading=checkbox,
             title=ft.Row([
-                ft.Icon(ft.Icons.FOLDER, color=ORANGE, size=CONSTANTS.ICON_MD),
-                ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
+                ft.Icon(ft.Icons.FOLDER, color=ORANGE,
+                        size=CONSTANTS.HUB_TILE_ICON_SIZE),
+                ft.Text(os.path.basename(path), size=CONSTANTS.HUB_TILE_TEXT_SIZE,
                        color=WHITE),
             ], spacing=8),
             on_click=lambda e, p=path: _navigate(p),
@@ -247,7 +341,8 @@ def main(page: ft.Page):
             visual = ft.Container(bgcolor=GREY, width=size, height=size,
                                   border_radius=ft.BorderRadius.all(4))
             pending[path] = visual
-        filename_text = ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
+        filename_text = ft.Text(os.path.basename(path),
+                                size=CONSTANTS.HUB_TILE_TEXT_SIZE,
                                 color=WHITE, expand=True, no_wrap=True,
                                 overflow=ft.TextOverflow.ELLIPSIS)
         if order_mode["value"]:
@@ -259,6 +354,7 @@ def main(page: ft.Page):
         else:
             leading = ft.Checkbox(
                 value=path in selected, active_color=BLUE,
+                scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
                 on_change=lambda e, p=path: _set_selected(p, e.control.value))
             row_children = [visual, filename_text]
         return ft.ListTile(
@@ -276,20 +372,27 @@ def main(page: ft.Page):
         is_sel = path in selected
         checkbox = ft.Checkbox(
             value=is_sel, active_color=BLUE,
+            scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
             on_change=lambda e, p=path: _set_selected(p, e.control.value))
         icon_zone = ft.Container(
             content=ft.Column([
-                ft.Icon(ft.Icons.FOLDER, color=ORANGE, size=CONSTANTS.ICON_MD),
-                ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_XS,
+                ft.Icon(ft.Icons.FOLDER, color=ORANGE,
+                        size=CONSTANTS.HUB_TILE_ICON_SIZE),
+                ft.Text(os.path.basename(path), size=CONSTANTS.HUB_TILE_TEXT_SIZE,
                         color=WHITE, no_wrap=True),
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6,
                expand=True),
+            # `alignment=` est indispensable ici : un Container n'est pas un
+            # parent flex, donc `expand=True` sur la Column enfant ne suffit
+            # pas à la centrer — sans ça elle reste collée en haut à gauche
+            # (retour user, capture d'écran à l'appui).
+            alignment=ft.Alignment.CENTER,
             expand=True, ink=True, on_click=lambda e, p=path: _navigate(p))
         header = ft.Row([ft.Container(expand=True), checkbox])
         return ft.Container(
             content=ft.Column([header, icon_zone], spacing=0, expand=True),
-            padding=6,
+            padding=6, expand=True,
             border=ft.Border.all(2, BLUE) if is_sel else ft.Border.all(1, GREY),
             border_radius=8)
 
@@ -317,6 +420,21 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+    def _open_files_with(prog, files):
+        # Version simplifiée de Dashboard.pyw:4887-4914 (_open_files_with) :
+        # pas de résolution auto du chemin WindowsApps versionné (cas rare),
+        # juste le lancement direct — même fichier open_with.json partagé.
+        exe = prog.get("exe", "")
+        if not exe:
+            return
+        try:
+            if platform.system() == "Darwin":
+                subprocess.Popen(["open", "-a", exe] + files)
+            else:
+                subprocess.Popen([exe] + files)
+        except Exception as exc:
+            _log_to_terminal(f"[ERREUR] {prog.get('label', exe)} : {exc}", RED)
+
     # Extensions lisibles dans le Bloc-notes (coloration syntaxique), comme
     # Dashboard.pyw:1589-1597 — les autres s'ouvrent avec l'appli par défaut.
     # .json est exclu d'ici : il va dans la surface Liste (lecteur JSON),
@@ -333,26 +451,49 @@ def main(page: ft.Page):
             _open_file_default(path)
 
     def _file_tile(path):
+        # Case à cocher comme _dir_tile/_img_tile : la sélection (donc
+        # copier/couper/coller) doit marcher sur N'IMPORTE QUEL fichier, pas
+        # seulement les images — retour user (fichiers de production).
+        checkbox = ft.Checkbox(
+            value=path in selected, active_color=BLUE,
+            scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
+            on_change=lambda e, p=path: _set_selected(p, e.control.value))
         return ft.ListTile(
-            leading=ft.Icon(_file_icon(path), color=ICON_ACTION,
-                            size=CONSTANTS.ICON_MD),
-            title=ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM, color=WHITE),
+            leading=checkbox,
+            title=ft.Row([
+                ft.Icon(_file_icon(path), color=ICON_ACTION,
+                        size=CONSTANTS.HUB_TILE_ICON_SIZE),
+                ft.Text(os.path.basename(path),
+                       size=CONSTANTS.HUB_TILE_TEXT_SIZE, color=WHITE),
+            ], spacing=8),
             on_click=lambda e, p=path: _open_file(p),
             hover_color=GREY, dense=True,
             content_padding=ft.Padding(left=8, top=0, right=8, bottom=0),
         )
 
     def _file_card(path):
-        return ft.Container(
+        is_sel = path in selected
+        checkbox = ft.Checkbox(
+            value=is_sel, active_color=BLUE,
+            scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
+            on_change=lambda e, p=path: _set_selected(p, e.control.value))
+        icon_zone = ft.Container(
             content=ft.Column([
-                ft.Icon(_file_icon(path), color=ICON_ACTION, size=CONSTANTS.ICON_MD),
-                ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_XS,
+                ft.Icon(_file_icon(path), color=ICON_ACTION,
+                        size=CONSTANTS.HUB_TILE_ICON_SIZE),
+                ft.Text(os.path.basename(path), size=CONSTANTS.HUB_TILE_TEXT_SIZE,
                         color=WHITE, no_wrap=True),
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6,
                expand=True),
-            padding=6, border=ft.Border.all(1, GREY), border_radius=8,
-            ink=True, on_click=lambda e, p=path: _open_file(p))
+            alignment=ft.Alignment.CENTER,
+            expand=True, ink=True, on_click=lambda e, p=path: _open_file(p))
+        header = ft.Row([ft.Container(expand=True), checkbox])
+        return ft.Container(
+            content=ft.Column([header, icon_zone], spacing=0, expand=True),
+            padding=6, expand=True,
+            border=ft.Border.all(2, BLUE) if is_sel else ft.Border.all(1, GREY),
+            border_radius=8)
 
     def _grid_card(path, pending):
         is_sel = path in selected
@@ -370,7 +511,7 @@ def main(page: ft.Page):
                                 ink=True,
                                 on_click=lambda e, p=path: _open_viewer(p))
         is_ordered = path in order
-        label = ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_XS,
+        label = ft.Text(os.path.basename(path), size=CONSTANTS.HUB_TILE_TEXT_SIZE,
                         color=WHITE, no_wrap=True)
         if order_mode["value"]:
             # Badge commande sous le nom (pas de case à cocher sur l'image) —
@@ -380,6 +521,7 @@ def main(page: ft.Page):
         else:
             checkbox = ft.Checkbox(
                 value=is_sel, active_color=BLUE,
+                scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
                 on_change=lambda e, p=path: _set_selected(p, e.control.value))
             header = ft.Row([ft.Container(expand=True), checkbox])
             highlighted = is_sel
@@ -387,7 +529,7 @@ def main(page: ft.Page):
         return ft.Container(
             content=ft.Column(body, spacing=4, expand=True,
                               horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
-            padding=6,
+            padding=6, expand=True,
             border=ft.Border.all(2, BLUE) if highlighted else ft.Border.all(1, GREY),
             border_radius=8)
 
@@ -411,7 +553,7 @@ def main(page: ft.Page):
         if state["only_selected"]:
             dirs = [p for p in dirs if p in selected]
             imgs = [p for p in imgs if p in selected]
-            other = []
+            other = [p for p in other if p in selected]
         return dirs, imgs, other
 
     def _with_ctx_menu(control, path):
@@ -497,11 +639,15 @@ def main(page: ft.Page):
         clipboard["paths"] = list(paths)
         clipboard["mode"] = "copy"
         page.update()
+        _log_to_terminal(f"[OK] {len(clipboard['paths'])} élément(s) copié(s)", BLUE)
 
     def _do_cut(paths):
         clipboard["paths"] = list(paths)
         clipboard["mode"] = "cut"
         page.update()
+        _log_to_terminal(
+            f"[OK] {len(clipboard['paths'])} élément(s) coupé(s) — Ctrl+V pour coller",
+            ORANGE)
 
     def _unique_dest(folder, name):
         base, ext = os.path.splitext(name)
@@ -516,6 +662,8 @@ def main(page: ft.Page):
         folder = state["folder"]
         if not folder or not clipboard["paths"]:
             return
+        action = "déplacé" if clipboard["mode"] == "cut" else "collé"
+        pasted, errors = 0, 0
         for src in clipboard["paths"]:
             if not os.path.exists(src):
                 continue
@@ -527,11 +675,17 @@ def main(page: ft.Page):
                     shutil.copytree(src, dest)
                 else:
                     shutil.copy2(src, dest)
-            except Exception:
-                continue
+                pasted += 1
+            except Exception as exc:
+                errors += 1
+                _log_to_terminal(f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
         if clipboard["mode"] == "cut":
             clipboard["paths"] = []
             clipboard["mode"] = None
+        if pasted:
+            _log_to_terminal(f"[OK] {pasted} élément(s) {action}(s)", BLUE)
+        if errors:
+            _log_to_terminal(f"[ATTENTION] {errors} erreur(s)", ORANGE)
         _navigate(folder)
 
     def _do_delete(paths):
@@ -543,8 +697,9 @@ def main(page: ft.Page):
                 else:
                     os.remove(p)
                 selected.discard(p)
-            except Exception:
-                continue
+                _log_to_terminal(f"[OK] Supprimé : {os.path.basename(p)}", GREEN)
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] {os.path.basename(p)} : {exc}", RED)
         _update_sel_count()
         _navigate(state["folder"])
 
@@ -552,6 +707,7 @@ def main(page: ft.Page):
         folder = state["folder"]
         if not folder:
             return
+        duplicated = 0
         for src in paths:
             if not os.path.exists(src):
                 continue
@@ -562,8 +718,11 @@ def main(page: ft.Page):
                     shutil.copytree(src, dest)
                 else:
                     shutil.copy2(src, dest)
-            except Exception:
-                continue
+                duplicated += 1
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
+        if duplicated:
+            _log_to_terminal(f"[OK] {duplicated} élément(s) dupliqué(s)", BLUE)
         _navigate(folder)
 
     def _do_zip(paths):
@@ -585,8 +744,10 @@ def main(page: ft.Page):
                                 zf.write(full, os.path.relpath(full, base))
                     else:
                         zf.write(p, os.path.basename(p))
-        except Exception:
-            pass
+            _log_to_terminal(f"[OK] Archive créée : {os.path.basename(zip_path)}",
+                             YELLOW)
+        except Exception as exc:
+            _log_to_terminal(f"[ERREUR] Zip : {exc}", RED)
         _navigate(folder)
 
     def _do_copy_to_selection(paths):
@@ -595,14 +756,18 @@ def main(page: ft.Page):
             return
         selection_folder = os.path.join(folder, "SELECTION")
         os.makedirs(selection_folder, exist_ok=True)
+        copied = 0
         for src in paths:
             if not os.path.isfile(src):
                 continue
             dest = _unique_dest(selection_folder, os.path.basename(src))
             try:
                 shutil.copy2(src, dest)
-            except Exception:
-                continue
+                copied += 1
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
+        if copied:
+            _log_to_terminal(f"[OK] {copied} fichier(s) copié(s) dans SELECTION/", BLUE)
         _navigate(selection_folder)
 
     def _reveal_in_explorer(paths):
@@ -625,7 +790,9 @@ def main(page: ft.Page):
             else:
                 subprocess.Popen(["xdg-open", folder])
         except Exception:
-            pass
+            return
+        if not _strip_state["active"]:
+            _toggle_strip()
 
     def _rename_item(paths):
         path = paths[0] if paths else None
@@ -656,8 +823,10 @@ def main(page: ft.Page):
             new_path = os.path.join(parent, new_name)
             try:
                 os.rename(path, new_path)
-            except OSError:
+            except OSError as exc:
+                _log_to_terminal(f"[ERREUR] Renommage : {exc}", RED)
                 return
+            _log_to_terminal(f"[OK] Renommé : {current_name} → {new_name}", GREEN)
             selected.discard(path)
             _navigate(parent)
 
@@ -672,6 +841,46 @@ def main(page: ft.Page):
         )
         page.overlay.append(dlg)
         dlg.open = True
+        page.update()
+
+    def _show_exif_dialog(paths):
+        # Comme Dashboard.pyw:5258-5302 : résolution + tags EXIF lisibles
+        # d'une image, dans un dialogue scrollable et sélectionnable.
+        path = paths[0]
+        rows = []
+        try:
+            from PIL.ExifTags import TAGS
+            with PILImage.open(path) as img:
+                width, height = img.size
+                raw = img.getexif()
+            rows.append(ft.Text(f"Résolution : {width} × {height} px",
+                                size=12, color=BLUE, selectable=True))
+            if raw:
+                for tag_id, value in raw.items():
+                    if isinstance(value, bytes):
+                        continue
+                    tag_name = TAGS.get(tag_id, f"Tag {tag_id}")
+                    rows.append(ft.Text(f"{tag_name} : {value}", size=12,
+                                        color=WHITE, selectable=True))
+            else:
+                rows.append(ft.Text("Aucune donnée EXIF.", size=12,
+                                    color=LIGHT_GREY))
+        except Exception as exc:
+            rows.append(ft.Text(f"Erreur : {exc}", size=12, color=RED))
+
+        def _close_exif(event=None):
+            exif_dlg.open = False
+            page.update()
+
+        exif_dlg = ft.AlertDialog(
+            title=ft.Text(os.path.basename(path), size=13, color=LIGHT_GREY),
+            content=ft.Column(rows, spacing=2, scroll=ft.ScrollMode.AUTO,
+                              width=400, height=400),
+            actions=[ft.TextButton("Fermer", on_click=_close_exif)],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        page.overlay.append(exif_dlg)
+        exif_dlg.open = True
         page.update()
 
     def _show_context_menu(path):
@@ -699,19 +908,28 @@ def main(page: ft.Page):
                 on_click=_act(fn), dense=True, hover_color=GREY,
                 content_padding=ft.Padding(left=10, top=0, right=10, bottom=0))
 
+        has_image = any(os.path.splitext(t)[1].lower() in CONSTANTS.IMAGE_EXTS
+                        for t in targets)
+
         rows = []
         if len(targets) == 1:
             rows.append(_menu_row(ft.Icons.DRIVE_FILE_RENAME_OUTLINE,
                                    BLUE, "Renommer", _rename_item))
+            if has_image:
+                rows.append(_menu_row(ft.Icons.INFO_OUTLINE, LIGHT_GREY,
+                                       "Voir les EXIF", _show_exif_dialog))
+        if has_image:
+            rows.append(_menu_row(ft.Icons.PRINT_OUTLINED, ORANGE,
+                                   "Imprimer", _print_paths))
         rows.append(_menu_row(ft.Icons.CONTENT_COPY, BLUE,
                                "Copier", _do_copy))
-        rows.append(_menu_row(ft.Icons.CONTENT_CUT, BLUE,
+        rows.append(_menu_row(ft.Icons.CONTENT_CUT, ORANGE,
                                "Couper", _do_cut))
         rows.append(_menu_row(ft.Icons.FILE_COPY_OUTLINED, BLUE,
                                "Dupliquer ici", _do_duplicate))
         if clipboard["paths"]:
             rows.append(ft.ListTile(
-                leading=ft.Icon(ft.Icons.CONTENT_PASTE, color=GREEN,
+                leading=ft.Icon(ft.Icons.CONTENT_PASTE, color=YELLOW,
                                 size=CONSTANTS.ICON_SM),
                 title=ft.Text("Coller ici", size=CONSTANTS.TEXT_SM, color=WHITE),
                 on_click=lambda e: (setattr(dlg, "open", False), page.update(),
@@ -734,10 +952,75 @@ def main(page: ft.Page):
         rows.append(_menu_row(ft.Icons.DELETE_OUTLINE, RED,
                                "Supprimer", _do_delete))
 
+        # Ouvrir avec... — uniquement au clic droit (choix d'appli trop
+        # rare pour mériter une icône permanente dans la barre tactile).
+        rows.append(ft.Divider(height=1, color=GREY))
+        for prog in _load_open_with_programs():
+            def _open_with_act(p=prog):
+                def _run(event):
+                    dlg.open = False
+                    page.update()
+                    _open_files_with(p, targets)
+                    page.run_task(_focus_active_surface)
+                return _run
+            rows.append(ft.ListTile(
+                leading=ft.Icon(ft.Icons.OPEN_IN_NEW, color=GREEN,
+                                size=CONSTANTS.ICON_SM),
+                title=ft.Text(f"Ouvrir avec {prog['label']}",
+                              size=CONSTANTS.TEXT_SM, color=WHITE),
+                on_click=_open_with_act(), dense=True, hover_color=GREY,
+                content_padding=ft.Padding(left=10, top=0, right=10, bottom=0)))
+        rows.append(ft.ListTile(
+            leading=ft.Icon(ft.Icons.ADD, color=GREEN, size=CONSTANTS.ICON_SM),
+            title=ft.Text("Ajouter un programme...", size=CONSTANTS.TEXT_SM,
+                          color=WHITE),
+            on_click=lambda e: _add_open_with_program(), dense=True,
+            hover_color=GREY,
+            content_padding=ft.Padding(left=10, top=0, right=10, bottom=0)))
+
         dlg = ft.AlertDialog(
             title=ft.Text(label, size=13, color=WHITE, no_wrap=True),
-            content=ft.Column(rows, spacing=0, tight=True, width=270),
+            content=ft.Column(rows, spacing=0, tight=True, width=270,
+                              scroll=ft.ScrollMode.AUTO, height=min(420, len(rows) * 40 + 20)),
             actions=[ft.TextButton("Fermer", on_click=_cancel)],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    def _add_open_with_program(event=None):
+        label_field = ft.TextField(hint_text="Nom (ex. Photoshop)", autofocus=True,
+                                   width=280, bgcolor=DARK, border_color=BLUE,
+                                   color=WHITE, text_size=13, height=40,
+                                   content_padding=ft.Padding(8, 4, 8, 4))
+        exe_field = ft.TextField(hint_text="Chemin de l'exécutable", width=280,
+                                 bgcolor=DARK, border_color=BLUE, color=WHITE,
+                                 text_size=13, height=40,
+                                 content_padding=ft.Padding(8, 4, 8, 4))
+
+        def _cancel(event):
+            dlg.open = False
+            page.update()
+
+        def _confirm(event):
+            label = (label_field.value or "").strip()
+            exe = (exe_field.value or "").strip()
+            if not label or not exe:
+                return
+            programs = _load_open_with_programs()
+            programs.append({"label": label, "exe": exe})
+            _save_open_with_programs(programs)
+            dlg.open = False
+            page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Ajouter un programme", size=13, color=WHITE),
+            content=ft.Column([label_field, exe_field], spacing=8, tight=True,
+                              width=280),
+            actions=[
+                ft.TextButton("Ajouter", on_click=_confirm),
+                ft.TextButton("Annuler", on_click=_cancel),
+            ],
         )
         page.overlay.append(dlg)
         dlg.open = True
@@ -754,6 +1037,13 @@ def main(page: ft.Page):
         create_file_btn.disabled = False
         selected.clear()
         _update_sel_count()
+        # Une recherche périmée après une action (suppression, déplacement,
+        # outil lancé sur les résultats...) masquerait le contenu rechargé :
+        # _navigate() est le point de passage commun à toute action sur
+        # fichiers (cf. _do_delete/_do_paste/_tool_refresh...), donc on y
+        # réinitialise la recherche plutôt qu'à chaque site d'appel.
+        state["search"] = ""
+        search_field.value = ""
         try:
             entries = list(os.scandir(path))
         except OSError as exc:
@@ -782,25 +1072,31 @@ def main(page: ft.Page):
 
     async def _pick_folder(event):
         folder = await ft.FilePicker().get_directory_path(
-            dialog_title="Dossier d'images")
+            dialog_title="Dossier d'images",
+            initial_directory=state["folder"] or None)
         if folder:
             _navigate(folder)
 
     def _toggle_all(event):
-        entries = content["dirs"] + content["imgs"]
+        entries = content["dirs"] + content["imgs"] + content["other"]
         if selected.issuperset(entries) and entries:
             selected.clear()
+            _log_to_terminal("[OK] Sélection effacée", GREEN)
         else:
             selected.update(entries)
+            _log_to_terminal(f"[OK] {len(selected)} élément(s) sélectionné(s)", BLUE)
         _update_sel_count()
         _render()
 
     def _invert(event):
-        new = set(content["dirs"] + content["imgs"]) - selected
+        new = set(content["dirs"] + content["imgs"] + content["other"]) - selected
         selected.clear()
         selected.update(new)
         _update_sel_count()
         _render()
+        _log_to_terminal(
+            f"[OK] Sélection inversée — {len(selected)} élément(s) sélectionné(s)",
+            BLUE)
 
     def _toggle_only_selected(event):
         state["only_selected"] = not state["only_selected"]
@@ -816,12 +1112,15 @@ def main(page: ft.Page):
         order_mode_btn.style = ft.ButtonStyle(
             bgcolor=BLUE if order_mode["value"] else GREY,
             color=DARK if order_mode["value"] else WHITE)
+        # "Créer le dossier de commande" n'a de sens qu'en mode commande —
+        # masqué le reste du temps (retour user).
+        create_order_btn.visible = order_mode["value"]
         _render()
 
     def _mini_btn(icon, on_click):
         return ft.Container(
-            content=ft.Icon(icon, size=12, color=ICON_ACTION),
-            width=18, height=18, border_radius=4, bgcolor=GREY,
+            content=ft.Icon(icon, size=18, color=ICON_ACTION),
+            width=30, height=30, border_radius=6, bgcolor=GREY,
             alignment=ft.Alignment.CENTER, ink=True, on_click=on_click)
 
     def _refresh_viewer_order(path):
@@ -858,24 +1157,38 @@ def main(page: ft.Page):
 
         rows = []
         for fmt in _ORDER_TARIFF:
-            count_text = ft.Text(str(entry.get(fmt, 0)), size=CONSTANTS.TEXT_SM,
-                                 color=WHITE, width=22, text_align=ft.TextAlign.CENTER)
+            count_text = ft.Text(str(entry.get(fmt, 0)), size=CONSTANTS.TEXT_MD,
+                                 color=WHITE, width=26, text_align=ft.TextAlign.CENTER)
             counters[fmt] = count_text
             rows.append(ft.Row([
-                ft.Text(fmt, size=CONSTANTS.TEXT_SM, color=WHITE, width=70),
+                ft.Text(fmt, size=CONSTANTS.TEXT_MD, color=WHITE, width=76),
                 _mini_btn(ft.Icons.REMOVE, lambda e, f=fmt: _apply(f, -1)),
                 count_text,
                 _mini_btn(ft.Icons.ADD, lambda e, f=fmt: _apply(f, 1)),
-            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER))
+            ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER))
+
+        def _toggle_bw(e):
+            if e.control.value:
+                order_bw[path] = True
+            else:
+                order_bw.pop(path, None)
+            _save_order_bw(order_bw)
+            _render()
+            _refresh_viewer_order(path)
 
         def _close(event):
             dlg.open = False
             page.update()
 
+        bw_switch = ft.Checkbox(
+            label="Noir & blanc", value=order_bw.get(path, False),
+            active_color=VIOLET, on_change=_toggle_bw)
+
         dlg = ft.AlertDialog(
             title=ft.Text(os.path.basename(path), size=13, color=WHITE, no_wrap=True),
-            content=ft.Column(rows, spacing=8, tight=True, scroll=ft.ScrollMode.AUTO,
-                              height=min(320, len(rows) * 40), width=220),
+            content=ft.Column(rows + [ft.Divider(height=1), bw_switch], spacing=10,
+                              tight=True, scroll=ft.ScrollMode.AUTO,
+                              height=min(400, len(rows) * 48 + 70), width=250),
             actions=[ft.TextButton("Fermer", on_click=_close)],
         )
         page.overlay.append(dlg)
@@ -886,12 +1199,15 @@ def main(page: ft.Page):
         entry = order.get(path, {})
         n = len(entry)
         label = f"{n} taille{'s' if n > 1 else ''}" if n else "+ Commande"
+        if order_bw.get(path):
+            label += " · N&B"
         return ft.Container(
             content=ft.Row([
-                ft.Icon(ft.Icons.RECEIPT_LONG_OUTLINED, size=12, color=ICON_ACTION),
-                ft.Text(label, size=CONSTANTS.TEXT_XS, color=WHITE),
-            ], spacing=4, tight=True, alignment=ft.MainAxisAlignment.CENTER),
-            padding=ft.Padding(6, 3, 6, 3), border_radius=6, bgcolor=GREY,
+                ft.Icon(ft.Icons.RECEIPT_LONG_OUTLINED, size=CONSTANTS.ICON_SM,
+                        color=ICON_ACTION),
+                ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE),
+            ], spacing=6, tight=True, alignment=ft.MainAxisAlignment.CENTER),
+            padding=ft.Padding(12, 8, 12, 8), border_radius=8, bgcolor=GREY,
             ink=True, on_click=lambda e, p=path: _edit_order_for_photo(p),
             alignment=ft.Alignment.CENTER)
 
@@ -909,17 +1225,20 @@ def main(page: ft.Page):
         if state["view"] == "grid":
             files_grid.update()
 
-    def _seg_btn(icon, text, on_click):
-        # Pas de `color=` sur l'Icon/Text imbriqués : ils héritent de
-        # ButtonStyle.color, ce qui permet à _update_view_seg() de recolorer
-        # tout le bouton (fond + icône + texte) en une seule affectation.
+    def _seg_btn(icon, text, on_click, color=None):
+        # `color=None` (par défaut) : l'Icon/Text hérite de ButtonStyle.color,
+        # ce qui permet à only_sel_btn (_toggle_only_selected) de recolorer
+        # tout le bouton (fond + icône + texte) en une seule affectation
+        # selon l'état actif/inactif — ne pas fixer `color` dans ce cas.
+        # Un `color` explicite (ex. VIOLET) sert aux boutons non-toggle
+        # (tout sélectionner, inverser), comme Dashboard.pyw:656-670.
         return ft.TextButton(
             content=ft.Row([
-                ft.Icon(icon, size=CONSTANTS.ICON_SM),
-                ft.Text(text, size=CONSTANTS.TEXT_SM),
-            ], spacing=4, tight=True),
+                ft.Icon(icon, size=CONSTANTS.ICON_MD, color=color),
+                ft.Text(text, size=CONSTANTS.TEXT_MD, color=color),
+            ], spacing=6, tight=True),
             style=ft.ButtonStyle(bgcolor=GREY, color=WHITE,
-                                 padding=ft.Padding(10, 6, 10, 6)),
+                                 padding=ft.Padding(14, 10, 14, 10)),
             on_click=on_click,
         )
 
@@ -942,7 +1261,7 @@ def main(page: ft.Page):
             _seg_label(ft.Icons.GRID_VIEW, "Vignettes"),
             _seg_label(ft.Icons.VIEW_LIST, "Liste"),
         ],
-        bgcolor=DARK, thumb_color=BLUE, padding=ft.Padding(3, 3, 3, 3),
+        bgcolor=DARK, thumb_color=BLUE, padding=ft.Padding(4, 6, 4, 6),
         on_change=_on_view_seg_change,
     )
 
@@ -950,12 +1269,22 @@ def main(page: ft.Page):
         state["search"] = value or ""
         _render()
 
+    def _clear_search(event=None):
+        state["search"] = ""
+        search_field.value = ""
+        _render()
+
     search_field = ft.TextField(
         hint_text="Rechercher…", on_change=lambda e: _set_search(e.control.value),
-        dense=True, height=36, width=170, bgcolor=DARK, border_color=GREY,
-        color=WHITE, text_size=CONSTANTS.TEXT_SM,
+        dense=True, height=40, width=200, bgcolor=DARK, border_color=BLUE,
+        border_radius=8, color=WHITE, text_size=CONSTANTS.TEXT_SM,
         content_padding=ft.Padding(10, 0, 10, 0),
         prefix_icon=ft.Icons.SEARCH,
+        suffix=ft.IconButton(
+            ft.Icons.CLOSE, icon_size=14, icon_color=GREY,
+            tooltip="Effacer la recherche", on_click=_clear_search,
+            style=ft.ButtonStyle(padding=0)),
+        on_focus=_suspend_kb, on_blur=_resume_kb,
     )
 
     _SORT_LABELS = {"name_asc": "Nom (A→Z)", "name_desc": "Nom (Z→A)",
@@ -974,11 +1303,11 @@ def main(page: ft.Page):
     sort_btn = ft.PopupMenuButton(
         content=ft.Container(
             content=ft.Row([
-                ft.Icon(ft.Icons.SORT, size=CONSTANTS.ICON_SM, color=WHITE),
+                ft.Icon(ft.Icons.SORT, size=CONSTANTS.ICON_MD, color=YELLOW),
                 sort_label,
                 ft.Icon(ft.Icons.ARROW_DROP_DOWN, size=CONSTANTS.ICON_SM, color=WHITE),
             ], spacing=4, tight=True),
-            bgcolor=GREY, border_radius=8, padding=ft.Padding(10, 7, 6, 7)),
+            bgcolor=GREY, border_radius=8, padding=ft.Padding(12, 9, 8, 9)),
         items=[
             ft.PopupMenuItem(content=ft.Text("Nom (A→Z)"), on_click=_set_sort("name_asc")),
             ft.PopupMenuItem(content=ft.Text("Nom (Z→A)"), on_click=_set_sort("name_desc")),
@@ -1085,13 +1414,22 @@ def main(page: ft.Page):
         return ft.IconButton(icon=icon, icon_color=WHITE, icon_size=22,
                              tooltip=tip, on_click=cb)
 
-    viewer_top_bar = ft.Container(
-        content=ft.Row([
-            viewer_filename, viewer_counter,
-            ft.Container(expand=True),
-            _viewer_btn(ft.Icons.CLOSE, "Fermer (Échap)", _close_viewer),
-        ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        bgcolor=GREY, padding=ft.Padding(12, 8, 8, 8), border_radius=12,
+    # Pastilles flottantes semi-transparentes (façon Dashboard.pyw:5928-6052 —
+    # overlay_bar_color/top_bar/close_btn_top/navigation_bar), jamais une
+    # barre pleine largeur : celle-ci masquait une partie de l'image (retour
+    # user) parce qu'elle courait de `left=8` à `right=8` sur toute la
+    # largeur du viewport.
+    _VIEWER_BAR_BG = ft.Colors.with_opacity(0.72, GREY)
+
+    viewer_title_pill = ft.Container(
+        content=ft.Column([viewer_filename, viewer_counter], spacing=0,
+                          tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        bgcolor=_VIEWER_BAR_BG, padding=ft.Padding(18, 6, 18, 6),
+        border_radius=12,
+    )
+    viewer_close_pill = ft.Container(
+        content=_viewer_btn(ft.Icons.CLOSE, "Fermer (Échap)", _close_viewer),
+        bgcolor=_VIEWER_BAR_BG, border_radius=20,
     )
     viewer_bottom_bar = ft.Container(
         content=ft.Row([
@@ -1107,15 +1445,19 @@ def main(page: ft.Page):
                        lambda e: _viewer_nav(1)),
             viewer_order_slot,
         ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        bgcolor=GREY, padding=ft.Padding(8, 6, 8, 6), border_radius=16,
+        bgcolor=_VIEWER_BAR_BG, padding=ft.Padding(8, 6, 8, 6), border_radius=16,
     )
     # Pan/zoom natif Flet (même widget que le viewer plein écran de
-    # Dashboard.pyw) : zéro callback Python par frame, donc jamais saccadé.
-    # Contenu par défaut de `viewer_image_wrap` ; remplacé par le cadre de
-    # recadrage (`crop_frame_holder`) pendant l'édition (cf. tiroir Recadrer).
+    # Dashboard.pyw:5567-5578) : `width`/`height` explicites (pas `expand`)
+    # -> l'InteractiveViewer a un viewport concret, sinon `constrained=True`
+    # le dimensionne sur le rectangle CONTAIN de l'image (déjà lettrboxée)
+    # au lieu du plein écran, et zoomer agrandit l'image DANS ce rectangle
+    # fixe au lieu du canevas lui-même (retour user, captures à l'appui).
     viewer_interactive = ft.InteractiveViewer(
         content=viewer_img, min_scale=1.0, max_scale=6.0,
-        pan_enabled=True, scale_enabled=True, constrained=True)
+        pan_enabled=True, scale_enabled=True, constrained=True,
+        width=page.window.width or 1280, height=page.window.height or 860,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE)
 
     # Conteneurs positionnés nommés (pas `expand=True`) pour pouvoir réduire
     # dynamiquement `right` quand un tiroir est ouvert — évite qu'il ne
@@ -1123,19 +1465,25 @@ def main(page: ft.Page):
     viewer_image_wrap = ft.Container(content=viewer_interactive, bgcolor=DARK,
                                      alignment=ft.Alignment.CENTER,
                                      left=0, top=0, bottom=0, right=0)
-    viewer_top_bar_wrap = ft.Container(content=viewer_top_bar, top=8, left=8,
-                                       right=8)
+    viewer_top_bar_wrap = ft.Container(content=viewer_title_pill, top=8,
+                                       left=0, right=0,
+                                       alignment=ft.Alignment.CENTER)
+    viewer_close_wrap = ft.Container(content=viewer_close_pill, top=8, right=8)
     viewer_bottom_bar_wrap = ft.Container(content=viewer_bottom_bar,
                                           bottom=16, left=0, right=0,
                                           alignment=ft.Alignment.CENTER)
     viewer_overlay = ft.Stack([
-        viewer_image_wrap, viewer_top_bar_wrap, viewer_bottom_bar_wrap,
+        viewer_image_wrap, viewer_top_bar_wrap, viewer_close_wrap,
+        viewer_bottom_bar_wrap,
     ], expand=True)
 
     def _set_drawer_space(width):
         viewer_image_wrap.right = width
-        viewer_top_bar_wrap.right = 8 + width
+        viewer_top_bar_wrap.right = width
+        viewer_close_wrap.right = 8 + width
         viewer_bottom_bar_wrap.right = width
+        viewer_interactive.width = (page.window.width or 1280) - width
+        viewer_interactive.height = page.window.height or 860
 
     def _derived_path(path, suffix):
         """Chemin d'un fichier dérivé (retouche/recadrage) : sous-dossier
@@ -1146,899 +1494,37 @@ def main(page: ft.Page):
         return _unique_dest(folder, f"{base}{suffix}.jpg")
 
     # ═════════════════════════════════════════════════════════════════════
-    #  Tiroir Retoucher — exposition/contraste/saturation/teinte/balance des
-    #  blancs/ombres/hautes lumières (HUB_SPEC §6). Délègue à image_ops.py
-    #  (même logique que Recadrage manuel.pyw, sans duplication).
+    #  Édition — Recadrage manuel.pyw (retouche + recadrage, tous les outils)
+    #  et Augmentation IA.py (inpainting / extension / upscale) lancés comme
+    #  outils externes dédiés plutôt que des tiroirs dupliquant leur UI dans
+    #  Hub : les tiroirs ne couvraient jamais correctement tout l'écran
+    #  (retour user + captures), et ces deux apps ont déjà tous les outils.
+    #  `_launch_tool` est défini plus loin dans main() : référence différée
+    #  via closure, même principe que `create_order_btn` plus haut.
     # ═════════════════════════════════════════════════════════════════════
-    retouch_state = {"path": None, "preview_image": None, "exposure": 0.0,
-                     "contrast": 0.0, "saturation": 0.0, "hue": 0.0,
-                     "white_balance": 0.0, "shadows": 0.0, "highlights": 0.0}
-    _RETOUCH_KEYS = ("exposure", "contrast", "saturation", "hue",
-                     "white_balance", "shadows", "highlights")
-    retouch_sliders = {}
-    retouch_labels = {}
-
-    def _retouch_apply(image):
-        result = image_ops.apply_adjustments(
-            image, exposure=retouch_state["exposure"],
-            contrast=retouch_state["contrast"],
-            saturation=retouch_state["saturation"],
-            hue=retouch_state["hue"],
-            white_balance=retouch_state["white_balance"])
-        if retouch_state["shadows"]:
-            result = image_ops.apply_shadows(result, retouch_state["shadows"])
-        if retouch_state["highlights"]:
-            result = image_ops.apply_highlights(result, retouch_state["highlights"])
-        return result
-
-    def _retouch_load_preview():
-        if retouch_state["preview_image"] is not None:
-            return retouch_state["preview_image"]
-        try:
-            with PILImage.open(retouch_state["path"]) as im:
-                im = im.convert("RGB")
-                im.thumbnail((1024, 1024), PILImage.LANCZOS)
-                retouch_state["preview_image"] = im.copy()
-        except Exception:
-            retouch_state["preview_image"] = None
-        return retouch_state["preview_image"]
-
-    def _retouch_render():
-        base = _retouch_load_preview()
-        if base is None:
-            return
-        buf = io.BytesIO()
-        _retouch_apply(base).save(buf, "JPEG", quality=85)
-        viewer_img.src = buf.getvalue()
-        page.update()
-
-    def _retouch_slider_change(key):
-        def _on_change(e):
-            retouch_labels[key].value = f"{int(e.control.value):+d}"
-            page.update()
-        return _on_change
-
-    def _retouch_slider_end(key):
-        def _on_change_end(e):
-            retouch_state[key] = e.control.value
-            _retouch_render()
-        return _on_change_end
-
-    def _retouch_reset(event=None):
-        for key in _RETOUCH_KEYS:
-            retouch_state[key] = 0.0
-            retouch_sliders[key].value = 0.0
-            retouch_labels[key].value = "+0"
-        viewer_img.src = viewer_rotated_bytes.get(
-            retouch_state["path"], retouch_state["path"])
-        page.update()
-
-    def _retouch_validate(event=None):
-        path = retouch_state["path"]
-        try:
-            with PILImage.open(path) as im:
-                icc = im.info.get("icc_profile")
-                full = im.convert("RGB")
-                result = _retouch_apply(full)
-                result = image_ops.convert_to_srgb(result, icc)
-                dest = _derived_path(path, "_retouche")
-                result.save(dest, "JPEG", quality=100,
-                            dpi=(CONSTANTS.DPI, CONSTANTS.DPI))
-        except Exception as exc:
-            _log_to_terminal(f"[ERREUR] Retouche : {exc}", RED)
-            return
-        _log_to_terminal(f"Retouche enregistrée : {dest}", GREEN)
-        _toggle_retouch_drawer()
-
-    def _retouch_slider_row(key, label, lo, hi):
-        slider = ft.Slider(min=lo, max=hi, value=0, expand=True,
-                           on_change=_retouch_slider_change(key),
-                           on_change_end=_retouch_slider_end(key))
-        value_label = ft.Text("+0", size=CONSTANTS.TEXT_XS, color=GREY,
-                              width=34)
-        retouch_sliders[key] = slider
-        retouch_labels[key] = value_label
-        return ft.Column([
-            ft.Row([ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE),
-                   ft.Container(expand=True), value_label]),
-            slider,
-        ], spacing=0, tight=True)
-
-    retouch_panel = ft.Container(
-        bgcolor=GREY, border_radius=10, padding=12,
-        content=ft.Column([
-            ft.Text("Retoucher", size=CONSTANTS.TEXT_MD, color=WHITE,
-                   weight=ft.FontWeight.W_600),
-            _retouch_slider_row("exposure", "Exposition", -100, 100),
-            _retouch_slider_row("contrast", "Contraste", -100, 100),
-            _retouch_slider_row("saturation", "Saturation", -100, 100),
-            _retouch_slider_row("hue", "Teinte", -180, 180),
-            _retouch_slider_row("white_balance", "Balance des blancs",
-                                -100, 100),
-            _retouch_slider_row("shadows", "Ombres", -100, 100),
-            _retouch_slider_row("highlights", "Hautes lumières", -100, 100),
-            ft.Row([
-                ft.TextButton("Réinitialiser", on_click=_retouch_reset),
-                ft.Container(expand=True),
-                ft.ElevatedButton("Valider", icon=ft.Icons.CHECK,
-                                  on_click=_retouch_validate),
-            ]),
-        ], spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
-    )
-    retouch_drawer = ft.Container(
-        content=retouch_panel, top=0, bottom=0, right=0, width=320,
-        visible=False, padding=8)
-
-    def _toggle_retouch_drawer(event=None):
-        opening = not retouch_drawer.visible
-        crop_drawer.visible = False
-        ia_drawer.visible = False
-        retouch_drawer.visible = opening
-        _set_drawer_space(320 if opening else 0)
-        viewer_image_wrap.content = viewer_interactive
-        if opening:
-            retouch_state["path"] = viewer_state["paths"][viewer_state["index"]]
-            retouch_state["preview_image"] = None
-            _retouch_reset()
-            page.run_task(viewer_interactive.reset)
-        else:
-            viewer_img.src = viewer_rotated_bytes.get(
-                viewer_state["paths"][viewer_state["index"]],
-                viewer_state["paths"][viewer_state["index"]])
-        page.update()
-
-    # ═════════════════════════════════════════════════════════════════════
-    #  Tiroir Recadrer — format verrouillé sur l'impression, orientation
-    #  toujours dérivée de l'image, rotation fine (jamais de coin vide),
-    #  grille des tiers. HUB_SPEC §7.
-    #
-    #  Pan/zoom natifs Flet (`ft.InteractiveViewer`, même widget que le
-    #  viewer plein écran de Dashboard.pyw) : l'image est affichée via son
-    #  chemin fichier direct (décodage natif Flutter, aucun aller-retour
-    #  PIL par frame) et déplacée/zoomée côté client — fluide même sur de
-    #  grandes photos. Python ne reconstruit le scale/offset qu'à partir des
-    #  évènements `on_interaction_update` (throttlés à 200ms par Flet), pour
-    #  calculer le recadrage final PIL uniquement au clic sur "Valider".
-    # ═════════════════════════════════════════════════════════════════════
-    _CROP_MAX_W, _CROP_MAX_H = 760.0, 680.0
-
-    crop_state = {"path": None, "icc_profile": None,
-                 "original_width": 0, "original_height": 0,
-                 "format_key": "ID", "is_portrait": True,
-                 "angle": 0.0, "canvas_w": _CROP_MAX_W, "canvas_h": _CROP_MAX_H,
-                 "base_scale": 1.0}
-    crop_iv_state = {"scale": 1.0, "gesture_base_scale": 1.0,
-                     "offset_x": 0.0, "offset_y": 0.0}
-    # Pairing pour la planche ID×4 10×20 (2 identités sur le même feuillet,
-    # cf. image_ops.build_print_sheet) : la première photo recadrée est mise
-    # en attente jusqu'à ce que la seconde soit validée.
-    crop_id4_pending = {"image": None}
-
-    def _crop_compute_canvas_dims():
-        fmt_w, fmt_h = CONSTANTS.FORMATS[crop_state["format_key"]]
-        ratio = (fmt_w / fmt_h) if crop_state["is_portrait"] else (fmt_h / fmt_w)
-        h = _CROP_MAX_H
-        w = h * ratio
-        if w > _CROP_MAX_W:
-            w = _CROP_MAX_W
-            h = w / ratio
-        return w, h
-
-    def _crop_effective_base_scale(angle, cw, ch):
-        """Scale de couverture + marge de sécurité pour l'angle courant
-        (jamais de coin vide après redressement) — même formule que
-        `image_ops.clamp_offsets`, réutilisée en sondant scale=1.0."""
-        ow = crop_state["original_width"]
-        oh = crop_state["original_height"]
-        cover = max(cw / ow, ch / oh)
-        probe = image_ops.CropView(
-            canvas_w=cw, canvas_h=ch, base_scale=cover, offset_x=0.0,
-            offset_y=0.0, scale=1.0, rotation=angle, original_width=ow,
-            original_height=oh, display_w=ow * cover, display_h=oh * cover)
-        inflation = image_ops.clamp_offsets(probe, is_fit_in=False).scale
-        return cover * inflation
-
-    def _crop_iv_start(e):
-        crop_iv_state["gesture_base_scale"] = crop_iv_state["scale"]
-
-    def _crop_iv_update(e):
-        crop_iv_state["scale"] = crop_iv_state["gesture_base_scale"] * e.scale
-        crop_iv_state["offset_x"] += e.focal_point_delta.x
-        crop_iv_state["offset_y"] += e.focal_point_delta.y
-
-    # Marge de sécurité anti-coin-vide calculée UNE FOIS pour l'angle
-    # extrême de la plage (±15°, cf. crop_angle_slider) plutôt qu'à chaque
-    # changement d'angle : `crop_image_ctrl` n'a donc jamais besoin d'être
-    # redimensionné/recentré pendant qu'on tourne — seule la propriété
-    # `rotate` bouge, comme `image_container.rotate` dans
-    # `PhotoCropper._update_transform` (Recadrage manuel.pyw). Reconstruire
-    # le cadre à chaque degré (ancienne version) forçait un reset du zoom :
-    # saccadé et frustrant si on était déjà zoomé.
-    _CROP_MAX_ANGLE = 15.0
-    _crop_last_rotation_render = {"t": 0.0}
-
-    def _crop_rebuild_frame():
-        if not crop_state["path"]:
-            return
-        cw, ch = _crop_compute_canvas_dims()
-        crop_state["canvas_w"], crop_state["canvas_h"] = cw, ch
-        base_scale = _crop_effective_base_scale(_CROP_MAX_ANGLE, cw, ch)
-        crop_state["base_scale"] = base_scale
-        ow, oh = crop_state["original_width"], crop_state["original_height"]
-        crop_image_ctrl.src = crop_state["path"]
-        crop_image_ctrl.width = ow * base_scale
-        crop_image_ctrl.height = oh * base_scale
-        crop_rotate_wrap.rotate = math.radians(crop_state["angle"])
-        crop_frame_box.width = cw
-        crop_frame_box.height = ch
-        crop_iv.width = cw
-        crop_iv.height = ch
-        crop_grid_v1.left, crop_grid_v1.top, crop_grid_v1.height = cw / 3, 0, ch
-        crop_grid_v2.left, crop_grid_v2.top, crop_grid_v2.height = 2 * cw / 3, 0, ch
-        crop_grid_h1.left, crop_grid_h1.top, crop_grid_h1.width = 0, ch / 3, cw
-        crop_grid_h2.left, crop_grid_h2.top, crop_grid_h2.width = 0, 2 * ch / 3, cw
-        for line in crop_grid_lines:
-            line.visible = crop_grid_toggle.value
-        crop_iv_state.update(scale=1.0, gesture_base_scale=1.0,
-                             offset_x=0.0, offset_y=0.0)
-        page.update()
-        page.run_task(crop_iv.reset)
-
-    def _crop_load(path):
-        try:
-            with PILImage.open(path) as im:
-                crop_state["icc_profile"] = im.info.get("icc_profile")
-                w, h = im.size
-        except Exception:
-            crop_state["path"] = None
-            return
-        crop_state["path"] = path
-        crop_state["original_width"] = w
-        crop_state["original_height"] = h
-        crop_state["is_portrait"] = h >= w  # dérivée de l'image au chargement
-        crop_state["angle"] = 0.0
-        crop_angle_slider.value = 0.0
-        crop_angle_label.value = "+0.0°"
-
-    def _crop_format_change(e):
-        crop_state["format_key"] = e.control.value
-        crop_id_row.visible = crop_state["format_key"] == "ID"
-        _crop_rebuild_frame()
-
-    def _crop_orientation_toggle(event=None):
-        # Bouton "à la volée" : bascule manuellement l'orientation détectée
-        # automatiquement au chargement (retour utilisateur — le bouton
-        # avait disparu quand l'orientation est devenue 100% automatique).
-        crop_state["is_portrait"] = not crop_state["is_portrait"]
-        _crop_rebuild_frame()
-
-    def _crop_id_segment_change(e):
-        crop_10x20_toggle.visible = crop_id_segmented.selected_index == 2
-        page.update()
-
-    def _crop_grid_toggle_change(e):
-        for line in crop_grid_lines:
-            line.visible = e.control.value
-        page.update()
-
-    def _crop_angle_apply(angle):
-        crop_state["angle"] = angle
-        crop_angle_label.value = f"{angle:+.1f}°"
-        crop_rotate_wrap.rotate = math.radians(angle)
-
-    def _crop_angle_change(e):
-        # Rotation fluide et continue (comme le slider de rotation de
-        # Recadrage manuel.pyw) : seule la propriété `rotate` change, le
-        # zoom/pan en cours n'est jamais perturbé. Throttle 30fps pour ne
-        # pas saturer la file de messages Flet pendant le glisser.
-        now = time.monotonic()
-        if now - _crop_last_rotation_render["t"] < 1 / 30:
-            return
-        _crop_last_rotation_render["t"] = now
-        _crop_angle_apply(max(-15.0, min(15.0, e.control.value)))
-        crop_rotate_wrap.update()
-
-    def _crop_angle_end(e):
-        _crop_angle_apply(max(-15.0, min(15.0, e.control.value)))
-        page.update()
-
-    def _crop_current_layout():
-        if crop_state["format_key"] != "ID":
-            return "aucune"
-        idx = crop_id_segmented.selected_index
-        if idx == 1:
-            return "id2"
-        if idx == 2:
-            return "id4_10x20" if crop_10x20_toggle.value else "id4"
-        return "aucune"
-
-    def _crop_validate(event=None):
-        if not crop_state["path"]:
-            return
-        try:
-            with PILImage.open(crop_state["path"]) as full_im:
-                full_img = full_im.convert("RGB")
-        except Exception as exc:
-            _log_to_terminal(f"[ERREUR] Recadrage : {exc}", RED)
-            return
-        view = image_ops.CropView(
-            canvas_w=crop_state["canvas_w"], canvas_h=crop_state["canvas_h"],
-            base_scale=crop_state["base_scale"],
-            offset_x=crop_iv_state["offset_x"],
-            offset_y=crop_iv_state["offset_y"], scale=crop_iv_state["scale"],
-            rotation=crop_state["angle"],
-            original_width=crop_state["original_width"],
-            original_height=crop_state["original_height"],
-            display_w=crop_state["original_width"] * crop_state["base_scale"],
-            display_h=crop_state["original_height"] * crop_state["base_scale"],
-        )
-        clamped = image_ops.clamp_offsets(view, is_fit_in=False)
-        fmt_w, fmt_h = CONSTANTS.FORMATS[crop_state["format_key"]]
-        cropped = image_ops.compute_crop_for_format(
-            full_img, fmt_w, fmt_h, crop_state["is_portrait"], clamped,
-            dpi=CONSTANTS.DPI)
-
-        layout = _crop_current_layout()
-        result = cropped
-        dest_suffix = "_recadre"
-        if layout == "id4_10x20":
-            if crop_id4_pending["image"] is None:
-                crop_id4_pending["image"] = cropped
-                _log_to_terminal(
-                    "Identité en attente de sa paire pour la planche "
-                    "10×20 — recadrez la photo suivante.", ORANGE)
-                _toggle_crop_drawer()
+    def _launch_editor_for_current(script_name):
+        def _run(event=None):
+            if not viewer_state["paths"]:
                 return
-            result = image_ops.build_print_sheet(
-                cropped, "id4_10x20", dpi=CONSTANTS.DPI,
-                previous_image=crop_id4_pending["image"])
-            crop_id4_pending["image"] = None
-            dest_suffix = "_planche_10x20"
-        elif layout != "aucune":
-            result = image_ops.build_print_sheet(cropped, layout,
-                                                 dpi=CONSTANTS.DPI)
-            dest_suffix = f"_{layout}"
-
-        result = image_ops.convert_to_srgb(result, crop_state["icc_profile"])
-        try:
-            dest = _derived_path(crop_state["path"], dest_suffix)
-            result.save(dest, "JPEG", quality=100,
-                        dpi=(CONSTANTS.DPI, CONSTANTS.DPI))
-        except Exception as exc:
-            _log_to_terminal(f"[ERREUR] Recadrage : {exc}", RED)
-            return
-        _log_to_terminal(f"Recadrage enregistré : {dest}", GREEN)
-        _toggle_crop_drawer()
-
-    crop_format_dd = ft.Dropdown(
-        options=[ft.dropdown.Option(name) for name in CONSTANTS.FORMATS],
-        value="ID", width=280, bgcolor=DARK, border_color=LIGHT_GREY,
-        color=WHITE, on_select=_crop_format_change)
-    crop_id_segmented = ft.CupertinoSlidingSegmentedButton(
-        selected_index=2,
-        controls=[ft.Text("ID"), ft.Text("ID ×2"), ft.Text("ID ×4")],
-        on_change=_crop_id_segment_change)
-    crop_10x20_toggle = ft.Switch(label="Planche 10×20", value=True,
-                                  visible=True)
-    crop_id_row = ft.Column([crop_id_segmented, crop_10x20_toggle],
-                            spacing=6, tight=True, visible=True)
-    crop_grid_toggle = ft.Switch(label="Grille des tiers", value=True,
-                                 on_change=_crop_grid_toggle_change)
-    crop_angle_label = ft.Text("+0.0°", size=CONSTANTS.TEXT_XS, color=GREY)
-    crop_angle_slider = ft.Slider(min=-15, max=15, value=0,
-                                  on_change=_crop_angle_change,
-                                  on_change_end=_crop_angle_end)
-    crop_panel = ft.Container(
-        bgcolor=GREY, border_radius=10, padding=12,
-        content=ft.Column([
-            ft.Row([
-                ft.Text("Recadrer", size=CONSTANTS.TEXT_MD, color=WHITE,
-                       weight=ft.FontWeight.W_600),
-                ft.Container(expand=True),
-                ft.IconButton(ft.Icons.SCREEN_ROTATION, icon_color=WHITE,
-                             tooltip="Changer l'orientation",
-                             on_click=_crop_orientation_toggle),
-            ]),
-            crop_format_dd,
-            crop_id_row,
-            crop_grid_toggle,
-            ft.Row([ft.Text("Rotation fine", size=CONSTANTS.TEXT_SM,
-                            color=WHITE),
-                   ft.Container(expand=True), crop_angle_label]),
-            crop_angle_slider,
-            ft.Row([
-                ft.TextButton("Annuler", on_click=lambda e: _toggle_crop_drawer()),
-                ft.Container(expand=True),
-                ft.ElevatedButton("Valider", icon=ft.Icons.CHECK,
-                                  on_click=_crop_validate),
-            ]),
-        ], spacing=10, tight=True, scroll=ft.ScrollMode.AUTO),
-    )
-    crop_drawer = ft.Container(content=crop_panel, top=0, bottom=0, right=0,
-                               width=320, visible=False, padding=8)
-
-    # Cadre de recadrage : ft.InteractiveViewer natif (comme le viewer
-    # plein écran de Dashboard.pyw) affiché à la place de `viewer_img`
-    # pendant l'édition — pan/zoom gérés côté Flutter, zéro recalcul PIL
-    # par frame. `constrained=False` + `boundary_margin=0` empêchent
-    # nativement tout coin vide en translation ; l'inflation de
-    # `base_scale` (cf. `_crop_effective_base_scale`) couvre la rotation.
-    crop_image_ctrl = ft.Image(src=_BLANK_GIF, fit=ft.BoxFit.FILL,
-                               gapless_playback=True)
-    crop_rotate_wrap = ft.Container(content=crop_image_ctrl, rotate=0.0)
-    crop_iv = ft.InteractiveViewer(
-        content=crop_rotate_wrap, min_scale=1.0, max_scale=6.0,
-        pan_enabled=True, scale_enabled=True, constrained=False,
-        boundary_margin=ft.Margin.all(0),
-        clip_behavior=ft.ClipBehavior.HARD_EDGE,
-        on_interaction_start=_crop_iv_start,
-        on_interaction_update=_crop_iv_update,
-    )
-    _crop_grid_color = ft.Colors.with_opacity(0.5, WHITE)
-    crop_grid_v1 = ft.Container(bgcolor=_crop_grid_color, width=1)
-    crop_grid_v2 = ft.Container(bgcolor=_crop_grid_color, width=1)
-    crop_grid_h1 = ft.Container(bgcolor=_crop_grid_color, height=1)
-    crop_grid_h2 = ft.Container(bgcolor=_crop_grid_color, height=1)
-    crop_grid_lines = [crop_grid_v1, crop_grid_v2, crop_grid_h1, crop_grid_h2]
-    crop_frame_box = ft.Container(
-        bgcolor=DARK, clip_behavior=ft.ClipBehavior.HARD_EDGE,
-        content=ft.Stack([crop_iv, *crop_grid_lines]))
-    crop_frame_holder = ft.Container(content=crop_frame_box,
-                                     alignment=ft.Alignment.CENTER,
-                                     expand=True)
-
-    def _toggle_crop_drawer(event=None):
-        opening = not crop_drawer.visible
-        retouch_drawer.visible = False
-        ia_drawer.visible = False
-        crop_drawer.visible = opening
-        _set_drawer_space(320 if opening else 0)
-        if opening:
-            _crop_load(viewer_state["paths"][viewer_state["index"]])
-            crop_id_row.visible = crop_state["format_key"] == "ID"
-            viewer_image_wrap.content = crop_frame_holder
-            _crop_rebuild_frame()
-        else:
-            viewer_image_wrap.content = viewer_interactive
-        page.update()
-
-    # ═════════════════════════════════════════════════════════════════════
-    #  Tiroir IA — retouche générative (inpainting), extension de cadre
-    #  (outpainting) et amélioration (upscale local). HUB_SPEC §11/§14.
-    #  Délègue à ai_ops.py ; les dépendances lourdes (torch/spandrel,
-    #  google-genai) ne sont importées que dans les threads de traitement,
-    #  jamais au démarrage de Hub.
-    #
-    #  Sélection de la zone à retoucher : glisser-déposer souris, même
-    #  mécanisme qu'Augmentation IA.py — un canevas de référence de taille
-    #  FIXE (`_IA_VIEW_W/H`, indépendant de la taille réelle du widget), un
-    #  `ft.InteractiveViewer` pour le pan/zoom d'inspection, et un
-    #  `ft.GestureDetector` superposé (armé par un bouton dédié) dont
-    #  `on_pan_*` rapporte des positions dans l'espace *contenu* (avant
-    #  transform de l'InteractiveViewer) — donc toujours cohérentes avec le
-    #  mapping écran → pixels image (`_ia_compute_render_info`), qu'on soit
-    #  zoomé ou non.
-    # ═════════════════════════════════════════════════════════════════════
-    _IA_VIEW_W, _IA_VIEW_H = 640.0, 560.0
-
-    ia_state = {"path": None, "image": None, "preview_image": None,
-               "icc_profile": None, "working": False, "mode": "inpaint",
-               "selection": None, "drag_start": None, "drag_current": None,
-               "sel_mode": False, "render_info": None,
-               "margin_top": 0.0, "margin_bottom": 0.0, "margin_left": 0.0,
-               "margin_right": 0.0, "margin_touched": False}
-
-    def _ia_compute_render_info():
-        img = ia_state["image"]
-        if img is None:
-            ia_state["render_info"] = None
-            return
-        ow, oh = img.size
-        s = min(_IA_VIEW_W / ow, _IA_VIEW_H / oh)
-        tw, th = ow * s, oh * s
-        ox, oy = (_IA_VIEW_W - tw) / 2, (_IA_VIEW_H - th) / 2
-        ia_state["render_info"] = (ox, oy, s)
-
-    def _ia_display_to_image(cx, cy):
-        info = ia_state["render_info"]
-        if info is None:
-            return None, None
-        ox, oy, s = info
-        img = ia_state["image"]
-        ix = max(0, min(round((cx - ox) / s), img.width - 1))
-        iy = max(0, min(round((cy - oy) / s), img.height - 1))
-        return ix, iy
-
-    def _ia_image_to_display(ix, iy):
-        info = ia_state["render_info"]
-        if info is None:
-            return 0.0, 0.0
-        ox, oy, s = info
-        return ix * s + ox, iy * s + oy
-
-    def _ia_update_sel_canvas():
-        ia_sel_canvas.shapes.clear()
-        rect = None
-        if ia_state["drag_start"] is not None and ia_state["drag_current"] is not None:
-            (x1, y1), (x2, y2) = ia_state["drag_start"], ia_state["drag_current"]
-            rect = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
-        elif ia_state["selection"] is not None:
-            dx1, dy1 = _ia_image_to_display(*ia_state["selection"][:2])
-            dx2, dy2 = _ia_image_to_display(*ia_state["selection"][2:])
-            rect = (dx1, dy1, dx2, dy2)
-        if rect is not None:
-            x1, y1, x2, y2 = rect
-            if x2 > x1 and y2 > y1:
-                ia_sel_canvas.shapes.append(ftcv.Rect(
-                    x=x1, y=y1, width=x2 - x1, height=y2 - y1,
-                    paint=ft.Paint(color=ft.Colors.with_opacity(0.18, RED),
-                                   style=ft.PaintingStyle.FILL)))
-                ia_sel_canvas.shapes.append(ftcv.Rect(
-                    x=x1, y=y1, width=x2 - x1, height=y2 - y1,
-                    paint=ft.Paint(color=RED, style=ft.PaintingStyle.STROKE,
-                                   stroke_width=2.0)))
-        ia_sel_canvas.update()
-
-    def _ia_disarm_selection():
-        ia_state["sel_mode"] = False
-        ia_select_btn.text = "Sélectionner une zone"
-        ia_select_btn.icon = ft.Icons.CROP
-        ia_select_btn.bgcolor = GREY
-        ia_gesture.visible = False
-        ia_iv.pan_enabled = True
-
-    def _ia_toggle_select(event=None):
-        ia_state["sel_mode"] = not ia_state["sel_mode"]
-        if ia_state["sel_mode"]:
-            ia_select_btn.text = "Annuler la sélection"
-            ia_select_btn.icon = ft.Icons.CROP_FREE
-            ia_select_btn.bgcolor = BLUE
-            ia_gesture.visible = True
-            ia_iv.pan_enabled = False
-        else:
-            _ia_disarm_selection()
-            ia_state["drag_start"] = None
-            ia_state["drag_current"] = None
-            _ia_update_sel_canvas()
-        page.update()
-
-    def _ia_on_pan_start(e):
-        if not ia_state["sel_mode"]:
-            return
-        ia_state["drag_start"] = (e.local_position.x, e.local_position.y)
-        ia_state["drag_current"] = ia_state["drag_start"]
-
-    def _ia_on_pan_update(e):
-        if not ia_state["sel_mode"] or ia_state["drag_start"] is None:
-            return
-        ia_state["drag_current"] = (e.local_position.x, e.local_position.y)
-        _ia_update_sel_canvas()
-
-    def _ia_on_pan_end(e):
-        if not ia_state["sel_mode"] or ia_state["drag_start"] is None:
-            return
-        (x1d, y1d), (x2d, y2d) = ia_state["drag_start"], ia_state["drag_current"]
-        ia_state["drag_start"] = None
-        ia_state["drag_current"] = None
-        ix1, iy1 = _ia_display_to_image(min(x1d, x2d), min(y1d, y2d))
-        ix2, iy2 = _ia_display_to_image(max(x1d, x2d), max(y1d, y2d))
-        if ix1 is not None and (ix2 - ix1) > 8 and (iy2 - iy1) > 8:
-            ia_state["selection"] = (ix1, iy1, ix2, iy2)
-            ia_send_inpaint_btn.disabled = False
-        else:
-            ia_state["selection"] = None
-            ia_send_inpaint_btn.disabled = True
-        _ia_disarm_selection()
-        _ia_update_sel_canvas()
-        page.update()
-
-    def _ia_load(path):
-        try:
-            with PILImage.open(path) as im:
-                ia_state["icc_profile"] = im.info.get("icc_profile")
-                im = im.convert("RGB")
-                ia_state["image"] = im.copy()
-                preview = im.copy()
-                preview.thumbnail((900, 900), PILImage.LANCZOS)
-                ia_state["preview_image"] = preview
-        except Exception:
-            ia_state["image"] = None
-            ia_state["preview_image"] = None
-            return
-        ia_state["path"] = path
-        ia_state["selection"] = None
-        ia_send_inpaint_btn.disabled = True
-        _ia_compute_render_info()
-        ia_preview_img.src = path
-
-    def _ia_render():
-        """Aperçu PIL (extension de cadre uniquement — la retouche générative
-        utilise le canevas de sélection natif, cf. `_ia_update_sel_canvas`)."""
-        base = ia_state["preview_image"]
-        if base is None:
-            return
-        overlay = base.copy()
-        w, h = overlay.size
-        if ia_state["mode"] == "outpaint" and ia_state["margin_touched"]:
-            mt = round(h * ia_state["margin_top"] / 100)
-            mb = round(h * ia_state["margin_bottom"] / 100)
-            ml = round(w * ia_state["margin_left"] / 100)
-            mr = round(w * ia_state["margin_right"] / 100)
-            padded = PILImage.new("RGB", (w + ml + mr, h + mt + mb), (60, 60, 60))
-            padded.paste(overlay, (ml, mt))
-            overlay = padded
-        buf = io.BytesIO()
-        overlay.convert("RGB").save(buf, "JPEG", quality=85)
-        viewer_img.src = buf.getvalue()
-        page.update()
-
-    def _ia_set_mode(mode):
-        def _on_click(e):
-            ia_state["mode"] = mode
-            ia_inpaint_section.visible = mode == "inpaint"
-            ia_outpaint_section.visible = mode == "outpaint"
-            ia_upscale_section.visible = mode == "upscale"
-            if mode == "inpaint":
-                viewer_image_wrap.content = ia_frame_holder
-                page.run_task(ia_iv.reset)
-            else:
-                viewer_image_wrap.content = viewer_interactive
-                if mode == "outpaint":
-                    _ia_render()
-                else:
-                    viewer_img.src = viewer_rotated_bytes.get(
-                        viewer_state["paths"][viewer_state["index"]],
-                        viewer_state["paths"][viewer_state["index"]])
-            page.update()
-        return _on_click
-
-    def _ia_margin_slider(key):
-        def _on_end(e):
-            ia_state[key] = e.control.value
-            ia_state["margin_touched"] = True
-            _ia_render()
-        return _on_end
-
-    def _ia_working_ui(working, message):
-        ia_state["working"] = working
-        ia_progress.visible = working
-        ia_status_text.value = message
-        ia_send_inpaint_btn.disabled = working
-        ia_send_outpaint_btn.disabled = working
-        ia_run_upscale_btn.disabled = working
-        page.update()
-
-    def _ia_send_inpaint(event=None):
-        if ia_state["working"] or ia_state["image"] is None:
-            return
-        if ia_state["selection"] is None:
-            _ia_working_ui(False, "Dessinez une sélection sur l'image.")
-            return
-        prompt = (ia_prompt_field.value or "").strip()
-        if not prompt:
-            _ia_working_ui(False, "Décrivez la retouche souhaitée.")
-            return
-        img = ia_state["image"]
-        rect = ia_state["selection"]
-        path = ia_state["path"]
-        icc = ia_state["icc_profile"]
-        _ia_working_ui(True, "Envoi à Gemini… (jusqu'à 2 min)")
-
-        def _run():
-            try:
-                result = ai_ops.run_inpaint(img, rect, prompt)
-                result = image_ops.convert_to_srgb(result, icc)
-                dest = _derived_path(path, "_retouche_ia")
-                result.save(dest, "JPEG", quality=100,
-                            dpi=(CONSTANTS.DPI, CONSTANTS.DPI))
-            except Exception as exc:
-                _ia_working_ui(False, f"[ERREUR] {exc}")
-                return
-            _ia_working_ui(False, f"Enregistré : {os.path.basename(dest)}")
-            _log_to_terminal(f"Retouche IA enregistrée : {dest}", GREEN)
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _ia_send_outpaint(event=None):
-        if ia_state["working"] or ia_state["image"] is None:
-            return
-        img = ia_state["image"]
-        w, h = img.size
-        margins = (round(h * ia_state["margin_top"] / 100),
-                  round(h * ia_state["margin_bottom"] / 100),
-                  round(w * ia_state["margin_left"] / 100),
-                  round(w * ia_state["margin_right"] / 100))
-        if sum(margins) == 0:
-            _ia_working_ui(False, "Glissez les marges pour définir l'extension.")
-            return
-        path = ia_state["path"]
-        icc = ia_state["icc_profile"]
-        _ia_working_ui(True, "Extension… (jusqu'à 5 min)")
-
-        def _run():
-            try:
-                result = ai_ops.run_outpaint(img, margins)
-                result = image_ops.convert_to_srgb(result, icc)
-                dest = _derived_path(path, "_extension_ia")
-                result.save(dest, "JPEG", quality=100,
-                            dpi=(CONSTANTS.DPI, CONSTANTS.DPI))
-            except Exception as exc:
-                _ia_working_ui(False, f"[ERREUR] {exc}")
-                return
-            _ia_working_ui(False, f"Enregistré : {os.path.basename(dest)}")
-            _log_to_terminal(f"Extension IA enregistrée : {dest}", GREEN)
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _ia_run_upscale(event=None):
-        if ia_state["working"] or ia_state["image"] is None:
-            return
-        model_name = ia_model_dd.value
-        if not model_name:
-            _ia_working_ui(False, "Sélectionnez un modèle.")
-            return
-        img = ia_state["image"]
-        path = ia_state["path"]
-        icc = ia_state["icc_profile"]
-        _ia_working_ui(True, f"Chargement de {model_name}…")
-
-        def _progress(value, label):
-            ia_progress.value = value
-            if label:
-                ia_status_text.value = label
-            page.update()
-
-        def _run():
-            try:
-                result = ai_ops.run_upscale(img, model_name, _progress)
-                result = image_ops.convert_to_srgb(result, icc)
-                dest = _derived_path(path, "_upscale")
-                result.save(dest, "JPEG", quality=100,
-                            dpi=(CONSTANTS.DPI, CONSTANTS.DPI))
-            except Exception as exc:
-                _ia_working_ui(False, f"[ERREUR] {exc}")
-                return
-            ia_progress.value = None
-            _ia_working_ui(False, f"Enregistré : {os.path.basename(dest)}")
-            _log_to_terminal(f"Amélioration IA enregistrée : {dest}", GREEN)
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    # Cadre de sélection (mode Retouche) : InteractiveViewer natif pour
-    # inspecter/zoomer + GestureDetector superposé pour le glisser-déposer
-    # de sélection, armé par `ia_select_btn` — même mécanique que
-    # `preview_viewer`/`image_gesture`/`inpaint_btn` dans Augmentation IA.py.
-    ia_preview_img = ft.Image(src=_BLANK_GIF, width=_IA_VIEW_W,
-                              height=_IA_VIEW_H, fit=ft.BoxFit.CONTAIN,
-                              gapless_playback=True)
-    ia_sel_canvas = ftcv.Canvas(width=_IA_VIEW_W, height=_IA_VIEW_H, shapes=[])
-    ia_gesture = ft.GestureDetector(
-        content=ft.Container(width=_IA_VIEW_W, height=_IA_VIEW_H),
-        on_pan_start=_ia_on_pan_start, on_pan_update=_ia_on_pan_update,
-        on_pan_end=_ia_on_pan_end, mouse_cursor=ft.MouseCursor.PRECISE,
-        visible=False)
-    ia_inner_box = ft.Container(
-        width=_IA_VIEW_W, height=_IA_VIEW_H, bgcolor=DARK,
-        content=ft.Stack([ia_preview_img, ia_sel_canvas, ia_gesture]))
-    ia_iv = ft.InteractiveViewer(content=ia_inner_box, pan_enabled=True,
-                                 scale_enabled=True, min_scale=0.5,
-                                 max_scale=6.0)
-    ia_frame_holder = ft.Container(content=ia_iv, alignment=ft.Alignment.CENTER,
-                                   expand=True)
-
-    ia_prompt_field = ft.TextField(
-        label="Décrivez la modification", multiline=True, min_lines=2,
-        max_lines=4, bgcolor=DARK, border_color=LIGHT_GREY, color=WHITE)
-    ia_status_text = ft.Text("", size=CONSTANTS.TEXT_XS, color=GREY)
-    ia_progress = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
-    ia_select_btn = ft.Button(
-        "Sélectionner une zone", icon=ft.Icons.CROP, bgcolor=GREY,
-        color=WHITE, on_click=_ia_toggle_select)
-    ia_send_inpaint_btn = ft.ElevatedButton(
-        "Envoyer à Gemini", icon=ft.Icons.AUTO_FIX_HIGH, disabled=True,
-        on_click=_ia_send_inpaint)
-    ia_inpaint_section = ft.Column([
-        ft.Text("Glissez sur l'image pour définir la zone à retoucher",
-               size=CONSTANTS.TEXT_SM, color=WHITE),
-        ia_select_btn,
-        ia_prompt_field,
-        ia_send_inpaint_btn,
-    ], spacing=8, tight=True, visible=True)
-
-    ia_send_outpaint_btn = ft.ElevatedButton(
-        "Étendre via Gemini", icon=ft.Icons.PHOTO_SIZE_SELECT_LARGE,
-        on_click=_ia_send_outpaint)
-    ia_outpaint_section = ft.Column([
-        ft.Text("Marges à ajouter (% de l'image)", size=CONSTANTS.TEXT_SM,
-               color=WHITE),
-        ft.Text("Haut", size=CONSTANTS.TEXT_XS, color=GREY),
-        ft.Slider(min=0, max=50, value=0, on_change_end=_ia_margin_slider("margin_top")),
-        ft.Text("Bas", size=CONSTANTS.TEXT_XS, color=GREY),
-        ft.Slider(min=0, max=50, value=0, on_change_end=_ia_margin_slider("margin_bottom")),
-        ft.Text("Gauche", size=CONSTANTS.TEXT_XS, color=GREY),
-        ft.Slider(min=0, max=50, value=0, on_change_end=_ia_margin_slider("margin_left")),
-        ft.Text("Droite", size=CONSTANTS.TEXT_XS, color=GREY),
-        ft.Slider(min=0, max=50, value=0, on_change_end=_ia_margin_slider("margin_right")),
-        ia_send_outpaint_btn,
-    ], spacing=4, tight=True, visible=False)
-
-    ia_model_dd = ft.Dropdown(
-        options=[ft.dropdown.Option(name) for name in ai_ops.list_pth_models()],
-        width=280, bgcolor=DARK, border_color=LIGHT_GREY, color=WHITE)
-    ia_run_upscale_btn = ft.ElevatedButton(
-        "Lancer", icon=ft.Icons.HIGH_QUALITY, on_click=_ia_run_upscale)
-    ia_upscale_section = ft.Column([
-        ft.Text("Modèle local (Data/models/)", size=CONSTANTS.TEXT_SM,
-               color=WHITE),
-        ia_model_dd,
-        ia_run_upscale_btn,
-    ], spacing=4, tight=True, visible=False)
-
-    ia_panel = ft.Container(
-        bgcolor=GREY, border_radius=10, padding=12,
-        content=ft.Column([
-            ft.Text("IA", size=CONSTANTS.TEXT_MD, color=WHITE,
-                   weight=ft.FontWeight.W_600),
-            ft.Row([
-                ft.TextButton("Retouche", on_click=_ia_set_mode("inpaint")),
-                ft.TextButton("Extension", on_click=_ia_set_mode("outpaint")),
-                ft.TextButton("Amélioration", on_click=_ia_set_mode("upscale")),
-            ], spacing=2, tight=True),
-            ia_inpaint_section, ia_outpaint_section, ia_upscale_section,
-            ia_progress, ia_status_text,
-            ft.TextButton("Fermer", on_click=lambda e: _toggle_ia_drawer()),
-        ], spacing=8, tight=True, scroll=ft.ScrollMode.AUTO),
-    )
-    ia_drawer = ft.Container(content=ia_panel, top=0, bottom=0, right=0,
-                             width=320, visible=False, padding=8)
-
-    def _toggle_ia_drawer(event=None):
-        opening = not ia_drawer.visible
-        retouch_drawer.visible = False
-        crop_drawer.visible = False
-        ia_drawer.visible = opening
-        _set_drawer_space(320 if opening else 0)
-        if opening:
-            _ia_load(viewer_state["paths"][viewer_state["index"]])
-            ia_state["mode"] = "inpaint"
-            ia_state["margin_touched"] = False
-            _ia_disarm_selection()
-            ia_state["drag_start"] = None
-            ia_state["drag_current"] = None
-            # Pas d'appel à `_ia_update_sel_canvas()` ici : `ia_sel_canvas`
-            # n'est pas encore monté sur la page tant que
-            # `viewer_image_wrap.content` n'a pas été assigné + `page.update()`
-            # appelé plus bas (sinon Flet lève "Control must be added to the
-            # page first"). On vide juste le modèle ; le rendu suivra le
-            # `page.update()` de fin de fonction.
-            ia_sel_canvas.shapes.clear()
-            ia_inpaint_section.visible = True
-            ia_outpaint_section.visible = False
-            ia_upscale_section.visible = False
-            ia_status_text.value = ""
-            viewer_image_wrap.content = ia_frame_holder
-            page.run_task(ia_iv.reset)
-        else:
-            viewer_image_wrap.content = viewer_interactive
-            viewer_img.src = viewer_rotated_bytes.get(
-                viewer_state["paths"][viewer_state["index"]],
-                viewer_state["paths"][viewer_state["index"]])
-        page.update()
+            path = viewer_state["paths"][viewer_state["index"]]
+            _launch_tool(script_name, extra_env={
+                "FOLDER_PATH": os.path.dirname(path),
+                "SELECTED_FILES": os.path.basename(path),
+            })
+        return _run
 
     def _close_drawers():
-        retouch_drawer.visible = False
-        crop_drawer.visible = False
-        ia_drawer.visible = False
+        # Sans tiroir in-app, plus rien à masquer : ne reste que le reset de
+        # la taille du viewport (utile après navigation/resize).
         _set_drawer_space(0)
-        viewer_image_wrap.content = viewer_interactive
 
-    viewer_overlay.controls.extend([retouch_drawer, crop_drawer, ia_drawer])
     viewer_bottom_bar.content.controls.insert(
-        -1, _viewer_btn(ft.Icons.TUNE, "Retoucher", _toggle_retouch_drawer))
+        -1, _viewer_btn(ft.Icons.TUNE,
+                       "Retoucher / recadrer (Recadrage manuel.pyw)",
+                       _launch_editor_for_current("Recadrage manuel.pyw")))
     viewer_bottom_bar.content.controls.insert(
-        -1, _viewer_btn(ft.Icons.CROP, "Recadrer", _toggle_crop_drawer))
-    viewer_bottom_bar.content.controls.insert(
-        -1, _viewer_btn(ft.Icons.AUTO_AWESOME, "IA", _toggle_ia_drawer))
+        -1, _viewer_btn(ft.Icons.AUTO_AWESOME, "Augmentation IA",
+                       _launch_editor_for_current("Augmentation IA.py")))
 
     def _open_viewer(start_path):
         paths = content["imgs"] if start_path in content["imgs"] else [start_path]
@@ -2091,6 +1577,117 @@ def main(page: ft.Page):
             on_click=lambda e, p=path: _open_from_menu(p),
             hover_color=GREY, dense=True,
             content_padding=ft.Padding(left=10, top=0, right=8, bottom=0),
+        )
+
+    def _get_removable_drives():
+        # Même logique que Dashboard.pyw:7159 (_get_removable_drives) :
+        # détection cross-plateforme sans dépendance externe.
+        drives = []
+        try:
+            if platform.system() == "Darwin":
+                macos_system_volumes = {
+                    "Macintosh HD", "Macintosh HD - Data",
+                    "com.apple.TimeMachine.localsnapshots",
+                    "Recovery", "Preboot", "VM", "Update",
+                }
+                for entry in os.scandir("/Volumes"):
+                    if (entry.is_dir() and os.path.ismount(entry.path)
+                            and entry.name not in macos_system_volumes
+                            and not entry.name.startswith(".")):
+                        drives.append((entry.name, entry.path))
+            elif platform.system() == "Windows":
+                import ctypes
+                DRIVE_TYPE_REMOVABLE, DRIVE_TYPE_CDROM = 2, 5
+                volume_label_buffer = ctypes.create_unicode_buffer(261)
+                for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+                    path = f"{letter}:\\"
+                    drive_type = ctypes.windll.kernel32.GetDriveTypeW(path)
+                    if (drive_type in (DRIVE_TYPE_REMOVABLE, DRIVE_TYPE_CDROM)
+                            and os.path.exists(path)):
+                        ctypes.windll.kernel32.GetVolumeInformationW(
+                            path, volume_label_buffer, 261, None, None,
+                            None, None, 0)
+                        label = volume_label_buffer.value or letter
+                        drives.append((f"{label} ({letter}:)", path))
+            else:  # Linux
+                for base in ("/media", "/run/media"):
+                    if not os.path.isdir(base):
+                        continue
+                    for entry in os.scandir(base):
+                        if not entry.is_dir():
+                            continue
+                        if os.path.ismount(entry.path):
+                            drives.append((entry.name, entry.path))
+                        else:
+                            try:
+                                for sub in os.scandir(entry.path):
+                                    if sub.is_dir() and os.path.ismount(sub.path):
+                                        drives.append((sub.name, sub.path))
+                            except PermissionError:
+                                pass
+        except Exception:
+            pass
+        return drives
+
+    def _eject_drive(path):
+        # Même logique que Dashboard.pyw:7376 (_eject_drive).
+        _log_to_terminal(f"[...] Éjection en cours : {path}", VIOLET)
+
+        def _run():
+            sys_name = platform.system()
+            for attempt in range(1, 4):
+                try:
+                    if sys_name == "Windows":
+                        drive_letter = os.path.splitdrive(path)[0]
+                        ps_cmd = (
+                            f"(New-Object -comObject Shell.Application)"
+                            f".Namespace(17).ParseName('{drive_letter}')"
+                            f".InvokeVerb('Eject')")
+                        subprocess.run(
+                            ["powershell", "-Command", ps_cmd],
+                            creationflags=subprocess.CREATE_NO_WINDOW,
+                            timeout=10)
+                        time.sleep(1.5)
+                        if not os.path.exists(path):
+                            _log_to_terminal(f"[OK] Éjecté : {path}", VIOLET)
+                            return
+                    elif sys_name == "Darwin":
+                        result = subprocess.run(
+                            ["diskutil", "eject", path],
+                            capture_output=True, text=True, timeout=10)
+                        if result.returncode == 0:
+                            _log_to_terminal(f"[OK] Éjecté : {path}", VIOLET)
+                            return
+                    else:
+                        result = subprocess.run(
+                            ["umount", path],
+                            capture_output=True, text=True, timeout=10)
+                        if result.returncode == 0:
+                            _log_to_terminal(f"[OK] Éjecté : {path}", VIOLET)
+                            return
+                except subprocess.TimeoutExpired:
+                    pass
+                except Exception as exc:
+                    _log_to_terminal(f"[ERREUR] Éjection impossible : {exc}", RED)
+                    return
+                if attempt < 3:
+                    time.sleep(1)
+            _log_to_terminal(
+                f"[ATTENTION] Éjection non confirmée : {path}", ORANGE)
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _drive_row(name, path):
+        return ft.ListTile(
+            leading=ft.Icon(ft.Icons.USB, color=VIOLET, size=CONSTANTS.ICON_SM),
+            title=ft.Text(name, size=CONSTANTS.TEXT_SM, color=WHITE, no_wrap=True),
+            trailing=ft.IconButton(
+                ft.Icons.EJECT, icon_color=LIGHT_GREY, icon_size=16,
+                tooltip="Éjecter le périphérique",
+                on_click=lambda e, p=path: _eject_drive(p)),
+            on_click=lambda e, p=path: _open_from_menu(p),
+            hover_color=GREY, dense=True,
+            content_padding=ft.Padding(left=10, top=0, right=4, bottom=0),
         )
 
     def _remove_favorite(path):
@@ -2177,9 +1774,20 @@ def main(page: ft.Page):
                 on_click=_add_favorite_current, disabled=not state["folder"]),
         ])
 
+        lanes = [recent_lane, ft.VerticalDivider(width=1, color=DARK), fav_lane]
+        drives = _get_removable_drives()
+        if drives:
+            drive_lane = ft.Container(
+                width=_MENU_LANE_WIDTH, height=_MENU_LANE_HEIGHT,
+                content=ft.Column([
+                    _menu_section_label("Périphériques"),
+                    ft.Column([_drive_row(n, p) for n, p in drives], spacing=0,
+                              scroll=ft.ScrollMode.AUTO, expand=True),
+                ], spacing=0, expand=True))
+            lanes += [ft.VerticalDivider(width=1, color=DARK), drive_lane]
+
         open_menu_panel.content = ft.Column([
-            ft.Row([recent_lane, ft.VerticalDivider(width=1, color=DARK), fav_lane],
-                  spacing=6, vertical_alignment=ft.CrossAxisAlignment.START),
+            ft.Row(lanes, spacing=6, vertical_alignment=ft.CrossAxisAlignment.START),
             ft.Divider(height=1, color=DARK),
             footer,
         ], spacing=6, tight=True)
@@ -2216,42 +1824,105 @@ def main(page: ft.Page):
 
     parent_folder_btn = ft.IconButton(
         icon=ft.Icons.ARROW_UPWARD,
-        icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_SM,
-        style=ft.ButtonStyle(bgcolor=GREY),
+        icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_MD,
+        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
         on_click=_go_to_parent_folder,
         tooltip="Dossier parent",
     )
 
     def _refresh_folder(event=None):
-        if state["folder"]:
-            _navigate(state["folder"])
+        folder = state["folder"]
+        if not folder:
+            return
+        _log_to_terminal("[CMD] Rafraîchir", BLUE)
+        # Comme Dashboard.pyw (refresh_preview force_reload=True) : on jette
+        # les miniatures en mémoire du dossier courant pour forcer un
+        # nouveau passage par thumb_cache.get_or_generate, qui régénère si
+        # le fichier a changé (signature mtime/size/ctime) sous le même nom.
+        for p in [p for p in thumb_mem if os.path.dirname(p) == folder]:
+            del thumb_mem[p]
+        _navigate(folder)
 
     refresh_folder_btn = ft.IconButton(
         icon=ft.Icons.REFRESH,
-        icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_SM,
-        style=ft.ButtonStyle(bgcolor=GREY),
+        icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_MD,
+        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
         on_click=_refresh_folder,
         tooltip="Rafraîchir",
+    )
+
+    def _create_folder_here(event=None):
+        # Même principe que Dashboard.pyw:6218-6277 (create_new_folder) :
+        # un simple AlertDialog nom -> os.makedirs, pas de duplication de
+        # cette logique côté Data/ pour un geste aussi simple.
+        folder = state["folder"]
+        if not folder:
+            return
+        name_field = ft.TextField(
+            hint_text="nom-du-dossier", autofocus=True, width=280,
+            bgcolor=DARK, border_color=BLUE, text_size=13, height=40,
+            content_padding=ft.Padding(8, 4, 8, 4))
+
+        def _cancel(event):
+            dlg.open = False
+            page.update()
+
+        def _confirm(event):
+            name = (name_field.value or "").strip()
+            dlg.open = False
+            page.update()
+            if not name:
+                return
+            try:
+                os.makedirs(os.path.join(folder, name), exist_ok=False)
+            except OSError as exc:
+                _log_to_terminal(f"[ERREUR] Création dossier : {exc}", RED)
+                return
+            _log_to_terminal(f"[OK] Dossier créé : {name}", BLUE)
+            _navigate(folder)
+
+        name_field.on_submit = _confirm
+        dlg = ft.AlertDialog(
+            title=ft.Text("Créer un nouveau dossier", size=13, color=WHITE),
+            content=name_field,
+            actions=[
+                ft.TextButton("Créer", on_click=_confirm),
+                ft.TextButton("Annuler", on_click=_cancel),
+            ],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    new_folder_btn = ft.IconButton(
+        icon=ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
+        icon_color=ORANGE, icon_size=CONSTANTS.ICON_MD,
+        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
+        on_click=_create_folder_here,
+        tooltip="Créer un nouveau dossier",
     )
 
     open_menu_btn = ft.TextButton(
         content=ft.Row([
             ft.Icon(ft.Icons.FOLDER_OPEN_OUTLINED, color=ICON_ACTION,
-                    size=CONSTANTS.ICON_SM),
-            ft.Text("Ouvrir", size=CONSTANTS.TEXT_SM, color=WHITE),
+                    size=CONSTANTS.ICON_MD),
+            ft.Text("Ouvrir", size=CONSTANTS.TEXT_MD, color=WHITE,
+                   weight=ft.FontWeight.W_600),
             ft.Icon(ft.Icons.ARROW_DROP_DOWN, color=WHITE, size=CONSTANTS.ICON_SM),
         ], spacing=4, tight=True),
-        style=ft.ButtonStyle(bgcolor=GREY),
+        style=ft.ButtonStyle(bgcolor=GREY,
+                             padding=ft.Padding(12, 10, 10, 10)),
         on_click=_toggle_open_menu,
         tooltip="Favoris, récents, parcourir…",
     )
 
     order_mode_btn = ft.TextButton(
         content=ft.Row([
-            ft.Icon(ft.Icons.RECEIPT_LONG_OUTLINED, size=CONSTANTS.ICON_SM),
-            ft.Text("Mode commande", size=CONSTANTS.TEXT_SM),
-        ], spacing=4, tight=True),
-        style=ft.ButtonStyle(bgcolor=GREY, color=WHITE),
+            ft.Icon(ft.Icons.RECEIPT_LONG_OUTLINED, size=CONSTANTS.ICON_MD),
+            ft.Text("Mode commande", size=CONSTANTS.TEXT_MD),
+        ], spacing=6, tight=True),
+        style=ft.ButtonStyle(bgcolor=GREY, color=WHITE,
+                             padding=ft.Padding(14, 10, 14, 10)),
         on_click=_toggle_order_mode,
         tooltip="Format + nombre directement sur chaque photo",
     )
@@ -2262,47 +1933,100 @@ def main(page: ft.Page):
     # _create_order_folder est défini plus loin (avec le reste de la logique
     # de commande) : lambda pour différer la résolution du nom jusqu'au clic.
     create_order_btn = ft.IconButton(
-        ft.Icons.FOLDER_ZIP_OUTLINED, icon_color=BLUE, icon_size=18,
+        ft.Icons.FOLDER_ZIP_OUTLINED, icon_color=BLUE, icon_size=CONSTANTS.ICON_MD,
         tooltip="Créer le dossier de commande",
-        on_click=lambda e: page.run_task(_create_order_folder, e))
+        on_click=lambda e: page.run_task(_create_order_folder, e),
+        visible=order_mode["value"])
 
     # _open_actions est défini plus loin dans main() (avec le dialogue
     # Actions) : lambda pour différer la résolution du nom jusqu'au clic.
-    actions_btn = ft.ElevatedButton(
+    actions_btn = ft.Button(
         content=ft.Row([
-            ft.Icon(ft.Icons.BOLT_OUTLINED, color=DARK, size=CONSTANTS.ICON_SM),
-            ft.Text("ACTIONS", size=CONSTANTS.TEXT_SM, color=DARK,
+            ft.Icon(ft.Icons.BOLT_OUTLINED, color=DARK, size=CONSTANTS.ICON_MD),
+            ft.Text("ACTIONS", size=CONSTANTS.TEXT_MD, color=DARK,
                     weight=ft.FontWeight.W_800),
         ], spacing=6, tight=True),
-        style=ft.ButtonStyle(bgcolor=ORANGE, padding=ft.Padding(14, 10, 14, 10)),
+        style=ft.ButtonStyle(bgcolor=ORANGE, padding=ft.Padding(20, 14, 20, 14),
+                             shape=ft.RoundedRectangleBorder(radius=10)),
         on_click=lambda e: _open_actions(e),
     )
+
+    # Rangée d'actions tactiles — reprend tous les gestes du menu clic-droit
+    # (_show_context_menu) pour qu'ils soient accessibles sans clic droit
+    # (retour user, écran tactile). Opère sur `selected` ; "Ouvrir avec..."
+    # reste réservé au clic droit (choix d'appli trop rare pour une icône
+    # permanente).
+    # Icône + libellé coloré (même couleur pour les deux) : plus lisible
+    # qu'une icône seule sur fond gris uni, et couleurs alignées sur
+    # Dashboard.pyw:10872-10899 (copier=BLUE, couper=ORANGE, coller=YELLOW).
+    def _chip(icon, color, label, tooltip, on_click):
+        return ft.Button(
+            content=ft.Row([
+                ft.Icon(icon, color=color, size=CONSTANTS.ICON_MD),
+                ft.Text(label, size=CONSTANTS.TEXT_SM, color=color),
+            ], spacing=6, tight=True),
+            style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 12, 14, 12)),
+            tooltip=tooltip, on_click=on_click)
+
+    def _tb_btn(icon, color, label, tooltip, fn):
+        return _chip(icon, color, label, tooltip,
+                     lambda e: fn(list(selected)) if selected else None)
+
+    touch_actions_row = ft.Row([
+        _chip(ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE, "Renommer",
+              "Renommer (un seul élément)",
+              lambda e: _rename_item(list(selected))
+              if len(selected) == 1 else None),
+        _tb_btn(ft.Icons.CONTENT_COPY, BLUE, "Copier", "Copier (Ctrl+C)",
+                _do_copy),
+        _tb_btn(ft.Icons.CONTENT_CUT, ORANGE, "Couper", "Couper (Ctrl+X)",
+                _do_cut),
+        _chip(ft.Icons.CONTENT_PASTE, YELLOW, "Coller", "Coller ici (Ctrl+V)",
+              _do_paste),
+        _tb_btn(ft.Icons.FILE_COPY_OUTLINED, BLUE, "Dupliquer", "Dupliquer ici",
+                _do_duplicate),
+        _tb_btn(ft.Icons.FOLDER_ZIP_OUTLINED, YELLOW, "Zipper", "Zipper",
+                _do_zip),
+        # _add_to_ai est défini bien plus loin dans main() : référence
+        # directe -> UnboundLocalError (Python voit le `def` plus bas
+        # dans la même fonction et traite le nom comme local dès le
+        # début). Lambda pour différer la résolution au clic, comme
+        # `create_order_btn`/`actions_btn` un peu plus haut.
+        _chip(ft.Icons.SMART_TOY_OUTLINED, VIOLET, "IA", "Ajouter à l'IA",
+              lambda e: _add_to_ai(list(selected)) if selected else None),
+        _tb_btn(ft.Icons.DELETE_OUTLINE, RED, "Supprimer", "Supprimer",
+                _do_delete),
+    ], spacing=10, run_spacing=8, wrap=True)
 
     files_surface = ft.Column([
         ft.Container(
             content=ft.Column([
                 ft.Row([
-                    parent_folder_btn,
-                    refresh_folder_btn,
+                    ft.Row([parent_folder_btn, refresh_folder_btn,
+                           new_folder_btn], spacing=8),
+                    ft.VerticalDivider(width=1, color=GREY),
                     open_menu_btn,
                     files_path,
                     sel_count,
+                    ft.VerticalDivider(width=1, color=GREY),
                     search_field,
                     sort_btn,
                     view_seg,
-                ], spacing=6),
+                ], spacing=12),
                 ft.Row([
-                    _seg_btn(ft.Icons.SELECT_ALL, "Tout sélectionner", _toggle_all),
-                    _seg_btn(ft.Icons.FLIP, "Inverser", _invert),
+                    _seg_btn(ft.Icons.SELECT_ALL, "Tout sélectionner", _toggle_all,
+                             color=VIOLET),
+                    _seg_btn(ft.Icons.FLIP, "Inverser", _invert, color=VIOLET),
                     only_sel_btn,
                     ft.VerticalDivider(width=1, color=GREY),
                     order_mode_btn,
                     create_order_btn,
                     ft.Container(expand=True),
                     actions_btn,
-                ], spacing=6),
-            ], spacing=4),
-            padding=ft.Padding(8, 8, 8, 0),
+                ], spacing=10),
+                touch_actions_row,
+            ], spacing=10),
+            padding=ft.Padding(12, 12, 12, 8),
         ),
         ft.Divider(height=1, color=GREY),
         files_body,
@@ -2332,9 +2056,15 @@ def main(page: ft.Page):
     notes_preview = ft.Markdown(
         "", selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
         code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK, expand=True)
-    notes_preview_scroll = ft.ListView(controls=[notes_preview], expand=True,
-                                       visible=False)
+    notes_preview_scroll = ft.ListView(controls=[notes_preview], expand=True)
+    # Conteneur unique dont on échange le `.content` (édition <-> aperçu),
+    # comme `files_body` plus haut : deux enfants Column avec expand=True
+    # se partagent l'espace 50/50 même quand l'un est invisible (Flet
+    # conserve la part de flex d'un enfant caché) — d'où le bloc-notes qui
+    # ne prenait que la moitié inférieure en aperçu Markdown.
+    notes_body = ft.Container(content=notes_field, expand=True, padding=8)
     notes_is_preview = {"value": False}
+    notes_autosave_timer = {"task": None}
 
     def _notes_load():
         path = note_target["path"]
@@ -2356,6 +2086,20 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+    async def _notes_autosave_after_delay():
+        await asyncio.sleep(CONSTANTS.NOTEPAD_AUTOSAVE_DELAY)
+        _notes_save()
+
+    def _notes_on_change(e):
+        # Même débounce que Dashboard.pyw:1534-1545 — annule le timer en
+        # cours et en relance un à chaque frappe.
+        t = notes_autosave_timer["task"]
+        if t is not None and not t.done():
+            t.cancel()
+        notes_autosave_timer["task"] = page.run_task(_notes_autosave_after_delay)
+
+    notes_field.on_change = _notes_on_change
+
     def _open_path_in_notes(path):
         note_target["path"] = path
         ext = os.path.splitext(path)[1].lower()
@@ -2364,28 +2108,25 @@ def main(page: ft.Page):
         _notes_load()
         if notes_is_preview["value"]:
             notes_is_preview["value"] = False
-            notes_field.visible = True
-            notes_preview_scroll.visible = False
+            notes_body.content = notes_field
             notes_preview_btn.icon = ft.Icons.VISIBILITY
             notes_preview_btn.tooltip = "Prévisualiser en Markdown"
         _select_surface("notes")
-
-    def _notes_prepare_markdown(text):
-        lines = ["&nbsp;" if ln.strip() == "" else ln + "  " for ln in text.split("\n")]
-        return "\n".join(lines)
 
     def _notes_toggle_preview(event=None):
         notes_is_preview["value"] = not notes_is_preview["value"]
         if notes_is_preview["value"]:
             _notes_save()
-            notes_preview.value = _notes_prepare_markdown(notes_field.value or "")
-            notes_preview_scroll.visible = True
-            notes_field.visible = False
+            # Texte brut, sans préprocessing : les tentatives de forcer les
+            # sauts de ligne (&nbsp;, doubles espaces) cassaient le rendu
+            # Markdown standard (listes avalant le texte suivant — cf.
+            # retour user). Markdown interprète le texte tel qu'écrit.
+            notes_preview.value = notes_field.value or ""
+            notes_body.content = notes_preview_scroll
             notes_preview_btn.icon = ft.Icons.EDIT
             notes_preview_btn.tooltip = "Revenir à l'édition"
         else:
-            notes_field.visible = True
-            notes_preview_scroll.visible = False
+            notes_body.content = notes_field
             notes_preview_btn.icon = ft.Icons.VISIBILITY
             notes_preview_btn.tooltip = "Prévisualiser en Markdown"
         page.update()
@@ -2394,8 +2135,7 @@ def main(page: ft.Page):
         notes_field.value = ""
         if notes_is_preview["value"]:
             notes_is_preview["value"] = False
-            notes_field.visible = True
-            notes_preview_scroll.visible = False
+            notes_body.content = notes_field
             notes_preview_btn.icon = ft.Icons.VISIBILITY
             notes_preview_btn.tooltip = "Prévisualiser en Markdown"
         _notes_save()
@@ -2464,8 +2204,7 @@ def main(page: ft.Page):
             padding=ft.Padding(8, 8, 8, 0),
         ),
         ft.Divider(height=1, color=GREY),
-        ft.Container(content=notes_field, expand=True, padding=8),
-        notes_preview_scroll,
+        notes_body,
     ], expand=True, spacing=0)
     _notes_load()
 
@@ -3579,7 +3318,8 @@ def main(page: ft.Page):
         if not order:
             return
         dest_root = await ft.FilePicker().get_directory_path(
-            dialog_title="Dossier de destination pour la commande")
+            dialog_title="Dossier de destination pour la commande",
+            initial_directory=state["folder"] or None)
         if not dest_root:
             return
         order_folder = _unique_dest(dest_root, "COMMANDE")
@@ -3589,14 +3329,22 @@ def main(page: ft.Page):
         for path, fmt, n in _order_lines():
             if not os.path.isfile(path):
                 continue
+            is_bw = order_bw.get(path, False)
             stem, ext = os.path.splitext(os.path.basename(path))
-            dest = _unique_dest(order_folder, f"{stem}_{fmt}{ext}")
+            suffix = f"_{fmt}_NB" if is_bw else f"_{fmt}"
+            dest = _unique_dest(order_folder, f"{stem}{suffix}{ext}")
             try:
-                shutil.copy2(path, dest)
+                if is_bw:
+                    with PILImage.open(path) as im:
+                        im.convert("L").convert("RGB").save(dest)
+                else:
+                    shutil.copy2(path, dest)
             except Exception:
                 continue
+            nb_marker = " (N&B)" if is_bw else ""
             manifest.append(
-                f"{os.path.basename(dest)} — {fmt} × {n} = {prices[(path, fmt)]:.2f} €")
+                f"{os.path.basename(dest)} — {fmt}{nb_marker} × {n} = "
+                f"{prices[(path, fmt)]:.2f} €")
         manifest.append(f"\nTOTAL : {grand_total:.2f} €")
         try:
             with open(os.path.join(order_folder, "commande.txt"), "w",
@@ -3768,7 +3516,8 @@ def main(page: ft.Page):
 
     async def _liste_new_file(event):
         folder = await ft.FilePicker().get_directory_path(
-            dialog_title="Dossier pour le nouveau fichier .json")
+            dialog_title="Dossier pour le nouveau fichier .json",
+            initial_directory=state["folder"] or None)
         if not folder:
             return
         name_field = ft.TextField(
@@ -3816,7 +3565,7 @@ def main(page: ft.Page):
                 ft.IconButton(ft.Icons.REFRESH, icon_color=BLUE, icon_size=18,
                              tooltip="Recharger depuis le disque",
                              on_click=_liste_reload),
-                ft.ElevatedButton("Ajouter", icon=ft.Icons.ADD,
+                ft.Button("Ajouter", icon=ft.Icons.ADD,
                                   on_click=lambda e: _liste_edit(None)),
             ], spacing=6),
             padding=ft.Padding(8, 8, 8, 0)),
@@ -3883,6 +3632,8 @@ def main(page: ft.Page):
             pass
 
     def _select_surface(key):
+        if state["surface"] == "notes" and key != "notes":
+            _notes_save()   # enregistre le bloc-notes au changement d'onglet
         state["surface"] = key
         center.content = surface_content[key]
         for k, tab in rail_tabs.items():
@@ -3897,9 +3648,9 @@ def main(page: ft.Page):
 
     def _rail_tab(key, label, icon):
         is_active = key == "files"
-        icon_ctrl = ft.Icon(icon, size=CONSTANTS.ICON_SM,
+        icon_ctrl = ft.Icon(icon, size=CONSTANTS.ICON_MD,
                             color=DARK if is_active else WHITE)
-        label_ctrl = ft.Text(label, size=CONSTANTS.TEXT_XS,
+        label_ctrl = ft.Text(label, size=CONSTANTS.TEXT_SM,
                              color=DARK if is_active else WHITE, no_wrap=True,
                              weight=ft.FontWeight.W_700 if is_active
                              else ft.FontWeight.NORMAL)
@@ -3907,7 +3658,7 @@ def main(page: ft.Page):
             content=ft.Column([
                 icon_ctrl,
                 ft.Container(content=label_ctrl, rotate=ft.Rotate(-1.5708),
-                            alignment=ft.Alignment.CENTER, height=76),
+                            alignment=ft.Alignment.CENTER, height=86),
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4,
                alignment=ft.MainAxisAlignment.CENTER),
             expand=True, alignment=ft.Alignment.CENTER,
@@ -3941,15 +3692,29 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
+    # Scripts en .py (pas .pyw) qui ouvrent quand même leur propre fenêtre
+    # Flet — l'extension seule ne suffit pas à détecter une vraie appli GUI.
+    _GUI_TOOLS_PY_EXT = {"Augmentation IA.py"}
+
     def _launch_tool(script_name, is_local=False, extra_env=None):
         app_path = os.path.join(_APP_DIR, "Data", script_name)
         if not os.path.exists(app_path):
-            status_left.value = f"Introuvable : {script_name}"
-            page.update()
+            _log_to_terminal(f"[ERREUR] Introuvable : {script_name}", RED)
             return
         folder = state["folder"] or ""
+        # Comme Dashboard.pyw:8933-8935 : sans ce garde-fou, un script
+        # "dossier" reçoit FOLDER_PATH="" et retombe sur le dossier courant
+        # du process — il tourne "pour de vrai" sur le mauvais dossier
+        # (silencieusement, 0 fichier trouvé) au lieu d'échouer clairement.
+        if not is_local and not folder:
+            _log_to_terminal(
+                "[ERREUR] Veuillez sélectionner un dossier avant de lancer "
+                "cette application", RED)
+            return
         picked = list(selected)
-        page.run_task(_tool_set_status, f"▶ Lancement : {script_name}…")
+        display_name = (script_name[:-4] if script_name.endswith(".pyw")
+                        else script_name[:-3])
+        _log_to_terminal(f"▶ Lancement de {display_name}...", BLUE)
 
         def _run():
             env = dict(os.environ)
@@ -3967,25 +3732,67 @@ def main(page: ft.Page):
                 env.update(extra_env)
             try:
                 proc = subprocess.Popen(
-                    [sys.executable, app_path], env=env,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, encoding="utf-8", errors="replace")
+                    [sys.executable, "-u", app_path], env=env,
+                    cwd=os.path.join(_APP_DIR, "Data"),
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    text=True, encoding="utf-8", errors="replace", bufsize=1)
             except Exception as exc:
-                page.run_task(_tool_set_status, f"[Erreur] {script_name} : {exc}")
+                _log_to_terminal(f"[ERREUR] {script_name} : {exc}", RED)
                 return
-            # Scripts headless (batch, sans GUI) : bloquer ici (thread dédié,
-            # ne gèle pas l'UI) permet de savoir quand c'est vraiment fini —
-            # avant ça, aucun retour visuel (« aucune réaction »), le seul
-            # signe étaient les fichiers de sortie, invisibles sans rafraîchir.
-            output, _ = proc.communicate()
+            # Outil avec sa propre fenêtre Flet (.pyw) : minimiser Hub le
+            # temps qu'il tourne, comme Dashboard.pyw:8992-9004/9058-9068.
+            is_gui_tool = (app_path.endswith(".pyw")
+                          or script_name in _GUI_TOOLS_PY_EXT)
+            if is_gui_tool:
+                page.window.minimized = True
+                page.update()
+
+            # Lecture en temps réel, comme Dashboard.pyw:9314-9348
+            # (read_output) : chaque ligne part au terminal au fil de l'eau
+            # au lieu d'attendre la fin du process pour un résumé — sinon
+            # aucune info avant la fin (et aucune en cas d'erreur muette).
+            # Comme Dashboard.pyw:9013-9016/9107-9111 : une ligne
+            # "NAVIGATE_TO:<chemin>" est interceptée plutôt que loguée, pour
+            # naviguer vers le dossier réellement produit par l'outil (ex.
+            # Transfert vers TEMP.py qui crée un sous-dossier daté).
+            nav_target = {"path": None}
+
+            def _read_output(pipe, color):
+                try:
+                    for line in iter(pipe.readline, ""):
+                        stripped = line.rstrip()
+                        if not stripped:
+                            continue
+                        if stripped.startswith("NAVIGATE_TO:"):
+                            nav_target["path"] = stripped[len("NAVIGATE_TO:"):]
+                        else:
+                            _log_to_terminal(stripped, color)
+                except Exception:
+                    pass
+                finally:
+                    pipe.close()
+
+            t_out = threading.Thread(target=_read_output,
+                                     args=(proc.stdout, WHITE), daemon=True)
+            t_err = threading.Thread(target=_read_output,
+                                     args=(proc.stderr, RED), daemon=True)
+            t_out.start()
+            t_err.start()
+            proc.wait()
+            t_out.join()
+            t_err.join()
+            if is_gui_tool:
+                page.window.minimized = False
+                page.window.maximized = True
+                page.run_task(page.window.to_front)
+                page.update()
             if proc.returncode != 0:
-                tail = (output or "").strip().splitlines()[-1:] or [""]
-                page.run_task(_tool_set_status,
-                             f"[Erreur] {script_name} (code {proc.returncode}) "
-                             f"{tail[0]}")
+                _log_to_terminal(
+                    f"[ERREUR] {script_name} — code retour {proc.returncode}",
+                    RED)
             else:
-                page.run_task(_tool_set_status, f"✓ Terminé : {script_name}")
-            page.run_task(_tool_refresh, folder)
+                _log_to_terminal(f"[OK] {script_name} terminé", GREEN)
+            page.run_task(_tool_refresh, nav_target["path"] or folder)
 
         threading.Thread(target=_run, daemon=True).start()
         _close_actions()
@@ -4051,10 +3858,47 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
-    def _launch_print(event=None):
-        imgs = [p for p in (list(selected) or content["imgs"])
+    def _launch_transfert_temp(event=None):
+        # Même choix conserver/supprimer qu'au Dashboard.pyw:9024-9044
+        # (transfer_confirm_dialog) avant de lancer le transfert.
+        picked = list(selected)
+        scope = (f"{len(picked)} fichier(s) sélectionné(s)" if picked
+                 else "le contenu du dossier")
+
+        def _launch(delete_after):
+            def _on_click(e):
+                dlg.open = False
+                page.update()
+                _launch_tool("Transfert vers TEMP.py", is_local=True,
+                            extra_env={"DELETE_AFTER_TRANSFER":
+                                       "1" if delete_after else "0"})
+            return _on_click
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Supprimer les fichiers après transfert ?",
+                         size=13, color=WHITE),
+            content=ft.Text(
+                f"{scope} seront transférés vers TEMP.\n\n"
+                "Supprimer les fichiers source après la copie réussie ?",
+                color=WHITE),
+            actions=[
+                ft.TextButton("Conserver", on_click=_launch(False)),
+                ft.TextButton("Supprimer", on_click=_launch(True),
+                             style=ft.ButtonStyle(color=RED)),
+            ],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    def _print_paths(paths):
+        # Partagé entre le bouton Imprimer (titlebar/Actions, sélection ou
+        # dossier entier) et l'entrée « Imprimer » du menu clic-droit
+        # (fichier sur lequel on a cliqué).
+        imgs = [p for p in paths
                 if os.path.splitext(p)[1].lower() in CONSTANTS.IMAGE_EXTS]
         if not imgs:
+            _log_to_terminal("[ATTENTION] Aucune image à imprimer", ORANGE)
             return
         try:
             system = platform.system()
@@ -4066,8 +3910,19 @@ def main(page: ft.Page):
             else:
                 for p in imgs:
                     subprocess.Popen(["xdg-open", p])
-        except Exception:
-            pass
+            _log_to_terminal(f"[OK] Impression lancée pour {len(imgs)} image(s)",
+                             GREEN)
+        except Exception as exc:
+            _log_to_terminal(f"[ERREUR] Impression : {exc}", RED)
+            return
+        # Bascule en mode ruban quelle que soit l'entrée (titlebar ou
+        # clic-droit) : laisse la fenêtre d'impression de l'OS passer
+        # devant sans que Hub prenne toute la place.
+        if not _strip_state["active"]:
+            _toggle_strip()
+
+    def _launch_print(event=None):
+        _print_paths(list(selected) or content["imgs"])
         _close_actions()
 
     def _launch_bluetooth(event=None):
@@ -4079,6 +3934,8 @@ def main(page: ft.Page):
         except Exception:
             pass
         _close_actions()
+        if not _strip_state["active"]:
+            _toggle_strip()
 
     def _launch_copy_to_selection(event=None):
         paths = list(selected) if selected else content["imgs"]
@@ -4215,7 +4072,7 @@ def main(page: ft.Page):
             ("GRAIN_CHROMA_SHIFT", "Décalage inter-canal",
              C.GRAIN_CHROMA_SHIFT),
         ])
-        tile2, sw2, f2 = _section("Grain — Couche 2", ORANGE, False, [
+        tile2, sw2, f2 = _section("Grain — Couche 2", ORANGE, True, [
             ("GRAIN2_AMOUNT", "Intensité", C.GRAIN2_AMOUNT),
             ("GRAIN2_SIZE", "Taille", C.GRAIN2_SIZE),
             ("GRAIN2_COLOR_RATIO", "Part couleur", C.GRAIN2_COLOR_RATIO),
@@ -4335,26 +4192,90 @@ def main(page: ft.Page):
         threading.Thread(target=_run, daemon=True).start()
         _close_actions()
 
+    def _launch_comparaison(event=None):
+        # Comme Dashboard.pyw:992-1074 (_launch_comparaison) : le second
+        # dossier vient de la sélection quand c'est possible, pas d'un
+        # sélecteur systématique — 1 dossier coché = 2e dossier direct,
+        # 2 dossiers cochés = les deux, 2 images cochées = comparaison de
+        # cette paire précise. Sélecteur seulement en dernier recours.
+        folder1 = state["folder"] or ""
+        if not folder1:
+            _log_to_terminal(
+                "[ERREUR] Veuillez sélectionner un dossier avant de lancer "
+                "la Comparaison", RED)
+            return
+        picked = list(selected)
+        picked_images = [
+            p for p in picked if os.path.isfile(p)
+            and os.path.splitext(p)[1].lower() in CONSTANTS.IMAGE_EXTS]
+        picked_dirs = [p for p in picked if os.path.isdir(p)]
+
+        def _do_launch(folder2):
+            env = {"FOLDER_PATH": folder1, "SELECTED_FILES": ""}
+            if folder2:
+                env["SECOND_FOLDER"] = folder2
+            if len(picked_images) == 2:
+                env["SELECTED_PAIR_FILES"] = "|".join(
+                    os.path.basename(p) for p in picked_images)
+                env["SELECTED_PAIR_PATHS"] = "|".join(picked_images)
+            else:
+                images_in_folder1 = [
+                    p for p in picked_images
+                    if os.path.normpath(os.path.dirname(p))
+                    == os.path.normpath(folder1)]
+                if images_in_folder1:
+                    env["SELECTED_FILES"] = "|".join(
+                        os.path.basename(p) for p in images_in_folder1)
+            _launch_tool("Comparaison.pyw", extra_env=env)
+
+        if len(picked_images) == 2:
+            _do_launch("")
+            return
+        if len(picked_dirs) >= 2:
+            folder1 = os.path.normpath(picked_dirs[0])
+            _do_launch(os.path.normpath(picked_dirs[1]))
+            return
+        if len(picked_dirs) == 1:
+            _do_launch(os.path.normpath(picked_dirs[0]))
+            return
+
+        async def _pick_and_launch():
+            picked_path = await ft.FilePicker().get_directory_path(
+                dialog_title="Sélectionner le second dossier à comparer",
+                initial_directory=folder1)
+            if picked_path:
+                _do_launch(os.path.normpath(picked_path))
+            else:
+                _log_to_terminal(
+                    "[INFO] Comparaison annulée (pas de second dossier "
+                    "sélectionné)", LIGHT_GREY)
+
+        page.run_task(_pick_and_launch)
+
     def _launch_recadrage_auto(event=None):
-        default_fmt = "10x15"
+        saved = _load_crop_auto_config()
+        default_fmt = saved.get("format") if saved.get("format") in CONSTANTS.FORMATS else "10x15"
         default_w, default_h = CONSTANTS.FORMATS[default_fmt]
-        manual = {"value": False}
+        manual = {"value": bool(saved.get("manual", False))}
 
         fmt_dd = ft.Dropdown(
             options=[ft.dropdown.Option(name) for name in CONSTANTS.FORMATS],
             value=default_fmt, width=280, bgcolor=DARK, border_color=GREY,
-            color=WHITE)
+            color=WHITE, disabled=manual["value"])
         width_field = ft.TextField(
-            label="Largeur (mm)", value=str(default_w), width=132,
-            bgcolor=DARK, border_color=GREY, color=WHITE, disabled=True,
-            keyboard_type=ft.KeyboardType.NUMBER)
+            label="Largeur (mm)", value=str(saved.get("manual_w", default_w)),
+            width=132, bgcolor=DARK, border_color=GREY, color=WHITE,
+            disabled=not manual["value"], keyboard_type=ft.KeyboardType.NUMBER)
         height_field = ft.TextField(
-            label="Hauteur (mm)", value=str(default_h), width=132,
-            bgcolor=DARK, border_color=GREY, color=WHITE, disabled=True,
-            keyboard_type=ft.KeyboardType.NUMBER)
-        manual_switch = ft.Switch(label="Saisie manuelle (mm)", value=False)
-        fit_switch = ft.Switch(label="Fit 100% (sans rognage)", value=False)
-        white_border_switch = ft.Switch(label="Bord blanc 5mm", value=False)
+            label="Hauteur (mm)", value=str(saved.get("manual_h", default_h)),
+            width=132, bgcolor=DARK, border_color=GREY, color=WHITE,
+            disabled=not manual["value"], keyboard_type=ft.KeyboardType.NUMBER)
+        manual_switch = ft.Switch(label="Saisie manuelle (mm)",
+                                  value=manual["value"])
+        fit_switch = ft.Switch(label="Fit 100% (sans rognage)",
+                               value=bool(saved.get("fit", False)))
+        white_border_switch = ft.Switch(label="Bord blanc 5mm",
+                                        value=bool(saved.get("white_border", False)))
         scope_text = ft.Text(
             f"Portée auto : {'sélection en cours' if selected else 'tout le dossier'}",
             size=CONSTANTS.TEXT_XS, color=GREY)
@@ -4383,6 +4304,12 @@ def main(page: ft.Page):
                     return
             else:
                 w, h = CONSTANTS.FORMATS[fmt_dd.value]
+            _save_crop_auto_config({
+                "format": fmt_dd.value, "manual": manual["value"],
+                "manual_w": width_field.value, "manual_h": height_field.value,
+                "fit": fit_switch.value,
+                "white_border": white_border_switch.value,
+            })
             dlg.open = False
             page.update()
             _launch_tool("Recadrage automatique.py", extra_env={
@@ -4488,7 +4415,7 @@ def main(page: ft.Page):
     _ACTION_CATEGORIES = [
         ("Transfert & préparation", [
             ("Transfert vers TEMP", ft.Icons.DRIVE_FILE_MOVE_OUTLINED, BLUE,
-             lambda e: _launch_tool("Transfert vers TEMP.py", is_local=True)),
+             _launch_transfert_temp),
             ("Conversion JPG", ft.Icons.IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Conversion JPG.py")),
             ("Renommer séquence", ft.Icons.SORT_BY_ALPHA, BLUE,
@@ -4531,7 +4458,7 @@ def main(page: ft.Page):
             ("Débruiter", ft.Icons.BLUR_ON, VIOLET,
              lambda e: _launch_tool("Débruiter.py")),
             ("Comparaison", ft.Icons.COMPARE_OUTLINED, VIOLET,
-             lambda e: _launch_tool("Comparaison.pyw")),
+             _launch_comparaison),
         ]),
         ("Export & livrables", [
             ("Redimensionner", ft.Icons.PHOTO_SIZE_SELECT_LARGE_OUTLINED, ORANGE,
@@ -4542,7 +4469,7 @@ def main(page: ft.Page):
              _launch_compression_web),
             ("Images en PDF", ft.Icons.PICTURE_AS_PDF_OUTLINED, ORANGE,
              _launch_images_en_pdf),
-            ("Remerciements", ft.Icons.CARD_GIFTCARD_OUTLINED, ORANGE,
+            ("Remerciements", ft.CupertinoIcons.BIN_XMARK_FILL, ORANGE,
              lambda e: _launch_tool("Remerciements.py")),
             ("Copyright", ft.Icons.COPYRIGHT_OUTLINED, ORANGE,
              _launch_copyright),
@@ -4551,47 +4478,34 @@ def main(page: ft.Page):
         ]),
     ]
 
-    def _action_card(label, icon, color, handler):
-        return ft.Container(
-            content=ft.Column([
-                ft.Icon(icon, color=color, size=CONSTANTS.ICON_MD),
-                ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE,
-                        text_align=ft.TextAlign.CENTER, max_lines=2,
-                        overflow=ft.TextOverflow.ELLIPSIS),
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=8,
-               alignment=ft.MainAxisAlignment.CENTER),
-            width=150, height=120, padding=10, border_radius=10,
-            bgcolor=GREY, border=ft.Border.all(1, color),
-            ink=True, on_click=handler,
+    def _action_row(label, icon, color, handler):
+        # Ligne de liste (ft.ListTile) plutôt qu'une carte en grille : plus
+        # aucun calcul de colonnes/aspect ratio à faire tenir juste, fiable
+        # quelle que soit la largeur — la grille précédente n'a jamais
+        # correctement rendu ses hauteurs (retour user, plusieurs essais).
+        return ft.ListTile(
+            leading=ft.Icon(icon, color=color, size=CONSTANTS.HUB_ACTION_ICON_SIZE),
+            title=ft.Text(label, size=CONSTANTS.HUB_ACTION_TEXT_SIZE, color=WHITE),
+            on_click=handler, hover_color=GREY,
+            content_padding=ft.Padding(left=8, top=4, right=8, bottom=4),
         )
 
-    _ACTION_GRID_COLUMNS = 6
-
     def _action_category(label, tools):
-        # Colonnes fixes (`runs_count`, pas `max_extent`) : le nombre de
-        # colonnes réel ne dépend plus de la largeur de fenêtre au moment du
-        # rendu, donc `rows` est exact et la hauteur ne laisse plus de grand
-        # vide sous les catégories qui ont peu d'outils (l'ancien calcul
-        # supposait 3 colonnes alors que `max_extent` en affichait souvent
-        # 6-7 sur une fenêtre large — d'où les écarts irréguliers).
-        rows = (len(tools) - 1) // _ACTION_GRID_COLUMNS + 1
-        grid = ft.GridView(runs_count=_ACTION_GRID_COLUMNS,
-                           child_aspect_ratio=150 / 120,
-                           spacing=10, run_spacing=10, height=rows * 132)
-        grid.controls = [_action_card(*t) for t in tools]
         # Libellé de catégorie en ORANGE (pas GREY) : GREY sur le fond DARK
         # de l'overlay est quasi illisible, deux gris trop proches en
         # luminance — cf. retour user.
         return ft.Column([
             ft.Text(label.upper(), size=CONSTANTS.TEXT_XS, color=ORANGE,
                     weight=ft.FontWeight.W_700),
-            grid,
+            ft.Column([_action_row(*t) for t in tools], spacing=0),
         ], spacing=6)
 
-    # Overlay plein écran (même primitive que viewer_overlay : Container
-    # expand=True ajouté à page.overlay, hors de l'arbre de mise en page
-    # normal) plutôt qu'un AlertDialog dimensionné en dur.
-    actions_overlay = ft.Container(
+    # Overlay en demi-largeur (retour user : le plein écran gaspillait
+    # l'espace) — un Row avec deux enfants `expand=1` se partage 50/50 et
+    # reste correct au redimensionnement, pas besoin de recalculer une
+    # largeur en pixels. Le fond gauche est cliquable pour fermer (« tap
+    # outside »), comme un vrai overlay/drawer.
+    actions_panel = ft.Container(
         content=ft.Column([
             ft.Row([
                 ft.Icon(ft.Icons.BOLT_OUTLINED, color=ORANGE,
@@ -4608,8 +4522,15 @@ def main(page: ft.Page):
                  for label, tools in _ACTION_CATEGORIES],
                 spacing=20, scroll=ft.ScrollMode.AUTO, expand=True),
         ], spacing=12, expand=True),
-        bgcolor=DARK, padding=20, expand=True,
+        bgcolor=DARK, padding=20, expand=1,
     )
+    actions_overlay = ft.Row([
+        ft.Container(expand=1, ink=False,
+                    bgcolor=ft.Colors.with_opacity(0.35, "black"),
+                    on_click=lambda e: _close_actions()),
+        actions_panel,
+    ], expand=True, spacing=0,
+       vertical_alignment=ft.CrossAxisAlignment.STRETCH)
 
     def _close_actions(event=None):
         if actions_overlay in page.overlay:
@@ -4634,7 +4555,8 @@ def main(page: ft.Page):
     terminal_input = ft.TextField(
         hint_text="> Terminal", bgcolor=DARK, border_color=GREY, color=WHITE,
         text_size=CONSTANTS.TERMINAL_FONT_SIZE, expand=True,
-        content_padding=ft.Padding(10, 8, 10, 8))
+        content_padding=ft.Padding(10, 8, 10, 8),
+        on_focus=_suspend_kb, on_blur=_resume_kb)
 
     def _log_to_terminal(message, color=None):
         message = (message or "").strip()
@@ -4751,7 +4673,7 @@ def main(page: ft.Page):
             ft.Container(
                 content=ft.Row([
                     ft.Icon(ft.Icons.PHOTO_SIZE_SELECT_LARGE, size=16, color=WHITE),
-                    ft.Slider(min=90, max=260, value=state["thumb_size"], width=120,
+                    ft.Slider(min=90, max=320, value=state["thumb_size"], width=120,
                               active_color=BLUE,
                               on_change=lambda e: _apply_thumb_size(e.control.value)),
                 ], spacing=4, tight=True),
@@ -4777,8 +4699,77 @@ def main(page: ft.Page):
     def _on_window_event(event):
         if event.data == "close":
             os._exit(0)
+        elif event.data == "resized" and viewer_overlay in page.overlay:
+            # Le viewport de la visionneuse a une taille explicite (cf.
+            # _set_drawer_space) : la rafraîchir au resize, sinon elle reste
+            # calée sur la taille de fenêtre au moment de l'ouverture.
+            _set_drawer_space(viewer_image_wrap.right or 0)
+            page.update()
 
     page.window.on_event = _on_window_event
+
+    def _open_browser(event=None):
+        webbrowser.open("https://www.google.com")
+        if not _strip_state["active"]:
+            _toggle_strip()
+
+    def _open_in_file_explorer(event=None):
+        # Comme Dashboard.pyw:4721-4736 (open_in_file_explorer) : ouvre le
+        # dossier COURANT, sans dépendre d'une sélection — contrairement à
+        # l'ancien bouton "Afficher" (touch_actions_row), qui ne faisait
+        # rien tant qu'aucun fichier n'était coché.
+        folder = state["folder"]
+        if not folder or not os.path.isdir(folder):
+            _log_to_terminal("[ERREUR] Aucun dossier sélectionné", RED)
+            return
+        try:
+            system = platform.system()
+            if system == "Windows":
+                subprocess.Popen(f'explorer "{folder}"')
+            elif system == "Darwin":
+                subprocess.Popen(["open", folder])
+            else:
+                subprocess.Popen(["xdg-open", folder])
+            _log_to_terminal(f"[OK] Ouverture du dossier : {os.path.basename(folder)}",
+                             GREEN)
+        except Exception as exc:
+            _log_to_terminal(f"[ERREUR] Ouverture de l'explorateur : {exc}", RED)
+            return
+        if not _strip_state["active"]:
+            _toggle_strip()
+
+    def _toggle_strip(event=None):
+        # Réduction en bandeau (écran tactile) : ne garde que la barre de
+        # titre, comme Dashboard.pyw _toggle_strip — pratique pour garder
+        # Hub visible/accessible pendant qu'on utilise l'explorateur, le
+        # bluetooth, l'impression ou le navigateur.
+        is_mac = platform.system() == "Darwin"
+        if not _strip_state["active"]:
+            _strip_state["was_maximized"] = bool(page.window.maximized)
+            _strip_state["saved_height"] = page.window.height or 860
+            _strip_state["active"] = True
+            if is_mac and _strip_state["was_maximized"]:
+                page.window.maximized = False
+            body.visible = False
+            page.window.height = STRIP_HEIGHT
+            strip_btn.icon = ft.Icons.UNFOLD_MORE
+            strip_btn.tooltip = "Restaurer la fenêtre"
+            strip_btn.icon_color = BLUE
+        else:
+            _strip_state["active"] = False
+            body.visible = True
+            if is_mac and _strip_state["was_maximized"]:
+                page.window.maximized = True
+            else:
+                page.window.height = _strip_state["saved_height"]
+            strip_btn.icon = ft.Icons.UNFOLD_LESS
+            strip_btn.tooltip = "Réduire en bandeau (écran tactile)"
+            strip_btn.icon_color = WHITE
+        page.update()
+
+    strip_btn = ft.IconButton(ft.Icons.UNFOLD_LESS, icon_size=16, icon_color=WHITE,
+                              on_click=_toggle_strip,
+                              tooltip="Réduire en bandeau (écran tactile)")
 
     titlebar = ft.WindowDragArea(
         ft.Row([
@@ -4795,16 +4786,23 @@ def main(page: ft.Page):
             # active (écran tactile = pas de fallback clavier/raccourci).
             ft.Container(
                 content=ft.Row([
-                    ft.IconButton(ft.Icons.BLUETOOTH, icon_size=16,
+                    ft.IconButton(ft.Icons.BLUETOOTH, icon_size=22,
                                  icon_color=BLUE, on_click=_launch_bluetooth,
                                  tooltip="Recevoir un fichier via Bluetooth"),
-                    ft.IconButton(ft.Icons.PRINT_OUTLINED, icon_size=16,
+                    ft.IconButton(ft.Icons.PRINT_OUTLINED, icon_size=22,
                                  icon_color=ORANGE, on_click=_launch_print,
                                  tooltip="Imprimer la sélection (ou le dossier)"),
+                    ft.IconButton(ft.Icons.PUBLIC, icon_size=22,
+                                 icon_color=BLUE, on_click=_open_browser,
+                                 tooltip="Ouvrir le navigateur web"),
+                    ft.IconButton(ft.Icons.OPEN_IN_NEW, icon_size=22,
+                                 icon_color=GREEN, on_click=_open_in_file_explorer,
+                                 tooltip="Ouvrir l'explorateur"),
                 ], spacing=0, tight=True),
                 border=ft.Border.all(1, ORANGE), border_radius=8,
                 margin=ft.Margin(0, 0, 8, 0),
             ),
+            strip_btn,
             ft.Row([
                 ft.IconButton(ft.Icons.REMOVE, icon_size=16, icon_color=YELLOW,
                               on_click=_minimize, tooltip="Réduire"),
@@ -4817,14 +4815,70 @@ def main(page: ft.Page):
         ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
     )
 
-    page.add(ft.Column([
-        titlebar,
+    body = ft.Column([
         ft.Divider(height=1, color=GREY),
         ft.Row([left_rail, center], expand=True, spacing=0),
         terminal_panel,
         statusbar,
+    ], expand=True, spacing=0)
+
+    # ═════════════════════════════════════════════════════════════════════
+    #  Raccourcis clavier globaux — mêmes gestes que Dashboard.pyw
+    #  (Ctrl+A/C/X/V/I/N/R, Suppr, Ctrl+↑ terminal). Actifs seulement sur la
+    #  surface Fichiers, hors saisie texte (recherche/terminal) et dialogue
+    #  ouvert ; la visionneuse installe son propre handler par-dessus
+    #  celui-ci (_prev_keyboard) et le restaure à la fermeture.
+    # ═════════════════════════════════════════════════════════════════════
+    def _dialog_open():
+        return any(getattr(o, "open", False) for o in page.overlay)
+
+    def _on_global_key(event):
+        ctrl = event.ctrl or event.meta
+        if ctrl and event.key in ("Arrow Up", "ArrowUp"):
+            _toggle_terminal(None)
+            return
+        if _kb_suspend["count"] > 0 or _dialog_open() or state["surface"] != "files":
+            return
+        key = (event.key or "").upper()
+        if ctrl:
+            if key == "A":
+                _toggle_all(None)
+            elif key == "C" and selected:
+                _do_copy(list(selected))
+            elif key == "X" and selected:
+                _do_cut(list(selected))
+            elif key == "V":
+                _do_paste()
+            elif key == "I":
+                _invert(None)
+            elif key == "N":
+                _create_folder_here()
+            elif key == "R":
+                _refresh_folder()
+        elif event.key == "Delete" and selected:
+            _do_delete(list(selected))
+
+    page.on_keyboard_event = _on_global_key
+
+    page.add(ft.Column([
+        titlebar,
+        body,
     ], expand=True, spacing=0))
     page.run_task(_focus_active_surface)
+
+    async def _delayed_maximize():
+        # Même délai que Dashboard.pyw:10926-10934 : `maximized=True` fixé
+        # trop tôt (avant que la fenêtre soit réellement affichée) ne prend
+        # pas toujours effet.
+        await asyncio.sleep(0.15)
+        if platform.system() == "Darwin":
+            page.window.maximized = False
+            page.update()
+            await asyncio.sleep(0.05)
+        page.window.maximized = True
+        page.update()
+
+    page.run_task(_delayed_maximize)
 
 
 if __name__ == "__main__":

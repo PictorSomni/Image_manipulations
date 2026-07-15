@@ -74,6 +74,9 @@ SIZE2         = float(os.environ.get("GRAIN2_SIZE",         CONSTANTS.GRAIN2_SIZ
 COLOR_RATIO2  = float(os.environ.get("GRAIN2_COLOR_RATIO",  CONSTANTS.GRAIN2_COLOR_RATIO))
 SHADOW_BOOST2 = float(os.environ.get("GRAIN2_SHADOW_BOOST", CONSTANTS.GRAIN2_SHADOW_BOOST))
 
+GRAIN_FLOOR  = float(os.environ.get("GRAIN_FLOOR",  CONSTANTS.GRAIN_FLOOR))
+GRAIN2_FLOOR = float(os.environ.get("GRAIN2_FLOOR", CONSTANTS.GRAIN2_FLOOR))
+
 CHROMA_SHIFT  = float(os.environ.get("GRAIN_CHROMA_SHIFT",  CONSTANTS.GRAIN_CHROMA_SHIFT))
 CHROMA_SHIFT2 = float(os.environ.get("GRAIN2_CHROMA_SHIFT", CONSTANTS.GRAIN2_CHROMA_SHIFT))
 
@@ -191,6 +194,7 @@ def add_film_grain(
     size: float,
     color_ratio: float,
     shadow_boost: float,
+    floor: float,
     chroma_shift: float = 0.0,
 ) -> Image.Image:
     """Applique un grain argentique simulé à une image PIL RGB.
@@ -214,7 +218,7 @@ def add_film_grain(
         gg = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
         gb = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
         # Décalage diagonal opposé entre R et B (G = référence)
-        shift = round(chroma_shift / 100.0 * min(h, w))
+        shift = round(chroma_shift * size_px)
         if shift > 0:
             gr = np.roll(gr, shift=( shift,  shift), axis=(0, 1))
             gb = np.roll(gb, shift=(-shift, -shift), axis=(0, 1))
@@ -232,8 +236,8 @@ def add_film_grain(
 
     luma = (0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2])
     # Parabole centrée sur les mi-tons avec plancher : peak à luma=0.5 (×1.0),
-    # ombres/hautes lumières à 30 % — grain présent partout mais atténué aux extrêmes
-    weight = 0.3 + 0.7 * np.clip(4.0 * luma * (1.0 - luma), 0.0, 1.0) ** shadow_boost
+    # ombres/hautes lumières à floor — grain présent partout mais atténué aux extrêmes
+    weight = floor + (1.0 - floor) * np.clip(4.0 * luma * (1.0 - luma), 0.0, 1.0) ** shadow_boost
     weight = weight[:, :, np.newaxis]
 
     result = np.clip(img + grain * weight, 0.0, 1.0)
@@ -390,10 +394,10 @@ for index, file_name in enumerate(files_to_process):
                                   CURVE_TOE_START, CURVE_TOE_LIFT)
     if GRAIN1_ENABLED:
         print("  → Grain 1...")
-        result = add_film_grain(result, AMOUNT, SIZE, COLOR_RATIO, SHADOW_BOOST, CHROMA_SHIFT)
+        result = add_film_grain(result, AMOUNT, SIZE, COLOR_RATIO, SHADOW_BOOST, GRAIN_FLOOR, CHROMA_SHIFT)
     if GRAIN2_ENABLED:
         print("  → Grain 2...")
-        result = add_film_grain(result, AMOUNT2, SIZE2, COLOR_RATIO2, SHADOW_BOOST2, CHROMA_SHIFT2)
+        result = add_film_grain(result, AMOUNT2, SIZE2, COLOR_RATIO2, SHADOW_BOOST2, GRAIN2_FLOOR, CHROMA_SHIFT2)
     stem = Path(file_name).stem
     result.save(str(output_folder / f"{stem}.jpg"), format="JPEG", subsampling=0, quality=100)
 

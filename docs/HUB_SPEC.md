@@ -211,7 +211,8 @@ en corrigeant son manque : **le recadrage y est disponible**).
 - **Sécurité (comportement, hors maquette)** — exigences fermes :
   - **Aucun accès au système de fichiers** hors de la sélection curatée.
   - **Aucune copie possible vers une clé USB / support externe.**
-  - **Pas de sortie du mode sans code** (le studio déverrouille).
+  - **Sortie directe (✕)** : pas de code studio — usage en présentiel sur
+    écran tactile, l'opérateur est physiquement là pour fermer le kiosque.
   - Objectif : empêcher qu'un client copie discrètement des photos **non payées**.
 - **Vue vignettes disponible** pour le client (parcourir la sélection en grille,
   taille réglable) — gros plus pour choisir.

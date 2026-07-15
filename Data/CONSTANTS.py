@@ -121,6 +121,18 @@ TEXT_XL = 24   # titre d'application
 ICON_SM = 18
 ICON_MD = 20
 
+# Hub.pyw — vignettes et liste de fichiers, pensées tactile : icônes,
+# texte et case à cocher plus grands que la barre d'outils standard
+# ICON_MD/TEXT_SM ci-dessus.
+HUB_TILE_ICON_SIZE      = 32   # icône dossier/fichier (vue vignette ET liste)
+HUB_TILE_TEXT_SIZE      = 15   # nom de fichier/dossier (vue vignette ET liste)
+HUB_TILE_CHECKBOX_SCALE = 1.4  # agrandissement de la case à cocher (doigt)
+
+# Hub.pyw — panneau Actions (liste, cf. _action_row) : icône/texte de
+# chaque ligne.
+HUB_ACTION_ICON_SIZE   = 28
+HUB_ACTION_TEXT_SIZE   = 15
+
 
 # ==============================================================================
 # 4. IMPRESSION
@@ -697,10 +709,6 @@ PRINTS = {
 # mode commande de Hub.pyw et kiosk_flet.pyw (anciennement dupliqué).
 ORDER_SETUP_FEE = 1.50
 
-# Code studio pour déverrouiller la sortie du mode kiosque (HUB_SPEC §9) —
-# à changer avant mise en service réelle.
-KIOSK_EXIT_CODE = "2026"
-
 SIZES = STUDIOS   # Alias conservé pour compatibilité ascendante
 
 
@@ -734,17 +742,19 @@ DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
 #                     (simule le désalignement des couches d'émulsion argentique).
 #                     0 = désactivé, 0.1 = subtil, 0.3 = prononcé.
 
-GRAIN_AMOUNT       = 0.01     # Intensité du grain
-GRAIN_SIZE         = 0.09     # Taille des grains (% de la plus petite dimension)
-GRAIN_COLOR_RATIO  = 0.3     # Part de grain couleur (0.0 = mono pur, 1.0 = couleur pleine)
-GRAIN_SHADOW_BOOST = 2    # Concentration sur les mi-tons (1 = large, 2 = centré, 3 = serré)
-GRAIN_CHROMA_SHIFT = 0.3  # Décalage spatial inter-canal en % de la plus petite dimension (0 = désactivé)
+GRAIN_AMOUNT       = 0.015    # Micro-grain subtil
+GRAIN_SIZE         = 0.06     # Très fin (~2.4 px sur 4000 px)
+GRAIN_COLOR_RATIO  = 0.15     # Couleur très discrète
+GRAIN_SHADOW_BOOST = 1.5      # Distribution assez large
+GRAIN_CHROMA_SHIFT = 0.15     # Léger décalage du micro-grain
+GRAIN_FLOOR        = 0.3      # Grain résiduel dans les zones sombres
 
-GRAIN2_AMOUNT       = 0.02   # Couche 2 — intensité
-GRAIN2_SIZE         = 0.05   # Couche 2 — taille (% de la plus petite dimension)
-GRAIN2_COLOR_RATIO  = 0.2    # Couche 2 — part couleur
-GRAIN2_SHADOW_BOOST = 3    # Couche 2 — concentration mi-tons
-GRAIN2_CHROMA_SHIFT = 0.3  # Couche 2 — décalage inter-canal en % de la plus petite dimension
+GRAIN2_AMOUNT       = 0.012   # Couche 2 — intensité
+GRAIN2_SIZE         = 0.18    # Couche 2 — taille (% de la plus petite dimension)
+GRAIN2_COLOR_RATIO  = 0.25    # Couche 2 — part couleur
+GRAIN2_SHADOW_BOOST = 3.0     # Couche 2 — concentration mi-tons
+GRAIN2_CHROMA_SHIFT = 0.25    # Couche 2 — décalage inter-canal
+GRAIN2_FLOOR        = 0.3      # Grain résiduel dans les zones sombres
 
 
 # ── 12.3  Halation & Bloom (Grain pellicule.py) ──────────────────────────────

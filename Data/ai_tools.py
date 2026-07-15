@@ -3633,6 +3633,7 @@ def _ollama_messages_to_gemini(messages):
 
     system_instr = None
     gemini_contents = []
+    _prev_role_was_tool = False
 
     for msg in messages:
         role = msg.get("role", "user")
@@ -3727,7 +3728,19 @@ def _ollama_messages_to_gemini(messages):
             gemini_role = "user"
 
         if parts:
-            gemini_contents.append(_gtypes.Content(role=gemini_role, parts=parts))
+            # Regrouper les réponses d'outils consécutives (appels parallèles,
+            # fréquent en modification de fichiers via MCP) dans UN SEUL tour
+            # "user" : Gemini exige que toutes les function_response d'un
+            # même tour de function_call arrivent ensemble, sinon l'alternance
+            # user/model est rompue et le tour d'appel suivant échoue avec
+            # 400 INVALID_ARGUMENT "function call turn comes immediately
+            # after a user turn or after a function response turn".
+            if role == "tool" and _prev_role_was_tool and gemini_contents:
+                gemini_contents[-1].parts.extend(parts)
+            else:
+                gemini_contents.append(_gtypes.Content(role=gemini_role, parts=parts))
+
+        _prev_role_was_tool = (role == "tool")
 
     return system_instr, gemini_contents
 
