@@ -53,6 +53,7 @@ from ai_tools import (
     build_tool_list, dispatch_folder_tool, DISPATCH_UNHANDLED,
     _gemini_chat_stream_with_tools, _claude_chat_stream_with_tools,
     _build_system_content, _md_dark, _copy_scored_photos,
+    _format_ai_conversation,
     _ai_save_history, _MicRecorder, _gemini_transcribe_audio,
     _update_memory_file, _iterate_image_loop, _IMAGE_ITERATE_TOOLS,
     _gemini_generate_image, _gemini_generate_music, _gemini_refine_image_prompt,
@@ -271,6 +272,41 @@ def main(page: ft.Page):
 
     def _resume_kb(event=None):
         _kb_suspend["count"] = max(0, _kb_suspend["count"] - 1)
+
+    # Historique des saisies façon shell (Terminal, chat IA) : Flèche haut
+    # rappelle les entrées précédemment soumises, Flèche bas revient vers
+    # les plus récentes puis vers un champ vide. `_focused_input["name"]`
+    # suit quel champ a le focus car page.on_keyboard_event est global
+    # (Flet 0.85 n'expose pas d'event clavier par contrôle).
+    _input_history = {"terminal": [], "ai": []}
+    _history_idx = {"terminal": None, "ai": None}
+    _focused_input = {"name": None}
+
+    def _history_add(name, text):
+        text = text.strip()
+        if not text:
+            return
+        hist = _input_history[name]
+        if not hist or hist[-1] != text:
+            hist.append(text)
+        _history_idx[name] = None
+
+    def _history_navigate(name, key, field):
+        hist = _input_history[name]
+        if not hist:
+            return
+        idx = _history_idx[name]
+        if key in ("Arrow Up", "ArrowUp"):
+            idx = len(hist) - 1 if idx is None else max(0, idx - 1)
+        else:
+            if idx is None:
+                return
+            idx = idx + 1 if idx + 1 < len(hist) else None
+        _history_idx[name] = idx
+        field.value = "" if idx is None else hist[idx]
+        end = len(field.value)
+        field.selection = ft.TextSelection(base_offset=end, extent_offset=end)
+        field.update()
     thumb_mem = {}                       # cache mémoire path -> bytes miniature
     # Mode commande : path -> {format: nombre} — une photo peut avoir
     # plusieurs formats commandés. Édition via un clic sur la vignette
@@ -283,9 +319,12 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
     #  Surface Fichiers (Explorateur) — liste ⇄ vignettes + sélection
     # ═════════════════════════════════════════════════════════════════════
-    files_path = ft.Text("Aucun dossier ouvert", size=CONSTANTS.TEXT_MD,
-                         color=WHITE, no_wrap=True, expand=True,
-                         weight=ft.FontWeight.W_500)
+    files_path = ft.TextField(
+        hint_text="Aucun dossier ouvert", dense=True, height=40, expand=True,
+        bgcolor=DARK, border_color=BLUE, border_radius=8, color=WHITE,
+        text_size=CONSTANTS.TEXT_MD, content_padding=ft.Padding(10, 0, 10, 0),
+        on_focus=_suspend_kb, on_blur=_resume_kb,
+    )
     sel_count = ft.Text("", size=CONSTANTS.TEXT_SM, color=BLUE, no_wrap=True,
                         weight=ft.FontWeight.W_600)
     # Vue liste : ListView + ListTile, primitives éprouvées de Dashboard.
@@ -1070,6 +1109,25 @@ def main(page: ft.Page):
         _render()
         page.run_task(_focus_active_surface)
 
+    def _on_files_path_submit(event):
+        raw = (files_path.value or "").strip().strip('"').strip("'")
+        if raw and os.path.isdir(raw):
+            files_path.error = None
+            _navigate(raw)
+        else:
+            files_path.error = "Dossier introuvable"
+            files_path.value = state["folder"] or ""
+        files_path.update()
+
+    def _on_files_path_blur(event):
+        _resume_kb(event)
+        files_path.error = None
+        files_path.value = state["folder"] or ""
+        files_path.update()
+
+    files_path.on_submit = _on_files_path_submit
+    files_path.on_blur = _on_files_path_blur
+
     async def _pick_folder(event):
         folder = await ft.FilePicker().get_directory_path(
             dialog_title="Dossier d'images",
@@ -1258,8 +1316,8 @@ def main(page: ft.Page):
     view_seg = ft.CupertinoSlidingSegmentedButton(
         selected_index=0,
         controls=[
-            _seg_label(ft.Icons.GRID_VIEW, "Vignettes"),
-            _seg_label(ft.Icons.VIEW_LIST, "Liste"),
+            _seg_label(ft.Icons.GRID_VIEW, ""),
+            _seg_label(ft.Icons.VIEW_LIST, ""),
         ],
         bgcolor=DARK, thumb_color=BLUE, padding=ft.Padding(4, 6, 4, 6),
         on_change=_on_view_seg_change,
@@ -1715,7 +1773,6 @@ def main(page: ft.Page):
     _MENU_LANE_HEIGHT = 340
     _FAV_COL_ITEMS = 8   # au-delà, une nouvelle colonne apparaît (défilement horizontal)
     _FAV_VISIBLE_COLS = 3   # colonnes de favoris visibles sans défiler
-    _FAV_LANE_WIDTH = _MENU_LANE_WIDTH * _FAV_VISIBLE_COLS + 6 * (_FAV_VISIBLE_COLS - 1)
 
     def _chunked(seq, n):
         return [seq[i:i + n] for i in range(0, len(seq), n)]
@@ -1750,8 +1807,11 @@ def main(page: ft.Page):
                          content=ft.Column(chunk, spacing=0))
              for chunk in fav_chunks],
             spacing=6, scroll=ft.ScrollMode.ALWAYS)
+        fav_cols_shown = min(len(fav_chunks), _FAV_VISIBLE_COLS)
+        fav_lane_width = (_MENU_LANE_WIDTH * fav_cols_shown
+                          + 6 * (fav_cols_shown - 1))
         fav_lane = ft.Container(
-            width=_FAV_LANE_WIDTH, height=_MENU_LANE_HEIGHT,
+            width=fav_lane_width, height=_MENU_LANE_HEIGHT,
             content=ft.Column([
                 _menu_section_label("Favoris"),
                 fav_columns_row,
@@ -1946,7 +2006,7 @@ def main(page: ft.Page):
             ft.Text("ACTIONS", size=CONSTANTS.TEXT_MD, color=DARK,
                     weight=ft.FontWeight.W_800),
         ], spacing=6, tight=True),
-        style=ft.ButtonStyle(bgcolor=ORANGE, padding=ft.Padding(20, 14, 20, 14),
+        style=ft.ButtonStyle(bgcolor=ORANGE, padding=ft.Padding(14, 6, 14, 6),
                              shape=ft.RoundedRectangleBorder(radius=10)),
         on_click=lambda e: _open_actions(e),
     )
@@ -2022,7 +2082,6 @@ def main(page: ft.Page):
                     order_mode_btn,
                     create_order_btn,
                     ft.Container(expand=True),
-                    actions_btn,
                 ], spacing=10),
                 touch_actions_row,
             ], spacing=10),
@@ -2221,11 +2280,20 @@ def main(page: ft.Page):
 
     ai_chat_view = ft.ListView(expand=True, spacing=4, auto_scroll=True)
     ai_attach_row = ft.Row([], spacing=6, wrap=True, visible=False)
+    def _ai_input_on_focus(event=None):
+        _focused_input["name"] = "ai"
+
+    def _ai_input_on_blur(event=None):
+        if _focused_input["name"] == "ai":
+            _focused_input["name"] = None
+        _history_idx["ai"] = None
+
     ai_input_field = ft.TextField(
         hint_text="Posez votre question… (Entrée pour envoyer)",
         border_color=BLUE,
         text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
-        dense=True, expand=True, color=WHITE, bgcolor=DARK, shift_enter=True)
+        dense=True, expand=True, color=WHITE, bgcolor=DARK, shift_enter=True,
+        on_focus=_ai_input_on_focus, on_blur=_ai_input_on_blur)
     ai_model_dropdown = ft.Dropdown(
         value=CONSTANTS.AI_MODEL_TEXT,
         options=[ft.dropdown.Option(m) for m in CONSTANTS.AI_DROPDOWN_MODELS
@@ -2901,6 +2969,34 @@ def main(page: ft.Page):
             pass
         page.update()
 
+    def _export_ai_conversation(to_notepad=False, event=None):
+        if not ai_conversation:
+            ai_status_text.value = "Aucune conversation à exporter"
+            page.update()
+            return
+        text = _format_ai_conversation(ai_conversation, CONSTANTS.AI_USER_NAME,
+                                       CONSTANTS.AI_SEPARATOR_WIDTH)
+
+        async def _copy():
+            try:
+                await ft.Clipboard().set(text)
+                ai_status_text.value = "Conversation copiée dans le presse-papiers"
+            except Exception:
+                ai_status_text.value = "Erreur lors de la copie"
+            page.update()
+        page.run_task(_copy)
+
+        if to_notepad:
+            current = notes_field.value or ""
+            sep = ("\n\n" + "#" * CONSTANTS.AI_SEPARATOR_WIDTH + "\n\n"
+                  if current.strip() else "")
+            notes_field.value = current + sep + text
+            _notes_save()
+            if notes_is_preview["value"]:
+                notes_preview.value = notes_field.value or ""
+            _select_surface("notes")
+            page.update()
+
     def _ai_refresh_attach_row():
         ai_attach_row.controls.clear()
         for entry in ai_pending_images:
@@ -3107,6 +3203,14 @@ def main(page: ft.Page):
                 if folder:
                     system_content += f"\n\nDOSSIER ACTUELLEMENT OUVERT : {folder}"
                 history = ai_conversation[-CONSTANTS.AI_HISTORY_LIMIT_CLOUD:]
+                # Une troncature brute peut couper juste après un tour
+                # assistant(tool_calls), laissant une réponse d'outil
+                # orpheline en tête : Gemini exige un tour function_call
+                # immédiatement suivi de son function_response, sinon 400
+                # INVALID_ARGUMENT (cf. nettoyage MCP Notion, plusieurs
+                # paires d'appels d'outils dépassant la fenêtre).
+                while history and history[0].get("role") == "tool":
+                    history = history[1:]
                 messages = [{"role": "system", "content": system_content}, *history]
 
                 model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_TEXT
@@ -3232,6 +3336,7 @@ def main(page: ft.Page):
         text = (ai_input_field.value or "").strip()
         if not text and not ai_pending_images and not ai_pending_files:
             return
+        _history_add("ai", text)
         ai_input_field.value = ""
         page.update()
         _send_ai_message(text)
@@ -3247,6 +3352,14 @@ def main(page: ft.Page):
     ai_clear_button = ft.IconButton(
         ft.Icons.DELETE_OUTLINE, icon_color=RED, icon_size=18,
         tooltip="Effacer la conversation", on_click=_ai_clear_conversation)
+    ai_copy_button = ft.IconButton(
+        ft.Icons.COPY_ALL, icon_color=BLUE, icon_size=18,
+        tooltip="Copier la conversation IA",
+        on_click=lambda e: _export_ai_conversation(to_notepad=False))
+    ai_to_notepad_button = ft.IconButton(
+        ft.Icons.SEND_TO_MOBILE, icon_color=VIOLET, icon_size=18,
+        tooltip="Transférer la conversation vers le bloc-notes",
+        on_click=lambda e: _export_ai_conversation(to_notepad=True))
 
     ia_surface = ft.Column([
         ft.Container(
@@ -3254,6 +3367,8 @@ def main(page: ft.Page):
                 ft.Text("Assistant IA", size=CONSTANTS.TEXT_LG, color=WHITE,
                         weight=ft.FontWeight.W_500, expand=True),
                 ai_model_dropdown,
+                ai_copy_button,
+                ai_to_notepad_button,
                 ai_clear_button,
             ], spacing=8),
             padding=ft.Padding(8, 8, 8, 0)),
@@ -4552,11 +4667,21 @@ def main(page: ft.Page):
     #  (threading.Timer + lock), un run_task par ligne suffit à ce volume.
     # ═════════════════════════════════════════════════════════════════════
     terminal_output = ft.ListView(expand=True, spacing=2, auto_scroll=True)
+    def _terminal_input_on_focus(event=None):
+        _suspend_kb(event)
+        _focused_input["name"] = "terminal"
+
+    def _terminal_input_on_blur(event=None):
+        _resume_kb(event)
+        if _focused_input["name"] == "terminal":
+            _focused_input["name"] = None
+        _history_idx["terminal"] = None
+
     terminal_input = ft.TextField(
         hint_text="> Terminal", bgcolor=DARK, border_color=GREY, color=WHITE,
         text_size=CONSTANTS.TERMINAL_FONT_SIZE, expand=True,
         content_padding=ft.Padding(10, 8, 10, 8),
-        on_focus=_suspend_kb, on_blur=_resume_kb)
+        on_focus=_terminal_input_on_focus, on_blur=_terminal_input_on_blur)
 
     def _log_to_terminal(message, color=None):
         message = (message or "").strip()
@@ -4574,9 +4699,40 @@ def main(page: ft.Page):
 
         page.run_task(_do)
 
-    def _exec_terminal_command(command_text):
+    def _export_terminal(to_notepad=False, event=None):
+        text = "\n".join(c.value for c in terminal_output.controls
+                         if isinstance(c, ft.Text) and c.value)
+        if not text:
+            return
+
+        async def _copy():
+            try:
+                await ft.Clipboard().set(text)
+                _log_to_terminal("[OK] Terminal copié dans le presse-papiers", BLUE)
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] Copie terminal : {exc}", RED)
+        page.run_task(_copy)
+
+        if to_notepad:
+            current = notes_field.value or ""
+            sep = ("\n\n" + "#" * CONSTANTS.AI_SEPARATOR_WIDTH + "\n\n"
+                  if current.strip() else "")
+            notes_field.value = current + sep + text
+            _notes_save()
+            if notes_is_preview["value"]:
+                notes_preview.value = notes_field.value or ""
+            _select_surface("notes")
+            page.update()
+
+    def _exec_terminal_command(command_text, sudo_password=None):
         cwd = state["folder"] or _APP_DIR
         _log_to_terminal(f"> {command_text}", YELLOW)
+        if sudo_password is not None:
+            # "-S" fait lire le mot de passe sur stdin plutôt que sur le
+            # tty : seul moyen de le fournir sans l'exposer en argument de
+            # commande (visible dans `ps`) ni dans les logs du terminal.
+            rest = command_text.split(None, 1)
+            command_text = "sudo -S " + (rest[1] if len(rest) > 1 else "")
 
         def _run():
             try:
@@ -4593,8 +4749,16 @@ def main(page: ft.Page):
                                         executable=shell_exe)
                 proc = subprocess.Popen(
                     **popen_kwargs, stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.PIPE if sudo_password is not None else None,
+                    text=True, encoding="utf-8",
                     errors="replace", cwd=cwd)
+                if sudo_password is not None:
+                    try:
+                        proc.stdin.write(sudo_password + "\n")
+                        proc.stdin.flush()
+                    except Exception:
+                        pass
                 killed = {"value": False}
 
                 def _kill_on_timeout():
@@ -4630,21 +4794,68 @@ def main(page: ft.Page):
 
         threading.Thread(target=_run, daemon=True).start()
 
+    def _prompt_sudo_password(command_text):
+        pwd_field = ft.TextField(
+            hint_text="Mot de passe administrateur", password=True,
+            can_reveal_password=True, autofocus=True, width=280,
+            bgcolor=DARK, border_color=BLUE, text_size=13, height=40,
+            content_padding=ft.Padding(8, 4, 8, 4))
+
+        def _cancel(event):
+            dlg.open = False
+            page.update()
+
+        def _confirm(event):
+            pwd = pwd_field.value or ""
+            pwd_field.value = ""
+            dlg.open = False
+            page.update()
+            _exec_terminal_command(command_text, sudo_password=pwd)
+
+        pwd_field.on_submit = _confirm
+        dlg = ft.AlertDialog(
+            title=ft.Text("Mot de passe requis (sudo)", size=13, color=WHITE),
+            content=pwd_field,
+            actions=[
+                ft.TextButton("Exécuter", on_click=_confirm),
+                ft.TextButton("Annuler", on_click=_cancel),
+            ],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
     def _on_terminal_submit(event=None):
         command_text = (terminal_input.value or "").strip()
         if not command_text:
             return
+        _history_add("terminal", command_text)
         terminal_input.value = ""
         page.update()
+        if (platform.system() != "Windows"
+                and command_text.split(None, 1)[0] == "sudo"):
+            _prompt_sudo_password(command_text)
+            return
         _exec_terminal_command(command_text)
 
     terminal_input.on_submit = _on_terminal_submit
 
+    terminal_copy_button = ft.IconButton(
+        ft.Icons.COPY_ALL, icon_color=BLUE, icon_size=18,
+        tooltip="Copier le terminal",
+        on_click=lambda e: _export_terminal(to_notepad=False))
+    terminal_to_notepad_button = ft.IconButton(
+        ft.Icons.SEND_TO_MOBILE, icon_color=VIOLET, icon_size=18,
+        tooltip="Transférer le terminal vers le bloc-notes",
+        on_click=lambda e: _export_terminal(to_notepad=True))
+
     terminal_panel = ft.Container(
         content=ft.Column([
             ft.Container(content=terminal_output, expand=True, padding=8),
-            ft.Container(content=ft.Row([terminal_input]),
-                        padding=ft.Padding(8, 0, 8, 8)),
+            ft.Container(
+                content=ft.Row([terminal_input, terminal_copy_button,
+                                terminal_to_notepad_button]),
+                padding=ft.Padding(8, 0, 8, 8)),
         ], spacing=0, expand=True),
         bgcolor=DARK, height=200, visible=False,
         border=ft.Border(top=ft.BorderSide(2, ORANGE)),
@@ -4670,6 +4881,7 @@ def main(page: ft.Page):
                 ], spacing=6, tight=True),
                 on_click=_toggle_terminal,
             ),
+            actions_btn,
             ft.Container(
                 content=ft.Row([
                     ft.Icon(ft.Icons.PHOTO_SIZE_SELECT_LARGE, size=16, color=WHITE),
@@ -4837,6 +5049,14 @@ def main(page: ft.Page):
         if ctrl and event.key in ("Arrow Up", "ArrowUp"):
             _toggle_terminal(None)
             return
+        if not ctrl and event.key in ("Arrow Up", "ArrowUp", "Arrow Down", "ArrowDown"):
+            focused = _focused_input["name"]
+            if focused == "terminal":
+                _history_navigate("terminal", event.key, terminal_input)
+                return
+            if focused == "ai":
+                _history_navigate("ai", event.key, ai_input_field)
+                return
         if _kb_suspend["count"] > 0 or _dialog_open() or state["surface"] != "files":
             return
         key = (event.key or "").upper()
