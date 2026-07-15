@@ -18,6 +18,7 @@ import flet as ft
 import os
 import sys
 import io
+import json
 import base64
 import threading
 import shutil
@@ -29,10 +30,12 @@ import CONSTANTS as KIOSK_CONSTANT
 
 try:
     from PIL import Image as PILImage, ImageOps
+    import image_ops
     HAS_PIL = True
 except ImportError:
     PILImage = None  # type: ignore[assignment]
     ImageOps = None  # type: ignore[assignment]
+    image_ops = None  # type: ignore[assignment]
     HAS_PIL = False
 
 # ── Extensions acceptées ──────────────────────────────────────────────────────
@@ -88,6 +91,19 @@ def main(page: ft.Page) -> None:
     page.run_task(_maximize_window)
     page.run_task(page.window.to_front)
 
+    # ── Verrouillage kiosque (HUB_SPEC §9) ────────────────────────────────
+    # Sélection curatée : Hub passe `SELECTED_FILES` (basenames séparés par
+    # "|", même convention que les autres outils lancés depuis Hub, cf.
+    # `_launch_tool`) avant de lancer le kiosque ; sans cette variable,
+    # repli sur `os.listdir` (lancement direct hors Hub / développement).
+    def _load_selection_manifest() -> list[str] | None:
+        raw = os.environ.get("SELECTED_FILES", "")
+        if not raw:
+            return None
+        return [name for name in raw.split("|") if name]
+
+    KIOSK_LOCKED = bool(os.environ.get("SELECTED_FILES"))
+
     # ── Tarifs et paramètres grille depuis Kiosk/CONSTANT.py ─────────────────
     STUDIOS_TARIFF: dict[str, float]      = KIOSK_CONSTANT.STUDIOS
     PRINTS_TARIFF:  dict[str, list]       = KIOSK_CONSTANT.PRINTS
@@ -118,6 +134,9 @@ def main(page: ft.Page) -> None:
     total_price = {"value": 0.0}
     nb_state: dict[tuple, bool] = {}        # (format_name, filename) → True = N&B actif pour ce format
     image_cards: dict[str, dict] = {}       # {filename: {card, count_text, image_ctrl, nb_button}}
+    # filename -> chemin d'une copie recadrée (dossier _RECADRES), utilisée
+    # à la place de l'original par validate_order si présente.
+    crop_overrides: dict[str, str] = {}
 
     KIOSK_PAGE_SIZE  = 60               # nombre de cartes affichées par page
     kiosk_page       = {"value": 0}     # page courante (0-indexé)
@@ -127,7 +146,7 @@ def main(page: ft.Page) -> None:
     #  Helpers d'état
     # ─────────────────────────────────────────────────────────────────────
 
-    FRAIS_AMORCE = 1.50  # Frais d'amorce par commande (mode PRINTS uniquement)
+    FRAIS_AMORCE = KIOSK_CONSTANT.ORDER_SETUP_FEE  # partagé avec Hub.pyw
 
     def _recalculate_total() -> None:
         total = 0.0
@@ -214,6 +233,143 @@ def main(page: ft.Page) -> None:
             page.run_task(_apply)
 
         threading.Thread(target=_reload_thumbnail, daemon=True).start()
+
+    # ── Recadrage client (HUB_SPEC §9 : le kiosque doit permettre de
+    #  recadrer, contrairement à l'ancienne version) ─────────────────────
+    _crop_dlg_state = {"path": None, "filename": None, "image": None,
+                       "original_width": 0, "original_height": 0,
+                       "scale": 1.0, "offset_x": 0.0, "offset_y": 0.0,
+                       "canvas_w": 700.0, "canvas_h": 700.0, "base_scale": 1.0}
+
+    def _open_crop_dialog(filename: str) -> None:
+        if not HAS_PIL:
+            return
+        fmt = current_size["value"]
+        if fmt not in KIOSK_CONSTANT.FORMATS:
+            page.show_dialog(ft.SnackBar(
+                ft.Text("Recadrage indisponible pour ce format.", color=C_WHITE),
+                bgcolor=C_GREY, duration=3000,
+                behavior=ft.SnackBarBehavior.FLOATING))
+            return
+        source_path = os.path.join(current_folder["path"], filename)
+        try:
+            with PILImage.open(source_path) as im:
+                im = ImageOps.exif_transpose(im).convert("RGB")
+                _crop_dlg_state["image"] = im.copy()
+        except Exception:
+            return
+        w, h = _crop_dlg_state["image"].size
+        _crop_dlg_state.update({
+            "path": source_path, "filename": filename,
+            "original_width": w, "original_height": h,
+            "scale": 1.0, "offset_x": 0.0, "offset_y": 0.0,
+            "base_scale": max(_crop_dlg_state["canvas_w"] / w,
+                              _crop_dlg_state["canvas_h"] / h),
+        })
+        _crop_dlg_render()
+        crop_client_dialog.open = True
+        if crop_client_dialog not in page.overlay:
+            page.overlay.append(crop_client_dialog)
+        page.update()
+
+    def _crop_dlg_view():
+        s = _crop_dlg_state
+        return image_ops.CropView(
+            canvas_w=s["canvas_w"], canvas_h=s["canvas_h"],
+            base_scale=s["base_scale"], offset_x=s["offset_x"],
+            offset_y=s["offset_y"], scale=s["scale"], rotation=0.0,
+            original_width=s["original_width"],
+            original_height=s["original_height"],
+            display_w=s["original_width"] * s["base_scale"],
+            display_h=s["original_height"] * s["base_scale"],
+        )
+
+    def _crop_dlg_render() -> None:
+        img = _crop_dlg_state["image"]
+        if img is None:
+            return
+        clamped = image_ops.clamp_offsets(_crop_dlg_view(), is_fit_in=False)
+        _crop_dlg_state["scale"] = clamped.scale
+        _crop_dlg_state["offset_x"] = clamped.offset_x
+        _crop_dlg_state["offset_y"] = clamped.offset_y
+        fmt_w, fmt_h = KIOSK_CONSTANT.FORMATS[current_size["value"]]
+        result = image_ops.compute_crop_for_format(
+            img, fmt_w, fmt_h, True, clamped, dpi=96)
+        buf = io.BytesIO()
+        result.save(buf, "JPEG", quality=85)
+        crop_client_image.src = buf.getvalue()
+        page.update()
+
+    def _crop_dlg_nudge(dx, dy):
+        def _on_click(e):
+            step = _crop_dlg_state["canvas_w"] * 0.06
+            _crop_dlg_state["offset_x"] += dx * step
+            _crop_dlg_state["offset_y"] += dy * step
+            _crop_dlg_render()
+        return _on_click
+
+    def _crop_dlg_zoom_end(e) -> None:
+        _crop_dlg_state["scale"] = max(1.0, e.control.value)
+        _crop_dlg_render()
+
+    def _crop_dlg_cancel(e=None) -> None:
+        crop_client_dialog.open = False
+        page.update()
+
+    def _crop_dlg_validate(e=None) -> None:
+        img = _crop_dlg_state["image"]
+        if img is None:
+            return
+        clamped = image_ops.clamp_offsets(_crop_dlg_view(), is_fit_in=False)
+        fmt_w, fmt_h = KIOSK_CONSTANT.FORMATS[current_size["value"]]
+        result = image_ops.compute_crop_for_format(
+            img, fmt_w, fmt_h, True, clamped, dpi=KIOSK_CONSTANT.DPI)
+        folder = os.path.join(current_folder["path"], "_RECADRES")
+        try:
+            os.makedirs(folder, exist_ok=True)
+            stem = os.path.splitext(_crop_dlg_state["filename"])[0]
+            dest = os.path.join(folder, f"{stem}_recadre.jpg")
+            result.save(dest, "JPEG", quality=100,
+                        dpi=(KIOSK_CONSTANT.DPI, KIOSK_CONSTANT.DPI))
+        except Exception:
+            crop_client_dialog.open = False
+            page.update()
+            return
+        crop_overrides[_crop_dlg_state["filename"]] = dest
+        crop_client_dialog.open = False
+        page.update()
+
+    crop_client_image = ft.Image(
+        src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
+        fit=ft.BoxFit.CONTAIN, expand=True)
+    crop_client_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Recadrer"),
+        content=ft.Container(
+            width=460, height=560,
+            content=ft.Column([
+                ft.Container(content=crop_client_image, height=380,
+                            bgcolor=C_DARK, alignment=ft.Alignment(0, 0)),
+                ft.Text("Zoom", size=12, color=C_LIGHT_GREY),
+                ft.Slider(min=1, max=3, value=1, on_change_end=_crop_dlg_zoom_end),
+                ft.Row([
+                    ft.IconButton(ft.Icons.ARROW_UPWARD, icon_color=C_WHITE,
+                                 on_click=_crop_dlg_nudge(0, -1)),
+                    ft.IconButton(ft.Icons.ARROW_DOWNWARD, icon_color=C_WHITE,
+                                 on_click=_crop_dlg_nudge(0, 1)),
+                    ft.IconButton(ft.Icons.ARROW_BACK, icon_color=C_WHITE,
+                                 on_click=_crop_dlg_nudge(-1, 0)),
+                    ft.IconButton(ft.Icons.ARROW_FORWARD, icon_color=C_WHITE,
+                                 on_click=_crop_dlg_nudge(1, 0)),
+                ], spacing=2, tight=True, alignment=ft.MainAxisAlignment.CENTER),
+            ], spacing=8, tight=True),
+        ),
+        actions=[
+            ft.TextButton("Annuler", on_click=_crop_dlg_cancel),
+            ft.ElevatedButton("Valider", icon=ft.Icons.CHECK,
+                              on_click=_crop_dlg_validate),
+        ],
+    )
 
     def on_show_preview(filename: str) -> None:
         """Affiche la prévisualisation plein écran avec PageView pour swiper entre les images."""
@@ -503,6 +659,14 @@ def main(page: ft.Page) -> None:
                 ),
                 ft.Container(width=12),
                 nb_preview_button,
+                ft.IconButton(
+                    icon=ft.Icons.CROP,
+                    icon_color=C_LIGHT_GREY,
+                    icon_size=28,
+                    tooltip="Recadrer",
+                    on_click=lambda e: _open_crop_dialog(_current_filename()),
+                    style=ft.ButtonStyle(padding=ft.Padding.all(4)),
+                ),
                 ft.Container(width=8),
                 ft.IconButton(
                     icon=ft.Icons.CHEVRON_RIGHT,
@@ -758,11 +922,20 @@ def main(page: ft.Page) -> None:
         kiosk_page_token["value"] += 1
         token = kiosk_page_token["value"]
 
-        # Scan des images
+        # Scan des images — sélection curatée (manifeste) si verrouillé,
+        # sinon listing classique du dossier (lancement hors Hub / dev).
+        manifest = _load_selection_manifest()
         try:
-            for entry_name in sorted(os.listdir(folder_path)):
-                if entry_name.lower().endswith(KIOSK_EXTENSION):
-                    images_list.append(entry_name)
+            if manifest is not None:
+                existing = set(os.listdir(folder_path))
+                for entry_name in manifest:
+                    if (entry_name in existing
+                            and entry_name.lower().endswith(KIOSK_EXTENSION)):
+                        images_list.append(entry_name)
+            else:
+                for entry_name in sorted(os.listdir(folder_path)):
+                    if entry_name.lower().endswith(KIOSK_EXTENSION):
+                        images_list.append(entry_name)
         except PermissionError:
             pass
 
@@ -872,7 +1045,8 @@ def main(page: ft.Page) -> None:
         # ── Copie les fichiers sélectionnés dans SELECTION/ avec nomenclature {count}X_{format}_{original} ──
         for format_name, file_counts in format_selections.items():
             for filename, count in file_counts.items():
-                source_path = os.path.join(folder_path, filename)
+                source_path = crop_overrides.get(
+                    filename, os.path.join(folder_path, filename))
                 if not os.path.isfile(source_path):
                     continue
                 original_stem, file_extension = os.path.splitext(filename)
@@ -929,6 +1103,28 @@ def main(page: ft.Page) -> None:
 
         if errors:
             print(f"[ERREUR] Copie fichiers :\n" + "\n".join(errors))
+
+        # ── Unifie avec le mode commande de Hub.pyw (même fichier .order.json,
+        #  clé = chemin absolu de l'original) — la copie SELECTION/commande.txt
+        #  reste par ailleurs le flux d'impression physique inchangé.
+        try:
+            order_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                ".order.json")
+            try:
+                with open(order_path, "r", encoding="utf-8") as f:
+                    shared_order = json.load(f)
+            except (OSError, ValueError):
+                shared_order = {}
+            for format_name, file_counts in format_selections.items():
+                for filename, count in file_counts.items():
+                    abs_path = os.path.abspath(
+                        os.path.join(folder_path, filename))
+                    shared_order.setdefault(abs_path, {})[format_name] = count
+            with open(order_path, "w", encoding="utf-8") as f:
+                json.dump(shared_order, f, ensure_ascii=False, indent=2)
+        except OSError:
+            pass
 
         # Réinitialisation de l'interface
         images_grid.controls.clear()
@@ -1072,17 +1268,23 @@ def main(page: ft.Page) -> None:
     )
 
     # ── Panneau gauche ────────────────────────────────────────────────────
+    # Verrouillé (manifeste fourni par Hub) : pas d'accès au système de
+    # fichiers hors de la sélection curatée (HUB_SPEC §9) — le bouton
+    # "OUVRIR" (FilePicker libre) n'est ni affiché ni cliquable.
+    left_panel_top = [] if KIOSK_LOCKED else [
+        ft.Button(
+            "OUVRIR",
+            icon=ft.Icons.FOLDER_OPEN,
+            color=C_DARK,
+            bgcolor=C_VIOLET,
+            width=KIOSK_CONSTANT.LEFT_PANEL_WIDTH - 32,
+            height=KIOSK_CONSTANT.ACTION_BUTTON_HEIGHT,
+            on_click=open_folder_dialog,
+        ),
+    ]
     left_panel = ft.Container(
         content=ft.Column([
-            ft.Button(
-                "OUVRIR",
-                icon=ft.Icons.FOLDER_OPEN,
-                color=C_DARK,
-                bgcolor=C_VIOLET,
-                width=KIOSK_CONSTANT.LEFT_PANEL_WIDTH - 32,
-                height=KIOSK_CONSTANT.ACTION_BUTTON_HEIGHT,
-                on_click=open_folder_dialog,
-            ),
+            *left_panel_top,
             folder_label,
             count_label,
             ft.Divider(color=C_GREY, height=8, thickness=1),
@@ -1121,20 +1323,67 @@ def main(page: ft.Page) -> None:
         width=KIOSK_CONSTANT.LEFT_PANEL_WIDTH,
     )
 
-    async def _close_window(event=None):
-        """Bloc de fermeture aligné sur SidePanel pour terminer le process proprement."""
+    # Sortie protégée par code studio (HUB_SPEC §9) : ni la croix ni la
+    # fermeture système (Cmd+Q, Alt+F4, clic droit dock…) ne quittent
+    # directement — `prevent_close` intercepte l'événement OS et route vers
+    # le même dialogue de code que le bouton in-app.
+    def _do_exit() -> None:
         _cleanup_temp_dir()
+        page.window.prevent_close = False
         try:
-            await page.window.close()
+            page.window.close()
         except Exception:
             pass
         os._exit(0)
 
+    exit_code_field = ft.TextField(
+        label="Code studio", password=True, can_reveal_password=True,
+        width=220, bgcolor=C_DARK, border_color=C_LIGHT_GREY, color=C_WHITE,
+        on_submit=lambda e: _confirm_exit(),
+    )
+    exit_error_text = ft.Text("", size=12, color=C_RED)
+
+    def _confirm_exit(e=None) -> None:
+        if exit_code_field.value == KIOSK_CONSTANT.KIOSK_EXIT_CODE:
+            exit_dialog.open = False
+            page.update()
+            _do_exit()
+        else:
+            exit_error_text.value = "Code incorrect."
+            page.update()
+
+    def _cancel_exit(e=None) -> None:
+        exit_dialog.open = False
+        exit_code_field.value = ""
+        exit_error_text.value = ""
+        page.update()
+
+    exit_dialog = ft.AlertDialog(
+        modal=True,
+        title=ft.Text("Sortie du mode kiosque"),
+        content=ft.Column([
+            ft.Text("Code studio requis pour quitter.", size=13),
+            exit_code_field, exit_error_text,
+        ], tight=True, spacing=8),
+        actions=[
+            ft.TextButton("Annuler", on_click=_cancel_exit),
+            ft.ElevatedButton("Déverrouiller", on_click=_confirm_exit),
+        ],
+    )
+
+    def _request_exit(event=None) -> None:
+        exit_code_field.value = ""
+        exit_error_text.value = ""
+        if exit_dialog not in page.overlay:
+            page.overlay.append(exit_dialog)
+        exit_dialog.open = True
+        page.update()
+
     def _on_window_event(event) -> None:
         if getattr(event, "data", "") == "close":
-            _cleanup_temp_dir()
-            os._exit(0)
+            _request_exit()
 
+    page.window.prevent_close = True
     page.window.on_event = _on_window_event
 
     # ── Tableau des tarifs ────────────────────────────────────────────────
@@ -1233,7 +1482,7 @@ def main(page: ft.Page) -> None:
                 icon_color=C_RED,
                 icon_size=22,
                 tooltip="Quitter",
-                on_click=lambda e: page.run_task(_close_window),
+                on_click=_request_exit,
                 visible=True,
                 style=ft.ButtonStyle(padding=ft.Padding.all(4)),
             ),

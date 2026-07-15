@@ -56,6 +56,9 @@ open_with.json
 .mots_cles.json
 .ai_conversation.json
 .ai_conversation_sp.json
+.ai_conversation_hub.json
+.order.json
+.liste.json
 
 # Fichiers mémoire IA persistante
 Data/.thumbcache.db

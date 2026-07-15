@@ -693,6 +693,14 @@ PRINTS = {
     "60x90"   : [30.00, 29.50, 29.00, 28.50, 28.00],
 }
 
+# Frais d'amorce par commande (mode PRINTS uniquement) — partagé entre le
+# mode commande de Hub.pyw et kiosk_flet.pyw (anciennement dupliqué).
+ORDER_SETUP_FEE = 1.50
+
+# Code studio pour déverrouiller la sortie du mode kiosque (HUB_SPEC §9) —
+# à changer avant mise en service réelle.
+KIOSK_EXIT_CODE = "2026"
+
 SIZES = STUDIOS   # Alias conservé pour compatibilité ascendante
 
 

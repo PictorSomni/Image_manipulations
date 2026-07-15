@@ -82,6 +82,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
+import image_ops
 import shutil
 import platform
 import re
@@ -133,111 +134,13 @@ RIGHT_COL_WIDTH  = 250   # Largeur de la colonne de droite (formats + histogramm
 HISTOGRAM_HEIGHT = 85    # Hauteur de l'histogramme en pixels
 
 
-def mm_to_pixels(mm, dpi=DPI):
-    """
-    Convertit une dimension en millimètres en nombre de pixels entiers.
-
-    Parameters
-    ----------
-    mm : float
-        Dimension à convertir en millimètres.
-    dpi : int, optional
-        Résolution cible en points par pouce (défaut : DPI = 300).
-
-    Returns
-    -------
-    int
-        Nombre de pixels correspondant (arrondi à l'entier inférieur).
-
-    Exemple
-    -------
-    >>> mm_to_pixels(102, 300)  # 102 mm à 300 dpi ≈ 1205 px
-    1205
-    """
-
-    return int(mm / 25.4 * dpi)
-
-
-
-# Profil sRGB pré-construit (réutilisé pour chaque export)
-_SRGB_PROFILE = ImageCms.createProfile("sRGB")
-_SRGB_ICC = ImageCms.ImageCmsProfile(_SRGB_PROFILE).tobytes()
-
-
-
-def convert_to_srgb(source_image: Image.Image, icc_profile: bytes | None) -> Image.Image:
-    """
-    Convertit une image PIL vers l'espace colorimétrique sRGB.
-
-    Si un profil ICC source est fourni (lu depuis les métadonnées de
-    l'image originale), la conversion est colorimétrique correcte via
-    ImageCms avec l'intention de rendu PERCEPTUAL. Sans profil, l'image
-    est supposée déjà en sRGB et est retournée telle quelle.
-
-    Cette fonction est appelée systématiquement :
-      - lors de la génération de la prévisualisation (_render_preview)
-      - lors de l'export final (validate_and_next) pour garantir que le
-        JPEG sauvegardé est conforme sRGB quel que soit l'espace source
-        (AdobeRGB, ProPhoto, etc.).
-
-    Parameters
-    ----------
-    source_image : PIL.Image.Image
-        Image source à convertir (mode RGB ou RGBA attendu).
-    icc_profile : bytes or None
-        Profil ICC brut de l'image source (source_image.info.get('icc_profile')).
-        None si aucun profil n'est disponible.
-
-    Returns
-    -------
-    PIL.Image.Image
-        Image en mode RGB dans l'espace colorimétrique sRGB.
-    """
-
-    if not icc_profile:
-        return source_image  # déjà sRGB par défaut
-    try:
-        src_profile = ImageCms.ImageCmsProfile(io.BytesIO(icc_profile))
-        rgb_image = source_image.convert("RGB")
-        return ImageCms.profileToProfile(
-            rgb_image, src_profile, _SRGB_PROFILE,
-            renderingIntent=ImageCms.Intent.PERCEPTUAL,
-            outputMode="RGB",
-        )
-    except Exception:
-        return source_image
-
-
-
-def _erode_alpha(source_image: Image.Image, radius: int) -> Image.Image:
-    """
-    Érode le canal alpha d'une image RGBA d'environ ``radius`` pixels.
-
-    Utilise un filtre morphologique Min (ImageFilter.MinFilter) sur le
-    canal alpha pour supprimer les franges résiduelles (halo coloré) en
-    bordure de masque après suppression de fond par IA.
-
-    Parameters
-    ----------
-    img : PIL.Image.Image
-        Image en mode RGBA.
-    radius : int
-        Rayon d'érosion en pixels. 0 ou négatif = pas d'érosion.
-
-    Returns
-    -------
-    PIL.Image.Image
-        Image RGBA avec le canal alpha érodé.
-    """
-
-    if source_image.mode != "RGBA" or radius <= 0:
-        return source_image
-    r, g, b, alpha_channel = source_image.split()
-    # MinFilter(3) appliqué radius fois : coût O(9 × radius × N pixels)
-    # bien plus rapide que MinFilter(2*radius+1) en O((2r+1)² × N).
-    for _ in range(radius):
-        alpha_channel = alpha_channel.filter(ImageFilter.MinFilter(3))
-    return Image.merge("RGBA", (r, g, b, alpha_channel))
+# Géométrie/couleur/sRGB/érosion alpha : logique partagée avec Hub.pyw,
+# extraite dans image_ops.py pour ne plus être dupliquée entre les deux
+# apps (voir docs/HUB_SPEC.md §14).
+mm_to_pixels = image_ops.mm_to_pixels
+convert_to_srgb = image_ops.convert_to_srgb
+_erode_alpha = image_ops.erode_alpha
+_SRGB_ICC = image_ops._SRGB_ICC
 
 
 
@@ -531,7 +434,6 @@ class PhotoCropper:
         self._last_pan_render = 0.0   # Throttle pan : horodatage du dernier update
         self._last_rotation_render = 0.0  # Throttle rotation
         self._last_zoom_render = 0.0      # Throttle zoom
-        self._bounds_cache: tuple | None = None  # Cache (scale, rotation, (bw, bh))
         self._scroll_rotates = CONSTANTS.RECADRAGE_SCROLL_ROTATES       # Tab bascule défilement trackpad → rotation
         self._gesture_scale_start = 1.0    # Scale au début du geste (suivi pour le zoom)
         self._gesture_rotation_prev = 0.0  # Rotation cumulée depuis le début du geste (radians)
@@ -1038,130 +940,40 @@ class PhotoCropper:
 
 
 
+    def _crop_view(self):
+        """Construit un `image_ops.CropView` depuis l'état courant."""
+        return image_ops.CropView(
+            canvas_w=self.canvas_w, canvas_h=self.canvas_h,
+            base_scale=self.base_scale, offset_x=self.offset_x,
+            offset_y=self.offset_y, scale=self.scale, rotation=self.rotation,
+            original_width=self.original_width,
+            original_height=self.original_height,
+            display_w=self.display_w, display_h=self.display_h,
+        )
+
+
+
     def _get_transformed_bounds(self):
-        """
-        Retourne les dimensions de la boîte englobante de l'image après
-        l'application du scale et de la rotation courante.
+        """Boîte englobante de l'image après scale + rotation courante.
+        Délègue à `image_ops.get_transformed_bounds`."""
 
-        La boîte englobante est calculée analytiquement (pas de rendu) :
-          bound_w = scaled_w · |cos θ| + scaled_h · |sin θ|
-          bound_h = scaled_w · |sin θ| + scaled_h · |cos θ|
-
-        Résultat mis en cache : le calcul trigonométrique n'est refait que
-        lorsque scale ou rotation ont changé depuis le dernier appel.
-
-        Returns
-        -------
-        tuple[float, float]
-            (bound_w, bound_h) en pixels écran.
-        """
-
-        if self._bounds_cache is not None:
-            cached_scale, cached_rotation, bounds_result = self._bounds_cache
-            if cached_scale == self.scale and cached_rotation == self.rotation:
-                return bounds_result
-        scaled_image_width = self.display_w * self.scale
-        scaled_image_height = self.display_h * self.scale
-        rotation_radians = math.radians(self.rotation)
-        cos_angle = abs(math.cos(rotation_radians))
-        sin_angle = abs(math.sin(rotation_radians))
-        bounding_width  = scaled_image_width * cos_angle + scaled_image_height * sin_angle
-        bounding_height = scaled_image_width * sin_angle + scaled_image_height * cos_angle
-        bounds_result = (bounding_width, bounding_height)
-        self._bounds_cache = (self.scale, self.rotation, bounds_result)
-        return bounds_result
+        return image_ops.get_transformed_bounds(self._crop_view())
 
 
 
     def _clamp_offsets(self):
         """
-        Contraint offset_x et offset_y pour qu'aucune bordure de l'image
-        n'apparaisse à l'intérieur du canevas.
-
-        Règles appliquées :
-          - Si l'image (après scale + rotation) est plus petite que le
-            canevas dans un axe, l'offset est forcé à 0 sur cet axe (l'image
-            reste centrée et ne peut pas être déplacée).
-          - Sinon, l'offset est borné symétriquement entre -(débordement/2)
-            et +(débordement/2) où le débordement vaut bound_dim − canvas_dim.
-
-        La couverture est calculée depuis base_scale × orig (avec le même
-        nudge appliqué à l'export) plutôt que depuis display_w/h (qui contient
-        un surplus de +4 px). Cela garantit que le clamping correspond
-        exactement à ce que l'export peut produire, évitant tout bord blanc.
+        Contraint scale/offset_x/offset_y pour qu'aucune bordure de l'image
+        n'apparaisse à l'intérieur du canevas. Délègue à
+        `image_ops.clamp_offsets`, qui retourne une nouvelle vue géométrique
+        appliquée ici sur `self`.
         """
 
-        # En mode crop, impose un zoom minimal dépendant de la rotation pour
-        # garantir que le canevas reste toujours entièrement couvert.
-        if not getattr(self, "is_fit_in", False) and hasattr(self, "original_width"):
-            border_safety_factor = (
-                1.0 + 2.0 / min(self.original_width, self.original_height)
-                if (self.original_width > 4 and self.original_height > 4)
-                else 1.0
-            )
-            base_effective_w = self.base_scale * self.original_width * border_safety_factor
-            base_effective_h = self.base_scale * self.original_height * border_safety_factor
-            rotation_radians = math.radians(self.rotation)
-            cos_angle = abs(math.cos(rotation_radians))
-            sin_angle = abs(math.sin(rotation_radians))
-            required_width = self.canvas_w * cos_angle + self.canvas_h * sin_angle
-            required_height = self.canvas_w * sin_angle + self.canvas_h * cos_angle
-            min_scale_for_rotation = max(
-                required_width / max(base_effective_w, 1e-6),
-                required_height / max(base_effective_h, 1e-6),
-                1.0,
-            )
-            if self.scale < min_scale_for_rotation:
-                self.scale = min_scale_for_rotation
-
-        # Couverture réelle en pixels écran — identique à l'export (_compute_crop_with_canvas)
-        border_safety_factor = (
-            1.0 + 2.0 / min(self.original_width, self.original_height)
-            if (self.original_width > 4 and self.original_height > 4)
-            else 1.0
-        )
-        effective_width = self.base_scale * self.original_width * self.scale * border_safety_factor
-        effective_height = self.base_scale * self.original_height * self.scale * border_safety_factor
-
-        # Clamp robuste en rotation : on borne les offsets dans le repère local
-        # de l'image tournée, puis on reconvertit dans le repère écran.
-        rotation_radians = math.radians(self.rotation)
-        cos_rotation = math.cos(rotation_radians)
-        sin_rotation = math.sin(rotation_radians)
-
-        half_canvas_width = self.canvas_w / 2.0
-        half_canvas_height = self.canvas_h / 2.0
-        half_image_width = effective_width / 2.0
-        half_image_height = effective_height / 2.0
-
-        projected_half_canvas_x = (
-            abs(cos_rotation) * half_canvas_width
-            + abs(sin_rotation) * half_canvas_height
-        )
-        projected_half_canvas_y = (
-            abs(sin_rotation) * half_canvas_width
-            + abs(cos_rotation) * half_canvas_height
-        )
-
-        max_local_offset_x = half_image_width - projected_half_canvas_x
-        max_local_offset_y = half_image_height - projected_half_canvas_y
-
-        # Offsets courants exprimés dans le repère local de l'image.
-        local_offset_x = cos_rotation * self.offset_x + sin_rotation * self.offset_y
-        local_offset_y = -sin_rotation * self.offset_x + cos_rotation * self.offset_y
-
-        if max_local_offset_x <= 0.0:
-            local_offset_x = 0.0
-        else:
-            local_offset_x = min(max_local_offset_x, max(-max_local_offset_x, local_offset_x))
-
-        if max_local_offset_y <= 0.0:
-            local_offset_y = 0.0
-        else:
-            local_offset_y = min(max_local_offset_y, max(-max_local_offset_y, local_offset_y))
-
-        self.offset_x = cos_rotation * local_offset_x - sin_rotation * local_offset_y
-        self.offset_y = sin_rotation * local_offset_x + cos_rotation * local_offset_y
+        clamped = image_ops.clamp_offsets(
+            self._crop_view(), is_fit_in=getattr(self, "is_fit_in", False))
+        self.scale = clamped.scale
+        self.offset_x = clamped.offset_x
+        self.offset_y = clamped.offset_y
 
 
 
@@ -1651,89 +1463,21 @@ class PhotoCropper:
             Image recadrée en mode RGB.
         """
 
-        rotation_radians = math.radians(self.rotation)
-        cos_rotation = math.cos(rotation_radians)
-        sin_rotation = math.sin(rotation_radians)
-
         active_zoom_scale = scale_override if scale_override is not None else self.scale
-        total_scale_factor = base_scale * active_zoom_scale
-        if total_scale_factor <= 0:
-            total_scale_factor = 1e-6
-
-        # Décale légèrement total_scale_factor pour que le noyau BICUBIC ne sorte jamais
-        # des limites de l'image source. Quand le ratio de l'image correspond exactement
-        # au ratio du format au zoom par défaut, les pixels de bord se projettent sur les
-        # coordonnées src 0.0 / orig_w, ce qui forcerait BICUBIC à lire l'index -1 —
-        # PIL le comble avec (255,255,255,0) → fine frange blanche après compositage alpha.
-        if self.original_width > 4 and self.original_height > 4:
-            total_scale_factor *= 1.0 + 2.0 / min(self.original_width, self.original_height)
-
-        canvas_center_x = canvas_w / 2 + offset_x
-        canvas_center_y = canvas_h / 2 + offset_y
-        image_center_x = self.original_width / 2
-        image_center_y = self.original_height / 2
-
-        scaled_rotated_image_center_x = total_scale_factor * (cos_rotation * image_center_x - sin_rotation * image_center_y)
-        scaled_rotated_image_center_y = total_scale_factor * (sin_rotation * image_center_x + cos_rotation * image_center_y)
-        canvas_translation_x = canvas_center_x - scaled_rotated_image_center_x
-        canvas_translation_y = canvas_center_y - scaled_rotated_image_center_y
-
-        canvas_to_output_scale_x = canvas_w / target_w_px
-        canvas_to_output_scale_y = canvas_h / target_h_px
-
-        inverse_total_scale = 1.0 / total_scale_factor
-
-        affine_m11 = inverse_total_scale * cos_rotation * canvas_to_output_scale_x
-        affine_m12 = inverse_total_scale * sin_rotation * canvas_to_output_scale_y
-        affine_m21 = inverse_total_scale * -sin_rotation * canvas_to_output_scale_x
-        affine_m22 = inverse_total_scale * cos_rotation * canvas_to_output_scale_y
-
-        inverse_translation_x = inverse_total_scale * (cos_rotation * canvas_translation_x + sin_rotation * canvas_translation_y)
-        inverse_translation_y = inverse_total_scale * (-sin_rotation * canvas_translation_x + cos_rotation * canvas_translation_y)
-        affine_offset_x = -inverse_translation_x
-        affine_offset_y = -inverse_translation_y
-
-        output_image = self.current_pil_image.transform(
-            (target_w_px, target_h_px),
-            Image.Transform.AFFINE,
-            (affine_m11, affine_m12, affine_offset_x, affine_m21, affine_m22, affine_offset_y),
-            resample=Image.Resampling.BICUBIC,
-            fillcolor=(255, 255, 255, 0),
+        view = image_ops.CropView(
+            canvas_w=canvas_w, canvas_h=canvas_h, base_scale=base_scale,
+            offset_x=offset_x, offset_y=offset_y, scale=active_zoom_scale,
+            rotation=self.rotation, original_width=self.original_width,
+            original_height=self.original_height,
+            display_w=self.display_w, display_h=self.display_h,
         )
-
-        if output_image.mode == "RGBA":
-            # Érosion du canal alpha (suppression des franges résiduelles)
-            if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
-                erosion_radius = max(1, round(min(output_image.size) * self.rembg_erosion_pct / 100))
-                output_image = _erode_alpha(output_image, erosion_radius)
-            _bg_mode = getattr(self, 'rembg_bg_mode', 0)
-            if _bg_mode == 0:
-                background_layer = Image.new("RGBA", output_image.size, (255, 255, 255, 255))
-            elif _bg_mode == 1:
-                background_layer = Image.new("RGBA", output_image.size, (230, 230, 230, 255))
-            else:
-                original_image_for_blur = self._rembg_original if self._rembg_original is not None else None
-                if original_image_for_blur is not None:
-                    original_crop = original_image_for_blur.convert("RGB").transform(
-                        (target_w_px, target_h_px),
-                        Image.Transform.AFFINE,
-                        (affine_m11, affine_m12, affine_offset_x, affine_m21, affine_m22, affine_offset_y),
-                        resample=Image.Resampling.BICUBIC,
-                        fillcolor=(255, 255, 255),
-                    )
-                    blurred_background = original_crop.filter(ImageFilter.GaussianBlur(radius=64))
-                else:
-                    white_background = Image.new("RGBA", output_image.size, (255, 255, 255, 255))
-                    blurred_background = Image.alpha_composite(white_background, output_image).convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
-                background_layer = blurred_background.convert("RGBA")
-            output_image = Image.alpha_composite(background_layer, output_image).convert("RGB")
-        else:
-            output_image = output_image.convert("RGB")
-
-        if self.is_bw:
-            output_image = output_image.convert("L").convert("RGB")
-
-        return output_image
+        return image_ops.compute_crop_with_canvas(
+            self.current_pil_image, target_w_px, target_h_px, view,
+            is_bw=self.is_bw,
+            rembg_erosion_pct=getattr(self, 'rembg_erosion_pct', 0.0),
+            rembg_bg_mode=getattr(self, 'rembg_bg_mode', 0),
+            rembg_original=self._rembg_original,
+        )
 
     # ================================================================ #
     #                       MODE FIT-IN                               #
@@ -1745,55 +1489,17 @@ class PhotoCropper:
 
         Contrairement à `_compute_crop` (mode crop / remplissage), cette
         méthode utilise un scale ``min`` pour que l'image entière soit
-        visible. La rotation est toujours 0 (ignorée).
-
-        Parameters
-        ----------
-        target_w_px : int
-            Largeur de l'image de sortie en pixels.
-        target_h_px : int
-            Hauteur de l'image de sortie en pixels.
-
-        Returns
-        -------
-        PIL.Image.Image
-            Image redimensionnée collée sur fond blanc RGB.
+        visible. La rotation est toujours 0 (ignorée). Délègue à
+        `image_ops.compute_fit_in`.
         """
 
-        source_image = self.current_pil_image
-        if source_image.mode == "RGBA":
-
-            # Érosion du canal alpha (suppression des franges résiduelles)
-            if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
-                erosion_radius = max(1, round(min(source_image.size) * self.rembg_erosion_pct / 100))
-                source_image = _erode_alpha(source_image.copy(), erosion_radius)
-            _bg_mode = getattr(self, 'rembg_bg_mode', 0)
-            if _bg_mode == 0:
-                background_layer = Image.new("RGBA", source_image.size, (255, 255, 255, 255))
-            elif _bg_mode == 1:
-                background_layer = Image.new("RGBA", source_image.size, (230, 230, 230, 255))
-            else:
-                original_image_for_blur = self._rembg_original if self._rembg_original is not None else None
-                if original_image_for_blur is not None:
-                    blurred_background = original_image_for_blur.convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
-                else:
-                    white_background = Image.new("RGBA", source_image.size, (255, 255, 255, 255))
-                    blurred_background = Image.alpha_composite(white_background, source_image).convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
-                background_layer = blurred_background.convert("RGBA")
-            source_image = Image.alpha_composite(background_layer, source_image).convert("RGB")
-        else:
-            source_image = source_image.convert("RGB")
-        fit_scale_factor = min(target_w_px / self.original_width, target_h_px / self.original_height)
-        resized_width  = max(1, int(round(self.original_width  * fit_scale_factor)))
-        resized_height = max(1, int(round(self.original_height * fit_scale_factor)))
-        resized_image = source_image.resize((resized_width, resized_height), Image.Resampling.BICUBIC)
-        output_canvas = Image.new("RGB", (target_w_px, target_h_px), "white")
-        paste_offset_x = (target_w_px - resized_width)  // 2
-        paste_offset_y = (target_h_px - resized_height) // 2
-        output_canvas.paste(resized_image, (paste_offset_x, paste_offset_y))
-        if self.is_bw:
-            output_canvas = output_canvas.convert("L").convert("RGB")
-        return output_canvas
+        return image_ops.compute_fit_in(
+            self.current_pil_image, target_w_px, target_h_px,
+            self.original_width, self.original_height, is_bw=self.is_bw,
+            rembg_erosion_pct=getattr(self, 'rembg_erosion_pct', 0.0),
+            rembg_bg_mode=getattr(self, 'rembg_bg_mode', 0),
+            rembg_original=self._rembg_original,
+        )
 
 
 
@@ -1894,119 +1600,39 @@ class PhotoCropper:
             Image RGB ajustée.
         """
 
-        working_image = input_image.convert("RGB")
-        if self.exposure != 0:
-            # Exposition LAB additive : décalage du canal L uniquement.
-            # ±100 slider → ±50 px sur L (≈ ±20 L*), chrominance inchangée.
-            offset = int(self.exposure * 0.5)
-            lab = working_image.convert("LAB")
-            l_ch, a_ch, b_ch = lab.split()
-            lut = np.clip(np.arange(256) + offset, 0, 255).astype(np.uint8).tolist()
-            working_image = Image.merge("LAB", (l_ch.point(lut), a_ch, b_ch)).convert("RGB")
-        if self.contrast != 0:
-            working_image = ImageEnhance.Contrast(working_image).enhance(1.0 + self.contrast / 100.0)
-        if self.saturation != 0:
-            working_image = ImageEnhance.Color(working_image).enhance(max(0.0, 1.0 + self.saturation / 100.0))
-        if self.hue != 0:
-            working_image = self._apply_hue(working_image, self.hue)
-        if self.white_balance != 0:
-            working_image = self._apply_white_balance(working_image, self.white_balance)
-        return working_image
+        return image_ops.apply_adjustments(
+            input_image, exposure=self.exposure, contrast=self.contrast,
+            saturation=self.saturation, hue=self.hue,
+            white_balance=self.white_balance,
+        )
 
 
 
     def _apply_shadows(self, input_image, value):
-        """
-        Ajuste les ombres (similaire au slider Shadows de Camera Raw/Lightroom).
-        value : -100 … +100. Positif = éclaircit les ombres, négatif = les assombrit.
-        La courbe est nulle aux noirs purs (v=0), maximale vers v=96 et nulle dès les
-        demi-tons (v≥192), ce qui préserve les noirs et les hautes lumières.
-        """
+        """Ombres : délègue à `image_ops.apply_shadows`."""
 
-        if value == 0:
-            return input_image
-        strength_factor = value / 100.0
-        value_range = np.arange(256, dtype=np.float32)
-
-        # Courbe sinusoïdale : sin(π·v/192) — zéro en 0, pic à 96, zéro à 192+
-        normalized_value = value_range / 192.0
-        shadow_weight = np.where(normalized_value <= 1.0, np.sin(np.pi * normalized_value), 0.0)
-        shadow_amplitude = 60  # amplitude max en niveaux d'intensité
-        lookup_table = np.clip(value_range + strength_factor * shadow_amplitude * shadow_weight, 0, 255).astype(np.uint8)
-        input_rgb = input_image.convert("RGB")
-        image_array = np.array(input_rgb, dtype=np.uint8)
-        return Image.fromarray(lookup_table[image_array], "RGB")
+        return image_ops.apply_shadows(input_image, value)
 
 
 
     def _apply_highlights(self, input_image, value):
-        """Ajuste les hautes lumières (miroir des ombres).
-        value : -100 … +100. Positif = éclaircit les hautes lumières, négatif = les assombrit.
-        Courbe nulle sous v=64, pic vers v=192, nulle aux blancs purs (v=255)."""
+        """Hautes lumières : délègue à `image_ops.apply_highlights`."""
 
-        if value == 0:
-            return input_image
-        strength_factor = value / 100.0
-        value_range = np.arange(256, dtype=np.float32)
-
-        # Courbe : sin(π·(v-64)/192) pour v dans [64, 255], zéro ailleurs
-        normalized_value = (value_range - 64.0) / 192.0
-        highlight_weight = np.where((normalized_value >= 0.0) & (normalized_value <= 1.0), np.sin(np.pi * normalized_value), 0.0)
-        highlight_amplitude = 60
-        lookup_table = np.clip(value_range + strength_factor * highlight_amplitude * highlight_weight, 0, 255).astype(np.uint8)
-        input_rgb = input_image.convert("RGB")
-        image_array = np.array(input_rgb, dtype=np.uint8)
-        return Image.fromarray(lookup_table[image_array], "RGB")
+        return image_ops.apply_highlights(input_image, value)
 
 
 
     def _apply_hue(self, input_image, value):
-        """Teinte : décale vers vert (négatif) ou magenta (positif), comme Lightroom.
+        """Teinte : délègue à `image_ops.apply_hue`."""
 
-        value dans [-180, +180] ; effet max ±30 % sur R/G/B via LUT.
-        """
-
-        if value == 0:
-            return input_image
-        normalized_value = value / 180.0       # [-1, +1]
-        hue_strength = abs(normalized_value) * 0.30   # force max 30 %
-        base_lookup = np.arange(256, dtype=np.float32)
-        if normalized_value > 0:
-            # Magenta : boost R et B, atténuer G
-            red_lookup   = np.clip(base_lookup * (1.0 + hue_strength),       0, 255).astype(np.uint8)
-            green_lookup = np.clip(base_lookup * (1.0 - hue_strength),       0, 255).astype(np.uint8)
-            blue_lookup  = np.clip(base_lookup * (1.0 + hue_strength * 0.7), 0, 255).astype(np.uint8)
-        else:
-            # Vert : boost G, atténuer R et B
-            red_lookup   = np.clip(base_lookup * (1.0 - hue_strength),       0, 255).astype(np.uint8)
-            green_lookup = np.clip(base_lookup * (1.0 + hue_strength),       0, 255).astype(np.uint8)
-            blue_lookup  = np.clip(base_lookup * (1.0 - hue_strength * 0.7), 0, 255).astype(np.uint8)
-        pixel_array = np.array(input_image.convert("RGB"), dtype=np.uint8)
-        result_array = np.stack([
-            red_lookup[pixel_array[:, :, 0]],
-            green_lookup[pixel_array[:, :, 1]],
-            blue_lookup[pixel_array[:, :, 2]],
-        ], axis=2)
-        return Image.fromarray(result_array, "RGB")
+        return image_ops.apply_hue(input_image, value)
 
 
 
     def _apply_white_balance(self, input_image, value):
-        """Balance des blancs : -100 = froid (bleu), +100 = chaud (jaune/orange).\n\n        Applique une correction per-canal (R, G, B) proportionnelle à ``value``.
-        """
+        """Balance des blancs : délègue à `image_ops.apply_white_balance`."""
 
-        if value == 0:
-            return input_image
-        balance_strength = abs(value) / 100.0 * 0.20  # max ±20 % par canal
-        pixel_array = np.array(input_image.convert("RGB"), dtype=np.float32)
-        if value > 0:  # chaud : +R, léger +G, -B
-            pixel_array[..., 0] = np.clip(pixel_array[..., 0] * (1.0 + balance_strength), 0, 255)
-            pixel_array[..., 1] = np.clip(pixel_array[..., 1] * (1.0 + balance_strength * 0.2), 0, 255)
-            pixel_array[..., 2] = np.clip(pixel_array[..., 2] * (1.0 - balance_strength), 0, 255)
-        else:          # froid : -R, G neutre, +B
-            pixel_array[..., 0] = np.clip(pixel_array[..., 0] * (1.0 - balance_strength), 0, 255)
-            pixel_array[..., 2] = np.clip(pixel_array[..., 2] * (1.0 + balance_strength), 0, 255)
-        return Image.fromarray(pixel_array.astype(np.uint8), "RGB")
+        return image_ops.apply_white_balance(input_image, value)
 
     # ================================================================ #
     #              RENDU (HISTOGRAMME & APERÇU)                       #

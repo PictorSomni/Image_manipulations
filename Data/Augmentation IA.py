@@ -38,6 +38,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
+import ai_ops
 from ai_tools import _gemini_generate_image
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -70,23 +71,10 @@ ESRGAN_AVAILABLE = (
 REMBG_AVAILABLE = importlib.util.find_spec("rembg") is not None
 
 
-def _pick_torch_device() -> str:
-    import torch as _t
-    if _t.cuda.is_available():
-        return "cuda"
-    if getattr(_t.backends, "mps", None) and _t.backends.mps.is_available():
-        return "mps"
-    return "cpu"
-
-
-def _list_pth_models() -> list[str]:
-    """Retourne les noms de fichiers .pth / .safetensors trouvés dans _MODELS_DIR, triés."""
-    if not os.path.isdir(_MODELS_DIR):
-        return []
-    return sorted(
-        e.name for e in os.scandir(_MODELS_DIR)
-        if e.name.lower().endswith((".pth", ".safetensors"))
-    )
+# Logique partagée avec Hub.pyw (tiroir IA) : device torch + liste des
+# modèles locaux, extraits dans ai_ops.py pour ne plus être dupliqués.
+_pick_torch_device = ai_ops._pick_torch_device
+_list_pth_models = ai_ops.list_pth_models
 
 ###############################################################
 #                       UTILITAIRES                           #

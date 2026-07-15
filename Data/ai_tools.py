@@ -3700,10 +3700,21 @@ def _ollama_messages_to_gemini(messages):
                             "arguments de tool call (Gemini) illisibles, "
                             "remplacés par {} : %r — brut : %r", exc, args)
                         args = {}
-                parts.append(_gtypes.Part.from_function_call(
+                fc_part = _gtypes.Part.from_function_call(
                     name=fn.get("name", ""),
                     args=args,
-                ))
+                )
+                # Rendre au tour suivant le thought_signature capté au moment
+                # de l'appel (cf. _gemini_chat_stream_with_tools) — requis par
+                # Gemini 3.x, sinon 400 INVALID_ARGUMENT sur les tours d'outils
+                # suivants (surtout visible avec les outils MCP).
+                sig_b64 = tc.get("thought_signature")
+                if sig_b64:
+                    try:
+                        fc_part.thought_signature = _b64.b64decode(sig_b64)
+                    except Exception:
+                        pass
+                parts.append(fc_part)
 
         # Résultats d'outils (rôle 'tool')
         if role == "tool":
@@ -3972,6 +3983,7 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
     # Accumulateur pour les function calls fragmentés sur plusieurs chunks
     import time as _time
     import re as _re_retry
+    import base64 as _b64_mod
 
     _MAX_RETRIES = 3
 
@@ -4003,9 +4015,20 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
                     elif part.function_call is not None:
                         fc = part.function_call
                         args = dict(fc.args) if fc.args else {}
-                        pending_tool_calls.append({
+                        tc_entry = {
                             "function": {"name": fc.name, "arguments": args}
-                        })
+                        }
+                        # Gemini 3.x exige que le thought_signature associé à
+                        # chaque function_call soit renvoyé tel quel au tour
+                        # suivant (functionCall part), sinon 400 INVALID_ARGUMENT
+                        # "Function call is missing a thought_signature" dès
+                        # qu'un outil (MCP notamment) est appelé — encodé en
+                        # base64 ici pour rester JSON-safe dans l'historique.
+                        sig = getattr(part, "thought_signature", None)
+                        if sig:
+                            tc_entry["thought_signature"] = _b64_mod.b64encode(
+                                sig).decode("ascii")
+                        pending_tool_calls.append(tc_entry)
                     # Token de texte
                     elif part.text:
                         _emitted_tokens = True
