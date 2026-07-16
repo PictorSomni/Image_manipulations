@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Convertit un lot de fichiers images (HEIC, WEBP, AVIF, PNG, TIFF, PDF…) en JPEG.
+Convertit un lot de fichiers images (HEIC, WEBP, AVIF, PNG, TIFF, PDF…) en
+JPEG ou PNG (PNG conserve la transparence).
 
 Utilise ImageMagick via ``wand`` pour les formats bitmap et PyMuPDF (``fitz``)
 pour les PDF (une image par page à 300 DPI). Les fichiers originaux sont déplacés
@@ -8,12 +9,13 @@ dans un sous-dossier portant leur extension d'origine.
 
 Variables d'environnement :
   FOLDER_PATH     — dossier source (défaut : répertoire du script).
+  CONVERT_FORMAT  — format cible : "jpg" ou "png" (défaut : "jpg").
   SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
 
 Dépendances : Wand (ImageMagick), PyMuPDF (fitz)
 """
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -31,11 +33,23 @@ folder_path = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().pa
 #############################################################
 #                         CONTENT                           #
 #############################################################
+# Format cible : "jpg" (défaut, aplati sur fond) ou "png" (transparence
+# conservée). ``wand`` gère les deux via ``Image.format``.
+TARGET_FORMAT = os.environ.get("CONVERT_FORMAT", "jpg").strip().lower()
+if TARGET_FORMAT not in ("jpg", "png"):
+    TARGET_FORMAT = "jpg"
+WAND_FORMAT = "jpeg" if TARGET_FORMAT == "jpg" else "png"
+
 # Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
 selected_files_string = os.environ.get("SELECTED_FILES", "")
 selected_files_set = set(selected_files_string.split("|")) if selected_files_string else None
 
+# La liste de base exclut déjà ".jpg" (seul ".jpeg" y figure, pour
+# normaliser cette variante) ; on retire aussi le format cible lui-même
+# quand il vaut png, pour ne pas reconvertir des PNG déjà en PNG.
 convertible_extensions = (".avif", ".heic", ".webp", ".png", ".tiff", ".jpeg", ".bmp", ".gif", ".psd", ".svg", ".ico", ".jfif", ".jpe", ".jif", ".jfi", ".pdf")
+if TARGET_FORMAT == "png":
+    convertible_extensions = tuple(ext for ext in convertible_extensions if ext != ".png")
 all_files = [file for file in sorted(folder_path.iterdir()) if file.is_file() and file.suffix.lower() in convertible_extensions]
 files_to_process = [file for file in all_files if file.name in selected_files_set] if selected_files_set else all_files
 total_files_count = len(files_to_process)
@@ -49,7 +63,7 @@ def create_folder(folder_name):
 #############################################################
 #                           MAIN                            #
 #############################################################
-print(f"Conversion en JPG")
+print(f"Conversion en {TARGET_FORMAT.upper()}")
 print(f"Dossier de travail: {folder_path}")
 print(f"Fichiers trouvés: {total_files_count}")
 
@@ -69,14 +83,14 @@ else:
                 for page_index, page in enumerate(pdf_document):
                     print(f"  - Conversion de la page {page_index + 1}/{page_count}")
                     pixmap_image = page.get_pixmap(dpi=300)
-                    jpg_path = folder_path / f"{file_name}_{page_index + 1:03}.jpg"
-                    pixmap_image.save(str(jpg_path))
+                    out_path = folder_path / f"{file_name}_{page_index + 1:03}.{TARGET_FORMAT}"
+                    pixmap_image.save(str(out_path))
                 pdf_document.close()
             else:
                 with Image(filename=str(file)) as actual_file:
-                    actual_file.format = 'jpeg'
-                    jpg_path = folder_path / f"{file_name}.jpg"
-                    actual_file.save(filename=str(jpg_path))
+                    actual_file.format = WAND_FORMAT
+                    out_path = folder_path / f"{file_name}.{TARGET_FORMAT}"
+                    actual_file.save(filename=str(out_path))
 
             dest_folder = folder_path / f"{file_extension[1:]}"
             file.rename(dest_folder / file.name)

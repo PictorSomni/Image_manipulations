@@ -24,13 +24,12 @@ Scripts sans paramètre supplémentaire (juste FOLDER_PATH + SELECTED_FILES) :
 - N&B.py — conversion noir et blanc en lot.
 - Débruiter.py — réduction de bruit (OpenCV NLM).
 - Améliorer netteté.py — accentuation de la netteté.
-- Conversion JPG.py — convertit PNG/TIFF/BMP… vers JPG.
 - Images en PDF.py — assemble les images en un seul PDF.
 - Nettoyer metadonnées.py — supprime les EXIF.
 
 Scripts avec paramètres (env vars en plus) :
-- Redimensionner.py — RESIZE_SIZE=<px> (dimension max, défaut 640).
-- Compression web.py — WEB_QUALITY=<0-100> (qualité JPEG, défaut 75). (pas de SELECTED_FILES : tout le dossier)
+- Conversion JPG.py — convertit PNG/TIFF/BMP… vers JPG ou PNG ; CONVERT_FORMAT=jpg|png (défaut jpg).
+- Redimensionner.py — RESIZE_SIZE=<px> (dimension max, défaut 640) ; RESIZE_QUALITY=<0-100> (qualité JPEG, défaut 100).
 - Renommer séquence.py — SERIES_NAME="<préfixe>" (renommage numéroté en séquence).
 - 2 en 1.py — TWO_IN_ONE_WIDTH=<mm> TWO_IN_ONE_HEIGHT=<mm> (défaut 76×102 mm ; la largeur est doublée pour poser 2 tirages côte à côte).
 - Recadrage automatique.py — FORCE_CROP_SIZE="LxH" (mm) OU FORCE_CROP_WIDTH/FORCE_CROP_HEIGHT ; FORCE_CROP_FIT=1 (fit, bords blancs) ou 0 (crop) ; FORCE_CROP_SCOPE="selected"|"folder" ; FORCE_CROP_WHITE_BORDER=1/0.

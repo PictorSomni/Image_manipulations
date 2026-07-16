@@ -60,6 +60,11 @@ IMAGE_EXTS = frozenset({
     ".jpg", ".jpeg", ".png", ".gif", ".bmp",
     ".webp", ".ico", ".tiff", ".tif",
 })
+# Hub.pyw — fichiers vectoriels prévisualisables (miniature rendue via
+# PyMuPDF/Wand, cf. thumb_cache.py), séparé de IMAGE_EXTS car les autres
+# scripts (Redimensionner, Conversion JPG…) ouvrent leurs fichiers avec
+# PIL, qui ne sait pas lire ces formats.
+HUB_VECTOR_EXTS = frozenset({".svg", ".pdf"})
 NOTEPAD_EXTS = frozenset({
     ".txt", ".md", ".log", ".ini", ".cfg", ".yaml", ".yml",
     ".rtf", ".py", ".pyw", ".toml", ".sh", ".bat", ".csv",
@@ -110,28 +115,40 @@ ICON_DANGER  = COLOR_RED          # DESTRUCTIF uniquement (supprimer, effacer)
 ICON_LAUNCH  = COLOR_VIOLET       # lancer une autre application (kiosk, side panel)
 ICON_WARN    = COLOR_ORANGE       # action à impact (impression, nettoyage)
 
-# Échelle typographique — 5 crans, éviter les tailles hors échelle.
-TEXT_XS = 11   # légendes, méta, compteurs
-TEXT_SM = 13   # corps, listes
-TEXT_MD = 16   # sous-titres, titres de section
-TEXT_LG = 20   # titres de zone
-TEXT_XL = 24   # titre d'application
+# Échelle typographique — 2 crans : corps de texte, et titres de zone.
+TEXT_SM = 13   # corps : dialogues, listes, boutons, noms de fichiers
+TEXT_LG = 20   # titres de zone (Bloc-notes, Assistant IA, HUB, Actions)
 
-# Tailles d'icônes standard (barres d'outils).
-ICON_SM = 18
-ICON_MD = 20
+# Échelle d'icônes — 2 crans : standard, et tactile proéminent.
+ICON_SM = 20   # icône standard (barres d'outils, boutons, badges, listes)
+ICON_LG = 28   # icône tactile proéminente (vignettes, panneau Actions,
+               # barre de titre, visionneuse plein écran)
 
-# Hub.pyw — vignettes et liste de fichiers, pensées tactile : icônes,
-# texte et case à cocher plus grands que la barre d'outils standard
-# ICON_MD/TEXT_SM ci-dessus.
-HUB_TILE_ICON_SIZE      = 32   # icône dossier/fichier (vue vignette ET liste)
-HUB_TILE_TEXT_SIZE      = 15   # nom de fichier/dossier (vue vignette ET liste)
+# Hub.pyw — vignettes et liste de fichiers : case à cocher agrandie pour
+# l'écran tactile (icône/texte utilisent ICON_LG/TEXT_SM ci-dessus).
 HUB_TILE_CHECKBOX_SCALE = 1.4  # agrandissement de la case à cocher (doigt)
 
-# Hub.pyw — panneau Actions (liste, cf. _action_row) : icône/texte de
-# chaque ligne.
-HUB_ACTION_ICON_SIZE   = 28
-HUB_ACTION_TEXT_SIZE   = 15
+# Hub.pyw — barre d'outils Fichiers (chemin, recherche, tri, vue, boutons
+# dossier/actions) : hauteur commune à tous les contrôles de la ligne,
+# pour éviter les décalages verticaux entre types de contrôle Flet.
+HUB_TOOLBAR_H = 40
+
+# Hub.pyw — champ de saisie compact des petits dialogues (renommer, créer
+# un dossier/fichier, ajouter un programme, mot de passe sudo…). Même
+# valeur que HUB_TOOLBAR_H par coïncidence, mais rôle distinct — nommé à
+# part pour rester clair si l'un des deux change un jour.
+HUB_DIALOG_FIELD_HEIGHT = 40
+
+# Hub.pyw — barre de titre : cible de tap des icônes tactiles (Bluetooth,
+# impression, navigateur, explorateur — taille ICON_LG ci-dessus),
+# agrandie pour l'écran tactile (retour user).
+HUB_TITLEBAR_TAP_HEIGHT = 48
+
+# Hub.pyw — barre d'état (Terminal, Actions, curseur de taille des
+# vignettes) : hauteur agrandie pour l'écran tactile (retour user), et
+# cible de tap des boutons Terminal/Actions qu'elle contient.
+HUB_STATUSBAR_HEIGHT     = 56
+HUB_STATUSBAR_TAP_HEIGHT = 44
 
 
 # ==============================================================================
@@ -281,7 +298,6 @@ RESIZE_DEFAULT       = 640    # Dimension max par défaut (y compris remerciemen
 RESIZE_QUALITY       = 80     # Qualité JPEG des miniatures (0-100)
 DASHBOARD_THUMB_SIZE = 50     # Taille des miniatures dans le panneau de prévisualisation (px)
 WATERMARK_ALPHA      = 0.35   # Opacité du filigrane (0.0 = invisible, 1.0 = opaque)
-WEB_QUALITY          = 75     # Qualité JPEG par défaut pour la compression web (0-100)
 
 
 # ── 6.3  Remerciements ────────────────────────────────────────────────────────
@@ -368,8 +384,8 @@ del _platform
 # Utilisé par Dashboard.pyw, SidePanel.pyw et kiosk_flet.pyw via thumb_cache.py.
 # Un fichier SQLite (THUMB_CACHE_DB_NAME) est créé dans chaque dossier d'images.
 
-THUMB_CACHE_SIZE    = 280                # Taille (px, côté le plus long) des miniatures
-THUMB_CACHE_QUALITY = 60                 # Qualité JPEG (0-100)
+THUMB_CACHE_SIZE    = 320                # Taille (px, côté le plus long) des miniatures
+THUMB_CACHE_QUALITY = 64                 # Qualité JPEG (0-100)
 THUMB_CACHE_DB_NAME = ".thumbcache.db"   # Nom du fichier SQLite dans chaque dossier
 
 

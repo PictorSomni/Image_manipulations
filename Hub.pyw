@@ -258,7 +258,8 @@ def main(page: ft.Page):
     # ─── État partagé ────────────────────────────────────────────────────
     state = {"surface": "files", "folder": None, "view": "grid",
              "thumb_size": 320, "thumb_token": 0,
-             "sort": "date", "search": "", "only_selected": False}
+             "sort": "date", "search": "", "only_selected": False,
+             "last_selected": None}
     _strip_state = {"active": False, "saved_height": 860, "was_maximized": False}
     content = {"dirs": [], "imgs": [], "other": []}   # non filtrés
     selected = set()                     # chemins sélectionnés (images + dossiers)
@@ -320,10 +321,15 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
     #  Surface Fichiers (Explorateur) — liste ⇄ vignettes + sélection
     # ═════════════════════════════════════════════════════════════════════
+    # Copie du champ de Dashboard.pyw:404-411 (label flottant natif Flet,
+    # pas de height/dense/content_padding imposés) — accepte donc une
+    # hauteur de ligne naturelle, potentiellement > CONSTANTS.HUB_TOOLBAR_H
+    # (retour user : voulait explicitement ce style-là, pas une variante
+    # compacte).
     files_path = ft.TextField(
-        hint_text="Aucun dossier ouvert", dense=True, height=40, expand=True,
-        bgcolor=DARK, border_color=BLUE, border_radius=8, color=WHITE,
-        text_size=CONSTANTS.TEXT_MD, content_padding=ft.Padding(10, 0, 10, 0),
+        label="Dossier sélectionné",
+        hint_text="Cliquez sur Parcourir... ou collez un chemin",
+        expand=True, bgcolor=DARK, border_color=GREY, color=WHITE,
         on_focus=_suspend_kb, on_blur=_resume_kb,
     )
     sel_count = ft.Text("", size=CONSTANTS.TEXT_SM, color=BLUE, no_wrap=True,
@@ -345,8 +351,15 @@ def main(page: ft.Page):
         sel_count.value = f"{n} sélectionnée{'s' if n > 1 else ''}" if n else ""
 
     def _set_selected(path, on):
+        # Un clic sur une vignette/case ne fait pas toujours perdre le focus
+        # clavier au champ recherche (auto-focus par _focus_active_surface
+        # après chaque navigation) côté Flet desktop : sans ce reset, le
+        # compteur de suspension reste bloqué > 0 et Ctrl+C/X/V/A ne
+        # répondent plus après la moindre navigation (retour user).
+        _kb_suspend["count"] = 0
         if on:
             selected.add(path)
+            state["last_selected"] = path
         else:
             selected.discard(path)
         _update_sel_count()
@@ -361,8 +374,8 @@ def main(page: ft.Page):
             leading=checkbox,
             title=ft.Row([
                 ft.Icon(ft.Icons.FOLDER, color=ORANGE,
-                        size=CONSTANTS.HUB_TILE_ICON_SIZE),
-                ft.Text(os.path.basename(path), size=CONSTANTS.HUB_TILE_TEXT_SIZE,
+                        size=CONSTANTS.ICON_LG),
+                ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
                        color=WHITE),
             ], spacing=8),
             on_click=lambda e, p=path: _navigate(p),
@@ -382,7 +395,7 @@ def main(page: ft.Page):
                                   border_radius=ft.BorderRadius.all(4))
             pending[path] = visual
         filename_text = ft.Text(os.path.basename(path),
-                                size=CONSTANTS.HUB_TILE_TEXT_SIZE,
+                                size=CONSTANTS.TEXT_SM,
                                 color=WHITE, expand=True, no_wrap=True,
                                 overflow=ft.TextOverflow.ELLIPSIS)
         if order_mode["value"]:
@@ -417,8 +430,8 @@ def main(page: ft.Page):
         icon_zone = ft.Container(
             content=ft.Column([
                 ft.Icon(ft.Icons.FOLDER, color=ORANGE,
-                        size=CONSTANTS.HUB_TILE_ICON_SIZE),
-                ft.Text(os.path.basename(path), size=CONSTANTS.HUB_TILE_TEXT_SIZE,
+                        size=CONSTANTS.ICON_LG),
+                ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
                         color=WHITE, no_wrap=True),
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6,
@@ -466,18 +479,42 @@ def main(page: ft.Page):
         if not _strip_state["active"]:
             _toggle_strip()
 
+    def _resolve_exe_path(exe):
+        # Comme Dashboard.pyw:4858-4872 : les apps installées via
+        # Microsoft Store (WindowsApps) ont un dossier versionné qui change
+        # à chaque mise à jour automatique (ex. Affinity) — le chemin
+        # enregistré dans open_with.json devient obsolète silencieusement.
+        if not exe or os.path.isfile(exe):
+            return exe
+        if "WindowsApps" not in exe:
+            return exe
+        import re
+        import glob as _glob
+        pattern = re.sub(r"_\d+\.\d+\.\d+\.\d+_", "_*_", exe)
+        matches = _glob.glob(pattern)
+        return matches[0] if matches else exe
+
     def _open_files_with(prog, files):
-        # Version simplifiée de Dashboard.pyw:4887-4914 (_open_files_with) :
-        # pas de résolution auto du chemin WindowsApps versionné (cas rare),
-        # juste le lancement direct — même fichier open_with.json partagé.
         exe = prog.get("exe", "")
         if not exe:
             return
         try:
+            resolved = _resolve_exe_path(exe)
+            if resolved != exe:
+                prog["exe"] = resolved
+                programs = _load_open_with_programs()
+                for p in programs:
+                    if p.get("label") == prog.get("label") and p.get("exe") == exe:
+                        p["exe"] = resolved
+                        break
+                _save_open_with_programs(programs)
+                _log_to_terminal(
+                    f"[INFO] Chemin mis à jour automatiquement pour {prog['label']}",
+                    ORANGE)
             if platform.system() == "Darwin":
-                subprocess.Popen(["open", "-a", exe] + files)
+                subprocess.Popen(["open", "-a", resolved] + files)
             else:
-                subprocess.Popen([exe] + files)
+                subprocess.Popen([resolved] + files)
         except Exception as exc:
             _log_to_terminal(f"[ERREUR] {prog.get('label', exe)} : {exc}", RED)
             return
@@ -511,9 +548,9 @@ def main(page: ft.Page):
             leading=checkbox,
             title=ft.Row([
                 ft.Icon(_file_icon(path), color=ICON_ACTION,
-                        size=CONSTANTS.HUB_TILE_ICON_SIZE),
+                        size=CONSTANTS.ICON_LG),
                 ft.Text(os.path.basename(path),
-                       size=CONSTANTS.HUB_TILE_TEXT_SIZE, color=WHITE),
+                       size=CONSTANTS.TEXT_SM, color=WHITE),
             ], spacing=8),
             on_click=lambda e, p=path: _open_file(p),
             hover_color=GREY, dense=True,
@@ -529,8 +566,8 @@ def main(page: ft.Page):
         icon_zone = ft.Container(
             content=ft.Column([
                 ft.Icon(_file_icon(path), color=ICON_ACTION,
-                        size=CONSTANTS.HUB_TILE_ICON_SIZE),
-                ft.Text(os.path.basename(path), size=CONSTANTS.HUB_TILE_TEXT_SIZE,
+                        size=CONSTANTS.ICON_LG),
+                ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
                         color=WHITE, no_wrap=True),
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6,
@@ -560,7 +597,7 @@ def main(page: ft.Page):
                                 ink=True,
                                 on_click=lambda e, p=path: _open_viewer(p))
         is_ordered = path in order
-        label = ft.Text(os.path.basename(path), size=CONSTANTS.HUB_TILE_TEXT_SIZE,
+        label = ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
                         color=WHITE, no_wrap=True)
         if order_mode["value"]:
             # Badge commande sous le nom (pas de case à cocher sur l'image) —
@@ -605,10 +642,29 @@ def main(page: ft.Page):
             other = [p for p in other if p in selected]
         return dirs, imgs, other
 
+    def _on_ctx_menu(path, event):
+        # Clic droit -> panneau Actions (mêmes outils qu'au clic sur le
+        # bouton "ACTIONS" de la barre) : l'ancien menu contextuel dédié
+        # est supprimé, tous ses gestes existent déjà dans touch_actions_row
+        # et "Ouvrir avec..." a rejoint le panneau Actions (cf. retour user).
+        # Si rien n'est sélectionné, l'élément cliqué l'est automatiquement
+        # (retour user) : sinon les actions du panneau (qui opèrent sur
+        # `selected`) n'auraient rien sur quoi agir.
+        if not selected:
+            _set_selected(path, True)
+        _open_actions(event)
+
     def _with_ctx_menu(control, path):
         return ft.GestureDetector(
-            on_secondary_tap_up=lambda e, p=path: _show_context_menu(p),
+            on_secondary_tap_up=lambda e, p=path: _on_ctx_menu(p, e),
             content=control)
+
+    def _on_empty_ctx_menu(event):
+        # Clic droit dans l'en-tête ou en dehors de tout élément (fond de
+        # liste/grille) : contrairement à _on_ctx_menu (clic sur un
+        # élément), on ne touche pas à `selected` — le panneau Actions
+        # s'ouvre tel quel sur la sélection en cours (retour user).
+        _open_actions(event)
 
     def _render():
         # Mutation en place (.clear()+.extend()), jamais de réassignation de
@@ -679,11 +735,6 @@ def main(page: ft.Page):
     #  Suppression : pas de dialogue de confirmation (politique du projet),
     #  _backup_file avant toute suppression/écrasement à la place.
     # ═════════════════════════════════════════════════════════════════════
-    def _context_menu_targets(path):
-        if path in selected and len(selected) > 1:
-            return list(selected)
-        return [path]
-
     def _do_copy(paths):
         clipboard["paths"] = list(paths)
         clipboard["mode"] = "copy"
@@ -881,7 +932,7 @@ def main(page: ft.Page):
 
         name_field.on_submit = _confirm
         dlg = ft.AlertDialog(
-            title=ft.Text("Renommer", size=13, color=WHITE),
+            title=ft.Text("Renommer", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=name_field,
             actions=[
                 ft.TextButton("Annuler", on_click=_cancel),
@@ -903,26 +954,26 @@ def main(page: ft.Page):
                 width, height = img.size
                 raw = img.getexif()
             rows.append(ft.Text(f"Résolution : {width} × {height} px",
-                                size=12, color=BLUE, selectable=True))
+                                size=CONSTANTS.TEXT_SM, color=BLUE, selectable=True))
             if raw:
                 for tag_id, value in raw.items():
                     if isinstance(value, bytes):
                         continue
                     tag_name = TAGS.get(tag_id, f"Tag {tag_id}")
-                    rows.append(ft.Text(f"{tag_name} : {value}", size=12,
+                    rows.append(ft.Text(f"{tag_name} : {value}", size=CONSTANTS.TEXT_SM,
                                         color=WHITE, selectable=True))
             else:
-                rows.append(ft.Text("Aucune donnée EXIF.", size=12,
+                rows.append(ft.Text("Aucune donnée EXIF.", size=CONSTANTS.TEXT_SM,
                                     color=LIGHT_GREY))
         except Exception as exc:
-            rows.append(ft.Text(f"Erreur : {exc}", size=12, color=RED))
+            rows.append(ft.Text(f"Erreur : {exc}", size=CONSTANTS.TEXT_SM, color=RED))
 
         def _close_exif(event=None):
             exif_dlg.open = False
             page.update()
 
         exif_dlg = ft.AlertDialog(
-            title=ft.Text(os.path.basename(path), size=13, color=LIGHT_GREY),
+            title=ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
             content=ft.Column(rows, spacing=2, scroll=ft.ScrollMode.AUTO,
                               width=400, height=400),
             actions=[ft.TextButton("Fermer", on_click=_close_exif)],
@@ -932,119 +983,16 @@ def main(page: ft.Page):
         exif_dlg.open = True
         page.update()
 
-    def _show_context_menu(path):
-        targets = _context_menu_targets(path)
-        label = (os.path.basename(path) if len(targets) == 1
-                 else f"{len(targets)} éléments")
-
-        def _cancel(event):
-            dlg.open = False
-            page.update()
-            page.run_task(_focus_active_surface)
-
-        def _act(fn):
-            def _run(event):
-                dlg.open = False
-                page.update()
-                fn(targets)
-                page.run_task(_focus_active_surface)
-            return _run
-
-        def _menu_row(icon, color, text, fn):
-            return ft.ListTile(
-                leading=ft.Icon(icon, color=color, size=CONSTANTS.ICON_SM),
-                title=ft.Text(text, size=CONSTANTS.TEXT_SM, color=WHITE),
-                on_click=_act(fn), dense=True, hover_color=GREY,
-                content_padding=ft.Padding(left=10, top=0, right=10, bottom=0))
-
-        has_image = any(os.path.splitext(t)[1].lower() in CONSTANTS.IMAGE_EXTS
-                        for t in targets)
-
-        rows = []
-        if len(targets) == 1:
-            rows.append(_menu_row(ft.Icons.DRIVE_FILE_RENAME_OUTLINE,
-                                   BLUE, "Renommer", _rename_item))
-            if has_image:
-                rows.append(_menu_row(ft.Icons.INFO_OUTLINE, LIGHT_GREY,
-                                       "Voir les EXIF", _show_exif_dialog))
-        if has_image:
-            rows.append(_menu_row(ft.Icons.PRINT_OUTLINED, ORANGE,
-                                   "Imprimer", _print_paths))
-        rows.append(_menu_row(ft.Icons.CONTENT_COPY, BLUE,
-                               "Copier", _do_copy))
-        rows.append(_menu_row(ft.Icons.CONTENT_CUT, ORANGE,
-                               "Couper", _do_cut))
-        rows.append(_menu_row(ft.Icons.FILE_COPY_OUTLINED, BLUE,
-                               "Dupliquer ici", _do_duplicate))
-        if clipboard["paths"]:
-            rows.append(ft.ListTile(
-                leading=ft.Icon(ft.Icons.CONTENT_PASTE, color=YELLOW,
-                                size=CONSTANTS.ICON_SM),
-                title=ft.Text("Coller ici", size=CONSTANTS.TEXT_SM, color=WHITE),
-                on_click=lambda e: (setattr(dlg, "open", False), page.update(),
-                                    _do_paste()),
-                dense=True, hover_color=GREY,
-                content_padding=ft.Padding(left=10, top=0, right=10, bottom=0)))
-        rows.append(_menu_row(ft.Icons.STAR_OUTLINE, YELLOW,
-                               "Copier vers SELECTION", _do_copy_to_selection))
-        rows.append(_menu_row(ft.Icons.FOLDER_ZIP_OUTLINED, YELLOW,
-                               "Zipper", _do_zip))
-        rows.append(_menu_row(ft.Icons.SMART_TOY_OUTLINED, VIOLET,
-                               "Ajouter à l'IA", _add_to_ai))
-        rows.append(_menu_row(
-            ft.Icons.FOLDER_OPEN,
-            VIOLET,
-            "Afficher dans l'Explorateur" if platform.system() == "Windows"
-            else "Afficher dans le Finder" if platform.system() == "Darwin"
-            else "Afficher dans le gestionnaire de fichiers",
-            _reveal_in_explorer))
-        rows.append(_menu_row(ft.Icons.DELETE_OUTLINE, RED,
-                               "Supprimer", _do_delete))
-
-        # Ouvrir avec... — uniquement au clic droit (choix d'appli trop
-        # rare pour mériter une icône permanente dans la barre tactile).
-        rows.append(ft.Divider(height=1, color=GREY))
-        for prog in _load_open_with_programs():
-            def _open_with_act(p=prog):
-                def _run(event):
-                    dlg.open = False
-                    page.update()
-                    _open_files_with(p, targets)
-                    page.run_task(_focus_active_surface)
-                return _run
-            rows.append(ft.ListTile(
-                leading=ft.Icon(ft.Icons.OPEN_IN_NEW, color=GREEN,
-                                size=CONSTANTS.ICON_SM),
-                title=ft.Text(f"Ouvrir avec {prog['label']}",
-                              size=CONSTANTS.TEXT_SM, color=WHITE),
-                on_click=_open_with_act(), dense=True, hover_color=GREY,
-                content_padding=ft.Padding(left=10, top=0, right=10, bottom=0)))
-        rows.append(ft.ListTile(
-            leading=ft.Icon(ft.Icons.ADD, color=GREEN, size=CONSTANTS.ICON_SM),
-            title=ft.Text("Ajouter un programme...", size=CONSTANTS.TEXT_SM,
-                          color=WHITE),
-            on_click=lambda e: _add_open_with_program(), dense=True,
-            hover_color=GREY,
-            content_padding=ft.Padding(left=10, top=0, right=10, bottom=0)))
-
-        dlg = ft.AlertDialog(
-            title=ft.Text(label, size=13, color=WHITE, no_wrap=True),
-            content=ft.Column(rows, spacing=0, tight=True, width=270,
-                              scroll=ft.ScrollMode.AUTO, height=min(420, len(rows) * 40 + 20)),
-            actions=[ft.TextButton("Fermer", on_click=_cancel)],
-        )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
-
     def _add_open_with_program(event=None):
         label_field = ft.TextField(hint_text="Nom (ex. Photoshop)", autofocus=True,
                                    width=280, bgcolor=DARK, border_color=BLUE,
-                                   color=WHITE, text_size=13, height=40,
+                                   color=WHITE, text_size=CONSTANTS.TEXT_SM,
+                                   height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
                                    content_padding=ft.Padding(8, 4, 8, 4))
         exe_field = ft.TextField(hint_text="Chemin de l'exécutable", width=280,
                                  bgcolor=DARK, border_color=BLUE, color=WHITE,
-                                 text_size=13, height=40,
+                                 text_size=CONSTANTS.TEXT_SM,
+                                 height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
                                  content_padding=ft.Padding(8, 4, 8, 4))
 
         def _cancel(event):
@@ -1063,7 +1011,7 @@ def main(page: ft.Page):
             page.update()
 
         dlg = ft.AlertDialog(
-            title=ft.Text("Ajouter un programme", size=13, color=WHITE),
+            title=ft.Text("Ajouter un programme", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([label_field, exe_field], spacing=8, tight=True,
                               width=280),
             actions=[
@@ -1102,7 +1050,7 @@ def main(page: ft.Page):
             files_body.content = files_list
             page.update()
             return
-        exts = CONSTANTS.IMAGE_EXTS
+        exts = CONSTANTS.IMAGE_EXTS | CONSTANTS.HUB_VECTOR_EXTS
         dirs, imgs, other = [], [], []
         for e in entries:
             if CONSTANTS.is_os_junk(e.name, e.is_dir()):
@@ -1146,13 +1094,19 @@ def main(page: ft.Page):
             _navigate(folder)
 
     def _toggle_all(event):
-        entries = content["dirs"] + content["imgs"] + content["other"]
-        if selected.issuperset(entries) and entries:
-            selected.clear()
-            _log_to_terminal("[OK] Sélection effacée", GREEN)
-        else:
+        # Opère sur les éléments visibles (recherche / "afficher ma
+        # sélection" appliqués), pas tout le dossier — et efface toujours
+        # la sélection existante d'abord, plutôt que d'y ajouter, pour que
+        # "Tout sélectionner" ne fasse que ce qui est affiché (retour user).
+        dirs, imgs, other = _visible_entries()
+        entries = dirs + imgs + other
+        select_all = not (selected.issuperset(entries) and entries)
+        selected.clear()
+        if select_all:
             selected.update(entries)
             _log_to_terminal(f"[OK] {len(selected)} élément(s) sélectionné(s)", BLUE)
+        else:
+            _log_to_terminal("[OK] Sélection effacée", GREEN)
         _update_sel_count()
         _render()
 
@@ -1165,6 +1119,39 @@ def main(page: ft.Page):
         _log_to_terminal(
             f"[OK] Sélection inversée — {len(selected)} élément(s) sélectionné(s)",
             BLUE)
+
+    def _file_date(path):
+        try:
+            return datetime.date.fromtimestamp(os.path.getmtime(path))
+        except OSError:
+            return None
+
+    def _select_same_date(event=None):
+        """Comme Dashboard.pyw:6553-6577 (select_same_date) : sélectionne
+        tous les fichiers du dossier pris à la même date (mtime) que le
+        dernier fichier sélectionné — additif, ne supprime rien."""
+        ref_path = state["last_selected"]
+        if not ref_path or ref_path not in selected:
+            _log_to_terminal(
+                "[ATTENTION] Aucun fichier sélectionné comme référence", ORANGE)
+            return
+        ref_date = _file_date(ref_path)
+        if ref_date is None:
+            _log_to_terminal(
+                "[ERREUR] Impossible de lire la date du fichier de référence", RED)
+            return
+        added = 0
+        for fpath in content["imgs"] + content["other"]:
+            if fpath in selected:
+                continue
+            if _file_date(fpath) == ref_date:
+                selected.add(fpath)
+                added += 1
+        _update_sel_count()
+        _render()
+        _log_to_terminal(
+            f"[OK] {len(selected)} fichier(s) du {ref_date.strftime('%d/%m/%Y')} "
+            f"sélectionné(s) (+{added} ajouté(s))", BLUE)
 
     def _toggle_only_selected(event):
         state["only_selected"] = not state["only_selected"]
@@ -1187,7 +1174,7 @@ def main(page: ft.Page):
 
     def _mini_btn(icon, on_click):
         return ft.Container(
-            content=ft.Icon(icon, size=18, color=ICON_ACTION),
+            content=ft.Icon(icon, size=CONSTANTS.ICON_SM, color=ICON_ACTION),
             width=30, height=30, border_radius=6, bgcolor=GREY,
             alignment=ft.Alignment.CENTER, ink=True, on_click=on_click)
 
@@ -1225,11 +1212,11 @@ def main(page: ft.Page):
 
         rows = []
         for fmt in _ORDER_TARIFF:
-            count_text = ft.Text(str(entry.get(fmt, 0)), size=CONSTANTS.TEXT_MD,
+            count_text = ft.Text(str(entry.get(fmt, 0)), size=CONSTANTS.TEXT_SM,
                                  color=WHITE, width=26, text_align=ft.TextAlign.CENTER)
             counters[fmt] = count_text
             rows.append(ft.Row([
-                ft.Text(fmt, size=CONSTANTS.TEXT_MD, color=WHITE, width=76),
+                ft.Text(fmt, size=CONSTANTS.TEXT_SM, color=WHITE, width=76),
                 _mini_btn(ft.Icons.REMOVE, lambda e, f=fmt: _apply(f, -1)),
                 count_text,
                 _mini_btn(ft.Icons.ADD, lambda e, f=fmt: _apply(f, 1)),
@@ -1253,7 +1240,7 @@ def main(page: ft.Page):
             active_color=VIOLET, on_change=_toggle_bw)
 
         dlg = ft.AlertDialog(
-            title=ft.Text(os.path.basename(path), size=13, color=WHITE, no_wrap=True),
+            title=ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM, color=WHITE, no_wrap=True),
             content=ft.Column(rows + [ft.Divider(height=1), bw_switch], spacing=10,
                               tight=True, scroll=ft.ScrollMode.AUTO,
                               height=min(400, len(rows) * 48 + 70), width=250),
@@ -1302,12 +1289,12 @@ def main(page: ft.Page):
         # (tout sélectionner, inverser), comme Dashboard.pyw:656-670.
         return ft.TextButton(
             content=ft.Row([
-                ft.Icon(icon, size=CONSTANTS.ICON_MD, color=color),
-                ft.Text(text, size=CONSTANTS.TEXT_MD, color=color),
+                ft.Icon(icon, size=CONSTANTS.ICON_SM, color=color),
+                ft.Text(text, size=CONSTANTS.TEXT_SM, color=color),
             ], spacing=6, tight=True),
             style=ft.ButtonStyle(bgcolor=GREY, color=WHITE,
-                                 padding=ft.Padding(14, 10, 14, 10)),
-            on_click=on_click,
+                                 padding=ft.Padding(14, 0, 14, 0)),
+            height=CONSTANTS.HUB_TOOLBAR_H, on_click=on_click,
         )
 
     def _update_view_seg():
@@ -1332,6 +1319,11 @@ def main(page: ft.Page):
         bgcolor=DARK, thumb_color=BLUE, padding=ft.Padding(4, 6, 4, 6),
         on_change=_on_view_seg_change,
     )
+    # Container : le widget Cupertino a sa propre hauteur intrinsèque et
+    # ignore `height=` posé directement sur lui (même souci que sort_btn/
+    # search_field ci-dessus) — le Container extérieur impose CONSTANTS.HUB_TOOLBAR_H.
+    view_seg_wrap = ft.Container(
+        content=view_seg, height=CONSTANTS.HUB_TOOLBAR_H, alignment=ft.Alignment(0, 0))
 
     def _set_search(value):
         state["search"] = value or ""
@@ -1342,14 +1334,20 @@ def main(page: ft.Page):
         search_field.value = ""
         _render()
 
+    # Copie de Dashboard.pyw:726-735 (height=45 + content_padding réduit
+    # plutôt que dense=True + padding symétrique) : c'était la combinaison
+    # dense+padding qui faisait mal s'afficher le hint dans Hub (même
+    # souci que le contour BLUE et le label du champ chemin ci-dessus).
+    # `prefix_icon` (au lieu du `prefix` custom d'avant) fonctionne ici
+    # car il n'y a plus de `dense`/height en conflit avec lui.
     search_field = ft.TextField(
         hint_text="Rechercher…", on_change=lambda e: _set_search(e.control.value),
-        dense=True, height=40, width=200, bgcolor=DARK, border_color=BLUE,
-        border_radius=8, color=WHITE, text_size=CONSTANTS.TEXT_SM,
-        content_padding=ft.Padding(10, 0, 10, 0),
+        height=45, width=200, bgcolor=DARK, border_color=BLUE,
+        color=WHITE, text_size=CONSTANTS.TEXT_SM,
+        content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH,
         suffix=ft.IconButton(
-            ft.Icons.CLOSE, icon_size=14, icon_color=GREY,
+            ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=GREY,
             tooltip="Effacer la recherche", on_click=_clear_search,
             style=ft.ButtonStyle(padding=0)),
         on_focus=_suspend_kb, on_blur=_resume_kb,
@@ -1368,20 +1366,30 @@ def main(page: ft.Page):
 
     sort_label = ft.Text(f"Trier : {_SORT_SHORT['date']}", size=CONSTANTS.TEXT_SM,
                          color=WHITE)
-    sort_btn = ft.PopupMenuButton(
-        content=ft.Container(
-            content=ft.Row([
-                ft.Icon(ft.Icons.SORT, size=CONSTANTS.ICON_MD, color=YELLOW),
-                sort_label,
-                ft.Icon(ft.Icons.ARROW_DROP_DOWN, size=CONSTANTS.ICON_SM, color=WHITE),
-            ], spacing=4, tight=True),
-            bgcolor=GREY, border_radius=8, padding=ft.Padding(12, 9, 8, 9)),
-        items=[
-            ft.PopupMenuItem(content=ft.Text("Nom (A→Z)"), on_click=_set_sort("name_asc")),
-            ft.PopupMenuItem(content=ft.Text("Nom (Z→A)"), on_click=_set_sort("name_desc")),
-            ft.PopupMenuItem(content=ft.Text("Date (récent d'abord)"),
-                             on_click=_set_sort("date")),
-        ],
+    # Container extérieur : PopupMenuButton ajoute sa propre marge/chrome
+    # Material autour de `content`, ce qui rendait le bouton plus grand que
+    # les CONSTANTS.HUB_TOOLBAR_H voisins malgré le Container interne déjà à la bonne
+    # taille — le Container extérieur force la taille réellement mesurée
+    # dans la Row (cf. même souci que prefix_icon sur search_field).
+    sort_btn = ft.Container(
+        height=CONSTANTS.HUB_TOOLBAR_H,
+        content=ft.PopupMenuButton(
+            content=ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.SORT, size=CONSTANTS.ICON_SM, color=YELLOW),
+                    sort_label,
+                    ft.Icon(ft.Icons.ARROW_DROP_DOWN, size=CONSTANTS.ICON_SM, color=WHITE),
+                ], spacing=4, tight=True),
+                bgcolor=GREY, border_radius=8, height=CONSTANTS.HUB_TOOLBAR_H,
+                alignment=ft.Alignment(0, 0),
+                padding=ft.Padding(12, 0, 8, 0)),
+            items=[
+                ft.PopupMenuItem(content=ft.Text("Nom (A→Z)"), on_click=_set_sort("name_asc")),
+                ft.PopupMenuItem(content=ft.Text("Nom (Z→A)"), on_click=_set_sort("name_desc")),
+                ft.PopupMenuItem(content=ft.Text("Date (récent d'abord)"),
+                                 on_click=_set_sort("date")),
+            ],
+        ),
     )
 
     # ═════════════════════════════════════════════════════════════════════
@@ -1401,7 +1409,8 @@ def main(page: ft.Page):
                           gapless_playback=True)
     viewer_filename = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE,
                               weight=ft.FontWeight.W_500)
-    viewer_counter = ft.Text("", size=CONSTANTS.TEXT_XS, color=WHITE)
+    viewer_meta = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
+    viewer_counter = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
     viewer_checkbox = ft.Checkbox(
         value=False, active_color=BLUE,
         on_change=lambda e: _set_selected(
@@ -1409,11 +1418,47 @@ def main(page: ft.Page):
 
     viewer_order_slot = ft.Container(visible=False)
 
+    def _viewer_meta_text(path):
+        # Dimensions de l'octet actuellement affiché (pivoté ou non — pas
+        # celles du fichier original si une rotation en mémoire est active),
+        # taille du fichier sur disque en Mo. PIL n'ouvre que l'en-tête pour
+        # `.size`, pas de décodage complet : coût négligeable à chaque nav.
+        dims = None
+        try:
+            if path in viewer_rotated_bytes:
+                with PILImage.open(io.BytesIO(viewer_rotated_bytes[path])) as im:
+                    dims = im.size
+            else:
+                with PILImage.open(path) as im:
+                    dims = im.size
+        except Exception:
+            dims = None
+        try:
+            size_mo = os.path.getsize(path) / (1024 * 1024)
+        except OSError:
+            size_mo = None
+        parts = []
+        if dims:
+            parts.append(f"{dims[0]}×{dims[1]} px")
+        if size_mo is not None:
+            parts.append(f"{size_mo:.1f} Mo")
+        return "  •  ".join(parts)
+
     def _update_viewer():
         idx, paths = viewer_state["index"], viewer_state["paths"]
         path = paths[idx]
-        viewer_img.src = viewer_rotated_bytes.get(path, path)
+        # Flutter ne sait pas afficher un .svg/.pdf par chemin (Image.file
+        # ne rend que les formats raster) — on passe par thumb_cache pour
+        # obtenir un PNG/JPEG rendu, en cache dès le deuxième affichage.
+        ext = os.path.splitext(path)[1].lower()
+        if path in viewer_rotated_bytes:
+            viewer_img.src = viewer_rotated_bytes[path]
+        elif ext in CONSTANTS.HUB_VECTOR_EXTS:
+            viewer_img.src = thumb_cache.get_or_generate(path, size_px=1600) or path
+        else:
+            viewer_img.src = path
         viewer_filename.value = os.path.basename(path)
+        viewer_meta.value = _viewer_meta_text(path)
         viewer_counter.value = f"{idx + 1} / {len(paths)}"
         viewer_checkbox.value = path in selected
         viewer_order_slot.visible = order_mode["value"]
@@ -1479,7 +1524,7 @@ def main(page: ft.Page):
         threading.Thread(target=_persist, daemon=True).start()
 
     def _viewer_btn(icon, tip, cb):
-        return ft.IconButton(icon=icon, icon_color=WHITE, icon_size=22,
+        return ft.IconButton(icon=icon, icon_color=WHITE, icon_size=CONSTANTS.ICON_LG,
                              tooltip=tip, on_click=cb)
 
     # Pastilles flottantes semi-transparentes (façon Dashboard.pyw:5928-6052 —
@@ -1490,8 +1535,12 @@ def main(page: ft.Page):
     _VIEWER_BAR_BG = ft.Colors.with_opacity(0.72, GREY)
 
     viewer_title_pill = ft.Container(
-        content=ft.Column([viewer_filename, viewer_counter], spacing=0,
-                          tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        content=ft.Column([
+            ft.Row([viewer_filename, viewer_meta], spacing=10, tight=True,
+                  alignment=ft.MainAxisAlignment.CENTER),
+            viewer_counter,
+        ], spacing=0, tight=True,
+           horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         bgcolor=_VIEWER_BAR_BG, padding=ft.Padding(18, 6, 18, 6),
         border_radius=12,
     )
@@ -1614,7 +1663,7 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
     def _menu_section_label(text):
         return ft.Container(
-            content=ft.Text(text.upper(), size=CONSTANTS.TEXT_XS, color=GREY,
+            content=ft.Text(text.upper(), size=CONSTANTS.TEXT_SM, color=GREY,
                             weight=ft.FontWeight.BOLD),
             padding=ft.Padding(10, 6, 10, 2))
 
@@ -1629,7 +1678,7 @@ def main(page: ft.Page):
             leading=ft.Icon(ft.Icons.STAR, color=YELLOW, size=CONSTANTS.ICON_SM),
             title=ft.Text(name, size=CONSTANTS.TEXT_SM, color=WHITE, no_wrap=True),
             trailing=ft.IconButton(
-                ft.Icons.CLOSE, icon_color=RED, icon_size=16,
+                ft.Icons.CLOSE, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
                 tooltip="Retirer des favoris",
                 on_click=lambda e, p=path: _remove_favorite(p)),
             on_click=lambda e, p=path: _open_from_menu(p),
@@ -1750,7 +1799,7 @@ def main(page: ft.Page):
             leading=ft.Icon(ft.Icons.USB, color=VIOLET, size=CONSTANTS.ICON_SM),
             title=ft.Text(name, size=CONSTANTS.TEXT_SM, color=WHITE, no_wrap=True),
             trailing=ft.IconButton(
-                ft.Icons.EJECT, icon_color=LIGHT_GREY, icon_size=16,
+                ft.Icons.EJECT, icon_color=LIGHT_GREY, icon_size=CONSTANTS.ICON_SM,
                 tooltip="Éjecter le périphérique",
                 on_click=lambda e, p=path: _eject_drive(p)),
             on_click=lambda e, p=path: _open_from_menu(p),
@@ -1894,9 +1943,9 @@ def main(page: ft.Page):
 
     parent_folder_btn = ft.IconButton(
         icon=ft.Icons.ARROW_UPWARD,
-        icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_MD,
+        icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_SM,
         style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
-        on_click=_go_to_parent_folder,
+        height=CONSTANTS.HUB_TOOLBAR_H, on_click=_go_to_parent_folder,
         tooltip="Dossier parent",
     )
 
@@ -1915,9 +1964,9 @@ def main(page: ft.Page):
 
     refresh_folder_btn = ft.IconButton(
         icon=ft.Icons.REFRESH,
-        icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_MD,
+        icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_SM,
         style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
-        on_click=_refresh_folder,
+        height=CONSTANTS.HUB_TOOLBAR_H, on_click=_refresh_folder,
         tooltip="Rafraîchir",
     )
 
@@ -1930,7 +1979,8 @@ def main(page: ft.Page):
             return
         name_field = ft.TextField(
             hint_text="nom-du-dossier", autofocus=True, width=280,
-            bgcolor=DARK, border_color=BLUE, text_size=13, height=40,
+            bgcolor=DARK, border_color=BLUE, text_size=CONSTANTS.TEXT_SM,
+            height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
             content_padding=ft.Padding(8, 4, 8, 4))
 
         def _cancel(event):
@@ -1953,7 +2003,7 @@ def main(page: ft.Page):
 
         name_field.on_submit = _confirm
         dlg = ft.AlertDialog(
-            title=ft.Text("Créer un nouveau dossier", size=13, color=WHITE),
+            title=ft.Text("Créer un nouveau dossier", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=name_field,
             actions=[
                 ft.TextButton("Créer", on_click=_confirm),
@@ -1966,34 +2016,35 @@ def main(page: ft.Page):
 
     new_folder_btn = ft.IconButton(
         icon=ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
-        icon_color=ORANGE, icon_size=CONSTANTS.ICON_MD,
+        icon_color=ORANGE, icon_size=CONSTANTS.ICON_SM,
         style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
-        on_click=_create_folder_here,
+        height=CONSTANTS.HUB_TOOLBAR_H, on_click=_create_folder_here,
         tooltip="Créer un nouveau dossier",
     )
 
     open_menu_btn = ft.TextButton(
         content=ft.Row([
             ft.Icon(ft.Icons.FOLDER_OPEN_OUTLINED, color=ICON_ACTION,
-                    size=CONSTANTS.ICON_MD),
-            ft.Text("Ouvrir", size=CONSTANTS.TEXT_MD, color=WHITE,
+                    size=CONSTANTS.ICON_SM),
+            ft.Text("Ouvrir", size=CONSTANTS.TEXT_SM, color=WHITE,
                    weight=ft.FontWeight.W_600),
             ft.Icon(ft.Icons.ARROW_DROP_DOWN, color=WHITE, size=CONSTANTS.ICON_SM),
         ], spacing=4, tight=True),
         style=ft.ButtonStyle(bgcolor=GREY,
-                             padding=ft.Padding(12, 10, 10, 10)),
-        on_click=_toggle_open_menu,
+                             padding=ft.Padding(12, 0, 10, 0),
+                             side=ft.BorderSide(1, BLUE)),
+        height=CONSTANTS.HUB_TOOLBAR_H, on_click=_toggle_open_menu,
         tooltip="Favoris, récents, parcourir…",
     )
 
     order_mode_btn = ft.TextButton(
         content=ft.Row([
-            ft.Icon(ft.Icons.RECEIPT_LONG_OUTLINED, size=CONSTANTS.ICON_MD),
-            ft.Text("Mode commande", size=CONSTANTS.TEXT_MD),
+            ft.Icon(ft.Icons.RECEIPT_LONG_OUTLINED, size=CONSTANTS.ICON_SM),
+            ft.Text("Mode commande", size=CONSTANTS.TEXT_SM),
         ], spacing=6, tight=True),
         style=ft.ButtonStyle(bgcolor=GREY, color=WHITE,
-                             padding=ft.Padding(14, 10, 14, 10)),
-        on_click=_toggle_order_mode,
+                             padding=ft.Padding(14, 0, 14, 0)),
+        height=CONSTANTS.HUB_TOOLBAR_H, on_click=_toggle_order_mode,
         tooltip="Format + nombre directement sur chaque photo",
     )
 
@@ -2003,8 +2054,8 @@ def main(page: ft.Page):
     # _create_order_folder est défini plus loin (avec le reste de la logique
     # de commande) : lambda pour différer la résolution du nom jusqu'au clic.
     create_order_btn = ft.IconButton(
-        ft.Icons.FOLDER_ZIP_OUTLINED, icon_color=BLUE, icon_size=CONSTANTS.ICON_MD,
-        tooltip="Créer le dossier de commande",
+        ft.Icons.FOLDER_ZIP_OUTLINED, icon_color=BLUE, icon_size=CONSTANTS.ICON_SM,
+        height=CONSTANTS.HUB_TOOLBAR_H, tooltip="Créer le dossier de commande",
         on_click=lambda e: page.run_task(_create_order_folder, e),
         visible=order_mode["value"])
 
@@ -2012,31 +2063,30 @@ def main(page: ft.Page):
     # Actions) : lambda pour différer la résolution du nom jusqu'au clic.
     actions_btn = ft.Button(
         content=ft.Row([
-            ft.Icon(ft.Icons.BOLT_OUTLINED, color=DARK, size=CONSTANTS.ICON_MD),
-            ft.Text("ACTIONS", size=CONSTANTS.TEXT_MD, color=DARK,
+            ft.Icon(ft.Icons.BOLT_OUTLINED, color=DARK, size=CONSTANTS.ICON_SM),
+            ft.Text("ACTIONS", size=CONSTANTS.TEXT_SM, color=DARK,
                     weight=ft.FontWeight.W_800),
         ], spacing=6, tight=True),
-        style=ft.ButtonStyle(bgcolor=ORANGE, padding=ft.Padding(14, 6, 14, 6),
+        style=ft.ButtonStyle(bgcolor=ORANGE, padding=ft.Padding(14, 10, 14, 10),
                              shape=ft.RoundedRectangleBorder(radius=10)),
-        on_click=lambda e: _open_actions(e),
+        height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT, on_click=lambda e: _open_actions(e),
     )
 
-    # Rangée d'actions tactiles — reprend tous les gestes du menu clic-droit
-    # (_show_context_menu) pour qu'ils soient accessibles sans clic droit
-    # (retour user, écran tactile). Opère sur `selected` ; "Ouvrir avec..."
-    # reste réservé au clic droit (choix d'appli trop rare pour une icône
-    # permanente).
+    # Rangée d'actions tactiles — mêmes gestes que l'ancien menu clic-droit
+    # (supprimé, cf. _with_ctx_menu plus haut) pour qu'ils soient accessibles
+    # sans clic droit (retour user, écran tactile). Opère sur `selected` ;
+    # "Ouvrir avec..." a rejoint le panneau Actions (bouton "ACTIONS").
     # Icône + libellé coloré (même couleur pour les deux) : plus lisible
     # qu'une icône seule sur fond gris uni, et couleurs alignées sur
     # Dashboard.pyw:10872-10899 (copier=BLUE, couper=ORANGE, coller=YELLOW).
     def _chip(icon, color, label, tooltip, on_click):
         return ft.Button(
             content=ft.Row([
-                ft.Icon(icon, color=color, size=CONSTANTS.ICON_MD),
+                ft.Icon(icon, color=color, size=CONSTANTS.ICON_SM),
                 ft.Text(label, size=CONSTANTS.TEXT_SM, color=color),
             ], spacing=6, tight=True),
-            style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 12, 14, 12)),
-            tooltip=tooltip, on_click=on_click)
+            style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
+            height=CONSTANTS.HUB_TOOLBAR_H, tooltip=tooltip, on_click=on_click)
 
     def _tb_btn(icon, color, label, tooltip, fn):
         return _chip(icon, color, label, tooltip,
@@ -2068,37 +2118,44 @@ def main(page: ft.Page):
                 _do_delete),
     ], spacing=10, run_spacing=8, wrap=True)
 
+    files_header = ft.Container(
+        content=ft.Column([
+            ft.Row([
+                ft.Row([parent_folder_btn, refresh_folder_btn,
+                       new_folder_btn], spacing=8),
+                ft.VerticalDivider(width=1, color=GREY),
+                open_menu_btn,
+                files_path,
+                sel_count,
+                ft.VerticalDivider(width=1, color=GREY),
+                search_field,
+                sort_btn,
+                view_seg_wrap,
+            ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Row([
+                _seg_btn(ft.Icons.SELECT_ALL, "Tout sélectionner", _toggle_all,
+                         color=VIOLET),
+                _seg_btn(ft.Icons.FLIP, "Inverser", _invert, color=VIOLET),
+                _seg_btn(ft.Icons.EVENT, "Même date", _select_same_date,
+                         color=VIOLET),
+                only_sel_btn,
+                ft.VerticalDivider(width=1, color=GREY),
+                order_mode_btn,
+                create_order_btn,
+                ft.Container(expand=True),
+            ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            touch_actions_row,
+        ], spacing=10),
+        padding=ft.Padding(12, 12, 12, 8),
+        bgcolor=BACKGROUND,
+    )
+
     files_surface = ft.Column([
-        ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Row([parent_folder_btn, refresh_folder_btn,
-                           new_folder_btn], spacing=8),
-                    ft.VerticalDivider(width=1, color=GREY),
-                    open_menu_btn,
-                    files_path,
-                    sel_count,
-                    ft.VerticalDivider(width=1, color=GREY),
-                    search_field,
-                    sort_btn,
-                    view_seg,
-                ], spacing=12),
-                ft.Row([
-                    _seg_btn(ft.Icons.SELECT_ALL, "Tout sélectionner", _toggle_all,
-                             color=VIOLET),
-                    _seg_btn(ft.Icons.FLIP, "Inverser", _invert, color=VIOLET),
-                    only_sel_btn,
-                    ft.VerticalDivider(width=1, color=GREY),
-                    order_mode_btn,
-                    create_order_btn,
-                    ft.Container(expand=True),
-                ], spacing=10),
-                touch_actions_row,
-            ], spacing=10),
-            padding=ft.Padding(12, 12, 12, 8),
-        ),
+        ft.GestureDetector(on_secondary_tap_up=_on_empty_ctx_menu,
+                           content=files_header),
         ft.Divider(height=1, color=GREY),
-        files_body,
+        ft.GestureDetector(on_secondary_tap_up=_on_empty_ctx_menu,
+                           content=files_body),
     ], expand=True, spacing=0)
 
     # ═════════════════════════════════════════════════════════════════════
@@ -2232,11 +2289,11 @@ def main(page: ft.Page):
             page.update()
 
         dlg = ft.AlertDialog(
-            title=ft.Text("Modifications non enregistrées", size=13,
+            title=ft.Text("Modifications non enregistrées", size=CONSTANTS.TEXT_SM,
                           color=WHITE),
             content=ft.Text(
                 f"Enregistrer les modifications de {current_name} avant "
-                f"de recharger le bloc-notes ?", size=12, color=WHITE),
+                f"de recharger le bloc-notes ?", size=CONSTANTS.TEXT_SM, color=WHITE),
             actions=[
                 ft.TextButton("Enregistrer", on_click=_do_home(False)),
                 ft.TextButton("Ne pas enregistrer", on_click=_do_home(True)),
@@ -2292,12 +2349,13 @@ def main(page: ft.Page):
             return
         name_field = ft.TextField(
             hint_text="nom-du-fichier.md", autofocus=True, width=280,
-            bgcolor=DARK, border_color=BLUE, text_size=13, height=40,
+            bgcolor=DARK, border_color=BLUE, text_size=CONSTANTS.TEXT_SM,
+            height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
             content_padding=ft.Padding(8, 4, 8, 4))
         dlg = ft.AlertDialog(
-            title=ft.Text("Créer un fichier ici", size=13, color=WHITE),
+            title=ft.Text("Créer un fichier ici", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([
-                ft.Text(folder, size=11, color=GREY, no_wrap=True),
+                ft.Text(folder, size=CONSTANTS.TEXT_SM, color=GREY, no_wrap=True),
                 name_field,
             ], spacing=6, tight=True, width=280),
             actions_alignment=ft.MainAxisAlignment.END,
@@ -2317,14 +2375,14 @@ def main(page: ft.Page):
         page.update()
 
     notes_home_btn = ft.IconButton(
-        ft.Icons.HOME, icon_color=VIOLET, icon_size=18,
+        ft.Icons.HOME, icon_color=VIOLET, icon_size=CONSTANTS.ICON_SM,
         tooltip="Charger la note par défaut (.notes.md)",
         on_click=_notes_go_home)
     notes_preview_btn = ft.IconButton(
-        ft.Icons.VISIBILITY, icon_color=WHITE, icon_size=18,
+        ft.Icons.VISIBILITY, icon_color=WHITE, icon_size=CONSTANTS.ICON_SM,
         tooltip="Prévisualiser en Markdown", on_click=_notes_toggle_preview)
     create_file_btn = ft.IconButton(
-        ft.Icons.NOTE_ADD_OUTLINED, icon_color=ICON_ACTION, icon_size=18,
+        ft.Icons.NOTE_ADD_OUTLINED, icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_SM,
         tooltip="Créer un fichier dans le dossier ouvert",
         on_click=_create_file_here, disabled=not state["folder"])
 
@@ -2334,13 +2392,14 @@ def main(page: ft.Page):
                 notes_title,
                 notes_home_btn,
                 ft.IconButton(ft.Icons.SAVE_OUTLINED, icon_color=ICON_ACTION,
-                             icon_size=18, tooltip="Enregistrer", on_click=_notes_save),
+                             icon_size=CONSTANTS.ICON_SM, tooltip="Enregistrer", on_click=_notes_save),
                 notes_preview_btn,
                 create_file_btn,
-                ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=RED, icon_size=18,
+                ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
                              tooltip="Effacer", on_click=_notes_clear),
             ], spacing=4),
             padding=ft.Padding(8, 8, 8, 0),
+            bgcolor=BACKGROUND,
         ),
         ft.Divider(height=1, color=GREY),
         notes_body,
@@ -2378,9 +2437,9 @@ def main(page: ft.Page):
         value=CONSTANTS.AI_MODEL_TEXT,
         options=[ft.dropdown.Option(m) for m in CONSTANTS.AI_DROPDOWN_MODELS
                  if m.startswith(("gemini", "claude"))],
-        text_size=11, dense=True, color=WHITE, bgcolor=DARK, border_color=GREY,
+        text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK, border_color=GREY,
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=180)
-    ai_status_text = ft.Text("", color=GREY, size=11, italic=True, max_lines=1,
+    ai_status_text = ft.Text("", color=GREY, size=CONSTANTS.TEXT_SM, italic=True, max_lines=1,
                              overflow=ft.TextOverflow.ELLIPSIS, expand=True)
     ai_progress_bar = ft.ProgressBar(value=None, visible=False, color=BLUE, height=2)
 
@@ -2541,10 +2600,10 @@ def main(page: ft.Page):
         password_field.on_submit = _confirm
         dlg = ft.AlertDialog(
             modal=True,
-            title=ft.Text(f"🔐 Identifiant requis : {service}", size=14, color=WHITE),
+            title=ft.Text(f"🔐 Identifiant requis : {service}", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([
                 ft.Text(f"Aucun mot de passe enregistré pour {username}@{service}.",
-                       size=13, color=WHITE),
+                       size=CONSTANTS.TEXT_SM, color=WHITE),
                 password_field,
             ], tight=True, width=360),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
@@ -2711,10 +2770,10 @@ def main(page: ft.Page):
             confirm_result = {"value": False}
             rows = [ft.Text(f"• {a.get('filename', '?')}  →  "
                             f"{a.get('destination_subfolder', '?')}/",
-                            size=12, color=WHITE) for a in actions[:40]]
+                            size=CONSTANTS.TEXT_SM, color=WHITE) for a in actions[:40]]
             if len(actions) > 40:
                 rows.append(ft.Text(f"… et {len(actions) - 40} autres",
-                                    size=12, color=LIGHT_GREY))
+                                    size=CONSTANTS.TEXT_SM, color=LIGHT_GREY))
 
             def _confirm(e=None):
                 confirm_result["value"] = True
@@ -2729,10 +2788,10 @@ def main(page: ft.Page):
 
             dlg = ft.AlertDialog(
                 modal=True,
-                title=ft.Text("📂 Organiser les fichiers", size=14, color=WHITE),
+                title=ft.Text("📂 Organiser les fichiers", size=CONSTANTS.TEXT_SM, color=WHITE),
                 content=ft.Column([
                     ft.Text(args.get("summary") or "Organisation proposée par l'IA :",
-                           size=13, color=WHITE),
+                           size=CONSTANTS.TEXT_SM, color=WHITE),
                     ft.Column(rows, scroll=ft.ScrollMode.AUTO,
                              height=min(320, len(rows) * 24)),
                 ], tight=True, width=500),
@@ -2843,9 +2902,9 @@ def main(page: ft.Page):
 
         dlg = ft.AlertDialog(
             modal=True,
-            title=ft.Text("❓ Question de l'IA", size=14, color=WHITE),
+            title=ft.Text("❓ Question de l'IA", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([
-                ft.Text(question, size=13, color=WHITE),
+                ft.Text(question, size=CONSTANTS.TEXT_SM, color=WHITE),
                 ft.Container(height=8),
                 *[ft.Button(opt, bgcolor=BLUE, color=WHITE, on_click=_choice(opt))
                   for opt in options],
@@ -3082,19 +3141,19 @@ def main(page: ft.Page):
         for entry in ai_pending_images:
             ai_attach_row.controls.append(ft.Container(
                 content=ft.Row([
-                    ft.Icon(ft.Icons.IMAGE_OUTLINED, size=14, color=ORANGE),
-                    ft.Text(os.path.basename(entry["path"]), size=CONSTANTS.TEXT_XS,
+                    ft.Icon(ft.Icons.IMAGE_OUTLINED, size=CONSTANTS.ICON_SM, color=ORANGE),
+                    ft.Text(os.path.basename(entry["path"]), size=CONSTANTS.TEXT_SM,
                            color=WHITE),
-                    ft.IconButton(ft.Icons.CLOSE, icon_size=12, icon_color=RED,
+                    ft.IconButton(ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=RED,
                                  on_click=lambda e, en=entry: _ai_remove_image(en)),
                 ], spacing=4, tight=True),
                 bgcolor=GREY, border_radius=6, padding=ft.Padding(6, 2, 2, 2)))
         for path in ai_pending_files:
             ai_attach_row.controls.append(ft.Container(
                 content=ft.Row([
-                    ft.Icon(ft.Icons.DESCRIPTION_OUTLINED, size=14, color=YELLOW),
-                    ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_XS, color=WHITE),
-                    ft.IconButton(ft.Icons.CLOSE, icon_size=12, icon_color=RED,
+                    ft.Icon(ft.Icons.DESCRIPTION_OUTLINED, size=CONSTANTS.ICON_SM, color=YELLOW),
+                    ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM, color=WHITE),
+                    ft.IconButton(ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=RED,
                                  on_click=lambda e, p=path: _ai_remove_file(p)),
                 ], spacing=4, tight=True),
                 bgcolor=GREY, border_radius=6, padding=ft.Padding(6, 2, 2, 2)))
@@ -3436,14 +3495,14 @@ def main(page: ft.Page):
         ft.Icons.MIC_NONE, icon_color=GREY,
         tooltip="Cliquer pour dicter (Gemini)", on_click=_mic_toggle)
     ai_clear_button = ft.IconButton(
-        ft.Icons.DELETE_OUTLINE, icon_color=RED, icon_size=18,
+        ft.Icons.DELETE_OUTLINE, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
         tooltip="Effacer la conversation", on_click=_ai_clear_conversation)
     ai_copy_button = ft.IconButton(
-        ft.Icons.COPY_ALL, icon_color=BLUE, icon_size=18,
+        ft.Icons.COPY_ALL, icon_color=BLUE, icon_size=CONSTANTS.ICON_SM,
         tooltip="Copier la conversation IA",
         on_click=lambda e: _export_ai_conversation(to_notepad=False))
     ai_to_notepad_button = ft.IconButton(
-        ft.Icons.SEND_TO_MOBILE, icon_color=VIOLET, icon_size=18,
+        ft.Icons.SEND_TO_MOBILE, icon_color=VIOLET, icon_size=CONSTANTS.ICON_SM,
         tooltip="Transférer la conversation vers le bloc-notes",
         on_click=lambda e: _export_ai_conversation(to_notepad=True))
 
@@ -3457,7 +3516,7 @@ def main(page: ft.Page):
                 ai_to_notepad_button,
                 ai_clear_button,
             ], spacing=8),
-            padding=ft.Padding(8, 8, 8, 0)),
+            padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
         ft.Container(content=ai_chat_view, expand=True, padding=8),
         ai_progress_bar,
@@ -3613,7 +3672,7 @@ def main(page: ft.Page):
                 _liste_render()
 
         dlg = ft.AlertDialog(
-            title=ft.Text("Supprimer cette entrée ?", size=13, color=WHITE),
+            title=ft.Text("Supprimer cette entrée ?", size=CONSTANTS.TEXT_SM, color=WHITE),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Supprimer", on_click=_confirm)],
         )
@@ -3654,7 +3713,7 @@ def main(page: ft.Page):
 
         dlg = ft.AlertDialog(
             title=ft.Text("Ajouter une entrée" if is_new else "Modifier",
-                         size=13, color=WHITE),
+                         size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([nom_field, desc_field], spacing=10, tight=True),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Enregistrer", on_click=_confirm)],
@@ -3673,15 +3732,15 @@ def main(page: ft.Page):
                     ink=True, on_click=lambda e, t=entry["nom"]: _liste_copy(t)),
                 ft.Container(
                     content=ft.Text(entry["description"] or "—",
-                                    size=CONSTANTS.TEXT_XS, color=WHITE,
+                                    size=CONSTANTS.TEXT_SM, color=WHITE,
                                     max_lines=2,
                                     overflow=ft.TextOverflow.ELLIPSIS),
                     tooltip=f"Copier la description : {entry['description']}",
                     expand=True, ink=True,
                     on_click=lambda e, t=entry["description"]: _liste_copy(t)),
-                ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_size=16, icon_color=GREY,
+                ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_size=CONSTANTS.ICON_SM, icon_color=GREY,
                              on_click=lambda e, i=index: _liste_edit(i)),
-                ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_size=16, icon_color=RED,
+                ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_size=CONSTANTS.ICON_SM, icon_color=RED,
                              on_click=lambda e, i=index: _liste_delete(i)),
             ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             padding=ft.Padding(10, 8, 10, 8), bgcolor=GREY, border_radius=6)
@@ -3745,7 +3804,7 @@ def main(page: ft.Page):
             _liste_reload()
 
         dlg = ft.AlertDialog(
-            title=ft.Text("Nouveau fichier JSON", size=13, color=WHITE),
+            title=ft.Text("Nouveau fichier JSON", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=name_field,
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Créer", on_click=_confirm)],
@@ -3758,23 +3817,23 @@ def main(page: ft.Page):
         ft.Container(
             content=ft.Row([
                 ft.Icon(ft.Icons.DATA_OBJECT, color=VIOLET,
-                       size=CONSTANTS.ICON_MD),
+                       size=CONSTANTS.ICON_SM),
                 liste_path_text,
                 ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED, icon_color=YELLOW,
-                             icon_size=18, tooltip="Nouveau fichier .json",
+                             icon_size=CONSTANTS.ICON_SM, tooltip="Nouveau fichier .json",
                              on_click=_liste_new_file),
-                ft.IconButton(ft.Icons.REFRESH, icon_color=BLUE, icon_size=18,
+                ft.IconButton(ft.Icons.REFRESH, icon_color=BLUE, icon_size=CONSTANTS.ICON_SM,
                              tooltip="Recharger depuis le disque",
                              on_click=_liste_reload),
                 ft.Button("Ajouter", icon=ft.Icons.ADD,
                                   on_click=lambda e: _liste_edit(None)),
             ], spacing=6),
-            padding=ft.Padding(8, 8, 8, 0)),
+            padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
         ft.Container(
             content=ft.Text(
                 "Cliquer sur le nom (bleu) copie le nom, cliquer sur la "
                 "description (gris) copie la description.",
-                size=CONSTANTS.TEXT_XS, color=GREY),
+                size=CONSTANTS.TEXT_SM, color=GREY),
             padding=ft.Padding(8, 0, 8, 4)),
         ft.Divider(height=1, color=GREY),
         ft.Container(content=liste_list_view, expand=True),
@@ -3785,7 +3844,7 @@ def main(page: ft.Page):
     # ─── Surfaces encore à construire (placeholders structurés) ──────────
     def _placeholder(label):
         return ft.Container(
-            content=ft.Text(f"{label} — à venir", size=CONSTANTS.TEXT_MD,
+            content=ft.Text(f"{label} — à venir", size=CONSTANTS.TEXT_SM,
                             color=GREY),
             alignment=ft.Alignment.CENTER, expand=True)
 
@@ -3849,7 +3908,7 @@ def main(page: ft.Page):
 
     def _rail_tab(key, label, icon):
         is_active = key == "files"
-        icon_ctrl = ft.Icon(icon, size=CONSTANTS.ICON_MD,
+        icon_ctrl = ft.Icon(icon, size=CONSTANTS.ICON_SM,
                             color=DARK if is_active else WHITE)
         label_ctrl = ft.Text(label, size=CONSTANTS.TEXT_SM,
                              color=DARK if is_active else WHITE, no_wrap=True,
@@ -4017,7 +4076,7 @@ def main(page: ft.Page):
 
         name_field.on_submit = _confirm
         dlg = ft.AlertDialog(
-            title=ft.Text("Renommer séquence", size=13, color=WHITE),
+            title=ft.Text("Renommer séquence", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=name_field,
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
@@ -4042,7 +4101,7 @@ def main(page: ft.Page):
 
         buttons = [
             ft.Container(
-                content=ft.Text(label, size=14, color=CONSTANTS.COLOR_HOVER_YELLOW,
+                content=ft.Text(label, size=CONSTANTS.TEXT_SM, color=CONSTANTS.COLOR_HOVER_YELLOW,
                                 text_align=ft.TextAlign.CENTER),
                 bgcolor=GREY, border=ft.Border.all(1, CONSTANTS.COLOR_HOVER_YELLOW),
                 border_radius=4, padding=ft.Padding(12, 10, 12, 10), width=280,
@@ -4077,7 +4136,7 @@ def main(page: ft.Page):
 
         dlg = ft.AlertDialog(
             title=ft.Text("Supprimer les fichiers après transfert ?",
-                         size=13, color=WHITE),
+                         size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Text(
                 f"{scope} seront transférés vers TEMP.\n\n"
                 "Supprimer les fichiers source après la copie réussie ?",
@@ -4180,7 +4239,7 @@ def main(page: ft.Page):
 
         field.on_submit = _confirm
         dlg = ft.AlertDialog(
-            title=ft.Text(title, size=13, color=WHITE),
+            title=ft.Text(title, size=CONSTANTS.TEXT_SM, color=WHITE),
             content=field,
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
@@ -4193,32 +4252,39 @@ def main(page: ft.Page):
         _launch_text_prompt("Images en PDF", "Nom du PDF", "Ex: Album_Mariage",
                             "Images en PDF.py", "PDF_NAME")
 
-    def _launch_number_prompt(title, label, suffix, default, script_name,
-                              env_key):
-        field = ft.TextField(
-            label=label, value=str(default), suffix=ft.Text(suffix, color=GREY),
-            autofocus=True, width=200, bgcolor=DARK, border_color=GREY,
-            color=WHITE, keyboard_type=ft.KeyboardType.NUMBER)
+    def _launch_number_prompt(title, fields, script_name):
+        # `fields` : liste de (label, suffix, default, env_key) — un champ
+        # numérique par tuple, tous requis pour lancer l'outil.
+        text_fields = [
+            ft.TextField(
+                label=label, value=str(default),
+                suffix=ft.Text(suffix, color=GREY), autofocus=(i == 0),
+                width=200, bgcolor=DARK, border_color=GREY, color=WHITE,
+                keyboard_type=ft.KeyboardType.NUMBER)
+            for i, (label, suffix, default, env_key) in enumerate(fields)
+        ]
 
         def _cancel(e):
             dlg.open = False
             page.update()
 
         def _confirm(e):
-            try:
-                value = int((field.value or "").strip())
-            except ValueError:
-                field.error_text = "Nombre requis"
-                page.update()
-                return
+            env = {}
+            for (label, suffix, default, env_key), field in zip(fields, text_fields):
+                try:
+                    env[env_key] = str(int((field.value or "").strip()))
+                except ValueError:
+                    field.error_text = "Nombre requis"
+                    page.update()
+                    return
             dlg.open = False
             page.update()
-            _launch_tool(script_name, extra_env={env_key: str(value)})
+            _launch_tool(script_name, extra_env=env)
 
-        field.on_submit = _confirm
+        text_fields[-1].on_submit = _confirm
         dlg = ft.AlertDialog(
-            title=ft.Text(title, size=13, color=WHITE),
-            content=field,
+            title=ft.Text(title, size=CONSTANTS.TEXT_SM, color=WHITE),
+            content=ft.Column(text_fields, spacing=8, tight=True),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
         )
@@ -4227,20 +4293,16 @@ def main(page: ft.Page):
         page.update()
 
     def _launch_redimensionner(event=None):
-        _launch_number_prompt("Redimensionner", "Dimension max", "px",
-                              CONSTANTS.RESIZE_DEFAULT, "Redimensionner.py",
-                              "RESIZE_SIZE")
+        _launch_number_prompt("Redimensionner", [
+            ("Dimension max", "px", CONSTANTS.RESIZE_DEFAULT, "RESIZE_SIZE"),
+            ("Qualité", "%", 100, "RESIZE_QUALITY"),
+        ], "Redimensionner.py")
 
     def _launch_redimensionner_filigrane(event=None):
-        _launch_number_prompt("Redimensionner + filigrane", "Dimension max",
-                              "px", CONSTANTS.RESIZE_DEFAULT,
-                              "Redimensionner filigrane.py",
-                              "RESIZE_WATERMARK_SIZE")
-
-    def _launch_compression_web(event=None):
-        _launch_number_prompt("Compression web", "Qualité", "%",
-                              CONSTANTS.WEB_QUALITY, "Compression web.py",
-                              "WEB_QUALITY")
+        _launch_number_prompt("Redimensionner + filigrane", [
+            ("Dimension max", "px", CONSTANTS.RESIZE_DEFAULT,
+             "RESIZE_WATERMARK_SIZE"),
+        ], "Redimensionner filigrane.py")
 
     def _launch_grain_pellicule(event=None):
         C = CONSTANTS
@@ -4343,11 +4405,11 @@ def main(page: ft.Page):
             _launch_tool("Grain pellicule.py", extra_env=env)
 
         dlg = ft.AlertDialog(
-            title=ft.Text("Grain pellicule — paramètres", size=13,
+            title=ft.Text("Grain pellicule — paramètres", size=CONSTANTS.TEXT_SM,
                          color=WHITE),
             content=ft.Column(
                 [ft.Text("Les valeurs par défaut viennent de CONSTANTS.py "
-                         "(section 12).", size=CONSTANTS.TEXT_XS, color=GREY),
+                         "(section 12).", size=CONSTANTS.TEXT_SM, color=GREY),
                  tile1, tile2, tile3, tile4, tile5, tile6, tile7],
                 spacing=4, tight=True, scroll=ft.ScrollMode.AUTO,
                 width=340, height=420),
@@ -4479,7 +4541,7 @@ def main(page: ft.Page):
                                         value=bool(saved.get("white_border", False)))
         scope_text = ft.Text(
             f"Portée auto : {'sélection en cours' if selected else 'tout le dossier'}",
-            size=CONSTANTS.TEXT_XS, color=GREY)
+            size=CONSTANTS.TEXT_SM, color=GREY)
 
         def _on_manual_change(e):
             manual["value"] = manual_switch.value
@@ -4522,7 +4584,7 @@ def main(page: ft.Page):
             })
 
         dlg = ft.AlertDialog(
-            title=ft.Text("Recadrage automatique — format", size=13,
+            title=ft.Text("Recadrage automatique — format", size=CONSTANTS.TEXT_SM,
                          color=WHITE),
             content=ft.Column([
                 fmt_dd,
@@ -4561,8 +4623,8 @@ def main(page: ft.Page):
             return ft.Container(
                 data=m,
                 content=ft.Column(
-                    [ft.Icon(icon, size=20, color=BLUE),
-                     ft.Text(label, size=CONSTANTS.TEXT_XS, color=WHITE,
+                    [ft.Icon(icon, size=CONSTANTS.ICON_SM, color=BLUE),
+                     ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE,
                              text_align=ft.TextAlign.CENTER)],
                     horizontal_alignment=ft.CrossAxisAlignment.CENTER,
                     spacing=4, tight=True),
@@ -4598,7 +4660,7 @@ def main(page: ft.Page):
             })
 
         dlg = ft.AlertDialog(
-            title=ft.Text("Copyright", size=13, color=WHITE),
+            title=ft.Text("Copyright", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([options_row, custom_field], spacing=10,
                               tight=True),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
@@ -4607,6 +4669,84 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+
+    async def _sync_two_folders(event=None):
+        """Comme Dashboard.pyw:9692-9782 (_sync_two_folders) : synchronise
+        le dossier courant avec un 2e dossier choisi (sous-dossiers
+        inclus). Pour chaque fichier, la version la plus récente (mtime)
+        est copiée du côté qui ne l'a pas ou qui a une version plus
+        ancienne. Aucun fichier n'est jamais supprimé."""
+        folder_a = state["folder"]
+        if not folder_a:
+            _log_to_terminal("[ERREUR] Aucun dossier ouvert à synchroniser", RED)
+            return
+
+        folder_b = await ft.FilePicker().get_directory_path(
+            dialog_title="Choisir le 2e dossier à synchroniser")
+        if not folder_b:
+            return
+        folder_a = os.path.normpath(folder_a)
+        folder_b = os.path.normpath(folder_b)
+        if folder_a.lower() == folder_b.lower():
+            _log_to_terminal("[ERREUR] Les 2 dossiers sont identiques", RED)
+            return
+
+        def _collect_files(src_root, dst_root):
+            tasks = []
+            for src_dir, _dirs, files in os.walk(src_root):
+                rel = os.path.relpath(src_dir, src_root)
+                dst_dir = dst_root if rel == "." else os.path.join(dst_root, rel)
+                for name in files:
+                    if CONSTANTS.is_os_junk(name):
+                        continue
+                    tasks.append((os.path.join(src_dir, name), dst_dir,
+                                  os.path.join(dst_dir, name), name))
+            return tasks
+
+        def _do_sync():
+            tasks = _collect_files(folder_a, folder_b) + _collect_files(folder_b, folder_a)
+            total = len(tasks)
+            _log_to_terminal(f"[...] {total} fichier(s) à comparer…", ORANGE)
+
+            progress_text = ft.Text("", size=CONSTANTS.TERMINAL_FONT_SIZE,
+                                    color=BLUE, font_family="monospace")
+            terminal_output.controls.append(progress_text)
+            try:
+                page.update()
+            except Exception:
+                pass
+
+            copied = 0
+            errors = []
+            last_update = 0
+            for i, (src_path, dst_dir, dst_path, name) in enumerate(tasks, start=1):
+                progress_text.value = f"[{i}/{total}] {name}"
+                now = time.time()
+                if now - last_update >= 0.1 or i == total:
+                    last_update = now
+                    try:
+                        progress_text.update()
+                    except Exception:
+                        pass
+                try:
+                    if not os.path.exists(dst_path) or (
+                            os.path.getmtime(src_path) > os.path.getmtime(dst_path)):
+                        os.makedirs(dst_dir, exist_ok=True)
+                        shutil.copy2(src_path, dst_path)
+                        copied += 1
+                except Exception as err:
+                    errors.append(f"{name}: {err}")
+
+            if copied:
+                _log_to_terminal(f"[OK] {copied} fichier(s) synchronisé(s)", GREEN)
+            else:
+                _log_to_terminal("[OK] Dossiers déjà synchronisés", BLUE)
+            for err in errors:
+                _log_to_terminal(f"[ERREUR] {err}", RED)
+            _navigate(folder_a)
+
+        _log_to_terminal(f"[...] Synchronisation avec {folder_b} en cours…", ORANGE)
+        threading.Thread(target=_do_sync, daemon=True).start()
 
     # (label, icône, couleur, handler)
     # Catégories = les regroupements du flux de travail réel (cf. mémoire
@@ -4618,7 +4758,11 @@ def main(page: ft.Page):
             ("Transfert vers TEMP", ft.Icons.DRIVE_FILE_MOVE_OUTLINED, BLUE,
              _launch_transfert_temp),
             ("Conversion JPG", ft.Icons.IMAGE_OUTLINED, BLUE,
-             lambda e: _launch_tool("Conversion JPG.py")),
+             lambda e: _launch_tool("Conversion JPG.py",
+                                    extra_env={"CONVERT_FORMAT": "jpg"})),
+            ("Conversion PNG", ft.Icons.IMAGE_OUTLINED, BLUE,
+             lambda e: _launch_tool("Conversion JPG.py",
+                                    extra_env={"CONVERT_FORMAT": "png"})),
             ("Renommer séquence", ft.Icons.SORT_BY_ALPHA, BLUE,
              _launch_renommer_sequence),
             ("Séparer RAW et JPG", ft.Icons.HIDE_IMAGE_OUTLINED, BLUE,
@@ -4666,8 +4810,6 @@ def main(page: ft.Page):
              _launch_redimensionner),
             ("Redimensionner filigrane", ft.Icons.BRANDING_WATERMARK_OUTLINED,
              ORANGE, _launch_redimensionner_filigrane),
-            ("Compression web", ft.Icons.COMPRESS_OUTLINED, ORANGE,
-             _launch_compression_web),
             ("Images en PDF", ft.Icons.PICTURE_AS_PDF_OUTLINED, ORANGE,
              _launch_images_en_pdf),
             ("Remerciements", ft.CupertinoIcons.BIN_XMARK_FILL, ORANGE,
@@ -4677,16 +4819,24 @@ def main(page: ft.Page):
             ("Nettoyer métadonnées", ft.Icons.CLEANING_SERVICES_OUTLINED, ORANGE,
              lambda e: _launch_tool("Nettoyer metadonnées.py")),
         ]),
+        ("Maintenance", [
+            ("Nettoyer anciens fichiers (> 60 jours)", ft.Icons.AUTO_DELETE,
+             RED, lambda e: _launch_tool(
+                 "Nettoyer anciens fichiers.py", is_local=True)),
+            ("Synchroniser avec un autre dossier", ft.Icons.SYNC, GREEN,
+             lambda e: page.run_task(_sync_two_folders, e)),
+        ]),
     ]
 
-    def _action_row(label, icon, color, handler):
+    def _action_row(label, icon, color, handler, trailing=None):
         # Ligne de liste (ft.ListTile) plutôt qu'une carte en grille : plus
         # aucun calcul de colonnes/aspect ratio à faire tenir juste, fiable
         # quelle que soit la largeur — la grille précédente n'a jamais
         # correctement rendu ses hauteurs (retour user, plusieurs essais).
         return ft.ListTile(
-            leading=ft.Icon(icon, color=color, size=CONSTANTS.HUB_ACTION_ICON_SIZE),
-            title=ft.Text(label, size=CONSTANTS.HUB_ACTION_TEXT_SIZE, color=WHITE),
+            leading=ft.Icon(icon, color=color, size=CONSTANTS.ICON_LG),
+            title=ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE),
+            trailing=trailing,
             on_click=handler, hover_color=GREY,
             content_padding=ft.Padding(left=8, top=4, right=8, bottom=4),
         )
@@ -4696,10 +4846,48 @@ def main(page: ft.Page):
         # de l'overlay est quasi illisible, deux gris trop proches en
         # luminance — cf. retour user.
         return ft.Column([
-            ft.Text(label.upper(), size=CONSTANTS.TEXT_XS, color=ORANGE,
+            ft.Text(label.upper(), size=CONSTANTS.TEXT_SM, color=ORANGE,
                     weight=ft.FontWeight.W_700),
             ft.Column([_action_row(*t) for t in tools], spacing=0),
         ], spacing=6)
+
+    # "Ouvrir avec" — ex-menu clic-droit (cf. _with_ctx_menu), déplacé ici
+    # car le clic droit ouvre désormais ce panneau au lieu d'un menu dédié.
+    # Catégorie reconstruite à chaque ouverture (_open_actions) : la liste
+    # de programmes vient d'open_with.json, modifiable via "Ajouter un
+    # programme..." -> doit refléter les ajouts sans relancer le Hub.
+    _open_with_category_col = ft.Column(spacing=6)
+
+    def _remove_open_with_program(prog, event=None):
+        programs = [p for p in _load_open_with_programs()
+                   if not (p.get("label") == prog.get("label")
+                           and p.get("exe") == prog.get("exe"))]
+        _save_open_with_programs(programs)
+        _rebuild_open_with_category()
+        page.update()
+
+    def _rebuild_open_with_category():
+        rows = [
+            _action_row(
+                f"Ouvrir avec {p['label']}", ft.Icons.OPEN_IN_NEW, GREEN,
+                lambda e, p=p: (_open_files_with(p, list(selected))
+                               if selected else None),
+                trailing=ft.IconButton(
+                    ft.Icons.CLOSE, icon_color=RED,
+                    icon_size=CONSTANTS.ICON_SM,
+                    tooltip=f"Supprimer {p['label']}",
+                    on_click=lambda e, p=p: _remove_open_with_program(p)))
+            for p in _load_open_with_programs()
+        ]
+        rows.append(_action_row("Ajouter un programme...", ft.Icons.ADD,
+                                GREEN, lambda e: _add_open_with_program()))
+        _open_with_category_col.controls = [
+            ft.Text("OUVRIR AVEC", size=CONSTANTS.TEXT_SM, color=ORANGE,
+                    weight=ft.FontWeight.W_700),
+            ft.Column(rows, spacing=0),
+        ]
+
+    _rebuild_open_with_category()
 
     # Overlay en demi-largeur (retour user : le plein écran gaspillait
     # l'espace) — un Row avec deux enfants `expand=1` se partage 50/50 et
@@ -4708,22 +4896,30 @@ def main(page: ft.Page):
     # outside »), comme un vrai overlay/drawer.
     actions_panel = ft.Container(
         content=ft.Column([
-            ft.Row([
-                ft.Icon(ft.Icons.BOLT_OUTLINED, color=ORANGE,
-                       size=CONSTANTS.ICON_MD),
-                ft.Text("Actions", size=18, color=WHITE,
-                       weight=ft.FontWeight.W_700, expand=True),
-                ft.IconButton(ft.Icons.CLOSE, icon_color=RED, icon_size=22,
-                             on_click=lambda e: _close_actions(),
-                             tooltip="Fermer"),
-            ], spacing=10),
+            ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.BOLT_OUTLINED, color=ORANGE,
+                           size=CONSTANTS.ICON_SM),
+                    ft.Text("Actions", size=CONSTANTS.TEXT_LG, color=WHITE,
+                           weight=ft.FontWeight.W_700, expand=True),
+                    ft.IconButton(ft.Icons.CLOSE, icon_color=RED,
+                                 icon_size=CONSTANTS.ICON_LG,
+                                 on_click=lambda e: _close_actions(),
+                                 tooltip="Fermer"),
+                ], spacing=10),
+                padding=ft.Padding(20, 16, 20, 16), bgcolor=BACKGROUND,
+            ),
             ft.Divider(height=1, color=GREY),
-            ft.Column(
-                [_action_category(label, tools)
-                 for label, tools in _ACTION_CATEGORIES],
-                spacing=20, scroll=ft.ScrollMode.AUTO, expand=True),
-        ], spacing=12, expand=True),
-        bgcolor=DARK, padding=20, expand=1,
+            ft.Container(
+                content=ft.Column(
+                    [_action_category(label, tools)
+                     for label, tools in _ACTION_CATEGORIES]
+                    + [_open_with_category_col],
+                    spacing=20, scroll=ft.ScrollMode.AUTO, expand=True),
+                padding=20, expand=True,
+            ),
+        ], spacing=0, expand=True),
+        bgcolor=DARK, expand=1,
     )
     actions_overlay = ft.Row([
         ft.Container(expand=1, ink=False,
@@ -4740,6 +4936,7 @@ def main(page: ft.Page):
         page.run_task(_focus_active_surface)
 
     def _open_actions(event):
+        _rebuild_open_with_category()   # reflète un programme ajouté entre-temps
         if actions_overlay not in page.overlay:
             page.overlay.append(actions_overlay)
         page.update()
@@ -4884,7 +5081,8 @@ def main(page: ft.Page):
         pwd_field = ft.TextField(
             hint_text="Mot de passe administrateur", password=True,
             can_reveal_password=True, autofocus=True, width=280,
-            bgcolor=DARK, border_color=BLUE, text_size=13, height=40,
+            bgcolor=DARK, border_color=BLUE, text_size=CONSTANTS.TEXT_SM,
+            height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
             content_padding=ft.Padding(8, 4, 8, 4))
 
         def _cancel(event):
@@ -4900,7 +5098,7 @@ def main(page: ft.Page):
 
         pwd_field.on_submit = _confirm
         dlg = ft.AlertDialog(
-            title=ft.Text("Mot de passe requis (sudo)", size=13, color=WHITE),
+            title=ft.Text("Mot de passe requis (sudo)", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=pwd_field,
             actions=[
                 ft.TextButton("Exécuter", on_click=_confirm),
@@ -5108,11 +5306,11 @@ def main(page: ft.Page):
     terminal_input.on_submit = _on_terminal_submit
 
     terminal_copy_button = ft.IconButton(
-        ft.Icons.COPY_ALL, icon_color=BLUE, icon_size=18,
+        ft.Icons.COPY_ALL, icon_color=BLUE, icon_size=CONSTANTS.ICON_SM,
         tooltip="Copier le terminal",
         on_click=lambda e: _export_terminal(to_notepad=False))
     terminal_to_notepad_button = ft.IconButton(
-        ft.Icons.SEND_TO_MOBILE, icon_color=VIOLET, icon_size=18,
+        ft.Icons.SEND_TO_MOBILE, icon_color=VIOLET, icon_size=CONSTANTS.ICON_SM,
         tooltip="Transférer le terminal vers le bloc-notes",
         on_click=lambda e: _export_terminal(to_notepad=True))
 
@@ -5131,35 +5329,38 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
     #  Barre d'état — Terminal (centre) + curseur Taille (droite)
     # ═════════════════════════════════════════════════════════════════════
-    status_left = ft.Text("", size=CONSTANTS.TEXT_XS, color=WHITE, expand=True)
+    status_left = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE, expand=True)
 
     def _toggle_terminal(event):
         terminal_panel.visible = not terminal_panel.visible
         page.update()
         page.run_task(_focus_active_surface)
 
+    # Barre plus haute (56 au lieu de 40) + cibles tactiles agrandies pour
+    # Terminal/Actions/curseur de taille — accès écran tactile (retour user).
     statusbar = ft.Container(
         content=ft.Row([
             status_left,
             ft.TextButton(
                 content=ft.Row([
                     ft.Icon(ft.Icons.TERMINAL, size=CONSTANTS.ICON_SM, color=WHITE),
-                    ft.Text("Terminal", size=CONSTANTS.TEXT_XS, color=WHITE),
+                    ft.Text("Terminal", size=CONSTANTS.TEXT_SM, color=WHITE),
                 ], spacing=6, tight=True),
-                on_click=_toggle_terminal,
+                height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT, on_click=_toggle_terminal,
             ),
             actions_btn,
             ft.Container(
                 content=ft.Row([
-                    ft.Icon(ft.Icons.PHOTO_SIZE_SELECT_LARGE, size=16, color=WHITE),
-                    ft.Slider(min=90, max=320, value=state["thumb_size"], width=120,
+                    ft.Icon(ft.Icons.PHOTO_SIZE_SELECT_LARGE, size=CONSTANTS.ICON_SM, color=WHITE),
+                    ft.Slider(min=90, max=320, value=state["thumb_size"], width=140,
                               active_color=BLUE,
                               on_change=lambda e: _apply_thumb_size(e.control.value)),
                 ], spacing=4, tight=True),
                 expand=True, alignment=ft.Alignment.CENTER_RIGHT,
             ),
         ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
-        height=40, padding=ft.Padding(12, 0, 12, 0), bgcolor=GREY,
+        height=CONSTANTS.HUB_STATUSBAR_HEIGHT,
+        padding=ft.Padding(12, 0, 12, 0), bgcolor=GREY,
     )
 
     # ═════════════════════════════════════════════════════════════════════
@@ -5246,59 +5447,80 @@ def main(page: ft.Page):
             strip_btn.icon_color = WHITE
         page.update()
 
-    strip_btn = ft.IconButton(ft.Icons.UNFOLD_LESS, icon_size=16, icon_color=WHITE,
+    strip_btn = ft.IconButton(ft.Icons.UNFOLD_LESS, icon_size=CONSTANTS.ICON_SM, icon_color=WHITE,
                               on_click=_toggle_strip,
                               tooltip="Réduire en bandeau (écran tactile)")
 
-    titlebar = ft.WindowDragArea(
-        ft.Row([
-            ft.Container(
-                content=ft.Row([
-                    ft.Icon(ft.Icons.HUB_OUTLINED, color=ORANGE, size=18),
-                    ft.Text(f"HUB  {__version__}", size=CONSTANTS.TEXT_LG,
-                            color=WHITE, weight=ft.FontWeight.W_500),
-                ], spacing=6),
-                padding=ft.Padding(12, 0, 0, 0),
-            ),
-            ft.IconButton(
-                icon=ft.Icons.SYSTEM_UPDATE_ALT,
-                tooltip="Mettre à jour (git pull --rebase)",
-                on_click=_update_app,
-                icon_color=LIGHT_GREY,
-                icon_size=18,
-            ),
-            ft.Container(expand=True),
-            # Accès tactile : toujours visibles, quelle que soit la surface
-            # active (écran tactile = pas de fallback clavier/raccourci).
-            ft.Container(
-                content=ft.Row([
-                    ft.IconButton(ft.Icons.BLUETOOTH, icon_size=22,
-                                 icon_color=BLUE, on_click=_launch_bluetooth,
-                                 tooltip="Recevoir un fichier via Bluetooth"),
-                    ft.IconButton(ft.Icons.PRINT_OUTLINED, icon_size=22,
-                                 icon_color=ORANGE, on_click=_launch_print,
-                                 tooltip="Imprimer la sélection (ou le dossier)"),
-                    ft.IconButton(ft.Icons.PUBLIC, icon_size=22,
-                                 icon_color=BLUE, on_click=_open_browser,
-                                 tooltip="Ouvrir le navigateur web"),
-                    ft.IconButton(ft.Icons.OPEN_IN_NEW, icon_size=22,
-                                 icon_color=GREEN, on_click=_open_in_file_explorer,
-                                 tooltip="Ouvrir l'explorateur"),
-                ], spacing=0, tight=True),
-                border=ft.Border.all(1, ORANGE), border_radius=8,
-                margin=ft.Margin(0, 0, 8, 0),
-            ),
-            strip_btn,
+    # Container extérieur à hauteur fixe = STRIP_HEIGHT : le mode bandeau
+    # (_toggle_strip) réduit la fenêtre à cette hauteur pour ne garder que
+    # cette barre, donc les deux doivent rester synchronisées. Cibles
+    # tactiles Bluetooth/Impression/Navigateur/Explorateur agrandies
+    # (22 -> 30, height= explicite) pour un accès plus facile à l'écran
+    # tactile (retour user).
+    titlebar = ft.Container(
+        height=STRIP_HEIGHT,
+        content=ft.WindowDragArea(
             ft.Row([
-                ft.IconButton(ft.Icons.REMOVE, icon_size=16, icon_color=YELLOW,
-                              on_click=_minimize, tooltip="Réduire"),
-                ft.IconButton(ft.Icons.FULLSCREEN, icon_size=16, icon_color=BLUE,
-                              on_click=_toggle_maximize,
-                              tooltip="Maximiser / Restaurer"),
-                ft.IconButton(ft.Icons.CLOSE, icon_size=16, icon_color=RED,
-                              on_click=_close, tooltip="Fermer"),
-            ], spacing=0),
-        ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                ft.Container(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.HUB_OUTLINED, color=ORANGE, size=CONSTANTS.ICON_SM),
+                        ft.Text(f"HUB  {__version__}", size=CONSTANTS.TEXT_LG,
+                                color=WHITE, weight=ft.FontWeight.W_500),
+                    ], spacing=6),
+                    padding=ft.Padding(12, 0, 0, 0),
+                ),
+                ft.IconButton(
+                    icon=ft.Icons.SYSTEM_UPDATE_ALT,
+                    tooltip="Mettre à jour (git pull --rebase)",
+                    on_click=_update_app,
+                    icon_color=LIGHT_GREY,
+                    icon_size=CONSTANTS.ICON_SM,
+                ),
+                ft.Container(expand=True),
+                # Accès tactile : toujours visibles, quelle que soit la surface
+                # active (écran tactile = pas de fallback clavier/raccourci).
+                ft.Container(
+                    content=ft.Row([
+                        ft.IconButton(
+                            ft.Icons.BLUETOOTH,
+                            icon_size=CONSTANTS.ICON_LG,
+                            height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
+                            icon_color=BLUE, on_click=_launch_bluetooth,
+                            tooltip="Recevoir un fichier via Bluetooth"),
+                        ft.IconButton(
+                            ft.Icons.PRINT_OUTLINED,
+                            icon_size=CONSTANTS.ICON_LG,
+                            height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
+                            icon_color=ORANGE, on_click=_launch_print,
+                            tooltip="Imprimer la sélection (ou le dossier)"),
+                        ft.IconButton(
+                            ft.Icons.PUBLIC,
+                            icon_size=CONSTANTS.ICON_LG,
+                            height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
+                            icon_color=BLUE, on_click=_open_browser,
+                            tooltip="Ouvrir le navigateur web"),
+                        ft.IconButton(
+                            ft.Icons.OPEN_IN_NEW,
+                            icon_size=CONSTANTS.ICON_LG,
+                            height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
+                            icon_color=GREEN, on_click=_open_in_file_explorer,
+                            tooltip="Ouvrir l'explorateur"),
+                    ], spacing=0, tight=True),
+                    border=ft.Border.all(1, ORANGE), border_radius=8,
+                    margin=ft.Margin(0, 0, 8, 0),
+                ),
+                strip_btn,
+                ft.Row([
+                    ft.IconButton(ft.Icons.REMOVE, icon_size=CONSTANTS.ICON_SM, icon_color=YELLOW,
+                                  on_click=_minimize, tooltip="Réduire"),
+                    ft.IconButton(ft.Icons.FULLSCREEN, icon_size=CONSTANTS.ICON_SM, icon_color=BLUE,
+                                  on_click=_toggle_maximize,
+                                  tooltip="Maximiser / Restaurer"),
+                    ft.IconButton(ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=RED,
+                                  on_click=_close, tooltip="Fermer"),
+                ], spacing=0),
+            ], vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ),
     )
 
     body = ft.Column([
@@ -5345,6 +5567,8 @@ def main(page: ft.Page):
                 _do_paste()
             elif key == "I":
                 _invert(None)
+            elif key == "D":
+                _select_same_date(None)
             elif key == "N":
                 _create_folder_here()
             elif key == "R":

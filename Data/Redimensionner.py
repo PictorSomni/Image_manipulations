@@ -9,12 +9,13 @@ qualité 100 dans ``<N>px/``.
 Variables d'environnement :
   FOLDER_PATH     — dossier source (défaut : répertoire du script).
   RESIZE_SIZE     — dimension maximale en pixels (défaut : 640).
+  RESIZE_QUALITY  — qualité JPEG de sortie, 0-100 (défaut : 100).
   SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
 
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -43,6 +44,12 @@ try:
     MAXSIZE = (MAXSIZE_VALUE, MAXSIZE_VALUE)
 except ValueError:
     print("Erreur : La variable d'environnement RESIZE_SIZE doit être un nombre.")
+    sys.exit()
+
+try:
+    QUALITY = int(os.environ.get("RESIZE_QUALITY", "100"))
+except ValueError:
+    print("Erreur : La variable d'environnement RESIZE_QUALITY doit être un nombre.")
     sys.exit()
 
 # Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
@@ -83,7 +90,7 @@ for i, file in enumerate(FOLDER):
         filename, _ = os.path.splitext(file)
         base_image = base_image.convert("RGB")
         output_path = output_folder / f"{filename}.jpg"
-        base_image.save(output_path, format='JPEG', subsampling=0, quality=100)
+        base_image.save(output_path, format='JPEG', subsampling=0, quality=QUALITY)
         base_image.close()
         
 print("Termine !")

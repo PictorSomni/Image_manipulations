@@ -340,7 +340,6 @@ def main(page: ft.Page):
         "2 en 1.py": (False, HOVER_YELLOW),
         "Redimensionner.py": (False, WHITE),
         "Augmentation IA.py": (False, YELLOW),
-        "Compression web.py": (False, WHITE),  # contour neutre : champ central vert distinctif
         "Copyright.py": (False, VIOLET),
     }
 
@@ -350,7 +349,6 @@ def main(page: ft.Page):
 
     resize_size = {"value": str(CONSTANTS.RESIZE_DEFAULT)}  # Taille par défaut pour le redimensionnement
     resize_watermark_size = {"value": str(CONSTANTS.RESIZE_DEFAULT)}  # Taille par défaut pour le redimensionnement avec watermark
-    web_quality = {"value": str(CONSTANTS.WEB_QUALITY)}  # Qualité JPEG par défaut pour la compression web
     sort_mode = {"value": 2}  # 0 = A→Z, 1 = Z→A, 2 = par date de modification
     show_only_selection = {"value": False}  # True = afficher uniquement les fichiers sélectionnés
     removable_drives_state = {"list": []}  # [(name, path), ...]
@@ -767,17 +765,6 @@ def main(page: ft.Page):
         text_align=ft.TextAlign.CENTER,
         keyboard_type=ft.KeyboardType.NUMBER,
         border_color=ORANGE,
-        content_padding=ft.Padding(5, 5, 5, 5),
-    )
-    web_quality_input = ft.TextField(
-        value=str(CONSTANTS.WEB_QUALITY),
-        width=80,
-        height=35,
-        text_size=13,
-        text_align=ft.TextAlign.CENTER,
-        keyboard_type=ft.KeyboardType.NUMBER,
-        # Vert : zone centrale distincte des 2 Redimensionner (bleu / orange).
-        border_color=GREEN,
         content_padding=ft.Padding(5, 5, 5, 5),
     )
 
@@ -9162,10 +9149,6 @@ def main(page: ft.Page):
 
 
 
-                # Ajouter la qualité de sortie pour Compression web.py
-                if app_name == "Compression web.py":
-                    env["WEB_QUALITY"] = web_quality["value"]
-
 
 
                 # Ajouter le dossier pour Transfert vers TEMP.py
@@ -9426,20 +9409,6 @@ def main(page: ft.Page):
 
 
 
-    def on_web_quality_input_change(e):
-        """Met à jour la qualité JPEG cible pour la compression web."""
-        web_quality["value"] = e.control.value
-
-
-
-    def launch_web_quality(e):
-        """Lance Compression web.py avec la qualité saisie dans web_quality_input."""
-        app_path = os.path.join(app_directory, "Data", "Compression web.py")
-        if os.path.exists(app_path):
-            launch_app("Compression web.py", app_path, False)
-
-
-
     def refresh_apps():
         """
         Reconstruit la grille des applications disponibles.
@@ -9490,24 +9459,6 @@ def main(page: ft.Page):
                         padding=ft.Padding(5, 8, 5, 8),
                         border_radius=4,
                         on_click=launch_resize_watermark,
-                        ink=True,
-                    )
-                )
-            elif app_name == "Compression web.py":
-                items.append(
-                    ft.Container(
-                        content=ft.Column([
-                            ft.Text("Compression web", size=13, color=app_color, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
-                            web_quality_input,
-                            ft.Text("qualité", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
-                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=3),
-                        expand=True,
-                        alignment=ft.Alignment(0, 0),
-                        bgcolor=GREY,
-                        border=ft.Border.all(1, app_color),
-                        padding=ft.Padding(5, 8, 5, 8),
-                        border_radius=4,
-                        on_click=launch_web_quality,
                         ink=True,
                     )
                 )
@@ -10049,13 +10000,10 @@ def main(page: ft.Page):
     # ── Redimensionnement ─────────────────────────────────────────────
     resize_input.on_change = on_resize_input_change
     resize_watermark_input.on_change = on_resize_watermark_input_change
-    web_quality_input.on_change = on_web_quality_input_change
     resize_input.on_focus = lambda e: _suspend_keyboard_shortcuts()
     resize_input.on_blur = lambda e: _resume_keyboard_shortcuts()
     resize_watermark_input.on_focus = lambda e: _suspend_keyboard_shortcuts()
     resize_watermark_input.on_blur = lambda e: _resume_keyboard_shortcuts()
-    web_quality_input.on_focus = lambda e: _suspend_keyboard_shortcuts()
-    web_quality_input.on_blur = lambda e: _resume_keyboard_shortcuts()
 
 
     # ── Initialisation ────────────────────────────────────────────────
