@@ -4966,6 +4966,25 @@ def main(page: ft.Page):
         content_padding=ft.Padding(10, 8, 10, 8),
         on_focus=_terminal_input_on_focus, on_blur=_terminal_input_on_blur)
 
+    # Auto-affichage du terminal (retour user) : tout message y apparaissant
+    # (action, copier/coller, outil lancé…) le fait apparaître, puis le
+    # referme après quelques secondes de silence — même débounce que
+    # _notes_autosave_after_delay (annule/relance un timer à chaque appel),
+    # donc reste ouvert tant que des messages continuent d'arriver.
+    _terminal_autohide = {"task": None}
+
+    async def _terminal_autohide_after_delay():
+        await asyncio.sleep(2.5)
+        terminal_panel.visible = False
+        page.update()
+
+    def _show_terminal_and_schedule_hide():
+        terminal_panel.visible = True
+        t = _terminal_autohide["task"]
+        if t is not None and not t.done():
+            t.cancel()
+        _terminal_autohide["task"] = page.run_task(_terminal_autohide_after_delay)
+
     def _log_to_terminal(message, color=None):
         message = (message or "").strip()
         if not message:
@@ -4978,6 +4997,7 @@ def main(page: ft.Page):
                         selectable=True))
             if len(terminal_output.controls) > 1000:
                 terminal_output.controls.pop(0)
+            _show_terminal_and_schedule_hide()
             page.update()
 
         page.run_task(_do)

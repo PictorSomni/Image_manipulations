@@ -32,6 +32,36 @@ except ImportError:
     _PILImageOps = None    # type: ignore[assignment]
     _HAS_PIL = False
 
+_VECTOR_EXTS = {".svg", ".pdf"}
+
+
+def _render_vector(image_path: str, ext: str, size_px: int):
+    """Rasterise un fichier vectoriel (.pdf, .svg) en image PIL.
+
+    Rendu à ~2x size_px avant le thumbnail() de _generate_b64 (marge de
+    qualité pour l'écran) plutôt qu'à la résolution native du fichier —
+    évite de rastériser un poster A0 en pleine résolution pour une
+    miniature de 320px.
+    """
+    if ext == ".pdf":
+        import fitz  # PyMuPDF
+        with fitz.open(image_path) as doc:
+            if doc.page_count == 0:
+                return None
+            page = doc[0]
+            longest = max(page.rect.width, page.rect.height) or 1
+            zoom = min(4.0, max(0.5, (size_px * 2) / longest))
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+            return _PILImage.frombytes(
+                "RGB", (pix.width, pix.height), pix.samples)
+    if ext == ".svg":
+        from wand.image import Image as _WandImage
+        with _WandImage(filename=image_path, resolution=150) as wand_img:
+            wand_img.format = "png"
+            blob = wand_img.make_blob()
+        return _PILImage.open(io.BytesIO(blob)).convert("RGB")
+    return None
+
 
 # ── Thread-safety : un verrou par dossier ────────────────────────────────────
 _db_locks: dict[str, threading.Lock] = {}
@@ -113,9 +143,16 @@ def _generate_b64(
     """Génère une miniature avec PIL et retourne sa représentation base64 JPEG."""
     if not _HAS_PIL:
         return None
+    ext = os.path.splitext(image_path)[1].lower()
     try:
-        with _PILImage.open(image_path) as img:
+        if ext in _VECTOR_EXTS:
+            img = _render_vector(image_path, ext, size_px)
+            if img is None:
+                return None
+        else:
+            img = _PILImage.open(image_path)
             img = _PILImageOps.exif_transpose(img)
+        with img:
             if grayscale:
                 img = img.convert("L").convert("RGB")
             else:
