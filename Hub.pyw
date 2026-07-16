@@ -70,9 +70,6 @@ SURFACES = [
     ("notes", "Notes",    ft.Icons.EDIT_NOTE_OUTLINED),
 ]
 
-# Entre les 40px jugés "un peu grands" et l'ICON_MD=20 trop petit.
-LIST_THUMB_SIZE = 56
-
 # Hauteur de fenêtre en mode bandeau (strip mode) — juste assez pour la
 # barre de titre (cf. Dashboard.pyw CONSTANTS.WDA_HEIGHT, même principe).
 STRIP_HEIGHT = 64
@@ -311,6 +308,11 @@ def main(page: ft.Page):
         field.selection = ft.TextSelection(base_offset=end, extent_offset=end)
         field.update()
     thumb_mem = {}                       # cache mémoire path -> bytes miniature
+    card_icon_refs = []                  # Icon des cartes dossier/fichier en
+                                          # vue vignettes, pour un resize live
+                                          # avec le curseur (cf. _card_icon_size)
+    list_visual_refs = []                # (Container, Icon|None) des lignes
+                                          # de la vue liste, même resize live
     # Mode commande : path -> {format: nombre} — une photo peut avoir
     # plusieurs formats commandés. Édition via un clic sur la vignette
     # (badge « N tailles ») qui ouvre un petit dialogue, pas de clic droit.
@@ -366,6 +368,23 @@ def main(page: ft.Page):
         _update_sel_count()
         _render()
 
+    def _list_thumb_size():
+        # Suit le curseur de taille de vignette (mode grille), ramené à une
+        # échelle raisonnable pour une ligne de liste (retour user : lier
+        # les deux tailles plutôt que garder LIST_THUMB_SIZE figé).
+        return max(32, min(state["thumb_size"] * 0.28, 96))
+
+    def _list_icon_box(icon, color):
+        # Même empreinte (carré size x size) que la vignette de _img_tile,
+        # pour que toutes les lignes de la vue liste aient la même hauteur,
+        # miniature ou pas (retour user).
+        size = _list_thumb_size()
+        icon_ctl = ft.Icon(icon, color=color, size=size - 16)
+        box = ft.Container(content=icon_ctl, width=size, height=size,
+                           alignment=ft.Alignment.CENTER)
+        list_visual_refs.append((box, icon_ctl))
+        return box
+
     def _dir_tile(path):
         checkbox = ft.Checkbox(
             value=path in selected, active_color=BLUE,
@@ -374,18 +393,17 @@ def main(page: ft.Page):
         return ft.ListTile(
             leading=checkbox,
             title=ft.Row([
-                ft.Icon(ft.Icons.FOLDER, color=ORANGE,
-                        size=CONSTANTS.ICON_LG),
+                _list_icon_box(ft.Icons.FOLDER, YELLOW),
                 ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
                        color=WHITE),
             ], spacing=8),
             on_click=lambda e, p=path: _navigate(p),
             hover_color=GREY, dense=True,
-            content_padding=ft.Padding(left=8, top=0, right=8, bottom=0),
+            content_padding=ft.Padding(left=8, top=2, right=8, bottom=2),
         )
 
     def _img_tile(path, pending):
-        size = LIST_THUMB_SIZE
+        size = _list_thumb_size()
         thumb = thumb_mem.get(path)
         if thumb:
             visual = ft.Image(src=thumb, width=size, height=size,
@@ -395,6 +413,7 @@ def main(page: ft.Page):
             visual = ft.Container(bgcolor=GREY, width=size, height=size,
                                   border_radius=ft.BorderRadius.all(4))
             pending[path] = visual
+        list_visual_refs.append((visual, None))
         filename_text = ft.Text(os.path.basename(path),
                                 size=CONSTANTS.TEXT_SM,
                                 color=WHITE, expand=True, no_wrap=True,
@@ -422,16 +441,22 @@ def main(page: ft.Page):
 
     # ── Vue vignettes : carte GridView (cellule dimensionnée par max_extent /
     # child_aspect_ratio, pas de largeur manuelle) ────────────────────────
+    def _card_icon_size():
+        # Suit le curseur de taille de vignette pour que dossiers/fichiers
+        # remplissent la cellule comme les miniatures d'image (retour user).
+        return max(CONSTANTS.ICON_LG, min(state["thumb_size"] * 0.4, 140))
+
     def _dir_card(path):
         is_sel = path in selected
         checkbox = ft.Checkbox(
             value=is_sel, active_color=BLUE,
             scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
             on_change=lambda e, p=path: _set_selected(p, e.control.value))
+        icon = ft.Icon(ft.Icons.FOLDER, color=YELLOW, size=_card_icon_size())
+        card_icon_refs.append(icon)
         icon_zone = ft.Container(
             content=ft.Column([
-                ft.Icon(ft.Icons.FOLDER, color=ORANGE,
-                        size=CONSTANTS.ICON_LG),
+                icon,
                 ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
                         color=WHITE, no_wrap=True),
             ], alignment=ft.MainAxisAlignment.CENTER,
@@ -450,17 +475,29 @@ def main(page: ft.Page):
             border=ft.Border.all(2, BLUE) if is_sel else ft.Border.all(1, GREY),
             border_radius=8)
 
+    # icône + couleur par extension, mêmes couples que Dashboard.pyw:7529-7550
+    # (retour user : cohérence visuelle entre les deux explorateurs).
     _FILE_ICONS = {
-        ".json": ft.Icons.DATA_OBJECT_OUTLINED,
-        ".txt": ft.Icons.DESCRIPTION_OUTLINED,
-        ".md": ft.Icons.DESCRIPTION_OUTLINED,
-        ".zip": ft.Icons.FOLDER_ZIP_OUTLINED,
-        ".pdf": ft.Icons.PICTURE_AS_PDF_OUTLINED,
+        ".json": (ft.Icons.DATA_OBJECT_OUTLINED, VIOLET),
+        ".txt": (ft.Icons.DESCRIPTION_OUTLINED, LIGHT_GREY),
+        ".md": (ft.Icons.DESCRIPTION_OUTLINED, LIGHT_GREY),
+        ".log": (ft.Icons.DESCRIPTION_OUTLINED, LIGHT_GREY),
+        ".zip": (ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE),
+        ".pdf": (ft.Icons.PICTURE_AS_PDF_OUTLINED, RED),
+        ".af": (ft.Icons.ADOBE, GREEN),
+        ".afphoto": (ft.Icons.ADOBE, GREEN),
+        ".afdesign": (ft.Icons.ADOBE, GREEN),
+        ".afpub": (ft.Icons.ADOBE, GREEN),
+        ".psd": (ft.Icons.ADOBE, GREEN),
+        ".psb": (ft.Icons.ADOBE, GREEN),
+        ".svg": (ft.Icons.ADOBE, GREEN),
+        ".eps": (ft.Icons.ADOBE, GREEN),
+        ".ai": (ft.Icons.ADOBE, GREEN),
     }
 
     def _file_icon(path):
         return _FILE_ICONS.get(os.path.splitext(path)[1].lower(),
-                               ft.Icons.INSERT_DRIVE_FILE_OUTLINED)
+                               (ft.Icons.INSERT_DRIVE_FILE_OUTLINED, LIGHT_GREY))
 
     def _open_file_default(path):
         try:
@@ -532,6 +569,10 @@ def main(page: ft.Page):
         ext = os.path.splitext(path)[1].lower()
         if ext == ".json":
             _liste_open_path(path)
+        elif ext == ".zip":
+            # Clic = extraction, comme Dashboard.pyw:6080-6082 (retour user :
+            # fonction absente de Hub jusqu'ici).
+            _do_unzip([path])
         elif ext in _NOTEPAD_EXTS:
             _open_path_in_notes(path)
         else:
@@ -545,17 +586,17 @@ def main(page: ft.Page):
             value=path in selected, active_color=BLUE,
             scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
             on_change=lambda e, p=path: _set_selected(p, e.control.value))
+        icon, icon_color = _file_icon(path)
         return ft.ListTile(
             leading=checkbox,
             title=ft.Row([
-                ft.Icon(_file_icon(path), color=ICON_ACTION,
-                        size=CONSTANTS.ICON_LG),
+                _list_icon_box(icon, icon_color),
                 ft.Text(os.path.basename(path),
                        size=CONSTANTS.TEXT_SM, color=WHITE),
             ], spacing=8),
             on_click=lambda e, p=path: _open_file(p),
             hover_color=GREY, dense=True,
-            content_padding=ft.Padding(left=8, top=0, right=8, bottom=0),
+            content_padding=ft.Padding(left=8, top=2, right=8, bottom=2),
         )
 
     def _file_card(path):
@@ -564,10 +605,12 @@ def main(page: ft.Page):
             value=is_sel, active_color=BLUE,
             scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
             on_change=lambda e, p=path: _set_selected(p, e.control.value))
+        icon_name, icon_color = _file_icon(path)
+        icon_ctl = ft.Icon(icon_name, color=icon_color, size=_card_icon_size())
+        card_icon_refs.append(icon_ctl)
         icon_zone = ft.Container(
             content=ft.Column([
-                ft.Icon(_file_icon(path), color=ICON_ACTION,
-                        size=CONSTANTS.ICON_LG),
+                icon_ctl,
                 ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
                         color=WHITE, no_wrap=True),
             ], alignment=ft.MainAxisAlignment.CENTER,
@@ -644,28 +687,44 @@ def main(page: ft.Page):
         return dirs, imgs, other
 
     def _on_ctx_menu(path, event):
-        # Clic droit -> panneau Actions (mêmes outils qu'au clic sur le
-        # bouton "ACTIONS" de la barre) : l'ancien menu contextuel dédié
-        # est supprimé, tous ses gestes existent déjà dans touch_actions_row
-        # et "Ouvrir avec..." a rejoint le panneau Actions (cf. retour user).
-        # Si rien n'est sélectionné, l'élément cliqué l'est automatiquement
-        # (retour user) : sinon les actions du panneau (qui opèrent sur
+        # Clic droit -> panneau Actions. Si un ou plusieurs éléments sont
+        # déjà sélectionnés, cette sélection est conservée telle quelle
+        # (retour user) ; seul le cas "rien de sélectionné" auto-sélectionne
+        # l'élément cliqué, sinon les actions du panneau (qui opèrent sur
         # `selected`) n'auraient rien sur quoi agir.
         if not selected:
             _set_selected(path, True)
         _open_actions(event)
 
     def _with_ctx_menu(control, path):
+        # GestureDetector scopé à la SEULE tuile (pas au conteneur
+        # scrollable entier comme avant, cf. incident précédent) : n'absorbe
+        # pas la molette/trackpad, contrairement au wrap sur tout
+        # `files_body` qui interceptait aussi les ScrollEvent (retour user).
         return ft.GestureDetector(
             on_secondary_tap_up=lambda e, p=path: _on_ctx_menu(p, e),
             content=control)
 
-    def _on_empty_ctx_menu(event):
-        # Clic droit dans l'en-tête ou en dehors de tout élément (fond de
-        # liste/grille) : contrairement à _on_ctx_menu (clic sur un
-        # élément), on ne touche pas à `selected` — le panneau Actions
-        # s'ouvre tel quel sur la sélection en cours (retour user).
+    def _on_bg_ctx_menu(event):
+        # Clic droit sur le fond (pas sur une tuile) : agit sur la
+        # sélection courante si elle existe, sinon sur TOUS les éléments
+        # visibles (retour user — différent de _on_ctx_menu qui, lui,
+        # n'auto-sélectionne que l'élément cliqué).
+        if not selected:
+            dirs, imgs, other = _visible_entries()
+            selected.update(dirs + imgs + other)
+            _update_sel_count()
+            _render()
         _open_actions(event)
+
+    def _bg_filler():
+        # Comme _with_ctx_menu, mais pour le fond : un GestureDetector
+        # scopé à un petit bloc (pas au conteneur scrollable entier, même
+        # incident que ci-dessus) placé après le dernier élément, pour que
+        # le clic droit fonctionne aussi sous la dernière ligne/carte.
+        return ft.GestureDetector(
+            on_secondary_tap_up=_on_bg_ctx_menu,
+            content=ft.Container(height=160))
 
     def _render():
         # Mutation en place (.clear()+.extend()), jamais de réassignation de
@@ -674,6 +733,8 @@ def main(page: ft.Page):
         dirs, imgs, other = _visible_entries()
         files_list.controls.clear()
         files_grid.controls.clear()
+        card_icon_refs.clear()
+        list_visual_refs.clear()
         if not dirs and not imgs and not other:
             if state["only_selected"]:
                 msg = "Aucun élément sélectionné."
@@ -683,12 +744,14 @@ def main(page: ft.Page):
                 msg = "Dossier vide."
             files_list.controls.append(
                 ft.Text(msg, size=CONSTANTS.TEXT_SM, color=WHITE))
+            files_list.controls.append(_bg_filler())
         elif state["view"] == "list":
             pending = {}
             files_list.controls.extend(_with_ctx_menu(_dir_tile(p), p) for p in dirs)
             files_list.controls.extend(
                 _with_ctx_menu(_img_tile(p, pending), p) for p in imgs)
             files_list.controls.extend(_with_ctx_menu(_file_tile(p), p) for p in other)
+            files_list.controls.append(_bg_filler())
             _start_thumb_loader(pending)
         else:
             pending = {}
@@ -696,6 +759,7 @@ def main(page: ft.Page):
             files_grid.controls.extend(
                 _with_ctx_menu(_grid_card(p, pending), p) for p in imgs)
             files_grid.controls.extend(_with_ctx_menu(_file_card(p), p) for p in other)
+            files_grid.controls.append(_bg_filler())
             _start_thumb_loader(pending)
         files_body.content = files_list if state["view"] == "list" else files_grid
         _update_view_seg()
@@ -850,6 +914,74 @@ def main(page: ft.Page):
         except Exception as exc:
             _log_to_terminal(f"[ERREUR] Zip : {exc}", RED)
         _navigate(folder)
+
+    def _extract_zip(zip_path):
+        # Détection de dossier racine unique, comme Dashboard.pyw:5389-5405 :
+        # si tout le contenu du zip est déjà sous un seul dossier, on
+        # extrait directement à côté (pas de double niveau nom/nom/...).
+        dest_dir = os.path.dirname(zip_path)
+        zip_name = os.path.splitext(os.path.basename(zip_path))[0]
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            names = zf.namelist()
+            top_levels = {n.split("/")[0] for n in names if n}
+            if len(top_levels) == 1 and any("/" in n for n in names):
+                extract_to = dest_dir
+            else:
+                extract_to = os.path.join(dest_dir, zip_name)
+                os.makedirs(extract_to, exist_ok=True)
+            zf.extractall(extract_to)
+
+    def _confirm_delete_zips(zip_paths):
+        def _cancel(e):
+            dlg.open = False
+            page.update()
+
+        def _confirm(e):
+            dlg.open = False
+            page.update()
+            _do_delete(zip_paths)
+
+        names = "\n".join(os.path.basename(p) for p in zip_paths)
+        dlg = ft.AlertDialog(
+            title=ft.Text("Supprimer le(s) ZIP ?", size=CONSTANTS.TEXT_SM,
+                          color=WHITE),
+            content=ft.Text(f"Voulez-vous supprimer :\n{names}",
+                            size=CONSTANTS.TEXT_SM, color=WHITE),
+            actions=[ft.TextButton("Conserver", on_click=_cancel),
+                     ft.TextButton("Supprimer", on_click=_confirm,
+                                  style=ft.ButtonStyle(color=RED))],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    def _do_unzip(paths):
+        # Décompresser (retour user : fonction absente de Hub, présente
+        # dans Dashboard.pyw:5389-5441) — même logique de suppression du
+        # ZIP source, gouvernée par CONSTANTS.DELETE_ZIP_AFTER_EXTRACT.
+        zips = [p for p in paths if os.path.isfile(p)
+               and os.path.splitext(p)[1].lower() == ".zip"]
+        if not zips:
+            return
+        folder = state["folder"]
+        extracted = []
+        for zip_path in zips:
+            try:
+                _extract_zip(zip_path)
+                extracted.append(zip_path)
+                _log_to_terminal(
+                    f"[OK] Décompressé : {os.path.basename(zip_path)}", GREEN)
+            except Exception as exc:
+                _log_to_terminal(
+                    f"[ERREUR] Décompression {os.path.basename(zip_path)} : "
+                    f"{exc}", RED)
+        if not extracted:
+            return
+        if CONSTANTS.DELETE_ZIP_AFTER_EXTRACT:
+            _do_delete(extracted)
+        else:
+            _navigate(folder)
+            _confirm_delete_zips(extracted)
 
     def _do_copy_to_selection(paths):
         folder = state["folder"]
@@ -1271,14 +1403,27 @@ def main(page: ft.Page):
         # expand=True) se redimensionnent toutes seules quand max_extent
         # change -> juste reflow, aucune reconstruction. Un _render() complet
         # à chaque tick du curseur provoquait le clignotement signalé.
+        # Les icônes dossier/fichier (Icon, pas de BoxFit) et les tuiles de
+        # la vue liste (taille figée) ne suivent pas ce reflow automatique ->
+        # resize manuel via card_icon_refs/list_visual_refs (retour user).
         size = int(value)
         if size == state["thumb_size"]:
             return
         state["thumb_size"] = size
         files_grid.max_extent = size + 20
         files_grid.child_aspect_ratio = size / (size + 50)
+        for icon in card_icon_refs:
+            icon.size = _card_icon_size()
         if state["view"] == "grid":
             files_grid.update()
+        list_size = _list_thumb_size()
+        for box, icon_ctl in list_visual_refs:
+            box.width = list_size
+            box.height = list_size
+            if icon_ctl is not None:
+                icon_ctl.size = list_size - 16
+        if state["view"] == "list":
+            files_list.update()
 
     def _seg_btn(icon, text, on_click, color=None):
         # `color=None` (par défaut) : l'Icon/Text hérite de ButtonStyle.color,
@@ -1343,18 +1488,19 @@ def main(page: ft.Page):
     # le padding/prefix.
     search_field = ft.TextField(
         hint_text="Rechercher…", on_change=lambda e: _set_search(e.control.value),
-        height=45, width=180, bgcolor=DARK, border_color=BLUE,
+        height=45, bgcolor=DARK, border_color=BLUE,
         color=WHITE, text_size=CONSTANTS.TEXT_SM,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH,
+        expand=True,
         on_focus=_suspend_kb, on_blur=_resume_kb,
     )
     search_close_btn = ft.IconButton(
-        ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=GREY,
-        bgcolor=WHITE, tooltip="Effacer la recherche", on_click=_clear_search,
+        ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
+        bgcolor=GREY, tooltip="Effacer la recherche", on_click=_clear_search,
         style=ft.ButtonStyle(padding=ft.Padding.all(4)))
     search_field_wrap = ft.Row(
-        [search_field, search_close_btn], spacing=0, tight=True,
+        [search_field, search_close_btn], spacing=4, expand=True,
         vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     _SORT_LABELS = {"name_asc": "Nom (A→Z)", "name_desc": "Nom (Z→A)",
@@ -2076,59 +2222,12 @@ def main(page: ft.Page):
         height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT, on_click=lambda e: _open_actions(e),
     )
 
-    # Rangée d'actions tactiles — mêmes gestes que l'ancien menu clic-droit
-    # (supprimé, cf. _with_ctx_menu plus haut) pour qu'ils soient accessibles
-    # sans clic droit (retour user, écran tactile). Opère sur `selected` ;
-    # "Ouvrir avec..." a rejoint le panneau Actions (bouton "ACTIONS").
-    # Icône + libellé coloré (même couleur pour les deux) : plus lisible
-    # qu'une icône seule sur fond gris uni, et couleurs alignées sur
-    # Dashboard.pyw:10872-10899 (copier=BLUE, couper=ORANGE, coller=YELLOW).
-    def _chip(icon, color, label, tooltip, on_click):
-        return ft.Button(
-            content=ft.Row([
-                ft.Icon(icon, color=color, size=CONSTANTS.ICON_SM),
-                ft.Text(label, size=CONSTANTS.TEXT_SM, color=color),
-            ], spacing=6, tight=True),
-            style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
-            height=CONSTANTS.HUB_TOOLBAR_H, tooltip=tooltip, on_click=on_click)
-
-    def _tb_btn(icon, color, label, tooltip, fn):
-        return _chip(icon, color, label, tooltip,
-                     lambda e: fn(list(selected)) if selected else None)
-
-    touch_actions_row = ft.Row([
-        _chip(ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE, "Renommer",
-              "Renommer (un seul élément)",
-              lambda e: _rename_item(list(selected))
-              if len(selected) == 1 else None),
-        _tb_btn(ft.Icons.CONTENT_COPY, BLUE, "Copier", "Copier (Ctrl+C)",
-                _do_copy),
-        _tb_btn(ft.Icons.CONTENT_CUT, ORANGE, "Couper", "Couper (Ctrl+X)",
-                _do_cut),
-        _chip(ft.Icons.CONTENT_PASTE, YELLOW, "Coller", "Coller ici (Ctrl+V)",
-              _do_paste),
-        _tb_btn(ft.Icons.FILE_COPY_OUTLINED, BLUE, "Dupliquer", "Dupliquer ici",
-                _do_duplicate),
-        _tb_btn(ft.Icons.FOLDER_ZIP_OUTLINED, YELLOW, "Zipper", "Zipper",
-                _do_zip),
-        # _add_to_ai est défini bien plus loin dans main() : référence
-        # directe -> UnboundLocalError (Python voit le `def` plus bas
-        # dans la même fonction et traite le nom comme local dès le
-        # début). Lambda pour différer la résolution au clic, comme
-        # `create_order_btn`/`actions_btn` un peu plus haut.
-        _chip(ft.Icons.SMART_TOY_OUTLINED, VIOLET, "IA", "Ajouter à l'IA",
-              lambda e: _add_to_ai(list(selected)) if selected else None),
-        _tb_btn(ft.Icons.DELETE_OUTLINE, RED, "Supprimer", "Supprimer",
-                _do_delete),
-    ], spacing=10, run_spacing=8, wrap=True)
-    # touch_actions_row doit recevoir expand= directement (via ce Container)
-    # pour être confiné à la largeur restante - sinon la Row extérieure, non-
-    # wrap, mesure sa largeur intrinsèque (tous les chips sur une ligne) et
-    # déborde en fenêtre étroite : search_field_wrap (dernier élément fixe)
-    # sort du cadre au lieu que touch_actions_row passe sur plusieurs lignes.
+    # Les chips Renommer -> Supprimer (ex-"rangée d'actions tactiles") ont
+    # déménagé en tête du panneau Actions (cf. _ACTION_CATEGORIES) — retour
+    # user : la 2e ligne du header ne garde que la recherche.
     touch_actions_line = ft.Row(
-        [ft.Container(content=touch_actions_row, expand=True), search_field_wrap],
-        spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        [search_field_wrap],
+        spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER, expand=True)
 
     files_header = ft.Container(
         content=ft.Column([
@@ -2162,11 +2261,9 @@ def main(page: ft.Page):
     )
 
     files_surface = ft.Column([
-        ft.GestureDetector(on_secondary_tap_up=_on_empty_ctx_menu,
-                           content=files_header),
+        files_header,
         ft.Divider(height=1, color=GREY),
-        ft.GestureDetector(on_secondary_tap_up=_on_empty_ctx_menu,
-                           content=files_body),
+        files_body,
     ], expand=True, spacing=0)
 
     # ═════════════════════════════════════════════════════════════════════
@@ -2188,7 +2285,7 @@ def main(page: ft.Page):
         text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
         language=getattr(fce.CodeLanguage, CONSTANTS.NOTEPAD_DEFAULT_LANGUAGE),
         code_theme=fce.CodeTheme.ATOM_ONE_DARK,
-        gutter_style=fce.GutterStyle(width=88), expand=True,
+        gutter_style=fce.GutterStyle(width=64, background_color=BACKGROUND), expand=True,
     )
     notes_title = ft.Text("Bloc-notes", size=CONSTANTS.TEXT_LG, color=WHITE,
                           weight=ft.FontWeight.W_500, expand=True, no_wrap=True)
@@ -2451,7 +2548,7 @@ def main(page: ft.Page):
                  if m.startswith(("gemini", "claude"))],
         text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK, border_color=GREY,
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=180)
-    ai_status_text = ft.Text("", color=GREY, size=CONSTANTS.TEXT_SM, italic=True, max_lines=1,
+    ai_status_text = ft.Text("", color=LIGHT_GREY, size=CONSTANTS.TEXT_SM, italic=True, max_lines=1,
                              overflow=ft.TextOverflow.ELLIPSIS, expand=True)
     ai_progress_bar = ft.ProgressBar(value=None, visible=False, color=BLUE, height=2)
 
@@ -5018,6 +5115,29 @@ def main(page: ft.Page):
     # maquette (celle-ci utilisait des actions fictives) — Bluetooth et
     # Imprimer n'y sont plus : remontés dans la barre de titre (accès global).
     _ACTION_CATEGORIES = [
+        ("Édition", [
+            # Ex-rangée d'actions tactiles du header (retour user : déplacée
+            # tout en haut du panneau Actions). Mêmes icônes/couleurs
+            # qu'avant, opère toujours sur `selected`.
+            ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
+             lambda e: (_rename_item(list(selected))
+                       if len(selected) == 1 else None)),
+            ("Copier", ft.Icons.CONTENT_COPY, BLUE,
+             lambda e: (_do_copy(list(selected)) if selected else None)),
+            ("Couper", ft.Icons.CONTENT_CUT, ORANGE,
+             lambda e: (_do_cut(list(selected)) if selected else None)),
+            ("Coller", ft.Icons.CONTENT_PASTE, YELLOW, lambda e: _do_paste()),
+            ("Dupliquer", ft.Icons.FILE_COPY_OUTLINED, BLUE,
+             lambda e: (_do_duplicate(list(selected)) if selected else None)),
+            ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, YELLOW,
+             lambda e: (_do_zip(list(selected)) if selected else None)),
+            ("Dézipper", ft.Icons.UNARCHIVE_OUTLINED, ORANGE,
+             lambda e: (_do_unzip(list(selected)) if selected else None)),
+            ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
+             lambda e: (_add_to_ai(list(selected)) if selected else None)),
+            ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
+             lambda e: (_do_delete(list(selected)) if selected else None)),
+        ]),
         ("Transfert & préparation", [
             ("Transfert vers TEMP", ft.Icons.DRIVE_FILE_MOVE_OUTLINED, BLUE,
              _launch_transfert_temp),
@@ -5934,5 +6054,27 @@ def main(page: ft.Page):
         page.run_task(_delayed_maximize)
 
 
+def _install_crash_logger():
+    # Le terminal se ferme souvent avant que Charles ait pu copier une
+    # trace en cas de plantage (crash de l'event loop Flet, thread IA...) —
+    # on la persiste donc dans un fichier pour pouvoir la relire après coup.
+    import traceback as _tb
+    log_path = os.path.join(_APP_DIR, "Data", ".hub_crash.log")
+
+    def _log_exc(exc_type, exc_value, exc_tb):
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"\n{'=' * 70}\n{datetime.datetime.now().isoformat()}\n")
+            f.writelines(_tb.format_exception(exc_type, exc_value, exc_tb))
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = _log_exc
+
+    def _log_thread_exc(args):
+        _log_exc(args.exc_type, args.exc_value, args.exc_traceback)
+
+    threading.excepthook = _log_thread_exc
+
+
 if __name__ == "__main__":
+    _install_crash_logger()
     ft.run(main)

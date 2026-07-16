@@ -1696,9 +1696,20 @@ def dispatch_folder_tool(fn_name, fn_args, folder_path, ui):
     elif fn_name == "ssh_command":
         _ssh_host = fn_args.get("host", "").strip()
         _ssh_user = fn_args.get("username", "").strip()
+        _ssh_port = fn_args.get("port") or 22
+        _ssh_name = (fn_args.get("name") or "").strip()
+        if _ssh_name:
+            _srv = next((s for s in CONSTANTS.SSH_SERVERS
+                        if s["name"].lower() == _ssh_name.lower()), None)
+            if _srv is None:
+                _known = ", ".join(s["name"] for s in CONSTANTS.SSH_SERVERS) or "aucun"
+                return f"Serveur '{_ssh_name}' inconnu. Serveurs connus : {_known}."
+            _ssh_host = _srv["host"]
+            _ssh_user = _srv["username"]
+            _ssh_port = fn_args.get("port") or _srv.get("port", 22)
         _ssh_cmd = fn_args.get("command", "")
         if not _ssh_host or not _ssh_user or not _ssh_cmd:
-            return "Paramètres 'host', 'username' et 'command' requis."
+            return "Paramètres 'host'/'username' (ou 'name') et 'command' requis."
         ui.set_status(f"🔐 SSH {_ssh_user}@{_ssh_host}…")
         ui.paint()
         _ssh_pwd = ui.credential(_ssh_host, _ssh_user)
@@ -1706,7 +1717,7 @@ def dispatch_folder_tool(fn_name, fn_args, folder_path, ui):
             return "Connexion annulée par l'utilisateur (mot de passe non fourni)."
         return _ssh_command(
             _ssh_host, _ssh_user, _ssh_pwd, _ssh_cmd,
-            port=fn_args.get("port") or 22,
+            port=_ssh_port,
             timeout=fn_args.get("timeout") or 30,
         )
     elif fn_name == "read_spreadsheet":
@@ -3484,7 +3495,18 @@ def _build_system_content(folder_path=None, today_date_str=None):
         "(installation de paquets, conversion de fichiers, scripts, etc.). "
         "NE PAS l'utiliser pour lister des fichiers ou créer des fichiers texte : "
         "utilise list_folder_contents et create_file pour ça. "
-        "Une confirmation sera toujours demandée avant exécution."
+        "NE PAS l'utiliser pour ssh/scp/sftp : utilise ssh_command, qui gère "
+        "le mot de passe via overlay. "
+        "Une confirmation sera toujours demandée avant exécution.\n\n"
+        "IMPORTANT — ssh_command cible une machine DISTANTE (serveur SSH), "
+        "un système de fichiers totalement séparé du DOSSIER OUVERT en local. "
+        "Ne jamais utiliser les chemins du dossier ouvert dans une commande "
+        "ssh_command, et ne jamais utiliser list_folder_contents/read_file_content/"
+        "etc. pour explorer le serveur distant — tout passe par le paramètre "
+        "'command' de ssh_command (ex: 'ls', 'cat fichier'). "
+        "Serveurs SSH connus (nom → host) : "
+        + (", ".join(f"{s['name']} → {s['host']}" for s in CONSTANTS.SSH_SERVERS)
+           or "aucun enregistré") + "."
     )
     return system_content
 
@@ -4046,6 +4068,14 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
                     elif part.text:
                         _emitted_tokens = True
                         yield ("token", part.text)
+
+            # MALFORMED_FUNCTION_CALL : appel d'outil corrompu côté modèle,
+            # transitoire — une nouvelle tentative suffit généralement.
+            # ponytail: pas de backoff dédié, réutilise le budget de retry existant
+            if (not pending_tool_calls and _attempt < _MAX_RETRIES and
+                    any("MALFORMED_FUNCTION_CALL" in m for m in emitted_feedback)):
+                yield ("token", "\n[Gemini] Appel d'outil corrompu – nouvelle tentative…\n")
+                continue
 
             # Émettre les tool_calls accumulés en une seule fois
             if pending_tool_calls:
@@ -6491,11 +6521,17 @@ _SSH_TOOLS = [
             "description": (
                 "Exécute une commande shell sur un serveur distant via SSH "
                 "(mot de passe résolu via un coffre à identifiants local, "
-                "jamais visible du modèle — préciser juste host/username/command)."
+                "jamais visible du modèle). "
+                "Utilise 'name' pour un serveur connu (voir CONSTANTS.SSH_SERVERS) "
+                "— sinon précise host/username."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Alias d'un serveur connu (CONSTANTS.SSH_SERVERS), remplace host/username",
+                    },
                     "host": {
                         "type": "string",
                         "description": "Adresse ou nom d'hôte du serveur (ex : monobjet.example.com)",
@@ -6517,7 +6553,7 @@ _SSH_TOOLS = [
                         "description": "Timeout en secondes (défaut : 30)",
                     },
                 },
-                "required": ["host", "username", "command"],
+                "required": ["command"],
             },
         },
     },

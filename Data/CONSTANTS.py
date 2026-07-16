@@ -673,6 +673,17 @@ MCP_SERVERS = [
 ]
 
 
+# ── 10.8  Serveurs SSH connus ─────────────────────────────────────────────────
+# Registre de raccourcis pour l'outil ssh_command (Data/ai_tools.py) : donner
+# "name" au lieu de host/username à chaque appel. Le mot de passe reste
+# résolu via le coffre OS (credentials.py) / overlay Hub, jamais ici.
+# Forme : {"name": "alias", "host": "...", "username": "...", "port": 22}
+SSH_SERVERS = [
+    {"name": "monobjet", "host": "ssh.cluster100.hosting.ovh.net",
+     "username": "monobjs"},
+]
+
+
 # ==============================================================================
 # 11. KIOSK FLET
 # ==============================================================================
