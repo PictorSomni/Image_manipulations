@@ -458,7 +458,13 @@ def main(page: ft.Page):
             else:
                 subprocess.Popen(["xdg-open", path])
         except Exception:
-            pass
+            return
+        # Bascule en mode ruban comme les autres ouvertures externes
+        # (explorateur, impression, bluetooth, navigateur) — laisse la
+        # fenêtre de l'appli externe passer devant sans que Hub prenne
+        # toute la place.
+        if not _strip_state["active"]:
+            _toggle_strip()
 
     def _open_files_with(prog, files):
         # Version simplifiée de Dashboard.pyw:4887-4914 (_open_files_with) :
@@ -474,6 +480,9 @@ def main(page: ft.Page):
                 subprocess.Popen([exe] + files)
         except Exception as exc:
             _log_to_terminal(f"[ERREUR] {prog.get('label', exe)} : {exc}", RED)
+            return
+        if not _strip_state["active"]:
+            _toggle_strip()
 
     # Extensions lisibles dans le Bloc-notes (coloration syntaxique), comme
     # Dashboard.pyw:1589-1597 — les autres s'ouvrent avec l'appli par défaut.
@@ -2126,6 +2135,7 @@ def main(page: ft.Page):
     notes_body = ft.Container(content=notes_field, expand=True, padding=8)
     notes_is_preview = {"value": False}
     notes_autosave_timer = {"task": None}
+    notes_dirty = {"value": False}
 
     def _notes_load():
         path = note_target["path"]
@@ -2137,6 +2147,7 @@ def main(page: ft.Page):
                 notes_field.value = ""
         except Exception:
             notes_field.value = ""
+        notes_dirty["value"] = False
 
     def _notes_save(event=None):
         path = note_target["path"]
@@ -2146,6 +2157,7 @@ def main(page: ft.Page):
                 f.write(notes_field.value or "")
         except Exception:
             return
+        notes_dirty["value"] = False
         # Redémarrage seulement sur clic explicite (event fourni), pas lors
         # de l'autosave (débounce silencieux) — cf. Dashboard.pyw:1560-1573.
         if path == _constants_path and event is not None:
@@ -2172,6 +2184,7 @@ def main(page: ft.Page):
     def _notes_on_change(e):
         # Même débounce que Dashboard.pyw:1534-1545 — annule le timer en
         # cours et en relance un à chaque frappe.
+        notes_dirty["value"] = True
         t = notes_autosave_timer["task"]
         if t is not None and not t.done():
             t.cancel()
@@ -2191,6 +2204,48 @@ def main(page: ft.Page):
             notes_preview_btn.icon = ft.Icons.VISIBILITY
             notes_preview_btn.tooltip = "Prévisualiser en Markdown"
         _select_surface("notes")
+
+    def _notes_go_home(event=None):
+        """Recharge .notes.md, comme Dashboard.pyw:10259-10265 — mais
+        demande confirmation si le fichier ouvert a des modifications non
+        enregistrées (autosave différé de CONSTANTS.NOTEPAD_AUTOSAVE_DELAY)."""
+        if not notes_dirty["value"]:
+            _open_path_in_notes(_notes_file)
+            notes_title.value = "Bloc-notes"
+            page.update()
+            return
+
+        current_name = os.path.basename(note_target["path"])
+
+        def _do_home(discard):
+            def _handler(ev):
+                dlg.open = False
+                if not discard:
+                    _notes_save(ev)   # event non-None : applique CONSTANTS.py si besoin
+                _open_path_in_notes(_notes_file)
+                notes_title.value = "Bloc-notes"
+                page.update()
+            return _handler
+
+        def _cancel(ev):
+            dlg.open = False
+            page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Modifications non enregistrées", size=13,
+                          color=WHITE),
+            content=ft.Text(
+                f"Enregistrer les modifications de {current_name} avant "
+                f"de recharger le bloc-notes ?", size=12, color=WHITE),
+            actions=[
+                ft.TextButton("Enregistrer", on_click=_do_home(False)),
+                ft.TextButton("Ne pas enregistrer", on_click=_do_home(True)),
+                ft.TextButton("Annuler", on_click=_cancel),
+            ],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
 
     def _notes_toggle_preview(event=None):
         notes_is_preview["value"] = not notes_is_preview["value"]
@@ -2261,6 +2316,10 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
+    notes_home_btn = ft.IconButton(
+        ft.Icons.HOME, icon_color=VIOLET, icon_size=18,
+        tooltip="Charger la note par défaut (.notes.md)",
+        on_click=_notes_go_home)
     notes_preview_btn = ft.IconButton(
         ft.Icons.VISIBILITY, icon_color=WHITE, icon_size=18,
         tooltip="Prévisualiser en Markdown", on_click=_notes_toggle_preview)
@@ -2273,6 +2332,7 @@ def main(page: ft.Page):
         ft.Container(
             content=ft.Row([
                 notes_title,
+                notes_home_btn,
                 ft.IconButton(ft.Icons.SAVE_OUTLINED, icon_color=ICON_ACTION,
                              icon_size=18, tooltip="Enregistrer", on_click=_notes_save),
                 notes_preview_btn,
