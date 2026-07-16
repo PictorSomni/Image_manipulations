@@ -20,6 +20,7 @@ __version__ = "1.0.0"
 import asyncio
 import base64
 import datetime
+import hashlib
 import io
 import json
 import math
@@ -2095,6 +2096,7 @@ def main(page: ft.Page):
     #  Surface Bloc-notes — .notes.md partagé avec Dashboard/SidePanel
     # ═════════════════════════════════════════════════════════════════════
     _notes_file = os.path.join(_APP_DIR, ".notes.md")
+    _constants_path = os.path.join(_APP_DIR, "Data", "CONSTANTS.py")
     # Fichier actuellement chargé dans le Bloc-notes — .notes.md par défaut,
     # ou n'importe quel .py/.json/.md/.txt ouvert depuis la surface Fichiers
     # (cf. Dashboard.pyw:1577-1611, même principe de « bloc-notes générique »).
@@ -2143,7 +2145,25 @@ def main(page: ft.Page):
             with open(path, "w", encoding="utf-8") as f:
                 f.write(notes_field.value or "")
         except Exception:
-            pass
+            return
+        # Redémarrage seulement sur clic explicite (event fourni), pas lors
+        # de l'autosave (débounce silencieux) — cf. Dashboard.pyw:1560-1573.
+        if path == _constants_path and event is not None:
+            _log_to_terminal(
+                "[INFO] Redémarrage pour appliquer les nouvelles constantes…",
+                ORANGE)
+            hub_path = os.path.abspath(__file__)
+
+            async def _restart_async():
+                time.sleep(0.4)
+                subprocess.Popen([sys.executable, hub_path])
+                time.sleep(0.2)
+                try:
+                    await page.window.close()
+                except Exception:
+                    pass
+                os._exit(0)
+            page.run_task(_restart_async)
 
     async def _notes_autosave_after_delay():
         await asyncio.sleep(CONSTANTS.NOTEPAD_AUTOSAVE_DELAY)
@@ -4831,10 +4851,191 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
+    def _update_app(event=None):
+        """Sauvegarde les fichiers utilisateur, git pull --rebase, vérifie
+        les dépendances si requirements a changé, relance le Hub
+        (cf. Dashboard.pyw:9792-10011, même logique de mise à jour)."""
+        _log_to_terminal("Mise à jour en cours…", YELLOW)
+
+        def _run_update():
+            def run_git_command(*args):
+                return subprocess.run(
+                    ["git", *args], cwd=_APP_DIR, capture_output=True,
+                    text=True, encoding="utf-8", errors="replace")
+
+            user_data_filenames = [
+                ".recent_folders.json", ".favorites.json",
+                ".pip_cache.json", ".recadrage_auto_config.json",
+            ]
+            user_data_backups = {}
+            for file_name in user_data_filenames:
+                file_path = os.path.join(_APP_DIR, file_name)
+                if os.path.isfile(file_path):
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            user_data_backups[file_name] = f.read()
+                    except Exception:
+                        pass
+
+            def _restore_user_data_files():
+                for file_name, content in user_data_backups.items():
+                    file_path = os.path.join(_APP_DIR, file_name)
+                    try:
+                        with open(file_path, "w", encoding="utf-8") as f:
+                            f.write(content)
+                    except Exception:
+                        pass
+
+            try:
+                stash_result = run_git_command("stash")
+                had_local_changes = (
+                    "No local changes" not in stash_result.stdout)
+
+                git_pull_result = run_git_command(
+                    "pull", "--rebase", "origin")
+                git_command_output = (
+                    git_pull_result.stdout + git_pull_result.stderr).strip()
+
+                if git_pull_result.returncode != 0:
+                    if had_local_changes:
+                        run_git_command("rebase", "--abort")
+                        run_git_command("stash", "pop")
+                    _restore_user_data_files()
+                    _log_to_terminal(
+                        f"[ERREUR] Erreur lors de la mise à jour.\n"
+                        f"{git_command_output}", RED)
+                    return
+
+                if had_local_changes:
+                    run_git_command("stash", "drop")
+
+                _restore_user_data_files()
+
+                if ("Already up to date" in git_command_output
+                        or "Déjà à jour" in git_command_output
+                        or git_command_output == ""):
+                    _log_to_terminal("[OK] Déjà à jour.", GREEN)
+                else:
+                    _log_to_terminal(
+                        f"[OK] Code mis à jour.\n{git_command_output}",
+                        GREEN)
+
+                requirements_file_path = os.path.join(
+                    _APP_DIR, "requirements.txt")
+                pip_cache_file_path = os.path.join(
+                    _APP_DIR, ".pip_cache.json")
+                if not os.path.isfile(requirements_file_path):
+                    _log_to_terminal(
+                        "⚠ requirements.txt introuvable, installation "
+                        "ignorée.", YELLOW)
+                else:
+                    with open(requirements_file_path, "rb") as f:
+                        requirements_checksum = hashlib.sha256(
+                            f.read()).hexdigest()
+
+                    cached_checksum = None
+                    try:
+                        with open(pip_cache_file_path, "r",
+                                  encoding="utf-8") as f:
+                            cached_checksum = json.load(f).get("req_hash")
+                    except Exception:
+                        pass
+
+                    _log_to_terminal(
+                        "🔌 Mise à jour de flet et flet-desktop…", YELLOW)
+                    flet_upgrade_proc = subprocess.Popen(
+                        [sys.executable, "-m", "pip", "install", "flet",
+                         "flet-desktop", "--upgrade"],
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        text=True, encoding="utf-8", errors="replace",
+                        cwd=_APP_DIR)
+                    for line in flet_upgrade_proc.stdout:
+                        line = line.rstrip()
+                        if line:
+                            _log_to_terminal(line, LIGHT_GREY)
+                    flet_upgrade_proc.wait()
+                    if flet_upgrade_proc.returncode == 0:
+                        _log_to_terminal(
+                            "[OK] flet et flet-desktop mis à jour.", GREEN)
+                    else:
+                        _log_to_terminal(
+                            f"⚠ flet-desktop : pip a terminé avec le code "
+                            f"{flet_upgrade_proc.returncode}.", YELLOW)
+
+                    if cached_checksum == requirements_checksum:
+                        _log_to_terminal(
+                            "[OK] Dépendances inchangées, installation "
+                            "ignorée.", GREEN)
+                    else:
+                        _log_to_terminal(
+                            "📦 Nouvelles dépendances détectées, "
+                            "installation en cours…", YELLOW)
+                        pip_install_process = subprocess.Popen(
+                            [sys.executable, "-m", "pip", "install", "-r",
+                             requirements_file_path, "--upgrade"],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True,
+                            encoding="utf-8", errors="replace",
+                            cwd=_APP_DIR)
+                        for line in pip_install_process.stdout:
+                            line = line.rstrip()
+                            if line:
+                                _log_to_terminal(line, LIGHT_GREY)
+                        pip_install_process.wait()
+                        if pip_install_process.returncode == 0:
+                            _log_to_terminal(
+                                "[OK] Dépendances installées.", GREEN)
+                            try:
+                                with open(pip_cache_file_path, "w",
+                                          encoding="utf-8") as f:
+                                    json.dump(
+                                        {"req_hash": requirements_checksum,
+                                         "updated_at": time.strftime(
+                                             "%Y-%m-%d %H:%M")},
+                                        f, ensure_ascii=False, indent=2)
+                            except Exception:
+                                pass
+                        else:
+                            _log_to_terminal(
+                                f"pip a terminé avec le code "
+                                f"{pip_install_process.returncode}.",
+                                YELLOW)
+
+                _log_to_terminal("🔄 Redémarrage du Hub…", BLUE)
+                hub_path = os.path.abspath(__file__)
+
+                async def _restart_after_update():
+                    time.sleep(0.4)
+                    subprocess.Popen([sys.executable, hub_path])
+                    time.sleep(0.2)
+                    try:
+                        await page.window.close()
+                    except Exception:
+                        pass
+                    os._exit(0)
+                page.run_task(_restart_after_update)
+            except Exception as error:
+                _log_to_terminal(f"[ERREUR] Mise à jour : {error}", RED)
+
+        threading.Thread(target=_run_update, daemon=True).start()
+
     def _on_terminal_submit(event=None):
         command_text = (terminal_input.value or "").strip()
         if not command_text:
             return
+
+        # ── Commandes internes (slash-commands, cf. Dashboard.pyw:4584) ──
+        if command_text.lower() == "/update":
+            terminal_input.value = ""
+            page.update()
+            _update_app()
+            return
+        if command_text.lower() == "/option":
+            terminal_input.value = ""
+            page.update()
+            _open_path_in_notes(_constants_path)
+            return
+
         _history_add("terminal", command_text)
         terminal_input.value = ""
         page.update()
@@ -4998,6 +5199,13 @@ def main(page: ft.Page):
                             color=WHITE, weight=ft.FontWeight.W_500),
                 ], spacing=6),
                 padding=ft.Padding(12, 0, 0, 0),
+            ),
+            ft.IconButton(
+                icon=ft.Icons.SYSTEM_UPDATE_ALT,
+                tooltip="Mettre à jour (git pull --rebase)",
+                on_click=_update_app,
+                icon_color=LIGHT_GREY,
+                icon_size=18,
             ),
             ft.Container(expand=True),
             # Accès tactile : toujours visibles, quelle que soit la surface
