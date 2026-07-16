@@ -10,4 +10,5 @@ Format des fiches produits : utiliser des doubles espaces à la fin de chaque li
 Pour les fiches produits, toujours préciser que le produit est fabriqué dans notre atelier, le 'Studio C Leuze' (Chaussée de Namur 177, 5310 Leuze). §
 Pour les mots-clés des fiches produits, inclure systématiquement des notions de création locale et de proximité (ex: local, artisan local, Studio C Leuze, MonObjet.be, fabriqué en Belgique, Fabriqué en Wallonie, etc.). §
 Serveur MCP Prestashop ajouté à Data/CONSTANTS.py (URL: https://mcp.prestashop.com/mcp). Je dois m'attendre à une demande pour ajouter un autre serveur MCP prochainement. §
-Quand Charles demande d'aller voir Notion, chercher systématiquement dans la page 'Travail' (sauf demande explicite contraire).§
+Quand Charles demande d'aller voir Notion, chercher systématiquement dans la page 'Travail' (sauf demande explicite contraire). §
+Adresse QuickConnect du NAS Synology : https://studioc.fr2.quickconnect.to §

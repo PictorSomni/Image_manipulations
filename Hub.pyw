@@ -58,7 +58,7 @@ from ai_tools import (
     _ai_save_history, _MicRecorder, _gemini_transcribe_audio,
     _update_memory_file, _iterate_image_loop, _IMAGE_ITERATE_TOOLS,
     _gemini_generate_image, _gemini_generate_music, _gemini_refine_image_prompt,
-    _score_images_batched, _take_screenshot,
+    _score_images_batched, _analyze_images_batched, _take_screenshot,
 )
 
 
@@ -244,15 +244,15 @@ def main(page: ft.Page):
     page.padding    = 0
     page.window.title_bar_hidden         = True
     page.window.title_bar_buttons_hidden = True
-    page.window.width  = 1280
-    page.window.height = 860
+    page.window.width  = CONSTANTS.WINDOW_WIDTH
+    page.window.height = CONSTANTS.WINDOW_HEIGHT
     # macOS ignore `maximized=True` tant que la fenêtre n'est pas encore
-    # affichée -> False ici, True après coup (cf. page.add plus bas), même
-    # séquence que Dashboard.pyw:183-186/10926-10934.
-    if platform.system() == "Darwin":
+    # affichée -> False ici, True après coup (cf. _delayed_maximize plus
+    # bas), même séquence que Dashboard.pyw:183-186/10874-10883.
+    if platform.system() == "Darwin" and CONSTANTS.MAXIMIZED:
         page.window.maximized = False
     else:
-        page.window.maximized = True
+        page.window.maximized = CONSTANTS.MAXIMIZED
     page.run_task(page.window.to_front)
 
     # ─── État partagé ────────────────────────────────────────────────────
@@ -260,7 +260,8 @@ def main(page: ft.Page):
              "thumb_size": 320, "thumb_token": 0,
              "sort": "date", "search": "", "only_selected": False,
              "last_selected": None}
-    _strip_state = {"active": False, "saved_height": 860, "was_maximized": False}
+    _strip_state = {"active": False, "saved_height": CONSTANTS.WINDOW_HEIGHT,
+                    "was_maximized": False}
     content = {"dirs": [], "imgs": [], "other": []}   # non filtrés
     selected = set()                     # chemins sélectionnés (images + dossiers)
     clipboard = {"paths": [], "mode": None}   # mode: "copy" | "cut" | None
@@ -525,7 +526,7 @@ def main(page: ft.Page):
     # Dashboard.pyw:1589-1597 — les autres s'ouvrent avec l'appli par défaut.
     # .json est exclu d'ici : il va dans la surface Liste (lecteur JSON),
     # pas le Bloc-notes brut — cf. _liste_open_path plus bas.
-    _NOTEPAD_EXTS = {".py", ".pyw", ".md", ".markdown", ".txt"}
+    _NOTEPAD_EXTS = CONSTANTS.NOTEPAD_EXTS | {".markdown"}
 
     def _open_file(path):
         ext = os.path.splitext(path)[1].lower()
@@ -1095,18 +1096,17 @@ def main(page: ft.Page):
 
     def _toggle_all(event):
         # Opère sur les éléments visibles (recherche / "afficher ma
-        # sélection" appliqués), pas tout le dossier — et efface toujours
-        # la sélection existante d'abord, plutôt que d'y ajouter, pour que
-        # "Tout sélectionner" ne fasse que ce qui est affiché (retour user).
-        dirs, imgs, other = _visible_entries()
-        entries = dirs + imgs + other
-        select_all = not (selected.issuperset(entries) and entries)
-        selected.clear()
-        if select_all:
-            selected.update(entries)
-            _log_to_terminal(f"[OK] {len(selected)} élément(s) sélectionné(s)", BLUE)
-        else:
+        # sélection" appliqués), pas tout le dossier. Dès qu'il y a une
+        # sélection (même partielle), le premier appui l'efface d'abord ;
+        # il faut rappuyer (sélection vide) pour tout sélectionner —
+        # évite d'écraser une sélection partielle par accident (retour user).
+        if selected:
+            selected.clear()
             _log_to_terminal("[OK] Sélection effacée", GREEN)
+        else:
+            dirs, imgs, other = _visible_entries()
+            selected.update(dirs + imgs + other)
+            _log_to_terminal(f"[OK] {len(selected)} élément(s) sélectionné(s)", BLUE)
         _update_sel_count()
         _render()
 
@@ -1334,24 +1334,28 @@ def main(page: ft.Page):
         search_field.value = ""
         _render()
 
-    # Copie de Dashboard.pyw:726-735 (height=45 + content_padding réduit
-    # plutôt que dense=True + padding symétrique) : c'était la combinaison
-    # dense+padding qui faisait mal s'afficher le hint dans Hub (même
-    # souci que le contour BLUE et le label du champ chemin ci-dessus).
-    # `prefix_icon` (au lieu du `prefix` custom d'avant) fonctionne ici
-    # car il n'y a plus de `dense`/height en conflit avec lui.
+    # Copie exacte de Dashboard.pyw:724-745 : height=45 + content_padding
+    # réduit + prefix_icon fonctionnent très bien tels quels dans Dashboard -
+    # le bouton d'effacement y est un IconButton SÉPARÉ à côté du champ
+    # (Row), jamais un `suffix=` posé sur le TextField. C'est ce `suffix=`
+    # (tenté dans une version précédente de Hub) qui plaquait le hint vers
+    # le bas : à corriger, revenir à cette structure plutôt que retoucher
+    # le padding/prefix.
     search_field = ft.TextField(
         hint_text="Rechercher…", on_change=lambda e: _set_search(e.control.value),
-        height=45, width=200, bgcolor=DARK, border_color=BLUE,
+        height=45, width=180, bgcolor=DARK, border_color=BLUE,
         color=WHITE, text_size=CONSTANTS.TEXT_SM,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH,
-        suffix=ft.IconButton(
-            ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=GREY,
-            tooltip="Effacer la recherche", on_click=_clear_search,
-            style=ft.ButtonStyle(padding=0)),
         on_focus=_suspend_kb, on_blur=_resume_kb,
     )
+    search_close_btn = ft.IconButton(
+        ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=GREY,
+        bgcolor=WHITE, tooltip="Effacer la recherche", on_click=_clear_search,
+        style=ft.ButtonStyle(padding=ft.Padding.all(4)))
+    search_field_wrap = ft.Row(
+        [search_field, search_close_btn], spacing=0, tight=True,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     _SORT_LABELS = {"name_asc": "Nom (A→Z)", "name_desc": "Nom (Z→A)",
                     "date": "Date (récent d'abord)"}
@@ -2117,6 +2121,14 @@ def main(page: ft.Page):
         _tb_btn(ft.Icons.DELETE_OUTLINE, RED, "Supprimer", "Supprimer",
                 _do_delete),
     ], spacing=10, run_spacing=8, wrap=True)
+    # touch_actions_row doit recevoir expand= directement (via ce Container)
+    # pour être confiné à la largeur restante - sinon la Row extérieure, non-
+    # wrap, mesure sa largeur intrinsèque (tous les chips sur une ligne) et
+    # déborde en fenêtre étroite : search_field_wrap (dernier élément fixe)
+    # sort du cadre au lieu que touch_actions_row passe sur plusieurs lignes.
+    touch_actions_line = ft.Row(
+        [ft.Container(content=touch_actions_row, expand=True), search_field_wrap],
+        spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     files_header = ft.Container(
         content=ft.Column([
@@ -2128,7 +2140,6 @@ def main(page: ft.Page):
                 files_path,
                 sel_count,
                 ft.VerticalDivider(width=1, color=GREY),
-                search_field,
                 sort_btn,
                 view_seg_wrap,
             ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -2144,7 +2155,7 @@ def main(page: ft.Page):
                 create_order_btn,
                 ft.Container(expand=True),
             ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            touch_actions_row,
+            touch_actions_line,
         ], spacing=10),
         padding=ft.Padding(12, 12, 12, 8),
         bgcolor=BACKGROUND,
@@ -2175,7 +2186,8 @@ def main(page: ft.Page):
 
     notes_field = fce.CodeEditor(
         text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
-        language=fce.CodeLanguage.MARKDOWN, code_theme=fce.CodeTheme.ATOM_ONE_DARK,
+        language=getattr(fce.CodeLanguage, CONSTANTS.NOTEPAD_DEFAULT_LANGUAGE),
+        code_theme=fce.CodeTheme.ATOM_ONE_DARK,
         gutter_style=fce.GutterStyle(width=88), expand=True,
     )
     notes_title = ft.Text("Bloc-notes", size=CONSTANTS.TEXT_LG, color=WHITE,
@@ -2836,6 +2848,177 @@ def main(page: ft.Page):
             lines += ["Erreurs :"] + errors
         return "\n".join(lines)
 
+    # Copie de Dashboard.pyw:3665-3744 : confirmation avant toute commande
+    # (si CONSTANTS.AI_TERMINAL_CONFIRM) et systématiquement si `admin`
+    # (élévation sudo/UAC/Touch ID via _run_elevated dans ai_tools.py) —
+    # sans quoi l'IA pouvait exécuter des commandes admin sans validation
+    # utilisateur. Même pattern threading.Event() que _ai_tool_organize_files
+    # juste au-dessus (dialogue ouvert sur le thread UI, attente bloquante
+    # sur le thread worker qui exécute l'outil).
+    def _ai_tool_run_terminal_command(args):
+        cmd = args.get("command", "")
+        desc = args.get("description") or cmd
+        admin = bool(args.get("admin", False))
+        cwd = state["folder"] or None
+        if CONSTANTS.AI_TERMINAL_CONFIRM or admin:
+            confirm_event = threading.Event()
+            confirm_result = {"value": False}
+
+            def _confirm(e=None):
+                confirm_result["value"] = True
+                dlg.open = False
+                page.update()
+                confirm_event.set()
+
+            def _cancel(e=None):
+                dlg.open = False
+                page.update()
+                confirm_event.set()
+
+            dlg_content = [
+                ft.Text(desc, size=CONSTANTS.TEXT_SM, color=WHITE),
+                ft.Container(height=8),
+                ft.Container(
+                    ft.Text(cmd, size=CONSTANTS.TEXT_SM, font_family="monospace",
+                           color=YELLOW),
+                    bgcolor=DARK, padding=10, border_radius=6),
+            ]
+            if admin:
+                dlg_content.append(ft.Container(height=8))
+                dlg_content.append(ft.Text(
+                    "🔐 Une invite d'administrateur du système s'affichera "
+                    "ensuite (mot de passe/Touch ID/UAC).",
+                    size=CONSTANTS.TEXT_SM, color=YELLOW))
+
+            dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text(
+                    "🔐 Exécuter en administrateur" if admin
+                    else "💻 Exécuter une commande",
+                    size=CONSTANTS.TEXT_SM, color=WHITE),
+                content=ft.Column(dlg_content, tight=True, width=500),
+                actions=[ft.TextButton("Annuler", on_click=_cancel),
+                         ft.Button("Exécuter", bgcolor=BLUE, color=WHITE,
+                                  on_click=_confirm)],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+
+            async def _open_dlg():
+                page.overlay.append(dlg)
+                dlg.open = True
+                page.update()
+            page.run_task(_open_dlg)
+            confirm_event.wait(timeout=300)
+            if not confirm_result["value"]:
+                return "Commande annulée par l'utilisateur."
+        return _run_terminal_command(cmd, cwd=cwd, admin=admin)
+
+    # Copie de Dashboard.pyw:3881-3961 : CONSTANTS.AI_DELETE_CONFIRM (True
+    # par défaut) doit toujours faire confirmer une suppression déclenchée
+    # par l'IA - sans ça (lambda direct vers _folder_delete_files) l'IA
+    # pouvait supprimer des fichiers sans validation utilisateur, même
+    # défaut de configuration que run_terminal_command/admin plus haut.
+    def _ai_tool_delete_files(args):
+        paths = args.get("paths", [])
+        summary = args.get("summary", "")
+        if not paths:
+            return "Aucun fichier à supprimer."
+        confirmed = True
+        if CONSTANTS.AI_DELETE_CONFIRM:
+            del_event = threading.Event()
+            del_result = {"confirmed": False}
+
+            def _confirm(e=None):
+                del_result["confirmed"] = True
+                dlg.open = False
+                page.update()
+                del_event.set()
+
+            def _cancel(e=None):
+                dlg.open = False
+                page.update()
+                del_event.set()
+
+            rows = [ft.Text(f"• {p}", size=CONSTANTS.TEXT_SM, color=WHITE)
+                   for p in paths[:40]]
+            if len(paths) > 40:
+                rows.append(ft.Text(f"… et {len(paths) - 40} autres",
+                                    size=CONSTANTS.TEXT_SM, color=LIGHT_GREY))
+            dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("🗑️ Supprimer des fichiers", size=CONSTANTS.TEXT_SM,
+                              color=WHITE),
+                content=ft.Column([
+                    ft.Text(summary or "Fichiers à supprimer :",
+                           size=CONSTANTS.TEXT_SM, color=WHITE),
+                    ft.Container(height=6),
+                    ft.Column(rows, scroll=ft.ScrollMode.AUTO,
+                             height=min(320, len(rows) * 24)),
+                ], tight=True, width=500),
+                actions=[ft.TextButton("Annuler", on_click=_cancel),
+                         ft.Button("Supprimer", bgcolor=RED, color=WHITE,
+                                  on_click=_confirm)],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+
+            async def _open_dlg():
+                page.overlay.append(dlg)
+                dlg.open = True
+                page.update()
+            page.run_task(_open_dlg)
+            del_event.wait(timeout=300)
+            confirmed = del_result["confirmed"]
+        if not confirmed:
+            return "Suppression annulée."
+        result = _folder_delete_files(state["folder"], paths)
+        page.run_task(_ai_navigate_async, state["folder"])
+        return result
+
+    # Copie de Dashboard.pyw:3139-3202 : `analyze_images` est annoncé à l'IA
+    # via le schéma partagé (Data/ai_tools.py:1289) mais n'avait aucun
+    # handler côté Hub -> l'IA pouvait l'appeler et recevait juste
+    # « Outil indisponible ». Même structure que _ai_tool_score_photos
+    # juste en dessous (bulle de progression par lot).
+    def _ai_tool_analyze_images(fn_name, args):
+        folder = state["folder"]
+        if not folder:
+            return "Aucun dossier ouvert."
+        filenames = args.get("filenames") or []
+        question = args.get("question", "")
+        if filenames:
+            candidates = [os.path.basename(n) for n in filenames
+                         if os.path.isfile(os.path.join(folder, os.path.basename(n)))]
+        else:
+            candidates = sorted(
+                e.name for e in os.scandir(folder)
+                if e.is_file() and os.path.splitext(e.name)[1].lower()
+                in CONSTANTS.IMAGE_EXTS)
+        if not candidates:
+            return "Aucune image trouvée."
+        total = len(candidates)
+        model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_VISION
+        batch_n = (CONSTANTS.AI_GEMINI_FOLDER_BATCH_SIZE if model.startswith("gemini")
+                  else CONSTANTS.AI_FOLDER_SELECT_BATCH_SIZE)
+        batches = (total + batch_n - 1) // batch_n
+        progress_ctrl = _ai_add_bubble("assistant",
+                                       f"📸 Analyse de {total} image(s) — lot 1/{batches}…")
+
+        def _on_progress(batch_num, total_batches):
+            ai_status_text.value = f"📸 Analyse lot {batch_num}/{total_batches}…"
+            progress_ctrl.value = _md_dark(f"📸 Analyse — lot {batch_num}/{total_batches}…")
+            _ai_refresh()
+
+        results = _analyze_images_batched(
+            CONSTANTS.AI_OLLAMA_URL, model, folder, candidates, question,
+            batch_size=batch_n, image_exts=CONSTANTS.IMAGE_EXTS,
+            max_size=CONSTANTS.AI_FOLDER_SELECT_IMAGE_SIZE,
+            quality=CONSTANTS.AI_FOLDER_SELECT_QUALITY,
+            on_progress=_on_progress,
+            is_running=lambda: ai_streaming["value"])
+        progress_ctrl.value = _md_dark(f"📸 {total} image(s) analysée(s).")
+        _ai_refresh()
+        return "\n\n".join(results) or "Aucun résultat."
+
     def _ai_tool_score_photos(fn_name, args):
         folder = state["folder"]
         if not folder:
@@ -2947,6 +3130,7 @@ def main(page: ft.Page):
         "generate_music": _ai_tool_generate_music,
         "organize_files": _ai_tool_organize_files,
         "score_photos": _ai_tool_score_photos,
+        "analyze_images": _ai_tool_analyze_images,
         "ask_clarifying_question": _ai_tool_ask_clarifying,
         "take_screenshot": _ai_tool_take_screenshot,
     }
@@ -3016,13 +3200,11 @@ def main(page: ft.Page):
             document_exts=CONSTANTS.AI_DOCUMENT_EXTS),
         "create_file": lambda args: _folder_create_file(
             state["folder"], args.get("filename", ""), args.get("content", "")),
-        "delete_files": lambda args: _folder_delete_files(
-            state["folder"], args.get("paths", [])),
+        "delete_files": _ai_tool_delete_files,
         "web_search": lambda args: _web_search(args.get("query", "")),
         "fetch_url": lambda args: _fetch_url_content(
             args.get("url", ""), max_chars=CONSTANTS.AI_URL_MAX_CHARS),
-        "run_terminal_command": lambda args: _run_terminal_command(
-            args.get("command", "")),
+        "run_terminal_command": _ai_tool_run_terminal_command,
         "update_memory_file": lambda args: _update_memory_file(
             args.get("target", ""), args.get("action", ""),
             args.get("content", ""), args.get("old_text", "")),
@@ -3246,7 +3428,13 @@ def main(page: ft.Page):
         ai_status_text.value = "⏳ Préparation du micro… (attendez le rouge)"
         page.update()
 
-    def _mic_stop():
+    def _mic_stop(auto_send=False):
+        """Arrête l'enregistrement et transcrit via Gemini.
+
+        Copie de Dashboard.pyw:4299-4378 : ``auto_send`` (relâchement du
+        bouton PTT physique) envoie le message dès la transcription, sans
+        attendre une validation manuelle.
+        """
         if not _mic_state["active"]:
             return
         _mic_state["active"] = False
@@ -3272,18 +3460,89 @@ def main(page: ft.Page):
             async def _apply():
                 if text:
                     existing = (ai_input_field.value or "").rstrip()
-                    ai_input_field.value = f"{existing} {text}".strip() if existing else text
+                    combined = f"{existing} {text}".strip() if existing else text
                     ai_status_text.value = ""
-                    try:
-                        await ai_input_field.focus()
-                    except Exception:
-                        pass
+                    if auto_send and not ai_streaming["value"]:
+                        ai_input_field.value = ""
+                        ai_input_field.update()
+                        _send_ai_message(combined)
+                    else:
+                        ai_input_field.value = combined
+                        ai_input_field.update()
+                        try:
+                            await ai_input_field.focus()
+                        except Exception:
+                            pass
                 else:
                     ai_status_text.value = "Aucun texte reconnu"
                 page.update()
             page.run_task(_apply)
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def _mic_hotkey_start():
+        """Écoute CONSTANTS.AI_VOICE_PTT_KEY : bouton PTT physique (macropad).
+
+        Copie de Dashboard.pyw:4380-4451. Touche f13-f20 (aucun clavier
+        standard ne la produit). Appui maintenu = enregistre, relâchement =
+        transcrit et envoie directement le message à l'IA, même si Hub n'a
+        pas le focus (raccourci global, via pynput).
+        """
+        ptt_name = CONSTANTS.AI_VOICE_PTT_KEY
+        try:
+            from pynput import keyboard as _pynput_kb
+        except ImportError:
+            _log_to_terminal(
+                f"[IA] pynput absent : bouton micro physique ({ptt_name}) "
+                "indisponible (pip install pynput).", ORANGE)
+            return
+
+        ptt_key = getattr(_pynput_kb.Key, ptt_name, None)
+        if ptt_key is None:
+            _log_to_terminal(
+                f"[ERREUR] Touche PTT inconnue de pynput : {ptt_name!r} "
+                "(voir CONSTANTS.AI_VOICE_PTT_KEY, doit être f13..f20).",
+                RED)
+            return
+
+        # pynput ne livre pas toujours la même représentation à l'appui et
+        # au relâchement (X11/Linux : Key.f15 à l'appui, KeyCode brut au
+        # relâchement) — on compare aussi le vk pour reconnaître la même
+        # touche physique dans les deux sens.
+        target_vk = getattr(getattr(ptt_key, "value", ptt_key), "vk", None)
+
+        def _is_ptt(key):
+            if key == ptt_key:
+                return True
+            vk = getattr(getattr(key, "value", key), "vk", None)
+            return target_vk is not None and vk == target_vk
+
+        async def _press_async():
+            _mic_start()
+
+        async def _release_async():
+            _mic_stop(auto_send=True)
+
+        def _on_press(key):
+            if _is_ptt(key):
+                page.run_task(_press_async)
+
+        def _on_release(key):
+            if _is_ptt(key):
+                page.run_task(_release_async)
+
+        try:
+            listener = _pynput_kb.Listener(
+                on_press=_on_press, on_release=_on_release)
+            listener.daemon = True
+            listener.start()
+        except Exception as hotkey_error:
+            _log_to_terminal(
+                f"[ERREUR] Bouton micro physique ({ptt_name}) : "
+                f"{hotkey_error}", RED)
+            return
+        _mic_state["hotkey_listener"] = listener
+        _log_to_terminal(f"[IA] Bouton micro physique ({ptt_name}) actif.", BLUE)
 
     def _send_ai_message(text):
         if ai_streaming["value"] or (not text.strip() and not ai_pending_images
@@ -3341,7 +3600,12 @@ def main(page: ft.Page):
                 system_content = _build_system_content(folder, today)
                 if folder:
                     system_content += f"\n\nDOSSIER ACTUELLEMENT OUVERT : {folder}"
-                history = ai_conversation[-CONSTANTS.AI_HISTORY_LIMIT_CLOUD:]
+                _active_model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_TEXT
+                _history_limit = (
+                    CONSTANTS.AI_HISTORY_LIMIT_CLOUD
+                    if _active_model.startswith(("gemini", "claude"))
+                    else CONSTANTS.AI_HISTORY_LIMIT_LOCAL)
+                history = ai_conversation[-_history_limit:]
                 # Une troncature brute peut couper juste après un tour
                 # assistant(tool_calls), laissant une réponse d'outil
                 # orpheline en tête, OU couper juste avant ce tour, laissant
@@ -4786,9 +5050,9 @@ def main(page: ft.Page):
             ("2 en 1", ft.Icons.FILTER_2, GREEN, _launch_two_in_one),
         ]),
         ("Kiosque (mode client)", [
-            ("Kiosque — Studios", ft.Icons.STOREFRONT_OUTLINED, VIOLET,
+            ("Kiosque — Studios", ft.Icons.STOREFRONT_OUTLINED, ORANGE,
              lambda e: _launch_kiosk("STUDIOS", e)),
-            ("Kiosque — Tirages", ft.Icons.LOCAL_PRINTSHOP_OUTLINED, VIOLET,
+            ("Kiosque — Tirages", ft.Icons.LOCAL_PRINTSHOP_OUTLINED, ORANGE,
              lambda e: _launch_kiosk("PRINTS", e)),
         ]),
         ("Retouche", [
@@ -4823,7 +5087,8 @@ def main(page: ft.Page):
             ("Nettoyer anciens fichiers (> 60 jours)", ft.Icons.AUTO_DELETE,
              RED, lambda e: _launch_tool(
                  "Nettoyer anciens fichiers.py", is_local=True)),
-            ("Synchroniser avec un autre dossier", ft.Icons.SYNC, GREEN,
+            ("Synchroniser avec un autre dossier", ft.Icons.SYNC,
+             CONSTANTS.COLOR_HOVER_YELLOW,
              lambda e: page.run_task(_sync_two_folders, e)),
         ]),
     ]
@@ -4842,11 +5107,11 @@ def main(page: ft.Page):
         )
 
     def _action_category(label, tools):
-        # Libellé de catégorie en ORANGE (pas GREY) : GREY sur le fond DARK
+        # Libellé de catégorie en BLUE (pas GREY) : GREY sur le fond DARK
         # de l'overlay est quasi illisible, deux gris trop proches en
         # luminance — cf. retour user.
         return ft.Column([
-            ft.Text(label.upper(), size=CONSTANTS.TEXT_SM, color=ORANGE,
+            ft.Text(label.upper(), size=CONSTANTS.TEXT_SM, color=BLUE,
                     weight=ft.FontWeight.W_700),
             ft.Column([_action_row(*t) for t in tools], spacing=0),
         ], spacing=6)
@@ -4869,7 +5134,7 @@ def main(page: ft.Page):
     def _rebuild_open_with_category():
         rows = [
             _action_row(
-                f"Ouvrir avec {p['label']}", ft.Icons.OPEN_IN_NEW, GREEN,
+                f"Ouvrir avec {p['label']}", ft.Icons.OPEN_IN_NEW, BLUE,
                 lambda e, p=p: (_open_files_with(p, list(selected))
                                if selected else None),
                 trailing=ft.IconButton(
@@ -4882,7 +5147,7 @@ def main(page: ft.Page):
         rows.append(_action_row("Ajouter un programme...", ft.Icons.ADD,
                                 GREEN, lambda e: _add_open_with_program()))
         _open_with_category_col.controls = [
-            ft.Text("OUVRIR AVEC", size=CONSTANTS.TEXT_SM, color=ORANGE,
+            ft.Text("OUVRIR AVEC", size=CONSTANTS.TEXT_SM, color=BLUE,
                     weight=ft.FontWeight.W_700),
             ft.Column(rows, spacing=0),
         ]
@@ -5333,18 +5598,55 @@ def main(page: ft.Page):
         ft.Icons.SEND_TO_MOBILE, icon_color=VIOLET, icon_size=CONSTANTS.ICON_SM,
         tooltip="Transférer le terminal vers le bloc-notes",
         on_click=lambda e: _export_terminal(to_notepad=True))
+    terminal_fullscreen_btn = ft.IconButton(
+        ft.Icons.FULLSCREEN, icon_color=WHITE, icon_size=CONSTANTS.ICON_SM,
+        tooltip="Terminal plein écran (Ctrl/Cmd+Maj+↑)",
+        on_click=lambda e: _toggle_terminal_fullscreen())
+
+    def _clear_terminal(event=None):
+        terminal_output.controls.clear()
+        page.update()
+
+    terminal_clear_button = ft.IconButton(
+        ft.Icons.CLEAR_ALL, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
+        tooltip="Effacer le terminal", on_click=_clear_terminal)
 
     terminal_panel = ft.Container(
         content=ft.Column([
             ft.Container(content=terminal_output, expand=True, padding=8),
             ft.Container(
                 content=ft.Row([terminal_input, terminal_copy_button,
-                                terminal_to_notepad_button]),
+                                terminal_to_notepad_button,
+                                terminal_clear_button,
+                                terminal_fullscreen_btn]),
                 padding=ft.Padding(8, 0, 8, 8)),
         ], spacing=0, expand=True),
         bgcolor=DARK, height=200, visible=False,
         border=ft.Border(top=ft.BorderSide(2, ORANGE)),
     )
+    _terminal_fullscreen = {"active": False}
+
+    def _toggle_terminal_fullscreen():
+        # Bascule tout l'écran vers le terminal (cache la Row explorateur)
+        # au lieu de juste afficher/masquer le panneau (_toggle_terminal,
+        # Ctrl/Cmd+↑ sans Maj) — pratique pour lire une longue sortie sans
+        # défiler dans une bande de 200px.
+        if not terminal_panel.visible:
+            terminal_panel.visible = True
+        _terminal_fullscreen["active"] = not _terminal_fullscreen["active"]
+        is_full = _terminal_fullscreen["active"]
+        main_row.visible = not is_full
+        terminal_panel.expand = is_full
+        terminal_panel.height = None if is_full else 200
+        terminal_fullscreen_btn.icon = (
+            ft.Icons.FULLSCREEN_EXIT if is_full else ft.Icons.FULLSCREEN)
+        terminal_fullscreen_btn.tooltip = (
+            "Quitter le plein écran (Ctrl/Cmd+Maj+↑)" if is_full
+            else "Terminal plein écran (Ctrl/Cmd+Maj+↑)")
+        t = _terminal_autohide["task"]
+        if is_full and t is not None and not t.done():
+            t.cancel()
+        page.update()
 
     # ═════════════════════════════════════════════════════════════════════
     #  Barre d'état — Terminal (centre) + curseur Taille (droite)
@@ -5353,6 +5655,13 @@ def main(page: ft.Page):
 
     def _toggle_terminal(event):
         terminal_panel.visible = not terminal_panel.visible
+        if not terminal_panel.visible and _terminal_fullscreen["active"]:
+            _terminal_fullscreen["active"] = False
+            main_row.visible = True
+            terminal_panel.expand = False
+            terminal_panel.height = 200
+            terminal_fullscreen_btn.icon = ft.Icons.FULLSCREEN
+            terminal_fullscreen_btn.tooltip = "Terminal plein écran (Ctrl/Cmd+Maj+↑)"
         page.update()
         page.run_task(_focus_active_surface)
 
@@ -5446,7 +5755,7 @@ def main(page: ft.Page):
         is_mac = platform.system() == "Darwin"
         if not _strip_state["active"]:
             _strip_state["was_maximized"] = bool(page.window.maximized)
-            _strip_state["saved_height"] = page.window.height or 860
+            _strip_state["saved_height"] = page.window.height or CONSTANTS.WINDOW_HEIGHT
             _strip_state["active"] = True
             if is_mac and _strip_state["was_maximized"]:
                 page.window.maximized = False
@@ -5543,9 +5852,10 @@ def main(page: ft.Page):
         ),
     )
 
+    main_row = ft.Row([left_rail, center], expand=True, spacing=0)
     body = ft.Column([
         ft.Divider(height=1, color=GREY),
-        ft.Row([left_rail, center], expand=True, spacing=0),
+        main_row,
         terminal_panel,
         statusbar,
     ], expand=True, spacing=0)
@@ -5562,6 +5872,9 @@ def main(page: ft.Page):
 
     def _on_global_key(event):
         ctrl = event.ctrl or event.meta
+        if ctrl and event.shift and event.key in ("Arrow Up", "ArrowUp"):
+            _toggle_terminal_fullscreen()
+            return
         if ctrl and event.key in ("Arrow Up", "ArrowUp"):
             _toggle_terminal(None)
             return
@@ -5603,20 +5916,22 @@ def main(page: ft.Page):
         body,
     ], expand=True, spacing=0))
     page.run_task(_focus_active_surface)
+    _mic_hotkey_start()
 
-    async def _delayed_maximize():
-        # Même délai que Dashboard.pyw:10926-10934 : `maximized=True` fixé
-        # trop tôt (avant que la fenêtre soit réellement affichée) ne prend
-        # pas toujours effet.
-        await asyncio.sleep(0.15)
-        if platform.system() == "Darwin":
-            page.window.maximized = False
+    if CONSTANTS.MAXIMIZED:
+        async def _delayed_maximize():
+            # Même délai que Dashboard.pyw:10874-10883 : `maximized=True`
+            # fixé trop tôt (avant que la fenêtre soit réellement affichée)
+            # ne prend pas toujours effet.
+            await asyncio.sleep(0.15)
+            if platform.system() == "Darwin":
+                page.window.maximized = False
+                page.update()
+                await asyncio.sleep(0.05)
+            page.window.maximized = True
             page.update()
-            await asyncio.sleep(0.05)
-        page.window.maximized = True
-        page.update()
 
-    page.run_task(_delayed_maximize)
+        page.run_task(_delayed_maximize)
 
 
 if __name__ == "__main__":
