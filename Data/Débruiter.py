@@ -53,10 +53,10 @@ total = len(files_to_process)
 output_folder = folder_path / "DENOISE"
 output_folder.mkdir(exist_ok=True)
 
-H               = CONSTANTS.DENOISE_H
-H_COLOR         = CONSTANTS.DENOISE_H_COLOR
-TEMPLATE_WINDOW = CONSTANTS.DENOISE_TEMPLATE_WINDOW
-SEARCH_WINDOW   = CONSTANTS.DENOISE_SEARCH_WINDOW
+H               = int(os.environ.get("DENOISE_H", CONSTANTS.DENOISE_H))
+H_COLOR         = int(os.environ.get("DENOISE_H_COLOR", CONSTANTS.DENOISE_H_COLOR))
+TEMPLATE_WINDOW = int(os.environ.get("DENOISE_TEMPLATE_WINDOW", CONSTANTS.DENOISE_TEMPLATE_WINDOW))
+SEARCH_WINDOW   = int(os.environ.get("DENOISE_SEARCH_WINDOW", CONSTANTS.DENOISE_SEARCH_WINDOW))
 
 #############################################################
 #                           MAIN                            #

@@ -2002,19 +2002,6 @@ def main(page: ft.Page):
         image_mode = "original" if use_original else "optimized"
         ai_pending_images.append({"path": image_path, "b64": b64_data, "mode": image_mode})
         _ai_refresh_attach_row()
-        # Avertir si la configuration vision n'est pas reconnue
-        vision_model = CONSTANTS.AI_MODEL_VISION
-        is_vision = any(
-            vision_model == entry[1] or vision_model.startswith(entry[1] + ":")
-            for entry in CONSTANTS.AI_AVAILABLE_MODELS
-            if entry[2]
-        )
-        if not is_vision:
-            _ai_add_bubble(
-                "assistant",
-                "⚠️ La configuration vision actuelle n'est pas reconnue comme compatible.\n"
-                "Vérifiez AI_MODEL_VISION dans CONSTANTS.py.",
-            )
 
 
 
@@ -2251,29 +2238,19 @@ def main(page: ft.Page):
                     preroll_ms=CONSTANTS.AI_VOICE_TTS_PREROLL_MS,
                 )
             else:
-                # One-shot par défaut pour un timbre stable sur toute la réponse.
-                pcm = _gemini_tts(
+                # Streaming audio réel (une seule requête, lecture dès le
+                # premier chunk) : plus rapide qu'un appel bloquant pour
+                # toutes les longueurs de texte, donc plus besoin de
+                # distinguer "court" (one-shot) et "long" (pipeline).
+                _gemini_tts_stream(
                     text,
                     voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
                     tts_model=CONSTANTS.AI_VOICE_TTS_MODEL,
+                    sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
                     language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
+                    stop_event=stop_event,
+                    preroll_ms=CONSTANTS.AI_VOICE_TTS_PREROLL_MS,
                 )
-                if pcm:
-                    _voice_play_audio(
-                        pcm,
-                        sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
-                        stop_event=stop_event,
-                    )
-                else:
-                    # Fallback de sécurité si la requête unique échoue.
-                    _gemini_tts_stream(
-                        text,
-                        voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
-                        tts_model=CONSTANTS.AI_VOICE_TTS_MODEL,
-                        sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
-                        language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
-                        stop_event=stop_event,
-                    )
         except Exception as tts_exc:
             _set_tts_feedback(f"[❌ TTS] {tts_exc}", False)
             return
@@ -8046,49 +8023,6 @@ def main(page: ft.Page):
             page.update()
             return
         
-        if app_name == "Fit 203.py" and series_name is None:
-            _FIT_203_FORMATS = CONSTANTS.FIT_203_FORMATS
-            fit_203_dialog = ft.AlertDialog(
-                modal=True,
-                title=ft.Text("Format Fit 203"),
-                content=None,
-            )
-
-            def _pick_fit_203(val):
-                fit_203_dialog.open = False
-                page.update()
-                launch_app(app_name, app_path, is_local, series_name=val)
-
-            def on_cancel_fit_203(e):
-                fit_203_dialog.open = False
-                page.update()
-
-            fit_203_buttons = ft.Column(
-                controls=[
-                    ft.Container(
-                        content=ft.Text(label, size=14, color=HOVER_YELLOW, text_align=ft.TextAlign.CENTER),
-                        bgcolor=GREY,
-                        border=ft.Border.all(1, HOVER_YELLOW),
-                        border_radius=4,
-                        padding=ft.Padding(12, 10, 12, 10),
-                        width=280,
-                        alignment=ft.Alignment(0, 0),
-                        ink=True,
-                        on_click=lambda e, v=f"{crop}|{canvas}|{label.split(' sur ')[-1].replace('×', 'x')}": _pick_fit_203(v),
-                    )
-                    for label, crop, canvas in _FIT_203_FORMATS
-                ],
-                spacing=6,
-                tight=True,
-            )
-            fit_203_dialog.content = fit_203_buttons
-            fit_203_dialog.actions = [ft.TextButton("Annuler", on_click=on_cancel_fit_203)]
-            fit_203_dialog.actions_alignment = ft.MainAxisAlignment.END
-            page.overlay.append(fit_203_dialog)
-            fit_203_dialog.open = True
-            page.update()
-            return
-
         if app_name == "Recadrage automatique.py" and series_name is None:
             _format_items = list(CONSTANTS.FORMATS.items())
             _saved_config = _load_recadrage_auto_config()
@@ -8939,11 +8873,6 @@ def main(page: ft.Page):
                         log_to_terminal(f"[AVERTISSEMENT] Le dossier {kiosk_target_path} n'est pas accessible", ORANGE)
                         kiosk_target_path = None
 
-                elif app_name == "Kiosk droite.py":
-                    kiosk_target_path = CONSTANTS.KIOSK_DROITE_DEST
-                    if not os.path.isdir(kiosk_target_path):
-                        log_to_terminal(f"[AVERTISSEMENT] Le dossier {kiosk_target_path} n'est pas accessible", ORANGE)
-                        kiosk_target_path = None
 
 
 
@@ -9178,16 +9107,6 @@ def main(page: ft.Page):
                     if len(parts) == 2:
                         env["TWO_IN_ONE_WIDTH"] = parts[0]
                         env["TWO_IN_ONE_HEIGHT"] = parts[1]
-
-
-                # Ajouter les dimensions pour Fit 203.py
-                if app_name == "Fit 203.py" and series_name:
-                    parts = series_name.split("|")
-                    if len(parts) >= 2:
-                        env["FIT_203_CROP_SIZE"] = parts[0]
-                        env["FIT_203_PRINT_SIZE"] = parts[1]
-                    if len(parts) == 3:
-                        env["FIT_203_OUTPUT_FOLDER"] = parts[2]
 
 
                 # Ajouter les dimensions/portée pour Recadrage automatique.py

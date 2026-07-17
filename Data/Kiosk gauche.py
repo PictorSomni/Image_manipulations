@@ -155,4 +155,6 @@ for id in RESULT :
         total_files += files_copied
 
 print(f"Termine ! {total_orders} commande(s), {total_files} fichier(s).", flush=True)
+if DESTINATION.is_dir():
+    print(f"NAVIGATE_TO:{DESTINATION}", flush=True)
 sys.exit(0)

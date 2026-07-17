@@ -19,7 +19,7 @@ import os
 #    4.1  Résolution DPI
 #    4.2  Formats d impression
 #    4.3  Planche ID X4
-#    4.4  2-en-1 et Fit 203
+#    4.4  2-en-1
 # 5. RECADRAGE MANUEL.PYW ...................................... ~L 115
 #    5.1  Performance de prévisualisation
 #    5.2  Toggles (états initiaux)
@@ -104,16 +104,11 @@ COLOR_WHITE        = "#c7ccd8"
 # Par défaut une icône d'action est NEUTRE ; la couleur signale un rôle précis.
 # Modifier ici recolore toute l'interface d'un coup.
 
-# Rôles de couleur (référencent la palette ci-dessus).
+# Rôle de couleur (référence la palette ci-dessus).
 # IMPORTANT : ne PAS utiliser de neutre (gris OU blanc) sur une icône seule —
 # ça se lit « désactivé » et c'est terne. Toute icône d'action doit être
-# COLORÉE. ICON_NEUTRAL est réservé au contour d'une carte dont la zone
-# centrale est déjà colorée (ex. cartes Redimensionner), jamais à une icône.
-ICON_NEUTRAL = COLOR_WHITE        # contour de carte uniquement, pas d'icône
+# COLORÉE.
 ICON_ACTION  = COLOR_BLUE         # action primaire / fréquente (parcourir, rafraîchir)
-ICON_DANGER  = COLOR_RED          # DESTRUCTIF uniquement (supprimer, effacer)
-ICON_LAUNCH  = COLOR_VIOLET       # lancer une autre application (kiosk, side panel)
-ICON_WARN    = COLOR_ORANGE       # action à impact (impression, nettoyage)
 
 # Échelle typographique — 2 crans : corps de texte, et titres de zone.
 TEXT_SM = 13   # corps : dialogues, listes, boutons, noms de fichiers
@@ -204,7 +199,7 @@ FORMATS = {
 ID_X4_10x20_PHOTOS_BOTTOM = True
 
 
-# ── 4.4  Formats 2-en-1 et Fit 203 ───────────────────────────────────────────
+# ── 4.4  Formats 2-en-1 ───────────────────────────────────────────────────────
 # Liste ordonnée affichée dans le dialogue Dashboard (premier = valeur par défaut).
 
 TWO_IN_ONE_FORMATS = [
@@ -213,13 +208,6 @@ TWO_IN_ONE_FORMATS = [
     ("2 9x13 sur 13x18",  "89x127"),
     ("2 10x10 sur 10x20", "102x102"),
     ("2 15x20 sur 20x30", "152x203"),
-]
-
-# Chaque entree : (label affiche, "LxH" en mm, "LxH" du canvas en mm)
-FIT_203_FORMATS = [
-    ("10x15 sur 10x20", "102x152", "102x203"),
-    ("13x18 sur 13x20", "127x178", "127x203"),
-    ("18x24 sur 20x24", "180x240", "200x240"),
 ]
 
 
@@ -288,6 +276,9 @@ MAXIMIZED          = True
 TERMINAL_FONT_SIZE    = 16   # Taille du texte dans le terminal, le bloc-notes et les options
 TERMINAL_HEIGHT       = 170  # Hauteur du panneau terminal compact (px) — toujours visible
 WDA_HEIGHT            = 100  # Hauteur de la WindowDragArea (barre de titre custom, en px)
+HUB_TERMINAL_HEIGHT           = 200  # Hauteur du panneau terminal compact de Hub.pyw (px)
+HUB_TERMINAL_AUTOHIDE_DELAY   = 2.5  # Délai (secondes) avant fermeture auto du terminal de Hub.pyw
+HUB_TERMINAL_MAX_LINES        = 200  # Nombre max de lignes conservées dans le terminal de Hub.pyw
 NOTEPAD_AUTOSAVE_DELAY = 10  # Délai (secondes) avant sauvegarde automatique du bloc-notes
 NOTEPAD_DEFAULT_LANGUAGE = "MARKDOWN"  # Langage de coloration syntaxique par défaut du bloc-notes (voir fce.CodeLanguage)
 
@@ -337,15 +328,13 @@ DELETE_ZIP_AFTER_EXTRACT = False
 # ==============================================================================
 # 8. RÉSEAU & KIOSKS
 # ==============================================================================
-# Utilisés par Kiosk gauche.py, Kiosk droite.py et Nettoyer anciens fichiers.py.
+# Utilisés par Kiosk gauche.py et Nettoyer anciens fichiers.py.
 
 import platform as _platform
 
 if _platform.system() == "Windows":
     KIOSK_GAUCHE_SRC  = r"\\studioc-kiosk1\kiosk-data\it-HotFolder"
     KIOSK_GAUCHE_DEST = r"\\Diskstation\travaux en cours\z2026\kiosk\KIOSK GAUCHE"
-    KIOSK_DROITE_SRC  = r"\\studioc-kiosk2\kiosk-data\it-HotFolder"
-    KIOSK_DROITE_DEST = r"\\Diskstation\travaux en cours\z2026\kiosk\KIOSK DROITE"
     CLEAN_FOLDERS = [
         r"\\studioc-kiosk1\kiosk-data\it-HotFolder",
         r"\\studioc-kiosk2\kiosk-data\it-HotFolder",
@@ -364,8 +353,6 @@ else:
                 break
     KIOSK_GAUCHE_SRC  = "/Volumes/kiosk-data/it-HotFolder"
     KIOSK_GAUCHE_DEST = f"{_travaux}/Z2026/KIOSK/KIOSK GAUCHE"
-    KIOSK_DROITE_SRC  = "/Volumes/kiosk-data-1/it-HotFolder"
-    KIOSK_DROITE_DEST = f"{_travaux}/Z2026/KIOSK/KIOSK DROITE"
     TEMP_FOLDER       = f"{_travaux}/Z2026/TEMP"
     CLEAN_FOLDERS = [
         "/Volumes/kiosk-data-1/it-HotFolder",
@@ -468,16 +455,6 @@ AI_GEMINI_FOLDER_BATCH_SIZE  = 6    # Nb d'images par appel IA (Gemini). Petit =
 AI_FOLDER_SELECT_IMAGE_SIZE  = 1024  # Résolution max (px) envoyée à l'IA
 AI_FOLDER_SELECT_QUALITY     = 85    # Qualité JPEG des images envoyées à l'IA (assez fin pour juger netteté / dos vs visages / écharpes)
 
-# Modèles disponibles — (label affiché, identifiant, supporte_vision)
-AI_AVAILABLE_MODELS = [
-    ("Gemini 3.5 Flash  🌐🖼",        "gemini-3.5-flash",         True),
-    ("Gemini 3.1 Flash Lite  🌐🖼",          "gemini-3.1-flash-lite",   True),
-    ("Gemma 4 E4B  (~9.6 GB) 🖼",    "gemma4:e4b",               True),
-    ("Gemma 4 E4B - MLX  (~9.6 GB)🍎", "gemma4:e4b-mlx", False),        
-    ("Gemma 4 · 12B  (~7.6 GB) 🖼",   "gemma4:12b",               True),
-    ("Gemma 4 12B - MLX  (6.8GB GB)🍎", "gemma4:12b-mlx", False),    
-]
-
 # Modèles affichés dans le dropdown de sélection rapide du Dashboard
 AI_DROPDOWN_MODELS = [
     "gemini-3.1-flash-lite",
@@ -513,13 +490,12 @@ AI_SYSTEM_PROMPT = (
 
 AI_VOICE_TTS_ENABLED     = False   # Lire la réponse IA à voix haute après chaque réponse complète
 AI_VOICE_TTS_BTN_VISIBLE = True    # Afficher le bouton TTS même si la lecture auto est désactivée
-AI_VOICE_TTS_MODE        = "live"  # "live" = Gemini Live (voix conversationnelle) | "chunked" = lecture fidèle du texte
+AI_VOICE_TTS_MODE        = "chunked"  # "live" = Gemini Live (voix conversationnelle) | "chunked" = lecture fidèle du texte
 AI_VOICE_TTS_MODEL       = "gemini-3.1-flash-tts-preview"   # Modèle TTS classique (mode "chunked")
 AI_VOICE_LIVE_MODEL      = "gemini-3.1-flash-live-preview"  # Modèle Gemini Live (mode "live")
 AI_VOICE_TTS_VOICE       = "Kore"   # Voir AI_AVAILABLE_VOICES ci-dessous
 AI_VOICE_TTS_SAMPLE_RATE = 24000    # Fréquence de sortie PCM (Hz — ne pas modifier)
 AI_VOICE_TTS_LANGUAGE    = "fr"     # Code ISO 639-1 pour la langue de synthèse
-AI_VOICE_TTS_SINGLE_SHOT_MAX_CHARS = 1200  # Longueur max (caractères) pour forcer une seule requête TTS
 
 # ── Réduction de latence du mode "live" ──────────────────────────────────────
 # Coussin audio (jitter buffer) : on accumule ce nombre de ms d'audio avant de

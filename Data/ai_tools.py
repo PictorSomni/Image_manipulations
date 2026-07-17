@@ -4672,83 +4672,148 @@ def _gemini_tts(text, voice_name="Puck", tts_model="gemini-3.1-flash-tts-preview
         return None
 
 
-def _gemini_tts_stream(text, voice_name="Puck", tts_model="gemini-3.1-flash-tts-preview", sample_rate=24000, language_code=None, stop_event=None):
+def _gemini_tts_stream(text, voice_name="Puck", tts_model="gemini-3.1-flash-tts-preview", sample_rate=24000, language_code=None, stop_event=None, preroll_ms=0):
     """
-    Génère et joue le TTS via l'API Gemini en pipeline chunk par chunk.
+    Génère et joue le TTS via l'API Gemini en streaming audio réel :
+    une seule requête ``generate_content_stream``, lecture dès le premier
+    chunk audio reçu (comme le mode "live", mais texte lu tel quel — pas
+    de session conversationnelle qui reformule).
 
-    Le texte est découpé en morceaux de ~300 caractères aux frontières de phrases.
-    Le premier chunk démarre la lecture en ~1-2 s ; les suivants se génèrent
-    en parallèle pendant la lecture (pipelined).
-    language_code (ex : "fr", "en") est transmis à chaque appel TTS pour
-    garantir un accent cohérent sur l'ensemble de la réponse.
-    stop_event (threading.Event) : si activé, interrompt immédiatement la lecture
-    et la génération en cours (barge-in).
+    Remplace l'ancien découpage du texte en phrases + plusieurs requêtes
+    ``generate_content`` complètes : ça n'apportait aucun gain de latence
+    pour une réponse courte (un seul "chunk" = exactement le même coût
+    qu'un appel unique, retour user), et le streaming réel est de toute
+    façon plus rapide même pour les textes longs.
+
+    La réception réseau (producteur) et l'écriture audio (consommateur)
+    tournent dans deux threads séparés, avec un petit coussin de
+    pré-lecture (``preroll_ms``) avant la première écriture : sans ça, une
+    pause de génération entre deux phrases (gigue réseau) affamait
+    directement le flux de sortie et produisait un accroc audible entre
+    les phrases (retour user) — même mécanisme que le mode "live".
+
+    language_code (ex : "fr", "en") : accent de la synthèse.
+    stop_event (threading.Event) : si activé, interrompt immédiatement
+    la lecture et la génération en cours (barge-in).
     Bloquant : attend la fin de la lecture avant de retourner.
     """
-    import re
-    import queue
-    import threading
+    try:
+        from google import genai as _genai
+        from google.genai import types as _gtypes
+    except ImportError:
+        raise ImportError("google-genai n'est pas installé")
 
-    # Découpe en phrases puis regroupe jusqu'à ~300 chars pour équilibrer
-    # latence (chunks courts) et cohérence vocale (contexte suffisant).
-    raw_sentences = re.split(r'(?<=[.!?])\s+', text.strip())
-    chunks: list = []
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        raise RuntimeError("Clé API Gemini introuvable — vérifier GEMINI_API_KEY")
+
+    import queue as _queue
+    import threading as _threading
+    import sounddevice as _sd
+
+    client = _genai.Client(api_key=api_key)
+    config = _gtypes.GenerateContentConfig(
+        response_modalities=["AUDIO"],
+        speech_config=_gtypes.SpeechConfig(
+            voice_config=_gtypes.VoiceConfig(
+                prebuilt_voice_config=_gtypes.PrebuiltVoiceConfig(
+                    voice_name=voice_name,
+                )
+            ),
+            language_code=language_code,
+        ),
+    )
+
+    # Découpe en morceaux de ~600 caractères aux frontières de phrases
+    # (retour user : les réponses longues coupaient net après ~1/3 de
+    # l'audio en un seul appel generate_content_stream — plafond côté
+    # serveur sur la durée générée par requête, propre au streaming de ce
+    # modèle TTS preview, absent en non-streaming). Plus long que l'ancien
+    # découpage par phrases (~300 car., qui pipelinait des appels bloquants
+    # un par un) : moins de requêtes, tout en restant sous ce plafond.
+    import re as _re
+    raw_sentences = _re.split(r'(?<=[.!?])\s+', text.strip())
+    text_chunks: list = []
     current_chunk = ""
     for sentence in raw_sentences:
         if not sentence.strip():
             continue
         candidate = (current_chunk + " " + sentence).strip() if current_chunk else sentence
-        if current_chunk and len(candidate) > 300:
-            chunks.append(current_chunk)
+        if current_chunk and len(candidate) > 600:
+            text_chunks.append(current_chunk)
             current_chunk = sentence
         else:
             current_chunk = candidate
     if current_chunk:
-        chunks.append(current_chunk)
-
-    if not chunks:
-        return
+        text_chunks.append(current_chunk)
+    if not text_chunks:
+        text_chunks = [text]
 
     _SENTINEL = object()
-    # maxsize=3 : on pré-génère jusqu'à 3 chunks d'avance
-    audio_queue: queue.Queue = queue.Queue(maxsize=3)
-    chunks_failed = [0]
+    audio_queue: _queue.Queue = _queue.Queue(maxsize=40)
+    error_holder: list = [None]
 
     def _producer():
-        for chunk in chunks:
+        try:
+            for text_chunk in text_chunks:
+                if stop_event is not None and stop_event.is_set():
+                    break
+                for chunk in client.models.generate_content_stream(
+                    model=tts_model, contents=text_chunk, config=config,
+                ):
+                    if stop_event is not None and stop_event.is_set():
+                        break
+                    if not chunk.candidates:
+                        continue
+                    for part in chunk.candidates[0].content.parts:
+                        inline = getattr(part, "inline_data", None)
+                        if inline and getattr(inline, "data", None):
+                            audio_queue.put(inline.data)
+        except Exception as exc:
+            error_holder[0] = exc
+        finally:
+            audio_queue.put(_SENTINEL)
+
+    _threading.Thread(target=_producer, daemon=True).start()
+
+    output_stream = _sd.RawOutputStream(
+        samplerate=sample_rate, channels=1, dtype="int16",
+        blocksize=1024, latency="low")
+    output_stream.start()
+    got_audio = False
+    preroll_bytes = int(sample_rate * 2 * max(preroll_ms, 0) / 1000.0)
+    prebuf = bytearray()
+    started = preroll_bytes <= 0
+    try:
+        while True:
             if stop_event is not None and stop_event.is_set():
                 break
-            pcm = _gemini_tts(
-                chunk,
-                voice_name=voice_name,
-                tts_model=tts_model,
-                language_code=language_code,
-            )
-            if pcm:
-                audio_queue.put(pcm)
-            else:
-                chunks_failed[0] += 1
-        audio_queue.put(_SENTINEL)
-
-    threading.Thread(target=_producer, daemon=True).start()
-
-    audio_received = False
-    while True:
-        if stop_event is not None and stop_event.is_set():
-            break
-        try:
-            item = audio_queue.get(timeout=0.1)
-        except Exception:
-            continue
-        if item is _SENTINEL:
-            if not audio_received and stop_event is None or (stop_event is not None and not stop_event.is_set()):
-                if chunks_failed[0] == len(chunks):
+            try:
+                item = audio_queue.get(timeout=0.1)
+            except Exception:
+                continue
+            if item is _SENTINEL:
+                if error_holder[0] is not None:
+                    raise error_holder[0]
+                if not got_audio and (stop_event is None or not stop_event.is_set()):
                     raise RuntimeError(
                         f"Aucun audio généré — vérifier la clé API et le modèle TTS ({tts_model})"
                     )
-            break
-        audio_received = True
-        _voice_play_audio(item, sample_rate=sample_rate, stop_event=stop_event)
+                if prebuf and (stop_event is None or not stop_event.is_set()):
+                    output_stream.write(bytes(prebuf))
+                break
+            got_audio = True
+            if started:
+                output_stream.write(item)
+            else:
+                prebuf += item
+                if len(prebuf) >= preroll_bytes:
+                    output_stream.write(bytes(prebuf))
+                    prebuf = bytearray()
+                    started = True
+    finally:
+        output_stream.stop()
+        output_stream.close()
 
 
 def _gemini_live_tts_stream(
@@ -5127,6 +5192,47 @@ class _MicRecorder:
         if not self._frames:
             return None
         audio = _np.concatenate(self._frames, axis=0)
+
+        # Retire les blancs en tête/queue avant l'envoi (retour user : moins
+        # d'audio à transmettre/transcrire = plus rapide) — seuil d'amplitude
+        # simple, pas de VAD dédiée, avec une marge de 150 ms de chaque côté
+        # pour ne jamais couper le début/la fin de la parole.
+        flat = audio.reshape(-1)
+        above = _np.where(_np.abs(flat) > 500)[0]
+        if above.size:
+            pad = int(self.sample_rate * 0.15)
+            start = max(0, above[0] - pad)
+            end = min(len(flat), above[-1] + pad)
+            flat = flat[start:end]
+
+        # Plafonne aussi les blancs internes trop longs (pause de réflexion
+        # en cours de phrase, retour user) : découpe en fenêtres de 20 ms,
+        # énergie RMS par fenêtre, et toute pause interne au-delà de 500 ms
+        # est tronquée à 500 ms — les pauses courtes naturelles entre les
+        # mots restent intactes.
+        frame_len = max(1, int(self.sample_rate * 0.02))
+        n_frames = len(flat) // frame_len
+        if n_frames > 1:
+            usable = flat[:n_frames * frame_len].reshape(n_frames, frame_len)
+            frame_rms = _np.sqrt(_np.mean(usable.astype(_np.float64) ** 2, axis=1))
+            voiced = frame_rms > 300
+            max_silence_frames = int(0.5 / 0.02)
+            keep = []
+            silence_run = 0
+            for i, is_voiced in enumerate(voiced):
+                if is_voiced:
+                    silence_run = 0
+                    keep.append(i)
+                else:
+                    silence_run += 1
+                    if silence_run <= max_silence_frames:
+                        keep.append(i)
+            if keep:
+                remainder = flat[n_frames * frame_len:]
+                flat = _np.concatenate([usable[keep].reshape(-1), remainder])
+
+        audio = flat.reshape(-1, 1)
+
         buffer = io.BytesIO()
         with wave.open(buffer, "wb") as wav_file:
             wav_file.setnchannels(1)

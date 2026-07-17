@@ -388,12 +388,16 @@ async def main(page: ft.Page) -> None:
 
     # ── Chargement d'image ───────────────────────────────────────────────────
 
+    def _decode_image(path: str) -> Image.Image:
+        img = Image.open(path)
+        img.load()
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGB")
+        return img
+
     async def _load_image_path(path: str) -> None:
         try:
-            img = Image.open(path)
-            img.load()
-            if img.mode not in ("RGB", "RGBA"):
-                img = img.convert("RGB")
+            img = await asyncio.to_thread(_decode_image, path)
             state["source_path"]     = path
             state["orig_img"]        = img.copy()
             state["work_img"]        = img.copy()

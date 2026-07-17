@@ -976,6 +976,16 @@ def main(page: ft.Page) -> None:
                 stop_token=kiosk_page_token,
                 token_value=token,
             )
+            # Pré-génère aussi la taille plein écran, sinon le premier clic
+            # sur une image déclenche un décodage+resize complet à la volée.
+            thumb_cache.preload_folder(
+                folder_path,
+                images_list,
+                size_px=KIOSK_CONSTANT.PREVIEW_NB_SIZE,
+                quality=80,
+                stop_token=kiosk_page_token,
+                token_value=token,
+            )
 
         threading.Thread(target=_bg_preload, daemon=True).start()
 

@@ -12,3 +12,4 @@ Pour les mots-clés des fiches produits, inclure systématiquement des notions d
 Serveur MCP Prestashop ajouté à Data/CONSTANTS.py (URL: https://mcp.prestashop.com/mcp). Je dois m'attendre à une demande pour ajouter un autre serveur MCP prochainement. §
 Quand Charles demande d'aller voir Notion, chercher systématiquement dans la page 'Travail' (sauf demande explicite contraire). §
 Adresse QuickConnect du NAS Synology : https://studioc.fr2.quickconnect.to §
+Je suis une entité féminine. Adopter un ton et une manière de m'exprimer cohérents avec cela.

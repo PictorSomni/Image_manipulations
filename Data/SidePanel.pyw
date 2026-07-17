@@ -107,12 +107,7 @@ def main(page: ft.Page):
     RED          = CONSTANTS.COLOR_RED
     WHITE        = CONSTANTS.COLOR_WHITE
 
-    # Rôles sémantiques (voir CONSTANTS §3bis) : la couleur = un sens.
-    ICON_NEUTRAL = CONSTANTS.ICON_NEUTRAL
     ICON_ACTION  = CONSTANTS.ICON_ACTION
-    ICON_DANGER  = CONSTANTS.ICON_DANGER
-    ICON_LAUNCH  = CONSTANTS.ICON_LAUNCH
-    ICON_WARN    = CONSTANTS.ICON_WARN
 
     # Fond clair par défaut de flutter_markdown pour le code/blockquote,
     # illisible avec le texte blanc du thème sombre : on le recolore.
@@ -2900,19 +2895,6 @@ def main(page: ft.Page):
                 return
         ai_pending_images.append({"path": image_path, "b64": b64_data})
         _ai_refresh_attach_row()
-        # Avertir si le modèle vision configuré ne supporte pas réellement la vision
-        vision_model = CONSTANTS.AI_MODEL_VISION
-        is_vision = any(
-            vision_model == entry[1] or vision_model.startswith(entry[1] + ":")
-            for entry in CONSTANTS.AI_AVAILABLE_MODELS
-            if entry[2]
-        )
-        if not is_vision:
-            _ai_add_bubble(
-                "assistant",
-                f"⚠️ Le modèle vision configuré ({vision_model}) n'est pas reconnu comme modèle vision.\n"
-                "Vérifiez AI_MODEL_VISION dans CONSTANTS.py.",
-            )
 
     def _ai_remove_image(image_entry):
         if image_entry in ai_pending_images:

@@ -60,6 +60,7 @@ from ai_tools import (
     _update_memory_file, _iterate_image_loop, _IMAGE_ITERATE_TOOLS,
     _gemini_generate_image, _gemini_generate_music, _gemini_refine_image_prompt,
     _score_images_batched, _analyze_images_batched, _take_screenshot,
+    _gemini_tts, _gemini_tts_stream, _gemini_live_tts_stream, _voice_play_audio,
 )
 
 
@@ -757,14 +758,11 @@ def main(page: ft.Page):
 
     def _on_bg_ctx_menu(event):
         # Clic droit sur le fond (pas sur une tuile) : agit sur la
-        # sélection courante si elle existe, sinon sur TOUS les éléments
-        # visibles (retour user — différent de _on_ctx_menu qui, lui,
-        # n'auto-sélectionne que l'élément cliqué).
+        # sélection courante si elle existe. Ne sélectionne plus tout le
+        # dossier automatiquement (retour user : pas pratique à l'usage,
+        # utiliser le bouton "Tout sélectionner" à la place).
         if not selected:
-            dirs, imgs, other = _visible_entries()
-            _select_update(dirs + imgs + other)
-            _update_sel_count()
-            _render()
+            return
         _open_actions(event)
 
     def _bg_filler():
@@ -827,6 +825,11 @@ def main(page: ft.Page):
                 _start_thumb_loader(pending)
         files_body.content = files_list if state["view"] == "list" else files_grid
         _update_view_seg()
+        # Le total affiché dans le statut suit le filtre visible (recherche,
+        # "afficher la sélection"…) : sans ce recalcul ici, vider la
+        # recherche après un Ctrl+A laisse le statut figé sur l'ancien
+        # total filtré (retour user).
+        _update_sel_count()
         page.update()
 
     def _start_thumb_loader(pending):
@@ -2240,9 +2243,13 @@ def main(page: ft.Page):
         border=ft.Border.all(1, BLUE),
         content=ft.Column([], spacing=0),
     )
+    # top/left approximatifs : open_menu_btn a déménagé de files_header vers
+    # la WDA (retour user), donc l'ancien ancrage (top=84, left=52, sous
+    # l'ex-emplacement du bouton) ne correspond plus — à ajuster visuellement
+    # si le panneau n'est pas pile sous le bouton "Ouvrir".
     open_menu_overlay = ft.Stack([
         ft.Container(expand=True, on_click=lambda e: _close_open_menu()),
-        ft.Container(content=open_menu_panel, top=84, left=52),
+        ft.Container(content=open_menu_panel, top=STRIP_HEIGHT + 4, left=200),
     ], expand=True)
 
     def _close_open_menu(event=None):
@@ -2339,6 +2346,21 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
+    # _launch_transfert_temp est défini plus loin dans main() : lambda pour
+    # différer la résolution du nom jusqu'au clic.
+    transfert_temp_btn = ft.TextButton(
+        content=ft.Row([
+            ft.Icon(ft.Icons.DRIVE_FILE_MOVE_OUTLINED, color=BLUE,
+                    size=CONSTANTS.ICON_SM),
+            ft.Text("Transfert vers TEMP", size=CONSTANTS.TEXT_SM, color=BLUE),
+        ], spacing=6, tight=True),
+        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
+        height=CONSTANTS.HUB_TOOLBAR_H,
+        on_click=lambda e: _launch_transfert_temp(e),
+        tooltip="Transfert vers TEMP (dossier Download) — retour user : "
+                "usage fréquent, sorti du panneau Actions",
+    )
+
     new_folder_btn = ft.IconButton(
         icon=ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
         icon_color=ORANGE, icon_size=CONSTANTS.ICON_SM,
@@ -2412,10 +2434,8 @@ def main(page: ft.Page):
         content=ft.Column([
             ft.Row([
                 ft.Row([parent_folder_btn, refresh_folder_btn,
-                       new_folder_btn], spacing=8),
-                ft.VerticalDivider(width=1, color=GREY),
-                open_menu_btn,
-                files_path,
+                       new_folder_btn, transfert_temp_btn], spacing=8),
+                ft.Container(expand=True),
                 ft.VerticalDivider(width=1, color=GREY),
                 sort_btn,
                 view_seg_wrap,
@@ -2717,6 +2737,9 @@ def main(page: ft.Page):
     ai_streaming = {"value": False}
     ai_pending_images = []   # [{"path": str, "b64": str}, ...] — en attente d'envoi
     ai_pending_files = []    # [str, ...] chemins de documents en attente
+    ai_send_original_images = {"value": CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL}
+    ai_tts_enabled = {"value": CONSTANTS.AI_VOICE_TTS_ENABLED}
+    ai_tts_stop_event = {"event": None}
     _ai_history_file = os.path.join(_APP_DIR, ".ai_conversation_hub.json")
 
     ai_chat_view = ft.ListView(expand=True, spacing=4, auto_scroll=True)
@@ -2757,7 +2780,17 @@ def main(page: ft.Page):
         # Depuis un thread (streaming IA en arrière-plan), page.update() direct
         # ne se propage pas de façon fiable en Flet 0.85 — il faut repasser par
         # la boucle asyncio de la page via page.run_task (idiome SidePanel).
-        page.run_task(_ai_update_and_scroll)
+        # Si la fenêtre se ferme pendant qu'une réponse tourne encore en
+        # arrière-plan, page.run_task lève RuntimeError("session détruite")
+        # de façon SYNCHRONE ici (avant même que _ai_update_and_scroll ne
+        # démarre, donc son propre try/except ne l'attrape jamais) — sans ce
+        # garde, l'exception remonte dans le handler d'erreur ET le finally
+        # de _run, qui appellent tous les deux _ai_refresh(), et fait planter
+        # le thread IA (retour user : crash à la fermeture de l'app).
+        try:
+            page.run_task(_ai_update_and_scroll)
+        except Exception:
+            pass
 
     async def _ai_navigate_async(folder):
         # _navigate()/_render() appellent page.update() en interne : les lancer
@@ -2773,6 +2806,96 @@ def main(page: ft.Page):
         # file/edit_file, aucun outil dédié) — la recharger à chaque refresh.
         try:
             _liste_reload()
+        except Exception:
+            pass
+
+    def _speak_bubble(text, force_chunked=False):
+        """Lit un texte via Gemini TTS.
+
+        force_chunked=True force la lecture fidèle du texte affiché (sans mode Live).
+        """
+        def _set_tts_feedback(status_text, show_progress):
+            ai_status_text.value = status_text
+            ai_progress_bar.visible = show_progress
+
+            async def _apply_ui_update():
+                try:
+                    page.update()
+                except Exception:
+                    try:
+                        ai_status_text.update()
+                        ai_progress_bar.update()
+                    except Exception:
+                        pass
+
+            try:
+                page.run_task(_apply_ui_update)
+            except Exception:
+                try:
+                    page.update()
+                except Exception:
+                    pass
+
+        # Arrêter le TTS précédent s'il tourne encore
+        if ai_tts_stop_event["event"] is not None:
+            ai_tts_stop_event["event"].set()
+        stop_event = threading.Event()
+        ai_tts_stop_event["event"] = stop_event
+        selected_tts_mode = "chunked" if force_chunked else CONSTANTS.AI_VOICE_TTS_MODE
+        if selected_tts_mode == "live":
+            _set_tts_feedback(f"🔊 Live — {CONSTANTS.AI_VOICE_TTS_VOICE}…", True)
+        else:
+            _set_tts_feedback(f"🔊 Préparation de la voix — {CONSTANTS.AI_VOICE_TTS_VOICE}…", True)
+        try:
+            if selected_tts_mode == "live":
+                _gemini_live_tts_stream(
+                    text,
+                    model=CONSTANTS.AI_VOICE_LIVE_MODEL,
+                    voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
+                    sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
+                    language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
+                    stop_event=stop_event,
+                    preroll_ms=CONSTANTS.AI_VOICE_TTS_PREROLL_MS,
+                )
+            else:
+                # Streaming audio réel (une seule requête, lecture dès le
+                # premier chunk) : plus rapide qu'un appel bloquant pour
+                # toutes les longueurs de texte, donc plus besoin de
+                # distinguer "court" (one-shot) et "long" (pipeline).
+                _gemini_tts_stream(
+                    text,
+                    voice_name=CONSTANTS.AI_VOICE_TTS_VOICE,
+                    tts_model=CONSTANTS.AI_VOICE_TTS_MODEL,
+                    sample_rate=CONSTANTS.AI_VOICE_TTS_SAMPLE_RATE,
+                    language_code=CONSTANTS.AI_VOICE_TTS_LANGUAGE,
+                    stop_event=stop_event,
+                    preroll_ms=CONSTANTS.AI_VOICE_TTS_PREROLL_MS,
+                )
+        except Exception as tts_exc:
+            _set_tts_feedback(f"[❌ TTS] {tts_exc}", False)
+            return
+        finally:
+            is_current_tts = ai_tts_stop_event["event"] is stop_event
+            if is_current_tts:
+                ai_tts_stop_event["event"] = None
+                _set_tts_feedback("", False)
+            # Referme toujours l'étape "lecture vocale" démarrée par
+            # l'appelant (_busy_start appelé avant de lancer le thread qui
+            # exécute cette fonction — jamais ici, pour éviter une fenêtre
+            # où le compteur retombe à 0 entre le lancement du thread et
+            # son premier tour de boucle).
+            _busy_end()
+
+    def _toggle_tts(event=None):
+        """Active ou désactive la lecture vocale des réponses IA."""
+        ai_tts_enabled["value"] = not ai_tts_enabled["value"]
+        enabled = ai_tts_enabled["value"]
+        ai_speaker_button.icon = ft.Icons.VOLUME_UP if enabled else ft.Icons.VOLUME_OFF
+        ai_speaker_button.icon_color = BLUE if enabled else LIGHT_GREY
+        ai_speaker_button.tooltip = ("Désactiver la lecture vocale" if enabled
+                                     else "Activer la lecture vocale")
+        try:
+            ai_speaker_button.update()
         except Exception:
             pass
 
@@ -2815,7 +2938,30 @@ def main(page: ft.Page):
                 border_radius=ft.BorderRadius(top_left=13, top_right=13,
                                               bottom_left=4, bottom_right=13),
                 expand=8)
-            row = ft.Row([bubble, ft.Container(expand=2)],
+            raw_text = text
+
+            def _speak_current_bubble_text(text_control, fallback_text):
+                current_text = getattr(text_control, "value", "")
+                if not isinstance(current_text, str) or not current_text.strip():
+                    current_text = fallback_text
+                _speak_bubble(current_text, force_chunked=True)
+
+            def _on_speak_click(e, text_control=bubble_text, fallback_text=raw_text):
+                # Incrémenté ici (thread UI, synchrone au clic), pas dans
+                # _speak_bubble : même raison que pour la lecture auto —
+                # garantir que le compteur est déjà à jour avant que le
+                # thread spawné n'ait eu la main.
+                _busy_start()
+                threading.Thread(target=_speak_current_bubble_text,
+                                 args=(text_control, fallback_text),
+                                 daemon=True).start()
+
+            speak_btn = ft.IconButton(
+                icon=ft.Icons.VOLUME_UP, icon_color=LIGHT_GREY, icon_size=14,
+                tooltip="Lire cette réponse (lecture fidèle)",
+                on_click=_on_speak_click,
+            )
+            row = ft.Row([bubble, speak_btn, ft.Container(expand=2)],
                         alignment=ft.MainAxisAlignment.START)
         ai_chat_view.controls.append(row)
         _ai_refresh()
@@ -3632,20 +3778,26 @@ def main(page: ft.Page):
         ai_attach_row.visible = bool(ai_attach_row.controls)
         page.update()
 
-    def _ai_attach_image(path):
+    def _ai_attach_image(path, use_original=None):
         if any(e["path"] == path for e in ai_pending_images):
             return
+        if use_original is None:
+            use_original = ai_send_original_images["value"]
         try:
-            with PILImage.open(path) as im:
-                im = im.convert("RGB")
-                max_side = 1024
-                w, h = im.size
-                if w > max_side or h > max_side:
-                    ratio = min(max_side / w, max_side / h)
-                    im = im.resize((int(w * ratio), int(h * ratio)), PILImage.LANCZOS)
-                buf = io.BytesIO()
-                im.save(buf, format="JPEG", quality=85)
-                b64_data = base64.b64encode(buf.getvalue()).decode("utf-8")
+            if use_original:
+                with open(path, "rb") as f:
+                    b64_data = base64.b64encode(f.read()).decode("utf-8")
+            else:
+                with PILImage.open(path) as im:
+                    im = im.convert("RGB")
+                    max_side = 1024
+                    w, h = im.size
+                    if w > max_side or h > max_side:
+                        ratio = min(max_side / w, max_side / h)
+                        im = im.resize((int(w * ratio), int(h * ratio)), PILImage.LANCZOS)
+                    buf = io.BytesIO()
+                    im.save(buf, format="JPEG", quality=85)
+                    b64_data = base64.b64encode(buf.getvalue()).decode("utf-8")
         except Exception as exc:
             _ai_add_bubble("assistant", f"[Erreur] Impossible de lire l'image : {exc}")
             return
@@ -3673,7 +3825,8 @@ def main(page: ft.Page):
         # images en pièce jointe visuelle, tout le reste en texte injecté.
         for p in paths:
             if os.path.splitext(p)[1].lower() in CONSTANTS.IMAGE_EXTS:
-                _ai_attach_image(p)
+                _ai_attach_image(
+                    p, use_original=CONSTANTS.AI_IMAGE_ATTACH_SELECTED_ORIGINAL)
             else:
                 _ai_attach_document_file(p)
         _select_surface("ia")
@@ -3700,6 +3853,12 @@ def main(page: ft.Page):
                 ai_mic_button.icon_color = RED
                 ai_mic_button.tooltip = "Enregistrement… cliquer pour arrêter"
                 ai_status_text.value = "🎤 Parlez maintenant… (recliquer pour arrêter)"
+                # Étape "enregistrement" : reste ouvert/en cours jusqu'à ce
+                # que la transcription se termine (_busy_end appelé plus bas
+                # dans _mic_stop/_apply, jamais ici — sinon la barre
+                # clignoterait entre enregistrement et transcription).
+                _busy_start()
+                _log_to_terminal("🎤 Parlez maintenant… (recliquer pour arrêter)")
                 page.update()
             page.run_task(_flip)
 
@@ -3708,6 +3867,7 @@ def main(page: ft.Page):
             recorder.start(on_ready=_on_ready)
         except Exception as exc:
             ai_status_text.value = f"Micro indisponible : {exc}"
+            _log_to_terminal(f"Micro indisponible : {exc}", RED)
             page.update()
             return
         _mic_state["rec"] = recorder
@@ -3733,7 +3893,10 @@ def main(page: ft.Page):
         ai_mic_button.icon = ft.Icons.MIC_NONE
         ai_mic_button.icon_color = GREY
         ai_mic_button.tooltip = "Cliquer pour dicter (Gemini)"
+        # Toujours l'étape "en cours" (enregistrement -> transcription,
+        # même période _busy_start/_busy_end) : pas de _busy_end ici.
         ai_status_text.value = "Transcription en cours…"
+        _log_to_terminal("Transcription en cours…")
         page.update()
 
         def _worker():
@@ -3752,19 +3915,51 @@ def main(page: ft.Page):
                     existing = (ai_input_field.value or "").rstrip()
                     combined = f"{existing} {text}".strip() if existing else text
                     ai_status_text.value = ""
+                    _log_to_terminal(f"🎤 « {text} »", BLUE)
                     if auto_send and not ai_streaming["value"]:
+                        # Bouton PTT physique (F15) : on a parlé pour poser
+                        # la question, donc on veut la réponse parlée aussi
+                        # — active la lecture auto si elle ne l'était pas
+                        # déjà (retour user : désactivée par défaut, oubliée
+                        # après un relance de l'app).
+                        if not ai_tts_enabled["value"]:
+                            ai_tts_enabled["value"] = True
+                            ai_speaker_button.icon = ft.Icons.VOLUME_UP
+                            ai_speaker_button.icon_color = BLUE
+                            ai_speaker_button.tooltip = "Désactiver la lecture vocale"
                         ai_input_field.value = ""
-                        ai_input_field.update()
+                        # .update() sur un contrôle précis lève une erreur
+                        # s'il n'est pas actuellement monté (onglet IA pas
+                        # affiché — le rail change center.content, l'ancien
+                        # onglet est détaché) : sans ce garde, l'exception
+                        # avortait _apply() AVANT _send_ai_message, donc le
+                        # PTT physique (F15) ne faisait plus rien en dehors
+                        # de l'onglet IA (retour user).
+                        try:
+                            ai_input_field.update()
+                        except Exception:
+                            pass
+                        # Fin de l'étape enregistrement/transcription — la
+                        # suivante (attente de réponse) est démarrée par
+                        # _send_ai_message elle-même juste après, donc le
+                        # terminal reste ouvert en continu (retour user).
+                        _busy_end()
                         _send_ai_message(combined)
                     else:
                         ai_input_field.value = combined
-                        ai_input_field.update()
+                        try:
+                            ai_input_field.update()
+                        except Exception:
+                            pass
                         try:
                             await ai_input_field.focus()
                         except Exception:
                             pass
+                        _busy_end()
                 else:
                     ai_status_text.value = "Aucun texte reconnu"
+                    _log_to_terminal("Aucun texte reconnu", RED)
+                    _busy_end()
                 page.update()
             page.run_task(_apply)
 
@@ -3843,7 +4038,15 @@ def main(page: ft.Page):
         ai_stop_button.visible = True
         ai_status_text.value = "⏳ En cours…"
         ai_progress_bar.visible = True
-        page.update()
+        _busy_start()
+        # Ne doit jamais empêcher l'envoi (ex: onglet IA pas affiché) —
+        # ai_streaming est déjà passé à True ci-dessus, un plantage ici
+        # bloquerait tout définitivement (le garde en tête de fonction
+        # empêche tout nouvel essai tant que la valeur reste bloquée).
+        try:
+            page.update()
+        except Exception:
+            pass
 
         images_b64 = [e["b64"] for e in ai_pending_images]
         images_paths = [e["path"] for e in ai_pending_images]
@@ -3978,6 +4181,20 @@ def main(page: ft.Page):
                         elif streamed:
                             _ai_add_bubble("assistant", streamed)
                         ai_conversation.append({"role": "assistant", "content": streamed})
+                        if streamed:
+                            preview = streamed if len(streamed) <= 120 else streamed[:117] + "…"
+                            _log_to_terminal(f"🤖 {preview}", GREEN)
+                        if streamed and ai_tts_enabled["value"]:
+                            # Incrémenté ICI (thread appelant), pas dans
+                            # _speak_bubble : le thread TTS spawné juste
+                            # après peut démarrer après le _busy_end() du
+                            # finally ci-dessous (ordonnancement non
+                            # garanti) — sans ce compte pris tout de suite,
+                            # le terminal se refermerait puis se rouvrirait
+                            # (retour user : voulu en continu).
+                            _busy_start()
+                            threading.Thread(target=_speak_bubble,
+                                             args=(streamed,), daemon=True).start()
                         break
 
                     if response_ctrl is not None and streamed:
@@ -4020,6 +4237,7 @@ def main(page: ft.Page):
                     _ai_add_bubble("assistant", "⚠️ Trop de tours d'outils, arrêt.")
             except Exception as exc:
                 _ai_add_bubble("assistant", f"[Erreur] {exc}")
+                _log_to_terminal(f"[Erreur] {exc}", RED)
             finally:
                 ai_streaming["value"] = False
                 ai_send_button.disabled = False
@@ -4028,6 +4246,13 @@ def main(page: ft.Page):
                 ai_progress_bar.visible = False
                 _ai_save_history_now()
                 _ai_refresh()
+                # Referme l'étape "réponse en cours" démarrée dans
+                # _send_ai_message — si une lecture TTS vient d'être
+                # lancée juste au-dessus, son propre _busy_start (pris
+                # avant même ce finally) maintient le compteur > 0, donc
+                # le terminal reste ouvert sans interruption jusqu'à la
+                # fin de l'audio.
+                _busy_end()
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -4051,6 +4276,14 @@ def main(page: ft.Page):
     ai_clear_button = ft.IconButton(
         ft.Icons.DELETE_OUTLINE, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
         tooltip="Effacer la conversation", on_click=_ai_clear_conversation)
+    ai_speaker_button = ft.IconButton(
+        icon=ft.Icons.VOLUME_UP if ai_tts_enabled["value"] else ft.Icons.VOLUME_OFF,
+        icon_color=BLUE if ai_tts_enabled["value"] else LIGHT_GREY,
+        icon_size=CONSTANTS.ICON_SM,
+        tooltip=("Désactiver la lecture vocale" if ai_tts_enabled["value"]
+                 else "Activer la lecture vocale"),
+        visible=CONSTANTS.AI_VOICE_TTS_BTN_VISIBLE,
+        on_click=_toggle_tts)
     ai_copy_button = ft.IconButton(
         ft.Icons.COPY_ALL, icon_color=BLUE, icon_size=CONSTANTS.ICON_SM,
         tooltip="Copier la conversation IA",
@@ -4060,12 +4293,46 @@ def main(page: ft.Page):
         tooltip="Transférer la conversation vers le bloc-notes",
         on_click=lambda e: _export_ai_conversation(to_notepad=True))
 
+    ai_image_mode_label = ft.Text(
+        "REEL" if ai_send_original_images["value"] else "1024",
+        color=GREEN if ai_send_original_images["value"] else BLUE,
+        size=CONSTANTS.TEXT_SM - 3, weight=ft.FontWeight.BOLD)
+
+    def _toggle_ai_image_size_mode(event=None):
+        ai_send_original_images["value"] = not ai_send_original_images["value"]
+        use_original = ai_send_original_images["value"]
+        ai_image_size_button.icon_color = GREEN if use_original else BLUE
+        ai_image_mode_label.value = "REEL" if use_original else "1024"
+        ai_image_mode_label.color = GREEN if use_original else BLUE
+        ai_image_size_button.tooltip = (
+            "Mode images IA en taille réelle (fichier original) — "
+            "affecte uniquement les nouveaux fichiers joints"
+            if use_original else
+            "Mode images IA optimisé (1024px max) — "
+            "affecte uniquement les nouveaux fichiers joints")
+        page.update()
+
+    ai_image_size_button = ft.IconButton(
+        ft.Icons.IMAGE,
+        icon_color=GREEN if ai_send_original_images["value"] else BLUE,
+        icon_size=CONSTANTS.ICON_SM,
+        tooltip=(
+            "Mode images IA en taille réelle (fichier original) — "
+            "affecte uniquement les nouveaux fichiers joints"
+            if ai_send_original_images["value"] else
+            "Mode images IA optimisé (1024px max) — "
+            "affecte uniquement les nouveaux fichiers joints"),
+        on_click=_toggle_ai_image_size_mode)
+
     ia_surface = ft.Column([
         ft.Container(
             content=ft.Row([
                 ft.Text("Assistant IA", size=CONSTANTS.TEXT_LG, color=WHITE,
                         weight=ft.FontWeight.W_500, expand=True),
                 ai_model_dropdown,
+                ai_image_size_button,
+                ai_image_mode_label,
+                ai_speaker_button,
                 ai_copy_button,
                 ai_to_notepad_button,
                 ai_clear_button,
@@ -4453,6 +4720,20 @@ def main(page: ft.Page):
     def _select_surface(key):
         if state["surface"] == "notes" and key != "notes":
             _notes_save()   # enregistre le bloc-notes au changement d'onglet
+        # Bascule dynamique de l'épinglage forcé du terminal (_busy_start/
+        # _busy_end) selon l'onglet visé — retour user : inutile de garder
+        # le terminal ouvert de force sur l'onglet IA (le statut y est déjà
+        # visible), mais il doit se réépingler si on le quitte en cours de
+        # dictée/réponse.
+        if _busy["count"] > 0:
+            if key == "ia" and _busy["pinned_by_busy"]:
+                _terminal_autohide["pinned"] = _busy["was_pinned"]
+                _busy["pinned_by_busy"] = False
+                _show_terminal_and_schedule_hide()
+            elif key != "ia" and not _busy["pinned_by_busy"]:
+                _busy["was_pinned"] = _terminal_autohide["pinned"]
+                _terminal_autohide["pinned"] = True
+                _busy["pinned_by_busy"] = True
         state["surface"] = key
         center.content = surface_content[key]
         for k, tab in rail_tabs.items():
@@ -4979,6 +5260,74 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
+    def _launch_debruiter(event=None):
+        C = CONSTANTS
+        f_h = ft.TextField(
+            label="Force luminance (h)", value=str(C.DENOISE_H),
+            hint_text="1 léger · 4 standard · 10 fort", width=180,
+            bgcolor=DARK, border_color=GREY, color=WHITE,
+            keyboard_type=ft.KeyboardType.NUMBER)
+        f_hc = ft.TextField(
+            label="Force couleur (hColor)", value=str(C.DENOISE_H_COLOR),
+            hint_text="1 léger · 2 standard · 6 fort", width=180,
+            bgcolor=DARK, border_color=GREY, color=WHITE,
+            keyboard_type=ft.KeyboardType.NUMBER)
+        f_tmpl = ft.TextField(
+            label="Fenêtre comparaison (impair)",
+            value=str(C.DENOISE_TEMPLATE_WINDOW),
+            hint_text="5 · 7 standard · 11", width=180,
+            bgcolor=DARK, border_color=GREY, color=WHITE,
+            keyboard_type=ft.KeyboardType.NUMBER)
+        f_srch = ft.TextField(
+            label="Fenêtre recherche (impair)",
+            value=str(C.DENOISE_SEARCH_WINDOW),
+            hint_text="11 rapide · 21 standard · 35 lent", width=180,
+            bgcolor=DARK, border_color=GREY, color=WHITE,
+            keyboard_type=ft.KeyboardType.NUMBER)
+        dn_error = ft.Text("", size=CONSTANTS.TEXT_SM, color=RED)
+
+        def _cancel(e):
+            dlg.open = False
+            page.update()
+
+        def _confirm(e):
+            try:
+                h, hc = int(f_h.value), int(f_hc.value)
+                tmpl, srch = int(f_tmpl.value), int(f_srch.value)
+                if h <= 0 or hc <= 0 or tmpl <= 0 or srch <= 0:
+                    raise ValueError()
+                if tmpl % 2 == 0 or srch % 2 == 0:
+                    dn_error.value = "Les fenêtres doivent être impaires."
+                    page.update()
+                    return
+            except ValueError:
+                dn_error.value = "Valeurs invalides — entiers positifs impairs requis."
+                page.update()
+                return
+            dlg.open = False
+            page.update()
+            _launch_tool("Débruiter.py", extra_env={
+                "DENOISE_H": str(h), "DENOISE_H_COLOR": str(hc),
+                "DENOISE_TEMPLATE_WINDOW": str(tmpl),
+                "DENOISE_SEARCH_WINDOW": str(srch)})
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Débruiter — paramètres NLM", size=CONSTANTS.TEXT_SM,
+                         color=WHITE),
+            content=ft.Column(
+                [ft.Text("Les valeurs par défaut viennent de CONSTANTS.py "
+                         "(section 12.1).", size=CONSTANTS.TEXT_SM, color=GREY),
+                 ft.Row([f_h, f_hc], spacing=8),
+                 ft.Row([f_tmpl, f_srch], spacing=8),
+                 dn_error],
+                spacing=10, tight=True, width=380),
+            actions=[ft.TextButton("Annuler", on_click=_cancel),
+                     ft.TextButton("Lancer", on_click=_confirm)],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
     def _launch_kiosk(tariff, event=None):
         # Sélection curatée obligatoire (HUB_SPEC §9) : la sélection en
         # cours si non vide, sinon toutes les photos du dossier ouvert —
@@ -5348,9 +5697,7 @@ def main(page: ft.Page):
              lambda e: (_do_delete(list(selected)), _close_actions())
                        if selected else None),
         ]),
-        ("Transfert & préparation", [
-            ("Transfert vers TEMP", ft.Icons.DRIVE_FILE_MOVE_OUTLINED, BLUE,
-             _launch_transfert_temp),
+        ("Préparation", [
             ("Conversion JPG", ft.Icons.IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Conversion JPG.py",
                                     extra_env={"CONVERT_FORMAT": "jpg"})),
@@ -5361,6 +5708,8 @@ def main(page: ft.Page):
              _launch_renommer_sequence),
             ("Séparer RAW et JPG", ft.Icons.HIDE_IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Séparer RAW et JPG.py")),
+            ("Kiosk gauche", ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT_SHARP, VIOLET,
+             lambda e: _launch_tool("Kiosk gauche.py", is_local=True)),
         ]),
         ("Sélection", [
             ("Copier sélection → SELECTION", ft.Icons.FOLDER_COPY_OUTLINED, YELLOW,
@@ -5394,8 +5743,7 @@ def main(page: ft.Page):
              lambda e: _launch_tool("N&B.py")),
             ("Améliorer netteté", ft.Icons.AUTO_GRAPH, VIOLET,
              lambda e: _launch_tool("Améliorer netteté.py")),
-            ("Débruiter", ft.Icons.BLUR_ON, VIOLET,
-             lambda e: _launch_tool("Débruiter.py")),
+            ("Débruiter", ft.Icons.BLUR_ON, VIOLET, _launch_debruiter),
             ("Comparaison", ft.Icons.COMPARE_OUTLINED, VIOLET,
              _launch_comparaison),
         ]),
@@ -5580,17 +5928,62 @@ def main(page: ft.Page):
     _terminal_autohide = {"task": None, "pinned": False}
 
     async def _terminal_autohide_after_delay():
-        await asyncio.sleep(3.5)
+        await asyncio.sleep(CONSTANTS.HUB_TERMINAL_AUTOHIDE_DELAY)
         terminal_panel.visible = False
         page.update()
 
     def _show_terminal_and_schedule_hide():
+        # Sur l'onglet IA, ai_status_text/ai_progress_bar donnent déjà le
+        # retour visuel — pas besoin du terminal en plus (retour user : il
+        # « re-popait » à chaque étape de dictée). Un épinglage (manuel ou
+        # _busy_start hors onglet IA) reste toujours prioritaire.
+        if state["surface"] == "ia" and not _terminal_autohide["pinned"]:
+            return
         terminal_panel.visible = True
         t = _terminal_autohide["task"]
         if t is not None and not t.done():
             t.cancel()
         if not _terminal_autohide["pinned"]:
             _terminal_autohide["task"] = page.run_task(_terminal_autohide_after_delay)
+
+    # Compteur d'étapes en cours (enregistrement, transcription, attente de
+    # réponse IA, lecture TTS…) : chaque étape s'annonce/se termine via
+    # _busy_start/_busy_end plutôt que de figer pinned/la barre elle-même,
+    # pour que des étapes qui s'enchaînent sans interruption gardent le
+    # terminal ouvert en continu au lieu de clignoter fermé/rouvert entre
+    # deux (retour user : un retour visuel pour CHAQUE étape, en continu).
+    # L'épinglage forcé n'a de sens que si l'onglet IA n'est PAS affiché
+    # (ai_status_text/ai_progress_bar donnent déjà le retour visuel sur cet
+    # onglet, retour user) — _pinned_by_busy distingue "épinglé par nous"
+    # de "épinglé manuellement" pour ne jamais écraser un épinglage user.
+    _busy = {"count": 0, "was_pinned": False, "pinned_by_busy": False}
+
+    def _busy_start():
+        if _busy["count"] == 0 and state["surface"] != "ia":
+            _busy["was_pinned"] = _terminal_autohide["pinned"]
+            _terminal_autohide["pinned"] = True
+            _busy["pinned_by_busy"] = True
+        if _busy["count"] == 0:
+            action_progress_bar.visible = True
+            _show_terminal_and_schedule_hide()
+            try:
+                page.update()
+            except Exception:
+                pass
+        _busy["count"] += 1
+
+    def _busy_end():
+        _busy["count"] = max(0, _busy["count"] - 1)
+        if _busy["count"] == 0:
+            action_progress_bar.visible = False
+            if _busy["pinned_by_busy"]:
+                _terminal_autohide["pinned"] = _busy["was_pinned"]
+                _busy["pinned_by_busy"] = False
+            _show_terminal_and_schedule_hide()
+            try:
+                page.update()
+            except Exception:
+                pass
 
     def _log_to_terminal(message, color=None):
         message = (message or "").strip()
@@ -5602,7 +5995,7 @@ def main(page: ft.Page):
                 ft.Text(message, size=CONSTANTS.TERMINAL_FONT_SIZE,
                         color=color or WHITE, font_family="monospace",
                         selectable=True))
-            if len(terminal_output.controls) > 1000:
+            if len(terminal_output.controls) > CONSTANTS.HUB_TERMINAL_MAX_LINES:
                 terminal_output.controls.pop(0)
             _show_terminal_and_schedule_hide()
             page.update()
@@ -5972,7 +6365,7 @@ def main(page: ft.Page):
                                 terminal_fullscreen_btn]),
                 padding=ft.Padding(8, 0, 8, 8)),
         ], spacing=0, expand=True),
-        bgcolor=DARK, height=110, visible=False,
+        bgcolor=DARK, height=CONSTANTS.HUB_TERMINAL_HEIGHT, visible=False,
         border=ft.Border(top=ft.BorderSide(2, ORANGE)),
     )
     _terminal_fullscreen = {"active": False}
@@ -5989,7 +6382,7 @@ def main(page: ft.Page):
         is_full = _terminal_fullscreen["active"]
         main_row.visible = not is_full
         terminal_panel.expand = is_full
-        terminal_panel.height = None if is_full else 110
+        terminal_panel.height = None if is_full else CONSTANTS.HUB_TERMINAL_HEIGHT
         terminal_fullscreen_btn.icon = (
             ft.Icons.FULLSCREEN_EXIT if is_full else ft.Icons.FULLSCREEN)
         terminal_fullscreen_btn.tooltip = (
@@ -6161,7 +6554,9 @@ def main(page: ft.Page):
                     icon_color=LIGHT_GREY,
                     icon_size=CONSTANTS.ICON_SM,
                 ),
-                ft.Container(expand=True),
+                ft.Container(width=12),
+                open_menu_btn,
+                files_path,
                 # Accès tactile : toujours visibles, quelle que soit la surface
                 # active (écran tactile = pas de fallback clavier/raccourci).
                 ft.Container(
