@@ -1288,8 +1288,9 @@ def main(page: ft.Page):
     def _toggle_only_selected(event):
         state["only_selected"] = not state["only_selected"]
         only_sel_btn.style = ft.ButtonStyle(
-            bgcolor=BLUE if state["only_selected"] else GREY,
-            color=DARK if state["only_selected"] else WHITE)
+            bgcolor=BLUE if state["only_selected"] else GREY)
+        only_sel_icon.color = only_sel_text.color = (
+            DARK if state["only_selected"] else BLUE)
         _render()
 
     def _toggle_order_mode(event):
@@ -1297,8 +1298,9 @@ def main(page: ft.Page):
         # vignette) — pas de clic droit, pas de menu déroulant caché.
         order_mode["value"] = not order_mode["value"]
         order_mode_btn.style = ft.ButtonStyle(
-            bgcolor=BLUE if order_mode["value"] else GREY,
-            color=DARK if order_mode["value"] else WHITE)
+            bgcolor=BLUE if order_mode["value"] else GREY)
+        order_mode_icon.color = order_mode_text.color = (
+            DARK if order_mode["value"] else BLUE)
         # "Créer le dossier de commande" n'a de sens qu'en mode commande —
         # masqué le reste du temps (retour user).
         create_order_btn.visible = order_mode["value"]
@@ -1442,28 +1444,37 @@ def main(page: ft.Page):
             height=CONSTANTS.HUB_TOOLBAR_H, on_click=on_click,
         )
 
+    # Icône du segment sélectionné (posée sur le thumb BLUE) en DARK pour
+    # rester lisible ; les segments non sélectionnés restent en WHITE.
+    _view_seg_icons = []
+
     def _update_view_seg():
-        view_seg.selected_index = 0 if state["view"] == "grid" else 1
+        index = 0 if state["view"] == "grid" else 1
+        view_seg.selected_index = index
+        for i, icon in enumerate(_view_seg_icons):
+            icon.color = DARK if i == index else WHITE
+        view_seg.update()
 
     def _on_view_seg_change(event):
         state["view"] = "grid" if event.control.selected_index == 0 else "list"
+        _update_view_seg()
         _render()
 
-    def _seg_label(icon, text):
-        return ft.Row([
-            ft.Icon(icon, size=CONSTANTS.ICON_SM, color=WHITE),
-            ft.Text(text, size=CONSTANTS.TEXT_SM, color=WHITE),
-        ], spacing=4, tight=True)
+    def _seg_label(icon):
+        icon_ctrl = ft.Icon(icon, size=CONSTANTS.ICON_SM, color=WHITE)
+        _view_seg_icons.append(icon_ctrl)
+        return ft.Row([icon_ctrl], spacing=4, tight=True)
 
     view_seg = ft.CupertinoSlidingSegmentedButton(
         selected_index=0,
         controls=[
-            _seg_label(ft.Icons.GRID_VIEW, ""),
-            _seg_label(ft.Icons.VIEW_LIST, ""),
+            _seg_label(ft.Icons.GRID_VIEW),
+            _seg_label(ft.Icons.VIEW_LIST),
         ],
         bgcolor=DARK, thumb_color=BLUE, padding=ft.Padding(4, 6, 4, 6),
         on_change=_on_view_seg_change,
     )
+    _view_seg_icons[0].color = DARK
     # Container : le widget Cupertino a sa propre hauteur intrinsèque et
     # ignore `height=` posé directement sur lui (même souci que sort_btn/
     # search_field ci-dessus) — le Container extérieur impose CONSTANTS.HUB_TOOLBAR_H.
@@ -2063,6 +2074,7 @@ def main(page: ft.Page):
 
     open_menu_panel = ft.Container(
         bgcolor=GREY, border_radius=10, padding=ft.Padding(6, 6, 6, 6),
+        border=ft.Border.all(1, BLUE),
         content=ft.Column([], spacing=0),
     )
     open_menu_overlay = ft.Stack([
@@ -2187,19 +2199,23 @@ def main(page: ft.Page):
         tooltip="Favoris, récents, parcourir…",
     )
 
+    # Icon() n'hérite pas de ButtonStyle.color (contrairement à Text()) —
+    # couleur posée explicitement sur chaque Icon/Text, sinon l'icône reste
+    # au bleu par défaut de Flet au lieu de CONSTANTS.COLOR_BLUE.
+    order_mode_icon = ft.Icon(ft.Icons.RECEIPT_LONG_OUTLINED,
+                              size=CONSTANTS.ICON_SM, color=BLUE)
+    order_mode_text = ft.Text("Mode commande", size=CONSTANTS.TEXT_SM, color=BLUE)
     order_mode_btn = ft.TextButton(
-        content=ft.Row([
-            ft.Icon(ft.Icons.RECEIPT_LONG_OUTLINED, size=CONSTANTS.ICON_SM),
-            ft.Text("Mode commande", size=CONSTANTS.TEXT_SM),
-        ], spacing=6, tight=True),
-        style=ft.ButtonStyle(bgcolor=GREY, color=WHITE,
-                             padding=ft.Padding(14, 0, 14, 0)),
+        content=ft.Row([order_mode_icon, order_mode_text], spacing=6, tight=True),
+        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
         height=CONSTANTS.HUB_TOOLBAR_H, on_click=_toggle_order_mode,
         tooltip="Format + nombre directement sur chaque photo",
     )
 
     only_sel_btn = _seg_btn(ft.Icons.VISIBILITY_OUTLINED, "Afficher la sélection",
                             _toggle_only_selected)
+    only_sel_icon, only_sel_text = only_sel_btn.content.controls
+    only_sel_icon.color = only_sel_text.color = BLUE
 
     # _create_order_folder est défini plus loin (avec le reste de la logique
     # de commande) : lambda pour différer la résolution du nom jusqu'au clic.
@@ -2281,12 +2297,26 @@ def main(page: ft.Page):
         ".md": fce.CodeLanguage.MARKDOWN, ".markdown": fce.CodeLanguage.MARKDOWN,
     }
 
-    notes_field = fce.CodeEditor(
-        text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
-        language=getattr(fce.CodeLanguage, CONSTANTS.NOTEPAD_DEFAULT_LANGUAGE),
-        code_theme=fce.CodeTheme.ATOM_ONE_DARK,
-        gutter_style=fce.GutterStyle(width=64, background_color=BACKGROUND), expand=True,
-    )
+    # flet-code-editor plante sous Linux (retour user) — même repli que
+    # Dashboard.pyw:458-481 : TextField brut, sans coloration syntaxique.
+    _HAS_CODE_EDITOR = platform.system() != "Linux"
+
+    if _HAS_CODE_EDITOR:
+        notes_field = fce.CodeEditor(
+            text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
+            language=getattr(fce.CodeLanguage, CONSTANTS.NOTEPAD_DEFAULT_LANGUAGE),
+            code_theme=fce.CodeTheme.ATOM_ONE_DARK,
+            gutter_style=fce.GutterStyle(width=64, background_color=BACKGROUND), expand=True,
+        )
+    else:
+        notes_field = ft.TextField(
+            multiline=True, expand=True, min_lines=4,
+            text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
+            color=WHITE, border_color=ft.Colors.TRANSPARENT, border_radius=6,
+            bgcolor=DARK, filled=True,
+            hint_text="Écrivez vos notes ici…",
+            hint_style=ft.TextStyle(color=LIGHT_GREY, italic=True),
+        )
     notes_title = ft.Text("Bloc-notes", size=CONSTANTS.TEXT_LG, color=WHITE,
                           weight=ft.FontWeight.W_500, expand=True, no_wrap=True)
     notes_preview = ft.Markdown(
@@ -2360,8 +2390,9 @@ def main(page: ft.Page):
 
     def _open_path_in_notes(path):
         note_target["path"] = path
-        ext = os.path.splitext(path)[1].lower()
-        notes_field.language = _NOTE_LANGUAGES.get(ext, fce.CodeLanguage.PLAINTEXT)
+        if _HAS_CODE_EDITOR:
+            ext = os.path.splitext(path)[1].lower()
+            notes_field.language = _NOTE_LANGUAGES.get(ext, fce.CodeLanguage.PLAINTEXT)
         notes_title.value = os.path.basename(path)
         _notes_load()
         if notes_is_preview["value"]:
@@ -5356,10 +5387,13 @@ def main(page: ft.Page):
     # referme après quelques secondes de silence — même débounce que
     # _notes_autosave_after_delay (annule/relance un timer à chaque appel),
     # donc reste ouvert tant que des messages continuent d'arriver.
-    _terminal_autohide = {"task": None}
+    # "pinned" = terminal ouvert manuellement (bouton Terminal) : reste
+    # visible sans limite jusqu'à ce que l'utilisateur le referme lui-même,
+    # après quoi l'auto-affichage/masquage reprend normalement.
+    _terminal_autohide = {"task": None, "pinned": False}
 
     async def _terminal_autohide_after_delay():
-        await asyncio.sleep(2.5)
+        await asyncio.sleep(3.5)
         terminal_panel.visible = False
         page.update()
 
@@ -5368,7 +5402,8 @@ def main(page: ft.Page):
         t = _terminal_autohide["task"]
         if t is not None and not t.done():
             t.cancel()
-        _terminal_autohide["task"] = page.run_task(_terminal_autohide_after_delay)
+        if not _terminal_autohide["pinned"]:
+            _terminal_autohide["task"] = page.run_task(_terminal_autohide_after_delay)
 
     def _log_to_terminal(message, color=None):
         message = (message or "").strip()
@@ -5775,6 +5810,10 @@ def main(page: ft.Page):
 
     def _toggle_terminal(event):
         terminal_panel.visible = not terminal_panel.visible
+        _terminal_autohide["pinned"] = terminal_panel.visible
+        t = _terminal_autohide["task"]
+        if t is not None and not t.done():
+            t.cancel()
         if not terminal_panel.visible and _terminal_fullscreen["active"]:
             _terminal_fullscreen["active"] = False
             main_row.visible = True
