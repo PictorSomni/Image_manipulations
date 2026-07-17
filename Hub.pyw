@@ -71,8 +71,10 @@ SURFACES = [
 ]
 
 # Hauteur de fenêtre en mode bandeau (strip mode) — juste assez pour la
-# barre de titre (cf. Dashboard.pyw CONSTANTS.WDA_HEIGHT, même principe).
-STRIP_HEIGHT = 64
+# barre de titre. Même valeur que Dashboard.pyw (CONSTANTS.WDA_HEIGHT) :
+# 64 tronquait les boutons tactiles (HUB_TITLEBAR_TAP_HEIGHT=48 + bordure)
+# une fois la fenêtre réduite à cette hauteur (retour user).
+STRIP_HEIGHT = CONSTANTS.WDA_HEIGHT
 
 # Mêmes fichiers que Dashboard.pyw (racine du repo) : dossiers récents et
 # favoris partagés, pas de nouvel emplacement vide pour l'utilisateur.
@@ -313,6 +315,10 @@ def main(page: ft.Page):
                                           # avec le curseur (cf. _card_icon_size)
     list_visual_refs = []                # (Container, Icon|None) des lignes
                                           # de la vue liste, même resize live
+    grid_card_refs = {}                  # path -> Container carte vignette,
+                                          # pour recolorer la bordure de
+                                          # sélection sans reconstruire toute
+                                          # la grille (cf. _set_selected)
     # Mode commande : path -> {format: nombre} — une photo peut avoir
     # plusieurs formats commandés. Édition via un clic sur la vignette
     # (badge « N tailles ») qui ouvre un petit dialogue, pas de clic droit.
@@ -373,7 +379,25 @@ def main(page: ft.Page):
         else:
             selected.discard(path)
         _update_sel_count()
-        _render()
+        if state["only_selected"]:
+            # L'ensemble des éléments visibles change (filtre "ma
+            # sélection") — un rendu complet reste nécessaire ici.
+            _render()
+            return
+        # Sinon, pas de _render() complet : ça relancerait le chargeur de
+        # miniatures pour toutes les images pas encore chargées à CHAQUE
+        # coche, et la rafale de page.update() qui en résulte rend les
+        # clics suivants sans effet tant que le dossier charge (retour
+        # user — comme Dashboard.pyw, dont le on_checkbox_change ne
+        # touche jamais au rendu complet). On ne met à jour que la case
+        # (déjà synchronisée côté client) et la bordure de la carte en
+        # vue vignettes.
+        status_left.update()
+        card = grid_card_refs.get(path)
+        if card is not None:
+            card.border = (ft.Border.all(2, BLUE) if on
+                          else ft.Border.all(1, GREY))
+            card.update()
 
     def _list_thumb_size():
         # Suit le curseur de taille de vignette (mode grille), ramené à une
@@ -663,12 +687,15 @@ def main(page: ft.Page):
             header = ft.Row([ft.Container(expand=True), checkbox])
             highlighted = is_sel
             body = [header, img_zone, label]
-        return ft.Container(
+        card = ft.Container(
             content=ft.Column(body, spacing=4, expand=True,
                               horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
             padding=6, expand=True,
             border=ft.Border.all(2, BLUE) if highlighted else ft.Border.all(1, GREY),
             border_radius=8)
+        if not order_mode["value"]:
+            grid_card_refs[path] = card
+        return card
 
     def _sort_key(path):
         if state["sort"] == "date":
@@ -742,6 +769,7 @@ def main(page: ft.Page):
         files_grid.controls.clear()
         card_icon_refs.clear()
         list_visual_refs.clear()
+        grid_card_refs.clear()
         if not dirs and not imgs and not other:
             if state["only_selected"]:
                 msg = "Aucun élément sélectionné."
@@ -752,22 +780,35 @@ def main(page: ft.Page):
             files_list.controls.append(
                 ft.Text(msg, size=CONSTANTS.TEXT_SM, color=WHITE))
             files_list.controls.append(_bg_filler())
-        elif state["view"] == "list":
-            pending = {}
-            files_list.controls.extend(_with_ctx_menu(_dir_tile(p), p) for p in dirs)
-            files_list.controls.extend(
-                _with_ctx_menu(_img_tile(p, pending), p) for p in imgs)
-            files_list.controls.extend(_with_ctx_menu(_file_tile(p), p) for p in other)
-            files_list.controls.append(_bg_filler())
-            _start_thumb_loader(pending)
         else:
-            pending = {}
-            files_grid.controls.extend(_with_ctx_menu(_dir_card(p), p) for p in dirs)
-            files_grid.controls.extend(
-                _with_ctx_menu(_grid_card(p, pending), p) for p in imgs)
-            files_grid.controls.extend(_with_ctx_menu(_file_card(p), p) for p in other)
-            files_grid.controls.append(_bg_filler())
-            _start_thumb_loader(pending)
+            # Images et autres fichiers mélangés puis re-triés ensemble
+            # (pas rendus groupe par groupe) : le tri "Date" doit ordonner
+            # tous les fichiers du dossier entre eux, pas juste chaque
+            # type de fichier séparément (retour user). Les dossiers
+            # restent en tête, comme dans tout explorateur de fichiers.
+            img_set = set(imgs)
+            files = sorted(imgs + other, key=_sort_key,
+                          reverse=(state["sort"] == "name_desc"))
+            if state["view"] == "list":
+                pending = {}
+                files_list.controls.extend(
+                    _with_ctx_menu(_dir_tile(p), p) for p in dirs)
+                files_list.controls.extend(
+                    _with_ctx_menu(
+                        _img_tile(p, pending) if p in img_set else _file_tile(p), p)
+                    for p in files)
+                files_list.controls.append(_bg_filler())
+                _start_thumb_loader(pending)
+            else:
+                pending = {}
+                files_grid.controls.extend(
+                    _with_ctx_menu(_dir_card(p), p) for p in dirs)
+                files_grid.controls.extend(
+                    _with_ctx_menu(
+                        _grid_card(p, pending) if p in img_set else _file_card(p), p)
+                    for p in files)
+                files_grid.controls.append(_bg_filler())
+                _start_thumb_loader(pending)
         files_body.content = files_list if state["view"] == "list" else files_grid
         _update_view_seg()
         page.update()
@@ -800,6 +841,30 @@ def main(page: ft.Page):
             page.update()
         except Exception:
             pass
+
+    def _run_bg_action(label, work):
+        # Copier/coller/dupliquer/zipper/dézipper/supprimer pouvaient
+        # geler toute la fenêtre le temps de l'opération (boucle
+        # shutil/zipfile synchrone sur le thread de l'UI) — comme
+        # _launch_tool pour les apps externes, on défère sur un thread et
+        # on retourne tout de suite, avec la barre infinie + un message
+        # dans le terminal pendant que ça tourne (retour user, même
+        # rendu que app_progress_bar dans Dashboard.pyw).
+        _log_to_terminal(f"[...] {label}…", ORANGE)
+        action_progress_bar.visible = True
+        page.update()
+
+        def _run():
+            try:
+                work()
+            finally:
+                action_progress_bar.visible = False
+                try:
+                    page.update()
+                except Exception:
+                    pass
+
+        threading.Thread(target=_run, daemon=True).start()
 
     # ═════════════════════════════════════════════════════════════════════
     #  Copier / Couper / Coller / Supprimer — presse-papiers interne à l'app
@@ -834,68 +899,86 @@ def main(page: ft.Page):
         folder = state["folder"]
         if not folder or not clipboard["paths"]:
             return
-        action = "déplacé" if clipboard["mode"] == "cut" else "collé"
-        pasted, errors = 0, 0
-        for src in clipboard["paths"]:
-            if not os.path.exists(src):
-                continue
-            dest = _unique_dest(folder, os.path.basename(src))
-            try:
-                if clipboard["mode"] == "cut":
-                    shutil.move(src, dest)
-                elif os.path.isdir(src):
-                    shutil.copytree(src, dest)
-                else:
-                    shutil.copy2(src, dest)
-                pasted += 1
-            except Exception as exc:
-                errors += 1
-                _log_to_terminal(f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
-        if clipboard["mode"] == "cut":
+        # Instantané avant de démarrer le thread : `clipboard` peut changer
+        # entre-temps (un nouveau copier/couper pendant que celui-ci tourne
+        # encore) — sans ça, la boucle lirait un état déjà remplacé.
+        src_paths = list(clipboard["paths"])
+        is_cut = clipboard["mode"] == "cut"
+        action = "déplacé" if is_cut else "collé"
+        if is_cut:
             clipboard["paths"] = []
             clipboard["mode"] = None
-        if pasted:
-            _log_to_terminal(f"[OK] {pasted} élément(s) {action}(s)", BLUE)
-        if errors:
-            _log_to_terminal(f"[ATTENTION] {errors} erreur(s)", ORANGE)
-        _navigate(folder)
+
+        def _work():
+            pasted, errors = 0, 0
+            for src in src_paths:
+                if not os.path.exists(src):
+                    continue
+                dest = _unique_dest(folder, os.path.basename(src))
+                try:
+                    if is_cut:
+                        shutil.move(src, dest)
+                    elif os.path.isdir(src):
+                        shutil.copytree(src, dest)
+                    else:
+                        shutil.copy2(src, dest)
+                    pasted += 1
+                except Exception as exc:
+                    errors += 1
+                    _log_to_terminal(f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
+            if pasted:
+                _log_to_terminal(f"[OK] {pasted} élément(s) {action}(s)", BLUE)
+            if errors:
+                _log_to_terminal(f"[ATTENTION] {errors} erreur(s)", ORANGE)
+            page.run_task(_tool_refresh, folder)
+
+        _run_bg_action(f"Collage de {len(src_paths)} élément(s)", _work)
 
     def _do_delete(paths):
-        for p in paths:
-            try:
-                _backup_file(p)
-                if os.path.isdir(p):
-                    shutil.rmtree(p)
-                else:
-                    os.remove(p)
-                selected.discard(p)
-                _log_to_terminal(f"[OK] Supprimé : {os.path.basename(p)}", GREEN)
-            except Exception as exc:
-                _log_to_terminal(f"[ERREUR] {os.path.basename(p)} : {exc}", RED)
-        _update_sel_count()
-        _navigate(state["folder"])
+        folder = state["folder"]
+
+        def _work():
+            for p in paths:
+                try:
+                    _backup_file(p)
+                    if os.path.isdir(p):
+                        shutil.rmtree(p)
+                    else:
+                        os.remove(p)
+                    selected.discard(p)
+                    _log_to_terminal(f"[OK] Supprimé : {os.path.basename(p)}", GREEN)
+                except Exception as exc:
+                    _log_to_terminal(f"[ERREUR] {os.path.basename(p)} : {exc}", RED)
+            _update_sel_count()
+            page.run_task(_tool_refresh, folder)
+
+        _run_bg_action(f"Suppression de {len(paths)} élément(s)", _work)
 
     def _do_duplicate(paths):
         folder = state["folder"]
         if not folder:
             return
-        duplicated = 0
-        for src in paths:
-            if not os.path.exists(src):
-                continue
-            stem, ext = os.path.splitext(os.path.basename(src))
-            dest = _unique_dest(folder, f"{stem} (copie){ext}")
-            try:
-                if os.path.isdir(src):
-                    shutil.copytree(src, dest)
-                else:
-                    shutil.copy2(src, dest)
-                duplicated += 1
-            except Exception as exc:
-                _log_to_terminal(f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
-        if duplicated:
-            _log_to_terminal(f"[OK] {duplicated} élément(s) dupliqué(s)", BLUE)
-        _navigate(folder)
+
+        def _work():
+            duplicated = 0
+            for src in paths:
+                if not os.path.exists(src):
+                    continue
+                stem, ext = os.path.splitext(os.path.basename(src))
+                dest = _unique_dest(folder, f"{stem} (copie){ext}")
+                try:
+                    if os.path.isdir(src):
+                        shutil.copytree(src, dest)
+                    else:
+                        shutil.copy2(src, dest)
+                    duplicated += 1
+                except Exception as exc:
+                    _log_to_terminal(f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
+            if duplicated:
+                _log_to_terminal(f"[OK] {duplicated} élément(s) dupliqué(s)", BLUE)
+            page.run_task(_tool_refresh, folder)
+
+        _run_bg_action(f"Duplication de {len(paths)} élément(s)", _work)
 
     def _do_zip(paths):
         folder = state["folder"]
@@ -905,22 +988,26 @@ def main(page: ft.Page):
         name = (os.path.basename(folder) if len(paths) > 1
                 else os.path.splitext(os.path.basename(paths[0]))[0])
         zip_path = _unique_dest(folder, f"{name}.zip")
-        try:
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for p in paths:
-                    if os.path.isdir(p):
-                        base = os.path.dirname(p)
-                        for root, _dirs, files in os.walk(p):
-                            for f in files:
-                                full = os.path.join(root, f)
-                                zf.write(full, os.path.relpath(full, base))
-                    else:
-                        zf.write(p, os.path.basename(p))
-            _log_to_terminal(f"[OK] Archive créée : {os.path.basename(zip_path)}",
-                             YELLOW)
-        except Exception as exc:
-            _log_to_terminal(f"[ERREUR] Zip : {exc}", RED)
-        _navigate(folder)
+
+        def _work():
+            try:
+                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for p in paths:
+                        if os.path.isdir(p):
+                            base = os.path.dirname(p)
+                            for root, _dirs, files in os.walk(p):
+                                for f in files:
+                                    full = os.path.join(root, f)
+                                    zf.write(full, os.path.relpath(full, base))
+                        else:
+                            zf.write(p, os.path.basename(p))
+                _log_to_terminal(
+                    f"[OK] Archive créée : {os.path.basename(zip_path)}", YELLOW)
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] Zip : {exc}", RED)
+            page.run_task(_tool_refresh, folder)
+
+        _run_bg_action(f"Compression de {len(paths)} élément(s)", _work)
 
     def _extract_zip(zip_path):
         # Détection de dossier racine unique, comme Dashboard.pyw:5389-5405 :
@@ -971,24 +1058,30 @@ def main(page: ft.Page):
         if not zips:
             return
         folder = state["folder"]
-        extracted = []
-        for zip_path in zips:
-            try:
-                _extract_zip(zip_path)
-                extracted.append(zip_path)
-                _log_to_terminal(
-                    f"[OK] Décompressé : {os.path.basename(zip_path)}", GREEN)
-            except Exception as exc:
-                _log_to_terminal(
-                    f"[ERREUR] Décompression {os.path.basename(zip_path)} : "
-                    f"{exc}", RED)
-        if not extracted:
-            return
-        if CONSTANTS.DELETE_ZIP_AFTER_EXTRACT:
-            _do_delete(extracted)
-        else:
-            _navigate(folder)
-            _confirm_delete_zips(extracted)
+
+        def _work():
+            extracted = []
+            for zip_path in zips:
+                try:
+                    _extract_zip(zip_path)
+                    extracted.append(zip_path)
+                    _log_to_terminal(
+                        f"[OK] Décompressé : {os.path.basename(zip_path)}", GREEN)
+                except Exception as exc:
+                    _log_to_terminal(
+                        f"[ERREUR] Décompression {os.path.basename(zip_path)} : "
+                        f"{exc}", RED)
+            if not extracted:
+                return
+            if CONSTANTS.DELETE_ZIP_AFTER_EXTRACT:
+                _do_delete(extracted)
+            else:
+                async def _show_confirm():
+                    _navigate(folder)
+                    _confirm_delete_zips(extracted)
+                page.run_task(_show_confirm)
+
+        _run_bg_action(f"Décompression de {len(zips)} archive(s)", _work)
 
     def _do_copy_to_selection(paths):
         folder = state["folder"]
@@ -1243,8 +1336,10 @@ def main(page: ft.Page):
             selected.clear()
             _log_to_terminal("[OK] Sélection effacée", GREEN)
         else:
-            dirs, imgs, other = _visible_entries()
-            selected.update(dirs + imgs + other)
+            # Uniquement les fichiers (images + autres), pas les
+            # sous-dossiers (retour user).
+            _dirs, imgs, other = _visible_entries()
+            selected.update(imgs + other)
             _log_to_terminal(f"[OK] {len(selected)} élément(s) sélectionné(s)", BLUE)
         _update_sel_count()
         _render()
@@ -5809,9 +5904,18 @@ def main(page: ft.Page):
         ft.Icons.CLEAR_ALL, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
         tooltip="Effacer le terminal", on_click=_clear_terminal)
 
+    # Barre infinie (value=None) affichée pendant une action de fichiers
+    # lancée en arrière-plan (copier/coller/dupliquer/zip/dézip/supprimer)
+    # — même emplacement et même rôle que app_progress_bar dans
+    # Dashboard.pyw (juste sous le terminal, au-dessus de la ligne de
+    # saisie).
+    action_progress_bar = ft.ProgressBar(value=None, visible=False,
+                                         color=GREEN, height=2)
+
     terminal_panel = ft.Container(
         content=ft.Column([
             ft.Container(content=terminal_output, expand=True, padding=8),
+            action_progress_bar,
             ft.Container(
                 content=ft.Row([terminal_input, terminal_copy_button,
                                 terminal_to_notepad_button,
