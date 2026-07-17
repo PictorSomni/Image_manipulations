@@ -6187,10 +6187,22 @@ def main(page: ft.Page):
             return
         if not ctrl and event.key in ("Arrow Up", "ArrowUp", "Arrow Down", "ArrowDown"):
             focused = _focused_input["name"]
-            if focused == "terminal":
+            # Un champ non vide peut être une réponse multi-lignes en cours
+            # de correction : les flèches doivent alors juste déplacer le
+            # curseur, jamais écraser le texte par l'historique (retour
+            # user, par sécurité). Exception : si on est déjà en train de
+            # naviguer l'historique (idx non None), le champ contient un
+            # message rappelé et pas un brouillon — les flèches doivent
+            # continuer à faire défiler, sinon on resterait bloqué au
+            # premier message rappelé.
+            if (focused == "terminal"
+                    and (not (terminal_input.value or "").strip()
+                         or _history_idx["terminal"] is not None)):
                 _history_navigate("terminal", event.key, terminal_input)
                 return
-            if focused == "ai":
+            if (focused == "ai"
+                    and (not (ai_input_field.value or "").strip()
+                         or _history_idx["ai"] is not None)):
                 _history_navigate("ai", event.key, ai_input_field)
                 return
         if _kb_suspend["count"] > 0 or _dialog_open() or state["surface"] != "files":
