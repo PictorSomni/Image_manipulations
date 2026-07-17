@@ -56,10 +56,57 @@ def _render_vector(image_path: str, ext: str, size_px: int):
                 "RGB", (pix.width, pix.height), pix.samples)
     if ext == ".svg":
         from wand.image import Image as _WandImage
-        with _WandImage(filename=image_path, resolution=150) as wand_img:
+        # Une résolution fixe (150 DPI, quelle que soit la taille du SVG)
+        # rasterisait TOUJOURS à la taille "physique" du fichier — pour un
+        # gros viewBox, souvent bien plus que les 320px utiles à une
+        # miniature. Sur un dossier de centaines de SVG, ce travail perdu
+        # ralentissait toute l'app pendant le chargement (retour user).
+        # Comme pour les PDF ci-dessus : on vise ~2x size_px, jamais plus.
+        native = _svg_native_size(image_path)
+        if native:
+            longest = max(native) or 1
+            resolution = 96 * min(4.0, max(0.3, (size_px * 2) / longest))
+        else:
+            resolution = 150
+        with _WandImage(filename=image_path, resolution=resolution) as wand_img:
             wand_img.format = "png"
             blob = wand_img.make_blob()
         return _PILImage.open(io.BytesIO(blob)).convert("RGB")
+    return None
+
+
+def _svg_native_size(path):
+    """Largeur/hauteur "naturelles" d'un SVG (attributs width/height, sinon
+    viewBox), lues via un parsing XML — gratuit, contrairement à Wand qui
+    doit rasteriser tout le fichier rien que pour connaître sa taille."""
+    try:
+        import xml.etree.ElementTree as _ET
+
+        root = _ET.parse(path).getroot()
+
+        def _num(s):
+            if not s:
+                return None
+            s = s.strip()
+            for suffix in ("px", "pt", "mm", "cm", "in", "%"):
+                if s.endswith(suffix):
+                    s = s[:-len(suffix)]
+                    break
+            try:
+                return float(s)
+            except ValueError:
+                return None
+
+        w, h = _num(root.get("width")), _num(root.get("height"))
+        if w and h:
+            return w, h
+        view_box = root.get("viewBox")
+        if view_box:
+            parts = view_box.replace(",", " ").split()
+            if len(parts) == 4:
+                return float(parts[2]), float(parts[3])
+    except Exception:
+        pass
     return None
 
 
@@ -200,8 +247,8 @@ def get_or_generate(
     db_path = _get_db_path(folder_path)
 
     if db_path is not None:
-        with lock:
-            try:
+        try:
+            with lock:
                 conn = _open_db(db_path)
                 try:
                     row = conn.execute(
@@ -209,22 +256,33 @@ def get_or_generate(
                         " WHERE filename=? AND size_px=? AND grayscale=?",
                         (filename, size_px, grayscale_int),
                     ).fetchone()
-                    if row:
-                        row_mtime, row_mtime_ns, row_size, row_ctime_ns, row_b64 = row
-                        # Compatibilité avec anciens enregistrements : si signature absente (0),
-                        # on retombe sur l'ancienne comparaison au mtime.
-                        if row_mtime_ns and row_size and row_ctime_ns:
-                            if (
-                                row_mtime_ns == mtime_ns
-                                and row_size == size_bytes
-                                and row_ctime_ns == ctime_ns
-                            ):
-                                return base64.b64decode(row_b64)
-                        elif abs(row_mtime - mtime) < 0.5:
-                            return base64.b64decode(row_b64)
-                    # Absent ou périmé — générer, puis insérer
-                    b64 = _generate_b64(image_path, size_px, quality, grayscale)
-                    if b64 is not None:
+                finally:
+                    conn.close()
+            if row:
+                row_mtime, row_mtime_ns, row_size, row_ctime_ns, row_b64 = row
+                # Compatibilité avec anciens enregistrements : si signature absente (0),
+                # on retombe sur l'ancienne comparaison au mtime.
+                if row_mtime_ns and row_size and row_ctime_ns:
+                    if (
+                        row_mtime_ns == mtime_ns
+                        and row_size == size_bytes
+                        and row_ctime_ns == ctime_ns
+                    ):
+                        return base64.b64decode(row_b64)
+                elif abs(row_mtime - mtime) < 0.5:
+                    return base64.b64decode(row_b64)
+
+            # Absent ou périmé — génération HORS verrou : Wand/PyMuPDF/PIL
+            # font le gros du travail ici, et le garder hors du verrou
+            # permet à plusieurs threads de générer plusieurs miniatures
+            # EN PARALLÈLE au lieu de se sérialiser sur un fichier à la
+            # fois — sinon le verrou annulait tout le bénéfice du pool de
+            # threads sur un dossier de centaines de SVG/PDF (retour user).
+            b64 = _generate_b64(image_path, size_px, quality, grayscale)
+            if b64 is not None:
+                with lock:
+                    conn = _open_db(db_path)
+                    try:
                         conn.execute(
                             "INSERT OR REPLACE INTO thumbs"
                             "(filename, size_px, grayscale, mtime, mtime_ns, size_bytes, ctime_ns, b64)"
@@ -232,11 +290,11 @@ def get_or_generate(
                             (filename, size_px, grayscale_int, mtime, mtime_ns, size_bytes, ctime_ns, b64),
                         )
                         conn.commit()
-                    return base64.b64decode(b64) if b64 is not None else None
-                finally:
-                    conn.close()
-            except Exception:
-                pass  # Fallback session ci-dessous
+                    finally:
+                        conn.close()
+            return base64.b64decode(b64) if b64 is not None else None
+        except Exception:
+            pass  # Fallback session ci-dessous
 
     # ── Fallback session (dossier en lecture seule) ───────────────────────────
     fallback_key = (folder_path, filename, size_px, grayscale_int)
@@ -328,3 +386,44 @@ def invalidate_stale(folder_path: str) -> None:
                 conn.close()
         except Exception:
             pass
+
+
+def _demo():
+    """Auto-test : miniature raster, SVG (taille ~size_px, pas la taille
+    physique du fichier) et accès concurrent (verrou DB) sans exception."""
+    import shutil
+    import tempfile
+    import concurrent.futures
+
+    tmp = tempfile.mkdtemp(prefix="thumb_cache_demo_")
+    try:
+        png_path = os.path.join(tmp, "a.png")
+        _PILImage.new("RGB", (500, 500), "red").save(png_path)
+        data = get_or_generate(png_path, size_px=100)
+        assert data, "miniature raster non générée"
+        assert _PILImage.open(io.BytesIO(data)).size == (100, 100)
+
+        svg_path = os.path.join(tmp, "b.svg")
+        with open(svg_path, "w") as f:
+            f.write('<svg xmlns="http://www.w3.org/2000/svg" '
+                   'width="1000" height="1000"><rect width="1000" '
+                   'height="1000" fill="blue"/></svg>')
+        svg_data = get_or_generate(svg_path, size_px=100)
+        assert svg_data, "miniature SVG non générée"
+        assert _PILImage.open(io.BytesIO(svg_data)).size == (100, 100), (
+            "le SVG n'est pas redimensionné à size_px (résolution excessive ?)")
+
+        # Régénération concurrente (2 threads, même dossier) : le verrou
+        # DB ne doit jamais planter, doublon ou pas.
+        paths = [png_path, svg_path] * 5
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda p: get_or_generate(p, size_px=100), paths))
+        assert all(results), "un appel concurrent a échoué"
+
+        print("[OK] thumb_cache : miniatures raster/SVG + accès concurrent")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    _demo()

@@ -19,6 +19,7 @@ __version__ = "1.0.0"
 
 import asyncio
 import base64
+import concurrent.futures
 import datetime
 import hashlib
 import io
@@ -837,17 +838,48 @@ def main(page: ft.Page):
         snapshot = list(pending.items())
 
         def _load():
-            for path, holder in snapshot:
-                if state["thumb_token"] != token:
-                    return
-                data = thumb_cache.get_or_generate(path)
-                if data and state["thumb_token"] == token:
-                    thumb_mem[path] = data
-                    holder.content = ft.Image(
-                        src=data, width=holder.width, height=holder.height,
-                        fit=ft.BoxFit.COVER, border_radius=ft.BorderRadius.all(6))
-                    holder.bgcolor = None
-                    page.run_task(_safe_update)
+            # Un page.update() par miniature chargée noyait la boucle
+            # d'événements sous des rafales de mises à jour sur les gros
+            # dossiers (des centaines d'images) — l'app entière (clics,
+            # scroll, menus...) devenait perceptiblement lente pendant le
+            # chargement, pas seulement la sélection (retour user). Un seul
+            # update() groupé toutes les ~100 ms suffit à faire apparaître
+            # les miniatures au fil de l'eau sans jamais saturer le thread
+            # principal, quel que soit le nombre de fichiers.
+            #
+            # 2 workers en parallèle : Wand/PyMuPDF (SVG/PDF, de loin les
+            # plus lents à générer) libèrent le GIL pendant le rendu, donc
+            # ça accélère vraiment un dossier de centaines de vectoriels
+            # sans saturer le CPU ni concurrencer le thread principal.
+            # shutdown(wait=False, cancel_futures=True) : changer de
+            # dossier abandonne aussitôt les tâches pas encore lancées au
+            # lieu d'attendre que les 300 rendus se terminent (retour
+            # user — jamais bloquer sur un dossier abandonné).
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+            futures = {pool.submit(thumb_cache.get_or_generate, path): (path, holder)
+                      for path, holder in snapshot}
+            last_update = 0.0
+            done = 0
+            total = len(futures)
+            try:
+                for future in concurrent.futures.as_completed(futures):
+                    if state["thumb_token"] != token:
+                        return
+                    path, holder = futures[future]
+                    done += 1
+                    data = future.result()
+                    if data:
+                        thumb_mem[path] = data
+                        holder.content = ft.Image(
+                            src=data, width=holder.width, height=holder.height,
+                            fit=ft.BoxFit.COVER, border_radius=ft.BorderRadius.all(6))
+                        holder.bgcolor = None
+                        now = time.monotonic()
+                        if now - last_update >= 0.1 or done == total:
+                            last_update = now
+                            page.run_task(_safe_update)
+            finally:
+                pool.shutdown(wait=False, cancel_futures=True)
 
         threading.Thread(target=_load, daemon=True).start()
 

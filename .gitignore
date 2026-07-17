@@ -7,6 +7,7 @@ _rc*
 # Logs de debug locaux (mcp_client.py / ai_tools.py)
 Data/.mcp_errors.log
 Data/.ai_tools_errors.log
+Data/.hub_crash.log
 
 # Modèles IA (fichiers lourds)
 # Data/models/
