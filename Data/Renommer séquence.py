@@ -12,7 +12,7 @@ Variables d'environnement :
   SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
   SERIES_NAME     — préfixe de série (optionnel, non utilisé actuellement).
 
-Dépendances : modules standard (os, pathlib, sys)
+Dépendances : modules standard (os, pathlib)
 """
 
 __version__ = "3.1.0"
@@ -22,7 +22,6 @@ __version__ = "3.1.0"
 #############################################################
 import os
 from pathlib import Path
-import sys
 import CONSTANTS
 
 #############################################################
@@ -77,5 +76,3 @@ for index, (temp, ext) in enumerate(temp_map):
     else:
         new_name = f"{new_index:03}{ext}"
     temp.rename(PATH / new_name)
-
-sys.exit(1)

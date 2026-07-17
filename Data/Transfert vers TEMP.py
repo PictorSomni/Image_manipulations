@@ -28,7 +28,7 @@ __version__ = "3.1.0"
 #                          IMPORTS                          #
 #############################################################
 from pathlib import Path
-from shutil import copy2
+from shutil import copy2, copytree, ignore_patterns, rmtree
 from datetime import datetime
 import sys
 import os
@@ -79,15 +79,38 @@ LAUNCHED_FROM_DASHBOARD = os.environ.get("LAUNCHED_FROM_DASHBOARD") == "1"
 DELETE_AFTER_TRANSFER = os.environ.get("DELETE_AFTER_TRANSFER", "").strip() == "1"
 
 # Fichiers/dossiers spécifiques passés par le Dashboard (chemins complets séparés par |)
+# Un dossier sélectionné reste un dossier (copié avec son contenu via
+# _copy_source/copytree), il n'est jamais éclaté en fichiers à plat —
+# sinon la structure du dossier se perdait au passage (retour user).
 _SOURCE_FILES_ENV = os.environ.get("SOURCE_FILES", "")
 SOURCE_FILES_FROM_DASHBOARD: list = []
 if _SOURCE_FILES_ENV:
     for _p in _SOURCE_FILES_ENV.split("|"):
         _path = Path(_p)
-        if _path.is_dir():
-            SOURCE_FILES_FROM_DASHBOARD.extend(f for f in _path.iterdir() if f.is_file())
-        elif _path.is_file():
+        if _path.name.startswith("."):
+            continue
+        if _path.is_dir() or _path.is_file():
             SOURCE_FILES_FROM_DASHBOARD.append(_path)
+
+
+def _copy_source(source, dest_dir):
+    """Copie un fichier (copy2) ou un dossier avec tout son contenu
+    (copytree) dans dest_dir, en ignorant les fichiers cachés (.DS_Store,
+    ._* AppleDouble...) qui font planter la copie sur macOS (retour user)."""
+    dest = dest_dir / source.name
+    if source.is_dir():
+        copytree(source, dest, ignore=ignore_patterns(".*"))
+    else:
+        copy2(source, dest)
+
+
+def _remove_source(source):
+    """Supprime un fichier ou un dossier (source_files peut contenir les
+    deux depuis que les dossiers ne sont plus éclatés en fichiers)."""
+    if source.is_dir():
+        rmtree(source)
+    else:
+        source.unlink()
 
 # Le dialog de suppression est maintenant dans le Dashboard
 # Pas de confirmation ici : supprimer silencieusement si DELETE_AFTER_TRANSFER=1
@@ -193,7 +216,8 @@ def main(page: ft.Page):
             source_files = (
                 SOURCE_FILES_FROM_DASHBOARD
                 if SOURCE_FILES_FROM_DASHBOARD
-                else [f for f in DEFAULT_SOURCE.iterdir() if f.is_file()]
+                else [f for f in DEFAULT_SOURCE.iterdir()
+                     if not f.name.startswith(".")]
             )
 
             if not source_files:
@@ -212,7 +236,7 @@ def main(page: ft.Page):
             try:
                 dest_folder = get_next_sequence_folder(dest)
                 for index, source_file in enumerate(source_files):
-                    copy2(source_file, dest_folder / source_file.name)
+                    _copy_source(source_file, dest_folder)
                     progress_bar.value = (index + 1) / total
                     status_text.value = f"Copie : {index + 1}/{total} — {source_file.name}"
                     progress_bar.update()
@@ -226,9 +250,15 @@ def main(page: ft.Page):
                 dest_folder = _next_sequence_path(dest)
                 def _q(p):
                     return "'" + str(p).replace("'", "'\\''")+"'"
+                # -R sur "cp" pour copier aussi les dossiers avec leur
+                # contenu ; le "find ... -delete" final retire les
+                # fichiers cachés (.DS_Store, ._*) que -R aurait
+                # recopiés depuis l'intérieur d'un dossier source
+                # (retour user).
                 shell_script = " && ".join(
                     [f"mkdir -p {_q(dest_folder)}"] +
-                    [f"cp {_q(f)} {_q(dest_folder / f.name)}" for f in source_files]
+                    [f"cp -R {_q(f)} {_q(dest_folder / f.name)}" for f in source_files]
+                    + [f"find {_q(dest_folder)} -type f -name '.*' -delete"]
                 )
                 as_script = shell_script.replace("\\", "\\\\").replace('"', '\\"')
                 proc = subprocess.run(
@@ -248,7 +278,7 @@ def main(page: ft.Page):
             # OU si aucun fichier n'était sélectionné au départ (on vide alors Downloads par défaut)
             if DELETE_AFTER_TRANSFER or not SOURCE_FILES_FROM_DASHBOARD:
                 for source_file in source_files:
-                    source_file.unlink()
+                    _remove_source(source_file)
 
             print(f"[ok] {total} fichier(s) copiés vers {dest_folder}", flush=True)
             print(f"NAVIGATE_TO:{dest_folder}", flush=True)
@@ -318,19 +348,20 @@ if LAUNCHED_FROM_DASHBOARD:
         source_files = (
             SOURCE_FILES_FROM_DASHBOARD
             if SOURCE_FILES_FROM_DASHBOARD
-            else [f for f in DEFAULT_SOURCE.iterdir() if f.is_file()]
+            else [f for f in DEFAULT_SOURCE.iterdir()
+                 if not f.name.startswith(".")]
         )
         if not source_files:
             print("[info] Aucun fichier à copier.", flush=True)
             sys.exit(0)
         dest_folder = get_next_sequence_folder(dest)
         for idx, f in enumerate(source_files, 1):
-            copy2(f, dest_folder / f.name)
+            _copy_source(f, dest_folder)
             print(f"Copie : {idx}/{len(source_files)} \u2014 {f.name}", flush=True)
         # Même logique de suppression pour le mode Dashboard direct
         if DELETE_AFTER_TRANSFER or not SOURCE_FILES_FROM_DASHBOARD:
             for f in source_files:
-                f.unlink()
+                _remove_source(f)
         print(f"[ok] {len(source_files)} fichier(s) copiés vers {dest_folder}", flush=True)
         print(f"NAVIGATE_TO:{dest_folder}", flush=True)
     except Exception as _e:

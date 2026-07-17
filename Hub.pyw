@@ -262,8 +262,23 @@ def main(page: ft.Page):
     _strip_state = {"active": False, "saved_height": CONSTANTS.WINDOW_HEIGHT,
                     "was_maximized": False}
     content = {"dirs": [], "imgs": [], "other": []}   # non filtrés
-    selected = set()                     # chemins sélectionnés (images + dossiers)
+    # Liste (pas un set) — ordre de clic préservé, comme Dashboard.pyw
+    # (selected_files) : "Renommer séquence" numérote dans cet ordre-là
+    # quand une sélection est fournie (retour user).
+    selected = []                        # chemins sélectionnés (images + dossiers)
     clipboard = {"paths": [], "mode": None}   # mode: "copy" | "cut" | None
+
+    def _select_add(path):
+        if path not in selected:
+            selected.append(path)
+
+    def _select_discard(path):
+        if path in selected:
+            selected.remove(path)
+
+    def _select_update(paths):
+        for p in paths:
+            _select_add(p)
     # Compteur de suspension des raccourcis clavier (recherche/terminal
     # focus) — même principe que Dashboard.pyw (_suspend/_resume_keyboard_
     # shortcuts), via on_focus/on_blur plutôt qu'un appel manuel.
@@ -374,10 +389,10 @@ def main(page: ft.Page):
         # répondent plus après la moindre navigation (retour user).
         _kb_suspend["count"] = 0
         if on:
-            selected.add(path)
+            _select_add(path)
             state["last_selected"] = path
         else:
-            selected.discard(path)
+            _select_discard(path)
         _update_sel_count()
         if state["only_selected"]:
             # L'ensemble des éléments visibles change (filtre "ma
@@ -746,7 +761,7 @@ def main(page: ft.Page):
         # n'auto-sélectionne que l'élément cliqué).
         if not selected:
             dirs, imgs, other = _visible_entries()
-            selected.update(dirs + imgs + other)
+            _select_update(dirs + imgs + other)
             _update_sel_count()
             _render()
         _open_actions(event)
@@ -945,7 +960,7 @@ def main(page: ft.Page):
                         shutil.rmtree(p)
                     else:
                         os.remove(p)
-                    selected.discard(p)
+                    _select_discard(p)
                     _log_to_terminal(f"[OK] Supprimé : {os.path.basename(p)}", GREEN)
                 except Exception as exc:
                     _log_to_terminal(f"[ERREUR] {os.path.basename(p)} : {exc}", RED)
@@ -1160,7 +1175,7 @@ def main(page: ft.Page):
                 _log_to_terminal(f"[ERREUR] Renommage : {exc}", RED)
                 return
             _log_to_terminal(f"[OK] Renommé : {current_name} → {new_name}", GREEN)
-            selected.discard(path)
+            _select_discard(path)
             _navigate(parent)
 
         name_field.on_submit = _confirm
@@ -1339,15 +1354,17 @@ def main(page: ft.Page):
             # Uniquement les fichiers (images + autres), pas les
             # sous-dossiers (retour user).
             _dirs, imgs, other = _visible_entries()
-            selected.update(imgs + other)
+            _select_update(imgs + other)
             _log_to_terminal(f"[OK] {len(selected)} élément(s) sélectionné(s)", BLUE)
         _update_sel_count()
         _render()
 
     def _invert(event):
-        new = set(content["dirs"] + content["imgs"] + content["other"]) - selected
+        current = set(selected)
+        new = [p for p in content["dirs"] + content["imgs"] + content["other"]
+              if p not in current]
         selected.clear()
-        selected.update(new)
+        _select_update(new)
         _update_sel_count()
         _render()
         _log_to_terminal(
@@ -1379,7 +1396,7 @@ def main(page: ft.Page):
             if fpath in selected:
                 continue
             if _file_date(fpath) == ref_date:
-                selected.add(fpath)
+                _select_add(fpath)
                 added += 1
         _update_sel_count()
         _render()
@@ -3395,12 +3412,12 @@ def main(page: ft.Page):
         async def _apply():
             if mode == "replace":
                 selected.clear()
-                selected.update(paths)
+                _select_update(paths)
             elif mode == "add":
-                selected.update(paths)
+                _select_update(paths)
             elif mode == "remove":
                 for p in paths:
-                    selected.discard(p)
+                    _select_discard(p)
             _update_sel_count()
             _render()
         page.run_task(_apply)
