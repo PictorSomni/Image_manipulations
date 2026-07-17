@@ -58,6 +58,7 @@ open_with.json
 .ai_conversation_sp.json
 .ai_conversation_hub.json
 .order.json
+.order_bw.json
 .liste.json
 
 # Fichiers mémoire IA persistante

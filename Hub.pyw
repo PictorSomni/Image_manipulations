@@ -335,8 +335,6 @@ def main(page: ft.Page):
         expand=True, bgcolor=DARK, border_color=GREY, color=WHITE,
         on_focus=_suspend_kb, on_blur=_resume_kb,
     )
-    sel_count = ft.Text("", size=CONSTANTS.TEXT_SM, color=BLUE, no_wrap=True,
-                        weight=ft.FontWeight.W_600)
     # Vue liste : ListView + ListTile, primitives éprouvées de Dashboard.
     files_list = ft.ListView(expand=True, spacing=2, padding=8)
     # Vue vignettes : GridView natif Flet (max_extent gère les colonnes tout
@@ -350,8 +348,17 @@ def main(page: ft.Page):
     files_body = ft.Container(content=files_list, expand=True)
 
     def _update_sel_count():
+        # Barre du bas (pas le header) : total d'abord, puis la sélection
+        # en cours s'il y en a une (retour user).
+        dirs, imgs, other = _visible_entries()
+        total = len(dirs) + len(imgs) + len(other)
         n = len(selected)
-        sel_count.value = f"{n} sélectionnée{'s' if n > 1 else ''}" if n else ""
+        total_txt = f"{total} fichier{'s' if total > 1 else ''}"
+        if n:
+            status_left.value = (
+                f"{total_txt}, {n} sélectionné{'s' if n > 1 else ''}")
+        else:
+            status_left.value = total_txt if total else ""
 
     def _set_selected(path, on):
         # Un clic sur une vignette/case ne fait pas toujours perdre le focus
@@ -1166,7 +1173,6 @@ def main(page: ft.Page):
         _add_recent(path)
         create_file_btn.disabled = False
         selected.clear()
-        _update_sel_count()
         # Une recherche périmée après une action (suppression, déplacement,
         # outil lancé sur les résultats...) masquerait le contenu rechargé :
         # _navigate() est le point de passage commun à toute action sur
@@ -1197,6 +1203,7 @@ def main(page: ft.Page):
         content["dirs"] = sorted(dirs, key=lambda p: os.path.basename(p).lower())
         content["imgs"] = sorted(imgs, key=lambda p: os.path.basename(p).lower())
         content["other"] = sorted(other, key=lambda p: os.path.basename(p).lower())
+        _update_sel_count()
         _render()
         page.run_task(_focus_active_surface)
 
@@ -1304,6 +1311,18 @@ def main(page: ft.Page):
         # "Créer le dossier de commande" n'a de sens qu'en mode commande —
         # masqué le reste du temps (retour user).
         create_order_btn.visible = order_mode["value"]
+        if not order_mode["value"]:
+            # Retour au mode normal : la sélection (cases à cocher) ET la
+            # commande en cours (formats/tirages par photo) repartent de
+            # zéro — sinon les tailles restaient en place même en changeant
+            # de dossier, puisque `order` est persisté indépendamment du
+            # dossier affiché (retour user).
+            selected.clear()
+            _update_sel_count()
+            order.clear()
+            order_bw.clear()
+            _save_order(order)
+            _save_order_bw(order_bw)
         _render()
 
     def _mini_btn(icon, on_click):
@@ -2253,7 +2272,6 @@ def main(page: ft.Page):
                 ft.VerticalDivider(width=1, color=GREY),
                 open_menu_btn,
                 files_path,
-                sel_count,
                 ft.VerticalDivider(width=1, color=GREY),
                 sort_btn,
                 view_seg_wrap,
@@ -3981,10 +3999,15 @@ def main(page: ft.Page):
         for path, fmt, n in _order_lines():
             if not os.path.isfile(path):
                 continue
+            # Un sous-dossier par format/taille, avec dans chacun le
+            # nombre de tirages en préfixe du nom (ex. "3X_photo.jpg") —
+            # facilite le tri chez l'imprimeur (retour user).
+            fmt_folder = os.path.join(order_folder, fmt)
+            os.makedirs(fmt_folder, exist_ok=True)
             is_bw = order_bw.get(path, False)
             stem, ext = os.path.splitext(os.path.basename(path))
-            suffix = f"_{fmt}_NB" if is_bw else f"_{fmt}"
-            dest = _unique_dest(order_folder, f"{stem}{suffix}{ext}")
+            nb_marker = "_NB" if is_bw else ""
+            dest = _unique_dest(fmt_folder, f"{n}X_{stem}{nb_marker}{ext}")
             try:
                 if is_bw:
                     with PILImage.open(path) as im:
@@ -3993,9 +4016,9 @@ def main(page: ft.Page):
                     shutil.copy2(path, dest)
             except Exception:
                 continue
-            nb_marker = " (N&B)" if is_bw else ""
+            nb_label = " (N&B)" if is_bw else ""
             manifest.append(
-                f"{os.path.basename(dest)} — {fmt}{nb_marker} × {n} = "
+                f"{fmt}/{os.path.basename(dest)} — {fmt}{nb_label} × {n} = "
                 f"{prices[(path, fmt)]:.2f} €")
         manifest.append(f"\nTOTAL : {grand_total:.2f} €")
         try:
@@ -5139,6 +5162,7 @@ def main(page: ft.Page):
 
         _log_to_terminal(f"[...] Synchronisation avec {folder_b} en cours…", ORANGE)
         threading.Thread(target=_do_sync, daemon=True).start()
+        _close_actions()
 
     # (label, icône, couleur, handler)
     # Catégories = les regroupements du flux de travail réel (cf. mémoire
@@ -5149,25 +5173,36 @@ def main(page: ft.Page):
         ("Édition", [
             # Ex-rangée d'actions tactiles du header (retour user : déplacée
             # tout en haut du panneau Actions). Mêmes icônes/couleurs
-            # qu'avant, opère toujours sur `selected`.
+            # qu'avant, opère toujours sur `selected`. Chaque action ferme
+            # le panneau une fois lancée (retour user), contrairement aux
+            # _launch_tool ci-dessous qui, eux, ferment déjà après lancement
+            # de leur sous-processus.
             ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
-             lambda e: (_rename_item(list(selected))
-                       if len(selected) == 1 else None)),
+             lambda e: (_rename_item(list(selected)), _close_actions())
+                       if len(selected) == 1 else None),
             ("Copier", ft.Icons.CONTENT_COPY, BLUE,
-             lambda e: (_do_copy(list(selected)) if selected else None)),
+             lambda e: (_do_copy(list(selected)), _close_actions())
+                       if selected else None),
             ("Couper", ft.Icons.CONTENT_CUT, ORANGE,
-             lambda e: (_do_cut(list(selected)) if selected else None)),
-            ("Coller", ft.Icons.CONTENT_PASTE, YELLOW, lambda e: _do_paste()),
+             lambda e: (_do_cut(list(selected)), _close_actions())
+                       if selected else None),
+            ("Coller", ft.Icons.CONTENT_PASTE, YELLOW,
+             lambda e: (_do_paste(), _close_actions())),
             ("Dupliquer", ft.Icons.FILE_COPY_OUTLINED, BLUE,
-             lambda e: (_do_duplicate(list(selected)) if selected else None)),
+             lambda e: (_do_duplicate(list(selected)), _close_actions())
+                       if selected else None),
             ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, YELLOW,
-             lambda e: (_do_zip(list(selected)) if selected else None)),
+             lambda e: (_do_zip(list(selected)), _close_actions())
+                       if selected else None),
             ("Dézipper", ft.Icons.UNARCHIVE_OUTLINED, ORANGE,
-             lambda e: (_do_unzip(list(selected)) if selected else None)),
+             lambda e: (_do_unzip(list(selected)), _close_actions())
+                       if selected else None),
             ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
-             lambda e: (_add_to_ai(list(selected)) if selected else None)),
+             lambda e: (_add_to_ai(list(selected)), _close_actions())
+                       if selected else None),
             ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
-             lambda e: (_do_delete(list(selected)) if selected else None)),
+             lambda e: (_do_delete(list(selected)), _close_actions())
+                       if selected else None),
         ]),
         ("Transfert & préparation", [
             ("Transfert vers TEMP", ft.Icons.DRIVE_FILE_MOVE_OUTLINED, BLUE,
@@ -5286,8 +5321,8 @@ def main(page: ft.Page):
         rows = [
             _action_row(
                 f"Ouvrir avec {p['label']}", ft.Icons.OPEN_IN_NEW, BLUE,
-                lambda e, p=p: (_open_files_with(p, list(selected))
-                               if selected else None),
+                lambda e, p=p: (_open_files_with(p, list(selected)), _close_actions())
+                               if selected else None,
                 trailing=ft.IconButton(
                     ft.Icons.CLOSE, icon_color=RED,
                     icon_size=CONSTANTS.ICON_SM,
@@ -5348,6 +5383,14 @@ def main(page: ft.Page):
     def _close_actions(event=None):
         if actions_overlay in page.overlay:
             page.overlay.remove(actions_overlay)
+        # Que le panneau se ferme parce qu'une action vient d'être lancée
+        # ou parce que l'utilisateur l'a simplement refermé, la sélection
+        # ne doit pas rester en place (retour user) — chaque lanceur lit
+        # `selected` avant d'appeler cette fonction, donc le vider ici est
+        # sûr dans tous les cas.
+        selected.clear()
+        _update_sel_count()
+        _render()
         page.update()
         page.run_task(_focus_active_surface)
 
@@ -5776,7 +5819,7 @@ def main(page: ft.Page):
                                 terminal_fullscreen_btn]),
                 padding=ft.Padding(8, 0, 8, 8)),
         ], spacing=0, expand=True),
-        bgcolor=DARK, height=200, visible=False,
+        bgcolor=DARK, height=110, visible=False,
         border=ft.Border(top=ft.BorderSide(2, ORANGE)),
     )
     _terminal_fullscreen = {"active": False}
@@ -5785,14 +5828,15 @@ def main(page: ft.Page):
         # Bascule tout l'écran vers le terminal (cache la Row explorateur)
         # au lieu de juste afficher/masquer le panneau (_toggle_terminal,
         # Ctrl/Cmd+↑ sans Maj) — pratique pour lire une longue sortie sans
-        # défiler dans une bande de 200px.
+        # défiler dans la bande compacte façon snackbar (retour user :
+        # ce bouton plein écran rend inutile un panneau compact plus haut).
         if not terminal_panel.visible:
             terminal_panel.visible = True
         _terminal_fullscreen["active"] = not _terminal_fullscreen["active"]
         is_full = _terminal_fullscreen["active"]
         main_row.visible = not is_full
         terminal_panel.expand = is_full
-        terminal_panel.height = None if is_full else 200
+        terminal_panel.height = None if is_full else 110
         terminal_fullscreen_btn.icon = (
             ft.Icons.FULLSCREEN_EXIT if is_full else ft.Icons.FULLSCREEN)
         terminal_fullscreen_btn.tooltip = (
