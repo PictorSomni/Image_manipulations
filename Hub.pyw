@@ -383,6 +383,10 @@ def main(page: ft.Page):
                                           # pour recolorer la bordure de
                                           # sélection sans reconstruire toute
                                           # la grille (cf. _set_selected)
+    sel_checkbox_refs = {}                # path -> Checkbox de sélection
+                                          # (liste ou vignette), pour décocher
+                                          # sans reconstruire toute la vue
+                                          # (cf. _clear_selection_visuals)
     # Mode commande : path -> {format: nombre} — une photo peut avoir
     # plusieurs formats commandés. Édition via un clic sur la vignette
     # (badge « N tailles ») qui ouvre un petit dialogue, pas de clic droit.
@@ -463,6 +467,30 @@ def main(page: ft.Page):
                           else ft.Border.all(1, GREY))
             card.update()
 
+    def _clear_selection_visuals():
+        # Utilisé à la fermeture du panneau Actions : décoche/décolore
+        # juste les éléments actuellement sélectionnés (case + bordure,
+        # via les refs déjà maintenues par _set_selected/_render) au lieu
+        # d'un _render() complet — sur un gros dossier, reconstruire
+        # toutes les vignettes ne servait qu'à effacer une sélection,
+        # plusieurs secondes de latence perceptible à chaque fermeture
+        # du panneau (retour user).
+        touched = []
+        for path in selected:
+            cb = sel_checkbox_refs.get(path)
+            if cb is not None:
+                cb.value = False
+                touched.append(cb)
+            card = grid_card_refs.get(path)
+            if card is not None:
+                card.border = ft.Border.all(1, GREY)
+                touched.append(card)
+        selected.clear()
+        _update_sel_count()
+        status_left.update()
+        if touched:
+            page.update(*touched)
+
     def _list_thumb_size():
         # Suit le curseur de taille de vignette (mode grille), ramené à une
         # échelle raisonnable pour une ligne de liste (retour user : lier
@@ -485,6 +513,7 @@ def main(page: ft.Page):
             value=path in selected, active_color=BLUE,
             scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
             on_change=lambda e, p=path: _set_selected(p, e.control.value))
+        sel_checkbox_refs[path] = checkbox
         return ft.ListTile(
             leading=checkbox,
             title=ft.Row([
@@ -524,6 +553,7 @@ def main(page: ft.Page):
                 value=path in selected, active_color=BLUE,
                 scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
                 on_change=lambda e, p=path: _set_selected(p, e.control.value))
+            sel_checkbox_refs[path] = leading
             row_children = [visual, filename_text]
         return ft.ListTile(
             leading=leading,
@@ -547,6 +577,7 @@ def main(page: ft.Page):
             value=is_sel, active_color=BLUE,
             scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
             on_change=lambda e, p=path: _set_selected(p, e.control.value))
+        sel_checkbox_refs[path] = checkbox
         icon = ft.Icon(ft.Icons.FOLDER, color=YELLOW, size=_card_icon_size())
         card_icon_refs.append(icon)
         icon_zone = ft.Container(
@@ -681,6 +712,7 @@ def main(page: ft.Page):
             value=path in selected, active_color=BLUE,
             scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
             on_change=lambda e, p=path: _set_selected(p, e.control.value))
+        sel_checkbox_refs[path] = checkbox
         icon, icon_color = _file_icon(path)
         return ft.ListTile(
             leading=checkbox,
@@ -700,6 +732,7 @@ def main(page: ft.Page):
             value=is_sel, active_color=BLUE,
             scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
             on_change=lambda e, p=path: _set_selected(p, e.control.value))
+        sel_checkbox_refs[path] = checkbox
         icon_name, icon_color = _file_icon(path)
         icon_ctl = ft.Icon(icon_name, color=icon_color, size=_card_icon_size())
         card_icon_refs.append(icon_ctl)
@@ -748,6 +781,7 @@ def main(page: ft.Page):
                 value=is_sel, active_color=BLUE,
                 scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
                 on_change=lambda e, p=path: _set_selected(p, e.control.value))
+            sel_checkbox_refs[path] = checkbox
             header = ft.Row([ft.Container(expand=True), checkbox])
             highlighted = is_sel
             body = [header, img_zone, label]
@@ -841,6 +875,7 @@ def main(page: ft.Page):
         card_icon_refs.clear()
         list_visual_refs.clear()
         grid_card_refs.clear()
+        sel_checkbox_refs.clear()
         if not dirs and not imgs and not other:
             if state["only_selected"]:
                 msg = "Aucun élément sélectionné."
@@ -6082,15 +6117,14 @@ def main(page: ft.Page):
     def _close_actions(event=None):
         if actions_overlay in page.overlay:
             page.overlay.remove(actions_overlay)
+        page.update()
         # Que le panneau se ferme parce qu'une action vient d'être lancée
         # ou parce que l'utilisateur l'a simplement refermé, la sélection
         # ne doit pas rester en place (retour user) — chaque lanceur lit
         # `selected` avant d'appeler cette fonction, donc le vider ici est
-        # sûr dans tous les cas.
-        selected.clear()
-        _update_sel_count()
-        _render()
-        page.update()
+        # sûr dans tous les cas. Pas de _render() complet : voir
+        # _clear_selection_visuals.
+        _clear_selection_visuals()
         page.run_task(_focus_active_surface)
 
     def _run_action(fn, *args):
