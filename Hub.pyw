@@ -1245,11 +1245,16 @@ def main(page: ft.Page):
             autofocus=True, width=320, bgcolor=DARK, border_color=GREY,
             color=WHITE)
 
+        fired = {"done": False}
+
         def _cancel(event):
             dlg.open = False
             page.update()
 
         def _confirm(event):
+            if fired["done"]:
+                return
+            fired["done"] = True
             new_stem = (name_field.value or "").strip()
             dlg.open = False
             page.update()
@@ -2363,11 +2368,16 @@ def main(page: ft.Page):
             height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
             content_padding=ft.Padding(8, 4, 8, 4))
 
+        fired = {"done": False}
+
         def _cancel(event):
             dlg.open = False
             page.update()
 
         def _confirm(event):
+            if fired["done"]:
+                return
+            fired["done"] = True
             name = (name_field.value or "").strip()
             dlg.open = False
             page.update()
@@ -2720,7 +2730,12 @@ def main(page: ft.Page):
         page.update()
 
     def _create_file_confirm(dlg, name_field, folder):
+        fired = {"done": False}
+
         def _confirm(event):
+            if fired["done"]:
+                return
+            fired["done"] = True
             name = (name_field.value or "").strip()
             dlg.open = False
             page.update()
@@ -2752,11 +2767,12 @@ def main(page: ft.Page):
             dlg.open = False
             page.update()
 
+        confirm = _create_file_confirm(dlg, name_field, folder)
         dlg.actions = [
-            ft.TextButton("Créer", on_click=_create_file_confirm(dlg, name_field, folder)),
+            ft.TextButton("Créer", on_click=confirm),
             ft.TextButton("Annuler", on_click=_cancel),
         ]
-        name_field.on_submit = _create_file_confirm(dlg, name_field, folder)
+        name_field.on_submit = confirm
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
@@ -3096,7 +3112,12 @@ def main(page: ft.Page):
             password=True, can_reveal_password=True, autofocus=True, width=360,
             bgcolor=DARK, border_color=GREY, color=WHITE)
 
+        fired = {"done": False}
+
         def _confirm(e=None):
+            if fired["done"]:
+                return
+            fired["done"] = True
             value = password_field.value or ""
             if value:
                 credentials.set_credential(service, username, value)
@@ -5001,12 +5022,22 @@ def main(page: ft.Page):
             label="Nom de la série", hint_text="Ex: Mariage_Martin",
             autofocus=True, width=280, bgcolor=DARK, border_color=GREY,
             color=WHITE)
+        # Garde anti double-déclenchement : ENTER (on_submit) et le bouton
+        # "Lancer" appellent tous deux _confirm. Sans ce verrou, un second
+        # appel relit `selected` — déjà vidé par le _launch_tool du premier
+        # appel (_close_actions) — et le script associé traite alors TOUT
+        # le dossier au lieu des seuls fichiers sélectionnés (retour user :
+        # renommage complet et destructif d'un dossier au lieu de 3 photos).
+        fired = {"done": False}
 
         def _cancel(e):
             dlg.open = False
             page.update()
 
         def _confirm(e):
+            if fired["done"]:
+                return
+            fired["done"] = True
             series = (name_field.value or "").strip()
             dlg.open = False
             page.update()
@@ -5167,11 +5198,16 @@ def main(page: ft.Page):
                              width=280, bgcolor=DARK, border_color=GREY,
                              color=WHITE)
 
+        fired = {"done": False}
+
         def _cancel(e):
             dlg.open = False
             page.update()
 
         def _confirm(e):
+            if fired["done"]:
+                return
+            fired["done"] = True
             value = (field.value or "").strip()
             dlg.open = False
             page.update()
@@ -5204,11 +5240,15 @@ def main(page: ft.Page):
             for i, (label, suffix, default, env_key) in enumerate(fields)
         ]
 
+        fired = {"done": False}
+
         def _cancel(e):
             dlg.open = False
             page.update()
 
         def _confirm(e):
+            if fired["done"]:
+                return
             env = {}
             for (label, suffix, default, env_key), field in zip(fields, text_fields):
                 try:
@@ -5217,6 +5257,7 @@ def main(page: ft.Page):
                     field.error_text = "Nombre requis"
                     page.update()
                     return
+            fired["done"] = True
             dlg.open = False
             page.update()
             _launch_tool(script_name, extra_env=env)
@@ -6229,11 +6270,16 @@ def main(page: ft.Page):
             height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
             content_padding=ft.Padding(8, 4, 8, 4))
 
+        fired = {"done": False}
+
         def _cancel(event):
             dlg.open = False
             page.update()
 
         def _confirm(event):
+            if fired["done"]:
+                return
+            fired["done"] = True
             pwd = pwd_field.value or ""
             pwd_field.value = ""
             dlg.open = False
