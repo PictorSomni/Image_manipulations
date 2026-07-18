@@ -853,3 +853,25 @@ def ensure_imagemagick_env():
         if os.path.isdir(os.path.join(prefix, "lib")):
             os.environ["MAGICK_HOME"] = prefix
             break
+
+
+def is_icloud_placeholder(path, stat_result=None):
+    """True si ``path`` est un fichier iCloud Drive pas encore rapatrié sur
+    le disque (évincé par "Optimiser le stockage Mac").
+
+    ``st_blocks == 0`` avec une taille non nulle = le contenu n'existe pas
+    localement : l'ouvrir (miniature, PIL...) forcerait macOS à le
+    télécharger. Sur un dossier de plusieurs centaines de fichiers ainsi
+    évincés, ça déclenche une rafale de téléchargements iCloud qui peut
+    saturer toute la machine (incident du 2026-07-18 : remonter deux fois
+    de dossier dans Hub a suffi à geler tout le Mac, forçant un arrêt
+    forcé).
+    """
+    import platform
+    if platform.system() != "Darwin" or "Mobile Documents" not in path:
+        return False
+    try:
+        st = stat_result or os.stat(path)
+        return st.st_size > 0 and st.st_blocks == 0
+    except OSError:
+        return False

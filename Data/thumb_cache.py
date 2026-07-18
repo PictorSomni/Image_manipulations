@@ -283,6 +283,17 @@ def get_or_generate(
             if row and row[1] == size_bytes:
                 return base64.b64decode(row[0])
 
+            # Fichier iCloud pas encore téléchargé localement : générer sa
+            # miniature forcerait macOS à le rapatrier — sans risque pour
+            # un seul fichier, mais un dossier de centaines de fichiers
+            # ainsi évincés déclenche une rafale de téléchargements iCloud
+            # qui peut saturer toute la machine (retour user, cf.
+            # CONSTANTS.is_icloud_placeholder). Rien à mettre en cache :
+            # une fois le fichier réellement téléchargé (ouverture manuelle,
+            # sync en arrière-plan...), l'appel suivant régénère normalement.
+            if CONSTANTS.is_icloud_placeholder(image_path, stat_result):
+                return None
+
             # Cache absent OU taille différente (nom réutilisé pour un
             # autre fichier) — génération HORS verrou : Wand/PyMuPDF/PIL
             # font le gros du travail ici, et le garder hors du verrou
@@ -327,6 +338,9 @@ def get_or_generate(
         cached_signature, cached_bytes = _session_fallback[fallback_key]
         if cached_signature == signature:
             return cached_bytes
+
+    if CONSTANTS.is_icloud_placeholder(image_path, stat_result):
+        return None
 
     b64 = _generate_b64(image_path, size_px, quality, grayscale)
     if b64 is not None:

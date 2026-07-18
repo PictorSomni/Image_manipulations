@@ -2633,6 +2633,16 @@ def main(page: ft.Page):
         lambda e: _launch_two_in_one(e),
         "2 en 1")
 
+    # Grisés tant qu'aucun fichier n'est sélectionné, comme les chips
+    # Renommer -> Supprimer plus bas (retour user) : `disabled=True` +
+    # icon_color=LIGHT_GREY posés dès la création, _refresh_edit_buttons()
+    # les redégrise/regrise avec les autres à chaque changement de
+    # sélection.
+    for _btn in (recadrage_manuel_btn, recadrage_auto_btn, two_en_un_btn):
+        _btn.disabled = True
+        _btn.icon_color = LIGHT_GREY
+        _btn.style.bgcolor = GREY
+
     new_folder_btn = ft.IconButton(
         icon=ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
         icon_color=ORANGE, icon_size=CONSTANTS.ICON_SM,
@@ -2761,13 +2771,30 @@ def main(page: ft.Page):
         btn.disabled = not enabled
         btn.icon_color = color if enabled else LIGHT_GREY
 
+    # Même grisage que _sel_edit_btns, mais ces 3 boutons sont à fond plein
+    # coloré + icône DARK (_toolbar_icon_btn) au lieu de fond GREY + icône
+    # colorée : la bascule touche donc `style.bgcolor` plutôt que
+    # `icon_color` seul.
+    _sel_toolbar_btns = [
+        (recadrage_manuel_btn, RED), (recadrage_auto_btn, GREEN),
+        (two_en_un_btn, GREEN),
+    ]
+
+    def _set_toolbar_btn_state(btn, color, enabled):
+        btn.disabled = not enabled
+        btn.icon_color = DARK if enabled else LIGHT_GREY
+        btn.style.bgcolor = color if enabled else GREY
+
     def _refresh_edit_buttons():
         n = len(selected)
         _set_edit_btn_state(renommer_btn, BLUE, n == 1)
         for btn, color in _sel_edit_btns[1:]:
             _set_edit_btn_state(btn, color, n > 0)
         _set_edit_btn_state(coller_btn, YELLOW, bool(clipboard["paths"]))
-        for btn, _color in _sel_edit_btns + [(coller_btn, YELLOW)]:
+        for btn, color in _sel_toolbar_btns:
+            _set_toolbar_btn_state(btn, color, n > 0)
+        for btn, _color in (_sel_edit_btns + [(coller_btn, YELLOW)]
+                            + _sel_toolbar_btns):
             try:
                 btn.update()
             except Exception:
@@ -3104,6 +3131,16 @@ def main(page: ft.Page):
     ai_streaming = {"value": False}
     ai_pending_images = []   # [{"path": str, "b64": str}, ...] — en attente d'envoi
     ai_pending_files = []    # [str, ...] chemins de documents en attente
+    # Dernières images jointes au chat (b64) : source de repli pour
+    # edit_image quand le modèle l'appelle sur une image collée/uploadée
+    # dans la conversation plutôt que sur un fichier du dossier ouvert — le
+    # modèle ne connaît alors aucun nom de fichier réel (les bytes envoyés
+    # via user_message["images"] ne portent aucune métadonnée de nom) et en
+    # invente un plausible (ex. "input_file_1.png"), qui ne correspond à
+    # rien sur disque : sans ce repli, edit_image tombait silencieusement
+    # en génération pure (aucune image source), produisant un résultat sans
+    # rapport avec la photo jointe (retour user).
+    ai_last_attached_images = {"b64": []}
     ai_send_original_images = {"value": CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL}
     ai_tts_enabled = {"value": CONSTANTS.AI_VOICE_TTS_ENABLED}
     ai_tts_stop_event = {"event": None}
@@ -3466,6 +3503,31 @@ def main(page: ft.Page):
                 if os.path.isfile(src_path):
                     with open(src_path, "rb") as f:
                         src_bytes = f.read()
+            if src_bytes is None and ai_last_attached_images["b64"]:
+                # Le nom donné par le modèle ne correspond à aucun fichier du
+                # dossier ouvert — cas typique d'une image collée/uploadée
+                # directement dans le chat (jamais présente sur disque sous
+                # ce nom, le modèle invente alors un nom plausible du style
+                # "input_file_1.png"). On retombe sur la dernière image
+                # réellement jointe à la conversation plutôt que de générer
+                # sans aucune image source (retour user : sans ça, edit_image
+                # produisait silencieusement un résultat sans rapport avec
+                # la photo jointe).
+                try:
+                    src_bytes = base64.b64decode(ai_last_attached_images["b64"][-1])
+                    # Consommée : évite qu'un futur edit_image sur un nom de
+                    # fichier différent (mais introuvable, ex. faute de
+                    # frappe) ne retombe silencieusement sur cette même
+                    # image, périmée, plusieurs tours plus tard.
+                    ai_last_attached_images["b64"] = []
+                except Exception:
+                    src_bytes = None
+            if src_bytes is None:
+                return (
+                    f"[Erreur] Fichier source introuvable : "
+                    f"{src_name or '(non fourni)'}. Vérifie le nom exact "
+                    "via list_folder_contents, ou demande à l'utilisateur de "
+                    "joindre l'image dans le chat.")
             _ai_add_bubble("assistant", f"🎨 Édition : {src_name} → {out_filename}")
 
         prompt_refined = prompt
@@ -4423,11 +4485,24 @@ def main(page: ft.Page):
         images_b64 = [e["b64"] for e in ai_pending_images]
         images_paths = [e["path"] for e in ai_pending_images]
         files_to_inject = list(ai_pending_files)
+        if images_b64:
+            ai_last_attached_images["b64"] = images_b64
         ai_pending_images.clear()
         ai_pending_files.clear()
         _ai_refresh_attach_row()
 
-        user_message = {"role": "user", "content": text}
+        content = text
+        if images_paths:
+            # Le modèle ne voit sinon QUE les octets (user_message["images"])
+            # sans aucun nom de fichier : pour éditer l'image jointe via
+            # edit_image, il doit connaître le nom réel du fichier dans le
+            # dossier ouvert, sinon il en invente un plausible qui ne
+            # correspond à rien sur disque (retour user, cf. incident chat
+            # gris → armure Anubis générée sans rapport avec la photo).
+            names = ", ".join(os.path.basename(p) for p in images_paths)
+            note = f"[Image(s) jointe(s) à ce message : {names}]"
+            content = f"{content}\n\n{note}" if content else note
+        user_message = {"role": "user", "content": content}
         if images_b64:
             user_message["images"] = images_b64
         ai_conversation.append(user_message)
@@ -5882,11 +5957,13 @@ def main(page: ft.Page):
             width=132, bgcolor=DARK, border_color=GREY, color=WHITE,
             disabled=not manual["value"], keyboard_type=ft.KeyboardType.NUMBER)
         manual_switch = ft.Switch(label="Saisie manuelle (mm)",
-                                  value=manual["value"])
+                                  value=manual["value"], active_color=BLUE)
         fit_switch = ft.Switch(label="Fit 100% (sans rognage)",
-                               value=bool(saved.get("fit", False)))
+                               value=bool(saved.get("fit", False)),
+                               active_color=BLUE)
         white_border_switch = ft.Switch(label="Bord blanc 5mm",
-                                        value=bool(saved.get("white_border", False)))
+                                        value=bool(saved.get("white_border", False)),
+                                        active_color=BLUE)
         scope_text = ft.Text(
             f"Portée auto : {'sélection en cours' if selected else 'tout le dossier'}",
             size=CONSTANTS.TEXT_SM, color=GREY)
