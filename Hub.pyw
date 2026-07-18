@@ -433,6 +433,7 @@ def main(page: ft.Page):
                 f"{total_txt}, {n} sélectionné{'s' if n > 1 else ''}")
         else:
             status_left.value = total_txt if total else ""
+        _refresh_edit_buttons()
 
     def _set_selected(path, on):
         # Un clic sur une vignette/case ne fait pas toujours perdre le focus
@@ -1037,12 +1038,14 @@ def main(page: ft.Page):
     def _do_copy(paths):
         clipboard["paths"] = list(paths)
         clipboard["mode"] = "copy"
+        _refresh_edit_buttons()
         page.update()
         _log_to_terminal(f"[OK] {len(clipboard['paths'])} élément(s) copié(s)", BLUE)
 
     def _do_cut(paths):
         clipboard["paths"] = list(paths)
         clipboard["mode"] = "cut"
+        _refresh_edit_buttons()
         page.update()
         _log_to_terminal(
             f"[OK] {len(clipboard['paths'])} élément(s) coupé(s) — Ctrl+V pour coller",
@@ -1070,6 +1073,7 @@ def main(page: ft.Page):
         if is_cut:
             clipboard["paths"] = []
             clipboard["mode"] = None
+            _refresh_edit_buttons()
 
         def _work():
             pasted, errors = 0, 0
@@ -2491,34 +2495,46 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
-    # _launch_tool est défini plus loin dans main() : lambda pour différer
-    # la résolution jusqu'au clic, même principe que transfert_temp_btn
-    # ci-dessous — retour user : usage fréquent, sorti du panneau Actions.
-    kiosk_gauche_btn = ft.TextButton(
-        content=ft.Row([
-            ft.Icon(ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT_SHARP, color=VIOLET,
-                    size=CONSTANTS.ICON_SM),
-            ft.Text("Kiosk gauche", size=CONSTANTS.TEXT_SM, color=VIOLET),
-        ], spacing=6, tight=True),
-        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
-        height=CONSTANTS.HUB_TOOLBAR_H,
-        on_click=lambda e: _launch_tool("Kiosk gauche.py", is_local=True),
-        tooltip="Kiosk gauche",
-    )
+    # _launch_tool / _launch_transfert_temp / _launch_recadrage_auto /
+    # _launch_two_in_one sont définis plus loin dans main() : lambda pour
+    # différer la résolution jusqu'au clic (même principe partout ici).
+    # Icône seule (pas de TextButton avec label) — retour user : usage
+    # fréquent à chaque client, sorti du panneau Actions, mais sans bloat
+    # de largeur en mode compagnon demi-écran.
+    def _toolbar_icon_btn(icon, color, on_click, tooltip):
+        # Couleurs inversées (fond plein, icône DARK) + ICON_LG — retour
+        # user : plus visibles que le style GREY/icône colorée des boutons
+        # voisins (parent/refresh/nouveau dossier), marge dispo en demi-écran.
+        return ft.IconButton(
+            icon=icon, icon_color=DARK, icon_size=CONSTANTS.ICON_LG,
+            style=ft.ButtonStyle(bgcolor=color, padding=ft.Padding.all(6)),
+            height=CONSTANTS.HUB_TOOLBAR_H, on_click=on_click,
+            tooltip=tooltip,
+        )
 
-    # _launch_transfert_temp est défini plus loin dans main() : lambda pour
-    # différer la résolution du nom jusqu'au clic.
-    transfert_temp_btn = ft.TextButton(
-        content=ft.Row([
-            ft.Icon(ft.Icons.DRIVE_FILE_MOVE_OUTLINED, color=BLUE,
-                    size=CONSTANTS.ICON_SM),
-            ft.Text("Transfert vers TEMP", size=CONSTANTS.TEXT_SM, color=BLUE),
-        ], spacing=6, tight=True),
-        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
-        height=CONSTANTS.HUB_TOOLBAR_H,
-        on_click=lambda e: _launch_transfert_temp(e),
-        tooltip="Transfert vers TEMP (dossier Download)",
-    )
+    kiosk_gauche_btn = _toolbar_icon_btn(
+        ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT_SHARP, VIOLET,
+        lambda e: _launch_tool("Kiosk gauche.py", is_local=True),
+        "Kiosk gauche")
+
+    transfert_temp_btn = _toolbar_icon_btn(
+        ft.Icons.DRIVE_FILE_MOVE_OUTLINED, BLUE,
+        lambda e: _launch_transfert_temp(e),
+        "Transfert vers TEMP (dossier Download)")
+
+    recadrage_manuel_btn = _toolbar_icon_btn(
+        ft.Icons.CROP_FREE, RED,
+        lambda e: _launch_tool("Recadrage manuel.pyw"),
+        "Recadrage manuel")
+
+    recadrage_auto_btn = _toolbar_icon_btn(
+        ft.Icons.CROP, GREEN, lambda e: _launch_recadrage_auto(e),
+        "Recadrage automatique")
+
+    two_en_un_btn = _toolbar_icon_btn(
+        ft.CupertinoIcons.SQUARE_SPLIT_2X1, GREEN,
+        lambda e: _launch_two_in_one(e),
+        "2 en 1")
 
     new_folder_btn = ft.IconButton(
         icon=ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
@@ -2582,19 +2598,106 @@ def main(page: ft.Page):
         height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT, on_click=lambda e: _open_actions(e),
     )
 
-    # Les chips Renommer -> Supprimer (ex-"rangée d'actions tactiles") ont
-    # déménagé en tête du panneau Actions (cf. _ACTION_CATEGORIES) — retour
-    # user : la 2e ligne du header ne garde que la recherche.
+    # Chips Renommer -> Supprimer : à côté de la recherche (retour user :
+    # accès direct sans ouvrir le panneau Actions, où ils restent aussi).
+    # Icône seule + grisées (disabled) tant qu'aucune sélection valide —
+    # retour user : toujours un feedback visuel maximal sur ce qui est
+    # utilisable.
+    def _edit_icon_btn(icon, color, on_click, tooltip):
+        # icon_color=LIGHT_GREY au départ : cohérent avec disabled=True tant
+        # que _refresh_edit_buttons() n'a pas encore tourné une 1re fois.
+        return ft.IconButton(
+            icon=icon, icon_color=LIGHT_GREY, icon_size=CONSTANTS.ICON_SM,
+            style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
+            height=CONSTANTS.HUB_TOOLBAR_H, on_click=on_click,
+            tooltip=tooltip, disabled=True,
+        )
+
+    renommer_btn = _edit_icon_btn(
+        ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
+        lambda e: _run_action(_rename_item, list(selected))
+                  if len(selected) == 1 else None,
+        "Renommer")
+    copier_btn = _edit_icon_btn(
+        ft.Icons.CONTENT_COPY, BLUE,
+        lambda e: _run_action(_do_copy, list(selected)) if selected else None,
+        "Copier")
+    couper_btn = _edit_icon_btn(
+        ft.Icons.CONTENT_CUT, ORANGE,
+        lambda e: _run_action(_do_cut, list(selected)) if selected else None,
+        "Couper")
+    # Coller ne dépend pas de la sélection mais du presse-papiers interne
+    # (clipboard["paths"]) — grisé/dégrisé séparément, cf. _do_copy/_do_cut/
+    # _do_paste.
+    coller_btn = _edit_icon_btn(
+        ft.Icons.CONTENT_PASTE, YELLOW,
+        lambda e: _run_action(_do_paste),
+        "Coller")
+    dupliquer_btn = _edit_icon_btn(
+        ft.Icons.FILE_COPY_OUTLINED, BLUE,
+        lambda e: _run_action(_do_duplicate, list(selected)) if selected else None,
+        "Dupliquer")
+    zipper_btn = _edit_icon_btn(
+        ft.Icons.FOLDER_ZIP_OUTLINED, YELLOW,
+        lambda e: _run_action(_do_zip, list(selected)) if selected else None,
+        "Zipper")
+    ajouter_ia_btn = _edit_icon_btn(
+        ft.Icons.SMART_TOY_OUTLINED, VIOLET,
+        lambda e: _run_action(_add_to_ai, list(selected)) if selected else None,
+        "Ajouter à l'IA")
+    supprimer_btn = _edit_icon_btn(
+        ft.Icons.DELETE_OUTLINE, RED,
+        lambda e: _run_action(_do_delete, list(selected)) if selected else None,
+        "Supprimer")
+
+    # (bouton, sa couleur active) — `disabled=True` seul ne suffit pas à
+    # griser visiblement une icône dont `icon_color` est fixé explicitement
+    # (retour user : pas assez visible) ; on repasse aussi l'icône en
+    # LIGHT_GREY à la main, comme only_sel_btn le fait déjà pour son état.
+    _sel_edit_btns = [
+        (renommer_btn, BLUE), (copier_btn, BLUE), (couper_btn, ORANGE),
+        (dupliquer_btn, BLUE), (zipper_btn, YELLOW),
+        (ajouter_ia_btn, VIOLET), (supprimer_btn, RED),
+    ]
+
+    def _set_edit_btn_state(btn, color, enabled):
+        btn.disabled = not enabled
+        btn.icon_color = color if enabled else LIGHT_GREY
+
+    def _refresh_edit_buttons():
+        n = len(selected)
+        _set_edit_btn_state(renommer_btn, BLUE, n == 1)
+        for btn, color in _sel_edit_btns[1:]:
+            _set_edit_btn_state(btn, color, n > 0)
+        _set_edit_btn_state(coller_btn, YELLOW, bool(clipboard["paths"]))
+        for btn, _color in _sel_edit_btns + [(coller_btn, YELLOW)]:
+            try:
+                btn.update()
+            except Exception:
+                pass
+
+    edit_btns_row = ft.Row(
+        [renommer_btn, copier_btn, couper_btn, coller_btn, dupliquer_btn,
+         zipper_btn, ajouter_ia_btn, supprimer_btn], spacing=4)
+
     touch_actions_line = ft.Row(
-        [search_field_wrap],
-        spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER, expand=True)
+        [search_field_wrap, edit_btns_row],
+        spacing=32, vertical_alignment=ft.CrossAxisAlignment.CENTER, expand=True)
 
     files_header = ft.Container(
         content=ft.Column([
             ft.Row([
                 ft.Row([parent_folder_btn, refresh_folder_btn,
-                       new_folder_btn, kiosk_gauche_btn,
-                       transfert_temp_btn], spacing=8),
+                       new_folder_btn,
+                       ft.Container(
+                           content=ft.Row([
+                               kiosk_gauche_btn, transfert_temp_btn,
+                               recadrage_manuel_btn, recadrage_auto_btn,
+                               two_en_un_btn], spacing=8),
+                           border=ft.Border.all(1, BLUE),
+                           border_radius=8, padding=ft.Padding(4, 0, 4, 0),
+                           margin=ft.Margin(32, 0, 0, 0)),
+                       ], spacing=8),
                 ft.Container(expand=True),
                 ft.VerticalDivider(width=1, color=GREY),
                 sort_btn,
@@ -4200,7 +4303,6 @@ def main(page: ft.Page):
                 f"{hotkey_error}", RED)
             return
         _mic_state["hotkey_listener"] = listener
-        _log_to_terminal(f"[IA] Bouton micro physique ({ptt_name}) actif.", BLUE)
 
     def _send_ai_message(text):
         if ai_streaming["value"] or (not text.strip() and not ai_pending_images
@@ -5905,42 +6007,6 @@ def main(page: ft.Page):
     # maquette (celle-ci utilisait des actions fictives) — Bluetooth et
     # Imprimer n'y sont plus : remontés dans la barre de titre (accès global).
     _ACTION_CATEGORIES = [
-        ("Édition", [
-            # Ex-rangée d'actions tactiles du header (retour user : déplacée
-            # tout en haut du panneau Actions). Mêmes icônes/couleurs
-            # qu'avant, opère toujours sur `selected`. _run_action ferme le
-            # panneau AVANT de lancer l'action (retour user : le panneau
-            # doit disparaître avant que le terminal/la barre de
-            # progression n'apparaissent, jamais pendant qu'il est encore
-            # affiché) — `list(selected)` est capturé en argument avant cet
-            # appel, puisque la fermeture vide `selected`.
-            ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
-             lambda e: _run_action(_rename_item, list(selected))
-                       if len(selected) == 1 else None),
-            ("Copier", ft.Icons.CONTENT_COPY, BLUE,
-             lambda e: _run_action(_do_copy, list(selected))
-                       if selected else None),
-            ("Couper", ft.Icons.CONTENT_CUT, ORANGE,
-             lambda e: _run_action(_do_cut, list(selected))
-                       if selected else None),
-            ("Coller", ft.Icons.CONTENT_PASTE, YELLOW,
-             lambda e: _run_action(_do_paste)),
-            ("Dupliquer", ft.Icons.FILE_COPY_OUTLINED, BLUE,
-             lambda e: _run_action(_do_duplicate, list(selected))
-                       if selected else None),
-            ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, YELLOW,
-             lambda e: _run_action(_do_zip, list(selected))
-                       if selected else None),
-            ("Dézipper", ft.Icons.UNARCHIVE_OUTLINED, ORANGE,
-             lambda e: _run_action(_do_unzip, list(selected))
-                       if selected else None),
-            ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
-             lambda e: _run_action(_add_to_ai, list(selected))
-                       if selected else None),
-            ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
-             lambda e: _run_action(_do_delete, list(selected))
-                       if selected else None),
-        ]),
         ("Préparation", [
             ("Conversion JPG", ft.Icons.IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Conversion JPG.py",
@@ -5962,13 +6028,6 @@ def main(page: ft.Page):
              ft.Icons.WORKSPACE_PREMIUM_OUTLINED, YELLOW, _launch_copy_scored),
             ("Fichiers identiques", ft.Icons.CONTENT_COPY, YELLOW,
              lambda e: _launch_tool("Fichiers identiques.py")),
-        ]),
-        ("Recadrage & impression", [
-            ("Recadrage automatique", ft.Icons.CROP, GREEN,
-             _launch_recadrage_auto),
-            ("Recadrage manuel", ft.Icons.CROP_FREE, RED,
-             lambda e: _launch_tool("Recadrage manuel.pyw")),
-            ("2 en 1", ft.Icons.FILTER_2, GREEN, _launch_two_in_one),
         ]),
         ("Kiosque (mode client)", [
             ("Kiosque — Studios", ft.Icons.STOREFRONT_OUTLINED, ORANGE,
