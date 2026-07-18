@@ -223,6 +223,45 @@ def _save_order_bw(order_bw):
         pass
 
 
+def _lower_thread_priority():
+    """Priorité basse pour un thread de fond (génération de miniatures) :
+    la machine doit d'abord servir Hub (et le reste du système), les
+    miniatures se remplissent avec le temps CPU restant — un dossier de
+    plusieurs milliers de SVG (ex. un set d'émojis) ralentissait TOUTE la
+    machine, pas seulement Hub (retour user). Best-effort : silencieux si
+    l'API n'est pas dispo (permissions, plateforme non gérée...).
+    """
+    try:
+        system = platform.system()
+        if system == "Windows":
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            # GetCurrentThread() renvoie un HANDLE (64 bits sur Windows
+            # x64) : sans ces restype/argtypes, ctypes le tronque en int
+            # 32 bits et SetThreadPriority échoue silencieusement avec un
+            # handle invalide.
+            kernel32.GetCurrentThread.restype = ctypes.c_void_p
+            kernel32.SetThreadPriority.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            THREAD_PRIORITY_LOWEST = -2
+            handle = kernel32.GetCurrentThread()
+            kernel32.SetThreadPriority(handle, THREAD_PRIORITY_LOWEST)
+        elif system == "Darwin":
+            # nice() est par PROCESSUS sur macOS (contrairement à Linux) —
+            # l'appeler ici baisserait Hub entier, pas juste ce thread. La
+            # QoS class est, elle, bien par thread (API Grand Central
+            # Dispatch) : c'est l'équivalent correct côté macOS.
+            import ctypes
+            libc = ctypes.CDLL("/usr/lib/libSystem.dylib")
+            QOS_CLASS_BACKGROUND = 0x09
+            libc.pthread_set_qos_class_self_np(QOS_CLASS_BACKGROUND, 0)
+        else:
+            # Linux : chaque thread noyau a sa propre valeur nice, l'appel
+            # n'affecte donc que le thread appelant.
+            os.nice(10)
+    except Exception:
+        pass
+
+
 def main(page: ft.Page):
     # ─── Couleurs (rôles sémantiques, cf. CONSTANTS §3bis) ───────────────
     DARK       = CONSTANTS.COLOR_DARK
@@ -841,6 +880,7 @@ def main(page: ft.Page):
         snapshot = list(pending.items())
 
         def _load():
+            _lower_thread_priority()
             # Un page.update() par miniature chargée noyait la boucle
             # d'événements sous des rafales de mises à jour sur les gros
             # dossiers (des centaines d'images) — l'app entière (clics,
@@ -858,7 +898,13 @@ def main(page: ft.Page):
             # dossier abandonne aussitôt les tâches pas encore lancées au
             # lieu d'attendre que les 300 rendus se terminent (retour
             # user — jamais bloquer sur un dossier abandonné).
-            pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+            # initializer=_lower_thread_priority : sur un dossier de
+            # plusieurs milliers de SVG (ex. un set d'émojis), la
+            # génération pouvait saturer le CPU de toute la machine, pas
+            # seulement ralentir Hub — priorité basse pour que l'OS serve
+            # Hub (et le reste du système) en premier (retour user).
+            pool = concurrent.futures.ThreadPoolExecutor(
+                max_workers=2, initializer=_lower_thread_priority)
             futures = {pool.submit(thumb_cache.get_or_generate, path): (path, holder)
                       for path, holder in snapshot}
             last_update = 0.0
@@ -2157,51 +2203,34 @@ def main(page: ft.Page):
 
     _MENU_LANE_WIDTH = 214
     _MENU_LANE_HEIGHT = 340
-    _FAV_COL_ITEMS = 8   # au-delà, une nouvelle colonne apparaît (défilement horizontal)
-    _FAV_VISIBLE_COLS = 3   # colonnes de favoris visibles sans défiler
 
-    def _chunked(seq, n):
-        return [seq[i:i + n] for i in range(0, len(seq), n)]
+    def _menu_lane(title, items, empty_message):
+        # Toujours une seule colonne par volet (défilement vertical si le
+        # contenu déborde) — le menu Ouvrir reste figé à 3 colonnes
+        # (Historique / Favoris / Périphériques), jamais plus (retour user).
+        body = items or [ft.Container(
+            content=ft.Text(empty_message, size=CONSTANTS.TEXT_SM, color=GREY),
+            padding=ft.Padding(10, 8, 10, 8))]
+        return ft.Container(
+            width=_MENU_LANE_WIDTH, height=_MENU_LANE_HEIGHT,
+            content=ft.Column([
+                _menu_section_label(title),
+                ft.Column(body, spacing=0, scroll=ft.ScrollMode.AUTO, expand=True),
+            ], spacing=0, expand=True))
 
     def _build_open_menu():
         favs = _load_favorites()
         recents = _load_recent()
+        drives = _get_removable_drives()
 
-        recent_items = [_recent_row(p) for p in recents[:12]] or [
-            ft.Container(content=ft.Text("Aucun dossier récent",
-                                         size=CONSTANTS.TEXT_SM, color=GREY),
-                        padding=ft.Padding(10, 8, 10, 8))]
-        recent_lane = ft.Container(
-            width=_MENU_LANE_WIDTH, height=_MENU_LANE_HEIGHT,
-            content=ft.Column([
-                _menu_section_label("Récents"),
-                ft.Column(recent_items, spacing=0, scroll=ft.ScrollMode.AUTO,
-                          expand=True),
-            ], spacing=0, expand=True))
-
-        if favs:
-            fav_chunks = _chunked([_fav_row(f) for f in favs], _FAV_COL_ITEMS)
-        else:
-            fav_chunks = [[ft.Container(
-                content=ft.Text("Aucun favori", size=CONSTANTS.TEXT_SM, color=GREY),
-                padding=ft.Padding(10, 8, 10, 8))]]
-        # Une colonne par tranche de _FAV_COL_ITEMS ; au-delà de la largeur
-        # d'une colonne, on défile horizontalement pour voir les suivantes
-        # (jamais de wrap= — cf. incident rendu de la surface Fichiers).
-        fav_columns_row = ft.Row(
-            [ft.Container(width=_MENU_LANE_WIDTH,
-                         content=ft.Column(chunk, spacing=0))
-             for chunk in fav_chunks],
-            spacing=6, scroll=ft.ScrollMode.ALWAYS)
-        fav_cols_shown = min(len(fav_chunks), _FAV_VISIBLE_COLS)
-        fav_lane_width = (_MENU_LANE_WIDTH * fav_cols_shown
-                          + 6 * (fav_cols_shown - 1))
-        fav_lane = ft.Container(
-            width=fav_lane_width, height=_MENU_LANE_HEIGHT,
-            content=ft.Column([
-                _menu_section_label("Favoris"),
-                fav_columns_row,
-            ], spacing=0, expand=True))
+        recent_lane = _menu_lane(
+            "Historique", [_recent_row(p) for p in recents[:30]],
+            "Aucun dossier récent")
+        fav_lane = _menu_lane(
+            "Favoris", [_fav_row(f) for f in favs], "Aucun favori")
+        drive_lane = _menu_lane(
+            "Périphériques", [_drive_row(n, p) for n, p in drives],
+            "Aucun périphérique externe")
 
         footer = ft.Row([
             ft.TextButton(
@@ -2220,17 +2249,11 @@ def main(page: ft.Page):
                 on_click=_add_favorite_current, disabled=not state["folder"]),
         ])
 
-        lanes = [recent_lane, ft.VerticalDivider(width=1, color=DARK), fav_lane]
-        drives = _get_removable_drives()
-        if drives:
-            drive_lane = ft.Container(
-                width=_MENU_LANE_WIDTH, height=_MENU_LANE_HEIGHT,
-                content=ft.Column([
-                    _menu_section_label("Périphériques"),
-                    ft.Column([_drive_row(n, p) for n, p in drives], spacing=0,
-                              scroll=ft.ScrollMode.AUTO, expand=True),
-                ], spacing=0, expand=True))
-            lanes += [ft.VerticalDivider(width=1, color=DARK), drive_lane]
+        lanes = [
+            recent_lane, ft.VerticalDivider(width=1, color=DARK),
+            fav_lane, ft.VerticalDivider(width=1, color=DARK),
+            drive_lane,
+        ]
 
         open_menu_panel.content = ft.Column([
             ft.Row(lanes, spacing=6, vertical_alignment=ft.CrossAxisAlignment.START),
@@ -2346,6 +2369,22 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
+    # _launch_tool est défini plus loin dans main() : lambda pour différer
+    # la résolution jusqu'au clic, même principe que transfert_temp_btn
+    # ci-dessous — retour user : usage fréquent, sorti du panneau Actions.
+    kiosk_gauche_btn = ft.TextButton(
+        content=ft.Row([
+            ft.Icon(ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT_SHARP, color=VIOLET,
+                    size=CONSTANTS.ICON_SM),
+            ft.Text("Kiosk gauche", size=CONSTANTS.TEXT_SM, color=VIOLET),
+        ], spacing=6, tight=True),
+        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
+        height=CONSTANTS.HUB_TOOLBAR_H,
+        on_click=lambda e: _launch_tool("Kiosk gauche.py", is_local=True),
+        tooltip="Kiosk gauche — retour user : usage fréquent, sorti du "
+                "panneau Actions",
+    )
+
     # _launch_transfert_temp est défini plus loin dans main() : lambda pour
     # différer la résolution du nom jusqu'au clic.
     transfert_temp_btn = ft.TextButton(
@@ -2434,7 +2473,8 @@ def main(page: ft.Page):
         content=ft.Column([
             ft.Row([
                 ft.Row([parent_folder_btn, refresh_folder_btn,
-                       new_folder_btn, transfert_temp_btn], spacing=8),
+                       new_folder_btn, kiosk_gauche_btn,
+                       transfert_temp_btn], spacing=8),
                 ft.Container(expand=True),
                 ft.VerticalDivider(width=1, color=GREY),
                 sort_btn,
@@ -4785,12 +4825,23 @@ def main(page: ft.Page):
         status_left.value = msg
         page.update()
 
-    async def _tool_refresh(folder):
+    async def _tool_refresh(folder, names=None):
         if folder:
             try:
                 _navigate(folder)
             except Exception:
                 pass
+        # "SELECTED_FILES:a.jpg|b.jpg" (cf. _launch_tool/_read_output) :
+        # appliqué APRÈS _navigate() (qui vide `selected` en interne) pour
+        # resélectionner ce que l'outil a repéré (ex. Fichiers identiques.py)
+        # — sinon la ligne n'était que loguée dans le terminal, jamais
+        # traduite en sélection (retour user).
+        if names is not None:
+            selected.clear()
+            paths = [os.path.join(folder, name) for name in names if name]
+            _select_update(p for p in paths if os.path.isfile(p))
+            _update_sel_count()
+            _render()
 
     # Scripts en .py (pas .pyw) qui ouvrent quand même leur propre fenêtre
     # Flet — l'extension seule ne suffit pas à détecter une vraie appli GUI.
@@ -4855,7 +4906,13 @@ def main(page: ft.Page):
             # "NAVIGATE_TO:<chemin>" est interceptée plutôt que loguée, pour
             # naviguer vers le dossier réellement produit par l'outil (ex.
             # Transfert vers TEMP.py qui crée un sous-dossier daté).
+            # "SELECTED_FILES:a.jpg|b.jpg" (même convention Dashboard.pyw:719/
+            # 9221-9240) : des outils comme Fichiers identiques.py repèrent des
+            # fichiers et attendent qu'ils soient sélectionnés dans la preview
+            # après coup — sans cette interception, la ligne n'était que
+            # loguée dans le terminal, jamais appliquée (retour user).
             nav_target = {"path": None}
+            sel_target = {"names": None}
 
             def _read_output(pipe, color):
                 try:
@@ -4865,6 +4922,9 @@ def main(page: ft.Page):
                             continue
                         if stripped.startswith("NAVIGATE_TO:"):
                             nav_target["path"] = stripped[len("NAVIGATE_TO:"):]
+                        elif stripped.startswith("SELECTED_FILES:"):
+                            sel_target["names"] = stripped[
+                                len("SELECTED_FILES:"):].split("|")
                         else:
                             _log_to_terminal(stripped, color)
                 except Exception:
@@ -4892,7 +4952,8 @@ def main(page: ft.Page):
                     RED)
             else:
                 _log_to_terminal(f"[OK] {script_name} terminé", GREEN)
-            page.run_task(_tool_refresh, nav_target["path"] or folder)
+            page.run_task(_tool_refresh, nav_target["path"] or folder,
+                          sel_target["names"])
 
         threading.Thread(target=_run, daemon=True).start()
         _close_actions()
@@ -5708,8 +5769,6 @@ def main(page: ft.Page):
              _launch_renommer_sequence),
             ("Séparer RAW et JPG", ft.Icons.HIDE_IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Séparer RAW et JPG.py")),
-            ("Kiosk gauche", ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT_SHARP, VIOLET,
-             lambda e: _launch_tool("Kiosk gauche.py", is_local=True)),
         ]),
         ("Sélection", [
             ("Copier sélection → SELECTION", ft.Icons.FOLDER_COPY_OUTLINED, YELLOW,
