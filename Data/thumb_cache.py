@@ -412,6 +412,36 @@ def invalidate_stale(folder_path: str) -> None:
             pass
 
 
+def purge_folder(folder_path: str) -> None:
+    """Vide tout le cache d'un dossier, sans comparer aux signatures.
+
+    invalidate_stale() ne repère un fichier changé que si son mtime/size
+    diffère du stat() courant — inutile si ce stat() est lui-même périmé
+    (métadonnées de partage réseau/NAS mises en cache côté OS un court
+    instant après l'écriture par un autre programme) ou si l'édition a
+    par coïncidence produit exactement la même taille. "Rafraîchir" est un
+    geste explicite et rare de l'utilisateur ("je sais que ça a changé") :
+    on vide donc la table sans condition plutôt que de refaire confiance
+    à un stat() qui vient justement de tromper get_or_generate() une
+    première fois (retour user : miniature restée périmée après
+    modification d'une photo sur le NAS, y compris après "Rafraîchir").
+    """
+    db_path = _get_db_path(folder_path)
+    if db_path is None or not os.path.exists(db_path):
+        return
+    lock = _get_db_lock(folder_path)
+    with lock:
+        try:
+            conn = _open_db(db_path)
+            try:
+                conn.execute("DELETE FROM thumbs")
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception:
+            pass
+
+
 def _demo():
     """Auto-test : miniature raster, SVG (taille ~size_px, pas la taille
     physique du fichier) et accès concurrent (verrou DB) sans exception."""
@@ -463,9 +493,27 @@ def _demo():
             "le cache a renvoyé l'ancienne vignette malgré un contenu "
             "différent sous le même nom")
 
+        # purge_folder() doit vider la table SANS condition — utile
+        # justement quand size_bytes ne suffit pas à détecter un
+        # changement (édition recompressée par coïncidence à la même
+        # taille, ou stat() périmé sur un dossier NAS/réseau). Vérifié
+        # directement en base plutôt que sur les bytes retournés : sur ce
+        # fichier inchangé, get_or_generate() régénérerait de toute façon
+        # les mêmes bytes déterministes, donc les comparer ne prouverait
+        # rien (retour user : "Rafraîchir" restait bloqué sur l'ancienne
+        # vignette d'une photo modifiée sur le NAS).
+        db_path = _get_db_path(tmp)
+        row_count_before = sqlite3.connect(db_path).execute(
+            "SELECT COUNT(*) FROM thumbs").fetchone()[0]
+        assert row_count_before > 0, "cache vide avant purge (test invalide)"
+        purge_folder(tmp)
+        row_count_after = sqlite3.connect(db_path).execute(
+            "SELECT COUNT(*) FROM thumbs").fetchone()[0]
+        assert row_count_after == 0, "purge_folder() n'a pas vidé le cache"
+
         print("[OK] thumb_cache : miniatures raster/SVG + accès concurrent "
              "+ cache non revalidé sur mtime changé, mais invalidé sur "
-             "taille différente")
+             "taille différente + purge_folder() vide le cache")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

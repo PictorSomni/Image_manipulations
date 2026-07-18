@@ -86,10 +86,18 @@ _FAVORITES_FILE = os.path.join(_APP_DIR, ".favorites.json")
 
 
 def _load_recent():
+    # Pas de filtrage os.path.isdir() ici : cette fonction est appelée
+    # depuis _add_recent() à CHAQUE navigation (donc sur le thread
+    # principal, en synchrone) — vérifier l'existence de chaque dossier
+    # récent y bloquait toute navigation, et l'ouverture du menu "Ouvrir",
+    # plusieurs secondes dès qu'un des anciens dossiers pointe vers un
+    # partage réseau/NAS temporairement injoignable (retour user). Le
+    # nettoyage des entrées mortes se fait en arrière-plan côté menu
+    # (_build_open_menu), pas ici.
     try:
         with open(_RECENT_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-        return [p for p in data if isinstance(p, str) and os.path.isdir(p)]
+        return [p for p in data if isinstance(p, str)]
     except Exception:
         return []
 
@@ -899,6 +907,16 @@ def main(page: ft.Page):
             # les miniatures au fil de l'eau sans jamais saturer le thread
             # principal, quel que soit le nombre de fichiers.
             #
+            # page.update() SANS argument rediffuse toute la page (tout
+            # l'arbre de contrôles, pas seulement les vignettes changées) —
+            # sur un très gros dossier, ce diff complet répété ~10x/s
+            # pendant toute la génération suffisait à saturer la boucle
+            # d'événements : un clic (ex. entrer dans un sous-dossier)
+            # pouvait rester en attente plusieurs minutes derrière la
+            # rafale d'update() (retour user). page.update(*holders) ne
+            # patche que les vignettes de ce batch, coût proportionnel au
+            # batch et non à la taille du dossier.
+            #
             # 2 workers en parallèle : Wand/PyMuPDF (SVG/PDF, de loin les
             # plus lents à générer) libèrent le GIL pendant le rendu, donc
             # ça accélère vraiment un dossier de centaines de vectoriels
@@ -919,6 +937,7 @@ def main(page: ft.Page):
             last_update = 0.0
             done = 0
             total = len(futures)
+            batch = []
             try:
                 for future in concurrent.futures.as_completed(futures):
                     if state["thumb_token"] != token:
@@ -932,18 +951,21 @@ def main(page: ft.Page):
                             src=data, width=holder.width, height=holder.height,
                             fit=ft.BoxFit.COVER, border_radius=ft.BorderRadius.all(6))
                         holder.bgcolor = None
+                        batch.append(holder)
                         now = time.monotonic()
                         if now - last_update >= 0.1 or done == total:
                             last_update = now
-                            page.run_task(_safe_update)
+                            page.run_task(_safe_update, batch)
+                            batch = []
             finally:
                 pool.shutdown(wait=False, cancel_futures=True)
 
         threading.Thread(target=_load, daemon=True).start()
 
-    async def _safe_update():
+    async def _safe_update(controls):
         try:
-            page.update()
+            if controls:
+                page.update(*controls)
         except Exception:
             pass
 
@@ -2248,6 +2270,29 @@ def main(page: ft.Page):
         # jamais attendre ça pour apparaître (retour user).
         drive_lane = _menu_lane("Périphériques", [], "Recherche…")
 
+        def _prune_recents():
+            # Même principe que _load_drives ci-dessous, pour la même
+            # raison : la liste "Historique" s'affiche telle quelle tout
+            # de suite (non filtrée, cf. _load_recent), puis un dossier
+            # disparu/injoignable (partage NAS endormi) est retiré
+            # silencieusement une fois la vérification terminée, sans
+            # jamais retarder l'affichage du menu (retour user).
+            valid = [p for p in recents if os.path.isdir(p)]
+            if valid == recents:
+                return
+            _save_recent(valid)
+            items = [_recent_row(p) for p in valid[:30]] or [ft.Container(
+                content=ft.Text("Aucun dossier récent",
+                                size=CONSTANTS.TEXT_SM, color=GREY),
+                padding=ft.Padding(10, 8, 10, 8))]
+            recent_lane.content.controls[1].controls = items
+            try:
+                page.update()
+            except Exception:
+                pass
+
+        threading.Thread(target=_prune_recents, daemon=True).start()
+
         def _load_drives():
             drives = _get_removable_drives()
             items = [_drive_row(n, p) for n, p in drives] or [ft.Container(
@@ -2339,12 +2384,19 @@ def main(page: ft.Page):
         if not folder:
             return
         _log_to_terminal("[CMD] Rafraîchir", BLUE)
-        # Comme Dashboard.pyw (refresh_preview force_reload=True) : on jette
-        # les miniatures en mémoire du dossier courant pour forcer un
-        # nouveau passage par thumb_cache.get_or_generate, qui régénère si
-        # le fichier a changé (signature mtime/size/ctime) sous le même nom.
+        # On jette les miniatures en mémoire du dossier courant ET le
+        # cache SQLite persistant (thumb_cache.purge_folder) : se fier au
+        # stat() (mtime/size) pour détecter un changement ne suffit pas —
+        # sur un dossier réseau/NAS, ce stat() peut lui-même être périmé
+        # juste après l'écriture par un autre programme (retour user :
+        # photo modifiée sur le NAS toujours affichée à l'ancienne après
+        # Rafraîchir, seul un redémarrage complet de Hub la rafraîchissait
+        # enfin). "Rafraîchir" est un geste explicite et rare : on force
+        # une régénération inconditionnelle plutôt que de re-questionner
+        # un stat() qui vient justement de tromper le cache une 1re fois.
         for p in [p for p in thumb_mem if os.path.dirname(p) == folder]:
             del thumb_mem[p]
+        thumb_cache.purge_folder(folder)
         _navigate(folder)
 
     refresh_folder_btn = ft.IconButton(
@@ -2416,8 +2468,7 @@ def main(page: ft.Page):
         style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
         height=CONSTANTS.HUB_TOOLBAR_H,
         on_click=lambda e: _launch_tool("Kiosk gauche.py", is_local=True),
-        tooltip="Kiosk gauche — retour user : usage fréquent, sorti du "
-                "panneau Actions",
+        tooltip="Kiosk gauche",
     )
 
     # _launch_transfert_temp est défini plus loin dans main() : lambda pour
@@ -2431,8 +2482,7 @@ def main(page: ft.Page):
         style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
         height=CONSTANTS.HUB_TOOLBAR_H,
         on_click=lambda e: _launch_transfert_temp(e),
-        tooltip="Transfert vers TEMP (dossier Download) — retour user : "
-                "usage fréquent, sorti du panneau Actions",
+        tooltip="Transfert vers TEMP (dossier Download)",
     )
 
     new_folder_btn = ft.IconButton(
@@ -2578,7 +2628,8 @@ def main(page: ft.Page):
                           weight=ft.FontWeight.W_500, expand=True, no_wrap=True)
     notes_preview = ft.Markdown(
         "", selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-        code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK, expand=True)
+        code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK, expand=True,
+        auto_follow_links=True)
     notes_preview_scroll = ft.ListView(controls=[notes_preview], expand=True)
     # Conteneur unique dont on échange le `.content` (édition <-> aperçu),
     # comme `files_body` plus haut : deux enfants Column avec expand=True
@@ -3013,7 +3064,8 @@ def main(page: ft.Page):
             bubble_text = ft.Markdown(
                 _md_dark(text), selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-                code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK, expand=True)
+                code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK, expand=True,
+                auto_follow_links=True)
             bubble = ft.Container(
                 content=bubble_text, bgcolor=GREY, padding=ft.Padding(9, 7, 9, 7),
                 border_radius=ft.BorderRadius(top_left=13, top_right=13,
@@ -5730,9 +5782,24 @@ def main(page: ft.Page):
             _log_to_terminal("[ERREUR] Aucun dossier ouvert à synchroniser", RED)
             return
 
+        # Panneau fermé et fenêtre ramenée au premier plan AVANT le
+        # sélecteur de dossier natif (retour user : sur Windows, ce
+        # sélecteur peut s'ouvrir masqué derrière la fenêtre principale —
+        # tout semble figé (panneau Actions toujours affiché, bouton
+        # Fermer inerte) pendant plusieurs minutes, le temps que
+        # l'utilisateur retrouve la boîte de dialogue cachée. Situation
+        # critique en présence d'un client (retour user).
+        _close_actions()
+        _log_to_terminal(
+            "[...] Choisissez le second dossier à synchroniser…", ORANGE)
+        try:
+            await page.window.to_front()
+        except Exception:
+            pass
         folder_b = await ft.FilePicker().get_directory_path(
             dialog_title="Choisir le 2e dossier à synchroniser")
         if not folder_b:
+            _log_to_terminal("[INFO] Synchronisation annulée", LIGHT_GREY)
             return
         folder_a = os.path.normpath(folder_a)
         folder_b = os.path.normpath(folder_b)
@@ -5794,7 +5861,6 @@ def main(page: ft.Page):
                 _log_to_terminal(f"[ERREUR] {err}", RED)
             _navigate(folder_a)
 
-        _close_actions()
         _log_to_terminal(f"[...] Synchronisation avec {folder_b} en cours…", ORANGE)
         threading.Thread(target=_do_sync, daemon=True).start()
 

@@ -243,10 +243,18 @@ def main(page: ft.Page):
 
 
     def _load_recent() -> list:
+        # Pas de filtrage os.path.isdir() ici : appelé depuis
+        # _add_to_recent() à CHAQUE navigation, sur le thread principal —
+        # vérifier l'existence de chaque dossier récent y bloquait toute
+        # navigation plusieurs secondes dès qu'un des anciens dossiers
+        # pointe vers un partage réseau/NAS temporairement injoignable
+        # (retour user, même correctif que Hub.pyw:_load_recent). Le
+        # nettoyage des entrées mortes se fait en arrière-plan côté menu
+        # (_rebuild_recent_folders_menu), pas ici.
         try:
             with open(recent_folders_file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return [p for p in data if os.path.isdir(p)]
+            return [p for p in data if isinstance(p, str)]
         except Exception:
             return []
 
@@ -496,6 +504,7 @@ def main(page: ft.Page):
             ),
         ),
         expand=True,
+        auto_follow_links=True,
     )
     notepad_preview_scroll = ft.ListView(
         controls=[notepad_markdown_preview],
@@ -1142,8 +1151,28 @@ def main(page: ft.Page):
         load_token = preview_refresh_token["value"]
 
         def _load():
+            # page.update() SANS argument rediffuse tout l'arbre de la
+            # page, pas seulement la vignette qui vient de charger — appelé
+            # à chaque fichier (aucun regroupement) sur un gros dossier, ce
+            # diff complet répété peut saturer la boucle d'événements au
+            # point qu'un clic (ex. changer de dossier) reste en attente
+            # plusieurs minutes (retour user, cf. Hub.pyw _start_thumb_loader
+            # qui a le même correctif). page.update(*batch) ne patche que
+            # les vignettes de ce lot, groupé toutes les ~100 ms.
             _ts = CONSTANTS.DASHBOARD_THUMB_SIZE
-            for norm_path, (img_ref, file_path, icon, icon_color) in pending_snapshot:
+            last_update = [0.0]
+            batch = []
+            total = len(pending_snapshot)
+
+            async def _apply(controls):
+                try:
+                    if controls:
+                        page.update(*controls)
+                except Exception:
+                    pass
+
+            for i, (norm_path, (img_ref, file_path, icon, icon_color)) in enumerate(
+                    pending_snapshot, start=1):
                 if preview_refresh_token["value"] != load_token:
                     return  # Navigation survenue, annuler
                 thumb = _generate_thumbnail(file_path)
@@ -1156,14 +1185,12 @@ def main(page: ft.Page):
                         fit=ft.BoxFit.COVER,
                         border_radius=ft.BorderRadius.all(4),
                     )
-
-                    async def _apply():
-                        try:
-                            page.update()
-                        except Exception:
-                            pass
-
-                    page.run_task(_apply)
+                    batch.append(img_ref)
+                    now = time.monotonic()
+                    if now - last_update[0] >= 0.1 or i == total:
+                        last_update[0] = now
+                        page.run_task(_apply, batch)
+                        batch = []
 
         threading.Thread(target=_load, daemon=True).start()
 
@@ -1792,6 +1819,7 @@ def main(page: ft.Page):
                         code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
                         md_style_sheet=AI_MD_STYLE,
                         expand=True,
+                        auto_follow_links=True,
                     )
                 bubble = ft.Container(
                     content=bubble_text,
@@ -2292,6 +2320,7 @@ def main(page: ft.Page):
                 code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK,
                 md_style_sheet=AI_MD_STYLE,
                 expand=True,
+                auto_follow_links=True,
             )
         bubble = ft.Container(
             content=bubble_text,
@@ -4657,28 +4686,48 @@ def main(page: ft.Page):
 
 
 
+    def _recent_menu_items(paths):
+        if not paths:
+            return [ft.PopupMenuItem(content=ft.Text("Aucun dossier récent"))]
+        return [
+            ft.PopupMenuItem(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.FOLDER, size=16),
+                    ft.Text(os.path.basename(recent_path) or recent_path),
+                ], spacing=8, tight=True),
+                on_click=lambda e, folder=recent_path: navigate_to_folder(folder),
+            )
+            for recent_path in paths
+        ]
+
     def _rebuild_recent_folders_menu():
         """Reconstruit les items du bouton dossiers récents."""
         recent = _load_recent()
-        if not recent:
-            recent_folders_btn.items = [
-                ft.PopupMenuItem(content=ft.Text("Aucun dossier récent"))
-            ]
-        else:
-            recent_folders_btn.items = [
-                ft.PopupMenuItem(
-                    content=ft.Row([
-                        ft.Icon(ft.Icons.FOLDER, size=16),
-                        ft.Text(os.path.basename(recent_path) or recent_path),
-                    ], spacing=8, tight=True),
-                    on_click=lambda e, folder=recent_path: navigate_to_folder(folder),
-                )
-                for recent_path in recent
-            ]
+        recent_folders_btn.items = _recent_menu_items(recent)
         try:
             recent_folders_btn.update()
         except Exception:
             pass
+
+        def _prune_recents():
+            # Vérification d'existence différée en arrière-plan (voir
+            # _load_recent) : le menu affiche la liste brute tout de
+            # suite, un dossier disparu/injoignable (partage NAS endormi)
+            # est retiré silencieusement une fois la vérification faite.
+            valid = [p for p in recent if os.path.isdir(p)]
+            if valid == recent:
+                return
+            _save_recent(valid)
+
+            async def _apply():
+                recent_folders_btn.items = _recent_menu_items(valid)
+                try:
+                    recent_folders_btn.update()
+                except Exception:
+                    pass
+            page.run_task(_apply)
+
+        threading.Thread(target=_prune_recents, daemon=True).start()
 
 
 
@@ -7728,6 +7777,18 @@ def main(page: ft.Page):
             error_text = ""
 
             if folder_to_display:
+                if force_reload:
+                    # Vider aussi le cache SQLite persistant, pas
+                    # seulement les dicts en mémoire ci-dessous : se fier
+                    # au mtime pour détecter un changement ne suffit pas
+                    # sur un dossier réseau/NAS, où ce mtime peut être
+                    # périmé juste après l'écriture par un autre programme
+                    # (retour user : photo modifiée sur le NAS restée
+                    # affichée à l'ancienne après Rafraîchir). Purge unique
+                    # pour tout le dossier, pas par fichier dans la boucle
+                    # ci-dessous (retour user : coût negligeable une fois,
+                    # inutile de le refaire par image).
+                    thumb_cache.purge_folder(folder_to_display)
                 try:
                     with os.scandir(folder_to_display) as directory_scanner:
                         raw_entries = [dir_entry for dir_entry in directory_scanner if not _is_os_junk(dir_entry)]
