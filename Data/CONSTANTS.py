@@ -278,6 +278,8 @@ TERMINAL_HEIGHT       = 170  # Hauteur du panneau terminal compact (px) — touj
 WDA_HEIGHT            = 100  # Hauteur de la WindowDragArea (barre de titre custom, en px)
 HUB_TERMINAL_HEIGHT           = 200  # Hauteur du panneau terminal compact de Hub.pyw (px)
 HUB_TERMINAL_AUTOHIDE_DELAY   = 2.5  # Délai (secondes) avant fermeture auto du terminal de Hub.pyw
+HUB_TERMINAL_TOOL_CLOSE_DELAY = 1.5  # Délai (secondes) après un [OK] de _launch_tool avant fermeture
+HUB_TERMINAL_LOG_MAX_BYTES    = 200_000  # Taille max de .hub_terminal.log avant purge (octets, ~2000 lignes)
 HUB_TERMINAL_MAX_LINES        = 200  # Nombre max de lignes conservées dans le terminal de Hub.pyw
 NOTEPAD_AUTOSAVE_DELAY = 10  # Délai (secondes) avant sauvegarde automatique du bloc-notes
 NOTEPAD_DEFAULT_LANGUAGE = "MARKDOWN"  # Langage de coloration syntaxique par défaut du bloc-notes (voir fce.CodeLanguage)
@@ -832,3 +834,22 @@ CURVE_TOE_LIFT          = 0.2   # 0 = aucun · 0.08 subtil · 0.20 prononcé
 CA_ENABLED     = True
 CA_STRENGTH    = 0.04   # % de la diagonale de l'image
 CA_AXIAL_RATIO = 0.64  # part de la composante axiale (0 = purement radial, 1 = égal au radial)
+
+
+# ==============================================================================
+# 13. WAND / IMAGEMAGICK (Conversion JPG.py, thumb_cache.py)
+# ==============================================================================
+def ensure_imagemagick_env():
+    """Renseigne MAGICK_HOME sur macOS avant d'importer ``wand``.
+
+    ``wand`` localise la lib via ctypes.util.find_library(), qui ne regarde
+    pas dans /opt/homebrew/lib ni /usr/local/lib : sans MAGICK_HOME, l'import
+    échoue même quand `brew install imagemagick` est à jour.
+    """
+    import platform
+    if platform.system() != "Darwin" or os.environ.get("MAGICK_HOME"):
+        return
+    for prefix in ("/opt/homebrew/opt/imagemagick", "/usr/local/opt/imagemagick"):
+        if os.path.isdir(os.path.join(prefix, "lib")):
+            os.environ["MAGICK_HOME"] = prefix
+            break

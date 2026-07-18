@@ -2793,56 +2793,218 @@ def _run_elevated(command, cwd=None, timeout=120):
         return f"[Erreur d'exécution élevée : {exc}]"
 
 
+def _open_visible_terminal(command, cwd, log_path):
+    """
+    Ouvre une fenêtre de terminal native (celle de l'OS, pas un widget dans
+    l'appli) et y exécute `command`, sortie + code de retour journalisés
+    dans log_path pour que l'appelant puisse suivre le résultat sans
+    bloquer sur les flux stdout/stderr d'un process séparé.
+    Retourne True si une fenêtre a pu être ouverte, False sinon (repli
+    headless dans ce cas — ex. environnement sans affichage graphique).
+    """
+    import os as _os_vt
+    import platform as _platform_vt
+    import shlex as _shlex_vt
+    import shutil as _shutil_vt
+    import stat as _stat_vt
+    import tempfile as _tempfile_vt
+
+    system = _platform_vt.system()
+    cd_line = f"cd {_shlex_vt.quote(cwd)}\n" if cwd else ""
+
+    if system == "Darwin":
+        # Script AppleScript séparé qui ferme la fenêtre identifiée par son
+        # id (passé en argument). id of window reste valide même après que
+        # le process du script s'est terminé, contrairement à `tty of tab`
+        # qui devient une valeur périmée/identique pour tous les onglets
+        # une fois leur shell terminé (vérifié empiriquement : plusieurs
+        # fenêtres distinctes rapportaient toutes le même tty après coup).
+        # On ne ferme QUE si la fenêtre n'a qu'un seul onglet : si Terminal
+        # a ouvert ce script dans un nouvel onglet d'une fenêtre existante
+        # (ex. celle où tourne Hub.pyw), on ne veut surtout pas fermer
+        # toute la fenêtre et emporter l'onglet de Hub avec.
+        closer_fd, closer_path = _tempfile_vt.mkstemp(suffix=".scpt")
+        with _os_vt.fdopen(closer_fd, "w") as f:
+            f.write("on run argv\n")
+            f.write("    set targetID to (item 1 of argv) as integer\n")
+            f.write("    delay 1\n")
+            f.write('    tell application "Terminal"\n')
+            f.write("        repeat with w in windows\n")
+            f.write("            try\n")
+            f.write("                if id of w is targetID then\n")
+            f.write("                    if (count of tabs of w) is 1 "
+                    "then\n")
+            f.write("                        close w\n")
+            f.write("                    end if\n")
+            f.write("                    exit repeat\n")
+            f.write("                end if\n")
+            f.write("            end try\n")
+            f.write("        end repeat\n")
+            f.write("    end tell\n")
+            f.write("end run\n")
+
+        script_fd, script_path = _tempfile_vt.mkstemp(suffix=".command")
+        with _os_vt.fdopen(script_fd, "w") as f:
+            f.write("#!/bin/bash\n")
+            # Capturé tout de suite (script encore process actif de son
+            # onglet -> tty fiable ici) pour identifier LA fenêtre courante
+            # une bonne fois pour toutes, avant que la commande ne tourne.
+            f.write("WIN_ID=$(osascript -e '\n")
+            f.write("on run argv\n")
+            f.write("    set targetTTY to item 1 of argv\n")
+            f.write('    tell application "Terminal"\n')
+            f.write("        repeat with w in windows\n")
+            f.write("            try\n")
+            f.write("                if tty of selected tab of w is "
+                    "targetTTY then\n")
+            f.write("                    return id of w\n")
+            f.write("                end if\n")
+            f.write("            end try\n")
+            f.write("        end repeat\n")
+            f.write("    end tell\n")
+            f.write('    return "0"\n')
+            f.write("end run\n")
+            f.write(f"' \"$(tty)\")\n")
+            f.write(f"exec > >(tee -a {_shlex_vt.quote(log_path)}) 2>&1\n")
+            f.write(cd_line)
+            f.write(command + "\n")
+            f.write('echo "___EXIT:$?___"\n')
+            # La fermeture doit être lancée DEPUIS ce script (rattachée à
+            # Terminal.app, seul contexte où macOS accorde la permission
+            # d'automatisation "Terminal contrôle Terminal" — un process
+            # Python détaché n'a pas ce contexte et se fait refuser l'Apple
+            # Event sans même afficher de popup) tout en survivant à la fin
+            # de la session shell : nohup ignore spécifiquement le SIGHUP
+            # envoyé par le kernel à la fermeture du pty (contrairement à
+            # `disown` seul, qui ne fait que retirer le job de la table des
+            # jobs du shell, sans protection contre HUP).
+            f.write(f'nohup osascript {_shlex_vt.quote(closer_path)} '
+                    f'"$WIN_ID" </dev/null >/dev/null 2>&1 &\n')
+            f.write("disown\n")
+        _os_vt.chmod(script_path, _os_vt.stat(script_path).st_mode
+                     | _stat_vt.S_IEXEC)
+        _subprocess.Popen(["open", script_path])
+        return True
+
+    if system == "Windows":
+        script_fd, script_path = _tempfile_vt.mkstemp(suffix=".bat")
+        with _os_vt.fdopen(script_fd, "w") as f:
+            if cwd:
+                f.write(f'cd /d "{cwd}"\n')
+            f.write(f'{command} 1>>"{log_path}" 2>&1\n')
+            f.write(f'echo ___EXIT:%errorlevel%___>>"{log_path}"\n')
+            f.write('timeout /t 1 /nobreak >nul\n')
+        # /c (pas /k) : la fenêtre se ferme d'elle-même en fin de script.
+        _subprocess.Popen(f'start "" cmd /c "{script_path}"', shell=True)
+        return True
+
+    # Linux : premier émulateur de terminal graphique trouvé
+    term = next((t for t in ("x-terminal-emulator", "gnome-terminal",
+                              "konsole", "xfce4-terminal", "xterm")
+                 if _shutil_vt.which(t)), None)
+    if not term:
+        return False
+    script_fd, script_path = _tempfile_vt.mkstemp(suffix=".sh")
+    with _os_vt.fdopen(script_fd, "w") as f:
+        f.write("#!/bin/bash\n")
+        f.write(f"exec > >(tee -a {_shlex_vt.quote(log_path)}) 2>&1\n")
+        f.write(cd_line)
+        f.write(command + "\n")
+        f.write(f'echo "___EXIT:$?___"\n')
+    _os_vt.chmod(script_path, _os_vt.stat(script_path).st_mode
+                 | _stat_vt.S_IEXEC)
+    if term == "gnome-terminal":
+        _subprocess.Popen([term, "--", "bash", script_path])
+    else:
+        _subprocess.Popen([term, "-e", f"bash {script_path}"])
+    return True
+
+
 def _run_terminal_command(command, cwd=None, timeout=120, admin=False):
     """
-    Exécute une commande shell et retourne la sortie combinée stdout + stderr.
+    Exécute une commande shell dans une fenêtre de terminal native visible
+    (l'utilisateur peut ainsi suivre l'avancée d'une commande longue, même
+    après que l'IA a abandonné l'attente sur timeout) et retourne la
+    sortie combinée stdout + stderr.
     cwd : répertoire de travail (dossier ouvert si fourni).
     admin : si True, exécute via _run_elevated (invite native OS).
     """
     if admin:
         return _run_elevated(command, cwd=cwd, timeout=timeout)
     import os as _os_tc
-    _env = _os_tc.environ.copy()
-    # Ajouter les chemins qui manquent dans les apps lancées hors terminal
-    if _os_tc.name == "nt":  # Windows
-        _sep = ";"
-        _home = _os_tc.environ.get("USERPROFILE", "C:\\Users\\User")
-        _extra = _sep.join([
-            _os_tc.path.join(_home, "AppData", "Local", "Programs", "Ollama"),
-            "C:\\Program Files\\Ollama",
-            "C:\\Program Files\\Git\\bin",
-            _os_tc.path.join(_home, "AppData\\Local\\Microsoft\\WindowsApps"),
-        ])
-    else:  # macOS / Linux
-        _sep = ":"
-        _extra = _sep.join([
-            "/usr/local/bin", "/opt/homebrew/bin", "/opt/homebrew/sbin",
-            "/usr/local/sbin", _os_tc.path.expanduser("~/.local/bin"), "/snap/bin",
-        ])
-    _env["PATH"] = _extra + _sep + _env.get("PATH", "")
-    try:
-        result = _subprocess.run(
-            command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            cwd=cwd,
-            timeout=timeout,
-            env=_env,
-        )
-        output = result.stdout
-        if result.stderr:
-            output += ("\n" if output else "") + result.stderr
-        output = output.strip()
-        if not output:
-            output = f"(Commande exécutée, code de retour : {result.returncode})"
-        elif result.returncode != 0:
-            output += f"\n(Code de retour : {result.returncode})"
-        return output
-    except _subprocess.TimeoutExpired:
-        return f"[Timeout : la commande a dépassé {timeout} secondes]"
-    except Exception as exc:
-        return f"[Erreur d'exécution : {exc}]"
+    import re as _re_tc
+    import tempfile as _tempfile_tc
+    import time as _time_tc
+
+    log_fd, log_path = _tempfile_tc.mkstemp(suffix=".log")
+    _os_tc.close(log_fd)
+
+    if not _open_visible_terminal(command, cwd, log_path):
+        # ponytail : pas de terminal graphique dispo (ex. SSH sans X) ->
+        # repli headless silencieux, comportement d'avant cette fonction.
+        _env = _os_tc.environ.copy()
+        if _os_tc.name == "nt":
+            _sep = ";"
+            _home = _os_tc.environ.get("USERPROFILE", "C:\\Users\\User")
+            _extra = _sep.join([
+                _os_tc.path.join(_home, "AppData", "Local", "Programs",
+                                  "Ollama"),
+                "C:\\Program Files\\Ollama",
+                "C:\\Program Files\\Git\\bin",
+                _os_tc.path.join(_home,
+                                  "AppData\\Local\\Microsoft\\WindowsApps"),
+            ])
+        else:
+            _sep = ":"
+            _extra = _sep.join([
+                "/usr/local/bin", "/opt/homebrew/bin", "/opt/homebrew/sbin",
+                "/usr/local/sbin", _os_tc.path.expanduser("~/.local/bin"),
+                "/snap/bin",
+            ])
+        _env["PATH"] = _extra + _sep + _env.get("PATH", "")
+        try:
+            result = _subprocess.run(
+                command, shell=True, capture_output=True, text=True,
+                cwd=cwd, timeout=timeout, env=_env,
+            )
+            output = result.stdout
+            if result.stderr:
+                output += ("\n" if output else "") + result.stderr
+            output = output.strip()
+            if not output:
+                output = f"(Commande exécutée, code de retour : " \
+                          f"{result.returncode})"
+            elif result.returncode != 0:
+                output += f"\n(Code de retour : {result.returncode})"
+            return output
+        except _subprocess.TimeoutExpired:
+            return f"[Timeout : la commande a dépassé {timeout} secondes]"
+        except Exception as exc:
+            return f"[Erreur d'exécution : {exc}]"
+
+    marker_re = _re_tc.compile(r"___EXIT:(-?\d+)___")
+    deadline = _time_tc.time() + timeout
+    while _time_tc.time() < deadline:
+        if _os_tc.path.exists(log_path):
+            with open(log_path, encoding="utf-8", errors="replace") as f:
+                content = f.read()
+            m = marker_re.search(content)
+            if m:
+                output = marker_re.sub("", content).strip()
+                _os_tc.remove(log_path)
+                code = m.group(1)
+                if not output:
+                    output = f"(Commande exécutée, code de retour : {code})"
+                elif code != "0":
+                    output += f"\n(Code de retour : {code})"
+                return output
+        _time_tc.sleep(0.3)
+    # ponytail : toujours en cours au-delà du timeout -> le fichier log
+    # n'est pas supprimé, la fenêtre de terminal continue de tourner ;
+    # nettoyage manuel si besoin, upgrade possible : relire log_path plus
+    # tard via un outil dédié si ça devient gênant.
+    return (f"[Toujours en cours dans une fenêtre de terminal — regarde-la "
+            f"pour suivre l'avancée. Log : {log_path}]")
 
 
 _TERMINAL_TOOLS = [

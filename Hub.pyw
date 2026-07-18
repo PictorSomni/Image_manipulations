@@ -1852,6 +1852,15 @@ def main(page: ft.Page):
     # si on repasse par le chemin brut au lieu des bytes à jour.
     viewer_rotated_bytes = {}
 
+    # Swipe tactile (retour user, comme Dashboard.pyw:5678) : PageView natif
+    # Flet si disponible (buggy sur Linux d'après Dashboard) — une page par
+    # image, chargées à la volée (_load_pages_around) pour ne pas décoder
+    # tout un dossier d'un coup. Sinon, fallback = ancien système à image
+    # unique + boutons/clavier, inchangé.
+    _HAS_PAGE_VIEW = hasattr(ft, "PageView") and platform.system() != "Linux"
+    page_image_controls = {}  # index -> ft.Image, seulement en mode PageView
+    pages_loaded = set()
+
     _BLANK_GIF = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
     viewer_img = ft.Image(src=_BLANK_GIF, fit=ft.BoxFit.CONTAIN, expand=True,
                           gapless_playback=True)
@@ -1892,19 +1901,20 @@ def main(page: ft.Page):
             parts.append(f"{size_mo:.1f} Mo")
         return "  •  ".join(parts)
 
-    def _update_viewer():
-        idx, paths = viewer_state["index"], viewer_state["paths"]
-        path = paths[idx]
+    def _resolve_viewer_src(path):
         # Flutter ne sait pas afficher un .svg/.pdf par chemin (Image.file
         # ne rend que les formats raster) — on passe par thumb_cache pour
         # obtenir un PNG/JPEG rendu, en cache dès le deuxième affichage.
-        ext = os.path.splitext(path)[1].lower()
         if path in viewer_rotated_bytes:
-            viewer_img.src = viewer_rotated_bytes[path]
-        elif ext in CONSTANTS.HUB_VECTOR_EXTS:
-            viewer_img.src = thumb_cache.get_or_generate(path, size_px=1600) or path
-        else:
-            viewer_img.src = path
+            return viewer_rotated_bytes[path]
+        ext = os.path.splitext(path)[1].lower()
+        if ext in CONSTANTS.HUB_VECTOR_EXTS:
+            return thumb_cache.get_or_generate(path, size_px=1600) or path
+        return path
+
+    def _update_overlay_bar():
+        idx, paths = viewer_state["index"], viewer_state["paths"]
+        path = paths[idx]
         viewer_filename.value = os.path.basename(path)
         viewer_meta.value = _viewer_meta_text(path)
         viewer_counter.value = f"{idx + 1} / {len(paths)}"
@@ -1914,13 +1924,60 @@ def main(page: ft.Page):
             _order_badge(path) if order_mode["value"] else None)
         page.update()
 
+    def _load_image_for_index(idx):
+        # Ne recharge jamais une page déjà chargée : la rotation en mémoire
+        # (viewer_rotated_bytes) invalide explicitement l'index via
+        # pages_loaded.discard() avant de rappeler cette fonction.
+        paths = viewer_state["paths"]
+        ctrl = page_image_controls.get(idx)
+        if not (0 <= idx < len(paths)) or ctrl is None or idx in pages_loaded:
+            return
+        ctrl.src = _resolve_viewer_src(paths[idx])
+        pages_loaded.add(idx)
+        try:
+            page.update()
+        except Exception:
+            pass
+
+    def _load_pages_around(center):
+        for offset in (0, 1, -1, 2, -2):
+            _load_image_for_index(center + offset)
+
+    def _update_viewer():
+        idx = viewer_state["index"]
+        if _HAS_PAGE_VIEW:
+            pages_loaded.discard(idx)
+            _load_pages_around(idx)
+        else:
+            viewer_img.src = _resolve_viewer_src(viewer_state["paths"][idx])
+        _update_overlay_bar()
+
+    async def _viewer_animate_page(delta):
+        if delta < 0:
+            await images_page_view.previous_page(
+                animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
+                animation_duration=ft.Duration(milliseconds=300))
+        else:
+            await images_page_view.next_page(
+                animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
+                animation_duration=ft.Duration(milliseconds=300))
+
+    def _on_viewer_page_change(e):
+        _close_drawers()
+        viewer_state["index"] = e.control.selected_index
+        _load_pages_around(viewer_state["index"])
+        _update_overlay_bar()
+
     def _viewer_nav(delta):
         new_idx = viewer_state["index"] + delta
         if not (0 <= new_idx < len(viewer_state["paths"])):
             return
-        viewer_state["index"] = new_idx
         _close_drawers()
-        _update_viewer()
+        if _HAS_PAGE_VIEW:
+            page.run_task(_viewer_animate_page, delta)
+        else:
+            viewer_state["index"] = new_idx
+            _update_viewer()
 
     def _close_viewer(event=None):
         page.on_keyboard_event = _prev_keyboard["fn"]
@@ -1957,7 +2014,14 @@ def main(page: ft.Page):
         buf = io.BytesIO()
         rotated.save(buf, fmt, **save_kwargs)
         viewer_rotated_bytes[path] = buf.getvalue()
-        viewer_img.src = viewer_rotated_bytes[path]   # aperçu immédiat
+        idx = viewer_state["index"]   # aperçu immédiat
+        if _HAS_PAGE_VIEW:
+            ctrl = page_image_controls.get(idx)
+            if ctrl is not None:
+                ctrl.src = viewer_rotated_bytes[path]
+                pages_loaded.add(idx)
+        else:
+            viewer_img.src = viewer_rotated_bytes[path]
         page.update()
 
         def _persist():
@@ -2012,22 +2076,52 @@ def main(page: ft.Page):
         ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         bgcolor=_VIEWER_BAR_BG, padding=ft.Padding(8, 6, 8, 6), border_radius=16,
     )
-    # Pan/zoom natif Flet (même widget que le viewer plein écran de
-    # Dashboard.pyw:5567-5578) : `width`/`height` explicites (pas `expand`)
-    # -> l'InteractiveViewer a un viewport concret, sinon `constrained=True`
-    # le dimensionne sur le rectangle CONTAIN de l'image (déjà lettrboxée)
-    # au lieu du plein écran, et zoomer agrandit l'image DANS ce rectangle
-    # fixe au lieu du canevas lui-même (retour user, captures à l'appui).
-    viewer_interactive = ft.InteractiveViewer(
-        content=viewer_img, min_scale=1.0, max_scale=6.0,
-        pan_enabled=True, scale_enabled=True, constrained=True,
-        width=page.window.width or 1280, height=page.window.height or 860,
-        clip_behavior=ft.ClipBehavior.HARD_EDGE)
+    def _build_viewer_page(img_ctrl, win_w, win_h):
+        # Pan/zoom natif Flet (même widget que le viewer plein écran de
+        # Dashboard.pyw:5567-5578) : `width`/`height` explicites (pas
+        # `expand`) -> l'InteractiveViewer a un viewport concret, sinon
+        # `constrained=True` le dimensionne sur le rectangle CONTAIN de
+        # l'image (déjà lettrboxée) au lieu du plein écran, et zoomer
+        # agrandit l'image DANS ce rectangle fixe au lieu du canevas
+        # lui-même (retour user, captures à l'appui).
+        return ft.InteractiveViewer(
+            content=img_ctrl, min_scale=1.0, max_scale=6.0,
+            pan_enabled=True, scale_enabled=True, constrained=True,
+            width=win_w, height=win_h, clip_behavior=ft.ClipBehavior.HARD_EDGE)
+
+    def _build_page_containers(paths):
+        # Une page par image (retour user : swipe tactile façon Dashboard) —
+        # seul le contenu autour de l'index courant est réellement chargé
+        # (_load_pages_around), les autres pages restent sur le gif blanc
+        # tant qu'on ne navigue pas jusqu'à elles.
+        page_image_controls.clear()
+        pages_loaded.clear()
+        win_w = page.window.width or 1280
+        win_h = page.window.height or 860
+        containers = []
+        for _path in paths:
+            img_ctrl = ft.Image(src=_BLANK_GIF, fit=ft.BoxFit.CONTAIN,
+                                expand=True, gapless_playback=True)
+            page_image_controls[len(containers)] = img_ctrl
+            containers.append(ft.Container(
+                content=_build_viewer_page(img_ctrl, win_w, win_h),
+                expand=True, alignment=ft.Alignment.CENTER, bgcolor=DARK))
+        return containers
+
+    if _HAS_PAGE_VIEW:
+        images_page_view = ft.PageView(
+            controls=[], expand=True, horizontal=True,
+            on_change=_on_viewer_page_change)
+    else:
+        # Fallback : une seule image visible à la fois (navigation par
+        # boutons/clavier) — le système déjà en place avant le swipe.
+        images_page_view = _build_viewer_page(
+            viewer_img, page.window.width or 1280, page.window.height or 860)
 
     # Conteneurs positionnés nommés (pas `expand=True`) pour pouvoir réduire
     # dynamiquement `right` quand un tiroir est ouvert — évite qu'il ne
     # masque une partie de l'image (retour utilisateur).
-    viewer_image_wrap = ft.Container(content=viewer_interactive, bgcolor=DARK,
+    viewer_image_wrap = ft.Container(content=images_page_view, bgcolor=DARK,
                                      alignment=ft.Alignment.CENTER,
                                      left=0, top=0, bottom=0, right=0)
     viewer_top_bar_wrap = ft.Container(content=viewer_title_pill, top=8,
@@ -2047,8 +2141,8 @@ def main(page: ft.Page):
         viewer_top_bar_wrap.right = width
         viewer_close_wrap.right = 8 + width
         viewer_bottom_bar_wrap.right = width
-        viewer_interactive.width = (page.window.width or 1280) - width
-        viewer_interactive.height = page.window.height or 860
+        images_page_view.width = (page.window.width or 1280) - width
+        images_page_view.height = page.window.height or 860
 
     def _derived_path(path, suffix):
         """Chemin d'un fichier dérivé (retouche/recadrage) : sous-dossier
@@ -2095,6 +2189,9 @@ def main(page: ft.Page):
         paths = content["imgs"] if start_path in content["imgs"] else [start_path]
         viewer_state["paths"] = paths
         viewer_state["index"] = paths.index(start_path)
+        if _HAS_PAGE_VIEW:
+            images_page_view.controls = _build_page_containers(paths)
+            images_page_view.selected_index = viewer_state["index"]
         _close_drawers()
         _update_viewer()
         if viewer_overlay not in page.overlay:
@@ -2694,7 +2791,7 @@ def main(page: ft.Page):
                                kiosk_gauche_btn, transfert_temp_btn,
                                recadrage_manuel_btn, recadrage_auto_btn,
                                two_en_un_btn], spacing=8),
-                           border=ft.Border.all(1, BLUE),
+                        #    border=ft.Border.all(1, BLUE), 
                            border_radius=8, padding=ft.Padding(4, 0, 4, 0),
                            margin=ft.Margin(32, 0, 0, 0)),
                        ], spacing=8),
@@ -2711,9 +2808,9 @@ def main(page: ft.Page):
                          color=VIOLET),
                 only_sel_btn,
                 ft.VerticalDivider(width=1, color=GREY),
+                ft.Container(expand=True),
                 order_mode_btn,
                 create_order_btn,
-                ft.Container(expand=True),
             ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             touch_actions_line,
         ], spacing=10),
@@ -5107,6 +5204,14 @@ def main(page: ft.Page):
         # encore affiché — et le sous-processus ne démarre qu'ensuite,
         # dans le thread ci-dessous (retour user).
         _close_actions()
+        # Épinglé pour toute la durée du subprocess (retour user) : sans ça,
+        # un outil silencieux plus de HUB_TERMINAL_AUTOHIDE_DELAY (ex. un
+        # batch sans sortie intermédiaire) referme le panneau alors que le
+        # traitement tourne encore. On restaure l'épinglage précédent (ex.
+        # ouvert manuellement) en cas de succès ; en cas d'erreur, on le
+        # laisse ouvert pour que le message reste lisible.
+        prev_pinned = _terminal_autohide["pinned"]
+        _terminal_autohide["pinned"] = True
         _log_to_terminal(f"▶ Lancement de {display_name}...", BLUE)
         action_progress_bar.visible = True
         page.update()
@@ -5194,8 +5299,13 @@ def main(page: ft.Page):
                 _log_to_terminal(
                     f"[ERREUR] {script_name} — code retour {proc.returncode}",
                     RED)
+                # Erreur : le panneau reste épinglé (pas de fermeture auto)
+                # pour que le message reste lisible (retour user).
             else:
                 _log_to_terminal(f"[OK] {script_name} terminé", GREEN)
+                _terminal_autohide["pinned"] = prev_pinned
+                _show_terminal_and_schedule_hide(
+                    CONSTANTS.HUB_TERMINAL_TOOL_CLOSE_DELAY)
             page.run_task(_tool_refresh, nav_target["path"] or folder,
                           sel_target["names"])
             action_progress_bar.visible = False
@@ -6251,12 +6361,13 @@ def main(page: ft.Page):
     # après quoi l'auto-affichage/masquage reprend normalement.
     _terminal_autohide = {"task": None, "pinned": False}
 
-    async def _terminal_autohide_after_delay():
-        await asyncio.sleep(CONSTANTS.HUB_TERMINAL_AUTOHIDE_DELAY)
+    async def _terminal_autohide_after_delay(delay=None):
+        await asyncio.sleep(
+            delay if delay is not None else CONSTANTS.HUB_TERMINAL_AUTOHIDE_DELAY)
         terminal_panel.visible = False
         page.update()
 
-    def _show_terminal_and_schedule_hide():
+    def _show_terminal_and_schedule_hide(delay=None):
         # Sur l'onglet IA, ai_status_text/ai_progress_bar donnent déjà le
         # retour visuel — pas besoin du terminal en plus (retour user : il
         # « re-popait » à chaque étape de dictée). Un épinglage (manuel ou
@@ -6268,7 +6379,8 @@ def main(page: ft.Page):
         if t is not None and not t.done():
             t.cancel()
         if not _terminal_autohide["pinned"]:
-            _terminal_autohide["task"] = page.run_task(_terminal_autohide_after_delay)
+            _terminal_autohide["task"] = page.run_task(
+                _terminal_autohide_after_delay, delay)
 
     # Compteur d'étapes en cours (enregistrement, transcription, attente de
     # réponse IA, lecture TTS…) : chaque étape s'annonce/se termine via
@@ -6309,10 +6421,32 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
+    _terminal_log_path = os.path.join(_APP_DIR, "Data", ".hub_terminal.log")
+
     def _log_to_terminal(message, color=None):
         message = (message or "").strip()
         if not message:
             return
+        # Persisté en plus de l'affichage (retour user) : le panneau se vide
+        # au bout de HUB_TERMINAL_MAX_LINES lignes et se ferme tout seul —
+        # sans ce fichier, la trace d'un bug survenu avant qu'on la lise est
+        # perdue.
+        try:
+            if (os.path.exists(_terminal_log_path)
+                    and os.path.getsize(_terminal_log_path)
+                    > CONSTANTS.HUB_TERMINAL_LOG_MAX_BYTES):
+                # Ne garder que la deuxième moitié : inutile de conserver
+                # tout l'historique, seules les dernières lignes servent à
+                # comprendre un bug récent (retour user).
+                with open(_terminal_log_path, "rb") as f:
+                    f.seek(-CONSTANTS.HUB_TERMINAL_LOG_MAX_BYTES // 2, os.SEEK_END)
+                    tail = f.read()
+                with open(_terminal_log_path, "wb") as f:
+                    f.write(tail)
+            with open(_terminal_log_path, "a", encoding="utf-8") as f:
+                f.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} {message}\n")
+        except Exception:
+            pass
 
         async def _do():
             terminal_output.controls.append(

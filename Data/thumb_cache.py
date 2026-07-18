@@ -55,6 +55,7 @@ def _render_vector(image_path: str, ext: str, size_px: int):
             return _PILImage.frombytes(
                 "RGB", (pix.width, pix.height), pix.samples)
     if ext == ".svg":
+        CONSTANTS.ensure_imagemagick_env()
         from wand.image import Image as _WandImage
         # Une résolution fixe (150 DPI, quelle que soit la taille du SVG)
         # rasterisait TOUJOURS à la taille "physique" du fichier — pour un

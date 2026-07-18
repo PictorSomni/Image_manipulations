@@ -8,6 +8,7 @@ _rc*
 Data/.mcp_errors.log
 Data/.ai_tools_errors.log
 Data/.hub_crash.log
+Data/.hub_terminal.log
 
 # Modèles IA (fichiers lourds)
 # Data/models/

@@ -21,7 +21,14 @@ __version__ = "3.2.0"
 #                          IMPORTS                          #
 #############################################################
 import os
+import sys
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import CONSTANTS
+
+CONSTANTS.ensure_imagemagick_env()
+
 from wand.image import Image
 import fitz  # PyMuPDF
 
