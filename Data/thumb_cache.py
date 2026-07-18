@@ -220,7 +220,24 @@ def get_or_generate(
 ) -> Optional[bytes]:
     """
     Retourne les bytes de la miniature (JPEG décodé) depuis le cache SQLite,
-    ou la génère si absente/périmée.
+    ou la génère si absente.
+
+    Une entrée en cache est utilisée sans revalider mtime/ctime à chaque
+    appel (retour user) : les cartes SD d'appareil photo (FAT32/exFAT) ont
+    des timestamps peu fiables — le ctime en particulier n'est pas garanti
+    stable d'une lecture à l'autre sur ces systèmes de fichiers — donc cette
+    revalidation faisait régénérer TOUTES les miniatures à chaque retour
+    dans le dossier, même sans aucun changement.
+
+    La taille en octets, elle, reste comparée : c'est un signal fiable
+    (contrairement à mtime/ctime sur SD) qui détecte le cas d'un NOM de
+    fichier réutilisé pour un contenu différent — ex. "Renommer séquence"
+    relancé une 2e fois sur une sélection différente, où "emoji_011.png"
+    désigne maintenant une autre photo qu'au premier passage. Sans ce
+    contrôle, l'ancienne vignette restait affichée indéfiniment sous le
+    nouveau nom (retour user). invalidate_stale() reste le mécanisme
+    explicite pour purger une entrée devenue obsolète par ailleurs.
+
     Retourne None si PIL n'est pas disponible ou si la génération échoue.
     Compatible directement avec ft.Image(src=bytes) sous Flet 0.84+.
     """
@@ -233,51 +250,45 @@ def get_or_generate(
     filename = os.path.basename(image_path)
     grayscale_int = 1 if grayscale else 0
 
-    try:
-        stat_result = os.stat(image_path)
-    except OSError:
-        return None
-    mtime = stat_result.st_mtime
-    mtime_ns = getattr(stat_result, "st_mtime_ns", int(mtime * 1_000_000_000))
-    size_bytes = stat_result.st_size
-    ctime = getattr(stat_result, "st_ctime", mtime)
-    ctime_ns = getattr(stat_result, "st_ctime_ns", int(ctime * 1_000_000_000))
-
     lock = _get_db_lock(folder_path)
     db_path = _get_db_path(folder_path)
 
     if db_path is not None:
         try:
+            # stat() se fait AVANT le lookup (coût négligeable — simple
+            # métadonnée, contrairement à la génération d'image — même sur
+            # SD/réseau lent) pour pouvoir comparer size_bytes au hit de
+            # cache, cf. docstring ci-dessus.
+            try:
+                stat_result = os.stat(image_path)
+            except OSError:
+                return None
+            mtime = stat_result.st_mtime
+            mtime_ns = getattr(stat_result, "st_mtime_ns", int(mtime * 1_000_000_000))
+            size_bytes = stat_result.st_size
+            ctime = getattr(stat_result, "st_ctime", mtime)
+            ctime_ns = getattr(stat_result, "st_ctime_ns", int(ctime * 1_000_000_000))
+
             with lock:
                 conn = _open_db(db_path)
                 try:
                     row = conn.execute(
-                        "SELECT mtime, mtime_ns, size_bytes, ctime_ns, b64 FROM thumbs"
+                        "SELECT b64, size_bytes FROM thumbs"
                         " WHERE filename=? AND size_px=? AND grayscale=?",
                         (filename, size_px, grayscale_int),
                     ).fetchone()
                 finally:
                     conn.close()
-            if row:
-                row_mtime, row_mtime_ns, row_size, row_ctime_ns, row_b64 = row
-                # Compatibilité avec anciens enregistrements : si signature absente (0),
-                # on retombe sur l'ancienne comparaison au mtime.
-                if row_mtime_ns and row_size and row_ctime_ns:
-                    if (
-                        row_mtime_ns == mtime_ns
-                        and row_size == size_bytes
-                        and row_ctime_ns == ctime_ns
-                    ):
-                        return base64.b64decode(row_b64)
-                elif abs(row_mtime - mtime) < 0.5:
-                    return base64.b64decode(row_b64)
+            if row and row[1] == size_bytes:
+                return base64.b64decode(row[0])
 
-            # Absent ou périmé — génération HORS verrou : Wand/PyMuPDF/PIL
+            # Cache absent OU taille différente (nom réutilisé pour un
+            # autre fichier) — génération HORS verrou : Wand/PyMuPDF/PIL
             # font le gros du travail ici, et le garder hors du verrou
-            # permet à plusieurs threads de générer plusieurs miniatures
-            # EN PARALLÈLE au lieu de se sérialiser sur un fichier à la
-            # fois — sinon le verrou annulait tout le bénéfice du pool de
-            # threads sur un dossier de centaines de SVG/PDF (retour user).
+            # permet à plusieurs threads de générer plusieurs miniatures EN
+            # PARALLÈLE au lieu de se sérialiser sur un fichier à la fois —
+            # sinon le verrou annulait tout le bénéfice du pool de threads
+            # sur un dossier de centaines de SVG/PDF (retour user).
             b64 = _generate_b64(image_path, size_px, quality, grayscale)
             if b64 is not None:
                 with lock:
@@ -296,17 +307,30 @@ def get_or_generate(
         except Exception:
             pass  # Fallback session ci-dessous
 
-    # ── Fallback session (dossier en lecture seule) ───────────────────────────
+    # ── Fallback session (dossier en lecture seule, ou DB inaccessible) ───────
+    # Cache en mémoire seulement (process courant) : ici la resignature à
+    # chaque appel est peu coûteuse (pas de disque SD en jeu, juste stat()),
+    # donc on la garde comme filet de sécurité pour ce chemin plus rare.
     fallback_key = (folder_path, filename, size_px, grayscale_int)
+    try:
+        stat_result = os.stat(image_path)
+        signature = (
+            getattr(stat_result, "st_mtime_ns", int(stat_result.st_mtime * 1_000_000_000)),
+            stat_result.st_size,
+            getattr(stat_result, "st_ctime_ns", 0),
+        )
+    except OSError:
+        return None
+
     if fallback_key in _session_fallback:
         cached_signature, cached_bytes = _session_fallback[fallback_key]
-        if cached_signature == (mtime_ns, size_bytes, ctime_ns):
+        if cached_signature == signature:
             return cached_bytes
 
     b64 = _generate_b64(image_path, size_px, quality, grayscale)
     if b64 is not None:
         image_bytes = base64.b64decode(b64)
-        _session_fallback[fallback_key] = ((mtime_ns, size_bytes, ctime_ns), image_bytes)
+        _session_fallback[fallback_key] = (signature, image_bytes)
         return image_bytes
     return None
 
@@ -420,7 +444,28 @@ def _demo():
             results = list(pool.map(lambda p: get_or_generate(p, size_px=100), paths))
         assert all(results), "un appel concurrent a échoué"
 
-        print("[OK] thumb_cache : miniatures raster/SVG + accès concurrent")
+        # Un hit de cache doit être utilisé tel quel, même si mtime/ctime
+        # ont l'air d'avoir changé (carte SD peu fiable) — c'est le bug
+        # que ce cache existence-only corrige (retour user).
+        os.utime(png_path, (1000000000, 1000000000))
+        data2 = get_or_generate(png_path, size_px=100)
+        assert data2 == data, (
+            "un mtime différent a fait régénérer un hit de cache existant")
+
+        # Mais un même NOM réutilisé pour un contenu différent (ex.
+        # "Renommer séquence" relancé une 2e fois) doit, lui, invalider le
+        # cache — la taille en octets reste un signal fiable (retour user :
+        # sans ce contrôle, l'ancienne vignette restait affichée sous le
+        # nouveau nom indéfiniment).
+        _PILImage.new("RGB", (900, 900), "blue").save(png_path)
+        data3 = get_or_generate(png_path, size_px=100)
+        assert data3 != data, (
+            "le cache a renvoyé l'ancienne vignette malgré un contenu "
+            "différent sous le même nom")
+
+        print("[OK] thumb_cache : miniatures raster/SVG + accès concurrent "
+             "+ cache non revalidé sur mtime changé, mais invalidé sur "
+             "taille différente")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

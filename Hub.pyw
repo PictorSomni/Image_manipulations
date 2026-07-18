@@ -297,7 +297,7 @@ def main(page: ft.Page):
 
     # ─── État partagé ────────────────────────────────────────────────────
     state = {"surface": "files", "folder": None, "view": "grid",
-             "thumb_size": 320, "thumb_token": 0,
+             "thumb_size": 159, "thumb_token": 0,   # 30% du curseur (min=90, max=320)
              "sort": "date", "search": "", "only_selected": False,
              "last_selected": None}
     _strip_state = {"active": False, "saved_height": CONSTANTS.WINDOW_HEIGHT,
@@ -761,6 +761,16 @@ def main(page: ft.Page):
                 return 0
         return os.path.basename(path).lower()
 
+    def _merge_files_sorted(imgs, other):
+        # Images + autres fichiers triés ENSEMBLE (pas juste chaque groupe
+        # séparément) : "Tout sélectionner" doit suivre le même ordre que
+        # l'affichage, sinon une sélection mixte images/autres décale
+        # l'ordre par rapport à l'ordre visuel (retour user : numérotation
+        # "Renommer séquence" fausse quand des fichiers "autres" sont mêlés
+        # aux images).
+        return sorted(imgs + other, key=_sort_key,
+                      reverse=(state["sort"] == "name_desc"))
+
     def _visible_entries():
         query = state["search"].strip().lower()
         reverse = state["sort"] == "name_desc"
@@ -840,8 +850,7 @@ def main(page: ft.Page):
             # type de fichier séparément (retour user). Les dossiers
             # restent en tête, comme dans tout explorateur de fichiers.
             img_set = set(imgs)
-            files = sorted(imgs + other, key=_sort_key,
-                          reverse=(state["sort"] == "name_desc"))
+            files = _merge_files_sorted(imgs, other)
             if state["view"] == "list":
                 pending = {}
                 files_list.controls.extend(
@@ -1435,7 +1444,7 @@ def main(page: ft.Page):
             # Uniquement les fichiers (images + autres), pas les
             # sous-dossiers (retour user).
             _dirs, imgs, other = _visible_entries()
-            _select_update(imgs + other)
+            _select_update(_merge_files_sorted(imgs, other))
             _log_to_terminal(f"[OK] {len(selected)} élément(s) sélectionné(s)", BLUE)
         _update_sel_count()
         _render()
@@ -2221,16 +2230,32 @@ def main(page: ft.Page):
     def _build_open_menu():
         favs = _load_favorites()
         recents = _load_recent()
-        drives = _get_removable_drives()
 
         recent_lane = _menu_lane(
             "Historique", [_recent_row(p) for p in recents[:30]],
             "Aucun dossier récent")
         fav_lane = _menu_lane(
             "Favoris", [_fav_row(f) for f in favs], "Aucun favori")
-        drive_lane = _menu_lane(
-            "Périphériques", [_drive_row(n, p) for n, p in drives],
-            "Aucun périphérique externe")
+        # "Périphériques" peuplé en arrière-plan : sur Windows, énumérer
+        # les lecteurs peut se bloquer plusieurs secondes sur un lecteur
+        # de cartes dont un slot est vide (GetVolumeInformationW/
+        # os.path.exists interrogent le matériel) — le menu ne doit
+        # jamais attendre ça pour apparaître (retour user).
+        drive_lane = _menu_lane("Périphériques", [], "Recherche…")
+
+        def _load_drives():
+            drives = _get_removable_drives()
+            items = [_drive_row(n, p) for n, p in drives] or [ft.Container(
+                content=ft.Text("Aucun périphérique externe",
+                                size=CONSTANTS.TEXT_SM, color=GREY),
+                padding=ft.Padding(10, 8, 10, 8))]
+            drive_lane.content.controls[1].controls = items
+            try:
+                page.update()
+            except Exception:
+                pass
+
+        threading.Thread(target=_load_drives, daemon=True).start()
 
         footer = ft.Row([
             ft.TextButton(
@@ -4865,7 +4890,16 @@ def main(page: ft.Page):
         picked = list(selected)
         display_name = (script_name[:-4] if script_name.endswith(".pyw")
                         else script_name[:-3])
+
+        # Panneau fermé AVANT tout le reste : le nom de l'action doit
+        # apparaître dans le terminal (avec la barre de progression)
+        # seulement une fois le panneau retiré, jamais pendant qu'il est
+        # encore affiché — et le sous-processus ne démarre qu'ensuite,
+        # dans le thread ci-dessous (retour user).
+        _close_actions()
         _log_to_terminal(f"▶ Lancement de {display_name}...", BLUE)
+        action_progress_bar.visible = True
+        page.update()
 
         def _run():
             env = dict(os.environ)
@@ -4954,9 +4988,13 @@ def main(page: ft.Page):
                 _log_to_terminal(f"[OK] {script_name} terminé", GREEN)
             page.run_task(_tool_refresh, nav_target["path"] or folder,
                           sel_target["names"])
+            action_progress_bar.visible = False
+            try:
+                page.update()
+            except Exception:
+                pass
 
         threading.Thread(target=_run, daemon=True).start()
-        _close_actions()
 
     def _launch_renommer_sequence(event=None):
         name_field = ft.TextField(
@@ -5083,10 +5121,12 @@ def main(page: ft.Page):
             _toggle_strip()
 
     def _launch_print(event=None):
-        _print_paths(list(selected) or content["imgs"])
+        paths = list(selected) or content["imgs"]
         _close_actions()
+        _print_paths(paths)
 
     def _launch_bluetooth(event=None):
+        _close_actions()
         try:
             if platform.system() == "Windows":
                 subprocess.Popen(["fsquirt.exe", "/Receive"])
@@ -5094,27 +5134,26 @@ def main(page: ft.Page):
                 subprocess.Popen(["open", "-a", "Bluetooth File Exchange"])
         except Exception:
             pass
-        _close_actions()
         if not _strip_state["active"]:
             _toggle_strip()
 
     def _launch_copy_to_selection(event=None):
         paths = list(selected) if selected else content["imgs"]
+        _close_actions()
         if paths:
             _do_copy_to_selection(paths)
-        _close_actions()
 
     def _launch_copy_scored(event=None):
         folder = state["folder"]
         if not folder:
             return
+        _close_actions()
 
         def _run():
             _copy_scored_photos(folder)
             page.run_task(_actions_refresh_folder)
 
         threading.Thread(target=_run, daemon=True).start()
-        _close_actions()
 
     async def _actions_refresh_folder():
         if state["folder"]:
@@ -5411,6 +5450,7 @@ def main(page: ft.Page):
         env["FOLDER_PATH"] = folder
         env["SELECTED_FILES"] = "|".join(names)
         env["TARIFF_TYPE"] = tariff
+        _close_actions()
         page.run_task(_tool_set_status, "▶ Lancement du kiosque…")
 
         def _run():
@@ -5422,7 +5462,6 @@ def main(page: ft.Page):
             page.run_task(_tool_set_status, "✓ Kiosque lancé")
 
         threading.Thread(target=_run, daemon=True).start()
-        _close_actions()
 
     def _launch_comparaison(event=None):
         # Comme Dashboard.pyw:992-1074 (_launch_comparaison) : le second
@@ -5714,9 +5753,9 @@ def main(page: ft.Page):
                 _log_to_terminal(f"[ERREUR] {err}", RED)
             _navigate(folder_a)
 
+        _close_actions()
         _log_to_terminal(f"[...] Synchronisation avec {folder_b} en cours…", ORANGE)
         threading.Thread(target=_do_sync, daemon=True).start()
-        _close_actions()
 
     # (label, icône, couleur, handler)
     # Catégories = les regroupements du flux de travail réel (cf. mémoire
@@ -5727,35 +5766,37 @@ def main(page: ft.Page):
         ("Édition", [
             # Ex-rangée d'actions tactiles du header (retour user : déplacée
             # tout en haut du panneau Actions). Mêmes icônes/couleurs
-            # qu'avant, opère toujours sur `selected`. Chaque action ferme
-            # le panneau une fois lancée (retour user), contrairement aux
-            # _launch_tool ci-dessous qui, eux, ferment déjà après lancement
-            # de leur sous-processus.
+            # qu'avant, opère toujours sur `selected`. _run_action ferme le
+            # panneau AVANT de lancer l'action (retour user : le panneau
+            # doit disparaître avant que le terminal/la barre de
+            # progression n'apparaissent, jamais pendant qu'il est encore
+            # affiché) — `list(selected)` est capturé en argument avant cet
+            # appel, puisque la fermeture vide `selected`.
             ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
-             lambda e: (_rename_item(list(selected)), _close_actions())
+             lambda e: _run_action(_rename_item, list(selected))
                        if len(selected) == 1 else None),
             ("Copier", ft.Icons.CONTENT_COPY, BLUE,
-             lambda e: (_do_copy(list(selected)), _close_actions())
+             lambda e: _run_action(_do_copy, list(selected))
                        if selected else None),
             ("Couper", ft.Icons.CONTENT_CUT, ORANGE,
-             lambda e: (_do_cut(list(selected)), _close_actions())
+             lambda e: _run_action(_do_cut, list(selected))
                        if selected else None),
             ("Coller", ft.Icons.CONTENT_PASTE, YELLOW,
-             lambda e: (_do_paste(), _close_actions())),
+             lambda e: _run_action(_do_paste)),
             ("Dupliquer", ft.Icons.FILE_COPY_OUTLINED, BLUE,
-             lambda e: (_do_duplicate(list(selected)), _close_actions())
+             lambda e: _run_action(_do_duplicate, list(selected))
                        if selected else None),
             ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, YELLOW,
-             lambda e: (_do_zip(list(selected)), _close_actions())
+             lambda e: _run_action(_do_zip, list(selected))
                        if selected else None),
             ("Dézipper", ft.Icons.UNARCHIVE_OUTLINED, ORANGE,
-             lambda e: (_do_unzip(list(selected)), _close_actions())
+             lambda e: _run_action(_do_unzip, list(selected))
                        if selected else None),
             ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
-             lambda e: (_add_to_ai(list(selected)), _close_actions())
+             lambda e: _run_action(_add_to_ai, list(selected))
                        if selected else None),
             ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
-             lambda e: (_do_delete(list(selected)), _close_actions())
+             lambda e: _run_action(_do_delete, list(selected))
                        if selected else None),
         ]),
         ("Préparation", [
@@ -5872,7 +5913,7 @@ def main(page: ft.Page):
         rows = [
             _action_row(
                 f"Ouvrir avec {p['label']}", ft.Icons.OPEN_IN_NEW, BLUE,
-                lambda e, p=p: (_open_files_with(p, list(selected)), _close_actions())
+                lambda e, p=p: _run_action(_open_files_with, p, list(selected))
                                if selected else None,
                 trailing=ft.IconButton(
                     ft.Icons.CLOSE, icon_color=RED,
@@ -5944,6 +5985,30 @@ def main(page: ft.Page):
         _render()
         page.update()
         page.run_task(_focus_active_surface)
+
+    def _run_action(fn, *args):
+        # Ferme le panneau Actions AVANT de lancer quoi que ce soit — le
+        # nom de l'action doit apparaître dans le terminal (avec la barre
+        # de progression) une fois le panneau déjà retiré, jamais pendant
+        # qu'il est encore affiché (retour user). `args` est capturé par
+        # l'appelant AVANT cet appel (ex. list(selected)), puisque
+        # _close_actions() vide `selected` — fn reçoit donc toujours les
+        # bonnes données malgré la fermeture qui précède son exécution.
+        #
+        # Hub tourne en .pyw (pas de console) : une exception ici partait
+        # avant dans le vide, sans aucun message ni sur la sortie standard
+        # ni dans le terminal intégré — l'app semblait « plantée » alors
+        # qu'elle avait juste échoué silencieusement (retour user). On
+        # rend désormais toute erreur visible dans le terminal intégré.
+        try:
+            _close_actions()
+            fn(*args)
+        except Exception as exc:
+            _log_to_terminal(f"[ERREUR] {fn.__name__} : {exc}", RED)
+            try:
+                page.update()
+            except Exception:
+                pass
 
     def _open_actions(event):
         _rebuild_open_with_category()   # reflète un programme ajouté entre-temps

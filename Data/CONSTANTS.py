@@ -371,7 +371,11 @@ del _platform
 # Utilisé par Dashboard.pyw, SidePanel.pyw et kiosk_flet.pyw via thumb_cache.py.
 # Un fichier SQLite (THUMB_CACHE_DB_NAME) est créé dans chaque dossier d'images.
 
-THUMB_CACHE_SIZE    = 320                # Taille (px, côté le plus long) des miniatures
+THUMB_CACHE_SIZE    = 200                # Taille (px, côté le plus long) des miniatures —
+                                          # réduite de 320 (retour user : cartes SD lentes,
+                                          # moins de pixels à décoder/encoder/stocker par
+                                          # miniature, sur toutes les apps qui partagent ce
+                                          # cache)
 THUMB_CACHE_QUALITY = 64                 # Qualité JPEG (0-100)
 THUMB_CACHE_DB_NAME = ".thumbcache.db"   # Nom du fichier SQLite dans chaque dossier
 
