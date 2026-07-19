@@ -829,6 +829,7 @@ def main(page: ft.Page):
             other = [p for p in other if p in selected]
         return dirs, imgs, other
 
+
     def _on_ctx_menu(path, event):
         # Clic droit -> panneau Actions. Si un ou plusieurs éléments sont
         # déjà sélectionnés, cette sélection est conservée telle quelle
@@ -1996,8 +1997,15 @@ def main(page: ft.Page):
             _viewer_nav(1)
 
     def _rotate_current(direction):
-        # Copie dérivée (HUB_SPEC §7) : l'original n'est jamais écrasé,
-        # cohérent avec les tiroirs Retoucher/Recadrer (_derived_path).
+        # Écrase l'original (retour user : la miniature de la grille doit
+        # refléter la rotation, contrairement aux tiroirs Retoucher/
+        # Recadrer qui restent non-destructifs). Fait en SYNCHRONE (pas de
+        # thread) : deux clics rapprochés (rotation à 180°) doivent
+        # s'accumuler l'un sur l'autre — un thread en arrière-plan permettait
+        # au 2e clic de relire le fichier avant que le 1er ait fini
+        # d'écrire, donc de repartir de l'orientation d'origine à chaque
+        # fois au lieu d'accumuler, et risquait une écriture concurrente sur
+        # le même fichier.
         path = viewer_state["paths"][viewer_state["index"]]
         ext = os.path.splitext(path)[1].lower()
         if ext not in CONSTANTS.ROTATABLE_EXTS:
@@ -2024,16 +2032,20 @@ def main(page: ft.Page):
             viewer_img.src = viewer_rotated_bytes[path]
         page.update()
 
-        def _persist():
-            try:
-                dest = _derived_path(path, "_pivote")
-                rotated.save(dest, fmt, **save_kwargs)
-            except Exception as exc:
-                _log_to_terminal(f"[ERREUR] Rotation : {exc}", RED)
-                return
-            _log_to_terminal(f"Rotation enregistrée : {dest}", GREEN)
-
-        threading.Thread(target=_persist, daemon=True).start()
+        try:
+            rotated.save(path, fmt, **save_kwargs)
+        except Exception as exc:
+            _log_to_terminal(f"[ERREUR] Rotation : {exc}", RED)
+            return
+        _log_to_terminal(f"Rotation enregistrée : {path}", GREEN)
+        # La miniature en cache (mémoire + SQLite) doit être régénérée
+        # puisque le fichier a changé sous le même nom (cf. thumb_cache.
+        # get_or_generate, qui compare la taille en octets) — sans purger
+        # thumb_mem ici, la grille garderait l'ancienne vignette en mémoire
+        # jusqu'au redémarrage de Hub.
+        thumb_mem.pop(path, None)
+        if state["folder"]:
+            page.run_task(_ai_navigate_async, state["folder"])
 
     def _viewer_btn(icon, tip, cb):
         return ft.IconButton(icon=icon, icon_color=WHITE, icon_size=CONSTANTS.ICON_LG,
@@ -2143,14 +2155,6 @@ def main(page: ft.Page):
         viewer_bottom_bar_wrap.right = width
         images_page_view.width = (page.window.width or 1280) - width
         images_page_view.height = page.window.height or 860
-
-    def _derived_path(path, suffix):
-        """Chemin d'un fichier dérivé (retouche/recadrage) : sous-dossier
-        `_DERIVES/` à côté de l'original, jamais d'écrasement (HUB_SPEC §7)."""
-        folder = os.path.join(os.path.dirname(path), "_DERIVES")
-        os.makedirs(folder, exist_ok=True)
-        base = os.path.splitext(os.path.basename(path))[0]
-        return _unique_dest(folder, f"{base}{suffix}.jpg")
 
     # ═════════════════════════════════════════════════════════════════════
     #  Édition — Recadrage manuel.pyw (retouche + recadrage, tous les outils)
@@ -5375,6 +5379,16 @@ def main(page: ft.Page):
                 page.window.minimized = False
                 page.window.maximized = True
                 page.run_task(page.window.to_front)
+                # Un outil lancé depuis la visionneuse plein écran (Recadrage
+                # manuel/Augmentation IA sur l'image courante) laisse
+                # `viewer_overlay` ouvert pendant tout le subprocess (Hub est
+                # juste minimisé, pas la visionneuse fermée) — sans ce
+                # nettoyage, restaurer la fenêtre ramenait l'utilisateur dans
+                # la visionneuse au lieu de Hub (retour user). Gardé par
+                # `in page.overlay` : ne touche à rien pour les outils lancés
+                # depuis ailleurs (visionneuse jamais ouverte).
+                if viewer_overlay in page.overlay:
+                    _close_viewer()
                 page.update()
             if proc.returncode != 0:
                 _log_to_terminal(
@@ -7001,9 +7015,16 @@ def main(page: ft.Page):
         page.update()
 
     def _on_window_event(event):
-        if event.data == "close":
+        # Flet 0.86 : `WindowEvent` expose `.type` (WindowEventType), pas
+        # `.data` (chaîne) comme dans les versions précédentes — l'ancien
+        # code testait `event.data`, qui n'existe plus sur cette version et
+        # levait une AttributeError avalée silencieusement par Flet à
+        # chaque clic sur "Fermer"/redimension (retour user : le bouton
+        # Fermer ne répondait plus du tout).
+        if event.type == ft.WindowEventType.CLOSE:
             os._exit(0)
-        elif event.data == "resized" and viewer_overlay in page.overlay:
+        elif (event.type == ft.WindowEventType.RESIZED
+              and viewer_overlay in page.overlay):
             # Le viewport de la visionneuse a une taille explicite (cf.
             # _set_drawer_space) : la rafraîchir au resize, sinon elle reste
             # calée sur la taille de fenêtre au moment de l'ouverture.

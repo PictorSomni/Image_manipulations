@@ -546,11 +546,31 @@ AI_AVAILABLE_VOICES = [
 ]
 
 
-# ── 10.4  Augmentation IA — aperçu SAM2 ─────────────────────────────────────
+# ── 10.4  Augmentation IA — sélection d'objet SAM2 ──────────────────────────
+# Clic (sans glisser) en mode Retouche IA = segmentation de l'objet sous le
+# curseur via SAM2, plutôt que le rectangle littéral du glisser-déposer.
 
-# Rayon de flou des bords du masque SAM2, exprimé en fraction de la plus petite
-# dimension du rendu (0 = pas de flou, 0.01 = ~1 % → ~8 px sur 800 px).
-SAM2_MASK_FEATHER_RATIO = 0.001
+# Checkpoint + config Hydra utilisés (cf. sam2/sam2/configs/ dans le paquet
+# installé) — variante "small", meilleur compromis vitesse/qualité pour un
+# clic ponctuel (pas de segmentation vidéo/batch) sur config modeste.
+SAM2_CHECKPOINT   = "sam2.1_hiera_small.pt"
+SAM2_CONFIG       = "configs/sam2.1/sam2.1_hiera_s.yaml"
+
+# Élargissement du masque SAM2 avant le fondu — évite de voir le contour net
+# de la sélection sur le résultat recollé (retour user). Exprimé en fraction
+# de la plus petite dimension de l'OBJET détecté (pas un nombre de px fixe,
+# même principe qu'AI_RETOUCH_FEATHER_RATIO) : un objet fin (ex. un contour
+# de quelques centaines de px) a besoin d'une dilatation proportionnellement
+# plus généreuse qu'un gros objet pour couvrir tout son pourtour (retour
+# user : un plafond fixe en px ne "remplissait" pas assez un objet étroit).
+SAM2_MASK_DILATE_RATIO     = 0.08   # valeur par défaut du curseur
+SAM2_MASK_DILATE_RATIO_MAX = 0.5    # jusqu'à 50 % du plus petit côté de l'objet
+
+# Le fondu d'un masque d'objet (silhouette précise) doit rester bien plus
+# fin que celui d'un rectangle (bords déjà nets, pas besoin d'un grand
+# dégradé) — même curseur "Fondu des bords" que le rectangle, mais son
+# rayon en pixels est divisé par ce facteur pour un masque SAM2.
+SAM2_MASK_FEATHER_DIVISOR = 5
 
 # Adoucissement des bords lors du recollage d'une retouche Gemini (Retouche IA).
 # Le rayon vaut RATIO × plus petit côté de la sélection, borné à MIN px minimum.

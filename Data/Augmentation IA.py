@@ -9,7 +9,10 @@ dans l'image originale à taille exacte.
 
 Flux de travail :
   1. L'image s'ouvre depuis FOLDER_PATH / SELECTED_FILES (env) ou via Ouvrir…
-  2. Tracez un rectangle de sélection : clic gauche + glisser
+  2. Sélectionnez une zone :
+       - clic gauche + glisser -> rectangle littéral (ex. zone à combler)
+       - clic simple (sans glisser) -> masque précis de l'objet sous le
+         curseur, via SAM2 (ex. remplacer un objet)
   3. Décrivez la retouche dans le champ texte
   4. Cliquez « Envoyer à Gemini »
   5. La zone modifiée est réintégrée dans l'image à ses dimensions exactes
@@ -17,6 +20,8 @@ Flux de travail :
 
 Dépendances :
   flet, Pillow, google-genai (pip install google-genai)
+  torch, sam2 (optionnel — sélection d'objet au clic ; sans eux, seul le
+  rectangle glisser-déposer reste disponible, cf. SAM2_AVAILABLE)
 
 Variables d'environnement reconnues :
   GEMINI_API_KEY  — clé d'API Gemini (ou fichier .env)
@@ -69,6 +74,11 @@ ESRGAN_AVAILABLE = (
     and importlib.util.find_spec("spandrel") is not None
 )
 REMBG_AVAILABLE = importlib.util.find_spec("rembg") is not None
+SAM2_AVAILABLE = (
+    importlib.util.find_spec("torch") is not None
+    and importlib.util.find_spec("sam2") is not None
+    and os.path.isfile(os.path.join(_MODELS_DIR, CONSTANTS.SAM2_CHECKPOINT))
+)
 
 
 # Logique partagée avec Hub.pyw (tiroir IA) : device torch + liste des
@@ -127,6 +137,7 @@ async def main(page: ft.Page) -> None:
         "work_img":     None,
         "undo_img":     None,
         "selection":    None,   # (x1, y1, x2, y2) en coordonnées IMAGE
+        "selection_mask": None, # masque PIL "L" (objet SAM2), taille = sélection, ou None si rectangle
         "drag_start":   None,   # (cx, cy) canvas — début rubber band
         "drag_current": None,   # (cx, cy) canvas — position courante
         "render_info":  None,   # (tw, th, ox, oy, sx, sy)
@@ -141,10 +152,48 @@ async def main(page: ft.Page) -> None:
         "retouch_fit":  None,   # Image RGB brute Gemini, redimensionnée à la sélection
         "retouch_base": None,   # Image de travail avant collage de la retouche
         "retouch_sel":  None,   # (x1, y1, x2, y2) de la retouche
+        "retouch_mask": None,   # masque PIL "L" (objet SAM2) pour le fondu, ou None si rectangle
     }
 
     # Cache spandrel : un objet ModelDescriptor par fichier modèle
     _custom_model_cache: dict = {}
+
+    # ── SAM2 : segmentation d'objet au clic ─────────────────────────────────
+    # Le prédicteur (chargement du checkpoint) et l'encodage de l'image
+    # courante sont coûteux — mis en cache pour que seuls les clics suivants
+    # sur la MÊME image restent quasi-instantanés (predict() seul, sans
+    # re-passer par l'encodeur).
+    _sam2_state: dict = {"predictor": None, "embedded_img_id": None}
+
+    def _get_sam2_predictor():
+        if _sam2_state["predictor"] is not None:
+            return _sam2_state["predictor"]
+        from sam2.build_sam import build_sam2
+        from sam2.sam2_image_predictor import SAM2ImagePredictor
+        device = _pick_torch_device()
+        ckpt = os.path.join(_MODELS_DIR, CONSTANTS.SAM2_CHECKPOINT)
+        model = build_sam2(CONSTANTS.SAM2_CONFIG, ckpt_path=ckpt, device=device)
+        predictor = SAM2ImagePredictor(model)
+        _sam2_state["predictor"] = predictor
+        return predictor
+
+    def _sam2_segment_point(img: Image.Image, ix: int, iy: int) -> Image.Image | None:
+        """Masque PIL "L" (255 = objet) de l'objet sous le point (ix, iy) en
+        coordonnées image, ou None en cas d'échec. Appeler hors thread UI
+        (asyncio.to_thread) : l'encodage + la prédiction sont bloquants."""
+        import numpy as _np
+        predictor = _get_sam2_predictor()
+        img_id = id(img)
+        if _sam2_state["embedded_img_id"] != img_id:
+            predictor.set_image(_np.array(img.convert("RGB")))
+            _sam2_state["embedded_img_id"] = img_id
+        masks, scores, _logits = predictor.predict(
+            point_coords=_np.array([[ix, iy]]),
+            point_labels=_np.array([1]),
+            multimask_output=True,
+        )
+        best = masks[int(_np.argmax(scores))]
+        return Image.fromarray((best * 255).astype("uint8"), mode="L")
 
     # ── Éléments UI ──────────────────────────────────────────────────────────
     status_text    = ft.Text("", size=12, color=LIGHT_GREY)
@@ -153,7 +202,7 @@ async def main(page: ft.Page) -> None:
     counter_text   = ft.Text("", size=12, color=LIGHT_GREY)
     progress_bar   = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
     sel_info       = ft.Text(
-        "Aucune sélection — clic + glisser pour définir une zone",
+        "Aucune sélection — clic pour un objet, glisser pour une zone",
         size=11, color=LIGHT_GREY,
     )
 
@@ -165,6 +214,23 @@ async def main(page: ft.Page) -> None:
     )
     feather_row = ft.Column(
         [ft.Text("Fondu des bords", size=11, color=LIGHT_GREY), feather_slider],
+        spacing=0, visible=False,
+    )
+
+    # Curseur dédié à l'objet SAM2 (masque, pas rectangle) : élargit le
+    # masque AVANT d'écrire la retouche (retour user — voir et ajuster la
+    # zone affectée avant de décrire ce qu'on veut à cet endroit, pas
+    # après). Vit dans inpaint_dialog (cf. plus bas), visible seulement
+    # pour une retouche par objet — un rectangle n'a pas de "contour" à
+    # élargir. Valeur = fraction du plus petit côté de l'OBJET détecté
+    # (pas des px fixes, cf. CONSTANTS.SAM2_MASK_DILATE_RATIO*).
+    dilate_slider = ft.Slider(
+        min=0, max=CONSTANTS.SAM2_MASK_DILATE_RATIO_MAX, divisions=50,
+        value=CONSTANTS.SAM2_MASK_DILATE_RATIO,
+        label="{value}", active_color=BLUE,
+    )
+    dilate_row = ft.Column(
+        [ft.Text("Taille du masque", size=11, color=LIGHT_GREY), dilate_slider],
         spacing=0, visible=False,
     )
 
@@ -189,6 +255,12 @@ async def main(page: ft.Page) -> None:
     )
 
     sel_canvas = cv.Canvas(expand=True, shapes=[])
+
+    # Feedback visuel pendant la segmentation SAM2 (retour user : "je ne
+    # sais pas si ça travaille") — anneau natif positionné exactement au
+    # point cliqué, plus visible qu'un simple changement de texte.
+    busy_ring = ft.ProgressRing(width=26, height=26, stroke_width=3, color=BLUE)
+    busy_ring_wrap = ft.Container(content=busy_ring, left=0, top=0, visible=False)
 
     preview_placeholder = ft.Container(
         content=ft.Column(
@@ -302,6 +374,23 @@ async def main(page: ft.Page) -> None:
         _, _, ox, oy, sx, sy = info
         return ix * sx + ox, iy * sy + oy
 
+    def _dilated_mask(raw: Image.Image, ratio: float) -> Image.Image:
+        """Dilate `raw` (masque "L") de `ratio` × le plus petit côté de
+        l'OBJET détecté (son bbox à l'intérieur du crop, pas le crop
+        lui-même, qui a déjà une marge) — même principe qu'AI_RETOUCH_
+        FEATHER_RATIO, pour qu'un objet fin reçoive une dilatation
+        proportionnellement significative plutôt qu'un plafond fixe en px
+        (retour user : un objet étroit n'était presque pas couvert même
+        au maximum de l'ancien curseur en pixels)."""
+        bbox = raw.getbbox()
+        if bbox is None or ratio <= 0:
+            return raw
+        obj_w, obj_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        dilate_px = int(min(obj_w, obj_h) * ratio)
+        if dilate_px <= 0:
+            return raw
+        return raw.filter(ImageFilter.MaxFilter(dilate_px * 2 + 1))
+
     def _render_preview() -> None:
         img = state["work_img"] or state["orig_img"]
         if img is None:
@@ -322,6 +411,22 @@ async def main(page: ft.Page) -> None:
             img_for_preview = _bg
         else:
             img_for_preview = img.convert("RGB")
+
+        # Teinte du masque SAM2 en cours d'ajustement (dilate_slider) —
+        # brûlée directement dans les MÊMES pixels que l'aperçu affiché,
+        # avant tout redimensionnement : élimine tout risque de décalage
+        # entre le calque et l'image (retour user — un calque séparé
+        # positionné par coordonnées d'affichage tombait à côté).
+        raw_mask = state["selection_mask"]
+        sel      = state["selection"]
+        if raw_mask is not None and sel is not None:
+            mask = _dilated_mask(raw_mask, dilate_slider.value)
+            full_mask = Image.new("L", img_for_preview.size, 0)
+            full_mask.paste(mask, (sel[0], sel[1]))
+            tint = Image.new("RGB", img_for_preview.size, (30, 144, 255))
+            img_for_preview = Image.composite(
+                tint, img_for_preview, full_mask.point(lambda v: v * 140 // 255))
+
         if max(ow, oh) > MAX_PX:
             s = MAX_PX / max(ow, oh)
             preview_data = img_for_preview.resize(
@@ -412,7 +517,7 @@ async def main(page: ft.Page) -> None:
 
             image_label.value  = os.path.basename(path)
             status_text.value  = f"{img.width} × {img.height} px"
-            sel_info.value     = "Aucune sélection — clic + glisser pour définir une zone"
+            sel_info.value     = "Aucune sélection — clic pour un objet, glisser pour une zone"
             send_btn.disabled  = True
             undo_btn.disabled  = True
             save_btn.disabled   = True
@@ -457,7 +562,94 @@ async def main(page: ft.Page) -> None:
         state["drag_current"] = (float(e.local_position.x), float(e.local_position.y))
         _update_sel_canvas()
 
+    def _cancel_selection_ui(message: str) -> None:
+        """Aucune sélection exploitable (rectangle trop petit, clic hors
+        image, SAM2 n'a rien trouvé) : reste en mode sélection, juste un
+        message et un statut vidé, contrairement à _open_inpaint_dialog_
+        for_selection qui valide une sélection et ouvre le dialogue."""
+        state["selection"]      = None
+        state["selection_mask"] = None
+        sel_info.value    = message
+        send_btn.disabled = True
+        sel_info.update()
+        _render_preview()
+
+    def _open_inpaint_dialog_for_selection(w_sel: int, h_sel: int) -> None:
+        has_prompt = bool(prompt_field.value and prompt_field.value.strip())
+        send_btn.disabled = not has_prompt
+        state["sel_mode"]          = False
+        inpaint_btn.text           = "Retouche IA"
+        inpaint_btn.icon           = ft.Icons.AUTO_FIX_HIGH
+        inpaint_btn.bgcolor        = GREY
+        image_gesture.visible      = False
+        preview_viewer.pan_enabled = True
+        has_mask = state["selection_mask"] is not None
+        dilate_row.visible = has_mask
+        if has_mask:
+            dilate_slider.value = CONSTANTS.SAM2_MASK_DILATE_RATIO
+        inpaint_dialog.open        = True
+        sel_info.update()
+        _render_preview()
+
+    async def _select_object_at(cx: float, cy: float) -> None:
+        """Clic (sans glisser) en mode sélection : segmente l'objet sous le
+        curseur avec SAM2 plutôt que de tracer un rectangle."""
+        if not SAM2_AVAILABLE:
+            _cancel_selection_ui(
+                "Sélection d'objet indisponible (torch/sam2/checkpoint "
+                "manquant) — glissez pour un rectangle")
+            return
+        ix, iy = _display_to_image(cx, cy)
+        img = state["work_img"] or state["orig_img"]
+        if ix is None or iy is None or img is None:
+            _cancel_selection_ui("Clic hors image — recommencez")
+            return
+        sel_info.value = "Segmentation de l'objet (SAM2)…"
+        sel_info.update()
+        busy_ring_wrap.left    = cx - busy_ring.width / 2
+        busy_ring_wrap.top     = cy - busy_ring.height / 2
+        busy_ring_wrap.visible = True
+        busy_ring_wrap.update()
+        try:
+            mask = await asyncio.to_thread(_sam2_segment_point, img, ix, iy)
+        except Exception as exc:
+            mask = None
+            status_text.value = f"[ERREUR] SAM2 : {exc}"
+        finally:
+            busy_ring_wrap.visible = False
+            busy_ring_wrap.update()
+        if mask is None or not mask.getbbox():
+            _cancel_selection_ui("Aucun objet détecté sous le clic — recommencez")
+            return
+
+        bx1, by1, bx2, by2 = mask.getbbox()
+        # Marge = la dilatation MAX possible via le curseur "Taille du
+        # masque" (proportionnelle au plus petit côté de l'OBJET, pas la
+        # valeur par défaut) : sinon un masque dilaté en butée du curseur
+        # serait tronqué au bord de ce crop.
+        obj_w, obj_h = bx2 - bx1, by2 - by1
+        pad = int(min(obj_w, obj_h) * CONSTANTS.SAM2_MASK_DILATE_RATIO_MAX)
+        bx1 = max(0, bx1 - pad)
+        by1 = max(0, by1 - pad)
+        bx2 = min(img.width,  bx2 + pad)
+        by2 = min(img.height, by2 + pad)
+
+        # Masque brut (non dilaté) stocké tel quel — la dilatation est
+        # appliquée à chaque aperçu/recollage (_dilated_mask), pilotée par
+        # dilate_slider, pas figée ici (retour user : curseur réglable).
+        state["selection"]      = (bx1, by1, bx2, by2)
+        state["selection_mask"] = mask.crop((bx1, by1, bx2, by2))
+        w_sel, h_sel = bx2 - bx1, by2 - by1
+        sel_info.value = f"Objet sélectionné (SAM2) — {w_sel} × {h_sel} px"
+        _open_inpaint_dialog_for_selection(w_sel, h_sel)
+
     def _on_pan_end(e) -> None:
+        # Un clic quasi immobile ne termine pas toujours un geste "pan" côté
+        # Flutter (le glisser exige un minimum de mouvement pour être
+        # reconnu comme tel) — c'est `on_tap_up`/_on_tap_click, un geste
+        # dédié, qui gère le clic -> SAM2, pas une détection de mouvement
+        # ici (retour user : la segmentation ne se déclenchait pas, ou très
+        # rarement, avec l'ancienne détection par seuil).
         if not state["sel_mode"] or state["drag_start"] is None:
             return
         x1d, y1d = state["drag_start"]
@@ -465,6 +657,7 @@ async def main(page: ft.Page) -> None:
         state["drag_start"]   = None
         state["drag_current"] = None
 
+        state["selection_mask"] = None
         ix1, iy1 = _display_to_image(min(x1d, x2d), min(y1d, y2d))
         ix2, iy2 = _display_to_image(max(x1d, x2d), max(y1d, y2d))
 
@@ -478,37 +671,36 @@ async def main(page: ft.Page) -> None:
                 f"Sélection : ({ix1}, {iy1}) → ({ix2}, {iy2})  —  "
                 f"{w_sel} × {h_sel} px"
             )
-            has_prompt = bool(prompt_field.value and prompt_field.value.strip())
-            send_btn.disabled = not has_prompt
-            # Désactiver la sélection et ouvrir le dialog inpainting
-            state["sel_mode"]          = False
-            inpaint_btn.text           = "Retouche IA"
-            inpaint_btn.icon           = ft.Icons.AUTO_FIX_HIGH
-            inpaint_btn.bgcolor        = GREY
-            image_gesture.visible      = False
-            preview_viewer.pan_enabled = True
-            inpaint_dialog.open        = True
+            _open_inpaint_dialog_for_selection(w_sel, h_sel)
         else:
-            state["selection"] = None
-            sel_info.value = "Sélection trop petite — recommencez"
-            send_btn.disabled = True
-
-        sel_info.update()
-        _update_sel_canvas()
-        page.update()
+            _cancel_selection_ui("Sélection trop petite — recommencez")
 
     def _on_pan_cancel(e) -> None:
         state["drag_start"]   = None
         state["drag_current"] = None
         _update_sel_canvas()
 
+    def _on_tap_click(e) -> None:
+        """Clic (tap, pas glisser) en mode sélection -> objet SAM2. Geste
+        séparé du pan (cf. _on_pan_end) : un clic immobile ne remonte pas
+        forcément par onPanStart/End côté Flutter, alors qu'un tap le fait
+        toujours, mouvement ou non."""
+        if not state["sel_mode"] or state["orig_img"] is None or state["working"]:
+            return
+        page.run_task(
+            _select_object_at, float(e.local_position.x), float(e.local_position.y))
+
     # ── Envoi à Gemini ───────────────────────────────────────────────────────
 
     def _composite_retouch(ratio: float) -> None:
         """Recolle la retouche Gemini cachée avec un fondu de bords `ratio`.
 
-        Opération légère (paste + flou gaussien) : aucun appel réseau. Utilisé
-        au premier collage puis à chaque mouvement du slider de fondu.
+        Opération légère (paste + flou gaussien) : aucun appel réseau.
+        Utilisé au premier collage puis à chaque mouvement du slider de
+        fondu. La dilatation du masque (dilate_slider), elle, est déjà
+        décidée et appliquée AVANT l'envoi à Gemini (cf. _render_mask_
+        overlay / on_send_gemini) — retouch_mask est donc déjà à sa
+        taille finale ici, seul le flou reste ajustable après coup.
         """
         fit  = state["retouch_fit"]
         base = state["retouch_base"]
@@ -521,11 +713,19 @@ async def main(page: ft.Page) -> None:
             int(min(w, h) * ratio),
         )
         feather = min(feather, min(w, h) // 2)   # jamais au-delà du centre
-        mask = Image.new("L", (w, h), 0)
-        ImageDraw.Draw(mask).rectangle(
-            (feather, feather, w - feather, h - feather), fill=255,
-        )
-        mask = mask.filter(ImageFilter.GaussianBlur(feather))
+        obj_mask = state["retouch_mask"]
+        if obj_mask is not None:
+            # Silhouette précise (SAM2) : bords déjà nets, un fondu bien
+            # plus fin qu'un rectangle suffit (retour user — éviter de
+            # "manger" l'objet avec un flou trop large).
+            mask_feather = max(1, feather // CONSTANTS.SAM2_MASK_FEATHER_DIVISOR)
+            mask = obj_mask.filter(ImageFilter.GaussianBlur(mask_feather))
+        else:
+            mask = Image.new("L", (w, h), 0)
+            ImageDraw.Draw(mask).rectangle(
+                (feather, feather, w - feather, h - feather), fill=255,
+            )
+            mask = mask.filter(ImageFilter.GaussianBlur(feather))
         new_work = base.copy()
         new_work.paste(fit, (sel[0], sel[1]), mask)
         state["work_img"] = new_work
@@ -535,7 +735,29 @@ async def main(page: ft.Page) -> None:
         _composite_retouch(feather_slider.value)
         _render_preview()
 
-    feather_slider.on_change = on_feather_change
+    def on_dilate_change_end(e) -> None:
+        # Barre indéterminée pendant le recalcul (retour user : aucun signe
+        # que ça travaille sinon) — affichée AVANT l'appel bloquant, pour
+        # qu'elle soit bien à l'écran pendant que _render_preview() tourne.
+        progress_bar.value   = None
+        progress_bar.visible = True
+        page.update()
+        try:
+            _render_preview()
+        finally:
+            progress_bar.visible = False
+            page.update()
+
+    feather_slider.on_change     = on_feather_change
+    # _render_preview() reconvertit/réencode l'image PLEINE résolution à
+    # chaque appel (contrairement à _composite_retouch, léger) — le
+    # déclencher sur `on_change` (donc à chaque tick pendant le glissement)
+    # noyait l'UI de recalculs, ressenti comme un blocage sans retour
+    # (retour user). `on_change_end` : un seul recalcul au relâchement,
+    # comme les curseurs coûteux de Recadrage manuel.pyw. La bulle de
+    # valeur native du slider (label="{value}") donne déjà un retour
+    # numérique instantané pendant le glissement, sans recalcul.
+    dilate_slider.on_change_end  = on_dilate_change_end
 
     async def on_send_gemini(e) -> None:
         if state["orig_img"] is None or state["selection"] is None or state["working"]:
@@ -557,10 +779,17 @@ async def main(page: ft.Page) -> None:
         sel = state["selection"]
         sel_w = sel[2] - sel[0]
         sel_h = sel[3] - sel[1]
+        sel_mask = state["selection_mask"]   # capturé avant reset ci-dessous
+        if sel_mask is not None:
+            # Dilatation déjà choisie/aperçue via dilate_slider avant
+            # l'envoi (cf. _dilated_mask) — appliquée ici une fois pour
+            # toutes, _composite_retouch ne s'occupe plus que du flou.
+            sel_mask = _dilated_mask(sel_mask, dilate_slider.value)
 
         # Effacer la sélection et repasser en mode navigation immédiatement
         inpaint_dialog.open        = False
         state["selection"]         = None
+        state["selection_mask"]    = None
         state["drag_start"]        = None
         state["drag_current"]      = None
         state["sel_mode"]          = False
@@ -619,6 +848,7 @@ async def main(page: ft.Page) -> None:
             state["retouch_fit"]  = gemini_fit
             state["retouch_base"] = base
             state["retouch_sel"]  = sel
+            state["retouch_mask"] = sel_mask   # déjà dilaté ci-dessus si objet SAM2
             feather_slider.value  = CONSTANTS.AI_RETOUCH_FEATHER_RATIO
             feather_row.visible   = True
             _composite_retouch(CONSTANTS.AI_RETOUCH_FEATHER_RATIO)
@@ -654,7 +884,8 @@ async def main(page: ft.Page) -> None:
             return
         state["work_img"] = state["undo_img"]
         state["undo_img"] = None
-        state["retouch_fit"] = None   # cache obsolète après annulation
+        state["retouch_fit"]  = None   # cache obsolète après annulation
+        state["retouch_mask"] = None
         feather_row.visible  = False
         undo_btn.disabled = True
         status_text.value = "Retouche annulée"
@@ -742,10 +973,11 @@ async def main(page: ft.Page) -> None:
     # ── Effacement de la sélection ───────────────────────────────────────────
 
     def on_clear_selection(e) -> None:
-        state["selection"]    = None
-        state["drag_start"]   = None
-        state["drag_current"] = None
-        sel_info.value    = "Sélection effacée — clic + glisser pour définir une zone"
+        state["selection"]      = None
+        state["selection_mask"] = None
+        state["drag_start"]     = None
+        state["drag_current"]   = None
+        sel_info.value    = "Sélection effacée — clic pour un objet, glisser pour une zone"
         send_btn.disabled = True
         _render_preview()
 
@@ -1466,13 +1698,14 @@ async def main(page: ft.Page) -> None:
     image_gesture.on_pan_update         = _on_pan_update
     image_gesture.on_pan_end            = _on_pan_end
     image_gesture.on_pan_cancel         = _on_pan_cancel
+    image_gesture.on_tap_up             = _on_tap_click
     image_gesture.on_secondary_tap_down = lambda e: on_clear_selection(e)
     image_gesture.mouse_cursor          = ft.MouseCursor.PRECISE
     image_gesture.visible               = False
 
     _vw, _vh = state["view_size"]
     inner_container = ft.Container(
-        content=ft.Stack([preview_img, sel_canvas, image_gesture]),
+        content=ft.Stack([preview_img, sel_canvas, image_gesture, busy_ring_wrap]),
         width=_vw,
         height=_vh,
         bgcolor="#1e1e1e",
@@ -1510,10 +1743,26 @@ async def main(page: ft.Page) -> None:
     inpaint_btn.on_click = on_inpaint_btn
 
     # ── Dialog inpainting ────────────────────────────────────────────────────
+    def _cancel_inpaint_dialog(e=None) -> None:
+        """Ferme le dialogue sans redessiner ni envoyer — retour user :
+        coincé sans savoir comment fermer/annuler pendant que le dialogue
+        (modal) empêchait tout, y compris cliquer sur le bouton Fermer de
+        la fenêtre."""
+        inpaint_dialog.open        = False
+        state["selection"]         = None
+        state["selection_mask"]    = None
+        state["sel_mode"]          = False
+        image_gesture.visible      = False
+        preview_viewer.pan_enabled = True
+        sel_info.value = "Sélection annulée — clic pour un objet, glisser pour une zone"
+        send_btn.disabled = True
+        _render_preview()
+
     def _reopen_selection() -> None:
         inpaint_dialog.open        = False
         state["sel_mode"]          = True
         state["selection"]         = None
+        state["selection_mask"]    = None
         state["drag_start"]        = None
         state["drag_current"]      = None
         inpaint_btn.text           = "Annuler sélection"
@@ -1521,19 +1770,23 @@ async def main(page: ft.Page) -> None:
         inpaint_btn.bgcolor        = BLUE
         image_gesture.visible      = True
         preview_viewer.pan_enabled = False
-        _update_sel_canvas()
-        page.update()
+        _render_preview()
 
     inpaint_dialog = ft.AlertDialog(
         modal=True,
         title=ft.Text("Retouche IA (Gemini)"),
         content=ft.Column(
-            [sel_info, prompt_field, progress_bar],
+            [sel_info, dilate_row, prompt_field, progress_bar],
             tight=True,
             spacing=10,
             width=420,
         ),
         actions=[
+            ft.TextButton(
+                "Annuler",
+                style=ft.ButtonStyle(color=LIGHT_GREY),
+                on_click=_cancel_inpaint_dialog,
+            ),
             ft.TextButton(
                 "Redessiner",
                 on_click=lambda e: _reopen_selection(),
@@ -1694,11 +1947,21 @@ async def main(page: ft.Page) -> None:
     # ── Resize ───────────────────────────────────────────────────────────────
 
     _TITLEBAR_H = 32
+    # left_panel (width=290) + son padding gauche/droite (12+12) + le
+    # séparateur ft.Container(width=12) entre les deux colonnes = 326, PAS
+    # 340 comme avant. Cet écart de 14px faisait sous-dimensionner
+    # `inner_container` par rapport à l'espace réellement disponible dans
+    # `center_panel` -> InteractiveViewer recentrait le contenu dans un
+    # viewport plus large que ce que cette fonction croyait, décalant la
+    # sélection (rubber band) par rapport à l'image sous-jacente (retour
+    # user). Si les largeurs de left_panel/padding/séparateur changent,
+    # cette constante doit suivre.
+    _LEFT_CHROME_W = 290 + 24 + 12
 
     def _on_page_resize(e=None) -> None:
         w = int(getattr(e, "width",  None) or page.width  or 1200)
         h = int(getattr(e, "height", None) or page.height or 800)
-        vw = max(640, w - 340)
+        vw = max(640, w - _LEFT_CHROME_W)
         vh = max(480, h - _TITLEBAR_H - 60)
         state["view_size"] = (vw, vh)
         inner_container.width  = vw
