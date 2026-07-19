@@ -2063,7 +2063,7 @@ def main(page: ft.Page):
     viewer_bottom_bar = ft.Container(
         content=ft.Row([
             viewer_checkbox,
-            ft.VerticalDivider(width=1, color=DARK),
+            ft.VerticalDivider(width=1, color=LIGHT_GREY),
             _viewer_btn(ft.Icons.ARROW_BACK_IOS_ROUNDED, "Précédente (←)",
                        lambda e: _viewer_nav(-1)),
             _viewer_btn(ft.Icons.ROTATE_LEFT, "Pivoter à gauche",
@@ -2186,7 +2186,12 @@ def main(page: ft.Page):
                        _launch_editor_for_current("Augmentation IA.py")))
 
     def _open_viewer(start_path):
-        paths = content["imgs"] if start_path in content["imgs"] else [start_path]
+        if selected and start_path in selected:
+            paths = [p for p in content["imgs"] if p in selected]
+        elif start_path in content["imgs"]:
+            paths = content["imgs"]
+        else:
+            paths = [start_path]
         viewer_state["paths"] = paths
         viewer_state["index"] = paths.index(start_path)
         if _HAS_PAGE_VIEW:
@@ -2461,14 +2466,14 @@ def main(page: ft.Page):
         ])
 
         lanes = [
-            recent_lane, ft.VerticalDivider(width=1, color=DARK),
-            fav_lane, ft.VerticalDivider(width=1, color=DARK),
+            recent_lane, ft.VerticalDivider(color=LIGHT_GREY),
+            fav_lane, ft.VerticalDivider(color=LIGHT_GREY),
             drive_lane,
         ]
 
         open_menu_panel.content = ft.Column([
             ft.Row(lanes, spacing=6, vertical_alignment=ft.CrossAxisAlignment.START),
-            ft.Divider(height=1, color=DARK),
+            ft.Divider(height=1, color=LIGHT_GREY),
             footer,
         ], spacing=6, tight=True)
 
@@ -2801,8 +2806,13 @@ def main(page: ft.Page):
                 pass
 
     edit_btns_row = ft.Row(
-        [renommer_btn, copier_btn, couper_btn, coller_btn, dupliquer_btn,
-         zipper_btn, ajouter_ia_btn, supprimer_btn], spacing=4)
+        [renommer_btn, 
+        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+            height=CONSTANTS.HUB_TOOLBAR_H),
+        copier_btn, couper_btn, coller_btn, dupliquer_btn,
+        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+        height=CONSTANTS.HUB_TOOLBAR_H),
+        zipper_btn, ajouter_ia_btn, supprimer_btn], spacing=4)
 
     touch_actions_line = ft.Row(
         [search_field_wrap, edit_btns_row],
@@ -2812,18 +2822,15 @@ def main(page: ft.Page):
         content=ft.Column([
             ft.Row([
                 ft.Row([parent_folder_btn, refresh_folder_btn,
-                       new_folder_btn,
-                       ft.Container(
-                           content=ft.Row([
-                               kiosk_gauche_btn, transfert_temp_btn,
-                               recadrage_manuel_btn, recadrage_auto_btn,
-                               two_en_un_btn], spacing=8),
-                        #    border=ft.Border.all(1, BLUE), 
-                           border_radius=8, padding=ft.Padding(4, 0, 4, 0),
-                           margin=ft.Margin(32, 0, 0, 0)),
-                       ], spacing=8),
+                        new_folder_btn,
+                        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+                                     height=CONSTANTS.HUB_TOOLBAR_H),
+                        kiosk_gauche_btn, transfert_temp_btn,
+                        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+                                     height=CONSTANTS.HUB_TOOLBAR_H),
+                        recadrage_manuel_btn, recadrage_auto_btn,
+                        two_en_un_btn], spacing=8),
                 ft.Container(expand=True),
-                ft.VerticalDivider(width=1, color=GREY),
                 sort_btn,
                 view_seg_wrap,
             ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -2834,7 +2841,6 @@ def main(page: ft.Page):
                 _seg_btn(ft.Icons.EVENT, "Même date", _select_same_date,
                          color=VIOLET),
                 only_sel_btn,
-                ft.VerticalDivider(width=1, color=GREY),
                 ft.Container(expand=True),
                 order_mode_btn,
                 create_order_btn,
