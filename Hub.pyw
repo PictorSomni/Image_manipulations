@@ -316,6 +316,7 @@ def main(page: ft.Page):
     # quand une sélection est fournie (retour user).
     selected = []                        # chemins sélectionnés (images + dossiers)
     clipboard = {"paths": [], "mode": None}   # mode: "copy" | "cut" | None
+    drives_state = {"list": []}          # [(nom, chemin), ...] — cache tenu à jour par _poll_removable_drives
 
     def _select_add(path):
         if path not in selected:
@@ -2320,6 +2321,28 @@ def main(page: ft.Page):
             pass
         return drives
 
+    def _poll_removable_drives():
+        # Comme Dashboard.pyw:7498 (_poll_removable_drives) : un scan
+        # toutes les 3 s pendant toute la session, pour que le menu Ouvrir
+        # lise une liste déjà à jour au lieu de scanner à chaque ouverture
+        # (retour user : accès immédiat à une carte SD/clé USB avec un
+        # client en attente). Les périphériques tout juste branchés
+        # passent en tête de liste, les autres gardent leur ordre.
+        prev_drives = []
+        ordered_drives = []
+        while True:
+            time.sleep(3)
+            try:
+                drives = _get_removable_drives()
+                if drives != prev_drives:
+                    new_drives = [d for d in drives if d not in prev_drives]
+                    existing_drives = [d for d in ordered_drives if d in drives]
+                    ordered_drives = new_drives + existing_drives
+                    prev_drives = drives
+                    drives_state["list"] = ordered_drives
+            except Exception:
+                pass
+
     def _eject_drive(path):
         # Même logique que Dashboard.pyw:7376 (_eject_drive).
         _log_to_terminal(f"[...] Éjection en cours : {path}", VIOLET)
@@ -2428,18 +2451,19 @@ def main(page: ft.Page):
             "Aucun dossier récent")
         fav_lane = _menu_lane(
             "Favoris", [_fav_row(f) for f in favs], "Aucun favori")
-        # "Périphériques" peuplé en arrière-plan : sur Windows, énumérer
-        # les lecteurs peut se bloquer plusieurs secondes sur un lecteur
-        # de cartes dont un slot est vide (GetVolumeInformationW/
-        # os.path.exists interrogent le matériel) — le menu ne doit
-        # jamais attendre ça pour apparaître (retour user).
-        drive_lane = _menu_lane("Périphériques", [], "Recherche…")
+        # "Périphériques" lu directement dans drives_state["list"] — tenu
+        # à jour en tâche de fond par _poll_removable_drives (toutes les
+        # 3 s), donc déjà disponible sans scanner à l'ouverture du menu
+        # (retour user : accès immédiat avec un client en attente).
+        drive_lane = _menu_lane(
+            "Périphériques",
+            [_drive_row(n, p) for n, p in drives_state["list"]],
+            "Aucun périphérique externe")
 
         def _prune_recents():
-            # Même principe que _load_drives ci-dessous, pour la même
-            # raison : la liste "Historique" s'affiche telle quelle tout
-            # de suite (non filtrée, cf. _load_recent), puis un dossier
-            # disparu/injoignable (partage NAS endormi) est retiré
+            # Même raison que pour l'historique : la liste s'affiche telle
+            # quelle tout de suite (non filtrée, cf. _load_recent), puis un
+            # dossier disparu/injoignable (partage NAS endormi) est retiré
             # silencieusement une fois la vérification terminée, sans
             # jamais retarder l'affichage du menu (retour user).
             valid = [p for p in recents if os.path.isdir(p)]
@@ -2457,20 +2481,6 @@ def main(page: ft.Page):
                 pass
 
         threading.Thread(target=_prune_recents, daemon=True).start()
-
-        def _load_drives():
-            drives = _get_removable_drives()
-            items = [_drive_row(n, p) for n, p in drives] or [ft.Container(
-                content=ft.Text("Aucun périphérique externe",
-                                size=CONSTANTS.TEXT_SM, color=GREY),
-                padding=ft.Padding(10, 8, 10, 8))]
-            drive_lane.content.controls[1].controls = items
-            try:
-                page.update()
-            except Exception:
-                pass
-
-        threading.Thread(target=_load_drives, daemon=True).start()
 
         footer = ft.Row([
             ft.TextButton(
@@ -7377,6 +7387,13 @@ def main(page: ft.Page):
 
     page.run_task(_focus_active_surface)
     _mic_hotkey_start()
+
+    # Scan initial synchrone (rapide, cf. _get_removable_drives) puis
+    # relais par le thread de fond toutes les 3 s (comme Dashboard.pyw) :
+    # le menu Ouvrir a donc toujours une liste prête, même au tout
+    # premier clic après le lancement de Hub.
+    drives_state["list"] = _get_removable_drives()
+    threading.Thread(target=_poll_removable_drives, daemon=True).start()
 
     if CONSTANTS.MAXIMIZED:
         async def _delayed_maximize():

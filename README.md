@@ -59,7 +59,6 @@ Hub est un poste de travail tout-en-un pour trier, préparer, retoucher et expor
 | Conversion JPG | Conversion de formats divers (PNG, TIFF, BMP…) vers JPG |
 | Images en PDF | Assembler une sélection d'images en un seul PDF |
 | 2-en-1 | Composer deux tirages identiques sur une feuille (ex. 2 × 10x15 sur 15x20) |
-| Fit 203 | Placer une image dans un format supérieur avec bords blancs |
 | Noir et blanc | Conversion N&B en lot |
 | Netteté | Amélioration de la netteté en lot |
 | Débruitage | Réduction du bruit par algorithme Non-Local Means (OpenCV NLM), configurable en intensité |
