@@ -217,7 +217,7 @@ def main(page: ft.Page):
                 SOURCE_FILES_FROM_DASHBOARD
                 if SOURCE_FILES_FROM_DASHBOARD
                 else [f for f in DEFAULT_SOURCE.iterdir()
-                     if not f.name.startswith(".")]
+                     if not f.name.startswith(".") and f.is_file()]
             )
 
             if not source_files:
@@ -349,7 +349,7 @@ if LAUNCHED_FROM_DASHBOARD:
             SOURCE_FILES_FROM_DASHBOARD
             if SOURCE_FILES_FROM_DASHBOARD
             else [f for f in DEFAULT_SOURCE.iterdir()
-                 if not f.name.startswith(".")]
+                 if not f.name.startswith(".") and f.is_file()]
         )
         if not source_files:
             print("[info] Aucun fichier à copier.", flush=True)

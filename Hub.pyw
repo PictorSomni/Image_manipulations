@@ -423,9 +423,11 @@ def main(page: ft.Page):
 
     def _update_sel_count():
         # Barre du bas (pas le header) : total d'abord, puis la sélection
-        # en cours s'il y en a une (retour user).
-        dirs, imgs, other = _visible_entries()
-        total = len(dirs) + len(imgs) + len(other)
+        # en cours s'il y en a une (retour user). Comme "Tout sélectionner"
+        # (_toggle_all) : ne compte que les fichiers, pas les sous-dossiers
+        # (retour user).
+        _dirs, imgs, other = _visible_entries()
+        total = len(imgs) + len(other)
         n = len(selected)
         total_txt = f"{total} fichier{'s' if total > 1 else ''}"
         if n:
@@ -1014,7 +1016,7 @@ def main(page: ft.Page):
         # on retourne tout de suite, avec la barre infinie + un message
         # dans le terminal pendant que ça tourne (retour user, même
         # rendu que app_progress_bar dans Dashboard.pyw).
-        _log_to_terminal(f"[...] {label}…", ORANGE)
+        _log_to_terminal(f"[...] {label}…", ORANGE, clear=True)
         action_progress_bar.visible = True
         page.update()
 
@@ -1041,7 +1043,8 @@ def main(page: ft.Page):
         clipboard["mode"] = "copy"
         _refresh_edit_buttons()
         page.update()
-        _log_to_terminal(f"[OK] {len(clipboard['paths'])} élément(s) copié(s)", BLUE)
+        _log_to_terminal(f"[OK] {len(clipboard['paths'])} élément(s) copié(s)", BLUE,
+                        clear=True)
 
     def _do_cut(paths):
         clipboard["paths"] = list(paths)
@@ -1050,7 +1053,7 @@ def main(page: ft.Page):
         page.update()
         _log_to_terminal(
             f"[OK] {len(clipboard['paths'])} élément(s) coupé(s) — Ctrl+V pour coller",
-            ORANGE)
+            ORANGE, clear=True)
 
     def _unique_dest(folder, name):
         base, ext = os.path.splitext(name)
@@ -1329,9 +1332,10 @@ def main(page: ft.Page):
             try:
                 os.rename(path, new_path)
             except OSError as exc:
-                _log_to_terminal(f"[ERREUR] Renommage : {exc}", RED)
+                _log_to_terminal(f"[ERREUR] Renommage : {exc}", RED, clear=True)
                 return
-            _log_to_terminal(f"[OK] Renommé : {current_name} → {new_name}", GREEN)
+            _log_to_terminal(f"[OK] Renommé : {current_name} → {new_name}", GREEN,
+                            clear=True)
             _select_discard(path)
             _navigate(parent)
 
@@ -2641,16 +2645,10 @@ def main(page: ft.Page):
         ft.CupertinoIcons.SQUARE_SPLIT_2X1, GREEN,
         lambda e: _launch_two_in_one(e),
         "2 en 1")
-
-    # Grisés tant qu'aucun fichier n'est sélectionné, comme les chips
-    # Renommer -> Supprimer plus bas (retour user) : `disabled=True` +
-    # icon_color=LIGHT_GREY posés dès la création, _refresh_edit_buttons()
-    # les redégrise/regrise avec les autres à chaque changement de
-    # sélection.
-    for _btn in (recadrage_manuel_btn, recadrage_auto_btn, two_en_un_btn):
-        _btn.disabled = True
-        _btn.icon_color = LIGHT_GREY
-        _btn.style.bgcolor = GREY
+    # Toujours actifs, avec ou sans sélection : sans fichier sélectionné,
+    # les outils lancés par _launch_tool traitent tout le dossier (retour
+    # user) — cf. Data/skills.md:21 (SELECTED_FILES absent = tout le
+    # dossier) et le garde-fou déjà dans _launch_tool (folder requis).
 
     new_folder_btn = ft.IconButton(
         icon=ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
@@ -2780,30 +2778,13 @@ def main(page: ft.Page):
         btn.disabled = not enabled
         btn.icon_color = color if enabled else LIGHT_GREY
 
-    # Même grisage que _sel_edit_btns, mais ces 3 boutons sont à fond plein
-    # coloré + icône DARK (_toolbar_icon_btn) au lieu de fond GREY + icône
-    # colorée : la bascule touche donc `style.bgcolor` plutôt que
-    # `icon_color` seul.
-    _sel_toolbar_btns = [
-        (recadrage_manuel_btn, RED), (recadrage_auto_btn, GREEN),
-        (two_en_un_btn, GREEN),
-    ]
-
-    def _set_toolbar_btn_state(btn, color, enabled):
-        btn.disabled = not enabled
-        btn.icon_color = DARK if enabled else LIGHT_GREY
-        btn.style.bgcolor = color if enabled else GREY
-
     def _refresh_edit_buttons():
         n = len(selected)
         _set_edit_btn_state(renommer_btn, BLUE, n == 1)
         for btn, color in _sel_edit_btns[1:]:
             _set_edit_btn_state(btn, color, n > 0)
         _set_edit_btn_state(coller_btn, YELLOW, bool(clipboard["paths"]))
-        for btn, color in _sel_toolbar_btns:
-            _set_toolbar_btn_state(btn, color, n > 0)
-        for btn, _color in (_sel_edit_btns + [(coller_btn, YELLOW)]
-                            + _sel_toolbar_btns):
+        for btn, _color in _sel_edit_btns + [(coller_btn, YELLOW)]:
             try:
                 btn.update()
             except Exception:
@@ -4900,15 +4881,27 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
     #  Surface Liste — lecteur/éditeur .json générique (façon
     #  Data/SidePanel.pyw) : mots-clés ou tout autre texte à copier hors de
-    #  l'app (ex. fiches PrestaShop). Format strict : liste d'objets
-    #  {"nom": str, "description": str}. L'IA y écrit avec les outils
-    #  fichiers génériques (create_file/edit_file, pas d'outil dédié) ; le
-    #  callback refresh() du chat (cf. tool_ui plus haut) recharge cette
-    #  surface après chaque appel d'outil, comme le pubsub "refresh" de
-    #  SidePanel.
+    #  l'app (ex. fiches PrestaShop). Format : liste d'objets dict, colonnes
+    #  libres (ex. {"nom": str, "description": str} ou tout autre schéma) ;
+    #  les colonnes affichées s'adaptent aux clés trouvées dans le fichier.
+    #  L'IA y écrit avec les outils fichiers génériques (create_file/
+    #  edit_file, pas d'outil dédié) ; le callback refresh() du chat (cf.
+    #  tool_ui plus haut) recharge cette surface après chaque appel d'outil,
+    #  comme le pubsub "refresh" de SidePanel.
     # ═════════════════════════════════════════════════════════════════════
     _liste_file = {"path": os.path.join(_APP_DIR, ".liste.json")}
     liste_entries = []
+    _LISTE_DEFAULT_COLUMNS = ["nom", "description"]
+
+    def _liste_columns():
+        # ponytail: colonnes = union ordonnée des clés rencontrées ;
+        # défaut nom/description si le fichier est vide (nouveau fichier).
+        columns = []
+        for entry in liste_entries:
+            for key in entry:
+                if key not in columns:
+                    columns.append(key)
+        return columns or list(_LISTE_DEFAULT_COLUMNS)
 
     def _liste_load():
         liste_entries.clear()
@@ -4917,11 +4910,9 @@ def main(page: ft.Page):
                 data = json.load(f)
             if isinstance(data, list):
                 for item in data:
-                    if isinstance(item, dict) and "nom" in item:
-                        liste_entries.append({
-                            "nom": str(item.get("nom", "")),
-                            "description": str(item.get("description", "")),
-                        })
+                    if isinstance(item, dict):
+                        liste_entries.append(
+                            {k: str(v) for k, v in item.items()})
         except Exception:
             pass
 
@@ -4965,26 +4956,29 @@ def main(page: ft.Page):
 
     def _liste_edit(index=None):
         is_new = index is None
-        current = {"nom": "", "description": ""} if is_new else liste_entries[index]
-        nom_field = ft.TextField(
-            label="Nom", value=current["nom"], autofocus=True, width=320,
-            bgcolor=DARK, border_color=GREY, color=WHITE)
-        desc_field = ft.TextField(
-            label="Description", value=current["description"], width=320,
-            multiline=True, min_lines=2, max_lines=5, bgcolor=DARK,
-            border_color=GREY, color=WHITE)
+        columns = _liste_columns()
+        current = liste_entries[index] if not is_new else {}
+        fields = [
+            ft.TextField(
+                label=col, value=current.get(col, ""),
+                autofocus=(i == 0), width=320,
+                multiline=(i > 0), min_lines=1, max_lines=5,
+                bgcolor=DARK, border_color=GREY, color=WHITE)
+            for i, col in enumerate(columns)
+        ]
 
         def _cancel(event):
             dlg.open = False
             page.update()
 
         def _confirm(event):
-            nom = (nom_field.value or "").strip()
-            if not nom:
-                nom_field.error_text = "Requis"
+            first = (fields[0].value or "").strip()
+            if not first:
+                fields[0].error_text = "Requis"
                 page.update()
                 return
-            entry = {"nom": nom, "description": (desc_field.value or "").strip()}
+            entry = {col: (f.value or "").strip()
+                     for col, f in zip(columns, fields)}
             if is_new:
                 liste_entries.insert(0, entry)
             else:
@@ -4997,7 +4991,8 @@ def main(page: ft.Page):
         dlg = ft.AlertDialog(
             title=ft.Text("Ajouter une entrée" if is_new else "Modifier",
                          size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([nom_field, desc_field], spacing=10, tight=True),
+            content=ft.Column(fields, spacing=10, tight=True,
+                              scroll=ft.ScrollMode.AUTO),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Enregistrer", on_click=_confirm)],
         )
@@ -5005,22 +5000,22 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
+    _LISTE_ACTIONS_WIDTH = 2 * (CONSTANTS.ICON_SM + 16)  # aligne l'en-tête sur les 2 IconButton
+
     def _liste_row(index, entry):
+        columns = _liste_columns()
+        cells = []
+        for col in columns:
+            value = entry.get(col, "")
+            cells.append(ft.Container(
+                content=ft.Text(value or "—", size=CONSTANTS.TEXT_SM,
+                                color=WHITE, max_lines=2,
+                                overflow=ft.TextOverflow.ELLIPSIS),
+                tooltip=f"Copier {col} : {value}", expand=True, ink=True,
+                on_click=lambda e, t=value: _liste_copy(t)))
         return ft.Container(
             content=ft.Row([
-                ft.Container(
-                    content=ft.Text(entry["nom"], size=CONSTANTS.TEXT_SM,
-                                    color=BLUE, weight=ft.FontWeight.W_600),
-                    tooltip=f"Copier le nom : {entry['nom']}", expand=True,
-                    ink=True, on_click=lambda e, t=entry["nom"]: _liste_copy(t)),
-                ft.Container(
-                    content=ft.Text(entry["description"] or "—",
-                                    size=CONSTANTS.TEXT_SM, color=WHITE,
-                                    max_lines=2,
-                                    overflow=ft.TextOverflow.ELLIPSIS),
-                    tooltip=f"Copier la description : {entry['description']}",
-                    expand=True, ink=True,
-                    on_click=lambda e, t=entry["description"]: _liste_copy(t)),
+                *cells,
                 ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_size=CONSTANTS.ICON_SM, icon_color=GREY,
                              on_click=lambda e, i=index: _liste_edit(i)),
                 ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_size=CONSTANTS.ICON_SM, icon_color=RED,
@@ -5028,21 +5023,72 @@ def main(page: ft.Page):
             ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             padding=ft.Padding(10, 8, 10, 8), bgcolor=GREY, border_radius=6)
 
+    def _liste_header():
+        columns = _liste_columns()
+        return ft.Row([
+            *[ft.Container(
+                content=ft.Text(col.upper(), size=CONSTANTS.TEXT_SM, color=WHITE,
+                                weight=ft.FontWeight.W_600),
+                expand=True) for col in columns],
+            ft.Container(width=_LISTE_ACTIONS_WIDTH),
+        ], spacing=8)
+
+    liste_header_row = ft.Container(content=_liste_header(),
+                                    padding=ft.Padding(10, 0, 10, 4))
     liste_list_view = ft.ListView(expand=True, spacing=4, padding=8)
     liste_path_text = ft.Text(os.path.basename(_liste_file["path"]),
                               size=CONSTANTS.TEXT_SM, color=WHITE,
                               no_wrap=True, expand=True)
+    liste_search = {"value": ""}
+
+    def _liste_matches_search(entry, query):
+        return any(query in str(v).lower() for v in entry.values())
+
+    def _liste_set_search(value):
+        liste_search["value"] = (value or "").strip().lower()
+        _liste_render()
+
+    def _liste_clear_search(event=None):
+        liste_search_field.value = ""
+        liste_search["value"] = ""
+        _liste_render()
+
+    liste_search_field = ft.TextField(
+        hint_text="Rechercher dans toutes les colonnes…",
+        on_change=lambda e: _liste_set_search(e.control.value),
+        height=45, bgcolor=DARK, border_color=BLUE,
+        color=WHITE, text_size=CONSTANTS.TEXT_SM,
+        content_padding=ft.Padding(8, 2, 8, 2),
+        prefix_icon=ft.Icons.SEARCH, expand=True,
+        on_focus=_suspend_kb, on_blur=_resume_kb,
+    )
+    liste_search_close_btn = ft.IconButton(
+        ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
+        bgcolor=GREY, tooltip="Effacer la recherche",
+        on_click=_liste_clear_search,
+        style=ft.ButtonStyle(padding=ft.Padding.all(4)))
+    liste_search_row = ft.Row(
+        [liste_search_field, liste_search_close_btn], spacing=4,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     def _liste_render():
+        liste_header_row.content = _liste_header()
+        liste_header_row.visible = bool(liste_entries)
         liste_list_view.controls.clear()
+        query = liste_search["value"]
+        rows = ([(i, e) for i, e in enumerate(liste_entries)
+                 if _liste_matches_search(e, query)] if query
+                else list(enumerate(liste_entries)))
         if not liste_entries:
             liste_list_view.controls.append(ft.Text(
                 "Liste vide. Ajoute une entrée, ou demande à l'IA de la "
                 "remplir (create_file sur ce fichier .json).",
                 size=CONSTANTS.TEXT_SM, color=GREY))
+        elif not rows:
+            liste_list_view.controls.append(ft.Text(
+                "Aucun résultat.", size=CONSTANTS.TEXT_SM, color=GREY))
         else:
-            liste_list_view.controls.extend(
-                _liste_row(i, e) for i, e in enumerate(liste_entries))
+            liste_list_view.controls.extend(_liste_row(i, e) for i, e in rows)
         liste_path_text.value = os.path.basename(_liste_file["path"])
         page.update()
 
@@ -5054,6 +5100,8 @@ def main(page: ft.Page):
         # Sélectionner un .json dans Fichiers l'ouvre ici — pas de bouton
         # "Ouvrir" séparé (retour user : le FilePicker faisait doublon).
         _liste_file["path"] = path
+        liste_search_field.value = ""
+        liste_search["value"] = ""
         _liste_reload()
         _select_surface("liste")
 
@@ -5082,6 +5130,8 @@ def main(page: ft.Page):
             except OSError:
                 pass
             _liste_file["path"] = path
+            liste_search_field.value = ""
+            liste_search["value"] = ""
             dlg.open = False
             page.update()
             _liste_reload()
@@ -5114,11 +5164,13 @@ def main(page: ft.Page):
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
         ft.Container(
             content=ft.Text(
-                "Cliquer sur le nom (bleu) copie le nom, cliquer sur la "
-                "description (gris) copie la description.",
-                size=CONSTANTS.TEXT_SM, color=GREY),
+                "Colonnes adaptées au fichier .json chargé. Cliquer sur "
+                "une valeur la copie dans le presse-papiers.",
+                size=CONSTANTS.TEXT_SM, color=WHITE),
             padding=ft.Padding(8, 0, 8, 4)),
+        ft.Container(content=liste_search_row, padding=ft.Padding(8, 0, 8, 6)),
         ft.Divider(height=1, color=GREY),
+        liste_header_row,
         ft.Container(content=liste_list_view, expand=True),
     ], expand=True, spacing=0)
     _liste_load()
@@ -5297,7 +5349,7 @@ def main(page: ft.Page):
         # laisse ouvert pour que le message reste lisible.
         prev_pinned = _terminal_autohide["pinned"]
         _terminal_autohide["pinned"] = True
-        _log_to_terminal(f"▶ Lancement de {display_name}...", BLUE)
+        _log_to_terminal(f"▶ Lancement de {display_name}...", BLUE, clear=True)
         action_progress_bar.visible = True
         page.update()
 
@@ -6214,6 +6266,25 @@ def main(page: ft.Page):
     # maquette (celle-ci utilisait des actions fictives) — Bluetooth et
     # Imprimer n'y sont plus : remontés dans la barre de titre (accès global).
     _ACTION_CATEGORIES = [
+        # Reprend les handlers des boutons de la barre de recherche et de
+        # la barre d'outils fichiers (retour user : clic droit → Actions
+        # est parfois plus pratique/habituel que ces icônes) — mêmes
+        # lambdas, donc mêmes garde-fous de sélection déjà en place.
+        ("Fichier", [
+            ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
+             renommer_btn.on_click),
+            ("Copier", ft.Icons.CONTENT_COPY, BLUE, copier_btn.on_click),
+            ("Couper", ft.Icons.CONTENT_CUT, ORANGE, couper_btn.on_click),
+            ("Coller", ft.Icons.CONTENT_PASTE, YELLOW, coller_btn.on_click),
+            ("Dupliquer", ft.Icons.FILE_COPY_OUTLINED, BLUE,
+             dupliquer_btn.on_click),
+            ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, YELLOW,
+             zipper_btn.on_click),
+            ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
+             ajouter_ia_btn.on_click),
+            ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
+             supprimer_btn.on_click),
+        ]),
         ("Préparation", [
             ("Conversion JPG", ft.Icons.IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Conversion JPG.py",
@@ -6241,6 +6312,14 @@ def main(page: ft.Page):
              lambda e: _launch_kiosk("STUDIOS", e)),
             ("Kiosque — Tirages", ft.Icons.LOCAL_PRINTSHOP_OUTLINED, ORANGE,
              lambda e: _launch_kiosk("PRINTS", e)),
+        ]),
+        ("Recadrage", [
+            ("Recadrage manuel", ft.Icons.CROP_FREE, RED,
+             recadrage_manuel_btn.on_click),
+            ("Recadrage automatique", ft.Icons.CROP, GREEN,
+             recadrage_auto_btn.on_click),
+            ("2 en 1", ft.CupertinoIcons.SQUARE_SPLIT_2X1, GREEN,
+             two_en_un_btn.on_click),
         ]),
         ("Retouche", [
             ("Augmentation IA", ft.Icons.AUTO_FIX_HIGH_OUTLINED, VIOLET,
@@ -6520,7 +6599,7 @@ def main(page: ft.Page):
 
     _terminal_log_path = os.path.join(_APP_DIR, "Data", ".hub_terminal.log")
 
-    def _log_to_terminal(message, color=None):
+    def _log_to_terminal(message, color=None, clear=False):
         message = (message or "").strip()
         if not message:
             return
@@ -6546,6 +6625,12 @@ def main(page: ft.Page):
             pass
 
         async def _do():
+            if clear:
+                # Chaque nouvelle action repart d'un terminal vide (retour
+                # user) : l'historique complet reste de toute façon dans
+                # _terminal_log_path ci-dessus, pas besoin de le garder
+                # affiché en plus.
+                terminal_output.controls.clear()
             terminal_output.controls.append(
                 ft.Text(message, size=CONSTANTS.TERMINAL_FONT_SIZE,
                         color=color or WHITE, font_family="monospace",
@@ -7245,6 +7330,21 @@ def main(page: ft.Page):
         titlebar,
         body,
     ], expand=True, spacing=0))
+
+    # Aucun dossier sélectionné au lancement -> repli automatique sur le
+    # dernier dossier ouvert, sinon un dossier standard multiplateforme
+    # (retour user : demander à l'IA de générer une image juste après le
+    # lancement, sans dossier ouvert, faisait clignoter l'interface et
+    # perdre le message — un dossier toujours ouvert évite cet état).
+    if not state["folder"]:
+        _default_folder = next(
+            (p for p in _load_recent() if os.path.isdir(p)), None)
+        if not _default_folder:
+            _pictures = os.path.join(os.path.expanduser("~"), "Pictures")
+            _default_folder = (_pictures if os.path.isdir(_pictures)
+                               else os.path.expanduser("~"))
+        _navigate(_default_folder)
+
     page.run_task(_focus_active_surface)
     _mic_hotkey_start()
 

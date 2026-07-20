@@ -3654,12 +3654,43 @@ def main(page: ft.Page):
         else:
             # Retour au format standard actuellement sélectionné
             app.change_ratio(type("Evt", (), {"control": type("Ctl", (), {"value": app.format_radio_group.value})()})())
+        _sync_custom_unit_for_crop_mode()
         page.update()
 
     def _on_custom_mode_toggle(e):
         _apply_custom_mode(bool(e.control.value))
 
     app.custom_mode_switch.on_change = _on_custom_mode_toggle
+
+    # En mode Ratio, seule la PROPORTION largeur/hauteur compte (cf.
+    # update_canvas_size : le format n'est jamais converti en pixels
+    # imprimés) — proposer mm/px y suggère à tort une taille physique
+    # réelle (retour user). On verrouille alors l'unité sur "%" ; le
+    # mm/px choisi avant d'entrer en mode Ratio est restauré en sortie.
+    def _sync_custom_unit_for_crop_mode():
+        is_ratio = getattr(app, "crop_mode", "resolution") == "ratio"
+        if is_ratio:
+            if app.custom_unit != "%":
+                app._unit_before_ratio = app.custom_unit
+            app.custom_unit = "%"
+            app.unit_dropdown.options = [ft.dropdown.Option("%")]
+            app.unit_dropdown.value = "%"
+            app.unit_dropdown.disabled = True
+            app.custom_w_field.label = "Largeur (%)"
+            app.custom_h_field.label = "Hauteur (%)"
+        else:
+            if app.custom_unit == "%":
+                app.custom_unit = getattr(app, "_unit_before_ratio", "mm")
+            app.unit_dropdown.options = [ft.dropdown.Option("mm"), ft.dropdown.Option("px")]
+            app.unit_dropdown.value = app.custom_unit
+            app.unit_dropdown.disabled = not app.custom_mode_switch.value
+            app.custom_w_field.label = f"Largeur ({app.custom_unit})"
+            app.custom_h_field.label = f"Hauteur ({app.custom_unit})"
+
+    def _on_crop_mode_change_and_sync(e):
+        app.on_crop_mode_change(e)
+        _sync_custom_unit_for_crop_mode()
+        page.update()
 
     app.format_radio_group = ft.RadioGroup(
         content=ft.Column(
@@ -3695,7 +3726,7 @@ def main(page: ft.Page):
                 ft.Text("Ratio", size=12),
                 ft.Text("Aucun", size=12),
             ],
-            on_change=app.on_crop_mode_change,
+            on_change=_on_crop_mode_change_and_sync,
             padding=ft.Padding.symmetric(horizontal=4, vertical=4),
         ),
         ft.Container(
