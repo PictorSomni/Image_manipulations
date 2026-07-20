@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Client MCP générique — connecte Dashboard/SidePanel à n'importe quel
+Client MCP générique — connecte Hub à n'importe quel
 serveur MCP configuré dans CONSTANTS.MCP_SERVERS, expose ses outils dans
 le même format que les outils internes de ai_tools.py (JSON Schema), et
 route les appels vers le bon serveur. Fonctionne avec n'importe quel
@@ -34,8 +34,8 @@ _TOOL_PREFIX = "mcp__"
 
 # Un serveur MCP en échec est ignoré silencieusement pour ne pas bloquer
 # les autres (voir mcp_get_all_tools) — mais l'erreur réelle doit rester
-# quelque part consultable, plutôt que disparaître complètement (Dashboard/
-# SidePanel tournent en .pyw, sans console).
+# quelque part consultable, plutôt que disparaître complètement (Hub
+# tourne en .pyw, sans console).
 _logger = logging.getLogger("mcp_client")
 if not _logger.handlers:
     _log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".mcp_errors.log")
@@ -198,7 +198,7 @@ async def _connect_server(server_cfg):
                 server_url=server_cfg["url"],
                 client_metadata=OAuthClientMetadata(
                     redirect_uris=[_OAUTH_REDIRECT_URI],
-                    client_name="Dashboard Image Manipulation",
+                    client_name="Hub Image Manipulation",
                     # Client public (PKCE, pas de secret) : certains
                     # serveurs MCP (Notion) rejettent l'échange de token
                     # si le client présente à la fois un secret et PKCE

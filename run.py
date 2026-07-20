@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Lanceur universel pour Dashboard Image Manipulation
+Lanceur universel pour Hub Image Manipulation
 Compatible: Windows, macOS, Linux
 """
 
@@ -38,7 +38,7 @@ def check_dependencies():
 
 def main():
     print("=" * 50)
-    print("Dashboard Image Manipulation")
+    print("Hub Image Manipulation")
     print("=" * 50)
     print()
     
@@ -58,10 +58,10 @@ def main():
         print("  pip install -r requirements.txt")
         sys.exit(1)
     
-    # Vérifier que Dashboard.py existe
-    dashboard_path = Path(__file__).parent / "Dashboard.pyw"
-    if not dashboard_path.exists():
-        print("[ERREUR] Fichier Dashboard.py introuvable dans le dossier courant")
+    # Vérifier que Hub.pyw existe
+    hub_path = Path(__file__).parent / "Hub.pyw"
+    if not hub_path.exists():
+        print("[ERREUR] Fichier Hub.pyw introuvable dans le dossier courant")
         sys.exit(1)
     
     # Vérifier que le dossier Data existe
@@ -70,14 +70,14 @@ def main():
         print("[WARN] Dossier Data introuvable - certaines applications pourraient ne pas fonctionner")
     
     print("[OK] Toutes les dépendances sont installées")
-    print("[OK] Lancement du Dashboard...")
+    print("[OK] Lancement de Hub...")
     print()
-    
-    # Lancer Dashboard.py
+
+    # Lancer Hub.pyw
     try:
-        subprocess.run([sys.executable, str(dashboard_path)], check=True)
+        subprocess.run([sys.executable, str(hub_path)], check=True)
     except KeyboardInterrupt:
-        print("\n[OK] Dashboard fermé")
+        print("\n[OK] Hub fermé")
     except Exception as e:
         print(f"[ERREUR] Erreur lors du lancement: {e}")
         sys.exit(1)

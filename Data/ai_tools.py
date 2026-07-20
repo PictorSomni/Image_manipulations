@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Utilitaires IA partagés entre Dashboard.pyw et SidePanel.pyw.
+Utilitaires IA partagés entre Hub.pyw et les scripts de Data/.
 
 Fonctions et constantes exposées :
   _fetch_url_content(url, max_chars)         — récupère le texte d'une URL HTTP(S)
@@ -1334,7 +1334,7 @@ def _folder_tool_definitions(folder_path):
                         "analyze_images (verdict libre), écrit un score structuré "
                         "(note 0-10 + raison courte par critère, score global) dans "
                         "un fichier .ai_photo_scores.json du dossier — exploitable "
-                        "ensuite par Dashboard pour copier automatiquement les images "
+                        "ensuite par Hub pour copier automatiquement les images "
                         "au-dessus du seuil, et par Charles pour affiner les notes à "
                         "la main. Utilise cet outil (pas analyze_images) dès que "
                         "Charles demande de 'noter', 'scorer' ou 'trier par qualité' "
@@ -1442,15 +1442,14 @@ def _gemini_tool_definitions(folder_path):
 
 def build_tool_list(folder_path, mcp_tools=None, extra_tools=None):
     """
-    Construit la liste complète d'outils envoyée au modèle — MUTUALISÉE entre
-    Dashboard et SidePanel (source unique, plus de double maintenance).
+    Construit la liste complète d'outils envoyée au modèle, utilisée par Hub.
 
     Paramètres :
       folder_path : dossier ouvert (outils dossier + generate/edit/iterate image)
       mcp_tools   : sortie de mcp_client.mcp_get_all_tools(), passée par
                     l'appelant (ai_tools reste découplé de mcp_client)
-      extra_tools : outils propres à une seule app (ex. _IMAGE_ITERATE_TOOLS
-                    pour Dashboard) ; None ailleurs
+      extra_tools : outils propres à une seule app (ex. _IMAGE_ITERATE_TOOLS) ;
+                    None ailleurs
 
     L'ordre reproduit exactement l'assemblage historique (important pour la
     stabilité du cache de préfixe outils). Le filtrage web_search/fetch_url
@@ -1478,9 +1477,9 @@ DISPATCH_UNHANDLED = object()
 
 def dispatch_folder_tool(fn_name, fn_args, folder_path, ui):
     """
-    Exécute une branche d'outil « pure » (résultat = chaîne) — MUTUALISÉE entre
-    Dashboard et SidePanel. Renvoie la chaîne résultat, ou DISPATCH_UNHANDLED si
-    fn_name n'est pas géré par ce groupe.
+    Exécute une branche d'outil « pure » (résultat = chaîne), utilisée par Hub.
+    Renvoie la chaîne résultat, ou DISPATCH_UNHANDLED si fn_name n'est pas géré
+    par ce groupe.
 
     Traduction fidèle des branches read_exif → read_spreadsheet, jadis dupliquées
     à l'identique dans les deux apps. L'appelant fait :
@@ -2661,7 +2660,7 @@ def _copy_scored_photos(folder_path):
     score_global atteint CONSTANTS.AI_PHOTO_SCORE_THRESHOLD.
 
     Retourne une chaîne de résumé (copiés / déjà présents / introuvables).
-    Action déterministe déclenchée par Charles (bouton Dashboard), pas un
+    Action déterministe déclenchée par Charles (bouton Hub), pas un
     outil IA — la copie n'est jamais décidée par le modèle seul.
     """
     import shutil as _shutil_cp2
@@ -4256,7 +4255,7 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
                 yield ("token", f"\n[{_retry_msg[1:-1]} – nouvelle tentative dans {_delay}s…]\n")
                 _time.sleep(_delay)
             elif "503" in _exc_str or "UNAVAILABLE" in _exc_str:
-                raise  # ponytail: laisser remonter → chaîne fallback Dashboard/SidePanel prend le relais
+                raise  # ponytail: laisser remonter → chaîne fallback de Hub prend le relais
             elif _is_network_error(exc) and _attempt < _MAX_RETRIES:
                 _delay = 5 * (_attempt + 1)
                 yield ("token", f"\n[Connexion perdue avec Gemini – nouvelle tentative dans {_delay}s…]\n")
@@ -4591,7 +4590,7 @@ def _iterate_image_loop(source_path, goal, max_passes,
     return {"final_path": cur_path, "passes": passes, "error": None}
 
 
-# Outil autonome (annoncé uniquement par Dashboard, qui possède le dispatch).
+# Outil autonome (annoncé uniquement par Hub, qui possède le dispatch).
 _IMAGE_ITERATE_TOOLS = [
     {
         "type": "function",
@@ -5431,7 +5430,7 @@ def _gemini_transcribe_audio(wav_bytes, language_code="fr",
     )
     # Pas de try/except ici : une erreur d'appel API (réseau, quota, clé
     # invalide…) doit remonter à l'appelant, qui la logge déjà
-    # (Dashboard.pyw/_worker : "[ERREUR] Transcription : ..."). L'avaler
+    # (Hub.pyw : "[ERREUR] Transcription : ..."). L'avaler
     # silencieusement transformait toute panne réelle en un opaque "Aucun
     # texte reconnu" sans piste de diagnostic.
     client = _genai.Client(api_key=api_key)
@@ -5807,7 +5806,7 @@ _READ_LINES_TOOLS = [
             "name": "read_file_lines",
             "description": (
                 "Lit une plage de lignes précise d'un fichier texte. "
-                "Indispensable pour les gros fichiers (Dashboard.pyw, SidePanel.pyw…) : "
+                "Indispensable pour les gros fichiers (Hub.pyw…) : "
                 "utiliser search_in_files pour trouver les numéros de ligne, "
                 "puis read_file_lines pour lire uniquement la section pertinente. "
                 "Retourne les lignes numérotées pour faciliter l'utilisation avec edit_file."
@@ -6749,7 +6748,7 @@ _HTTP_TOOLS = [
 
 # ── ssh_command ───────────────────────────────────────────────────────────────
 # Le mot de passe est fourni par l'appelant (résolu via credentials.py côté
-# Dashboard/SidePanel, avec boîte de dialogue si besoin) : cette fonction ne
+# Hub, avec boîte de dialogue si besoin) : cette fonction ne
 # le stocke jamais et ne le fait jamais réapparaître dans le texte retourné.
 
 def _ssh_command(host, username, password, command, port=22, timeout=30):

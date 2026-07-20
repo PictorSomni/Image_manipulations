@@ -74,11 +74,29 @@ ESRGAN_AVAILABLE = (
     and importlib.util.find_spec("spandrel") is not None
 )
 REMBG_AVAILABLE = importlib.util.find_spec("rembg") is not None
-SAM2_AVAILABLE = (
-    importlib.util.find_spec("torch") is not None
-    and importlib.util.find_spec("sam2") is not None
-    and os.path.isfile(os.path.join(_MODELS_DIR, CONSTANTS.SAM2_CHECKPOINT))
+_SAM2_CKPT_PATH = os.path.join(_MODELS_DIR, CONSTANTS.SAM2_CHECKPOINT)
+_SAM2_PKG_MISSING = (
+    importlib.util.find_spec("torch") is None
+    or importlib.util.find_spec("sam2") is None
 )
+SAM2_AVAILABLE = (
+    not _SAM2_PKG_MISSING and os.path.isfile(_SAM2_CKPT_PATH)
+)
+
+
+def _sam2_unavailable_reason() -> str:
+    """Message précis (paquet vs checkpoint) pour guider l'installation."""
+    if _SAM2_PKG_MISSING:
+        return (
+            "Sélection d'objet indisponible : pip install "
+            "git+https://github.com/facebookresearch/sam2.git — "
+            "glissez pour un rectangle")
+    return (
+        "Sélection d'objet indisponible : téléchargez "
+        f"{CONSTANTS.SAM2_CHECKPOINT} depuis "
+        "https://dl.fbaipublicfiles.com/segment_anything_2/092824/"
+        f"{CONSTANTS.SAM2_CHECKPOINT} et placez-le dans "
+        f"{_MODELS_DIR} — glissez pour un rectangle")
 
 
 # Logique partagée avec Hub.pyw (tiroir IA) : device torch + liste des
@@ -595,9 +613,7 @@ async def main(page: ft.Page) -> None:
         """Clic (sans glisser) en mode sélection : segmente l'objet sous le
         curseur avec SAM2 plutôt que de tracer un rectangle."""
         if not SAM2_AVAILABLE:
-            _cancel_selection_ui(
-                "Sélection d'objet indisponible (torch/sam2/checkpoint "
-                "manquant) — glissez pour un rectangle")
+            _cancel_selection_ui(_sam2_unavailable_reason())
             return
         ix, iy = _display_to_image(cx, cy)
         img = state["work_img"] or state["orig_img"]

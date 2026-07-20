@@ -3,7 +3,7 @@
 Compare deux répertoires et identifie les fichiers présents à la fois dans la source
 et dans la destination (fichiers identiques/communs).
 
-Lorsque lancé depuis le Dashboard, ``SELECTED_FILES`` doit contenir le chemin du
+Lorsque lancé depuis Hub, ``SELECTED_FILES`` doit contenir le chemin du
 dossier de destination (passé en tant que sélection de dossier unique). Le script
 affiche les fichiers identiques et les sélectionne automatiquement dans la preview
 via le préfixe ``SELECTED_FILES:``.
@@ -212,7 +212,7 @@ async def main(page: ft.Page) -> None:
         )
     )
 
-    # Démarrage auto selon ce qui est connu (lancé depuis Dashboard)
+    # Démarrage auto selon ce qui est connu (lancé depuis Hub)
     if source_path and dest_path:
         run_comparison(None)
     elif source_path:

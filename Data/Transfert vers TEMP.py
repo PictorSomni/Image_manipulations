@@ -6,17 +6,17 @@ Copie les fichiers vers un sous-dossier ``DEST/YYYY-MM-DD/NN/`` (date du jour +
 séquence automatique), puis supprime les fichiers sources après copie réussie.
 
 Source :
-  - Si lancé depuis le Dashboard avec ``SOURCE_FILES``, utilise ces fichiers/dossiers.
+  - Si lancé depuis Hub avec ``SOURCE_FILES``, utilise ces fichiers/dossiers.
   - Sinon, utilise le dossier Téléchargements.
 
 Destination : toujours ``CONSTANTS.TEMP_FOLDER`` (surchargeable via DEST_FOLDER).
 
-Lorsque lancé depuis le Dashboard (``LAUNCHED_FROM_DASHBOARD=1``), la copie
+Lorsque lancé depuis Hub (``LAUNCHED_FROM_DASHBOARD=1``), la copie
 démarre automatiquement et la fenêtre se ferme à la fin.
 
 Variables d'environnement :
   DEST_FOLDER              — chemin du dossier destination (défaut : CONSTANTS.TEMP_FOLDER).
-  LAUNCHED_FROM_DASHBOARD  — ``"1"`` si lancé via le Dashboard.
+  LAUNCHED_FROM_DASHBOARD  — ``"1"`` si lancé via Hub (nom historique de la variable).
   SOURCE_FILES             — chemins complets séparés par | (fichiers ou dossiers).
 
 Dépendances : flet >= 0.84, modules standard (pathlib, shutil, datetime)
@@ -78,7 +78,7 @@ DEFAULT_DEST   = _resolve_volume_path(Path(os.environ.get("DEST_FOLDER", CONSTAN
 LAUNCHED_FROM_DASHBOARD = os.environ.get("LAUNCHED_FROM_DASHBOARD") == "1"
 DELETE_AFTER_TRANSFER = os.environ.get("DELETE_AFTER_TRANSFER", "").strip() == "1"
 
-# Fichiers/dossiers spécifiques passés par le Dashboard (chemins complets séparés par |)
+# Fichiers/dossiers spécifiques passés par Hub (chemins complets séparés par |)
 # Un dossier sélectionné reste un dossier (copié avec son contenu via
 # _copy_source/copytree), il n'est jamais éclaté en fichiers à plat —
 # sinon la structure du dossier se perdait au passage (retour user).
@@ -112,7 +112,7 @@ def _remove_source(source):
     else:
         source.unlink()
 
-# Le dialog de suppression est maintenant dans le Dashboard
+# Le dialog de suppression est maintenant dans Hub
 # Pas de confirmation ici : supprimer silencieusement si DELETE_AFTER_TRANSFER=1
 
 # Colors
@@ -274,7 +274,7 @@ def main(page: ft.Page):
             progress_bar.visible = False
             progress_bar.update()
 
-            # Suppression silencieuse si DELETE_AFTER_TRANSFER=1 (confirmé au Dashboard)
+            # Suppression silencieuse si DELETE_AFTER_TRANSFER=1 (confirmé dans Hub)
             # OU si aucun fichier n'était sélectionné au départ (on vide alors Downloads par défaut)
             if DELETE_AFTER_TRANSFER or not SOURCE_FILES_FROM_DASHBOARD:
                 for source_file in source_files:
@@ -358,7 +358,7 @@ if LAUNCHED_FROM_DASHBOARD:
         for idx, f in enumerate(source_files, 1):
             _copy_source(f, dest_folder)
             print(f"Copie : {idx}/{len(source_files)} \u2014 {f.name}", flush=True)
-        # Même logique de suppression pour le mode Dashboard direct
+        # Même logique de suppression pour le mode Hub direct
         if DELETE_AFTER_TRANSFER or not SOURCE_FILES_FROM_DASHBOARD:
             for f in source_files:
                 _remove_source(f)

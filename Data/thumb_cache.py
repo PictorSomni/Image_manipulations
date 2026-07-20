@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Cache persistant de miniatures d'images — partagé entre Dashboard, SidePanel et Kiosk.
+Cache persistant de miniatures d'images — partagé entre Hub et Kiosk.
 
 Un fichier SQLite (.thumbcache.db) est créé dans chaque dossier d'images.
 Les miniatures sont stockées en base64 (TEXT) dans la DB, mais get_or_generate() retourne des

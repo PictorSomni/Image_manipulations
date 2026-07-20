@@ -3,7 +3,7 @@
 Application kiosque de sélection d'impressions photo — Version Flet.
 
 Remplace la version Qt6 originale (main.py) avec :
-  - Interface plein écran Flet, palette de couleurs de Dashboard.pyw.
+  - Interface plein écran Flet, palette de couleurs de Hub.pyw.
   - Grille d'images avec sélection de format et compteur d'impressions par photo.
   - Prévisualisation N&B par image (toggle par bouton).
   - Calcul du prix total en temps réel.
@@ -1480,7 +1480,7 @@ def main(page: ft.Page) -> None:
         ], expand=True, spacing=0)
     )
 
-    # ── Auto-ouverture du dossier passé par Dashboard ─────────────────────
+    # ── Auto-ouverture du dossier passé par Hub ────────────────────────────
     _initial_folder = os.environ.get("FOLDER_PATH", "")
     if _initial_folder and os.path.isdir(_initial_folder):
         load_folder(_initial_folder)

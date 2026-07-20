@@ -30,7 +30,7 @@ folder_path = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().pa
 #############################################################
 #                         CONTENT                           #
 #############################################################
-# Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
+# Récupérer les fichiers sélectionnés depuis Hub (si applicable)
 selected_files_string = os.environ.get("SELECTED_FILES", "")
 selected_files_set = set(selected_files_string.split("|")) if selected_files_string else None
 

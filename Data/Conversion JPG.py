@@ -47,7 +47,7 @@ if TARGET_FORMAT not in ("jpg", "png"):
     TARGET_FORMAT = "jpg"
 WAND_FORMAT = "jpeg" if TARGET_FORMAT == "jpg" else "png"
 
-# Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
+# Récupérer les fichiers sélectionnés depuis Hub (si applicable)
 selected_files_string = os.environ.get("SELECTED_FILES", "")
 selected_files_set = set(selected_files_string.split("|")) if selected_files_string else None
 

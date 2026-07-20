@@ -3,7 +3,7 @@
 Assemble un lot d'images en un seul fichier PDF multi-pages.
 
 Le PDF résultant est nommé d'après le dossier parent (ou ``PDF_NAME`` si
-fourni par le Dashboard) et enregistré dans le dossier source. Les images RGBA
+fourni par Hub) et enregistré dans le dossier source. Les images RGBA
 sont composées sur fond blanc avant conversion en RGB.
 
 Variables d'environnement :
@@ -34,7 +34,7 @@ PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 #############################################################
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-# Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
+# Récupérer les fichiers sélectionnés depuis Hub (si applicable)
 selected_files_str = os.environ.get("SELECTED_FILES", "")
 selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
 

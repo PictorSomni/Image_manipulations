@@ -1,11 +1,11 @@
 #!/bin/bash
 # Script d'installation pour Linux/macOS
-# Dashboard Image Manipulation
+# Hub Image Manipulation
 
 set -e
 
 echo "======================================"
-echo "Dashboard Image Manipulation Setup"
+echo "Hub Image Manipulation Setup"
 echo "======================================"
 echo ""
 
@@ -122,8 +122,8 @@ echo "======================================"
 echo "[OK] Installation terminee !"
 echo "======================================"
 echo ""
-echo "Pour lancer le Dashboard :"
+echo "Pour lancer Hub :"
 echo "  ./run.sh"
 echo "ou"
-echo "  python3 Dashboard.pyw"
+echo "  python3 Hub.pyw"
 echo ""

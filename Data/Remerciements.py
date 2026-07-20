@@ -45,7 +45,7 @@ ALPHA   = CONSTANTS.REMERCIEMENTS_ALPHA
 #############################################################
 PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 
-# Récupère le chemin du dossier Data depuis l'environnement (si lancé via Dashboard)
+# Récupère le chemin du dossier Data depuis l'environnement (si lancé via Hub)
 DATA_PATH = Path(os.environ.get("DATA_PATH", str(Path(__file__).resolve().parent)))
 
 #############################################################
@@ -53,11 +53,11 @@ DATA_PATH = Path(os.environ.get("DATA_PATH", str(Path(__file__).resolve().parent
 #############################################################
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
-# Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
+# Récupérer les fichiers sélectionnés depuis Hub (si applicable)
 selected_files_str = os.environ.get("SELECTED_FILES", "")
 selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
 
-# Déterminer le dossier de travail (cwd si lancé depuis Dashboard, sinon PATH)
+# Déterminer le dossier de travail (cwd si lancé depuis Hub, sinon PATH)
 EXTENSION = (".jpg", ".jpeg", ".png")
 all_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png"]
 FOLDER = [f for f in all_files if f in selected_files_set] if selected_files_set else all_files

@@ -1,9 +1,9 @@
 @echo off
 REM Script d'installation pour Windows
-REM Dashboard Image Manipulation
+REM Hub Image Manipulation
 
 echo ======================================
-echo Dashboard Image Manipulation Setup
+echo Hub Image Manipulation Setup
 echo ======================================
 echo.
 
@@ -123,9 +123,9 @@ echo ======================================
 echo Installation terminee !
 echo ======================================
 echo.
-echo Pour lancer le Dashboard :
+echo Pour lancer Hub :
 echo   run.bat
 echo ou
-echo   python Dashboard.pyw
+echo   python Hub.pyw
 echo.
 pause

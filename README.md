@@ -1,29 +1,27 @@
-# Dashboard Image Manipulation
+# Hub Image Manipulation
 
 Application de gestion et manipulation d'images avec interface graphique.  
 Compatible **Windows**, **macOS** et **Linux**.
 
-![Dashboard](screenshots/dashboard01.jpg)
-![Recadrage](screenshots/dashboard02.jpg)
-![Selecteur](screenshots/dashboard03.jpg)
-![Augmentation IA](screenshots/dashboard04.jpg)
-![Kiosk](screenshots/dashboard05.jpg)
+![Hub](screenshots/hub01.jpg)
+![Recadrage manuel](screenshots/hub02.jpg)
+![Retouche IA](screenshots/hub03.jpg)
 
 ---
 
 ## Résumé utilisateur
 
-Dashboard est un poste de travail tout-en-un pour trier, préparer, retoucher et exporter des photos en série, sans quitter la même interface.
+Hub est un poste de travail tout-en-un pour trier, préparer, retoucher et exporter des photos en série, sans quitter la même interface.
 
 ### Ce que vous pouvez faire au quotidien
 
 - **Parcourir et trier vos dossiers** : navigation, recherche, tri A→Z / Z→A / date, pagination, favoris, périphériques amovibles.
 - **Sélectionner vos images** : sélection multiple, inversion, filtrage, copier/couper/coller, copie dans un dossier SELECTION, suppression, renommage.
-- **Ouvrir les images en plein écran** : navigation clavier, rotation, suppression directe depuis la visionneuse.
+- **Ouvrir les images en plein écran** : navigation au clavier (flèches), rotation et sélection depuis la visionneuse.
 - **Lancer les outils de production en un clic** : recadrage, redimensionnement, conversion JPG, 2-en-1, PDF, noir et blanc, netteté, métadonnées, tri RAW/JPG, impression, etc.
-- **Utiliser des apps connexes intégrées** : Side Panel (utilitaires fichiers/listes), Comparaison (deux dossiers côte à côte), Kiosk (flux d'impression).
+- **Basculer entre 4 surfaces intégrées** : Fichiers (explorateur), Liste (éditeur de fichiers `.json` — mots-clés, fiches produit…), IA (assistant conversationnel) et Notes (bloc-notes avec coloration syntaxique).
+- **Utiliser des apps connexes lancées en un clic** : Comparaison (deux dossiers côte à côte), Kiosk (flux d'impression).
 - **Déléguer à l'IA** : l'assistant peut gérer vos fichiers, analyser vos images, naviguer dans vos dossiers, sélectionner des photos selon des critères visuels, générer et modifier des images, écrire du code — tout depuis le chat.
-- **Prendre des notes et éditer du code** : éditeur de code intégré avec coloration syntaxique, lecture/écriture accessible depuis l'IA.
 
 ### Points forts
 
@@ -66,7 +64,7 @@ Dashboard est un poste de travail tout-en-un pour trier, préparer, retoucher et
 | Netteté | Amélioration de la netteté en lot |
 | Débruitage | Réduction du bruit par algorithme Non-Local Means (OpenCV NLM), configurable en intensité |
 | Grain pellicule | Simulation de grain argentique sur deux passes indépendantes, avec pondération par luminance, halation, aberrations chromatiques, bloom, désaturation des extrêmes et courbes tonales. Intensité, taille (en % de l'image) et part chromatique réglables par passe. |
-| Augmentation IA | Inpainting interactif (sélection au lasso d'une zone, modification par Gemini) et outpainting (extension du cadre par Gemini) |
+| Augmentation IA | Retouche interactive (sélection au clic ou au lasso d'une zone, modification par Gemini), suppression de fond et outpainting (extension du cadre par Gemini) |
 | Métadonnées | Nettoyage ou copie des métadonnées EXIF |
 | Tri RAW/JPG | Séparer automatiquement les fichiers RAW et JPG |
 | Copier NEFs de la sélection | Copier les RAW correspondant aux JPG sélectionnés |
@@ -81,14 +79,13 @@ Dashboard est un poste de travail tout-en-un pour trier, préparer, retoucher et
 
 | App | Description |
 |---|---|
-| Side Panel | Panneau latéral : utilitaires de fichiers, listes, outils complémentaires |
 | Comparaison | Visualiser deux dossiers côte à côte pour valider une sélection |
 | Kiosk gauche / droite | Flux d'impression pour bornes photo (HotFolder → réseau) |
 | Kiosk Flet | Interface Kiosk complète avec gestion des tarifs et commandes |
 
 ### Assistant IA
 
-L'IA (Gemini par défaut, ou modèles Ollama locaux) est intégrée directement dans le Dashboard.
+L'IA (Gemini par défaut, ou modèles Ollama locaux) est intégrée directement dans Hub, dans sa propre surface (rail de gauche).
 
 #### Capacités générales
 - Chat texte et analyse d'images jointes
@@ -96,7 +93,7 @@ L'IA (Gemini par défaut, ou modèles Ollama locaux) est intégrée directement 
 - Recherche web (DuckDuckGo ou Google natif pour Gemini)
 - Lecture d'URLs
 - Mémoire persistante entre sessions (`memory.md`, `user.md`, `skills.md`)
-- **Fallback automatique** : Gemini 3.5 Flash → Gemini 3.1 Pro (quota/indispo) → Gemma local (hors-ligne)
+- **Fallback automatique** : modèle choisi → Gemini 3.5 Flash (quota/indispo) → Gemma local (hors-ligne)
 
 #### Outils fichiers (autonomes)
 | Outil IA | Description |
@@ -127,7 +124,7 @@ L'IA (Gemini par défaut, ou modèles Ollama locaux) est intégrée directement 
 | `schedule_task` | Planificateur OS — `schtasks` (Windows) / `crontab` (Linux-macOS) |
 | `http_request` | Requêtes HTTP GET/POST/PUT/DELETE/PATCH avec headers et body personnalisés |
 | `read_spreadsheet` | Lecture structurée de fichiers CSV, `.xlsx`, `.xls` et `.ods` |
-| `run_terminal_command` | Exécuter des commandes shell (confirmation avant exécution) |
+| `run_terminal_command` | Exécuter des commandes shell (confirmation avant exécution en mode admin) |
 
 #### Outils interface
 | Outil IA | Description |
@@ -159,23 +156,21 @@ L'IA peut voir l'écran et interagir avec n'importe quelle application comme un 
 | Modèle | Type | Vision |
 |---|---|---|
 | Gemini 3.5 Flash | Cloud Google | Oui |
-| Gemini 3.1 Pro | Cloud Google | Oui |
+| Gemini 3.1 Flash Lite | Cloud Google | Oui |
 | Claude Sonnet 4.6 | Cloud Anthropic | Oui |
-| Gemma 4 E4B MLX (~9.6 GB) | Local Ollama (Apple Silicon) | Non |
 | Gemma 4 · E4B (~9.6 GB) | Local Ollama | Oui |
-| Gemma 4 · 12B (~7.6 GB) | Local Ollama | Oui |
 
 ---
 
 ## Raccourcis clavier
 
-### Dashboard (global)
+### Hub (global)
 
 | Raccourci | Action |
 |---|---|
-| Ctrl/Cmd + Haut | Agrandir ou réduire la zone basse |
-| Ctrl/Cmd + Bas | Basculer entre Terminal et IA + Notes |
-| Esc | Revenir au mode Terminal depuis IA/Notes |
+| Ctrl/Cmd + Haut | Afficher / masquer le terminal intégré |
+| Ctrl/Cmd + Shift + Haut | Terminal en plein écran |
+| Haut / Bas (champ terminal ou IA vide) | Rappeler les messages précédents |
 
 ### Gestion de fichiers
 
@@ -189,25 +184,16 @@ L'IA peut voir l'écran et interagir avec n'importe quelle application comme un 
 | Ctrl/Cmd + N | Créer un nouveau dossier |
 | Ctrl/Cmd + R | Rafraîchir la prévisualisation |
 | Ctrl/Cmd + D | Sélectionner tous les fichiers de la même date que le fichier de référence sélectionné |
-| Delete / Backspace | Supprimer la sélection |
-
-### IA et Notes
-
-| Raccourci | Action |
-|---|---|
-| Ctrl/Cmd + Flèche gauche | IA seule en mode colonne (preview à droite) |
-| Ctrl/Cmd + Flèche droite | Bloc-notes seul en mode colonne (preview à droite) |
-| Ctrl/Cmd + Shift + Flèche gauche | IA en plein écran (moins la barre du haut) |
-| Ctrl/Cmd + Shift + Flèche droite | Bloc-notes en plein écran (moins la barre du haut) |
+| Delete | Supprimer la sélection |
 
 ### Visionneuse plein écran
 
 | Raccourci | Action |
 |---|---|
 | Flèche gauche / droite | Image précédente / suivante |
-| [ / ] | Rotation gauche / droite |
-| Delete / Backspace | Supprimer l'image courante |
-| Esc | Fermer la visionneuse |
+| Échap | Fermer la visionneuse |
+
+> Rotation, sélection et navigation entre outils (Recadrage, Augmentation IA…) restent disponibles via les boutons de la visionneuse.
 
 ---
 
@@ -241,7 +227,7 @@ chmod +x install.sh run.sh
 ./install.sh
 ```
 
-5. Lancer le Dashboard :
+5. Lancer Hub :
 
 ```bash
 ./run.sh
@@ -282,18 +268,18 @@ iopaint download --model mat     # ~400 MB
 
 ## Utilisation de base
 
-1. Ouvrir Dashboard.
-2. Choisir un dossier avec `Parcourir` (ou depuis les favoris).
+1. Ouvrir Hub.
+2. Choisir un dossier avec `Ouvrir` (ou depuis les favoris).
 3. Sélectionner les images à traiter.
-4. Lancer l'application voulue depuis la grille ou les outils rapides.
+4. Lancer l'outil voulu depuis la barre d'outils ou le panneau Actions.
 5. Suivre les logs dans le terminal intégré.
 
 ### Utiliser l'IA
 
-- Ouvrir le panneau IA avec `Ctrl/Cmd + Bas`.
+- Ouvrir la surface IA depuis le rail de gauche.
 - Poser une question, joindre des images, ou demander à l'IA de gérer des fichiers.
 - L'IA peut naviguer dans vos dossiers, sélectionner des photos selon des critères visuels, créer des fichiers, archiver, analyser — sans intervention manuelle.
-- Les suppressions et commandes terminal demandent toujours une confirmation.
+- Les suppressions de fichiers demandent une confirmation par défaut.
 - La commande `/option` dans le chat ouvre le panneau de configuration de l'app.
 
 ---

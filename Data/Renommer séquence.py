@@ -33,7 +33,7 @@ SERIES_NAME = os.environ.get("SERIES_NAME", "").strip()
 #############################################################
 #                         CONTENT                           #
 #############################################################
-# Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
+# Récupérer les fichiers sélectionnés depuis Hub (si applicable)
 selected_files_str = os.environ.get("SELECTED_FILES", "")
 selected_files_list = selected_files_str.split("|") if selected_files_str else None
 

@@ -56,12 +56,12 @@ jamais bloquant) :
 |---|---|---|
 | `.recent_folders.json` | via `_load_recent`/`_save_recent`/`_add_recent` | 10 derniers dossiers ouverts (menu Ouvrir ▾) |
 | `.favorites.json` | `_load_favorites`/`_save_favorites` | favoris `{path, label}` |
-| `open_with.json` | `_load_open_with_programs`/`_save_open_with_programs` | programmes externes ("Ouvrir avec"), **partagé avec `Dashboard.pyw`** |
+| `open_with.json` | `_load_open_with_programs`/`_save_open_with_programs` | programmes externes ("Ouvrir avec") |
 | `.order.json` | `order` | commande en cours : `{chemin: {format: nombre}}` |
 | `.order_bw.json` | `order_bw` | `{chemin: bool}` — tirage N&B par photo |
-| `.recadrage_auto_config.json` | via `_load_crop_auto_config` | dernier format utilisé pour "Recadrage automatique", **partagé avec `Dashboard.pyw`** |
+| `.recadrage_auto_config.json` | via `_load_crop_auto_config` | dernier format utilisé pour "Recadrage automatique" |
 | `.liste.json` (par défaut) | `liste_entries` | fichier ouvert dans la surface Liste (n'importe quel `.json` peut être ouvert à la place) |
-| `.notes.md` | `note_target["path"]` | bloc-notes, **partagé avec Dashboard/SidePanel** |
+| `.notes.md` | `note_target["path"]` | bloc-notes |
 | `.ai_conversation_hub.json` | `ai_conversation` | historique de chat IA |
 
 Ces fichiers sont à la racine du repo et **ignorés par git** (données
@@ -70,7 +70,7 @@ locales/utilisateur, pas du code).
 ## 3. Modules partagés (`Data/`)
 
 Hub ne réimplémente pas la logique métier : il l'importe depuis `Data/`
-(le "cerveau" partagé avec `Dashboard.pyw` et les scripts outils) :
+(le "cerveau" partagé avec les scripts outils) :
 
 - **`Data/CONSTANTS.py`** — toutes les constantes/config (couleurs, tailles,
   tarifs, formats, prompts IA...). Fichier long mais indexé par un sommaire en
@@ -80,8 +80,7 @@ Hub ne réimplémente pas la logique métier : il l'importe depuis `Data/`
   "génériques fichiers"), les fonctions `_gemini_chat_stream_with_tools` /
   `_claude_chat_stream_with_tools` (appel du modèle en streaming), et plein de
   petits outils (`_web_search`, `_run_terminal_command`, TTS, génération
-  d'image, etc.). C'est le même module utilisé par `Dashboard.pyw` et
-  `Data/SidePanel.pyw`.
+  d'image, etc.).
 - **`Data/image_ops.py`** — opérations image bas niveau.
 - **`Data/thumb_cache.py`** — génération/cache disque des miniatures (gère
   aussi SVG/PDF via Wand/PyMuPDF).
@@ -227,8 +226,7 @@ Flux d'un message (`_send_ai_message(text)`, L4453) :
    - dans `_AI_SPECIAL_TOOLS` (L3984, ex. `generate_image`, `iterate_image`,
      `score_photos`, `take_screenshot`...) → fonctions `_ai_tool_*` locales à
      Hub (besoin d'accès à l'UI/état de Hub)
-   - sinon → `dispatch_folder_tool()` (outils "fichiers" génériques,
-     partagés avec Dashboard/SidePanel)
+   - sinon → `dispatch_folder_tool()` (outils "fichiers" génériques)
    - sinon → `_AI_FALLBACK_TOOLS` (L4053, ex. `list_folder_contents`,
      `create_file`, `web_search`, `run_terminal_command`, `read_notepad`...)
    - sinon → message "outil indisponible"
@@ -354,12 +352,3 @@ convention d'entrée (variables d'environnement, voir `Data/skills.md`) :
 | Modifier la surface Liste (`.json`) | ~L4877-5149 |
 | Ajouter une nouvelle surface (onglet) | `SURFACES` (L68) + `surface_content` (~L5140) |
 | Ajouter un raccourci clavier global | `_on_global_key` (~L7224) |
-
-## 10. Autres apps du repo (contexte)
-
-`Hub.pyw` remplace progressivement deux anciennes apps qui partagent le même
-`Data/` : `Dashboard.pyw` (l'ancien hub plein écran) et `Data/SidePanel.pyw`
-(l'ancien compagnon demi-écran). Certains fichiers de config (`.notes.md`,
-`open_with.json`, `.recadrage_auto_config.json`) sont **partagés** entre ces
-apps — une modif du format de l'un doit rester compatible avec les autres
-tant qu'elles coexistent.

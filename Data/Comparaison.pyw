@@ -12,7 +12,7 @@ Action "Valider" :
     · L'image non retenue reste à son emplacement d'origine.
 
 Variables d'environnement :
-  FOLDER_PATH    — dossier 1 (obligatoire si lancé depuis Dashboard).
+  FOLDER_PATH    — dossier 1 (obligatoire si lancé depuis Hub).
   SECOND_FOLDER  — dossier 2 (optionnel ; sinon l'app demande le dossier).
     SELECTED_PAIR_FILES — 2 noms d'images (séparés par "|") pour une comparaison directe.
     SELECTED_PAIR_PATHS — 2 chemins complets (séparés par "|") pour une comparaison directe.
@@ -265,7 +265,7 @@ def main(page: ft.Page):
     # ── Barre de titre ────────────────────────────────────────────────────
     async def _close(e):
         await page.window.close()
-        os._exit(0)  # Garantit la fin du processus pour que Dashboard détecte la fermeture
+        os._exit(0)  # Garantit la fin du processus pour que Hub détecte la fermeture
 
     def _minimize(e):
         page.window.minimized = True
@@ -471,7 +471,7 @@ def main(page: ft.Page):
                 await page.window.close()
             except Exception:
                 pass
-            os._exit(0)  # Garantit la fin du processus pour que Dashboard détecte la fermeture
+            os._exit(0)  # Garantit la fin du processus pour que Hub détecte la fermeture
 
         page.run_task(_close_after_delay)
 
@@ -534,7 +534,7 @@ def main(page: ft.Page):
                 return
 
             images1 = _get_image_files(folder1_path)
-            # Filtrer images1 si des fichiers spécifiques ont été sélectionnés dans Dashboard
+            # Filtrer images1 si des fichiers spécifiques ont été sélectionnés dans Hub
             if selected_names:
                 images1 = [file for file in images1 if file.name in selected_names]
             if not images1:
@@ -815,7 +815,7 @@ def main(page: ft.Page):
     if folder1_path and (folder2_path or selected_pair_names):
         _build_pairs_and_start()
     elif folder1_path:
-        # folder1 est connu (lancé depuis Dashboard) : ouvrir directement le
+        # folder1 est connu (lancé depuis Hub) : ouvrir directement le
         # sélecteur de dossier 2, comme Fichiers manquants le fait pour dest.
         async def _auto_pick_folder2():
             await _pick_folder2(None)

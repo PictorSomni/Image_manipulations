@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Met à jour __version__ dans Dashboard.pyw et tous les scripts de Data/.
+Met à jour __version__ dans Hub.pyw et tous les scripts de Data/.
 
 Utilisation :
   1. Modifiez NEW_VERSION ci-dessous.
@@ -22,7 +22,7 @@ from pathlib import Path
 #############################################################
 ROOT = Path(__file__).parent.parent
 
-targets = [ROOT / "Dashboard.pyw", ROOT / "SidePanel.pyw", ROOT / "CONSTANTS.py"] + sorted((ROOT / "Data").glob("*.py")) + sorted((ROOT / "Data").glob("*.pyw"))
+targets = [ROOT / "Hub.pyw", ROOT / "CONSTANTS.py"] + sorted((ROOT / "Data").glob("*.py")) + sorted((ROOT / "Data").glob("*.pyw"))
 
 pattern = re.compile(r'^(__version__\s*=\s*")[^"]*(")', re.MULTILINE)
 

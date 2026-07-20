@@ -2272,18 +2272,34 @@ def main(page: ft.Page):
                         drives.append((entry.name, entry.path))
             elif platform.system() == "Windows":
                 import ctypes
+                from concurrent.futures import ThreadPoolExecutor
                 DRIVE_TYPE_REMOVABLE, DRIVE_TYPE_CDROM = 2, 5
-                volume_label_buffer = ctypes.create_unicode_buffer(261)
-                for letter in "ABCDEFGHIJKLMNOPQRSTUVWXYZ":
+                letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+                def _check_letter(letter):
                     path = f"{letter}:\\"
                     drive_type = ctypes.windll.kernel32.GetDriveTypeW(path)
                     if (drive_type in (DRIVE_TYPE_REMOVABLE, DRIVE_TYPE_CDROM)
                             and os.path.exists(path)):
+                        label_buffer = ctypes.create_unicode_buffer(261)
                         ctypes.windll.kernel32.GetVolumeInformationW(
-                            path, volume_label_buffer, 261, None, None,
+                            path, label_buffer, 261, None, None,
                             None, None, 0)
-                        label = volume_label_buffer.value or letter
-                        drives.append((f"{label} ({letter}:)", path))
+                        label = label_buffer.value or letter
+                        return (f"{label} ({letter}:)", path)
+                    return None
+
+                # Une lettre par thread : un lecteur multi-cartes avec un
+                # slot vide peut bloquer plusieurs secondes sur
+                # GetVolumeInformationW/os.path.exists (matériel interrogé
+                # pour de vrai) — en série, ces délais s'additionnaient
+                # lettre par lettre avant que le périphérique réellement
+                # branché n'apparaisse (retour user : trop lent pour
+                # accéder à une carte SD/clé USB avec un client en attente).
+                with ThreadPoolExecutor(max_workers=len(letters)) as pool:
+                    for result in pool.map(_check_letter, letters):
+                        if result:
+                            drives.append(result)
             else:  # Linux
                 for base in ("/media", "/run/media"):
                     if not os.path.isdir(base):
@@ -5359,7 +5375,15 @@ def main(page: ft.Page):
             env["DATA_PATH"] = os.path.join(_APP_DIR, "Data")
             if is_local:
                 env["LAUNCHED_FROM_DASHBOARD"] = "1"
-                env["SOURCE_FILES"] = "|".join(picked) if picked else folder
+                # Comme Dashboard.pyw:8947-8948 : SOURCE_FILES seulement s'il
+                # y a une sélection réelle. Sans ça, une sélection perdue
+                # entre le clic et l'exécution (ex. dialogue de confirmation)
+                # faisait basculer silencieusement sur `folder` entier —
+                # copie récursive de tout Téléchargements au lieu des
+                # fichiers choisis (retour user : transfert énorme/très lent
+                # au lieu de quelques fichiers).
+                if picked:
+                    env["SOURCE_FILES"] = "|".join(picked)
             else:
                 env["FOLDER_PATH"] = folder
                 if picked:
@@ -5545,9 +5569,15 @@ def main(page: ft.Page):
             def _on_click(e):
                 dlg.open = False
                 page.update()
+                # `picked` transmis explicitement (capturé plus haut, avant
+                # le dialogue) plutôt que laissé à _launch_tool qui relirait
+                # `selected` après coup — évite une sélection périmée.
+                extra_env = {"DELETE_AFTER_TRANSFER":
+                             "1" if delete_after else "0"}
+                if picked:
+                    extra_env["SOURCE_FILES"] = "|".join(picked)
                 _launch_tool("Transfert vers TEMP.py", is_local=True,
-                            extra_env={"DELETE_AFTER_TRANSFER":
-                                       "1" if delete_after else "0"})
+                            extra_env=extra_env)
             return _on_click
 
         dlg = ft.AlertDialog(

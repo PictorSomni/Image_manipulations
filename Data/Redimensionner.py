@@ -52,7 +52,7 @@ except ValueError:
     print("Erreur : La variable d'environnement RESIZE_QUALITY doit être un nombre.")
     sys.exit()
 
-# Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
+# Récupérer les fichiers sélectionnés depuis Hub (si applicable)
 selected_files_str = os.environ.get("SELECTED_FILES", "")
 selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
 

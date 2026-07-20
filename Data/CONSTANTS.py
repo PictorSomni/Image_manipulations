@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Constantes partagées entre Dashboard.pyw, les scripts du dossier Data/,
-SidePanel.pyw et kiosk_flet.pyw.
+Constantes partagées entre Hub.pyw, les scripts du dossier Data/ et
+kiosk_flet.pyw.
 
 Modifier ce fichier pour changer les paramètres globaux de l application sans
 toucher aux scripts eux-mêmes.
@@ -24,7 +24,7 @@ import os
 #    5.1  Performance de prévisualisation
 #    5.2  Toggles (états initiaux)
 #    5.3  Réglages image par défaut
-# 6. INTERFACE (DASHBOARD) .................................... ~L 185
+# 6. INTERFACE (HUB) .................................... ~L 185
 #    6.1  Fenêtre principale
 #    6.2  Redimensionnement et filigrane
 #    6.3  Remerciements
@@ -200,7 +200,7 @@ ID_X4_10x20_PHOTOS_BOTTOM = True
 
 
 # ── 4.4  Formats 2-en-1 ───────────────────────────────────────────────────────
-# Liste ordonnée affichée dans le dialogue Dashboard (premier = valeur par défaut).
+# Liste ordonnée affichée dans le dialogue Hub (premier = valeur par défaut).
 
 TWO_IN_ONE_FORMATS = [
     ("2 10x15 sur 15x20", "102x152"),
@@ -265,7 +265,7 @@ RECADRAGE_FORCE_TILE_GAP_MM = 3
 
 
 # ==============================================================================
-# 6. INTERFACE (DASHBOARD)
+# 6. INTERFACE (HUB)
 # ==============================================================================
 
 # ── 6.1  Fenêtre principale ───────────────────────────────────────────────────
@@ -311,7 +311,7 @@ REMERCIEMENTS_ALPHA   = 0.42   # Opacité filigrane
 # Peut être surchargé via la variable d'environnement DEST_FOLDER.
 
 TEMP_FOLDER = "Z:/temp"
-TRANSFER_TEMP_CONFIRM_DELETE_SELECTED = True   # True = demande confirmation avant suppression des originaux si SOURCE_FILES est fourni par Dashboard
+TRANSFER_TEMP_CONFIRM_DELETE_SELECTED = True   # True = demande confirmation avant suppression des originaux si SOURCE_FILES est fourni par Hub
 
 
 # ── 7.2  Nettoyage automatique ────────────────────────────────────────────────
@@ -370,7 +370,7 @@ del _platform
 # ==============================================================================
 # 9. CACHE DE MINIATURES
 # ==============================================================================
-# Utilisé par Dashboard.pyw, SidePanel.pyw et kiosk_flet.pyw via thumb_cache.py.
+# Utilisé par Hub.pyw et kiosk_flet.pyw via thumb_cache.py.
 # Un fichier SQLite (THUMB_CACHE_DB_NAME) est créé dans chaque dossier d'images.
 
 THUMB_CACHE_SIZE    = 200                # Taille (px, côté le plus long) des miniatures —
@@ -461,7 +461,7 @@ AI_GEMINI_FOLDER_BATCH_SIZE  = 6    # Nb d'images par appel IA (Gemini). Petit =
 AI_FOLDER_SELECT_IMAGE_SIZE  = 1024  # Résolution max (px) envoyée à l'IA
 AI_FOLDER_SELECT_QUALITY     = 85    # Qualité JPEG des images envoyées à l'IA (assez fin pour juger netteté / dos vs visages / écharpes)
 
-# Modèles affichés dans le dropdown de sélection rapide du Dashboard
+# Modèles affichés dans le dropdown de sélection rapide du Hub
 AI_DROPDOWN_MODELS = [
     "gemini-3.1-flash-lite",
     "gemini-3.5-flash",
@@ -606,7 +606,7 @@ AI_PHOTO_SCORE_CRITERIA = {
     "exposition": "Exposition / lumière",
 }
 
-# Score global (moyenne des critères, 0-10) à partir duquel Dashboard
+# Score global (moyenne des critères, 0-10) à partir duquel Hub
 # copie l'image dans AI_PHOTO_SCORE_SELECTION_FOLDER. Volontairement
 # haut : Charles est photographe, l'objectif est de ne garder que ses
 # meilleurs clichés pour les retoucher ensuite à la main, pas une
@@ -624,7 +624,7 @@ AI_PHOTO_SCORE_FILE = ".ai_photo_scores.json"
 
 # ── 10.7  Serveurs MCP (Model Context Protocol) ──────────────────────────────
 # Chaque entrée greffe automatiquement les outils d'un serveur MCP externe
-# dans l'IA (Dashboard/SidePanel), quel que soit le modèle actif — voir
+# dans l'IA (Hub), quel que soit le modèle actif — voir
 # Data/mcp_client.py. "auth": "oauth" déclenche un login navigateur au
 # premier appel (token ensuite gardé dans le coffre OS, voir
 # credentials.py) ; "auth": "token" lit un jeton statique déjà généré

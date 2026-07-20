@@ -33,7 +33,7 @@ import CONSTANTS
 PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 os.chdir(PATH)
 
-# Récupère le chemin du dossier Data depuis l'environnement (si lancé via Dashboard)
+# Récupère le chemin du dossier Data depuis l'environnement (si lancé via Hub)
 DATA_PATH = Path(os.environ.get("DATA_PATH", str(Path(__file__).resolve().parent)))
 
 #############################################################
@@ -54,7 +54,7 @@ WATERMARK_PATH = DATA_PATH / "watermark.png"
 ALPHA   = CONSTANTS.WATERMARK_ALPHA
 QUALITY = CONSTANTS.RESIZE_QUALITY
 
-# Récupérer les fichiers sélectionnés depuis le Dashboard (si applicable)
+# Récupérer les fichiers sélectionnés depuis Hub (si applicable)
 selected_files_str = os.environ.get("SELECTED_FILES", "")
 selected_files_set = set(selected_files_str.split("|")) if selected_files_str else None
 
