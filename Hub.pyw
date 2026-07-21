@@ -6597,8 +6597,14 @@ def main(page: ft.Page):
         if t is not None and not t.done():
             t.cancel()
         if not _terminal_autohide["pinned"]:
-            _terminal_autohide["task"] = page.run_task(
-                _terminal_autohide_after_delay, delay)
+            try:
+                _terminal_autohide["task"] = page.run_task(
+                    _terminal_autohide_after_delay, delay)
+            except RuntimeError:
+                # Fenêtre déjà fermée (session détruite) : un thread
+                # d'arrière-plan encore en cours essaie de mettre à jour
+                # un panneau qui n'existe plus, rien à faire.
+                pass
 
     # Compteur d'étapes en cours (enregistrement, transcription, attente de
     # réponse IA, lecture TTS…) : chaque étape s'annonce/se termine via
@@ -6682,7 +6688,12 @@ def main(page: ft.Page):
             _show_terminal_and_schedule_hide()
             page.update()
 
-        page.run_task(_do)
+        try:
+            page.run_task(_do)
+        except RuntimeError:
+            # Fenêtre déjà fermée (session détruite) : le message reste
+            # dans _terminal_log_path ci-dessus, pas besoin de l'afficher.
+            pass
 
     def _export_terminal(to_notepad=False, event=None):
         text = "\n".join(c.value for c in terminal_output.controls

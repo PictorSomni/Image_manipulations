@@ -44,6 +44,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 import ai_ops
+import image_ops
 from ai_tools import _gemini_generate_image
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -124,6 +125,11 @@ async def main(page: ft.Page) -> None:
     page.title = f"Retouche IA par sélection  v{__version__}"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG_UI
+    # Flet ajoute 10px de marge par défaut sur les 4 côtés de la page
+    # (View.padding), non comptés par _LEFT_CHROME_W/_TITLEBAR_H plus bas
+    # -> décalage systématique entre l'image affichée et les coordonnées
+    # de sélection calculées (retour user).
+    page.padding = 0
     page.window.title_bar_hidden = True
     page.window.title_bar_buttons_hidden = True
     await page.window.to_front()
@@ -166,6 +172,7 @@ async def main(page: ft.Page) -> None:
         "rembg_active": False,  # True si le fond a été supprimé
         "rembg_rgba":   None,   # Image RGBA résultat rembg (conservé pour changer le fond)
         "rembg_before": None,   # work_img avant suppression du fond
+        "bg_pick_active": False,  # True = pipette (mode Instantané) armée, attend un clic-glissé
         # Cache de la dernière retouche Gemini pour réajuster le fondu à la volée
         "retouch_fit":  None,   # Image RGB brute Gemini, redimensionnée à la sélection
         "retouch_base": None,   # Image de travail avant collage de la retouche
@@ -541,10 +548,13 @@ async def main(page: ft.Page) -> None:
             save_btn.disabled   = True
             inpaint_btn.disabled = False
             expand_btn.disabled  = False
-            rembg_apply_btn.disabled = not REMBG_AVAILABLE
+            rembg_apply_btn.disabled = not (REMBG_AVAILABLE or _rembg_mode[0] == 2)
             state["rembg_active"] = False
             state["rembg_rgba"]   = None
             state["rembg_before"] = None
+            _bg_pick_cancel()
+            _pipette.reset()
+            _sync_pipette_sign_btn()
             rembg_apply_btn.text    = "Supprimer le fond"
             rembg_apply_btn.bgcolor = GREY if REMBG_AVAILABLE else GREY
             rembg_status.value = ""
@@ -566,6 +576,20 @@ async def main(page: ft.Page) -> None:
 
     # ── Rubber band (mode sélection uniquement) ──────────────────────────────
 
+    def _on_pan_down(e) -> None:
+        """Contact initial du clic pipette (mode Instantané, Fond IA) —
+        `on_pan_down` se déclenche instantanément, contrairement à
+        `on_pan_start` qui n'est reconnu par Flutter qu'après un léger
+        mouvement (retour user sur Recadrage manuel.pyw : la sélection
+        tombait à côté du point cliqué). N'agit que si la pipette est
+        armée, sinon ne fait rien (le rubber band démarre via
+        `_on_pan_start`, geste distinct)."""
+        if not state["bg_pick_active"]:
+            return
+        cx, cy = float(e.local_position.x), float(e.local_position.y)
+        _pipette_start[0] = (cx, cy)
+        _pipette.start_drag()
+
     def _on_pan_start(e) -> None:
         if not state["sel_mode"] or state["orig_img"] is None or state["working"]:
             return
@@ -574,6 +598,19 @@ async def main(page: ft.Page) -> None:
         state["drag_current"] = (cx, cy)
 
     def _on_pan_update(e) -> None:
+        if state["bg_pick_active"]:
+            if _pipette_start[0] is not None:
+                tol = _pipette.drag(e.local_delta.x)
+                _pipette_tolerance_label.value = f"Tol. {tol}"
+                _pipette_tolerance_label.update()
+                if _pipette.try_start_live():
+                    cx, cy = _pipette_start[0]
+                    ix, iy = _display_to_image(cx, cy)
+                    if ix is not None and iy is not None:
+                        page.run_task(_pipette_live_preview, ix, iy, tol)
+                    else:
+                        _pipette.live_busy = False  # clic hors image : rien à calculer
+            return
         if not state["sel_mode"] or state["drag_start"] is None or state["working"]:
             return
         # local_position = position courante en espace content (pré-transform IV)
@@ -660,6 +697,16 @@ async def main(page: ft.Page) -> None:
         _open_inpaint_dialog_for_selection(w_sel, h_sel)
 
     def _on_pan_end(e) -> None:
+        if state["bg_pick_active"]:
+            if _pipette_start[0] is None:
+                return
+            cx, cy = _pipette_start[0]
+            _pipette_start[0] = None
+            ix, iy = _display_to_image(cx, cy)
+            tol = _pipette.end_drag()
+            if ix is not None and iy is not None:
+                page.run_task(_apply_pipette_pick, ix, iy, tol)
+            return
         # Un clic quasi immobile ne termine pas toujours un geste "pan" côté
         # Flutter (le glisser exige un minimum de mouvement pour être
         # reconnu comme tel) — c'est `on_tap_up`/_on_tap_click, un geste
@@ -692,6 +739,7 @@ async def main(page: ft.Page) -> None:
             _cancel_selection_ui("Sélection trop petite — recommencez")
 
     def _on_pan_cancel(e) -> None:
+        _pipette_start[0]      = None
         state["drag_start"]   = None
         state["drag_current"] = None
         _update_sel_canvas()
@@ -1548,17 +1596,23 @@ async def main(page: ft.Page) -> None:
     rembg_progress = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
     rembg_status   = ft.Text("", size=11, color=LIGHT_GREY)
 
-    _rembg_precise = [False]   # False = u2net, True = birefnet
+    # 0 = rapide (u2net), 1 = précis (birefnet), 2 = instantané (pipette
+    # flood fill, sans IA — cf. Recadrage manuel.pyw, logique partagée
+    # via image_ops.FloodPipette).
+    _rembg_mode    = [2]
     _rembg_human   = [True]    # True = portrait/human_seg, False = general
     _rembg_sessions: dict = {}
+    _rembg_erosion_pct = [0.0]
+    _rembg_feather_pct = [0.0]
+    _pipette = image_ops.FloodPipette(CONSTANTS.RECADRAGE_FLOOD_TOLERANCE)
+    _pipette_start: list = [None]   # (cx, cy) écran, capturé par _on_pan_down
 
-    _rembg_precise_label = ft.Text("Rapide", size=12, color=DARK)
+    _rembg_mode_label = ft.Text("Instantané", size=12, color=DARK)
     rembg_precise_btn = ft.Button(
-        content=_rembg_precise_label,
-        bgcolor=BLUE if REMBG_AVAILABLE else GREY,
-        disabled=not REMBG_AVAILABLE,
+        content=_rembg_mode_label,
+        bgcolor=GREEN,
         style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=8, vertical=2)),
-        tooltip="Rapide (u2net) / Précis (birefnet)",
+        tooltip="Rapide (u2net) / Précis (birefnet) / Instantané (fond uni, sans IA)",
     )
 
     _rembg_model_label = ft.Text("Humain", size=12, color=DARK)
@@ -1570,11 +1624,79 @@ async def main(page: ft.Page) -> None:
         tooltip="Portrait / Généraliste",
     )
 
+    _pipette_tolerance_label = ft.Text(
+        f"Tol. {_pipette.tolerance}", size=11, color=LIGHT_GREY)
+    pipette_sign_btn = ft.IconButton(
+        icon=ft.Icons.ADD_CIRCLE_OUTLINE,
+        icon_color=GREEN,
+        tooltip="Pipette : ajoute à la sélection (cliquer pour passer en retrait)",
+        visible=_rembg_mode[0] == 2,
+        icon_size=18,
+        style=ft.ButtonStyle(padding=ft.Padding.all(2)),
+    )
+
+    rembg_erosion_slider = ft.Slider(
+        value=0, min=0, max=2, divisions=20, label="{value} %",
+        active_color=ORANGE, width=90,
+    )
+    rembg_feather_slider = ft.Slider(
+        value=0, min=0, max=0.5, divisions=20, label="{value} %",
+        active_color=BLUE, width=90,
+    )
+
+    def _sync_pipette_sign_btn() -> None:
+        if _pipette.sign == 1:
+            pipette_sign_btn.icon = ft.Icons.ADD_CIRCLE_OUTLINE
+            pipette_sign_btn.icon_color = GREEN
+            pipette_sign_btn.tooltip = "Pipette : ajoute à la sélection (cliquer pour passer en retrait)"
+        else:
+            pipette_sign_btn.icon = ft.Icons.REMOVE_CIRCLE_OUTLINE
+            pipette_sign_btn.icon_color = RED
+            pipette_sign_btn.tooltip = "Pipette : retire de la sélection (cliquer pour repasser en ajout)"
+        pipette_sign_btn.update()
+
+    def on_pipette_sign_toggle(e) -> None:
+        _pipette.toggle_sign()
+        _sync_pipette_sign_btn()
+
+    def _on_gesture_secondary_tap(e) -> None:
+        """Clic droit sur `image_gesture` : bascule ajoute/retire en mode
+        pipette (Fond IA instantané), efface la sélection en mode
+        retouche/SAM2 — les deux sessions ne rendent jamais `image_gesture`
+        visible en même temps, donc pas de conflit possible entre les deux
+        usages (retour user : pourquoi pas le clic droit ici aussi ?)."""
+        if state["bg_pick_active"]:
+            on_pipette_sign_toggle(e)
+        else:
+            on_clear_selection(e)
+
+    def _bg_pick_cancel() -> None:
+        """Désarme la pipette sans rien appliquer (image_gesture repasse
+        en pan normal) — cf. `_pipette_cancel` de Recadrage manuel.pyw."""
+        if state["bg_pick_active"]:
+            state["bg_pick_active"]   = False
+            image_gesture.visible      = False
+            preview_viewer.pan_enabled = True
+            image_gesture.update()
+            preview_viewer.update()
+
     def on_rembg_precise_toggle(e) -> None:
-        _rembg_precise[0] = not _rembg_precise[0]
-        _rembg_precise_label.value = "Précis" if _rembg_precise[0] else "Rapide"
-        rembg_precise_btn.bgcolor  = VIOLET   if _rembg_precise[0] else BLUE
+        _bg_pick_cancel()
+        _rembg_mode[0] = (_rembg_mode[0] + 1) % 3
+        if _rembg_mode[0] == 0:
+            _rembg_mode_label.value = "Rapide"
+            rembg_precise_btn.bgcolor = BLUE if REMBG_AVAILABLE else GREY
+        elif _rembg_mode[0] == 1:
+            _rembg_mode_label.value = "Précis"
+            rembg_precise_btn.bgcolor = VIOLET if REMBG_AVAILABLE else GREY
+        else:
+            _rembg_mode_label.value = "Instantané"
+            rembg_precise_btn.bgcolor = GREEN
         rembg_precise_btn.update()
+        pipette_sign_btn.visible = _rembg_mode[0] == 2
+        pipette_sign_btn.update()
+        rembg_apply_btn.disabled = not (REMBG_AVAILABLE or _rembg_mode[0] == 2)
+        rembg_apply_btn.update()
 
     def on_rembg_model_toggle(e) -> None:
         _rembg_human[0] = not _rembg_human[0]
@@ -1584,11 +1706,43 @@ async def main(page: ft.Page) -> None:
 
     rembg_precise_btn.on_click = on_rembg_precise_toggle
     rembg_model_btn.on_click   = on_rembg_model_toggle
+    pipette_sign_btn.on_click  = on_pipette_sign_toggle
+
+    def on_rembg_erosion_change(e) -> None:
+        _rembg_erosion_pct[0] = round(e.control.value, 1)
+
+    def on_rembg_erosion_end(e) -> None:
+        _rembg_erosion_pct[0] = round(e.control.value, 1)
+        if state["rembg_active"]:
+            _rembg_apply_composite()
+            _render_preview()
+            page.update()
+
+    def on_rembg_feather_change(e) -> None:
+        _rembg_feather_pct[0] = round(e.control.value, 2)
+
+    def on_rembg_feather_end(e) -> None:
+        _rembg_feather_pct[0] = round(e.control.value, 2)
+        if state["rembg_active"]:
+            _rembg_apply_composite()
+            _render_preview()
+            page.update()
+
+    rembg_erosion_slider.on_change     = on_rembg_erosion_change
+    rembg_erosion_slider.on_change_end = on_rembg_erosion_end
+    rembg_feather_slider.on_change     = on_rembg_feather_change
+    rembg_feather_slider.on_change_end = on_rembg_feather_end
 
     def _rembg_apply_composite() -> None:
         rgba = state["rembg_rgba"]
         if rgba is None:
             return
+        if _rembg_erosion_pct[0] > 0:
+            r = max(1, round(min(rgba.size) * _rembg_erosion_pct[0] / 100))
+            rgba = image_ops.erode_alpha(rgba, r)
+        if _rembg_feather_pct[0] > 0:
+            f = max(1, round(min(rgba.size) * _rembg_feather_pct[0] / 100))
+            rgba = image_ops.feather_alpha(rgba, f)
         mode = rembg_dropdown.value
         if mode == "Transparent":
             state["work_img"] = rgba.copy()
@@ -1611,18 +1765,113 @@ async def main(page: ft.Page) -> None:
         _rembg_apply_composite()
         _render_preview()
 
+    async def _apply_pipette_pick(ix: int, iy: int, tolerance: int) -> None:
+        """Version définitive du flood fill pipette (mode Instantané) :
+        persiste le masque combiné et laisse la pipette armée pour
+        enchaîner un autre clic-glissé (ajoute/retire, cf. pipette_sign_btn)."""
+        source = state["rembg_before"] or state["work_img"] or state["orig_img"]
+        rembg_status.value = "Détourage instantané…"
+        page.update()
+        try:
+            new_mask = await asyncio.to_thread(
+                image_ops.flood_background_mask, source, (ix, iy),
+                tolerance=tolerance, max_px=1500)
+            bg_mask = _pipette.commit(new_mask)
+            state["rembg_before"] = source
+            if bg_mask is not None:
+                state["rembg_rgba"]   = image_ops.compose_bg_alpha(source, bg_mask)
+                state["rembg_active"] = True
+                _rembg_apply_composite()
+                state["modified"]      = True
+                undo_btn.disabled      = False
+                save_btn.disabled      = False
+                rembg_apply_btn.text    = "Restaurer le fond"
+                rembg_apply_btn.bgcolor = ORANGE
+                rembg_status.value = (
+                    "[OK] Fond supprimé — glissez pour ajouter/retirer, recliquer pour restaurer")
+            else:
+                state["work_img"]     = source
+                state["rembg_active"] = False
+                rembg_apply_btn.text    = "Supprimer le fond"
+                rembg_apply_btn.bgcolor = GREY
+                rembg_status.value = "Rien à retirer — glissez d'abord pour ajouter une sélection"
+            _pipette_tolerance_label.value = f"Tol. {tolerance}"
+        except Exception as ex:
+            rembg_status.value = f"[ERREUR] détourage : {ex}"
+        finally:
+            _render_preview()
+            page.update()
+
+    async def _pipette_live_preview(ix: int, iy: int, tolerance: int) -> None:
+        """Aperçu en direct pendant le glissé — throttlé par le verrou
+        `live_busy`, déjà posé par `_pipette.try_start_live()` (appelant,
+        synchrone — cf. sa docstring : le poser ici serait trop tard,
+        `page.run_task` ne démarre pas la coroutine immédiatement)."""
+        my_gen = _pipette.live_gen = _pipette.live_gen + 1
+        try:
+            source = state["rembg_before"] or state["work_img"] or state["orig_img"]
+            new_mask = await asyncio.to_thread(
+                image_ops.flood_background_mask, source, (ix, iy),
+                tolerance=tolerance, max_px=900)
+            if my_gen != _pipette.live_gen:
+                return
+            combined = _pipette.combine(new_mask)
+            if combined is not None:
+                state["rembg_rgba"] = image_ops.compose_bg_alpha(source, combined)
+                _rembg_apply_composite()
+                _render_preview()
+                page.update()
+        except Exception:
+            pass
+        finally:
+            _pipette.live_busy = False
+
     async def on_rembg_toggle(e) -> None:
         if state["work_img"] is None or state["working"]:
             return
+
+        # Pipette armée mais aucun pick encore appliqué : rien à
+        # restaurer, ce clic annule juste l'armement.
+        if state["bg_pick_active"] and not state["rembg_active"]:
+            _bg_pick_cancel()
+            rembg_status.value = "Pipette désarmée"
+            page.update()
+            return
+
+        # Restaurer TOUT le masque accumulé d'un coup (pas juste le
+        # dernier pick ajouté/retiré).
         if state["rembg_active"]:
+            _bg_pick_cancel()
             state["work_img"]     = state["rembg_before"]
             state["rembg_rgba"]   = None
             state["rembg_before"] = None
             state["rembg_active"] = False
+            _pipette.reset()
+            _sync_pipette_sign_btn()
             rembg_apply_btn.text    = "Supprimer le fond"
             rembg_apply_btn.bgcolor = GREY
             rembg_status.value = "Fond restauré"
             _render_preview()
+            page.update()
+            return
+
+        if _rembg_mode[0] == 2:
+            # Mode instantané : arme la pipette, le flood fill part du
+            # prochain clic-glissé sur l'image (cf. _on_pan_down/_on_pan_end).
+            # Fige la source AVANT le premier glissé : sans ça,
+            # `_pipette_live_preview` retomberait sur `state["work_img"]`,
+            # que `_rembg_apply_composite()` écrase à chaque aperçu avec
+            # le fond déjà peint en blanc — le flood fill repartirait
+            # alors d'une image de plus en plus blanchie, s'auto-alimentant
+            # en boucle quelle que soit la direction du glissé (retour user).
+            _pipette.arm()
+            state["rembg_before"]     = state["work_img"]
+            state["bg_pick_active"]   = True
+            image_gesture.visible      = True
+            preview_viewer.pan_enabled = False
+            image_gesture.update()
+            preview_viewer.update()
+            rembg_status.value = "Cliquez sur le fond et glissez pour ajuster la sensibilité…"
             page.update()
             return
 
@@ -1637,7 +1886,7 @@ async def main(page: ft.Page) -> None:
 
         def _do_rembg():
             import rembg as _rembg
-            if _rembg_precise[0]:
+            if _rembg_mode[0] == 1:
                 model = "birefnet-portrait" if _rembg_human[0] else "birefnet-general"
             else:
                 model = "u2net_human_seg" if _rembg_human[0] else "u2net"
@@ -1710,12 +1959,13 @@ async def main(page: ft.Page) -> None:
     # ── Gesture detector (rubber band, à l'intérieur de l'InteractiveViewer) ──
     image_gesture = ft.GestureDetector()
     image_gesture.content               = ft.Container(expand=True)
+    image_gesture.on_pan_down           = _on_pan_down     # pipette (mode Instantané) — position immédiate
     image_gesture.on_pan_start          = _on_pan_start
     image_gesture.on_pan_update         = _on_pan_update
     image_gesture.on_pan_end            = _on_pan_end
     image_gesture.on_pan_cancel         = _on_pan_cancel
     image_gesture.on_tap_up             = _on_tap_click
-    image_gesture.on_secondary_tap_down = lambda e: on_clear_selection(e)
+    image_gesture.on_secondary_tap_down = _on_gesture_secondary_tap
     image_gesture.mouse_cursor          = ft.MouseCursor.PRECISE
     image_gesture.visible               = False
 
@@ -1834,7 +2084,12 @@ async def main(page: ft.Page) -> None:
             ft.Text("Suppression de fond", size=12, color=LIGHT_GREY),
             rembg_dropdown,
             rembg_apply_btn,
-            ft.Row([rembg_precise_btn, rembg_model_btn], spacing=6),
+            ft.Row([rembg_precise_btn, rembg_model_btn, pipette_sign_btn,
+                    _pipette_tolerance_label], spacing=6, wrap=True),
+            ft.Row([
+                ft.Text("Ér.", size=11, color=LIGHT_GREY), rembg_erosion_slider,
+                ft.Text("Ad.", size=11, color=LIGHT_GREY), rembg_feather_slider,
+            ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             rembg_progress,
             rembg_status,
             ft.Divider(color=GREY),

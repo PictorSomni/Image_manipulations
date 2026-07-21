@@ -63,6 +63,18 @@ def erode_alpha(source_image: Image.Image, radius: int) -> Image.Image:
     return Image.merge("RGBA", (r, g, b, alpha_channel))
 
 
+def feather_alpha(source_image: Image.Image, radius: int) -> Image.Image:
+    """Adoucit (flou gaussien) le canal alpha d'une image RGBA d'environ
+    ``radius`` pixels — lisse un contour en escalier (ex. flood fill à
+    résolution réduite) sans changer la taille de la zone détourée,
+    contrairement à `erode_alpha` qui la rétrécit."""
+    if source_image.mode != "RGBA" or radius <= 0:
+        return source_image
+    r, g, b, alpha_channel = source_image.split()
+    alpha_channel = alpha_channel.filter(ImageFilter.GaussianBlur(radius))
+    return Image.merge("RGBA", (r, g, b, alpha_channel))
+
+
 # ================================================================ #
 #                    GÉOMÉTRIE DU RECADRAGE                        #
 # ================================================================ #
@@ -194,6 +206,7 @@ def compute_crop_with_canvas(image: Image.Image, target_w_px: int,
                               target_h_px: int, view: CropView, *,
                               is_bw: bool = False,
                               rembg_erosion_pct: float = 0.0,
+                              rembg_feather_pct: float = 0.0,
                               rembg_bg_mode: int = 0,
                               rembg_original: Image.Image | None = None
                               ) -> Image.Image:
@@ -259,6 +272,10 @@ def compute_crop_with_canvas(image: Image.Image, target_w_px: int,
             erosion_radius = max(
                 1, round(min(output_image.size) * rembg_erosion_pct / 100))
             output_image = erode_alpha(output_image, erosion_radius)
+        if rembg_feather_pct > 0:
+            feather_radius = max(
+                1, round(min(output_image.size) * rembg_feather_pct / 100))
+            output_image = feather_alpha(output_image, feather_radius)
         if rembg_bg_mode == 0:
             background_layer = Image.new("RGBA", output_image.size,
                                           (255, 255, 255, 255))
@@ -296,6 +313,7 @@ def compute_crop_for_format(image: Image.Image, fmt_w_mm: float,
                              fmt_h_mm: float, is_portrait: bool,
                              view: CropView, *, is_bw: bool = False,
                              rembg_erosion_pct: float = 0.0,
+                             rembg_feather_pct: float = 0.0,
                              rembg_bg_mode: int = 0,
                              rembg_original: Image.Image | None = None,
                              dpi: int = DPI) -> Image.Image:
@@ -343,14 +361,15 @@ def compute_crop_for_format(image: Image.Image, fmt_w_mm: float,
     )
     return compute_crop_with_canvas(
         image, target_w_px, target_h_px, virtual_view, is_bw=is_bw,
-        rembg_erosion_pct=rembg_erosion_pct, rembg_bg_mode=rembg_bg_mode,
-        rembg_original=rembg_original,
+        rembg_erosion_pct=rembg_erosion_pct, rembg_feather_pct=rembg_feather_pct,
+        rembg_bg_mode=rembg_bg_mode, rembg_original=rembg_original,
     )
 
 
 def compute_fit_in(image: Image.Image, target_w_px: int, target_h_px: int,
                     original_width: int, original_height: int, *,
                     is_bw: bool = False, rembg_erosion_pct: float = 0.0,
+                    rembg_feather_pct: float = 0.0,
                     rembg_bg_mode: int = 0,
                     rembg_original: Image.Image | None = None
                     ) -> Image.Image:
@@ -362,6 +381,10 @@ def compute_fit_in(image: Image.Image, target_w_px: int, target_h_px: int,
             erosion_radius = max(
                 1, round(min(source_image.size) * rembg_erosion_pct / 100))
             source_image = erode_alpha(source_image.copy(), erosion_radius)
+        if rembg_feather_pct > 0:
+            feather_radius = max(
+                1, round(min(source_image.size) * rembg_feather_pct / 100))
+            source_image = feather_alpha(source_image.copy(), feather_radius)
         if rembg_bg_mode == 0:
             background_layer = Image.new("RGBA", source_image.size,
                                           (255, 255, 255, 255))
@@ -526,6 +549,198 @@ _REMBG_MODEL_ALIASES = {
     ("fast", "human"): "u2net_human_seg",
     ("fast", "general"): "u2net",
 }
+
+
+def flood_background_mask(image: Image.Image, seed_xy: tuple[int, int] | None,
+                           *, tolerance: int = 40, max_px: int = 1500
+                           ) -> np.ndarray:
+    """Masque booléen (True = fond) à la résolution ORIGINALE de `image`,
+    par extension de zone (flood fill), sans modèle IA — voir
+    `remove_background_flood`. Renvoyé brut (sans alpha/adoucissement)
+    pour permettre de cumuler (union) plusieurs graines successives
+    avant de composer l'alpha final via `compose_bg_alpha`.
+
+    `seed_xy` (coordonnées pixel de `image`, ex. clic pipette) : flood
+    depuis ce seul point. `None` : flood depuis les coins/bords — utile
+    sans clic utilisateur, mais suppose un fond qui touche les 4 bords.
+
+    Comparaison en distance COULEUR (RGB), pas en luminosité seule : sous
+    un éclairage uniforme, peau/cheveux tombent souvent à une luminosité
+    proche de celle d'un fond clair (gris/blanc) et se faisaient absorber
+    par erreur ; leur teinte (chaude) reste elle nettement différente
+    d'un fond neutre, même à luminosité égale (retour user).
+    """
+    from skimage.segmentation import flood
+
+    rgb = image.convert("RGB")
+    w, h = rgb.size
+    scale = min(1.0, max_px / max(w, h))
+    sw, sh = max(1, round(w * scale)), max(1, round(h * scale))
+    small = rgb.resize((sw, sh), Image.Resampling.BILINEAR) if scale < 1.0 else rgb
+    arr = np.asarray(small, dtype=np.float64)
+
+    if seed_xy is not None:
+        sx, sy = seed_xy
+        seeds = {(min(sh - 1, max(0, round(sy * scale))),
+                  min(sw - 1, max(0, round(sx * scale))))}
+    else:
+        seeds = {(0, 0), (0, sw - 1), (sh - 1, 0), (sh - 1, sw - 1),
+                 (0, sw // 2), (sh - 1, sw // 2), (sh // 2, 0), (sh // 2, sw - 1)}
+
+    # flood() ne compare que des scalaires : on lui donne, pour chaque
+    # graine, la distance euclidienne RGB à la COULEUR de cette graine
+    # (0 en son propre point) — la tolérance devient alors directement
+    # "distance couleur max au point cliqué", sur les 3 canaux à la fois.
+    bg_small = np.zeros((sh, sw), dtype=bool)
+    for seed in seeds:
+        dist = np.sqrt(((arr - arr[seed]) ** 2).sum(axis=2))
+        bg_small |= flood(dist, seed, tolerance=tolerance)
+
+    if scale >= 1.0:
+        return bg_small
+    bg_full = np.asarray(
+        Image.fromarray((bg_small * 255).astype(np.uint8), mode="L")
+        .resize((w, h), Image.Resampling.BILINEAR))
+    return bg_full > 127
+
+
+def compose_bg_alpha(image: Image.Image, bg_mask: np.ndarray,
+                      feather_px: int = 2) -> Image.Image:
+    """Applique `bg_mask` (True = fond, résolution originale de `image`)
+    comme canal alpha, adouci de `feather_px` (contour en escalier sinon,
+    le flood fill tourne à résolution réduite)."""
+
+    alpha = np.where(bg_mask, 0, 255).astype(np.uint8)
+    alpha_img = Image.fromarray(alpha, mode="L").filter(
+        ImageFilter.GaussianBlur(feather_px))
+    result = image.convert("RGBA")
+    result.putalpha(alpha_img)
+    return result
+
+
+def remove_background_flood(image: Image.Image, *, tolerance: int = 40,
+                             seed_xy: tuple[int, int] | None = None,
+                             max_px: int = 1500) -> Image.Image:
+    """Détourage instantané par extension de zone (flood fill) en un seul
+    appel — voir `flood_background_mask` + `compose_bg_alpha` pour cumuler
+    plusieurs graines (pipette additive)."""
+
+    bg_mask = flood_background_mask(image, seed_xy, tolerance=tolerance,
+                                     max_px=max_px)
+    return compose_bg_alpha(image, bg_mask)
+
+
+class FloodPipette:
+    """État interactif de la pipette de détourage instantané (flood
+    fill) : un clic-glissé fixe la graine, la distance du glissé ajuste
+    la tolérance en direct, et plusieurs picks successifs s'accumulent
+    (ajout) ou se retranchent (retrait, `sign = -1`) du masque de fond.
+
+    Ne gère ni les événements souris/gestes ni le rendu — seulement
+    l'état et la logique de combinaison des masques, pour rester
+    utilisable aussi bien depuis un widget basé sur une classe
+    (`Recadrage manuel.pyw`) que depuis des closures (`Augmentation
+    IA.py`). L'appelant reste responsable de :
+      - convertir les coordonnées écran → image (transform propre à
+        chaque app) ;
+      - appeler `flood_background_mask`/`compose_bg_alpha` avec la
+        tolérance et le masque combiné renvoyés ici ;
+      - rafraîchir l'affichage.
+    """
+
+    def __init__(self, tolerance: int = 40, *, min_tolerance: int = 5,
+                 max_tolerance: int = 150, sensitivity: float = 0.5):
+        self.tolerance = tolerance
+        self.min_tolerance = min_tolerance
+        self.max_tolerance = max_tolerance
+        self.sensitivity = sensitivity
+        self.sign: int = 1              # 1 = ajoute, -1 = retire
+        self.drag_px: float = 0.0
+        self.bg_mask: np.ndarray | None = None
+        self.armed: bool = False
+        self.live_busy: bool = False    # throttle aperçu en direct : 1 seul recalcul en vol
+        self.live_gen: int = 0          # jette les résultats devenus obsolètes
+
+    def arm(self) -> None:
+        """Arme la pipette pour une nouvelle session (attend un clic) —
+        repart d'un masque vide."""
+        self.armed = True
+        self.bg_mask = None
+
+    def try_start_live(self) -> bool:
+        """Pose le verrou `live_busy` et renvoie True si aucun calcul
+        n'est déjà en vol — à appeler de façon SYNCHRONE, dans le
+        callback de glissement, AVANT de programmer la tâche async
+        (`page.run_task`).
+
+        `page.run_task` ne démarre pas la coroutine immédiatement : elle
+        n'est exécutée qu'à la prochaine itération de la boucle asyncio.
+        Si le verrou n'est posé qu'AU DÉBUT de la coroutine elle-même
+        (comme on pourrait le croire), plusieurs callbacks de glissement
+        consécutifs peuvent tous voir `live_busy` encore à False et
+        programmer chacun leur propre calcul — plusieurs flood fill se
+        chevauchent alors, et celui qui termine en dernier n'est pas
+        forcément celui parti du point le plus récent : l'aperçu peut se
+        figer sur un résultat périmé (retour user : la zone grandissait
+        puis ne rétrécissait plus en rejouant le glissé en sens inverse).
+        Poser le verrou ici, de façon synchrone, ferme cette fenêtre de
+        course."""
+        if self.live_busy:
+            return False
+        self.live_busy = True
+        return True
+
+    def disarm(self) -> None:
+        self.armed = False
+
+    def toggle_sign(self) -> None:
+        self.sign = -1 if self.sign == 1 else 1
+
+    def start_drag(self) -> None:
+        self.drag_px = 0.0
+
+    def drag(self, dx: float) -> int:
+        """À appeler à chaque delta INCRÉMENTAL de mouvement pendant le
+        glissé (`e.local_delta.x` côté Flet — malgré une docstring Flet
+        ambiguë, c'est bien incrémental événement par événement : le pan
+        de l'image, ailleurs dans ces mêmes apps, fait déjà `offset_x +=
+        e.local_delta.x` et fonctionne correctement dans les deux sens,
+        ce qui confirme le sens incrémental). Renvoie la tolérance
+        courante (pour affichage/aperçu live)."""
+        self.drag_px += dx
+        return self.live_tolerance()
+
+    def live_tolerance(self) -> int:
+        return max(self.min_tolerance, min(self.max_tolerance, round(
+            self.tolerance + self.drag_px * self.sensitivity)))
+
+    def end_drag(self) -> int:
+        """Fige la tolérance courante comme nouvelle base (le prochain
+        glissé en repart) et renvoie sa valeur."""
+        self.tolerance = self.live_tolerance()
+        self.drag_px = 0.0
+        return self.tolerance
+
+    def combine(self, new_mask: np.ndarray) -> np.ndarray | None:
+        """Combine `new_mask` (True = fond, ce pick) avec le masque déjà
+        accumulé, sans le persister — pour un aperçu en direct."""
+        if self.sign < 0:
+            if self.bg_mask is None:
+                return None
+            return self.bg_mask & ~new_mask
+        return new_mask if self.bg_mask is None else (self.bg_mask | new_mask)
+
+    def commit(self, new_mask: np.ndarray) -> np.ndarray | None:
+        """Persiste la combinaison dans `self.bg_mask`."""
+        self.bg_mask = self.combine(new_mask)
+        return self.bg_mask
+
+    def reset(self) -> None:
+        """Remet à zéro (nouvelle image, restauration, changement de mode)."""
+        self.bg_mask = None
+        self.armed = False
+        self.sign = 1
+        self.drag_px = 0.0
 
 
 def run_rembg(image: Image.Image, *, precise: bool = False,

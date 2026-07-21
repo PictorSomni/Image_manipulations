@@ -246,7 +246,8 @@ RECADRAGE_WHITE_BORDER    = False   # Bord blanc 5 mm (image réduite, canvas in
 RECADRAGE_SHOW_GRID       = True    # Afficher la grille de cadrage
 RECADRAGE_REMBG_BG_WHITE  = True    # Fond blanc après suppression IA (vs flou)
 RECADRAGE_REMBG_HUMAN_SEG = True    # Segmentation humain (vs généraliste)
-RECADRAGE_REMBG_PRECISE   = False   # Mode précis/lent (birefnet) vs rapide (u2net)
+RECADRAGE_REMBG_MODE      = 2       # 0 = rapide (u2net), 1 = précis (birefnet), 2 = instantané (flood, sans IA)
+RECADRAGE_FLOOD_TOLERANCE = 40      # Mode instantané : tolérance de luminance du flood fill (0-255)
 RECADRAGE_SCROLL_ROTATES  = False   # Molette = rotation (Tab pour basculer)
 
 

@@ -140,6 +140,7 @@ HISTOGRAM_HEIGHT = 85    # Hauteur de l'histogramme en pixels
 mm_to_pixels = image_ops.mm_to_pixels
 convert_to_srgb = image_ops.convert_to_srgb
 _erode_alpha = image_ops.erode_alpha
+_feather_alpha = image_ops.feather_alpha
 _SRGB_ICC = image_ops._SRGB_ICC
 
 
@@ -585,7 +586,10 @@ class PhotoCropper:
             # on_scale_start=self.on_gesture_start,   # trackpad désactivé (génère des saccades)
             # on_scale_update=self.on_gesture_update,  # trackpad désactivé
             # on_scale_end=self.on_gesture_end,        # trackpad désactivé
-            on_pan_update=self.on_pan_update,           # déplacement souris
+            on_pan_down=self.on_pan_down,                # clic pipette (mode Instantané) — position immédiate
+            on_pan_update=self.on_pan_update,           # déplacement souris / glissé pipette
+            on_pan_end=self.on_pan_end,                 # relâchement pipette
+            on_secondary_tap=self.on_canvas_secondary_tap,  # clic droit (simple clic, pas glissé) : bascule ajoute/retire
             on_scroll=self.on_gesture_scroll,           # molette souris conservée
         )
 
@@ -651,7 +655,7 @@ class PhotoCropper:
         # 0 = fond blanc, 1 = fond gris clair, 2 = fond flou
         self.rembg_bg_mode = 0 if CONSTANTS.RECADRAGE_REMBG_BG_WHITE else 2
         self.rembg_human_seg = CONSTANTS.RECADRAGE_REMBG_HUMAN_SEG
-        self.rembg_precise = CONSTANTS.RECADRAGE_REMBG_PRECISE  # False = rapide (u2net), True = précis (birefnet)
+        self.rembg_mode = CONSTANTS.RECADRAGE_REMBG_MODE  # 0=rapide(u2net) 1=précis(birefnet) 2=instantané(flood)
         self._rembg_bg_label = ft.Text("Fond blanc", size=12, color=DARK)
         self.rembg_bg_btn = ft.Button(
             content=self._rembg_bg_label,
@@ -677,18 +681,21 @@ class PhotoCropper:
             height=30,
             tooltip="Portrait / Généraliste" if REMBG_AVAILABLE else "",
         )
-        self._rembg_precise_label = ft.Text("Rapide", size=12, color=DARK)
+        # Bouton à 3 états : Rapide (u2net) -> Précis (birefnet) ->
+        # Instantané (pipette flood fill, sans IA — pas besoin de rembg installé).
+        _REMBG_MODE_LABELS = {0: ("Rapide", BLUE), 1: ("Précis", VIOLET), 2: ("Instantané", GREEN)}
+        _mode_label, _mode_color = _REMBG_MODE_LABELS[self.rembg_mode]
+        self._rembg_precise_label = ft.Text(_mode_label, size=12, color=DARK)
         self.rembg_precise_btn = ft.Button(
             content=self._rembg_precise_label,
-            bgcolor=BLUE if REMBG_AVAILABLE else GREY,
+            bgcolor=_mode_color if (REMBG_AVAILABLE or self.rembg_mode == 2) else GREY,
             on_click=self.on_rembg_precise_toggle,
             style=ft.ButtonStyle(
                 padding=ft.Padding.symmetric(horizontal=6, vertical=2),
                 shape=ft.RoundedRectangleBorder(radius=6),
             ),
             height=30,
-            disabled=not REMBG_AVAILABLE,
-            tooltip="Rapide : u2net / Précis : birefnet" if REMBG_AVAILABLE else "",
+            tooltip="Rapide (u2net) / Précis (birefnet) / Instantané (fond uni, sans IA)",
         )
 
 
@@ -704,7 +711,45 @@ class PhotoCropper:
             active_color=ORANGE,
             on_change=self.on_rembg_erosion_change,
             on_change_end=self.on_rembg_erosion_end,
-            width=130,
+            width=90,
+        )
+
+        # Adoucissement (flou) du bord du masque — lisse un contour en
+        # escalier (ex. flood fill à résolution réduite) sans rétrécir la
+        # zone détourée, contrairement à l'érosion ci-dessus.
+        self.rembg_feather_pct = 0.0
+        self.rembg_feather_slider = ft.Slider(
+            value=0,
+            min=0,
+            max=0.5,  # plage réduite (retour user : 0-2 % était trop sensible pour un flou)
+            divisions=20,
+            label="{value} %",
+            active_color=BLUE,
+            on_change=self.on_rembg_feather_change,
+            on_change_end=self.on_rembg_feather_end,
+            width=90,
+        )
+
+        # Mode Instantané (pipette) : clic-glissé sur le fond dans le
+        # canevas — le point de clic sert de graine au flood fill, la
+        # distance du glissé ajuste la tolérance (sensibilité aux
+        # variations de couleur) en direct, pas de slider dédié.
+        # Ajoute ou retire de la sélection selon `pipette_sign_btn` (pas
+        # le bouton de la souris — le clic droit ne se déclenche pas du
+        # tout ici, cf. `on_pan_down`).
+        # État interactif (partagé avec Augmentation IA.py, cf. image_ops.FloodPipette)
+        self._pipette = image_ops.FloodPipette(CONSTANTS.RECADRAGE_FLOOD_TOLERANCE)
+        self._pipette_start = None   # coordonnées écran (repère gesture_detector), propres à cette app
+        self._rembg_tolerance_label = ft.Text(
+            f"Tol. {self._pipette.tolerance}", size=11, color=LIGHT_GREY)
+        self.pipette_sign_btn = ft.IconButton(
+            icon=ft.Icons.ADD_CIRCLE_OUTLINE,
+            icon_color=GREEN,
+            tooltip="Pipette : ajoute à la sélection (cliquer pour passer en retrait)",
+            on_click=self.on_pipette_sign_toggle,
+            visible=self.rembg_mode == 2,  # cf. _sync_pipette_sign_btn pour l'icône/couleur
+            icon_size=18,
+            style=ft.ButtonStyle(padding=ft.Padding.all(2)),
         )
         self.rembg_btn = ft.IconButton(
             icon=ft.Icons.AUTO_FIX_HIGH,
@@ -1091,6 +1136,9 @@ class PhotoCropper:
             self.current_pil_image = source_image
             self._rembg_original = None
             self.rembg_btn.selected = False
+            self._pipette_cancel()
+            self._pipette.reset()
+            self._sync_pipette_sign_btn()
             self.original_width, self.original_height = source_image.size
         except Exception as e:
             self._set_status(f"Erreur lors du chargement: {os.path.basename(path)} - {str(e)}")
@@ -1475,6 +1523,7 @@ class PhotoCropper:
             self.current_pil_image, target_w_px, target_h_px, view,
             is_bw=self.is_bw,
             rembg_erosion_pct=getattr(self, 'rembg_erosion_pct', 0.0),
+            rembg_feather_pct=getattr(self, 'rembg_feather_pct', 0.0),
             rembg_bg_mode=getattr(self, 'rembg_bg_mode', 0),
             rembg_original=self._rembg_original,
         )
@@ -1497,6 +1546,7 @@ class PhotoCropper:
             self.current_pil_image, target_w_px, target_h_px,
             self.original_width, self.original_height, is_bw=self.is_bw,
             rembg_erosion_pct=getattr(self, 'rembg_erosion_pct', 0.0),
+            rembg_feather_pct=getattr(self, 'rembg_feather_pct', 0.0),
             rembg_bg_mode=getattr(self, 'rembg_bg_mode', 0),
             rembg_original=self._rembg_original,
         )
@@ -1744,19 +1794,24 @@ class PhotoCropper:
                 id(self.current_pil_image), preview_width, preview_height,
                 round(self.canvas_w), self.canvas_is_portrait,
                 getattr(self, 'rembg_erosion_pct', 0.0),
+                getattr(self, 'rembg_feather_pct', 0.0),
                 getattr(self, 'rembg_bg_mode', 0),
             )
             if self._rembg_composite_cache is not None and self._rembg_composite_cache[0] == composite_cache_key:
                 # Cache valide : réutiliser le composite sans recalculer
                 preview_image = self._rembg_composite_cache[1].copy()
             else:
-                # Érosion au format réduit — beaucoup plus rapide qu'à pleine résolution.
-                # Le rayon est mis à l'échelle pour que la preview corresponde au résultat final.
-                # L'échelle correcte est canvas_w / target_w_px (affichage → export),
-                # et non display_w / orig_w (qui sous-estime fortement pour les petits formats).
+                # Érosion/adoucissement au format réduit — beaucoup plus rapide qu'à
+                # pleine résolution. Le rayon est mis à l'échelle pour que la preview
+                # corresponde au résultat final. L'échelle correcte est
+                # canvas_w / target_w_px (affichage → export), et non
+                # display_w / orig_w (qui sous-estime fortement pour les petits formats).
                 if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
                     erosion_radius_scaled = max(1, round(min(preview_image.size) * self.rembg_erosion_pct / 100))
                     preview_image = _erode_alpha(preview_image, erosion_radius_scaled)
+                if getattr(self, 'rembg_feather_pct', 0.0) > 0:
+                    feather_radius_scaled = max(1, round(min(preview_image.size) * self.rembg_feather_pct / 100))
+                    preview_image = _feather_alpha(preview_image, feather_radius_scaled)
                 _bg_mode = getattr(self, 'rembg_bg_mode', 0)
                 if _bg_mode == 0:
                     background_layer = Image.new("RGBA", preview_image.size, (255, 255, 255, 255))
@@ -1818,14 +1873,69 @@ class PhotoCropper:
     # ================================================================ #
     #              GESTIONNAIRES DE GESTES                            #
     # ================================================================ #
+    def on_pan_down(self, e):
+        """Contact initial du clic — n'agit que si la pipette (mode
+        Instantané) attend un clic, sinon laisse `on_pan_update` gérer le
+        pan normal. Utilise `on_pan_down` (déclenché instantanément) et
+        non `on_pan_start` : ce dernier n'est reconnu par Flutter qu'après
+        un léger mouvement, donc sa position n'est déjà plus le point
+        cliqué (retour user : la sélection tombait sur le sujet au lieu
+        du fond cliqué).
+
+        Ajoute ou retire de la sélection selon `self._pipette.sign`,
+        piloté par le bouton bascule `pipette_sign_btn` (cf.
+        `on_pipette_sign_toggle`) — PAS par le bouton de la souris : les
+        événements clic droit (`on_secondary_tap_down`/`on_right_pan_*`)
+        ne se déclenchent pas du tout dans cette version de Flet/Flutter
+        combinés aux gestionnaires de pan existants (retour user, testé)."""
+
+        if not self._pipette.armed:
+            return
+        self._pipette_start = (e.local_position.x, e.local_position.y)
+        self._pipette.start_drag()
+
+    def _pipette_drag_tick(self, tol: int) -> None:
+        """Commun aux glissés gauche/droit : affiche la tolérance live et
+        déclenche un aperçu throttlé (cf. `_pipette_live_preview`)."""
+
+        self._rembg_tolerance_label.value = f"Tol. {tol}"
+        self._rembg_tolerance_label.update()
+        if self._pipette.try_start_live():
+            px, py = self._pipette_start
+            ix, iy = self._canvas_point_to_image(px, py)
+            self.page.run_task(self._pipette_live_preview, ix, iy, tol)
+
     def on_pan_update(self, e):
-        """Déplace l'image par glisser-déposer à la souris."""
+        """Déplace l'image par glisser-déposer à la souris — ou, pipette
+        armée, accumule la distance du glissé (= sensibilité du flood
+        fill) et relance un aperçu en direct (throttlé : un seul recalcul
+        à la fois, cf. `_pipette_live_preview`)."""
         if not self.image_paths or not hasattr(self, 'original_width'):
+            return
+        if self._pipette.armed:
+            if self._pipette_start is not None:
+                self._pipette_drag_tick(self._pipette.drag(e.local_delta.x))
             return
         self.offset_x += e.local_delta.x
         self.offset_y += e.local_delta.y
         self._clamp_offsets()
         self._update_transform()
+
+    def on_pan_end(self, e):
+        """Relâchement du clic-glissé pipette : fixe la graine (point de
+        clic) et la tolérance (distance du glissé, +/- 50 % par 100 px),
+        applique le résultat définitivement (ajoute ou retire selon
+        `self._pipette.sign`) — la pipette reste armée pour enchaîner un
+        nouveau clic-glissé (utile si le fond n'est pas d'un seul tenant,
+        ex. de part et d'autre d'un bras)."""
+
+        if not self._pipette.armed or self._pipette_start is None:
+            return
+        px, py = self._pipette_start
+        ix, iy = self._canvas_point_to_image(px, py)
+        self._pipette_start = None
+        tol = self._pipette.end_drag()
+        self.page.run_task(self._apply_pipette_pick, ix, iy, tol)
 
     def on_gesture_scroll(self, e):
         """
@@ -2127,16 +2237,56 @@ class PhotoCropper:
 
 
     def on_rembg_precise_toggle(self, e):
-        """Bascule entre mode rapide (u2net) et mode précis (birefnet)."""
+        """Cycle rapide (u2net) -> précis (birefnet) -> instantané (flood)."""
 
-        self.rembg_precise = not self.rembg_precise
-        if self.rembg_precise:
+        self._pipette_cancel()
+        self.rembg_mode = (self.rembg_mode + 1) % 3
+        if self.rembg_mode == 0:
+            self._rembg_precise_label.value = "Rapide"
+            self.rembg_precise_btn.bgcolor = BLUE
+        elif self.rembg_mode == 1:
             self._rembg_precise_label.value = "Précis"
             self.rembg_precise_btn.bgcolor = VIOLET
         else:
-            self._rembg_precise_label.value = "Rapide"
-            self.rembg_precise_btn.bgcolor = BLUE
+            self._rembg_precise_label.value = "Instantané"
+            self.rembg_precise_btn.bgcolor = GREEN
         self.rembg_precise_btn.update()
+        self.pipette_sign_btn.visible = self.rembg_mode == 2
+        self.pipette_sign_btn.update()
+
+    def on_canvas_secondary_tap(self, e):
+        """Clic droit (simple clic, sans glisser) sur le canevas — bascule
+        ajoute/retire. Le clic droit GLISSÉ (`on_right_pan_*`) ne se
+        déclenchait pas du tout combiné aux gestionnaires de pan gauche
+        existants (retour user), mais un simple clic droit ponctuel
+        (`on_secondary_tap`, sans recognizer de glissé concurrent) est un
+        geste plus isolé, qui a de bonnes chances de fonctionner — d'où
+        ce bouton en secours si jamais ce n'est pas le cas."""
+
+        if self.rembg_mode == 2:
+            self.on_pipette_sign_toggle(e)
+
+    def on_pipette_sign_toggle(self, e):
+        """Bascule la pipette entre ajoute (+ vert) et retire (− rouge),
+        via le bouton `pipette_sign_btn` ou un clic droit sur le canevas
+        (cf. `on_canvas_secondary_tap`)."""
+
+        self._pipette.toggle_sign()
+        self._sync_pipette_sign_btn()
+
+    def _sync_pipette_sign_btn(self) -> None:
+        """Aligne l'icône/couleur/tooltip de `pipette_sign_btn` sur
+        `self._pipette.sign` — appelé après bascule ou reset."""
+
+        if self._pipette.sign == 1:
+            self.pipette_sign_btn.icon = ft.Icons.ADD_CIRCLE_OUTLINE
+            self.pipette_sign_btn.icon_color = GREEN
+            self.pipette_sign_btn.tooltip = "Pipette : ajoute à la sélection (cliquer pour passer en retrait)"
+        else:
+            self.pipette_sign_btn.icon = ft.Icons.REMOVE_CIRCLE_OUTLINE
+            self.pipette_sign_btn.icon_color = RED
+            self.pipette_sign_btn.tooltip = "Pipette : retire de la sélection (cliquer pour repasser en ajout)"
+        self.pipette_sign_btn.update()
 
 
 
@@ -2153,6 +2303,104 @@ class PhotoCropper:
         self.rembg_erosion_pct = round(e.control.value, 1)
         self._render_preview()
         self.page.update()
+
+    def on_rembg_feather_change(self, e):
+        """Met à jour le % d'adoucissement pendant le drag (pas de rendu)."""
+
+        self.rembg_feather_pct = round(e.control.value, 2)
+
+    def on_rembg_feather_end(self, e):
+        """Regénère la preview au relâchement du slider d'adoucissement."""
+
+        self.rembg_feather_pct = round(e.control.value, 2)
+        self._render_preview()
+        self.page.update()
+
+
+
+    def _pipette_cancel(self):
+        """Désarme la pipette (mode Instantané) sans rien appliquer —
+        appelé si l'utilisateur change de mode ou d'image pendant que la
+        pipette attend un clic."""
+
+        if self._pipette.armed:
+            self._pipette.disarm()
+            self.gesture_detector.mouse_cursor = ft.MouseCursor.MOVE
+
+    def _canvas_point_to_image(self, px: float, py: float) -> tuple[int, int]:
+        """Convertit un point du canevas (repère de `gesture_detector`,
+        même origine que `image_container.left/top`) en coordonnées pixel
+        de l'image ORIGINALE, en inversant pan + zoom + rotation appliqués
+        par `_update_transform`."""
+
+        cx = self.canvas_w / 2 + self.offset_x
+        cy = self.canvas_h / 2 + self.offset_y
+        dx, dy = px - cx, py - cy
+        theta = -math.radians(self.rotation)
+        rdx = dx * math.cos(theta) - dy * math.sin(theta)
+        rdy = dx * math.sin(theta) + dy * math.cos(theta)
+        eff_scale = self.base_scale * self.scale
+        ix = self.original_width / 2 + rdx / eff_scale
+        iy = self.original_height / 2 + rdy / eff_scale
+        ix = max(0, min(self.original_width - 1, round(ix)))
+        iy = max(0, min(self.original_height - 1, round(iy)))
+        return ix, iy
+
+    async def _pipette_live_preview(self, ix: int, iy: int, tolerance: int) -> None:
+        """Aperçu en direct pendant le glissé : calcule le flood fill du
+        point courant, le combine (cf. `image_ops.FloodPipette.combine`)
+        au masque déjà accumulé sans encore le persister — `on_pan_end`/
+        `_apply_pipette_pick` fait la version définitive. Throttlé par
+        le verrou `live_busy`, déjà posé par `_pipette.try_start_live()`
+        (appelant, synchrone — cf. sa docstring pour la raison)."""
+
+        my_gen = self._pipette.live_gen = self._pipette.live_gen + 1
+        try:
+            source = self._rembg_original or self.current_pil_image
+            new_mask = await asyncio.to_thread(
+                image_ops.flood_background_mask, source, (ix, iy),
+                tolerance=tolerance, max_px=900)  # résolution réduite : priorité à la fluidité
+            if my_gen != self._pipette.live_gen:
+                return  # un pick s'est terminé / un glissé plus récent a démarré entretemps
+            combined = self._pipette.combine(new_mask)
+            if combined is not None:
+                self.current_pil_image = image_ops.compose_bg_alpha(source, combined)
+                self._render_preview()
+                self.page.update()
+        except Exception:
+            pass  # un aperçu raté pendant le glissé n'est pas bloquant, cf. _apply_pipette_pick
+        finally:
+            self._pipette.live_busy = False
+
+    async def _apply_pipette_pick(self, ix: int, iy: int, tolerance: int) -> None:
+        """Version définitive du flood fill pipette : persiste le masque
+        combiné (cf. `image_ops.FloodPipette.commit`) et laisse la
+        pipette armée pour enchaîner un autre clic-glissé."""
+
+        source = self._rembg_original or self.current_pil_image
+        self._set_status("Détourage instantané…", processing=True)
+        self.page.update()
+        try:
+            new_mask = await asyncio.to_thread(
+                image_ops.flood_background_mask, source, (ix, iy),
+                tolerance=tolerance, max_px=1500)
+            bg_mask = self._pipette.commit(new_mask)
+            self._rembg_original = source
+            if bg_mask is not None:
+                self.current_pil_image = image_ops.compose_bg_alpha(source, bg_mask)
+                self.rembg_btn.selected = True
+                self._set_status(
+                    "[OK] Fond supprimé — glissez pour ajouter/retirer, recliquer pour restaurer")
+            else:
+                self.current_pil_image = source
+                self.rembg_btn.selected = False
+                self._set_status("Rien à retirer — glissez d'abord pour ajouter une sélection")
+            self._rembg_tolerance_label.value = f"Tol. {tolerance}"
+        except Exception as ex:
+            self._set_status(f"[ERREUR] détourage : {ex}")
+        finally:
+            self._render_preview()
+            self.page.update()
 
 
 
@@ -2183,7 +2431,9 @@ class PhotoCropper:
 
     async def on_rembg(self, e):
         """
-        Bouton toggle de suppression du fond par IA (rembg).
+        Bouton toggle de suppression du fond (``self.rembg_mode`` :
+        0 = rapide/u2net, 1 = précis/birefnet, 2 = instantané/flood fill
+        sans IA — pour fond studio quasi uniforme, cf. ``on_rembg_precise_toggle``).
 
         Comportement toggle
         -------------------
@@ -2213,12 +2463,10 @@ class PhotoCropper:
         La session est mise en cache dans ``self._rembg_session[0]`` pour
         éviter de recharger le modèle à chaque clic.
 
-        Mode précis
-        -----------
-        Si ``self.rembg_precise`` est ``True`` (switch « Précis » activé),
-        ``alpha_matting=True`` est passé à ``rembg_remove`` avec les
-        seuils ``foreground=240``, ``background=10``, ``erode_size=10``.
-        Voir ``on_rembg_precise_toggle`` pour la description complète.
+        Mode précis / instantané
+        ------------------------
+        Voir ``on_rembg_precise_toggle`` pour le détail des 3 modes
+        (``self.rembg_mode``).
 
         Fond de remplacement
         --------------------
@@ -2233,7 +2481,7 @@ class PhotoCropper:
             Événement du bouton icône (``on_click``).
         """
 
-        if not REMBG_AVAILABLE:
+        if self.rembg_mode != 2 and not REMBG_AVAILABLE:
             self._set_status("[ERREUR] rembg non installé — pip install rembg onnxruntime")
             return
         if self.current_pil_image is None:
@@ -2242,13 +2490,35 @@ class PhotoCropper:
 
 
 
-        # Deuxième clic : restaurer l'image originale
+        # Pipette armée mais aucun pick encore appliqué : rien à
+        # restaurer, ce clic annule juste l'armement.
+        if self._pipette.armed and not self.rembg_btn.selected:
+            self._pipette_cancel()
+            self._set_status("Pipette désarmée")
+            self.page.update()
+            return
+
+        # Deuxième clic : restaurer TOUT le masque accumulé (pas juste le
+        # dernier pick ajouté/retiré) — retour user : un clic doit tout
+        # annuler d'un coup, pas se figer d'abord en un état intermédiaire.
         if self.rembg_btn.selected and self._rembg_original is not None:
+            self._pipette_cancel()
             self.current_pil_image = self._rembg_original
             self._rembg_original = None
+            self._pipette.reset()
+            self._sync_pipette_sign_btn()
             self.rembg_btn.selected = False
             self._set_status("Fond restauré")
             self._render_preview()
+            self.page.update()
+            return
+
+        if self.rembg_mode == 2:
+            # Mode instantané : arme la pipette, le flood fill part du
+            # prochain clic-glissé sur l'image (cf. on_pan_down/_end).
+            self._pipette.arm()
+            self.gesture_detector.mouse_cursor = ft.MouseCursor.PRECISE
+            self._set_status("Cliquez sur le fond et glissez pour ajuster la sensibilité…")
             self.page.update()
             return
 
@@ -2260,7 +2530,7 @@ class PhotoCropper:
 
         def _do_rembg():
             from rembg import remove as _rembg_remove, new_session as _rembg_new_session
-            if self.rembg_precise:
+            if self.rembg_mode == 1:
                 # Mode précis : birefnet
                 if self._rembg_session[0] is None:
                     model_name = "birefnet-portrait" if self.rembg_human_seg else "birefnet-general"
@@ -3062,6 +3332,9 @@ class PhotoCropper:
                 if getattr(self, 'rembg_erosion_pct', 0.0) > 0:
                     _r = max(1, round(min(_src.size) * self.rembg_erosion_pct / 100))
                     _src = _erode_alpha(_src.copy(), _r)
+                if getattr(self, 'rembg_feather_pct', 0.0) > 0:
+                    _f = max(1, round(min(_src.size) * self.rembg_feather_pct / 100))
+                    _src = _feather_alpha(_src.copy(), _f)
                 _bg_m = getattr(self, 'rembg_bg_mode', 0)
                 if _bg_m == 2 and self._rembg_original is not None:
                     _bg = self._rembg_original.convert('RGB').filter(
@@ -3885,10 +4158,16 @@ def main(page: ft.Page):
                                         ft.Column([
                                             ft.Text("Fond IA", size=12, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
                                             app.rembg_btn,
-                                            ft.Row([app.rembg_bg_btn, app.rembg_model_btn, app.rembg_precise_btn], spacing=4),
+                                            ft.Row([
+                                                app.rembg_bg_btn, app.rembg_model_btn,
+                                                app.rembg_precise_btn, app.pipette_sign_btn,
+                                                app._rembg_tolerance_label,
+                                            ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                             ft.Row([
                                                 ft.Text("Ér.", size=11, color=LIGHT_GREY),
                                                 app.rembg_erosion_slider,
+                                                ft.Text("Ad.", size=11, color=LIGHT_GREY),
+                                                app.rembg_feather_slider,
                                             ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=2),
                                         ft.VerticalDivider(width=1, color=LIGHT_GREY),

@@ -24,6 +24,10 @@ Wand>=0.6.11
 
 numpy>=1.24.0
 
+# scikit-image — flood fill (détourage fond uni instantané, sans modèle IA,
+# alternative rapide à rembg/BiRefNet pour les fonds studio quasi uniformes).
+scikit-image>=0.22.0
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CONVERSION PDF EN IMAGES
