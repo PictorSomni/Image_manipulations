@@ -211,7 +211,12 @@ def _get_gemini_api_key():
                         [shell, "-li", "-c", "echo $GEMINI_API_KEY"],
                         capture_output=True, text=True, timeout=2
                     )
-                    key = result.stdout.strip()
+                    # Un shell interactif (-i) peut imprimer une bannière
+                    # avant la sortie de la commande (ex. "Restored
+                    # session: ..." de Terminal.app/iTerm2) : seule la
+                    # dernière ligne est la vraie valeur échappée.
+                    lines = [l for l in result.stdout.splitlines() if l.strip()]
+                    key = lines[-1].strip() if lines else ""
                     if key:
                         os.environ["GEMINI_API_KEY"] = key
                         _GEMINI_API_KEY_CACHE = key
@@ -5494,7 +5499,11 @@ def _get_anthropic_api_key():
                         [shell, "-li", "-c", "echo $ANTHROPIC_API_KEY"],
                         capture_output=True, text=True, timeout=2,
                     )
-                    key = result.stdout.strip()
+                    # Cf. commentaire équivalent pour GEMINI_API_KEY plus
+                    # haut : ne garder que la dernière ligne (banal de
+                    # session restaurée possible avant la vraie valeur).
+                    lines = [l for l in result.stdout.splitlines() if l.strip()]
+                    key = lines[-1].strip() if lines else ""
                     if key:
                         os.environ["ANTHROPIC_API_KEY"] = key
                         return key

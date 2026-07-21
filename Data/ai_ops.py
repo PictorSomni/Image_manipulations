@@ -131,10 +131,10 @@ def run_outpaint(image: Image.Image, margins_px: tuple[int, int, int, int],
 
     buf = io.BytesIO()
     Image.fromarray(canvas_np).save(buf, format="JPEG", quality=92)
-    _, image_bytes = _gemini_generate_image(
+    text_resp, image_bytes = _gemini_generate_image(
         full_prompt, input_image_bytes=buf.getvalue())
     if not image_bytes:
-        raise RuntimeError("Gemini n'a renvoyé aucune image.")
+        raise RuntimeError(text_resp or "Gemini n'a renvoyé aucune image.")
 
     return Image.open(io.BytesIO(image_bytes)).convert("RGB").resize(
         (new_w, new_h), Image.Resampling.LANCZOS)

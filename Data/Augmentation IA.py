@@ -1415,15 +1415,15 @@ async def main(page: ft.Page) -> None:
             )
             buf = io.BytesIO()
             Image.fromarray(canvas_np).save(buf, format="JPEG", quality=92)
-            _, img_bytes = _gemini_generate_image(
+            text_resp, img_bytes = _gemini_generate_image(
                 prompt, input_image_bytes=buf.getvalue()
             )
             if not img_bytes:
-                return None
+                return (None, text_resp)
 
-            return Image.open(io.BytesIO(img_bytes)).convert("RGB").resize(
+            return (Image.open(io.BytesIO(img_bytes)).convert("RGB").resize(
                 (new_w, new_h), Image.Resampling.LANCZOS
-            )
+            ), text_resp)
 
         _elapsed = {"s": 0}
 
@@ -1438,11 +1438,11 @@ async def main(page: ft.Page) -> None:
         _timer_task = asyncio.create_task(_tick())
 
         try:
-            result = await asyncio.wait_for(
+            result, text_resp = await asyncio.wait_for(
                 asyncio.to_thread(_do_expand), timeout=300.0
             )
             if result is None:
-                status_text.value = "[Gemini] Aucune image reçue."
+                status_text.value = f"[Gemini] {text_resp or 'Aucune image reçue.'}"
                 return
 
             state["undo_img"] = (state["work_img"] or state["orig_img"]).copy()
