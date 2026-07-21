@@ -5405,6 +5405,7 @@ def main(page: ft.Page):
                 proc = subprocess.Popen(
                     [sys.executable, "-u", app_path], env=env,
                     cwd=os.path.join(_APP_DIR, "Data"),
+                    stdin=subprocess.DEVNULL,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     text=True, encoding="utf-8", errors="replace", bufsize=1)
             except Exception as exc:
@@ -5982,7 +5983,8 @@ def main(page: ft.Page):
 
         def _run():
             try:
-                subprocess.Popen([sys.executable, kiosk_path], env=env)
+                subprocess.Popen([sys.executable, kiosk_path], env=env,
+                                 stdin=subprocess.DEVNULL)
             except Exception as exc:
                 page.run_task(_tool_set_status, f"[Erreur] Kiosque : {exc}")
                 return
