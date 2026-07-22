@@ -423,10 +423,10 @@ def is_os_junk(name, is_dir=False):
 # ── 10.1  Modèles & paramètres ────────────────────────────────────────────────
 
 AI_OLLAMA_URL          = "http://localhost:11434"      # URL de l'API Ollama locale
-AI_MODEL_TEXT          = "gemini-3.1-flash-lite"           # Modèle texte par défaut
-AI_MODEL_VISION        = "gemini-3.1-flash-lite"           # Modèle vision par défaut
-AI_GEMINI_MODEL        = "gemini-3.1-flash-lite"           # Modèle Gemini principal (API Google)
-AI_GEMINI_FALLBACK_CLOUD = "gemini-3.5-flash"  # Fallback cloud si modèle indisponible
+AI_MODEL_TEXT          = "gemini-3.5-flash-lite"           # Modèle texte par défaut
+AI_MODEL_VISION        = "gemini-3.5-flash-lite"           # Modèle vision par défaut
+AI_GEMINI_MODEL        = "gemini-3.5-flash-lite"           # Modèle Gemini principal (API Google)
+AI_GEMINI_FALLBACK_CLOUD = "gemini-3.6-flash"  # Fallback cloud si modèle indisponible
 AI_GEMINI_FALLBACK     = "gemma4:e4b"                 # Fallback Ollama local si hors-ligne
 AI_GEMINI_IMAGE_TIMEOUT = 180                # Timeout max (s) pour generate/edit image via Gemini
 AI_GEMINI_STREAM_TIMEOUT_MS = 120_000        # Timeout (ms) du streaming Gemini : au-delà de ce délai sans chunk, l'appel lève une erreur au lieu de figer l'app
@@ -451,7 +451,7 @@ AI_MCP_DESTRUCTIVE_KEYWORDS = (              # Un outil MCP dont le nom contient
 AI_IMAGE_ATTACH_DEFAULT_ORIGINAL = False     # True = images jointes manuellement en taille réelle par défaut
 AI_IMAGE_ATTACH_SELECTED_ORIGINAL = False    # True = images sélectionnées dans la preview en taille réelle
 AI_SHOW_REFINED_IMAGE_PROMPT = True          # True = affiche dans le chat le prompt final envoyé à Nano Banana
-AI_IMAGE_REFINER_MODEL = "gemini-3.5-flash"  # Modèle qui affine le prompt image (indépendant du cerveau de chat) — 1 appel/image, ~centimes, gros gain de qualité vs flash-lite
+AI_IMAGE_REFINER_MODEL = "gemini-3.6-flash"  # Modèle qui affine le prompt image (indépendant du cerveau de chat) — 1 appel/image, ~centimes, gros gain de qualité vs flash-lite
 AI_IMAGE_ITERATE_MAX_PASSES = 2              # Passes max de la boucle iterate_image (critique visuelle → régénération). Chaque passe = 1 génération Nano Banana. Arrêt anticipé si l'objectif est atteint.
 AI_USER_NAME         = "Charles"             # Appellation dans l'export de conversation
 AI_SEPARATOR_WIDTH   = 80                    # Nb de '#' pour les séparateurs d'export
@@ -464,8 +464,8 @@ AI_FOLDER_SELECT_QUALITY     = 85    # Qualité JPEG des images envoyées à l'I
 
 # Modèles affichés dans le dropdown de sélection rapide du Hub
 AI_DROPDOWN_MODELS = [
-    "gemini-3.1-flash-lite",
-    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.6-flash",
     "claude-sonnet-4-6",
     "gemma4:e4b",
 ]
@@ -521,7 +521,7 @@ AI_VOICE_TTS_STREAM_MIN_CHARS = 200
 # ── Dictée vocale — STT (transcription Gemini, push-to-talk) ─────────────────
 # Bouton micro dans les zones IA : maintenir pour parler, relâcher pour
 # transcrire. L'audio est envoyé à Gemini (aucun fournisseur externe).
-AI_VOICE_STT_MODEL       = "gemini-3.1-flash-lite"  # Modèle de transcription (le moins cher)
+AI_VOICE_STT_MODEL       = "gemini-3.5-flash-lite"  # Modèle de transcription (le moins cher)
 AI_VOICE_STT_LANGUAGE    = "fr"     # Langue de dictée par défaut (ISO 639-1)
 AI_VOICE_STT_SAMPLE_RATE = 0        # 0 = fréquence native du micro (recommandé ; forcer une fréquence déforme l'audio)
 
