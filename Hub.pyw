@@ -311,6 +311,21 @@ def main(page: ft.Page):
     _strip_state = {"active": False, "saved_height": CONSTANTS.WINDOW_HEIGHT,
                     "was_maximized": False}
     content = {"dirs": [], "imgs": [], "other": []}   # non filtrés
+
+    async def _focus_dialog_field(field):
+        # autofocus=True sur un TextField de dialogue ne marche pas de
+        # façon fiable (le contrôle n'est pas encore monté côté client
+        # quand page.update() rend la main) — même cause que le focus des
+        # surfaces (_focus_active_surface plus bas), même remède. Délai
+        # plus long que celui de _focus_active_surface (0.08s) : ouvrir un
+        # dialogue depuis le panneau Actions passe par _close_actions(),
+        # qui programme déjà un focus vers la barre de recherche — le
+        # dialogue doit gagner cette course, pas la perdre (retour user).
+        try:
+            await asyncio.sleep(0.15)
+            await field.focus()
+        except Exception:
+            pass
     # Liste (pas un set) — ordre de clic préservé, comme Dashboard.pyw
     # (selected_files) : "Renommer séquence" numérote dans cet ordre-là
     # quand une sélection est fournie (retour user).
@@ -1352,6 +1367,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        page.run_task(_focus_dialog_field, name_field)
 
     def _show_exif_dialog(paths):
         # Comme Dashboard.pyw:5258-5302 : résolution + tags EXIF lisibles
@@ -1432,6 +1448,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        page.run_task(_focus_dialog_field, label_field)
 
     def _navigate(path):
         path = os.path.normpath(path)
@@ -2630,6 +2647,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        page.run_task(_focus_dialog_field, name_field)
 
     # _launch_tool / _launch_transfert_temp / _launch_recadrage_auto /
     # _launch_two_in_one sont définis plus loin dans main() : lambda pour
@@ -3106,6 +3124,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        page.run_task(_focus_dialog_field, name_field)
 
     notes_home_btn = ft.IconButton(
         ft.Icons.HOME, icon_color=VIOLET, icon_size=CONSTANTS.ICON_SM,
@@ -3495,6 +3514,7 @@ def main(page: ft.Page):
                 await page.window.to_front()
             except Exception:
                 pass
+            await _focus_dialog_field(password_field)
         page.run_task(_open_dlg)
         cred_event.wait(timeout=timeout)
         return cred_result["value"]
@@ -5025,6 +5045,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        page.run_task(_focus_dialog_field, fields[0])
 
     _LISTE_ACTIONS_WIDTH = 2 * (CONSTANTS.ICON_SM + 16)  # aligne l'en-tête sur les 2 IconButton
 
@@ -5171,6 +5192,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        page.run_task(_focus_dialog_field, name_field)
 
     liste_surface = ft.Column([
         ft.Container(
@@ -5225,10 +5247,15 @@ def main(page: ft.Page):
     rail_tabs = {}
 
     async def _focus_active_surface():
-        # Le focus doit toujours être là où on va vraisemblablement taper en
-        # premier, sans clic préalable : recherche en Fichiers, dernière
-        # ligne du Bloc-notes, champ de l'IA, ou Terminal s'il est déployé
-        # (prioritaire sur tout, quel que soit l'onglet actif).
+        # Le focus doit être là où on va vraisemblablement taper en premier,
+        # sans clic préalable : dernière ligne du Bloc-notes, champ de l'IA,
+        # ou Terminal s'il est déployé (prioritaire sur tout, quel que soit
+        # l'onglet actif). Pas la recherche en Fichiers : lui donner le
+        # focus à chaque navigation suspendait les raccourcis clavier de la
+        # grille (_kb_suspend via search_field.on_focus) tant qu'on n'avait
+        # pas cliqué ailleurs — la grille doit rester utilisable au clavier
+        # tout de suite après une navigation (retour user). La recherche ne
+        # prend le focus que si on clique dessus.
         # Petit délai : sans lui, .focus() peut partir avant que le client
         # ait fini de monter le contrôle qu'on vient d'afficher/échanger
         # (page.update() n'attend pas le rendu) — la cause la plus probable
@@ -5239,9 +5266,7 @@ def main(page: ft.Page):
                 await terminal_input.focus()
                 return
             key = state["surface"]
-            if key == "files":
-                await search_field.focus()
-            elif key == "notes":
+            if key == "notes":
                 end = len(notes_field.value or "")
                 notes_field.selection = ft.TextSelection(
                     base_offset=end, extent_offset=end)
@@ -5535,6 +5560,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        page.run_task(_focus_dialog_field, name_field)
 
     def _launch_two_in_one(event=None):
         def _cancel(e):
@@ -5710,6 +5736,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        page.run_task(_focus_dialog_field, field)
 
     def _launch_images_en_pdf(event=None):
         _launch_text_prompt("Images en PDF", "Nom du PDF", "Ex: Album_Mariage",
@@ -5759,6 +5786,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        page.run_task(_focus_dialog_field, text_fields[0])
 
     def _launch_redimensionner(event=None):
         _launch_number_prompt("Redimensionner", [
@@ -6826,6 +6854,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        page.run_task(_focus_dialog_field, pwd_field)
 
     def _update_app(event=None):
         """Sauvegarde les fichiers utilisateur, git pull --rebase, vérifie
