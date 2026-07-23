@@ -7271,6 +7271,7 @@ def main(page: ft.Page):
     # tactile (retour user).
     titlebar = ft.Container(
         height=STRIP_HEIGHT,
+        padding=ft.Padding(0, 0, 8, 0),
         content=ft.WindowDragArea(
             ft.Row([
                 ft.Container(
@@ -7279,7 +7280,7 @@ def main(page: ft.Page):
                         ft.Text(f"HUB  {__version__}", size=CONSTANTS.TEXT_LG,
                                 color=WHITE, weight=ft.FontWeight.W_500),
                     ], spacing=6),
-                    padding=ft.Padding(12, 0, 0, 0),
+                    padding=ft.Padding(16, 0, 0, 0),
                 ),
                 ft.IconButton(
                     icon=ft.Icons.SYSTEM_UPDATE_ALT,

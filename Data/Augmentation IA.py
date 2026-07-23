@@ -1137,12 +1137,13 @@ async def main(page: ft.Page) -> None:
                 _dev = _pick_torch_device()
                 _progress_cb(None, f"Chargement de {model_name}…")
                 desc = _ModelLoader().load_from_file(model_path)
-                desc.to(_dev)
+                use_fp16 = (_dev == "cuda") and desc.supports_half
+                desc.to(_dev, _torch.float16 if use_fp16 else _torch.float32)
                 desc.model.eval()
                 _custom_model_cache[model_name] = desc
             desc  = _custom_model_cache[model_name]
             _dev  = next(iter(desc.model.parameters())).device
-            use_fp16 = (_dev.type == "cuda")
+            use_fp16 = (desc.dtype == _torch.float16)
 
             rgb = _np.array(base.convert("RGB")).astype(_np.float32) / 255.0
             h, w = rgb.shape[:2]

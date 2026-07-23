@@ -161,12 +161,13 @@ def run_upscale(image: Image.Image, model_name: str,
         device = _pick_torch_device()
         _progress(None, f"Chargement de {model_name}…")
         desc = ModelLoader().load_from_file(model_path)
-        desc.to(device)
+        use_fp16 = device == "cuda" and desc.supports_half
+        desc.to(device, torch.float16 if use_fp16 else torch.float32)
         desc.model.eval()
         _loaded_model_cache[model_name] = desc
     desc = _loaded_model_cache[model_name]
     device = next(iter(desc.model.parameters())).device
-    use_fp16 = device.type == "cuda"
+    use_fp16 = desc.dtype == torch.float16
 
     has_alpha = image.mode == "RGBA"
     alpha = image.split()[3] if has_alpha else None
