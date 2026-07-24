@@ -32,6 +32,16 @@ except ImportError:
     _PILImageOps = None    # type: ignore[assignment]
     _HAS_PIL = False
 
+try:
+    # Conversion vers sRGB des sources à profil ICC embarqué (Display P3
+    # des iPhone, Adobe RGB, JPEG CMJN d'imprimerie...) : sans elle, les
+    # miniatures gardaient les valeurs de l'espace source affichées comme
+    # du sRGB — délavées pour le P3/Adobe RGB, faussées pour le CMJN
+    # (retour user : couleurs différentes d'Aperçu/Photos).
+    import image_ops as _image_ops
+except Exception:
+    _image_ops = None      # type: ignore[assignment]
+
 _VECTOR_EXTS = {".svg", ".pdf"}
 
 
@@ -128,6 +138,7 @@ CREATE TABLE IF NOT EXISTS thumbs (
     mtime_ns  INTEGER NOT NULL DEFAULT 0,
     size_bytes INTEGER NOT NULL DEFAULT 0,
     ctime_ns  INTEGER NOT NULL DEFAULT 0,
+    ccm       INTEGER NOT NULL DEFAULT 0,
     b64       TEXT    NOT NULL,
     PRIMARY KEY (filename, size_px, grayscale)
 )
@@ -146,6 +157,11 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE thumbs ADD COLUMN size_bytes INTEGER NOT NULL DEFAULT 0")
     if "ctime_ns" not in existing_columns:
         conn.execute("ALTER TABLE thumbs ADD COLUMN ctime_ns INTEGER NOT NULL DEFAULT 0")
+    if "ccm" not in existing_columns:
+        # ccm = 1 si la miniature a été générée avec conversion sRGB (cf.
+        # _generate_b64) : les anciennes entrées (ccm=0) sont régénérées à
+        # la première consultation, puis remplacées (INSERT OR REPLACE).
+        conn.execute("ALTER TABLE thumbs ADD COLUMN ccm INTEGER NOT NULL DEFAULT 0")
 
 
 def _get_db_lock(folder_path: str) -> threading.Lock:
@@ -199,7 +215,11 @@ def _generate_b64(
                 return None
         else:
             img = _PILImage.open(image_path)
+            icc_profile = img.info.get("icc_profile")
             img = _PILImageOps.exif_transpose(img)
+            if _image_ops is not None and (icc_profile
+                                            or img.mode == "CMYK"):
+                img = _image_ops.convert_to_srgb(img, icc_profile)
         with img:
             if grayscale:
                 img = img.convert("L").convert("RGB")
@@ -275,7 +295,8 @@ def get_or_generate(
                 try:
                     row = conn.execute(
                         "SELECT b64, size_bytes FROM thumbs"
-                        " WHERE filename=? AND size_px=? AND grayscale=?",
+                        " WHERE filename=? AND size_px=? AND grayscale=?"
+                        " AND ccm=1",
                         (filename, size_px, grayscale_int),
                     ).fetchone()
                 finally:
@@ -308,8 +329,8 @@ def get_or_generate(
                     try:
                         conn.execute(
                             "INSERT OR REPLACE INTO thumbs"
-                            "(filename, size_px, grayscale, mtime, mtime_ns, size_bytes, ctime_ns, b64)"
-                            " VALUES(?,?,?,?,?,?,?,?)",
+                            "(filename, size_px, grayscale, mtime, mtime_ns, size_bytes, ctime_ns, ccm, b64)"
+                            " VALUES(?,?,?,?,?,?,?,1,?)",
                             (filename, size_px, grayscale_int, mtime, mtime_ns, size_bytes, ctime_ns, b64),
                         )
                         conn.commit()

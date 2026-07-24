@@ -36,21 +36,214 @@ def mm_to_pixels(mm, dpi=DPI):
     return int(mm / 25.4 * dpi)
 
 
+# Transformations ICC -> sRGB mises en cache : buildTransform est coûteux
+# (parsing du profil + LUT LittleCMS) et le même profil source revient pour
+# toutes les photos d'une même série (ex. Display P3 sur tout un reportage
+# iPhone). Clé = (hash du profil, mode de l'image source).
+_srgb_transform_cache: dict = {}
+
+
 def convert_to_srgb(source_image: Image.Image,
                      icc_profile: bytes | None) -> Image.Image:
-    """Convertit une image PIL vers l'espace colorimétrique sRGB."""
+    """Convertit une image PIL vers l'espace colorimétrique sRGB.
+
+    Intent RELATIVE_COLORIMETRIC + compensation du point noir : c'est ce
+    qu'appliquent Aperçu (macOS) et Photos (Windows) — l'aperçu doit
+    coïncider avec eux, PERCEPTUAL donnait un rendu légèrement différent
+    sur les profils à LUT (ex. FOGRA39). Les JPEG CMJN (profil imprimerie
+    embarqué) sont convertis via leur profil AVANT tout convert("RGB") :
+    la conversion naïve de PIL sursaturait fortement ces fichiers.
+    """
     if not icc_profile:
-        return source_image  # déjà sRGB par défaut
+        # Sans profil embarqué : sRGB par convention, sauf CMJN où PIL
+        # fait une conversion naïve (mieux que rien, aucun profil dispo).
+        if source_image.mode == "CMYK":
+            return source_image.convert("RGB")
+        return source_image
     try:
-        src_profile = ImageCms.ImageCmsProfile(io.BytesIO(icc_profile))
-        rgb_image = source_image.convert("RGB")
-        return ImageCms.profileToProfile(
-            rgb_image, src_profile, _SRGB_PROFILE,
-            renderingIntent=ImageCms.Intent.PERCEPTUAL,
-            outputMode="RGB",
+        cache_key = (hash(icc_profile), source_image.mode)
+        transform = _srgb_transform_cache.get(cache_key)
+        if transform is None:
+            src_profile = ImageCms.ImageCmsProfile(io.BytesIO(icc_profile))
+            description = ""
+            try:
+                description = ImageCms.getProfileDescription(src_profile)
+            except Exception:
+                pass
+            if ("srgb" in description.lower()
+                    and source_image.mode in ("RGB", "RGBA")):
+                # Déjà en sRGB : aucune conversion nécessaire. False (et pas
+                # None) en cache : mémorise le « rien à faire ».
+                _srgb_transform_cache[cache_key] = False
+                return source_image
+            src_mode = ("CMYK" if source_image.mode == "CMYK"
+                        else "RGB")
+            transform = ImageCms.buildTransform(
+                src_profile, _SRGB_PROFILE, src_mode, "RGB",
+                renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
+            )
+            _srgb_transform_cache[cache_key] = transform
+        if transform is False:
+            return source_image
+        if source_image.mode == "CMYK":
+            return ImageCms.applyTransform(source_image, transform)
+        return ImageCms.applyTransform(
+            source_image.convert("RGB"), transform)
+    except Exception:
+        if source_image.mode == "CMYK":
+            return source_image.convert("RGB")
+        return source_image
+
+
+# ================================================================ #
+#          COMPENSATION D'AFFICHAGE (écran large gamut)            #
+# ================================================================ #
+# Flutter (donc Flet) n'applique AUCUNE gestion des couleurs : les pixels
+# sRGB de nos aperçus partent bruts vers l'écran. Sur un moniteur large
+# gamut (ex. EIZO ColorEdge ~Adobe RGB, dalles P3 des MacBook), ils sont
+# étirés sur tout le gamut du panneau -> aperçus nettement plus saturés
+# que dans Aperçu/Photos, qui convertissent eux-mêmes vers le profil de
+# l'écran (retour user). On compense donc côté Python : les pixels des
+# APERÇUS (jamais des fichiers exportés) sont réencodés de sRGB vers le
+# profil de l'écran juste avant l'affichage — affichés bruts par Flutter,
+# ils redonnent la couleur voulue. Sur un écran sRGB, la transformation
+# est une quasi-identité et est simplement désactivée.
+#
+# Désactivable via la variable d'environnement DISPLAY_COLOR_COMPENSATION=0
+# (ou un chemin de profil imposé via DISPLAY_ICC_PROFILE).
+
+_display_transform_cache: dict = {"built": False, "transform": None}
+
+
+def _windows_display_profile_path():
+    """Profil ICC associé à l'écran sous Windows, associations par
+    utilisateur comprises — GetICMProfileW (et donc
+    ImageCms.get_display_profile) les ignore et retombe sur sRGB."""
+    import winreg
+
+    color_dir = os.path.join(
+        os.environ.get("SystemRoot", r"C:\Windows"),
+        "System32", "spool", "drivers", "color")
+
+    def _profiles_from(root):
+        found = []
+        base = (r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+                r"\ICM\ProfileAssociations\Display")
+        try:
+            with winreg.OpenKey(root, base) as display_key:
+                for i in range(winreg.QueryInfoKey(display_key)[0]):
+                    device_class = winreg.EnumKey(display_key, i)
+                    with winreg.OpenKey(display_key, device_class) as cls_key:
+                        for j in range(winreg.QueryInfoKey(cls_key)[0]):
+                            monitor = winreg.EnumKey(cls_key, j)
+                            with winreg.OpenKey(cls_key, monitor) as mon_key:
+                                try:
+                                    value, _t = winreg.QueryValueEx(
+                                        mon_key, "ICMProfile")
+                                except OSError:
+                                    continue
+                                names = (value if isinstance(value, list)
+                                         else [value])
+                                # REG_MULTI_SZ : le profil par défaut est
+                                # le DERNIER de la liste.
+                                for name in reversed(names):
+                                    if name:
+                                        found.append(name)
+                                        break
+        except OSError:
+            pass
+        return found
+
+    candidates = (_profiles_from(winreg.HKEY_CURRENT_USER)
+                  or _profiles_from(winreg.HKEY_LOCAL_MACHINE))
+    for name in candidates:
+        path = name if os.path.isabs(name) else os.path.join(color_dir, name)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _macos_display_profile_path():
+    """Profil de l'écran généré par ColorSync (un .icc par écran connecté,
+    régénéré par macOS) — le plus récemment modifié correspond à l'écran
+    branché en dernier."""
+    displays_dir = os.path.expanduser("~/Library/ColorSync/Profiles/Displays")
+    try:
+        profiles = [os.path.join(displays_dir, f)
+                    for f in os.listdir(displays_dir)
+                    if f.lower().endswith((".icc", ".icm"))]
+        if profiles:
+            return max(profiles, key=os.path.getmtime)
+    except OSError:
+        pass
+    return None
+
+
+def get_display_transform():
+    """Transformation ImageCms sRGB -> profil de l'écran, ou None si
+    inutile (écran sRGB, profil introuvable, compensation désactivée).
+    Construite une seule fois par session."""
+    if _display_transform_cache["built"]:
+        return _display_transform_cache["transform"]
+    _display_transform_cache["built"] = True
+    _display_transform_cache["transform"] = None
+    if os.environ.get("DISPLAY_COLOR_COMPENSATION", "1") == "0":
+        return None
+    try:
+        profile_path = os.environ.get("DISPLAY_ICC_PROFILE") or None
+        if profile_path is None:
+            import platform as _platform
+            system = _platform.system()
+            if system == "Windows":
+                profile_path = _windows_display_profile_path()
+            elif system == "Darwin":
+                profile_path = _macos_display_profile_path()
+        if not profile_path or not os.path.isfile(profile_path):
+            return None
+        display_profile = ImageCms.ImageCmsProfile(profile_path)
+        try:
+            description = ImageCms.getProfileDescription(display_profile)
+        except Exception:
+            description = ""
+        if "srgb" in description.lower():
+            return None   # écran sRGB : rien à compenser
+        _display_transform_cache["transform"] = ImageCms.buildTransform(
+            _SRGB_PROFILE, display_profile, "RGB", "RGB",
+            renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+            flags=ImageCms.Flags.BLACKPOINTCOMPENSATION,
         )
     except Exception:
-        return source_image
+        _display_transform_cache["transform"] = None
+    return _display_transform_cache["transform"]
+
+
+def compensate_for_display(image: Image.Image) -> Image.Image:
+    """Réencode une image sRGB dans l'espace du moniteur pour l'AFFICHAGE
+    (aperçus Flet uniquement — ne jamais appliquer à un fichier exporté)."""
+    transform = get_display_transform()
+    if transform is None:
+        return image
+    try:
+        return ImageCms.applyTransform(image.convert("RGB"), transform)
+    except Exception:
+        return image
+
+
+def compensate_jpeg_bytes(jpeg_bytes: bytes, quality: int = 90) -> bytes:
+    """Applique `compensate_for_display` à des bytes JPEG déjà encodés
+    (miniatures en cache, visionneuse). Retourne les bytes d'origine si
+    aucune compensation n'est nécessaire."""
+    if get_display_transform() is None:
+        return jpeg_bytes
+    try:
+        with Image.open(io.BytesIO(jpeg_bytes)) as img:
+            corrected = compensate_for_display(img)
+            buffer = io.BytesIO()
+            corrected.save(buffer, format="JPEG", quality=quality)
+            return buffer.getvalue()
+    except Exception:
+        return jpeg_bytes
 
 
 def erode_alpha(source_image: Image.Image, radius: int) -> Image.Image:
@@ -483,6 +676,46 @@ def apply_highlights(input_image: Image.Image, value: float) -> Image.Image:
     highlight_amplitude = 60
     lookup_table = np.clip(
         value_range + strength_factor * highlight_amplitude * highlight_weight,
+        0, 255).astype(np.uint8)
+    image_array = np.array(input_image.convert("RGB"), dtype=np.uint8)
+    return Image.fromarray(lookup_table[image_array], "RGB")
+
+
+def apply_whites(input_image: Image.Image, value: float) -> Image.Image:
+    """value : -100…+100. Négatif = abaisse le point blanc (le pixel le
+    plus clair descend réellement), positif = pousse vers l'écrêtage.
+
+    Complément de `apply_highlights`, dont la courbe s'annule
+    volontairement à 255 (préserve le blanc pur) : ici le poids est
+    quadratique et MAXIMAL à 255 — pensé pour recaler un scan surexposé
+    dont le blanc doit redescendre (retour user)."""
+    if value == 0:
+        return input_image
+    strength_factor = value / 100.0
+    value_range = np.arange(256, dtype=np.float32)
+    white_weight = (value_range / 255.0) ** 2
+    white_amplitude = 80
+    lookup_table = np.clip(
+        value_range + strength_factor * white_amplitude * white_weight,
+        0, 255).astype(np.uint8)
+    image_array = np.array(input_image.convert("RGB"), dtype=np.uint8)
+    return Image.fromarray(lookup_table[image_array], "RGB")
+
+
+def apply_blacks(input_image: Image.Image, value: float) -> Image.Image:
+    """value : -100…+100. Positif = relève le point noir (débouche le
+    noir pur), négatif = l'enfonce.
+
+    Complément de `apply_shadows`, dont la courbe s'annule à 0 (préserve
+    le noir pur) : ici le poids est quadratique et maximal à 0."""
+    if value == 0:
+        return input_image
+    strength_factor = value / 100.0
+    value_range = np.arange(256, dtype=np.float32)
+    black_weight = ((255.0 - value_range) / 255.0) ** 2
+    black_amplitude = 80
+    lookup_table = np.clip(
+        value_range + strength_factor * black_amplitude * black_weight,
         0, 255).astype(np.uint8)
     image_array = np.array(input_image.convert("RGB"), dtype=np.uint8)
     return Image.fromarray(lookup_table[image_array], "RGB")

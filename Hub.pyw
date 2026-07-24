@@ -310,7 +310,8 @@ def main(page: ft.Page):
              "last_selected": None}
     _strip_state = {"active": False, "saved_height": CONSTANTS.WINDOW_HEIGHT,
                     "was_maximized": False}
-    content = {"dirs": [], "imgs": [], "other": []}   # non filtrés
+    content = {"dirs": [], "imgs": [], "other": [],
+               "mtime": {}}   # non filtrés ; mtime rempli par _navigate
 
     async def _focus_dialog_field(field):
         # autofocus=True sur un TextField de dialogue ne marche pas de
@@ -816,10 +817,20 @@ def main(page: ft.Page):
 
     def _sort_key(path):
         if state["sort"] == "date":
-            try:
-                return -os.path.getmtime(path)
-            except OSError:
-                return 0
+            # mtime lus dans le cache rempli au scan (_navigate, via
+            # entry.stat() de os.scandir — gratuit sous Windows) : le tri
+            # "Date" (défaut) refaisait un os.path.getmtime PAR FICHIER à
+            # CHAQUE rendu — un stat réseau par fichier et par frappe de
+            # recherche sur un dossier NAS (retour user : Hub poussif sur
+            # le Diskstation).
+            mtime = content["mtime"].get(path)
+            if mtime is None:
+                try:
+                    mtime = os.path.getmtime(path)
+                except OSError:
+                    mtime = 0.0
+                content["mtime"][path] = mtime
+            return -mtime
         return os.path.basename(path).lower()
 
     def _merge_files_sorted(imgs, other):
@@ -985,9 +996,21 @@ def main(page: ft.Page):
             # génération pouvait saturer le CPU de toute la machine, pas
             # seulement ralentir Hub — priorité basse pour que l'OS serve
             # Hub (et le reste du système) en premier (retour user).
+            def _gen_thumb(path):
+                # Compensation écran appliquée à la volée (jamais dans la
+                # DB partagée .thumbcache.db : elle dépend du moniteur de
+                # CETTE machine, le cache doit rester portable — Kiosk,
+                # NAS...). Quelques ms par vignette, dans le pool basse
+                # priorité.
+                data = thumb_cache.get_or_generate(path)
+                if data is None:
+                    return None
+                return image_ops.compensate_jpeg_bytes(
+                    data, quality=CONSTANTS.THUMB_CACHE_QUALITY)
+
             pool = concurrent.futures.ThreadPoolExecutor(
                 max_workers=2, initializer=_lower_thread_priority)
-            futures = {pool.submit(thumb_cache.get_or_generate, path): (path, holder)
+            futures = {pool.submit(_gen_thumb, path): (path, holder)
                       for path, holder in snapshot}
             last_update = 0.0
             done = 0
@@ -1465,6 +1488,7 @@ def main(page: ft.Page):
         # _navigate() est le point de passage commun à toute action sur
         # fichiers (cf. _do_delete/_do_paste/_tool_refresh...), donc on y
         # réinitialise la recherche plutôt qu'à chaque site d'appel.
+        _search_debounce["token"] += 1   # annule un rendu de frappe en attente
         state["search"] = ""
         search_field.value = ""
         try:
@@ -1478,15 +1502,23 @@ def main(page: ft.Page):
             return
         exts = CONSTANTS.IMAGE_EXTS | CONSTANTS.HUB_VECTOR_EXTS
         dirs, imgs, other = [], [], []
+        mtimes = {}
         for e in entries:
             if CONSTANTS.is_os_junk(e.name, e.is_dir()):
                 continue
+            try:
+                # entry.stat() vient du scandir déjà fait (gratuit sous
+                # Windows) — alimente le cache mtime lu par _sort_key.
+                mtimes[e.path] = e.stat().st_mtime
+            except OSError:
+                pass
             if e.is_dir():
                 dirs.append(e.path)
             elif os.path.splitext(e.name)[1].lower() in exts:
                 imgs.append(e.path)
             else:
                 other.append(e.path)
+        content["mtime"] = mtimes
         content["dirs"] = sorted(dirs, key=lambda p: os.path.basename(p).lower())
         content["imgs"] = sorted(imgs, key=lambda p: os.path.basename(p).lower())
         content["other"] = sorted(other, key=lambda p: os.path.basename(p).lower())
@@ -1551,10 +1583,13 @@ def main(page: ft.Page):
             BLUE)
 
     def _file_date(path):
-        try:
-            return datetime.date.fromtimestamp(os.path.getmtime(path))
-        except OSError:
-            return None
+        mtime = content["mtime"].get(path)
+        if mtime is None:
+            try:
+                mtime = os.path.getmtime(path)
+            except OSError:
+                return None
+        return datetime.date.fromtimestamp(mtime)
 
     def _select_same_date(event=None):
         """Comme Dashboard.pyw:6553-6577 (select_same_date) : sélectionne
@@ -1795,7 +1830,27 @@ def main(page: ft.Page):
         state["search"] = value or ""
         _render()
 
+    # Debounce (~250 ms) : _render() reconstruit toute la vue et relance
+    # le chargeur de miniatures — le faire à chaque caractère rendait la
+    # frappe poussive sur les gros dossiers. Le rendu ne part qu'une fois
+    # la frappe stabilisée ; le token invalide les rendus en attente
+    # (nouvelle frappe, effacement, navigation).
+    _search_debounce = {"token": 0}
+
+    def _on_search_change(event):
+        _search_debounce["token"] += 1
+        token = _search_debounce["token"]
+        value = event.control.value
+
+        async def _apply():
+            await asyncio.sleep(0.25)
+            if _search_debounce["token"] == token:
+                _set_search(value)
+
+        page.run_task(_apply)
+
     def _clear_search(event=None):
+        _search_debounce["token"] += 1
         state["search"] = ""
         search_field.value = ""
         _render()
@@ -1808,7 +1863,7 @@ def main(page: ft.Page):
     # le bas : à corriger, revenir à cette structure plutôt que retoucher
     # le padding/prefix.
     search_field = ft.TextField(
-        hint_text="Rechercher…", on_change=lambda e: _set_search(e.control.value),
+        hint_text="Rechercher…", on_change=_on_search_change,
         height=45, bgcolor=DARK, border_color=BLUE,
         color=WHITE, text_size=CONSTANTS.TEXT_SM,
         content_padding=ft.Padding(8, 2, 8, 2),
@@ -1868,7 +1923,7 @@ def main(page: ft.Page):
     #  page.overlay (hors de l'arbre de mise en page normal -> aucun des
     #  soucis d'expand/Stack imbriqué rencontrés dans la surface Fichiers).
     # ═════════════════════════════════════════════════════════════════════
-    viewer_state = {"paths": [], "index": 0}
+    viewer_state = {"paths": [], "index": 0, "win_start": 0}
     _prev_keyboard = {"fn": None}
     # path -> bytes tournés cette session : le chemin fichier ne change pas
     # après rotation, donc Flet pourrait réafficher l'ancienne image en cache
@@ -1932,7 +1987,10 @@ def main(page: ft.Page):
             return viewer_rotated_bytes[path]
         ext = os.path.splitext(path)[1].lower()
         if ext in CONSTANTS.HUB_VECTOR_EXTS:
-            return thumb_cache.get_or_generate(path, size_px=1600) or path
+            rendered = thumb_cache.get_or_generate(path, size_px=1600)
+            if rendered:
+                return image_ops.compensate_jpeg_bytes(rendered)
+            return path
         return path
 
     def _update_overlay_bar():
@@ -1947,6 +2005,67 @@ def main(page: ft.Page):
             _order_badge(path) if order_mode["value"] else None)
         page.update()
 
+    # Bytes corrigés pour l'affichage (conversion ICC -> sRGB + compensation
+    # écran, cf. image_ops) : petit LRU en mémoire — un JPEG plein format
+    # corrigé pèse plusieurs Mo, inutile d'en garder plus que la fenêtre de
+    # navigation immédiate.
+    _viewer_color_cache = {}
+    _VIEWER_COLOR_CACHE_MAX = 8
+
+    def _viewer_corrected_bytes(path):
+        """JPEG corrigé pour l'affichage, ou None si rien à corriger
+        (image sRGB sans profil sur écran sRGB)."""
+        try:
+            with PILImage.open(path) as img:
+                icc_profile = img.info.get("icc_profile")
+                img = PILImageOps.exif_transpose(img)
+                needs_icc = bool(icc_profile) or img.mode == "CMYK"
+                if (not needs_icc
+                        and image_ops.get_display_transform() is None):
+                    return None
+                converted = (image_ops.convert_to_srgb(img, icc_profile)
+                             if needs_icc else img)
+                changed = converted is not img
+                compensated = image_ops.compensate_for_display(converted)
+                changed = changed or compensated is not converted
+                if not changed:
+                    return None
+                buffer = io.BytesIO()
+                compensated.convert("RGB").save(buffer, "JPEG", quality=90)
+                return buffer.getvalue()
+        except Exception:
+            return None
+
+    def _start_viewer_color_fix(idx, path, ctrl):
+        # L'image s'affiche d'abord par chemin (instantané, Flutter décode)
+        # puis les bytes corrigés remplacent la texture dès qu'ils sont
+        # prêts — pas de latence perceptible à la navigation, mais les
+        # couleurs deviennent identiques à Aperçu/Photos (retour user :
+        # aperçus plus saturés sur écran large gamut, P3/CMJN délavés).
+        if path in viewer_rotated_bytes:
+            return
+        if os.path.splitext(path)[1].lower() in CONSTANTS.HUB_VECTOR_EXTS:
+            return
+
+        def _work():
+            data = _viewer_color_cache.get(path)
+            if data is None:
+                data = _viewer_corrected_bytes(path)
+                if data is None:
+                    return
+                _viewer_color_cache[path] = data
+                while len(_viewer_color_cache) > _VIEWER_COLOR_CACHE_MAX:
+                    _viewer_color_cache.pop(next(iter(_viewer_color_cache)))
+            paths_now = viewer_state["paths"]
+            if (page_image_controls.get(idx) is ctrl
+                    and 0 <= idx < len(paths_now)
+                    and paths_now[idx] == path
+                    and path not in viewer_rotated_bytes):
+                ctrl.src = data
+                page.run_task(_safe_update, [ctrl])
+
+        threading.Thread(target=_work, daemon=True).start()
+
     def _load_image_for_index(idx):
         # Ne recharge jamais une page déjà chargée : la rotation en mémoire
         # (viewer_rotated_bytes) invalide explicitement l'index via
@@ -1957,6 +2076,7 @@ def main(page: ft.Page):
             return
         ctrl.src = _resolve_viewer_src(paths[idx])
         pages_loaded.add(idx)
+        _start_viewer_color_fix(idx, paths[idx], ctrl)
         try:
             page.update()
         except Exception:
@@ -1987,9 +2107,11 @@ def main(page: ft.Page):
 
     def _on_viewer_page_change(e):
         _close_drawers()
-        viewer_state["index"] = e.control.selected_index
+        viewer_state["index"] = (viewer_state["win_start"]
+                                 + e.control.selected_index)
         _load_pages_around(viewer_state["index"])
         _update_overlay_bar()
+        _maybe_shift_viewer_window()
 
     def _viewer_nav(delta):
         new_idx = viewer_state["index"] + delta
@@ -2034,6 +2156,7 @@ def main(page: ft.Page):
             return
         try:
             with PILImage.open(path) as im:
+                icc_profile = im.info.get("icc_profile")
                 rotated = im.rotate(90 if direction == "left" else -90, expand=True)
                 if ext in (".jpg", ".jpeg"):
                     rotated = rotated.convert("RGB")
@@ -2041,8 +2164,18 @@ def main(page: ft.Page):
             return
         fmt = "JPEG" if ext in (".jpg", ".jpeg") else "PNG"
         save_kwargs = {"quality": 100, "subsampling": 0} if fmt == "JPEG" else {}
+        if icc_profile:
+            # Sans ça, la rotation réenregistrait le fichier SANS son
+            # profil (une photo Display P3 devenait délavée partout après
+            # rotation) — le profil suit l'image, inchangé.
+            save_kwargs["icc_profile"] = icc_profile
+        # Bytes d'AFFICHAGE corrigés (ICC -> sRGB + compensation écran,
+        # comme _viewer_corrected_bytes) — le fichier écrit sur disque,
+        # lui, garde ses pixels et son profil d'origine.
+        display_img = image_ops.compensate_for_display(
+            image_ops.convert_to_srgb(rotated, icc_profile))
         buf = io.BytesIO()
-        rotated.save(buf, fmt, **save_kwargs)
+        display_img.convert("RGB").save(buf, "JPEG", quality=90)
         viewer_rotated_bytes[path] = buf.getvalue()
         idx = viewer_state["index"]   # aperçu immédiat
         if _HAS_PAGE_VIEW:
@@ -2123,24 +2256,64 @@ def main(page: ft.Page):
             pan_enabled=True, scale_enabled=True, constrained=True,
             width=win_w, height=win_h, clip_behavior=ft.ClipBehavior.HARD_EDGE)
 
-    def _build_page_containers(paths):
-        # Une page par image (retour user : swipe tactile façon Dashboard) —
-        # seul le contenu autour de l'index courant est réellement chargé
-        # (_load_pages_around), les autres pages restent sur le gif blanc
-        # tant qu'on ne navigue pas jusqu'à elles.
+    # Fenêtre glissante de pages : construire un contrôle par photo du
+    # dossier faisait payer l'ouverture de la visionneuse (et chaque
+    # page.update()) proportionnellement à la taille du dossier — sur des
+    # centaines de photos, plusieurs secondes avant la première image
+    # (retour user). Seules ~2×_VIEWER_WIN_HALF pages existent à la fois ;
+    # la fenêtre se décale par reconstruction quand on approche du bord,
+    # bien avant les pages réellement chargées (±2 par _load_pages_around).
+    _VIEWER_WIN_HALF = 25
+    _VIEWER_WIN_MARGIN = 8
+
+    def _viewer_window_bounds(center, total):
+        start = max(0, center - _VIEWER_WIN_HALF)
+        end = min(total, center + _VIEWER_WIN_HALF + 1)
+        return start, end
+
+    def _build_page_containers(paths, start, end):
+        # Une page par image de la fenêtre (retour user : swipe tactile
+        # façon Dashboard) — seul le contenu autour de l'index courant est
+        # réellement chargé (_load_pages_around), les autres pages restent
+        # sur le gif blanc tant qu'on ne navigue pas jusqu'à elles.
+        # page_image_controls est indexé par index GLOBAL dans `paths`.
         page_image_controls.clear()
         pages_loaded.clear()
         win_w = page.window.width or 1280
         win_h = page.window.height or 860
         containers = []
-        for _path in paths:
+        for global_idx in range(start, end):
             img_ctrl = ft.Image(src=_BLANK_GIF, fit=ft.BoxFit.CONTAIN,
                                 expand=True, gapless_playback=True)
-            page_image_controls[len(containers)] = img_ctrl
+            page_image_controls[global_idx] = img_ctrl
             containers.append(ft.Container(
                 content=_build_viewer_page(img_ctrl, win_w, win_h),
                 expand=True, alignment=ft.Alignment.CENTER, bgcolor=DARK))
         return containers
+
+    def _maybe_shift_viewer_window():
+        paths = viewer_state["paths"]
+        total = len(paths)
+        if total <= 2 * _VIEWER_WIN_HALF + 1:
+            return
+        idx = viewer_state["index"]
+        start = viewer_state["win_start"]
+        end = start + len(images_page_view.controls)
+        near_left = idx - start < _VIEWER_WIN_MARGIN and start > 0
+        near_right = end - idx <= _VIEWER_WIN_MARGIN and end < total
+        if not (near_left or near_right):
+            return
+        new_start, new_end = _viewer_window_bounds(idx, total)
+        if new_start == start:
+            return
+        viewer_state["win_start"] = new_start
+        images_page_view.controls = _build_page_containers(
+            paths, new_start, new_end)
+        images_page_view.selected_index = idx - new_start
+        # Pages autour de l'index rechargées AVANT le page.update() : la
+        # photo courante ne repasse jamais par le gif blanc.
+        _load_pages_around(idx)
+        page.update()
 
     if _HAS_PAGE_VIEW:
         images_page_view = ft.PageView(
@@ -2221,8 +2394,12 @@ def main(page: ft.Page):
         viewer_state["paths"] = paths
         viewer_state["index"] = paths.index(start_path)
         if _HAS_PAGE_VIEW:
-            images_page_view.controls = _build_page_containers(paths)
-            images_page_view.selected_index = viewer_state["index"]
+            start, end = _viewer_window_bounds(viewer_state["index"],
+                                               len(paths))
+            viewer_state["win_start"] = start
+            images_page_view.controls = _build_page_containers(
+                paths, start, end)
+            images_page_view.selected_index = viewer_state["index"] - start
         _close_drawers()
         _update_viewer()
         if viewer_overlay not in page.overlay:
@@ -5488,9 +5665,20 @@ def main(page: ft.Page):
             t_out.join()
             t_err.join()
             if is_gui_tool:
-                page.window.minimized = False
-                page.window.maximized = True
-                page.run_task(page.window.to_front)
+                async def _restore_window():
+                    # Même séquence que _delayed_maximize au démarrage :
+                    # dé-minimiser et maximiser dans le MÊME update est
+                    # parfois ignoré par Windows — Hub revenait en mode
+                    # fenêtré au lieu du plein écran après un outil
+                    # (retour user). Deux updates séparés par un délai.
+                    page.window.minimized = False
+                    page.update()
+                    await asyncio.sleep(0.2)
+                    page.window.maximized = True
+                    page.update()
+                    await page.window.to_front()
+
+                page.run_task(_restore_window)
                 # Un outil lancé depuis la visionneuse plein écran (Recadrage
                 # manuel/Augmentation IA sur l'image courante) laisse
                 # `viewer_overlay` ouvert pendant tout le subprocess (Hub est
@@ -7420,13 +7608,23 @@ def main(page: ft.Page):
     # lancement, sans dossier ouvert, faisait clignoter l'interface et
     # perdre le message — un dossier toujours ouvert évite cet état).
     if not state["folder"]:
-        _default_folder = next(
-            (p for p in _load_recent() if os.path.isdir(p)), None)
-        if not _default_folder:
-            _pictures = os.path.join(os.path.expanduser("~"), "Pictures")
-            _default_folder = (_pictures if os.path.isdir(_pictures)
-                               else os.path.expanduser("~"))
-        _navigate(_default_folder)
+        async def _initial_navigate():
+            # Différé après le premier rendu : naviguer en synchrone ici
+            # retardait l'apparition de la fenêtre de plusieurs secondes
+            # quand le dernier dossier ouvert est un partage NAS lent
+            # (os.path.isdir + scandir réseau AVANT le premier paint).
+            # La coquille s'affiche d'abord, le dossier se remplit juste
+            # derrière.
+            await asyncio.sleep(0.05)
+            default_folder = next(
+                (p for p in _load_recent() if os.path.isdir(p)), None)
+            if not default_folder:
+                pictures = os.path.join(os.path.expanduser("~"), "Pictures")
+                default_folder = (pictures if os.path.isdir(pictures)
+                                  else os.path.expanduser("~"))
+            _navigate(default_folder)
+
+        page.run_task(_initial_navigate)
 
     page.run_task(_focus_active_surface)
     _mic_hotkey_start()

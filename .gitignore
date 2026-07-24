@@ -62,6 +62,8 @@ open_with.json
 .order.json
 .order_bw.json
 .liste.json
+Data/.ai_prompt_presets.json
+Data/.ai_prompt_history.json
 
 # Fichiers mémoire IA persistante
 Data/.thumbcache.db

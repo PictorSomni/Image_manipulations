@@ -38,6 +38,8 @@ import io
 import base64
 import asyncio
 import importlib.util
+import json
+import threading
 from pathlib import Path
 import sys
 
@@ -117,6 +119,56 @@ def image_to_b64(img: Image.Image, fmt: str = "JPEG", quality: int = 92) -> str:
     return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
+# ── Prompts fréquents + historique (fichiers locaux, non versionnés) ─────
+_APP_DIR = os.path.dirname(os.path.abspath(__file__))
+_PROMPT_PRESETS_FILE = os.path.join(_APP_DIR, ".ai_prompt_presets.json")
+_PROMPT_HISTORY_FILE = os.path.join(_APP_DIR, ".ai_prompt_history.json")
+_PROMPT_HISTORY_MAX = 20
+_DEFAULT_PROMPT_PRESETS = [
+    "Supprime cet objet et reconstruis l'arrière-plan",
+    "Enlève les reflets",
+    "Enlève les taches et imperfections de la peau",
+    "Lisse la peau naturellement, sans effet plastique",
+    "Blanchis légèrement les dents",
+    "Remplace le ciel par un ciel bleu léger",
+]
+
+
+def _load_prompt_presets() -> list:
+    """Puces de prompts : liste éditable par l'utilisateur dans le JSON —
+    créé avec des valeurs par défaut au premier lancement."""
+    try:
+        with open(_PROMPT_PRESETS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return [p for p in data if isinstance(p, str) and p.strip()]
+    except Exception:
+        try:
+            with open(_PROMPT_PRESETS_FILE, "w", encoding="utf-8") as f:
+                json.dump(_DEFAULT_PROMPT_PRESETS, f,
+                          ensure_ascii=False, indent=2)
+        except OSError:
+            pass
+        return list(_DEFAULT_PROMPT_PRESETS)
+
+
+def _load_prompt_history() -> list:
+    try:
+        with open(_PROMPT_HISTORY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return [p for p in data if isinstance(p, str) and p.strip()]
+    except Exception:
+        return []
+
+
+def _save_prompt_history(history: list) -> None:
+    try:
+        with open(_PROMPT_HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(history[:_PROMPT_HISTORY_MAX], f,
+                      ensure_ascii=False, indent=2)
+    except OSError:
+        pass
+
+
 ###############################################################
 #                       INTERFACE                             #
 ###############################################################
@@ -189,6 +241,10 @@ async def main(page: ft.Page) -> None:
     # sur la MÊME image restent quasi-instantanés (predict() seul, sans
     # re-passer par l'encodeur).
     _sam2_state: dict = {"predictor": None, "embedded_img_id": None}
+    # Verrou : le préchauffage en arrière-plan (_sam2_prewarm) et un clic
+    # utilisateur (_sam2_segment_point, via asyncio.to_thread) peuvent se
+    # chevaucher — jamais deux set_image/predict concurrents.
+    _sam2_lock = threading.Lock()
 
     def _get_sam2_predictor():
         if _sam2_state["predictor"] is not None:
@@ -202,23 +258,43 @@ async def main(page: ft.Page) -> None:
         _sam2_state["predictor"] = predictor
         return predictor
 
-    def _sam2_segment_point(img: Image.Image, ix: int, iy: int) -> Image.Image | None:
-        """Masque PIL "L" (255 = objet) de l'objet sous le point (ix, iy) en
-        coordonnées image, ou None en cas d'échec. Appeler hors thread UI
-        (asyncio.to_thread) : l'encodage + la prédiction sont bloquants."""
+    def _sam2_embed(img: Image.Image) -> None:
+        """Encode `img` dans le prédicteur si ce n'est pas déjà fait.
+        À appeler sous _sam2_lock."""
         import numpy as _np
         predictor = _get_sam2_predictor()
         img_id = id(img)
         if _sam2_state["embedded_img_id"] != img_id:
             predictor.set_image(_np.array(img.convert("RGB")))
             _sam2_state["embedded_img_id"] = img_id
-        masks, scores, _logits = predictor.predict(
-            point_coords=_np.array([[ix, iy]]),
-            point_labels=_np.array([1]),
-            multimask_output=True,
-        )
+
+    def _sam2_segment_point(img: Image.Image, ix: int, iy: int) -> Image.Image | None:
+        """Masque PIL "L" (255 = objet) de l'objet sous le point (ix, iy) en
+        coordonnées image, ou None en cas d'échec. Appeler hors thread UI
+        (asyncio.to_thread) : l'encodage + la prédiction sont bloquants."""
+        import numpy as _np
+        with _sam2_lock:
+            _sam2_embed(img)
+            masks, scores, _logits = _sam2_state["predictor"].predict(
+                point_coords=_np.array([[ix, iy]]),
+                point_labels=_np.array([1]),
+                multimask_output=True,
+            )
         best = masks[int(_np.argmax(scores))]
         return Image.fromarray((best * 255).astype("uint8"), mode="L")
+
+    def _sam2_prewarm(img: Image.Image) -> None:
+        """Charge le checkpoint + encode l'image courante en arrière-plan
+        dès le chargement d'une photo : le premier clic objet devant un
+        client ne paie plus ni le chargement du modèle ni l'encodage
+        (plusieurs secondes à froid — retour user sur la latence)."""
+        try:
+            with _sam2_lock:
+                if (state["work_img"] or state["orig_img"]) is not img:
+                    return   # l'utilisateur a déjà changé d'image
+                _sam2_embed(img)
+        except Exception:
+            pass   # préchauffage best-effort : le clic réel réessaiera
 
     # ── Éléments UI ──────────────────────────────────────────────────────────
     status_text    = ft.Text("", size=12, color=LIGHT_GREY)
@@ -271,6 +347,77 @@ async def main(page: ft.Page) -> None:
         color=WHITE,
         label_style=ft.TextStyle(color=LIGHT_GREY),
     )
+
+    # ── Puces de prompts fréquents + historique des derniers envois ──────
+    # Moins de frappe devant un client : un clic remplit le champ, la
+    # description reste modifiable avant l'envoi. Liste éditable dans
+    # .ai_prompt_presets.json, historique persisté par _prompt_history_add.
+    _prompt_history: list = _load_prompt_history()
+    preset_chips_row = ft.Row(wrap=True, spacing=6, run_spacing=6)
+    history_menu = ft.PopupMenuButton(
+        icon=ft.Icons.HISTORY,
+        icon_color=LIGHT_GREY,
+        tooltip="Derniers prompts envoyés",
+        items=[],
+    )
+    prompt_aids = ft.Column(
+        [
+            ft.Row(
+                [ft.Text("Suggestions", size=11, color=LIGHT_GREY),
+                 history_menu],
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            preset_chips_row,
+        ],
+        spacing=2,
+    )
+
+    def _apply_prompt_text(text: str) -> None:
+        prompt_field.value = text
+        send_btn.disabled = not (state["selection"] is not None
+                                 and bool(text.strip()))
+        page.update()
+
+    def _prompt_chip(text: str) -> ft.Container:
+        # Libellé raccourci sur la puce, texte complet en tooltip.
+        label = text if len(text) <= 34 else text[:32] + "…"
+        return ft.Container(
+            content=ft.Text(label, size=11, color=WHITE),
+            padding=ft.Padding(10, 5, 10, 5),
+            border_radius=14,
+            bgcolor=GREY,
+            ink=True,
+            tooltip=text,
+            on_click=lambda e, t=text: _apply_prompt_text(t),
+        )
+
+    def _refresh_prompt_aids() -> None:
+        preset_chips_row.controls = [
+            _prompt_chip(p) for p in _load_prompt_presets()]
+        history_menu.items = [
+            ft.PopupMenuItem(
+                content=ft.Text(p if len(p) <= 60 else p[:58] + "…",
+                                size=12),
+                on_click=lambda e, t=p: _apply_prompt_text(t),
+            )
+            for p in _prompt_history
+        ] or [ft.PopupMenuItem(
+            content=ft.Text("Aucun prompt envoyé", size=12,
+                            color=LIGHT_GREY))]
+
+    def _prompt_history_add(text: str) -> None:
+        text = text.strip()
+        if not text:
+            return
+        if text in _prompt_history:
+            _prompt_history.remove(text)
+        _prompt_history.insert(0, text)
+        del _prompt_history[_PROMPT_HISTORY_MAX:]
+        _save_prompt_history(_prompt_history)
+        _refresh_prompt_aids()
+
+    _refresh_prompt_aids()
 
     preview_img = ft.Image(
         src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
@@ -416,6 +563,41 @@ async def main(page: ft.Page) -> None:
             return raw
         return raw.filter(ImageFilter.MaxFilter(dilate_px * 2 + 1))
 
+    # Base d'aperçu réduite mise en cache par image de travail : l'ancien
+    # _render_preview reconvertissait + réencodait la PLEINE résolution à
+    # chaque appel (des centaines de ms, ressenti comme un blocage — cf.
+    # commentaire du dilate_slider). On ne paie le resize LANCZOS qu'une
+    # fois par work_img ; la teinte du masque et le fondu se composent sur
+    # la base réduite. `src` garde une référence forte à l'image source :
+    # comparaison par identité (is), pas par id() réutilisable.
+    _PREVIEW_MAX_PX = 3000
+    _preview_base_cache = {"src": None, "base": None, "scale": 1.0}
+    _preview_b64_cache = {"src": None, "b64": None}
+
+    def _flatten_reduced(img: Image.Image) -> tuple[Image.Image, float]:
+        """RGB aplati (fond gris si RGBA) réduit à _PREVIEW_MAX_PX max."""
+        if img.mode == "RGBA":
+            flat = Image.new("RGB", img.size, (180, 180, 180))
+            flat.paste(img.convert("RGB"), mask=img.split()[3])
+        else:
+            flat = img.convert("RGB")
+        ow, oh = flat.size
+        if max(ow, oh) > _PREVIEW_MAX_PX:
+            scale = _PREVIEW_MAX_PX / max(ow, oh)
+            flat = flat.resize((round(ow * scale), round(oh * scale)),
+                               Image.Resampling.LANCZOS)
+        else:
+            scale = 1.0
+        return flat, scale
+
+    def _preview_base() -> tuple[Image.Image, float]:
+        img = state["work_img"] or state["orig_img"]
+        if _preview_base_cache["src"] is not img:
+            base, scale = _flatten_reduced(img)
+            _preview_base_cache.update(src=img, base=base, scale=scale)
+            _preview_b64_cache["src"] = None
+        return _preview_base_cache["base"], _preview_base_cache["scale"]
+
     def _render_preview() -> None:
         img = state["work_img"] or state["orig_img"]
         if img is None:
@@ -426,41 +608,45 @@ async def main(page: ft.Page) -> None:
             return
         vw, vh = state["view_size"]
 
-        # Encode à résolution native (plafonnée à 3000px côté le plus long)
-        # BoxFit.CONTAIN gère l'affichage — le zoom révèle les vrais pixels
-        ow, oh = img.size
-        MAX_PX = 3000
-        if img.mode == "RGBA":
-            _bg = Image.new("RGB", img.size, (180, 180, 180))
-            _bg.paste(img.convert("RGB"), mask=img.split()[3])
-            img_for_preview = _bg
-        else:
-            img_for_preview = img.convert("RGB")
+        base, scale = _preview_base()
 
         # Teinte du masque SAM2 en cours d'ajustement (dilate_slider) —
-        # brûlée directement dans les MÊMES pixels que l'aperçu affiché,
-        # avant tout redimensionnement : élimine tout risque de décalage
-        # entre le calque et l'image (retour user — un calque séparé
-        # positionné par coordonnées d'affichage tombait à côté).
+        # brûlée directement dans les MÊMES pixels que l'aperçu affiché
+        # (à l'échelle de la base réduite) : élimine tout risque de
+        # décalage entre le calque et l'image (retour user — un calque
+        # séparé positionné par coordonnées d'affichage tombait à côté).
         raw_mask = state["selection_mask"]
         sel      = state["selection"]
         if raw_mask is not None and sel is not None:
-            mask = _dilated_mask(raw_mask, dilate_slider.value)
-            full_mask = Image.new("L", img_for_preview.size, 0)
-            full_mask.paste(mask, (sel[0], sel[1]))
-            tint = Image.new("RGB", img_for_preview.size, (30, 144, 255))
+            mask = raw_mask
+            if scale != 1.0:
+                # Réduit AVANT dilatation : MaxFilter à l'échelle preview,
+                # jamais en pleine résolution (rayon proportionnel au
+                # masque, donc mis à l'échelle automatiquement).
+                mask = mask.resize(
+                    (max(1, round(mask.width * scale)),
+                     max(1, round(mask.height * scale))),
+                    Image.Resampling.BILINEAR)
+            mask = _dilated_mask(mask, dilate_slider.value)
+            full_mask = Image.new("L", base.size, 0)
+            full_mask.paste(mask, (round(sel[0] * scale),
+                                   round(sel[1] * scale)))
+            tint = Image.new("RGB", base.size, (30, 144, 255))
             img_for_preview = Image.composite(
-                tint, img_for_preview, full_mask.point(lambda v: v * 140 // 255))
-
-        if max(ow, oh) > MAX_PX:
-            s = MAX_PX / max(ow, oh)
-            preview_data = img_for_preview.resize(
-                (round(ow * s), round(oh * s)), Image.Resampling.LANCZOS
-            )
+                tint, base, full_mask.point(lambda v: v * 140 // 255))
+            b64 = image_to_b64(
+                image_ops.compensate_for_display(img_for_preview))
         else:
-            preview_data = img_for_preview
+            # Sans teinte, l'encodage JPEG de la base est lui aussi mis en
+            # cache : re-render (resize fenêtre, sélection annulée...)
+            # sans réencoder 3000px à chaque fois.
+            if _preview_b64_cache["src"] is not img:
+                _preview_b64_cache.update(
+                    src=img,
+                    b64=image_to_b64(image_ops.compensate_for_display(base)))
+            b64 = _preview_b64_cache["b64"]
 
-        preview_img.src = f"data:image/jpeg;base64,{image_to_b64(preview_data)}"
+        preview_img.src = f"data:image/jpeg;base64,{b64}"
         preview_img.width        = vw
         preview_img.height       = vh
         preview_img.visible      = True
@@ -520,14 +706,23 @@ async def main(page: ft.Page) -> None:
 
     def _decode_image(path: str) -> Image.Image:
         img = Image.open(path)
+        icc_profile = img.info.get("icc_profile")
         img.load()
+        # Normalisation sRGB dès le chargement (Display P3 des iPhone,
+        # Adobe RGB, JPEG CMJN d'imprimerie...) : sans elle, l'aperçu, les
+        # crops envoyés à Gemini ET le fichier enregistré gardaient les
+        # valeurs de l'espace source — couleurs fausses par rapport à
+        # Aperçu/Photos (retour user).
+        if icc_profile or img.mode == "CMYK":
+            img = image_ops.convert_to_srgb(img, icc_profile)
         if img.mode not in ("RGB", "RGBA"):
             img = img.convert("RGB")
         return img
 
-    async def _load_image_path(path: str) -> None:
+    async def _load_image_path(path: str, pre_decoded=None) -> None:
         try:
-            img = await asyncio.to_thread(_decode_image, path)
+            img = (pre_decoded if pre_decoded is not None
+                   else await asyncio.to_thread(_decode_image, path))
             state["source_path"]     = path
             state["orig_img"]        = img.copy()
             state["work_img"]        = img.copy()
@@ -559,18 +754,25 @@ async def main(page: ft.Page) -> None:
             rembg_apply_btn.bgcolor = GREY if REMBG_AVAILABLE else GREY
             rembg_status.value = ""
             _render_preview()
+            if SAM2_AVAILABLE:
+                # Préchauffage SAM2 hors thread UI : premier clic objet
+                # quasi instantané (cf. _sam2_prewarm).
+                threading.Thread(
+                    target=_sam2_prewarm,
+                    args=(state["work_img"] or state["orig_img"],),
+                    daemon=True).start()
         except Exception as ex:
             status_text.value = f"[ERREUR] {ex}"
             page.update()
 
-    async def _load_image(index: int) -> None:
+    async def _load_image(index: int, pre_decoded=None) -> None:
         if not all_images or not (0 <= index < len(all_images)):
             return
         state["index"] = index
         counter_text.value  = f"{index + 1} / {len(all_images)}"
         prev_btn.disabled   = (index == 0)
         next_btn.disabled   = (index >= len(all_images) - 1)
-        await _load_image_path(all_images[index])
+        await _load_image_path(all_images[index], pre_decoded=pre_decoded)
 
     # ── Rubber band ──────────────────────────────────────────────────────────
 
@@ -642,6 +844,7 @@ async def main(page: ft.Page) -> None:
         dilate_row.visible = has_mask
         if has_mask:
             dilate_slider.value = CONSTANTS.SAM2_MASK_DILATE_RATIO
+        _refresh_prompt_aids()   # reflète une édition manuelle du JSON
         inpaint_dialog.open        = True
         sel_info.update()
         _render_preview()
@@ -795,7 +998,62 @@ async def main(page: ft.Page) -> None:
         state["work_img"] = new_work
         state["modified"] = True
 
+    # Aperçu live du fondu : composé sur la base réduite (cf.
+    # _flatten_reduced), sans jamais toucher la pleine résolution pendant
+    # le glissement — l'ancien on_change faisait un base.copy() + paste
+    # pleine résolution + réencodage complet à CHAQUE tick du slider.
+    _retouch_prev = {"src": None, "base": None, "fit": None, "mask": None,
+                     "pos": (0, 0)}
+
+    def _prepare_retouch_preview() -> None:
+        base_img = state["retouch_base"]
+        fit = state["retouch_fit"]
+        sel = state["retouch_sel"]
+        if base_img is None or fit is None or sel is None:
+            _retouch_prev["src"] = None
+            return
+        base, scale = _flatten_reduced(base_img)
+        sx1, sy1 = round(sel[0] * scale), round(sel[1] * scale)
+        w = max(1, round(sel[2] * scale) - sx1)
+        h = max(1, round(sel[3] * scale) - sy1)
+        fit_prev = fit.resize((w, h), Image.Resampling.BILINEAR)
+        mask = state["retouch_mask"]
+        mask_prev = (mask.resize((w, h), Image.Resampling.BILINEAR)
+                     if mask is not None else None)
+        _retouch_prev.update(src=base_img, base=base, fit=fit_prev,
+                             mask=mask_prev, pos=(sx1, sy1))
+
+    def _composite_retouch_preview(ratio: float) -> None:
+        if _retouch_prev["src"] is not state["retouch_base"]:
+            _prepare_retouch_preview()
+        base = _retouch_prev["base"]
+        fit = _retouch_prev["fit"]
+        if base is None or fit is None:
+            return
+        w, h = fit.size
+        feather = max(1, int(min(w, h) * ratio))
+        feather = min(feather, max(1, min(w, h) // 2))
+        obj_mask = _retouch_prev["mask"]
+        if obj_mask is not None:
+            mask_feather = max(
+                1, feather // CONSTANTS.SAM2_MASK_FEATHER_DIVISOR)
+            mask = obj_mask.filter(ImageFilter.GaussianBlur(mask_feather))
+        else:
+            mask = Image.new("L", (w, h), 0)
+            ImageDraw.Draw(mask).rectangle(
+                (feather, feather, w - feather, h - feather), fill=255)
+            mask = mask.filter(ImageFilter.GaussianBlur(feather))
+        shown = base.copy()
+        shown.paste(fit, _retouch_prev["pos"], mask)
+        shown = image_ops.compensate_for_display(shown)
+        preview_img.src = f"data:image/jpeg;base64,{image_to_b64(shown)}"
+        preview_img.update()
+
     def on_feather_change(e) -> None:
+        _composite_retouch_preview(feather_slider.value)
+
+    def on_feather_change_end(e) -> None:
+        # Recollage réel (pleine résolution) une seule fois, au relâchement.
         _composite_retouch(feather_slider.value)
         _render_preview()
 
@@ -813,14 +1071,12 @@ async def main(page: ft.Page) -> None:
             page.update()
 
     feather_slider.on_change     = on_feather_change
-    # _render_preview() reconvertit/réencode l'image PLEINE résolution à
-    # chaque appel (contrairement à _composite_retouch, léger) — le
-    # déclencher sur `on_change` (donc à chaque tick pendant le glissement)
-    # noyait l'UI de recalculs, ressenti comme un blocage sans retour
-    # (retour user). `on_change_end` : un seul recalcul au relâchement,
-    # comme les curseurs coûteux de Recadrage manuel.pyw. La bulle de
-    # valeur native du slider (label="{value}") donne déjà un retour
-    # numérique instantané pendant le glissement, sans recalcul.
+    feather_slider.on_change_end = on_feather_change_end
+    # Le tick de drag passe par _composite_retouch_preview (base réduite,
+    # léger) ; le recollage pleine résolution n'a lieu qu'au relâchement.
+    # Pour le masque SAM2, _render_preview travaille désormais lui aussi
+    # sur la base réduite : un seul recalcul au relâchement reste le bon
+    # compromis (MaxFilter peut rester sensible sur un gros masque).
     dilate_slider.on_change_end  = on_dilate_change_end
 
     async def on_send_gemini(e) -> None:
@@ -866,10 +1122,26 @@ async def main(page: ft.Page) -> None:
 
         page.update()
 
-        # Recadrage de la zone sélectionnée depuis l'image de travail
-        crop = (state["work_img"] or state["orig_img"]).convert("RGB").crop(sel)
+        # Recadrage de la zone sélectionnée avec une marge de contexte
+        # (~18 % de chaque côté, bornée à l'image) : Gemini voit
+        # l'environnement immédiat (lumière, textures, perspective) et
+        # raccorde bien mieux — seule la zone centrale est recollée, la
+        # marge est jetée au retour. Surcoût de tokens image modeste.
+        work_rgb = (state["work_img"] or state["orig_img"]).convert("RGB")
+        pad_x = round(sel_w * 0.18)
+        pad_y = round(sel_h * 0.18)
+        ctx = (max(0, sel[0] - pad_x), max(0, sel[1] - pad_y),
+               min(work_rgb.width, sel[2] + pad_x),
+               min(work_rgb.height, sel[3] + pad_y))
+        crop = work_rgb.crop(ctx)
 
-        full_prompt = CONSTANTS.AI_RETOUCH_SYSTEM_PROMPT + prompt_text
+        full_prompt = (
+            CONSTANTS.AI_RETOUCH_SYSTEM_PROMPT + prompt_text
+            + "\n\nL'image fournie inclut une marge de contexte autour de "
+              "la zone à retoucher : applique la retouche demandée en "
+              "restant parfaitement cohérent avec les bords de l'image."
+        )
+        _prompt_history_add(prompt_text)
 
         def _do_gemini():
             buf = io.BytesIO()
@@ -899,9 +1171,16 @@ async def main(page: ft.Page) -> None:
                 page.update()
                 return
 
-            # Charge le résultat Gemini et le redimensionne exactement à la sélection
+            # Charge le résultat Gemini, le remet aux dimensions du crop
+            # avec contexte, puis extrait la zone de sélection exacte (la
+            # marge de contexte est jetée ici).
             gemini_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-            gemini_fit = gemini_img.resize((sel_w, sel_h), Image.Resampling.LANCZOS)
+            ctx_w, ctx_h = ctx[2] - ctx[0], ctx[3] - ctx[1]
+            gemini_ctx = gemini_img.resize((ctx_w, ctx_h),
+                                            Image.Resampling.LANCZOS)
+            gemini_fit = gemini_ctx.crop(
+                (sel[0] - ctx[0], sel[1] - ctx[1],
+                 sel[0] - ctx[0] + sel_w, sel[1] - ctx[1] + sel_h))
 
             # Sauvegarde de l'état pour annulation
             base = (state["work_img"] or state["orig_img"]).copy()
@@ -964,28 +1243,33 @@ async def main(page: ft.Page) -> None:
         try:
             ext = os.path.splitext(path)[1].lower()
             rgb = img.convert("RGB")
+            # Profil sRGB embarqué : l'image de travail est normalisée en
+            # sRGB au chargement (_decode_image) — sans le profil dans le
+            # fichier, les visionneuses gérées l'interpréteraient par
+            # convention seulement.
+            srgb_icc = image_ops._SRGB_ICC
             if ext in (".jpg", ".jpeg"):
                 await asyncio.to_thread(
                     rgb.save, path,
                     format="JPEG", dpi=(DPI, DPI),
-                    quality=100, subsampling=0,
+                    quality=100, subsampling=0, icc_profile=srgb_icc,
                 )
             elif ext == ".png":
                 await asyncio.to_thread(
                     img.save, path,
-                    format="PNG", dpi=(DPI, DPI),
+                    format="PNG", dpi=(DPI, DPI), icc_profile=srgb_icc,
                 )
             elif ext in (".tif", ".tiff"):
                 await asyncio.to_thread(
                     rgb.save, path,
-                    format="TIFF", dpi=(DPI, DPI),
+                    format="TIFF", dpi=(DPI, DPI), icc_profile=srgb_icc,
                 )
             else:
                 path += ".jpg"
                 await asyncio.to_thread(
                     rgb.save, path,
                     format="JPEG", dpi=(DPI, DPI),
-                    quality=100, subsampling=0,
+                    quality=100, subsampling=0, icc_profile=srgb_icc,
                 )
             state["source_path"] = path
             state["modified"]    = False
@@ -2043,7 +2327,7 @@ async def main(page: ft.Page) -> None:
         modal=True,
         title=ft.Text("Retouche IA (Gemini)"),
         content=ft.Column(
-            [sel_info, dilate_row, prompt_field, progress_bar],
+            [sel_info, dilate_row, prompt_aids, prompt_field, progress_bar],
             tight=True,
             spacing=10,
             width=420,
@@ -2248,6 +2532,14 @@ async def main(page: ft.Page) -> None:
     # ── Démarrage ────────────────────────────────────────────────────────────
 
     async def _startup() -> None:
+        # Décodage de la première image lancé TOUT DE SUITE, en parallèle
+        # de l'attente de maximisation (jusqu'à ~4,5 s) : la photo
+        # s'affiche dès que la fenêtre est prête au lieu d'attendre la fin
+        # de la boucle pour commencer à décoder (retour user).
+        decode_task = None
+        if all_images:
+            decode_task = asyncio.create_task(
+                asyncio.to_thread(_decode_image, all_images[0]))
         pre_w = page.window.width or 0
         page.window.maximized = True
         page.update()
@@ -2258,7 +2550,12 @@ async def main(page: ft.Page) -> None:
         await asyncio.sleep(0.5)
         _on_page_resize()
         if all_images:
-            await _load_image(0)
+            pre_decoded = None
+            try:
+                pre_decoded = await decode_task
+            except Exception:
+                pass   # _load_image retentera le décodage et affichera l'erreur
+            await _load_image(0, pre_decoded=pre_decoded)
         else:
             status_text.value = f"Aucune image dans : {source_folder}"
             page.update()
