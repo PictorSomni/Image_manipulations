@@ -1930,6 +1930,55 @@ def main(page: ft.Page):
     # si on repasse par le chemin brut au lieu des bytes à jour.
     viewer_rotated_bytes = {}
 
+    # Page PDF actuellement affichée par fichier (retour user : un PDF
+    # multi-pages ne montrait toujours que la 1re page) — dict plutôt que
+    # champ unique dans viewer_state pour que revenir sur un PDF déjà
+    # feuilleté retrouve sa page, sans code de reset à ajouter à chaque
+    # point de navigation entre fichiers.
+    viewer_pdf_page = {}
+    _pdf_page_count_cache = {}
+    _pdf_page_render_cache = {}
+    _PDF_PAGE_CACHE_MAX = 8
+
+    def _pdf_page_count(path):
+        if not path.lower().endswith(".pdf"):
+            return 1
+        if path not in _pdf_page_count_cache:
+            try:
+                import fitz
+                with fitz.open(path) as doc:
+                    _pdf_page_count_cache[path] = doc.page_count
+            except Exception:
+                _pdf_page_count_cache[path] = 1
+        return _pdf_page_count_cache[path]
+
+    def _render_pdf_page(path, page_num):
+        """JPEG (bytes) de la page `page_num` d'un PDF, corrigé écran comme
+        les miniatures thumb_cache — rendu direct, hors thumb_cache (qui ne
+        connaît que la page 0, utilisée pour les miniatures de la grille)."""
+        key = (path, page_num)
+        if key in _pdf_page_render_cache:
+            return _pdf_page_render_cache[key]
+        try:
+            import fitz
+            with fitz.open(path) as doc:
+                pg = doc[page_num]
+                longest = max(pg.rect.width, pg.rect.height) or 1
+                zoom = min(4.0, max(0.5, 3200 / longest))
+                pix = pg.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+                img = PILImage.frombytes(
+                    "RGB", (pix.width, pix.height), pix.samples)
+            buf = io.BytesIO()
+            image_ops.compensate_for_display(img).save(
+                buf, "JPEG", quality=90)
+            data = buf.getvalue()
+        except Exception:
+            return None
+        _pdf_page_render_cache[key] = data
+        while len(_pdf_page_render_cache) > _PDF_PAGE_CACHE_MAX:
+            _pdf_page_render_cache.pop(next(iter(_pdf_page_render_cache)))
+        return data
+
     # Swipe tactile (retour user, comme Dashboard.pyw:5678) : PageView natif
     # Flet si disponible (buggy sur Linux d'après Dashboard) — une page par
     # image, chargées à la volée (_load_pages_around) pour ne pas décoder
@@ -1946,6 +1995,17 @@ def main(page: ft.Page):
                               weight=ft.FontWeight.W_500)
     viewer_meta = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
     viewer_counter = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
+    viewer_pdf_page_text = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
+    viewer_pdf_page_row = ft.Row([
+        ft.IconButton(icon=ft.Icons.KEYBOARD_ARROW_LEFT, icon_color=WHITE,
+                     icon_size=CONSTANTS.ICON_SM, tooltip="Page précédente (↑)",
+                     on_click=lambda e: _pdf_page_nav(-1)),
+        viewer_pdf_page_text,
+        ft.IconButton(icon=ft.Icons.KEYBOARD_ARROW_RIGHT, icon_color=WHITE,
+                     icon_size=CONSTANTS.ICON_SM, tooltip="Page suivante (↓)",
+                     on_click=lambda e: _pdf_page_nav(1)),
+    ], spacing=0, tight=True, alignment=ft.MainAxisAlignment.CENTER)
+    viewer_pdf_page_row.visible = False
     viewer_checkbox = ft.Checkbox(
         value=False, active_color=BLUE,
         on_change=lambda e: _set_selected(
@@ -1986,6 +2046,18 @@ def main(page: ft.Page):
         if path in viewer_rotated_bytes:
             return viewer_rotated_bytes[path]
         ext = os.path.splitext(path)[1].lower()
+        if ext == ".pdf":
+            page_num = viewer_pdf_page.get(path, 0)
+            if page_num:
+                rendered_page = _render_pdf_page(path, page_num)
+                if rendered_page:
+                    return rendered_page
+            # Page 0 : passe par thumb_cache (déjà en cache dès la
+            # miniature de la grille, pas besoin de re-rendre via fitz).
+            rendered = thumb_cache.get_or_generate(path, size_px=1600)
+            if rendered:
+                return image_ops.compensate_jpeg_bytes(rendered)
+            return path
         if ext in CONSTANTS.HUB_VECTOR_EXTS:
             rendered = thumb_cache.get_or_generate(path, size_px=1600)
             if rendered:
@@ -2003,6 +2075,31 @@ def main(page: ft.Page):
         viewer_order_slot.visible = order_mode["value"]
         viewer_order_slot.content = (
             _order_badge(path) if order_mode["value"] else None)
+        _update_pdf_page_ui(path)
+        page.update()
+
+    def _update_pdf_page_ui(path):
+        count = _pdf_page_count(path)
+        viewer_pdf_page_row.visible = count > 1
+        if count > 1:
+            viewer_pdf_page_text.value = (
+                f"Page {viewer_pdf_page.get(path, 0) + 1} / {count}")
+
+    def _pdf_page_nav(delta):
+        if not viewer_state["paths"]:
+            return
+        idx = viewer_state["index"]
+        path = viewer_state["paths"][idx]
+        new_page = viewer_pdf_page.get(path, 0) + delta
+        if not (0 <= new_page < _pdf_page_count(path)):
+            return
+        viewer_pdf_page[path] = new_page
+        if _HAS_PAGE_VIEW:
+            pages_loaded.discard(idx)
+            _load_image_for_index(idx)
+        else:
+            viewer_img.src = _resolve_viewer_src(path)
+        _update_pdf_page_ui(path)
         page.update()
 
     # Bytes corrigés pour l'affichage (conversion ICC -> sRGB + compensation
@@ -2139,6 +2236,10 @@ def main(page: ft.Page):
             _viewer_nav(-1)
         elif event.key == "Arrow Right":
             _viewer_nav(1)
+        elif event.key == "Arrow Up":
+            _pdf_page_nav(-1)
+        elif event.key == "Arrow Down":
+            _pdf_page_nav(1)
 
     def _rotate_current(direction):
         # Écrase l'original (retour user : la miniature de la grille doit
@@ -2218,6 +2319,7 @@ def main(page: ft.Page):
             ft.Row([viewer_filename, viewer_meta], spacing=10, tight=True,
                   alignment=ft.MainAxisAlignment.CENTER),
             viewer_counter,
+            viewer_pdf_page_row,
         ], spacing=0, tight=True,
            horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         bgcolor=_VIEWER_BAR_BG, padding=ft.Padding(18, 6, 18, 6),
@@ -4683,6 +4785,7 @@ def main(page: ft.Page):
             return
         ai_streaming["value"] = True
         ai_send_button.disabled = True
+        ai_vasy_button.disabled = True
         ai_stop_button.visible = True
         ai_status_text.value = "⏳ En cours…"
         ai_progress_bar.visible = True
@@ -4902,6 +5005,7 @@ def main(page: ft.Page):
             finally:
                 ai_streaming["value"] = False
                 ai_send_button.disabled = False
+                ai_vasy_button.disabled = False
                 ai_stop_button.visible = False
                 ai_status_text.value = ""
                 ai_progress_bar.visible = False
@@ -4918,6 +5022,13 @@ def main(page: ft.Page):
         threading.Thread(target=_run, daemon=True).start()
 
     def _ai_submit(event=None):
+        if _mic_state["active"]:
+            # Envoyer pendant un enregistrement en cours (clic sur Envoyer
+            # au lieu du bouton micro) : on n'envoie pas le texte actuel du
+            # champ (vide ou périmé), on arrête l'enregistrement et on
+            # enchaîne transcription + envoi auto, comme en mode PTT.
+            _mic_stop(auto_send=True)
+            return
         text = (ai_input_field.value or "").strip()
         if not text and not ai_pending_images and not ai_pending_files:
             return
@@ -4929,6 +5040,17 @@ def main(page: ft.Page):
     ai_input_field.on_submit = _ai_submit
     ai_send_button = ft.IconButton(ft.Icons.SEND, icon_color=BLUE,
                                    tooltip="Envoyer", on_click=_ai_submit)
+
+    def _ai_vasy(event=None):
+        if ai_streaming["value"]:
+            return
+        _history_add("ai", "vas-y")
+        _send_ai_message("vas-y")
+
+    ai_vasy_button = ft.IconButton(
+        ft.Icons.PLAY_CIRCLE_FILL, icon_color=GREEN,
+        tooltip="Vas-y (confirme et lance l'action en attente, sans taper de texte)",
+        on_click=_ai_vasy)
     ai_stop_button = ft.IconButton(ft.Icons.STOP_CIRCLE, icon_color=RED,
                                    tooltip="Arrêter", visible=False, on_click=_ai_stop)
     ai_mic_button = ft.IconButton(
@@ -5004,8 +5126,8 @@ def main(page: ft.Page):
         ai_progress_bar,
         ft.Container(content=ai_attach_row, padding=ft.Padding(8, 4, 8, 0)),
         ft.Container(
-            content=ft.Row([ai_input_field, ai_mic_button, ai_send_button,
-                            ai_stop_button], spacing=4),
+            content=ft.Row([ai_input_field, ai_vasy_button, ai_mic_button,
+                            ai_send_button, ai_stop_button], spacing=4),
             padding=ft.Padding(8, 4, 8, 4)),
         ft.Container(content=ai_status_text, padding=ft.Padding(8, 0, 8, 6)),
     ], expand=True, spacing=0)
@@ -5828,21 +5950,30 @@ def main(page: ft.Page):
         # (fichier sur lequel on a cliqué).
         imgs = [p for p in paths
                 if os.path.splitext(p)[1].lower() in CONSTANTS.IMAGE_EXTS]
-        if not imgs:
+        pdfs = [p for p in paths
+                if os.path.splitext(p)[1].lower() == ".pdf"]
+        if not imgs and not pdfs:
             _log_to_terminal("[ATTENTION] Aucune image à imprimer", ORANGE)
             return
         try:
             system = platform.system()
             if system == "Darwin":
-                subprocess.call(["open"] + imgs)
+                subprocess.call(["open"] + imgs + pdfs)
             elif system == "Windows":
                 for p in imgs:
                     os.startfile(p, "print")
+                for p in pdfs:
+                    # Le verrou "print" ouvre l'appli d'impression PHOTO de
+                    # Windows, qui ne sait pas gérer un PDF (retour user) —
+                    # un simple "open" lance l'appli PDF par défaut (souvent
+                    # le navigateur), depuis laquelle imprimer normalement.
+                    os.startfile(p)
             else:
-                for p in imgs:
+                for p in imgs + pdfs:
                     subprocess.Popen(["xdg-open", p])
-            _log_to_terminal(f"[OK] Impression lancée pour {len(imgs)} image(s)",
-                             GREEN)
+            _log_to_terminal(
+                f"[OK] Impression lancée pour {len(imgs) + len(pdfs)} fichier(s)",
+                GREEN)
         except Exception as exc:
             _log_to_terminal(f"[ERREUR] Impression : {exc}", RED)
             return
