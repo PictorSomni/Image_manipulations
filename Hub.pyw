@@ -6235,6 +6235,45 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
+    def _launch_virage(event=None):
+        # Un bouton par préréglage (CONSTANTS.VIRAGE_PRESETS) plutôt qu'un
+        # color picker RGB/HSL (retour user : simple clic pour comparer,
+        # ajuster une teinte se fait en éditant CONSTANTS.py au besoin).
+        def _pick(preset_name):
+            def _run(e):
+                dlg.open = False
+                page.update()
+                _launch_tool("Virage.py",
+                            extra_env={"VIRAGE_PRESET": preset_name})
+            return _run
+
+        buttons = [
+            ft.ElevatedButton(name, on_click=_pick(name), width=280)
+            for name in CONSTANTS.VIRAGE_PRESETS
+        ]
+
+        def _cancel(e):
+            dlg.open = False
+            page.update()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Virage — préréglage", size=CONSTANTS.TEXT_SM,
+                         color=WHITE),
+            content=ft.Column(
+                [ft.Text("Chaque clic lance le préréglage sur la sélection "
+                         "(ou tout le dossier) — les résultats s'accumulent "
+                         "dans VIRAGE/ pour comparer. Préréglages modifiables "
+                         "dans CONSTANTS.py (section 12.7).",
+                         size=CONSTANTS.TEXT_SM, color=LIGHT_GREY, width=280),
+                 *buttons],
+                spacing=8, tight=True, scroll=ft.ScrollMode.AUTO,
+                width=300, height=64 + 52 * len(buttons)),
+            actions=[ft.TextButton("Fermer", on_click=_cancel)],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
     def _launch_debruiter(event=None):
         C = CONSTANTS
         f_h = ft.TextField(
@@ -6717,6 +6756,8 @@ def main(page: ft.Page):
              _launch_grain_pellicule),
             ("N&B", ft.Icons.MONOCHROME_PHOTOS_OUTLINED, VIOLET,
              lambda e: _launch_tool("N&B.py")),
+            ("Virage (sépia, jauni...)", ft.Icons.FILTER_VINTAGE_OUTLINED,
+             VIOLET, _launch_virage),
             ("Améliorer netteté", ft.Icons.AUTO_GRAPH, VIOLET,
              lambda e: _launch_tool("Améliorer netteté.py")),
             ("Débruiter", ft.Icons.BLUR_ON, VIOLET, _launch_debruiter),

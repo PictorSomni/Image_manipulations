@@ -857,6 +857,27 @@ CA_STRENGTH    = 0.04   # % de la diagonale de l'image
 CA_AXIAL_RATIO = 0.64  # part de la composante axiale (0 = purement radial, 1 = égal au radial)
 
 
+# ── 12.7  Virage / teinte (Virage.py) ────────────────────────────────────────
+# Vieilles photos scannées : le jaunissement d'origine varie d'un scan à
+# l'autre — Virage.py repart d'un noir et blanc pur puis colorise en HSL à
+# teinte/saturation fixes (la luminosité reste celle de chaque pixel du N&B),
+# exactement comme "Teinte et saturation > Coloriser" dans Photoshop/
+# Affinity. Un bouton est généré dans Hub pour chaque entrée de ce
+# dictionnaire : ajouter/modifier un préréglage ici suffit, rien à changer
+# côté interface.
+# Chaque valeur : (teinte en degrés 0-360, saturation en % 0-100).
+# Repères de teinte : ~30-50° = sépia/jauni (brun-jaune), ~90-110° = vert,
+# ~200-220° = bleu (cyanotype).
+
+VIRAGE_PRESETS = {
+    "SEPIA":       (25, 25),   # retour user : réglage Photoshop/Affinity habituel
+    "JAUNI": (45, 15),   # plus délavé, moins brun que le sépia
+    "N&B ANCIEN":          (150, 4),
+    "N&B":            (0, 0),
+}
+VIRAGE_DEFAULT_PRESET = "SEPIA"
+
+
 # ==============================================================================
 # 13. WAND / IMAGEMAGICK (Conversion JPG.py, thumb_cache.py)
 # ==============================================================================
