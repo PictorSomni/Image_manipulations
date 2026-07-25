@@ -1561,11 +1561,12 @@ async def main(page: ft.Page) -> None:
     ep_status_lbl = ft.Text("", size=11, color=LIGHT_GREY)
     expand_progress = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
 
-    # Qualité Gemini pour l'extension : le canevas complet (photo + marge)
-    # profite du max — Gemini plafonne de toute façon vers 4K, et la marge
-    # est ensuite sur-échantillonnée par le modèle d'upscale sélectionné.
+    # Qualité Gemini pour l'extension : la marge est de toute façon
+    # sur-échantillonnée par le modèle d'upscale sélectionné ensuite —
+    # 1K par défaut (le max coûte plus cher/lent pour un gain repris par
+    # l'upscale local), à monter au cas par cas si besoin.
     expand_quality_dropdown = ft.Dropdown(
-        value="4K",
+        value="1K",
         options=[ft.dropdown.Option(q) for q in ("1K", "2K", "4K")],
         label="Qualité",
         text_size=11, dense=True, color=WHITE, bgcolor=GREY,
@@ -1573,11 +1574,28 @@ async def main(page: ft.Page) -> None:
         width=100,
     )
 
+    # Consigne optionnelle envoyée à Gemini pour l'extension — vide =
+    # consigne générique auto-générée par `ai_ops.run_outpaint` (continuer
+    # le style/l'éclairage/les couleurs). Utile pour un fond à motif
+    # structuré (ex. guirlande de ballons) où Gemini a besoin d'être guidé
+    # explicitement pour ne pas décaler le motif (retour user : aucune
+    # largeur de fondu ne rattrape un motif mal aligné, contrairement à un
+    # simple écart de couleur).
+    expand_prompt_field = ft.TextField(
+        label="Consigne (optionnel)",
+        hint_text="Ex. : continue exactement la guirlande de ballons, même taille et espacement",
+        text_size=11, dense=True, color=WHITE, bgcolor=GREY,
+        border_color=LIGHT_GREY, multiline=True, min_lines=2, max_lines=3,
+    )
+
     # Slider de fondu du raccord extension/photo d'origine, visible
     # seulement après une extension — même principe que feather_slider
-    # (retouche) : ajustable après coup, sans rappeler Gemini.
+    # (retouche) : ajustable après coup, sans rappeler Gemini. Fraction de
+    # la largeur RÉELLEMENT AJOUTÉE (cf. composite_outpaint), pas de la
+    # bande de contexte envoyée à Gemini (bien plus large) : ancré sur le
+    # vrai bord photo/marge, pas sur celle du contexte.
     expand_feather_slider = ft.Slider(
-        min=0, max=0.1, divisions=40,
+        min=0, max=1, divisions=40,
         value=CONSTANTS.AI_EXPAND_FEATHER_RATIO,
         label="{value}", active_color=BLUE,
     )
@@ -1825,8 +1843,9 @@ async def main(page: ft.Page) -> None:
             try:
                 result = ai_ops.run_outpaint(
                     img, (top, bot, left, right),
+                    prompt=(expand_prompt_field.value.strip() or None),
                     upscale_model=(model_dropdown.value or None),
-                    resolution=(expand_quality_dropdown.value or "4K"),
+                    resolution=(expand_quality_dropdown.value or "1K"),
                 )
                 return (result, "")
             except RuntimeError as ex:
@@ -1911,6 +1930,7 @@ async def main(page: ft.Page) -> None:
                     spacing=24,
                 ),
                 expand_quality_dropdown,
+                expand_prompt_field,
                 ep_status_lbl,
             ],
             spacing=10,

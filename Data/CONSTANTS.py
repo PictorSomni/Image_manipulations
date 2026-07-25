@@ -583,10 +583,17 @@ AI_RETOUCH_FEATHER_MIN   = 12      # rayon minimum en px
 
 # Même principe pour le recollage de l'extension de cadre (Étendre l'image /
 # outpainting) : fondu au raccord entre la photo d'origine (jamais régénérée)
-# et la marge générée par Gemini. Ratio bien plus petit que la retouche —
-# l'image d'origine entière sert de référence (pas juste une sélection), un
-# grand fondu diluerait donc une portion bien plus large de détail natif.
-AI_EXPAND_FEATHER_RATIO = 0.01     # ~1 % de la plus petite dimension de la photo
+# et la marge générée par Gemini. Le fondu est ANCRÉ sur le vrai bord de la
+# photo (jonction photo/marge), PAS sur la frontière de la bande de contexte
+# envoyée à Gemini (AI_EXPAND_CONTEXT_RATIO, bien plus profonde) : ancrer là
+# mélangerait la vraie photo avec la propre reproduction de Gemini de cette
+# même zone (jamais identique au pixel près), ce qui expose un dédoublement
+# sur les motifs structurés (ballons, texture répétitive) qu'aucune largeur
+# de flou ne corrige, seulement déplace (retour user : changer le slider ne
+# changeait rien à la ligne visible). Exprimé en fraction de la largeur
+# RÉELLEMENT AJOUTÉE (px de marge de ce côté) — déjà proportionnel à
+# l'ampleur de l'extension, pas besoin de recalculer à la main.
+AI_EXPAND_FEATHER_RATIO = 0.4      # ~40 % de la largeur de marge ajoutée
 AI_EXPAND_FEATHER_MIN   = 4        # rayon minimum en px
 
 # Profondeur de contexte envoyée à Gemini pour l'extension de cadre,
@@ -597,9 +604,13 @@ AI_EXPAND_FEATHER_MIN   = 4        # rayon minimum en px
 # teinte compte le plus (retour user : couleurs pas respectées après
 # extension). Exprimée en fraction de la dimension côté bord étendu
 # (pas un nombre de px fixe : sinon trop généreux sur une petite image,
-# insuffisant sur une énorme).
-AI_EXPAND_CONTEXT_RATIO   = 0.15    # ~15 % de la dimension étendue gardée en contexte
-AI_EXPAND_CONTEXT_MIN_PX  = 200     # plancher en px
+# insuffisant sur une énorme). Remonté de 0.15 à 0.30 (retour user :
+# 15 % ne donnait pas assez de matière à Gemini sur un arrière-plan
+# chargé — la marge générée n'avait plus rien à voir avec la vraie scène
+# et créait une ligne de raccord visible même fondu à fond). Modifiable
+# ici directement si besoin de retoucher au cas par cas.
+AI_EXPAND_CONTEXT_RATIO   = 0.30    # ~30 % de la dimension étendue gardée en contexte
+AI_EXPAND_CONTEXT_MIN_PX  = 300     # plancher en px
 
 # Consigne ajoutée automatiquement à chaque retouche IA (inpainting), pour que
 # Gemini ne modifie que ce qui est demandé et préserve le reste de la zone.

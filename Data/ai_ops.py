@@ -246,24 +246,45 @@ def composite_outpaint(gemini_canvas: Image.Image, img_rgb: Image.Image,
     réseau) — rappelable à volonté depuis un slider, comme
     `Augmentation IA.py::_composite_retouch` pour la retouche.
 
-    Le masque de fondu est dimensionné à `img_rgb` (pas au canevas entier)
-    avec le rectangle blanc RENTRÉ de `feather` px avant le flou — la
-    transition reste donc entièrement À L'INTÉRIEUR de la photo d'origine.
-    Un masque dessiné à pleine taille avec un fondu symétrique déborderait
-    dans la marge, où le côté « photo d'origine » du mélange n'a pas de
-    pixels valides (fond noir par défaut) : ligne noire marquée au raccord,
-    quel que soit le fondu choisi (retour user).
+    Le fondu est ancré sur le VRAI bord de la photo (jonction photo/marge
+    générée), inséré uniquement sur le(s) côté(s) effectivement étendu(s)
+    — pas sur la frontière de la bande de contexte envoyée à Gemini (plus
+    profonde, cf. `run_outpaint`/`AI_EXPAND_CONTEXT_RATIO`) : ancrer le
+    fondu là-bas mélange la vraie photo avec la propre reproduction de
+    Gemini de cette même zone, jamais identique au pixel près — un motif
+    structuré (ballons, texture répétitive) y crée un dédoublement visible
+    qu'aucune largeur de flou ne corrige, seulement déplace (retour user :
+    changer le slider ne change rien à la ligne visible). `feather_ratio`
+    est une fraction de la largeur RÉELLEMENT AJOUTÉE (`margins_px`), donc
+    déjà proportionnel à l'ampleur de l'extension sans réglage manuel.
     """
     top, bot, left, right = margins_px
     iw, ih = img_rgb.size
 
-    feather = max(CONSTANTS.AI_EXPAND_FEATHER_MIN,
-                  int(min(iw, ih) * feather_ratio))
-    feather = min(feather, min(iw, ih) // 2)
-    mask = Image.new("L", (iw, ih), 0)
-    ImageDraw.Draw(mask).rectangle(
-        (feather, feather, iw - feather, ih - feather), fill=255)
-    mask = mask.filter(ImageFilter.GaussianBlur(feather))
+    mask = Image.new("L", (iw, ih), 255)
+    draw = ImageDraw.Draw(mask)
+    max_feather = CONSTANTS.AI_EXPAND_FEATHER_MIN
+
+    def _feather_for(size: int) -> int:
+        return min(size, max(CONSTANTS.AI_EXPAND_FEATHER_MIN, round(feather_ratio * size)))
+
+    if top > 0:
+        f = _feather_for(top)
+        draw.rectangle((0, 0, iw, f), fill=0)
+        max_feather = max(max_feather, f)
+    if bot > 0:
+        f = _feather_for(bot)
+        draw.rectangle((0, ih - f, iw, ih), fill=0)
+        max_feather = max(max_feather, f)
+    if left > 0:
+        f = _feather_for(left)
+        draw.rectangle((0, 0, f, ih), fill=0)
+        max_feather = max(max_feather, f)
+    if right > 0:
+        f = _feather_for(right)
+        draw.rectangle((iw - f, 0, iw, ih), fill=0)
+        max_feather = max(max_feather, f)
+    mask = mask.filter(ImageFilter.GaussianBlur(max_feather))
 
     result = gemini_canvas.copy()
     result.paste(img_rgb, (left, top), mask)

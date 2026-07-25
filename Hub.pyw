@@ -356,6 +356,22 @@ def main(page: ft.Page):
     def _resume_kb(event=None):
         _kb_suspend["count"] = max(0, _kb_suspend["count"] - 1)
 
+    # Repère quel champ de recherche a le focus (cf. _focused_input plus
+    # bas, même principe) pour qu'Échap puisse l'atteindre malgré
+    # _kb_suspend — un champ recherche suspend les raccourcis globaux tant
+    # qu'il a le focus, Échap doit donc être vérifié AVANT ce garde-fou
+    # dans _on_global_key plutôt que d'ajouter un handler par champ (Flet
+    # 0.85 n'expose pas d'event clavier par contrôle, cf. plus bas).
+    def _focus_search(name):
+        def _handler(event=None):
+            _suspend_kb(event)
+            _focused_input["name"] = name
+        return _handler
+
+    def _blur_search(event=None):
+        _resume_kb(event)
+        _focused_input["name"] = None
+
     # Historique des saisies façon shell (Terminal, chat IA) : Flèche haut
     # rappelle les entrées précédemment soumises, Flèche bas revient vers
     # les plus récentes puis vers un champ vide. `_focused_input["name"]`
@@ -1864,12 +1880,13 @@ def main(page: ft.Page):
     # le padding/prefix.
     search_field = ft.TextField(
         hint_text="Rechercher…", on_change=_on_search_change,
+        on_submit=_clear_search,
         height=45, bgcolor=DARK, border_color=BLUE,
         color=WHITE, text_size=CONSTANTS.TEXT_SM,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH,
         expand=True,
-        on_focus=_suspend_kb, on_blur=_resume_kb,
+        on_focus=_focus_search("files_search"), on_blur=_blur_search,
     )
     search_close_btn = ft.IconButton(
         ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
@@ -5413,11 +5430,12 @@ def main(page: ft.Page):
     liste_search_field = ft.TextField(
         hint_text="Rechercher dans toutes les colonnes…",
         on_change=lambda e: _liste_set_search(e.control.value),
+        on_submit=_liste_clear_search,
         height=45, bgcolor=DARK, border_color=BLUE,
         color=WHITE, text_size=CONSTANTS.TEXT_SM,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH, expand=True,
-        on_focus=_suspend_kb, on_blur=_resume_kb,
+        on_focus=_focus_search("liste_search"), on_blur=_blur_search,
     )
     liste_search_close_btn = ft.IconButton(
         ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
@@ -7729,6 +7747,21 @@ def main(page: ft.Page):
 
     def _on_global_key(event):
         ctrl = event.ctrl or event.meta
+        # Échap efface la recherche active de la surface courante, QUE le
+        # champ ait le focus ou non : l'usage normal est de chercher un
+        # fichier puis de cliquer dessus pour le sélectionner, ce qui fait
+        # perdre le focus du champ (retour user : Échap ne faisait plus
+        # rien une fois la sélection commencée). Vérifié avant le
+        # garde-fou _kb_suspend plus bas (qui ne s'applique qu'aux
+        # raccourcis Ctrl+…/Suppr, pas à celui-ci) et avant tout dialogue
+        # ouvert, pour ne pas voler l'Échap qui lui est destiné.
+        if not ctrl and event.key == "Escape" and not _dialog_open():
+            if state["surface"] == "files" and state.get("search"):
+                _clear_search()
+                return
+            if state["surface"] == "liste" and liste_search["value"]:
+                _liste_clear_search()
+                return
         if ctrl and event.shift and event.key in ("Arrow Up", "ArrowUp"):
             _toggle_terminal_fullscreen()
             return

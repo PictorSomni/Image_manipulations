@@ -4391,8 +4391,21 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
                 # structuré de l'API) — un simple rappel dans le texte du prompt
                 # est un vœu pieux que Gemini ignore silencieusement (retombe
                 # sur 1K, cf. retour user : 4K demandé en texte -> qualité 1K).
+                #
+                # aspect_ratio n'accepte que 8 valeurs fixes : imposer un ratio
+                # hors de cette liste en mode édition (image source fournie)
+                # force Gemini à recadrer le résultat pour coller au ratio
+                # arrondi, ce qui décale le contenu par rapport au canevas
+                # envoyé (retour user : marge d'outpainting décalée vers la
+                # droite) — en édition, on laisse Gemini garder le cadrage de
+                # l'image source et on ne pilote que la résolution.
                 _cfg_kwargs: dict = {"response_modalities": ["TEXT", "IMAGE"]}
-                if aspect_ratio != "1:1" or resolution != "1K":
+                if input_image_bytes:
+                    if resolution != "1K":
+                        _cfg_kwargs["image_config"] = _gtypes_img.ImageConfig(
+                            image_size=resolution,
+                        )
+                elif aspect_ratio != "1:1" or resolution != "1K":
                     _cfg_kwargs["image_config"] = _gtypes_img.ImageConfig(
                         aspect_ratio=_gemini_nearest_aspect_ratio(aspect_ratio),
                         image_size=resolution,
