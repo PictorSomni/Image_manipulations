@@ -45,10 +45,14 @@ def list_pth_models() -> list[str]:
 
 def run_inpaint(image: Image.Image, rect: tuple[int, int, int, int],
                  prompt: str, *, feather_ratio: float | None = None,
-                 timeout: float = 120.0) -> Image.Image:
+                 resolution: str = "1K", timeout: float = 120.0) -> Image.Image:
     """Retouche générative Gemini sur la zone `rect` (x1, y1, x2, y2) de
     `image`, réintégrée avec un fondu de bords (feathering). Reprend
     `Augmentation IA.py::on_send_gemini` + `_composite_retouch`.
+
+    `resolution` ("1K"/"2K"/"4K") : une petite zone retouchée n'a pas
+    besoin de la même qualité qu'une pleine image (coût/temps Gemini) —
+    à choisir selon la taille de `rect` et l'usage (aperçu vs impression).
     """
     x1, y1, x2, y2 = rect
     sel_w, sel_h = x2 - x1, y2 - y1
@@ -58,7 +62,7 @@ def run_inpaint(image: Image.Image, rect: tuple[int, int, int, int],
     buf = io.BytesIO()
     crop.save(buf, format="JPEG", quality=95)
     text_resp, image_bytes = _gemini_generate_image(
-        full_prompt, input_image_bytes=buf.getvalue())
+        full_prompt, input_image_bytes=buf.getvalue(), resolution=resolution)
     if image_bytes is None:
         raise RuntimeError(text_resp or "Gemini n'a renvoyé aucune image.")
 
@@ -81,11 +85,33 @@ def run_inpaint(image: Image.Image, rect: tuple[int, int, int, int],
 
 
 def run_outpaint(image: Image.Image, margins_px: tuple[int, int, int, int],
-                  prompt: str | None = None, *, timeout: float = 300.0
-                  ) -> Image.Image:
+                  prompt: str | None = None, *, upscale_model: str | None = None,
+                  resolution: str = "4K", progress_cb=None, timeout: float = 300.0
+                  ) -> tuple[Image.Image, Image.Image]:
     """Extension de cadre (outpainting) via Gemini. `margins_px` =
     (haut, bas, gauche, droite). Reprend `Augmentation IA.py::_do_expand` :
     edge-padding (répétition du pixel de bord) + remplissage Gemini.
+
+    Priorité qualité impression : Gemini plafonne sa sortie (~4K) quel que
+    soit le canevas envoyé ; la marge générée est donc portée à la taille
+    cible via un modèle de sur-échantillonnage IA (`upscale_model`, cf.
+    `list_pth_models`/`run_upscale`) plutôt qu'un simple redimensionnement.
+
+    Fidélité des couleurs : quand un seul côté est étendu (pas de coin à
+    combler), on ne montre à Gemini qu'une bande de contexte proche du
+    bord (cf. `CONSTANTS.AI_EXPAND_CONTEXT_RATIO`) plutôt que la photo
+    entière — celle-ci est de toute façon rabotée à ~4K avant l'envoi
+    (thumbnail côté API), ce qui dilue les couleurs/textures près du bord
+    sur les photos de plusieurs milliers de px, pile là où la continuité
+    de teinte compte le plus (retour user : teintes pas respectées après
+    extension). Avec 2+ côtés étendus (coins à combler), retombe sur la
+    photo entière comme avant.
+
+    Retourne `(gemini_canvas, img_rgb)` — le canevas généré (déjà à la
+    taille cible new_w×new_h) et l'image d'origine RGB, SANS recollage :
+    `composite_outpaint` fait ce dernier collage (photo d'origine au pixel
+    près + fondu réglable) séparément, pour permettre de rejouer le fondu
+    (slider) sans refaire l'appel Gemini.
     """
     import numpy as np
 
@@ -93,26 +119,52 @@ def run_outpaint(image: Image.Image, margins_px: tuple[int, int, int, int],
     img_rgb = image.convert("RGB")
     iw, ih = img_rgb.size
     new_w, new_h = iw + left + right, ih + top + bot
-    orig_np = np.array(img_rgb, dtype=np.uint8)
 
-    canvas_np = np.zeros((new_h, new_w, 3), dtype=np.uint8)
-    canvas_np[top:top + ih, left:left + iw] = orig_np
+    active_sides = sum(1 for m in margins_px if m > 0)
+    single_side = active_sides == 1
+
+    if single_side:
+        def _depth(dim):
+            return min(dim, max(CONSTANTS.AI_EXPAND_CONTEXT_MIN_PX,
+                                round(dim * CONSTANTS.AI_EXPAND_CONTEXT_RATIO)))
+        if left > 0:
+            d = _depth(iw)
+            crop_box = (0, 0, d, ih)
+        elif right > 0:
+            d = _depth(iw)
+            crop_box = (iw - d, 0, iw, ih)
+        elif top > 0:
+            d = _depth(ih)
+            crop_box = (0, 0, iw, d)
+        else:  # bot > 0
+            d = _depth(ih)
+            crop_box = (0, ih - d, iw, ih)
+        context_img = img_rgb.crop(crop_box)
+    else:
+        context_img = img_rgb
+
+    cw, ch = context_img.size
+    ctx_new_w, ctx_new_h = cw + left + right, ch + top + bot
+    ctx_np = np.array(context_img, dtype=np.uint8)
+
+    canvas_np = np.zeros((ctx_new_h, ctx_new_w, 3), dtype=np.uint8)
+    canvas_np[top:top + ch, left:left + cw] = ctx_np
     if top > 0:
-        canvas_np[:top, left:left + iw] = orig_np[0:1]
+        canvas_np[:top, left:left + cw] = ctx_np[0:1]
     if bot > 0:
-        canvas_np[top + ih:, left:left + iw] = orig_np[-1:]
+        canvas_np[top + ch:, left:left + cw] = ctx_np[-1:]
     if left > 0:
-        canvas_np[top:top + ih, :left] = orig_np[:, 0:1]
+        canvas_np[top:top + ch, :left] = ctx_np[:, 0:1]
     if right > 0:
-        canvas_np[top:top + ih, left + iw:] = orig_np[:, -1:]
+        canvas_np[top:top + ch, left + cw:] = ctx_np[:, -1:]
     if top > 0 and left > 0:
-        canvas_np[:top, :left] = orig_np[0, 0]
+        canvas_np[:top, :left] = ctx_np[0, 0]
     if top > 0 and right > 0:
-        canvas_np[:top, left + iw:] = orig_np[0, -1]
+        canvas_np[:top, left + cw:] = ctx_np[0, -1]
     if bot > 0 and left > 0:
-        canvas_np[top + ih:, :left] = orig_np[-1, 0]
+        canvas_np[top + ch:, :left] = ctx_np[-1, 0]
     if bot > 0 and right > 0:
-        canvas_np[top + ih:, left + iw:] = orig_np[-1, -1]
+        canvas_np[top + ch:, left + cw:] = ctx_np[-1, -1]
 
     sides = ", ".join(filter(None, [
         f"haut {top} px" if top else "",
@@ -121,23 +173,101 @@ def run_outpaint(image: Image.Image, margins_px: tuple[int, int, int, int],
         f"droite {right} px" if right else "",
     ]))
     full_prompt = prompt or (
-        f"Cette image ({new_w}×{new_h} px) montre une photo centrale "
-        f"({iw}×{ih} px) entourée de zones remplies avec les pixels de bord "
+        f"Cette image ({ctx_new_w}×{ctx_new_h} px) montre un extrait de photo "
+        f"({cw}×{ch} px) entouré de zones remplies avec les pixels de bord "
         f"répétés : {sides}. Ces zones répètent simplement la couleur du "
         "bord de la photo. Remplace-les par une extension naturelle et "
         "cohérente de la scène en continuant le style, l'éclairage, les "
-        "couleurs et les textures visibles aux bords de la photo centrale. "
+        "couleurs et les textures visibles aux bords de l'extrait fourni. "
         "Ne modifie absolument pas la zone centrale.")
 
     buf = io.BytesIO()
     Image.fromarray(canvas_np).save(buf, format="JPEG", quality=92)
     text_resp, image_bytes = _gemini_generate_image(
-        full_prompt, input_image_bytes=buf.getvalue())
+        full_prompt, input_image_bytes=buf.getvalue(),
+        aspect_ratio=f"{ctx_new_w}:{ctx_new_h}", resolution=resolution)
     if not image_bytes:
         raise RuntimeError(text_resp or "Gemini n'a renvoyé aucune image.")
 
-    return Image.open(io.BytesIO(image_bytes)).convert("RGB").resize(
-        (new_w, new_h), Image.Resampling.LANCZOS)
+    gemini_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+
+    # Gemini plafonne sa sortie (~4K) : au-delà, un modèle de
+    # sur-échantillonnage IA préserve bien plus de détail qu'un simple
+    # redimensionnement pour la marge nouvellement générée.
+    if upscale_model and (gemini_img.width < ctx_new_w or gemini_img.height < ctx_new_h):
+        gemini_img = run_upscale(gemini_img, upscale_model, progress_cb=progress_cb)
+
+    if gemini_img.size != (ctx_new_w, ctx_new_h):
+        gemini_img = gemini_img.resize((ctx_new_w, ctx_new_h), Image.Resampling.LANCZOS)
+
+    if not single_side:
+        return gemini_img, img_rgb
+
+    # On a généré sur le contexte réduit, pas la photo entière : extraire
+    # la marge neuve et la recoller dans un canevas plein format (le
+    # reste, c'est la photo d'origine — déjà en pleine résolution, aucune
+    # raison de repasser par Gemini pour ça). On déborde de toute la
+    # bande de contexte (`d`, la version régénérée par Gemini, pas la
+    # vraie photo) pour que le fondu réglable (`composite_outpaint`) ait
+    # de quoi recouvrir sur toute sa plage un éventuel artefact pile à la
+    # jonction contexte/marge côté Gemini (retour user : sans ce
+    # débordement, cette zone valait exactement la vraie photo des deux
+    # côtés du fondu — mélanger une image avec elle-même ne change rien,
+    # quel que soit le réglage du slider). `img_rgb` est collé en
+    # PREMIER : la marge (avec son débordement) est collée APRÈS et gagne
+    # donc sur ce recouvrement ; `composite_outpaint` replace de toute
+    # façon la vraie photo par-dessus avec son propre fondu.
+    overlap = d
+    full_canvas = Image.new("RGB", (new_w, new_h))
+    full_canvas.paste(img_rgb, (left, top))
+    if left > 0:
+        strip = gemini_img.crop((0, 0, left + overlap, ctx_new_h))
+        full_canvas.paste(strip, (0, top))
+    elif right > 0:
+        strip = gemini_img.crop((ctx_new_w - right - overlap, 0, ctx_new_w, ctx_new_h))
+        full_canvas.paste(strip, (left + iw - overlap, top))
+    elif top > 0:
+        strip = gemini_img.crop((0, 0, ctx_new_w, top + overlap))
+        full_canvas.paste(strip, (left, 0))
+    else:  # bot > 0
+        strip = gemini_img.crop((0, ctx_new_h - bot - overlap, ctx_new_w, ctx_new_h))
+        full_canvas.paste(strip, (left, top + ih - overlap))
+
+    return full_canvas, img_rgb
+
+
+def composite_outpaint(gemini_canvas: Image.Image, img_rgb: Image.Image,
+                        margins_px: tuple[int, int, int, int],
+                        feather_ratio: float = CONSTANTS.AI_EXPAND_FEATHER_RATIO
+                        ) -> Image.Image:
+    """Recolle `img_rgb` (photo d'origine, jamais régénérée) sur
+    `gemini_canvas` (marge générée par `run_outpaint`) avec un fondu de
+    raccord réglable. Opération légère (paste + flou gaussien, aucun appel
+    réseau) — rappelable à volonté depuis un slider, comme
+    `Augmentation IA.py::_composite_retouch` pour la retouche.
+
+    Le masque de fondu est dimensionné à `img_rgb` (pas au canevas entier)
+    avec le rectangle blanc RENTRÉ de `feather` px avant le flou — la
+    transition reste donc entièrement À L'INTÉRIEUR de la photo d'origine.
+    Un masque dessiné à pleine taille avec un fondu symétrique déborderait
+    dans la marge, où le côté « photo d'origine » du mélange n'a pas de
+    pixels valides (fond noir par défaut) : ligne noire marquée au raccord,
+    quel que soit le fondu choisi (retour user).
+    """
+    top, bot, left, right = margins_px
+    iw, ih = img_rgb.size
+
+    feather = max(CONSTANTS.AI_EXPAND_FEATHER_MIN,
+                  int(min(iw, ih) * feather_ratio))
+    feather = min(feather, min(iw, ih) // 2)
+    mask = Image.new("L", (iw, ih), 0)
+    ImageDraw.Draw(mask).rectangle(
+        (feather, feather, iw - feather, ih - feather), fill=255)
+    mask = mask.filter(ImageFilter.GaussianBlur(feather))
+
+    result = gemini_canvas.copy()
+    result.paste(img_rgb, (left, top), mask)
+    return result
 
 
 def run_upscale(image: Image.Image, model_name: str,

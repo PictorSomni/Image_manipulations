@@ -576,8 +576,30 @@ SAM2_MASK_FEATHER_DIVISOR = 5
 # Adoucissement des bords lors du recollage d'une retouche Gemini (Retouche IA).
 # Le rayon vaut RATIO × plus petit côté de la sélection, borné à MIN px minimum.
 # Plus grand = raccord plus fondu (mais retouche plus diluée sur les bords).
-AI_RETOUCH_FEATHER_RATIO = 0.166   # ~1/6 de la plus petite dimension
+# Défaut abaissé (retour user : 0.166 mangeait toujours trop la retouche sur
+# les bords) — ajustable ensuite via feather_slider sans rappeler Gemini.
+AI_RETOUCH_FEATHER_RATIO = 0.05    # ~1/20 de la plus petite dimension
 AI_RETOUCH_FEATHER_MIN   = 12      # rayon minimum en px
+
+# Même principe pour le recollage de l'extension de cadre (Étendre l'image /
+# outpainting) : fondu au raccord entre la photo d'origine (jamais régénérée)
+# et la marge générée par Gemini. Ratio bien plus petit que la retouche —
+# l'image d'origine entière sert de référence (pas juste une sélection), un
+# grand fondu diluerait donc une portion bien plus large de détail natif.
+AI_EXPAND_FEATHER_RATIO = 0.01     # ~1 % de la plus petite dimension de la photo
+AI_EXPAND_FEATHER_MIN   = 4        # rayon minimum en px
+
+# Profondeur de contexte envoyée à Gemini pour l'extension de cadre,
+# quand un seul côté est étendu à la fois (pas de coin à combler).
+# Envoyer la photo ENTIÈRE + la marge dilue les couleurs/textures près du
+# bord dans le rabotage ~4K côté API (thumbnail avant envoi) sur les
+# photos de plusieurs milliers de px — exactement là où la continuité de
+# teinte compte le plus (retour user : couleurs pas respectées après
+# extension). Exprimée en fraction de la dimension côté bord étendu
+# (pas un nombre de px fixe : sinon trop généreux sur une petite image,
+# insuffisant sur une énorme).
+AI_EXPAND_CONTEXT_RATIO   = 0.15    # ~15 % de la dimension étendue gardée en contexte
+AI_EXPAND_CONTEXT_MIN_PX  = 200     # plancher en px
 
 # Consigne ajoutée automatiquement à chaque retouche IA (inpainting), pour que
 # Gemini ne modifie que ce qui est demandé et préserve le reste de la zone.

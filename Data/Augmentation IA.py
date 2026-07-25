@@ -335,6 +335,18 @@ async def main(page: ft.Page) -> None:
         spacing=0, visible=False,
     )
 
+    # Qualité Gemini pour la retouche : une petite zone (ex. 200 px) n'a
+    # pas besoin de 4K (coût/temps), une grande zone en profite (retour
+    # user : impression, la qualité prime dès que la zone est grande).
+    retouch_quality_dropdown = ft.Dropdown(
+        value="1K",
+        options=[ft.dropdown.Option(q) for q in ("1K", "2K", "4K")],
+        label="Qualité",
+        text_size=11, dense=True, color=WHITE, bgcolor=GREY,
+        border_color=LIGHT_GREY, content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        width=100,
+    )
+
     prompt_field = ft.TextField(
         label="Décrivez la retouche souhaitée",
         hint_text='ex : "Remplace le ciel par un coucher de soleil"',
@@ -1143,10 +1155,14 @@ async def main(page: ft.Page) -> None:
         )
         _prompt_history_add(prompt_text)
 
+        quality = retouch_quality_dropdown.value or "1K"
+
         def _do_gemini():
             buf = io.BytesIO()
             crop.save(buf, format="JPEG", quality=95)
-            return _gemini_generate_image(full_prompt, input_image_bytes=buf.getvalue())
+            return _gemini_generate_image(
+                full_prompt, input_image_bytes=buf.getvalue(),
+                resolution=quality)
 
         _elapsed = {"s": 0}
 
@@ -1229,7 +1245,11 @@ async def main(page: ft.Page) -> None:
         state["undo_img"] = None
         state["retouch_fit"]  = None   # cache obsolète après annulation
         state["retouch_mask"] = None
-        feather_row.visible  = False
+        state["expand_gemini_canvas"] = None   # idem pour l'extension
+        state["expand_orig_rgb"]      = None
+        state["expand_margins"]       = None
+        feather_row.visible        = False
+        expand_feather_row.visible = False
         undo_btn.disabled = True
         status_text.value = "Retouche annulée"
         _render_preview()
@@ -1541,6 +1561,31 @@ async def main(page: ft.Page) -> None:
     ep_status_lbl = ft.Text("", size=11, color=LIGHT_GREY)
     expand_progress = ft.ProgressBar(color=BLUE, bgcolor=GREY, visible=False)
 
+    # Qualité Gemini pour l'extension : le canevas complet (photo + marge)
+    # profite du max — Gemini plafonne de toute façon vers 4K, et la marge
+    # est ensuite sur-échantillonnée par le modèle d'upscale sélectionné.
+    expand_quality_dropdown = ft.Dropdown(
+        value="4K",
+        options=[ft.dropdown.Option(q) for q in ("1K", "2K", "4K")],
+        label="Qualité",
+        text_size=11, dense=True, color=WHITE, bgcolor=GREY,
+        border_color=LIGHT_GREY, content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        width=100,
+    )
+
+    # Slider de fondu du raccord extension/photo d'origine, visible
+    # seulement après une extension — même principe que feather_slider
+    # (retouche) : ajustable après coup, sans rappeler Gemini.
+    expand_feather_slider = ft.Slider(
+        min=0, max=0.1, divisions=40,
+        value=CONSTANTS.AI_EXPAND_FEATHER_RATIO,
+        label="{value}", active_color=BLUE,
+    )
+    expand_feather_row = ft.Column(
+        [ft.Text("Fondu du raccord", size=11, color=LIGHT_GREY), expand_feather_slider],
+        spacing=0, visible=False,
+    )
+
     def _ep_margins() -> tuple[int, int, int, int]:
         e = _ep
         return (
@@ -1681,6 +1726,67 @@ async def main(page: ft.Page) -> None:
         mouse_cursor=ft.MouseCursor.PRECISE,
     )
 
+    # Recollage réel (pleine résolution) du fondu extension/original —
+    # aucun appel réseau, juste `ai_ops.composite_outpaint` (paste + flou).
+    def _composite_expand(ratio: float) -> None:
+        gemini_canvas = state.get("expand_gemini_canvas")
+        orig_rgb       = state.get("expand_orig_rgb")
+        margins        = state.get("expand_margins")
+        if gemini_canvas is None or orig_rgb is None or margins is None:
+            return
+        state["work_img"] = ai_ops.composite_outpaint(
+            gemini_canvas, orig_rgb, margins, feather_ratio=ratio)
+        state["modified"] = True
+
+    # Aperçu live du fondu sur une base réduite (cf. _composite_retouch_
+    # preview) : les canevas d'extension sont souvent bien plus grands
+    # qu'une sélection de retouche, un recollage plein format à chaque
+    # tick du slider serait trop lent.
+    _expand_prev = {"gemini": None, "gemini_small": None, "orig_small": None,
+                    "margins_small": None}
+
+    def _prepare_expand_preview() -> None:
+        gemini_canvas = state.get("expand_gemini_canvas")
+        orig_rgb       = state.get("expand_orig_rgb")
+        margins        = state.get("expand_margins")
+        if gemini_canvas is None or orig_rgb is None or margins is None:
+            _expand_prev["gemini"] = None
+            return
+        gemini_small, scale = _flatten_reduced(gemini_canvas)
+        orig_small = orig_rgb.resize(
+            (max(1, round(orig_rgb.width * scale)),
+             max(1, round(orig_rgb.height * scale))),
+            Image.Resampling.BILINEAR)
+        top, bot, left, right = margins
+        margins_small = (round(top * scale), round(bot * scale),
+                         round(left * scale), round(right * scale))
+        _expand_prev.update(gemini=gemini_canvas, gemini_small=gemini_small,
+                            orig_small=orig_small, margins_small=margins_small)
+
+    def _composite_expand_preview(ratio: float) -> None:
+        if _expand_prev["gemini"] is not state.get("expand_gemini_canvas"):
+            _prepare_expand_preview()
+        gemini_small = _expand_prev["gemini_small"]
+        orig_small   = _expand_prev["orig_small"]
+        if gemini_small is None or orig_small is None:
+            return
+        shown = ai_ops.composite_outpaint(
+            gemini_small, orig_small, _expand_prev["margins_small"],
+            feather_ratio=ratio)
+        shown = image_ops.compensate_for_display(shown)
+        preview_img.src = f"data:image/jpeg;base64,{image_to_b64(shown)}"
+        preview_img.update()
+
+    def on_expand_feather_change(e) -> None:
+        _composite_expand_preview(expand_feather_slider.value)
+
+    def on_expand_feather_change_end(e) -> None:
+        _composite_expand(expand_feather_slider.value)
+        _render_preview()
+
+    expand_feather_slider.on_change     = on_expand_feather_change
+    expand_feather_slider.on_change_end = on_expand_feather_change_end
+
     expand_btn = ft.Button(
         "Étendre l'image…",
         icon=ft.Icons.PHOTO_SIZE_SELECT_LARGE,
@@ -1716,47 +1822,15 @@ async def main(page: ft.Page) -> None:
         page.update()
 
         def _do_expand():
-            import numpy as _np2
-            img_rgb = img.convert("RGB")
-            orig_np = _np2.array(img_rgb, dtype=_np2.uint8)
-
-            canvas_np = _np2.zeros((new_h, new_w, 3), dtype=_np2.uint8)
-            canvas_np[top:top + ih, left:left + iw] = orig_np
-            if top   > 0: canvas_np[:top,       left:left + iw] = orig_np[0:1]
-            if bot   > 0: canvas_np[top + ih:,  left:left + iw] = orig_np[-1:]
-            if left  > 0: canvas_np[top:top + ih, :left]        = orig_np[:, 0:1]
-            if right > 0: canvas_np[top:top + ih, left + iw:]   = orig_np[:, -1:]
-            if top  > 0 and left  > 0: canvas_np[:top,      :left]      = orig_np[0,  0]
-            if top  > 0 and right > 0: canvas_np[:top,      left + iw:] = orig_np[0,  -1]
-            if bot  > 0 and left  > 0: canvas_np[top + ih:, :left]      = orig_np[-1, 0]
-            if bot  > 0 and right > 0: canvas_np[top + ih:, left + iw:] = orig_np[-1, -1]
-
-            sides = ", ".join(filter(None, [
-                f"haut {top} px"     if top   else "",
-                f"bas {bot} px"      if bot   else "",
-                f"gauche {left} px"  if left  else "",
-                f"droite {right} px" if right else "",
-            ]))
-            prompt = (
-                f"Cette image ({new_w}×{new_h} px) montre une photo centrale "
-                f"({iw}×{ih} px) entourée de zones remplies avec les pixels de bord "
-                f"répétés : {sides}. Ces zones répètent simplement la couleur du bord "
-                "de la photo. Remplace-les par une extension naturelle et cohérente de "
-                "la scène en continuant le style, l'éclairage, les couleurs et les "
-                "textures visibles aux bords de la photo centrale. "
-                "Ne modifie absolument pas la zone centrale."
-            )
-            buf = io.BytesIO()
-            Image.fromarray(canvas_np).save(buf, format="JPEG", quality=92)
-            text_resp, img_bytes = _gemini_generate_image(
-                prompt, input_image_bytes=buf.getvalue()
-            )
-            if not img_bytes:
-                return (None, text_resp)
-
-            return (Image.open(io.BytesIO(img_bytes)).convert("RGB").resize(
-                (new_w, new_h), Image.Resampling.LANCZOS
-            ), text_resp)
+            try:
+                result = ai_ops.run_outpaint(
+                    img, (top, bot, left, right),
+                    upscale_model=(model_dropdown.value or None),
+                    resolution=(expand_quality_dropdown.value or "4K"),
+                )
+                return (result, "")
+            except RuntimeError as ex:
+                return (None, str(ex))
 
         _elapsed = {"s": 0}
 
@@ -1778,9 +1852,14 @@ async def main(page: ft.Page) -> None:
                 status_text.value = f"[Gemini] {text_resp or 'Aucune image reçue.'}"
                 return
 
+            gemini_canvas, orig_rgb = result
             state["undo_img"] = (state["work_img"] or state["orig_img"]).copy()
-            state["work_img"] = result
-            state["modified"] = True
+            state["expand_gemini_canvas"] = gemini_canvas
+            state["expand_orig_rgb"]      = orig_rgb
+            state["expand_margins"]       = (top, bot, left, right)
+            expand_feather_slider.value = CONSTANTS.AI_EXPAND_FEATHER_RATIO
+            expand_feather_row.visible  = True
+            _composite_expand(CONSTANTS.AI_EXPAND_FEATHER_RATIO)
             undo_btn.disabled  = False
             save_btn.disabled  = False
             status_text.value  = f"[OK] {iw}×{ih} → {new_w}×{new_h} px"
@@ -1831,6 +1910,7 @@ async def main(page: ft.Page) -> None:
                     ],
                     spacing=24,
                 ),
+                expand_quality_dropdown,
                 ep_status_lbl,
             ],
             spacing=10,
@@ -2327,7 +2407,8 @@ async def main(page: ft.Page) -> None:
         modal=True,
         title=ft.Text("Retouche IA (Gemini)"),
         content=ft.Column(
-            [sel_info, dilate_row, prompt_aids, prompt_field, progress_bar],
+            [sel_info, dilate_row, prompt_aids, prompt_field,
+             retouch_quality_dropdown, progress_bar],
             tight=True,
             spacing=10,
             width=420,
@@ -2364,6 +2445,7 @@ async def main(page: ft.Page) -> None:
             expand_btn,
             expand_progress,
             feather_row,
+            expand_feather_row,
             undo_btn,
             ft.Divider(color=GREY),
             ft.Text("Suppression de fond", size=12, color=LIGHT_GREY),

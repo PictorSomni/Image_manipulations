@@ -1553,9 +1553,18 @@ class PhotoCropper:
         if snapshot.get("crop_mode", "resolution") == "ratio":
             _fw = fmt_w_mm if is_portrait else fmt_h_mm
             _fh = fmt_h_mm if is_portrait else fmt_w_mm
-            _k = min(self.original_width / _fw, self.original_height / _fh)
-            target_w_px = max(1, math.floor(_fw * _k))
-            target_h_px = max(1, math.floor(_fh * _k))
+            if snapshot.get("label") == _CUSTOM_KEY:
+                # Taille manuelle en % : pourcentages réels des dimensions
+                # d'origine (100% = pleine largeur/hauteur), pas un ratio.
+                target_w_px = max(1, round(self.original_width * _fw / 100))
+                target_h_px = max(1, round(self.original_height * _fh / 100))
+            else:
+                _k = min(self.original_width / _fw, self.original_height / _fh)
+                target_w_px = max(1, math.floor(_fw * _k))
+                target_h_px = max(1, math.floor(_fh * _k))
+            _zoom = max(snapshot["scale"], 1.0)  # zoom -> moins de pixels source visibles
+            target_w_px = max(1, round(target_w_px / _zoom))
+            target_h_px = max(1, round(target_h_px / _zoom))
         elif is_portrait:
             target_w_px = mm_to_pixels(fmt_w_mm)
             target_h_px = mm_to_pixels(fmt_h_mm)
@@ -3616,10 +3625,19 @@ class PhotoCropper:
         if _crop_mode == 'ratio':
             _fw = format_width_mm if output_is_portrait else format_height_mm
             _fh = format_height_mm if output_is_portrait else format_width_mm
-            _k = min(job["original_width"] / _fw,
-                     job["original_height"] / _fh)
-            output_width_px = max(1, math.floor(_fw * _k))
-            output_height_px = max(1, math.floor(_fh * _k))
+            if job["format_label"] == _CUSTOM_KEY:
+                # Taille manuelle en % : pourcentages réels des dimensions
+                # d'origine (100% = pleine largeur/hauteur), pas un ratio.
+                output_width_px = max(1, round(job["original_width"] * _fw / 100))
+                output_height_px = max(1, round(job["original_height"] * _fh / 100))
+            else:
+                _k = min(job["original_width"] / _fw,
+                         job["original_height"] / _fh)
+                output_width_px = max(1, math.floor(_fw * _k))
+                output_height_px = max(1, math.floor(_fh * _k))
+            _zoom = max(job["scale"], 1.0)  # zoom -> moins de pixels source visibles
+            output_width_px = max(1, round(output_width_px / _zoom))
+            output_height_px = max(1, round(output_height_px / _zoom))
         elif _crop_mode == 'none':
             output_width_px = job["original_width"]
             output_height_px = job["original_height"]
@@ -3882,10 +3900,23 @@ class PhotoCropper:
                        else snapshot_height_mm)
                 _fh = (snapshot_height_mm if snapshot_is_portrait
                        else snapshot_width_mm)
-                _k = min(job["original_width"] / _fw,
-                         job["original_height"] / _fh)
-                snapshot_output_width_px = max(1, math.floor(_fw * _k))
-                snapshot_output_height_px = max(1, math.floor(_fh * _k))
+                if snapshot_format_label == _CUSTOM_KEY:
+                    # Taille manuelle en % : pourcentages réels des
+                    # dimensions d'origine, pas un ratio.
+                    snapshot_output_width_px = max(
+                        1, round(job["original_width"] * _fw / 100))
+                    snapshot_output_height_px = max(
+                        1, round(job["original_height"] * _fh / 100))
+                else:
+                    _k = min(job["original_width"] / _fw,
+                             job["original_height"] / _fh)
+                    snapshot_output_width_px = max(1, math.floor(_fw * _k))
+                    snapshot_output_height_px = max(1, math.floor(_fh * _k))
+                _zoom = max(snapshot["scale"], 1.0)  # zoom -> moins de pixels source visibles
+                snapshot_output_width_px = max(
+                    1, round(snapshot_output_width_px / _zoom))
+                snapshot_output_height_px = max(
+                    1, round(snapshot_output_height_px / _zoom))
                 snapshot_format_short_name = "Ratio"
             elif _snap_mode == "none":
                 snapshot_output_width_px = job["original_width"]

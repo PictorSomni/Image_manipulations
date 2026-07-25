@@ -4140,17 +4140,25 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
         yield ("token", f"[Erreur initialisation Gemini : {exc}]")
         return
 
-    # web_search et fetch_url sont remplacés par google_search natif :
-    # Gemini gère la recherche en interne sans émettre de function_call,
-    # donc aucun round de tool n'est consommé pour les recherches web.
+    # web_search est remplacé par google_search natif, fetch_url par
+    # url_context natif : Gemini gère recherche et lecture d'URL en
+    # interne sans émettre de function_call, donc aucun round de tool
+    # n'est consommé pour ça.
     _WEB_TOOL_NAMES = {"web_search", "fetch_url"}
     tools_sans_web = [
         tool for tool in (tools or [])
         if tool.get("function", {}).get("name") not in _WEB_TOOL_NAMES
     ]
     gemini_tool = _ollama_tools_to_gemini(tools_sans_web)
-    # Google Search natif toujours présent (remplace DuckDuckGo)
-    gemini_tools_list = [_gtypes.Tool(google_search=_gtypes.GoogleSearch())]
+    # Outils natifs Gemini, gérés côté serveur (aucun round de function_call
+    # consommé) : google_search (remplace DuckDuckGo), code_execution
+    # (bac à sable Python géré par Google), url_context (lecture native
+    # d'une URL en contexte, remplace fetch_url).
+    gemini_tools_list = [
+        _gtypes.Tool(google_search=_gtypes.GoogleSearch()),
+        _gtypes.Tool(code_execution=_gtypes.ToolCodeExecution()),
+        _gtypes.Tool(url_context=_gtypes.UrlContext()),
+    ]
     if gemini_tool is not None:
         gemini_tools_list.append(gemini_tool)
 
@@ -4230,6 +4238,19 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
                             tc_entry["thought_signature"] = _b64_mod.b64encode(
                                 sig).decode("ascii")
                         pending_tool_calls.append(tc_entry)
+                    # Code exécuté par l'outil natif code_execution (bac à
+                    # sable géré par Google) — sans ces deux branches, le
+                    # code et son résultat n'ont ni .text ni .function_call
+                    # et disparaissent silencieusement du flux affiché.
+                    elif part.executable_code is not None:
+                        _emitted_tokens = True
+                        lang = (part.executable_code.language or "python").lower()
+                        yield ("token",
+                              f"\n```{lang}\n{part.executable_code.code}\n```\n")
+                    elif part.code_execution_result is not None:
+                        _emitted_tokens = True
+                        yield ("token",
+                              f"\n```\n{part.code_execution_result.output}\n```\n")
                     # Token de texte
                     elif part.text:
                         _emitted_tokens = True
@@ -4270,6 +4291,29 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
                 break
 
 
+_GEMINI_SUPPORTED_ASPECT_RATIOS = {
+    "1:1": 1.0, "2:3": 2 / 3, "3:2": 3 / 2, "3:4": 3 / 4, "4:3": 4 / 3,
+    "9:16": 9 / 16, "16:9": 16 / 9, "21:9": 21 / 9,
+}
+
+
+def _gemini_nearest_aspect_ratio(ratio_str):
+    """Ramène un ratio quelconque (ex. calculé à partir d'un canevas
+    d'outpainting) au plus proche des 8 valeurs que `ImageConfig.aspect_ratio`
+    accepte réellement — un ratio hors énum est silencieusement ignoré par
+    l'API (retombe sur 1:1)."""
+    import math as _math_gar
+    if ratio_str in _GEMINI_SUPPORTED_ASPECT_RATIOS:
+        return ratio_str
+    try:
+        w_str, h_str = ratio_str.split(":")
+        target = float(w_str) / float(h_str)
+    except (ValueError, ZeroDivisionError):
+        return "1:1"
+    return min(_GEMINI_SUPPORTED_ASPECT_RATIOS,
+               key=lambda k: abs(_math_gar.log(_GEMINI_SUPPORTED_ASPECT_RATIOS[k] / target)))
+
+
 def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", resolution="1K"):
     """
     Génère ou modifie une image avec Nano Banana 2.
@@ -4277,8 +4321,13 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
 
     - prompt            : description textuelle de l'image souhaitée
     - input_image_bytes : bytes de l'image source pour édition (None = génération pure)
-    - aspect_ratio      : format de sortie, ex. "1:1", "16:9", "3:2" …
-    - resolution        : résolution : "512", "1K", "2K", "4K"
+    - aspect_ratio      : format de sortie, ex. "1:1", "16:9", "3:2" … (ramené au plus
+                          proche des 8 valeurs supportées si besoin, cf.
+                          `_gemini_nearest_aspect_ratio`)
+    - resolution        : résolution réelle demandée à l'API : "1K", "2K", "4K"
+                          (`ImageConfig.image_size` — sans ce paramètre structuré,
+                          Gemini génère silencieusement en 1K quel que soit le
+                          canevas envoyé)
 
     Retourne (text_response: str, image_bytes: bytes | None).
     """
@@ -4317,15 +4366,7 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
                 # Construire le contenu : [prompt texte, image source optionnelle]
                 # On évite d'envoyer response_format, qui peut provoquer l'erreur
                 # "Extra inputs are not permitted" selon la version du SDK/API.
-                _prompt_with_constraints = prompt
-                if aspect_ratio != "1:1" or resolution != "1K":
-                    _prompt_with_constraints += (
-                        "\n\nContraintes de sortie :"
-                        f" ratio {aspect_ratio}, taille {resolution}."
-                        " Respecte ces contraintes si possible."
-                    )
-
-                _contents = [_prompt_with_constraints]
+                _contents = [prompt]
                 if input_image_bytes:
                     try:
                         from PIL import Image as _PILImg, ImageOps as _PILOps
@@ -4346,7 +4387,16 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1", r
                         )
 
                 # Config minimale et robuste pour compatibilité multi-versions.
+                # image_config est le VRAI levier de résolution/ratio (paramètre
+                # structuré de l'API) — un simple rappel dans le texte du prompt
+                # est un vœu pieux que Gemini ignore silencieusement (retombe
+                # sur 1K, cf. retour user : 4K demandé en texte -> qualité 1K).
                 _cfg_kwargs: dict = {"response_modalities": ["TEXT", "IMAGE"]}
+                if aspect_ratio != "1:1" or resolution != "1K":
+                    _cfg_kwargs["image_config"] = _gtypes_img.ImageConfig(
+                        aspect_ratio=_gemini_nearest_aspect_ratio(aspect_ratio),
+                        image_size=resolution,
+                    )
 
                 _response = _client.models.generate_content(
                     model=_model,

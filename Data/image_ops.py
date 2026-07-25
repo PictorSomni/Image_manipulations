@@ -457,7 +457,7 @@ def compute_crop_with_canvas(image: Image.Image, target_w_px: int,
 
     output_image = image.transform(
         (target_w_px, target_h_px), Image.Transform.AFFINE, affine_coeffs,
-        resample=Image.Resampling.BICUBIC, fillcolor=(255, 255, 255, 0),
+        resample=Image.Resampling.LANCZOS, fillcolor=(255, 255, 255, 0),
     )
 
     if output_image.mode == "RGBA":
@@ -479,7 +479,7 @@ def compute_crop_with_canvas(image: Image.Image, target_w_px: int,
             if rembg_original is not None:
                 original_crop = rembg_original.convert("RGB").transform(
                     (target_w_px, target_h_px), Image.Transform.AFFINE,
-                    affine_coeffs, resample=Image.Resampling.BICUBIC,
+                    affine_coeffs, resample=Image.Resampling.LANCZOS,
                     fillcolor=(255, 255, 255),
                 )
                 blurred_background = original_crop.filter(

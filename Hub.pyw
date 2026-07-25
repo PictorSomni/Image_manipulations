@@ -3483,6 +3483,15 @@ def main(page: ft.Page):
                  if m.startswith(("gemini", "claude"))],
         text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK, border_color=GREY,
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=180)
+    # Qualité des images générées/éditées via generate_image/edit_image —
+    # 1K par défaut (coût/temps), à monter à 4K pour une image destinée à
+    # l'impression (cf. Data/ai_ops.py::run_outpaint pour le même principe).
+    ai_image_quality_dropdown = ft.Dropdown(
+        value="1K",
+        options=[ft.dropdown.Option(q) for q in ("1K", "2K", "4K")],
+        tooltip="Qualité des images générées/éditées par l'IA (1K/2K/4K)",
+        text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK, border_color=GREY,
+        content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=90)
     ai_status_text = ft.Text("", color=LIGHT_GREY, size=CONSTANTS.TEXT_SM, italic=True, max_lines=1,
                              overflow=ft.TextOverflow.ELLIPSIS, expand=True)
     ai_progress_bar = ft.ProgressBar(value=None, visible=False, color=BLUE, height=2)
@@ -3864,7 +3873,8 @@ def main(page: ft.Page):
         try:
             text, img_bytes = _gemini_generate_image(
                 prompt_refined, input_image_bytes=src_bytes,
-                aspect_ratio=aspect, resolution="1K")
+                aspect_ratio=aspect,
+                resolution=ai_image_quality_dropdown.value or "1K")
         except Exception as exc:
             text, img_bytes = f"[Erreur] {exc}", None
 
@@ -5113,6 +5123,7 @@ def main(page: ft.Page):
                 ft.Text("Assistant IA", size=CONSTANTS.TEXT_LG, color=WHITE,
                         weight=ft.FontWeight.W_500, expand=True),
                 ai_model_dropdown,
+                ai_image_quality_dropdown,
                 ai_image_size_button,
                 ai_image_mode_label,
                 ai_speaker_button,
