@@ -21,6 +21,7 @@ __version__ = "3.1.0"
 import os
 from pathlib import Path
 from PIL import Image, ImageFilter
+import image_ops
 
 #############################################################
 #                           PATH                            #
@@ -54,17 +55,18 @@ for index, file_name in enumerate(files_to_process):
 
     if file_name != "watermark.png":
         try:
-            base_image = Image.open(folder_path / file_name)
+            base_image = image_ops.open_srgb(folder_path / file_name)
         except Exception:
             continue
         else:
-            base_image.convert("RGB")
             # base_image = base_image.filter(ImageFilter.EDGE_ENHANCE)
             base_image = base_image.filter(ImageFilter.UnsharpMask(radius=4, percent=42, threshold=0))
             base_image = base_image.filter(ImageFilter.UnsharpMask(radius=2, percent=42, threshold=0))
             # base_image = base_image.filter(ImageFilter.SHARPEN)
             output_folder = folder_path / "NETTES"
             output_folder.mkdir(exist_ok=True)
-            base_image.save(str(output_folder / file_name), format="JPEG", subsampling=0, quality=100)
+            base_image.save(str(output_folder / file_name), format="JPEG",
+                            subsampling=0, quality=100,
+                            icc_profile=image_ops._SRGB_ICC)
 
 print("Terminé !")

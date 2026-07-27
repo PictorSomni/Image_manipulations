@@ -23,6 +23,7 @@ import os
 import sys
 from pathlib import Path
 from PIL import Image, ImageFile
+import image_ops
 
 #############################################################
 #                           PATH                            #
@@ -61,7 +62,9 @@ images = []
 for index, img_file in enumerate(IMAGE_FILES, start=1):
     print(f"Image {index}/{TOTAL}: {img_file.name}...")
     try:
-        images.append(Image.open(img_file))
+        opened = Image.open(img_file)
+        images.append(image_ops.convert_to_srgb(
+            opened, opened.info.get("icc_profile")))
     except Exception as e:
         print(f"Erreur lors du chargement de {img_file.name}: {e}")
 

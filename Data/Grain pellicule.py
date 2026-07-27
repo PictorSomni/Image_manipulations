@@ -39,6 +39,7 @@ import cv2
 import numpy as np
 from PIL import Image
 import CONSTANTS
+import image_ops
 
 #############################################################
 #                           PATH                            #
@@ -369,7 +370,7 @@ def add_chromatic_aberration(
 for index, file_name in enumerate(files_to_process):
     print(f"Image {index + 1} sur {total}")
     try:
-        pil_img = Image.open(folder_path / file_name).convert("RGB")
+        pil_img = image_ops.open_srgb(folder_path / file_name)
     except Exception:
         continue
 
@@ -399,6 +400,7 @@ for index, file_name in enumerate(files_to_process):
         print("  → Grain 2...")
         result = add_film_grain(result, AMOUNT2, SIZE2, COLOR_RATIO2, SHADOW_BOOST2, GRAIN2_FLOOR, CHROMA_SHIFT2)
     stem = Path(file_name).stem
-    result.save(str(output_folder / f"{stem}.jpg"), format="JPEG", subsampling=0, quality=100)
+    result.save(str(output_folder / f"{stem}.jpg"), format="JPEG",
+               subsampling=0, quality=100, icc_profile=image_ops._SRGB_ICC)
 
 print("Terminé !")

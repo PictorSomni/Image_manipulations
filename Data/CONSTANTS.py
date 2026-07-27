@@ -892,21 +892,29 @@ CA_AXIAL_RATIO = 0.64  # part de la composante axiale (0 = purement radial, 1 = 
 
 # ── 12.7  Virage / teinte (Virage.py) ────────────────────────────────────────
 # Vieilles photos scannées : le jaunissement d'origine varie d'un scan à
-# l'autre — Virage.py repart d'un noir et blanc pur puis colorise en HSL à
-# teinte/saturation fixes (la luminosité reste celle de chaque pixel du N&B),
-# exactement comme "Teinte et saturation > Coloriser" dans Photoshop/
-# Affinity. Un bouton est généré dans Hub pour chaque entrée de ce
+# l'autre — Virage.py repart d'un noir et blanc pur puis pose un calque de
+# couleur unie en mode Multiply par-dessus (résultat = gris × couleur),
+# exactement comme un calque couleur uni + mode de fusion "Multiplier" dans
+# Affinity/Photoshop. Contrairement à "Teinte et saturation > Coloriser"
+# (substitution HSL, ancienne méthode), la teinte reste visible jusque dans
+# les hautes lumières au lieu de désaturer vers le blanc pur — un gris à 255
+# (blanc) multiplié par la couleur redonne la couleur elle-même, pas du blanc
+# (retour user : hautes lumières "cramées" avec l'ancienne méthode, besoin de
+# plus de contrôle). Un bouton est généré dans Hub pour chaque entrée de ce
 # dictionnaire : ajouter/modifier un préréglage ici suffit, rien à changer
 # côté interface.
-# Chaque valeur : (teinte en degrés 0-360, saturation en % 0-100).
+# Chaque valeur : (teinte en degrés 0-360, saturation en % 0-100, luminosité
+# en % 0-100) de la couleur du calque Multiply — mêmes chiffres que le
+# sélecteur HSL d'Affinity/Photoshop, pour reproduire un réglage 1:1.
 # Repères de teinte : ~30-50° = sépia/jauni (brun-jaune), ~90-110° = vert,
-# ~200-220° = bleu (cyanotype).
+# ~200-220° = bleu (cyanotype). Luminosité 100 (+ saturation 0) = couleur
+# blanche = identité (N&B inchangé) ; plus elle baisse, plus l'effet marque.
 
 VIRAGE_PRESETS = {
-    "SEPIA":       (25, 25),   # retour user : réglage Photoshop/Affinity habituel
-    "JAUNI": (45, 15),   # plus délavé, moins brun que le sépia
-    "N&B ANCIEN":          (150, 4),
-    "N&B":            (0, 0),
+    "SEPIA":       (30, 60, 70),   # à ajuster : valeur par défaut, pas encore calée sur un réglage Affinity précis
+    "JAUNI":       (46, 100, 85),  # retour user : calque Multiply HSL(40,100,85) dans Affinity
+    "N&B ANCIEN":  (150, 10, 80),  # à ajuster : valeur par défaut, pas encore calée sur un réglage Affinity précis
+    "N&B":         (0, 0, 100),    # saturation 0 + luminosité 100 = blanc = identité (N&B inchangé)
 }
 VIRAGE_DEFAULT_PRESET = "SEPIA"
 

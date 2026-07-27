@@ -30,6 +30,7 @@ import cv2
 import numpy as np
 from PIL import Image
 import CONSTANTS
+import image_ops
 
 #############################################################
 #                           PATH                            #
@@ -64,7 +65,7 @@ SEARCH_WINDOW   = int(os.environ.get("DENOISE_SEARCH_WINDOW", CONSTANTS.DENOISE_
 for index, file_name in enumerate(files_to_process):
     print(f"Image {index + 1} sur {total}")
     try:
-        pil_img = Image.open(folder_path / file_name).convert("RGB")
+        pil_img = image_ops.open_srgb(folder_path / file_name)
     except Exception:
         continue
 
@@ -79,6 +80,7 @@ for index, file_name in enumerate(files_to_process):
     )
     result = Image.fromarray(cv2.cvtColor(denoised_bgr, cv2.COLOR_BGR2RGB))
     stem = Path(file_name).stem
-    result.save(str(output_folder / f"{stem}.jpg"), format="JPEG", subsampling=0, quality=100)
+    result.save(str(output_folder / f"{stem}.jpg"), format="JPEG",
+               subsampling=0, quality=100, icc_profile=image_ops._SRGB_ICC)
 
 print("Terminé !")

@@ -30,6 +30,7 @@ import re
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
+import image_ops
 from PIL import Image, ImageOps, ImageFile
 
 #############################################################
@@ -123,7 +124,7 @@ while len(FOLDER) > 0:
         else:
             image2 = FOLDER.pop()
 
-    images = map(Image.open, [PATH / image1, PATH / image2])
+    images = map(image_ops.open_srgb, [PATH / image1, PATH / image2])
     x_offset = 0
     try:
         new_image = Image.new('RGB', (WIDTH_DPI * 2, HEIGHT_DPI))
@@ -142,10 +143,14 @@ while len(FOLDER) > 0:
 
         output_folder = PATH / FOLDER_NAME
         if DOUBLE:
-            new_image.save(str(output_folder / IMAGE_NAME), dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+            new_image.save(str(output_folder / IMAGE_NAME), dpi=(DPI, DPI),
+                          format='JPEG', subsampling=0, quality=100,
+                          icc_profile=image_ops._SRGB_ICC)
             DOUBLE = False
         else:
-            new_image.save(str(output_folder / f"{START:03}.jpg"), dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+            new_image.save(str(output_folder / f"{START:03}.jpg"), dpi=(DPI, DPI),
+                          format='JPEG', subsampling=0, quality=100,
+                          icc_profile=image_ops._SRGB_ICC)
 
         index += 1
         START += 1

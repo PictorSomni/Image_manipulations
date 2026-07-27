@@ -41,6 +41,7 @@ from PIL import Image, ImageFile, ImageOps
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
+import image_ops
 
 
 #############################################################
@@ -355,27 +356,26 @@ if fit_mode:
         try:
             copy_count, clean_filename = extract_copy_count_from_filename(filename)
             
-            with Image.open(source_path) as img:
-                img = ImageOps.exif_transpose(img)
-                
-                # Orienter l'image comme le canvas (paysage > paysage)
-                if (img.width < img.height) != (width_px < height_px):
-                    img = img.rotate(90, expand=True)
-                
-                img_rgb = img.convert("RGB")
-                
-                # Ajouter à la liste des tuiles
-                # Si copy_count est None, mettre 1 par défaut (on ajustera pour les non-forcés après)
-                tile_count = copy_count if copy_count is not None else 1
-                
-                tiles_list.append({
-                    'image': img_rgb.copy(),
-                    'width': img_rgb.width,
-                    'height': img_rgb.height,
-                    'count': tile_count,
-                    'source_name': Path(clean_filename).stem,
-                    'forced': copy_count is not None
-                })
+            img = image_ops.open_srgb(source_path)
+
+            # Orienter l'image comme le canvas (paysage > paysage)
+            if (img.width < img.height) != (width_px < height_px):
+                img = img.rotate(90, expand=True)
+
+            img_rgb = img
+
+            # Ajouter à la liste des tuiles
+            # Si copy_count est None, mettre 1 par défaut (on ajustera pour les non-forcés après)
+            tile_count = copy_count if copy_count is not None else 1
+
+            tiles_list.append({
+                'image': img_rgb.copy(),
+                'width': img_rgb.width,
+                'height': img_rgb.height,
+                'count': tile_count,
+                'source_name': Path(clean_filename).stem,
+                'forced': copy_count is not None
+            })
         except Exception as exc:
             print(f"[ERREUR] {filename} : {exc}")
     
@@ -454,7 +454,9 @@ if fit_mode:
 
             canvas_rgb = canvas.convert("RGB")
             out_path = output_folder / out_filename
-            canvas_rgb.save(out_path, dpi=(DPI, DPI), format="JPEG", subsampling=0, quality=100)
+            canvas_rgb.save(out_path, dpi=(DPI, DPI), format="JPEG",
+                            subsampling=0, quality=100,
+                            icc_profile=image_ops._SRGB_ICC)
             saved_count += 1
 
             print(f"✓ {out_filename} ({len(canvas_tiles)} tuile(s))")
@@ -477,36 +479,35 @@ else:
         try:
             copy_count, clean_filename = extract_copy_count_from_filename(filename)
             
-            with Image.open(source_path) as img:
-                img = ImageOps.exif_transpose(img)
+            img = image_ops.open_srgb(source_path)
 
-                # Mode crop : remplissage exact (comportement historique)
-                rotated_back = False
-                if img.width < img.height:
-                    img = img.rotate(90, expand=True)
-                    rotated_back = True
-                if white_border_mode:
-                    border_px = mm_to_pixels(5, DPI)
-                    inner_w = width_px - 2 * border_px
-                    inner_h = height_px - 2 * border_px
-                    ratio = min(inner_w / img.width, inner_h / img.height)
-                    new_w = round(img.width * ratio)
-                    new_h = round(img.height * ratio)
-                    fitted = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-                    result = Image.new("RGB", (width_px, height_px), (255, 255, 255))
-                    result.paste(fitted, ((width_px - new_w) // 2, (height_px - new_h) // 2))
-                else:
-                    result = ImageOps.fit(img, (width_px, height_px), method=Image.Resampling.LANCZOS)
-                if rotated_back:
-                    result = result.rotate(270, expand=True)
+            # Mode crop : remplissage exact (comportement historique)
+            rotated_back = False
+            if img.width < img.height:
+                img = img.rotate(90, expand=True)
+                rotated_back = True
+            if white_border_mode:
+                border_px = mm_to_pixels(5, DPI)
+                inner_w = width_px - 2 * border_px
+                inner_h = height_px - 2 * border_px
+                ratio = min(inner_w / img.width, inner_h / img.height)
+                new_w = round(img.width * ratio)
+                new_h = round(img.height * ratio)
+                fitted = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                result = Image.new("RGB", (width_px, height_px), (255, 255, 255))
+                result.paste(fitted, ((width_px - new_w) // 2, (height_px - new_h) // 2))
+            else:
+                result = ImageOps.fit(img, (width_px, height_px), method=Image.Resampling.LANCZOS)
+            if rotated_back:
+                result = result.rotate(270, expand=True)
 
-                result = result.convert("RGB")
-                
-                # Déterminer le nom de sortie
-                stem = Path(clean_filename).stem
-                out_path = output_folder / f"{folder_name}_{stem}.jpg"
-                
-                result.save(out_path, dpi=(DPI, DPI), format="JPEG", subsampling=0, quality=100)
+            # Déterminer le nom de sortie
+            stem = Path(clean_filename).stem
+            out_path = output_folder / f"{folder_name}_{stem}.jpg"
+
+            result.save(out_path, dpi=(DPI, DPI), format="JPEG",
+                       subsampling=0, quality=100,
+                       icc_profile=image_ops._SRGB_ICC)
 
             ok_count += 1
         except Exception as exc:

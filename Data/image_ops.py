@@ -19,7 +19,7 @@ import sys
 from dataclasses import dataclass
 
 import numpy as np
-from PIL import Image, ImageCms, ImageEnhance, ImageFilter
+from PIL import Image, ImageCms, ImageEnhance, ImageFilter, ImageOps
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
@@ -94,6 +94,27 @@ def convert_to_srgb(source_image: Image.Image,
         if source_image.mode == "CMYK":
             return source_image.convert("RGB")
         return source_image
+
+
+def open_srgb(path) -> Image.Image:
+    """Ouvre une image, corrige l'orientation EXIF puis convertit en RGB
+    sRGB managé via son profil ICC embarqué (ex. profil scanner non-sRGB) —
+    sinon un ``.convert("RGB")`` nu réinterprète les valeurs brutes comme si
+    elles étaient déjà sRGB, ce qui assombrit/dénature le rendu à
+    l'impression (retour user sur Virage.py).
+
+    La rotation EXIF est appliquée AVANT la conversion ICC : cette dernière
+    (ImageCms.applyTransform) reconstruit une nouvelle image sans le dict
+    ``.info``/exif d'origine, donc un ``exif_transpose`` fait après coup ne
+    verrait plus l'orientation. Un ``exif_transpose`` redondant en aval
+    (scripts qui l'appelaient déjà) reste sans danger : plus de tag = no-op.
+
+    À utiliser en entrée de tout script qui peut tourner sur un scan/photo
+    brut ; combiner avec ``_SRGB_ICC`` en ``icc_profile=`` à l'enregistrement
+    pour que le fichier de sortie reste correctement tagué."""
+    source_image = ImageOps.exif_transpose(Image.open(path))
+    return convert_to_srgb(
+        source_image, source_image.info.get("icc_profile")).convert("RGB")
 
 
 # ================================================================ #

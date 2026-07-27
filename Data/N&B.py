@@ -19,7 +19,7 @@ __version__ = "3.1.0"
 #############################################################
 import os
 from pathlib import Path
-from PIL import Image
+import image_ops
 
 #############################################################
 #                           PATH                            #
@@ -52,10 +52,16 @@ for i, file in enumerate(FOLDER):
 
     filename = Path(file).stem
     try:
-        base_image = Image.open(PATH / file)
+        base_image = image_ops.open_srgb(PATH / file)
     except Exception:
         continue
     else:
-        base_image.convert("L").save(str(PATH / "N&B" / f"{filename}.jpg"), format="JPEG", subsampling=0, quality=100)
+        # Pas d'icc_profile ici : un JPEG "L" (1 canal) avec un profil RGB
+        # embarqué est incohérent pour certains lecteurs/RIP d'impression —
+        # l'important est que la conversion en gris se fasse sur des valeurs
+        # déjà ramenées en sRGB par open_srgb() ci-dessus.
+        base_image.convert("L").save(
+            str(PATH / "N&B" / f"{filename}.jpg"), format="JPEG",
+            subsampling=0, quality=100)
 
 print("Terminé !")

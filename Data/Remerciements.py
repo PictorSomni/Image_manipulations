@@ -29,6 +29,7 @@ import re
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
+import image_ops
 from PIL import Image, ImageOps, ImageFile
 #############################################################
 #                           SIZE                            #
@@ -90,7 +91,7 @@ for i, file in enumerate(FOLDER) :
         IMAGES.append(file)
 
 for image in IMAGES :
-    base_image = Image.open(str(PATH / image))
+    base_image = image_ops.open_srgb(str(PATH / image))
     print(f"{image} : Trouvée")
     if "_1" in image.lower() or "_2" in image.lower() :
         image = image.replace("_1", "_recto").replace("_2", "_verso")
@@ -109,7 +110,9 @@ for image in IMAGES :
         continue
     else :
         project.paste(watermark, watermark)
-        project.convert("RGB").save(PATH / f"Projet_{image}", format="JPEG", subsampling=0, quality=QUALITY)
+        project.convert("RGB").save(PATH / f"Projet_{image}", format="JPEG",
+                                    subsampling=0, quality=QUALITY,
+                                    icc_profile=image_ops._SRGB_ICC)
         print(f"{image} : Projet OK")
 
     if duo == True :
@@ -119,7 +122,9 @@ for image in IMAGES :
         cropped_image = ImageOps.fit(base_image, (WIDTH_DPI, HEIGHT_DPI))
         new_image.paste(cropped_image, (0, 0))
         new_image.paste(cropped_image, (WIDTH_DPI, 0))
-        new_image.convert("RGB").save(PATH / f"10x15_{image}", dpi=(DPI, DPI), format='JPEG', subsampling=0, quality=100)
+        new_image.convert("RGB").save(PATH / f"10x15_{image}", dpi=(DPI, DPI),
+                                      format='JPEG', subsampling=0, quality=100,
+                                      icc_profile=image_ops._SRGB_ICC)
         print(f"{image} : 2 en 1 OK")
 
 print("Terminé !")

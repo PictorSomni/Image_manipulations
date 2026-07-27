@@ -8,6 +8,7 @@ from pathlib import Path
 import os
 from PIL.ExifTags import TAGS
 from datetime import datetime
+import image_ops
 
 #############################################################
 #                           PATH                            #
@@ -96,7 +97,13 @@ for i, file in enumerate(FOLDER):
 
     filename = Path(file).stem
     try:
-        base_image = Image.open(PATH / file)
+        source_image = Image.open(PATH / file)
+        # Date lue AVANT la conversion sRGB : une conversion ICC réelle
+        # (profil non-sRGB embarqué) reconstruit une nouvelle image sans
+        # les EXIF d'origine.
+        date_label = get_date_taken(source_image)
+        base_image = image_ops.convert_to_srgb(
+            source_image, source_image.info.get("icc_profile"))
     except Exception:
         continue
     else:
@@ -105,9 +112,11 @@ for i, file in enumerate(FOLDER):
         elif copyright_mode == "filename":
             label = filename
         else:  # "date" (défaut)
-            label = get_date_taken(base_image) or filename
+            label = date_label or filename
         base_image = base_image.convert("RGB")
         base_image = add_copyright(base_image, label)
-        base_image.save(str(PATH / "Copyright" / f"{filename}.jpg"), format="JPEG", subsampling=0, quality=100)
+        base_image.save(str(PATH / "Copyright" / f"{filename}.jpg"),
+                        format="JPEG", subsampling=0, quality=100,
+                        icc_profile=image_ops._SRGB_ICC)
 
 print("Terminé !")

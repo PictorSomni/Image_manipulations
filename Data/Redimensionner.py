@@ -23,9 +23,10 @@ __version__ = "3.2.0"
 import os
 import sys
 from pathlib import Path
-from PIL import Image, ImageFile, ImageOps
+from PIL import Image, ImageFile
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
+import image_ops
 
 #############################################################
 #                           PATH                            #
@@ -75,22 +76,20 @@ for i, file in enumerate(FOLDER):
     print(f"{i+1}/{TOTAL}")
 
     try:
-        base_image = Image.open(file)
+        base_image = image_ops.open_srgb(file)
     except Exception as e:
         print(f"Erreur lors de l'ouverture : {e}")
         continue
     else:
-        # Respect EXIF orientation first
-        base_image = ImageOps.exif_transpose(base_image)
         original_size = base_image.size
-        
+
         # Thumbnail maintient le ratio et réduit uniquement si nécessaire
         base_image.thumbnail(MAXSIZE, Image.Resampling.LANCZOS)
         new_size = base_image.size
         filename, _ = os.path.splitext(file)
-        base_image = base_image.convert("RGB")
         output_path = output_folder / f"{filename}.jpg"
-        base_image.save(output_path, format='JPEG', subsampling=0, quality=QUALITY)
+        base_image.save(output_path, format='JPEG', subsampling=0,
+                        quality=QUALITY, icc_profile=image_ops._SRGB_ICC)
         base_image.close()
         
 print("Termine !")
