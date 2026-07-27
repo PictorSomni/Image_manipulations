@@ -21,7 +21,6 @@ Contrat commun à presque tous :
 - SELECTED_FILES : basenames séparés par '|' (ex. "img1.jpg|img2.jpg"). Absent ou vide = tout le dossier. Si des FICHIERS SÉLECTIONNÉS DANS L'INTERFACE existent, les passer ici.
 
 Scripts sans paramètre supplémentaire (juste FOLDER_PATH + SELECTED_FILES) :
-- N&B.py — conversion noir et blanc en lot.
 - Débruiter.py — réduction de bruit (OpenCV NLM).
 - Améliorer netteté.py — accentuation de la netteté.
 - Images en PDF.py — assemble les images en un seul PDF.

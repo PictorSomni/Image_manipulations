@@ -20,7 +20,6 @@ __version__ = "3.1.0"
 #############################################################
 import os
 from pathlib import Path
-from PIL import Image, ImageFilter
 import image_ops
 
 #############################################################
@@ -59,10 +58,7 @@ for index, file_name in enumerate(files_to_process):
         except Exception:
             continue
         else:
-            # base_image = base_image.filter(ImageFilter.EDGE_ENHANCE)
-            base_image = base_image.filter(ImageFilter.UnsharpMask(radius=4, percent=42, threshold=0))
-            base_image = base_image.filter(ImageFilter.UnsharpMask(radius=2, percent=42, threshold=0))
-            # base_image = base_image.filter(ImageFilter.SHARPEN)
+            base_image = image_ops.apply_sharpen(base_image)
             output_folder = folder_path / "NETTES"
             output_folder.mkdir(exist_ok=True)
             base_image.save(str(output_folder / file_name), format="JPEG",

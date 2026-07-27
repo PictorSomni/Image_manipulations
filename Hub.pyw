@@ -2985,6 +2985,11 @@ def main(page: ft.Page):
         ft.CupertinoIcons.SQUARE_SPLIT_2X1, GREEN,
         lambda e: _launch_two_in_one(e),
         "2 en 1")
+
+    retouche_par_lot_btn = _toolbar_icon_btn(
+        ft.Icons.TUNE, VIOLET,
+        lambda e: _launch_tool("Retouche par lot.pyw"),
+        "Retouche par lot (aperçu live)")
     # Toujours actifs, avec ou sans sélection : sans fichier sélectionné,
     # les outils lancés par _launch_tool traitent tout le dossier (retour
     # user) — cf. Data/skills.md:21 (SELECTED_FILES absent = tout le
@@ -3154,7 +3159,10 @@ def main(page: ft.Page):
                         ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
                                      height=CONSTANTS.HUB_TOOLBAR_H),
                         recadrage_manuel_btn, recadrage_auto_btn,
-                        two_en_un_btn], spacing=8),
+                        two_en_un_btn,
+                        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+                                     height=CONSTANTS.HUB_TOOLBAR_H),
+                        retouche_par_lot_btn], spacing=8),
                 ft.Container(expand=True),
                 sort_btn,
                 view_seg_wrap,
@@ -6148,268 +6156,6 @@ def main(page: ft.Page):
              "RESIZE_WATERMARK_SIZE"),
         ], "Redimensionner filigrane.py")
 
-    def _launch_grain_pellicule(event=None):
-        C = CONSTANTS
-
-        def _num(env_key, label, default):
-            return env_key, ft.TextField(
-                label=label, value=str(default), width=140, bgcolor=DARK,
-                border_color=GREY, color=WHITE,
-                keyboard_type=ft.KeyboardType.NUMBER)
-
-        def _section(label, color, sw_default, field_specs):
-            sw = ft.Switch(value=sw_default, active_color=color)
-            fields = [_num(*spec) for spec in field_specs]
-            tile = ft.ExpansionTile(
-                title=ft.Text(label, color=color, weight=ft.FontWeight.W_600,
-                             size=CONSTANTS.TEXT_SM),
-                leading=sw,
-                controls=[ft.Container(
-                    content=ft.Column([f for _, f in fields], spacing=8),
-                    padding=ft.Padding(16, 4, 16, 12))],
-            )
-            return tile, sw, fields
-
-        tile1, sw1, f1 = _section("Grain — Couche 1", ORANGE, True, [
-            ("GRAIN_AMOUNT", "Intensité", C.GRAIN_AMOUNT),
-            ("GRAIN_SIZE", "Taille", C.GRAIN_SIZE),
-            ("GRAIN_COLOR_RATIO", "Part couleur", C.GRAIN_COLOR_RATIO),
-            ("GRAIN_SHADOW_BOOST", "Concentration mi-tons",
-             C.GRAIN_SHADOW_BOOST),
-            ("GRAIN_CHROMA_SHIFT", "Décalage inter-canal",
-             C.GRAIN_CHROMA_SHIFT),
-        ])
-        tile2, sw2, f2 = _section("Grain — Couche 2", ORANGE, True, [
-            ("GRAIN2_AMOUNT", "Intensité", C.GRAIN2_AMOUNT),
-            ("GRAIN2_SIZE", "Taille", C.GRAIN2_SIZE),
-            ("GRAIN2_COLOR_RATIO", "Part couleur", C.GRAIN2_COLOR_RATIO),
-            ("GRAIN2_SHADOW_BOOST", "Concentration mi-tons",
-             C.GRAIN2_SHADOW_BOOST),
-            ("GRAIN2_CHROMA_SHIFT", "Décalage inter-canal",
-             C.GRAIN2_CHROMA_SHIFT),
-        ])
-        tile3, sw3, f3 = _section("Halation", RED, C.HALATION_ENABLED, [
-            ("HALATION_THRESHOLD", "Seuil", C.HALATION_THRESHOLD),
-            ("HALATION_RADIUS", "Rayon", C.HALATION_RADIUS),
-            ("HALATION_INTENSITY", "Intensité", C.HALATION_INTENSITY),
-            ("HALATION_RED_SHIFT", "Décalage rouge", C.HALATION_RED_SHIFT),
-        ])
-        tile4, sw4, f4 = _section("Bloom (Soft Light)", BLUE,
-                                  C.BLOOM_ENABLED, [
-            ("BLOOM_RADIUS", "Rayon", C.BLOOM_RADIUS),
-            ("BLOOM_INTENSITY", "Intensité", C.BLOOM_INTENSITY),
-        ])
-        tile5, sw5, f5 = _section("Désaturation des extrêmes", VIOLET,
-                                  C.DESAT_ENABLED, [
-            ("DESAT_SHADOW_THRESHOLD", "Seuil ombres",
-             C.DESAT_SHADOW_THRESHOLD),
-            ("DESAT_SHADOW_INTENSITY", "Intensité ombres",
-             C.DESAT_SHADOW_INTENSITY),
-            ("DESAT_HIGHLIGHT_THRESHOLD", "Seuil HL",
-             C.DESAT_HIGHLIGHT_THRESHOLD),
-            ("DESAT_HIGHLIGHT_INTENSITY", "Intensité HL",
-             C.DESAT_HIGHLIGHT_INTENSITY),
-            ("DESAT_MIDTONE_BOOST", "Boost mi-tons", C.DESAT_MIDTONE_BOOST),
-        ])
-        tile6, sw6, f6 = _section("Courbe tonale", GREEN, C.CURVE_ENABLED, [
-            ("CURVE_SHOULDER_START", "Seuil épaulement",
-             C.CURVE_SHOULDER_START),
-            ("CURVE_SHOULDER_STRENGTH", "Force épaulement",
-             C.CURVE_SHOULDER_STRENGTH),
-            ("CURVE_TOE_START", "Seuil pied", C.CURVE_TOE_START),
-            ("CURVE_TOE_LIFT", "Relèvement pied", C.CURVE_TOE_LIFT),
-        ])
-        tile7, sw7, f7 = _section("Aberrations chromatiques", YELLOW,
-                                  C.CA_ENABLED, [
-            ("CA_STRENGTH", "Intensité", C.CA_STRENGTH),
-            ("CA_AXIAL_RATIO", "Ratio axial", C.CA_AXIAL_RATIO),
-        ])
-
-        def _cancel(e):
-            dlg.open = False
-            page.update()
-
-        def _confirm(e):
-            env = {key: field.value for key, field in f1}
-            env["GRAIN1_ENABLED"] = "1" if sw1.value else "0"
-            if sw2.value:
-                env.update({key: field.value for key, field in f2})
-            env["HALATION_ENABLED"] = "1" if sw3.value else "0"
-            env.update({key: field.value for key, field in f3})
-            env["BLOOM_ENABLED"] = "1" if sw4.value else "0"
-            env.update({key: field.value for key, field in f4})
-            env["DESAT_ENABLED"] = "1" if sw5.value else "0"
-            env.update({key: field.value for key, field in f5})
-            env["CURVE_ENABLED"] = "1" if sw6.value else "0"
-            env.update({key: field.value for key, field in f6})
-            env["CA_ENABLED"] = "1" if sw7.value else "0"
-            env.update({key: field.value for key, field in f7})
-            dlg.open = False
-            page.update()
-            _launch_tool("Grain pellicule.py", extra_env=env)
-
-        dlg = ft.AlertDialog(
-            title=ft.Text("Grain pellicule — paramètres", size=CONSTANTS.TEXT_SM,
-                         color=WHITE),
-            content=ft.Column(
-                [ft.Text("Les valeurs par défaut viennent de CONSTANTS.py "
-                         "(section 12).", size=CONSTANTS.TEXT_SM, color=GREY),
-                 tile1, tile2, tile3, tile4, tile5, tile6, tile7],
-                spacing=4, tight=True, scroll=ft.ScrollMode.AUTO,
-                width=340, height=420),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Lancer", on_click=_confirm)],
-        )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
-
-    def _launch_virage(event=None):
-        # Un bouton par préréglage (CONSTANTS.VIRAGE_PRESETS) plutôt qu'un
-        # color picker RGB/HSL (retour user : simple clic pour comparer,
-        # ajuster une teinte se fait en éditant CONSTANTS.py au besoin).
-        # Dropdown de mode : chaque préréglage a un mode par défaut
-        # (colorize/multiply, cf. CONSTANTS.py 12.7) qui rend mieux pour lui
-        # selon le retour user, mais on peut forcer l'autre mode pour
-        # comparer sans éditer CONSTANTS.py.
-        mode_dd = ft.Dropdown(
-            label="Mode", value="Auto (préréglage)",
-            options=[ft.dropdown.Option("Auto (préréglage)"),
-                    ft.dropdown.Option("Coloriser"),
-                    ft.dropdown.Option("Multiplier")],
-            width=280, bgcolor=DARK, border_color=GREY, color=WHITE)
-        _mode_env = {"Coloriser": "colorize", "Multiplier": "multiply"}
-
-        # Remontée des ombres : réduire la densité à l'impression pour
-        # éclaircir délave aussi les hautes lumières colorées (retour user)
-        # — il faut éclaircir en amont, dans le fichier. Off par défaut :
-        # chaque préréglage garde sa propre valeur (shadow_lift dans
-        # CONSTANTS.py) tant qu'on ne force pas explicitement une valeur ici.
-        lift_text = ft.Text("20%", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY)
-        lift_slider = ft.Slider(min=0, max=50, divisions=50, value=20,
-                                width=220, disabled=True)
-        lift_switch = ft.Switch(label="Forcer la remontée des ombres",
-                                value=False, active_color=BLUE)
-
-        def _on_lift_change(e):
-            lift_text.value = f"{round(lift_slider.value)}%"
-            page.update()
-        lift_slider.on_change = _on_lift_change
-
-        def _on_lift_toggle(e):
-            lift_slider.disabled = not lift_switch.value
-            page.update()
-        lift_switch.on_change = _on_lift_toggle
-
-        def _pick(preset_name):
-            def _run(e):
-                dlg.open = False
-                page.update()
-                extra_env = {"VIRAGE_PRESET": preset_name}
-                if mode_dd.value in _mode_env:
-                    extra_env["VIRAGE_MODE"] = _mode_env[mode_dd.value]
-                if lift_switch.value:
-                    extra_env["VIRAGE_SHADOW_LIFT"] = str(round(lift_slider.value))
-                _launch_tool("Virage.py", extra_env=extra_env)
-            return _run
-
-        buttons = [
-            ft.ElevatedButton(name, on_click=_pick(name), width=280)
-            for name in CONSTANTS.VIRAGE_PRESETS
-        ]
-
-        def _cancel(e):
-            dlg.open = False
-            page.update()
-
-        dlg = ft.AlertDialog(
-            title=ft.Text("Virage — préréglage", size=CONSTANTS.TEXT_SM,
-                         color=WHITE),
-            content=ft.Column(
-                [ft.Text("Chaque clic lance le préréglage sur la sélection "
-                         "(ou tout le dossier) — les résultats s'accumulent "
-                         "dans VIRAGE/ pour comparer. Préréglages modifiables "
-                         "dans CONSTANTS.py (section 12.7).",
-                         size=CONSTANTS.TEXT_SM, color=LIGHT_GREY, width=280),
-                 mode_dd, lift_switch,
-                 ft.Row([lift_slider, lift_text], spacing=8),
-                 *buttons],
-                spacing=8, tight=True, scroll=ft.ScrollMode.AUTO,
-                width=300, height=200 + 52 * len(buttons)),
-            actions=[ft.TextButton("Fermer", on_click=_cancel)],
-        )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
-
-    def _launch_debruiter(event=None):
-        C = CONSTANTS
-        f_h = ft.TextField(
-            label="Force luminance (h)", value=str(C.DENOISE_H),
-            hint_text="1 léger · 4 standard · 10 fort", width=180,
-            bgcolor=DARK, border_color=GREY, color=WHITE,
-            keyboard_type=ft.KeyboardType.NUMBER)
-        f_hc = ft.TextField(
-            label="Force couleur (hColor)", value=str(C.DENOISE_H_COLOR),
-            hint_text="1 léger · 2 standard · 6 fort", width=180,
-            bgcolor=DARK, border_color=GREY, color=WHITE,
-            keyboard_type=ft.KeyboardType.NUMBER)
-        f_tmpl = ft.TextField(
-            label="Fenêtre comparaison (impair)",
-            value=str(C.DENOISE_TEMPLATE_WINDOW),
-            hint_text="5 · 7 standard · 11", width=180,
-            bgcolor=DARK, border_color=GREY, color=WHITE,
-            keyboard_type=ft.KeyboardType.NUMBER)
-        f_srch = ft.TextField(
-            label="Fenêtre recherche (impair)",
-            value=str(C.DENOISE_SEARCH_WINDOW),
-            hint_text="11 rapide · 21 standard · 35 lent", width=180,
-            bgcolor=DARK, border_color=GREY, color=WHITE,
-            keyboard_type=ft.KeyboardType.NUMBER)
-        dn_error = ft.Text("", size=CONSTANTS.TEXT_SM, color=RED)
-
-        def _cancel(e):
-            dlg.open = False
-            page.update()
-
-        def _confirm(e):
-            try:
-                h, hc = int(f_h.value), int(f_hc.value)
-                tmpl, srch = int(f_tmpl.value), int(f_srch.value)
-                if h <= 0 or hc <= 0 or tmpl <= 0 or srch <= 0:
-                    raise ValueError()
-                if tmpl % 2 == 0 or srch % 2 == 0:
-                    dn_error.value = "Les fenêtres doivent être impaires."
-                    page.update()
-                    return
-            except ValueError:
-                dn_error.value = "Valeurs invalides — entiers positifs impairs requis."
-                page.update()
-                return
-            dlg.open = False
-            page.update()
-            _launch_tool("Débruiter.py", extra_env={
-                "DENOISE_H": str(h), "DENOISE_H_COLOR": str(hc),
-                "DENOISE_TEMPLATE_WINDOW": str(tmpl),
-                "DENOISE_SEARCH_WINDOW": str(srch)})
-
-        dlg = ft.AlertDialog(
-            title=ft.Text("Débruiter — paramètres NLM", size=CONSTANTS.TEXT_SM,
-                         color=WHITE),
-            content=ft.Column(
-                [ft.Text("Les valeurs par défaut viennent de CONSTANTS.py "
-                         "(section 12.1).", size=CONSTANTS.TEXT_SM, color=GREY),
-                 ft.Row([f_h, f_hc], spacing=8),
-                 ft.Row([f_tmpl, f_srch], spacing=8),
-                 dn_error],
-                spacing=10, tight=True, width=380),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Lancer", on_click=_confirm)],
-        )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
-
     def _launch_kiosk(tariff, event=None):
         # Sélection curatée obligatoire (HUB_SPEC §9) : la sélection en
         # cours si non vide, sinon toutes les photos du dossier ouvert —
@@ -6596,73 +6342,6 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
-    def _launch_copyright(event=None):
-        custom_field = ft.TextField(
-            prefix="© ", visible=False, width=280, bgcolor=DARK,
-            border_color=GREY, color=WHITE)
-        mode = {"value": "date"}
-
-        def _pick(m):
-            def _on_click(e):
-                mode["value"] = m
-                custom_field.visible = (m == "custom")
-                for btn in options_row.controls:
-                    btn.border = ft.Border.all(2, BLUE if btn.data == m
-                                               else GREY)
-                page.update()
-            return _on_click
-
-        def _option(m, icon, label):
-            return ft.Container(
-                data=m,
-                content=ft.Column(
-                    [ft.Icon(icon, size=CONSTANTS.ICON_SM, color=BLUE),
-                     ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE,
-                             text_align=ft.TextAlign.CENTER)],
-                    horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-                    spacing=4, tight=True),
-                bgcolor=DARK, border=ft.Border.all(2, BLUE if m == "date"
-                                                   else GREY),
-                border_radius=8, padding=10, width=90, height=70,
-                ink=True, on_click=_pick(m),
-            )
-
-        options_row = ft.Row(
-            [_option("date", ft.Icons.CALENDAR_TODAY_OUTLINED, "Date"),
-             _option("filename", ft.Icons.INSERT_DRIVE_FILE_OUTLINED,
-                     "Nom fichier"),
-             _option("custom", ft.Icons.EDIT_OUTLINED, "Personnalisé")],
-            spacing=8, alignment=ft.MainAxisAlignment.CENTER,
-        )
-
-        def _cancel(e):
-            dlg.open = False
-            page.update()
-
-        def _confirm(e):
-            custom = (custom_field.value or "").strip()
-            if mode["value"] == "custom" and not custom:
-                custom_field.error_text = "Requis"
-                page.update()
-                return
-            dlg.open = False
-            page.update()
-            _launch_tool("Copyright.py", extra_env={
-                "COPYRIGHT_MODE": mode["value"],
-                "COPYRIGHT_CUSTOM": custom,
-            })
-
-        dlg = ft.AlertDialog(
-            title=ft.Text("Copyright", size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([options_row, custom_field], spacing=10,
-                              tight=True),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Lancer", on_click=_confirm)],
-        )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
-
     async def _sync_two_folders(event=None):
         """Comme Dashboard.pyw:9692-9782 (_sync_two_folders) : synchronise
         le dossier courant avec un 2e dossier choisi (sous-dossiers
@@ -6818,17 +6497,10 @@ def main(page: ft.Page):
              two_en_un_btn.on_click),
         ]),
         ("Retouche", [
+            ("Retouche par lot (aperçu live)", ft.Icons.TUNE, VIOLET,
+             lambda e: _launch_tool("Retouche par lot.pyw")),
             ("Augmentation IA", ft.Icons.AUTO_FIX_HIGH_OUTLINED, VIOLET,
              lambda e: _launch_tool("Augmentation IA.py")),
-            ("Grain pellicule", ft.Icons.GRAIN, VIOLET,
-             _launch_grain_pellicule),
-            ("N&B", ft.Icons.MONOCHROME_PHOTOS_OUTLINED, VIOLET,
-             lambda e: _launch_tool("N&B.py")),
-            ("Virage (sépia, jauni...)", ft.Icons.FILTER_VINTAGE_OUTLINED,
-             VIOLET, _launch_virage),
-            ("Améliorer netteté", ft.Icons.AUTO_GRAPH, VIOLET,
-             lambda e: _launch_tool("Améliorer netteté.py")),
-            ("Débruiter", ft.Icons.BLUR_ON, VIOLET, _launch_debruiter),
             ("Comparaison", ft.Icons.COMPARE_OUTLINED, VIOLET,
              _launch_comparaison),
         ]),
@@ -6841,8 +6513,6 @@ def main(page: ft.Page):
              _launch_images_en_pdf),
             ("Remerciements", ft.CupertinoIcons.BIN_XMARK_FILL, ORANGE,
              lambda e: _launch_tool("Remerciements.py")),
-            ("Copyright", ft.Icons.COPYRIGHT_OUTLINED, ORANGE,
-             _launch_copyright),
             ("Nettoyer métadonnées", ft.Icons.CLEANING_SERVICES_OUTLINED, ORANGE,
              lambda e: _launch_tool("Nettoyer metadonnées.py")),
         ]),

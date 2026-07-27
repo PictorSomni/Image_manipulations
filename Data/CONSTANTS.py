@@ -922,7 +922,7 @@ CA_AXIAL_RATIO = 0.64  # part de la composante axiale (0 = purement radial, 1 = 
 
 VIRAGE_PRESETS = {
     "SEPIA":       {"mode": "colorize", "hue": 25,  "sat": 25},  # retour user : réglage Photoshop/Affinity habituel
-    "JAUNI":       {"mode": "multiply", "hue": 46,  "sat": 85, "light": 85, "shadow_lift": 20},  # retour user : image trop sombre de base
+    "JAUNI":       {"mode": "multiply", "hue": 46,  "sat": 85, "light": 85, "shadow_lift": 10},  # retour user : image trop sombre de base
     "N&B ANCIEN":  {"mode": "colorize", "hue": 150, "sat": 4},
     "N&B":         {"mode": "colorize", "hue": 0,   "sat": 0},
 }

@@ -3,11 +3,9 @@ __version__ = "3.1.0"
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 from pathlib import Path
 import os
-from PIL.ExifTags import TAGS
-from datetime import datetime
 import image_ops
 
 #############################################################
@@ -36,55 +34,6 @@ def folder(folder) :
 
 
 
-def get_date_taken(image):
-    """Retourne la date de prise de vue depuis les EXIF, ou None."""
-    try:
-        exif_data = image._getexif()
-        if exif_data:
-            for tag_id, value in exif_data.items():
-                if TAGS.get(tag_id) == "DateTimeOriginal":
-                    # Format EXIF : "YYYY:MM:DD HH:MM:SS"
-                    dt = datetime.strptime(value, "%Y:%m:%d %H:%M:%S")
-                    MOIS = ["janvier","février","mars","avril","mai","juin",
-                            "juillet","août","septembre","octobre","novembre","décembre"]
-                    return f"{dt.day} {MOIS[dt.month - 1]} {dt.year}"
-    except Exception:
-        pass
-    return None
-
-
-
-def add_copyright(image, label) :
-        draw = ImageDraw.Draw(image, "RGBA")
-        img_w, img_h = image.size
-
-        font_size = round(img_h / 40)  # taille de police proportionnelle à la largeur
-        myFont = ImageFont.truetype(str(Path(__file__).resolve().parent.parent / "assets" / "Montserrat-Regular.ttf"), font_size)
-
-        # Mesurer le texte
-        bbox = draw.textbbox((0, 0), label, font=myFont)
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
-
-        padding_x, padding_y = round(img_w / 40), round(img_h / 40)
-        margin_bottom = round(img_h / 40)
-
-        # Position centrée en bas
-        box_x0 = (img_w - text_w) // 2 - padding_x
-        box_y0 = img_h - text_h - padding_y * 2 - margin_bottom
-        box_x1 = (img_w + text_w) // 2 + padding_x
-        box_y1 = img_h - margin_bottom
-
-        # Encadré blanc translucide
-        draw.rounded_rectangle([box_x0, box_y0, box_x1, box_y1], radius=16, fill=(255, 255, 255, 200))
-
-        # Texte centré dans l'encadré
-        text_x = (img_w - text_w) // 2
-        text_y = box_y0 + padding_y
-        draw.text((text_x, text_y), label, font=myFont, fill=(0, 0, 0, 255))
-
-        return image
-
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -101,7 +50,7 @@ for i, file in enumerate(FOLDER):
         # Date lue AVANT la conversion sRGB : une conversion ICC réelle
         # (profil non-sRGB embarqué) reconstruit une nouvelle image sans
         # les EXIF d'origine.
-        date_label = get_date_taken(source_image)
+        date_label = image_ops.get_date_taken(source_image)
         base_image = image_ops.convert_to_srgb(
             source_image, source_image.info.get("icc_profile"))
     except Exception:
@@ -114,7 +63,7 @@ for i, file in enumerate(FOLDER):
         else:  # "date" (défaut)
             label = date_label or filename
         base_image = base_image.convert("RGB")
-        base_image = add_copyright(base_image, label)
+        base_image = image_ops.add_copyright(base_image, label)
         base_image.save(str(PATH / "Copyright" / f"{filename}.jpg"),
                         format="JPEG", subsampling=0, quality=100,
                         icc_profile=image_ops._SRGB_ICC)

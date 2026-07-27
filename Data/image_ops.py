@@ -4,22 +4,30 @@ image_ops.py — Traitement d'image pur (recadrage, couleur, planches).
 
 Aucune dépendance à Flet ni à un état de session : chaque fonction reçoit
 ses paramètres explicitement et retourne une nouvelle `PIL.Image.Image`.
-Module partagé par `Hub.pyw` (tiroirs de la visionneuse) et par
-`Data/Recadrage manuel.pyw` (qui l'importe au lieu de dupliquer sa propre
-logique de traitement).
+Module partagé par `Hub.pyw` (tiroirs de la visionneuse), par
+`Data/Recadrage manuel.pyw`, et par les scripts de retouche par lot
+(`Débruiter.py`, `Virage.py`, `Grain pellicule.py`, `Copyright.py`,
+`Améliorer netteté.py`, `Data/Retouche par lot.pyw`) — qui l'importent au
+lieu de dupliquer leur propre logique de traitement.
 
 Toutes les fonctions ci-dessous sont des extractions fidèles de
 `Data/Recadrage manuel.pyw` (classe `PhotoCropper`) : mêmes formules, mêmes
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
+import colorsys
 import io
 import math
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 
+import cv2
 import numpy as np
-from PIL import Image, ImageCms, ImageEnhance, ImageFilter, ImageOps
+from PIL import (Image, ImageCms, ImageDraw, ImageEnhance, ImageFilter,
+                  ImageFont, ImageOps)
+from PIL.ExifTags import TAGS
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
@@ -1125,3 +1133,423 @@ def build_print_sheet(cropped_image: Image.Image, layout: str, dpi: int = DPI,
         return canvas
 
     raise ValueError(f"layout inconnu : {layout!r}")
+
+
+# ================================================================ #
+#   RETOUCHE (Débruiter, Virage, Grain pellicule, Copyright, Netteté)
+# ================================================================ #
+# Extractions fidèles des scripts autonomes du même nom : mêmes formules,
+# mêmes noms, partagées avec Data/Retouche par lot.pyw (aperçu live).
+
+
+def apply_denoise(image: Image.Image, *, h: float = 4, h_color: float = 4,
+                   template_window: int = 7, search_window: int = 21
+                   ) -> Image.Image:
+    """Réduction de bruit Non-Local Means — reprise fidèle de Débruiter.py."""
+    bgr = cv2.cvtColor(np.array(image.convert("RGB")), cv2.COLOR_RGB2BGR)
+    denoised_bgr = cv2.fastNlMeansDenoisingColored(
+        bgr, None, h=h, hColor=h_color,
+        templateWindowSize=template_window, searchWindowSize=search_window)
+    return Image.fromarray(cv2.cvtColor(denoised_bgr, cv2.COLOR_BGR2RGB))
+
+
+def apply_sharpen(image: Image.Image, *, radius1: float = 4,
+                   percent1: int = 42, radius2: float = 2,
+                   percent2: int = 42) -> Image.Image:
+    """Deux passes d'UnsharpMask — reprise fidèle de Améliorer netteté.py."""
+    result = image.filter(
+        ImageFilter.UnsharpMask(radius=radius1, percent=percent1,
+                               threshold=0))
+    return result.filter(
+        ImageFilter.UnsharpMask(radius=radius2, percent=percent2,
+                               threshold=0))
+
+
+def lift_shadows(gray, lift_pct):
+    """Remonte le point noir avant colorisation, sans toucher le blanc :
+    gray=0 -> lift_pct/100, gray=1 -> inchangé (pied de courbe argentique).
+    Éclaircit l'image dans le fichier plutôt qu'en réduisant la densité à
+    l'impression, ce qui délaverait aussi les hautes lumières colorées
+    (retour user). Reprise fidèle de Virage.py."""
+    if lift_pct <= 0:
+        return gray
+    lift = lift_pct / 100.0
+    return lift + (1.0 - lift) * gray
+
+
+def colorize_hsl(pil_img, hue_deg, saturation_pct, shadow_lift_pct=0):
+    """Convertit en niveaux de gris puis colorise en HSL à teinte/saturation
+    fixes — la luminosité de chaque pixel reste celle du noir et blanc,
+    exactement comme "Coloriser" dans Photoshop/Affinity (noir en L=0,
+    blanc en L=1, teinte pleine au milieu). Reprise fidèle de Virage.py."""
+    gray = np.asarray(pil_img.convert("L"), dtype=np.float64) / 255.0
+    gray = lift_shadows(gray, shadow_lift_pct)
+    hue, sat = (hue_deg % 360) / 360.0, saturation_pct / 100.0
+    # LUT de 256 entrées (une par niveau de gris possible) : colorsys ne
+    # traite qu'un pixel à la fois, mais teinte/saturation étant fixes ici,
+    # 256 appels suffisent au lieu d'un par pixel de l'image.
+    lut = np.array(
+        [colorsys.hls_to_rgb(hue, level / 255.0, sat) for level in range(256)],
+        dtype=np.float32) * 255.0
+    indices = np.clip(np.round(gray * 255), 0, 255).astype(np.uint8)
+    return Image.fromarray(lut[indices].astype(np.uint8))
+
+
+def colorize_multiply(pil_img, hue_deg, saturation_pct, lightness_pct,
+                      shadow_lift_pct=0):
+    """Convertit en niveaux de gris puis pose une couleur unie en mode
+    Multiply par-dessus — exactement un calque couleur uni HSL + mode de
+    fusion "Multiplier" dans Affinity/Photoshop (résultat = gris × couleur).
+
+    Contrairement à "Coloriser" (substitution HSL), la teinte de la couleur
+    reste visible jusque dans les hautes lumières : un gris à 255 (blanc)
+    multiplié par la couleur redonne la couleur elle-même, jamais du blanc
+    pur — un tirage papier ancien n'est jamais neutre, même dans ses zones
+    les plus claires (retour user : hautes lumières "cramées" avec l'ancienne
+    méthode, besoin de plus de contrôle sur la teinte obtenue).
+
+    Multiply ne peut qu'assombrir (résultat <= gris) : shadow_lift_pct
+    remonte le point noir en amont pour compenser une image trop sombre
+    (retour user), sans toucher le blanc donc sans affecter la couleur des
+    hautes lumières. Reprise fidèle de Virage.py."""
+    gray = np.asarray(pil_img.convert("L"), dtype=np.float64) / 255.0
+    gray = lift_shadows(gray, shadow_lift_pct)
+    hue, light, sat = (hue_deg % 360) / 360.0, lightness_pct / 100.0, saturation_pct / 100.0
+    color_rgb = np.array(colorsys.hls_to_rgb(hue, light, sat), dtype=np.float64)
+    result = gray[:, :, np.newaxis] * color_rgb[np.newaxis, np.newaxis, :]
+    return Image.fromarray(np.round(result * 255).astype(np.uint8))
+
+
+def add_chromatic_aberration(pil_img: Image.Image, strength: float,
+                             axial_ratio: float = 0.15) -> Image.Image:
+    """Aberration chromatique radiale + axiale : R agrandi, B rétréci, G =
+    référence. Reprise fidèle de Grain pellicule.py.
+
+    strength    : intensité en % de la diagonale (0.3 = subtil · 1.0 =
+                  prononcé · 2.0 = fort)
+    axial_ratio : part de translation uniforme ajoutée (0 = purement
+                  radial, 0.15 = subtil au centre)
+    """
+    if strength <= 0:
+        return pil_img
+    img = np.array(pil_img, dtype=np.float32) / 255.0
+    h, w = img.shape[:2]
+    cy, cx = h / 2.0, w / 2.0
+
+    scale = strength / 100.0
+    scale_r = 1.0 + scale
+    scale_b = max(1e-6, 1.0 - scale)
+
+    y_grid, x_grid = np.mgrid[0:h, 0:w].astype(np.float32)
+    dx = x_grid - cx
+    dy = y_grid - cy
+
+    axial = strength / 100.0 * min(h, w) * axial_ratio
+
+    map_x_r = (cx + dx / scale_r + axial).astype(np.float32)
+    map_y_r = (cy + dy / scale_r + axial).astype(np.float32)
+    map_x_b = (cx + dx / scale_b - axial).astype(np.float32)
+    map_y_b = (cy + dy / scale_b - axial).astype(np.float32)
+
+    r = cv2.remap(img[:, :, 0], map_x_r, map_y_r, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+    g = img[:, :, 1]
+    b = cv2.remap(img[:, :, 2], map_x_b, map_y_b, cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+
+    result = np.clip(np.stack([r, g, b], axis=-1), 0.0, 1.0)
+    return Image.fromarray((result * 255).astype(np.uint8))
+
+
+def add_desaturate_extremes(
+    pil_img: Image.Image,
+    shadow_threshold: float,
+    shadow_intensity: float,
+    highlight_threshold: float,
+    highlight_intensity: float,
+    midtone_boost: float = 0.0,
+) -> Image.Image:
+    """Désature les ombres/HL et booste optionnellement la saturation des
+    mi-tons. Reprise fidèle de Grain pellicule.py.
+
+    shadow_threshold    : luma en dessous duquel les ombres sont désaturées
+                          (ex. 0.25)
+    shadow_intensity    : force de la désaturation dans les ombres (0.0–1.0)
+    highlight_threshold : luma au-dessus duquel les hautes lumières sont
+                          désaturées (ex. 0.85)
+    highlight_intensity : force de la désaturation dans les hautes
+                          lumières (0.0–1.0)
+    midtone_boost       : saturation supplémentaire en mi-tons (0 = aucun,
+                          0.3 = prononcé)
+    """
+    img = np.array(pil_img, dtype=np.float32) / 255.0
+    luma = 0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2]
+    gray = np.stack([luma, luma, luma], axis=-1)
+
+    # Masque doux pour les ombres : 1.0 en luma=0, 0.0 au seuil
+    shadow_mask = np.clip(1.0 - luma / max(1e-6, shadow_threshold), 0.0, 1.0)[:, :, np.newaxis]
+    # Masque doux pour les hautes lumières : 0.0 au seuil, 1.0 en luma=1
+    highlight_mask = np.clip(
+        (luma - highlight_threshold) / max(1e-6, 1.0 - highlight_threshold), 0.0, 1.0
+    )[:, :, np.newaxis]
+
+    result = img + (gray - img) * shadow_mask * shadow_intensity
+    result = result + (gray - result) * highlight_mask * highlight_intensity
+
+    if midtone_boost > 0:
+        # Masque mi-tons = (1 - shadow_mask) × (1 - highlight_mask) :
+        # vaut 1 entre les deux seuils, retombe à 0 aux extrêmes.
+        midtone_mask = (1.0 - shadow_mask) * (1.0 - highlight_mask)
+        result = result + (result - gray) * midtone_mask * midtone_boost
+
+    return Image.fromarray((np.clip(result, 0.0, 1.0) * 255).astype(np.uint8))
+
+
+def add_film_grain(
+    pil_img: Image.Image,
+    amount: float,
+    size: float,
+    color_ratio: float,
+    shadow_boost: float,
+    floor: float,
+    chroma_shift: float = 0.0,
+) -> Image.Image:
+    """Applique un grain argentique simulé à une image PIL RGB. Reprise
+    fidèle de Grain pellicule.py.
+
+    chroma_shift > 0 : grain indépendant par canal R/G/B avec décalage
+    spatial, simulant le désalignement physique des couches d'émulsion
+    argentique.
+    """
+    img = np.array(pil_img, dtype=np.float32) / 255.0
+    h, w = img.shape[:2]
+
+    size_px = max(1.0, size / 100.0 * min(h, w))
+    grain_h = max(1, round(h / size_px))
+    grain_w = max(1, round(w / size_px))
+
+    rng = np.random.default_rng()
+    grain_mono = rng.normal(0.0, amount, (grain_h, grain_w, 1)).astype(np.float32)
+
+    if chroma_shift > 0.0:
+        # Couches d'émulsion indépendantes : grain distinct par canal,
+        # chacun agrandi séparément
+        gr = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
+        gg = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
+        gb = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
+        # Décalage diagonal opposé entre R et B (G = référence)
+        shift = round(chroma_shift * size_px)
+        if shift > 0:
+            gr = np.roll(gr, shift=( shift,  shift), axis=(0, 1))
+            gb = np.roll(gb, shift=(-shift, -shift), axis=(0, 1))
+        mono_full = cv2.resize(grain_mono[:, :, 0], (w, h), interpolation=cv2.INTER_CUBIC)
+        mono_w = 1.0 - color_ratio
+        grain = np.stack([
+            mono_full * mono_w + gr * color_ratio,
+            mono_full * mono_w + gg * color_ratio,
+            mono_full * mono_w + gb * color_ratio,
+        ], axis=-1)
+    else:
+        grain_color = rng.normal(0.0, amount, (grain_h, grain_w, 3)).astype(np.float32)
+        grain_small = np.repeat(grain_mono, 3, axis=2) * (1.0 - color_ratio) + grain_color * color_ratio
+        grain = cv2.resize(grain_small, (w, h), interpolation=cv2.INTER_CUBIC)
+
+    luma = (0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2])
+    # Parabole centrée sur les mi-tons avec plancher : peak à luma=0.5 (×1.0),
+    # ombres/hautes lumières à floor — grain présent partout mais atténué
+    # aux extrêmes
+    weight = floor + (1.0 - floor) * np.clip(4.0 * luma * (1.0 - luma), 0.0, 1.0) ** shadow_boost
+    weight = weight[:, :, np.newaxis]
+
+    result = np.clip(img + grain * weight, 0.0, 1.0)
+    return Image.fromarray((result * 255).astype(np.uint8))
+
+
+def add_halation(
+    pil_img: Image.Image,
+    threshold: float,
+    radius: float,
+    intensity: float,
+    red_shift: float,
+) -> Image.Image:
+    """Halo rougeâtre autour des hautes lumières (rebond de lumière sur la
+    base du film). Reprise fidèle de Grain pellicule.py.
+
+    radius est exprimé en % de la plus petite dimension de l'image
+    (ex. 5 = 5 %). Blend mode Screen : img + h - img·h — jamais de
+    clipping sur les HL déjà proches de 1.0.
+    """
+    img = np.array(pil_img, dtype=np.float32) / 255.0
+    h, w = img.shape[:2]
+    luma = 0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2]
+
+    # Masque doux au-dessus du seuil
+    mask = np.clip((luma - threshold) / max(1e-6, 1.0 - threshold), 0.0, 1.0)
+
+    # Layer de halo basé sur le masque seul (pas img*mask) : la lumière
+    # réfléchie par la base du film est indépendante des pixels sombres
+    # environnants.
+    halo = np.stack([
+        np.clip(mask * (1.0 + red_shift), 0.0, 1.0),         # canal R boosté
+        mask * max(0.0, 1.0 - red_shift * 0.2),              # canal G légèrement réduit
+        mask * max(0.0, 1.0 - red_shift * 0.6),              # canal B atténué
+    ], axis=-1).astype(np.float32)
+
+    # Sigma en pixels (radius = % de la plus petite dim).
+    # On floute à résolution réduite (effet basse fréquence) pour la
+    # vitesse : on cible sigma ~20px dans l'espace réduit, puis on remonte.
+    sigma = max(1.0, radius / 100.0 * min(h, w))
+    scale = min(1.0, 20.0 / sigma)
+    if scale < 1.0:
+        sh, sw = max(1, int(h * scale)), max(1, int(w * scale))
+        halo_s = cv2.resize(halo, (sw, sh), interpolation=cv2.INTER_AREA)
+        halo_s = cv2.GaussianBlur(halo_s, (0, 0), sigmaX=sigma * scale, sigmaY=sigma * scale)
+        blurred = cv2.resize(halo_s, (w, h), interpolation=cv2.INTER_LINEAR).astype(np.float32)
+    else:
+        blurred = cv2.GaussianBlur(halo, (0, 0), sigmaX=sigma, sigmaY=sigma)
+
+    # Screen : img + h - img·h  (jamais de clipping — pixel à 0.95 avec
+    # halo 0.15 donne 0.9575 au lieu de 1.10 en additif ; sur luma=0 le
+    # halo s'exprime pleinement)
+    halo = blurred * intensity
+    result = np.clip(img + halo - img * halo, 0.0, 1.0)
+    return Image.fromarray((result * 255).astype(np.uint8))
+
+
+def add_bloom(
+    pil_img: Image.Image,
+    radius: float,
+    intensity: float,
+) -> Image.Image:
+    """Glow général par superposition de l'image floutée en mode Soft
+    Light. Reprise fidèle de Grain pellicule.py.
+
+    radius est exprimé en % de la plus petite dimension de l'image
+    (ex. 6 = 6 %). Soft Light renforce le contraste et la saturation
+    perçue — effect argentique prononcé. La courbe (shoulder) permet
+    d'atténuer a posteriori quand l'effet est trop marqué.
+    """
+    img = np.array(pil_img, dtype=np.float32) / 255.0
+    h, w = img.shape[:2]
+    sigma = max(1.0, radius / 100.0 * min(h, w))
+    scale = min(1.0, 20.0 / sigma)
+    if scale < 1.0:
+        sh, sw = max(1, int(h * scale)), max(1, int(w * scale))
+        img_s = cv2.resize(img, (sw, sh), interpolation=cv2.INTER_AREA)
+        img_s = cv2.GaussianBlur(img_s, (0, 0), sigmaX=sigma * scale, sigmaY=sigma * scale)
+        blurred = cv2.resize(img_s, (w, h), interpolation=cv2.INTER_LINEAR).astype(np.float32)
+    else:
+        blurred = cv2.GaussianBlur(img, (0, 0), sigmaX=sigma, sigmaY=sigma).astype(np.float32)
+    # Soft Light (Photoshop)
+    D = np.where(img <= 0.25,
+                 ((16.0 * img - 12.0) * img + 4.0) * img,
+                 np.sqrt(np.clip(img, 0.0, 1.0)))
+    soft = np.where(blurred <= 0.5,
+                    img - (1.0 - 2.0 * blurred) * img * (1.0 - img),
+                    img + (2.0 * blurred - 1.0) * (D - img))
+    result = img * (1.0 - intensity) + np.clip(soft, 0.0, 1.0) * intensity
+    return Image.fromarray((np.clip(result, 0.0, 1.0) * 255).astype(np.uint8))
+
+
+def add_filmic_curve(
+    pil_img: Image.Image,
+    shoulder_start: float,
+    shoulder_strength: float,
+    toe_start: float,
+    toe_lift: float,
+) -> Image.Image:
+    """Courbe tonale argentique : épaulement dans les HL + pied dans les
+    ombres. Reprise fidèle de Grain pellicule.py.
+
+    Applique une courbe non-linéaire inspirée de la caractéristique des
+    films argentiques : les hautes lumières sont compressées (évite
+    l'écrêtage brutal) et les noirs sont légèrement relevés (densité
+    minimale du film).
+
+    shoulder_start    : seuil au-dessus duquel les HL sont compressées
+                        (ex. 0.80)
+    shoulder_strength : force de la compression (0 = linéaire, 0.5 =
+                        standard, 1.5 = forte)
+    toe_start         : seuil en dessous duquel les ombres sont relevées
+                        (ex. 0.06)
+    toe_lift          : amplitude du relèvement des noirs (0 = aucun,
+                        0.1 = subtil)
+    """
+    img = np.array(pil_img, dtype=np.float32) / 255.0
+    result = img.copy()
+
+    # Épaulement : spline de Hermite cubique C¹ — pente = 1 au seuil
+    # (raccord lisse avec la zone linéaire), pente = (1 - s) à 1.0
+    # (compression douce au sommet).
+    # f(t) = -s·t³ + s·t² + t   →   f'(0) = 1, f'(1) = 1-s, f(0)=0, f(1)=1.
+    # Remplace t^(1+s) qui créait un genou brusque (pente 1 → 0 instantané
+    # au seuil).
+    if shoulder_strength > 0:
+        t = np.clip((img - shoulder_start) / max(1e-6, 1.0 - shoulder_start), 0.0, 1.0)
+        f = -shoulder_strength * t**3 + shoulder_strength * t**2 + t
+        compressed = shoulder_start + (1.0 - shoulder_start) * f
+        result = np.where(img > shoulder_start, compressed, result)
+
+    # Pied : relèvement linéaire des pixels très sombres (densité minimale
+    # film)
+    if toe_lift > 0 and toe_start > 0:
+        t_toe = np.clip(1.0 - result / max(1e-6, toe_start), 0.0, 1.0)
+        result = result + t_toe * toe_lift * toe_start
+
+    return Image.fromarray((np.clip(result, 0.0, 1.0) * 255).astype(np.uint8))
+
+
+def get_date_taken(image):
+    """Retourne la date de prise de vue depuis les EXIF, ou None. Reprise
+    fidèle de Copyright.py."""
+    try:
+        exif_data = image._getexif()
+        if exif_data:
+            for tag_id, value in exif_data.items():
+                if TAGS.get(tag_id) == "DateTimeOriginal":
+                    # Format EXIF : "YYYY:MM:DD HH:MM:SS"
+                    dt = datetime.strptime(value, "%Y:%m:%d %H:%M:%S")
+                    MOIS = ["janvier", "février", "mars", "avril", "mai",
+                           "juin", "juillet", "août", "septembre",
+                           "octobre", "novembre", "décembre"]
+                    return f"{dt.day} {MOIS[dt.month - 1]} {dt.year}"
+    except Exception:
+        pass
+    return None
+
+
+def add_copyright(image, label):
+    """Dessine un bandeau de texte centré en bas de l'image (encadré blanc
+    translucide). Reprise fidèle de Copyright.py. Mute `image` en place ET
+    la retourne — l'appelant doit passer une copie s'il réutilise la
+    source ailleurs (ex. cache d'aperçu)."""
+    draw = ImageDraw.Draw(image, "RGBA")
+    img_w, img_h = image.size
+
+    font_size = round(img_h / 40)  # taille de police proportionnelle
+    myFont = ImageFont.truetype(
+        str(Path(__file__).resolve().parent.parent / "assets"
+            / "Montserrat-Regular.ttf"), font_size)
+
+    # Mesurer le texte
+    bbox = draw.textbbox((0, 0), label, font=myFont)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+
+    padding_x, padding_y = round(img_w / 40), round(img_h / 40)
+    margin_bottom = round(img_h / 40)
+
+    # Position centrée en bas
+    box_x0 = (img_w - text_w) // 2 - padding_x
+    box_y0 = img_h - text_h - padding_y * 2 - margin_bottom
+    box_x1 = (img_w + text_w) // 2 + padding_x
+    box_y1 = img_h - margin_bottom
+
+    # Encadré blanc translucide
+    draw.rounded_rectangle([box_x0, box_y0, box_x1, box_y1], radius=16,
+                           fill=(255, 255, 255, 200))
+
+    # Texte centré dans l'encadré
+    text_x = (img_w - text_w) // 2
+    text_y = box_y0 + padding_y
+    draw.text((text_x, text_y), label, font=myFont, fill=(0, 0, 0, 255))
+
+    return image

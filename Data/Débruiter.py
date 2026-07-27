@@ -26,9 +26,6 @@ __version__ = "3.1.0"
 #############################################################
 import os
 from pathlib import Path
-import cv2
-import numpy as np
-from PIL import Image
 import CONSTANTS
 import image_ops
 
@@ -69,16 +66,9 @@ for index, file_name in enumerate(files_to_process):
     except Exception:
         continue
 
-    bgr = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-    denoised_bgr = cv2.fastNlMeansDenoisingColored(
-        bgr,
-        None,
-        h=H,
-        hColor=H_COLOR,
-        templateWindowSize=TEMPLATE_WINDOW,
-        searchWindowSize=SEARCH_WINDOW,
-    )
-    result = Image.fromarray(cv2.cvtColor(denoised_bgr, cv2.COLOR_BGR2RGB))
+    result = image_ops.apply_denoise(pil_img, h=H, h_color=H_COLOR,
+                                     template_window=TEMPLATE_WINDOW,
+                                     search_window=SEARCH_WINDOW)
     stem = Path(file_name).stem
     result.save(str(output_folder / f"{stem}.jpg"), format="JPEG",
                subsampling=0, quality=100, icc_profile=image_ops._SRGB_ICC)

@@ -39,13 +39,10 @@ __version__ = "1.0.0"
 #############################################################
 #                          IMPORTS                          #
 #############################################################
-import colorsys
 import os
 import re
 import unicodedata
 from pathlib import Path
-import numpy as np
-from PIL import Image
 import CONSTANTS
 import image_ops
 
@@ -89,61 +86,6 @@ if SHADOW_LIFT_PCT != _preset.get("shadow_lift", 0):
     _ascii_name += f"_lift{round(SHADOW_LIFT_PCT)}"
 
 
-def lift_shadows(gray, lift_pct):
-    """Remonte le point noir avant colorisation, sans toucher le blanc :
-    gray=0 -> lift_pct/100, gray=1 -> inchangé (pied de courbe argentique).
-    Éclaircit l'image dans le fichier plutôt qu'en réduisant la densité à
-    l'impression, ce qui délaverait aussi les hautes lumières colorées
-    (retour user)."""
-    if lift_pct <= 0:
-        return gray
-    lift = lift_pct / 100.0
-    return lift + (1.0 - lift) * gray
-
-
-def colorize_hsl(pil_img, hue_deg, saturation_pct, shadow_lift_pct=0):
-    """Convertit en niveaux de gris puis colorise en HSL à teinte/saturation
-    fixes — la luminosité de chaque pixel reste celle du noir et blanc,
-    exactement comme "Coloriser" dans Photoshop/Affinity (noir en L=0,
-    blanc en L=1, teinte pleine au milieu)."""
-    gray = np.asarray(pil_img.convert("L"), dtype=np.float64) / 255.0
-    gray = lift_shadows(gray, shadow_lift_pct)
-    hue, sat = (hue_deg % 360) / 360.0, saturation_pct / 100.0
-    # LUT de 256 entrées (une par niveau de gris possible) : colorsys ne
-    # traite qu'un pixel à la fois, mais teinte/saturation étant fixes ici,
-    # 256 appels suffisent au lieu d'un par pixel de l'image.
-    lut = np.array(
-        [colorsys.hls_to_rgb(hue, level / 255.0, sat) for level in range(256)],
-        dtype=np.float32) * 255.0
-    indices = np.clip(np.round(gray * 255), 0, 255).astype(np.uint8)
-    return Image.fromarray(lut[indices].astype(np.uint8))
-
-
-def colorize_multiply(pil_img, hue_deg, saturation_pct, lightness_pct,
-                      shadow_lift_pct=0):
-    """Convertit en niveaux de gris puis pose une couleur unie en mode
-    Multiply par-dessus — exactement un calque couleur uni HSL + mode de
-    fusion "Multiplier" dans Affinity/Photoshop (résultat = gris × couleur).
-
-    Contrairement à "Coloriser" (substitution HSL), la teinte de la couleur
-    reste visible jusque dans les hautes lumières : un gris à 255 (blanc)
-    multiplié par la couleur redonne la couleur elle-même, jamais du blanc
-    pur — un tirage papier ancien n'est jamais neutre, même dans ses zones
-    les plus claires (retour user : hautes lumières "cramées" avec l'ancienne
-    méthode, besoin de plus de contrôle sur la teinte obtenue).
-
-    Multiply ne peut qu'assombrir (résultat <= gris) : shadow_lift_pct
-    remonte le point noir en amont pour compenser une image trop sombre
-    (retour user), sans toucher le blanc donc sans affecter la couleur des
-    hautes lumières."""
-    gray = np.asarray(pil_img.convert("L"), dtype=np.float64) / 255.0
-    gray = lift_shadows(gray, shadow_lift_pct)
-    hue, light, sat = (hue_deg % 360) / 360.0, lightness_pct / 100.0, saturation_pct / 100.0
-    color_rgb = np.array(colorsys.hls_to_rgb(hue, light, sat), dtype=np.float64)
-    result = gray[:, :, np.newaxis] * color_rgb[np.newaxis, np.newaxis, :]
-    return Image.fromarray(np.round(result * 255).astype(np.uint8))
-
-
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -154,10 +96,11 @@ for i, file in enumerate(FOLDER):
     except Exception:
         continue
     if MODE == "multiply":
-        result = colorize_multiply(base_image, HUE_DEG, SATURATION_PCT,
-                                   LIGHTNESS_PCT, SHADOW_LIFT_PCT)
+        result = image_ops.colorize_multiply(base_image, HUE_DEG, SATURATION_PCT,
+                                             LIGHTNESS_PCT, SHADOW_LIFT_PCT)
     else:
-        result = colorize_hsl(base_image, HUE_DEG, SATURATION_PCT, SHADOW_LIFT_PCT)
+        result = image_ops.colorize_hsl(base_image, HUE_DEG, SATURATION_PCT,
+                                        SHADOW_LIFT_PCT)
     stem = Path(file).stem
     result.save(str(output_folder / f"{stem}_{_ascii_name}.jpg"),
                format="JPEG", subsampling=0, quality=100,
