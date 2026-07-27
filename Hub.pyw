@@ -6268,12 +6268,49 @@ def main(page: ft.Page):
         # Un bouton par préréglage (CONSTANTS.VIRAGE_PRESETS) plutôt qu'un
         # color picker RGB/HSL (retour user : simple clic pour comparer,
         # ajuster une teinte se fait en éditant CONSTANTS.py au besoin).
+        # Dropdown de mode : chaque préréglage a un mode par défaut
+        # (colorize/multiply, cf. CONSTANTS.py 12.7) qui rend mieux pour lui
+        # selon le retour user, mais on peut forcer l'autre mode pour
+        # comparer sans éditer CONSTANTS.py.
+        mode_dd = ft.Dropdown(
+            label="Mode", value="Auto (préréglage)",
+            options=[ft.dropdown.Option("Auto (préréglage)"),
+                    ft.dropdown.Option("Coloriser"),
+                    ft.dropdown.Option("Multiplier")],
+            width=280, bgcolor=DARK, border_color=GREY, color=WHITE)
+        _mode_env = {"Coloriser": "colorize", "Multiplier": "multiply"}
+
+        # Remontée des ombres : réduire la densité à l'impression pour
+        # éclaircir délave aussi les hautes lumières colorées (retour user)
+        # — il faut éclaircir en amont, dans le fichier. Off par défaut :
+        # chaque préréglage garde sa propre valeur (shadow_lift dans
+        # CONSTANTS.py) tant qu'on ne force pas explicitement une valeur ici.
+        lift_text = ft.Text("20%", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY)
+        lift_slider = ft.Slider(min=0, max=50, divisions=50, value=20,
+                                width=220, disabled=True)
+        lift_switch = ft.Switch(label="Forcer la remontée des ombres",
+                                value=False, active_color=BLUE)
+
+        def _on_lift_change(e):
+            lift_text.value = f"{round(lift_slider.value)}%"
+            page.update()
+        lift_slider.on_change = _on_lift_change
+
+        def _on_lift_toggle(e):
+            lift_slider.disabled = not lift_switch.value
+            page.update()
+        lift_switch.on_change = _on_lift_toggle
+
         def _pick(preset_name):
             def _run(e):
                 dlg.open = False
                 page.update()
-                _launch_tool("Virage.py",
-                            extra_env={"VIRAGE_PRESET": preset_name})
+                extra_env = {"VIRAGE_PRESET": preset_name}
+                if mode_dd.value in _mode_env:
+                    extra_env["VIRAGE_MODE"] = _mode_env[mode_dd.value]
+                if lift_switch.value:
+                    extra_env["VIRAGE_SHADOW_LIFT"] = str(round(lift_slider.value))
+                _launch_tool("Virage.py", extra_env=extra_env)
             return _run
 
         buttons = [
@@ -6294,9 +6331,11 @@ def main(page: ft.Page):
                          "dans VIRAGE/ pour comparer. Préréglages modifiables "
                          "dans CONSTANTS.py (section 12.7).",
                          size=CONSTANTS.TEXT_SM, color=LIGHT_GREY, width=280),
+                 mode_dd, lift_switch,
+                 ft.Row([lift_slider, lift_text], spacing=8),
                  *buttons],
                 spacing=8, tight=True, scroll=ft.ScrollMode.AUTO,
-                width=300, height=64 + 52 * len(buttons)),
+                width=300, height=200 + 52 * len(buttons)),
             actions=[ft.TextButton("Fermer", on_click=_cancel)],
         )
         page.overlay.append(dlg)
