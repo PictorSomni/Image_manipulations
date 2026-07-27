@@ -5,10 +5,10 @@ image_ops.py — Traitement d'image pur (recadrage, couleur, planches).
 Aucune dépendance à Flet ni à un état de session : chaque fonction reçoit
 ses paramètres explicitement et retourne une nouvelle `PIL.Image.Image`.
 Module partagé par `Hub.pyw` (tiroirs de la visionneuse), par
-`Data/Recadrage manuel.pyw`, et par les scripts de retouche par lot
-(`Débruiter.py`, `Virage.py`, `Grain pellicule.py`, `Copyright.py`,
-`Améliorer netteté.py`, `Data/Retouche par lot.pyw`) — qui l'importent au
-lieu de dupliquer leur propre logique de traitement.
+`Data/Recadrage manuel.pyw`, et par `Data/Retouche par lot.pyw` (débruitage,
+virage, copyright, netteté, grain pellicule — les anciens scripts autonomes
+correspondants ont été retirés, remplacés par cet outil unique) — qui
+l'importent au lieu de dupliquer leur propre logique de traitement.
 
 Toutes les fonctions ci-dessous sont des extractions fidèles de
 `Data/Recadrage manuel.pyw` (classe `PhotoCropper`) : mêmes formules, mêmes
@@ -1446,54 +1446,6 @@ def add_bloom(
                     img - (1.0 - 2.0 * blurred) * img * (1.0 - img),
                     img + (2.0 * blurred - 1.0) * (D - img))
     result = img * (1.0 - intensity) + np.clip(soft, 0.0, 1.0) * intensity
-    return Image.fromarray((np.clip(result, 0.0, 1.0) * 255).astype(np.uint8))
-
-
-def add_filmic_curve(
-    pil_img: Image.Image,
-    shoulder_start: float,
-    shoulder_strength: float,
-    toe_start: float,
-    toe_lift: float,
-) -> Image.Image:
-    """Courbe tonale argentique : épaulement dans les HL + pied dans les
-    ombres. Reprise fidèle de Grain pellicule.py.
-
-    Applique une courbe non-linéaire inspirée de la caractéristique des
-    films argentiques : les hautes lumières sont compressées (évite
-    l'écrêtage brutal) et les noirs sont légèrement relevés (densité
-    minimale du film).
-
-    shoulder_start    : seuil au-dessus duquel les HL sont compressées
-                        (ex. 0.80)
-    shoulder_strength : force de la compression (0 = linéaire, 0.5 =
-                        standard, 1.5 = forte)
-    toe_start         : seuil en dessous duquel les ombres sont relevées
-                        (ex. 0.06)
-    toe_lift          : amplitude du relèvement des noirs (0 = aucun,
-                        0.1 = subtil)
-    """
-    img = np.array(pil_img, dtype=np.float32) / 255.0
-    result = img.copy()
-
-    # Épaulement : spline de Hermite cubique C¹ — pente = 1 au seuil
-    # (raccord lisse avec la zone linéaire), pente = (1 - s) à 1.0
-    # (compression douce au sommet).
-    # f(t) = -s·t³ + s·t² + t   →   f'(0) = 1, f'(1) = 1-s, f(0)=0, f(1)=1.
-    # Remplace t^(1+s) qui créait un genou brusque (pente 1 → 0 instantané
-    # au seuil).
-    if shoulder_strength > 0:
-        t = np.clip((img - shoulder_start) / max(1e-6, 1.0 - shoulder_start), 0.0, 1.0)
-        f = -shoulder_strength * t**3 + shoulder_strength * t**2 + t
-        compressed = shoulder_start + (1.0 - shoulder_start) * f
-        result = np.where(img > shoulder_start, compressed, result)
-
-    # Pied : relèvement linéaire des pixels très sombres (densité minimale
-    # film)
-    if toe_lift > 0 and toe_start > 0:
-        t_toe = np.clip(1.0 - result / max(1e-6, toe_start), 0.0, 1.0)
-        result = result + t_toe * toe_lift * toe_start
-
     return Image.fromarray((np.clip(result, 0.0, 1.0) * 255).astype(np.uint8))
 
 

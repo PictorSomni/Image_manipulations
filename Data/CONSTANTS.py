@@ -717,6 +717,8 @@ MCP_SERVERS = [
 SSH_SERVERS = [
     {"name": "monobjet", "host": "ssh.cluster100.hosting.ovh.net",
      "username": "monobjs"},
+     {"name": "raspberry pi maison", "host": "pictorsomni",
+          "username": "pictorsomni"},
 ]
 
 
@@ -779,20 +781,20 @@ SIZES = STUDIOS   # Alias conservé pour compatibilité ascendante
 # 12. DÉBRUITAGE & GRAIN PELLICULE
 # ==============================================================================
 
-# ── 12.1  Débruitage (Denoiser.py) ───────────────────────────────────────────
+# ── 12.1  Débruitage (Retouche par lot.pyw) ───────────────────────────────────
 # Algorithme Non-Local Means (OpenCV fastNlMeansDenoisingColored).
 # h          : force sur la luminance  (3-5 = léger, 8-12 = moyen, 15-25 = fort)
 # h_color    : force sur la couleur    (idem, généralement h_color ≤ h)
 # template   : taille de la fenêtre de comparaison (doit être impair, typiquement 7)
 # search     : taille de la fenêtre de recherche   (doit être impair, typiquement 21)
 
-DENOISE_H               = 4     # Force luminance
-DENOISE_H_COLOR         = 2     # Force couleur
+DENOISE_H               = 4  # Force luminance
+DENOISE_H_COLOR         = 2  # Force couleur
 DENOISE_TEMPLATE_WINDOW = 7     # Fenêtre de comparaison (px, impair)
 DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
 
 
-# ── 12.2  Grain pellicule (Grain pellicule.py) ────────────────────────────────
+# ── 12.2  Grain pellicule (Retouche par lot.pyw) ──────────────────────────────
 # Simulation de grain argentique avec pondération par luminance.
 # amount            : intensité du grain  (0.0 = aucun, 0.05 = fin ISO 100, 0.15 = ISO 800, 0.30 = ISO 3200)
 # size              : taille du grain en % de la plus petite dimension (0.1 = fin, 0.3 = moyen, 0.6 = gros)
@@ -805,22 +807,22 @@ DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
 #                     (simule le désalignement des couches d'émulsion argentique).
 #                     0 = désactivé, 0.1 = subtil, 0.3 = prononcé.
 
-GRAIN_AMOUNT       = 0.015    # Micro-grain subtil
-GRAIN_SIZE         = 0.06     # Très fin (~2.4 px sur 4000 px)
-GRAIN_COLOR_RATIO  = 0.15     # Couleur très discrète
-GRAIN_SHADOW_BOOST = 1.5      # Distribution assez large
-GRAIN_CHROMA_SHIFT = 0.15     # Léger décalage du micro-grain
-GRAIN_FLOOR        = 0.3      # Grain résiduel dans les zones sombres
+GRAIN_AMOUNT       = 0.015  # Micro-grain subtil
+GRAIN_SIZE         = 0.06  # Très fin (~2.4 px sur 4000 px)
+GRAIN_COLOR_RATIO  = 0.15  # Couleur très discrète
+GRAIN_SHADOW_BOOST = 1.5  # Distribution assez large
+GRAIN_CHROMA_SHIFT = 0.15  # Léger décalage du micro-grain
+GRAIN_FLOOR        = 0.3  # Grain résiduel dans les zones sombres
 
-GRAIN2_AMOUNT       = 0.012   # Couche 2 — intensité
-GRAIN2_SIZE         = 0.18    # Couche 2 — taille (% de la plus petite dimension)
-GRAIN2_COLOR_RATIO  = 0.25    # Couche 2 — part couleur
-GRAIN2_SHADOW_BOOST = 3.0     # Couche 2 — concentration mi-tons
-GRAIN2_CHROMA_SHIFT = 0.25    # Couche 2 — décalage inter-canal
-GRAIN2_FLOOR        = 0.3      # Grain résiduel dans les zones sombres
+GRAIN2_AMOUNT       = 0.01  # Couche 2 — intensité
+GRAIN2_SIZE         = 0.18  # Couche 2 — taille (% de la plus petite dimension)
+GRAIN2_COLOR_RATIO  = 0.25  # Couche 2 — part couleur
+GRAIN2_SHADOW_BOOST = 3.0  # Couche 2 — concentration mi-tons
+GRAIN2_CHROMA_SHIFT = 0.25  # Couche 2 — décalage inter-canal
+GRAIN2_FLOOR        = 0.3  # Grain résiduel dans les zones sombres
 
 
-# ── 12.3  Halation & Bloom (Grain pellicule.py) ──────────────────────────────
+# ── 12.3  Halation & Bloom (Retouche par lot.pyw) ─────────────────────────────
 # Halation : halo rougeâtre autour des hautes lumières, reproduisant la lumière
 #            qui rebondit sur la base du film et expose l'émulsion une seconde fois.
 # threshold  : luminance minimale pour qualifier un pixel de haute lumière
@@ -831,10 +833,10 @@ GRAIN2_FLOOR        = 0.3      # Grain résiduel dans les zones sombres
 # red_shift  : force du décalage chaud/rouge   (0.0 = neutre, 0.8 = standard, 1.0 = rouge vif)
 
 HALATION_ENABLED    = True
-HALATION_THRESHOLD  = 0.64   # 0.55 large · 0.65 standard · 0.80 éclats seuls
-HALATION_RADIUS     = 5      # % de la plus petite dimension
-HALATION_INTENSITY  = 0.5   # additif : 0.1 discret · 0.3 visible · 0.6 fort
-HALATION_RED_SHIFT  = 0.42    # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
+HALATION_THRESHOLD  = 0.72  # 0.55 large · 0.65 standard · 0.80 éclats seuls
+HALATION_RADIUS     = 5  # % de la plus petite dimension
+HALATION_INTENSITY  = 0.5  # additif : 0.1 discret · 0.3 visible · 0.6 fort
+HALATION_RED_SHIFT  = 0.42  # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
 
 # Bloom : glow général obtenu en superposant l'image floutée en mode Screen.
 # radius    : rayon du flou exprimé en % de la plus petite dimension de l'image
@@ -843,9 +845,9 @@ HALATION_RED_SHIFT  = 0.42    # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
 
 BLOOM_ENABLED    = True
 BLOOM_RADIUS     = 16
-BLOOM_INTENSITY  = 0.42
+BLOOM_INTENSITY  = 0.64
 
-# ── 12.4  Désaturation des extrêmes + boost mi-tons (Grain pellicule.py) ──────
+# ── 12.4  Désaturation des extrêmes + boost mi-tons (Retouche par lot.pyw) ────
 # Les films argentiques perdent de la saturation dans les ombres très sombres
 # et dans les hautes lumières très claires (compression des couleurs aux extrêmes).
 # shadow_threshold    : luma en dessous duquel l'effet s'applique (0.0–1.0)
@@ -856,29 +858,14 @@ BLOOM_INTENSITY  = 0.42
 #                       masque = (1 - shadow_mask) × (1 - highlight_mask) — pic en plein mi-ton
 
 DESAT_ENABLED             = True
-DESAT_SHADOW_THRESHOLD    = 0.20   # ombres sous 25 % de luminosité
-DESAT_SHADOW_INTENSITY    = 1.0    # désaturation dans les noirs
-DESAT_HIGHLIGHT_THRESHOLD = 0.8   # hautes lumières au-dessus de 80 %
-DESAT_HIGHLIGHT_INTENSITY = 1.0    # désaturation dans les blancs
+DESAT_SHADOW_THRESHOLD    = 0.2  # ombres sous 25 % de luminosité
+DESAT_SHADOW_INTENSITY    = 1.0  # désaturation dans les noirs
+DESAT_HIGHLIGHT_THRESHOLD = 0.8  # hautes lumières au-dessus de 80 %
+DESAT_HIGHLIGHT_INTENSITY = 1.0  # désaturation dans les blancs
 DESAT_MIDTONE_BOOST       = 0.1  # boost de saturation en mi-tons (0 = aucun, 0.3 = prononcé)
 
 
-# ── 12.5  Courbe tonale argentique (Grain pellicule.py) ──────────────────────
-# Courbe non-linéaire appliquée après le bloom/halation pour reproduire la
-# caractéristique du film : épaulement dans les HL + pied dans les ombres.
-# shoulder_start    : seuil à partir duquel les HL sont compressées (0.70–0.90)
-# shoulder_strength : force de l'épaulement (0 = linéaire, 0.5 = standard, 1.5 = fort)
-# toe_start         : seuil en dessous duquel les ombres sont relevées (0.03–0.12)
-# toe_lift          : amplitude du relèvement des noirs (0 = aucun, 0.10 = subtil)
-
-CURVE_ENABLED           = True
-CURVE_SHOULDER_START    = 0.7   # 0.70 large · 0.80 standard · 0.90 conservateur
-CURVE_SHOULDER_STRENGTH = 0.72   # 0.2 doux · 0.5 standard · 1.5 fort
-CURVE_TOE_START         = 0.3   # seuil du pied (luma)
-CURVE_TOE_LIFT          = 0.2   # 0 = aucun · 0.08 subtil · 0.20 prononcé
-
-
-# ── 12.6  Aberrations chromatiques optiques (Grain pellicule.py) ─────────────
+# ── 12.6  Aberrations chromatiques optiques (Retouche par lot.pyw) ───────────
 # Simule le désalignement focal des canaux R/G/B d'une vieille optique :
 # le canal R est légèrement agrandi (zoom radial vers l'extérieur) et le canal B
 # légèrement rétréci, G restant la référence. L'effet produit des franges colorées
@@ -886,15 +873,16 @@ CURVE_TOE_LIFT          = 0.2   # 0 = aucun · 0.08 subtil · 0.20 prononcé
 # strength : intensité en % de la diagonale (0.3 = subtil, 1.0 = prononcé, 2.0 = fort)
 
 CA_ENABLED     = True
-CA_STRENGTH    = 0.04   # % de la diagonale de l'image
+CA_STRENGTH    = 0.05  # % de la diagonale de l'image
 CA_AXIAL_RATIO = 0.64  # part de la composante axiale (0 = purement radial, 1 = égal au radial)
 
 
-# ── 12.7  Virage / teinte (Virage.py) ────────────────────────────────────────
+# ── 12.7  Virage / teinte (Retouche par lot.pyw) ──────────────────────────────
 # Vieilles photos scannées : le jaunissement d'origine varie d'un scan à
-# l'autre — Virage.py repart d'un noir et blanc pur puis colorise chaque
-# préréglage selon l'un des deux modes ci-dessous (retour user : chacun est
-# meilleur selon l'effet visé — pas un remplace l'autre).
+# l'autre — colorize_hsl/colorize_multiply (image_ops.py) repartent d'un
+# noir et blanc pur puis colorisent chaque préréglage selon l'un des deux
+# modes ci-dessous (retour user : chacun est meilleur selon l'effet visé —
+# pas un remplace l'autre).
 #
 #   "colorize" : substitution HSL, comme "Teinte et saturation > Coloriser"
 #                dans Photoshop/Affinity (noir en L=0, blanc en L=1, teinte
@@ -908,14 +896,15 @@ CA_AXIAL_RATIO = 0.64  # part de la composante axiale (0 = purement radial, 1 = 
 #                déjà proche du blanc). Champs : hue, sat, light (% 0-100) —
 #                mêmes chiffres que le sélecteur HSL d'Affinity/Photoshop.
 #
-# Un bouton est généré dans Hub pour chaque entrée : ajouter/modifier un
-# préréglage ici suffit, rien à changer côté interface.
+# Une option de menu déroulant est générée dans Retouche par lot.pyw pour
+# chaque entrée : ajouter/modifier un préréglage ici suffit, rien à changer
+# côté interface.
 # Repères de teinte : ~30-50° = sépia/jauni (brun-jaune), ~90-110° = vert,
 # ~200-220° = bleu (cyanotype).
 #
 # "shadow_lift" (optionnel, % 0-100, défaut 0) : remonte le point noir AVANT
 # colorisation — gris=0 -> shadow_lift, gris=255 -> inchangé (comme un pied
-# de courbe argentique, cf. add_filmic_curve dans Grain pellicule.py). Rend
+# de courbe argentique, cf. lift_shadows dans image_ops.py). Rend
 # l'image moins sombre sans toucher les hautes lumières colorées (retour
 # user : réduire la densité à l'impression pour éclaircir fait perdre la
 # teinte des HL — il faut éclaircir dans le fichier, pas à l'imprimante).
@@ -927,6 +916,66 @@ VIRAGE_PRESETS = {
     "N&B":         {"mode": "colorize", "hue": 0,   "sat": 0},
 }
 VIRAGE_DEFAULT_PRESET = "SEPIA"
+
+
+# ── 12.8  Retouche par lot — réglages complémentaires (Retouche par lot.pyw) ──
+# États "activé" par section et valeurs sans équivalent partagé ailleurs
+# (couleur, netteté, virage manuel, copyright) — les autres champs de
+# l'outil réutilisent les constantes 12.1-12.7 ci-dessus. Réécrites
+# automatiquement par le bouton "Enregistrer comme réglages par défaut" de
+# l'outil : modifier à la main ici change juste la valeur de repli tant que
+# personne n'a encore cliqué ce bouton.
+
+RETOUCHE_LOT_DENOISE_ENABLED = False
+
+RETOUCHE_LOT_COULEUR_ENABLED       = True
+RETOUCHE_LOT_COULEUR_EXPOSURE      = 0
+RETOUCHE_LOT_COULEUR_CONTRAST      = 0
+RETOUCHE_LOT_COULEUR_SATURATION    = 7
+RETOUCHE_LOT_COULEUR_HUE           = 0
+RETOUCHE_LOT_COULEUR_WHITE_BALANCE = 0
+RETOUCHE_LOT_COULEUR_HIGHLIGHTS    = -10
+RETOUCHE_LOT_COULEUR_SHADOWS       = 10
+RETOUCHE_LOT_COULEUR_WHITES        = 0
+RETOUCHE_LOT_COULEUR_BLACKS        = 0
+
+RETOUCHE_LOT_VIRAGE_ENABLED = False
+RETOUCHE_LOT_VIRAGE_MODE    = 'colorize'
+RETOUCHE_LOT_VIRAGE_HUE     = 25
+RETOUCHE_LOT_VIRAGE_SAT     = 25
+RETOUCHE_LOT_VIRAGE_LIGHT   = 50
+
+RETOUCHE_LOT_NETTETE_ENABLED  = True
+RETOUCHE_LOT_NETTETE_RADIUS1  = 4
+RETOUCHE_LOT_NETTETE_PERCENT1 = 42
+RETOUCHE_LOT_NETTETE_RADIUS2  = 2
+RETOUCHE_LOT_NETTETE_PERCENT2 = 42
+
+RETOUCHE_LOT_GRAIN_ENABLED  = True
+RETOUCHE_LOT_GRAIN1_ENABLED = True
+RETOUCHE_LOT_GRAIN2_ENABLED = True
+
+RETOUCHE_LOT_COPYRIGHT_ENABLED     = False
+RETOUCHE_LOT_COPYRIGHT_MODE        = 'date'
+RETOUCHE_LOT_COPYRIGHT_CUSTOM_TEXT = ''
+
+# Rayon de netteté (12.9) et fenêtres de débruitage (12.1) exprimés en px
+# pour une image de cette taille (côté le plus petit) ; mis à l'échelle
+# proportionnellement à la résolution réelle de chaque image traitée
+# (aperçu réduit ou export plein format) — sans ça, un même réglage de
+# netteté paraît beaucoup plus fort sur l'aperçu (réduit à
+# RETOUCHE_LOT_PREVIEW_MAX_PIXELS) que sur l'export final en pleine
+# résolution (retour user).
+RETOUCHE_LOT_REFERENCE_PX = 4000
+
+# Taille max (px, côté le plus long) du proxy d'aperçu — plus grande que
+# PREVIEW_MAX_PIXELS (partagée avec Recadrage manuel.pyw) car cet outil a
+# aussi besoin d'un aperçu fidèle du grain pellicule : sur un proxy trop
+# petit affiché quasiment à l'échelle 1:1, le grain paraît plus grossier
+# qu'il ne le sera réellement une fois affiché/imprimé en pleine résolution
+# (retour user). Augmenter ralentit l'aperçu live (débruitage/netteté/
+# grain recalculés à chaque réglage).
+RETOUCHE_LOT_PREVIEW_MAX_PIXELS = 1600
 
 
 # ==============================================================================
