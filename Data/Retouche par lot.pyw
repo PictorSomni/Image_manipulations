@@ -27,6 +27,7 @@ import asyncio
 import base64
 import copy
 import io
+import json
 import os
 import re
 import sys
@@ -323,11 +324,20 @@ def run_pipeline(image, params, *, date_label=None, filename_stem=""):
 
     v = params["virage"]
     if v["enabled"]:
+        # colorize_hsl/colorize_multiply repartent d'un gris pur (toute
+        # trace de couleur de la photo d'origine est perdue) : le slider
+        # Saturation de "Réglages couleur" n'avait donc aucun effet une
+        # fois le virage actif (retour user). On le réutilise comme
+        # multiplicateur sur l'intensité du virage lui-même — +100 double
+        # la saturation de la teinte, -100 la ramène à 0 — plutôt que de
+        # laisser ce slider sans effet visible dans ce cas.
+        sat_scale = max(0.0, 1 + c["saturation"] / 100) if c["enabled"] else 1.0
+        virage_sat = min(100, v["sat"] * sat_scale)
         if v["mode"] == "multiply":
             result = image_ops.colorize_multiply(
-                result, v["hue"], v["sat"], v["light"])
+                result, v["hue"], virage_sat, v["light"])
         else:
-            result = image_ops.colorize_hsl(result, v["hue"], v["sat"])
+            result = image_ops.colorize_hsl(result, v["hue"], virage_sat)
 
     n = params["nettete"]
     if n["enabled"]:
@@ -501,10 +511,10 @@ def main(page: ft.Page):
     _ROW_SPACING = 16
 
     def _apply_preview_size(e=None):
-        """Colonne droite = 40 % de la largeur de fenêtre en pixels fixes ;
-        la colonne aperçu prend tout le reste (pas une fraction devinée :
-        largeur de fenêtre moins colonne droite moins l'espacement du
-        Row, page.padding étant à 0)."""
+        """Colonne outils (gauche) = 40 % de la largeur de fenêtre en
+        pixels fixes ; la colonne aperçu (droite) prend tout le reste (pas
+        une fraction devinée : largeur de fenêtre moins colonne outils
+        moins l'espacement du Row, page.padding étant à 0)."""
         page_w = int(getattr(e, "width", None) or page.width or 1400)
         page_h = int(getattr(e, "height", None) or page.height or 900)
         right_w = max(320, int(page_w * 0.40))
@@ -913,6 +923,11 @@ def main(page: ft.Page):
     def batch_worker(params_snapshot):
         output_folder = folder_path / "RETOUCHE"
         output_folder.mkdir(exist_ok=True)
+        # Réglages utilisés pour ce lot — rechargeables via "Charger des
+        # réglages…" pour reprendre et ajuster un lot précédent.
+        with open(output_folder / "retouche_params.json", "w",
+                  encoding="utf-8") as f:
+            json.dump(params_snapshot, f, indent=2, ensure_ascii=False)
         total = len(file_names)
         for i, name in enumerate(file_names):
             print(f"Image {i + 1} sur {total}")
@@ -980,7 +995,8 @@ def main(page: ft.Page):
 
     batch_button = ft.FilledButton(
         f"Lancer le traitement complet ({len(file_names)} images)",
-        icon=ft.Icons.PLAY_ARROW, on_click=_open_batch_dialog)
+        icon=ft.Icons.PLAY_ARROW, bgcolor=GREEN, color=DARK,
+        on_click=_open_batch_dialog)
 
     # ── Enregistrer comme réglages par défaut ──────────────────────────
     save_defaults_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREEN)
@@ -1019,13 +1035,13 @@ def main(page: ft.Page):
 
     save_defaults_button = ft.OutlinedButton(
         "Enregistrer comme réglages par défaut",
-        icon=ft.Icons.SAVE_OUTLINED, on_click=_open_save_defaults_dialog)
+        icon=ft.Icons.SAVE_OUTLINED, on_click=_open_save_defaults_dialog,
+        style=ft.ButtonStyle(color=BLUE, side=ft.BorderSide(1, BLUE)))
 
-    # ── Réinitialiser les réglages par défaut ──────────────────────────
-    def _confirm_reset(e):
-        reset_dlg.open = False
-        _update_in_place(state["params"], default_params())
-
+    # ── Resynchronisation de l'UI depuis state["params"] ────────────────
+    def _sync_controls_from_params():
+        """Reflète state["params"] (déjà à jour) sur tous les contrôles —
+        partagé par Réinitialiser et Charger des réglages."""
         for switch, dct in reset_registry["switches"]:
             switch.value = dct["enabled"]
             switch.update()
@@ -1040,7 +1056,14 @@ def main(page: ft.Page):
             field.update()
 
         virage_preset_dd.value = vi["preset"]
-        virage_mode_dd.value = "Auto (préréglage)"
+        # "Auto" si le mode courant correspond à celui du préréglage (cas
+        # le plus fréquent après un chargement), sinon le mode explicite
+        # (retour user : un fichier chargé avec un mode dévié du
+        # préréglage ne doit pas être affiché comme "Auto").
+        preset_mode = CONSTANTS.VIRAGE_PRESETS.get(vi["preset"], {}).get("mode")
+        virage_mode_dd.value = (
+            "Auto (préréglage)" if vi["mode"] == preset_mode
+            else _mode_labels.get(vi["mode"], "Auto (préréglage)"))
         virage_preset_dd.update()
         virage_mode_dd.update()
 
@@ -1053,6 +1076,12 @@ def main(page: ft.Page):
         copyright_custom_field.update()
 
         page.update()
+
+    # ── Réinitialiser les réglages par défaut ──────────────────────────
+    def _confirm_reset(e):
+        reset_dlg.open = False
+        _update_in_place(state["params"], default_params())
+        _sync_controls_from_params()
         live_preview_tick()
 
     def _cancel_reset(e):
@@ -1076,7 +1105,41 @@ def main(page: ft.Page):
 
     reset_button = ft.OutlinedButton(
         "Réinitialiser les réglages par défaut",
-        icon=ft.Icons.RESTART_ALT, on_click=_open_reset_dialog)
+        icon=ft.Icons.RESTART_ALT, on_click=_open_reset_dialog,
+        style=ft.ButtonStyle(color=RED, side=ft.BorderSide(1, RED)))
+
+    # ── Charger des réglages depuis un fichier retouche_params.json ────
+    # (déposé par chaque batch, cf. batch_worker) — pour reprendre et
+    # ajuster les réglages d'un lot précédent.
+    load_params_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREEN)
+
+    async def _load_params_file(e):
+        files = await ft.FilePicker().pick_files(
+            dialog_title="Charger des réglages retouche",
+            initial_directory=str(folder_path),
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["json"], allow_multiple=False)
+        if not files or not files[0].path:
+            return
+        try:
+            with open(files[0].path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            _update_in_place(state["params"], loaded)
+        except Exception as exc:
+            load_params_status.value = f"Erreur : {exc}"
+            load_params_status.color = RED
+            load_params_status.update()
+            return
+        _sync_controls_from_params()
+        load_params_status.value = f"Réglages chargés depuis {files[0].name}."
+        load_params_status.color = GREEN
+        load_params_status.update()
+        live_preview_tick()
+
+    load_params_button = ft.OutlinedButton(
+        "Charger des réglages…",
+        icon=ft.Icons.FOLDER_OPEN_OUTLINED, on_click=_load_params_file,
+        style=ft.ButtonStyle(color=VIOLET, side=ft.BorderSide(1, VIOLET)))
 
     # ── Mise en page ────────────────────────────────────────────────
     controls_container = ft.Container(
@@ -1085,18 +1148,20 @@ def main(page: ft.Page):
              section_nettete, section_grain, section_copyright,
              ft.Divider(color=GREY),
              save_defaults_button, reset_button, save_defaults_status,
-             ft.Divider(color=GREY),
-             ft.Row([progress_bar, progress_text], spacing=12),
-             batch_button],
+             load_params_button, load_params_status],
             spacing=6, scroll=ft.ScrollMode.AUTO, expand=True),
         padding=12, bgcolor=BG)
 
     page.add(
         ft.Row([
-            ft.Column([preview_column], expand=True,
-                     alignment=ft.MainAxisAlignment.CENTER,
-                     horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             controls_container,
+            ft.Column(
+                [preview_column,
+                 ft.Divider(color=GREY),
+                 ft.Row([progress_bar, progress_text], spacing=12),
+                 batch_button],
+                expand=True, alignment=ft.MainAxisAlignment.CENTER,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
         ], expand=True, spacing=_ROW_SPACING,
            vertical_alignment=ft.CrossAxisAlignment.STRETCH)
     )

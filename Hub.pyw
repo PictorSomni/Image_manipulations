@@ -2885,6 +2885,40 @@ def main(page: ft.Page):
         for p in [p for p in thumb_mem if os.path.dirname(p) == folder]:
             del thumb_mem[p]
         thumb_cache.purge_folder(folder)
+        # Même souci côté visionneuse plein écran : une appli tierce
+        # utilisée en plugin (Affinity, Topaz...) réenregistre l'image à
+        # plat sous le même chemin, mais Flutter garde l'ancien contenu
+        # décodé pour ce chemin (FileImage mis en cache par chemin, pas par
+        # contenu) — Rafraîchir seul ne suffisait pas, il fallait quitter
+        # Hub entièrement. On jette nos caches par chemin et on repousse
+        # l'image actuellement affichée en bytes bruts (comme
+        # _rotate_current), ce qui contourne ce cache Flutter.
+        pages_loaded.clear()
+        _viewer_color_cache.clear()
+        viewer_rotated_bytes.clear()
+        _pdf_page_render_cache.clear()
+        _pdf_page_count_cache.clear()
+        if viewer_overlay in page.overlay and viewer_state["paths"]:
+            idx = viewer_state["index"]
+            path = viewer_state["paths"][idx]
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+            except OSError:
+                data = None
+            if data is not None:
+                ctrl = (page_image_controls.get(idx) if _HAS_PAGE_VIEW
+                        else viewer_img)
+                if ctrl is not None:
+                    ctrl.src = data
+                    if _HAS_PAGE_VIEW:
+                        pages_loaded.add(idx)
+                    page.update()
+        # ponytail: ne force que l'image actuellement affichée ; si on
+        # quitte puis revient sur la même image sans re-Rafraîchir, le
+        # FileImage Flutter de ce chemin (mis en cache avant ce Rafraîchir)
+        # peut resurgir. Solution complète : ne plus jamais passer par un
+        # chemin brut en src, toujours des bytes — à faire si ça se reproduit.
         _navigate(folder)
 
     refresh_folder_btn = ft.IconButton(
@@ -2914,22 +2948,29 @@ def main(page: ft.Page):
             dlg.open = False
             page.update()
 
+        def _next_sequential_name():
+            # Pas de nom saisi : "01", "02"... comme Transfert vers TEMP
+            # (get_next_sequence_folder), jusqu'au premier nom libre.
+            n = 1
+            while os.path.exists(os.path.join(folder, f"{n:02d}")):
+                n += 1
+            return f"{n:02d}"
+
         def _confirm(event):
             if fired["done"]:
                 return
             fired["done"] = True
-            name = (name_field.value or "").strip()
+            name = (name_field.value or "").strip() or _next_sequential_name()
             dlg.open = False
             page.update()
-            if not name:
-                return
+            new_path = os.path.join(folder, name)
             try:
-                os.makedirs(os.path.join(folder, name), exist_ok=False)
+                os.makedirs(new_path, exist_ok=False)
             except OSError as exc:
                 _log_to_terminal(f"[ERREUR] Création dossier : {exc}", RED)
                 return
             _log_to_terminal(f"[OK] Dossier créé : {name}", BLUE)
-            _navigate(folder)
+            _navigate(new_path)
 
         name_field.on_submit = _confirm
         dlg = ft.AlertDialog(
@@ -2990,6 +3031,11 @@ def main(page: ft.Page):
         ft.Icons.TUNE, VIOLET,
         lambda e: _launch_tool("Retouche par lot.pyw"),
         "Retouche par lot (aperçu live)")
+
+    augmentation_ia_btn = _toolbar_icon_btn(
+        ft.Icons.AUTO_FIX_HIGH_OUTLINED, VIOLET,
+        lambda e: _launch_tool("Augmentation IA.py"),
+        "Augmentation IA")
     # Toujours actifs, avec ou sans sélection : sans fichier sélectionné,
     # les outils lancés par _launch_tool traitent tout le dossier (retour
     # user) — cf. Data/skills.md:21 (SELECTED_FILES absent = tout le
@@ -3162,7 +3208,7 @@ def main(page: ft.Page):
                         two_en_un_btn,
                         ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
                                      height=CONSTANTS.HUB_TOOLBAR_H),
-                        retouche_par_lot_btn], spacing=8),
+                        retouche_par_lot_btn, augmentation_ia_btn], spacing=8),
                 ft.Container(expand=True),
                 sort_btn,
                 view_seg_wrap,
@@ -5284,18 +5330,37 @@ def main(page: ft.Page):
                     columns.append(key)
         return columns or list(_LISTE_DEFAULT_COLUMNS)
 
+    _liste_load_error = {"msg": None}
+
     def _liste_load():
+        # Erreur explicite plutôt qu'un "Liste vide" muet en cas de JSON
+        # invalide ou de mauvais format (retour user : un fichier .json
+        # cliqué dans Fichiers pouvait sembler vide sans qu'on sache si
+        # c'est le fichier qui est vide ou le format qui ne convient pas).
         liste_entries.clear()
+        _liste_load_error["msg"] = None
+        path = _liste_file["path"]
+        if not os.path.exists(path):
+            return
         try:
-            with open(_liste_file["path"], "r", encoding="utf-8") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            if isinstance(data, list):
-                for item in data:
-                    if isinstance(item, dict):
-                        liste_entries.append(
-                            {k: str(v) for k, v in item.items()})
-        except Exception:
-            pass
+        except Exception as exc:
+            _liste_load_error["msg"] = f"JSON invalide : {exc}"
+            return
+        if not isinstance(data, list):
+            _liste_load_error["msg"] = (
+                "Ce fichier ne contient pas une liste d'entrées "
+                f"(racine : {type(data).__name__}).")
+            return
+        for item in data:
+            if isinstance(item, dict):
+                liste_entries.append({k: str(v) for k, v in item.items()})
+            else:
+                # ponytail: tolère une liste de valeurs simples (pas
+                # seulement des objets {"nom":...}) plutôt que de la
+                # faire disparaître silencieusement.
+                liste_entries.append({"nom": str(item), "description": ""})
 
     def _liste_save():
         path = _liste_file["path"]
@@ -5463,10 +5528,12 @@ def main(page: ft.Page):
                  if _liste_matches_search(e, query)] if query
                 else list(enumerate(liste_entries)))
         if not liste_entries:
+            error = _liste_load_error["msg"]
             liste_list_view.controls.append(ft.Text(
+                error if error else
                 "Liste vide. Ajoute une entrée, ou demande à l'IA de la "
                 "remplir (create_file sur ce fichier .json).",
-                size=CONSTANTS.TEXT_SM, color=GREY))
+                size=CONSTANTS.TEXT_SM, color=RED if error else GREY))
         elif not rows:
             liste_list_view.controls.append(ft.Text(
                 "Aucun résultat.", size=CONSTANTS.TEXT_SM, color=GREY))
@@ -6260,15 +6327,20 @@ def main(page: ft.Page):
 
         fmt_dd = ft.Dropdown(
             options=[ft.dropdown.Option(name) for name in CONSTANTS.FORMATS],
-            value=default_fmt, width=280, bgcolor=DARK, border_color=GREY,
+            value=default_fmt, width=280, bgcolor=DARK,
+            border_color=LIGHT_GREY if manual["value"] else BLUE,
             color=WHITE, disabled=manual["value"])
         width_field = ft.TextField(
             label="Largeur (mm)", value=str(saved.get("manual_w", default_w)),
-            width=132, bgcolor=DARK, border_color=GREY, color=WHITE,
+            width=132, bgcolor=DARK,
+            border_color=BLUE if manual["value"] else LIGHT_GREY,
+            color=WHITE if manual["value"] else GREY,
             disabled=not manual["value"], keyboard_type=ft.KeyboardType.NUMBER)
         height_field = ft.TextField(
             label="Hauteur (mm)", value=str(saved.get("manual_h", default_h)),
-            width=132, bgcolor=DARK, border_color=GREY, color=WHITE,
+            width=132, bgcolor=DARK,
+            border_color=BLUE if manual["value"] else LIGHT_GREY,
+            color=WHITE if manual["value"] else GREY,
             disabled=not manual["value"], keyboard_type=ft.KeyboardType.NUMBER)
         manual_switch = ft.Switch(label="Saisie manuelle (mm)",
                                   value=manual["value"], active_color=BLUE)
@@ -6287,6 +6359,11 @@ def main(page: ft.Page):
             fmt_dd.disabled = manual["value"]
             width_field.disabled = not manual["value"]
             height_field.disabled = not manual["value"]
+            width_field.color = WHITE if manual["value"] else GREY
+            height_field.color = WHITE if manual["value"] else GREY
+            fmt_dd.border_color = LIGHT_GREY if manual["value"] else BLUE
+            width_field.border_color = BLUE if manual["value"] else LIGHT_GREY
+            height_field.border_color = BLUE if manual["value"] else LIGHT_GREY
             page.update()
 
         manual_switch.on_change = _on_manual_change
