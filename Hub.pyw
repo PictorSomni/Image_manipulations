@@ -308,7 +308,7 @@ def main(page: ft.Page):
     state = {"surface": "files", "folder": None, "view": "grid",
              "thumb_size": 159, "thumb_token": 0,   # 30% du curseur (min=90, max=320)
              "sort": "date", "search": "", "only_selected": False,
-             "last_selected": None}
+             "last_selected": None, "thumb_fit": "contain"}
     _strip_state = {"active": False, "saved_height": CONSTANTS.WINDOW_HEIGHT,
                     "was_maximized": False}
     content = {"dirs": [], "imgs": [], "other": [],
@@ -567,8 +567,9 @@ def main(page: ft.Page):
         size = _list_thumb_size()
         thumb = thumb_mem.get(path)
         if thumb:
-            visual = ft.Image(src=thumb, width=size, height=size,
-                              fit=ft.BoxFit.COVER,
+            fit = (ft.BoxFit.CONTAIN if state["thumb_fit"] == "contain"
+                   else ft.BoxFit.COVER)
+            visual = ft.Image(src=thumb, width=size, height=size, fit=fit,
                               border_radius=ft.BorderRadius.all(4))
         else:
             visual = ft.Container(bgcolor=GREY, width=size, height=size,
@@ -793,16 +794,22 @@ def main(page: ft.Page):
     def _grid_card(path, pending):
         is_sel = path in selected
         thumb = thumb_mem.get(path)
+        fit_contain = state["thumb_fit"] == "contain"
         if thumb:
-            img = ft.Image(src=thumb, fit=ft.BoxFit.COVER, expand=True,
-                           border_radius=ft.BorderRadius.all(6))
+            img = ft.Image(src=thumb,
+                           fit=ft.BoxFit.CONTAIN if fit_contain else ft.BoxFit.COVER,
+                           expand=True, border_radius=ft.BorderRadius.all(6))
         else:
             img = ft.Container(bgcolor=GREY, expand=True,
                                border_radius=ft.BorderRadius.all(6))
             pending[path] = img
         # Zone image cliquable = ouvre la visionneuse ; case à cocher séparée
         # (widget dédié, comme leading=Checkbox dans un ListTile) = sélection.
+        # bgcolor posé seulement en mode "entier" : comble les bandes vides
+        # laissées par BoxFit.CONTAIN quand l'image ne remplit pas le carré
+        # (retour user : montrer la miniature entière plutôt que recadrée).
         img_zone = ft.Container(content=img, expand=True, border_radius=6,
+                                bgcolor=GREY if fit_contain else None,
                                 ink=True,
                                 on_click=lambda e, p=path: _open_viewer(p))
         is_ordered = path in order
@@ -1042,10 +1049,18 @@ def main(page: ft.Page):
                     data = future.result()
                     if data:
                         thumb_mem[path] = data
+                        # Fit lu en direct (pas figé au lancement du chargement)
+                        # : sinon les vignettes remplies pendant que le dossier
+                        # charge ignorent le switch "Miniatures entières" tant
+                        # qu'on n'a pas rebasculé le switch pour forcer un
+                        # _render() (retour user).
+                        fit = (ft.BoxFit.CONTAIN if state["thumb_fit"] == "contain"
+                               else ft.BoxFit.COVER)
                         holder.content = ft.Image(
                             src=data, width=holder.width, height=holder.height,
-                            fit=ft.BoxFit.COVER, border_radius=ft.BorderRadius.all(6))
-                        holder.bgcolor = None
+                            fit=fit, border_radius=ft.BorderRadius.all(6))
+                        if fit == ft.BoxFit.COVER:
+                            holder.bgcolor = None
                         batch.append(holder)
                         now = time.monotonic()
                         if now - last_update >= 0.1 or done == total:
@@ -1476,7 +1491,7 @@ def main(page: ft.Page):
             page.update()
 
         def _digit_btn(d):
-            return ft.ElevatedButton(
+            return ft.Button(
                 d, width=56, height=56, on_click=_keypad_digit(d),
                 style=ft.ButtonStyle(bgcolor=DARK, color=WHITE))
 
@@ -1743,6 +1758,14 @@ def main(page: ft.Page):
             bgcolor=BLUE if state["only_selected"] else GREY)
         only_sel_icon.color = only_sel_text.color = (
             DARK if state["only_selected"] else BLUE)
+        _render()
+
+    def _toggle_thumb_fit(event):
+        # Change le fit de toutes les vignettes (COVER recadré <-> CONTAIN
+        # entier) -> un _render() complet est nécessaire ici (contrairement
+        # à _apply_thumb_size) puisque le fit est figé dans chaque Image au
+        # moment de sa construction, pas juste une histoire de reflow.
+        state["thumb_fit"] = "contain" if event.control.value else "cover"
         _render()
 
     def _toggle_order_mode(event):
@@ -3185,6 +3208,15 @@ def main(page: ft.Page):
     only_sel_icon, only_sel_text = only_sel_btn.content.controls
     only_sel_icon.color = only_sel_text.color = BLUE
 
+    thumb_fit_switch = ft.Switch(
+        label="Miniatures entières", value=state["thumb_fit"] == "contain",
+        active_color=BLUE, on_change=_toggle_thumb_fit,
+        label_text_style=ft.TextStyle(size=CONSTANTS.TEXT_SM, color=WHITE),
+        tooltip="Afficher la miniature entière plutôt que recadrée")
+    thumb_fit_wrap = ft.Container(
+        content=thumb_fit_switch, height=CONSTANTS.HUB_TOOLBAR_H,
+        alignment=ft.Alignment(0, 0))
+
     # _create_order_folder est défini plus loin (avec le reste de la logique
     # de commande) : lambda pour différer la résolution du nom jusqu'au clic.
     create_order_btn = ft.IconButton(
@@ -3314,6 +3346,7 @@ def main(page: ft.Page):
                         retouche_par_lot_btn, augmentation_ia_btn], spacing=8),
                 ft.Container(expand=True),
                 sort_btn,
+                thumb_fit_wrap,
                 view_seg_wrap,
             ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Row([
