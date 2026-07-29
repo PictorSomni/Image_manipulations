@@ -201,14 +201,18 @@ def calculate_tile_grid(tile_w: int, tile_h: int, canvas_w: int, canvas_h: int) 
     return cols, rows
 
 
-def pack_tiles_into_canvases(tiles_list: list, canvas_w: int, canvas_h: int) -> list:
+def pack_tiles_into_canvases(tiles_list: list, canvas_w: int, canvas_h: int,
+                              *, center_single: bool = False) -> list:
     """
     Pack une liste de tuiles (tile_dict avec 'image', 'width', 'height', 'count')
     dans des canvases (canvas_w x canvas_h), en remplissant au maximum.
-    
+
     Si une tuile a forced_count=N, elle doit avoir exactement N copies (pouvant être
     repartie sur plusieurs canevas). Sinon, mettre le max possible.
-    
+
+    `center_single` : quand une seule tuile rentre dans le canevas, la
+    centrer au lieu de la caler en haut-gauche (0, 0) — défaut : coin.
+
     Retourne une liste de canvases remplis (canvas_image, list_of_tuiles_placees).
     """
     if not tiles_list:
@@ -270,7 +274,7 @@ def pack_tiles_into_canvases(tiles_list: list, canvas_w: int, canvas_h: int) -> 
         first_tile = resized_tiles[0]
         cols, rows = calculate_tile_grid(first_tile['width'], first_tile['height'], canvas_w, canvas_h)
         
-        if cols == 1 and rows == 1:
+        if cols == 1 and rows == 1 and not center_single:
             # Une seule image rentre dans le format : on la cale en haut à gauche (0, 0)
             offset_x = 0
             offset_y = 0
@@ -318,6 +322,7 @@ if scope not in {"selected", "all"}:
     scope = "selected"
 
 fit_mode = os.environ.get("FORCE_CROP_FIT", "0").strip() == "1"
+center_single = os.environ.get("FORCE_CROP_CENTER", "0").strip() == "1"
 white_border_mode = os.environ.get("FORCE_CROP_WHITE_BORDER", "0").strip() == "1"
 
 width_mm, height_mm = parse_target_size_mm()
@@ -389,7 +394,8 @@ if fit_mode:
         # On les regroupe ensemble pour optimiser l'espace
         prefixed_tiles = [t for t in tiles_list if t['forced']]
         if prefixed_tiles:
-            prefixed_canvases = pack_tiles_into_canvases(prefixed_tiles, width_px, height_px)
+            prefixed_canvases = pack_tiles_into_canvases(
+                prefixed_tiles, width_px, height_px, center_single=center_single)
             for canvas, canvas_tiles in prefixed_canvases:
                 # Si toutes les tuiles de ce canevas viennent du même fichier, on prend son nom
                 # Sinon, on utilise le mot-clé historique "combined"
@@ -410,7 +416,8 @@ if fit_mode:
             tile['count'] = max_tiles
             
             # On génère le canevas pour cette image unique
-            single_canvases = pack_tiles_into_canvases([tile], width_px, height_px)
+            single_canvases = pack_tiles_into_canvases(
+                [tile], width_px, height_px, center_single=center_single)
             for canvas, canvas_tiles in single_canvases:
                 all_canvases.append((canvas, canvas_tiles, tile['source_name']))
         

@@ -26,6 +26,7 @@ import io
 import json
 import math
 import os
+import re
 import time
 import platform
 import subprocess
@@ -1407,6 +1408,108 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
         page.run_task(_focus_dialog_field, name_field)
+
+    def _set_print_count(paths):
+        # Préfixe "NX_" lu par Recadrage automatique.py (mode fit) pour
+        # savoir combien de copies d'une image tuiler sur le canevas —
+        # cf. extract_copy_count_from_filename.
+        path = paths[0] if paths else None
+        if not path or not os.path.exists(path):
+            return
+        parent = os.path.dirname(path)
+        current_name = os.path.basename(path)
+        match = re.match(r"^(\d+)[xX]_", current_name)
+        current_count = int(match.group(1)) if match else 1
+        clean_name = current_name[match.end():] if match else current_name
+
+        count_field = ft.TextField(
+            value=str(current_count), autofocus=True, width=100,
+            bgcolor=DARK, border_color=GREY, color=WHITE,
+            keyboard_type=ft.KeyboardType.NUMBER)
+
+        fired = {"done": False}
+
+        def _cancel(event):
+            dlg.open = False
+            page.update()
+
+        def _confirm(event):
+            if fired["done"]:
+                return
+            fired["done"] = True
+            dlg.open = False
+            page.update()
+            try:
+                count = int(count_field.value)
+            except (TypeError, ValueError):
+                return
+            new_name = clean_name if count <= 1 else f"{count}X_{clean_name}"
+            if new_name == current_name:
+                return
+            new_path = os.path.join(parent, new_name)
+            try:
+                os.rename(path, new_path)
+            except OSError as exc:
+                _log_to_terminal(
+                    f"[ERREUR] Nombre d'impressions : {exc}", RED, clear=True)
+                return
+            _log_to_terminal(
+                f"[OK] Nombre d'impressions : {current_name} → {new_name}",
+                GREEN, clear=True)
+            _select_discard(path)
+            _navigate(parent)
+
+        count_field.on_submit = _confirm
+
+        # Pavé numérique tactile : dialogue ouvert depuis le panneau
+        # Actions, potentiellement sur écran tactile sans clavier commode
+        # sous la main (retour user).
+        def _keypad_digit(d):
+            def _on_click(event):
+                current = "" if count_field.value in (None, "0") else count_field.value
+                count_field.value = (current or "") + d
+                page.update()
+            return _on_click
+
+        def _keypad_backspace(event):
+            count_field.value = (count_field.value or "")[:-1]
+            page.update()
+
+        def _digit_btn(d):
+            return ft.ElevatedButton(
+                d, width=56, height=56, on_click=_keypad_digit(d),
+                style=ft.ButtonStyle(bgcolor=DARK, color=WHITE))
+
+        keypad = ft.Column([
+            ft.Row([_digit_btn("7"), _digit_btn("8"), _digit_btn("9")], spacing=8),
+            ft.Row([_digit_btn("4"), _digit_btn("5"), _digit_btn("6")], spacing=8),
+            ft.Row([_digit_btn("1"), _digit_btn("2"), _digit_btn("3")], spacing=8),
+            ft.Row([
+                ft.IconButton(
+                    ft.Icons.BACKSPACE_OUTLINED, icon_color=RED, icon_size=24,
+                    style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(16)),
+                    on_click=_keypad_backspace),
+                _digit_btn("0"),
+                ft.IconButton(
+                    ft.Icons.CHECK_CIRCLE_OUTLINE, icon_color=GREEN, icon_size=24,
+                    style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(16)),
+                    on_click=_confirm),
+            ], spacing=8),
+        ], spacing=8, tight=True)
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Nombre d'impressions (préfixe NX_)",
+                         size=CONSTANTS.TEXT_SM, color=WHITE),
+            content=ft.Column([count_field, keypad], spacing=12, tight=True),
+            actions=[
+                ft.TextButton("Annuler", on_click=_cancel),
+                ft.TextButton("Valider", on_click=_confirm),
+            ],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+        page.run_task(_focus_dialog_field, count_field)
 
     def _show_exif_dialog(paths):
         # Comme Dashboard.pyw:5258-5302 : résolution + tags EXIF lisibles
@@ -6347,6 +6450,10 @@ def main(page: ft.Page):
         fit_switch = ft.Switch(label="Fit 100% (sans rognage)",
                                value=bool(saved.get("fit", False)),
                                active_color=BLUE)
+        center_switch = ft.Switch(label="Centrer",
+                                  value=bool(saved.get("center", False)),
+                                  active_color=BLUE,
+                                  disabled=not bool(saved.get("fit", False)))
         white_border_switch = ft.Switch(label="Bord blanc 5mm",
                                         value=bool(saved.get("white_border", False)),
                                         active_color=BLUE)
@@ -6368,6 +6475,12 @@ def main(page: ft.Page):
 
         manual_switch.on_change = _on_manual_change
 
+        def _on_fit_change(e):
+            center_switch.disabled = not fit_switch.value
+            page.update()
+
+        fit_switch.on_change = _on_fit_change
+
         def _cancel(e):
             dlg.open = False
             page.update()
@@ -6387,6 +6500,7 @@ def main(page: ft.Page):
                 "format": fmt_dd.value, "manual": manual["value"],
                 "manual_w": width_field.value, "manual_h": height_field.value,
                 "fit": fit_switch.value,
+                "center": center_switch.value,
                 "white_border": white_border_switch.value,
             })
             dlg.open = False
@@ -6395,6 +6509,7 @@ def main(page: ft.Page):
                 "FORCE_CROP_SIZE": f"{w}x{h}",
                 "FORCE_CROP_SCOPE": "selected" if selected else "folder",
                 "FORCE_CROP_FIT": "1" if fit_switch.value else "0",
+                "FORCE_CROP_CENTER": "1" if center_switch.value else "0",
                 "FORCE_CROP_WHITE_BORDER":
                     "1" if white_border_switch.value else "0",
             })
@@ -6410,8 +6525,9 @@ def main(page: ft.Page):
                                               spacing=8)]),
                     border=ft.Border.all(1, GREY), border_radius=8,
                     padding=10),
-                fit_switch, white_border_switch, scope_text,
-            ], spacing=12, tight=True, width=300),
+                ft.Row([fit_switch, center_switch], spacing=8),
+                white_border_switch, scope_text,
+            ], spacing=12, tight=True, width=380),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
         )
@@ -6523,6 +6639,10 @@ def main(page: ft.Page):
         # est parfois plus pratique/habituel que ces icônes) — mêmes
         # lambdas, donc mêmes garde-fous de sélection déjà en place.
         ("Fichier", [
+            ("Imprimer", ft.Icons.PRINT_OUTLINED, ORANGE, _launch_print),
+            ("Nombre d'impressions", ft.Icons.NUMBERS, ORANGE,
+             lambda e: _run_action(_set_print_count, list(selected))
+                       if len(selected) == 1 else None),
             ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
              renommer_btn.on_click),
             ("Copier", ft.Icons.CONTENT_COPY, BLUE, copier_btn.on_click),

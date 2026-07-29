@@ -925,7 +925,7 @@ def main(page: ft.Page):
         output_folder.mkdir(exist_ok=True)
         # Réglages utilisés pour ce lot — rechargeables via "Charger des
         # réglages…" pour reprendre et ajuster un lot précédent.
-        with open(output_folder / "retouche_params.json", "w",
+        with open(folder_path / "retouche_params.json", "w",
                   encoding="utf-8") as f:
             json.dump(params_snapshot, f, indent=2, ensure_ascii=False)
         total = len(file_names)

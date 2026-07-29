@@ -2512,7 +2512,12 @@ async def main(page: ft.Page) -> None:
     async def _force_close() -> None:
         page.window.visible = False
         page.update()
-        await page.window.destroy()
+        try:
+            await page.window.destroy()
+        except RuntimeError:
+            # ponytail: masquer la fenêtre ferme déjà la session Flet ;
+            # destroy() arrive parfois après coup sur une session fermée.
+            pass
 
     async def _dialog_save() -> None:
         close_dialog.open = False
