@@ -429,7 +429,7 @@ AI_GEMINI_MODEL        = "gemini-3.5-flash-lite"           # Modèle Gemini prin
 AI_GEMINI_FALLBACK_CLOUD = "gemini-3.6-flash"  # Fallback cloud si modèle indisponible
 AI_GEMINI_FALLBACK     = "gemma4:e4b"                 # Fallback Ollama local si hors-ligne
 AI_GEMINI_IMAGE_TIMEOUT = 180                # Timeout max (s) pour generate/edit image via Gemini
-AI_GEMINI_STREAM_TIMEOUT_MS = 120_000        # Timeout (ms) du streaming Gemini : au-delà de ce délai sans chunk, l'appel lève une erreur au lieu de figer l'app
+AI_GEMINI_STREAM_TIMEOUT_MS = 180_000        # Timeout (ms) du streaming Gemini : au-delà de ce délai sans chunk, l'appel lève une erreur au lieu de figer l'app
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
 AI_HISTORY_LIMIT_CLOUD = 10                  # Nb max de messages envoyés à l'IA (Gemini / Claude)
 AI_HISTORY_LIMIT_LOCAL = 10                  # Nb max de messages envoyés à l'IA (modèles Ollama locaux)

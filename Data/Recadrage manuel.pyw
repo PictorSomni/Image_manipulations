@@ -541,6 +541,13 @@ class PhotoCropper:
 
 
 
+        # Tarif utilisé pour commande.txt (STUDIOS = prix fixe, PRINTS =
+        # tranches dégressives + frais d'amorce) — mêmes tarifs que
+        # kiosk_flet.pyw (CONSTANTS.STUDIOS / CONSTANTS.PRINTS).
+        self.tariff_mode = os.environ.get("TARIFF_TYPE", "PRINTS")
+        if self.tariff_mode not in ("STUDIOS", "PRINTS"):
+            self.tariff_mode = "STUDIOS"
+
         # Nombre d'exemplaires
         self.copies_count = 1
         self.copies_text = ft.Text(
@@ -969,7 +976,10 @@ class PhotoCropper:
             available_width = min(max(usable_width, 320), MAX_CANVAS_SIZE)
         else:
             available_width = 800
-        available_height = min(self.page.window.height - 380, MAX_CANVAS_SIZE) if self.page.window.height else 600
+        # 410 (au lieu de 380) : le bloc Opérations a grandi de 30px (160
+        # au lieu de 130) pour que les sliders de Fond IA restent visibles
+        # sur les écrans HDPI (retour user) — le canevas rétrécit d'autant.
+        available_height = min(self.page.window.height - 410, MAX_CANVAS_SIZE) if self.page.window.height else 600
 
 
 
@@ -2395,9 +2405,15 @@ class PhotoCropper:
 
 
     def on_crop_mode_change(self, e):
-        """Bascule entre Résolution / Ratio / Aucun recadrage."""
+        """Bascule entre Résolution / Ratio.
+
+        "Aucun" (pas de recadrage) a existé ici mais a été retiré : ce
+        besoin est désormais couvert par Retouche par lot.pyw. `crop_mode`
+        garde néanmoins la valeur "none" en interne (cf. `load_image`,
+        `export`) pour rester compatible avec d'anciens réglages
+        sauvegardés qui l'utilisaient encore."""
         idx = int(e.control.selected_index)
-        self.crop_mode = ("resolution", "ratio", "none")[max(0, min(2, idx))]
+        self.crop_mode = ("resolution", "ratio")[max(0, min(1, idx))]
         if self.image_paths:
             self.load_image(preserve_orientation=True)
         else:
@@ -4022,6 +4038,87 @@ class PhotoCropper:
         if saved_file_path:
             self._status_from_thread(
                 f"[OK] {os.path.basename(saved_file_path)} enregistré !")
+            self._write_commande_file(job["source_folder"])
+
+    def _unit_price(self, format_name, total_count):
+        """Prix unitaire selon `self.tariff_mode` — mêmes tarifs et même
+        logique de tranches dégressives que kiosk_flet.pyw::_get_unit_price
+        (CONSTANTS.STUDIOS / CONSTANTS.PRINTS). `None` si `format_name` ne
+        correspond à aucun format tarifé (Ratio, Retouche, ID_X2…)."""
+        if self.tariff_mode == "STUDIOS":
+            price = CONSTANTS.STUDIOS.get(format_name)
+            return None if price is None else price
+        tiers = CONSTANTS.PRINTS.get(format_name)
+        if tiers is None:
+            return None
+        if total_count <= 10:  return tiers[0]
+        if total_count <= 50:  return tiers[1]
+        if total_count <= 100: return tiers[2]
+        if total_count <= 200: return tiers[3]
+        return tiers[4]
+
+    def on_tariff_toggle(self, e):
+        self.tariff_mode = "PRINTS" if e.control.value else "STUDIOS"
+        e.control.label = "Tarif Impression" if e.control.value else "Tarif Studio"
+        self.page.update()
+
+    def _write_commande_file(self, source_folder):
+        """(Re)génère commande.txt à la racine du dossier traité : le
+        détail par format (sous-dossier) des fichiers exportés avec leur
+        nombre d'exemplaires (préfixe NX_) et le prix du format
+        (self.tariff_mode — Studio ou Impression, cf. `_unit_price`),
+        pour comptabiliser la commande automatiquement. Reconstruit
+        entièrement depuis les fichiers déjà présents sur disque à
+        chaque export — pas d'état séparé à tenir à jour, donc toujours
+        exact même entre deux lancements de l'outil sur le même
+        dossier."""
+        def _fmt_eur(value):
+            return f"{value:.2f}".replace(".", ",") + "€"
+
+        try:
+            subfolders = sorted(
+                d for d in os.listdir(source_folder)
+                if os.path.isdir(os.path.join(source_folder, d)))
+            lines = []
+            grand_total_price = 0.0
+            any_priced = False
+            for sub in subfolders:
+                sub_path = os.path.join(source_folder, sub)
+                rows = []
+                subtotal_qty = 0
+                for name in sorted(os.listdir(sub_path)):
+                    match = re.match(r'^(\d+)X_', name, re.IGNORECASE)
+                    if not match:
+                        continue
+                    copies = int(match.group(1))
+                    rows.append((copies, name[match.end():]))
+                    subtotal_qty += copies
+                if not rows:
+                    continue
+                lines.append(f"[{sub}]")
+                for copies, clean_name in rows:
+                    lines.append(f"{copies}X {clean_name}")
+                lines.append("-------------------------------------")
+                unit = self._unit_price(sub, subtotal_qty)
+                if unit is None:
+                    lines.append("(non tarifé)")
+                else:
+                    sub_price = round(subtotal_qty * unit, 2)
+                    grand_total_price += sub_price
+                    any_priced = True
+                    lines.append(_fmt_eur(sub_price))
+                lines.append("")
+            if self.tariff_mode == "PRINTS" and any_priced:
+                grand_total_price += CONSTANTS.ORDER_SETUP_FEE
+                lines.append("+ Frais d'amorçage = "
+                             f"{_fmt_eur(CONSTANTS.ORDER_SETUP_FEE)}")
+            lines.append("======================")
+            lines.append(f"TOTAL = {_fmt_eur(grand_total_price)}")
+            commande_path = os.path.join(source_folder, "commande.txt")
+            with open(commande_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+        except OSError:
+            pass  # ne doit jamais faire échouer un export
 
     def validate_and_next(self, e):
         """
@@ -4476,10 +4573,15 @@ def main(page: ft.Page):
             controls=[
                 ft.Text("Résolution", size=12),
                 ft.Text("Ratio", size=12),
-                ft.Text("Aucun", size=12),
             ],
             on_change=_on_crop_mode_change_and_sync,
             padding=ft.Padding.symmetric(horizontal=4, vertical=4),
+        ),
+        ft.Switch(
+            label="Tarif Impression" if app.tariff_mode == "PRINTS" else "Tarif Studio",
+            value=(app.tariff_mode == "PRINTS"),
+            active_color=BLUE,
+            on_change=app.on_tariff_toggle,
         ),
         ft.Container(
             # ── Panneau droite : Choix des dimensions des photos ──────────────────────
@@ -4670,7 +4772,7 @@ def main(page: ft.Page):
                                             ),
                                             app.grid_switch,
                                         ], horizontal_alignment=ft.CrossAxisAlignment.START, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
-                                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=130),
+                                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=160),
                                     ft.Divider(height=1, color=GREY),
                                     app._status_row,
                                 ], alignment=ft.MainAxisAlignment.START, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
