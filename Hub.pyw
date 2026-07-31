@@ -3112,6 +3112,55 @@ def main(page: ft.Page):
         page.update()
         page.run_task(_focus_dialog_field, name_field)
 
+    def _create_file_confirm(dlg, name_field, folder):
+        fired = {"done": False}
+
+        def _confirm(event):
+            if fired["done"]:
+                return
+            fired["done"] = True
+            name = (name_field.value or "").strip()
+            dlg.open = False
+            page.update()
+            if not name:
+                return
+            _folder_create_file(folder, name, "")
+            _navigate(folder)
+        return _confirm
+
+    def _create_file_here(event=None):
+        folder = state["folder"]
+        if not folder:
+            return
+        name_field = ft.TextField(
+            hint_text="nom-du-fichier.md", autofocus=True, width=280,
+            bgcolor=DARK, border_color=BLUE, text_size=CONSTANTS.TEXT_SM,
+            height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
+            content_padding=ft.Padding(8, 4, 8, 4))
+        dlg = ft.AlertDialog(
+            title=ft.Text("Créer un fichier ici", size=CONSTANTS.TEXT_SM, color=WHITE),
+            content=ft.Column([
+                ft.Text(folder, size=CONSTANTS.TEXT_SM, color=GREY, no_wrap=True),
+                name_field,
+            ], spacing=6, tight=True, width=280),
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        def _cancel(event):
+            dlg.open = False
+            page.update()
+
+        confirm = _create_file_confirm(dlg, name_field, folder)
+        dlg.actions = [
+            ft.TextButton("Créer", on_click=confirm),
+            ft.TextButton("Annuler", on_click=_cancel),
+        ]
+        name_field.on_submit = confirm
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+        page.run_task(_focus_dialog_field, name_field)
+
     # _launch_tool / _launch_transfert_temp / _launch_recadrage_auto /
     # _launch_two_in_one sont définis plus loin dans main() : lambda pour
     # différer la résolution jusqu'au clic (même principe partout ici).
@@ -3169,10 +3218,19 @@ def main(page: ft.Page):
 
     new_folder_btn = ft.IconButton(
         icon=ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
-        icon_color=ORANGE, icon_size=CONSTANTS.ICON_SM,
+        icon_color=YELLOW, icon_size=CONSTANTS.ICON_SM,
         style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
         height=CONSTANTS.HUB_TOOLBAR_H, on_click=_create_folder_here,
         tooltip="Créer un nouveau dossier",
+    )
+
+    create_file_btn = ft.IconButton(
+        icon=ft.Icons.NOTE_ADD_OUTLINED,
+        icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_SM,
+        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
+        height=CONSTANTS.HUB_TOOLBAR_H, on_click=_create_file_here,
+        tooltip="Créer un fichier dans le dossier ouvert",
+        disabled=not state["folder"],
     )
 
     open_menu_btn = ft.TextButton(
@@ -3337,6 +3395,9 @@ def main(page: ft.Page):
                         ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
                                      height=CONSTANTS.HUB_TOOLBAR_H),
                         kiosk_gauche_btn, transfert_temp_btn,
+                        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+                                     height=CONSTANTS.HUB_TOOLBAR_H),
+                        create_file_btn,
                         ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
                                      height=CONSTANTS.HUB_TOOLBAR_H),
                         recadrage_manuel_btn, recadrage_auto_btn,
@@ -3563,55 +3624,6 @@ def main(page: ft.Page):
         _notes_save()
         page.update()
 
-    def _create_file_confirm(dlg, name_field, folder):
-        fired = {"done": False}
-
-        def _confirm(event):
-            if fired["done"]:
-                return
-            fired["done"] = True
-            name = (name_field.value or "").strip()
-            dlg.open = False
-            page.update()
-            if not name:
-                return
-            _folder_create_file(folder, name, "")
-            _navigate(folder)
-        return _confirm
-
-    def _create_file_here(event=None):
-        folder = state["folder"]
-        if not folder:
-            return
-        name_field = ft.TextField(
-            hint_text="nom-du-fichier.md", autofocus=True, width=280,
-            bgcolor=DARK, border_color=BLUE, text_size=CONSTANTS.TEXT_SM,
-            height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
-            content_padding=ft.Padding(8, 4, 8, 4))
-        dlg = ft.AlertDialog(
-            title=ft.Text("Créer un fichier ici", size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([
-                ft.Text(folder, size=CONSTANTS.TEXT_SM, color=GREY, no_wrap=True),
-                name_field,
-            ], spacing=6, tight=True, width=280),
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-
-        def _cancel(event):
-            dlg.open = False
-            page.update()
-
-        confirm = _create_file_confirm(dlg, name_field, folder)
-        dlg.actions = [
-            ft.TextButton("Créer", on_click=confirm),
-            ft.TextButton("Annuler", on_click=_cancel),
-        ]
-        name_field.on_submit = confirm
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
-        page.run_task(_focus_dialog_field, name_field)
-
     notes_home_btn = ft.IconButton(
         ft.Icons.HOME, icon_color=VIOLET, icon_size=CONSTANTS.ICON_SM,
         tooltip="Charger la note par défaut (.notes.md)",
@@ -3619,10 +3631,6 @@ def main(page: ft.Page):
     notes_preview_btn = ft.IconButton(
         ft.Icons.VISIBILITY, icon_color=WHITE, icon_size=CONSTANTS.ICON_SM,
         tooltip="Prévisualiser en Markdown", on_click=_notes_toggle_preview)
-    create_file_btn = ft.IconButton(
-        ft.Icons.NOTE_ADD_OUTLINED, icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_SM,
-        tooltip="Créer un fichier dans le dossier ouvert",
-        on_click=_create_file_here, disabled=not state["folder"])
 
     notes_surface = ft.Column([
         ft.Container(
@@ -3632,7 +3640,6 @@ def main(page: ft.Page):
                 ft.IconButton(ft.Icons.SAVE_OUTLINED, icon_color=ICON_ACTION,
                              icon_size=CONSTANTS.ICON_SM, tooltip="Enregistrer", on_click=_notes_save),
                 notes_preview_btn,
-                create_file_btn,
                 ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
                              tooltip="Effacer", on_click=_notes_clear),
             ], spacing=4),
