@@ -4057,11 +4057,6 @@ class PhotoCropper:
         if total_count <= 200: return tiers[3]
         return tiers[4]
 
-    def on_tariff_toggle(self, e):
-        self.tariff_mode = "PRINTS" if e.control.value else "STUDIOS"
-        e.control.label = "Tarif Impression" if e.control.value else "Tarif Studio"
-        self.page.update()
-
     def _write_commande_file(self, source_folder):
         """(Re)génère commande.txt à la racine du dossier traité : le
         détail par format (sous-dossier) des fichiers exportés avec leur
@@ -4576,12 +4571,7 @@ def main(page: ft.Page):
             ],
             on_change=_on_crop_mode_change_and_sync,
             padding=ft.Padding.symmetric(horizontal=4, vertical=4),
-        ),
-        ft.Switch(
-            label="Tarif Impression" if app.tariff_mode == "PRINTS" else "Tarif Studio",
-            value=(app.tariff_mode == "PRINTS"),
-            active_color=BLUE,
-            on_change=app.on_tariff_toggle,
+            width=RIGHT_COL_WIDTH,
         ),
         ft.Container(
             # ── Panneau droite : Choix des dimensions des photos ──────────────────────

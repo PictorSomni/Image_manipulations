@@ -15,6 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 import colorsys
+import functools
 import io
 import math
 import os
@@ -1218,6 +1219,94 @@ def colorize_multiply(pil_img, hue_deg, saturation_pct, lightness_pct,
     color_rgb = np.array(colorsys.hls_to_rgb(hue, light, sat), dtype=np.float64)
     result = gray[:, :, np.newaxis] * color_rgb[np.newaxis, np.newaxis, :]
     return Image.fromarray(np.round(result * 255).astype(np.uint8))
+
+
+_LUTS_DIR = Path(__file__).resolve().parent / "LUTs"
+
+
+def list_cube_luts() -> list[str]:
+    """Noms de fichiers .cube présents dans Data/LUTs, triés — la liste
+    proposée par Retouche par lot.pyw suit donc le contenu du dossier sans
+    rien à déclarer ailleurs (retour user : LUTs déposés à la volée)."""
+    if not _LUTS_DIR.is_dir():
+        return []
+    return sorted(p.name for p in _LUTS_DIR.glob("*.cube"))
+
+
+@functools.lru_cache(maxsize=8)
+def _load_cube_lut(name: str):
+    """Parse un LUT 3D .cube (Adobe/DaVinci Resolve) en table
+    (size, size, size, 3) indexée [b, g, r] — le fichier liste les valeurs
+    avec l'indice rouge variant le plus vite, ce qui correspond à l'ordre
+    C d'un reshape (N, N, N, 3) une fois les axes nommés (bleu, vert,
+    rouge). Mis en cache par nom de fichier : un LUT ne change pas entre
+    deux images d'un même lot."""
+    size = None
+    domain_min = np.zeros(3, dtype=np.float32)
+    domain_max = np.ones(3, dtype=np.float32)
+    values = []
+    # utf-8-sig : plusieurs LUTs du commerce (export Adobe/Windows) sont
+    # sauvegardés avec un BOM, qui masquait sinon le mot-clé LUT_3D_SIZE
+    # sur la première ligne et faisait échouer le parsing en silence
+    # (retour user : aucun effet visible, aucune erreur).
+    with open(_LUTS_DIR / name, "r", encoding="utf-8-sig") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or line.startswith("TITLE"):
+                continue
+            if line.startswith("LUT_3D_SIZE"):
+                size = int(line.split()[-1])
+            elif line.startswith("DOMAIN_MIN"):
+                domain_min = np.array(line.split()[1:4], dtype=np.float32)
+            elif line.startswith("DOMAIN_MAX"):
+                domain_max = np.array(line.split()[1:4], dtype=np.float32)
+            else:
+                parts = line.split()
+                if len(parts) == 3:
+                    values.append([float(v) for v in parts])
+    if not size or len(values) != size ** 3:
+        raise ValueError(f"LUT .cube invalide ou incomplet : {name}")
+    table = np.array(values, dtype=np.float32).reshape(size, size, size, 3)
+    return table, domain_min, domain_max, size
+
+
+def apply_cube_lut(pil_img: Image.Image, lut_name: str,
+                   intensity: float = 100.0) -> Image.Image:
+    """Applique un LUT 3D .cube par interpolation trilinéaire, mélangé à
+    l'image d'origine selon `intensity` (0-100 %, comme un calque LUT
+    d'opacité réduite). Silencieusement sans effet si `lut_name` est vide
+    ou introuvable (fichier déplacé/supprimé entre deux lancements)."""
+    if not lut_name or intensity <= 0:
+        return pil_img
+    try:
+        table, domain_min, domain_max, size = _load_cube_lut(lut_name)
+    except (OSError, ValueError):
+        return pil_img
+
+    rgb = np.asarray(pil_img.convert("RGB"), dtype=np.float32) / 255.0
+    span = np.maximum(domain_max - domain_min, 1e-6)
+    coord = np.clip((rgb - domain_min) / span, 0.0, 1.0) * (size - 1)
+    i0 = np.floor(coord).astype(np.int32)
+    i1 = np.minimum(i0 + 1, size - 1)
+    frac = coord - i0
+    r0, g0, b0 = i0[..., 0], i0[..., 1], i0[..., 2]
+    r1, g1, b1 = i1[..., 0], i1[..., 1], i1[..., 2]
+    fr, fg, fb = frac[..., 0:1], frac[..., 1:2], frac[..., 2:3]
+
+    def corner(bi, gi, ri):
+        return table[bi, gi, ri]
+
+    c00 = corner(b0, g0, r0) * (1 - fr) + corner(b0, g0, r1) * fr
+    c10 = corner(b0, g1, r0) * (1 - fr) + corner(b0, g1, r1) * fr
+    c01 = corner(b1, g0, r0) * (1 - fr) + corner(b1, g0, r1) * fr
+    c11 = corner(b1, g1, r0) * (1 - fr) + corner(b1, g1, r1) * fr
+    c0 = c00 * (1 - fg) + c10 * fg
+    c1 = c01 * (1 - fg) + c11 * fg
+    mapped = c0 * (1 - fb) + c1 * fb
+
+    amount = np.clip(intensity, 0.0, 100.0) / 100.0
+    blended = rgb * (1 - amount) + mapped * amount
+    return Image.fromarray((np.clip(blended, 0.0, 1.0) * 255).astype(np.uint8))
 
 
 def add_chromatic_aberration(pil_img: Image.Image, strength: float,

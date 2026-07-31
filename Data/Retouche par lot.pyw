@@ -2,8 +2,8 @@
 """
 Retouche par lot.pyw — aperçu live sur une image représentative, puis
 application de la même pipeline (débruitage, réglages couleur, virage,
-netteté, grain pellicule, copyright) en pleine résolution sur tout le
-dossier/sélection.
+LUT 3D, netteté, grain pellicule, copyright) en pleine résolution sur tout
+le dossier/sélection.
 
 Chaque étape est indépendamment activable et partage sa logique, via
 `image_ops.py`, avec les anciens scripts autonomes du même nom
@@ -116,6 +116,11 @@ def default_params():
             "blacks": C.RETOUCHE_LOT_COULEUR_BLACKS,
         },
         "virage": _default_virage(),
+        "lut": {
+            "enabled": C.RETOUCHE_LOT_LUT_ENABLED,
+            "name": C.RETOUCHE_LOT_LUT_NAME,
+            "intensity": C.RETOUCHE_LOT_LUT_INTENSITY,
+        },
         "nettete": {
             "enabled": C.RETOUCHE_LOT_NETTETE_ENABLED,
             "radius1": C.RETOUCHE_LOT_NETTETE_RADIUS1,
@@ -179,8 +184,9 @@ def _constants_mapping(params):
     les autres (débruitage, virage, grain — section 12 de CONSTANTS.py)
     n'ont plus d'autre consommateur : les scripts autonomes correspondants
     ont tous été retirés, remplacés par cet outil unique."""
-    d, c, v, n, g = (params["denoise"], params["couleur"], params["virage"],
-                     params["nettete"], params["grain"])
+    d, c, v, lu, n, g = (params["denoise"], params["couleur"],
+                        params["virage"], params["lut"],
+                        params["nettete"], params["grain"])
     ca, ds, ha, bl = g["ca"], g["desat"], g["halation"], g["bloom"]
     g1, g2, cp = g["grain1"], g["grain2"], params["copyright"]
     return {
@@ -203,6 +209,10 @@ def _constants_mapping(params):
         "RETOUCHE_LOT_VIRAGE_HUE": v["hue"],
         "RETOUCHE_LOT_VIRAGE_SAT": v["sat"],
         "RETOUCHE_LOT_VIRAGE_LIGHT": v["light"],
+
+        "RETOUCHE_LOT_LUT_ENABLED": lu["enabled"],
+        "RETOUCHE_LOT_LUT_NAME": lu["name"],
+        "RETOUCHE_LOT_LUT_INTENSITY": lu["intensity"],
 
         "RETOUCHE_LOT_NETTETE_ENABLED": n["enabled"],
         "RETOUCHE_LOT_NETTETE_RADIUS1": n["radius1"],
@@ -288,7 +298,7 @@ def _round_odd(value, minimum=3):
 
 def run_pipeline(image, params, *, date_label=None, filename_stem=""):
     """Applique les étapes activées, dans l'ordre : débruiter → couleur →
-    virage → netteté → grain pellicule → copyright. Pure PIL/image_ops,
+    virage → LUT → netteté → grain pellicule → copyright. Pure PIL/image_ops,
     aucun appel Flet — appelée identique sur le proxy réduit (aperçu) et
     sur le plein format (batch). Part toujours d'une copie : ne mute
     jamais `image` (qui peut être un proxy mis en cache entre deux
@@ -338,6 +348,11 @@ def run_pipeline(image, params, *, date_label=None, filename_stem=""):
                 result, v["hue"], virage_sat, v["light"])
         else:
             result = image_ops.colorize_hsl(result, v["hue"], virage_sat)
+
+    lu = params["lut"]
+    if lu["enabled"]:
+        result = image_ops.apply_cube_lut(
+            result, lu["name"], lu["intensity"])
 
     n = params["nettete"]
     if n["enabled"]:
@@ -678,11 +693,12 @@ def main(page: ft.Page):
                 switch,
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             bgcolor=DARK, border_radius=6, padding=ft.Padding(8, 0, 8, 0),
+            border=ft.Border.all(1, color),
         )
         body = ft.Container(
             content=ft.Column(body_controls, spacing=10),
             visible=False, padding=ft.Padding(16, 10, 16, 14),
-            bgcolor=BG, border_radius=6)
+            bgcolor=BG, border_radius=6, border=ft.Border.all(1, color))
         sections[name] = {"body": body, "switch": switch}
         return ft.Column([header, body], spacing=2)
 
@@ -803,6 +819,27 @@ def main(page: ft.Page):
     section_virage = _make_section("Virage", YELLOW, vi, [
         virage_preset_dd, virage_mode_dd, virage_hue_row, virage_sat_row,
         virage_light_row,
+    ])
+
+    # ── LUT (Data/LUTs/*.cube) ──────────────────────────────────────
+    lu = state["params"]["lut"]
+    _cube_luts = image_ops.list_cube_luts()  # scan à la volée à l'ouverture
+
+    def _on_lut_select(e):
+        lu["name"] = lut_dd.value or ""
+        live_preview_tick()
+
+    lut_dd = ft.Dropdown(
+        label="Fichier LUT", value=lu["name"] or None,
+        options=[ft.dropdown.Option(name) for name in _cube_luts],
+        bgcolor=DARK, border_color=GREY, color=WHITE,
+        hint_text=("Aucun .cube dans Data/LUTs" if not _cube_luts
+                  else None),
+        on_select=_on_lut_select)
+    lut_intensity_row = _slider_row("Intensité", lu, "intensity", 0, 100)
+
+    section_lut = _make_section("LUT", VIOLET, lu, [
+        lut_dd, lut_intensity_row,
     ])
 
     # ── Netteté ─────────────────────────────────────────────────────
@@ -1067,6 +1104,9 @@ def main(page: ft.Page):
         virage_preset_dd.update()
         virage_mode_dd.update()
 
+        lut_dd.value = lu["name"] or None
+        lut_dd.update()
+
         copyright_mode_dd.value = {
             "date": "Date", "filename": "Nom de fichier",
             "custom": "Personnalisé"}[cp["mode"]]
@@ -1142,24 +1182,34 @@ def main(page: ft.Page):
         style=ft.ButtonStyle(color=VIOLET, side=ft.BorderSide(1, VIOLET)))
 
     # ── Mise en page ────────────────────────────────────────────────
+    # Zone délimitée (fond sombre + bordure), comme le panneau gauche
+    # d'Augmentation IA.pyw (retour user : l'ancien fond plat ne
+    # distinguait pas cette colonne du reste de la fenêtre). Les réglages
+    # défilent seuls (sous-Column scrollable) ; le bouton de lancement
+    # reste fixe en bas de la colonne, toujours visible sans défiler.
     controls_container = ft.Container(
         content=ft.Column(
-            [section_denoise, section_couleur, section_virage,
-             section_nettete, section_grain, section_copyright,
-             ft.Divider(color=GREY),
-             save_defaults_button, reset_button, save_defaults_status,
-             load_params_button, load_params_status],
-            spacing=6, scroll=ft.ScrollMode.AUTO, expand=True),
-        padding=12, bgcolor=BG)
+            [
+                ft.Column(
+                    [section_denoise, section_couleur, section_virage,
+                     section_lut, section_nettete, section_grain,
+                     section_copyright,
+                     ft.Divider(color=GREY),
+                     save_defaults_button, reset_button, save_defaults_status,
+                     load_params_button, load_params_status],
+                    spacing=6, scroll=ft.ScrollMode.AUTO, expand=True),
+                ft.Divider(color=GREY),
+                ft.Row([progress_bar, progress_text], spacing=12),
+                batch_button,
+            ], spacing=10, expand=True),
+        padding=12, bgcolor=DARK, border=ft.Border.all(1, GREY),
+        border_radius=10)
 
     page.add(
         ft.Row([
             controls_container,
             ft.Column(
-                [preview_column,
-                 ft.Divider(color=GREY),
-                 ft.Row([progress_bar, progress_text], spacing=12),
-                 batch_button],
+                [preview_column],
                 expand=True, alignment=ft.MainAxisAlignment.CENTER,
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
         ], expand=True, spacing=_ROW_SPACING,

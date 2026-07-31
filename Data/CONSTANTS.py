@@ -945,6 +945,14 @@ RETOUCHE_LOT_VIRAGE_HUE     = 25
 RETOUCHE_LOT_VIRAGE_SAT     = 25
 RETOUCHE_LOT_VIRAGE_LIGHT   = 50
 
+# LUT 3D (.cube, Adobe/DaVinci Resolve) — fichiers dans Data/LUTs, listés
+# à la volée par Retouche par lot.pyw (rien à déclarer ici par LUT).
+# NAME = nom de fichier retenu ("" = aucun), INTENSITY = mélange 0-100 %
+# avec l'image d'origine.
+RETOUCHE_LOT_LUT_ENABLED   = False
+RETOUCHE_LOT_LUT_NAME      = ''
+RETOUCHE_LOT_LUT_INTENSITY = 100
+
 RETOUCHE_LOT_NETTETE_ENABLED  = True
 RETOUCHE_LOT_NETTETE_RADIUS1  = 4
 RETOUCHE_LOT_NETTETE_PERCENT1 = 42

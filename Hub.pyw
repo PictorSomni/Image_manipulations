@@ -308,7 +308,11 @@ def main(page: ft.Page):
     state = {"surface": "files", "folder": None, "view": "grid",
              "thumb_size": 159, "thumb_token": 0,   # 30% du curseur (min=90, max=320)
              "sort": "date", "search": "", "only_selected": False,
-             "last_selected": None, "thumb_fit": "contain"}
+             "last_selected": None, "thumb_fit": "contain",
+             # Tarif partagé avec Recadrage manuel.pyw et kiosk_flet.pyw
+             # (propagé via TARIFF_TYPE au lancement) : un seul switch ici
+             # au lieu d'un réglage dupliqué dans chaque outil.
+             "tariff_mode": "PRINTS"}
     _strip_state = {"active": False, "saved_height": CONSTANTS.WINDOW_HEIGHT,
                     "was_maximized": False}
     content = {"dirs": [], "imgs": [], "other": [],
@@ -1760,13 +1764,11 @@ def main(page: ft.Page):
             DARK if state["only_selected"] else BLUE)
         _render()
 
-    def _toggle_thumb_fit(event):
-        # Change le fit de toutes les vignettes (COVER recadré <-> CONTAIN
-        # entier) -> un _render() complet est nécessaire ici (contrairement
-        # à _apply_thumb_size) puisque le fit est figé dans chaque Image au
-        # moment de sa construction, pas juste une histoire de reflow.
-        state["thumb_fit"] = "contain" if event.control.value else "cover"
-        _render()
+    def _toggle_tariff(event):
+        state["tariff_mode"] = "PRINTS" if event.control.value else "STUDIOS"
+        event.control.label = ("Tarif Impression" if event.control.value
+                                else "Tarif Studio")
+        page.update()
 
     def _toggle_order_mode(event):
         # Bascule inline (case à cocher <-> badge commande sur chaque
@@ -3190,7 +3192,9 @@ def main(page: ft.Page):
 
     recadrage_manuel_btn = _toolbar_icon_btn(
         ft.Icons.CROP_FREE, RED,
-        lambda e: _launch_tool("Recadrage manuel.pyw"),
+        lambda e: _launch_tool(
+            "Recadrage manuel.pyw",
+            extra_env={"TARIFF_TYPE": state["tariff_mode"]}),
         "Recadrage manuel")
 
     recadrage_auto_btn = _toolbar_icon_btn(
@@ -3266,13 +3270,17 @@ def main(page: ft.Page):
     only_sel_icon, only_sel_text = only_sel_btn.content.controls
     only_sel_icon.color = only_sel_text.color = BLUE
 
-    thumb_fit_switch = ft.Switch(
-        label="Miniatures entières", value=state["thumb_fit"] == "contain",
-        active_color=BLUE, on_change=_toggle_thumb_fit,
+    tariff_switch = ft.Switch(
+        label=("Tarif Impression" if state["tariff_mode"] == "PRINTS"
+               else "Tarif Studio"),
+        value=(state["tariff_mode"] == "PRINTS"),
+        active_color=BLUE, on_change=_toggle_tariff,
         label_text_style=ft.TextStyle(size=CONSTANTS.TEXT_SM, color=WHITE),
-        tooltip="Afficher la miniature entière plutôt que recadrée")
-    thumb_fit_wrap = ft.Container(
-        content=thumb_fit_switch, height=CONSTANTS.HUB_TOOLBAR_H,
+        tooltip="Tarif utilisé par Recadrage manuel et le Kiosque")
+    # Largeur fixe : "Tarif Impression" est plus long que "Tarif Studio",
+    # sans ça la bascule fait trembler le reste de la barre d'outils.
+    tariff_wrap = ft.Container(
+        content=tariff_switch, height=CONSTANTS.HUB_TOOLBAR_H, width=150,
         alignment=ft.Alignment(0, 0))
 
     # _create_order_folder est défini plus loin (avec le reste de la logique
@@ -3336,7 +3344,7 @@ def main(page: ft.Page):
         lambda e: _run_action(_do_duplicate, list(selected)) if selected else None,
         "Dupliquer")
     zipper_btn = _edit_icon_btn(
-        ft.Icons.FOLDER_ZIP_OUTLINED, YELLOW,
+        ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE,
         lambda e: _run_action(_do_zip, list(selected)) if selected else None,
         "Zipper")
     ajouter_ia_btn = _edit_icon_btn(
@@ -3407,7 +3415,7 @@ def main(page: ft.Page):
                         retouche_par_lot_btn, augmentation_ia_btn], spacing=8),
                 ft.Container(expand=True),
                 sort_btn,
-                thumb_fit_wrap,
+                tariff_wrap,
                 view_seg_wrap,
             ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Row([
@@ -6366,7 +6374,7 @@ def main(page: ft.Page):
              "RESIZE_WATERMARK_SIZE"),
         ], "Redimensionner filigrane.py")
 
-    def _launch_kiosk(tariff, event=None):
+    def _launch_kiosk(event=None):
         # Sélection curatée obligatoire (HUB_SPEC §9) : la sélection en
         # cours si non vide, sinon toutes les photos du dossier ouvert —
         # jamais un dossier "à trou" laissé au listing libre du kiosque.
@@ -6387,7 +6395,7 @@ def main(page: ft.Page):
         env["PYTHONIOENCODING"] = "utf-8"
         env["FOLDER_PATH"] = folder
         env["SELECTED_FILES"] = "|".join(names)
-        env["TARIFF_TYPE"] = tariff
+        env["TARIFF_TYPE"] = state["tariff_mode"]
         _close_actions()
         page.run_task(_tool_set_status, "▶ Lancement du kiosque…")
 
@@ -6720,10 +6728,7 @@ def main(page: ft.Page):
              lambda e: _launch_tool("Fichiers identiques.py")),
         ]),
         ("Kiosque (mode client)", [
-            ("Kiosque — Studios", ft.Icons.STOREFRONT_OUTLINED, ORANGE,
-             lambda e: _launch_kiosk("STUDIOS", e)),
-            ("Kiosque — Tirages", ft.Icons.LOCAL_PRINTSHOP_OUTLINED, ORANGE,
-             lambda e: _launch_kiosk("PRINTS", e)),
+            ("Kiosque", ft.Icons.STOREFRONT_OUTLINED, ORANGE, _launch_kiosk),
         ]),
         ("Recadrage", [
             ("Recadrage manuel", ft.Icons.CROP_FREE, RED,
@@ -6734,7 +6739,7 @@ def main(page: ft.Page):
              two_en_un_btn.on_click),
         ]),
         ("Retouche", [
-            ("Retouche par lot (aperçu live)", ft.Icons.TUNE, VIOLET,
+            ("Retouche par lot", ft.Icons.TUNE, VIOLET,
              lambda e: _launch_tool("Retouche par lot.pyw")),
             ("Augmentation IA", ft.Icons.AUTO_FIX_HIGH_OUTLINED, VIOLET,
              lambda e: _launch_tool("Augmentation IA.py")),
