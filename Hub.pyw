@@ -3126,6 +3126,11 @@ def main(page: ft.Page):
             page.update()
             if not name:
                 return
+            # Pas d'extension tapée -> .md par défaut (retour user : le
+            # champ Renommer masque l'extension en suffixe fixe, la
+            # confusion est de penser que "Créer un fichier" fait pareil).
+            if not os.path.splitext(name)[1]:
+                name += ".md"
             _folder_create_file(folder, name, "")
             _navigate(folder)
         return _confirm

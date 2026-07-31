@@ -363,35 +363,34 @@ def run_pipeline(image, params, *, date_label=None, filename_stem=""):
             percent2=n["percent2"])
 
     g = params["grain"]
-    if g["enabled"]:
-        if g["ca"]["enabled"]:
-            a = g["ca"]
-            result = image_ops.add_chromatic_aberration(
-                result, a["strength"], a["axial_ratio"])
-        if g["desat"]["enabled"]:
-            a = g["desat"]
-            result = image_ops.add_desaturate_extremes(
-                result, a["shadow_threshold"], a["shadow_intensity"],
-                a["highlight_threshold"], a["highlight_intensity"],
-                a["midtone_boost"])
-        if g["halation"]["enabled"]:
-            a = g["halation"]
-            result = image_ops.add_halation(
-                result, a["threshold"], a["radius"], a["intensity"],
-                a["red_shift"])
-        if g["bloom"]["enabled"]:
-            a = g["bloom"]
-            result = image_ops.add_bloom(result, a["radius"], a["intensity"])
-        if g["grain1"]["enabled"]:
-            a = g["grain1"]
-            result = image_ops.add_film_grain(
-                result, a["amount"], a["size"], a["color_ratio"],
-                a["shadow_boost"], a["floor"], a["chroma_shift"])
-        if g["grain2"]["enabled"]:
-            a = g["grain2"]
-            result = image_ops.add_film_grain(
-                result, a["amount"], a["size"], a["color_ratio"],
-                a["shadow_boost"], a["floor"], a["chroma_shift"])
+    if g["ca"]["enabled"]:
+        a = g["ca"]
+        result = image_ops.add_chromatic_aberration(
+            result, a["strength"], a["axial_ratio"])
+    if g["desat"]["enabled"]:
+        a = g["desat"]
+        result = image_ops.add_desaturate_extremes(
+            result, a["shadow_threshold"], a["shadow_intensity"],
+            a["highlight_threshold"], a["highlight_intensity"],
+            a["midtone_boost"])
+    if g["halation"]["enabled"]:
+        a = g["halation"]
+        result = image_ops.add_halation(
+            result, a["threshold"], a["radius"], a["intensity"],
+            a["red_shift"])
+    if g["bloom"]["enabled"]:
+        a = g["bloom"]
+        result = image_ops.add_bloom(result, a["radius"], a["intensity"])
+    if g["grain1"]["enabled"]:
+        a = g["grain1"]
+        result = image_ops.add_film_grain(
+            result, a["amount"], a["size"], a["color_ratio"],
+            a["shadow_boost"], a["floor"], a["chroma_shift"])
+    if g["grain2"]["enabled"]:
+        a = g["grain2"]
+        result = image_ops.add_film_grain(
+            result, a["amount"], a["size"], a["color_ratio"],
+            a["shadow_boost"], a["floor"], a["chroma_shift"])
 
     cp = params["copyright"]
     if cp["enabled"]:
@@ -523,7 +522,7 @@ def main(page: ft.Page):
                                width=state["preview_w"], height=_HISTOGRAM_HEIGHT)
     counter_text = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
 
-    _ROW_SPACING = 16
+    _ROW_SPACING = CONSTANTS.SPACE_LG
 
     def _apply_preview_size(e=None):
         """Colonne outils (gauche) = 40 % de la largeur de fenêtre en
@@ -536,7 +535,8 @@ def main(page: ft.Page):
         controls_container.width = right_w
         left_w = max(480, page_w - right_w - _ROW_SPACING)
         h = max(360, int(page_h * 0.60))
-        w = left_w - 16  # 16 = padding intérieur (8x2) de preview_container
+        w = left_w - CONSTANTS.SPACE_LG  # padding intérieur (8x2) de
+                                          # preview_container
         state["preview_w"], state["preview_h"] = w, h
         image_display.width, image_display.height = w, h
         preview_viewer.width, preview_viewer.height = w, h
@@ -656,7 +656,8 @@ def main(page: ft.Page):
             ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=_next,
                          icon_color=WHITE),
             compare_btn,
-        ], alignment=ft.MainAxisAlignment.CENTER, spacing=4),
+        ], alignment=ft.MainAxisAlignment.CENTER,
+           spacing=CONSTANTS.SPACE_XS),
     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     # ── Panneaux repliables (un seul ouvert à la fois) ─────────────────
@@ -670,7 +671,7 @@ def main(page: ft.Page):
             page.update()
         return handler
 
-    def _make_section(name, color, param, body_controls):
+    def _make_section(name, color, icon, param, body_controls):
         switch = ft.Switch(value=param["enabled"], active_color=color)
 
         def _on_switch(e):
@@ -683,24 +684,29 @@ def main(page: ft.Page):
             content=ft.Row([
                 ft.Container(
                     content=ft.Row([
+                        ft.Icon(icon, color=color, size=CONSTANTS.ICON_SM),
                         ft.Text(name, color=color,
                                weight=ft.FontWeight.W_600,
                                size=CONSTANTS.TEXT_SM),
-                    ]),
+                    ], spacing=CONSTANTS.SPACE_SM),
                     on_click=_toggle_section(name), expand=True,
-                    padding=ft.Padding(4, 8, 4, 8),
+                    padding=ft.Padding(CONSTANTS.SPACE_XS, CONSTANTS.SPACE_SM,
+                                      CONSTANTS.SPACE_XS, CONSTANTS.SPACE_SM),
                 ),
                 switch,
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            bgcolor=DARK, border_radius=6, padding=ft.Padding(8, 0, 8, 0),
+            bgcolor=DARK, border_radius=6,
+            padding=ft.Padding(CONSTANTS.SPACE_SM, 0, CONSTANTS.SPACE_SM, 0),
             border=ft.Border.all(1, color),
         )
         body = ft.Container(
-            content=ft.Column(body_controls, spacing=10),
-            visible=False, padding=ft.Padding(16, 10, 16, 14),
+            content=ft.Column(body_controls, spacing=CONSTANTS.SPACE_MD),
+            visible=False,
+            padding=ft.Padding(CONSTANTS.SPACE_LG, CONSTANTS.SPACE_MD,
+                              CONSTANTS.SPACE_LG, CONSTANTS.SPACE_MD),
             bgcolor=BG, border_radius=6, border=ft.Border.all(1, color))
         sections[name] = {"body": body, "switch": switch}
-        return ft.Column([header, body], spacing=2)
+        return ft.Column([header, body], spacing=CONSTANTS.SPACE_XS)
 
     def _slider_row(label, dct, key, minv, maxv, *, divisions=None):
         """Slider cranté par pas entiers par défaut (un pas = une unité
@@ -742,14 +748,16 @@ def main(page: ft.Page):
 
     # ── Débruiter ───────────────────────────────────────────────────
     dn = state["params"]["denoise"]
-    section_denoise = _make_section("Débruiter", RED, dn, [
+    section_denoise = _make_section(
+        "Débruiter", RED, ft.Icons.BLUR_ON, dn, [
         _slider_row("Force luminance", dn, "h", 0, 25),
         _slider_row("Force couleur", dn, "h_color", 0, 25),
     ])
 
     # ── Réglages couleur ────────────────────────────────────────────
     co = state["params"]["couleur"]
-    section_couleur = _make_section("Réglages couleur", BLUE, co, [
+    section_couleur = _make_section(
+        "Réglages couleur", BLUE, ft.Icons.PALETTE, co, [
         _slider_row("Exposition", co, "exposure", -100, 100),
         _slider_row("Contraste", co, "contrast", -100, 100),
         _slider_row("Saturation", co, "saturation", -100, 100),
@@ -816,10 +824,11 @@ def main(page: ft.Page):
         bgcolor=DARK, border_color=GREY, color=WHITE,
         on_select=_on_virage_mode)
 
-    section_virage = _make_section("Virage", YELLOW, vi, [
-        virage_preset_dd, virage_mode_dd, virage_hue_row, virage_sat_row,
-        virage_light_row,
-    ])
+    section_virage = _make_section(
+        "Virage", YELLOW, ft.Icons.COLORIZE, vi, [
+            virage_preset_dd, virage_mode_dd, virage_hue_row,
+            virage_sat_row, virage_light_row,
+        ])
 
     # ── LUT (Data/LUTs/*.cube) ──────────────────────────────────────
     lu = state["params"]["lut"]
@@ -838,26 +847,32 @@ def main(page: ft.Page):
         on_select=_on_lut_select)
     lut_intensity_row = _slider_row("Intensité", lu, "intensity", 0, 100)
 
-    section_lut = _make_section("LUT", VIOLET, lu, [
+    section_lut = _make_section("LUT", VIOLET, ft.Icons.GRADIENT, lu, [
         lut_dd, lut_intensity_row,
     ])
 
     # ── Netteté ─────────────────────────────────────────────────────
     ne = state["params"]["nettete"]
-    section_nettete = _make_section("Netteté", GREEN, ne, [
+    section_nettete = _make_section(
+        "Netteté", GREEN, ft.Icons.DEBLUR, ne, [
         _slider_row("Rayon — passe 1", ne, "radius1", 1, 8),
         _slider_row("Intensité — passe 1 (%)", ne, "percent1", 0, 150),
         _slider_row("Rayon — passe 2", ne, "radius2", 1, 8),
         _slider_row("Intensité — passe 2 (%)", ne, "percent2", 0, 150),
     ])
 
-    # ── Grain pellicule (sous-panneaux imbriqués, comme Hub.pyw) ───────
+    # ── Grain pellicule — remontées en sections de premier niveau (retour
+    # user : à l'origine 6 apps séparées, un seul accordéon maître les
+    # enterrait plutôt que de les rendre directement accessibles) ───────
     ga = state["params"]["grain"]
 
-    def _num_field(sub, key, label, width=140):
+    def _num_field(sub, key, label):
+        # expand=True dans une Row, pas dans la Column du corps de section
+        # directement : un TextField ne s'étire pas tout seul comme un
+        # Slider (retour user, champs Grain restés étroits).
         field = ft.TextField(
-            label=label, value=str(sub[key]), width=width, bgcolor=DARK,
-            border_color=GREY, color=WHITE,
+            label=label, value=str(sub[key]), bgcolor=DARK,
+            border_color=GREY, color=WHITE, expand=True,
             keyboard_type=ft.KeyboardType.NUMBER)
 
         def _handle(e):
@@ -869,52 +884,41 @@ def main(page: ft.Page):
         field.on_blur = _handle
         field.on_submit = _handle
         reset_registry["fields"].append((field, sub, key))
-        return field
+        return ft.Row([field])
 
-    def _grain_tile(label, color, sub, field_specs):
-        sw = ft.Switch(value=sub["enabled"], active_color=color)
-
-        def _on_sw(e):
-            sub["enabled"] = sw.value
-            live_preview_tick()
-        sw.on_change = _on_sw
-        reset_registry["switches"].append((sw, sub))
+    def _grain_section(label, color, icon, sub, field_specs):
         fields = [_num_field(sub, key, flabel) for key, flabel in field_specs]
-        return ft.ExpansionTile(
-            title=ft.Text(label, color=color, weight=ft.FontWeight.W_600,
-                         size=CONSTANTS.TEXT_SM),
-            leading=sw,
-            controls=[ft.Container(
-                content=ft.Column(fields, spacing=8),
-                padding=ft.Padding(16, 4, 16, 12))],
-        )
+        return _make_section(label, color, icon, sub, fields)
 
-    grain_tiles = [
-        _grain_tile("Aberrations chromatiques", YELLOW, ga["ca"], [
-            ("strength", "Intensité"), ("axial_ratio", "Ratio axial")]),
-        _grain_tile("Désaturation des extrêmes", VIOLET, ga["desat"], [
+    section_ca = _grain_section(
+        "Aberrations chromatiques", YELLOW, ft.Icons.BLUR_LINEAR, ga["ca"], [
+            ("strength", "Intensité"), ("axial_ratio", "Ratio axial")])
+    section_desat = _grain_section(
+        "Désaturation des extrêmes", VIOLET, ft.Icons.CONTRAST, ga["desat"], [
             ("shadow_threshold", "Seuil ombres"),
             ("shadow_intensity", "Intensité ombres"),
             ("highlight_threshold", "Seuil HL"),
             ("highlight_intensity", "Intensité HL"),
-            ("midtone_boost", "Boost mi-tons")]),
-        _grain_tile("Halation", RED, ga["halation"], [
+            ("midtone_boost", "Boost mi-tons")])
+    section_halation = _grain_section(
+        "Halation", RED, ft.Icons.FLARE, ga["halation"], [
             ("threshold", "Seuil"), ("radius", "Rayon"),
-            ("intensity", "Intensité"), ("red_shift", "Décalage rouge")]),
-        _grain_tile("Bloom (Soft Light)", BLUE, ga["bloom"], [
-            ("radius", "Rayon"), ("intensity", "Intensité")]),
-        _grain_tile("Grain — Couche 1", ORANGE, ga["grain1"], [
+            ("intensity", "Intensité"), ("red_shift", "Décalage rouge")])
+    section_bloom = _grain_section(
+        "Bloom (Soft Light)", BLUE, ft.Icons.WB_SUNNY, ga["bloom"], [
+            ("radius", "Rayon"), ("intensity", "Intensité")])
+    section_grain1 = _grain_section(
+        "Grain — Couche 1", ORANGE, ft.Icons.GRAIN, ga["grain1"], [
             ("amount", "Intensité"), ("size", "Taille"),
             ("color_ratio", "Part couleur"),
             ("shadow_boost", "Concentration mi-tons"),
-            ("chroma_shift", "Décalage inter-canal")]),
-        _grain_tile("Grain — Couche 2", ORANGE, ga["grain2"], [
+            ("chroma_shift", "Décalage inter-canal")])
+    section_grain2 = _grain_section(
+        "Grain — Couche 2", ORANGE, ft.Icons.GRAIN, ga["grain2"], [
             ("amount", "Intensité"), ("size", "Taille"),
             ("color_ratio", "Part couleur"),
             ("shadow_boost", "Concentration mi-tons"),
-            ("chroma_shift", "Décalage inter-canal")]),
-    ]
-    section_grain = _make_section("Grain pellicule", ORANGE, ga, grain_tiles)
+            ("chroma_shift", "Décalage inter-canal")])
 
     # ── Copyright ───────────────────────────────────────────────────
     cp = state["params"]["copyright"]
@@ -945,9 +949,10 @@ def main(page: ft.Page):
         bgcolor=DARK, border_color=GREY, color=WHITE,
         on_select=_on_copyright_mode)
 
-    section_copyright = _make_section("Copyright", WHITE, cp, [
-        copyright_mode_dd, copyright_custom_field,
-    ])
+    section_copyright = _make_section(
+        "Copyright", WHITE, ft.Icons.COPYRIGHT, cp, [
+            copyright_mode_dd, copyright_custom_field,
+        ])
 
     # ── Batch final ─────────────────────────────────────────────────
     progress_bar = ft.ProgressBar(width=300, visible=False, color=BLUE)
@@ -1192,17 +1197,21 @@ def main(page: ft.Page):
             [
                 ft.Column(
                     [section_denoise, section_couleur, section_virage,
-                     section_lut, section_nettete, section_grain,
+                     section_lut, section_nettete,
+                     section_ca, section_desat, section_halation,
+                     section_bloom, section_grain1, section_grain2,
                      section_copyright,
                      ft.Divider(color=GREY),
                      save_defaults_button, reset_button, save_defaults_status,
                      load_params_button, load_params_status],
-                    spacing=6, scroll=ft.ScrollMode.AUTO, expand=True),
+                    spacing=CONSTANTS.SPACE_SM, scroll=ft.ScrollMode.AUTO,
+                    expand=True),
                 ft.Divider(color=GREY),
-                ft.Row([progress_bar, progress_text], spacing=12),
+                ft.Row([progress_bar, progress_text],
+                      spacing=CONSTANTS.SPACE_MD),
                 batch_button,
-            ], spacing=10, expand=True),
-        padding=12, bgcolor=DARK, border=ft.Border.all(1, GREY),
+            ], spacing=CONSTANTS.SPACE_MD, expand=True),
+        padding=CONSTANTS.SPACE_MD, bgcolor=DARK, border=ft.Border.all(1, GREY),
         border_radius=10)
 
     page.add(

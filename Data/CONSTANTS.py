@@ -119,6 +119,13 @@ ICON_SM = 20   # icône standard (barres d'outils, boutons, badges, listes)
 ICON_LG = 28   # icône tactile proéminente (vignettes, panneau Actions,
                # barre de titre, visionneuse plein écran)
 
+# Échelle d'espacement — 4 crans, en px (padding, spacing entre contrôles).
+# Remplace les valeurs ad hoc (6, 10, 14…) éparpillées dans chaque écran.
+SPACE_XS = 4   # hairline : entre un titre et son contenu direct
+SPACE_SM = 8   # entre contrôles proches d'un même groupe
+SPACE_MD = 12  # entre groupes de contrôles, padding intérieur standard
+SPACE_LG = 16  # entre sections, padding extérieur d'un panneau
+
 # Hub.pyw — vignettes et liste de fichiers : case à cocher agrandie pour
 # l'écran tactile (icône/texte utilisent ICON_LG/TEXT_SM ci-dessus).
 HUB_TILE_CHECKBOX_SCALE = 1.4  # agrandissement de la case à cocher (doigt)
@@ -949,9 +956,9 @@ RETOUCHE_LOT_VIRAGE_LIGHT   = 50
 # à la volée par Retouche par lot.pyw (rien à déclarer ici par LUT).
 # NAME = nom de fichier retenu ("" = aucun), INTENSITY = mélange 0-100 %
 # avec l'image d'origine.
-RETOUCHE_LOT_LUT_ENABLED   = False
-RETOUCHE_LOT_LUT_NAME      = ''
-RETOUCHE_LOT_LUT_INTENSITY = 100
+RETOUCHE_LOT_LUT_ENABLED   = True
+RETOUCHE_LOT_LUT_NAME      = 'Tron - Rec709.cube'
+RETOUCHE_LOT_LUT_INTENSITY = 21
 
 RETOUCHE_LOT_NETTETE_ENABLED  = True
 RETOUCHE_LOT_NETTETE_RADIUS1  = 4
