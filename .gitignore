@@ -22,6 +22,10 @@ Data/models/sam2.1_hiera_small.pt
 Data/models/sam2.1_hiera_base_plus.pt
 Data/models/_torch_cache/
 
+# Dépôt sam2 (facebookresearch/sam2) installé via pip, pas du code du
+# projet — cf. Data/Augmentation IA.py:95 (pip install git+...)
+/sam2/
+
 # macOS
 .DS_Store
 .DS_Store?

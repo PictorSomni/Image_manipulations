@@ -305,8 +305,11 @@ def main(page: ft.Page):
     page.run_task(page.window.to_front)
 
     # ─── État partagé ────────────────────────────────────────────────────
+    _DEFAULT_THUMB_SIZE = 159    # 30% du curseur (min=90, max=320)
+    _DEFAULT_FONT_SIZE = CONSTANTS.TERMINAL_FONT_SIZE
     state = {"surface": "files", "folder": None, "view": "grid",
-             "thumb_size": 159, "thumb_token": 0,   # 30% du curseur (min=90, max=320)
+             "thumb_size": _DEFAULT_THUMB_SIZE, "thumb_token": 0,
+             "font_size": _DEFAULT_FONT_SIZE,   # taille de texte IA/Bloc-notes
              "sort": "date", "search": "", "only_selected": False,
              "last_selected": None, "thumb_fit": "contain",
              # Tarif partagé avec Recadrage manuel.pyw et kiosk_flet.pyw
@@ -417,6 +420,8 @@ def main(page: ft.Page):
                                           # avec le curseur (cf. _card_icon_size)
     list_visual_refs = []                # (Container, Icon|None) des lignes
                                           # de la vue liste, même resize live
+    ai_text_refs = []                    # Text/Markdown des bulles IA, pour
+                                          # un resize live du curseur police
     grid_card_refs = {}                  # path -> Container carte vignette,
                                           # pour recolorer la bordure de
                                           # sélection sans reconstruire toute
@@ -1567,8 +1572,17 @@ def main(page: ft.Page):
             return
         commande_path = os.path.join(folder, "commande.txt")
         if not os.path.isfile(commande_path):
-            _log_to_terminal("[ERREUR] Pas de commande.txt dans ce dossier", RED)
-            return
+            # Lancé depuis un sous-dossier de format ouvert dans Hub (ex.
+            # "10x15") : commande.txt est en réalité dans le dossier parent
+            # -> on remonte d'un cran avant d'abandonner (retour user).
+            parent = os.path.dirname(folder)
+            parent_commande = os.path.join(parent, "commande.txt")
+            if parent and os.path.isfile(parent_commande):
+                folder = parent
+                commande_path = parent_commande
+            else:
+                _log_to_terminal("[ERREUR] Pas de commande.txt dans ce dossier", RED)
+                return
 
         def _fmt_eur(value):
             return f"{value:.2f}".replace(".", ",") + "€"
@@ -2004,6 +2018,31 @@ def main(page: ft.Page):
                 icon_ctl.size = list_size - 16
         if state["view"] == "list":
             files_list.update()
+
+    def _apply_font_size(value):
+        # Même curseur que les vignettes (statusbar), reconfiguré en mode
+        # "taille de texte" sur les onglets IA/Bloc-notes (cf. statusbar
+        # plus bas) — pas de widget dupliqué, juste un réglage qui change
+        # de cible selon l'onglet actif (retour user).
+        size = int(value)
+        if size == state["font_size"]:
+            return
+        state["font_size"] = size
+        notes_field.text_style = ft.TextStyle(font_family="monospace", size=size)
+        if state["surface"] == "notes" and not notes_is_preview["value"]:
+            notes_field.update()
+        notes_preview.md_style_sheet = ft.MarkdownStyleSheet(
+            p_text_style=ft.TextStyle(size=size))
+        if state["surface"] == "notes" and notes_is_preview["value"]:
+            notes_preview.update()
+        for ctrl, offset in ai_text_refs:
+            if isinstance(ctrl, ft.Markdown):
+                ctrl.md_style_sheet = ft.MarkdownStyleSheet(
+                    p_text_style=ft.TextStyle(size=size))
+            else:
+                ctrl.size = size + offset
+        if state["surface"] == "ia":
+            ai_chat_view.update()
 
     def _seg_btn(icon, text, on_click, color=None):
         # `color=None` (par défaut) : l'Icon/Text hérite de ButtonStyle.color,
@@ -3585,7 +3624,7 @@ def main(page: ft.Page):
 
     if _HAS_CODE_EDITOR:
         notes_field = fce.CodeEditor(
-            text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
+            text_style=ft.TextStyle(font_family="monospace", size=state["font_size"]),
             language=getattr(fce.CodeLanguage, CONSTANTS.NOTEPAD_DEFAULT_LANGUAGE),
             code_theme=fce.CodeTheme.ATOM_ONE_DARK,
             gutter_style=fce.GutterStyle(width=64, background_color=BACKGROUND), expand=True,
@@ -3593,7 +3632,7 @@ def main(page: ft.Page):
     else:
         notes_field = ft.TextField(
             multiline=True, expand=True, min_lines=4,
-            text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
+            text_style=ft.TextStyle(font_family="monospace", size=state["font_size"]),
             color=WHITE, border_color=ft.Colors.TRANSPARENT, border_radius=6,
             bgcolor=DARK, filled=True,
             hint_text="Écrivez vos notes ici…",
@@ -3604,7 +3643,9 @@ def main(page: ft.Page):
     notes_preview = ft.Markdown(
         "", selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
         code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK, expand=True,
-        auto_follow_links=True)
+        auto_follow_links=True,
+        md_style_sheet=ft.MarkdownStyleSheet(
+            p_text_style=ft.TextStyle(size=state["font_size"])))
     notes_preview_scroll = ft.ListView(controls=[notes_preview], expand=True)
     # Conteneur unique dont on échange le `.content` (édition <-> aperçu),
     # comme `files_body` plus haut : deux enfants Column avec expand=True
@@ -3981,7 +4022,7 @@ def main(page: ft.Page):
         is_user = role == "user"
         is_think = role == "think"
         if is_user:
-            bubble_text = ft.Text(text, size=CONSTANTS.TERMINAL_FONT_SIZE, color=DARK,
+            bubble_text = ft.Text(text, size=state["font_size"], color=DARK,
                                   font_family="monospace", selectable=True)
             bubble = ft.Container(
                 content=bubble_text, bgcolor=BLUE, padding=ft.Padding(9, 7, 9, 7),
@@ -3991,7 +4032,7 @@ def main(page: ft.Page):
             row = ft.Row([ft.Container(expand=2), bubble],
                         alignment=ft.MainAxisAlignment.END)
         elif is_think:
-            bubble_text = ft.Text(f"💭 {text}", size=CONSTANTS.TERMINAL_FONT_SIZE - 1,
+            bubble_text = ft.Text(f"💭 {text}", size=state["font_size"] - 1,
                                   color=LIGHT_GREY, italic=True, selectable=True)
             bubble = ft.Container(
                 content=bubble_text, bgcolor=DARK, border=ft.Border.all(1, LIGHT_GREY),
@@ -4006,7 +4047,9 @@ def main(page: ft.Page):
                 _md_dark(text), selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
                 code_theme=ft.MarkdownCodeTheme.ATOM_ONE_DARK, expand=True,
-                auto_follow_links=True)
+                auto_follow_links=True,
+                md_style_sheet=ft.MarkdownStyleSheet(
+                    p_text_style=ft.TextStyle(size=state["font_size"])))
             bubble = ft.Container(
                 content=bubble_text, bgcolor=GREY, padding=ft.Padding(9, 7, 9, 7),
                 border_radius=ft.BorderRadius(top_left=13, top_right=13,
@@ -4037,6 +4080,7 @@ def main(page: ft.Page):
             )
             row = ft.Row([bubble, speak_btn, ft.Container(expand=2)],
                         alignment=ft.MainAxisAlignment.START)
+        ai_text_refs.append((bubble_text, -1 if is_think else 0))
         ai_chat_view.controls.append(row)
         _ai_refresh()
         return bubble_text
@@ -5980,6 +6024,7 @@ def main(page: ft.Page):
             tab["label"].color = DARK if is_active else WHITE
             tab["label"].weight = (ft.FontWeight.W_700 if is_active
                                    else ft.FontWeight.NORMAL)
+        _configure_size_control()
         page.update()
         page.run_task(_focus_active_surface)
 
@@ -7610,6 +7655,41 @@ def main(page: ft.Page):
         page.update()
         page.run_task(_focus_active_surface)
 
+    # Curseur de taille unique dans la statusbar (retour user) : pilote la
+    # taille des vignettes en Fichiers, et la taille du texte en IA/Bloc-
+    # notes — reconfiguré par _configure_size_control() plutôt que dupliqué
+    # par onglet. Double-clic dessus -> retour à la valeur par défaut.
+    size_control_icon = ft.Icon(ft.Icons.PHOTO_SIZE_SELECT_LARGE,
+                                size=CONSTANTS.ICON_SM, color=WHITE)
+    size_control_slider = ft.Slider(width=140, active_color=BLUE)
+
+    def _configure_size_control():
+        if state["surface"] in ("ia", "notes"):
+            size_control_icon.icon = ft.Icons.FORMAT_SIZE
+            size_control_slider.min = 11
+            size_control_slider.max = 24
+            size_control_slider.value = state["font_size"]
+            size_control_slider.on_change = lambda e: _apply_font_size(e.control.value)
+            size_control_slider.tooltip = "Taille du texte (double-clic : réinitialiser)"
+        else:
+            size_control_icon.icon = ft.Icons.PHOTO_SIZE_SELECT_LARGE
+            size_control_slider.min = 90
+            size_control_slider.max = 320
+            size_control_slider.value = state["thumb_size"]
+            size_control_slider.on_change = lambda e: _apply_thumb_size(e.control.value)
+            size_control_slider.tooltip = "Taille des vignettes (double-clic : réinitialiser)"
+
+    def _reset_size_control(e=None):
+        if state["surface"] in ("ia", "notes"):
+            _apply_font_size(_DEFAULT_FONT_SIZE)
+            size_control_slider.value = state["font_size"]
+        else:
+            _apply_thumb_size(_DEFAULT_THUMB_SIZE)
+            size_control_slider.value = state["thumb_size"]
+        size_control_slider.update()
+
+    _configure_size_control()
+
     # Barre plus haute (56 au lieu de 40) + cibles tactiles agrandies pour
     # Terminal/Actions/curseur de taille — accès écran tactile (retour user).
     statusbar = ft.Container(
@@ -7628,10 +7708,9 @@ def main(page: ft.Page):
                     tariff_wrap,
                     ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
                                  height=CONSTANTS.HUB_TOOLBAR_H),
-                    ft.Icon(ft.Icons.PHOTO_SIZE_SELECT_LARGE, size=CONSTANTS.ICON_SM, color=WHITE),
-                    ft.Slider(min=90, max=320, value=state["thumb_size"], width=140,
-                              active_color=BLUE,
-                              on_change=lambda e: _apply_thumb_size(e.control.value)),
+                    size_control_icon,
+                    ft.GestureDetector(on_double_tap=_reset_size_control,
+                                      content=size_control_slider),
                 ], spacing=4, tight=True),
                 expand=True, alignment=ft.Alignment.CENTER_RIGHT,
             ),
