@@ -911,6 +911,49 @@ class PhotoCropper:
             border=ft.Border.all(1, WHITE),
         )
 
+        # Bords à étirer (mode Ratio + Personnalisé uniquement) : glisser
+        # le bord droit / bas du canevas ajuste Largeur/Hauteur (%) en
+        # direct, sans passer par les champs texte (retour user). Barres
+        # larges + contour marqué (cf. update_canvas_size) pour rester
+        # visibles sur fond clair (retour user : peu visibles à l'essai).
+        self._EDGE_THICK = 16
+        self._EDGE_LEN = 70
+        self._edge_handle_w = ft.Container(
+            content=ft.GestureDetector(
+                content=ft.Container(
+                    width=self._EDGE_THICK, height=self._EDGE_LEN,
+                    bgcolor=BLUE, border=ft.Border.all(2, WHITE), border_radius=6,
+                ),
+                mouse_cursor=ft.MouseCursor.RESIZE_LEFT_RIGHT,
+                on_pan_update=lambda e: self._on_resize_edge(e, 'w'),
+            ),
+            width=self._EDGE_THICK, height=self._EDGE_LEN, left=0, top=0, visible=False,
+        )
+        self._edge_handle_h = ft.Container(
+            content=ft.GestureDetector(
+                content=ft.Container(
+                    width=self._EDGE_LEN, height=self._EDGE_THICK,
+                    bgcolor=BLUE, border=ft.Border.all(2, WHITE), border_radius=6,
+                ),
+                mouse_cursor=ft.MouseCursor.RESIZE_UP_DOWN,
+                on_pan_update=lambda e: self._on_resize_edge(e, 'h'),
+            ),
+            width=self._EDGE_LEN, height=self._EDGE_THICK, left=0, top=0, visible=False,
+        )
+        # Contour dessiné EN DEHORS du canevas (pas dessus) : un contour
+        # superposé mangerait les derniers pixels de l'image, gênant la
+        # précision près des bords (retour user : ex. retirer un bord noir
+        # de capture d'écran, où le pixel exact compte).
+        self._OUTLINE_GAP = 4
+        self._crop_outline = ft.Container(
+            border=ft.Border.all(3, BLUE), border_radius=2, visible=False,
+        )
+        self.canvas_stack = ft.Stack(
+            controls=[self._crop_outline, self.canvas_container, self._edge_handle_w, self._edge_handle_h],
+            width=self.canvas_w, height=self.canvas_h,
+            clip_behavior=ft.ClipBehavior.NONE,
+        )
+
 
 
 # ===================== Statut inline ===================== #
@@ -996,6 +1039,19 @@ class PhotoCropper:
                 target_aspect_ratio = format_width / format_height
             else:
                 target_aspect_ratio = format_height / format_width
+            # Mode Ratio + Personnalisé : les champs Largeur/Hauteur sont
+            # des % des dimensions ORIGINALES de la photo (cf. export dans
+            # _export_job_run), pas un ratio abstrait. Le canevas doit donc
+            # refléter (largeur_photo * %L) / (hauteur_photo * %H), sinon
+            # l'aperçu ne correspond pas à l'export -> image enregistrée
+            # étirée (retour user).
+            if (
+                getattr(self, 'crop_mode', 'resolution') == 'ratio'
+                and self.current_format_label == _CUSTOM_KEY
+                and getattr(self, 'original_width', 0) > 0
+                and getattr(self, 'original_height', 0) > 0
+            ):
+                target_aspect_ratio *= self.original_width / self.original_height
 
         self.canvas_w = available_width
         self.canvas_h = self.canvas_w / target_aspect_ratio
@@ -1007,6 +1063,38 @@ class PhotoCropper:
         self.canvas_container.height = self.canvas_h
         self.image_stack.width = self.canvas_w
         self.image_stack.height = self.canvas_h
+
+        # Bords à étirer : uniquement visibles en mode Ratio + Personnalisé.
+        # Le contour et les barres sont dessinés hors du canevas (pas de
+        # pixel d'image caché) MAIS restent dans les limites déclarées de
+        # `canvas_stack` (marge réservée), sinon le débordement n'est pas
+        # toujours cliquable selon la mise en page (retour user : plus
+        # aucune interaction possible avec les barres décalées).
+        if hasattr(self, '_edge_handle_w'):
+            show_handles = (
+                getattr(self, 'crop_mode', 'resolution') == 'ratio'
+                and self.current_format_label == _CUSTOM_KEY
+            )
+            gap = self._OUTLINE_GAP
+            margin = (gap + self._EDGE_THICK) if show_handles else 0
+            self.canvas_stack.width  = self.canvas_w + 2 * margin
+            self.canvas_stack.height = self.canvas_h + 2 * margin
+            self.canvas_container.left = margin
+            self.canvas_container.top  = margin
+
+            self._crop_outline.visible = show_handles
+            self._crop_outline.left   = margin - gap
+            self._crop_outline.top    = margin - gap
+            self._crop_outline.width  = self.canvas_w + 2 * gap
+            self._crop_outline.height = self.canvas_h + 2 * gap
+
+            half_len = self._EDGE_LEN / 2
+            self._edge_handle_w.visible = show_handles
+            self._edge_handle_h.visible = show_handles
+            self._edge_handle_w.left = margin + self.canvas_w + gap
+            self._edge_handle_w.top  = margin + self.canvas_h / 2 - half_len
+            self._edge_handle_h.left = margin + self.canvas_w / 2 - half_len
+            self._edge_handle_h.top  = margin + self.canvas_h + gap
 
         # Redimensionner les sliders verticaux
         self.rotation_slider.resize(int(self.canvas_h))
@@ -3228,6 +3316,37 @@ class PhotoCropper:
     # ================================================================ #
     #                  FORMAT & ORIENTATION                           #
     # ================================================================ #
+    def _on_resize_edge(self, e, axis):
+        """Glisser le bord droit ('w') ou bas ('h') du canevas en mode
+        Ratio + Personnalisé : ajuste Largeur/Hauteur (%) en direct et
+        recale la géométrie via `_refit_canvas` (pas de redécodage —
+        même mécanisme que le redimensionnement de fenêtre)."""
+        if self.crop_mode != 'ratio' or self.current_format_label != _CUSTOM_KEY:
+            return
+        if self.canvas_is_portrait:
+            width_field, height_field = self.custom_w_field, self.custom_h_field
+        else:
+            width_field, height_field = self.custom_h_field, self.custom_w_field
+        field = width_field if axis == 'w' else height_field
+        canvas_dim = self.canvas_w if axis == 'w' else self.canvas_h
+        if canvas_dim <= 0:
+            return
+        try:
+            current_pct = float((field.value or "").strip())
+        except ValueError:
+            current_pct = 100.0
+        delta_px = e.local_delta.x if axis == 'w' else e.local_delta.y
+        new_pct = max(5.0, min(100.0, current_pct + delta_px / canvas_dim * current_pct))
+        field.value = f"{new_pct:.1f}"
+        try:
+            w = float(self.custom_w_field.value)
+            h = float(self.custom_h_field.value)
+        except (TypeError, ValueError):
+            return
+        if w > 0 and h > 0:
+            self.current_format = (w, h)
+            self._refit_canvas()
+
     def change_ratio(self, e=None):
         """
         Change le format d'impression actif et met à jour l'interface.
@@ -4172,7 +4291,7 @@ class PhotoCropper:
                 self.load_image(preserve_orientation=False)
                 return
             self.batch_mode = False
-            self.canvas_container.visible = False
+            self.canvas_stack.visible = False
             self.validate_button.visible = False
             self.previous_button.visible = False
 
@@ -4530,6 +4649,10 @@ def main(page: ft.Page):
             app.unit_dropdown.disabled = not app.custom_mode_switch.value
             app.custom_w_field.label = f"Largeur ({app.custom_unit})"
             app.custom_h_field.label = f"Hauteur ({app.custom_unit})"
+        # En mode Ratio + Personnalisé, les bords à étirer du canevas
+        # remplacent la saisie des pourcentages (retour user) — inutile
+        # d'occuper la place avec les champs.
+        app.custom_dims_zone.visible = not is_ratio
 
     def _on_crop_mode_change_and_sync(e):
         app.on_crop_mode_change(e)
@@ -4545,15 +4668,19 @@ def main(page: ft.Page):
         on_change=app.change_ratio,
     )
 
+    app.custom_dims_zone = ft.Column([
+        ft.Container(content=app.custom_fields_row, margin=ft.Margin.only(top=8)),
+        ft.Row(
+            [ft.Text("Unité :", size=12, color=LIGHT_GREY), app.unit_dropdown],
+            spacing=8,
+            alignment=ft.MainAxisAlignment.CENTER,
+        ),
+    ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+
     app.custom_panel = ft.Container(
         content=ft.Column([
             app.custom_mode_switch,
-            ft.Container(content=app.custom_fields_row, margin=ft.Margin.only(top=8)),
-            ft.Row(
-                [ft.Text("Unité :", size=12, color=LIGHT_GREY), app.unit_dropdown],
-                spacing=8,
-                alignment=ft.MainAxisAlignment.CENTER,
-            ),
+            app.custom_dims_zone,
         ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         visible=True,
         border=ft.Border.all(1, BLUE),
@@ -4779,7 +4906,7 @@ def main(page: ft.Page):
                             ft.Container(
                                 content=ft.Row([
                                     app.rotation_slider_col,
-                                    app.canvas_container,
+                                    app.canvas_stack,
                                     app.zoom_slider_col,
                                 ], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=30),
                                 expand=True,

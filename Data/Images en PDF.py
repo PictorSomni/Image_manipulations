@@ -44,8 +44,10 @@ all_files = [file for file in sorted(PATH.iterdir()) if file.is_file() and file.
 IMAGE_FILES = [f for f in all_files if f.name in selected_files_set] if selected_files_set else all_files
 TOTAL = len(IMAGE_FILES)
 
-# Le nom du PDF est le nom du dossier parent
-PDF_NAME = PATH.name
+# Nom fourni par Hub (overlay "Nom du PDF") si présent, sinon le nom du
+# dossier parent — la variable d'environnement PDF_NAME n'était jamais
+# lue ici malgré la docstring (retour user : le nom entré était ignoré).
+PDF_NAME = os.environ.get("PDF_NAME", "").strip() or PATH.name
 
 #############################################################
 #                           MAIN                            #

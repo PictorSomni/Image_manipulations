@@ -1441,8 +1441,12 @@ def main(page: ft.Page):
         current_count = int(match.group(1)) if match else 1
         clean_name = current_name[match.end():] if match else current_name
 
+        # Champ vide au départ même si un nombre existait déjà : l'usager
+        # tape directement le nouveau nombre sans devoir d'abord effacer
+        # l'ancien (retour user). L'ancien nombre reste visible en filigrane
+        # (hint_text) à titre indicatif.
         count_field = ft.TextField(
-            value=str(current_count), autofocus=True, width=100,
+            value="", hint_text=str(current_count), autofocus=True, width=100,
             bgcolor=DARK, border_color=GREY, color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
 
@@ -1529,6 +1533,91 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
         page.run_task(_focus_dialog_field, count_field)
+
+    def _folder_unit_price(format_name, total_count):
+        """Même tarif dégressif que Recadrage manuel.pyw::_unit_price /
+        kiosk_flet.pyw::_get_unit_price (CONSTANTS.STUDIOS / CONSTANTS.PRINTS),
+        piloté par state["tariff_mode"]. `None` si le format (nom du
+        sous-dossier) n'est pas tarifé."""
+        if state["tariff_mode"] == "STUDIOS":
+            return CONSTANTS.STUDIOS.get(format_name)
+        tiers = CONSTANTS.PRINTS.get(format_name)
+        if tiers is None:
+            return None
+        if total_count <= 10:
+            return tiers[0]
+        if total_count <= 50:
+            return tiers[1]
+        if total_count <= 100:
+            return tiers[2]
+        if total_count <= 200:
+            return tiers[3]
+        return tiers[4]
+
+    def _update_commande_file(event=None):
+        """(Re)génère commande.txt à la racine du dossier ouvert à partir
+        des préfixes NX_ déjà présents dans ses sous-dossiers (un
+        sous-dossier = un format) — même logique que
+        Recadrage manuel.pyw::_write_commande_file. Permet de recalculer
+        la commande après avoir changé le nombre d'impressions de
+        plusieurs photos via _set_print_count, sans rouvrir cet outil
+        (retour user)."""
+        folder = state["folder"]
+        if not folder:
+            return
+        commande_path = os.path.join(folder, "commande.txt")
+        if not os.path.isfile(commande_path):
+            _log_to_terminal("[ERREUR] Pas de commande.txt dans ce dossier", RED)
+            return
+
+        def _fmt_eur(value):
+            return f"{value:.2f}".replace(".", ",") + "€"
+
+        try:
+            subfolders = sorted(
+                d for d in os.listdir(folder)
+                if os.path.isdir(os.path.join(folder, d)))
+            lines = []
+            grand_total_price = 0.0
+            any_priced = False
+            for sub in subfolders:
+                sub_path = os.path.join(folder, sub)
+                rows = []
+                subtotal_qty = 0
+                for name in sorted(os.listdir(sub_path)):
+                    match = re.match(r'^(\d+)X_', name, re.IGNORECASE)
+                    if not match:
+                        continue
+                    copies = int(match.group(1))
+                    rows.append((copies, name[match.end():]))
+                    subtotal_qty += copies
+                if not rows:
+                    continue
+                lines.append(f"[{sub}]")
+                for copies, clean_name in rows:
+                    lines.append(f"{copies}X {clean_name}")
+                lines.append("-------------------------------------")
+                unit = _folder_unit_price(sub, subtotal_qty)
+                if unit is None:
+                    lines.append("(non tarifé)")
+                else:
+                    sub_price = round(subtotal_qty * unit, 2)
+                    grand_total_price += sub_price
+                    any_priced = True
+                    lines.append(_fmt_eur(sub_price))
+                lines.append("")
+            if state["tariff_mode"] == "PRINTS" and any_priced:
+                grand_total_price += CONSTANTS.ORDER_SETUP_FEE
+                lines.append("+ Frais d'amorçage = "
+                             f"{_fmt_eur(CONSTANTS.ORDER_SETUP_FEE)}")
+            lines.append("======================")
+            lines.append(f"TOTAL = {_fmt_eur(grand_total_price)}")
+            with open(commande_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+        except OSError as exc:
+            _log_to_terminal(f"[ERREUR] commande.txt : {exc}", RED)
+            return
+        _log_to_terminal("[OK] commande.txt mis à jour", GREEN)
 
     def _show_exif_dialog(paths):
         # Comme Dashboard.pyw:5258-5302 : résolution + tags EXIF lisibles
@@ -3257,6 +3346,34 @@ def main(page: ft.Page):
         tooltip="Favoris, récents, parcourir…",
     )
 
+    # Accès direct à _set_print_count (déjà présent dans le panneau Actions)
+    # depuis la barre Fichiers, à gauche de Mode commande (retour user).
+    print_count_btn = ft.TextButton(
+        content=ft.Row([
+            ft.Icon(ft.Icons.NUMBERS, size=CONSTANTS.ICON_SM, color=ORANGE),
+            ft.Text("Nombre d'impressions", size=CONSTANTS.TEXT_SM, color=ORANGE),
+        ], spacing=6, tight=True),
+        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
+        height=CONSTANTS.HUB_TOOLBAR_H,
+        on_click=lambda e: _run_action(_set_print_count, list(selected))
+                           if len(selected) == 1 else None,
+        tooltip="Changer le nombre de tirages (préfixe NX_) de la photo sélectionnée",
+    )
+
+    # Recalcule commande.txt (dossier ouvert) après avoir changé le nombre
+    # d'impressions de plusieurs photos, sans rouvrir Recadrage manuel.pyw
+    # (retour user).
+    update_order_btn = ft.TextButton(
+        content=ft.Row([
+            ft.Icon(ft.Icons.SYNC, size=CONSTANTS.ICON_SM, color=ORANGE),
+            ft.Text("Mettre à jour commande.txt", size=CONSTANTS.TEXT_SM, color=ORANGE),
+        ], spacing=6, tight=True),
+        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
+        height=CONSTANTS.HUB_TOOLBAR_H,
+        on_click=lambda e: _run_action(_update_commande_file),
+        tooltip="Recalcule commande.txt à partir des préfixes NX_ du dossier ouvert",
+    )
+
     # Icon() n'hérite pas de ButtonStyle.color (contrairement à Text()) —
     # couleur posée explicitement sur chaque Icon/Text, sinon l'icône reste
     # au bleu par défaut de Flet au lieu de CONSTANTS.COLOR_BLUE.
@@ -3286,7 +3403,7 @@ def main(page: ft.Page):
     # sans ça la bascule fait trembler le reste de la barre d'outils.
     tariff_wrap = ft.Container(
         content=tariff_switch, height=CONSTANTS.HUB_TOOLBAR_H, width=150,
-        alignment=ft.Alignment(0, 0))
+        alignment=ft.Alignment(0, 0), margin=ft.Margin.only(right=12))
 
     # _create_order_folder est défini plus loin (avec le reste de la logique
     # de commande) : lambda pour différer la résolution du nom jusqu'au clic.
@@ -3420,7 +3537,6 @@ def main(page: ft.Page):
                         retouche_par_lot_btn, augmentation_ia_btn], spacing=8),
                 ft.Container(expand=True),
                 sort_btn,
-                tariff_wrap,
                 view_seg_wrap,
             ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Row([
@@ -3431,6 +3547,8 @@ def main(page: ft.Page):
                          color=VIOLET),
                 only_sel_btn,
                 ft.Container(expand=True),
+                print_count_btn,
+                update_order_btn,
                 order_mode_btn,
                 create_order_btn,
             ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -6719,6 +6837,8 @@ def main(page: ft.Page):
                                     extra_env={"CONVERT_FORMAT": "png"})),
             ("Renommer séquence", ft.Icons.SORT_BY_ALPHA, BLUE,
              _launch_renommer_sequence),
+            ("Renommer pages Affinity", ft.Icons.FORMAT_LIST_NUMBERED, BLUE,
+             lambda e: _launch_tool("Renommer pages Affinity.py")),
             ("Séparer RAW et JPG", ft.Icons.HIDE_IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Séparer RAW et JPG.py")),
         ]),
@@ -7505,6 +7625,9 @@ def main(page: ft.Page):
             actions_btn,
             ft.Container(
                 content=ft.Row([
+                    tariff_wrap,
+                    ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+                                 height=CONSTANTS.HUB_TOOLBAR_H),
                     ft.Icon(ft.Icons.PHOTO_SIZE_SELECT_LARGE, size=CONSTANTS.ICON_SM, color=WHITE),
                     ft.Slider(min=90, max=320, value=state["thumb_size"], width=140,
                               active_color=BLUE,
