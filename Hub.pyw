@@ -1161,9 +1161,12 @@ def main(page: ft.Page):
 
         def _work():
             pasted, errors = 0, 0
-            for src in src_paths:
+            total = len(src_paths)
+            for i, src in enumerate(src_paths, 1):
                 if not os.path.exists(src):
                     continue
+                _log_to_terminal(
+                    f"[...] Copie {i}/{total} : {os.path.basename(src)}", ORANGE)
                 dest = _unique_dest(folder, os.path.basename(src))
                 try:
                     if is_cut:
@@ -1340,9 +1343,12 @@ def main(page: ft.Page):
         selection_folder = os.path.join(folder, "SELECTION")
         os.makedirs(selection_folder, exist_ok=True)
         copied = 0
-        for src in paths:
+        total = len(paths)
+        for i, src in enumerate(paths, 1):
             if not os.path.isfile(src):
                 continue
+            _log_to_terminal(
+                f"[...] Copie {i}/{total} : {os.path.basename(src)}", ORANGE)
             dest = _unique_dest(selection_folder, os.path.basename(src))
             try:
                 shutil.copy2(src, dest)
