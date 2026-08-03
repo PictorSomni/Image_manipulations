@@ -16,7 +16,12 @@ Flux de travail :
   3. Décrivez la retouche dans le champ texte
   4. Cliquez « Envoyer à Gemini »
   5. La zone modifiée est réintégrée dans l'image à ses dimensions exactes
-  6. Annulez (Ctrl+Z) ou Enregistrez / Enregistrez sous…
+  6. Annulez (Ctrl+Z) ou Enregistrez / Enregistrez sous… (Ctrl+S)
+
+Raccourcis clavier (Cmd ou Ctrl indifféremment) :
+  Ctrl+Z  : annuler la dernière retouche
+  Ctrl+S  : enregistrer
+  Échap   : abandonner l'envoi Gemini en cours, sinon effacer la sélection
 
 Dépendances :
   flet, Pillow, google-genai (pip install google-genai)
@@ -212,6 +217,8 @@ async def main(page: ft.Page) -> None:
         "orig_img":     None,
         "work_img":     None,
         "undo_img":     None,
+        # Appel Gemini en vol, pour pouvoir l'abandonner (cf. _gemini_wait).
+        "gemini_task":  None,
         "selection":    None,   # (x1, y1, x2, y2) en coordonnées IMAGE
         "selection_mask": None, # masque PIL "L" (objet SAM2), taille = sélection, ou None si rectangle
         "drag_start":   None,   # (cx, cy) canvas — début rubber band
@@ -474,6 +481,18 @@ async def main(page: ft.Page) -> None:
         color=DARK,
         disabled=True,
         tooltip="Envoyer la sélection à Gemini pour modification",
+    )
+    # Un appel Gemini peut durer une à deux minutes ; jusqu'ici le bouton se
+    # désactivait et il n'existait aucune sortie avant le délai d'expiration
+    # (2 min en retouche, 5 en extension). Ce bouton prend sa place pendant
+    # l'attente — même principe que l'arrêt du lot dans Retouche par lot.
+    cancel_gemini_btn = ft.Button(
+        "Annuler l'envoi",
+        icon=ft.Icons.STOP,
+        bgcolor=RED,
+        color=DARK,
+        visible=False,
+        tooltip="Abandonner l'attente et reprendre la main",
     )
     undo_btn = ft.Button(
         "Annuler la retouche",
@@ -1091,6 +1110,41 @@ async def main(page: ft.Page) -> None:
     # compromis (MaxFilter peut rester sensible sur un gros masque).
     dilate_slider.on_change_end  = on_dilate_change_end
 
+    def _gemini_wait(coro, timeout):
+        """Attend un appel Gemini en laissant la main pour l'abandonner.
+
+        La tâche est mémorisée dans state["gemini_task"] pour que
+        `on_cancel_gemini` puisse l'annuler ; le bouton d'abandon apparaît
+        dans le panneau latéral, sous le compteur de secondes (le dialogue
+        d'envoi, lui, s'est déjà refermé).
+
+        ponytail: annuler la tâche rend la main à l'interface mais ne tue
+        pas le thread — asyncio.to_thread n'est pas interruptible, la
+        requête HTTP se termine dans son coin et son résultat est jeté.
+        C'est sans conséquence ici (aucun fichier n'est écrit avant le
+        retour) ; il faudrait un client HTTP annulable pour aller plus loin.
+        """
+        task = asyncio.ensure_future(asyncio.wait_for(coro, timeout=timeout))
+        state["gemini_task"] = task
+        cancel_gemini_btn.visible = True
+        cancel_gemini_btn.disabled = False
+        page.update()
+        return task
+
+    def _gemini_wait_done():
+        state["gemini_task"] = None
+        cancel_gemini_btn.visible = False
+
+    def on_cancel_gemini(e) -> None:
+        task = state.get("gemini_task")
+        if task is not None and not task.done():
+            task.cancel()
+            cancel_gemini_btn.disabled = True
+            status_text.value = "Abandon…"
+            page.update()
+
+    cancel_gemini_btn.on_click = on_cancel_gemini
+
     async def on_send_gemini(e) -> None:
         if state["orig_img"] is None or state["selection"] is None or state["working"]:
             return
@@ -1177,10 +1231,8 @@ async def main(page: ft.Page) -> None:
         _timer_task = asyncio.create_task(_tick())
 
         try:
-            text_resp, image_bytes = await asyncio.wait_for(
-                asyncio.to_thread(_do_gemini),
-                timeout=120.0,
-            )
+            text_resp, image_bytes = await _gemini_wait(
+                asyncio.to_thread(_do_gemini), 120.0)
 
             if image_bytes is None:
                 status_text.value = f"[Gemini] {text_resp or 'Aucune image reçue.'}"
@@ -1223,12 +1275,15 @@ async def main(page: ft.Page) -> None:
             if text_resp:
                 status_text.value += f"  |  « {text_resp[:80]} »"
 
+        except asyncio.CancelledError:
+            status_text.value = "Envoi annulé — la sélection et le prompt sont conservés"
         except asyncio.TimeoutError:
             status_text.value = "[ERREUR] Gemini n'a pas répondu en 2 minutes. Vérifiez votre connexion ou réessayez."
         except Exception as ex:
             status_text.value = f"[ERREUR] {ex}"
         finally:
             _timer_task.cancel()
+            _gemini_wait_done()
             state["working"]     = False
             progress_bar.visible = False
             has_sel    = state["selection"] is not None
@@ -1864,9 +1919,8 @@ async def main(page: ft.Page) -> None:
         _timer_task = asyncio.create_task(_tick())
 
         try:
-            result, text_resp = await asyncio.wait_for(
-                asyncio.to_thread(_do_expand), timeout=300.0
-            )
+            result, text_resp = await _gemini_wait(
+                asyncio.to_thread(_do_expand), 300.0)
             if result is None:
                 status_text.value = f"[Gemini] {text_resp or 'Aucune image reçue.'}"
                 return
@@ -1883,12 +1937,15 @@ async def main(page: ft.Page) -> None:
             save_btn.disabled  = False
             status_text.value  = f"[OK] {iw}×{ih} → {new_w}×{new_h} px"
 
+        except asyncio.CancelledError:
+            status_text.value = "Extension annulée"
         except asyncio.TimeoutError:
-            status_text.value = "[ERREUR] Gemini n'a pas répondu en 2 minutes."
+            status_text.value = "[ERREUR] Gemini n'a pas répondu en 5 minutes."
         except Exception as ex:
             status_text.value = f"[ERREUR] {ex}"
         finally:
             _timer_task.cancel()
+            _gemini_wait_done()
             state["working"]        = False
             expand_progress.visible = False
             expand_btn.disabled     = state["orig_img"] is None
@@ -2483,6 +2540,9 @@ async def main(page: ft.Page) -> None:
             save_btn,
             ignore_btn,
             ft.Container(expand=True),
+            # Au-dessus du statut : c'est là que défile le compteur
+            # « Envoi à Gemini… (12s) », donc là qu'on cherche la sortie.
+            cancel_gemini_btn,
             status_text,
         ],
         width=290,
@@ -2606,6 +2666,34 @@ async def main(page: ft.Page) -> None:
             spacing=0,
         )
     )
+
+    # ── Raccourcis clavier ───────────────────────────────────────────────────
+    # Le docstring du module annonçait « Annulez (Ctrl+Z) » depuis le début
+    # alors qu'aucun gestionnaire clavier n'existait. Cet outil tourne sur le
+    # poste équipé d'un clavier (la borne tactile, elle, fait tourner
+    # Recadrage manuel), donc les raccourcis y ont tout leur sens.
+    def on_key(event: ft.KeyboardEvent) -> None:
+        # meta = Cmd sur macOS, ctrl ailleurs : on accepte les deux plutôt
+        # que de tester la plateforme, un Ctrl+Z sur Mac restant naturel
+        # pour qui vient de Windows.
+        mod = event.meta or event.ctrl
+        if mod and event.key == "Z":
+            if not undo_btn.disabled:
+                on_undo(None)
+                page.update()
+        elif mod and event.key == "S":
+            if not save_btn.disabled:
+                page.run_task(on_save, None)
+        elif event.key == "Escape":
+            # Priorité à l'abandon d'un envoi en cours : c'est le geste le
+            # plus urgent quand on attend Gemini depuis une minute.
+            if state.get("gemini_task") is not None:
+                on_cancel_gemini(None)
+            elif state["selection"] is not None:
+                on_clear_selection(None)
+                page.update()
+
+    page.on_keyboard_event = on_key
 
     # ── Resize ───────────────────────────────────────────────────────────────
 
