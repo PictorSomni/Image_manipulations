@@ -1869,7 +1869,7 @@ def main(page: ft.Page):
         state["only_selected"] = not state["only_selected"]
         only_sel_btn.style = ft.ButtonStyle(
             bgcolor=BLUE if state["only_selected"] else GREY)
-        only_sel_icon.color = only_sel_text.color = (
+        only_sel_icon.color = (
             DARK if state["only_selected"] else BLUE)
         _render()
 
@@ -1885,7 +1885,7 @@ def main(page: ft.Page):
         order_mode["value"] = not order_mode["value"]
         order_mode_btn.style = ft.ButtonStyle(
             bgcolor=BLUE if order_mode["value"] else GREY)
-        order_mode_icon.color = order_mode_text.color = (
+        order_mode_icon.color = (
             DARK if order_mode["value"] else BLUE)
         # "Créer le dossier de commande" n'a de sens qu'en mode commande —
         # masqué le reste du temps (retour user).
@@ -2051,20 +2051,22 @@ def main(page: ft.Page):
             ai_chat_view.update()
 
     def _seg_btn(icon, text, on_click, color=None):
-        # `color=None` (par défaut) : l'Icon/Text hérite de ButtonStyle.color,
-        # ce qui permet à only_sel_btn (_toggle_only_selected) de recolorer
-        # tout le bouton (fond + icône + texte) en une seule affectation
-        # selon l'état actif/inactif — ne pas fixer `color` dans ce cas.
-        # Un `color` explicite (ex. VIOLET) sert aux boutons non-toggle
-        # (tout sélectionner, inverser), comme Dashboard.pyw:656-670.
+        # Icône seule, libellé en infobulle : cette barre débordait dès que
+        # la fenêtre passait en demi-écran (retour user). Les intitulés
+        # ("Tout sélectionner", "Afficher la sélection"…) sont longs alors
+        # que les icônes sont sans ambiguïté une fois la barre connue.
+        #
+        # `color=None` (par défaut) : l'Icon hérite de ButtonStyle.color, ce
+        # qui permet à only_sel_btn (_toggle_only_selected) de recolorer tout
+        # le bouton (fond + icône) en une seule affectation selon l'état
+        # actif/inactif — ne pas fixer `color` dans ce cas. Un `color`
+        # explicite (ex. VIOLET) sert aux boutons non-toggle.
         return ft.TextButton(
-            content=ft.Row([
-                ft.Icon(icon, size=CONSTANTS.ICON_SM, color=color),
-                ft.Text(text, size=CONSTANTS.TEXT_SM, color=color),
-            ], spacing=6, tight=True),
+            content=ft.Icon(icon, size=CONSTANTS.ICON_SM, color=color),
             style=ft.ButtonStyle(bgcolor=GREY, color=WHITE,
-                                 padding=ft.Padding(14, 0, 14, 0)),
+                                 padding=ft.Padding(12, 0, 12, 0)),
             height=CONSTANTS.HUB_TOOLBAR_H, on_click=on_click,
+            tooltip=text,
         )
 
     # Icône du segment sélectionné (posée sur le thumb BLUE) en DARK pour
@@ -2165,11 +2167,13 @@ def main(page: ft.Page):
     def _set_sort(mode):
         def _apply(event):
             state["sort"] = mode
-            sort_label.value = f"Trier : {_SORT_SHORT[mode]}"
+            sort_label.value = _SORT_SHORT[mode]
             _render()
         return _apply
 
-    sort_label = ft.Text(f"Trier : {_SORT_SHORT['date']}", size=CONSTANTS.TEXT_SM,
+    # Sans le préfixe « Trier : » — l'icône SORT à côté le dit déjà, et
+    # cette barre manque de place en demi-écran (retour user).
+    sort_label = ft.Text(_SORT_SHORT['date'], size=CONSTANTS.TEXT_SM,
                          color=WHITE)
     # Container extérieur : PopupMenuButton ajoute sa propre marge/chrome
     # Material autour de `content`, ce qui rendait le bouton plus grand que
@@ -2181,7 +2185,8 @@ def main(page: ft.Page):
         content=ft.PopupMenuButton(
             content=ft.Container(
                 content=ft.Row([
-                    ft.Icon(ft.Icons.SORT, size=CONSTANTS.ICON_SM, color=YELLOW),
+                    ft.Icon(ft.Icons.SORT, size=CONSTANTS.ICON_SM, color=YELLOW,
+                            tooltip="Trier les fichiers"),
                     sort_label,
                     ft.Icon(ft.Icons.ARROW_DROP_DOWN, size=CONSTANTS.ICON_SM, color=WHITE),
                 ], spacing=4, tight=True),
@@ -3393,12 +3398,10 @@ def main(page: ft.Page):
 
     # Accès direct à _set_print_count (déjà présent dans le panneau Actions)
     # depuis la barre Fichiers, à gauche de Mode commande (retour user).
+    # Icônes seules sur toute cette barre, libellé en infobulle — cf. _seg_btn.
     print_count_btn = ft.TextButton(
-        content=ft.Row([
-            ft.Icon(ft.Icons.NUMBERS, size=CONSTANTS.ICON_SM, color=ORANGE),
-            ft.Text("Nombre d'impressions", size=CONSTANTS.TEXT_SM, color=ORANGE),
-        ], spacing=6, tight=True),
-        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
+        content=ft.Icon(ft.Icons.NUMBERS, size=CONSTANTS.ICON_SM, color=ORANGE),
+        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(12, 0, 12, 0)),
         height=CONSTANTS.HUB_TOOLBAR_H,
         on_click=lambda e: _run_action(_set_print_count, list(selected))
                            if len(selected) == 1 else None,
@@ -3409,33 +3412,29 @@ def main(page: ft.Page):
     # d'impressions de plusieurs photos, sans rouvrir Recadrage manuel.pyw
     # (retour user).
     update_order_btn = ft.TextButton(
-        content=ft.Row([
-            ft.Icon(ft.Icons.SYNC, size=CONSTANTS.ICON_SM, color=ORANGE),
-            ft.Text("Mettre à jour commande.txt", size=CONSTANTS.TEXT_SM, color=ORANGE),
-        ], spacing=6, tight=True),
-        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
+        content=ft.Icon(ft.Icons.SYNC, size=CONSTANTS.ICON_SM, color=ORANGE),
+        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(12, 0, 12, 0)),
         height=CONSTANTS.HUB_TOOLBAR_H,
         on_click=lambda e: _run_action(_update_commande_file),
         tooltip="Recalcule commande.txt à partir des préfixes NX_ du dossier ouvert",
     )
 
     # Icon() n'hérite pas de ButtonStyle.color (contrairement à Text()) —
-    # couleur posée explicitement sur chaque Icon/Text, sinon l'icône reste
-    # au bleu par défaut de Flet au lieu de CONSTANTS.COLOR_BLUE.
+    # couleur posée explicitement sur l'Icon, sinon elle reste au bleu par
+    # défaut de Flet au lieu de CONSTANTS.COLOR_BLUE.
     order_mode_icon = ft.Icon(ft.Icons.RECEIPT_LONG_OUTLINED,
                               size=CONSTANTS.ICON_SM, color=BLUE)
-    order_mode_text = ft.Text("Mode commande", size=CONSTANTS.TEXT_SM, color=BLUE)
     order_mode_btn = ft.TextButton(
-        content=ft.Row([order_mode_icon, order_mode_text], spacing=6, tight=True),
-        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(14, 0, 14, 0)),
+        content=order_mode_icon,
+        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(12, 0, 12, 0)),
         height=CONSTANTS.HUB_TOOLBAR_H, on_click=_toggle_order_mode,
         tooltip="Format + nombre directement sur chaque photo",
     )
 
     only_sel_btn = _seg_btn(ft.Icons.VISIBILITY_OUTLINED, "Afficher la sélection",
                             _toggle_only_selected)
-    only_sel_icon, only_sel_text = only_sel_btn.content.controls
-    only_sel_icon.color = only_sel_text.color = BLUE
+    only_sel_icon = only_sel_btn.content
+    only_sel_icon.color = BLUE
 
     tariff_switch = ft.Switch(
         label=("Tarif Impression" if state["tariff_mode"] == "PRINTS"

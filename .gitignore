@@ -75,3 +75,6 @@ ai_conversations_debug.md
 
 # Sauvegardes automatiques avant modification (backup anti-perte de données)
 .ai_backups/
+
+# Réglages locaux de Claude Code (propres à la machine)
+.claude/settings.local.json

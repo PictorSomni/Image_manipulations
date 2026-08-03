@@ -119,6 +119,15 @@ ICON_SM = 20   # icône standard (barres d'outils, boutons, badges, listes)
 ICON_LG = 28   # icône tactile proéminente (vignettes, panneau Actions,
                # barre de titre, visionneuse plein écran)
 
+# Cible tactile minimale, en px logiques : plus petit carré qu'un doigt
+# atteint de façon fiable. 44 est le plancher commun à Apple (44 pt) et
+# Material (48 dp) ; on retient le plus petit des deux pour ne pas gonfler
+# les panneaux de réglages, qui alignent beaucoup de contrôles.
+# À utiliser pour tout bouton d'un écran utilisable SANS souris ni clavier
+# (bornes tactiles) — les valeurs HUB_*_TAP_HEIGHT ci-dessous en sont des
+# déclinaisons historiques, propres à une barre précise de Hub.pyw.
+TOUCH_TARGET = 44
+
 # Échelle d'espacement — 4 crans, en px (padding, spacing entre contrôles).
 # Remplace les valeurs ad hoc (6, 10, 14…) éparpillées dans chaque écran.
 SPACE_XS = 4   # hairline : entre un titre et son contenu direct
@@ -225,8 +234,30 @@ TWO_IN_ONE_FORMATS = [
 # ── 5.1  Performance de prévisualisation ──────────────────────────────────────
 # Taille maximale (px, côté le plus long) de l'image de prévisualisation.
 # Réduire sur les machines moins puissantes (ex. 800 pour les petits écrans).
+# Sert désormais de PLANCHER : la taille réelle est calculée d'après celle du
+# widget d'affichage (cf. PREVIEW_SUPERSAMPLING et PREVIEW_MAX_PIXELS_CEILING).
 
 PREVIEW_MAX_PIXELS = 1024
+
+# Facteur de suréchantillonnage des aperçus, pour les écrans HDPI/Retina.
+#
+# Flet dimensionne les contrôles en pixels LOGIQUES ; l'affichage les rend
+# ensuite en pixels physiques, 2× plus nombreux sur un Retina, 1× sur un écran
+# standard, et des valeurs intermédiaires ailleurs. Un aperçu rendu par PIL à
+# la taille logique du widget est donc étiré par l'affichage, et on juge la
+# netteté, le grain ou le bruit sur une image ré-échantillonnée.
+#
+# Flet n'expose pas le devicePixelRatio : 2.0 couvre le cas Retina/4K le plus
+# courant, et `fit=CONTAIN` réduit proprement l'excédent sur un écran 1×.
+# C'est un compromis mesurable, pas une valeur exacte : monter à 3.0 pour un
+# écran très dense, redescendre à 1.0 sur une machine lente (l'aperçu live
+# recalcule toute la chaîne à chaque réglage, et le coût suit le carré).
+PREVIEW_SUPERSAMPLING = 2.0
+
+# Plafond dur, en px : au-delà, l'aperçu live devient plus lent que le geste
+# qu'il accompagne. Borne le produit taille du widget × suréchantillonnage sur
+# les très grands écrans.
+PREVIEW_MAX_PIXELS_CEILING = 2600
 
 
 # ── 5.2  Affichage et hauteurs de panneaux ────────────────────────────────────
@@ -234,7 +265,8 @@ PREVIEW_MAX_PIXELS = 1024
 # son recalcul pendant les rafraîchissements du preview.
 
 RECADRAGE_SHOW_HISTOGRAM       = False   # Afficher et calculer l'histogramme
-RECADRAGE_FORMAT_LIST_HEIGHT    = 350    # Hauteur de la liste des formats
+RECADRAGE_FORMAT_LIST_HEIGHT    = 350    # Hauteur MAX de la liste des formats (grands écrans)
+RECADRAGE_FORMAT_LIST_MIN_HEIGHT = 150   # …et son plancher sur les petits écrans (la liste défile)
 RECADRAGE_CUSTOM_PANEL_HEIGHT   = 110     # Hauteur du panneau Dimensions (mm)
 
 
@@ -254,7 +286,12 @@ RECADRAGE_SHOW_GRID       = True    # Afficher la grille de cadrage
 RECADRAGE_REMBG_BG_WHITE  = True    # Fond blanc après suppression IA (vs flou)
 RECADRAGE_REMBG_HUMAN_SEG = True    # Segmentation humain (vs généraliste)
 RECADRAGE_REMBG_MODE      = 2       # 0 = rapide (u2net), 1 = précis (birefnet), 2 = instantané (flood, sans IA)
-RECADRAGE_FLOOD_TOLERANCE = 40      # Mode instantané : tolérance de luminance du flood fill (0-255)
+RECADRAGE_FLOOD_TOLERANCE = 40      # Mode instantané : distance couleur max (RGB, 0-441) au point cliqué — cf. image_ops.flood_background_mask
+# Mode instantané : lancer une passe depuis les coins/bords dès l'activation,
+# sans attendre un clic. Taillé pour la photo d'identité sur fond quasi blanc
+# (le fond touche les 4 bords) : détourage immédiat, à compléter au clic si
+# besoin. Mettre à False pour repartir systématiquement d'un clic.
+RECADRAGE_FLOOD_AUTO_BORDER = True
 RECADRAGE_SCROLL_ROTATES  = False   # Molette = rotation (Tab pour basculer)
 
 
@@ -839,7 +876,7 @@ GRAIN2_FLOOR        = 0.3  # Grain résiduel dans les zones sombres
 # intensity  : intensité additive (0.0 = aucun, 0.4 = visible, 1.0 = très fort)
 # red_shift  : force du décalage chaud/rouge   (0.0 = neutre, 0.8 = standard, 1.0 = rouge vif)
 
-HALATION_ENABLED    = True
+HALATION_ENABLED    = False
 HALATION_THRESHOLD  = 0.72  # 0.55 large · 0.65 standard · 0.80 éclats seuls
 HALATION_RADIUS     = 5  # % de la plus petite dimension
 HALATION_INTENSITY  = 0.5  # additif : 0.1 discret · 0.3 visible · 0.6 fort
@@ -850,7 +887,7 @@ HALATION_RED_SHIFT  = 0.42  # 0.0 neutre · 0.5 chaud · 1.0 rouge vif
 #             (2 = discret, 6 = standard, 15 = prononcé)
 # intensity : intensité additive (0.0 = aucun, 0.4 = visible, 1.0 = très fort)
 
-BLOOM_ENABLED    = True
+BLOOM_ENABLED    = False
 BLOOM_RADIUS     = 16
 BLOOM_INTENSITY  = 0.64
 
@@ -864,7 +901,7 @@ BLOOM_INTENSITY  = 0.64
 # midtone_boost       : saturation supplémentaire dans les mi-tons (0 = aucun, 0.3 = prononcé)
 #                       masque = (1 - shadow_mask) × (1 - highlight_mask) — pic en plein mi-ton
 
-DESAT_ENABLED             = True
+DESAT_ENABLED             = False
 DESAT_SHADOW_THRESHOLD    = 0.2  # ombres sous 25 % de luminosité
 DESAT_SHADOW_INTENSITY    = 1.0  # désaturation dans les noirs
 DESAT_HIGHLIGHT_THRESHOLD = 0.8  # hautes lumières au-dessus de 80 %
@@ -879,7 +916,7 @@ DESAT_MIDTONE_BOOST       = 0.1  # boost de saturation en mi-tons (0 = aucun, 0.
 # sur les bords des contrastes, accentuées vers les coins de l'image.
 # strength : intensité en % de la diagonale (0.3 = subtil, 1.0 = prononcé, 2.0 = fort)
 
-CA_ENABLED     = True
+CA_ENABLED     = False
 CA_STRENGTH    = 0.05  # % de la diagonale de l'image
 CA_AXIAL_RATIO = 0.64  # part de la composante axiale (0 = purement radial, 1 = égal au radial)
 
@@ -935,7 +972,7 @@ VIRAGE_DEFAULT_PRESET = "SEPIA"
 
 RETOUCHE_LOT_DENOISE_ENABLED = False
 
-RETOUCHE_LOT_COULEUR_ENABLED       = True
+RETOUCHE_LOT_COULEUR_ENABLED       = False
 RETOUCHE_LOT_COULEUR_EXPOSURE      = 0
 RETOUCHE_LOT_COULEUR_CONTRAST      = 0
 RETOUCHE_LOT_COULEUR_SATURATION    = 7
@@ -956,19 +993,19 @@ RETOUCHE_LOT_VIRAGE_LIGHT   = 50
 # à la volée par Retouche par lot.pyw (rien à déclarer ici par LUT).
 # NAME = nom de fichier retenu ("" = aucun), INTENSITY = mélange 0-100 %
 # avec l'image d'origine.
-RETOUCHE_LOT_LUT_ENABLED   = True
+RETOUCHE_LOT_LUT_ENABLED   = False
 RETOUCHE_LOT_LUT_NAME      = 'M31 - Rec.709.cube'
 RETOUCHE_LOT_LUT_INTENSITY = 15
 
-RETOUCHE_LOT_NETTETE_ENABLED  = True
+RETOUCHE_LOT_NETTETE_ENABLED  = False
 RETOUCHE_LOT_NETTETE_RADIUS1  = 4
 RETOUCHE_LOT_NETTETE_PERCENT1 = 42
 RETOUCHE_LOT_NETTETE_RADIUS2  = 2
 RETOUCHE_LOT_NETTETE_PERCENT2 = 42
 
-RETOUCHE_LOT_GRAIN_ENABLED  = True
-RETOUCHE_LOT_GRAIN1_ENABLED = True
-RETOUCHE_LOT_GRAIN2_ENABLED = True
+RETOUCHE_LOT_GRAIN_ENABLED  = False
+RETOUCHE_LOT_GRAIN1_ENABLED = False
+RETOUCHE_LOT_GRAIN2_ENABLED = False
 
 RETOUCHE_LOT_COPYRIGHT_ENABLED     = False
 RETOUCHE_LOT_COPYRIGHT_MODE        = 'date'
@@ -990,7 +1027,15 @@ RETOUCHE_LOT_REFERENCE_PX = 4000
 # qu'il ne le sera réellement une fois affiché/imprimé en pleine résolution
 # (retour user). Augmenter ralentit l'aperçu live (débruitage/netteté/
 # grain recalculés à chaque réglage).
+# Plancher : comme PREVIEW_MAX_PIXELS, la taille réelle du proxy est calculée
+# d'après celle du widget d'aperçu × PREVIEW_SUPERSAMPLING, plafonnée par
+# RETOUCHE_LOT_PREVIEW_CEILING.
 RETOUCHE_LOT_PREVIEW_MAX_PIXELS = 1600
+
+# Plafond propre à cet outil, plus haut que PREVIEW_MAX_PIXELS_CEILING pour la
+# même raison que le plancher ci-dessus : le grain pellicule ne se juge pas sur
+# un proxy trop réduit.
+RETOUCHE_LOT_PREVIEW_CEILING = 3200
 
 
 # ==============================================================================

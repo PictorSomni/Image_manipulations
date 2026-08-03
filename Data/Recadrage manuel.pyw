@@ -105,7 +105,11 @@ REMBG_AVAILABLE = importlib.util.find_spec("rembg") is not None
 MAX_CANVAS_SIZE = 1200  # Taille max du canvas
 CONTROLS_WIDTH = 270    # Largeur de la colonne de contrôles
 DPI = CONSTANTS.DPI  # Résolution d'export
-PREVIEW_MAX_PIXELS = CONSTANTS.PREVIEW_MAX_PIXELS  # Taille max (px, côté le plus long) de la prévisualisation
+# Plancher (px, côté le plus long) de la prévisualisation ; la taille
+# effective est calculée par PhotoCropper._preview_max_px.
+PREVIEW_MAX_PIXELS = CONSTANTS.PREVIEW_MAX_PIXELS
+STATUS_INFO_SECONDS = 3   # Affichage d'un message de statut courant
+STATUS_ERROR_SECONDS = 8  # …et d'une erreur, à lire sans se presser
 ID_X4_10x20_PHOTOS_BOTTOM = CONSTANTS.ID_X4_10x20_PHOTOS_BOTTOM  # True = photos moitié basse, False = photos moitié haute
 _IS_MAC = platform.system() == "Darwin"   # Raccourcis clavier spécifiques macOS
 CANVAS_CHROME_WIDTH = 160  # Sliders latéraux + espacements autour du canevas
@@ -133,6 +137,15 @@ WHITE        = CONSTANTS.COLOR_WHITE
 # ===================== Layout ===================== #
 LEFT_COL_WIDTH   = 250   # Largeur de la colonne de gauche (réglages sliders)
 RIGHT_COL_WIDTH  = 250   # Largeur de la colonne de droite (formats + histogramme + boutons)
+
+# Hauteur des blocs incompressibles de la colonne droite, hors liste des
+# formats : sélecteur Résolution/Ratio (~36), panneau Taille manuelle (~164),
+# les 5 interrupteurs de mise en page (~208), les 3 boutons d'action
+# (3 x FORMAT_BUTTON_HEIGHT = 144), séparateurs et espacements (~110). Sert à
+# calculer la place qui reste pour la liste des formats (cf.
+# _fit_right_column) — une estimation volontairement généreuse : mieux vaut
+# une liste un peu courte qu'une colonne qui déborde.
+RIGHT_COL_FIXED_HEIGHT = 664
 HISTOGRAM_HEIGHT = 85    # Hauteur de l'histogramme en pixels
 
 
@@ -633,12 +646,21 @@ class PhotoCropper:
 
 
 
-        # Boutons d'action (créés ici pour que le main puisse les référencer)
+        # Boutons d'action (créés ici pour que le main puisse les référencer).
+        # Les trois ont la même hauteur : ce sont les gestes de la séance,
+        # tapés au doigt sur la borne. « Ignorer » n'est pas un geste rare à
+        # décourager — les clients sélectionnent régulièrement des images par
+        # mégarde (retour user), c'est donc une opération courante, et
+        # « Précédent » sert de filet en supprimant les fichiers exportés.
+        # CONSTANTS.FORMAT_BUTTON_HEIGHT existait déjà mais n'était utilisé
+        # que par kiosk_flet.pyw : la hauteur par défaut d'un ft.Button
+        # (~40 px) passe sous le plancher tactile de 44.
         self.validate_button = ft.Button(
             "Valider & Suivant",
             icon=ft.Icons.CHECK,
             bgcolor=GREEN,
             color=DARK,
+            height=CONSTANTS.FORMAT_BUTTON_HEIGHT,
             on_click=self.validate_and_next,
         )
 
@@ -650,6 +672,7 @@ class PhotoCropper:
             icon=ft.Icons.BLOCK,
             bgcolor=RED,
             color=DARK,
+            height=CONSTANTS.FORMAT_BUTTON_HEIGHT,
             on_click=self.ignore_image,
         )
 
@@ -657,12 +680,12 @@ class PhotoCropper:
         self.previous_button = ft.Button(
             "Précédent",
             icon=ft.Icons.ARROW_BACK,
+            height=CONSTANTS.FORMAT_BUTTON_HEIGHT,
             bgcolor=ORANGE,
             color=DARK,
             on_click=self.go_previous,
             disabled=True,
         )
-        self._last_saved_paths = []  # fichiers du dernier validate, pour annulation
 
         # ── Export en arrière-plan (validate_and_next) ────────────────
         # File FIFO + thread unique : l'UI passe à l'image suivante
@@ -820,14 +843,24 @@ class PhotoCropper:
             selected_icon_color=VIOLET,
             tooltip="Supprimer le fond par IA (rembg)" if REMBG_AVAILABLE else "pip install rembg onnxruntime",
             on_click=self.on_rembg,
+            # Cible tactile : le padding de 4 px donnait un bouton bien plus
+            # petit que le doigt, alors que c'est le geste d'ouverture d'une
+            # photo d'identité.
+            width=CONSTANTS.TOUCH_TARGET,
+            height=CONSTANTS.TOUCH_TARGET,
             style=ft.ButtonStyle(padding=ft.Padding.all(4)),
         )
 
 
 
-        # Barre de statut inline (remplace les toasters/snackbars)
-        self._status_text = ft.Text("", size=12, color=LIGHT_GREY, italic=True,
-                                    text_align=ft.TextAlign.CENTER, expand=True)
+        # Barre de statut inline (remplace les toasters/snackbars).
+        # Le gris clair en italique 12 px se lisait mal sur le fond sombre
+        # de la barre : corps courant (TEXT_SM) et blanc franc, l'italique
+        # en moins — la couleur reste porteuse de sens ([OK] vert, [ERREUR]
+        # rouge, cf. _set_status), elle n'a pas à servir aussi à atténuer.
+        self._status_text = ft.Text(
+            "", size=CONSTANTS.TEXT_SM, color=WHITE, expand=True,
+            text_align=ft.TextAlign.CENTER)
         self._status_ring = ft.ProgressRing(width=14, height=14, stroke_width=2,
                                             color=BLUE, visible=False)
         self._status_row = ft.Row(
@@ -961,30 +994,41 @@ class PhotoCropper:
         """Affiche un message dans la barre de statut inline (remplace les toasters).
 
         - processing=True  : spinner visible + message persistent jusqu'à nouvel appel.
-        - processing=False : message seul, disparaît après 3 secondes.
+        - processing=False : message seul, effacé après quelques secondes —
+          plus longtemps pour une erreur, qu'on ne regarde pas forcément à
+          la seconde où elle s'affiche (cf. STATUS_ERROR_SECONDS).
         """
         if "[ERREUR]" in message or "[ERROR]" in message:
             color = RED
         elif "[OK]" in message:
             color = GREEN
         else:
-            color = LIGHT_GREY
+            color = WHITE
 
         self._status_text.value = message
         self._status_text.color = color
         self._status_ring.visible = processing
+        # Jeton d'annulation : sans lui, le minuteur d'un message effaçait
+        # le message SUIVANT à l'échéance du premier — deux actions
+        # rapprochées et le second retour disparaissait presque aussitôt.
+        self._status_token = getattr(self, '_status_token', 0) + 1
         try:
             self._status_text.update()
             self._status_ring.update()
         except Exception:
             pass
         if not processing:
-            self.page.run_task(self._auto_clear_status)
+            delay = (STATUS_ERROR_SECONDS if color == RED
+                     else STATUS_INFO_SECONDS)
+            self.page.run_task(self._auto_clear_status,
+                               self._status_token, delay)
 
-    async def _auto_clear_status(self):
-        """Efface automatiquement la barre de statut après 3 secondes."""
-        import asyncio
-        await asyncio.sleep(3)
+    async def _auto_clear_status(self, token, delay):
+        """Efface la barre de statut après `delay` secondes, sauf si un
+        message plus récent est arrivé entre-temps."""
+        await asyncio.sleep(delay)
+        if getattr(self, '_status_token', 0) != token:
+            return
         self._status_text.value = ""
         self._status_ring.visible = False
         try:
@@ -2006,6 +2050,23 @@ class PhotoCropper:
         if update_histogram and self.show_histogram:
             self._render_histogram(preview_image)
 
+    def _preview_max_px(self):
+        """Résolution cible de l'aperçu, en px (côté le plus long).
+
+        Calée sur la taille d'affichage réelle de l'image plutôt que sur la
+        constante PREVIEW_MAX_PIXELS seule (cf. image_ops.preview_max_px,
+        partagée avec Retouche par lot.pyw).
+
+        ponytail: le zoom (self.scale) n'entre pas dans le calcul — à 4×, on
+        regarde toujours un aperçu rendu pour le 1×. Le prendre en compte
+        obligerait à re-rendre l'original à chaque cran de molette ; à
+        ajouter seulement si le cadrage fin au zoom fort le réclame.
+        """
+        return image_ops.preview_max_px(
+            max(getattr(self, 'display_w', 0) or 0,
+                getattr(self, 'display_h', 0) or 0),
+            PREVIEW_MAX_PIXELS, CONSTANTS.PREVIEW_MAX_PIXELS_CEILING)
+
     def _compute_preview_payload(self):
         """Pipeline de rendu de l'aperçu -> (data URI JPEG, image sRGB
         pour l'histogramme), ou None si rien à rendre. Pur calcul PIL,
@@ -2022,16 +2083,22 @@ class PhotoCropper:
         # Comparaison par identité (is) et non par id() : un id est
         # réutilisable après garbage collection (préchargement d'images).
         base_cache = getattr(self, '_preview_base_cache', None)
+        # La résolution cible entre dans la clé de cache : sans elle, un
+        # redimensionnement de fenêtre garderait l'ancienne base réduite.
+        max_px = self._preview_max_px()
         if (isinstance(base_cache, dict)
-                and base_cache.get("src") is self.current_pil_image):
+                and base_cache.get("src") is self.current_pil_image
+                and base_cache.get("max_px") == max_px):
             preview_image = base_cache["base"].copy()
             preview_width, preview_height = preview_image.size
         else:
-            ratio = min(PREVIEW_MAX_PIXELS / self.original_width, PREVIEW_MAX_PIXELS / self.original_height, 1.0)
+            ratio = min(max_px / self.original_width,
+                        max_px / self.original_height, 1.0)
             preview_width  = max(1, int(self.original_width  * ratio))
             preview_height = max(1, int(self.original_height * ratio))
             preview_image = self.current_pil_image.resize((preview_width, preview_height), Image.Resampling.BILINEAR)
             self._preview_base_cache = {"src": self.current_pil_image,
+                                        "max_px": max_px,
                                         "base": preview_image.copy()}
         
         if preview_image.mode == "RGBA":
@@ -2667,9 +2734,14 @@ class PhotoCropper:
         my_gen = self._pipette.live_gen = self._pipette.live_gen + 1
         try:
             source = self._rembg_original or self.current_pil_image
+            # Même résolution que la validation (_apply_pipette_pick) :
+            # depuis le passage à cv2, le flood fill lui-même est
+            # négligeable devant la réduction PIL, et 1500 px ne coûte pas
+            # plus cher que 900. L'aperçu du glissé montre donc exactement
+            # le masque qui sera appliqué.
             new_mask = await asyncio.to_thread(
                 image_ops.flood_background_mask, source, (ix, iy),
-                tolerance=tolerance, max_px=900)  # résolution réduite : priorité à la fluidité
+                tolerance=tolerance, max_px=1500)
             if my_gen != self._pipette.live_gen:
                 return  # un pick s'est terminé / un glissé plus récent a démarré entretemps
             combined = self._pipette.combine(new_mask)
@@ -2682,25 +2754,44 @@ class PhotoCropper:
         finally:
             self._pipette.live_busy = False
 
-    async def _apply_pipette_pick(self, ix: int, iy: int, tolerance: int) -> None:
+    async def _apply_pipette_pick(self, ix, iy, tolerance: int) -> None:
         """Version définitive du flood fill pipette : persiste le masque
         combiné (cf. `image_ops.FloodPipette.commit`) et laisse la
-        pipette armée pour enchaîner un autre clic-glissé."""
+        pipette armée pour enchaîner un autre clic-glissé.
+
+        `ix = None` : passe automatique depuis les coins et les bords, sans
+        clic (cf. `_auto_border_pick`)."""
 
         source = self._rembg_original or self.current_pil_image
+        seed = None if ix is None else (ix, iy)
         self._set_status("Détourage instantané…", processing=True)
         self.page.update()
         try:
             new_mask = await asyncio.to_thread(
-                image_ops.flood_background_mask, source, (ix, iy),
+                image_ops.flood_background_mask, source, seed,
                 tolerance=tolerance, max_px=1500)
             bg_mask = self._pipette.commit(new_mask)
             self._rembg_original = source
             if bg_mask is not None:
                 self.current_pil_image = image_ops.compose_bg_alpha(source, bg_mask)
                 self.rembg_btn.selected = True
-                self._set_status(
-                    "[OK] Fond supprimé — glissez pour ajouter/retirer, recliquer pour restaurer")
+                # Un pick qui ne ramène presque rien annonçait quand même
+                # "[OK] Fond supprimé" : rien ne distinguait un détourage
+                # réussi d'un clic tombé sur une zone isolée. Le seuil est
+                # volontairement bas — 0,5 % de l'image, soit une tache de
+                # la taille d'un timbre sur un 24x36.
+                if new_mask.mean() < 0.005:
+                    self._set_status(
+                        f"Zone quasi vide (tol. {tolerance}) — glissez vers "
+                        "la droite pour élargir, ou cliquez ailleurs")
+                elif seed is None:
+                    self._set_status(
+                        f"[OK] Fond détouré depuis les bords (tol. "
+                        f"{tolerance}) — cliquez pour compléter, recliquer "
+                        "sur le bouton pour restaurer")
+                else:
+                    self._set_status(
+                        "[OK] Fond supprimé — glissez pour ajouter/retirer, recliquer pour restaurer")
             else:
                 self.current_pil_image = source
                 self.rembg_btn.selected = False
@@ -2828,6 +2919,19 @@ class PhotoCropper:
             # prochain clic-glissé sur l'image (cf. on_pan_down/_end).
             self._pipette.arm()
             self.gesture_detector.mouse_cursor = ft.MouseCursor.PRECISE
+            if CONSTANTS.RECADRAGE_FLOOD_AUTO_BORDER:
+                # Cas dominant en direct avec un client : photo d'identité
+                # sur fond quasi blanc, qui touche les quatre bords. Une
+                # passe automatique depuis les coins et les bords donne le
+                # détourage sans le moindre clic ; la pipette reste armée
+                # pour compléter à la main si besoin. Sans ça, cette voie
+                # de flood_background_mask (seed_xy=None) n'était jamais
+                # utilisée par l'interface.
+                self._set_status("Détourage instantané…", processing=True)
+                self.page.update()
+                self.page.run_task(self._apply_pipette_pick, None, None,
+                                   self._pipette.tolerance)
+                return
             self._set_status("Cliquez sur le fond et glissez pour ajuster la sensibilité…")
             self.page.update()
             return
@@ -4330,7 +4434,6 @@ class PhotoCropper:
             return
 
         self.current_index += 1
-        self._last_saved_paths = []
 
         if self.current_index >= len(self.image_paths):
             self._set_status("Toutes les images ont été traitées.")
@@ -4367,7 +4470,6 @@ class PhotoCropper:
             with contextlib.suppress(OSError):
                 if not os.listdir(d):
                     os.rmdir(d)
-        self._last_saved_paths = []
         self.current_index -= 1
         self.extra_formats.clear()
         self._update_extra_formats_display()
@@ -4689,7 +4791,31 @@ def main(page: ft.Page):
         padding=ft.Padding.symmetric(horizontal=10, vertical=10),
     )
 
-    controls = ft.Column([
+    app.format_list_container = ft.Container(
+        # ── Panneau droite : Choix des dimensions des photos ──────────────────────
+        content=ft.Column([
+            ft.Text("Formats Photos", size=16, weight=ft.FontWeight.BOLD, color=WHITE),
+            ft.Divider(height=4),
+            app.format_radio_group,
+        ], scroll=ft.ScrollMode.AUTO),
+        height=CONSTANTS.RECADRAGE_FORMAT_LIST_HEIGHT,
+        border=ft.Border.all(1, GREY),
+        bgcolor=DARK,
+        border_radius=8,
+        padding=ft.Padding.symmetric(horizontal=10, vertical=12),
+    )
+
+    # ── Colonne droite : corps défilant + bloc d'action épinglé ────────
+    # La colonne ne défilait pas et son contenu occupe ~1000 px de haut :
+    # sur un écran de 768 px, ce qui débordait par le bas, c'était
+    # précisément Valider / Précédent / Ignorer — les trois boutons de la
+    # séance (retour user : interface incomplète sur certaines machines).
+    #
+    # Rendre toute la colonne défilante aurait déplacé le problème : les
+    # boutons auraient pu sortir de vue vers le haut. On sépare donc, comme
+    # dans Retouche par lot.pyw, ce qui peut défiler de ce qui doit rester
+    # visible en permanence.
+    right_scroll_body = ft.Column([
         ft.CupertinoSlidingSegmentedButton(
             selected_index=0,
             controls=[
@@ -4700,19 +4826,7 @@ def main(page: ft.Page):
             padding=ft.Padding.symmetric(horizontal=4, vertical=4),
             width=RIGHT_COL_WIDTH,
         ),
-        ft.Container(
-            # ── Panneau droite : Choix des dimensions des photos ──────────────────────
-            content=ft.Column([
-                ft.Text("Formats Photos", size=16, weight=ft.FontWeight.BOLD, color=WHITE),
-                ft.Divider(height=4),
-                app.format_radio_group,
-            ], scroll=ft.ScrollMode.AUTO),
-            height=CONSTANTS.RECADRAGE_FORMAT_LIST_HEIGHT,
-            border=ft.Border.all(1, GREY),
-            bgcolor=DARK,
-            border_radius=8,
-            padding=ft.Padding.symmetric(horizontal=10, vertical=12),
-        ),
+        app.format_list_container,
         app.custom_panel,
         ft.Container(
             content=ft.Column([
@@ -4728,10 +4842,21 @@ def main(page: ft.Page):
         ft.Text("Histogramme", size=11, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER, visible=app.show_histogram),
         app.histogram_image,
         ft.Divider(height=4, visible=app.show_histogram),
+    ], scroll=ft.ScrollMode.AUTO, expand=True)
+
+    # Pas d'`expand=True` ici : dans un Row, `expand` joue sur l'axe
+    # PRINCIPAL, donc la largeur — la colonne prenait toute la place
+    # restante et recouvrait le canevas. La hauteur est donnée
+    # explicitement par _fit_right_column, ce qui borne aussi
+    # `right_scroll_body` et permet à son défilement de fonctionner.
+    controls = ft.Column([
+        right_scroll_body,
+        ft.Divider(height=4, color=GREY),
         app.validate_button,
         app.previous_button,
-        app.ignore_button
+        app.ignore_button,
     ], width=RIGHT_COL_WIDTH)
+    app.right_col = controls
 
     page.add(
         ft.Stack([
@@ -4927,13 +5052,40 @@ def main(page: ft.Page):
 
 
 
+    def _fit_right_column(e=None):
+        """Cale la colonne droite sur la hauteur de la fenêtre.
+
+        Deux réglages liés :
+
+        * la hauteur de la colonne elle-même, donnée explicitement — elle
+          borne `right_scroll_body`, sans quoi son défilement n'a pas de
+          référence et le contenu déborde par le bas ;
+        * la hauteur de la liste des formats, plus gros bloc figé de la
+          colonne (350 px sur un écran de 768, soit près de la moitié de la
+          hauteur pour une liste de formats). Elle reçoit ce qui reste une
+          fois les blocs incompressibles déduits, sans jamais dépasser la
+          valeur de CONSTANTS — les grands écrans gardent exactement le
+          comportement d'avant — ni descendre sous
+          RECADRAGE_FORMAT_LIST_MIN_HEIGHT, la liste défilant déjà de son
+          côté.
+        """
+        page_h = int(getattr(e, "height", None) or page.height or 900)
+        app.right_col.height = max(320, page_h - 24)  # marge du page.padding
+        free = page_h - RIGHT_COL_FIXED_HEIGHT
+        app.format_list_container.height = max(
+            CONSTANTS.RECADRAGE_FORMAT_LIST_MIN_HEIGHT,
+            min(CONSTANTS.RECADRAGE_FORMAT_LIST_HEIGHT, free))
+        with contextlib.suppress(Exception):
+            app.right_col.update()
+
     # Gestionnaire de redimensionnement de la fenêtre
     def on_window_resize(e):
         """
         Gestionnaire de redimensionnement de la fenêtre principale.
 
         Recalcule les dimensions du canevas puis réapplique la transformation
-        affine courante (pan / zoom / rotation).
+        affine courante (pan / zoom / rotation), et réajuste la hauteur de la
+        liste des formats à la nouvelle hauteur de fenêtre.
 
         Parameters
         ----------
@@ -4942,10 +5094,12 @@ def main(page: ft.Page):
         """
 
         app.update_canvas_size()
+        _fit_right_column(e)
         if app.image_paths:
             app._update_transform()
-    
+
     page.on_resize = on_window_resize
+    _fit_right_column()
 
 
 

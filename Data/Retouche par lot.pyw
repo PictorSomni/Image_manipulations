@@ -167,117 +167,59 @@ def default_params():
     }
 
 
-def _py_literal(value):
-    """Représentation Python valide à écrire telle quelle dans CONSTANTS.py."""
-    if isinstance(value, bool):
-        return "True" if value else "False"
-    if isinstance(value, float):
-        return repr(round(value, 6))
-    if isinstance(value, int):
-        return repr(value)
-    return repr(str(value))
+#############################################################
+#                   PRÉRÉGLAGES NOMMÉS                      #
+#############################################################
+# Un préréglage = un fichier .json de paramètres, même format que le
+# retouche_params.json déposé par chaque lot — les deux sont donc
+# interchangeables : on peut déposer le fichier d'un lot réussi dans
+# PRESETS_DIR pour en faire un préréglage.
+#
+# ponytail: pas de bouton Supprimer. Tout est lancé depuis Hub.pyw, dont la
+# surface Fichiers sait déjà supprimer un .json — dupliquer ça ici
+# ajouterait un dialogue de confirmation pour une action déjà accessible.
+PRESETS_DIR = Path(__file__).resolve().parent / "presets_retouche"
+
+# Un nom de préréglage devient un nom de fichier : tout ce qui n'est pas
+# lettre/chiffre/espace/tiret/underscore est écarté, ce qui neutralise au
+# passage « ../ » et les séparateurs de chemin (le nom vient d'un champ
+# libre). Accents conservés : les noms sont en français.
+_PRESET_NAME_RE = re.compile(r"[^\w \-]", re.UNICODE)
 
 
-def _constants_mapping(params):
-    """Nom de constante CONSTANTS.py -> valeur actuelle du panneau. Les
-    champs sans équivalent partagé ailleurs vivent sous RETOUCHE_LOT_* ;
-    les autres (débruitage, virage, grain — section 12 de CONSTANTS.py)
-    n'ont plus d'autre consommateur : les scripts autonomes correspondants
-    ont tous été retirés, remplacés par cet outil unique."""
-    d, c, v, lu, n, g = (params["denoise"], params["couleur"],
-                        params["virage"], params["lut"],
-                        params["nettete"], params["grain"])
-    ca, ds, ha, bl = g["ca"], g["desat"], g["halation"], g["bloom"]
-    g1, g2, cp = g["grain1"], g["grain2"], params["copyright"]
-    return {
-        "RETOUCHE_LOT_DENOISE_ENABLED": d["enabled"],
-        "DENOISE_H": d["h"], "DENOISE_H_COLOR": d["h_color"],
-
-        "RETOUCHE_LOT_COULEUR_ENABLED": c["enabled"],
-        "RETOUCHE_LOT_COULEUR_EXPOSURE": c["exposure"],
-        "RETOUCHE_LOT_COULEUR_CONTRAST": c["contrast"],
-        "RETOUCHE_LOT_COULEUR_SATURATION": c["saturation"],
-        "RETOUCHE_LOT_COULEUR_HUE": c["hue"],
-        "RETOUCHE_LOT_COULEUR_WHITE_BALANCE": c["white_balance"],
-        "RETOUCHE_LOT_COULEUR_HIGHLIGHTS": c["highlights"],
-        "RETOUCHE_LOT_COULEUR_SHADOWS": c["shadows"],
-        "RETOUCHE_LOT_COULEUR_WHITES": c["whites"],
-        "RETOUCHE_LOT_COULEUR_BLACKS": c["blacks"],
-
-        "RETOUCHE_LOT_VIRAGE_ENABLED": v["enabled"],
-        "RETOUCHE_LOT_VIRAGE_MODE": v["mode"],
-        "RETOUCHE_LOT_VIRAGE_HUE": v["hue"],
-        "RETOUCHE_LOT_VIRAGE_SAT": v["sat"],
-        "RETOUCHE_LOT_VIRAGE_LIGHT": v["light"],
-
-        "RETOUCHE_LOT_LUT_ENABLED": lu["enabled"],
-        "RETOUCHE_LOT_LUT_NAME": lu["name"],
-        "RETOUCHE_LOT_LUT_INTENSITY": lu["intensity"],
-
-        "RETOUCHE_LOT_NETTETE_ENABLED": n["enabled"],
-        "RETOUCHE_LOT_NETTETE_RADIUS1": n["radius1"],
-        "RETOUCHE_LOT_NETTETE_PERCENT1": n["percent1"],
-        "RETOUCHE_LOT_NETTETE_RADIUS2": n["radius2"],
-        "RETOUCHE_LOT_NETTETE_PERCENT2": n["percent2"],
-
-        "RETOUCHE_LOT_GRAIN_ENABLED": g["enabled"],
-        "CA_ENABLED": ca["enabled"], "CA_STRENGTH": ca["strength"],
-        "CA_AXIAL_RATIO": ca["axial_ratio"],
-        "DESAT_ENABLED": ds["enabled"],
-        "DESAT_SHADOW_THRESHOLD": ds["shadow_threshold"],
-        "DESAT_SHADOW_INTENSITY": ds["shadow_intensity"],
-        "DESAT_HIGHLIGHT_THRESHOLD": ds["highlight_threshold"],
-        "DESAT_HIGHLIGHT_INTENSITY": ds["highlight_intensity"],
-        "DESAT_MIDTONE_BOOST": ds["midtone_boost"],
-        "HALATION_ENABLED": ha["enabled"],
-        "HALATION_THRESHOLD": ha["threshold"], "HALATION_RADIUS": ha["radius"],
-        "HALATION_INTENSITY": ha["intensity"],
-        "HALATION_RED_SHIFT": ha["red_shift"],
-        "BLOOM_ENABLED": bl["enabled"], "BLOOM_RADIUS": bl["radius"],
-        "BLOOM_INTENSITY": bl["intensity"],
-        "RETOUCHE_LOT_GRAIN1_ENABLED": g1["enabled"],
-        "GRAIN_AMOUNT": g1["amount"], "GRAIN_SIZE": g1["size"],
-        "GRAIN_COLOR_RATIO": g1["color_ratio"],
-        "GRAIN_SHADOW_BOOST": g1["shadow_boost"], "GRAIN_FLOOR": g1["floor"],
-        "GRAIN_CHROMA_SHIFT": g1["chroma_shift"],
-        "RETOUCHE_LOT_GRAIN2_ENABLED": g2["enabled"],
-        "GRAIN2_AMOUNT": g2["amount"], "GRAIN2_SIZE": g2["size"],
-        "GRAIN2_COLOR_RATIO": g2["color_ratio"],
-        "GRAIN2_SHADOW_BOOST": g2["shadow_boost"], "GRAIN2_FLOOR": g2["floor"],
-        "GRAIN2_CHROMA_SHIFT": g2["chroma_shift"],
-
-        "RETOUCHE_LOT_COPYRIGHT_ENABLED": cp["enabled"],
-        "RETOUCHE_LOT_COPYRIGHT_MODE": cp["mode"],
-        "RETOUCHE_LOT_COPYRIGHT_CUSTOM_TEXT": cp["custom_text"],
-    }
+def sanitize_preset_name(name):
+    """Nom de préréglage -> nom de fichier sûr, ou "" si rien n'en reste."""
+    cleaned = _PRESET_NAME_RE.sub("", (name or "").strip())
+    # Points de tête exclus : ils produiraient un fichier caché, invisible
+    # dans la liste comme dans Hub.
+    return cleaned.strip(" .")[:60].strip()
 
 
-def save_params_as_defaults(params):
-    """Réécrit CONSTANTS.py : chaque constante de `_constants_mapping` est
-    mise à jour en place (regex sur `NOM = ancienne_valeur`, commentaire de
-    fin de ligne préservé) ; les rares constantes qui n'existeraient pas
-    encore dans le fichier sont ajoutées à la fin."""
-    const_path = Path(__file__).resolve().parent / "CONSTANTS.py"
-    text = const_path.read_text(encoding="utf-8")
-    missing = []
-    for name, value in _constants_mapping(params).items():
-        literal = _py_literal(value)
-        pattern = re.compile(rf"^{name}([ \t]*=[ \t]*)[^#\n]*?([ \t]*)(#.*)?$",
-                             re.MULTILINE)
+def list_presets():
+    """Noms des préréglages disponibles, triés alphabétiquement."""
+    if not PRESETS_DIR.is_dir():
+        return []
+    return sorted(p.stem for p in PRESETS_DIR.glob("*.json"))
 
-        def _replace(m, name=name, literal=literal):
-            comment = f"  {m.group(3)}" if m.group(3) else ""
-            return f"{name}{m.group(1)}{literal}{comment}"
-        new_text, count = pattern.subn(_replace, text, count=1)
-        if count:
-            text = new_text
-        else:
-            missing.append(f"{name} = {literal}")
-    if missing:
-        text = (text.rstrip("\n") + "\n\n\n"
-               "# ── Retouche par lot — ajouts automatiques ──\n"
-               + "\n".join(missing) + "\n")
-    const_path.write_text(text, encoding="utf-8")
+
+def load_preset(name):
+    """Paramètres d'un préréglage. Lève si le nom est vide ou introuvable."""
+    safe = sanitize_preset_name(name)
+    if not safe:
+        raise ValueError("Nom de préréglage invalide.")
+    with open(PRESETS_DIR / f"{safe}.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_preset(name, params):
+    """Écrit un préréglage et renvoie le nom retenu (après nettoyage)."""
+    safe = sanitize_preset_name(name)
+    if not safe:
+        raise ValueError("Nom de préréglage invalide.")
+    PRESETS_DIR.mkdir(exist_ok=True)
+    with open(PRESETS_DIR / f"{safe}.json", "w", encoding="utf-8") as f:
+        json.dump(params, f, indent=2, ensure_ascii=False)
+    return safe
 
 
 #############################################################
@@ -524,6 +466,42 @@ def main(page: ft.Page):
 
     _ROW_SPACING = CONSTANTS.SPACE_LG
 
+    def _proxy_max_px():
+        """Résolution cible du proxy d'aperçu, calée sur la taille réelle du
+        widget plutôt que sur une constante fixe (cf. image_ops)."""
+        return image_ops.preview_max_px(
+            max(state["preview_w"], state["preview_h"]),
+            CONSTANTS.RETOUCHE_LOT_PREVIEW_MAX_PIXELS,
+            CONSTANTS.RETOUCHE_LOT_PREVIEW_CEILING)
+
+    def _rebuild_proxy():
+        """Reconstruit le proxy depuis l'original si la cible a changé.
+
+        Renvoie True si le proxy a été remplacé (l'appelant enchaîne alors
+        sur live_preview_tick()).
+        """
+        img = state["source_image"]
+        if img is None:
+            return False
+        target = _proxy_max_px()
+        current = state.get("proxy_max_px")
+        # Les micro-variations sont ignorées : page.on_resize se déclenche en
+        # continu pendant le glissement d'un bord de fenêtre, et
+        # ré-échantillonner l'original (plusieurs dizaines de mégapixels) à
+        # chaque événement coûte bien plus cher que la boucle d'aperçu.
+        if current and abs(target - current) <= 0.1 * current:
+            return False
+        ratio = min(target / img.width, target / img.height, 1.0)
+        if ratio < 1.0:
+            state["proxy"] = img.resize(
+                (max(1, round(img.width * ratio)),
+                 max(1, round(img.height * ratio))),
+                Image.Resampling.BICUBIC)
+        else:
+            state["proxy"] = img.copy()
+        state["proxy_max_px"] = target
+        return True
+
     def _apply_preview_size(e=None):
         """Colonne outils (gauche) = 40 % de la largeur de fenêtre en
         pixels fixes ; la colonne aperçu (droite) prend tout le reste (pas
@@ -545,6 +523,9 @@ def main(page: ft.Page):
         controls_container.update()
         preview_container.update()
         histogram_image.update()
+        # L'aperçu a changé de taille : le proxy doit suivre, sinon on
+        # continue d'afficher une image rendue pour l'ancienne fenêtre.
+        _rebuild_proxy()
         live_preview_tick()
 
     page.on_resize = _apply_preview_size
@@ -614,16 +595,8 @@ def main(page: ft.Page):
             return
         state["index"] = idx
         state["source_image"] = img
-        max_px = CONSTANTS.RETOUCHE_LOT_PREVIEW_MAX_PIXELS
-        ratio = min(max_px / img.width, max_px / img.height, 1.0)
-        if ratio < 1.0:
-            proxy = img.resize(
-                (max(1, round(img.width * ratio)),
-                 max(1, round(img.height * ratio))),
-                Image.Resampling.BICUBIC)
-        else:
-            proxy = img.copy()
-        state["proxy"] = proxy
+        state["proxy_max_px"] = None  # force la reconstruction ci-dessous
+        _rebuild_proxy()
         counter_text.value = f"{idx + 1} / {len(file_names)} — {name}"
         page.update()
         live_preview_tick()
@@ -714,35 +687,95 @@ def main(page: ft.Page):
         user) — passer `divisions` explicitement pour un pas plus fin.
         Double-clic : revient à 0 (ou au minimum si 0 est hors plage,
         ex. rayons de netteté qui commencent à 1). Auto-enregistré dans
-        `reset_registry` pour le bouton Réinitialiser."""
+        `reset_registry` pour le bouton Réinitialiser.
+
+        Utilisable sans clavier ni souris : les boutons − / + permettent le
+        pas à pas (au doigt, la main masque le curseur qu'elle déplace) et
+        le ↺ s'active dès que la valeur s'écarte du défaut — le double-clic
+        reste, mais il n'est plus le seul accès à la remise à zéro, ce qui
+        le rendait introuvable sur écran tactile. Les trois boutons sont
+        toujours présents (grisés plutôt que masqués) : une icône qui
+        apparaît et disparaît ferait sauter la hauteur de la ligne, et donc
+        tout le panneau, à chaque mouvement de curseur.
+
+        `column.data` porte une fonction de rafraîchissement : elle relit
+        `dct[key]` et remet curseur, libellé et icône ↺ d'accord entre eux.
+        Utilisée par Réinitialiser, Charger des réglages et les préréglages
+        de virage, qui écrivent dans les paramètres sans passer par l'UI.
+        """
         value = dct[key]
         if divisions is None:
             divisions = round(maxv - minv)
+        step = max(1, round((maxv - minv) / max(1, divisions)))
         reset_value = max(0, minv)
         text = ft.Text(f"{label} : {round(value)}", size=CONSTANTS.TEXT_SM,
                        color=WHITE)
+        _touch = CONSTANTS.TOUCH_TARGET
+        reset_btn = ft.IconButton(
+            ft.Icons.RESTART_ALT, icon_size=CONSTANTS.ICON_SM,
+            icon_color=BLUE, tooltip=f"Réinitialiser « {label} »",
+            disabled=round(value) == reset_value,
+            width=_touch, height=_touch)
+        minus_btn = ft.IconButton(
+            ft.Icons.REMOVE, icon_size=CONSTANTS.ICON_SM, icon_color=WHITE,
+            tooltip=f"{label} − {step}", width=_touch, height=_touch)
+        plus_btn = ft.IconButton(
+            ft.Icons.ADD, icon_size=CONSTANTS.ICON_SM, icon_color=WHITE,
+            tooltip=f"{label} + {step}", width=_touch, height=_touch)
+
+        def _write(new_value, *, move_slider=True):
+            """Point de passage unique : curseur, − / +, ↺ et chargement de
+            réglages écrivent tous ici, donc l'affichage ne peut pas
+            diverger de `dct[key]`."""
+            snapped = max(minv, min(maxv, round(new_value)))
+            dct[key] = snapped
+            text.value = f"{label} : {snapped}"
+            reset_btn.disabled = (snapped == reset_value)
+            if move_slider:
+                slider.value = snapped
+                slider.update()
+            text.update()
+            reset_btn.update()
 
         def _handle(e):
-            snapped = round(e.control.value)
-            text.value = f"{label} : {snapped}"
-            dct[key] = snapped
-            text.update()
+            # Le curseur est déjà à la bonne position : le repousser
+            # pendant le glissement le ferait sauter sous le doigt.
+            _write(e.control.value, move_slider=False)
             live_preview_tick()
-        slider = ft.Slider(min=minv, max=maxv, value=value,
+
+        slider = ft.Slider(min=minv, max=maxv, value=value, expand=True,
                           divisions=divisions, on_change=_handle,
                           active_color=BLUE)
 
+        def _step(delta):
+            def handler(e):
+                _write(dct[key] + delta)
+                live_preview_tick()
+            return handler
+
+        minus_btn.on_click = _step(-step)
+        plus_btn.on_click = _step(step)
+
         def _reset(e):
-            slider.value = reset_value
-            dct[key] = reset_value
-            text.value = f"{label} : {round(reset_value)}"
-            slider.update()
-            text.update()
+            _write(reset_value)
             live_preview_tick()
+
+        reset_btn.on_click = _reset
         slider_area = ft.GestureDetector(content=slider,
-                                        on_double_tap=_reset)
-        column = ft.Column([text, slider_area], spacing=0)
-        column.data = slider
+                                        on_double_tap=_reset, expand=True)
+
+        def _refresh():
+            """Resynchronise depuis dct[key] sans relancer l'aperçu :
+            l'appelant groupe ses modifications puis déclenche un seul
+            live_preview_tick()."""
+            _write(dct[key])
+
+        column = ft.Column([
+            text,
+            ft.Row([reset_btn, minus_btn, slider_area, plus_btn], spacing=0,
+                  vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        ], spacing=0)
+        column.data = _refresh
         reset_registry["sliders"].append((column, label, dct, key))
         return column
 
@@ -776,13 +809,11 @@ def main(page: ft.Page):
     virage_light_row = _slider_row("Luminosité", vi, "light", 0, 100)
 
     def _reseed_virage_controls():
-        virage_hue_row.data.value = vi["hue"]
-        virage_hue_row.controls[0].value = f"Teinte : {round(vi['hue'])}"
-        virage_sat_row.data.value = vi["sat"]
-        virage_sat_row.controls[0].value = f"Saturation : {round(vi['sat'])}"
-        virage_light_row.data.value = vi["light"]
-        virage_light_row.controls[0].value = (
-            f"Luminosité : {round(vi['light'])}")
+        """Le préréglage a écrit dans `vi` : chaque ligne se resynchronise
+        elle-même (curseur, libellé, état du ↺)."""
+        virage_hue_row.data()
+        virage_sat_row.data()
+        virage_light_row.data()
 
     def _on_virage_preset(e):
         preset_name = virage_preset_dd.value
@@ -958,6 +989,42 @@ def main(page: ft.Page):
     progress_bar = ft.ProgressBar(width=300, visible=False, color=BLUE)
     progress_text = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
 
+    # Armé par _stop_batch, testé en tête de boucle par batch_worker : le
+    # lot tourne sur un thread daemon et la seule sortie était jusqu'ici de
+    # quitter l'application (retour user).
+    # ponytail: granularité = une image ; l'arrêt prend effet après l'image
+    # en cours (quelques secondes sur un gros fichier + débruitage). Pour un
+    # arrêt immédiat il faudrait rendre run_pipeline interruptible étape par
+    # étape — inutile tant que le temps par image reste raisonnable.
+    batch_stop = threading.Event()
+
+    def _set_batch_running(running):
+        """Le bouton du lot devient son propre bouton d'arrêt.
+
+        Un seul contrôle, au même endroit, toujours à portée du pouce :
+        rien de nouveau à chercher à l'écran une fois le lot lancé.
+        """
+        if running:
+            batch_button.text = "Arrêter le traitement"
+            batch_button.icon = ft.Icons.STOP
+            batch_button.bgcolor = RED
+            batch_button.on_click = _stop_batch
+        else:
+            batch_button.text = (
+                f"Lancer le traitement complet ({len(file_names)} images)")
+            batch_button.icon = ft.Icons.PLAY_ARROW
+            batch_button.bgcolor = GREEN
+            batch_button.on_click = _open_batch_dialog
+        batch_button.disabled = False
+
+    def _stop_batch(e):
+        """Demande l'arrêt ; le bouton se désactive le temps que l'image en
+        cours se termine, puis batch_worker rend la main."""
+        batch_stop.set()
+        batch_button.disabled = True
+        progress_text.value = "Arrêt en cours…"
+        page.update()
+
     def _update_progress(done, total):
         progress_bar.value = done / total
         progress_text.value = f"{done} / {total}"
@@ -971,7 +1038,10 @@ def main(page: ft.Page):
                   encoding="utf-8") as f:
             json.dump(params_snapshot, f, indent=2, ensure_ascii=False)
         total = len(file_names)
+        done = 0
         for i, name in enumerate(file_names):
+            if batch_stop.is_set():
+                break
             print(f"Image {i + 1} sur {total}")
             try:
                 raw = Image.open(folder_path / name)
@@ -986,15 +1056,32 @@ def main(page: ft.Page):
                        subsampling=0, quality=100,
                        icc_profile=image_ops._SRGB_ICC)
 
-            async def _tick(done=i + 1, total=total):
+            done = i + 1
+
+            async def _tick(done=done, total=total):
                 _update_progress(done, total)
                 progress_bar.update()
                 progress_text.update()
             page.run_task(_tick)
-        print("Terminé !")
-        print(f"NAVIGATE_TO:{output_folder}")
 
-        async def _done():
+        stopped = batch_stop.is_set()
+        if stopped:
+            print(f"Traitement interrompu — {done} image(s) sur {total} "
+                  f"traitées, conservées dans {output_folder}")
+        else:
+            print("Terminé !")
+            print(f"NAVIGATE_TO:{output_folder}")
+
+        async def _done(stopped=stopped, done=done, total=total):
+            # Interruption : on reste dans l'app (les réglages sont encore
+            # là, on peut relancer) ; fin normale : on ferme comme avant.
+            if stopped:
+                progress_text.value = (
+                    f"Interrompu — {done} / {total} traitées, conservées "
+                    f"dans RETOUCHE/.")
+                _set_batch_running(False)
+                page.update()
+                return
             progress_text.value = "Terminé !"
             progress_text.update()
             await asyncio.sleep(1)
@@ -1008,7 +1095,8 @@ def main(page: ft.Page):
         dlg.open = False
         page.update()
         params_snapshot = copy.deepcopy(state["params"])
-        batch_button.disabled = True
+        batch_stop.clear()
+        _set_batch_running(True)
         progress_bar.visible = True
         progress_bar.value = 0
         progress_text.value = f"0 / {len(file_names)}"
@@ -1038,47 +1126,15 @@ def main(page: ft.Page):
     batch_button = ft.FilledButton(
         f"Lancer le traitement complet ({len(file_names)} images)",
         icon=ft.Icons.PLAY_ARROW, bgcolor=GREEN, color=DARK,
+        height=CONSTANTS.TOUCH_TARGET,  # action principale : cible au doigt
         on_click=_open_batch_dialog)
 
-    # ── Enregistrer comme réglages par défaut ──────────────────────────
-    save_defaults_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREEN)
-
-    def _confirm_save_defaults(e):
-        save_defaults_dlg.open = False
-        try:
-            save_params_as_defaults(state["params"])
-            save_defaults_status.value = "Réglages enregistrés par défaut."
-            save_defaults_status.color = GREEN
-        except Exception as exc:
-            save_defaults_status.value = f"Erreur : {exc}"
-            save_defaults_status.color = RED
-        page.update()
-
-    def _cancel_save_defaults(e):
-        save_defaults_dlg.open = False
-        page.update()
-
-    save_defaults_dlg = ft.AlertDialog(
-        title=ft.Text("Enregistrer comme réglages par défaut ?",
-                     size=CONSTANTS.TEXT_SM, color=WHITE),
-        content=ft.Text("Les réglages actuels remplaceront les valeurs par "
-                        "défaut dans CONSTANTS.py, pour ce dossier comme "
-                        "pour les prochains lancements de l'outil.",
-                        size=CONSTANTS.TEXT_SM, color=WHITE),
-        actions=[ft.TextButton("Annuler", on_click=_cancel_save_defaults),
-                ft.TextButton("Enregistrer", on_click=_confirm_save_defaults)],
-    )
-
-    def _open_save_defaults_dialog(e):
-        save_defaults_status.value = ""
-        page.overlay.append(save_defaults_dlg)
-        save_defaults_dlg.open = True
-        page.update()
-
-    save_defaults_button = ft.OutlinedButton(
-        "Enregistrer comme réglages par défaut",
-        icon=ft.Icons.SAVE_OUTLINED, on_click=_open_save_defaults_dialog,
-        style=ft.ButtonStyle(color=BLUE, side=ft.BorderSide(1, BLUE)))
+    # « Enregistrer comme réglages par défaut » et « Charger des réglages… »
+    # ont été retirés : les préréglages nommés couvrent les deux usages sans
+    # réécrire CONSTANTS.py ni passer par un sélecteur de fichiers. Les
+    # valeurs de CONSTANTS.py restent le point de départ (default_params) et
+    # la cible du bouton Réinitialiser ; elles se modifient désormais en
+    # éditant le fichier, comme toutes les autres constantes du projet.
 
     # ── Resynchronisation de l'UI depuis state["params"] ────────────────
     def _sync_controls_from_params():
@@ -1088,11 +1144,7 @@ def main(page: ft.Page):
             switch.value = dct["enabled"]
             switch.update()
         for column, label, dct, key in reset_registry["sliders"]:
-            value = dct[key]
-            column.data.value = value
-            column.controls[0].value = f"{label} : {round(value)}"
-            column.data.update()
-            column.controls[0].update()
+            column.data()  # cf. _slider_row : rafraîchit depuis dct[key]
         for field, dct, key in reset_registry["fields"]:
             field.value = str(dct[key])
             field.update()
@@ -1153,38 +1205,97 @@ def main(page: ft.Page):
         icon=ft.Icons.RESTART_ALT, on_click=_open_reset_dialog,
         style=ft.ButtonStyle(color=RED, side=ft.BorderSide(1, RED)))
 
-    # ── Charger des réglages depuis un fichier retouche_params.json ────
-    # (déposé par chaque batch, cf. batch_worker) — pour reprendre et
-    # ajuster les réglages d'un lot précédent.
-    load_params_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREEN)
+    # ── Préréglages nommés ─────────────────────────────────────────────
+    # Seule voie pour retrouver des réglages : un choix dans une liste, un
+    # tap. Le retouche_params.json déposé par chaque lot a le même format,
+    # donc reprendre les réglages d'un lot précédent = déposer son fichier
+    # dans PRESETS_DIR.
+    preset_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREEN)
 
-    async def _load_params_file(e):
-        files = await ft.FilePicker().pick_files(
-            dialog_title="Charger des réglages retouche",
-            initial_directory=str(folder_path),
-            file_type=ft.FilePickerFileType.CUSTOM,
-            allowed_extensions=["json"], allow_multiple=False)
-        if not files or not files[0].path:
+    def _preset_options():
+        return [ft.dropdown.Option(n) for n in list_presets()]
+
+    def _on_preset_select(e):
+        name = preset_dd.value
+        if not name:
             return
         try:
-            with open(files[0].path, "r", encoding="utf-8") as f:
-                loaded = json.load(f)
-            _update_in_place(state["params"], loaded)
+            _update_in_place(state["params"], load_preset(name))
         except Exception as exc:
-            load_params_status.value = f"Erreur : {exc}"
-            load_params_status.color = RED
-            load_params_status.update()
+            preset_status.value = f"Erreur : {exc}"
+            preset_status.color = RED
+            preset_status.update()
             return
         _sync_controls_from_params()
-        load_params_status.value = f"Réglages chargés depuis {files[0].name}."
-        load_params_status.color = GREEN
-        load_params_status.update()
+        preset_status.value = f"Préréglage « {name} » appliqué."
+        preset_status.color = GREEN
+        preset_status.update()
         live_preview_tick()
 
-    load_params_button = ft.OutlinedButton(
-        "Charger des réglages…",
-        icon=ft.Icons.FOLDER_OPEN_OUTLINED, on_click=_load_params_file,
-        style=ft.ButtonStyle(color=VIOLET, side=ft.BorderSide(1, VIOLET)))
+    preset_dd = ft.Dropdown(
+        label="Préréglage", options=_preset_options(), expand=True,
+        hint_text=("Aucun préréglage enregistré" if not list_presets()
+                  else None),
+        bgcolor=DARK, border_color=VIOLET, color=WHITE,
+        on_select=_on_preset_select)
+
+    preset_name_field = ft.TextField(
+        label="Nom du préréglage", autofocus=True,
+        bgcolor=DARK, border_color=VIOLET, color=WHITE,
+        text_size=CONSTANTS.TEXT_SM)
+
+    def _confirm_save_preset(e):
+        try:
+            saved = save_preset(preset_name_field.value, state["params"])
+        except Exception as exc:
+            preset_status.value = f"Erreur : {exc}"
+            preset_status.color = RED
+            preset_save_dlg.open = False
+            page.update()
+            return
+        preset_save_dlg.open = False
+        preset_dd.options = _preset_options()
+        preset_dd.value = saved
+        preset_status.value = f"Préréglage « {saved} » enregistré."
+        preset_status.color = GREEN
+        page.update()
+
+    def _cancel_save_preset(e):
+        preset_save_dlg.open = False
+        page.update()
+
+    preset_save_dlg = ft.AlertDialog(
+        title=ft.Text("Enregistrer les réglages actuels",
+                     size=CONSTANTS.TEXT_SM, color=WHITE),
+        content=preset_name_field,
+        actions=[ft.TextButton("Annuler", on_click=_cancel_save_preset),
+                ft.TextButton("Enregistrer", on_click=_confirm_save_preset)],
+    )
+
+    def _open_save_preset_dialog(e):
+        # Prérempli avec la sélection courante : réenregistrer un
+        # préréglage après retouche est le cas le plus fréquent, et ça
+        # évite de retaper un nom au clavier.
+        preset_name_field.value = preset_dd.value or ""
+        if preset_save_dlg not in page.overlay:
+            page.overlay.append(preset_save_dlg)
+        preset_save_dlg.open = True
+        page.update()
+
+    # ponytail: nommer un préréglage demande un clavier. Sur une borne
+    # tactile sans clavier, la LECTURE de la liste suffit — c'est
+    # l'opération quotidienne ; la création se fait au poste équipé.
+    preset_row = ft.Row([
+        preset_dd,
+        ft.IconButton(ft.Icons.SAVE_OUTLINED, icon_color=VIOLET,
+                     icon_size=CONSTANTS.ICON_SM,
+                     tooltip="Enregistrer les réglages actuels comme "
+                             "préréglage",
+                     width=CONSTANTS.TOUCH_TARGET,
+                     height=CONSTANTS.TOUCH_TARGET,
+                     on_click=_open_save_preset_dialog),
+    ], spacing=CONSTANTS.SPACE_MD,
+       vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     # ── Mise en page ────────────────────────────────────────────────
     # Zone délimitée (fond sombre + bordure), comme le panneau gauche
@@ -1202,8 +1313,9 @@ def main(page: ft.Page):
                      section_bloom, section_grain1, section_grain2,
                      section_copyright,
                      ft.Divider(color=GREY),
-                     save_defaults_button, reset_button, save_defaults_status,
-                     load_params_button, load_params_status],
+                     preset_row, preset_status,
+                     ft.Divider(color=GREY),
+                     reset_button],
                     spacing=CONSTANTS.SPACE_SM, scroll=ft.ScrollMode.AUTO,
                     expand=True),
                 ft.Divider(color=GREY),

@@ -24,9 +24,10 @@ Wand>=0.6.11
 
 numpy>=1.24.0
 
-# scikit-image — flood fill (détourage fond uni instantané, sans modèle IA,
-# alternative rapide à rembg/BiRefNet pour les fonds studio quasi uniformes).
-scikit-image>=0.22.0
+# scikit-image : retiré. Le détourage instantané (flood fill, sans modèle IA)
+# est passé à cv2.floodFill en plage flottante, qui suit les dégradés de fond
+# — ce dont skimage.segmentation.flood est incapable par construction, cf.
+# Data/image_ops.py:flood_background_mask. OpenCV était déjà une dépendance.
 
 
 # ──────────────────────────────────────────────────────────────────────────────

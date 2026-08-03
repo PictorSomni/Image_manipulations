@@ -826,17 +826,44 @@ def flood_background_mask(image: Image.Image, seed_xy: tuple[int, int] | None,
     avant de composer l'alpha final via `compose_bg_alpha`.
 
     `seed_xy` (coordonnées pixel de `image`, ex. clic pipette) : flood
-    depuis ce seul point. `None` : flood depuis les coins/bords — utile
-    sans clic utilisateur, mais suppose un fond qui touche les 4 bords.
+    depuis ce seul point. `None` : passe automatique depuis le haut et les
+    côtés, sans clic — taillée pour le portrait sur fond clair (cf. le
+    choix des graines plus bas).
 
-    Comparaison en distance COULEUR (RGB), pas en luminosité seule : sous
-    un éclairage uniforme, peau/cheveux tombent souvent à une luminosité
-    proche de celle d'un fond clair (gris/blanc) et se faisaient absorber
-    par erreur ; leur teinte (chaude) reste elle nettement différente
-    d'un fond neutre, même à luminosité égale (retour user).
+    `tolerance` est une distance COULEUR euclidienne (RGB, 0-441) à la
+    couleur du point cliqué : on retient les pixels dans cette bande, puis
+    la seule composante CONNEXE qui contient la graine.
+
+    Distance couleur et non luminosité seule : sous un éclairage uniforme,
+    peau et cheveux tombent souvent à une luminosité proche d'un fond clair
+    et se faisaient absorber par erreur, alors que leur teinte chaude reste
+    nettement distincte d'un fond neutre (retour user).
+
+    Pourquoi PAS un flood fill en plage flottante (cv2.floodFill sans
+    FLOODFILL_FIXED_RANGE), qui compare chaque pixel à son VOISIN et sait
+    donc suivre un fond en dégradé — ce dont la bande ci-dessus est
+    incapable : mesuré sur les images réelles de l'atelier (tirages
+    argentiques scannés), la plage flottante est inutilisable. Un tirage
+    scanné n'a aucune arête franche à l'échelle du pixel (optique douce,
+    grain, flou de numérisation), donc les écarts entre voisins sont
+    partout minuscules et l'image entière forme une seule zone lisse :
+    0 % de l'image à la tolérance 2, 80 % à 4, 98 % à 6. Le réglage passe
+    de « rien » à « tout » en une dizaine de pixels de glissé, et déborde
+    largement au-delà de la zone visée. La bande de couleur, elle, progresse
+    régulièrement sur la même image (2 % à 20, 10 % à 40, 18 % à 60, 31 % à
+    100) : c'est ce qui la rend dosable à la main.
+
+    Le compromis est donc assumé dans ce sens précis : on renonce à
+    traverser un dégradé de fond — pour lequel il faut monter la tolérance,
+    voire préférer les modes rembg/BiRefNet — pour garder un réglage
+    progressif sur des images texturées et bruitées, qui sont le cas réel.
+
+    cv2 plutôt que scikit-image (`skimage.segmentation.flood`, utilisé
+    auparavant) : OpenCV est déjà une dépendance de ce module, ce qui
+    supprime une dépendance lourde à installer sur chaque poste, pour un
+    résultat identique — la bande + composante connexe ci-dessous est
+    exactement la définition de `flood(..., tolerance=...)`.
     """
-    from skimage.segmentation import flood
-
     rgb = image.convert("RGB")
     w, h = rgb.size
     scale = min(1.0, max_px / max(w, h))
@@ -846,20 +873,30 @@ def flood_background_mask(image: Image.Image, seed_xy: tuple[int, int] | None,
 
     if seed_xy is not None:
         sx, sy = seed_xy
-        seeds = {(min(sh - 1, max(0, round(sy * scale))),
-                  min(sw - 1, max(0, round(sx * scale))))}
+        seeds = [(min(sh - 1, max(0, round(sy * scale))),
+                  min(sw - 1, max(0, round(sx * scale))))]
     else:
-        seeds = {(0, 0), (0, sw - 1), (sh - 1, 0), (sh - 1, sw - 1),
-                 (0, sw // 2), (sh - 1, sw // 2), (sh // 2, 0), (sh // 2, sw - 1)}
+        # Bord INFÉRIEUR volontairement exclu. Sur un portrait — le cas
+        # visé par la passe automatique, photo d'identité sur fond clair —
+        # le buste est coupé par le bas du cadre : ce bord est du sujet,
+        # pas du fond. Mesuré sur un portrait de synthèse, la seule graine
+        # bas-centre suffisait à emporter 70,8 % du sujet (le vêtement
+        # entier) ; sans elle, 99,8 % du fond et 0 % du sujet.
+        # Restent le haut, les coins hauts et les côtés jusqu'à mi-hauteur,
+        # où le fond d'un portrait est toujours visible.
+        seeds = [(0, 0), (0, sw - 1), (0, sw // 2),
+                 (sh // 4, 0), (sh // 4, sw - 1),
+                 (sh // 2, 0), (sh // 2, sw - 1)]
 
-    # flood() ne compare que des scalaires : on lui donne, pour chaque
-    # graine, la distance euclidienne RGB à la COULEUR de cette graine
-    # (0 en son propre point) — la tolérance devient alors directement
-    # "distance couleur max au point cliqué", sur les 3 canaux à la fois.
     bg_small = np.zeros((sh, sw), dtype=bool)
     for seed in seeds:
         dist = np.sqrt(((arr - arr[seed]) ** 2).sum(axis=2))
-        bg_small |= flood(dist, seed, tolerance=tolerance)
+        # La composante connexe évite de retenir, ailleurs dans l'image,
+        # des pixels de couleur voisine mais sans lien avec la zone visée.
+        _, labels = cv2.connectedComponents(
+            (dist <= tolerance).astype(np.uint8), connectivity=8)
+        if labels[seed]:
+            bg_small |= (labels == labels[seed])
 
     if scale >= 1.0:
         return bg_small
@@ -913,6 +950,13 @@ class FloodPipette:
       - rafraîchir l'affichage.
     """
 
+    # Échelle : distance couleur euclidienne à la graine (0-441), cf.
+    # `flood_background_mask`. Sur les tirages scannés de l'atelier, la
+    # zone retenue croît régulièrement dans cette plage (2 % de l'image à
+    # 20, 10 % à 40, 18 % à 60, 31 % à 100) — d'où un plafond à 150, au
+    #-delà duquel on ratisse trop large pour rester utile.
+    # `sensitivity` : 0.5 par pixel glissé, soit ~220 px pour aller du
+    # défaut au plafond.
     def __init__(self, tolerance: int = 40, *, min_tolerance: int = 5,
                  max_tolerance: int = 150, sensitivity: float = 0.5):
         self.tolerance = tolerance
@@ -1594,3 +1638,26 @@ def add_copyright(image, label):
     draw.text((text_x, text_y), label, font=myFont, fill=(0, 0, 0, 255))
 
     return image
+
+
+def preview_max_px(widget_px, floor_px, ceiling_px,
+                   supersampling=None):
+    """Résolution de rendu d'un aperçu, en px (côté le plus long).
+
+    Flet dimensionne les contrôles en pixels LOGIQUES ; l'affichage les rend
+    en pixels physiques, 2 à 3 fois plus nombreux sur un écran HDPI/Retina.
+    Un aperçu rendu par PIL à une taille fixe y est donc étiré, et netteté,
+    grain et bruit se jugent alors sur une image ré-échantillonnée.
+
+    On rend à `widget_px * supersampling`, borné par `floor_px` (jamais plus
+    grossier qu'avant ce calcul) et `ceiling_px` (au-delà, l'aperçu live
+    devient plus lent que le geste qu'il accompagne).
+
+    Partagé par `Recadrage manuel.pyw` et `Retouche par lot.pyw`, qui
+    passent leurs propres bornes — le grain pellicule du second demande un
+    proxy plus généreux que le cadrage du premier.
+    """
+    if supersampling is None:
+        supersampling = CONSTANTS.PREVIEW_SUPERSAMPLING
+    wanted = max(0, widget_px or 0) * supersampling
+    return int(max(floor_px, min(wanted, ceiling_px)))
