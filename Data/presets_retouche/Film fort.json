@@ -15,8 +15,8 @@
     "white_balance": 0,
     "shadows": 10,
     "highlights": -10,
-    "whites": 0,
-    "blacks": 0
+    "whites": -5,
+    "blacks": 10
   },
   "virage": {
     "enabled": false,
@@ -57,7 +57,7 @@
       "enabled": true,
       "threshold": 0.72,
       "radius": 5,
-      "intensity": 0.64,
+      "intensity": 1.0,
       "red_shift": 0.42
     },
     "bloom": {
@@ -67,7 +67,7 @@
     },
     "grain1": {
       "enabled": true,
-      "amount": 0.025,
+      "amount": 0.021,
       "size": 0.06,
       "color_ratio": 0.15,
       "shadow_boost": 1.5,
