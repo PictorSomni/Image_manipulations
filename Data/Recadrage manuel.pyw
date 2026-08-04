@@ -4569,6 +4569,7 @@ def main(page: ft.Page):
         Page Flet fournie par le runtime.
     """
 
+    CONSTANTS.attach_error_copy_snackbar(page)
     page.title = "Recadrage Photo"
     page.theme_mode = ft.ThemeMode.DARK
     page.window.maximized = True

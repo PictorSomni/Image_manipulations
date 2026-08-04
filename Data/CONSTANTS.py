@@ -1077,3 +1077,29 @@ def is_icloud_placeholder(path, stat_result=None):
         return st.st_size > 0 and st.st_blocks == 0
     except OSError:
         return False
+
+
+# ==============================================================================
+# 14. FLET — bandeau "Copier l'erreur" (Retouche par lot.pyw, Comparaison.pyw,
+#     kiosk_flet.pyw, Recadrage manuel.pyw, Hub.pyw)
+# ==============================================================================
+def attach_error_copy_snackbar(page):
+    """Sur une exception non interceptée (page.on_error), affiche le
+    message dans un SnackBar avec un bouton Copier — pour le remonter sans
+    avoir à le retaper à la main."""
+    import flet as ft
+
+    def _on_error(e):
+        message = str(getattr(e, "data", None) or e)
+
+        async def _copy(_):
+            await page.clipboard.set(message)
+
+        page.show_dialog(ft.SnackBar(
+            ft.Text(message, color="#000000", selectable=True),
+            bgcolor=COLOR_RED, duration=6000, show_close_icon=True,
+            action=ft.SnackBarAction(label="Copier", text_color="#000000",
+                                     on_click=_copy),
+        ))
+
+    page.on_error = _on_error

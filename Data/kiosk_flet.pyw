@@ -51,6 +51,7 @@ THUMBNAIL_SIZE = KIOSK_CONSTANT.THUMBNAIL_SIZE
 #  Point d'entrée Flet
 # ─────────────────────────────────────────────────────────────────────────────
 def main(page: ft.Page) -> None:
+    KIOSK_CONSTANT.attach_error_copy_snackbar(page)
 
     # ── Couleurs (issues de Kiosk/CONSTANT.py) ─────────────────────────────
     C_DARK       = KIOSK_CONSTANT.COLOR_DARK

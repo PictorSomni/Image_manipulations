@@ -161,6 +161,7 @@ def _get_image_size(file_path: Path) -> str:
 #  MAIN
 # ─────────────────────────────────────────────────────────────────────────────
 def main(page: ft.Page):
+    CONSTANTS.attach_error_copy_snackbar(page)
 
     # ── Fenêtre ──────────────────────────────────────────────────────────
     page.title       = "Comparaison d'images"

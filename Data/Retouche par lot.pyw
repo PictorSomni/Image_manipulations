@@ -397,6 +397,7 @@ def render_histogram(pil_image, width, height=_HISTOGRAM_HEIGHT):
 #                           MAIN                             #
 #############################################################
 def main(page: ft.Page):
+    CONSTANTS.attach_error_copy_snackbar(page)
     page.title = "Retouche par lot"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG
@@ -1129,12 +1130,8 @@ def main(page: ft.Page):
         height=CONSTANTS.TOUCH_TARGET,  # action principale : cible au doigt
         on_click=_open_batch_dialog)
 
-    # « Enregistrer comme réglages par défaut » et « Charger des réglages… »
-    # ont été retirés : les préréglages nommés couvrent les deux usages sans
-    # réécrire CONSTANTS.py ni passer par un sélecteur de fichiers. Les
-    # valeurs de CONSTANTS.py restent le point de départ (default_params) et
-    # la cible du bouton Réinitialiser ; elles se modifient désormais en
-    # éditant le fichier, comme toutes les autres constantes du projet.
+    # « Enregistrer comme réglages par défaut » a été retiré : les
+    # préréglages nommés couvrent cet usage sans réécrire CONSTANTS.py.
 
     # ── Resynchronisation de l'UI depuis state["params"] ────────────────
     def _sync_controls_from_params():
@@ -1174,36 +1171,38 @@ def main(page: ft.Page):
 
         page.update()
 
-    # ── Réinitialiser les réglages par défaut ──────────────────────────
-    def _confirm_reset(e):
-        reset_dlg.open = False
-        _update_in_place(state["params"], default_params())
+    # ── Charger des réglages depuis un fichier retouche_params.json ────
+    # (déposé par chaque lot, cf. batch_worker) — pour reprendre et
+    # ajuster les réglages d'un lot précédent.
+    load_params_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREEN)
+
+    async def _open_load_params_picker(e):
+        files = await ft.FilePicker().pick_files(
+            dialog_title="Charger des réglages retouche",
+            initial_directory=str(folder_path),
+            file_type=ft.FilePickerFileType.CUSTOM,
+            allowed_extensions=["json"], allow_multiple=False)
+        if not files or not files[0].path:
+            return
+        try:
+            with open(files[0].path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            _update_in_place(state["params"], loaded)
+        except Exception as exc:
+            load_params_status.value = f"Erreur : {exc}"
+            load_params_status.color = RED
+            load_params_status.update()
+            return
         _sync_controls_from_params()
+        load_params_status.value = f"Réglages chargés depuis {files[0].name}."
+        load_params_status.color = GREEN
+        load_params_status.update()
         live_preview_tick()
 
-    def _cancel_reset(e):
-        reset_dlg.open = False
-        page.update()
-
-    reset_dlg = ft.AlertDialog(
-        title=ft.Text("Réinitialiser les réglages par défaut ?",
-                     size=CONSTANTS.TEXT_SM, color=WHITE),
-        content=ft.Text("Tous les réglages actuels seront remplacés par "
-                        "les valeurs par défaut de CONSTANTS.py.",
-                        size=CONSTANTS.TEXT_SM, color=WHITE),
-        actions=[ft.TextButton("Annuler", on_click=_cancel_reset),
-                ft.TextButton("Réinitialiser", on_click=_confirm_reset)],
-    )
-
-    def _open_reset_dialog(e):
-        page.overlay.append(reset_dlg)
-        reset_dlg.open = True
-        page.update()
-
-    reset_button = ft.OutlinedButton(
-        "Réinitialiser les réglages par défaut",
-        icon=ft.Icons.RESTART_ALT, on_click=_open_reset_dialog,
-        style=ft.ButtonStyle(color=RED, side=ft.BorderSide(1, RED)))
+    load_params_button = ft.OutlinedButton(
+        "Charger des réglages…",
+        icon=ft.Icons.FOLDER_OPEN_OUTLINED, on_click=_open_load_params_picker,
+        style=ft.ButtonStyle(color=VIOLET, side=ft.BorderSide(1, VIOLET)))
 
     # ── Préréglages nommés ─────────────────────────────────────────────
     # Seule voie pour retrouver des réglages : un choix dans une liste, un
@@ -1315,7 +1314,7 @@ def main(page: ft.Page):
                      ft.Divider(color=GREY),
                      preset_row, preset_status,
                      ft.Divider(color=GREY),
-                     reset_button],
+                     load_params_button, load_params_status],
                     spacing=CONSTANTS.SPACE_SM, scroll=ft.ScrollMode.AUTO,
                     expand=True),
                 ft.Divider(color=GREY),

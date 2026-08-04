@@ -272,6 +272,7 @@ def _lower_thread_priority():
 
 
 def main(page: ft.Page):
+    CONSTANTS.attach_error_copy_snackbar(page)
     # ─── Couleurs (rôles sémantiques, cf. CONSTANTS §3bis) ───────────────
     DARK       = CONSTANTS.COLOR_DARK
     BACKGROUND = CONSTANTS.COLOR_BACKGROUND
