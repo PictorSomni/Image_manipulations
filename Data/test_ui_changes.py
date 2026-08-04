@@ -49,6 +49,52 @@ def _load_retouche():
     return module
 
 
+def _load_hub():
+    """Importe Hub.pyw (racine du dépôt) pour tester sa persistance JSON."""
+    try:
+        importlib.import_module("flet")
+    except ImportError:
+        sys.modules["flet"] = MagicMock()
+
+    path = Path(__file__).resolve().parent.parent / "Hub.pyw"
+    spec = importlib.util.spec_from_loader(
+        "hub", importlib.machinery.SourceFileLoader("hub", str(path)))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_save_json_is_atomic(mod):
+    """Un .order.json tronqué = la commande client perdue : l'écriture doit
+    remplacer le fichier d'un bloc, jamais le vider avant d'écrire."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        target = os.path.join(tmpdir, "order.json")
+        assert mod._save_json(target, {"a": {"10x15": 2}}) is True
+        assert mod._load_json(target, None) == {"a": {"10x15": 2}}
+
+        # Le temporaire ne survit pas à une écriture réussie.
+        assert os.listdir(tmpdir) == ["order.json"]
+
+        # Échec d'écriture : l'ancien contenu est INTACT (c'est tout
+        # l'intérêt du passage par .tmp + os.replace), l'erreur est
+        # signalée, et le temporaire est nettoyé.
+        reported = []
+        mod._save_error_hook["fn"] = reported.append
+        try:
+            # Un objet non sérialisable fait échouer json.dump en plein
+            # milieu, après que le .tmp a déjà été ouvert en écriture.
+            assert mod._save_json(target, {"a": object()}) is False
+        finally:
+            mod._save_error_hook["fn"] = None
+        assert mod._load_json(target, None) == {"a": {"10x15": 2}}
+        assert os.listdir(tmpdir) == ["order.json"]
+        assert reported and "order.json" in reported[0]
+
+        # Fichier absent ou illisible : valeur par défaut, pas d'exception.
+        assert mod._load_json(os.path.join(tmpdir, "nope.json"), {}) == {}
+    print("  _save_json (atomique + report d'erreur) : OK")
+
+
 def test_preview_max_px():
     floor = CONSTANTS.PREVIEW_MAX_PIXELS
     ceiling = CONSTANTS.PREVIEW_MAX_PIXELS_CEILING
@@ -272,4 +318,5 @@ if __name__ == "__main__":
     test_preset_names(retouche)
     test_preset_roundtrip(retouche)
     test_params_roundtrip_shape(retouche)
+    test_save_json_is_atomic(_load_hub())
     print("Tout est passé.")

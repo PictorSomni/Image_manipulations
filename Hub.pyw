@@ -86,6 +86,14 @@ _RECENT_FILE = os.path.join(_APP_DIR, ".recent_folders.json")
 _FAVORITES_FILE = os.path.join(_APP_DIR, ".favorites.json")
 
 
+# Persistance JSON partagée avec ai_tools.py (historique de conversation) :
+# lecture tolérante, écriture atomique, échec rapporté au terminal intégré
+# via le hook branché dans main(). Cf. CONSTANTS §13bis.
+_load_json = CONSTANTS.load_json
+_save_json = CONSTANTS.save_json
+_save_error_hook = CONSTANTS.save_error_hook
+
+
 def _load_recent():
     # Pas de filtrage os.path.isdir() ici : cette fonction est appelée
     # depuis _add_recent() à CHAQUE navigation (donc sur le thread
@@ -95,20 +103,11 @@ def _load_recent():
     # partage réseau/NAS temporairement injoignable (retour user). Le
     # nettoyage des entrées mortes se fait en arrière-plan côté menu
     # (_build_open_menu), pas ici.
-    try:
-        with open(_RECENT_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return [p for p in data if isinstance(p, str)]
-    except Exception:
-        return []
+    return [p for p in _load_json(_RECENT_FILE, []) if isinstance(p, str)]
 
 
 def _save_recent(folders):
-    try:
-        with open(_RECENT_FILE, "w", encoding="utf-8") as f:
-            json.dump(folders[:10], f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    return _save_json(_RECENT_FILE, folders[:10])
 
 
 def _add_recent(path):
@@ -121,26 +120,18 @@ def _add_recent(path):
 
 
 def _load_favorites():
-    try:
-        with open(_FAVORITES_FILE, "r", encoding="utf-8") as f:
-            raw = json.load(f)
-        result = []
-        for item in raw:
-            if isinstance(item, str):
-                result.append({"path": item, "label": ""})
-            elif isinstance(item, dict) and "path" in item:
-                result.append({"path": item["path"], "label": item.get("label", "")})
-        return result
-    except Exception:
-        return []
+    result = []
+    for item in _load_json(_FAVORITES_FILE, []):
+        if isinstance(item, str):
+            result.append({"path": item, "label": ""})
+        elif isinstance(item, dict) and "path" in item:
+            result.append({"path": item["path"],
+                           "label": item.get("label", "")})
+    return result
 
 
 def _save_favorites(favorites):
-    try:
-        with open(_FAVORITES_FILE, "w", encoding="utf-8") as f:
-            json.dump(favorites, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    return _save_json(_FAVORITES_FILE, favorites)
 
 
 # Même fichier que Dashboard.pyw:280 (open_with_config_file_path) : la
@@ -149,20 +140,12 @@ _OPEN_WITH_FILE = os.path.join(_APP_DIR, "open_with.json")
 
 
 def _load_open_with_programs():
-    try:
-        with open(_OPEN_WITH_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return [p for p in data if isinstance(p, dict) and "label" in p and "exe" in p]
-    except Exception:
-        return []
+    return [p for p in _load_json(_OPEN_WITH_FILE, [])
+            if isinstance(p, dict) and "label" in p and "exe" in p]
 
 
 def _save_open_with_programs(programs):
-    try:
-        with open(_OPEN_WITH_FILE, "w", encoding="utf-8") as f:
-            json.dump(programs, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    return _save_json(_OPEN_WITH_FILE, programs)
 
 
 _ORDER_FILE = os.path.join(_APP_DIR, ".order.json")
@@ -172,20 +155,15 @@ def _load_order():
     # photo (chemin absolu) -> {format: nombre} — plusieurs formats possibles
     # par photo (un client veut parfois la même image en plusieurs tailles).
     try:
-        with open(_ORDER_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
         return {p: {fmt: int(n) for fmt, n in v.items() if int(n) > 0}
-                for p, v in data.items() if isinstance(v, dict)}
+                for p, v in _load_json(_ORDER_FILE, {}).items()
+                if isinstance(v, dict)}
     except Exception:
         return {}
 
 
 def _save_order(order):
-    try:
-        with open(_ORDER_FILE, "w", encoding="utf-8") as f:
-            json.dump(order, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    return _save_json(_ORDER_FILE, order)
 
 
 # Même fichier que Dashboard.pyw:310 (recadrage_auto_config_path) : le
@@ -194,19 +172,11 @@ _CROP_AUTO_FILE = os.path.join(_APP_DIR, ".recadrage_auto_config.json")
 
 
 def _load_crop_auto_config():
-    try:
-        with open(_CROP_AUTO_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
+    return _load_json(_CROP_AUTO_FILE, {})
 
 
 def _save_crop_auto_config(config):
-    try:
-        with open(_CROP_AUTO_FILE, "w", encoding="utf-8") as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    return _save_json(_CROP_AUTO_FILE, config)
 
 
 _ORDER_BW_FILE = os.path.join(_APP_DIR, ".order_bw.json")
@@ -217,19 +187,14 @@ def _load_order_bw():
     # Fichier séparé de .order.json : {format: nombre} n'a pas de place
     # naturelle pour un booléen sans fausser _order_lines/_order_totals.
     try:
-        with open(_ORDER_BW_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return {p: bool(v) for p, v in data.items() if v}
+        return {p: bool(v)
+                for p, v in _load_json(_ORDER_BW_FILE, {}).items() if v}
     except Exception:
         return {}
 
 
 def _save_order_bw(order_bw):
-    try:
-        with open(_ORDER_BW_FILE, "w", encoding="utf-8") as f:
-            json.dump(order_bw, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    return _save_json(_ORDER_BW_FILE, order_bw)
 
 
 def _lower_thread_priority():
@@ -513,6 +478,15 @@ def main(page: ft.Page):
             card.border = (ft.Border.all(2, BLUE) if on
                           else ft.Border.all(1, GREY))
             card.update()
+        # La case cochée dans la visionneuse plein écran est un Checkbox
+        # distinct de celui de la vignette (viewer_checkbox vs
+        # sel_checkbox_refs) : sans cette synchro, la sélection faite en
+        # plein écran ne se voyait pas au retour en mode vignettes (retour
+        # user).
+        cb = sel_checkbox_refs.get(path)
+        if cb is not None and cb.value != on:
+            cb.value = on
+            cb.update()
 
     def _clear_selection_visuals():
         # Utilisé à la fermeture du panneau Actions : décoche/décolore
@@ -1885,9 +1859,9 @@ def main(page: ft.Page):
         # vignette) — pas de clic droit, pas de menu déroulant caché.
         order_mode["value"] = not order_mode["value"]
         order_mode_btn.style = ft.ButtonStyle(
-            bgcolor=BLUE if order_mode["value"] else GREY)
+            bgcolor=ORANGE if order_mode["value"] else GREY)
         order_mode_icon.color = (
-            DARK if order_mode["value"] else BLUE)
+            DARK if order_mode["value"] else ORANGE)
         # "Créer le dossier de commande" n'a de sens qu'en mode commande —
         # masqué le reste du temps (retour user).
         create_order_btn.visible = order_mode["value"]
@@ -2050,6 +2024,19 @@ def main(page: ft.Page):
                 ctrl.size = size + offset
         if state["surface"] == "ia":
             ai_chat_view.update()
+
+    def _bar_icon_btn(icon, color, on_click, tooltip, **kwargs):
+        # Bouton icône de la barre Fichiers : pastille grise, icône
+        # colorée, hauteur commune. Ce style était recopié à l'identique
+        # sur 5 boutons (parent, rafraîchir, nouveau dossier, nouveau
+        # fichier, dossier de commande) — d'où un create_order_btn resté
+        # sans pastille au milieu de ses voisins. Un seul endroit à
+        # toucher au prochain ajustement.
+        return ft.IconButton(
+            icon=icon, icon_color=color, icon_size=CONSTANTS.ICON_SM,
+            style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
+            height=CONSTANTS.HUB_TOOLBAR_H, on_click=on_click,
+            tooltip=tooltip, **kwargs)
 
     def _seg_btn(icon, text, on_click, color=None):
         # Icône seule, libellé en infobulle : cette barre débordait dès que
@@ -3127,13 +3114,9 @@ def main(page: ft.Page):
         if parent and parent != folder:
             _navigate(parent)
 
-    parent_folder_btn = ft.IconButton(
-        icon=ft.Icons.ARROW_UPWARD,
-        icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_SM,
-        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
-        height=CONSTANTS.HUB_TOOLBAR_H, on_click=_go_to_parent_folder,
-        tooltip="Dossier parent",
-    )
+    parent_folder_btn = _bar_icon_btn(
+        ft.Icons.ARROW_UPWARD, ICON_ACTION, _go_to_parent_folder,
+        "Dossier parent")
 
     def _refresh_folder(event=None):
         folder = state["folder"]
@@ -3189,13 +3172,8 @@ def main(page: ft.Page):
         # chemin brut en src, toujours des bytes — à faire si ça se reproduit.
         _navigate(folder)
 
-    refresh_folder_btn = ft.IconButton(
-        icon=ft.Icons.REFRESH,
-        icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_SM,
-        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
-        height=CONSTANTS.HUB_TOOLBAR_H, on_click=_refresh_folder,
-        tooltip="Rafraîchir",
-    )
+    refresh_folder_btn = _bar_icon_btn(
+        ft.Icons.REFRESH, ICON_ACTION, _refresh_folder, "Rafraîchir")
 
     def _create_folder_here(event=None):
         # Même principe que Dashboard.pyw:6218-6277 (create_new_folder) :
@@ -3335,6 +3313,9 @@ def main(page: ft.Page):
         lambda e: _launch_transfert_temp(e),
         "Transfert vers TEMP (dossier Download)")
 
+    # ROUGE volontaire (exception à « une couleur = un rôle ») : c'est
+    # l'outil le plus lancé de la journée, le repérer d'un coup d'œil dans
+    # la barre prime sur la cohérence de la palette (retour user).
     recadrage_manuel_btn = _toolbar_icon_btn(
         ft.Icons.CROP_FREE, RED,
         lambda e: _launch_tool(
@@ -3365,22 +3346,14 @@ def main(page: ft.Page):
     # user) — cf. Data/skills.md:21 (SELECTED_FILES absent = tout le
     # dossier) et le garde-fou déjà dans _launch_tool (folder requis).
 
-    new_folder_btn = ft.IconButton(
-        icon=ft.Icons.CREATE_NEW_FOLDER_OUTLINED,
-        icon_color=YELLOW, icon_size=CONSTANTS.ICON_SM,
-        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
-        height=CONSTANTS.HUB_TOOLBAR_H, on_click=_create_folder_here,
-        tooltip="Créer un nouveau dossier",
-    )
+    new_folder_btn = _bar_icon_btn(
+        ft.Icons.CREATE_NEW_FOLDER_OUTLINED, YELLOW, _create_folder_here,
+        "Créer un nouveau dossier")
 
-    create_file_btn = ft.IconButton(
-        icon=ft.Icons.NOTE_ADD_OUTLINED,
-        icon_color=ICON_ACTION, icon_size=CONSTANTS.ICON_SM,
-        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
-        height=CONSTANTS.HUB_TOOLBAR_H, on_click=_create_file_here,
-        tooltip="Créer un fichier dans le dossier ouvert",
-        disabled=not state["folder"],
-    )
+    create_file_btn = _bar_icon_btn(
+        ft.Icons.NOTE_ADD_OUTLINED, ICON_ACTION, _create_file_here,
+        "Créer un fichier dans le dossier ouvert",
+        disabled=not state["folder"])
 
     open_menu_btn = ft.TextButton(
         content=ft.Row([
@@ -3400,37 +3373,37 @@ def main(page: ft.Page):
     # Accès direct à _set_print_count (déjà présent dans le panneau Actions)
     # depuis la barre Fichiers, à gauche de Mode commande (retour user).
     # Icônes seules sur toute cette barre, libellé en infobulle — cf. _seg_btn.
-    print_count_btn = ft.TextButton(
-        content=ft.Icon(ft.Icons.NUMBERS, size=CONSTANTS.ICON_SM, color=ORANGE),
-        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(12, 0, 12, 0)),
-        height=CONSTANTS.HUB_TOOLBAR_H,
-        on_click=lambda e: _run_action(_set_print_count, list(selected))
-                           if len(selected) == 1 else None,
-        tooltip="Changer le nombre de tirages (préfixe NX_) de la photo sélectionnée",
-    )
+    # Ces trois-là étaient recopiés à la main sous la forme
+    # TextButton(content=Icon(...)) — soit exactement ce que _seg_btn
+    # produit déjà. Le garde-fou `if len(selected) == 1` reste : contrairement
+    # aux boutons d'édition, ce bouton n'a pas d'état `disabled`.
+    print_count_btn = _seg_btn(
+        ft.Icons.NUMBERS,
+        "Changer le nombre de tirages (préfixe NX_) de la photo sélectionnée",
+        lambda e: _run_action(_set_print_count, list(selected))
+                  if len(selected) == 1 else None,
+        color=ORANGE)
 
     # Recalcule commande.txt (dossier ouvert) après avoir changé le nombre
     # d'impressions de plusieurs photos, sans rouvrir Recadrage manuel.pyw
     # (retour user).
-    update_order_btn = ft.TextButton(
-        content=ft.Icon(ft.Icons.SYNC, size=CONSTANTS.ICON_SM, color=ORANGE),
-        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(12, 0, 12, 0)),
-        height=CONSTANTS.HUB_TOOLBAR_H,
-        on_click=lambda e: _run_action(_update_commande_file),
-        tooltip="Recalcule commande.txt à partir des préfixes NX_ du dossier ouvert",
-    )
+    update_order_btn = _seg_btn(
+        ft.Icons.SYNC,
+        "Recalcule commande.txt à partir des préfixes NX_ du dossier ouvert",
+        lambda e: _run_action(_update_commande_file), color=ORANGE)
 
     # Icon() n'hérite pas de ButtonStyle.color (contrairement à Text()) —
     # couleur posée explicitement sur l'Icon, sinon elle reste au bleu par
     # défaut de Flet au lieu de CONSTANTS.COLOR_BLUE.
-    order_mode_icon = ft.Icon(ft.Icons.RECEIPT_LONG_OUTLINED,
-                              size=CONSTANTS.ICON_SM, color=BLUE)
-    order_mode_btn = ft.TextButton(
-        content=order_mode_icon,
-        style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding(12, 0, 12, 0)),
-        height=CONSTANTS.HUB_TOOLBAR_H, on_click=_toggle_order_mode,
-        tooltip="Format + nombre directement sur chaque photo",
-    )
+    # ORANGE comme le reste du cluster commande (nb de tirages, resync,
+    # dossier de commande) : les quatre boutons servent une seule tâche.
+    order_mode_btn = _seg_btn(
+        ft.Icons.RECEIPT_LONG_OUTLINED,
+        "Format + nombre directement sur chaque photo",
+        _toggle_order_mode, color=ORANGE)
+    # Ref sur l'Icon interne, comme only_sel_btn : _toggle_order_mode
+    # recolore l'icône et le fond séparément selon l'état actif.
+    order_mode_icon = order_mode_btn.content
 
     only_sel_btn = _seg_btn(ft.Icons.VISIBILITY_OUTLINED, "Afficher la sélection",
                             _toggle_only_selected)
@@ -3452,11 +3425,12 @@ def main(page: ft.Page):
 
     # _create_order_folder est défini plus loin (avec le reste de la logique
     # de commande) : lambda pour différer la résolution du nom jusqu'au clic.
-    create_order_btn = ft.IconButton(
-        ft.Icons.FOLDER_ZIP_OUTLINED, icon_color=BLUE, icon_size=CONSTANTS.ICON_SM,
-        height=CONSTANTS.HUB_TOOLBAR_H, tooltip="Créer le dossier de commande",
-        on_click=lambda e: page.run_task(_create_order_folder, e),
-        visible=order_mode["value"])
+    # Passe par _bar_icon_btn : c'est le seul de son cluster qui n'avait
+    # pas la pastille grise de ses voisins (style oublié à la main).
+    create_order_btn = _bar_icon_btn(
+        ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE,
+        lambda e: page.run_task(_create_order_folder, e),
+        "Créer le dossier de commande", visible=order_mode["value"])
 
     # _open_actions est défini plus loin dans main() (avec le dialogue
     # Actions) : lambda pour différer la résolution du nom jusqu'au clic.
@@ -3476,16 +3450,30 @@ def main(page: ft.Page):
     # Icône seule + grisées (disabled) tant qu'aucune sélection valide —
     # retour user : toujours un feedback visuel maximal sur ce qui est
     # utilisable.
-    def _edit_icon_btn(icon, color, on_click, tooltip):
+    # (bouton, sa couleur active) — `disabled=True` seul ne suffit pas à
+    # griser visiblement une icône dont `icon_color` est fixé explicitement
+    # (retour user : pas assez visible) ; on repasse aussi l'icône en
+    # LIGHT_GREY à la main, comme only_sel_btn le fait déjà pour son état.
+    # Rempli par _edit_icon_btn : une seule source de vérité pour la couleur
+    # (avant, la couleur du call-site était ignorée et divergeait de celle
+    # utilisée au dégrisage).
+    _sel_edit_btns = []
+
+    def _edit_icon_btn(icon, color, on_click, tooltip, selection_driven=True):
+        # Même pastille que le reste de la barre (_bar_icon_btn), mais
         # icon_color=LIGHT_GREY au départ : cohérent avec disabled=True tant
         # que _refresh_edit_buttons() n'a pas encore tourné une 1re fois.
-        return ft.IconButton(
-            icon=icon, icon_color=LIGHT_GREY, icon_size=CONSTANTS.ICON_SM,
-            style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
-            height=CONSTANTS.HUB_TOOLBAR_H, on_click=on_click,
-            tooltip=tooltip, disabled=True,
-        )
+        btn = _bar_icon_btn(icon, LIGHT_GREY, on_click, tooltip,
+                            disabled=True)
+        if selection_driven:
+            _sel_edit_btns.append((btn, color))
+        return btn
 
+    # NE PAS retirer les gardes `if selected else None` de ces lambdas en
+    # les croyant redondantes avec `disabled` : le panneau Actions
+    # (_action_row -> ft.ListTile) réutilise ces mêmes on_click et n'a,
+    # LUI, aucun état désactivé. Sans la garde, une ligne Actions cliquée
+    # sans sélection lance l'action à vide.
     renommer_btn = _edit_icon_btn(
         ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
         lambda e: _run_action(_rename_item, list(selected))
@@ -3496,20 +3484,22 @@ def main(page: ft.Page):
         lambda e: _run_action(_do_copy, list(selected)) if selected else None,
         "Copier")
     couper_btn = _edit_icon_btn(
-        ft.Icons.CONTENT_CUT, ORANGE,
+        ft.Icons.CONTENT_CUT, BLUE,
         lambda e: _run_action(_do_cut, list(selected)) if selected else None,
         "Couper")
     # Coller ne dépend pas de la sélection mais du presse-papiers interne
     # (clipboard["paths"]) — grisé/dégrisé séparément, cf. _do_copy/_do_cut/
-    # _do_paste.
+    # _do_paste : hors de _sel_edit_btns.
     coller_btn = _edit_icon_btn(
-        ft.Icons.CONTENT_PASTE, YELLOW,
+        ft.Icons.CONTENT_PASTE, BLUE,
         lambda e: _run_action(_do_paste),
-        "Coller")
+        "Coller", selection_driven=False)
     dupliquer_btn = _edit_icon_btn(
         ft.Icons.FILE_COPY_OUTLINED, BLUE,
         lambda e: _run_action(_do_duplicate, list(selected)) if selected else None,
         "Dupliquer")
+    # ORANGE volontaire : « Zipper » produit un fichier au lieu d'agir sur
+    # place, on le repère d'un coup d'œil parmi les bleus (retour user).
     zipper_btn = _edit_icon_btn(
         ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE,
         lambda e: _run_action(_do_zip, list(selected)) if selected else None,
@@ -3523,27 +3513,21 @@ def main(page: ft.Page):
         lambda e: _run_action(_do_delete, list(selected)) if selected else None,
         "Supprimer")
 
-    # (bouton, sa couleur active) — `disabled=True` seul ne suffit pas à
-    # griser visiblement une icône dont `icon_color` est fixé explicitement
-    # (retour user : pas assez visible) ; on repasse aussi l'icône en
-    # LIGHT_GREY à la main, comme only_sel_btn le fait déjà pour son état.
-    _sel_edit_btns = [
-        (renommer_btn, BLUE), (copier_btn, BLUE), (couper_btn, ORANGE),
-        (dupliquer_btn, BLUE), (zipper_btn, YELLOW),
-        (ajouter_ia_btn, VIOLET), (supprimer_btn, RED),
-    ]
-
     def _set_edit_btn_state(btn, color, enabled):
         btn.disabled = not enabled
         btn.icon_color = color if enabled else LIGHT_GREY
 
     def _refresh_edit_buttons():
         n = len(selected)
-        _set_edit_btn_state(renommer_btn, BLUE, n == 1)
-        for btn, color in _sel_edit_btns[1:]:
-            _set_edit_btn_state(btn, color, n > 0)
-        _set_edit_btn_state(coller_btn, YELLOW, bool(clipboard["paths"]))
-        for btn, _color in _sel_edit_btns + [(coller_btn, YELLOW)]:
+        for btn, color in _sel_edit_btns:
+            # Renommer n'a de sens que sur un seul élément ; les autres
+            # acceptent n'importe quelle sélection non vide. Test par
+            # identité plutôt qu'un `[1:]` qui dépendait de l'ordre de
+            # création des boutons.
+            enabled = (n == 1) if btn is renommer_btn else (n > 0)
+            _set_edit_btn_state(btn, color, enabled)
+        _set_edit_btn_state(coller_btn, BLUE, bool(clipboard["paths"]))
+        for btn, _color in _sel_edit_btns + [(coller_btn, BLUE)]:
             try:
                 btn.update()
             except Exception:
@@ -3888,13 +3872,43 @@ def main(page: ft.Page):
                              overflow=ft.TextOverflow.ELLIPSIS, expand=True)
     ai_progress_bar = ft.ProgressBar(value=None, visible=False, color=BLUE, height=2)
 
+    # Contrôles réellement touchés par un tour de réponse IA. page.update()
+    # SANS argument repousse tout l'arbre de la page (les 4 surfaces, la
+    # grille de fichiers et ses centaines de vignettes, le terminal) — or
+    # _ai_refresh est appelé plusieurs fois par seconde pendant un
+    # streaming. On ne pousse donc que ces contrôles-là, comme
+    # _clear_selection_visuals le fait déjà avec page.update(*touched).
+    # Complété plus bas avec les boutons d'envoi (créés après) ; tant que
+    # la liste est vide, page.update(*[]) retombe sur la mise à jour
+    # complète, ce qui reste correct au démarrage.
+    _ai_refresh_targets = [ai_chat_view, ai_status_text, ai_progress_bar]
+
     async def _ai_update_and_scroll():
         try:
-            page.update()
+            page.update(*_ai_refresh_targets)
             await asyncio.sleep(0)
             await ai_chat_view.scroll_to(offset=-1)
         except Exception:
             pass
+
+    def _ai_append_bubble_row(row):
+        """Empile une bulle en bornant l'historique affiché.
+
+        Sans plafond, une journée de travail accumule des centaines de
+        ft.Markdown et de ft.Image gardés en mémoire, tous réévalués à
+        chaque rafraîchissement. Même principe que le terminal intégré
+        (HUB_TERMINAL_MAX_LINES) : seules les dernières bulles servent, la
+        conversation complète reste dans ai_conversation et dans le
+        fichier d'historique.
+        """
+        ai_chat_view.controls.append(row)
+        while len(ai_chat_view.controls) > CONSTANTS.HUB_AI_MAX_BUBBLES:
+            ai_chat_view.controls.pop(0)
+        # ai_text_refs (utilisé par le réglage de taille de police) pointe
+        # sur les Text/Markdown des bulles : le borner aussi, sinon il
+        # garde des références sur des contrôles retirés de l'affichage.
+        while len(ai_text_refs) > CONSTANTS.HUB_AI_MAX_BUBBLES:
+            ai_text_refs.pop(0)
 
     def _ai_refresh():
         # Depuis un thread (streaming IA en arrière-plan), page.update() direct
@@ -4087,7 +4101,7 @@ def main(page: ft.Page):
             row = ft.Row([bubble, speak_btn, ft.Container(expand=2)],
                         alignment=ft.MainAxisAlignment.START)
         ai_text_refs.append((bubble_text, -1 if is_think else 0))
-        ai_chat_view.controls.append(row)
+        _ai_append_bubble_row(row)
         _ai_refresh()
         return bubble_text
 
@@ -4095,7 +4109,21 @@ def main(page: ft.Page):
         ai_streaming["value"] = False
 
     def _ai_tool_paint():
-        _ai_refresh()
+        # ui.paint() est le repaint GLOBAL du contrat dispatch_folder_tool
+        # (ai_tools.py) : appelé après une opération fichier, il doit
+        # repeindre la grille de fichiers, pas seulement le chat. Il reste
+        # donc sur un page.update() complet — contrairement à _ai_refresh,
+        # ciblé parce qu'il tourne plusieurs fois par seconde en streaming.
+        # Une fois par appel d'outil : le coût est sans importance ici.
+        async def _repaint():
+            try:
+                page.update()
+            except Exception:
+                pass
+        try:
+            page.run_task(_repaint)
+        except Exception:
+            pass
 
     def _ai_add_image_bubble(image_path):
         try:
@@ -4117,7 +4145,7 @@ def main(page: ft.Page):
             border_radius=ft.BorderRadius(top_left=13, top_right=13,
                                           bottom_left=4, bottom_right=13),
             expand=8)
-        ai_chat_view.controls.append(
+        _ai_append_bubble_row(
             ft.Row([bubble, ft.Container(expand=2)],
                   alignment=ft.MainAxisAlignment.START))
         _ai_refresh()
@@ -4134,7 +4162,7 @@ def main(page: ft.Page):
             border_radius=ft.BorderRadius(top_left=13, top_right=13,
                                           bottom_left=4, bottom_right=13),
             expand=8)
-        ai_chat_view.controls.append(
+        _ai_append_bubble_row(
             ft.Row([bubble, ft.Container(expand=2)],
                   alignment=ft.MainAxisAlignment.START))
         _ai_refresh()
@@ -4705,8 +4733,9 @@ def main(page: ft.Page):
     def _ai_tool_take_screenshot(fn_name, args):
         region = args.get("region") or None
         ai_status_text.value = "📸 Capture d'écran…"
+        # Le statut est posé AVANT la bulle : _ai_add_bubble se termine
+        # déjà par _ai_refresh(), inutile d'en rajouter un.
         _ai_add_bubble("assistant", "📸 Capture d'écran")
-        _ai_refresh()
         capture = _take_screenshot(region=region)
         if not capture:
             _ai_last_screenshot["b64"] = None
@@ -4825,8 +4854,8 @@ def main(page: ft.Page):
     def _ai_run_tool(fn_name, fn_args, ui):
         if fn_name.startswith("mcp__"):
             ai_status_text.value = f"🔌 {fn_name}…"
+            # Idem : le refresh est déjà fait en fin de _ai_add_bubble.
             _ai_add_bubble("assistant", f"🔌 Outil MCP : {fn_name}")
-            _ai_refresh()
             try:
                 return mcp_client.mcp_call_tool(fn_name, fn_args)
             except Exception as exc:
@@ -4855,14 +4884,10 @@ def main(page: ft.Page):
             pass
 
     def _ai_load_history():
-        if not os.path.isfile(_ai_history_file):
+        saved = _load_json(_ai_history_file, None)
+        if saved is None:
             return
-        try:
-            with open(_ai_history_file, "r", encoding="utf-8") as f:
-                saved = json.load(f)
-            messages = saved.get("messages", []) if isinstance(saved, dict) else saved
-        except Exception:
-            return
+        messages = saved.get("messages", []) if isinstance(saved, dict) else saved
         for msg in messages:
             role = msg.get("role")
             content = msg.get("content", "")
@@ -4874,12 +4899,21 @@ def main(page: ft.Page):
     def _ai_clear_conversation(event=None):
         ai_conversation.clear()
         ai_chat_view.controls.clear()
+        ai_text_refs.clear()
         ai_status_text.value = ""
+        # Renommé en .bak plutôt que supprimé : ce bouton est une corbeille
+        # rouge posée à quelques pixels de « transférer vers le bloc-notes »,
+        # et l'effacement était instantané et définitif. Le renommage rend
+        # le geste rattrapable sans ajouter un dialogue de confirmation sur
+        # une action par ailleurs fréquente et volontaire.
         try:
             if os.path.isfile(_ai_history_file):
-                os.remove(_ai_history_file)
-        except Exception:
-            pass
+                os.replace(_ai_history_file, _ai_history_file + ".bak")
+                _log_to_terminal(
+                    "[OK] Conversation effacée — récupérable dans "
+                    f"{os.path.basename(_ai_history_file)}.bak", GREEN)
+        except OSError as exc:
+            _log_to_terminal(f"[ERREUR] Effacement conversation : {exc}", RED)
         page.update()
 
     def _export_ai_conversation(to_notepad=False, event=None):
@@ -5295,7 +5329,7 @@ def main(page: ft.Page):
                     credential=_ai_get_credential,
                 )
 
-                for _round in range(20):
+                for _round in range(CONSTANTS.AI_MAX_TOOL_ROUNDS):
                     if not ai_streaming["value"]:
                         break
                     tools = build_tool_list(folder, mcp_tools,
@@ -5458,6 +5492,11 @@ def main(page: ft.Page):
         on_click=_ai_vasy)
     ai_stop_button = ft.IconButton(ft.Icons.STOP_CIRCLE, icon_color=RED,
                                    tooltip="Arrêter", visible=False, on_click=_ai_stop)
+    # Ces trois-là changent d'état au début et à la fin d'une réponse
+    # (désactivés pendant, bouton Arrêter visible) : sans eux dans la
+    # liste, le rafraîchissement ciblé les laisserait figés.
+    _ai_refresh_targets.extend(
+        [ai_send_button, ai_vasy_button, ai_stop_button])
     ai_mic_button = ft.IconButton(
         ft.Icons.MIC_NONE, icon_color=GREY,
         tooltip="Cliquer pour dicter (Gemini)", on_click=_mic_toggle)
@@ -5512,20 +5551,41 @@ def main(page: ft.Page):
             "affecte uniquement les nouveaux fichiers joints"),
         on_click=_toggle_ai_image_size_mode)
 
+    # Le bouton et son mode (« REEL »/« 1024 ») dans une seule pastille :
+    # séparés, le texte flottait dans la barre comme un élément autonome
+    # sans lien visible avec le bouton qu'il décrit.
+    ai_image_size_group = ft.Container(
+        content=ft.Row([ai_image_size_button, ai_image_mode_label],
+                       spacing=0, tight=True),
+        bgcolor=GREY, border_radius=6,
+        padding=ft.Padding(0, 0, 8, 0))
+    # Pas d'infobulle sur le conteneur : celle du bouton est déjà précise
+    # et suit l'état (réel / 1024), une seconde par-dessus la masquerait.
+
+    def _ai_header_separator():
+        return ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+                            height=CONSTANTS.HUB_TOOLBAR_H)
+
     ia_surface = ft.Column([
         ft.Container(
+            # Trois groupes séparés, dans l'ordre d'usage : ce qu'on règle
+            # (modèle, qualité, taille d'image) — ce qu'on fait de la
+            # réponse (voix, copie, bloc-notes) — et l'effacement, isolé
+            # tout à droite derrière son séparateur : la corbeille rouge
+            # était collée au bouton « transférer vers le bloc-notes ».
             content=ft.Row([
                 ft.Text("Assistant IA", size=CONSTANTS.TEXT_LG, color=WHITE,
                         weight=ft.FontWeight.W_500, expand=True),
                 ai_model_dropdown,
                 ai_image_quality_dropdown,
-                ai_image_size_button,
-                ai_image_mode_label,
+                ai_image_size_group,
+                _ai_header_separator(),
                 ai_speaker_button,
                 ai_copy_button,
                 ai_to_notepad_button,
+                _ai_header_separator(),
                 ai_clear_button,
-            ], spacing=8),
+            ], spacing=CONSTANTS.SPACE_SM),
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
         ft.Container(content=ai_chat_view, expand=True, padding=8),
@@ -6868,11 +6928,15 @@ def main(page: ft.Page):
             ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
              renommer_btn.on_click),
             ("Copier", ft.Icons.CONTENT_COPY, BLUE, copier_btn.on_click),
-            ("Couper", ft.Icons.CONTENT_CUT, ORANGE, couper_btn.on_click),
-            ("Coller", ft.Icons.CONTENT_PASTE, YELLOW, coller_btn.on_click),
+            # Ces trois-là déclenchent EXACTEMENT le même handler que les
+            # boutons de la barre d'outils (couper/coller/zipper) : ils
+            # doivent en porter la couleur, sinon la même action a deux
+            # identités selon l'endroit où on la lance.
+            ("Couper", ft.Icons.CONTENT_CUT, BLUE, couper_btn.on_click),
+            ("Coller", ft.Icons.CONTENT_PASTE, BLUE, coller_btn.on_click),
             ("Dupliquer", ft.Icons.FILE_COPY_OUTLINED, BLUE,
              dupliquer_btn.on_click),
-            ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, YELLOW,
+            ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE,
              zipper_btn.on_click),
             ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
              ajouter_ia_btn.on_click),
@@ -6893,14 +6957,18 @@ def main(page: ft.Page):
             ("Séparer RAW et JPG", ft.Icons.HIDE_IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Séparer RAW et JPG.py")),
         ]),
+        # Ces quatre-là sont des copies vers un dossier : BLEU comme les
+        # autres copies. Le JAUNE qu'elles portaient sert partout ailleurs
+        # à désigner un dossier/fichier (icône de dossier, étoile favori),
+        # jamais une action.
         ("Sélection", [
-            ("Copier sélection → SELECTION", ft.Icons.FOLDER_COPY_OUTLINED, YELLOW,
+            ("Copier sélection → SELECTION", ft.Icons.FOLDER_COPY_OUTLINED, BLUE,
              _launch_copy_to_selection),
-            ("Copier NEFs → SELECTION", ft.Icons.IMAGE_SEARCH_OUTLINED, YELLOW,
+            ("Copier NEFs → SELECTION", ft.Icons.IMAGE_SEARCH_OUTLINED, BLUE,
              lambda e: _launch_tool("Copier NEFs sélection.py")),
             ("Copier selon score IA → SELECTION",
-             ft.Icons.WORKSPACE_PREMIUM_OUTLINED, YELLOW, _launch_copy_scored),
-            ("Fichiers identiques", ft.Icons.CONTENT_COPY, YELLOW,
+             ft.Icons.WORKSPACE_PREMIUM_OUTLINED, BLUE, _launch_copy_scored),
+            ("Fichiers identiques", ft.Icons.CONTENT_COPY, BLUE,
              lambda e: _launch_tool("Fichiers identiques.py")),
         ]),
         ("Kiosque (mode client)", [
@@ -6929,7 +6997,10 @@ def main(page: ft.Page):
              ORANGE, _launch_redimensionner_filigrane),
             ("Images en PDF", ft.Icons.PICTURE_AS_PDF_OUTLINED, ORANGE,
              _launch_images_en_pdf),
-            ("Remerciements", ft.CupertinoIcons.BIN_XMARK_FILL, ORANGE,
+            # Portait une icône de POUBELLE, alors que Remerciements.py
+            # génère des miniatures filigranées et des tirages 2-en-1 : il
+            # ne supprime rien. Vraisemblablement un copier-coller.
+            ("Remerciements", ft.Icons.CARD_GIFTCARD, ORANGE,
              lambda e: _launch_tool("Remerciements.py")),
             ("Nettoyer métadonnées", ft.Icons.CLEANING_SERVICES_OUTLINED, ORANGE,
              lambda e: _launch_tool("Nettoyer metadonnées.py")),
@@ -6938,8 +7009,10 @@ def main(page: ft.Page):
             ("Nettoyer anciens fichiers (> 60 jours)", ft.Icons.AUTO_DELETE,
              RED, lambda e: _launch_tool(
                  "Nettoyer anciens fichiers.py", is_local=True)),
-            ("Synchroniser avec un autre dossier", ft.Icons.SYNC,
-             CONSTANTS.COLOR_HOVER_YELLOW,
+            # COLOR_HOVER_YELLOW est un jeton de SURVOL, pas une couleur
+            # d'icône : détourné ici, il rendait cette ligne unique dans
+            # tout le panneau sans que ça veuille dire quoi que ce soit.
+            ("Synchroniser avec un autre dossier", ft.Icons.SYNC, BLUE,
              lambda e: page.run_task(_sync_two_folders, e)),
         ]),
     ]
@@ -7242,6 +7315,10 @@ def main(page: ft.Page):
             # Fenêtre déjà fermée (session détruite) : le message reste
             # dans _terminal_log_path ci-dessus, pas besoin de l'afficher.
             pass
+
+    # Les fonctions _save_* sont au niveau module et ne voient pas
+    # _log_to_terminal : on le leur branche ici, une fois pour toutes.
+    _save_error_hook["fn"] = lambda msg: _log_to_terminal(msg, RED)
 
     def _export_terminal(to_notepad=False, event=None):
         text = "\n".join(c.value for c in terminal_output.controls

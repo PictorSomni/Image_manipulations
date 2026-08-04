@@ -397,7 +397,8 @@ def render_histogram(pil_image, width, height=_HISTOGRAM_HEIGHT):
 #                           MAIN                             #
 #############################################################
 def main(page: ft.Page):
-    CONSTANTS.attach_error_copy_snackbar(page)
+    CONSTANTS.attach_error_copy_snackbar(
+        page, ignore=("Codec failed to produce an image",))
     page.title = "Retouche par lot"
     page.theme_mode = ft.ThemeMode.DARK
     page.bgcolor = BG

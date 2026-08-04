@@ -509,8 +509,10 @@ def _ai_save_history(conversation, file_path, history_compaction=None):
             "messages": serializable,
             "history_compaction": history_compaction or {"summary": "", "summarized_count": 0},
         }
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        # Écriture atomique (CONSTANTS §13bis) : un open("w") direct vidait
+        # le fichier avant d'écrire, donc un plantage en plein
+        # enregistrement laissait toute la conversation tronquée.
+        CONSTANTS.save_json(file_path, payload)
     except Exception:
         pass
 

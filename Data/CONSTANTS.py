@@ -7,6 +7,7 @@ Modifier ce fichier pour changer les paramètres globaux de l application sans
 toucher aux scripts eux-mêmes.
 """
 
+import json
 import os
 
 # ==============================================================================
@@ -326,6 +327,7 @@ HUB_TERMINAL_AUTOHIDE_DELAY   = 2.5  # Délai (secondes) avant fermeture auto du
 HUB_TERMINAL_TOOL_CLOSE_DELAY = 1.5  # Délai (secondes) après un [OK] de _launch_tool avant fermeture
 HUB_TERMINAL_LOG_MAX_BYTES    = 200_000  # Taille max de .hub_terminal.log avant purge (octets, ~2000 lignes)
 HUB_TERMINAL_MAX_LINES        = 200  # Nombre max de lignes conservées dans le terminal de Hub.pyw
+HUB_AI_MAX_BUBBLES            = 120  # Nombre max de bulles gardées à l'écran dans l'onglet IA (la conversation complète reste dans .ai_conversation_hub.json)
 NOTEPAD_AUTOSAVE_DELAY = 10  # Délai (secondes) avant sauvegarde automatique du bloc-notes
 NOTEPAD_DEFAULT_LANGUAGE = "MARKDOWN"  # Langage de coloration syntaxique par défaut du bloc-notes (voir fce.CodeLanguage)
 
@@ -475,6 +477,7 @@ AI_GEMINI_FALLBACK     = "gemma4:e4b"                 # Fallback Ollama local si
 AI_GEMINI_IMAGE_TIMEOUT = 180                # Timeout max (s) pour generate/edit image via Gemini
 AI_GEMINI_STREAM_TIMEOUT_MS = 180_000        # Timeout (ms) du streaming Gemini : au-delà de ce délai sans chunk, l'appel lève une erreur au lieu de figer l'app
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
+AI_MAX_TOOL_ROUNDS = 20                      # Nb max d'allers-retours outil→modèle pour UNE question (garde-fou anti-boucle : chaque tour = 1 appel modèle facturé)
 AI_HISTORY_LIMIT_CLOUD = 10                  # Nb max de messages envoyés à l'IA (Gemini / Claude)
 AI_HISTORY_LIMIT_LOCAL = 10                  # Nb max de messages envoyés à l'IA (modèles Ollama locaux)
 AI_URL_MAX_CHARS = 20_000                    # Nb max de caractères extraits d'une URL
@@ -1080,17 +1083,73 @@ def is_icloud_placeholder(path, stat_result=None):
 
 
 # ==============================================================================
+# 13bis. PERSISTANCE JSON — lecture tolérante, écriture atomique
+# ==============================================================================
+# Utilisé par Hub.pyw (dossiers récents, favoris, commande, scores…) et
+# ai_tools.py (historique de conversation). Une seule implémentation :
+# c'est le chemin par lequel passent les données que l'utilisateur perdrait
+# vraiment si un fichier était tronqué.
+
+# Rapporteur d'échec d'écriture, posé par l'app hôte (Hub.pyw le branche
+# sur son terminal intégré). Sans lui, un disque plein ou un dossier passé
+# en lecture seule faisait disparaître la commande client sans un mot.
+save_error_hook = {"fn": None}
+
+
+def load_json(path, default):
+    """Lit un JSON, renvoie ``default`` si le fichier manque ou est illisible."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def save_json(path, data):
+    """Écrit ``data`` en JSON de façon atomique. Renvoie True si écrit.
+
+    Passe par un fichier temporaire puis os.replace() (atomique sur
+    Windows/macOS/Linux) : un open("w") direct VIDE le fichier avant
+    d'écrire, donc un plantage ou une extinction en plein json.dump
+    laissait un .order.json tronqué — la commande client en cours perdue.
+    """
+    tmp = f"{path}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+        return True
+    except Exception as exc:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        report = save_error_hook["fn"]
+        if report:
+            report(f"[ERREUR] Échec d'enregistrement de "
+                   f"{os.path.basename(path)} : {exc}")
+        return False
+
+
+# ==============================================================================
 # 14. FLET — bandeau "Copier l'erreur" (Retouche par lot.pyw, Comparaison.pyw,
 #     kiosk_flet.pyw, Recadrage manuel.pyw, Hub.pyw)
 # ==============================================================================
-def attach_error_copy_snackbar(page):
+def attach_error_copy_snackbar(page, ignore=()):
     """Sur une exception non interceptée (page.on_error), affiche le
     message dans un SnackBar avec un bouton Copier — pour le remonter sans
-    avoir à le retaper à la main."""
+    avoir à le retaper à la main.
+
+    ``ignore`` : sous-chaînes de messages à avaler silencieusement, pour les
+    erreurs Flutter bénignes et auto-résolues (ex. la race de décodage
+    "Codec failed..." lors de mises à jour rapides d'un ft.Image en
+    base64 pendant le chargement — cf. Retouche par lot.pyw)."""
     import flet as ft
 
     def _on_error(e):
         message = str(getattr(e, "data", None) or e)
+        if any(needle in message for needle in ignore):
+            return
 
         async def _copy(_):
             await page.clipboard.set(message)

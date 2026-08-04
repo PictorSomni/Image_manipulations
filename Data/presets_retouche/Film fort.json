@@ -67,7 +67,7 @@
     },
     "grain1": {
       "enabled": true,
-      "amount": 0.021,
+      "amount": 0.016,
       "size": 0.06,
       "color_ratio": 0.15,
       "shadow_boost": 1.5,
@@ -76,7 +76,7 @@
     },
     "grain2": {
       "enabled": true,
-      "amount": 0.016,
+      "amount": 0.009,
       "size": 0.18,
       "color_ratio": 0.25,
       "shadow_boost": 3.0,
