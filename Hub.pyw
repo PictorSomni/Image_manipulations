@@ -32,6 +32,7 @@ import platform
 import subprocess
 import sys
 import shutil
+import tempfile
 import threading
 import webbrowser
 import zipfile
@@ -1418,21 +1419,26 @@ def main(page: ft.Page):
         # Préfixe "NX_" lu par Recadrage automatique.py (mode fit) pour
         # savoir combien de copies d'une image tuiler sur le canevas —
         # cf. extract_copy_count_from_filename.
-        path = paths[0] if paths else None
-        if not path or not os.path.exists(path):
+        # Sans sélection, tout le dossier : sert notamment à remettre
+        # l'ensemble des photos à 0 d'un coup (retour user). Même idiome
+        # que le bouton Imprimer — sélection, sinon dossier entier.
+        targets = [p for p in (list(paths) or content["imgs"])
+                   if os.path.exists(p)]
+        if not targets:
             return
-        parent = os.path.dirname(path)
-        current_name = os.path.basename(path)
-        match = re.match(r"^(\d+)[xX]_", current_name)
+        parent = os.path.dirname(targets[0])
+        match = re.match(r"^(\d+)[xX]_", os.path.basename(targets[0]))
         current_count = int(match.group(1)) if match else 1
-        clean_name = current_name[match.end():] if match else current_name
 
         # Champ vide au départ même si un nombre existait déjà : l'usager
         # tape directement le nouveau nombre sans devoir d'abord effacer
         # l'ancien (retour user). L'ancien nombre reste visible en filigrane
         # (hint_text) à titre indicatif.
         count_field = ft.TextField(
-            value="", hint_text=str(current_count), autofocus=True, width=100,
+            value="", autofocus=True, width=100,
+            # Le filigrane n'a de sens que sur un fichier : sur un lot, les
+            # nombres actuels diffèrent d'une photo à l'autre.
+            hint_text=str(current_count) if len(targets) == 1 else "",
             bgcolor=DARK, border_color=GREY, color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
 
@@ -1452,20 +1458,37 @@ def main(page: ft.Page):
                 count = int(count_field.value)
             except (TypeError, ValueError):
                 return
-            new_name = clean_name if count <= 1 else f"{count}X_{clean_name}"
-            if new_name == current_name:
-                return
-            new_path = os.path.join(parent, new_name)
-            try:
-                os.rename(path, new_path)
-            except OSError as exc:
-                _log_to_terminal(
-                    f"[ERREUR] Nombre d'impressions : {exc}", RED, clear=True)
-                return
+            label = "sans préfixe" if count <= 0 else f"{count}X_"
             _log_to_terminal(
-                f"[OK] Nombre d'impressions : {current_name} → {new_name}",
-                GREEN, clear=True)
-            _select_discard(path)
+                f"Nombre d'impressions → {label} "
+                f"({len(targets)} fichier(s))…", clear=True)
+            # Renommages séquentiels : os.rename est quasi instantané en
+            # local, ça ne se voit pas même sur un gros dossier. À passer
+            # dans un thread si un jour ça sert sur un partage réseau lent.
+            renamed = 0
+            for path in targets:
+                current_name = os.path.basename(path)
+                # 0 (ou moins) = pas de préfixe du tout ; 1 garde bien
+                # "1X_", qui n'est pas la même chose qu'un nom nu : le
+                # préfixe dit « tirage commandé, en 1 exemplaire »,
+                # l'absence de préfixe dit « pas de tirage » (retour user).
+                hit = re.match(r"^(\d+)[xX]_", current_name)
+                clean_name = current_name[hit.end():] if hit else current_name
+                new_name = (clean_name if count <= 0
+                            else f"{count}X_{clean_name}")
+                if new_name == current_name:
+                    continue
+                try:
+                    os.rename(path, os.path.join(
+                        os.path.dirname(path), new_name))
+                except OSError as exc:
+                    _log_to_terminal(f"[ERREUR] {current_name} : {exc}", RED)
+                    continue
+                _select_discard(path)
+                renamed += 1
+            _log_to_terminal(
+                f"[OK] Nombre d'impressions : {renamed} fichier(s) "
+                f"renommé(s) en {label}", GREEN)
             _navigate(parent)
 
         count_field.on_submit = _confirm
@@ -1507,13 +1530,17 @@ def main(page: ft.Page):
         ], spacing=8, tight=True)
 
         dlg = ft.AlertDialog(
-            title=ft.Text("Nombre d'impressions (préfixe NX_)",
-                         size=CONSTANTS.TEXT_SM, color=WHITE),
+            # Le nombre de fichiers est le garde-fou du mode « dossier
+            # entier » : c'est là qu'on voit qu'on s'apprête à en toucher 47
+            # et pas 1.
+            title=ft.Text(
+                f"Nombre d'impressions — {len(targets)} fichier(s) "
+                "(0 = retirer le préfixe NX_)",
+                size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([count_field, keypad], spacing=12, tight=True),
-            actions=[
-                ft.TextButton("Annuler", on_click=_cancel),
-                ft.TextButton("Valider", on_click=_confirm),
-            ],
+            # Pas de bouton "Valider" ici : le ✓ vert du pavé numérique fait
+            # déjà ça, juste au-dessus (retour user).
+            actions=[ft.TextButton("Annuler", on_click=_cancel)],
         )
         page.overlay.append(dlg)
         dlg.open = True
@@ -6368,11 +6395,15 @@ def main(page: ft.Page):
 
         def _pick(val):
             def _on_click(e):
-                w, h = val.split("x")
+                # "127x178@210x297" = photo @ planche ; sans « @ », la
+                # planche est déduite des photos (cf. TWO_IN_ONE_FORMATS).
+                photo, _, sheet = val.partition("@")
+                w, h = photo.split("x")
                 dlg.open = False
                 page.update()
                 _launch_tool("2 en 1.py", extra_env={
-                    "TWO_IN_ONE_WIDTH": w, "TWO_IN_ONE_HEIGHT": h})
+                    "TWO_IN_ONE_WIDTH": w, "TWO_IN_ONE_HEIGHT": h,
+                    "TWO_IN_ONE_SHEET": sheet})
             return _on_click
 
         buttons = [
@@ -6433,6 +6464,55 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
+    def _images_to_pdf(imgs):
+        """Fusionne des images en un PDF temporaire multi-pages.
+
+        Un appel du verbe « print » par fichier ouvrait autrefois un seul
+        assistant Windows regroupant toutes les photos ; depuis une mise à
+        jour de l'appli Photos, chaque appel ouvre SA fenêtre (retour user).
+        Un PDF unique = un seul dialogue d'impression, N pages, et le même
+        comportement sur macOS/Linux.
+        """
+        pages = []
+        dpis = set()
+        total = len(imgs)
+        for num, p in enumerate(imgs, start=1):
+            _log_to_terminal(
+                f"Préparation {num}/{total} : {os.path.basename(p)}")
+            src = PILImage.open(p)
+            src.load()
+            # Relevé AVANT conversion : convert_to_srgb reconstruit l'image
+            # via ImageCms et ne recopie pas info["dpi"].
+            dpi = src.info.get("dpi")
+            if dpi:
+                dpis.add(round(float(dpi[0])))
+            img = image_ops.convert_to_srgb(src, src.info.get("icc_profile"))
+            img = PILImageOps.exif_transpose(img)
+            if img.mode == "RGBA":
+                bg = PILImage.new("RGB", img.size, (255, 255, 255))
+                bg.paste(img, mask=img.split()[3])
+                img = bg
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
+            pages.append(img)
+        # PIL n'écrit qu'UNE résolution pour tout le PDF (celle passée au
+        # save, cf. PdfImagePlugin._save) : sans elle il retombe sur 72 dpi
+        # et une photo 300 dpi sort en page de 50 cm, que l'imprimante
+        # réduit pour la faire tenir — le tirage n'est plus à 100 %.
+        resolution = float(min(dpis)) if dpis else 300.0
+        if len(dpis) > 1:
+            _log_to_terminal(
+                f"[ATTENTION] DPI mélangés dans la sélection ({sorted(dpis)}) "
+                f"— tout le PDF sort à {resolution:.0f} dpi", ORANGE)
+        fd, pdf_path = tempfile.mkstemp(prefix="Hub_impression_",
+                                        suffix=".pdf")
+        os.close(fd)
+        _log_to_terminal(
+            f"Assemblage du PDF ({total} pages à {resolution:.0f} dpi)…")
+        pages[0].save(pdf_path, "PDF", resolution=resolution, save_all=True,
+                      append_images=pages[1:])
+        return pdf_path
+
     def _print_paths(paths):
         # Partagé entre le bouton Imprimer (titlebar/Actions, sélection ou
         # dossier entier) et l'entrée « Imprimer » du menu clic-droit
@@ -6444,33 +6524,52 @@ def main(page: ft.Page):
         if not imgs and not pdfs:
             _log_to_terminal("[ATTENTION] Aucune image à imprimer", ORANGE)
             return
-        try:
-            system = platform.system()
-            if system == "Darwin":
-                subprocess.call(["open"] + imgs + pdfs)
-            elif system == "Windows":
-                for p in imgs:
-                    os.startfile(p, "print")
-                for p in pdfs:
-                    # Le verrou "print" ouvre l'appli d'impression PHOTO de
-                    # Windows, qui ne sait pas gérer un PDF (retour user) —
-                    # un simple "open" lance l'appli PDF par défaut (souvent
-                    # le navigateur), depuis laquelle imprimer normalement.
-                    os.startfile(p)
-            else:
-                for p in imgs + pdfs:
-                    subprocess.Popen(["xdg-open", p])
-            _log_to_terminal(
-                f"[OK] Impression lancée pour {len(imgs) + len(pdfs)} fichier(s)",
-                GREEN)
-        except Exception as exc:
-            _log_to_terminal(f"[ERREUR] Impression : {exc}", RED)
-            return
-        # Bascule en mode ruban quelle que soit l'entrée (titlebar ou
-        # clic-droit) : laisse la fenêtre d'impression de l'OS passer
-        # devant sans que Hub prenne toute la place.
+        count = len(imgs) + len(pdfs)
+        _log_to_terminal(f"Impression de {count} fichier(s)…", clear=True)
+        # Bascule en mode ruban tout de suite (avant le travail, pas après) :
+        # laisse la fenêtre d'impression de l'OS passer devant, et rend le
+        # terminal visible pendant la préparation.
         if not _strip_state["active"]:
             _toggle_strip()
+
+        def _run(imgs=imgs, pdfs=pdfs):
+            # La fusion PDF lit et décode chaque image : sur une grosse
+            # sélection ça prend plusieurs secondes, l'interface se figeait
+            # sans le moindre retour (retour user). D'où le thread + les
+            # logs de progression dans _images_to_pdf.
+            if len(imgs) > 1:
+                # Plusieurs images : un seul PDF plutôt que N dialogues.
+                try:
+                    pdfs = [_images_to_pdf(imgs)] + pdfs
+                    imgs = []
+                except Exception as exc:
+                    _log_to_terminal(
+                        f"[ATTENTION] Fusion PDF impossible ({exc}) — "
+                        "impression image par image", ORANGE)
+            try:
+                system = platform.system()
+                if system == "Darwin":
+                    subprocess.call(["open"] + imgs + pdfs)
+                elif system == "Windows":
+                    for p in imgs:
+                        os.startfile(p, "print")
+                    for p in pdfs:
+                        # Le verbe "print" ouvre l'appli d'impression PHOTO
+                        # de Windows, qui ne sait pas gérer un PDF (retour
+                        # user) — un simple "open" lance l'appli PDF par
+                        # défaut (souvent le navigateur), depuis laquelle
+                        # imprimer normalement.
+                        os.startfile(p)
+                else:
+                    for p in imgs + pdfs:
+                        subprocess.Popen(["xdg-open", p])
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] Impression : {exc}", RED)
+                return
+            _log_to_terminal(
+                f"[OK] Impression lancée pour {count} fichier(s)", GREEN)
+
+        threading.Thread(target=_run, daemon=True).start()
 
     def _launch_print(event=None):
         paths = list(selected) or content["imgs"]
@@ -6997,10 +7096,10 @@ def main(page: ft.Page):
              ORANGE, _launch_redimensionner_filigrane),
             ("Images en PDF", ft.Icons.PICTURE_AS_PDF_OUTLINED, ORANGE,
              _launch_images_en_pdf),
-            # Portait une icône de POUBELLE, alors que Remerciements.py
-            # génère des miniatures filigranées et des tirages 2-en-1 : il
-            # ne supprime rien. Vraisemblablement un copier-coller.
-            ("Remerciements", ft.Icons.CARD_GIFTCARD, ORANGE,
+            # Icône d'urne : Remerciements sert aux faire-part de décès,
+            # c'est le repère visuel que Charles reconnaît dans le menu.
+            # Ne PAS « corriger » en icône cadeau/carte (retour user).
+            ("Remerciements", ft.CupertinoIcons.BIN_XMARK_FILL, ORANGE,
              lambda e: _launch_tool("Remerciements.py")),
             ("Nettoyer métadonnées", ft.Icons.CLEANING_SERVICES_OUTLINED, ORANGE,
              lambda e: _launch_tool("Nettoyer metadonnées.py")),

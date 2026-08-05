@@ -218,6 +218,12 @@ ID_X4_10x20_PHOTOS_BOTTOM = True
 
 # ── 4.4  Formats 2-en-1 ───────────────────────────────────────────────────────
 # Liste ordonnée affichée dans le dialogue Hub (premier = valeur par défaut).
+#
+# Valeur = taille d'UNE photo en mm, éventuellement suivie de « @ » et de la
+# planche de destination. Sans planche, elle est collée au plus juste autour
+# des deux photos côte à côte (LARGEUR×2 × HAUTEUR). Avec une planche, « 2 en
+# 1.py » impose les photos dessus : il les pivote et les empile si c'est la
+# seule disposition qui tienne à 100 %, et centre le bloc.
 
 TWO_IN_ONE_FORMATS = [
     ("2 10x15 sur 15x20", "102x152"),
@@ -225,6 +231,8 @@ TWO_IN_ONE_FORMATS = [
     ("2 9x13 sur 13x18",  "89x127"),
     ("2 10x10 sur 10x20", "102x102"),
     ("2 15x20 sur 20x30", "152x203"),
+    ("2 13x18 sur A4",    "127x178@210x297"),
+    ("2 10x15 sur A4",    "102x152@210x297"),
 ]
 
 

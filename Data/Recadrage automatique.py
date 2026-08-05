@@ -9,10 +9,16 @@ Deux modes :
     * Plusieurs copies : tuilees et centrees sur le canvas.
 
 Nomenclature des fichiers :
-  - Préfixe NX_ (ex: "2X_photo.jpg", "3x_maphoto.png") définit le nombre de
-    copies à arranger côte à côte sur le canvas (mode fit uniquement).
-  - Le préfixe est automatiquement supprimé du nom de fichier de sortie.
-  - Sans préfixe : 1 seule copie par défaut.
+  - Préfixe NX_ (ex: "2X_photo.jpg", "3x_maphoto.png") = nombre d'impressions
+    demandé. Il est TOUJOURS respecté, dans les deux modes :
+    * Mode crop : une image recadrée, le préfixe est reporté tel quel sur le
+      fichier de sortie ("3X_photo.jpg" -> "3X_10x15_photo.jpg").
+    * Mode fit  : N copies tuilées sur le canvas. Si elles n'y tiennent pas
+      toutes, on génère autant de canvas que nécessaire — le dernier reste
+      partiellement blanc plutôt que d'être complété par des copies en trop.
+      Si une seule copie tient par canvas, le N repart sur le nom de sortie.
+  - Sans préfixe : mode automatique (le canvas est rempli au maximum en mode
+    fit, une image en mode crop), et aucun préfixe en sortie.
 
 Variables d'environnement :
   FOLDER_PATH         -- dossier source (defaut : repertoire du script)
@@ -285,25 +291,26 @@ def pack_tiles_into_canvases(tiles_list: list, canvas_w: int, canvas_h: int,
             offset_x = (canvas_w - total_w) // 2
             offset_y = (canvas_h - total_h) // 2
         
-        # Placer les tuiles en grille
+        # Placer les tuiles en grille.
+        #
+        # Les places restantes du dernier canevas sont laissées BLANCHES.
+        # Elles étaient auparavant comblées par des copies de la dernière
+        # tuile : demander 3 tirages avec 2 par planche en sortait 4 (2 + 2
+        # au lieu de 2 + 1). Le nombre d'impressions prime sur le
+        # remplissage du papier — quitte à finir sur une planche partielle,
+        # comme le fait « 2 en 1.py » (retour user).
         tile_index = 0
         for row in range(rows):
             for col in range(cols):
-                if tile_index < len(resized_tiles):
-                    tile = resized_tiles[tile_index]
-                    # Utiliser la dimension de chaque tuile pour calculer sa position
-                    x = offset_x + col * (tile['width'] + gap_px)
-                    y = offset_y + row * (tile['height'] + gap_px)
-                    canvas.paste(tile['image'], (x, y))
-                    canvas_tiles.append((tile['source_name'], x, y))
-                    tile_index += 1
-                elif tiles_for_canvas:
-                    # Remplir les places vides avec une copie de la dernière tuile
-                    last_tile = resized_tiles[-1]
-                    x = offset_x + col * (last_tile['width'] + gap_px)
-                    y = offset_y + row * (last_tile['height'] + gap_px)
-                    canvas.paste(last_tile['image'], (x, y))
-                    canvas_tiles.append((last_tile['source_name'] + " (fill)", x, y))
+                if tile_index >= len(resized_tiles):
+                    break
+                tile = resized_tiles[tile_index]
+                # Position calculee d'apres la dimension de chaque tuile
+                x = offset_x + col * (tile['width'] + gap_px)
+                y = offset_y + row * (tile['height'] + gap_px)
+                canvas.paste(tile['image'], (x, y))
+                canvas_tiles.append((tile['source_name'], x, y))
+                tile_index += 1
         
         canvases.append((canvas, canvas_tiles))
     
@@ -399,7 +406,7 @@ if fit_mode:
             for canvas, canvas_tiles in prefixed_canvases:
                 # Si toutes les tuiles de ce canevas viennent du même fichier, on prend son nom
                 # Sinon, on utilise le mot-clé historique "combined"
-                unique_sources = list(set(name.replace(" (fill)", "") for name, x, y in canvas_tiles))
+                unique_sources = list({name for name, x, y in canvas_tiles})
                 suggested_stem = unique_sources[0] if len(unique_sources) == 1 else "combined"
                 all_canvases.append((canvas, canvas_tiles, suggested_stem))
         
@@ -508,9 +515,13 @@ else:
             if rotated_back:
                 result = result.rotate(270, expand=True)
 
-            # Déterminer le nom de sortie
+            # Déterminer le nom de sortie. Le préfixe NX_ est REPORTÉ sur
+            # le fichier recadré : sans lui, le nombre d'impressions était
+            # perdu au recadrage et la photo disparaissait de commande.txt,
+            # qui ne compte que les fichiers préfixés (retour user).
             stem = Path(clean_filename).stem
-            out_path = output_folder / f"{folder_name}_{stem}.jpg"
+            prefix = f"{copy_count}X_" if copy_count is not None else ""
+            out_path = output_folder / f"{prefix}{folder_name}_{stem}.jpg"
 
             result.save(out_path, dpi=(DPI, DPI), format="JPEG",
                        subsampling=0, quality=100,
