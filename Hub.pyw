@@ -1226,18 +1226,46 @@ def main(page: ft.Page):
 
         checks = {}  # MTPItem -> ft.Checkbox
 
+        def _do_scan():
+            folders = mtp_devices.find_photo_folders(device)
+            items = []
+            for folder in folders:
+                for child in folder.children():
+                    if not child.is_folder:
+                        items.append((folder.name, child))
+            return items
+
         def _scan():
+            # Filet de sécurité : les appels COM WPD (EnumObjects/Next)
+            # peuvent bloquer indéfiniment plutôt que lever une exception
+            # si le marshaling généré par comtypes est en cause (cas connu,
+            # cf. commentaire dans la lib d'origine) — sans délai max, la
+            # fenêtre restait figée sur "Recherche..." pour toujours, sans
+            # aucun message (retour user, premier essai réel 2026-08-07).
+            # PAS de "with" ici : si le thread reste bloqué, le "with"
+            # attendrait sa fin à la sortie du bloc (shutdown(wait=True)
+            # implicite) et annulerait tout l'intérêt du timeout. Le
+            # thread orphelin sera nettoyé par l'OS à la fermeture de
+            # l'appli — acceptable pour ce cas rare.
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            future = pool.submit(_do_scan)
             try:
-                folders = mtp_devices.find_photo_folders(device)
-                items = []
-                for folder in folders:
-                    for child in folder.children():
-                        if not child.is_folder:
-                            items.append((folder.name, child))
+                items = future.result(timeout=15)
+            except concurrent.futures.TimeoutError:
+                status_text.value = (
+                    "Le téléphone ne répond pas (délai dépassé). "
+                    "Vérifie qu'il est déverrouillé et que le "
+                    "transfert de fichiers est bien autorisé, puis "
+                    "réessaie.")
+                page.update()
+                pool.shutdown(wait=False)
+                return
             except mtp_devices.MTPError as exc:
                 status_text.value = f"Erreur : {exc}"
                 page.update()
+                pool.shutdown(wait=False)
                 return
+            pool.shutdown(wait=False)
             if not items:
                 status_text.value = (
                     "Aucune photo trouvée dans les dossiers usuels "
