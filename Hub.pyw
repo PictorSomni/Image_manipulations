@@ -5581,6 +5581,8 @@ def main(page: ft.Page):
         transcrit et envoie directement le message à l'IA, même si Hub n'a
         pas le focus (raccourci global, via pynput).
         """
+        if not CONSTANTS.AI_VOICE_PTT_ENABLED:
+            return
         ptt_name = CONSTANTS.AI_VOICE_PTT_KEY
         try:
             from pynput import keyboard as _pynput_kb

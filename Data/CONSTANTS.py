@@ -604,6 +604,12 @@ AI_VOICE_STT_MODEL       = "gemini-3.5-flash-lite"  # Modèle de transcription (
 AI_VOICE_STT_LANGUAGE    = "fr"     # Langue de dictée par défaut (ISO 639-1)
 AI_VOICE_STT_SAMPLE_RATE = 0        # 0 = fréquence native du micro (recommandé ; forcer une fréquence déforme l'audio)
 
+# Désactivé le 2026-08-07 : le macropad (touche f15) a été reprogrammé en
+# Ctrl droit pour OpenWhispr (F15 n'est pas fiable pour le hold-to-talk sur
+# macOS, cf. mémoire). Repasser à True + reprogrammer le firmware si le PTT
+# IA de Hub est utilisé un jour à la place d'OpenWhispr.
+AI_VOICE_PTT_ENABLED = False
+
 # Touche du bouton PTT matériel (macropad CircuitPython). Doit être un nom
 # d'attribut valide de pynput.keyboard.Key ("f13".."f20") — seule plage
 # portable sur Windows/macOS/Linux. Changer ici + reprogrammer le firmware
