@@ -6537,8 +6537,13 @@ def main(page: ft.Page):
             # sélection ça prend plusieurs secondes, l'interface se figeait
             # sans le moindre retour (retour user). D'où le thread + les
             # logs de progression dans _images_to_pdf.
-            if len(imgs) > 1:
-                # Plusieurs images : un seul PDF plutôt que N dialogues.
+            if imgs:
+                # Toujours passer par un PDF temporaire, même pour une seule
+                # image : Windows Photos identifie le verbe « print » par
+                # chemin de fichier, donc relancer l'impression du même
+                # fichier source ne rouvre pas de fenêtre la 2e fois (retour
+                # user). Un chemin de PDF neuf (tempfile.mkstemp) à chaque
+                # appel contourne ce blocage, même pour une image seule.
                 try:
                     pdfs = [_images_to_pdf(imgs)] + pdfs
                     imgs = []
