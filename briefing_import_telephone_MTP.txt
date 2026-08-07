@@ -1,0 +1,49 @@
+Briefing — Import photos téléphone (MTP) dans Hub.pyw
+========================================================
+
+Contexte
+--------
+Charles gère ~/Documents/GitHub/Image_manipulations (repo GitHub
+PictorSomni/Image_manipulations), une app Flet (Hub.pyw) de
+gestion/retouche/impression photo utilisée sur un poste tactile en
+boutique. Nouvelle fonctionnalité en cours : importer directement les
+photos d'un téléphone Android (branché en MTP) sans passer par
+l'Explorateur Windows.
+
+Ce qui a été fait (3 commits poussés le 2026-08-07, 44423f4 -> 8608054
+-> 72b9733)
+--------------------------------------------------------------------
+- Data/mtp_devices.py (nouveau) : pilote l'API Windows Portable Devices
+  via comtypes, adapté de github.com/KasparNagu/PortableDevices. Liste
+  les appareils, parcourt les dossiers, télécharge des fichiers.
+  IS_WINDOWS-gardé, no-op propre sur Mac/Linux.
+- Bouton "Importer depuis téléphone" dans Hub.pyw (panneau Actions,
+  catégorie Fichier, Windows uniquement) : détecte le téléphone, scanne
+  les dossiers photo usuels (DCIM, Pictures, WhatsApp Images), affiche
+  une liste à cocher, importe dans le dossier Hub ouvert, auto-sélectionne
+  les fichiers importés (réutilise _tool_refresh(folder, names=...) déjà
+  existant) pour enchaîner direct sur "Transfert vers TEMP".
+
+Bug en cours
+------------
+Au premier essai réel, le scan reste bloqué indéfiniment sur "Recherche
+des photos…" (téléphone détecté OK, mais la lecture du contenu ne finit
+jamais, aucune erreur). Piste principale : la boucle EnumObjects/Next
+dans MTPItem.children() (Data/mtp_devices.py) — la lib source a un
+commentaire disant que ce même appel nécessite parfois un patch manuel
+du stub comtypes généré (paramètre [out] qui devrait être [in, out]),
+donc un souci de marshaling COM est suspecté mais pas confirmé.
+
+Filet de sécurité déjà en place
+--------------------------------
+Timeout de 15s sur le scan (commit 72b9733), donc ça échouera proprement
+avec un message au lieu de rester figé — utile pour itérer plus vite.
+
+Prochaine étape concrète
+-------------------------
+Après le timeout, aller inspecter le fichier comtypes généré pour
+IEnumPortableDeviceObjectIDs.Next (cache comtypes, typiquement sous
+%LOCALAPPDATA%\Temp\gen_py\ ou comtypes.client.gen_dir) pour voir
+comment Next(celt, rgelt, pceltFetched) a été marshalé, et comparer à ce
+que le code suppose (que "fetched" est un pointeur muté par l'appel).
+Ajuster MTPItem.children() en conséquence.
