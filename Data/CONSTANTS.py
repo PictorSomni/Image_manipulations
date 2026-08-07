@@ -611,10 +611,13 @@ AI_VOICE_STT_SAMPLE_RATE = 0        # 0 = fréquence native du micro (recommand�
 AI_VOICE_PTT_ENABLED = False
 
 # Touche du bouton PTT matériel (macropad CircuitPython). Doit être un nom
-# d'attribut valide de pynput.keyboard.Key ("f13".."f20") — seule plage
-# portable sur Windows/macOS/Linux. Changer ici + reprogrammer le firmware
-# du macropad pour émettre la même touche.
-AI_VOICE_PTT_KEY = "f15"
+# d'attribut valide de pynput.keyboard.Key. "f13".."f20" était la seule
+# plage garantie de ne jamais être produite par un vrai clavier — passé à
+# "ctrl_r" le 2026-08-07 pour matcher le firmware reprogrammé (cf.
+# AI_VOICE_PTT_ENABLED ci-dessus) : si le PTT est un jour réactivé, garder
+# en tête qu'un Ctrl droit sur un clavier normal déclenchera aussi
+# l'enregistrement (signal indiscernable du macropad).
+AI_VOICE_PTT_KEY = "ctrl_r"
 
 
 # Voix disponibles pour le sélecteur (noms officiels Google Gemini TTS)
