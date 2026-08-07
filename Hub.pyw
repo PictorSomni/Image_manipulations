@@ -1277,11 +1277,13 @@ def main(page: ft.Page):
 
         def _work():
             done, errors = 0, 0
+            imported_names = []
             for i, item in enumerate(items, 1):
                 _log_to_terminal(
                     f"[...] Import {i}/{len(items)} : {item.name}", ORANGE)
                 try:
-                    item.download_to(folder)
+                    dest = item.download_to(folder)
+                    imported_names.append(os.path.basename(dest))
                     done += 1
                 except Exception as exc:
                     errors += 1
@@ -1291,7 +1293,11 @@ def main(page: ft.Page):
                 _log_to_terminal(f"[OK] {done} photo(s) importée(s)", BLUE)
             if errors:
                 _log_to_terminal(f"[ATTENTION] {errors} erreur(s)", ORANGE)
-            page.run_task(_tool_refresh, folder)
+            # Comme _launch_tool : les fichiers importés arrivent déjà
+            # sélectionnés, prêts pour "Transfert vers TEMP" ou toute
+            # autre action sans devoir les re-sélectionner (retour user,
+            # workflow réel au poste tactile).
+            page.run_task(_tool_refresh, folder, imported_names)
 
         _run_bg_action(f"Import de {len(items)} photo(s) depuis le téléphone",
                        _work)
