@@ -51,6 +51,7 @@ import ai_ops
 import thumb_cache
 import mcp_client
 import credentials
+import mtp_devices
 from ai_tools import (
     _backup_file, _folder_create_file, _folder_list_contents, _folder_read_file,
     _folder_delete_files, _web_search, _fetch_url_content, _run_terminal_command,
@@ -1162,6 +1163,138 @@ def main(page: ft.Page):
             page.run_task(_tool_refresh, folder)
 
         _run_bg_action(f"Collage de {len(src_paths)} élément(s)", _work)
+
+    # ═════════════════════════════════════════════════════════════════════
+    #  Import depuis un téléphone (MTP, Windows uniquement) — cf.
+    #  Data/mtp_devices.py. Copie directement dans le dossier Hub courant,
+    #  pas besoin de passer par l'explorateur Windows (retour user :
+    #  allers-retours tactiles pénibles entre Explorateur et Hub).
+    # ═════════════════════════════════════════════════════════════════════
+    def _launch_import_phone(event=None):
+        _close_actions()
+        try:
+            devices = mtp_devices.list_devices()
+        except mtp_devices.MTPError as exc:
+            _log_to_terminal(f"[ERREUR] {exc}", RED, clear=True)
+            return
+        if not devices:
+            _log_to_terminal(
+                "[ATTENTION] Aucun téléphone détecté — vérifie qu'il est "
+                "branché et déverrouillé, et que le transfert de "
+                "fichiers est autorisé sur l'écran du téléphone", ORANGE,
+                clear=True)
+            return
+        if len(devices) == 1:
+            _open_mtp_import_dialog(devices[0])
+            return
+        # Plusieurs appareils : simple choix avant de parcourir.
+        dlg = ft.AlertDialog(
+            title=ft.Text("Quel appareil ?", size=CONSTANTS.TEXT_SM,
+                          color=WHITE),
+            content=ft.Column([
+                ft.TextButton(
+                    d.description,
+                    on_click=lambda e, dev=d: (
+                        setattr(dlg, "open", False), page.update(),
+                        _open_mtp_import_dialog(dev)))
+                for d in devices
+            ], tight=True),
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    def _open_mtp_import_dialog(device):
+        status_text = ft.Text("Recherche des photos…", size=CONSTANTS.TEXT_SM,
+                              color=WHITE)
+        list_view = ft.ListView(height=360, spacing=2)
+        import_btn = ft.TextButton("Importer", disabled=True)
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"Photos — {device.description}",
+                         size=CONSTANTS.TEXT_SM, color=WHITE),
+            content=ft.Column([status_text, list_view], tight=True,
+                              width=420),
+            actions=[
+                ft.TextButton("Annuler",
+                             on_click=lambda e: _close_mtp_dialog(dlg)),
+                import_btn,
+            ],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+        checks = {}  # MTPItem -> ft.Checkbox
+
+        def _scan():
+            try:
+                folders = mtp_devices.find_photo_folders(device)
+                items = []
+                for folder in folders:
+                    for child in folder.children():
+                        if not child.is_folder:
+                            items.append((folder.name, child))
+            except mtp_devices.MTPError as exc:
+                status_text.value = f"Erreur : {exc}"
+                page.update()
+                return
+            if not items:
+                status_text.value = (
+                    "Aucune photo trouvée dans les dossiers usuels "
+                    "(DCIM, Pictures, WhatsApp Images…)")
+                page.update()
+                return
+            status_text.value = f"{len(items)} fichier(s) trouvé(s) :"
+            for folder_name, item in items:
+                cb = ft.Checkbox(value=False, active_color=BLUE)
+                checks[item] = cb
+                list_view.controls.append(ft.ListTile(
+                    leading=cb,
+                    title=ft.Text(item.name, size=CONSTANTS.TEXT_SM,
+                                 color=WHITE),
+                    subtitle=ft.Text(folder_name, size=CONSTANTS.TEXT_SM,
+                                    color=GREY),
+                    dense=True,
+                    on_click=lambda e, c=cb: (
+                        setattr(c, "value", not c.value), page.update()),
+                ))
+            import_btn.disabled = False
+            import_btn.on_click = lambda e: _confirm_mtp_import(
+                dlg, [item for item, cb in checks.items() if cb.value])
+            page.update()
+
+        threading.Thread(target=_scan, daemon=True).start()
+
+    def _close_mtp_dialog(dlg):
+        dlg.open = False
+        page.update()
+
+    def _confirm_mtp_import(dlg, items):
+        _close_mtp_dialog(dlg)
+        if not items:
+            return
+        folder = state["folder"]
+
+        def _work():
+            done, errors = 0, 0
+            for i, item in enumerate(items, 1):
+                _log_to_terminal(
+                    f"[...] Import {i}/{len(items)} : {item.name}", ORANGE)
+                try:
+                    item.download_to(folder)
+                    done += 1
+                except Exception as exc:
+                    errors += 1
+                    _log_to_terminal(
+                        f"[ERREUR] {item.name} : {exc}", RED)
+            if done:
+                _log_to_terminal(f"[OK] {done} photo(s) importée(s)", BLUE)
+            if errors:
+                _log_to_terminal(f"[ATTENTION] {errors} erreur(s)", ORANGE)
+            page.run_task(_tool_refresh, folder)
+
+        _run_bg_action(f"Import de {len(items)} photo(s) depuis le téléphone",
+                       _work)
 
     def _do_delete(paths):
         folder = state["folder"]
@@ -7032,34 +7165,42 @@ def main(page: ft.Page):
     # project_business_workflow), pas les intitulés génériques de la
     # maquette (celle-ci utilisait des actions fictives) — Bluetooth et
     # Imprimer n'y sont plus : remontés dans la barre de titre (accès global).
-    _ACTION_CATEGORIES = [
+    _fichier_actions = [
         # Reprend les handlers des boutons de la barre de recherche et de
         # la barre d'outils fichiers (retour user : clic droit → Actions
         # est parfois plus pratique/habituel que ces icônes) — mêmes
         # lambdas, donc mêmes garde-fous de sélection déjà en place.
-        ("Fichier", [
-            ("Imprimer", ft.Icons.PRINT_OUTLINED, ORANGE, _launch_print),
-            ("Nombre d'impressions", ft.Icons.NUMBERS, ORANGE,
-             lambda e: _run_action(_set_print_count, list(selected))
-                       if len(selected) == 1 else None),
-            ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
-             renommer_btn.on_click),
-            ("Copier", ft.Icons.CONTENT_COPY, BLUE, copier_btn.on_click),
-            # Ces trois-là déclenchent EXACTEMENT le même handler que les
-            # boutons de la barre d'outils (couper/coller/zipper) : ils
-            # doivent en porter la couleur, sinon la même action a deux
-            # identités selon l'endroit où on la lance.
-            ("Couper", ft.Icons.CONTENT_CUT, BLUE, couper_btn.on_click),
-            ("Coller", ft.Icons.CONTENT_PASTE, BLUE, coller_btn.on_click),
-            ("Dupliquer", ft.Icons.FILE_COPY_OUTLINED, BLUE,
-             dupliquer_btn.on_click),
-            ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE,
-             zipper_btn.on_click),
-            ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
-             ajouter_ia_btn.on_click),
-            ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
-             supprimer_btn.on_click),
-        ]),
+        ("Imprimer", ft.Icons.PRINT_OUTLINED, ORANGE, _launch_print),
+        ("Nombre d'impressions", ft.Icons.NUMBERS, ORANGE,
+         lambda e: _run_action(_set_print_count, list(selected))
+                   if len(selected) == 1 else None),
+        ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
+         renommer_btn.on_click),
+        ("Copier", ft.Icons.CONTENT_COPY, BLUE, copier_btn.on_click),
+        # Ces trois-là déclenchent EXACTEMENT le même handler que les
+        # boutons de la barre d'outils (couper/coller/zipper) : ils
+        # doivent en porter la couleur, sinon la même action a deux
+        # identités selon l'endroit où on la lance.
+        ("Couper", ft.Icons.CONTENT_CUT, BLUE, couper_btn.on_click),
+        ("Coller", ft.Icons.CONTENT_PASTE, BLUE, coller_btn.on_click),
+        ("Dupliquer", ft.Icons.FILE_COPY_OUTLINED, BLUE,
+         dupliquer_btn.on_click),
+        ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE,
+         zipper_btn.on_click),
+        ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
+         ajouter_ia_btn.on_click),
+        ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
+         supprimer_btn.on_click),
+    ]
+    if mtp_devices.IS_WINDOWS:
+        # Windows uniquement (API Windows Portable Devices) — absent du
+        # menu sur macOS/Linux plutôt qu'un bouton qui échouerait toujours
+        # au clic, cf. Data/mtp_devices.py.
+        _fichier_actions.insert(6, (
+            "Importer depuis téléphone", ft.Icons.PHONE_IPHONE, BLUE,
+            _launch_import_phone))
+    _ACTION_CATEGORIES = [
+        ("Fichier", _fichier_actions),
         ("Préparation", [
             ("Conversion JPG", ft.Icons.IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Conversion JPG.py",

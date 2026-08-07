@@ -116,6 +116,10 @@ paramiko>=3.4.0
 # Ignoré automatiquement sur macOS et Linux.
 pywin32; sys_platform == "win32"
 
+# Pilotage COM de l'API Windows Portable Devices (import photos depuis un
+# smartphone Android connecté en MTP, cf. Data/mtp_devices.py).
+comtypes; sys_platform == "win32"
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # OPTIONNEL — AUGMENTATION IA  (Augmentation IA.py)
