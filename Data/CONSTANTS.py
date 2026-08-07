@@ -369,6 +369,30 @@ TEMP_FOLDER = "\\\\Diskstation\\travaux en cours\\Z2026\\TEMP"   # Windows
 TRANSFER_TEMP_CONFIRM_DELETE_SELECTED = True   # True = demande confirmation avant suppression des originaux si SOURCE_FILES est fourni par Hub
 
 
+# ── 7.1 bis  Import depuis un téléphone (MTP) ─────────────────────────────────
+# Les photos d'un téléphone branché en MTP sont copiées ici avant d'être
+# utilisables dans Hub : un appareil MTP n'a pas de lettre de lecteur, donc
+# ni les vignettes, ni le plein écran, ni les outils externes (qui reçoivent
+# des chemins de fichiers) ne savent lire dessus directement.
+# DOIT rester un dossier LOCAL et pas un partage réseau : on y écrit plusieurs
+# Go à ~33 Mo/s, un aller-retour par le NAS diviserait le débit.
+# Chaque import crée un sous-dossier daté (cf. _import_phone_folders).
+
+def _pictures_dir():
+    """Dossier images de l'utilisateur, quel que soit l'OS et la langue
+    d'installation. Retombe sur le dossier personnel si aucun candidat
+    n'existe — jamais d'échec, le dossier sera créé à la demande."""
+    home = os.path.expanduser("~")
+    for name in ("Pictures", "Images"):
+        candidate = os.path.join(home, name)
+        if os.path.isdir(candidate):
+            return candidate
+    return home
+
+
+PHONE_IMPORT_FOLDER = os.path.join(_pictures_dir(), "Imports téléphone")
+
+
 # ── 7.2  Nettoyage automatique ────────────────────────────────────────────────
 # Utilisée par Nettoyer anciens fichiers.py.
 

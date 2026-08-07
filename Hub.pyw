@@ -309,6 +309,7 @@ def main(page: ft.Page):
     selected = []                        # chemins sélectionnés (images + dossiers)
     clipboard = {"paths": [], "mode": None}   # mode: "copy" | "cut" | None
     drives_state = {"list": []}          # [(nom, chemin), ...] — cache tenu à jour par _poll_removable_drives
+    phones_state = {"list": []}          # [(description, id PnP), ...] — téléphones MTP, même sondage
 
     def _select_add(path):
         if path not in selected:
@@ -1170,53 +1171,45 @@ def main(page: ft.Page):
     #  pas besoin de passer par l'explorateur Windows (retour user :
     #  allers-retours tactiles pénibles entre Explorateur et Hub).
     # ═════════════════════════════════════════════════════════════════════
-    def _launch_import_phone(event=None):
-        _close_actions()
-        try:
-            devices = mtp_devices.list_devices()
-        except mtp_devices.MTPError as exc:
-            _log_to_terminal(f"[ERREUR] {exc}", RED, clear=True)
-            return
-        if not devices:
-            _log_to_terminal(
-                "[ATTENTION] Aucun téléphone détecté — vérifie qu'il est "
-                "branché et déverrouillé, et que le transfert de "
-                "fichiers est autorisé sur l'écran du téléphone", ORANGE,
-                clear=True)
-            return
-        if len(devices) == 1:
-            _open_mtp_import_dialog(devices[0])
-            return
-        # Plusieurs appareils : simple choix avant de parcourir.
-        dlg = ft.AlertDialog(
-            title=ft.Text("Quel appareil ?", size=CONSTANTS.TEXT_SM,
-                          color=WHITE),
-            content=ft.Column([
-                ft.TextButton(
-                    d.description,
-                    on_click=lambda e, dev=d: (
-                        setattr(dlg, "open", False), page.update(),
-                        _open_mtp_import_dialog(dev)))
-                for d in devices
-            ], tight=True),
-        )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+    #  RÈGLE : aucun appel MTP depuis le thread UI. COM s'initialise par
+    #  thread et un pointeur d'interface n'est partageable qu'entre threads
+    #  du même apartment ; mtp_devices met les threads de travail en MTA,
+    #  mais le thread principal est en STA (comtypes l'initialise ainsi à
+    #  l'import). Tout passer par des threads de travail garde donc tous
+    #  les objets COM dans le même apartment. Le thread UI ne manipule que
+    #  des chaînes : l'ID PnP et la description de l'appareil.
+    def _format_size(n):
+        if not n:
+            return ""
+        for unit in ("o", "Ko", "Mo", "Go"):
+            if n < 1024 or unit == "Go":
+                return f"{n:.0f} {unit}" if unit == "o" else f"{n:.1f} {unit}"
+            n /= 1024
 
-    def _open_mtp_import_dialog(device):
-        status_text = ft.Text("Recherche des photos…", size=CONSTANTS.TEXT_SM,
+    def _open_mtp_import_dialog(pnp_id, description):
+        # Navigation dossier par dossier plutôt qu'une liste à plat de tout
+        # le téléphone : le premier essai listait 2385 photos d'un coup,
+        # inexploitable au poste tactile (retour user 2026-08-07).
+        status_text = ft.Text("Ouverture…", size=CONSTANTS.TEXT_SM,
                               color=WHITE)
+        crumb_text = ft.Text("", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY,
+                             no_wrap=True, expand=True)
+        up_btn = ft.IconButton(
+            ft.Icons.ARROW_UPWARD, icon_color=BLUE,
+            icon_size=CONSTANTS.ICON_SM, tooltip="Dossier parent",
+            disabled=True)
         list_view = ft.ListView(height=360, spacing=2)
         import_btn = ft.TextButton("Importer", disabled=True)
         dlg = ft.AlertDialog(
-            title=ft.Text(f"Photos — {device.description}",
-                         size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([status_text, list_view], tight=True,
-                              width=420),
+            title=ft.Text(description, size=CONSTANTS.TEXT_SM, color=WHITE),
+            content=ft.Column([
+                ft.Row([crumb_text, up_btn], spacing=4),
+                status_text,
+                list_view,
+            ], tight=True, width=520),
             actions=[
                 ft.TextButton("Annuler",
-                             on_click=lambda e: _close_mtp_dialog(dlg)),
+                              on_click=lambda e: _close_mtp_dialog(dlg)),
                 import_btn,
             ],
         )
@@ -1224,111 +1217,304 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
-        checks = {}  # MTPItem -> ft.Checkbox
+        # On coche des DOSSIERS, pas des photos : la sélection fine se fait
+        # ensuite dans le panneau Fichiers, avec les vignettes, le plein
+        # écran et tous les outils habituels — ce qui suppose de vrais
+        # fichiers sur le disque (retour user 2026-08-07 : « je veux voir
+        # les images », impossible sur une liste de noms). La sélection
+        # survit à la navigation : on peut cocher Camera, remonter, cocher
+        # Screenshots, et tout copier d'un coup.
+        picked = {}
+        # Pile des dossiers traversés, la racine de l'appareil en premier.
+        trail = []
 
-        def _do_scan():
-            folders = mtp_devices.find_photo_folders(device)
-            items = []
-            for folder in folders:
-                for child in folder.children():
-                    if not child.is_folder:
-                        items.append((folder.name, child))
-            return items
+        def _refresh_import_btn():
+            import_btn.disabled = not picked
+            import_btn.text = (f"Copier ({len(picked)} dossier(s))" if picked
+                               else "Copier")
 
-        def _scan():
-            # Filet de sécurité : les appels COM WPD (EnumObjects/Next)
-            # peuvent bloquer indéfiniment plutôt que lever une exception
-            # si le marshaling généré par comtypes est en cause (cas connu,
-            # cf. commentaire dans la lib d'origine) — sans délai max, la
-            # fenêtre restait figée sur "Recherche..." pour toujours, sans
-            # aucun message (retour user, premier essai réel 2026-08-07).
-            # PAS de "with" ici : si le thread reste bloqué, le "with"
-            # attendrait sa fin à la sortie du bloc (shutdown(wait=True)
-            # implicite) et annulerait tout l'intérêt du timeout. Le
-            # thread orphelin sera nettoyé par l'OS à la fermeture de
-            # l'appli — acceptable pour ce cas rare.
+        def _toggle(item, checkbox):
+            # Appelée depuis on_change : Flet a DÉJÀ basculé checkbox.value
+            # avant de déclencher l'événement. Le rebasculer ici annulerait
+            # le clic (case qui refuse de se cocher).
+            if checkbox.value:
+                picked[item.object_id] = item
+            else:
+                picked.pop(item.object_id, None)
+            _refresh_import_btn()
+            page.update()
+
+        def _load(item, label, descend):
+            """Charge un dossier dans un thread : les appels WPD prennent
+            de quelques dizaines de ms à plusieurs secondes selon le
+            nombre d'objets, et figeraient l'UI Flet."""
+            if descend:
+                trail.append((label, item))
+            elif len(trail) > 1:
+                trail.pop()
+            crumb_text.value = " › ".join(lbl for lbl, _ in trail)
+            up_btn.disabled = len(trail) <= 1
+            status_text.value = "Chargement…"
+            list_view.controls.clear()
+            page.update()
+            threading.Thread(target=lambda: _fill(trail[-1][1]),
+                             daemon=True).start()
+
+        def _fill(current):
+            if current is None:
+                # Première ouverture : l'appareil est ouvert ici, dans un
+                # thread de travail, et pas sur le thread UI (cf. la RÈGLE
+                # plus haut). trail garde la racine pour les retours.
+                try:
+                    current = mtp_devices.MTPDevice(pnp_id).root()
+                except Exception as exc:
+                    status_text.value = f"Erreur : {exc}"
+                    page.update()
+                    return
+                trail[0] = (trail[0][0], current)
+            # PAS de "with" sur le pool : si le thread reste bloqué sur un
+            # appel COM, la sortie du bloc attendrait sa fin
+            # (shutdown(wait=True) implicite) et annulerait l'intérêt du
+            # délai max. Le thread orphelin part à la fermeture de l'appli.
             pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-            future = pool.submit(_do_scan)
+            future = pool.submit(mtp_devices.list_folder, current)
             try:
-                items = future.result(timeout=15)
+                # 90 s : marge large, uniquement pour éviter un blocage
+                # définitif. Un dossier de 1600 photos se lit en moins
+                # d'une seconde sur le Mi 10T de test.
+                folders, files = future.result(timeout=90)
             except concurrent.futures.TimeoutError:
                 status_text.value = (
-                    "Le téléphone ne répond pas (délai dépassé). "
-                    "Vérifie qu'il est déverrouillé et que le "
-                    "transfert de fichiers est bien autorisé, puis "
-                    "réessaie.")
+                    "Le téléphone ne répond pas (délai dépassé). Vérifie "
+                    "qu'il est déverrouillé et que le transfert de "
+                    "fichiers est bien autorisé, puis réessaie.")
                 page.update()
                 pool.shutdown(wait=False)
                 return
-            except mtp_devices.MTPError as exc:
+            except Exception as exc:
+                # Volontairement large : une exception non prévue ici
+                # (signature COM, appareil débranché en cours de route...)
+                # tuait le thread en silence et laissait le dialogue figé
+                # sur "Recherche des photos..." pour toujours — c'était ça,
+                # le "blocage" du premier essai réel (2026-08-07).
                 status_text.value = f"Erreur : {exc}"
                 page.update()
                 pool.shutdown(wait=False)
                 return
             pool.shutdown(wait=False)
-            if not items:
-                status_text.value = (
-                    "Aucune photo trouvée dans les dossiers usuels "
-                    "(DCIM, Pictures, WhatsApp Images…)")
-                page.update()
-                return
-            status_text.value = f"{len(items)} fichier(s) trouvé(s) :"
-            for folder_name, item in items:
-                cb = ft.Checkbox(value=False, active_color=BLUE)
-                checks[item] = cb
-                list_view.controls.append(ft.ListTile(
+
+            rows = []
+            for folder in folders:
+                # Case = « copier ce dossier », clic sur la ligne = entrer
+                # dedans. Les deux gestes sont distincts pour rester
+                # utilisables au doigt.
+                cb = ft.Checkbox(value=folder.object_id in picked,
+                                 active_color=BLUE,
+                                 on_change=lambda e, f=folder: _toggle(
+                                     f, e.control))
+                rows.append(ft.ListTile(
                     leading=cb,
-                    title=ft.Text(item.name, size=CONSTANTS.TEXT_SM,
-                                 color=WHITE),
-                    subtitle=ft.Text(folder_name, size=CONSTANTS.TEXT_SM,
-                                    color=GREY),
+                    title=ft.Text(folder.name, size=CONSTANTS.TEXT_SM,
+                                  color=WHITE, no_wrap=True),
+                    trailing=ft.Icon(ft.Icons.CHEVRON_RIGHT,
+                                     color=LIGHT_GREY,
+                                     size=CONSTANTS.ICON_SM),
                     dense=True,
-                    on_click=lambda e, c=cb: (
-                        setattr(c, "value", not c.value), page.update()),
+                    on_click=lambda e, f=folder: _load(f, f.name, True),
                 ))
-            import_btn.disabled = False
+            # Les photos sont listées pour voir ce que contient le dossier
+            # avant de le cocher, mais sans case : on ne choisit pas photo
+            # par photo ici.
+            shown = 0
+            for item in files:
+                # Un dossier photo contient aussi des vidéos et des PDF
+                # (Download surtout) : ils ne sont ni comptés ni copiés.
+                if os.path.splitext(item.name)[1].lower() \
+                        not in CONSTANTS.IMAGE_EXTS:
+                    continue
+                shown += 1
+                if shown > 40:
+                    continue
+                details = [d for d in (
+                    item.date.strftime("%d/%m/%Y") if item.date else "",
+                    _format_size(item.size)) if d]
+                rows.append(ft.ListTile(
+                    leading=ft.Icon(ft.Icons.IMAGE_OUTLINED, color=GREY,
+                                    size=CONSTANTS.ICON_SM),
+                    title=ft.Text(item.name, size=CONSTANTS.TEXT_SM,
+                                  color=LIGHT_GREY, no_wrap=True),
+                    subtitle=ft.Text(" — ".join(details),
+                                     size=CONSTANTS.TEXT_SM, color=GREY),
+                    dense=True,
+                ))
+            if shown > 40:
+                # Plafond d'affichage : rendre 1600 lignes fige Flet
+                # plusieurs secondes, et ça ne sert à rien puisqu'on coche
+                # le dossier entier.
+                rows.append(ft.ListTile(
+                    title=ft.Text(f"… et {shown - 40} autres photos",
+                                  size=CONSTANTS.TEXT_SM, color=GREY,
+                                  italic=True),
+                    dense=True,
+                ))
+            list_view.controls = rows
+            parts = []
+            if folders:
+                parts.append(f"{len(folders)} dossier(s)")
+            if shown:
+                parts.append(f"{shown} photo(s)")
+            status_text.value = " — ".join(parts) or "Dossier vide"
+            _refresh_import_btn()
             import_btn.on_click = lambda e: _confirm_mtp_import(
-                dlg, [item for item, cb in checks.items() if cb.value])
+                dlg, list(picked.values()))
             page.update()
 
-        threading.Thread(target=_scan, daemon=True).start()
+        up_btn.on_click = lambda e: _load(None, None, False)
+        # La racine entre dans trail avec un item None : _fill l'ouvre
+        # lui-même côté thread de travail.
+        _load(None, description, True)
 
     def _close_mtp_dialog(dlg):
         dlg.open = False
         page.update()
 
-    def _confirm_mtp_import(dlg, items):
+    # Débit mesuré sur un Mi 10T en USB : ~33 Mo/s, soit 0,19 s pour une
+    # photo de 6,3 Mo. Sert uniquement à annoncer une durée avant de lancer.
+    _MTP_BYTES_PER_SEC = 33 * 1024 * 1024
+    # Au-delà, on propose de n'en prendre qu'une partie : copier les 1637
+    # photos de DCIM/Camera, c'est 9,9 Go et 5,3 min d'attente, alors qu'un
+    # client vient en général imprimer ses photos récentes.
+    _MTP_RECENT_COUNT = 200
+
+    def _confirm_mtp_import(dlg, folders):
         _close_mtp_dialog(dlg)
-        if not items:
+        if not folders:
             return
-        folder = state["folder"]
+
+        def _count():
+            """Liste les photos des dossiers cochés, les plus récentes en
+            tête. Tourne sur un thread de travail (appels MTP)."""
+            items, total = [], 0
+            seen = set()
+            for folder in folders:
+                # walk_files et pas list_folder : cocher DCIM doit prendre
+                # Camera, Screenshots... sinon on ne copierait rien, ce
+                # dossier ne contenant que des sous-dossiers sur Android.
+                for item in mtp_devices.walk_files(folder):
+                    if item.object_id in seen:
+                        continue
+                    if os.path.splitext(item.name)[1].lower() \
+                            in CONSTANTS.IMAGE_EXTS:
+                        seen.add(item.object_id)
+                        items.append(item)
+                        total += item.size or 0
+            # Un seul tri global : cocher Camera + Screenshots doit donner
+            # une suite chronologique, pas deux blocs accolés.
+            items.sort(key=lambda f: (f.date is not None, f.date, f.name),
+                       reverse=True)
+            return items, total
+
+        def _ask(items, total):
+            if not items:
+                _log_to_terminal(
+                    "[ATTENTION] Aucune photo dans les dossiers choisis",
+                    ORANGE, clear=True)
+                return
+            minutes = total / _MTP_BYTES_PER_SEC / 60
+            duration = (f"{minutes:.0f} min" if minutes >= 1
+                        else f"{total / _MTP_BYTES_PER_SEC:.0f} s")
+            actions = [ft.TextButton(
+                "Annuler", on_click=lambda e: _close_mtp_dialog(ask_dlg))]
+            if len(items) > _MTP_RECENT_COUNT:
+                recent = items[:_MTP_RECENT_COUNT]
+                recent_size = sum(i.size or 0 for i in recent)
+                actions.append(ft.TextButton(
+                    f"Les {_MTP_RECENT_COUNT} plus récentes "
+                    f"({_format_size(recent_size)})",
+                    on_click=lambda e: (_close_mtp_dialog(ask_dlg),
+                                        _start_mtp_copy(recent))))
+            actions.append(ft.TextButton(
+                f"Tout copier ({_format_size(total)}, {duration})",
+                on_click=lambda e: (_close_mtp_dialog(ask_dlg),
+                                    _start_mtp_copy(items))))
+            ask_dlg = ft.AlertDialog(
+                title=ft.Text("Copier depuis le téléphone",
+                              size=CONSTANTS.TEXT_SM, color=WHITE),
+                content=ft.Text(
+                    f"{len(items)} photo(s) dans {len(folders)} dossier(s), "
+                    f"{_format_size(total)} au total (~{duration}).\n\n"
+                    "Les photos sont copiées dans un dossier local, puis "
+                    "Hub s'ouvre dessus : tu y retrouves les vignettes, le "
+                    "plein écran, la sélection et le transfert vers TEMP.",
+                    color=WHITE),
+                actions=actions,
+            )
+            page.overlay.append(ask_dlg)
+            ask_dlg.open = True
+            page.update()
 
         def _work():
-            done, errors = 0, 0
-            imported_names = []
-            for i, item in enumerate(items, 1):
+            try:
+                items, total = _count()
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] {exc}", RED, clear=True)
+                return
+            _ask(items, total)
+
+        _run_bg_action("Inventaire des photos du téléphone", _work)
+
+    def _start_mtp_copy(items):
+        # Sous-dossier daté : deux imports successifs ne se mélangent pas,
+        # et on retrouve celui du client précédent (même principe que le
+        # sous-dossier daté de Transfert vers TEMP.py).
+        dest = os.path.join(
+            CONSTANTS.PHONE_IMPORT_FOLDER,
+            datetime.datetime.now().strftime("%Y-%m-%d %Hh%M"))
+
+        def _work():
+            try:
+                os.makedirs(dest, exist_ok=True)
+            except OSError as exc:
                 _log_to_terminal(
-                    f"[...] Import {i}/{len(items)} : {item.name}", ORANGE)
+                    f"[ERREUR] Dossier d'import impossible : {exc}", RED)
+                return
+            # Navigation immédiate sur le dossier vide : les photos y
+            # apparaissent au fur et à mesure, on peut commencer à
+            # travailler sans attendre la fin (retour user : « il me faut
+            # des feedback pour voir l'avancée »).
+            page.run_task(_tool_refresh, dest)
+            done, errors, copied_bytes = 0, 0, 0
+            total = len(items)
+            for i, item in enumerate(items, 1):
                 try:
-                    dest = item.download_to(folder)
-                    imported_names.append(os.path.basename(dest))
+                    item.download_to(dest)
                     done += 1
+                    copied_bytes += item.size or 0
                 except Exception as exc:
                     errors += 1
-                    _log_to_terminal(
-                        f"[ERREUR] {item.name} : {exc}", RED)
+                    _log_to_terminal(f"[ERREUR] {item.name} : {exc}", RED)
+                    continue
+                _log_to_terminal(
+                    f"[...] {i}/{total} — {item.name} "
+                    f"({_format_size(copied_bytes)})", ORANGE)
+                # Rafraîchit la grille toutes les 10 photos, mais JAMAIS si
+                # une sélection est en cours : _tool_refresh passe par
+                # _navigate, qui vide la sélection — ça effacerait le choix
+                # en train d'être fait pendant la copie.
+                if i % 10 == 0 and not selected:
+                    page.run_task(_tool_refresh, dest)
             if done:
-                _log_to_terminal(f"[OK] {done} photo(s) importée(s)", BLUE)
+                _log_to_terminal(
+                    f"[OK] {done} photo(s) copiée(s) dans {dest}", BLUE)
             if errors:
-                _log_to_terminal(f"[ATTENTION] {errors} erreur(s)", ORANGE)
-            # Comme _launch_tool : les fichiers importés arrivent déjà
-            # sélectionnés, prêts pour "Transfert vers TEMP" ou toute
-            # autre action sans devoir les re-sélectionner (retour user,
-            # workflow réel au poste tactile).
-            page.run_task(_tool_refresh, folder, imported_names)
+                _log_to_terminal(
+                    f"[ATTENTION] {errors} échec(s) — téléphone verrouillé "
+                    "ou débranché en cours de copie ?", ORANGE)
+            if not selected:
+                page.run_task(_tool_refresh, dest)
 
-        _run_bg_action(f"Import de {len(items)} photo(s) depuis le téléphone",
-                       _work)
+        _run_bg_action(
+            f"Copie de {len(items)} photo(s) depuis le téléphone", _work)
 
     def _do_delete(paths):
         folder = state["folder"]
@@ -3092,6 +3278,24 @@ def main(page: ft.Page):
         # passent en tête de liste, les autres gardent leur ordre.
         prev_drives = []
         ordered_drives = []
+
+        def _poll_phones():
+            # Les téléphones MTP n'ont pas de lettre de lecteur : ils ne
+            # peuvent pas passer par _get_removable_drives. Sondés ici pour
+            # apparaître dans le même volet "Périphériques" du menu Ouvrir
+            # (retour user 2026-08-07 : le bouton était perdu dans
+            # Actions). ~50 ms, et sur un thread de travail, donc apartment
+            # COM correct (cf. la RÈGLE dans la section MTP).
+            try:
+                phones_state["list"] = [
+                    (d.description, d.id) for d in mtp_devices.list_devices()]
+            except Exception:
+                phones_state["list"] = []
+
+        # Premier sondage tout de suite : le scan initial des lecteurs, lui,
+        # est fait en synchrone au démarrage, mais il doit rester hors du
+        # thread principal pour les téléphones.
+        _poll_phones()
         while True:
             time.sleep(3)
             try:
@@ -3104,6 +3308,7 @@ def main(page: ft.Page):
                     drives_state["list"] = ordered_drives
             except Exception:
                 pass
+            _poll_phones()
 
     def _eject_drive(path):
         # Même logique que Dashboard.pyw:7376 (_eject_drive).
@@ -3166,6 +3371,22 @@ def main(page: ft.Page):
             content_padding=ft.Padding(left=10, top=0, right=4, bottom=0),
         )
 
+    def _phone_row(description, pnp_id):
+        # Pas de bouton Éjecter : un appareil MTP n'est pas monté comme un
+        # volume, il se débranche sans précaution. Et pas de _open_from_menu
+        # non plus : il n'y a pas de chemin disque à ouvrir, d'où le
+        # dialogue de navigation dédié.
+        return ft.ListTile(
+            leading=ft.Icon(ft.Icons.PHONE_IPHONE, color=BLUE,
+                            size=CONSTANTS.ICON_SM),
+            title=ft.Text(description, size=CONSTANTS.TEXT_SM, color=WHITE,
+                          no_wrap=True),
+            on_click=lambda e: (_close_open_menu(),
+                                _open_mtp_import_dialog(pnp_id, description)),
+            hover_color=GREY, dense=True,
+            content_padding=ft.Padding(left=10, top=0, right=4, bottom=0),
+        )
+
     def _remove_favorite(path):
         favs = [f for f in _load_favorites() if f["path"] != path]
         _save_favorites(favs)
@@ -3217,9 +3438,12 @@ def main(page: ft.Page):
         # à jour en tâche de fond par _poll_removable_drives (toutes les
         # 3 s), donc déjà disponible sans scanner à l'ouverture du menu
         # (retour user : accès immédiat avec un client en attente).
+        # Téléphones en tête : quand on en branche un, c'est pour l'ouvrir
+        # tout de suite, alors qu'une clé/carte reste souvent branchée.
         drive_lane = _menu_lane(
             "Périphériques",
-            [_drive_row(n, p) for n, p in drives_state["list"]],
+            [_phone_row(n, i) for n, i in phones_state["list"]]
+            + [_drive_row(n, p) for n, p in drives_state["list"]],
             "Aucun périphérique externe")
 
         def _prune_recents():
@@ -7226,13 +7450,10 @@ def main(page: ft.Page):
         ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
          supprimer_btn.on_click),
     ]
-    if mtp_devices.IS_WINDOWS:
-        # Windows uniquement (API Windows Portable Devices) — absent du
-        # menu sur macOS/Linux plutôt qu'un bouton qui échouerait toujours
-        # au clic, cf. Data/mtp_devices.py.
-        _fichier_actions.insert(6, (
-            "Importer depuis téléphone", ft.Icons.PHONE_IPHONE, BLUE,
-            _launch_import_phone))
+    # Pas d'entrée "Importer depuis téléphone" ici : le téléphone apparaît
+    # dans le volet "Périphériques" du menu Ouvrir, au même endroit que les
+    # clés USB et les cartes SD, ce qui est là où on le cherche (retour
+    # user 2026-08-07). Cf. _phone_row.
     _ACTION_CATEGORIES = [
         ("Fichier", _fichier_actions),
         ("Préparation", [

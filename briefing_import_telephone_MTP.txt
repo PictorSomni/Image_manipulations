@@ -1,49 +1,166 @@
 Briefing — Import photos téléphone (MTP) dans Hub.pyw
 ========================================================
+Mis à jour le 2026-08-07 en fin de séance. Le téléphone de test (Xiaomi
+Mi 10T, prêté) a été rendu : il reste un retest matériel à faire.
 
 Contexte
 --------
 Charles gère ~/Documents/GitHub/Image_manipulations (repo GitHub
 PictorSomni/Image_manipulations), une app Flet (Hub.pyw) de
 gestion/retouche/impression photo utilisée sur un poste tactile en
-boutique. Nouvelle fonctionnalité en cours : importer directement les
-photos d'un téléphone Android (branché en MTP) sans passer par
-l'Explorateur Windows.
+boutique. Fonctionnalité : importer les photos d'un téléphone Android
+branché en MTP sans passer par l'Explorateur Windows.
 
-Ce qui a été fait (3 commits poussés le 2026-08-07, 44423f4 -> 8608054
--> 72b9733)
---------------------------------------------------------------------
-- Data/mtp_devices.py (nouveau) : pilote l'API Windows Portable Devices
-  via comtypes, adapté de github.com/KasparNagu/PortableDevices. Liste
-  les appareils, parcourt les dossiers, télécharge des fichiers.
-  IS_WINDOWS-gardé, no-op propre sur Mac/Linux.
-- Bouton "Importer depuis téléphone" dans Hub.pyw (panneau Actions,
-  catégorie Fichier, Windows uniquement) : détecte le téléphone, scanne
-  les dossiers photo usuels (DCIM, Pictures, WhatsApp Images), affiche
-  une liste à cocher, importe dans le dossier Hub ouvert, auto-sélectionne
-  les fichiers importés (réutilise _tool_refresh(folder, names=...) déjà
-  existant) pour enchaîner direct sur "Transfert vers TEMP".
+Usage réel visé : un client arrive avec ses photos sur son téléphone, il
+faut les VOIR pour choisir lesquelles imprimer. Une liste de noms de
+fichiers ne sert à rien.
 
-Bug en cours
-------------
-Au premier essai réel, le scan reste bloqué indéfiniment sur "Recherche
-des photos…" (téléphone détecté OK, mais la lecture du contenu ne finit
-jamais, aucune erreur). Piste principale : la boucle EnumObjects/Next
-dans MTPItem.children() (Data/mtp_devices.py) — la lib source a un
-commentaire disant que ce même appel nécessite parfois un patch manuel
-du stub comtypes généré (paramètre [out] qui devrait être [in, out]),
-donc un souci de marshaling COM est suspecté mais pas confirmé.
 
-Filet de sécurité déjà en place
---------------------------------
-Timeout de 15s sur le scan (commit 72b9733), donc ça échouera proprement
-avec un message au lieu de rester figé — utile pour itérer plus vite.
+LE BUG D'ORIGINE : résolu
+--------------------------
+Le scan restait figé sur "Recherche des photos…". Trois causes
+enchaînées, aucune n'étant un vrai blocage :
 
-Prochaine étape concrète
--------------------------
-Après le timeout, aller inspecter le fichier comtypes généré pour
-IEnumPortableDeviceObjectIDs.Next (cache comtypes, typiquement sous
-%LOCALAPPDATA%\Temp\gen_py\ ou comtypes.client.gen_dir) pour voir
-comment Next(celt, rgelt, pceltFetched) a été marshalé, et comparer à ce
-que le code suppose (que "fetched" est un pointeur muté par l'appel).
-Ajuster MTPItem.children() en conséquence.
+1. MTPItem.children() appelait Next() avec 3 arguments alors que le stub
+   comtypes en attend 2 : l'IDL déclare pObjIDs [out, size_is(cObjects)],
+   mais comtypes ne voit qu'un [out] simple, alloue UN seul LPWSTR et le
+   renvoie. Résultat : TypeError immédiat.
+2. _scan() dans Hub.pyw n'attrapait que TimeoutError et MTPError. Le
+   TypeError tuait le thread en silence → dialogue figé pour toujours.
+   C'était ça, le "blocage" — et la raison pour laquelle le filet de
+   sécurité à 15 s ne se déclenchait jamais.
+3. COM n'était pas initialisé dans les threads de travail
+   ("CoInitialize n'a pas été appelé" dès que le scan quittait le thread
+   principal).
+
+Corrigé par _enum_next() (appel par la vtable, slot 3, avec un tableau
+correctement dimensionné + CoTaskMemFree), un except large, et
+_ensure_com(). PAS de patch du cache comtypes : rien à refaire si le
+cache est régénéré.
+
+Bugs annexes trouvés en chemin, tous sur du code jamais exécuté :
+- download_to() : GetStream() appelée avec 5 arguments au lieu de 4, et
+  RemoteRead() avec la mauvaise signature (comtypes.stream la
+  réimplémente et alloue lui-même le tampon).
+- close() appelait Release() à la main → double libération au GC.
+- find_photo_folders() ne descendait pas dans DCIM : sur le Mi 10T, DCIM
+  contient 7 sous-dossiers et 0 fichier, donc les 1600 photos de
+  l'appareil photo étaient invisibles.
+
+
+RÈGLES APPRISES — à ne pas re-casser
+-------------------------------------
+* AUCUN appel MTP depuis le thread UI. COM s'initialise par thread, et un
+  pointeur d'interface n'est partageable qu'entre threads du même
+  apartment. mtp_devices met les threads de travail en MTA ; le thread
+  principal est en STA (comtypes l'initialise ainsi à l'import). Le
+  thread UI ne manipule que des chaînes : l'ID PnP et la description.
+* NE JAMAIS réutiliser un objet IPortableDeviceResources (Transfer())
+  entre plusieurs GetStream : le pilote renvoie alors des erreurs
+  fantaisistes ("Un périphérique qui n'existe pas a été spécifié"). Le
+  recréer à chaque fichier, comme le fait download_to.
+* Ne pas deviner une signature COM : l'introspecter
+  (interface._methods_ -> .paramflags) avant de l'appeler. Les
+  paramètres [out] tableau générés par comtypes sont des pièges.
+* Un téléphone verrouillé ou en "recharge seule" n'expose AUCUN stockage :
+  l'Explorateur Windows le voit vide lui aussi. Vérifier là avant de
+  soupçonner le code. Ça s'est produit trois fois pendant la séance.
+
+
+MESURES SUR LE Mi 10T (utiles pour calibrer)
+---------------------------------------------
+- Énumération : 1637 fichiers dans DCIM/Camera en ~0,01 s.
+- Lecture des propriétés (nom + type + taille + date) : 0,2 ms/objet,
+  en un seul GetValues.
+- Copie : 6,3 Mo par photo, 0,19 s/photo, soit ~33 Mo/s.
+  -> 200 photos ≈ 1,2 Go et 39 s ; les 1637 de Camera ≈ 9,9 Go et 5,3 min.
+- VIGNETTES WPD : INDISPONIBLES sur cet appareil (THUMBNAIL et ICON
+  renvoient 0x8007139F). C'est ce qui a tranché l'architecture : pour
+  fabriquer une version réduite il faudrait de toute façon télécharger le
+  fichier entier, donc l'approche "réduit d'abord, pleine qualité après
+  validation" n'apporte rien — et elle aurait fait courir le risque
+  d'imprimer une vignette. On copie donc directement en pleine qualité.
+  À revérifier si un autre modèle de téléphone se comporte autrement.
+- DATE_CREATED n'est pas renseignée par cet appareil ; DATE_MODIFIED
+  l'est, au format "2025/02/20:15:44:23.000", et correspond bien à la
+  prise de vue.
+
+
+ARCHITECTURE RETENUE (et pourquoi)
+-----------------------------------
+Le panneau Fichiers de Hub est bâti entièrement sur des chemins disque :
+os.scandir, stat, vignettes lues depuis le disque, et surtout les outils
+externes (Transfert vers TEMP.py, impression...) sont des PROCESSUS
+SÉPARÉS qui reçoivent des chemins réels via SOURCE_FILES. Un "dossier
+virtuel" MTP obligerait chaque outil à comprendre le MTP : écarté.
+
+Donc : on copie les photos choisies dans un dossier local, puis Hub
+navigue dessus. Tout le reste (vignettes, plein écran, sélection,
+impression, Transfert vers TEMP) fonctionne alors sans modification,
+parce que ce sont de vrais fichiers dans un vrai dossier.
+
+Parcours utilisateur :
+1. Menu Ouvrir -> volet "Périphériques" : le téléphone y figure au-dessus
+   des clés USB (sondage toutes les 3 s, ~50 ms). Plus de bouton dans
+   Actions.
+2. Dialogue de navigation : case à cocher sur les DOSSIERS, clic sur la
+   ligne pour entrer. Les photos du dossier ouvert sont listées sans case
+   (nom, date, taille), plafonnées à 40 lignes + "… et N autres" — rendre
+   1600 ListTiles fige Flet plusieurs secondes. La sélection de dossiers
+   survit à la navigation.
+3. Confirmation chiffrée : "N photos dans M dossiers, X Go (~Y min)",
+   avec trois boutons : Annuler / Les 200 plus récentes / Tout copier.
+   Tri chronologique GLOBAL (pas par dossier). Vidéos et PDF exclus.
+4. Copie avec trois retours simultanés : barre de progression, une ligne
+   par photo dans le terminal, et Hub qui navigue tout de suite sur le
+   dossier et le rafraîchit toutes les 10 photos (les vignettes
+   apparaissent au fur et à mesure).
+
+Destination : CONSTANTS.PHONE_IMPORT_FOLDER, soit
+~/Pictures/Imports téléphone/AAAA-MM-JJ HHhMM/. Doit rester LOCAL (on y
+écrit plusieurs Go à 33 Mo/s ; passer par le NAS diviserait le débit).
+
+Piège traité : le rafraîchissement passe par _navigate(), qui VIDE la
+sélection. Le rafraîchissement automatique s'arrête donc dès qu'une
+sélection existe, sinon cocher des photos pendant la copie serait annulé
+toutes les 10 photos.
+
+
+CE QUI RESTE À FAIRE — retest matériel
+---------------------------------------
+Rien n'a pu être exercé sur téléphone après la réécriture en sélecteur de
+dossiers. Tout compile, et les parties hors matériel sont vertes
+(scratchpad/test_offline.py : parsing de date, tri avec dates
+manquantes, chemin local, import du module sous un faux Linux, absence
+d'appareil). Hub démarre et tourne sans erreur sans téléphone branché.
+
+À vérifier demain, dans l'ordre :
+1. Le téléphone apparaît dans Ouvrir -> Périphériques.
+2. Navigation : entrer dans les dossiers, remonter, fil d'Ariane correct.
+3. Cocher un dossier CONTENEUR (DCIM) : doit trouver les photos des
+   sous-dossiers via walk_files(). C'est le correctif le moins testé.
+4. Cocher deux dossiers d'arborescences différentes : pas de doublon
+   (dédoublonnage par object_id), tri chronologique mélangé.
+5. La confirmation annonce des volumes plausibles.
+6. Copie : vignettes qui apparaissent progressivement, compteur dans le
+   terminal, barre de progression.
+7. Cocher des photos PENDANT la copie : la sélection ne doit pas sauter.
+8. Puis le workflow réel : plein écran, sélection, Transfert vers TEMP.
+
+Points ouverts à trancher avec Charles :
+- Le seuil des 200 plus récentes (_MTP_RECENT_COUNT) est un choix fait
+  seul, à partir de l'usage décrit. À confirmer ou changer.
+- Le plafond d'affichage de 40 photos par dossier dans le sélecteur.
+- Faut-il un nettoyage automatique de PHONE_IMPORT_FOLDER ? Il grossit
+  de plusieurs Go par import et rien ne le purge aujourd'hui.
+
+
+OÙ EST LE CODE
+---------------
+- Data/mtp_devices.py : couche WPD. _enum_next (vtable), _ensure_com
+  (apartment), list_folder (tri prêt à afficher), walk_files (récursif),
+  find_photo_folders, MTPItem.download_to.
+- Data/CONSTANTS.py : PHONE_IMPORT_FOLDER (section 7.1 bis).
+- Hub.pyw : _phone_row (volet Périphériques), _poll_phones,
+  _open_mtp_import_dialog (navigation), _confirm_mtp_import (inventaire
+  + confirmation), _start_mtp_copy (copie + feedback).

@@ -63,6 +63,9 @@ open_with.json
 .ai_conversation.json
 .ai_conversation_sp.json
 .ai_conversation_hub.json
+# Les sauvegardes .bak échappaient aux motifs ci-dessus : une conversation
+# IA se serait retrouvée dans un dépôt public au premier "git add -A".
+.ai_conversation*.json.bak
 .order.json
 .order_bw.json
 .liste.json
