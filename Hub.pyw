@@ -1609,28 +1609,13 @@ def main(page: ft.Page):
             zf.extractall(extract_to)
 
     def _confirm_delete_zips(zip_paths):
-        def _cancel(e):
-            dlg.open = False
-            page.update()
-
-        def _confirm(e):
-            dlg.open = False
-            page.update()
-            _do_delete(zip_paths)
-
         names = "\n".join(os.path.basename(p) for p in zip_paths)
-        dlg = ft.AlertDialog(
-            title=ft.Text("Supprimer le(s) ZIP ?", size=CONSTANTS.TEXT_SM,
-                          color=WHITE),
-            content=ft.Text(f"Voulez-vous supprimer :\n{names}",
-                            size=CONSTANTS.TEXT_SM, color=WHITE),
-            actions=[ft.TextButton("Conserver", on_click=_cancel),
-                     ft.TextButton("Supprimer", on_click=_confirm,
-                                  style=ft.ButtonStyle(color=RED))],
-        )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.confirm_dialog(
+            page, "Supprimer le(s) ZIP ?",
+            lambda: _do_delete(zip_paths), _KEYPAD_COLORS,
+            message=f"Voulez-vous supprimer :\n{names}",
+            confirm_label="Supprimer", cancel_label="Conserver",
+            confirm_color=RED)
 
     def _do_unzip(paths):
         # Décompresser (retour user : fonction absente de Hub, présente
@@ -3577,22 +3562,11 @@ def main(page: ft.Page):
 
     def _create_folder_here(event=None):
         # Même principe que Dashboard.pyw:6218-6277 (create_new_folder) :
-        # un simple AlertDialog nom -> os.makedirs, pas de duplication de
+        # un simple dialogue nom -> os.makedirs, pas de duplication de
         # cette logique côté Data/ pour un geste aussi simple.
         folder = state["folder"]
         if not folder:
             return
-        name_field = ft.TextField(
-            hint_text="nom-du-dossier", autofocus=True, width=280,
-            bgcolor=DARK, border_color=BLUE, text_size=CONSTANTS.TEXT_SM,
-            height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
-            content_padding=ft.Padding(8, 4, 8, 4))
-
-        fired = {"done": False}
-
-        def _cancel(event):
-            dlg.open = False
-            page.update()
 
         def _next_sequential_name():
             # Pas de nom saisi : "01", "02"... comme Transfert vers TEMP
@@ -3602,13 +3576,8 @@ def main(page: ft.Page):
                 n += 1
             return f"{n:02d}"
 
-        def _confirm(event):
-            if fired["done"]:
-                return
-            fired["done"] = True
-            name = (name_field.value or "").strip() or _next_sequential_name()
-            dlg.open = False
-            page.update()
+        def _on_confirm(value):
+            name = value or _next_sequential_name()
             new_path = os.path.join(folder, name)
             try:
                 os.makedirs(new_path, exist_ok=False)
@@ -3618,30 +3587,16 @@ def main(page: ft.Page):
             _log_to_terminal(f"[OK] Dossier créé : {name}", BLUE)
             _navigate(new_path)
 
-        name_field.on_submit = _confirm
-        dlg = ft.AlertDialog(
-            title=ft.Text("Créer un nouveau dossier", size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=name_field,
-            actions=[
-                ft.TextButton("Créer", on_click=_confirm),
-                ft.TextButton("Annuler", on_click=_cancel),
-            ],
-        )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
-        page.run_task(_focus_dialog_field, name_field)
+        ui_helpers.text_prompt_dialog(
+            page, "Créer un nouveau dossier", _on_confirm, _KEYPAD_COLORS,
+            hint_text="nom-du-dossier", confirm_label="Créer")
 
-    def _create_file_confirm(dlg, name_field, folder):
-        fired = {"done": False}
+    def _create_file_here(event=None):
+        folder = state["folder"]
+        if not folder:
+            return
 
-        def _confirm(event):
-            if fired["done"]:
-                return
-            fired["done"] = True
-            name = (name_field.value or "").strip()
-            dlg.open = False
-            page.update()
+        def _on_confirm(name):
             if not name:
                 return
             # Pas d'extension tapée -> .md par défaut (retour user : le
@@ -3651,40 +3606,10 @@ def main(page: ft.Page):
                 name += ".md"
             _folder_create_file(folder, name, "")
             _navigate(folder)
-        return _confirm
 
-    def _create_file_here(event=None):
-        folder = state["folder"]
-        if not folder:
-            return
-        name_field = ft.TextField(
-            hint_text="nom-du-fichier.md", autofocus=True, width=280,
-            bgcolor=DARK, border_color=BLUE, text_size=CONSTANTS.TEXT_SM,
-            height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
-            content_padding=ft.Padding(8, 4, 8, 4))
-        dlg = ft.AlertDialog(
-            title=ft.Text("Créer un fichier ici", size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([
-                ft.Text(folder, size=CONSTANTS.TEXT_SM, color=GREY, no_wrap=True),
-                name_field,
-            ], spacing=6, tight=True, width=280),
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-
-        def _cancel(event):
-            dlg.open = False
-            page.update()
-
-        confirm = _create_file_confirm(dlg, name_field, folder)
-        dlg.actions = [
-            ft.TextButton("Créer", on_click=confirm),
-            ft.TextButton("Annuler", on_click=_cancel),
-        ]
-        name_field.on_submit = confirm
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
-        page.run_task(_focus_dialog_field, name_field)
+        ui_helpers.text_prompt_dialog(
+            page, "Créer un fichier ici", _on_confirm, _KEYPAD_COLORS,
+            hint_text="nom-du-fichier.md", confirm_label="Créer")
 
     # _launch_tool / _launch_transfert_temp / _launch_recadrage_auto /
     # _launch_two_in_one sont définis plus loin dans main() : lambda pour
@@ -6165,26 +6090,15 @@ def main(page: ft.Page):
         page.run_task(_do)
 
     def _liste_delete(index):
-        def _cancel(event=None):
-            dlg.open = False
-            page.update()
-
-        def _confirm(event=None):
-            dlg.open = False
-            page.update()
+        def _on_confirm():
             if 0 <= index < len(liste_entries):
                 liste_entries.pop(index)
                 _liste_save()
                 _liste_render()
 
-        dlg = ft.AlertDialog(
-            title=ft.Text("Supprimer cette entrée ?", size=CONSTANTS.TEXT_SM, color=WHITE),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Supprimer", on_click=_confirm)],
-        )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.confirm_dialog(
+            page, "Supprimer cette entrée ?", _on_confirm, _KEYPAD_COLORS,
+            confirm_label="Supprimer")
 
     def _liste_edit(index=None):
         is_new = index is None
@@ -6808,36 +6722,23 @@ def main(page: ft.Page):
                  else "le contenu du dossier")
 
         def _launch(delete_after):
-            def _on_click(e):
-                dlg.open = False
-                page.update()
-                # `picked` transmis explicitement (capturé plus haut, avant
-                # le dialogue) plutôt que laissé à _launch_tool qui relirait
-                # `selected` après coup — évite une sélection périmée.
-                extra_env = {"DELETE_AFTER_TRANSFER":
-                             "1" if delete_after else "0"}
-                if picked:
-                    extra_env["SOURCE_FILES"] = "|".join(picked)
-                _launch_tool("Transfert vers TEMP.py", is_local=True,
-                            extra_env=extra_env)
-            return _on_click
+            # `picked` transmis explicitement (capturé plus haut, avant
+            # le dialogue) plutôt que laissé à _launch_tool qui relirait
+            # `selected` après coup — évite une sélection périmée.
+            extra_env = {"DELETE_AFTER_TRANSFER":
+                         "1" if delete_after else "0"}
+            if picked:
+                extra_env["SOURCE_FILES"] = "|".join(picked)
+            _launch_tool("Transfert vers TEMP.py", is_local=True,
+                        extra_env=extra_env)
 
-        dlg = ft.AlertDialog(
-            title=ft.Text("Supprimer les fichiers après transfert ?",
-                         size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Text(
-                f"{scope} seront transférés vers TEMP.\n\n"
-                "Supprimer les fichiers source après la copie réussie ?",
-                color=WHITE),
-            actions=[
-                ft.TextButton("Conserver", on_click=_launch(False)),
-                ft.TextButton("Supprimer", on_click=_launch(True),
-                             style=ft.ButtonStyle(color=RED)),
-            ],
-        )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
+        ui_helpers.confirm_dialog(
+            page, "Supprimer les fichiers après transfert ?",
+            lambda: _launch(True), _KEYPAD_COLORS,
+            message=f"{scope} seront transférés vers TEMP.\n\n"
+                    "Supprimer les fichiers source après la copie réussie ?",
+            confirm_label="Supprimer", cancel_label="Conserver",
+            confirm_color=RED, on_cancel=lambda: _launch(False))
 
     def _images_to_pdf(imgs):
         """Fusionne des images en un PDF temporaire multi-pages.
@@ -7007,36 +6908,12 @@ def main(page: ft.Page):
                 pass
 
     def _launch_text_prompt(title, label, hint, script_name, env_key):
-        field = ft.TextField(label=label, hint_text=hint, autofocus=True,
-                             width=280, bgcolor=DARK, border_color=GREY,
-                             color=WHITE)
-
-        fired = {"done": False}
-
-        def _cancel(e):
-            dlg.open = False
-            page.update()
-
-        def _confirm(e):
-            if fired["done"]:
-                return
-            fired["done"] = True
-            value = (field.value or "").strip()
-            dlg.open = False
-            page.update()
+        def _on_confirm(value):
             _launch_tool(script_name, extra_env={env_key: value})
 
-        field.on_submit = _confirm
-        dlg = ft.AlertDialog(
-            title=ft.Text(title, size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=field,
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Lancer", on_click=_confirm)],
-        )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
-        page.run_task(_focus_dialog_field, field)
+        ui_helpers.text_prompt_dialog(
+            page, title, _on_confirm, _KEYPAD_COLORS, label=label,
+            hint_text=hint, confirm_label="Lancer")
 
     def _launch_images_en_pdf(event=None):
         _launch_text_prompt("Images en PDF", "Nom du PDF", "Ex: Album_Mariage",

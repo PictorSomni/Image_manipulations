@@ -1,10 +1,22 @@
 """
 Widgets d'interface partagés entre les apps Flet du dossier Data/ (Hub,
-Recadrage manuel, etc.) — pour l'instant juste le pavé numérique
-tactile, extrait de Hub.pyw (_set_print_count) pour que les autres
-outils puissent le réutiliser sans dupliquer le code.
+Recadrage manuel, etc.), extraits de Hub.pyw où ces motifs étaient
+répétés dans plusieurs dialogues quasi identiques, pour que les autres
+outils puissent les réutiliser sans dupliquer le code : pavé numérique
+tactile, dialogue "un champ texte", dialogue de confirmation à deux
+boutons.
+
+Convention commune à toutes les fonctions de ce module : `colors` est
+un dict {"dark", "red", "grey", "green", "white"} — chaque app définit
+ses propres couleurs depuis CONSTANTS et les passe ici plutôt que ce
+module les importe en dur (les valeurs diffèrent d'un thème d'app à
+l'autre).
 """
+import asyncio
+
 import flet as ft
+
+TEXT_SIZE_DEFAULT = 13  # = CONSTANTS.TEXT_SM au moment de l'écriture
 
 
 def numeric_keypad(page, fields, colors, on_confirm=None,
@@ -102,3 +114,115 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
         ft.Row([_key_btn("1"), _key_btn("2"), _key_btn("3")], spacing=8),
         ft.Row(last_row, spacing=8),
     ], spacing=8, tight=True)
+
+
+async def _focus_soon(field):
+    # autofocus=True sur un TextField de dialogue ne marche pas de façon
+    # fiable (le contrôle n'est pas encore monté côté client quand
+    # page.update() rend la main) — délai court avant .focus() en
+    # remède, comme Hub.pyw:_focus_dialog_field.
+    try:
+        await asyncio.sleep(0.15)
+        await field.focus()
+    except Exception:
+        pass
+
+
+def text_prompt_dialog(page, title, on_confirm, colors, label=None,
+                       hint_text=None, value="", confirm_label="Confirmer",
+                       cancel_label="Annuler", text_size=TEXT_SIZE_DEFAULT,
+                       width=280):
+    """Dialogue générique "un champ texte + Annuler/Confirmer" — ex.
+    demander un nom de dossier/fichier, ou une valeur à passer à un
+    outil externe.
+
+    - on_confirm(value) : appelé avec le texte saisi (déjà .strip()) à
+      la confirmation — que la chaîne soit vide ou non, c'est à
+      l'appelant de décider quoi en faire (valeur par défaut, refus...).
+    - label / hint_text : label flottant et texte d'exemple grisé,
+      indépendants (les deux peuvent être fournis, ou aucun des deux).
+    - value : texte pré-rempli (vide par défaut).
+
+    Retourne le ft.AlertDialog (rarement utile à l'appelant, mais
+    cohérent avec confirm_dialog).
+    """
+    field = ft.TextField(
+        label=label, hint_text=hint_text, value=value, autofocus=True,
+        width=width, bgcolor=colors["dark"], border_color=colors["grey"],
+        color=colors["white"])
+
+    fired = {"done": False}
+
+    def _cancel(event):
+        dlg.open = False
+        page.update()
+
+    def _confirm(event):
+        if fired["done"]:
+            return
+        fired["done"] = True
+        value_out = (field.value or "").strip()
+        dlg.open = False
+        page.update()
+        on_confirm(value_out)
+
+    field.on_submit = _confirm
+    dlg = ft.AlertDialog(
+        title=ft.Text(title, size=text_size, color=colors["white"]),
+        content=field,
+        actions=[ft.TextButton(cancel_label, on_click=_cancel),
+                 ft.TextButton(confirm_label, on_click=_confirm)],
+    )
+    page.overlay.append(dlg)
+    dlg.open = True
+    page.update()
+    page.run_task(_focus_soon, field)
+    return dlg
+
+
+def confirm_dialog(page, title, on_confirm, colors, message=None,
+                   confirm_label="Confirmer", cancel_label="Annuler",
+                   confirm_color=None, on_cancel=None,
+                   text_size=TEXT_SIZE_DEFAULT):
+    """Dialogue générique de confirmation à deux boutons — pas de champ
+    de saisie. Couvre aussi bien "Annuler/Supprimer" (on_cancel omis,
+    ne fait que fermer) que "Conserver/Supprimer" où les deux boutons
+    déclenchent une vraie action (on_cancel fourni).
+
+    - on_confirm() : appelé sans argument au clic sur confirm_label.
+    - on_cancel() : optionnel, appelé sans argument au clic sur
+      cancel_label (sinon ce bouton ne fait que fermer le dialogue).
+    - message : texte optionnel sous le titre (ex. liste de fichiers
+      concernés) ; omis, le dialogue n'a qu'un titre.
+    - confirm_color : couleur du bouton de confirmation (ex. RED pour
+      une suppression) — None garde la couleur par défaut du thème.
+    """
+    fired = {"done": False}
+
+    def _make_handler(callback):
+        def _handler(event):
+            if fired["done"]:
+                return
+            fired["done"] = True
+            dlg.open = False
+            page.update()
+            if callback:
+                callback()
+        return _handler
+
+    dlg = ft.AlertDialog(
+        title=ft.Text(title, size=text_size, color=colors["white"]),
+        content=(ft.Text(message, size=text_size, color=colors["white"])
+                 if message else None),
+        actions=[
+            ft.TextButton(cancel_label, on_click=_make_handler(on_cancel)),
+            ft.TextButton(
+                confirm_label, on_click=_make_handler(on_confirm),
+                style=(ft.ButtonStyle(color=confirm_color)
+                      if confirm_color else None)),
+        ],
+    )
+    page.overlay.append(dlg)
+    dlg.open = True
+    page.update()
+    return dlg
