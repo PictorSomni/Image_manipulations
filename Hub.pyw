@@ -1768,6 +1768,75 @@ def main(page: ft.Page):
         page.update()
         page.run_task(_focus_dialog_field, name_field)
 
+    def _numeric_keypad(fields, on_confirm=None):
+        """Pavé numérique tactile réutilisable pour un ou plusieurs champs
+        d'un même dialogue (retour user : le clavier virtuel Windows
+        n'apparaît pas toujours sur le poste tactile). Avec plusieurs
+        champs, le pavé agit sur celui qui a le focus (premier champ par
+        défaut) — un seul pavé partagé plutôt qu'un par champ, pour ne
+        pas faire exploser la hauteur des dialogues à 2+ champs (ex.
+        Redimensionner, Recadrage auto en saisie manuelle).
+        on_confirm (optionnel) ajoute un bouton ✓ au pavé qui appelle ce
+        callback (même geste que le ✓ vert historique de
+        _set_print_count).
+        """
+        field_list = ([fields] if isinstance(fields, ft.TextField)
+                      else list(fields))
+        active = {"field": field_list[0]}
+
+        def _track_focus(target_field):
+            previous = target_field.on_focus
+
+            def _on_focus(event, _prev=previous, _f=target_field):
+                active["field"] = _f
+                if _prev:
+                    _prev(event)
+            target_field.on_focus = _on_focus
+
+        for f in field_list:
+            _track_focus(f)
+
+        def _digit(d):
+            def _on_click(event):
+                fld = active["field"]
+                current = "" if fld.value in (None, "0") else fld.value
+                fld.value = (current or "") + d
+                page.update()
+            return _on_click
+
+        def _backspace(event):
+            fld = active["field"]
+            fld.value = (fld.value or "")[:-1]
+            page.update()
+
+        def _digit_btn(d):
+            return ft.Button(
+                d, width=56, height=56, on_click=_digit(d),
+                style=ft.ButtonStyle(bgcolor=DARK, color=WHITE))
+
+        last_row = [
+            ft.IconButton(
+                ft.Icons.BACKSPACE_OUTLINED, icon_color=RED, icon_size=24,
+                style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(16)),
+                on_click=_backspace),
+            _digit_btn("0"),
+        ]
+        if on_confirm is not None:
+            last_row.append(ft.IconButton(
+                ft.Icons.CHECK_CIRCLE_OUTLINE, icon_color=GREEN, icon_size=24,
+                style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(16)),
+                on_click=on_confirm))
+
+        return ft.Column([
+            ft.Row([_digit_btn("7"), _digit_btn("8"), _digit_btn("9")],
+                  spacing=8),
+            ft.Row([_digit_btn("4"), _digit_btn("5"), _digit_btn("6")],
+                  spacing=8),
+            ft.Row([_digit_btn("1"), _digit_btn("2"), _digit_btn("3")],
+                  spacing=8),
+            ft.Row(last_row, spacing=8),
+        ], spacing=8, tight=True)
+
     def _set_print_count(paths):
         # Préfixe "NX_" lu par Recadrage automatique.py (mode fit) pour
         # savoir combien de copies d'une image tuiler sur le canevas —
@@ -1849,38 +1918,7 @@ def main(page: ft.Page):
         # Pavé numérique tactile : dialogue ouvert depuis le panneau
         # Actions, potentiellement sur écran tactile sans clavier commode
         # sous la main (retour user).
-        def _keypad_digit(d):
-            def _on_click(event):
-                current = "" if count_field.value in (None, "0") else count_field.value
-                count_field.value = (current or "") + d
-                page.update()
-            return _on_click
-
-        def _keypad_backspace(event):
-            count_field.value = (count_field.value or "")[:-1]
-            page.update()
-
-        def _digit_btn(d):
-            return ft.Button(
-                d, width=56, height=56, on_click=_keypad_digit(d),
-                style=ft.ButtonStyle(bgcolor=DARK, color=WHITE))
-
-        keypad = ft.Column([
-            ft.Row([_digit_btn("7"), _digit_btn("8"), _digit_btn("9")], spacing=8),
-            ft.Row([_digit_btn("4"), _digit_btn("5"), _digit_btn("6")], spacing=8),
-            ft.Row([_digit_btn("1"), _digit_btn("2"), _digit_btn("3")], spacing=8),
-            ft.Row([
-                ft.IconButton(
-                    ft.Icons.BACKSPACE_OUTLINED, icon_color=RED, icon_size=24,
-                    style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(16)),
-                    on_click=_keypad_backspace),
-                _digit_btn("0"),
-                ft.IconButton(
-                    ft.Icons.CHECK_CIRCLE_OUTLINE, icon_color=GREEN, icon_size=24,
-                    style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(16)),
-                    on_click=_confirm),
-            ], spacing=8),
-        ], spacing=8, tight=True)
+        keypad = _numeric_keypad(count_field, on_confirm=_confirm)
 
         dlg = ft.AlertDialog(
             # Le nombre de fichiers est le garde-fou du mode « dossier
@@ -7095,9 +7133,10 @@ def main(page: ft.Page):
             _launch_tool(script_name, extra_env=env)
 
         text_fields[-1].on_submit = _confirm
+        keypad = _numeric_keypad(text_fields)
         dlg = ft.AlertDialog(
             title=ft.Text(title, size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column(text_fields, spacing=8, tight=True),
+            content=ft.Column(text_fields + [keypad], spacing=8, tight=True),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
         )
@@ -7253,6 +7292,11 @@ def main(page: ft.Page):
             f"Portée auto : {'sélection en cours' if selected else 'tout le dossier'}",
             size=CONSTANTS.TEXT_SM, color=GREY)
 
+        # Pavé numérique tactile, visible seulement en saisie manuelle
+        # (les champs ne sont éditables que dans ce mode).
+        keypad = _numeric_keypad([width_field, height_field])
+        keypad.visible = manual["value"]
+
         def _on_manual_change(e):
             manual["value"] = manual_switch.value
             fmt_dd.disabled = manual["value"]
@@ -7263,6 +7307,7 @@ def main(page: ft.Page):
             fmt_dd.border_color = LIGHT_GREY if manual["value"] else BLUE
             width_field.border_color = BLUE if manual["value"] else LIGHT_GREY
             height_field.border_color = BLUE if manual["value"] else LIGHT_GREY
+            keypad.visible = manual["value"]
             page.update()
 
         manual_switch.on_change = _on_manual_change
@@ -7314,7 +7359,8 @@ def main(page: ft.Page):
                 ft.Container(
                     content=ft.Column([manual_switch,
                                        ft.Row([width_field, height_field],
-                                              spacing=8)]),
+                                              spacing=8),
+                                       keypad]),
                     border=ft.Border.all(1, GREY), border_radius=8,
                     padding=10),
                 ft.Row([fit_switch, center_switch], spacing=8),
