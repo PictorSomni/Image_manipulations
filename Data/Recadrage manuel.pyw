@@ -82,6 +82,7 @@ import os
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
+import ui_helpers
 import image_ops
 import shutil
 import platform
@@ -4668,6 +4669,18 @@ def main(page: ft.Page):
         alignment=ft.MainAxisAlignment.CENTER,
     )
 
+    # Pavé numérique tactile (retour user : le clavier virtuel Windows
+    # n'apparaît pas toujours sur le poste tactile) — décimales
+    # autorisées, ces champs acceptent des valeurs comme "101.6" en mm.
+    # Visible seulement quand la saisie manuelle est active (les champs
+    # sont désactivés sinon), cf. _apply_custom_mode.
+    app.custom_keypad = ui_helpers.numeric_keypad(
+        page, [app.custom_w_field, app.custom_h_field],
+        {"dark": DARK, "red": RED, "grey": GREY, "green": GREEN,
+         "white": WHITE},
+        allow_decimal=True)
+    app.custom_keypad.visible = False
+
     app.custom_unit = "mm"
 
     def _on_unit_change(e):
@@ -4715,6 +4728,7 @@ def main(page: ft.Page):
         app.custom_h_field.disabled = not enabled
         app.unit_dropdown.disabled = not enabled
         app.format_radio_group.disabled = enabled
+        app.custom_keypad.visible = enabled
         if enabled:
             # Appliquer immédiatement les dimensions saisies en mode personnalisé
             app.change_ratio(type("Evt", (), {"control": type("Ctl", (), {"value": _CUSTOM_KEY})()})())
@@ -4779,6 +4793,7 @@ def main(page: ft.Page):
             spacing=8,
             alignment=ft.MainAxisAlignment.CENTER,
         ),
+        app.custom_keypad,
     ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     app.custom_panel = ft.Container(

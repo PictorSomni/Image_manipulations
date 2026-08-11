@@ -46,6 +46,7 @@ from PIL import Image as PILImage, ImageDraw as PILImageDraw, ImageOps as PILIma
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "Data"))
 import CONSTANTS
+import ui_helpers
 import image_ops
 import ai_ops
 import thumb_cache
@@ -1768,74 +1769,17 @@ def main(page: ft.Page):
         page.update()
         page.run_task(_focus_dialog_field, name_field)
 
-    def _numeric_keypad(fields, on_confirm=None):
-        """Pavé numérique tactile réutilisable pour un ou plusieurs champs
-        d'un même dialogue (retour user : le clavier virtuel Windows
-        n'apparaît pas toujours sur le poste tactile). Avec plusieurs
-        champs, le pavé agit sur celui qui a le focus (premier champ par
-        défaut) — un seul pavé partagé plutôt qu'un par champ, pour ne
-        pas faire exploser la hauteur des dialogues à 2+ champs (ex.
-        Redimensionner, Recadrage auto en saisie manuelle).
-        on_confirm (optionnel) ajoute un bouton ✓ au pavé qui appelle ce
-        callback (même geste que le ✓ vert historique de
-        _set_print_count).
-        """
-        field_list = ([fields] if isinstance(fields, ft.TextField)
-                      else list(fields))
-        active = {"field": field_list[0]}
+    _KEYPAD_COLORS = {"dark": DARK, "red": RED, "grey": GREY,
+                      "green": GREEN, "white": WHITE}
 
-        def _track_focus(target_field):
-            previous = target_field.on_focus
-
-            def _on_focus(event, _prev=previous, _f=target_field):
-                active["field"] = _f
-                if _prev:
-                    _prev(event)
-            target_field.on_focus = _on_focus
-
-        for f in field_list:
-            _track_focus(f)
-
-        def _digit(d):
-            def _on_click(event):
-                fld = active["field"]
-                current = "" if fld.value in (None, "0") else fld.value
-                fld.value = (current or "") + d
-                page.update()
-            return _on_click
-
-        def _backspace(event):
-            fld = active["field"]
-            fld.value = (fld.value or "")[:-1]
-            page.update()
-
-        def _digit_btn(d):
-            return ft.Button(
-                d, width=56, height=56, on_click=_digit(d),
-                style=ft.ButtonStyle(bgcolor=DARK, color=WHITE))
-
-        last_row = [
-            ft.IconButton(
-                ft.Icons.BACKSPACE_OUTLINED, icon_color=RED, icon_size=24,
-                style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(16)),
-                on_click=_backspace),
-            _digit_btn("0"),
-        ]
-        if on_confirm is not None:
-            last_row.append(ft.IconButton(
-                ft.Icons.CHECK_CIRCLE_OUTLINE, icon_color=GREEN, icon_size=24,
-                style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(16)),
-                on_click=on_confirm))
-
-        return ft.Column([
-            ft.Row([_digit_btn("7"), _digit_btn("8"), _digit_btn("9")],
-                  spacing=8),
-            ft.Row([_digit_btn("4"), _digit_btn("5"), _digit_btn("6")],
-                  spacing=8),
-            ft.Row([_digit_btn("1"), _digit_btn("2"), _digit_btn("3")],
-                  spacing=8),
-            ft.Row(last_row, spacing=8),
-        ], spacing=8, tight=True)
+    def _numeric_keypad(fields, on_confirm=None, allow_decimal=False):
+        """Pavé numérique tactile réutilisable — wrapper autour de
+        ui_helpers.numeric_keypad (partagé avec les autres apps du
+        dossier Data/, ex. Recadrage manuel.pyw) pour ne pas répéter les
+        couleurs de Hub à chaque appel."""
+        return ui_helpers.numeric_keypad(
+            page, fields, _KEYPAD_COLORS, on_confirm=on_confirm,
+            allow_decimal=allow_decimal)
 
     def _set_print_count(paths):
         # Préfixe "NX_" lu par Recadrage automatique.py (mode fit) pour
