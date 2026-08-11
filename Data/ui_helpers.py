@@ -29,12 +29,21 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
     field_list = ([fields] if isinstance(fields, ft.TextField)
                   else list(fields))
     active = {"field": field_list[0]}
+    # Un champ pré-rempli (valeur par défaut, ex. "100") doit s'effacer
+    # au premier chiffre tapé plutôt que de s'y voir accolé ("1001") —
+    # retour user. On ne vide pas .value dès le départ pour autant : du
+    # code ailleurs (ex. Recadrage manuel.pyw) lit cette valeur par
+    # défaut avant que l'utilisateur n'ait rien tapé. "fresh" ne marque
+    # donc que l'INTENTION de tout effacer au prochain chiffre — remis à
+    # True à chaque focus.
+    fresh = {id(f): True for f in field_list}
 
     def _track_focus(target_field):
         previous = target_field.on_focus
 
         def _on_focus(event, _prev=previous, _f=target_field):
             active["field"] = _f
+            fresh[id(_f)] = True
             if _prev:
                 _prev(event)
         target_field.on_focus = _on_focus
@@ -45,7 +54,11 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
     def _append(text):
         def _on_click(event):
             fld = active["field"]
-            current = "" if fld.value in (None, "0") else fld.value
+            if fresh[id(fld)]:
+                current = ""
+                fresh[id(fld)] = False
+            else:
+                current = "" if fld.value in (None, "0") else fld.value
             if text == "." and "." in (current or ""):
                 return  # un seul point décimal par nombre
             fld.value = (current or "") + text
@@ -54,6 +67,7 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
 
     def _backspace(event):
         fld = active["field"]
+        fresh[id(fld)] = False
         fld.value = (fld.value or "")[:-1]
         page.update()
 
