@@ -90,6 +90,7 @@ import queue
 import re
 import threading
 import time
+import datetime
 from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageCms, ImageDraw
 import asyncio
 import contextlib
@@ -111,6 +112,14 @@ DPI = CONSTANTS.DPI  # Résolution d'export
 PREVIEW_MAX_PIXELS = CONSTANTS.PREVIEW_MAX_PIXELS
 STATUS_INFO_SECONDS = 3   # Affichage d'un message de statut courant
 STATUS_ERROR_SECONDS = 8  # …et d'une erreur, à lire sans se presser
+# Même fichier que Hub.pyw:_terminal_log_path (trace unique et
+# chronologique, que l'outil soit lancé depuis Hub ou seul) — les
+# messages de statut affichés ici disparaissent après quelques
+# secondes (STATUS_INFO_SECONDS/STATUS_ERROR_SECONDS), sans persister
+# nulle part sinon (retour user : besoin de relire un diagnostic après
+# coup, pas juste pendant qu'il clignote à l'écran).
+_TERMINAL_LOG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), ".hub_terminal.log")
 ID_X4_10x20_PHOTOS_BOTTOM = CONSTANTS.ID_X4_10x20_PHOTOS_BOTTOM  # True = photos moitié basse, False = photos moitié haute
 _IS_MAC = platform.system() == "Darwin"   # Raccourcis clavier spécifiques macOS
 CANVAS_CHROME_WIDTH = 160  # Sliders latéraux + espacements autour du canevas
@@ -3748,6 +3757,32 @@ class PhotoCropper:
             self._set_status(message)
         try:
             self.page.run_task(_apply)
+        except Exception:
+            pass
+        self._log_to_file(message)
+
+    def _log_to_file(self, message):
+        # Persisté en plus de l'affichage éphémère (retour user) — même
+        # rotation (garde la 2e moitié) que Hub.pyw:_log_to_terminal,
+        # même fichier .hub_terminal.log : une seule trace, peu importe
+        # quel outil a tourné.
+        message = (message or "").strip()
+        if not message:
+            return
+        try:
+            if (os.path.exists(_TERMINAL_LOG_PATH)
+                    and os.path.getsize(_TERMINAL_LOG_PATH)
+                    > CONSTANTS.HUB_TERMINAL_LOG_MAX_BYTES):
+                with open(_TERMINAL_LOG_PATH, "rb") as f:
+                    f.seek(-CONSTANTS.HUB_TERMINAL_LOG_MAX_BYTES // 2,
+                          os.SEEK_END)
+                    tail = f.read()
+                with open(_TERMINAL_LOG_PATH, "wb") as f:
+                    f.write(tail)
+            with open(_TERMINAL_LOG_PATH, "a", encoding="utf-8") as f:
+                f.write(
+                    f"{datetime.datetime.now().isoformat(timespec='seconds')} "
+                    f"[Recadrage manuel] {message}\n")
         except Exception:
             pass
 
