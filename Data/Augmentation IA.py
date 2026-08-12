@@ -1001,6 +1001,25 @@ async def main(page: ft.Page) -> None:
 
     # ── Envoi à Gemini ───────────────────────────────────────────────────────
 
+    def _rect_feather_mask(w, h, feather, sel, img_w, img_h):
+        """Masque rectangulaire dégradé, sans fondu sur les bords de
+        `sel` qui coïncident avec le bord réel de l'image (sel[0]==0,
+        sel[1]==0, sel[2]==img_w, sel[3]==img_h) : là, il n'y a pas de
+        contenu original à faire réapparaître en dégradé, donc la
+        retouche doit rester à pleine opacité jusqu'au bord (retour
+        user — dégradé visible/original qui persiste sur bord gauche
+        et bas d'une sélection collée au bord de la photo).
+        """
+        left   = 0 if sel[0] <= 0 else feather
+        top    = 0 if sel[1] <= 0 else feather
+        right  = 0 if sel[2] >= img_w else feather
+        bottom = 0 if sel[3] >= img_h else feather
+        mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask).rectangle(
+            (left, top, w - right, h - bottom), fill=255,
+        )
+        return mask.filter(ImageFilter.GaussianBlur(feather))
+
     def _composite_retouch(ratio: float) -> None:
         """Recolle la retouche Gemini cachée avec un fondu de bords `ratio`.
 
@@ -1030,11 +1049,8 @@ async def main(page: ft.Page) -> None:
             mask_feather = max(1, feather // CONSTANTS.SAM2_MASK_FEATHER_DIVISOR)
             mask = obj_mask.filter(ImageFilter.GaussianBlur(mask_feather))
         else:
-            mask = Image.new("L", (w, h), 0)
-            ImageDraw.Draw(mask).rectangle(
-                (feather, feather, w - feather, h - feather), fill=255,
-            )
-            mask = mask.filter(ImageFilter.GaussianBlur(feather))
+            mask = _rect_feather_mask(w, h, feather, sel, base.width,
+                                      base.height)
         new_work = base.copy()
         new_work.paste(fit, (sel[0], sel[1]), mask)
         state["work_img"] = new_work
@@ -1045,7 +1061,7 @@ async def main(page: ft.Page) -> None:
     # le glissement — l'ancien on_change faisait un base.copy() + paste
     # pleine résolution + réencodage complet à CHAQUE tick du slider.
     _retouch_prev = {"src": None, "base": None, "fit": None, "mask": None,
-                     "pos": (0, 0)}
+                     "pos": (0, 0), "sel": None, "img_size": (0, 0)}
 
     def _prepare_retouch_preview() -> None:
         base_img = state["retouch_base"]
@@ -1063,7 +1079,8 @@ async def main(page: ft.Page) -> None:
         mask_prev = (mask.resize((w, h), Image.Resampling.BILINEAR)
                      if mask is not None else None)
         _retouch_prev.update(src=base_img, base=base, fit=fit_prev,
-                             mask=mask_prev, pos=(sx1, sy1))
+                             mask=mask_prev, pos=(sx1, sy1), sel=sel,
+                             img_size=(base_img.width, base_img.height))
 
     def _composite_retouch_preview(ratio: float) -> None:
         if _retouch_prev["src"] is not state["retouch_base"]:
@@ -1081,10 +1098,9 @@ async def main(page: ft.Page) -> None:
                 1, feather // CONSTANTS.SAM2_MASK_FEATHER_DIVISOR)
             mask = obj_mask.filter(ImageFilter.GaussianBlur(mask_feather))
         else:
-            mask = Image.new("L", (w, h), 0)
-            ImageDraw.Draw(mask).rectangle(
-                (feather, feather, w - feather, h - feather), fill=255)
-            mask = mask.filter(ImageFilter.GaussianBlur(feather))
+            img_w, img_h = _retouch_prev["img_size"]
+            mask = _rect_feather_mask(
+                w, h, feather, _retouch_prev["sel"], img_w, img_h)
         shown = base.copy()
         shown.paste(fit, _retouch_prev["pos"], mask)
         shown = image_ops.compensate_for_display(shown)
