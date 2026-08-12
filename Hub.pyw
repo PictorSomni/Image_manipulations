@@ -2174,7 +2174,7 @@ def main(page: ft.Page):
         tab_id = _next_tab_id["n"]
         tabs.append({"id": tab_id, "folder": None, "selected": []})
         _restore_tab(tab_id)
-        page.run_task(_pick_folder, None)
+        _toggle_open_menu()
 
     def _close_folder_tab(tab_id, event=None):
         if len(tabs) <= 1:
