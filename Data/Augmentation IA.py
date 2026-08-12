@@ -1079,7 +1079,8 @@ async def main(page: ft.Page) -> None:
     # le glissement — l'ancien on_change faisait un base.copy() + paste
     # pleine résolution + réencodage complet à CHAQUE tick du slider.
     _retouch_prev = {"src": None, "base": None, "fit": None, "mask": None,
-                     "pos": (0, 0), "sel": None, "img_size": (0, 0)}
+                     "pos": (0, 0), "sel": None, "img_size": (0, 0),
+                     "scale": 1.0}
 
     def _prepare_retouch_preview() -> None:
         base_img = state["retouch_base"]
@@ -1098,7 +1099,8 @@ async def main(page: ft.Page) -> None:
                      if mask is not None else None)
         _retouch_prev.update(src=base_img, base=base, fit=fit_prev,
                              mask=mask_prev, pos=(sx1, sy1), sel=sel,
-                             img_size=(base_img.width, base_img.height))
+                             img_size=(base_img.width, base_img.height),
+                             scale=scale)
 
     def _composite_retouch_preview(ratio: float) -> None:
         if _retouch_prev["src"] is not state["retouch_base"]:
@@ -1108,7 +1110,15 @@ async def main(page: ft.Page) -> None:
         if base is None or fit is None:
             return
         w, h = fit.size
-        feather = max(1, int(min(w, h) * ratio))
+        # Même plancher qu'en pleine résolution (_composite_retouch),
+        # mis à l'échelle de l'aperçu réduit : sans ça, au minimum du
+        # curseur, l'aperçu live paraissait net (aucun plancher) alors
+        # que le recollage final gardait encore AI_RETOUCH_FEATHER_MIN
+        # px de flou — retour user, le bord semblait net pendant le
+        # glissement du curseur puis se re-floutait au relâchement.
+        floor = max(1, round(
+            CONSTANTS.AI_RETOUCH_FEATHER_MIN * _retouch_prev["scale"]))
+        feather = max(floor, int(min(w, h) * ratio))
         feather = min(feather, max(1, min(w, h) // 2))
         obj_mask = _retouch_prev["mask"]
         if obj_mask is not None:
