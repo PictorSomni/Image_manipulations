@@ -6926,6 +6926,10 @@ def main(page: ft.Page):
         _launch_text_prompt("Images en PDF", "Nom du PDF", "Ex: Album_Mariage",
                             "Images en PDF.py", "PDF_NAME")
 
+    def _launch_livret(event=None):
+        _launch_text_prompt("Livret", "Nom du livret", "Ex: Album_Mariage",
+                            "Livret.py", "LIVRET_NAME")
+
     def _launch_number_prompt(title, fields, script_name):
         # `fields` : liste de (label, suffix, default, env_key) — un champ
         # numérique par tuple, tous requis pour lancer l'outil.
@@ -7386,6 +7390,8 @@ def main(page: ft.Page):
              ORANGE, _launch_redimensionner_filigrane),
             ("Images en PDF", ft.Icons.PICTURE_AS_PDF_OUTLINED, ORANGE,
              _launch_images_en_pdf),
+            ("Livret", ft.Icons.MENU_BOOK_OUTLINED, ORANGE,
+             _launch_livret),
             # Icône d'urne : Remerciements sert aux faire-part de décès,
             # c'est le repère visuel que Charles reconnaît dans le menu.
             # Ne PAS « corriger » en icône cadeau/carte (retour user).
