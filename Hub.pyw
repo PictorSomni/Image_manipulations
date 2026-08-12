@@ -6927,46 +6927,8 @@ def main(page: ft.Page):
                             "Images en PDF.py", "PDF_NAME")
 
     def _launch_livret(event=None):
-        name_field = ft.TextField(
-            label="Nom du livret", hint_text="Ex: Album_Mariage",
-            autofocus=True, bgcolor=DARK, border_color=GREY, color=WHITE)
-        # Défaut = plié/agrafé (usage le plus courant, retour user) —
-        # à décocher pour une reliure sans pliage (découpe, spirale,
-        # anneaux) où les pages blanches de complément doivent rester
-        # groupées en fin plutôt que réparties par la logique de
-        # couverture du pliage.
-        fold_switch = ft.Switch(label="Plié et agrafé (livret classique)",
-                                value=True, active_color=BLUE)
-
-        fired = {"done": False}
-
-        def _cancel(e):
-            dlg.open = False
-            page.update()
-
-        def _confirm(e):
-            if fired["done"]:
-                return
-            fired["done"] = True
-            dlg.open = False
-            page.update()
-            _launch_tool("Livret.py", extra_env={
-                "LIVRET_NAME": name_field.value or "",
-                "LIVRET_FOLD": "1" if fold_switch.value else "0",
-            })
-
-        name_field.on_submit = _confirm
-        dlg = ft.AlertDialog(
-            title=ft.Text("Livret", size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([name_field, fold_switch], spacing=8,
-                              tight=True),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Lancer", on_click=_confirm)],
-        )
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
-        page.run_task(_focus_dialog_field, name_field)
+        _launch_text_prompt("Livret", "Nom du livret", "Ex: Album_Mariage",
+                            "Livret.py", "LIVRET_NAME")
 
     def _launch_number_prompt(title, fields, script_name):
         # `fields` : liste de (label, suffix, default, env_key) — un champ
