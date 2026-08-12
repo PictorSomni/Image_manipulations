@@ -312,6 +312,48 @@ def main(page: ft.Page):
     drives_state = {"list": []}          # [(nom, chemin), ...] — cache tenu à jour par _poll_removable_drives
     phones_state = {"list": []}          # [(description, id PnP), ...] — téléphones MTP, même sondage
 
+    # ─── Onglets multi-dossiers ─────────────────────────────────────────
+    # state/content/selected restent les MÊMES objets pendant toute la vie
+    # de l'app (jamais réassignés, cf. commentaires ci-dessus) — les ~130
+    # endroits qui les lisent/écrivent continuent donc de fonctionner sans
+    # modification. Un onglet ne stocke QUE {"id", "folder", "selected"} :
+    # jamais de copie de `content` (péremption si des fichiers changent
+    # pendant qu'on est sur un autre onglet) — changer d'onglet rappelle
+    # simplement _navigate(), qui rescane à chaque fois (déjà le
+    # comportement actuel, bon marché).
+    tabs = []                            # [{"id", "folder", "selected"}, ...]
+    _next_tab_id = {"n": 0}
+    state["tab_id"] = None               # identifiant stable, changé
+                                          # UNIQUEMENT par la bascule
+                                          # d'onglet, jamais par _navigate()
+                                          # — cf. _tool_refresh(origin_tab_id)
+                                          # plus bas, qui s'en sert pour
+                                          # ignorer un rafraîchissement
+                                          # différé si l'utilisateur a
+                                          # changé d'onglet entre-temps.
+    _next_tab_id["n"] += 1
+    tabs.append({"id": _next_tab_id["n"], "folder": None, "selected": []})
+    state["tab_id"] = _next_tab_id["n"]
+
+    # ─── Panneau droit (mode Total Commander) ───────────────────────────
+    # Volontairement allégé (liste seule, pas de vignettes/tri/recherche)
+    # — cf. panneau gauche = files_body existant, inchangé. Même principe
+    # d'onglets que le panneau gauche, en parallèle (pas de duplication de
+    # contenu, juste un second jeu tabs2/content2/selected2).
+    content2 = {"dirs": [], "imgs": [], "other": [], "mtime": {}}
+    selected2 = []
+    tabs2 = []
+    _next_tab2_id = {"n": 0}
+    state["folder2"] = None
+    state["tab_id2"] = None
+    _next_tab2_id["n"] += 1
+    tabs2.append({"id": _next_tab2_id["n"], "folder": None, "selected": []})
+    state["tab_id2"] = _next_tab2_id["n"]
+    # Mode Total Commander (deux panneaux) et panneau actif — bordure
+    # visuelle appliquée uniquement en mode TC (cf. _update_active_side).
+    state["tc_mode"] = False
+    state["active_side"] = "left"
+
     def _select_add(path):
         if path not in selected:
             selected.append(path)
@@ -1123,20 +1165,37 @@ def main(page: ft.Page):
             n += 1
         return dest
 
-    def _do_paste(event=None):
-        folder = state["folder"]
-        if not folder or not clipboard["paths"]:
+    def _do_paste(event=None, paths=None, dest_folder=None):
+        # `paths`/`dest_folder` : généralisation pour "copier la sélection
+        # vers l'autre panneau" (mode Total Commander, Phase 2) — défaut
+        # (None, None) = comportement Ctrl+V inchangé, presse-papiers
+        # interne + dossier courant du panneau gauche.
+        folder = dest_folder if dest_folder is not None else state["folder"]
+        if not folder:
             return
-        # Instantané avant de démarrer le thread : `clipboard` peut changer
-        # entre-temps (un nouveau copier/couper pendant que celui-ci tourne
-        # encore) — sans ça, la boucle lirait un état déjà remplacé.
-        src_paths = list(clipboard["paths"])
-        is_cut = clipboard["mode"] == "cut"
+        # Destination = le dossier ouvert dans le panneau droit : le
+        # rafraîchissement de fin de thread doit passer par _navigate2,
+        # pas par _tool_refresh (qui ne connaît que le panneau gauche).
+        is_dest_right = (dest_folder is not None
+                        and dest_folder == state["folder2"])
+        if paths is not None:
+            src_paths = list(paths)
+            is_cut = False   # "copier vers l'autre panneau" ne déplace jamais
+        else:
+            if not clipboard["paths"]:
+                return
+            # Instantané avant de démarrer le thread : `clipboard` peut
+            # changer entre-temps (un nouveau copier/couper pendant que
+            # celui-ci tourne encore) — sans ça, la boucle lirait un état
+            # déjà remplacé.
+            src_paths = list(clipboard["paths"])
+            is_cut = clipboard["mode"] == "cut"
+            if is_cut:
+                clipboard["paths"] = []
+                clipboard["mode"] = None
+                _refresh_edit_buttons()
+        origin_tab_id = state["tab_id"]
         action = "déplacé" if is_cut else "collé"
-        if is_cut:
-            clipboard["paths"] = []
-            clipboard["mode"] = None
-            _refresh_edit_buttons()
         # Bascule en mode ruban tout de suite (avant le travail, pas
         # après) : le terminal reste visible pendant tout le collage,
         # même une fois le dernier fichier traité — même principe que
@@ -1169,7 +1228,10 @@ def main(page: ft.Page):
                 _log_to_terminal(f"[OK] {pasted} élément(s) {action}(s)", BLUE)
             if errors:
                 _log_to_terminal(f"[ATTENTION] {errors} erreur(s)", ORANGE)
-            page.run_task(_tool_refresh, folder)
+            if is_dest_right:
+                page.run_task(_navigate2, folder)
+            else:
+                page.run_task(_tool_refresh, folder, None, origin_tab_id)
 
         _run_bg_action(f"Collage de {len(src_paths)} élément(s)", _work)
 
@@ -1478,6 +1540,7 @@ def main(page: ft.Page):
         dest = os.path.join(
             CONSTANTS.PHONE_IMPORT_FOLDER,
             datetime.datetime.now().strftime("%Y-%m-%d %Hh%M"))
+        origin_tab_id = state["tab_id"]
 
         def _work():
             try:
@@ -1490,7 +1553,7 @@ def main(page: ft.Page):
             # apparaissent au fur et à mesure, on peut commencer à
             # travailler sans attendre la fin (retour user : « il me faut
             # des feedback pour voir l'avancée »).
-            page.run_task(_tool_refresh, dest)
+            page.run_task(_tool_refresh, dest, None, origin_tab_id)
             done, errors, copied_bytes = 0, 0, 0
             total = len(items)
             for i, item in enumerate(items, 1):
@@ -1510,7 +1573,7 @@ def main(page: ft.Page):
                 # _navigate, qui vide la sélection — ça effacerait le choix
                 # en train d'être fait pendant la copie.
                 if i % 10 == 0 and not selected:
-                    page.run_task(_tool_refresh, dest)
+                    page.run_task(_tool_refresh, dest, None, origin_tab_id)
             if done:
                 _log_to_terminal(
                     f"[OK] {done} photo(s) copiée(s) dans {dest}", BLUE)
@@ -1519,13 +1582,14 @@ def main(page: ft.Page):
                     f"[ATTENTION] {errors} échec(s) — téléphone verrouillé "
                     "ou débranché en cours de copie ?", ORANGE)
             if not selected:
-                page.run_task(_tool_refresh, dest)
+                page.run_task(_tool_refresh, dest, None, origin_tab_id)
 
         _run_bg_action(
             f"Copie de {len(items)} photo(s) depuis le téléphone", _work)
 
     def _do_delete(paths):
         folder = state["folder"]
+        origin_tab_id = state["tab_id"]
 
         def _work():
             for p in paths:
@@ -1540,7 +1604,7 @@ def main(page: ft.Page):
                 except Exception as exc:
                     _log_to_terminal(f"[ERREUR] {os.path.basename(p)} : {exc}", RED)
             _update_sel_count()
-            page.run_task(_tool_refresh, folder)
+            page.run_task(_tool_refresh, folder, None, origin_tab_id)
 
         _run_bg_action(f"Suppression de {len(paths)} élément(s)", _work)
 
@@ -1548,6 +1612,7 @@ def main(page: ft.Page):
         folder = state["folder"]
         if not folder:
             return
+        origin_tab_id = state["tab_id"]
 
         def _work():
             duplicated = 0
@@ -1566,7 +1631,7 @@ def main(page: ft.Page):
                     _log_to_terminal(f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
             if duplicated:
                 _log_to_terminal(f"[OK] {duplicated} élément(s) dupliqué(s)", BLUE)
-            page.run_task(_tool_refresh, folder)
+            page.run_task(_tool_refresh, folder, None, origin_tab_id)
 
         _run_bg_action(f"Duplication de {len(paths)} élément(s)", _work)
 
@@ -1575,6 +1640,7 @@ def main(page: ft.Page):
         paths = [p for p in paths if os.path.exists(p)]
         if not folder or not paths:
             return
+        origin_tab_id = state["tab_id"]
         name = (os.path.basename(folder) if len(paths) > 1
                 else os.path.splitext(os.path.basename(paths[0]))[0])
         zip_path = _unique_dest(folder, f"{name}.zip")
@@ -1595,7 +1661,7 @@ def main(page: ft.Page):
                     f"[OK] Archive créée : {os.path.basename(zip_path)}", YELLOW)
             except Exception as exc:
                 _log_to_terminal(f"[ERREUR] Zip : {exc}", RED)
-            page.run_task(_tool_refresh, folder)
+            page.run_task(_tool_refresh, folder, None, origin_tab_id)
 
         _run_bg_action(f"Compression de {len(paths)} élément(s)", _work)
 
@@ -2049,6 +2115,281 @@ def main(page: ft.Page):
         page.update()
         page.run_task(_focus_dialog_field, label_field)
 
+    # ─── Onglets multi-dossiers (suite) ─────────────────────────────────
+    def _find_tab(tab_id):
+        return next((t for t in tabs if t["id"] == tab_id), None)
+
+    def _snapshot_active_tab():
+        """Recopie le dossier + la sélection courants dans l'entrée de
+        l'onglet actif avant de basculer ailleurs — sans ça, revenir sur
+        cet onglet plus tard perdrait la navigation faite pendant qu'il
+        était affiché."""
+        tab = _find_tab(state["tab_id"])
+        if tab is not None:
+            tab["folder"] = state["folder"]
+            tab["selected"] = list(selected)
+
+    def _tab_label_text(tab):
+        # Onglet actif : label dérivé de state["folder"] (toujours à
+        # jour, y compris pendant une navigation en profondeur dans le
+        # même onglet) ; onglet inactif : dernière valeur mémorisée par
+        # _snapshot_active_tab().
+        is_active = tab["id"] == state["tab_id"]
+        folder = state["folder"] if is_active else tab["folder"]
+        if not folder:
+            return "Nouvel onglet"
+        return os.path.basename(folder.rstrip(os.sep))
+
+    def _render_tab_bar(row, tabs_list, active_id, label_fn, select_fn,
+                        close_fn, new_fn):
+        # Générique : sert la barre d'onglets du panneau Fichiers ET,
+        # en Phase 2, celle du panneau droit (Total Commander) — mêmes
+        # contrôles, juste des listes/handlers différents.
+        row.controls.clear()
+        for tab in tabs_list:
+            is_active = tab["id"] == active_id
+            label = ft.Text(
+                label_fn(tab), size=CONSTANTS.TEXT_SM,
+                color=DARK if is_active else WHITE, no_wrap=True,
+                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, width=140)
+            close_btn = ft.IconButton(
+                ft.Icons.CLOSE, icon_size=14,
+                icon_color=DARK if is_active else LIGHT_GREY,
+                tooltip="Fermer l'onglet", visible=len(tabs_list) > 1,
+                on_click=lambda e, tid=tab["id"]: close_fn(tid),
+                style=ft.ButtonStyle(padding=0), width=22, height=22)
+            row.controls.append(ft.Container(
+                content=ft.Row(
+                    [label, close_btn], spacing=2, tight=True,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=ft.Padding(10, 6, 4, 6), border_radius=6,
+                bgcolor=BLUE if is_active else GREY, ink=True,
+                on_click=lambda e, tid=tab["id"]: select_fn(tid)))
+        row.controls.append(ft.IconButton(
+            ft.Icons.ADD, icon_size=16, icon_color=BLUE,
+            tooltip="Nouvel onglet", on_click=new_fn))
+        try:
+            row.update()
+        except Exception:
+            pass
+
+    def _render_folder_tabs():
+        _render_tab_bar(folder_tabs_row, tabs, state["tab_id"],
+                        _tab_label_text, _select_folder_tab,
+                        _close_folder_tab, _new_folder_tab)
+
+    def _restore_tab(tab_id):
+        """Active l'onglet `tab_id` : rescane son dossier (content n'est
+        jamais mis en cache par onglet, cf. commentaire de tête) et
+        ré-applique sa sélection mémorisée, filtrée aux chemins qui
+        existent encore sur disque."""
+        tab = _find_tab(tab_id)
+        if tab is None:
+            return
+        state["tab_id"] = tab_id
+        selected.clear()
+        if tab["folder"]:
+            _navigate(tab["folder"])
+        else:
+            content["dirs"], content["imgs"], content["other"] = [], [], []
+            content["mtime"] = {}
+            state["folder"] = None
+            files_path.value = ""
+        _select_update(p for p in tab["selected"] if os.path.exists(p))
+        _update_sel_count()
+        _render()
+        _render_folder_tabs()
+
+    def _select_folder_tab(tab_id, event=None):
+        if tab_id == state["tab_id"]:
+            return
+        _snapshot_active_tab()
+        _restore_tab(tab_id)
+
+    def _new_folder_tab(event=None):
+        _snapshot_active_tab()
+        _next_tab_id["n"] += 1
+        tab_id = _next_tab_id["n"]
+        tabs.append({"id": tab_id, "folder": None, "selected": []})
+        _restore_tab(tab_id)
+        page.run_task(_pick_folder, None)
+
+    def _close_folder_tab(tab_id, event=None):
+        if len(tabs) <= 1:
+            return   # toujours >= 1 onglet
+        idx = next((i for i, t in enumerate(tabs) if t["id"] == tab_id), None)
+        if idx is None:
+            return
+        if tab_id == state["tab_id"]:
+            # Bascule sur le voisin AVANT de retirer l'onglet fermé de la
+            # liste — jamais de tab_id actif orphelin entre les deux.
+            neighbor = tabs[idx + 1] if idx + 1 < len(tabs) else tabs[idx - 1]
+            _restore_tab(neighbor["id"])
+        tabs[:] = [t for t in tabs if t["id"] != tab_id]
+        _render_folder_tabs()
+
+    # ─── Panneau droit — navigation + onglets (mode Total Commander) ────
+    def _navigate2(path):
+        """Version allégée de _navigate() pour le panneau droit : pas de
+        recherche/tri/vignettes, juste un scan + une liste — cf. panneau
+        droit volontairement minimal (Phase 2 du plan)."""
+        path = os.path.normpath(path)
+        if not os.path.isdir(path):
+            return
+        state["folder2"] = path
+        files_path2.value = path
+        selected2.clear()
+        try:
+            entries = list(os.scandir(path))
+        except OSError as exc:
+            content2["dirs"], content2["imgs"], content2["other"] = [], [], []
+            content2["mtime"] = {}
+            _log_to_terminal(f"[ERREUR] {exc}", RED)
+            _render_panel2()
+            _render_folder_tabs2()
+            return
+        exts = CONSTANTS.IMAGE_EXTS | CONSTANTS.HUB_VECTOR_EXTS
+        dirs, imgs, other = [], [], []
+        mtimes = {}
+        for e in entries:
+            if CONSTANTS.is_os_junk(e.name, e.is_dir()):
+                continue
+            try:
+                mtimes[e.path] = e.stat().st_mtime
+            except OSError:
+                pass
+            if e.is_dir():
+                dirs.append(e.path)
+            elif os.path.splitext(e.name)[1].lower() in exts:
+                imgs.append(e.path)
+            else:
+                other.append(e.path)
+        content2["mtime"] = mtimes
+        content2["dirs"] = sorted(
+            dirs, key=lambda p: os.path.basename(p).lower())
+        content2["imgs"] = sorted(
+            imgs, key=lambda p: os.path.basename(p).lower())
+        content2["other"] = sorted(
+            other, key=lambda p: os.path.basename(p).lower())
+        _render_panel2()
+        _render_folder_tabs2()
+        _update_active_side("right")
+
+    def _toggle_selected2(path):
+        if path in selected2:
+            selected2.remove(path)
+        else:
+            selected2.append(path)
+        _render_panel2()
+
+    def _render_panel2():
+        files_list2.controls.clear()
+        entries = content2["dirs"] + content2["imgs"] + content2["other"]
+        for path in entries:
+            name = os.path.basename(path)
+            is_dir = path in content2["dirs"]
+            is_sel = path in selected2
+            icon = ft.Icons.FOLDER if is_dir else ft.Icons.INSERT_DRIVE_FILE
+            row = ft.Container(
+                content=ft.Row([
+                    ft.Icon(icon, size=CONSTANTS.ICON_SM,
+                            color=YELLOW if is_dir else LIGHT_GREY),
+                    ft.Text(name, size=CONSTANTS.TEXT_SM, color=WHITE,
+                            no_wrap=True, max_lines=1,
+                            overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=ft.Padding(8, 4, 8, 4), border_radius=4,
+                bgcolor=VIOLET if is_sel else None, ink=True,
+                on_click=(lambda e, p=path: _navigate2(p)) if is_dir
+                         else (lambda e, p=path: _toggle_selected2(p)))
+            files_list2.controls.append(row)
+        try:
+            files_list2.update()
+        except Exception:
+            pass
+
+    def _navigate2_up(event=None):
+        folder = state["folder2"]
+        if not folder:
+            return
+        parent = os.path.dirname(folder.rstrip(os.sep)) or folder
+        if parent and parent != folder:
+            _navigate2(parent)
+
+    def _find_tab2(tab_id):
+        return next((t for t in tabs2 if t["id"] == tab_id), None)
+
+    def _snapshot_active_tab2():
+        tab = _find_tab2(state["tab_id2"])
+        if tab is not None:
+            tab["folder"] = state["folder2"]
+            tab["selected"] = list(selected2)
+
+    def _tab_label_text2(tab):
+        is_active = tab["id"] == state["tab_id2"]
+        folder = state["folder2"] if is_active else tab["folder"]
+        if not folder:
+            return "Nouvel onglet"
+        return os.path.basename(folder.rstrip(os.sep))
+
+    def _render_folder_tabs2():
+        _render_tab_bar(folder_tabs_row2, tabs2, state["tab_id2"],
+                        _tab_label_text2, _select_folder_tab2,
+                        _close_folder_tab2, _new_folder_tab2)
+
+    def _restore_tab2(tab_id):
+        tab = _find_tab2(tab_id)
+        if tab is None:
+            return
+        state["tab_id2"] = tab_id
+        selected2.clear()
+        if tab["folder"]:
+            _navigate2(tab["folder"])
+        else:
+            content2["dirs"], content2["imgs"], content2["other"] = [], [], []
+            content2["mtime"] = {}
+            state["folder2"] = None
+            files_path2.value = ""
+        for p in tab["selected"]:
+            if os.path.exists(p) and p not in selected2:
+                selected2.append(p)
+        _render_panel2()
+        _render_folder_tabs2()
+
+    def _select_folder_tab2(tab_id, event=None):
+        if tab_id == state["tab_id2"]:
+            return
+        _snapshot_active_tab2()
+        _restore_tab2(tab_id)
+
+    async def _pick_folder2(event=None):
+        folder = await ft.FilePicker().get_directory_path(
+            dialog_title="Dossier d'images",
+            initial_directory=state["folder2"] or None)
+        if folder:
+            _navigate2(folder)
+
+    def _new_folder_tab2(event=None):
+        _snapshot_active_tab2()
+        _next_tab2_id["n"] += 1
+        tab_id = _next_tab2_id["n"]
+        tabs2.append({"id": tab_id, "folder": None, "selected": []})
+        _restore_tab2(tab_id)
+        page.run_task(_pick_folder2)
+
+    def _close_folder_tab2(tab_id, event=None):
+        if len(tabs2) <= 1:
+            return
+        idx = next((i for i, t in enumerate(tabs2) if t["id"] == tab_id), None)
+        if idx is None:
+            return
+        if tab_id == state["tab_id2"]:
+            neighbor = (tabs2[idx + 1] if idx + 1 < len(tabs2)
+                       else tabs2[idx - 1])
+            _restore_tab2(neighbor["id"])
+        tabs2[:] = [t for t in tabs2 if t["id"] != tab_id]
+        _render_folder_tabs2()
+
     def _navigate(path):
         path = os.path.normpath(path)
         if not os.path.isdir(path):
@@ -2074,6 +2415,7 @@ def main(page: ft.Page):
             files_list.controls.clear()
             files_list.controls.append(ft.Text(str(exc), color=WHITE))
             files_body.content = files_list
+            _render_folder_tabs()
             page.update()
             return
         exts = CONSTANTS.IMAGE_EXTS | CONSTANTS.HUB_VECTOR_EXTS
@@ -2100,6 +2442,8 @@ def main(page: ft.Page):
         content["other"] = sorted(other, key=lambda p: os.path.basename(p).lower())
         _update_sel_count()
         _render()
+        _render_folder_tabs()
+        _update_active_side("left")
         page.run_task(_focus_active_surface)
 
     def _on_files_path_submit(event):
@@ -2447,6 +2791,15 @@ def main(page: ft.Page):
     # search_field ci-dessus) — le Container extérieur impose CONSTANTS.HUB_TOOLBAR_H.
     view_seg_wrap = ft.Container(
         content=view_seg, height=CONSTANTS.HUB_TOOLBAR_H, alignment=ft.Alignment(0, 0))
+
+    # Bouton Total Commander (Phase 2) : la fonction _toggle_tc_mode n'est
+    # définie que plus bas (avec tc_row/panel_droit) — lambda pour ne
+    # résoudre le nom qu'au clic, une fois main() entièrement exécuté
+    # (même pattern que _new_folder_tab -> _pick_folder plus haut).
+    tc_toggle_btn = ft.IconButton(
+        ft.Icons.VERTICAL_SPLIT, icon_size=CONSTANTS.ICON_SM,
+        icon_color=LIGHT_GREY, tooltip="Vue Total Commander (deux panneaux)",
+        on_click=lambda e: _toggle_tc_mode(e))
 
     def _set_search(value):
         state["search"] = value or ""
@@ -3899,6 +4252,7 @@ def main(page: ft.Page):
                 ft.Container(expand=True),
                 sort_btn,
                 view_seg_wrap,
+                tc_toggle_btn,
             ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
             ft.Row([
                 _seg_btn(ft.Icons.SELECT_ALL, "Tout sélectionner", _toggle_all,
@@ -3919,11 +4273,145 @@ def main(page: ft.Page):
         bgcolor=BACKGROUND,
     )
 
+    # Barre d'onglets (dossiers ouverts) — motif Container cliquable + ink,
+    # comme rail_tabs (_select_surface plus bas) : pas de ft.Tabs, jamais
+    # utilisé ailleurs dans le dépôt.
+    folder_tabs_row = ft.Row([], spacing=4, scroll=ft.ScrollMode.AUTO)
+    folder_tabs_bar = ft.Container(
+        content=folder_tabs_row, padding=ft.Padding(12, 6, 12, 0),
+        bgcolor=BACKGROUND, on_click=lambda e: _update_active_side("left"))
+    _render_folder_tabs()
+
+    # Contour du panneau actif (mode Total Commander uniquement — cf.
+    # _update_active_side) : Stack enveloppant files_body DE L'EXTÉRIEUR,
+    # comme Data/Comparaison.pyw:_update_border. Le commentaire de garde
+    # sur files_body ("jamais de Stack ici") concerne l'échange interne
+    # files_list/files_grid, pas cet enveloppement externe — files_body.
+    # content continue d'être échangé normalement.
+    border_overlay_left = ft.Container(
+        border=ft.Border.all(7, ft.Colors.TRANSPARENT), border_radius=4)
+    files_body_bordered = ft.Stack(
+        [files_body, border_overlay_left], expand=True,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE)
+
     files_surface = ft.Column([
         files_header,
+        folder_tabs_bar,
         ft.Divider(height=1, color=GREY),
-        files_body,
+        files_body_bordered,
     ], expand=True, spacing=0)
+
+    # ═════════════════════════════════════════════════════════════════════
+    #  Panneau droit — mode Total Commander (Phase 2) : volontairement
+    #  allégé (liste seule, pas de vignettes/tri/recherche) — cf. panneau
+    #  gauche = files_surface ci-dessus, inchangé. À itérer plus tard si le
+    #  panneau minimal s'avère insuffisant à l'usage (retour user attendu).
+    # ═════════════════════════════════════════════════════════════════════
+    files_path2 = ft.Text(
+        "", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY, no_wrap=True,
+        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS, expand=True)
+    up2_btn = ft.IconButton(
+        ft.Icons.ARROW_UPWARD, icon_size=CONSTANTS.ICON_SM, icon_color=BLUE,
+        tooltip="Dossier parent", on_click=_navigate2_up)
+    browse2_btn = ft.IconButton(
+        ft.Icons.FOLDER_OPEN, icon_size=CONSTANTS.ICON_SM, icon_color=BLUE,
+        tooltip="Parcourir…", on_click=lambda e: page.run_task(_pick_folder2))
+    copy_to_other_btn = ft.IconButton(
+        ft.Icons.ARROW_FORWARD, icon_size=CONSTANTS.ICON_SM, icon_color=BLUE,
+        tooltip="Copier la sélection vers l'autre panneau",
+        on_click=lambda e: _copy_to_other_panel())
+    panel2_header = ft.Container(
+        content=ft.Row(
+            [up2_btn, browse2_btn, files_path2, copy_to_other_btn],
+            spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+        padding=ft.Padding(12, 12, 12, 8), bgcolor=BACKGROUND,
+        on_click=lambda e: _update_active_side("right"))
+
+    folder_tabs_row2 = ft.Row([], spacing=4, scroll=ft.ScrollMode.AUTO)
+    folder_tabs_bar2 = ft.Container(
+        content=folder_tabs_row2, padding=ft.Padding(12, 6, 12, 0),
+        bgcolor=BACKGROUND, on_click=lambda e: _update_active_side("right"))
+
+    files_list2 = ft.ListView(expand=True, spacing=2, padding=8)
+    files_body2 = ft.Container(content=files_list2, expand=True)
+    border_overlay_right = ft.Container(
+        border=ft.Border.all(7, ft.Colors.TRANSPARENT), border_radius=4)
+    files_body2_bordered = ft.Stack(
+        [files_body2, border_overlay_right], expand=True,
+        clip_behavior=ft.ClipBehavior.HARD_EDGE)
+
+    panel_droit = ft.Column([
+        panel2_header,
+        folder_tabs_bar2,
+        ft.Divider(height=1, color=GREY),
+        files_body2_bordered,
+    ], expand=True, spacing=0)
+    _render_folder_tabs2()
+
+    def _update_active_side(side, event=None):
+        # Bordure visible UNIQUEMENT en mode Total Commander — en mode
+        # panneau simple, toujours transparente des deux côtés (retour
+        # spec : pas de contour hors TC).
+        state["active_side"] = side
+        active_color = CONSTANTS.PANEL_ACTIVE_BORDER
+        left_on  = state["tc_mode"] and side == "left"
+        right_on = state["tc_mode"] and side == "right"
+        border_overlay_left.border = ft.Border.all(
+            7, active_color if left_on else ft.Colors.TRANSPARENT)
+        border_overlay_right.border = ft.Border.all(
+            7, active_color if right_on else ft.Colors.TRANSPARENT)
+        try:
+            border_overlay_left.update()
+            border_overlay_right.update()
+        except Exception:
+            pass
+
+    tc_row = ft.Row([
+        files_surface,
+        ft.VerticalDivider(width=1, color=GREY),
+        panel_droit,
+    ], expand=True, spacing=0)
+
+    def _copy_to_other_panel(event=None):
+        """Généralise _do_paste (paths/dest_folder) : copie la sélection
+        du panneau ACTIF vers le dossier ouvert dans l'AUTRE panneau."""
+        if state["active_side"] == "left":
+            src_paths, dest_folder = list(selected), state["folder2"]
+        else:
+            src_paths, dest_folder = list(selected2), state["folder"]
+        if not dest_folder:
+            _log_to_terminal(
+                "[ATTENTION] Ouvrez un dossier dans l'autre panneau", ORANGE)
+            return
+        if not src_paths:
+            _log_to_terminal(
+                "[ATTENTION] Aucun fichier sélectionné à copier", ORANGE)
+            return
+        _do_paste(paths=src_paths, dest_folder=dest_folder)
+
+    def _toggle_tc_mode(event=None):
+        state["tc_mode"] = not state["tc_mode"]
+        if state["tc_mode"]:
+            center.content = tc_row
+            tc_toggle_btn.icon_color = BLUE
+            _update_active_side("left")
+        else:
+            center.content = files_surface
+            tc_toggle_btn.icon_color = LIGHT_GREY
+            border_overlay_left.border = ft.Border.all(
+                7, ft.Colors.TRANSPARENT)
+            border_overlay_right.border = ft.Border.all(
+                7, ft.Colors.TRANSPARENT)
+            try:
+                border_overlay_left.update()
+                border_overlay_right.update()
+            except Exception:
+                pass
+        try:
+            tc_toggle_btn.update()
+        except Exception:
+            pass
+        page.update()
 
     # ═════════════════════════════════════════════════════════════════════
     #  Surface Bloc-notes — .notes.md partagé avec Dashboard/SidePanel
@@ -6405,7 +6893,12 @@ def main(page: ft.Page):
                 _terminal_autohide["pinned"] = True
                 _busy["pinned_by_busy"] = True
         state["surface"] = key
-        center.content = surface_content[key]
+        # Le mode Total Commander (Phase 2) est propre à la surface
+        # "files" — il doit survivre à un aller-retour vers un autre
+        # onglet du rail (Bloc-notes, IA...), donc pas de valeur figée
+        # dans surface_content pour cette clé.
+        center.content = (tc_row if key == "files" and state["tc_mode"]
+                          else surface_content[key])
         for k, tab in rail_tabs.items():
             is_active = k == key
             tab["container"].bgcolor = BLUE if is_active else None
@@ -6456,7 +6949,15 @@ def main(page: ft.Page):
         status_left.value = msg
         page.update()
 
-    async def _tool_refresh(folder, names=None):
+    async def _tool_refresh(folder, names=None, origin_tab_id=None):
+        # `origin_tab_id` = tab_id capturé par l'appelant AVANT de lancer
+        # son thread : si l'utilisateur a changé d'onglet pendant que
+        # l'opération tournait, ce rafraîchissement différé écraserait
+        # silencieusement l'onglet devenu actif avec le dossier d'origine.
+        # Rien n'est perdu en sautant : l'onglet d'origine sera rescanné
+        # fraîchement à sa prochaine activation (_restore_tab).
+        if origin_tab_id is not None and origin_tab_id != state["tab_id"]:
+            return
         if folder:
             try:
                 _navigate(folder)
@@ -6484,6 +6985,7 @@ def main(page: ft.Page):
             _log_to_terminal(f"[ERREUR] Introuvable : {script_name}", RED)
             return
         folder = state["folder"] or ""
+        origin_tab_id = state["tab_id"]
         # Comme Dashboard.pyw:8933-8935 : sans ce garde-fou, un script
         # "dossier" reçoit FOLDER_PATH="" et retombe sur le dossier courant
         # du process — il tourne "pour de vrai" sur le mauvais dossier
@@ -6636,7 +7138,7 @@ def main(page: ft.Page):
                 _show_terminal_and_schedule_hide(
                     CONSTANTS.HUB_TERMINAL_TOOL_CLOSE_DELAY)
             page.run_task(_tool_refresh, nav_target["path"] or folder,
-                          sel_target["names"])
+                          sel_target["names"], origin_tab_id)
             action_progress_bar.visible = False
             try:
                 page.update()

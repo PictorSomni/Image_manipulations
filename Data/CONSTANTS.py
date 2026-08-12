@@ -111,6 +111,14 @@ COLOR_WHITE        = "#c7ccd8"
 # COLORÉE.
 ICON_ACTION  = COLOR_BLUE         # action primaire / fréquente (parcourir, rafraîchir)
 
+# Contour du panneau actif en mode Total Commander (Hub.pyw) — aucune des
+# 6 couleurs de la palette n'est libre pour ce rôle (BLUE = action
+# primaire, GREEN = succès, ORANGE = en cours, RED = erreur, YELLOW =
+# dossiers/favoris, VIOLET = sélection en masse) : nom sémantique dédié,
+# recolore vers BLUE pour l'instant — à ajuster si ça se confond trop
+# avec les icônes d'action déjà bleues du panneau, une fois en place.
+PANEL_ACTIVE_BORDER = COLOR_BLUE
+
 # Échelle typographique — 2 crans : corps de texte, et titres de zone.
 TEXT_SM = 13   # corps : dialogues, listes, boutons, noms de fichiers
 TEXT_LG = 20   # titres de zone (Bloc-notes, Assistant IA, HUB, Actions)
