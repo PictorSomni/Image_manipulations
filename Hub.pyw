@@ -4288,8 +4288,14 @@ def main(page: ft.Page):
     # sur files_body ("jamais de Stack ici") concerne l'échange interne
     # files_list/files_grid, pas cet enveloppement externe — files_body.
     # content continue d'être échangé normalement.
+    # ignore_interactions=True : un Container avec `border` défini
+    # intercepte TOUS les événements pointeur sur toute sa surface, même
+    # avec une couleur transparente (comportement Flutter) — sans ça, cet
+    # overlay bloquait le clic ET le défilement (molette) du panneau
+    # en dessous (retour user).
     border_overlay_left = ft.Container(
-        border=ft.Border.all(7, ft.Colors.TRANSPARENT), border_radius=4)
+        border=ft.Border.all(7, ft.Colors.TRANSPARENT), border_radius=4,
+        ignore_interactions=True)
     files_body_bordered = ft.Stack(
         [files_body, border_overlay_left], expand=True,
         clip_behavior=ft.ClipBehavior.HARD_EDGE)
@@ -4335,7 +4341,8 @@ def main(page: ft.Page):
     files_list2 = ft.ListView(expand=True, spacing=2, padding=8)
     files_body2 = ft.Container(content=files_list2, expand=True)
     border_overlay_right = ft.Container(
-        border=ft.Border.all(7, ft.Colors.TRANSPARENT), border_radius=4)
+        border=ft.Border.all(7, ft.Colors.TRANSPARENT), border_radius=4,
+        ignore_interactions=True)
     files_body2_bordered = ft.Stack(
         [files_body2, border_overlay_right], expand=True,
         clip_behavior=ft.ClipBehavior.HARD_EDGE)
