@@ -364,8 +364,8 @@ REMERCIEMENTS_ALPHA   = 0.42   # Opacité filigrane
 # ── 7.1  Dossier TEMP ─────────────────────────────────────────────────────────
 # Destination par défaut pour le transfert (Transfert vers TEMP.py).
 # Peut être surchargé via la variable d'environnement DEST_FOLDER.
+# Défini plus bas (section 8), dérivé de TRAVAUX_EN_COURS.
 
-TEMP_FOLDER = "\\\\Diskstation\\travaux en cours\\Z2026\\TEMP"   # Windows
 TRANSFER_TEMP_CONFIRM_DELETE_SELECTED = True   # True = demande confirmation avant suppression des originaux si SOURCE_FILES est fourni par Hub
 
 
@@ -409,22 +409,31 @@ DELETE_ZIP_AFTER_EXTRACT = False
 # ==============================================================================
 # 8. RÉSEAU & KIOSKS
 # ==============================================================================
-# Utilisés par Kiosk gauche.py et Nettoyer anciens fichiers.py.
+# Utilisés par Kiosk gauche.py, Nettoyer anciens fichiers.py, et tout
+# endroit qui écrit sur le partage réseau "travaux en cours" (ex.
+# Recadrage manuel.pyw pour les planches ID X4).
+#
+# TRAVAUX_EN_COURS pointe vers le dossier de l'année en cours sur ce
+# partage — SEUL endroit à modifier au changement d'année (retour
+# user : remplacer "2026" par "2027" ici suffit, plus besoin de
+# chercher tous les chemins en dur dans chaque fichier).
 
 import platform as _platform
 
 if _platform.system() == "Windows":
+    TRAVAUX_EN_COURS  = r"\\Diskstation\travaux en cours\z2026"
     KIOSK_GAUCHE_SRC  = r"\\studioc-kiosk1\kiosk-data\it-HotFolder"
-    KIOSK_GAUCHE_DEST = r"\\Diskstation\travaux en cours\z2026\kiosk\KIOSK GAUCHE"
+    KIOSK_GAUCHE_DEST = TRAVAUX_EN_COURS + r"\kiosk\KIOSK GAUCHE"
+    KIOSK_DROITE_DEST = TRAVAUX_EN_COURS + r"\kiosk\KIOSK DROITE"
+    TEMP_FOLDER       = TRAVAUX_EN_COURS + r"\TEMP"
     CLEAN_FOLDERS = [
         r"\\studioc-kiosk1\kiosk-data\it-HotFolder",
         r"\\studioc-kiosk2\kiosk-data\it-HotFolder",
-        r"\\Diskstation\travaux en cours\z2026\kiosk\KIOSK GAUCHE",
-        r"\\Diskstation\travaux en cours\z2026\kiosk\KIOSK DROITE",
-        r"\\diskstation\travaux en cours\Z2026\TEMP",
+        KIOSK_GAUCHE_DEST,
+        KIOSK_DROITE_DEST,
+        TEMP_FOLDER,
     ]
 else:
-    
     _travaux = "/Volumes/TRAVAUX EN COURS"
     if not os.path.ismount(_travaux):
         for _suffix in ["-1", "-2", "-3", "-4"]:
@@ -432,15 +441,17 @@ else:
             if os.path.ismount(_candidate):
                 _travaux = _candidate
                 break
+    TRAVAUX_EN_COURS  = f"{_travaux}/Z2026"
     KIOSK_GAUCHE_SRC  = "/Volumes/kiosk-data/it-HotFolder"
-    KIOSK_GAUCHE_DEST = f"{_travaux}/Z2026/KIOSK/KIOSK GAUCHE"
-    TEMP_FOLDER       = f"{_travaux}/Z2026/TEMP"
+    KIOSK_GAUCHE_DEST = f"{TRAVAUX_EN_COURS}/KIOSK/KIOSK GAUCHE"
+    KIOSK_DROITE_DEST = f"{TRAVAUX_EN_COURS}/KIOSK/KIOSK DROITE"
+    TEMP_FOLDER       = f"{TRAVAUX_EN_COURS}/TEMP"
     CLEAN_FOLDERS = [
         "/Volumes/kiosk-data-1/it-HotFolder",
         "/Volumes/kiosk-data-2/it-HotFolder",
-        f"{_travaux}/Z2026/KIOSK/KIOSK GAUCHE",
-        f"{_travaux}/Z2026/KIOSK/KIOSK DROITE",
-        f"{_travaux}/Z2026/TEMP",
+        KIOSK_GAUCHE_DEST,
+        KIOSK_DROITE_DEST,
+        TEMP_FOLDER,
     ]
 
 del _platform

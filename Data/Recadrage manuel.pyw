@@ -4122,17 +4122,10 @@ class PhotoCropper:
 
         if (format_short_name in ("ID_X4", "ID_X4_10x20")
                 and job["save_to_network"]):
-            if platform.system() == "Windows":
-                output_directory = "\\\\Diskstation\\travaux en cours\\z2026"
-            else:
-                _travaux_primary = "/Volumes/TRAVAUX EN COURS/Z2026"
-                _travaux_secondary = "/Volumes/TRAVAUX EN COURS-1/Z2026"
-                if os.path.isdir(_travaux_primary):
-                    output_directory = _travaux_primary
-                elif os.path.isdir(_travaux_secondary):
-                    output_directory = _travaux_secondary
-                else:
-                    output_directory = _travaux_primary  # sera créé par makedirs ou plantera explicitement
+            # ID_X4 et ID_X4_10x20 partagent explicitement le même
+            # chemin réseau, centralisé dans CONSTANTS.TRAVAUX_EN_COURS
+            # (un seul endroit à changer au changement d'année).
+            output_directory = CONSTANTS.TRAVAUX_EN_COURS
         else:
             output_directory = os.path.join(job["source_folder"],
                                             format_short_name)
