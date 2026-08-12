@@ -1,19 +1,24 @@
 # -*- coding: utf-8 -*-
 """
-Assemble un lot d'images en un PDF prêt à imprimer en recto-verso, 2
-pages côte à côte par feuille (appariement séquentiel simple : 1+2,
-3+4...). Contrairement au mode "livret" du pilote d'imprimante, les
-images ne sont PAS redimensionnées : elles sont déjà à la bonne taille
-d'impression (marge blanche comprise) et sont simplement collées côte
-à côte.
+Assemble un lot d'images en un PDF de livret (imposition pour piqûre à
+cheval) : les pages sont réparties 2 par feuille, dans l'ordre qui,
+imprimé en recto-verso, redonne la lecture 1, 2, 3... N. Contrairement
+au mode "livret" du pilote d'imprimante, les images ne sont PAS
+redimensionnées : elles sont déjà à la bonne taille d'impression
+(marge blanche comprise) et sont simplement collées côte à côte.
 
-La première image fournie est toujours la première de couverture, la
-dernière est toujours la dernière de couverture (retour user). Si le
-nombre de pages n'est pas un multiple de 2, des pages blanches sont
-insérées juste avant la dernière (jamais après, pour ne pas déplacer
-la couverture finale) — elles restent groupées sur la/les dernière(s)
-feuille(s) (retour user : pas d'imposition "piqûre à cheval" qui les
-aurait dispersées sur plusieurs feuilles pour un vrai pliage/agrafage).
+La 1re feuille imprimée porte toujours les couvertures — dernière de
+couverture à GAUCHE, première de couverture à DROITE (retour user) —
+et les feuilles suivantes alternent la position des pages selon leur
+rang pour rester correctes une fois recto-verso (algorithme standard
+d'imposition "booklet printing", ex. psbook) : pour la feuille
+d'indice s (0 = la 1re imprimée), sur n pages au total,
+  recto = [page (n - 2s)   | page (2s + 1)]
+  verso = [page (2s + 2)   | page (n - 2s - 1)]
+Le nombre de pages est complété à un multiple de 4 avec des pages
+blanches insérées juste avant la dernière image (jamais après, pour
+ne jamais déplacer la dernière de couverture) — leur répartition sur
+plusieurs feuilles est une conséquence inévitable de cette imposition.
 
 Variables d'environnement :
   FOLDER_PATH     — dossier source (défaut : répertoire du script).
@@ -25,7 +30,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL)
 """
 
-__version__ = "3.0.0"
+__version__ = "4.0.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -124,11 +129,10 @@ cell_w = max(p.width for p in pages)
 cell_h = max(p.height for p in pages)
 pages = [_centered_on_cell(p, cell_w, cell_h) for p in pages]
 
-# Complète à un nombre pair (une paire par feuille) avec des pages
+# Complète à un multiple de 4 (feuillet complet) avec des pages
 # blanches insérées juste AVANT la dernière page — jamais après, pour
-# que la dernière image fournie reste la dernière de couverture ; elles
-# restent ainsi groupées sur la/les dernière(s) feuille(s).
-missing = len(pages) % 2
+# que la dernière image fournie reste la dernière de couverture.
+missing = (-len(pages)) % 4
 if missing:
     print(f"{missing} page(s) blanche(s) ajoutée(s) pour compléter le "
          f"feuillet (dernière de couverture préservée).")
@@ -136,15 +140,28 @@ if missing:
     pages = pages[:-1] + [blank] * missing + pages[-1:]
 
 n = len(pages)
-sheets = n // 2
+sheets = n // 4
 print(f"{n} pages -> {sheets} feuille(s) recto-verso")
 
+# Imposition piqûre à cheval : la 1re feuille imprimée porte les
+# couvertures (dernière de couverture à gauche, première à droite),
+# et ainsi de suite vers le centre en alternant selon le rang de la
+# feuille — algorithme standard des logiciels de "booklet printing"
+# (ex. psbook), garanti de retomber juste car n est un multiple de 4.
 output_pages = []
-for i in range(0, n, 2):
-    sheet = Image.new("RGB", (cell_w * 2, cell_h), "white")
-    sheet.paste(pages[i], (0, 0))
-    sheet.paste(pages[i + 1], (cell_w, 0))
-    output_pages.append(sheet)
+for s in range(sheets):
+    front_left, front_right = n - 2 * s, 2 * s + 1
+    back_left, back_right = 2 * s + 2, n - 2 * s - 1
+
+    front = Image.new("RGB", (cell_w * 2, cell_h), "white")
+    front.paste(pages[front_left - 1], (0, 0))
+    front.paste(pages[front_right - 1], (cell_w, 0))
+    output_pages.append(front)
+
+    back = Image.new("RGB", (cell_w * 2, cell_h), "white")
+    back.paste(pages[back_left - 1], (0, 0))
+    back.paste(pages[back_right - 1], (cell_w, 0))
+    output_pages.append(back)
 
 # Une seule résolution pour tout le PDF (limitation Pillow, cf.
 # Hub.pyw:_images_to_pdf) : CONSTANTS.DPI, celle à laquelle les pages
