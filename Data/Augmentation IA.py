@@ -2310,6 +2310,7 @@ async def main(page: ft.Page) -> None:
             state["rembg_before"]     = state["work_img"]
             state["bg_pick_active"]   = True
             image_gesture.visible      = True
+            await preview_viewer.reset()   # cf. on_inpaint_btn
             preview_viewer.pan_enabled = False
             image_gesture.update()
             preview_viewer.update()
@@ -2434,6 +2435,14 @@ async def main(page: ft.Page) -> None:
             inpaint_btn.icon           = ft.Icons.CROP_FREE
             inpaint_btn.bgcolor        = BLUE
             image_gesture.visible      = True
+            # Le pan reste verrouillé tant que dure la sélection (pour ne
+            # pas confondre glisser-pour-zoomer et glisser-pour-sélec-
+            # tionner) — sans ce reset, un zoom/déplacement laissé actif
+            # rendait des zones de l'image (ex. un coin) inaccessibles
+            # pendant tout le temps du verrouillage (retour user : bord
+            # de l'image jamais atteignable pour sélectionner/supprimer
+            # ce qui s'y trouvait).
+            await preview_viewer.reset()
             preview_viewer.pan_enabled = False
         else:
             inpaint_btn.text           = "Retouche IA"
@@ -2477,6 +2486,7 @@ async def main(page: ft.Page) -> None:
         inpaint_btn.icon           = ft.Icons.CROP_FREE
         inpaint_btn.bgcolor        = BLUE
         image_gesture.visible      = True
+        page.run_task(preview_viewer.reset)   # cf. on_inpaint_btn
         preview_viewer.pan_enabled = False
         _render_preview()
 
