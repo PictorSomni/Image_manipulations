@@ -570,6 +570,24 @@ async def main(page: ft.Page) -> None:
         iy = max(0, min(round((cy - oy) / sy), img.height - 1))
         return ix, iy
 
+    def _display_to_image_excl(
+            cx: float, cy: float) -> tuple[int | None, int | None]:
+        """Comme _display_to_image, mais borne haute EXCLUSIVE (jusqu'à
+        img.width/img.height, pas -1) : pour le coin bas-droit d'une
+        sélection rectangle, qui doit pouvoir atteindre le vrai bord de
+        l'image (cf. usage en borne exclusive dans .crop()/sel[2]-sel[0])
+        — sinon un glisser jusqu'au bord perd 1 px et le fondu de bord
+        de la retouche IA croit encore avoir de la marge à droite/en bas
+        (retour user : dégradé résiduel visible sur le bord bas)."""
+        info = state["render_info"]
+        if info is None:
+            return None, None
+        _, _, ox, oy, sx, sy = info
+        img = state["orig_img"]
+        ix = max(0, min(round((cx - ox) / sx), img.width))
+        iy = max(0, min(round((cy - oy) / sy), img.height))
+        return ix, iy
+
     def _image_to_display(ix: int, iy: int) -> tuple[float, float]:
         info = state["render_info"]
         if info is None:
@@ -967,7 +985,7 @@ async def main(page: ft.Page) -> None:
 
         state["selection_mask"] = None
         ix1, iy1 = _display_to_image(min(x1d, x2d), min(y1d, y2d))
-        ix2, iy2 = _display_to_image(max(x1d, x2d), max(y1d, y2d))
+        ix2, iy2 = _display_to_image_excl(max(x1d, x2d), max(y1d, y2d))
 
         if (ix1 is not None and ix2 is not None and
                 iy1 is not None and iy2 is not None and
