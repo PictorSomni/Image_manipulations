@@ -698,7 +698,7 @@ async def main(page: ft.Page) -> None:
         if info is None:
             sel_canvas.update()
             return
-        tw, th, ox, oy, *_ = info
+        vw, vh = state["view_size"]
 
         sel_display: tuple | None = None
         if state["drag_start"] is not None and state["drag_current"] is not None:
@@ -714,8 +714,19 @@ async def main(page: ft.Page) -> None:
 
         if sel_display is not None:
             x1, y1, x2, y2 = sel_display
-            x1 = max(ox, x1);  y1 = max(oy, y1)
-            x2 = min(ox + tw, x2);  y2 = min(oy + th, y2)
+            # Bornes = tout le canvas (0..vw/vh), PAS le rectangle rendu
+            # de l'image (ox..ox+tw) : un glisser dans la marge sombre
+            # (lettrboxing d'une image qui ne remplit pas tout le canvas)
+            # sélectionne bien le bord de l'image (cf. _display_to_image,
+            # qui clampe indépendamment), mais l'ancien clamp ici gelait
+            # le rectangle visuellement pile au bord de la photo — aucun
+            # retour visuel en continuant à glisser, ce qui donnait
+            # l'impression que le bord n'était pas atteignable (retour
+            # user : "le rectangle s'arrête net avant le bord de la
+            # photo"). Le clamp au canvas entier permet au rectangle de
+            # continuer à grandir visiblement dans la marge.
+            x1 = max(0, x1);  y1 = max(0, y1)
+            x2 = min(vw, x2);  y2 = min(vh, y2)
             if x2 > x1 and y2 > y1:
                 w, h = x2 - x1, y2 - y1
                 sel_canvas.shapes.append(
