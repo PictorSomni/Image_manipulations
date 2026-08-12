@@ -1137,6 +1137,13 @@ def main(page: ft.Page):
             clipboard["paths"] = []
             clipboard["mode"] = None
             _refresh_edit_buttons()
+        # Bascule en mode ruban tout de suite (avant le travail, pas
+        # après) : le terminal reste visible pendant tout le collage,
+        # même une fois le dernier fichier traité — même principe que
+        # _print_paths (retour user : le terminal se refermait/n'était
+        # pas visible avant la fin réelle du collage).
+        if not _strip_state["active"]:
+            _toggle_strip()
 
         def _work():
             pasted, errors = 0, 0
