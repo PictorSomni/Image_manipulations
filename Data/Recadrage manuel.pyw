@@ -4101,6 +4101,14 @@ class PhotoCropper:
         else:
             output_directory = os.path.join(job["source_folder"],
                                             format_short_name)
+        # Diagnostic temporaire (retour user 2026-08-12 : "ID_X4 ne
+        # s'enregistre plus, aucune erreur") — affiche la vraie
+        # destination visée et si le réseau était actif, pour voir en un
+        # test si le fichier part au mauvais endroit plutôt que nulle
+        # part. À retirer une fois la cause confirmée.
+        self._status_from_thread(
+            f"[DEBUG] {format_short_name} -> save_to_network="
+            f"{job['save_to_network']} -> {output_directory}")
 
         if job["is_sharpen"]:
             output_image = output_image.filter(
