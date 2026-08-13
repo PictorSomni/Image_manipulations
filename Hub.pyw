@@ -53,6 +53,7 @@ import thumb_cache
 import mcp_client
 import credentials
 import mtp_devices
+import rss_feeds
 from ai_tools import (
     _backup_file, _folder_create_file, _folder_list_contents, _folder_read_file,
     _folder_delete_files, _web_search, _fetch_url_content, _run_terminal_command,
@@ -74,6 +75,7 @@ SURFACES = [
     ("liste", "Liste",    ft.Icons.LIST_ALT_OUTLINED),
     ("ia",    "IA",       ft.Icons.SMART_TOY_OUTLINED),
     ("notes", "Notes",    ft.Icons.EDIT_NOTE_OUTLINED),
+    ("actus", "Actus",    ft.Icons.RSS_FEED_OUTLINED),
 ]
 
 # Hauteur de fenêtre en mode bandeau (strip mode) — juste assez pour la
@@ -6604,6 +6606,93 @@ def main(page: ft.Page):
     _liste_load()
     _liste_render()
 
+    # ═════════════════════════════════════════════════════════════════════
+    #  Surface Actus — agrégateur RSS/Atom natif (Data/rss_feeds.py) : news
+    #  tech/IA + notes d'épisode de podcasts, fusionnées et triées par date.
+    #  Portage Python du prototype web dashboard-perso — pas de WebView
+    #  (non supporté sous Windows/Linux desktop par flet-webview), donc
+    #  rendu 100% natif Flet ici.
+    # ═════════════════════════════════════════════════════════════════════
+    actus_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREY)
+    actus_list_view = ft.ListView(expand=True, spacing=8,
+                                  padding=ft.Padding(8, 4, 8, 8))
+    actus_state = {"loading": False}
+
+    def _actus_item_card(item):
+        date_txt = (item["date"].astimezone().strftime("%d/%m/%Y %H:%M")
+                   if item["date"] else "")
+        rows = [
+            ft.Row([
+                ft.Container(
+                    content=ft.Text(item["source"], size=11,
+                                    color=BLUE),
+                    bgcolor=ft.Colors.with_opacity(0.15, BLUE),
+                    border_radius=4, padding=ft.Padding(6, 2, 6, 2)),
+                ft.Text(date_txt, size=11, color=GREY),
+            ], spacing=8),
+            ft.Text(item["title"], size=CONSTANTS.TEXT_SM, color=WHITE,
+                    weight=ft.FontWeight.W_600),
+        ]
+        if item["summary"]:
+            rows.append(ft.Text(item["summary"], size=11,
+                                color=LIGHT_GREY, max_lines=3,
+                                overflow=ft.TextOverflow.ELLIPSIS))
+        link = item["link"]
+        return ft.Container(
+            content=ft.Column(rows, spacing=4, tight=True),
+            bgcolor=GREY, border_radius=8, padding=10, ink=True,
+            on_click=(lambda e, u=link: webbrowser.open(u)) if link
+                     else None)
+
+    def _actus_refresh(event=None):
+        if actus_state["loading"]:
+            return
+        actus_state["loading"] = True
+        actus_status.value = "Chargement des flux…"
+        actus_list_view.controls.clear()
+        page.update()
+
+        def _work():
+            try:
+                items = rss_feeds.fetch_all_feeds()
+                error = None
+            except Exception as exc:
+                items, error = [], str(exc)
+
+            async def _apply():
+                actus_state["loading"] = False
+                if error:
+                    actus_status.value = f"Erreur de chargement : {error}"
+                elif not items:
+                    actus_status.value = "Aucun article trouvé."
+                else:
+                    actus_status.value = (
+                        f"{len(items)} articles — mis à jour à "
+                        f"{datetime.datetime.now().strftime('%H:%M')}")
+                    actus_list_view.controls.extend(
+                        _actus_item_card(it) for it in items)
+                page.update()
+
+            page.run_task(_apply)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    actus_surface = ft.Column([
+        ft.Container(
+            content=ft.Row([
+                ft.Text("Actus", size=CONSTANTS.TEXT_SM, color=WHITE,
+                        weight=ft.FontWeight.W_700),
+                ft.IconButton(ft.Icons.REFRESH, icon_color=ICON_ACTION,
+                             icon_size=CONSTANTS.ICON_SM,
+                             tooltip="Actualiser les flux",
+                             on_click=_actus_refresh),
+                actus_status,
+            ], spacing=8),
+            padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
+        ft.Divider(height=1, color=GREY),
+        ft.Container(content=actus_list_view, expand=True),
+    ], expand=True, spacing=0)
+
     # ─── Surfaces encore à construire (placeholders structurés) ──────────
     def _placeholder(label):
         return ft.Container(
@@ -6616,6 +6705,7 @@ def main(page: ft.Page):
         "liste": liste_surface,
         "ia":    ia_surface,
         "notes": notes_surface,
+        "actus": actus_surface,
     }
     center = ft.Container(content=surface_content["files"], expand=True,
                           bgcolor=DARK)
@@ -6676,6 +6766,8 @@ def main(page: ft.Page):
                 _busy["pinned_by_busy"] = True
         state["surface"] = key
         center.content = surface_content[key]
+        if key == "actus" and not actus_list_view.controls:
+            _actus_refresh()   # chargement paresseux : au premier passage
         for k, tab in rail_tabs.items():
             is_active = k == key
             tab["container"].bgcolor = BLUE if is_active else None
@@ -8512,6 +8604,49 @@ def main(page: ft.Page):
         if not _strip_state["active"]:
             _toggle_strip()
 
+    def _launch_ssh_terminal(event=None):
+        # Rejoint la session tmux "claude" sur le Pi hub — c'est là que
+        # tourne cette conversation même. Un vrai terminal, sans passer
+        # par la dictée (retour user : OpenWhispr avale des mots).
+        # `tmux new -A -s claude` plutôt que `attach` : rattache la
+        # session si elle existe déjà, sinon en crée une — ne plante
+        # jamais si la session n'a pas encore démarré (retour user).
+        # Le mot de passe SSH reste demandé normalement par le terminal
+        # ouvert ; jamais saisi/mémorisé ici.
+        ssh_cmd = 'ssh pictorsomni@pictorsomni -t "tmux new -A -s claude"'
+        try:
+            system = platform.system()
+            if system == "Windows":
+                if shutil.which("wt"):
+                    subprocess.Popen([
+                        "wt", "ssh", "pictorsomni@pictorsomni", "-t",
+                        "tmux new -A -s claude"])
+                else:
+                    subprocess.Popen(f"start cmd /k {ssh_cmd}", shell=True)
+            elif system == "Darwin":
+                script = ('tell application "Terminal" to do script '
+                         f'"{ssh_cmd}"')
+                subprocess.Popen(["osascript", "-e", script])
+            else:
+                for term in ("x-terminal-emulator", "gnome-terminal",
+                            "konsole", "xfce4-terminal", "xterm"):
+                    if not shutil.which(term):
+                        continue
+                    if term == "gnome-terminal":
+                        subprocess.Popen([term, "--", "bash", "-c", ssh_cmd])
+                    else:
+                        subprocess.Popen([term, "-e", ssh_cmd])
+                    break
+                else:
+                    _log_to_terminal("[ERREUR] Aucun terminal trouvé", RED)
+                    return
+        except Exception as exc:
+            _log_to_terminal(
+                f"[ERREUR] Ouverture du terminal SSH : {exc}", RED)
+            return
+        if not _strip_state["active"]:
+            _toggle_strip()
+
     def _open_in_file_explorer(event=None):
         # Comme Dashboard.pyw:4721-4736 (open_in_file_explorer) : ouvre le
         # dossier COURANT, sans dépendre d'une sélection — contrairement à
@@ -8627,6 +8762,13 @@ def main(page: ft.Page):
                             height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
                             icon_color=GREEN, on_click=_open_in_file_explorer,
                             tooltip="Ouvrir l'explorateur"),
+                        ft.IconButton(
+                            ft.Icons.TERMINAL,
+                            icon_size=CONSTANTS.ICON_LG,
+                            height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
+                            icon_color=VIOLET, on_click=_launch_ssh_terminal,
+                            tooltip="Terminal SSH vers le Pi "
+                                    "(session Claude)"),
                     ], spacing=0, tight=True),
                     border=ft.Border.all(1, ORANGE), border_radius=8,
                     margin=ft.Margin(0, 0, 8, 0),
