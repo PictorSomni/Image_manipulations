@@ -52,7 +52,8 @@ THUMBNAIL_SIZE = KIOSK_CONSTANT.THUMBNAIL_SIZE
 #  Point d'entrée Flet
 # ─────────────────────────────────────────────────────────────────────────────
 def main(page: ft.Page) -> None:
-    KIOSK_CONSTANT.attach_error_copy_snackbar(page)
+    KIOSK_CONSTANT.attach_error_copy_snackbar(
+        page, on_restart=lambda: _restart_kiosk())
 
     # ── Couleurs (issues de Kiosk/CONSTANT.py) ─────────────────────────────
     C_DARK       = KIOSK_CONSTANT.COLOR_DARK
@@ -543,16 +544,6 @@ def main(page: ft.Page) -> None:
                             ft.Container(expand=True),
                             preview_title,
                             ft.Container(expand=True),
-                            ft.IconButton(
-                                icon=ft.Icons.RESTART_ALT,
-                                icon_color=C_LIGHT_GREY,
-                                icon_size=28,
-                                tooltip=(
-                                    "Redémarrer le kiosque "
-                                    "(en cas de blocage)"),
-                                on_click=_restart_kiosk,
-                                style=ft.ButtonStyle(bgcolor=C_DARK),
-                            ),
                             ft.IconButton(
                                 icon=ft.Icons.CLOSE,
                                 icon_color=C_RED,
@@ -1224,11 +1215,13 @@ def main(page: ft.Page) -> None:
     # SnackBar rouge, cf. CONSTANTS.py), mais peut laisser l'IHM dans un
     # état incohérent où plus rien ne répond utilement (retour user :
     # coincé en plein écran devant une cliente, sans clavier branché sur
-    # la borne pour Alt+F4/relancer à la main). Ce bouton relance un
-    # nouveau process kiosk_flet.pyw puis ferme l'ancien — FOLDER_PATH est
-    # forcé sur current_folder["path"] pour rouvrir le même dossier tel
-    # quel, même s'il a été changé après le lancement initial (bouton
-    # "Ouvrir un dossier", pas seulement l'env de départ transmis par Hub).
+    # la borne pour Alt+F4/relancer à la main). D'où le bouton "Redémarrer"
+    # ajouté à côté de "Copier" dans ce SnackBar (via on_restart, pas un
+    # bouton permanent dans l'IHM — retour user). Il relance un nouveau
+    # process kiosk_flet.pyw puis ferme l'ancien — FOLDER_PATH est forcé
+    # sur current_folder["path"] pour rouvrir le même dossier tel quel,
+    # même s'il a été changé après le lancement initial (bouton "Ouvrir
+    # un dossier", pas seulement l'env de départ transmis par Hub).
     async def _do_restart() -> None:
         _cleanup_temp_dir()
         env = dict(os.environ)
@@ -1364,15 +1357,6 @@ def main(page: ft.Page) -> None:
                     padding=ft.Padding.symmetric(horizontal=10, vertical=4),
                 ),
                 height=30,
-            ),
-            ft.IconButton(
-                icon=ft.Icons.RESTART_ALT,
-                icon_color=C_LIGHT_GREY,
-                icon_size=22,
-                tooltip="Redémarrer le kiosque (en cas de blocage)",
-                on_click=_restart_kiosk,
-                visible=True,
-                style=ft.ButtonStyle(padding=ft.Padding.all(4)),
             ),
             ft.IconButton(
                 icon=ft.Icons.CLOSE,

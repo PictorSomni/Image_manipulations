@@ -1195,7 +1195,7 @@ def save_json(path, data):
 # 14. FLET — bandeau "Copier l'erreur" (Retouche par lot.pyw, Comparaison.pyw,
 #     kiosk_flet.pyw, Recadrage manuel.pyw, Hub.pyw)
 # ==============================================================================
-def attach_error_copy_snackbar(page, ignore=()):
+def attach_error_copy_snackbar(page, ignore=(), on_restart=None):
     """Sur une exception non interceptée (page.on_error), affiche le
     message dans un SnackBar avec un bouton Copier — pour le remonter sans
     avoir à le retaper à la main.
@@ -1203,7 +1203,12 @@ def attach_error_copy_snackbar(page, ignore=()):
     ``ignore`` : sous-chaînes de messages à avaler silencieusement, pour les
     erreurs Flutter bénignes et auto-résolues (ex. la race de décodage
     "Codec failed..." lors de mises à jour rapides d'un ft.Image en
-    base64 pendant le chargement — cf. Retouche par lot.pyw)."""
+    base64 pendant le chargement — cf. Retouche par lot.pyw).
+
+    ``on_restart`` : callback optionnel appelé sans argument. Quand fourni,
+    un bouton "Redémarrer" apparaît à côté de "Copier" — utile sur une
+    borne tactile (kiosk_flet.pyw) où une exception non fatale peut quand
+    même laisser l'IHM bloquée, sans clavier pour relancer à la main."""
     import flet as ft
 
     def _on_error(e):
@@ -1214,8 +1219,22 @@ def attach_error_copy_snackbar(page, ignore=()):
         async def _copy(_):
             await page.clipboard.set(message)
 
+        content = ft.Text(message, color="#000000", selectable=True,
+                          expand=True)
+        if on_restart is None:
+            snackbar_content = content
+        else:
+            def _restart(_):
+                on_restart()
+
+            snackbar_content = ft.Row([
+                content,
+                ft.TextButton("Redémarrer", on_click=_restart,
+                             style=ft.ButtonStyle(color="#000000")),
+            ], tight=True)
+
         page.show_dialog(ft.SnackBar(
-            ft.Text(message, color="#000000", selectable=True),
+            snackbar_content,
             bgcolor=COLOR_RED, duration=6000, show_close_icon=True,
             action=ft.SnackBarAction(label="Copier", text_color="#000000",
                                      on_click=_copy),
