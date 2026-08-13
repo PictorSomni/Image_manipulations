@@ -3925,13 +3925,14 @@ def main(page: ft.Page):
     # Icônes seules sur toute cette barre, libellé en infobulle — cf. _seg_btn.
     # Ces trois-là étaient recopiés à la main sous la forme
     # TextButton(content=Icon(...)) — soit exactement ce que _seg_btn
-    # produit déjà. Le garde-fou `if len(selected) == 1` reste : contrairement
-    # aux boutons d'édition, ce bouton n'a pas d'état `disabled`.
+    # produit déjà. Le garde-fou `len(selected) == 1` a été retiré :
+    # _set_print_count applique déjà le même nombre à toute une sélection
+    # multiple (targets = paths ou dossier entier), il bloquait donc sans
+    # raison ce cas précis (retour user).
     print_count_btn = _seg_btn(
         ft.Icons.NUMBERS,
-        "Changer le nombre de tirages (préfixe NX_) de la photo sélectionnée",
-        lambda e: _run_action(_set_print_count, list(selected))
-                  if len(selected) == 1 else None,
+        "Changer le nombre de tirages (préfixe NX_) de la sélection",
+        lambda e: _run_action(_set_print_count, list(selected)),
         color=ORANGE)
 
     # Recalcule commande.txt (dossier ouvert) après avoir changé le nombre
@@ -7547,8 +7548,7 @@ def main(page: ft.Page):
         # lambdas, donc mêmes garde-fous de sélection déjà en place.
         ("Imprimer", ft.Icons.PRINT_OUTLINED, ORANGE, _launch_print),
         ("Nombre d'impressions", ft.Icons.NUMBERS, ORANGE,
-         lambda e: _run_action(_set_print_count, list(selected))
-                   if len(selected) == 1 else None),
+         lambda e: _run_action(_set_print_count, list(selected))),
         ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
          renommer_btn.on_click),
         ("Copier", ft.Icons.CONTENT_COPY, BLUE, copier_btn.on_click),
