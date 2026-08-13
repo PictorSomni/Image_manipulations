@@ -51,6 +51,7 @@ $RECYCLE.BIN/
 # Fichiers utilisateur locaux (favoris, historique, cache pip) — ne jamais versionner
 .recent_folders.json
 .favorites.json
+.open_tabs.json
 .pip_cache.json
 .open_with.json
 open_with.json

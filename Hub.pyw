@@ -87,6 +87,7 @@ STRIP_HEIGHT = CONSTANTS.WDA_HEIGHT
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 _RECENT_FILE = os.path.join(_APP_DIR, ".recent_folders.json")
 _FAVORITES_FILE = os.path.join(_APP_DIR, ".favorites.json")
+_OPEN_TABS_FILE = os.path.join(_APP_DIR, ".open_tabs.json")
 
 
 # Persistance JSON partagée avec ai_tools.py (historique de conversation) :
@@ -120,6 +121,24 @@ def _add_recent(path):
         recents.remove(path)
     recents.insert(0, path)
     _save_recent(recents)
+
+
+def _load_open_tabs():
+    # Onglets multi-dossiers (retour user : les dossiers laissés ouverts
+    # volontairement — en cours de travail — ne doivent pas se perdre à
+    # chaque redémarrage/mise à jour de l'app). Tolérant comme les autres
+    # lecteurs JSON de ce fichier : une entrée invalide ne casse pas le
+    # chargement des autres.
+    data = _load_json(_OPEN_TABS_FILE, {})
+    if not isinstance(data, dict):
+        return [], 0
+    folders = [p for p in data.get("folders", []) if isinstance(p, str)]
+    active = data.get("active", 0)
+    return folders, active if isinstance(active, int) else 0
+
+
+def _save_open_tabs(folders, active):
+    return _save_json(_OPEN_TABS_FILE, {"folders": folders, "active": active})
 
 
 def _load_favorites():
@@ -334,6 +353,14 @@ def main(page: ft.Page):
     _next_tab_id["n"] += 1
     tabs.append({"id": _next_tab_id["n"], "folder": None, "selected": []})
     state["tab_id"] = _next_tab_id["n"]
+    # Lu ICI, avant toute écriture : _render_folder_tabs() (plus bas dans
+    # main()) sauvegarde l'état des onglets à chaque appel, y compris lors
+    # de la construction initiale de l'UI — un _load_open_tabs() différé
+    # jusqu'à _initial_navigate lirait donc le fichier déjà écrasé par le
+    # seul onglet vide du tout début, avant d'avoir pu restaurer quoi que
+    # ce soit (retour user : les onglets ouverts avant fermeture doivent
+    # survivre à un redémarrage).
+    _startup_tabs, _startup_tabs_active = _load_open_tabs()
 
     def _select_add(path):
         if path not in selected:
@@ -2210,10 +2237,24 @@ def main(page: ft.Page):
         except Exception:
             pass
 
+    def _save_tabs_state():
+        # Persisté à chaque changement (nouvel onglet, fermeture,
+        # bascule, ou simple navigation dans l'onglet actif — cf. l'appel
+        # à _render_folder_tabs() en fin de _navigate()) : pas besoin
+        # d'un hook dédié à la fermeture de l'app, l'état sur disque est
+        # déjà à jour en continu (retour user : retrouver au démarrage
+        # les dossiers laissés ouverts avant un arrêt/redémarrage).
+        folders = [state["folder"] if tab["id"] == state["tab_id"]
+                  else tab["folder"] for tab in tabs]
+        active_idx = next(
+            (i for i, t in enumerate(tabs) if t["id"] == state["tab_id"]), 0)
+        _save_open_tabs([f or "" for f in folders], active_idx)
+
     def _render_folder_tabs():
         _render_tab_bar(folder_tabs_row, tabs, state["tab_id"],
                         _tab_label_text, _select_folder_tab,
                         _close_folder_tab, _new_folder_tab)
+        _save_tabs_state()
 
     def _restore_tab(tab_id):
         """Active l'onglet `tab_id` : rescane son dossier (content n'est
@@ -8695,7 +8736,10 @@ def main(page: ft.Page):
         body,
     ], expand=True, spacing=0))
 
-    # Aucun dossier sélectionné au lancement -> repli automatique sur le
+    # Aucun dossier sélectionné au lancement -> restaure les onglets
+    # laissés ouverts à la fermeture précédente (retour user : un
+    # redémarrage/une mise à jour ne doit pas faire perdre les dossiers
+    # ouverts volontairement en cours de travail). À défaut, repli sur le
     # dernier dossier ouvert, sinon un dossier standard multiplateforme
     # (retour user : demander à l'IA de générer une image juste après le
     # lancement, sans dossier ouvert, faisait clignoter l'interface et
@@ -8709,6 +8753,25 @@ def main(page: ft.Page):
             # La coquille s'affiche d'abord, le dossier se remplit juste
             # derrière.
             await asyncio.sleep(0.05)
+            saved_folders, saved_active = _startup_tabs, _startup_tabs_active
+            saved_folders = [p for p in saved_folders
+                             if p and os.path.isdir(p)]
+            if saved_folders:
+                # Le tout premier onglet (créé plus haut, vide) accueille
+                # le premier dossier sauvegardé ; les suivants sont
+                # ajoutés dans l'ordre où ils étaient ouverts. Contenu/
+                # sélection restent chargés à la demande (cf. commentaire
+                # de tête sur `tabs`), donc rien n'est scanné ici pour les
+                # onglets qu'on ne restaure pas en tant qu'onglet actif.
+                tabs[0]["folder"] = saved_folders[0]
+                for folder in saved_folders[1:]:
+                    _next_tab_id["n"] += 1
+                    tabs.append({"id": _next_tab_id["n"], "folder": folder,
+                                "selected": []})
+                active_idx = (saved_active if 0 <= saved_active < len(tabs)
+                              else 0)
+                _restore_tab(tabs[active_idx]["id"])
+                return
             default_folder = next(
                 (p for p in _load_recent() if os.path.isdir(p)), None)
             if not default_folder:
