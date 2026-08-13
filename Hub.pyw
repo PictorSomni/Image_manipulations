@@ -1171,15 +1171,85 @@ def main(page: ft.Page):
             clipboard["mode"] = None
             _refresh_edit_buttons()
 
+        def _ask_conflict(name):
+            # Dialogue bloquant sur le thread de fond, ouvert sur le thread
+            # UI — même pattern threading.Event() que
+            # _ai_tool_organize_files/_ai_tool_run_terminal_command
+            # (retour user : demander garder-les-deux/remplacer au lieu de
+            # renommer silencieusement en cas de conflit de nom).
+            choice_event = threading.Event()
+            choice = {"value": "skip", "apply_all": False}
+            apply_all_cb = ft.Checkbox(
+                label="Appliquer à tous les conflits suivants", value=False)
+
+            def _pick(value):
+                def _handler(e=None):
+                    choice["value"] = value
+                    choice["apply_all"] = apply_all_cb.value
+                    dlg.open = False
+                    page.update()
+                    choice_event.set()
+                return _handler
+
+            dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Élément déjà présent", size=CONSTANTS.TEXT_SM,
+                              color=WHITE),
+                content=ft.Column([
+                    ft.Text(f'"{name}" existe déjà dans ce dossier.',
+                           size=CONSTANTS.TEXT_SM, color=WHITE),
+                    apply_all_cb,
+                ], tight=True, width=420),
+                actions=[
+                    ft.TextButton("Ignorer", on_click=_pick("skip")),
+                    ft.TextButton("Garder les deux", on_click=_pick("both")),
+                    ft.Button("Remplacer", bgcolor=BLUE, color=WHITE,
+                             on_click=_pick("replace")),
+                ],
+                actions_alignment=ft.MainAxisAlignment.END,
+            )
+
+            async def _open_dlg():
+                page.overlay.append(dlg)
+                dlg.open = True
+                page.update()
+            page.run_task(_open_dlg)
+            choice_event.wait(timeout=300)
+            return choice["value"], choice["apply_all"]
+
         def _work():
-            pasted, errors = 0, 0
+            pasted, skipped, errors = 0, 0, 0
             total = len(src_paths)
+            forced_choice = None
             for i, src in enumerate(src_paths, 1):
                 if not os.path.exists(src):
                     continue
-                _log_to_terminal(
-                    f"[...] Copie {i}/{total} : {os.path.basename(src)}", ORANGE)
-                dest = _unique_dest(folder, os.path.basename(src))
+                name = os.path.basename(src)
+                _log_to_terminal(f"[...] Copie {i}/{total} : {name}", ORANGE)
+                dest = os.path.join(folder, name)
+                if os.path.exists(dest):
+                    resolved = forced_choice
+                    if resolved is None:
+                        resolved, apply_all = _ask_conflict(name)
+                        if apply_all:
+                            forced_choice = resolved
+                    if resolved == "skip":
+                        skipped += 1
+                        _log_to_terminal(f"[IGNORÉ] {name}", LIGHT_GREY)
+                        continue
+                    if resolved == "both":
+                        dest = _unique_dest(folder, name)
+                    elif resolved == "replace":
+                        try:
+                            _backup_file(dest)
+                            if os.path.isdir(dest):
+                                shutil.rmtree(dest)
+                            else:
+                                os.remove(dest)
+                        except Exception as exc:
+                            errors += 1
+                            _log_to_terminal(f"[ERREUR] {name} : {exc}", RED)
+                            continue
                 try:
                     if is_cut:
                         shutil.move(src, dest)
@@ -1190,9 +1260,12 @@ def main(page: ft.Page):
                     pasted += 1
                 except Exception as exc:
                     errors += 1
-                    _log_to_terminal(f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
+                    _log_to_terminal(f"[ERREUR] {name} : {exc}", RED)
             if pasted:
                 _log_to_terminal(f"[OK] {pasted} élément(s) {action}(s)", BLUE)
+            if skipped:
+                _log_to_terminal(
+                    f"[INFO] {skipped} élément(s) ignoré(s)", LIGHT_GREY)
             if errors:
                 _log_to_terminal(f"[ATTENTION] {errors} erreur(s)", ORANGE)
             page.run_task(_tool_refresh, folder, None, origin_tab_id)
