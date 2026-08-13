@@ -6613,7 +6613,7 @@ def main(page: ft.Page):
     #  (non supporté sous Windows/Linux desktop par flet-webview), donc
     #  rendu 100% natif Flet ici.
     # ═════════════════════════════════════════════════════════════════════
-    actus_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREY)
+    actus_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY)
     actus_list_view = ft.ListView(expand=True, spacing=8,
                                   padding=ft.Padding(8, 4, 8, 8))
     actus_state = {"loading": False}
