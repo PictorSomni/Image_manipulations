@@ -8624,8 +8624,15 @@ def main(page: ft.Page):
                 else:
                     subprocess.Popen(f"start cmd /k {ssh_cmd}", shell=True)
             elif system == "Darwin":
+                # Les guillemets internes de ssh_cmd (autour de la commande
+                # tmux) doivent être échappés pour AppleScript, sinon
+                # `do script "..."` se referme au premier " rencontré et le
+                # reste atterrit comme identifiant hors chaîne — syntax
+                # error -2740 (retour user).
+                escaped_cmd = ssh_cmd.replace("\\", "\\\\").replace(
+                    '"', '\\"')
                 script = ('tell application "Terminal" to do script '
-                         f'"{ssh_cmd}"')
+                         f'"{escaped_cmd}"')
                 subprocess.Popen(["osascript", "-e", script])
             else:
                 for term in ("x-terminal-emulator", "gnome-terminal",
