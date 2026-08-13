@@ -6628,7 +6628,7 @@ def main(page: ft.Page):
                                     color=BLUE),
                     bgcolor=ft.Colors.with_opacity(0.15, BLUE),
                     border_radius=4, padding=ft.Padding(6, 2, 6, 2)),
-                ft.Text(date_txt, size=11, color=GREY),
+                ft.Text(date_txt, size=11, color=LIGHT_GREY),
             ], spacing=8),
             ft.Text(item["title"], size=CONSTANTS.TEXT_SM, color=WHITE,
                     weight=ft.FontWeight.W_600),
