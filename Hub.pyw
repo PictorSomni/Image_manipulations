@@ -4128,7 +4128,7 @@ def main(page: ft.Page):
                 pass
 
     edit_btns_row = ft.Row(
-        [renommer_btn, 
+        [renommer_btn,
         ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
             height=CONSTANTS.HUB_TOOLBAR_H),
         copier_btn, couper_btn, coller_btn, dupliquer_btn,
@@ -4136,9 +4136,115 @@ def main(page: ft.Page):
         height=CONSTANTS.HUB_TOOLBAR_H),
         zipper_btn, ajouter_ia_btn, supprimer_btn], spacing=4)
 
+    # Repli "..." sous CONSTANTS.HUB_TITLEBAR_NARROW_WIDTH, même principe
+    # que la barre de titre (retour user) : ces 8 boutons ne wrappaient
+    # pas et débordaient hors champ en demi-écran. Les libellés/couleurs
+    # dupliquent volontairement renommer_btn..supprimer_btn ci-dessus —
+    # simplification assumée : le menu n'a pas leur état grisé/dégrisé
+    # (_refresh_edit_buttons ne le pilote pas), les handlers eux-mêmes
+    # protègent déjà contre une sélection vide (garde `if selected else
+    # None`), donc cliquer un item du menu sans rien sélectionné ne fait
+    # rien — juste sans le retour visuel grisé de la version large.
+    _EDIT_MENU_TOOLS = [
+        (ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE, "Renommer",
+         lambda e: _run_action(_rename_item, list(selected))
+                   if len(selected) == 1 else None),
+        (ft.Icons.CONTENT_COPY, BLUE, "Copier",
+         lambda e: _run_action(_do_copy, list(selected)) if selected
+                   else None),
+        (ft.Icons.CONTENT_CUT, BLUE, "Couper",
+         lambda e: _run_action(_do_cut, list(selected)) if selected
+                   else None),
+        (ft.Icons.CONTENT_PASTE, BLUE, "Coller",
+         lambda e: _run_action(_do_paste)),
+        (ft.Icons.FILE_COPY_OUTLINED, BLUE, "Dupliquer",
+         lambda e: _run_action(_do_duplicate, list(selected)) if selected
+                   else None),
+        (ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE, "Zipper",
+         lambda e: _run_action(_do_zip, list(selected)) if selected
+                   else None),
+        (ft.Icons.SMART_TOY_OUTLINED, VIOLET, "Ajouter à l'IA",
+         lambda e: _run_action(_add_to_ai, list(selected)) if selected
+                   else None),
+        (ft.Icons.DELETE_OUTLINE, RED, "Supprimer",
+         lambda e: _run_action(_do_delete, list(selected)) if selected
+                   else None),
+    ]
+    edit_btns_menu = ft.PopupMenuButton(
+        icon=ft.Icons.MORE_HORIZ, icon_color=WHITE,
+        icon_size=CONSTANTS.ICON_SM,
+        tooltip="Renommer, copier, couper, coller, dupliquer, zipper, "
+                "ajouter à l'IA, supprimer",
+        items=[
+            ft.PopupMenuItem(
+                content=ft.Row([
+                    ft.Icon(icon, color=color, size=CONSTANTS.ICON_SM),
+                    ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE),
+                ], spacing=8),
+                on_click=handler)
+            for icon, color, label, handler in _EDIT_MENU_TOOLS
+        ],
+        visible=False,
+    )
+
     touch_actions_line = ft.Row(
-        [search_field_wrap, edit_btns_row],
+        [search_field_wrap, edit_btns_row, edit_btns_menu],
         spacing=32, vertical_alignment=ft.CrossAxisAlignment.CENTER, expand=True)
+
+    selection_actions_row = ft.Row([
+        _seg_btn(ft.Icons.SELECT_ALL, "Tout sélectionner", _toggle_all,
+                 color=VIOLET),
+        _seg_btn(ft.Icons.FLIP, "Inverser", _invert, color=VIOLET),
+        _seg_btn(ft.Icons.EVENT, "Même date", _select_same_date,
+                 color=VIOLET),
+        only_sel_btn,
+        ft.Container(expand=True),
+        print_count_btn,
+        update_order_btn,
+        order_mode_btn,
+        create_order_btn,
+    ], spacing=10, expand=True,
+       vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+    # Repli "..." sous CONSTANTS.HUB_TITLEBAR_NARROW_WIDTH, même principe
+    # qu'edit_btns_menu ci-dessus. create_order_btn volontairement exclu :
+    # sa visibilité dépend de order_mode["value"] (_toggle_order_mode), un
+    # état métier distinct d'un simple manque de place — le dupliquer ici
+    # sans respecter cette condition risquerait un clic hors contexte.
+    # Reste joignable en élargissant la fenêtre, ou en activant le mode
+    # commande via order_mode_btn (présent dans ce menu) avant.
+    _SELECTION_MENU_TOOLS = [
+        (ft.Icons.SELECT_ALL, VIOLET, "Tout sélectionner", _toggle_all),
+        (ft.Icons.FLIP, VIOLET, "Inverser", _invert),
+        (ft.Icons.EVENT, VIOLET, "Même date", _select_same_date),
+        (ft.Icons.VISIBILITY_OUTLINED, BLUE, "Afficher la sélection",
+         _toggle_only_selected),
+        (ft.Icons.NUMBERS, ORANGE,
+         "Changer le nombre de tirages de la sélection",
+         lambda e: _run_action(_set_print_count, list(selected))),
+        (ft.Icons.SYNC, ORANGE, "Recalculer commande.txt",
+         lambda e: _run_action(_update_commande_file)),
+        (ft.Icons.RECEIPT_LONG_OUTLINED, ORANGE,
+         "Format + nombre directement sur chaque photo", _toggle_order_mode),
+    ]
+    selection_actions_menu = ft.PopupMenuButton(
+        icon=ft.Icons.MORE_HORIZ, icon_color=WHITE,
+        icon_size=CONSTANTS.ICON_SM,
+        tooltip="Sélection, affichage et commande",
+        items=[
+            ft.PopupMenuItem(
+                content=ft.Row([
+                    ft.Icon(icon, color=color, size=CONSTANTS.ICON_SM),
+                    ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE),
+                ], spacing=8),
+                on_click=handler)
+            for icon, color, label, handler in _SELECTION_MENU_TOOLS
+        ],
+        visible=False,
+    )
+    selection_actions_line = ft.Row(
+        [selection_actions_row, selection_actions_menu],
+        spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     files_header = ft.Container(
         content=ft.Column([
@@ -4162,19 +4268,7 @@ def main(page: ft.Page):
                 sort_btn,
                 view_seg_wrap,
             ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            ft.Row([
-                _seg_btn(ft.Icons.SELECT_ALL, "Tout sélectionner", _toggle_all,
-                         color=VIOLET),
-                _seg_btn(ft.Icons.FLIP, "Inverser", _invert, color=VIOLET),
-                _seg_btn(ft.Icons.EVENT, "Même date", _select_same_date,
-                         color=VIOLET),
-                only_sel_btn,
-                ft.Container(expand=True),
-                print_count_btn,
-                update_order_btn,
-                order_mode_btn,
-                create_order_btn,
-            ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            selection_actions_line,
             touch_actions_line,
         ], spacing=10),
         padding=ft.Padding(12, 12, 12, 8),
@@ -8580,16 +8674,29 @@ def main(page: ft.Page):
         page.window.maximized = not page.window.maximized
         page.update()
 
+    # (row, menu) : un seul des deux visible à la fois, selon la largeur.
+    # accessory_row/menu = barre de titre ; edit_btns_row/menu = barre
+    # copier/coller (surface Fichiers) ; selection_actions_row/menu =
+    # barre sélection/commande juste au-dessus — toutes trois définies
+    # ailleurs dans main(), résolues au moment de l'appel (comme les
+    # autres closures de main() référencées en avance).
+    def _narrow_bar_pairs():
+        return [
+            (accessory_row, accessory_menu),
+            (edit_btns_row, edit_btns_menu),
+            (selection_actions_row, selection_actions_menu),
+        ]
+
     def _apply_titlebar_width():
-        # accessory_row/accessory_menu définis plus bas (construction de
-        # titlebar) — résolu au moment de l'appel, pas de la définition,
-        # comme les autres closures de main() référencées en avance.
         narrow = (page.window.width or 0) < CONSTANTS.HUB_TITLEBAR_NARROW_WIDTH
-        if accessory_row.visible == (not narrow):  # déjà dans le bon état
-            return
-        accessory_row.visible = not narrow
-        accessory_menu.visible = narrow
-        page.update()
+        changed = False
+        for row, menu in _narrow_bar_pairs():
+            if row.visible != (not narrow):
+                row.visible = not narrow
+                menu.visible = narrow
+                changed = True
+        if changed:
+            page.update()
 
     def _on_window_event(event):
         # Flet 0.86 : `WindowEvent` expose `.type` (WindowEventType), pas
