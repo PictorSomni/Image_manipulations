@@ -1103,10 +1103,19 @@ def main(page: ft.Page):
         page.update()
 
         def _run():
+            # Épinglé (_busy_start/_busy_end) plutôt qu'un _toggle_strip :
+            # une opération comme "coller un gros dossier" ne loggue qu'une
+            # fois avant un shutil.copytree bloquant de plusieurs minutes —
+            # sans épinglage, le terminal s'auto-masquait avant la fin
+            # réelle (retour user). _toggle_strip réduit toute la fenêtre
+            # (et masque le terminal avec, puisqu'il fait partie de `body`)
+            # : jamais le bon outil pour garder le terminal visible.
+            _busy_start()
             try:
                 work()
             finally:
                 action_progress_bar.visible = False
+                _busy_end()
                 try:
                     page.update()
                 except Exception:
@@ -1161,13 +1170,6 @@ def main(page: ft.Page):
             clipboard["paths"] = []
             clipboard["mode"] = None
             _refresh_edit_buttons()
-        # Bascule en mode ruban tout de suite (avant le travail, pas
-        # après) : le terminal reste visible pendant tout le collage,
-        # même une fois le dernier fichier traité — même principe que
-        # _print_paths (retour user : le terminal se refermait/n'était
-        # pas visible avant la fin réelle du collage).
-        if not _strip_state["active"]:
-            _toggle_strip()
 
         def _work():
             pasted, errors = 0, 0
