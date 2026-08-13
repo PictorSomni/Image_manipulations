@@ -4191,6 +4191,27 @@ def main(page: ft.Page):
         [search_field_wrap, edit_btns_row, edit_btns_menu],
         spacing=32, vertical_alignment=ft.CrossAxisAlignment.CENTER, expand=True)
 
+    # Seul "Nombre d'impressions" (print_count_btn) a un double dans le
+    # panneau Actions (_fichier_actions) — retour user : seules les icônes
+    # dupliquées là-bas peuvent se replier, tout le reste de cette ligne
+    # (sélection, affichage, commande) reste TOUJOURS visible, sans repli.
+    print_count_menu = ft.PopupMenuButton(
+        icon=ft.Icons.MORE_HORIZ, icon_color=ORANGE,
+        icon_size=CONSTANTS.ICON_SM,
+        tooltip="Changer le nombre de tirages de la sélection",
+        items=[
+            ft.PopupMenuItem(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.NUMBERS, color=ORANGE,
+                           size=CONSTANTS.ICON_SM),
+                    ft.Text("Nombre de tirages", size=CONSTANTS.TEXT_SM,
+                           color=WHITE),
+                ], spacing=8),
+                on_click=lambda e: _run_action(
+                    _set_print_count, list(selected)))
+        ],
+        visible=False,
+    )
     selection_actions_row = ft.Row([
         _seg_btn(ft.Icons.SELECT_ALL, "Tout sélectionner", _toggle_all,
                  color=VIOLET),
@@ -4200,37 +4221,54 @@ def main(page: ft.Page):
         only_sel_btn,
         ft.Container(expand=True),
         print_count_btn,
+        print_count_menu,
         update_order_btn,
         order_mode_btn,
         create_order_btn,
     ], spacing=10, expand=True,
        vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # Repli "..." sous CONSTANTS.HUB_TITLEBAR_NARROW_WIDTH, même principe
-    # qu'edit_btns_menu ci-dessus. create_order_btn volontairement exclu :
-    # sa visibilité dépend de order_mode["value"] (_toggle_order_mode), un
-    # état métier distinct d'un simple manque de place — le dupliquer ici
-    # sans respecter cette condition risquerait un clic hors contexte.
-    # Reste joignable en élargissant la fenêtre, ou en activant le mode
-    # commande via order_mode_btn (présent dans ce menu) avant.
-    _SELECTION_MENU_TOOLS = [
-        (ft.Icons.SELECT_ALL, VIOLET, "Tout sélectionner", _toggle_all),
-        (ft.Icons.FLIP, VIOLET, "Inverser", _invert),
-        (ft.Icons.EVENT, VIOLET, "Même date", _select_same_date),
-        (ft.Icons.VISIBILITY_OUTLINED, BLUE, "Afficher la sélection",
-         _toggle_only_selected),
-        (ft.Icons.NUMBERS, ORANGE,
-         "Changer le nombre de tirages de la sélection",
-         lambda e: _run_action(_set_print_count, list(selected))),
-        (ft.Icons.SYNC, ORANGE, "Recalculer commande.txt",
-         lambda e: _run_action(_update_commande_file)),
-        (ft.Icons.RECEIPT_LONG_OUTLINED, ORANGE,
-         "Format + nombre directement sur chaque photo", _toggle_order_mode),
+    # Ligne 1 : dossier parent/rafraîchir/nouveau dossier/créer fichier +
+    # Kiosk gauche/Transfert TEMP (absents du panneau Actions) + tri/
+    # affichage TOUJOURS visibles (retour user : seules les icônes qui ont
+    # un double dans le panneau Actions peuvent se replier). Seuls les 5
+    # lanceurs présents dans _ACTION_CATEGORIES (Recadrage manuel/auto,
+    # 2 en 1, Retouche par lot, Augmentation IA) se replient dans un menu
+    # "..." en dessous de CONSTANTS.HUB_TITLEBAR_NARROW_WIDTH.
+    tools_nav_row = ft.Row([
+        parent_folder_btn, refresh_folder_btn, new_folder_btn,
+        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+                    height=CONSTANTS.HUB_TOOLBAR_H),
+        kiosk_gauche_btn, transfert_temp_btn,
+        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+                    height=CONSTANTS.HUB_TOOLBAR_H),
+        create_file_btn,
+    ], spacing=8)
+
+    _LAUNCHER_MENU_TOOLS = [
+        (ft.Icons.CROP_FREE, RED, "Recadrage manuel",
+         lambda e: _launch_tool(
+             "Recadrage manuel.pyw",
+             extra_env={"TARIFF_TYPE": state["tariff_mode"]})),
+        (ft.Icons.CROP, GREEN, "Recadrage automatique",
+         lambda e: _launch_recadrage_auto(e)),
+        (ft.CupertinoIcons.SQUARE_SPLIT_2X1, GREEN, "2 en 1",
+         lambda e: _launch_two_in_one(e)),
+        (ft.Icons.TUNE, VIOLET, "Retouche par lot (aperçu live)",
+         lambda e: _launch_tool("Retouche par lot.pyw")),
+        (ft.Icons.AUTO_FIX_HIGH_OUTLINED, VIOLET, "Augmentation IA",
+         lambda e: _launch_tool("Augmentation IA.py")),
     ]
-    selection_actions_menu = ft.PopupMenuButton(
+    launcher_row = ft.Row([
+        recadrage_manuel_btn, recadrage_auto_btn, two_en_un_btn,
+        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+                    height=CONSTANTS.HUB_TOOLBAR_H),
+        retouche_par_lot_btn, augmentation_ia_btn,
+    ], spacing=8)
+    launcher_menu = ft.PopupMenuButton(
         icon=ft.Icons.MORE_HORIZ, icon_color=WHITE,
         icon_size=CONSTANTS.ICON_SM,
-        tooltip="Sélection, affichage et commande",
+        tooltip="Recadrages, 2 en 1, retouche par lot, augmentation IA",
         items=[
             ft.PopupMenuItem(
                 content=ft.Row([
@@ -4238,37 +4276,24 @@ def main(page: ft.Page):
                     ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE),
                 ], spacing=8),
                 on_click=handler)
-            for icon, color, label, handler in _SELECTION_MENU_TOOLS
+            for icon, color, label, handler in _LAUNCHER_MENU_TOOLS
         ],
         visible=False,
     )
-    selection_actions_line = ft.Row(
-        [selection_actions_row, selection_actions_menu],
-        spacing=10, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     files_header = ft.Container(
         content=ft.Column([
             ft.Row([
-                ft.Row([parent_folder_btn, refresh_folder_btn,
-                        new_folder_btn,
-                        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
-                                     height=CONSTANTS.HUB_TOOLBAR_H),
-                        kiosk_gauche_btn, transfert_temp_btn,
-                        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
-                                     height=CONSTANTS.HUB_TOOLBAR_H),
-                        create_file_btn,
-                        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
-                                     height=CONSTANTS.HUB_TOOLBAR_H),
-                        recadrage_manuel_btn, recadrage_auto_btn,
-                        two_en_un_btn,
-                        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
-                                     height=CONSTANTS.HUB_TOOLBAR_H),
-                        retouche_par_lot_btn, augmentation_ia_btn], spacing=8),
+                tools_nav_row,
+                ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+                            height=CONSTANTS.HUB_TOOLBAR_H),
+                launcher_row,
+                launcher_menu,
                 ft.Container(expand=True),
                 sort_btn,
                 view_seg_wrap,
             ], spacing=12, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            selection_actions_line,
+            selection_actions_row,
             touch_actions_line,
         ], spacing=10),
         padding=ft.Padding(12, 12, 12, 8),
@@ -8674,17 +8699,23 @@ def main(page: ft.Page):
         page.window.maximized = not page.window.maximized
         page.update()
 
-    # (row, menu) : un seul des deux visible à la fois, selon la largeur.
-    # accessory_row/menu = barre de titre ; edit_btns_row/menu = barre
-    # copier/coller (surface Fichiers) ; selection_actions_row/menu =
-    # barre sélection/commande juste au-dessus — toutes trois définies
-    # ailleurs dans main(), résolues au moment de l'appel (comme les
-    # autres closures de main() référencées en avance).
+    # (large, replié) : un seul des deux visible à la fois, selon la
+    # largeur. Seules les icônes dupliquées dans le panneau Actions
+    # (_fichier_actions/_ACTION_CATEGORIES) se replient (retour user) —
+    # accessory_row/menu = barre de titre ; launcher_row/menu = lanceurs
+    # d'outils dupliqués dans Actions (ligne 1, Fichiers) ; edit_btns_row/
+    # menu = barre copier/coller (tous dupliqués dans Actions) ;
+    # print_count_btn/menu = seul élément dupliqué dans Actions de la
+    # ligne sélection/commande — tout le reste de cette ligne-là reste
+    # toujours visible. Tout défini ailleurs dans main(), résolu au moment
+    # de l'appel (comme les autres closures de main() référencées en
+    # avance).
     def _narrow_bar_pairs():
         return [
             (accessory_row, accessory_menu),
+            (launcher_row, launcher_menu),
             (edit_btns_row, edit_btns_menu),
-            (selection_actions_row, selection_actions_menu),
+            (print_count_btn, print_count_menu),
         ]
 
     def _apply_titlebar_width():
