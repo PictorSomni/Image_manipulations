@@ -22,6 +22,7 @@ import json
 import base64
 import threading
 import shutil
+import subprocess
 import thumb_cache
 
 # ── Import des constantes spécifiques au kiosk ───────────────────────────────
@@ -542,6 +543,16 @@ def main(page: ft.Page) -> None:
                             ft.Container(expand=True),
                             preview_title,
                             ft.Container(expand=True),
+                            ft.IconButton(
+                                icon=ft.Icons.RESTART_ALT,
+                                icon_color=C_LIGHT_GREY,
+                                icon_size=28,
+                                tooltip=(
+                                    "Redémarrer le kiosque "
+                                    "(en cas de blocage)"),
+                                on_click=_restart_kiosk,
+                                style=ft.ButtonStyle(bgcolor=C_DARK),
+                            ),
                             ft.IconButton(
                                 icon=ft.Icons.CLOSE,
                                 icon_color=C_RED,
@@ -1207,6 +1218,62 @@ def main(page: ft.Page) -> None:
     page.window.prevent_close = True
     page.window.on_event = _on_window_event
 
+    # ── Redémarrage manuel (borne tactile, sans clavier) ────────────────────
+    # Filet de secours : une exception non interceptée n'arrête pas le
+    # process (attach_error_copy_snackbar l'attrape et l'affiche en
+    # SnackBar rouge, cf. CONSTANTS.py), mais peut laisser l'IHM dans un
+    # état incohérent où plus rien ne répond utilement (retour user :
+    # coincé en plein écran devant une cliente, sans clavier branché sur
+    # la borne pour Alt+F4/relancer à la main). Ce bouton relance un
+    # nouveau process kiosk_flet.pyw puis ferme l'ancien — FOLDER_PATH est
+    # forcé sur current_folder["path"] pour rouvrir le même dossier tel
+    # quel, même s'il a été changé après le lancement initial (bouton
+    # "Ouvrir un dossier", pas seulement l'env de départ transmis par Hub).
+    async def _do_restart() -> None:
+        _cleanup_temp_dir()
+        env = dict(os.environ)
+        if current_folder["path"]:
+            env["FOLDER_PATH"] = current_folder["path"]
+        subprocess.Popen([sys.executable, os.path.abspath(__file__)], env=env)
+        page.window.visible = False
+        page.update()
+        try:
+            await page.window.destroy()
+        except RuntimeError:
+            pass
+        os._exit(0)
+
+    def _restart_kiosk(event=None) -> None:
+        # Confirmation : contrairement à "Quitter" (rouge, sans ambiguïté),
+        # "Redémarrer" pourrait être tapé par curiosité par une cliente —
+        # les impressions déjà comptées pour cette commande ne sont écrites
+        # sur disque qu'à la validation (prints_data est en mémoire pure),
+        # donc un redémarrage accidentel les perdrait silencieusement.
+        def _confirm(e) -> None:
+            page.pop_dialog()
+            page.run_task(_do_restart)
+
+        def _cancel(e) -> None:
+            page.pop_dialog()
+
+        page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Redémarrer le kiosque ?", color=C_WHITE),
+            content=ft.Text(
+                "Les impressions déjà sélectionnées pour cette commande "
+                "seront perdues. Le dossier actuellement ouvert sera "
+                "réaffiché après redémarrage.",
+                color=C_LIGHT_GREY),
+            bgcolor=C_GREY,
+            actions=[
+                ft.TextButton("Annuler", on_click=_cancel,
+                             style=ft.ButtonStyle(color=C_LIGHT_GREY)),
+                ft.TextButton("Redémarrer", on_click=_confirm,
+                             style=ft.ButtonStyle(color=C_RED)),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        ))
+
     # ── Tableau des tarifs ────────────────────────────────────────────────
     def _show_price_table(e) -> None:
         tariff_name = active_tariff["value"]
@@ -1297,6 +1364,15 @@ def main(page: ft.Page) -> None:
                     padding=ft.Padding.symmetric(horizontal=10, vertical=4),
                 ),
                 height=30,
+            ),
+            ft.IconButton(
+                icon=ft.Icons.RESTART_ALT,
+                icon_color=C_LIGHT_GREY,
+                icon_size=22,
+                tooltip="Redémarrer le kiosque (en cas de blocage)",
+                on_click=_restart_kiosk,
+                visible=True,
+                style=ft.ButtonStyle(padding=ft.Padding.all(4)),
             ),
             ft.IconButton(
                 icon=ft.Icons.CLOSE,
