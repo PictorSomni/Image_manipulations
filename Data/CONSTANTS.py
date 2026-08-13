@@ -156,6 +156,14 @@ HUB_DIALOG_FIELD_HEIGHT = 40
 # agrandie pour l'écran tactile (retour user).
 HUB_TITLEBAR_TAP_HEIGHT = 48
 
+# Hub.pyw — barre de titre : largeur de fenêtre (en px logiques) en dessous
+# de laquelle les icônes accessoires (Bluetooth, impression, navigateur,
+# explorateur, terminal SSH) se replient dans un menu "..." plutôt que de
+# déborder hors de la fenêtre — repéré en demi-écran sur écran High-DPI
+# avec zoom Windows (retour user : icônes invisibles, poussées hors champ
+# par une Row qui ne wrap pas).
+HUB_TITLEBAR_NARROW_WIDTH = 1000
+
 # Hub.pyw — barre d'état (Terminal, Actions, curseur de taille des
 # vignettes) : hauteur agrandie pour l'écran tactile (retour user), et
 # cible de tap des boutons Terminal/Actions qu'elle contient.

@@ -8580,6 +8580,17 @@ def main(page: ft.Page):
         page.window.maximized = not page.window.maximized
         page.update()
 
+    def _apply_titlebar_width():
+        # accessory_row/accessory_menu définis plus bas (construction de
+        # titlebar) — résolu au moment de l'appel, pas de la définition,
+        # comme les autres closures de main() référencées en avance.
+        narrow = (page.window.width or 0) < CONSTANTS.HUB_TITLEBAR_NARROW_WIDTH
+        if accessory_row.visible == (not narrow):  # déjà dans le bon état
+            return
+        accessory_row.visible = not narrow
+        accessory_menu.visible = narrow
+        page.update()
+
     def _on_window_event(event):
         # Flet 0.86 : `WindowEvent` expose `.type` (WindowEventType), pas
         # `.data` (chaîne) comme dans les versions précédentes — l'ancien
@@ -8589,12 +8600,14 @@ def main(page: ft.Page):
         # Fermer ne répondait plus du tout).
         if event.type == ft.WindowEventType.CLOSE:
             os._exit(0)
-        elif (event.type == ft.WindowEventType.RESIZED
-              and viewer_overlay in page.overlay):
-            # Le viewport de la visionneuse a une taille explicite (cf.
-            # _set_drawer_space) : la rafraîchir au resize, sinon elle reste
-            # calée sur la taille de fenêtre au moment de l'ouverture.
-            _set_drawer_space(viewer_image_wrap.right or 0)
+        elif event.type == ft.WindowEventType.RESIZED:
+            _apply_titlebar_width()
+            if viewer_overlay in page.overlay:
+                # Le viewport de la visionneuse a une taille explicite (cf.
+                # _set_drawer_space) : la rafraîchir au resize, sinon elle
+                # reste calée sur la taille de fenêtre au moment de
+                # l'ouverture.
+                _set_drawer_space(viewer_image_wrap.right or 0)
             page.update()
 
     page.window.on_event = _on_window_event
@@ -8718,6 +8731,53 @@ def main(page: ft.Page):
     # tactiles Bluetooth/Impression/Navigateur/Explorateur agrandies
     # (22 -> 30, height= explicite) pour un accès plus facile à l'écran
     # tactile (retour user).
+    # Icônes accessoires de la barre de titre (Bluetooth, impression,
+    # navigateur, explorateur, terminal SSH) : repliées dans un menu "..."
+    # sous CONSTANTS.HUB_TITLEBAR_NARROW_WIDTH plutôt que de déborder hors
+    # de la fenêtre (retour user : invisibles en demi-écran sur écran
+    # High-DPI avec zoom Windows — la Row de la barre de titre ne wrap pas).
+    _TITLEBAR_ACCESSORY_TOOLS = [
+        (ft.Icons.BLUETOOTH, "Recevoir un fichier via Bluetooth", BLUE,
+         _launch_bluetooth),
+        (ft.Icons.PRINT_OUTLINED, "Imprimer la sélection (ou le dossier)",
+         ORANGE, _launch_print),
+        (ft.Icons.PUBLIC, "Ouvrir le navigateur web", BLUE, _open_browser),
+        (ft.Icons.OPEN_IN_NEW, "Ouvrir l'explorateur", GREEN,
+         _open_in_file_explorer),
+        (ft.Icons.TERMINAL, "Terminal SSH vers le Pi (session Claude)",
+         VIOLET, _launch_ssh_terminal),
+    ]
+    accessory_row = ft.Container(
+        content=ft.Row([
+            ft.IconButton(
+                icon, icon_size=CONSTANTS.ICON_LG,
+                height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
+                icon_color=color, on_click=handler, tooltip=tip)
+            for icon, tip, color, handler in _TITLEBAR_ACCESSORY_TOOLS
+        ], spacing=0, tight=True),
+        border=ft.Border.all(1, ORANGE), border_radius=8,
+        margin=ft.Margin(0, 0, 8, 0),
+    )
+    accessory_menu = ft.Container(
+        content=ft.PopupMenuButton(
+            icon=ft.Icons.MORE_HORIZ, icon_color=ORANGE,
+            icon_size=CONSTANTS.ICON_LG,
+            tooltip="Autres actions (Bluetooth, impression, "
+                    "navigateur, explorateur, terminal SSH)",
+            items=[
+                ft.PopupMenuItem(
+                    content=ft.Row([
+                        ft.Icon(icon, color=color, size=CONSTANTS.ICON_SM),
+                        ft.Text(tip, size=CONSTANTS.TEXT_SM, color=WHITE),
+                    ], spacing=8),
+                    on_click=handler)
+                for icon, tip, color, handler in _TITLEBAR_ACCESSORY_TOOLS
+            ],
+        ),
+        border=ft.Border.all(1, ORANGE), border_radius=8,
+        margin=ft.Margin(0, 0, 8, 0), visible=False,
+    )
+
     titlebar = ft.Container(
         height=STRIP_HEIGHT,
         padding=ft.Padding(0, 0, 8, 0),
@@ -8743,43 +8803,10 @@ def main(page: ft.Page):
                 files_path,
                 # Accès tactile : toujours visibles, quelle que soit la surface
                 # active (écran tactile = pas de fallback clavier/raccourci).
-                ft.Container(
-                    content=ft.Row([
-                        ft.IconButton(
-                            ft.Icons.BLUETOOTH,
-                            icon_size=CONSTANTS.ICON_LG,
-                            height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
-                            icon_color=BLUE, on_click=_launch_bluetooth,
-                            tooltip="Recevoir un fichier via Bluetooth"),
-                        ft.IconButton(
-                            ft.Icons.PRINT_OUTLINED,
-                            icon_size=CONSTANTS.ICON_LG,
-                            height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
-                            icon_color=ORANGE, on_click=_launch_print,
-                            tooltip="Imprimer la sélection (ou le dossier)"),
-                        ft.IconButton(
-                            ft.Icons.PUBLIC,
-                            icon_size=CONSTANTS.ICON_LG,
-                            height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
-                            icon_color=BLUE, on_click=_open_browser,
-                            tooltip="Ouvrir le navigateur web"),
-                        ft.IconButton(
-                            ft.Icons.OPEN_IN_NEW,
-                            icon_size=CONSTANTS.ICON_LG,
-                            height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
-                            icon_color=GREEN, on_click=_open_in_file_explorer,
-                            tooltip="Ouvrir l'explorateur"),
-                        ft.IconButton(
-                            ft.Icons.TERMINAL,
-                            icon_size=CONSTANTS.ICON_LG,
-                            height=CONSTANTS.HUB_TITLEBAR_TAP_HEIGHT,
-                            icon_color=VIOLET, on_click=_launch_ssh_terminal,
-                            tooltip="Terminal SSH vers le Pi "
-                                    "(session Claude)"),
-                    ], spacing=0, tight=True),
-                    border=ft.Border.all(1, ORANGE), border_radius=8,
-                    margin=ft.Margin(0, 0, 8, 0),
-                ),
+                # accessory_row/accessory_menu : un seul des deux visible à
+                # la fois, basculé par _apply_titlebar_width (resize).
+                accessory_row,
+                accessory_menu,
                 strip_btn,
                 ft.Row([
                     ft.IconButton(ft.Icons.REMOVE, icon_size=CONSTANTS.ICON_SM, icon_color=YELLOW,
@@ -8884,6 +8911,7 @@ def main(page: ft.Page):
         titlebar,
         body,
     ], expand=True, spacing=0))
+    _apply_titlebar_width()   # état initial : pas d'attente du 1er resize
 
     # Aucun dossier sélectionné au lancement -> restaure les onglets
     # laissés ouverts à la fermeture précédente (retour user : un
