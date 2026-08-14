@@ -525,7 +525,8 @@ AI_MODEL_VISION        = "gemini-3.5-flash-lite"           # Modèle vision par 
 AI_GEMINI_MODEL        = "gemini-3.5-flash-lite"           # Modèle Gemini principal (API Google)
 AI_GEMINI_FALLBACK_CLOUD = "gemini-3.6-flash"  # Fallback cloud si modèle indisponible
 AI_GEMINI_FALLBACK     = "gemma4:e4b"                 # Fallback Ollama local si hors-ligne
-AI_GEMINI_IMAGE_TIMEOUT = 180                # Timeout max (s) pour generate/edit image via Gemini
+AI_GEMINI_IMAGE_TIMEOUT = 300                # Timeout max (s) generate/edit image via Gemini (relevé de 120s, API parfois très sollicitée — retour user)
+AI_GEMINI_EXPAND_TIMEOUT = 600               # Timeout max (s) extension d'image (plus lourde, relevé de 300s pareil)
 AI_GEMINI_STREAM_TIMEOUT_MS = 180_000        # Timeout (ms) du streaming Gemini : au-delà de ce délai sans chunk, l'appel lève une erreur au lieu de figer l'app
 AI_TEMPERATURE  = 0.7                        # Créativité (0.0 = déterministe, 1.0 = créatif)
 AI_MAX_TOOL_ROUNDS = 20                      # Nb max d'allers-retours outil→modèle pour UNE question (garde-fou anti-boucle : chaque tour = 1 appel modèle facturé)

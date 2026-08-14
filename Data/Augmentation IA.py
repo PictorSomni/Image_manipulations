@@ -1287,7 +1287,8 @@ async def main(page: ft.Page) -> None:
 
         try:
             text_resp, image_bytes = await _gemini_wait(
-                asyncio.to_thread(_do_gemini), 120.0)
+                asyncio.to_thread(_do_gemini),
+                CONSTANTS.AI_GEMINI_IMAGE_TIMEOUT)
 
             if image_bytes is None:
                 status_text.value = f"[Gemini] {text_resp or 'Aucune image reçue.'}"
@@ -1975,7 +1976,8 @@ async def main(page: ft.Page) -> None:
 
         try:
             result, text_resp = await _gemini_wait(
-                asyncio.to_thread(_do_expand), 300.0)
+                asyncio.to_thread(_do_expand),
+                CONSTANTS.AI_GEMINI_EXPAND_TIMEOUT)
             if result is None:
                 status_text.value = f"[Gemini] {text_resp or 'Aucune image reçue.'}"
                 return
