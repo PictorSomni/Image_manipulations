@@ -499,7 +499,7 @@ class PhotoCropper:
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10, alignment=ft.MainAxisAlignment.CENTER)
 
         self.zoom_slider = VerticalSlider(
-            min_val=1.0, max_val=3.0, initial_val=1.0,
+            min_val=1.0, max_val=4.0, initial_val=1.0,
             on_change=self.on_zoom_update,
             on_change_end=self.on_zoom_end,
             on_double_tap=lambda e: self.reset_zoom(e),
