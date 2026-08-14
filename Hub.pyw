@@ -2086,7 +2086,7 @@ def main(page: ft.Page):
                     grand_total_price += sub_price
                     any_priced = True
                     lines.append(
-                        f"{subtotal_qty} photo(s) - {_fmt_eur(sub_price)}")
+                        f"{subtotal_qty} photo(s) = {_fmt_eur(sub_price)}")
                 lines.append("")
             if state["tariff_mode"] == "PRINTS" and any_priced:
                 grand_total_price += CONSTANTS.ORDER_SETUP_FEE
@@ -6417,7 +6417,7 @@ def main(page: ft.Page):
         manifest.append("")
         for fmt in sorted(format_totals):
             manifest.append(
-                f"{fmt} : {format_totals[fmt]} photo(s) - "
+                f"{fmt} : {format_totals[fmt]} photo(s) = "
                 f"{format_price_totals[fmt]:.2f} €")
         manifest.append(f"\nTOTAL : {grand_total:.2f} €")
         try:

@@ -966,7 +966,7 @@ def main(page: ft.Page) -> None:
                     if qty == 0:
                         continue
                     unit = _get_unit_price(format_name, qty)
-                    f.write(f"{format_name} : {qty} photo(s) - "
+                    f.write(f"{format_name} : {qty} photo(s) = "
                            f"{round(qty * unit, 2):.2f} €\n")
                 f.write("\n")
                 if active_tariff["value"] == "PRINTS":
