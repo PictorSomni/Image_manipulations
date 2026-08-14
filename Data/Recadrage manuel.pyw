@@ -471,8 +471,17 @@ class PhotoCropper:
 
 
 
-        # Rotation
+        # Rotation. self.rotation = angle total appliqué au rendu/export
+        # = rotation_coarse (pas de 45°, boutons dédiés) + la valeur du
+        # slider (fine, −15°…+15°). Séparés pour que le slider reste
+        # toujours dans sa plage propre et ne "saute" jamais à sa borne
+        # au premier contact après un clic sur un bouton 45° (retour
+        # user : sinon le slider, qui accumule des deltas depuis sa
+        # valeur courante, se retrouvait à re-clamper depuis un
+        # self.rotation hors de sa plage et retombait instantanément à
+        # 15°).
         self.rotation = 0.0
+        self.rotation_coarse = 0.0
 
         # Sliders verticaux personnalisés (GestureDetector — détection sur toute la hauteur)
         self.rotation_slider = VerticalSlider(
@@ -1346,6 +1355,7 @@ class PhotoCropper:
         # Réinitialiser les valeurs de transformation (zoom + rotation + offsets)
         self.scale = 1.0
         self.rotation = 0.0
+        self.rotation_coarse = 0.0
         self.offset_x = 0.0
         self.offset_y = 0.0
         if hasattr(self, 'zoom_slider'):
@@ -2329,10 +2339,13 @@ class PhotoCropper:
             return
         dy = e.scroll_delta.y
         if self._scroll_rotates:
-            # Mode Tab : molette → rotation (±15°)
+            # Mode Tab : molette → rotation fine (±15° autour de
+            # rotation_coarse, même logique que le slider).
             rotation_delta = dy * 0.005
-            self.rotation = max(-15.0, min(15.0, self.rotation + rotation_delta))
-            self.rotation_slider.value = self.rotation
+            fine = max(-15.0, min(
+                15.0, self.rotation_slider.value + rotation_delta))
+            self.rotation_slider.value = fine
+            self.rotation = self.rotation_coarse + fine
             self.rotation_slider.label = f"{self.rotation:.2f}°"
             self.rotation_slider.update()
         else:
@@ -2378,12 +2391,13 @@ class PhotoCropper:
         ----------
         e : ft.ControlEvent
             Événement Flet du slider ; `e.control.value` contient la
-            valeur numérique courante en degrés.
+            valeur numérique courante en degrés (composante fine,
+            −15°…+15°, indépendante de `rotation_coarse`).
         """
 
         if not self.image_paths or not hasattr(self, 'original_width'):
             return
-        self.rotation = e.control.value
+        self.rotation = self.rotation_coarse + e.control.value
         e.control.label = f"{self.rotation:.2f}°"
         e.control.update()
         now = time.monotonic()
@@ -2459,6 +2473,12 @@ class PhotoCropper:
         fine du slider (−15° … +15°) — retour user : évite d'avoir à
         cumuler les petits pas du slider pour un cadrage en diagonale.
 
+        N'agit que sur `rotation_coarse` : le slider (et sa valeur
+        interne bornée à ±15°) n'est jamais touché ici, pour qu'un
+        geste sur le slider juste après reste un ajustement fin normal
+        au lieu de re-clamper depuis un total hors de sa plage (retour
+        user : le slider "sautait" à 15° au premier contact).
+
         Parameters
         ----------
         e : ft.ControlEvent
@@ -2468,8 +2488,9 @@ class PhotoCropper:
             -45 selon le bouton).
         """
 
-        self.rotation = (self.rotation + delta + 180.0) % 360.0 - 180.0
-        self.rotation_slider.value = self.rotation
+        self.rotation_coarse = (
+            (self.rotation_coarse + delta + 180.0) % 360.0 - 180.0)
+        self.rotation = self.rotation_coarse + self.rotation_slider.value
         self.rotation_slider.label = f"{self.rotation:.2f}°"
         self.rotation_slider.update()
         if not self.image_paths or not hasattr(self, 'original_width'):
@@ -2493,6 +2514,7 @@ class PhotoCropper:
             Événement Flet du bouton « 0° » (non utilisé directement).
         """
 
+        self.rotation_coarse = 0.0
         self.rotation = 0.0
         self.rotation_slider.value = self.rotation
         self.rotation_slider.label = f"{self.rotation:.2f}°"
@@ -2581,6 +2603,7 @@ class PhotoCropper:
 
         self.is_fit_in = bool(e.control.value)
         if self.is_fit_in:
+            self.rotation_coarse = 0.0
             self.rotation = 0.0
             self.rotation_slider.value = 0.0
             self.rotation_slider.label = "0.00°"
