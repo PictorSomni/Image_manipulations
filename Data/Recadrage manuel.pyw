@@ -2452,6 +2452,34 @@ class PhotoCropper:
     # ================================================================ #
     #              RÉINITIALISATIONS & SLIDERS                        #
     # ================================================================ #
+    def rotate_45(self, e, delta):
+        """
+        Tourne l'image de 45° dans un sens ou l'autre (boutons rapides
+        au-dessus du bouton « Orientation »), en plus de la rotation
+        fine du slider (−15° … +15°) — retour user : évite d'avoir à
+        cumuler les petits pas du slider pour un cadrage en diagonale.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du bouton (non utilisé directement).
+        delta : float
+            Angle ajouté à la rotation courante, en degrés (+45 ou
+            -45 selon le bouton).
+        """
+
+        self.rotation = (self.rotation + delta + 180.0) % 360.0 - 180.0
+        self.rotation_slider.value = self.rotation
+        self.rotation_slider.label = f"{self.rotation:.2f}°"
+        self.rotation_slider.update()
+        if not self.image_paths or not hasattr(self, 'original_width'):
+            return
+        self._clamp_offsets()
+        self._update_transform()
+        self._set_status(f"Rotation : {self.rotation:.0f}°")
+
+
+
     def reset_rotation(self, e):
         """
         Remet la rotation à zéro (0°).
@@ -5044,6 +5072,22 @@ def main(page: ft.Page):
                                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=2),
                                         ft.VerticalDivider(width=1, color=LIGHT_GREY),
                                         ft.Column([
+                                            ft.Row([
+                                                ft.IconButton(
+                                                    icon=ft.Icons.ROTATE_LEFT,
+                                                    icon_color=BLUE,
+                                                    tooltip="Rotation 45° (antihoraire)",
+                                                    on_click=lambda e: app.rotate_45(e, -45.0),
+                                                    icon_size=20,
+                                                ),
+                                                ft.IconButton(
+                                                    icon=ft.Icons.ROTATE_RIGHT,
+                                                    icon_color=BLUE,
+                                                    tooltip="Rotation 45° (horaire)",
+                                                    on_click=lambda e: app.rotate_45(e, 45.0),
+                                                    icon_size=20,
+                                                ),
+                                            ], spacing=0, alignment=ft.MainAxisAlignment.START),
                                             ft.Button(
                                                 content=ft.Row([
                                                     ft.Icon(ft.Icons.SWAP_HORIZ, size=16, color=BLUE),
