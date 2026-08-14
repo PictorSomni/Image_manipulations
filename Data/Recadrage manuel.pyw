@@ -2627,9 +2627,26 @@ class PhotoCropper:
         besoin est désormais couvert par Retouche par lot.pyw. `crop_mode`
         garde néanmoins la valeur "none" en interne (cf. `load_image`,
         `export`) pour rester compatible avec d'anciens réglages
-        sauvegardés qui l'utilisaient encore."""
+        sauvegardés qui l'utilisaient encore.
+
+        En passant en mode Ratio, remet à zéro tous les réglages de
+        retouche (contraste, saturation, ombres, etc. — ils n'ont pas
+        le même sens qu'en recadrage libre) et, si le format actif est
+        un format ID, décoche ID X4 10x20, ID X4 et la sauvegarde
+        réseau (retour user : ces options n'ont plus lieu d'être une
+        fois sorti du recadrage mm×DPI qui les pilote)."""
         idx = int(e.control.selected_index)
         self.crop_mode = ("resolution", "ratio")[max(0, min(1, idx))]
+        if self.crop_mode == "ratio":
+            self.reset_adjustments(None)
+            if "ID" in self.current_format_label:
+                self.border_id4 = False
+                self.border_switch_ID4.value = False
+                self.id4_10x20 = False
+                self.id4_10x20_switch.value = False
+                self.id4_10x20_switch.visible = False
+                self.save_to_network = False
+                self.network_switch.value = False
         if self.image_paths:
             self.load_image(preserve_orientation=True)
         else:
