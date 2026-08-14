@@ -4347,12 +4347,13 @@ class PhotoCropper:
                 lines.append("-------------------------------------")
                 unit = self._unit_price(sub, subtotal_qty)
                 if unit is None:
-                    lines.append("(non tarifé)")
+                    lines.append(f"{subtotal_qty} photo(s) (non tarifé)")
                 else:
                     sub_price = round(subtotal_qty * unit, 2)
                     grand_total_price += sub_price
                     any_priced = True
-                    lines.append(_fmt_eur(sub_price))
+                    lines.append(
+                        f"{subtotal_qty} photo(s) - {_fmt_eur(sub_price)}")
                 lines.append("")
             if self.tariff_mode == "PRINTS" and any_priced:
                 grand_total_price += CONSTANTS.ORDER_SETUP_FEE

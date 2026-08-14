@@ -957,6 +957,18 @@ def main(page: ft.Page) -> None:
                         nb_marker = " n&b" if is_nb else ""
                         f.write(f"    {count}X {format_name}{nb_marker}\n")
                     f.write("\n")
+                # Récap par format (retour user : besoin du nombre de
+                # photos à côté du prix par taille, pour reporter
+                # facilement dans le logiciel de caisse — le décompte
+                # global (TOTAL) reste affiché en plus, pas à la place).
+                for format_name in sorted(format_selections):
+                    qty = sum(format_selections[format_name].values())
+                    if qty == 0:
+                        continue
+                    unit = _get_unit_price(format_name, qty)
+                    f.write(f"{format_name} : {qty} photo(s) - "
+                           f"{round(qty * unit, 2):.2f} €\n")
+                f.write("\n")
                 if active_tariff["value"] == "PRINTS":
                     f.write(f"Frais d'amorce : {FRAIS_AMORCE:.2f} €\n")
                 f.write(f"TOTAL : {total_price['value']:.2f} €\n")

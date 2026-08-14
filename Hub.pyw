@@ -2080,12 +2080,13 @@ def main(page: ft.Page):
                 lines.append("-------------------------------------")
                 unit = _folder_unit_price(sub, subtotal_qty)
                 if unit is None:
-                    lines.append("(non tarifé)")
+                    lines.append(f"{subtotal_qty} photo(s) (non tarifé)")
                 else:
                     sub_price = round(subtotal_qty * unit, 2)
                     grand_total_price += sub_price
                     any_priced = True
-                    lines.append(_fmt_eur(sub_price))
+                    lines.append(
+                        f"{subtotal_qty} photo(s) - {_fmt_eur(sub_price)}")
                 lines.append("")
             if state["tariff_mode"] == "PRINTS" and any_priced:
                 grand_total_price += CONSTANTS.ORDER_SETUP_FEE
@@ -6405,6 +6406,19 @@ def main(page: ft.Page):
             manifest.append(
                 f"{fmt}/{os.path.basename(dest)} — {fmt}{nb_label} × {n} = "
                 f"{prices[(path, fmt)]:.2f} €")
+        # Récap par format (retour user : besoin du nombre de photos à
+        # côté du prix par taille, pour reporter facilement dans le
+        # logiciel de caisse — le décompte global (grand_total) reste
+        # affiché en plus, pas à la place).
+        format_price_totals: dict[str, float] = {}
+        for (path, fmt), price in prices.items():
+            format_price_totals[fmt] = round(
+                format_price_totals.get(fmt, 0.0) + price, 2)
+        manifest.append("")
+        for fmt in sorted(format_totals):
+            manifest.append(
+                f"{fmt} : {format_totals[fmt]} photo(s) - "
+                f"{format_price_totals[fmt]:.2f} €")
         manifest.append(f"\nTOTAL : {grand_total:.2f} €")
         try:
             with open(os.path.join(order_folder, "commande.txt"), "w",
