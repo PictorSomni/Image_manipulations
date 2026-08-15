@@ -4356,8 +4356,8 @@ def main(page: ft.Page):
         )
         notes_editor_content = ft.Stack([
             notes_field,
-            ft.Container(width=1, bgcolor=GREY, left=_NOTES_GUTTER_WIDTH,
-                        top=0, bottom=0),
+            ft.Container(width=2, bgcolor=LIGHT_GREY,
+                        left=_NOTES_GUTTER_WIDTH, top=0, bottom=0),
         ], expand=True)
     else:
         notes_field = ft.TextField(
