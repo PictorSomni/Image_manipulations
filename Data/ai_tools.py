@@ -6329,7 +6329,7 @@ def _read_pdf(folder_path, filepath, pages=None, max_chars=40000):
 
     # PyMuPDF en priorité : meilleure extraction, gère les encodages complexes
     try:
-        import fitz as _fitz
+        import pymupdf as _fitz  # "fitz" est un alias déprécié
         doc = _fitz.open(resolved)
         total = doc.page_count
         idxs = _parse_pdf_pages(pages, total) if pages else range(total)

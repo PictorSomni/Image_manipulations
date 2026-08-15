@@ -30,7 +30,7 @@ import CONSTANTS
 CONSTANTS.ensure_imagemagick_env()
 
 from wand.image import Image
-import fitz  # PyMuPDF
+import pymupdf as fitz  # PyMuPDF ; "fitz" est un alias déprécié
 
 #############################################################
 #                           PATH                            #

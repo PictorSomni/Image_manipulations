@@ -2833,7 +2833,7 @@ def main(page: ft.Page):
             return 1
         if path not in _pdf_page_count_cache:
             try:
-                import fitz
+                import pymupdf as fitz  # "fitz" est un alias déprécié
                 with fitz.open(path) as doc:
                     _pdf_page_count_cache[path] = doc.page_count
             except Exception:
@@ -2848,7 +2848,7 @@ def main(page: ft.Page):
         if key in _pdf_page_render_cache:
             return _pdf_page_render_cache[key]
         try:
-            import fitz
+            import pymupdf as fitz  # "fitz" est un alias déprécié
             with fitz.open(path) as doc:
                 pg = doc[page_num]
                 longest = max(pg.rect.width, pg.rect.height) or 1

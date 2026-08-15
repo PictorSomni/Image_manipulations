@@ -54,7 +54,7 @@ def _render_vector(image_path: str, ext: str, size_px: int):
     miniature de 320px.
     """
     if ext == ".pdf":
-        import fitz  # PyMuPDF
+        import pymupdf as fitz  # PyMuPDF ; "fitz" est un alias déprécié
         with fitz.open(image_path) as doc:
             if doc.page_count == 0:
                 return None
