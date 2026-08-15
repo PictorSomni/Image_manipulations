@@ -4341,12 +4341,24 @@ def main(page: ft.Page):
     _HAS_CODE_EDITOR = platform.system() != "Linux"
 
     if _HAS_CODE_EDITOR:
+        # Largeur de gouttière élargie (était 64) + ligne verticale
+        # séparant les numéros de ligne du texte : GutterStyle n'expose
+        # pas de bordure propre, donc superposée via un Stack, positionnée
+        # pile à la largeur de la gouttière (retour user).
+        _NOTES_GUTTER_WIDTH = 80
         notes_field = fce.CodeEditor(
             text_style=ft.TextStyle(font_family="monospace", size=state["font_size"]),
             language=getattr(fce.CodeLanguage, CONSTANTS.NOTEPAD_DEFAULT_LANGUAGE),
             code_theme=fce.CodeTheme.ATOM_ONE_DARK,
-            gutter_style=fce.GutterStyle(width=64, background_color=BACKGROUND), expand=True,
+            gutter_style=fce.GutterStyle(
+                width=_NOTES_GUTTER_WIDTH, background_color=BACKGROUND),
+            expand=True,
         )
+        notes_editor_content = ft.Stack([
+            notes_field,
+            ft.Container(width=1, bgcolor=GREY, left=_NOTES_GUTTER_WIDTH,
+                        top=0, bottom=0),
+        ], expand=True)
     else:
         notes_field = ft.TextField(
             multiline=True, expand=True, min_lines=4,
@@ -4356,6 +4368,7 @@ def main(page: ft.Page):
             hint_text="Écrivez vos notes ici…",
             hint_style=ft.TextStyle(color=LIGHT_GREY, italic=True),
         )
+        notes_editor_content = notes_field
     notes_title = ft.Text("Bloc-notes", size=CONSTANTS.TEXT_LG, color=WHITE,
                           weight=ft.FontWeight.W_500, expand=True, no_wrap=True)
     notes_preview = ft.Markdown(
@@ -4370,7 +4383,8 @@ def main(page: ft.Page):
     # se partagent l'espace 50/50 même quand l'un est invisible (Flet
     # conserve la part de flex d'un enfant caché) — d'où le bloc-notes qui
     # ne prenait que la moitié inférieure en aperçu Markdown.
-    notes_body = ft.Container(content=notes_field, expand=True, padding=8)
+    notes_body = ft.Container(
+        content=notes_editor_content, expand=True, padding=8)
     notes_is_preview = {"value": False}
     notes_autosave_timer = {"task": None}
     notes_dirty = {"value": False}
@@ -4439,7 +4453,7 @@ def main(page: ft.Page):
         _notes_load()
         if notes_is_preview["value"]:
             notes_is_preview["value"] = False
-            notes_body.content = notes_field
+            notes_body.content = notes_editor_content
             notes_preview_btn.icon = ft.Icons.VISIBILITY
             notes_preview_btn.tooltip = "Prévisualiser en Markdown"
         _select_surface("notes")
@@ -4499,7 +4513,7 @@ def main(page: ft.Page):
             notes_preview_btn.icon = ft.Icons.EDIT
             notes_preview_btn.tooltip = "Revenir à l'édition"
         else:
-            notes_body.content = notes_field
+            notes_body.content = notes_editor_content
             notes_preview_btn.icon = ft.Icons.VISIBILITY
             notes_preview_btn.tooltip = "Prévisualiser en Markdown"
         page.update()
@@ -4508,7 +4522,7 @@ def main(page: ft.Page):
         notes_field.value = ""
         if notes_is_preview["value"]:
             notes_is_preview["value"] = False
-            notes_body.content = notes_field
+            notes_body.content = notes_editor_content
             notes_preview_btn.icon = ft.Icons.VISIBILITY
             notes_preview_btn.tooltip = "Prévisualiser en Markdown"
         _notes_save()
