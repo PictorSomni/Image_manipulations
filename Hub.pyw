@@ -4345,7 +4345,7 @@ def main(page: ft.Page):
         # séparant les numéros de ligne du texte : GutterStyle n'expose
         # pas de bordure propre, donc superposée via un Stack, positionnée
         # pile à la largeur de la gouttière (retour user).
-        _NOTES_GUTTER_WIDTH = 80
+        _NOTES_GUTTER_WIDTH = 90
         notes_field = fce.CodeEditor(
             text_style=ft.TextStyle(font_family="monospace", size=state["font_size"]),
             language=getattr(fce.CodeLanguage, CONSTANTS.NOTEPAD_DEFAULT_LANGUAGE),
