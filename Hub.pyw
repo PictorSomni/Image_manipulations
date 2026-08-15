@@ -3520,8 +3520,12 @@ def main(page: ft.Page):
             # peuvent pas passer par _get_removable_drives. Sondés ici pour
             # apparaître dans le même volet "Périphériques" du menu Ouvrir
             # (retour user 2026-08-07 : le bouton était perdu dans
-            # Actions). ~50 ms, et sur un thread de travail, donc apartment
-            # COM correct (cf. la RÈGLE dans la section MTP).
+            # Actions). list_devices() ouvre et referme chaque appareil
+            # pour filtrer les emplacements de lecteur de cartes vides
+            # (retour user 2026-08-15) : plus que ~50 ms si un vrai
+            # téléphone est branché, mais reste sur un thread de travail,
+            # donc apartment COM correct (cf. la RÈGLE dans la section
+            # MTP), et sans impact sur l'UI.
             try:
                 phones_state["list"] = [
                     (d.description, d.id) for d in mtp_devices.list_devices()]

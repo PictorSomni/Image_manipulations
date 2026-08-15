@@ -439,11 +439,35 @@ def _get_device_manager():
     return manager
 
 
+def _has_content(device):
+    """Un lecteur de cartes multi-emplacements s'enregistre comme
+    périphérique WPD tant qu'il reste branché, carte insérée ou non —
+    Windows le remonte alors dans GetDevices() comme un "téléphone"
+    fantôme pour chaque emplacement vide (retour user). On ne le garde
+    dans la liste que s'il expose au moins un objet (storage) à sa
+    racine ; un vrai téléphone en a toujours au moins un dès qu'il est
+    déverrouillé et en mode transfert de fichiers."""
+    try:
+        return bool(device.root().children())
+    except Exception:
+        return False
+    finally:
+        try:
+            device.close()
+        except Exception:
+            pass
+
+
 def list_devices():
-    """Liste les appareils MTP actuellement connectés. Renvoie une liste
-    vide (sans erreur) sur macOS/Linux, ou si aucun appareil n'est
-    branché. Lève MTPError si l'API WPD est indisponible sous Windows
-    (composants manquants)."""
+    """Liste les appareils MTP actuellement connectés et non vides.
+    Renvoie une liste vide (sans erreur) sur macOS/Linux, ou si aucun
+    appareil n'est branché. Lève MTPError si l'API WPD est indisponible
+    sous Windows (composants manquants).
+
+    Filtre les périphériques sans aucun contenu à la racine (cf.
+    `_has_content`) : un emplacement de lecteur de cartes vide s'y
+    présente aussi comme un périphérique WPD, mais n'a rien à
+    afficher."""
     if not IS_WINDOWS:
         return []
     manager = _get_device_manager()
@@ -454,7 +478,8 @@ def list_devices():
     id_array = (ctypes.c_wchar_p * count.contents.value)()
     manager.GetDevices(
         ctypes.cast(id_array, ctypes.POINTER(ctypes.c_wchar_p)), count)
-    return [MTPDevice(pnp_id) for pnp_id in id_array]
+    return [device for pnp_id in id_array
+            if _has_content(device := MTPDevice(pnp_id))]
 
 
 # Sous-dossiers usuels où trouver les photos sur un Android : la racine de
