@@ -736,16 +736,6 @@ def main(page: ft.Page):
         matches = _glob.glob(pattern)
         return matches[0] if matches else exe
 
-    # Applis connues pour basculer en mode "plugin" restreint (une seule
-    # image, bouton qui exporte/écrase directement) dès qu'un fichier leur
-    # est passé en argument au lancement — comme le ferait Photoshop/
-    # Lightroom pour les appeler en éditeur externe (retour user : Topaz
-    # Photo AI/Gigapixel, Luminar Neo). Un logiciel "normal" (Affinity
-    # Photo, etc.) ouvre le fichier tel quel sans ce problème, donc lui
-    # couper le fichier en argument le laisserait vide au lancement à
-    # tort — le comportement par défaut reste de passer le fichier.
-    _PLUGIN_MODE_EXE_HINTS = ("topaz", "gigapixel", "luminar")
-
     def _open_files_with(prog, files):
         exe = prog.get("exe", "")
         if not exe:
@@ -763,10 +753,13 @@ def main(page: ft.Page):
                 _log_to_terminal(
                     f"[INFO] Chemin mis à jour automatiquement pour {prog['label']}",
                     ORANGE)
-            hint_text = (prog.get("label", "") + " " +
-                        os.path.basename(resolved)).lower()
-            no_args = any(h in hint_text for h in _PLUGIN_MODE_EXE_HINTS)
-            files = [] if no_args else files
+            # Topaz Photo AI/Gigapixel et Luminar Neo basculent en mode
+            # plugin restreint (export forcé) quand un fichier leur est
+            # passé au lancement — comportement connu et accepté (retour
+            # user : il a toujours une copie d'origine intacte via
+            # Augmentation IA/Recadrage manuel, donc mieux vaut que la
+            # photo s'ouvre à chaque fois plutôt que devoir la rouvrir à
+            # la main en pleine journée de boutique).
             if platform.system() == "Darwin":
                 cmd = ["open", "-a", resolved] + files
             else:
