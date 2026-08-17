@@ -753,10 +753,20 @@ def main(page: ft.Page):
                 _log_to_terminal(
                     f"[INFO] Chemin mis à jour automatiquement pour {prog['label']}",
                     ORANGE)
+            # Certaines applis (Topaz Photo AI, Gigapixel, Luminar Neo...)
+            # détectent un lancement en ligne de commande AVEC un fichier
+            # comme un appel depuis un éditeur hôte (Photoshop/Lightroom) et
+            # basculent dans leur mode "plugin" restreint (une seule image,
+            # bouton qui exporte/écrase directement) au lieu de leur appli
+            # complète (bibliothèque, réglages, enregistrement libre) —
+            # retour user. "no_args" (réglable à l'ajout du programme) lance
+            # l'appli seule, sans lui passer le fichier, pour éviter ça.
+            no_args = prog.get("no_args", False)
             if platform.system() == "Darwin":
-                subprocess.Popen(["open", "-a", resolved] + files)
+                cmd = ["open", "-a", resolved] + ([] if no_args else files)
             else:
-                subprocess.Popen([resolved] + files)
+                cmd = [resolved] + ([] if no_args else files)
+            subprocess.Popen(cmd)
         except Exception as exc:
             _log_to_terminal(f"[ERREUR] {prog.get('label', exe)} : {exc}", RED)
             return
@@ -2152,6 +2162,13 @@ def main(page: ft.Page):
                                  text_size=CONSTANTS.TEXT_SM,
                                  height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
                                  content_padding=ft.Padding(8, 4, 8, 4))
+        # Certaines applis (Topaz Photo AI/Gigapixel, Luminar Neo...) passent
+        # en mode "plugin" restreint (export forcé) quand on leur donne le
+        # fichier en argument au lancement — cette option lance l'appli
+        # seule à la place, sans fichier (retour user).
+        no_args_switch = ft.Switch(
+            value=False, active_color=BLUE,
+            label="Lancer sans ouvrir le fichier (mode application complète)")
 
         def _cancel(event):
             dlg.open = False
@@ -2163,15 +2180,16 @@ def main(page: ft.Page):
             if not label or not exe:
                 return
             programs = _load_open_with_programs()
-            programs.append({"label": label, "exe": exe})
+            programs.append({"label": label, "exe": exe,
+                             "no_args": no_args_switch.value})
             _save_open_with_programs(programs)
             dlg.open = False
             page.update()
 
         dlg = ft.AlertDialog(
             title=ft.Text("Ajouter un programme", size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([label_field, exe_field], spacing=8, tight=True,
-                              width=280),
+            content=ft.Column([label_field, exe_field, no_args_switch],
+                              spacing=8, tight=True, width=280),
             actions=[
                 ft.TextButton("Ajouter", on_click=_confirm),
                 ft.TextButton("Annuler", on_click=_cancel),
