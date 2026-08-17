@@ -736,7 +736,17 @@ def main(page: ft.Page):
         matches = _glob.glob(pattern)
         return matches[0] if matches else exe
 
-    def _open_files_with(prog):
+    # Applis connues pour basculer en mode "plugin" restreint (une seule
+    # image, bouton qui exporte/écrase directement) dès qu'un fichier leur
+    # est passé en argument au lancement — comme le ferait Photoshop/
+    # Lightroom pour les appeler en éditeur externe (retour user : Topaz
+    # Photo AI/Gigapixel, Luminar Neo). Un logiciel "normal" (Affinity
+    # Photo, etc.) ouvre le fichier tel quel sans ce problème, donc lui
+    # couper le fichier en argument le laisserait vide au lancement à
+    # tort — le comportement par défaut reste de passer le fichier.
+    _PLUGIN_MODE_EXE_HINTS = ("topaz", "gigapixel", "luminar")
+
+    def _open_files_with(prog, files):
         exe = prog.get("exe", "")
         if not exe:
             return
@@ -753,18 +763,14 @@ def main(page: ft.Page):
                 _log_to_terminal(
                     f"[INFO] Chemin mis à jour automatiquement pour {prog['label']}",
                     ORANGE)
-            # Certaines applis (Topaz Photo AI, Gigapixel, Luminar Neo...)
-            # détectent un lancement en ligne de commande AVEC un fichier
-            # comme un appel depuis un éditeur hôte (Photoshop/Lightroom) et
-            # basculent dans leur mode "plugin" restreint (une seule image,
-            # bouton qui exporte/écrase directement) au lieu de leur appli
-            # complète (bibliothèque, réglages, enregistrement libre) —
-            # retour user. On lance donc toujours l'appli seule, sans lui
-            # passer le fichier.
+            hint_text = (prog.get("label", "") + " " +
+                        os.path.basename(resolved)).lower()
+            no_args = any(h in hint_text for h in _PLUGIN_MODE_EXE_HINTS)
+            files = [] if no_args else files
             if platform.system() == "Darwin":
-                cmd = ["open", "-a", resolved]
+                cmd = ["open", "-a", resolved] + files
             else:
-                cmd = [resolved]
+                cmd = [resolved] + files
             subprocess.Popen(cmd)
         except Exception as exc:
             _log_to_terminal(f"[ERREUR] {prog.get('label', exe)} : {exc}", RED)
@@ -7984,7 +7990,7 @@ def main(page: ft.Page):
         rows = [
             _action_row(
                 f"Ouvrir avec {p['label']}", ft.Icons.OPEN_IN_NEW, BLUE,
-                lambda e, p=p: _run_action(_open_files_with, p)
+                lambda e, p=p: _run_action(_open_files_with, p, list(selected))
                                if selected else None,
                 trailing=ft.IconButton(
                     ft.Icons.CLOSE, icon_color=RED,
