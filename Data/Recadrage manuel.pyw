@@ -2149,7 +2149,9 @@ class PhotoCropper:
                 if _bg_mode == 0:
                     background_layer = Image.new("RGBA", preview_image.size, (255, 255, 255, 255))
                 elif _bg_mode == 1:
-                    background_layer = Image.new("RGBA", preview_image.size, (230, 230, 230, 255))
+                    background_layer = Image.new(
+                        "RGBA", preview_image.size,
+                        CONSTANTS.RECADRAGE_REMBG_BG_GRAY)
                 else:
                     # Utiliser l'image originale (opaque) comme source du flou pour éviter
                     # les débordements noirs des pixels transparents (alpha=0 → noir en RGBA→RGB)
@@ -2950,9 +2952,10 @@ class PhotoCropper:
         Fond de remplacement
         --------------------
         ``current_pil_image`` reste en mode RGBA après traitement. L'aplatissement
-        sur fond blanc (255,255,255) ou gris clair (220,220,220) est
-        effectué à la volée dans ``_render_preview`` et à l'export, selon
-        ``self.rembg_bg_mode`` (0=blanc, 1=gris clair, 2=flou).
+        sur fond blanc (255,255,255) ou gris
+        (CONSTANTS.RECADRAGE_REMBG_BG_GRAY) est effectué à la volée dans
+        ``_render_preview`` et à l'export, selon ``self.rembg_bg_mode``
+        (0=blanc, 1=gris, 2=flou).
 
         Parameters
         ----------
@@ -4008,7 +4011,7 @@ class PhotoCropper:
                     _bg = job["rembg_original"].convert('RGB').filter(
                         ImageFilter.GaussianBlur(radius=64)).convert('RGBA')
                 else:
-                    _c = ((230, 230, 230, 255) if _bg_m == 1
+                    _c = (CONSTANTS.RECADRAGE_REMBG_BG_GRAY if _bg_m == 1
                           else (255, 255, 255, 255))
                     _bg = Image.new('RGBA', _src.size, _c)
                 output_image = Image.alpha_composite(_bg, _src).convert('RGB')

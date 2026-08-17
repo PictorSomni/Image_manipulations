@@ -2248,7 +2248,7 @@ async def main(page: ft.Page) -> None:
             return
         w, h = rgba.size
         if mode == "Gris":
-            bg = Image.new("RGBA", (w, h), (230, 230, 230, 255))
+            bg = Image.new("RGBA", (w, h), CONSTANTS.RECADRAGE_REMBG_BG_GRAY)
         elif mode == "Flou":
             bg = state["rembg_before"].convert("RGB").filter(
                 ImageFilter.GaussianBlur(radius=64)

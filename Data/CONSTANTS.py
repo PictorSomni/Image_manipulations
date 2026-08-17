@@ -301,6 +301,10 @@ RECADRAGE_FIT_IN          = False   # Mode Fit-in (image entière dans le format
 RECADRAGE_WHITE_BORDER    = False   # Bord blanc 5 mm (image réduite, canvas inchangé)
 RECADRAGE_SHOW_GRID       = True    # Afficher la grille de cadrage
 RECADRAGE_REMBG_BG_WHITE  = True    # Fond blanc après suppression IA (vs flou)
+# Fond gris pour détourage (photos d'identité type françaises) — relevé de
+# (230,230,230), trop proche du blanc pour bien voir la différence (retour
+# user), à (191,191,191) (~75% de gris).
+RECADRAGE_REMBG_BG_GRAY   = (191, 191, 191, 255)
 RECADRAGE_REMBG_HUMAN_SEG = True    # Segmentation humain (vs généraliste)
 RECADRAGE_REMBG_MODE      = 2       # 0 = rapide (u2net), 1 = précis (birefnet), 2 = instantané (flood, sans IA)
 RECADRAGE_FLOOD_TOLERANCE = 40      # Mode instantané : distance couleur max (RGB, 0-441) au point cliqué — cf. image_ops.flood_background_mask
