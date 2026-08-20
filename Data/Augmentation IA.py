@@ -1419,15 +1419,31 @@ async def main(page: ft.Page) -> None:
         else:
             await page.window.close()  # type: ignore[misc]
 
+    def _unique_path(folder: str, basename: str) -> str:
+        name, ext = os.path.splitext(basename)
+        candidate = os.path.join(folder, basename)
+        n = 1
+        while os.path.exists(candidate):
+            candidate = os.path.join(folder, f"{name} ({n}){ext}")
+            n += 1
+        return candidate
+
     def _retouche_path() -> str | None:
         src = state["source_path"]
         if not src:
             return None
-        retouche_dir = os.path.join(os.path.dirname(src), "Retouche")
-        os.makedirs(retouche_dir, exist_ok=True)
+        src_dir = os.path.dirname(src)
         basename = os.path.basename(src)
         if state["rembg_active"] and rembg_dropdown.value == "Transparent":
             basename = os.path.splitext(basename)[0] + ".png"
+        if os.path.basename(src_dir) == "Retouche":
+            # Image déjà issue d'un dossier Retouche : on réutilise ce
+            # dossier au lieu d'imbriquer un Retouche/Retouche, et on
+            # incrémente le nom pour ne pas écraser silencieusement le
+            # fichier déjà retouché (retour user).
+            return _unique_path(src_dir, basename)
+        retouche_dir = os.path.join(src_dir, "Retouche")
+        os.makedirs(retouche_dir, exist_ok=True)
         return os.path.join(retouche_dir, basename)
 
     async def on_save(e) -> None:
