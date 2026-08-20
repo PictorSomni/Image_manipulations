@@ -1530,82 +1530,99 @@ def main(page: ft.Page):
     # client vient en général imprimer ses photos récentes.
     _MTP_RECENT_COUNT = 200
 
+    def _mtp_list_images(folders):
+        """Liste les photos des dossiers donnés, les plus récentes en
+        tête. Appelée depuis un thread de travail (appels MTP)."""
+        items, total = [], 0
+        seen = set()
+        for folder in folders:
+            # walk_files et pas list_folder : cocher DCIM doit prendre
+            # Camera, Screenshots... sinon on ne copierait rien, ce
+            # dossier ne contenant que des sous-dossiers sur Android.
+            for item in mtp_devices.walk_files(folder):
+                if item.object_id in seen:
+                    continue
+                if os.path.splitext(item.name)[1].lower() \
+                        in CONSTANTS.IMAGE_EXTS:
+                    seen.add(item.object_id)
+                    items.append(item)
+                    total += item.size or 0
+        # Un seul tri global : cocher Camera + Screenshots doit donner
+        # une suite chronologique, pas deux blocs accolés.
+        items.sort(key=lambda f: (f.date is not None, f.date, f.name),
+                   reverse=True)
+        return items, total
+
+    def _ask_mtp_copy(items, total, detail):
+        if not items:
+            _log_to_terminal(
+                "[ATTENTION] Aucune photo trouvée", ORANGE, clear=True)
+            return
+        minutes = total / _MTP_BYTES_PER_SEC / 60
+        duration = (f"{minutes:.0f} min" if minutes >= 1
+                    else f"{total / _MTP_BYTES_PER_SEC:.0f} s")
+        actions = [ft.TextButton(
+            "Annuler", on_click=lambda e: _close_mtp_dialog(ask_dlg))]
+        if len(items) > _MTP_RECENT_COUNT:
+            recent = items[:_MTP_RECENT_COUNT]
+            recent_size = sum(i.size or 0 for i in recent)
+            actions.append(ft.TextButton(
+                f"Les {_MTP_RECENT_COUNT} plus récentes "
+                f"({_format_size(recent_size)})",
+                on_click=lambda e: (_close_mtp_dialog(ask_dlg),
+                                    _start_mtp_copy(recent))))
+        actions.append(ft.TextButton(
+            f"Tout copier ({_format_size(total)}, {duration})",
+            on_click=lambda e: (_close_mtp_dialog(ask_dlg),
+                                _start_mtp_copy(items))))
+        ask_dlg = ft.AlertDialog(
+            title=ft.Text("Copier depuis le téléphone",
+                          size=CONSTANTS.TEXT_SM, color=WHITE),
+            content=ft.Text(
+                f"{len(items)} photo(s) {detail}, "
+                f"{_format_size(total)} au total (~{duration}).\n\n"
+                "Les photos sont copiées dans un dossier local, puis "
+                "Hub s'ouvre dessus : tu y retrouves les vignettes, le "
+                "plein écran, la sélection et le transfert vers TEMP.",
+                color=WHITE),
+            actions=actions,
+        )
+        page.overlay.append(ask_dlg)
+        ask_dlg.open = True
+        page.update()
+
     def _confirm_mtp_import(dlg, folders):
         _close_mtp_dialog(dlg)
         if not folders:
             return
 
-        def _count():
-            """Liste les photos des dossiers cochés, les plus récentes en
-            tête. Tourne sur un thread de travail (appels MTP)."""
-            items, total = [], 0
-            seen = set()
-            for folder in folders:
-                # walk_files et pas list_folder : cocher DCIM doit prendre
-                # Camera, Screenshots... sinon on ne copierait rien, ce
-                # dossier ne contenant que des sous-dossiers sur Android.
-                for item in mtp_devices.walk_files(folder):
-                    if item.object_id in seen:
-                        continue
-                    if os.path.splitext(item.name)[1].lower() \
-                            in CONSTANTS.IMAGE_EXTS:
-                        seen.add(item.object_id)
-                        items.append(item)
-                        total += item.size or 0
-            # Un seul tri global : cocher Camera + Screenshots doit donner
-            # une suite chronologique, pas deux blocs accolés.
-            items.sort(key=lambda f: (f.date is not None, f.date, f.name),
-                       reverse=True)
-            return items, total
-
-        def _ask(items, total):
-            if not items:
-                _log_to_terminal(
-                    "[ATTENTION] Aucune photo dans les dossiers choisis",
-                    ORANGE, clear=True)
-                return
-            minutes = total / _MTP_BYTES_PER_SEC / 60
-            duration = (f"{minutes:.0f} min" if minutes >= 1
-                        else f"{total / _MTP_BYTES_PER_SEC:.0f} s")
-            actions = [ft.TextButton(
-                "Annuler", on_click=lambda e: _close_mtp_dialog(ask_dlg))]
-            if len(items) > _MTP_RECENT_COUNT:
-                recent = items[:_MTP_RECENT_COUNT]
-                recent_size = sum(i.size or 0 for i in recent)
-                actions.append(ft.TextButton(
-                    f"Les {_MTP_RECENT_COUNT} plus récentes "
-                    f"({_format_size(recent_size)})",
-                    on_click=lambda e: (_close_mtp_dialog(ask_dlg),
-                                        _start_mtp_copy(recent))))
-            actions.append(ft.TextButton(
-                f"Tout copier ({_format_size(total)}, {duration})",
-                on_click=lambda e: (_close_mtp_dialog(ask_dlg),
-                                    _start_mtp_copy(items))))
-            ask_dlg = ft.AlertDialog(
-                title=ft.Text("Copier depuis le téléphone",
-                              size=CONSTANTS.TEXT_SM, color=WHITE),
-                content=ft.Text(
-                    f"{len(items)} photo(s) dans {len(folders)} dossier(s), "
-                    f"{_format_size(total)} au total (~{duration}).\n\n"
-                    "Les photos sont copiées dans un dossier local, puis "
-                    "Hub s'ouvre dessus : tu y retrouves les vignettes, le "
-                    "plein écran, la sélection et le transfert vers TEMP.",
-                    color=WHITE),
-                actions=actions,
-            )
-            page.overlay.append(ask_dlg)
-            ask_dlg.open = True
-            page.update()
-
         def _work():
             try:
-                items, total = _count()
+                items, total = _mtp_list_images(folders)
             except Exception as exc:
                 _log_to_terminal(f"[ERREUR] {exc}", RED, clear=True)
                 return
-            _ask(items, total)
+            _ask_mtp_copy(items, total,
+                         f"dans {len(folders)} dossier(s)")
 
         _run_bg_action("Inventaire des photos du téléphone", _work)
+
+    def _mtp_copy_all(pnp_id, description):
+        # Bouton "Tout copier" sur la ligne du téléphone : évite la
+        # navigation dossier par dossier quand on veut juste tout
+        # rapatrier d'un coup (retour user — certaines machines montrent
+        # encore des appareils MTP fantômes, autant limiter les allers-
+        # retours dans l'arborescence en direct).
+        def _work():
+            try:
+                root = mtp_devices.MTPDevice(pnp_id).root()
+                items, total = _mtp_list_images([root])
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] {exc}", RED, clear=True)
+                return
+            _ask_mtp_copy(items, total, f"sur {description}")
+
+        _run_bg_action(f"Inventaire des photos de {description}", _work)
 
     def _start_mtp_copy(items):
         # Sous-dossier daté : deux imports successifs ne se mélangent pas,
@@ -3629,6 +3646,12 @@ def main(page: ft.Page):
                             size=CONSTANTS.ICON_SM),
             title=ft.Text(description, size=CONSTANTS.TEXT_SM, color=WHITE,
                           no_wrap=True),
+            trailing=ft.IconButton(
+                ft.Icons.DOWNLOAD, icon_color=BLUE,
+                icon_size=CONSTANTS.ICON_SM,
+                tooltip="Tout copier depuis l'appareil",
+                on_click=lambda e: (_close_open_menu(),
+                                    _mtp_copy_all(pnp_id, description))),
             on_click=lambda e: (_close_open_menu(),
                                 _open_mtp_import_dialog(pnp_id, description)),
             hover_color=GREY, dense=True,
