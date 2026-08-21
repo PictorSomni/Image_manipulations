@@ -1584,6 +1584,18 @@ class PhotoCropper:
         self._id4_10x20_pending = None
         self._id4_pair_waiting = False
         self._id4_10x20_seq = 0
+
+        # Dossier de commande nommé exactement d'après un format (ex.
+        # "13x18", cf. Hub.pyw:_create_order_folder) : préselectionner ce
+        # format évite de devoir le changer à la main pour chaque dossier
+        # d'une commande à plusieurs tailles (retour user).
+        folder_format = os.path.basename(os.path.normpath(source_folder_path))
+        if folder_format in FORMATS:
+            self.current_format = FORMATS[folder_format]
+            self.current_format_label = folder_format
+            if hasattr(self, 'format_radio_group'):
+                self.format_radio_group.value = folder_format
+
         self.load_image(preserve_orientation=False)
 
 
