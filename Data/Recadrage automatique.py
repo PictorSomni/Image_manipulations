@@ -9,14 +9,18 @@ Deux modes :
     * Plusieurs copies : tuilees et centrees sur le canvas.
 
 Nomenclature des fichiers :
+  - Le nom de sortie ne répète pas le format cible : le fichier est déjà
+    dans le sous-dossier nommé d'après le format (ex: "10x15/").
   - Préfixe NX_ (ex: "2X_photo.jpg", "3x_maphoto.png") = nombre d'impressions
     demandé. Il est TOUJOURS respecté, dans les deux modes :
     * Mode crop : une image recadrée, le préfixe est reporté tel quel sur le
-      fichier de sortie ("3X_photo.jpg" -> "3X_10x15_photo.jpg").
+      fichier de sortie ("3X_photo.jpg" -> "3X_photo.jpg").
     * Mode fit  : N copies tuilées sur le canvas. Si elles n'y tiennent pas
       toutes, on génère autant de canvas que nécessaire — le dernier reste
       partiellement blanc plutôt que d'être complété par des copies en trop.
-      Si une seule copie tient par canvas, le N repart sur le nom de sortie.
+      Le nombre de copies effectivement présentes sur chaque canevas est
+      toujours reporté en préfixe (y compris quand toutes les copies
+      tiennent sur un seul canevas).
   - Sans préfixe : mode automatique (le canvas est rempli au maximum en mode
     fit, une image en mode crop), et aucun préfixe en sortie.
 
@@ -447,24 +451,38 @@ if fit_mode:
             )
         }
 
+        # Stems dont le nombre de copies a été forcé via préfixe NX_ (à
+        # distinguer du mode automatique, qui ne porte pas de nombre à
+        # reporter).
+        forced_stems = {t['source_name'] for t in tiles_list if t['forced']}
+
+        # Le nom du format n'est plus préfixé au nom de fichier : le
+        # fichier est déjà dans le sous-dossier nommé d'après le format
+        # (output_folder), le répéter ne fait qu'alourdir le nom. En
+        # revanche le préfixe NX_ (nombre d'exemplaires) doit toujours
+        # être conservé quand il est connu — y compris quand toutes les
+        # copies forcées tiennent sur un seul canevas, cas où il était
+        # perdu auparavant (retour user).
         saved_count = 0
-        stem_indices = {}
+        name_counts = {}
         already_saved = set()
         for canvas, canvas_tiles, stem in all_canvases:
+            unique_sources = {name for name, x, y in canvas_tiles}
             if stem in single_fit_stems:
                 if stem in already_saved:
                     continue
                 already_saved.add(stem)
-                n = stem_counts[stem]
-                out_filename = f"{n}X_{folder_name}_{stem}.jpg"
+                prefix = f"{stem_counts[stem]}X_"
+            elif len(unique_sources) == 1 and stem in forced_stems:
+                prefix = f"{len(canvas_tiles)}X_"
             else:
-                total_for_stem = stem_counts[stem]
-                if total_for_stem == 1:
-                    out_filename = f"{folder_name}_{stem}.jpg"
-                else:
-                    current_idx = stem_indices.get(stem, 1)
-                    out_filename = f"{folder_name}_{stem}_{current_idx}.jpg"
-                    stem_indices[stem] = current_idx + 1
+                prefix = ""
+
+            base_name = f"{prefix}{stem}"
+            idx = name_counts.get(base_name, 0)
+            name_counts[base_name] = idx + 1
+            out_filename = (f"{base_name}.jpg" if idx == 0
+                             else f"{base_name}_{idx + 1}.jpg")
 
             canvas_rgb = canvas.convert("RGB")
             out_path = output_folder / out_filename
@@ -518,10 +536,13 @@ else:
             # Déterminer le nom de sortie. Le préfixe NX_ est REPORTÉ sur
             # le fichier recadré : sans lui, le nombre d'impressions était
             # perdu au recadrage et la photo disparaissait de commande.txt,
-            # qui ne compte que les fichiers préfixés (retour user).
+            # qui ne compte que les fichiers préfixés (retour user). Le nom
+            # du format n'est plus répété dans le nom de fichier : le
+            # fichier est déjà dans le sous-dossier nommé d'après le
+            # format (retour user).
             stem = Path(clean_filename).stem
             prefix = f"{copy_count}X_" if copy_count is not None else ""
-            out_path = output_folder / f"{prefix}{folder_name}_{stem}.jpg"
+            out_path = output_folder / f"{prefix}{stem}.jpg"
 
             result.save(out_path, dpi=(DPI, DPI), format="JPEG",
                        subsampling=0, quality=100,
