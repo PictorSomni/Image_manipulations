@@ -568,7 +568,6 @@ AI_FOLDER_SELECT_QUALITY     = 85    # Qualité JPEG des images envoyées à l'I
 # Modèles affichés dans le dropdown de sélection rapide du Hub
 AI_DROPDOWN_MODELS = [
     "gemini-3.5-flash-lite",
-    "gemini-3.6-flash",
     "gemini-3.7-flash",
     "claude-sonnet-4-6",
     "gemma4:e4b",

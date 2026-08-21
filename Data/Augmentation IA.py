@@ -360,10 +360,9 @@ async def main(page: ft.Page) -> None:
     retouch_model_dropdown = ft.Dropdown(
         value="gemini-3.1-flash-image",
         options=[
-            ft.dropdown.Option("gemini-3.1-flash-image",
-                               text="Nano Banana 2"),
+            ft.dropdown.Option("gemini-3.1-flash-image", text="NB2"),
             ft.dropdown.Option("gemini-3.1-flash-lite-image",
-                               text="Nano Banana 2 Lite"),
+                               text="NB2 Lite"),
         ],
         label="Modèle",
         text_size=11, dense=True, color=WHITE, bgcolor=GREY,

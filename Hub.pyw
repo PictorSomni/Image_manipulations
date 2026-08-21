@@ -4646,10 +4646,9 @@ def main(page: ft.Page):
     ai_image_model_dropdown = ft.Dropdown(
         value="gemini-3.1-flash-image",
         options=[
-            ft.dropdown.Option("gemini-3.1-flash-image",
-                               text="Nano Banana 2"),
+            ft.dropdown.Option("gemini-3.1-flash-image", text="NB2"),
             ft.dropdown.Option("gemini-3.1-flash-lite-image",
-                               text="Nano Banana 2 Lite"),
+                               text="NB2 Lite"),
         ],
         tooltip="Modèle Nano Banana 2 utilisé pour générer/éditer des images",
         text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK, border_color=GREY,
@@ -6366,6 +6365,7 @@ def main(page: ft.Page):
                 ft.Text("Assistant IA", size=CONSTANTS.TEXT_LG, color=WHITE,
                         weight=ft.FontWeight.W_500, expand=True),
                 ai_model_dropdown,
+                _ai_header_separator(),
                 ai_image_model_dropdown,
                 ai_image_quality_dropdown,
                 ai_image_size_group,
