@@ -524,9 +524,9 @@ def is_os_junk(name, is_dir=False):
 # ── 10.1  Modèles & paramètres ────────────────────────────────────────────────
 
 AI_OLLAMA_URL          = "http://localhost:11434"      # URL de l'API Ollama locale
-AI_MODEL_TEXT          = "gemini-3.7-flash"           # Modèle texte par défaut
-AI_MODEL_VISION        = "gemini-3.7-flash"           # Modèle vision par défaut
-AI_GEMINI_MODEL        = "gemini-3.7-flash"           # Modèle Gemini principal (API Google)
+AI_MODEL_TEXT          = "gemini-3.5-flash-lite"           # Modèle texte par défaut
+AI_MODEL_VISION        = "gemini-3.5-flash-lite"           # Modèle vision par défaut
+AI_GEMINI_MODEL        = "gemini-3.5-flash-lite"           # Modèle Gemini principal (API Google)
 AI_GEMINI_FALLBACK_CLOUD = "gemini-3.6-flash"  # Fallback cloud si modèle indisponible
 AI_GEMINI_FALLBACK     = "gemma4:e4b"                 # Fallback Ollama local si hors-ligne
 AI_GEMINI_IMAGE_TIMEOUT = 300                # Timeout max (s) generate/edit image via Gemini (relevé de 120s, API parfois très sollicitée — retour user)
@@ -567,8 +567,9 @@ AI_FOLDER_SELECT_QUALITY     = 85    # Qualité JPEG des images envoyées à l'I
 
 # Modèles affichés dans le dropdown de sélection rapide du Hub
 AI_DROPDOWN_MODELS = [
-    "gemini-3.7-flash",
+    "gemini-3.5-flash-lite",
     "gemini-3.6-flash",
+    "gemini-3.7-flash",
     "claude-sonnet-4-6",
     "gemma4:e4b",
 ]

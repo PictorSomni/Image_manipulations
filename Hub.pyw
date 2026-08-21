@@ -4641,6 +4641,19 @@ def main(page: ft.Page):
         tooltip="Qualité des images générées/éditées par l'IA (1K/2K/4K)",
         text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK, border_color=GREY,
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=90)
+    # Modèle Nano Banana 2 pour generate_image/edit_image : "full" par
+    # défaut (qualité/cohérence), "Lite" en option pour aller plus vite.
+    ai_image_model_dropdown = ft.Dropdown(
+        value="gemini-3.1-flash-image",
+        options=[
+            ft.dropdown.Option("gemini-3.1-flash-image",
+                               text="Nano Banana 2"),
+            ft.dropdown.Option("gemini-3.1-flash-lite-image",
+                               text="Nano Banana 2 Lite"),
+        ],
+        tooltip="Modèle Nano Banana 2 utilisé pour générer/éditer des images",
+        text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK, border_color=GREY,
+        content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=150)
     ai_status_text = ft.Text("", color=LIGHT_GREY, size=CONSTANTS.TEXT_SM, italic=True, max_lines=1,
                              overflow=ft.TextOverflow.ELLIPSIS, expand=True)
     ai_progress_bar = ft.ProgressBar(value=None, visible=False, color=BLUE, height=2)
@@ -5070,7 +5083,8 @@ def main(page: ft.Page):
             text, img_bytes = _gemini_generate_image(
                 prompt_refined, input_image_bytes=src_bytes,
                 aspect_ratio=aspect,
-                resolution=ai_image_quality_dropdown.value or "1K")
+                resolution=ai_image_quality_dropdown.value or "1K",
+                model=ai_image_model_dropdown.value)
         except Exception as exc:
             text, img_bytes = f"[Erreur] {exc}", None
 
@@ -6352,6 +6366,7 @@ def main(page: ft.Page):
                 ft.Text("Assistant IA", size=CONSTANTS.TEXT_LG, color=WHITE,
                         weight=ft.FontWeight.W_500, expand=True),
                 ai_model_dropdown,
+                ai_image_model_dropdown,
                 ai_image_quality_dropdown,
                 ai_image_size_group,
                 _ai_header_separator(),
