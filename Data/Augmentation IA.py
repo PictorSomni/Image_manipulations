@@ -354,6 +354,23 @@ async def main(page: ft.Page) -> None:
         width=100,
     )
 
+    # Choix du modèle Nano Banana 2 : "full" pour la qualité/cohérence
+    # (par défaut, prioritaire pour la retouche photo d'impression), "Lite"
+    # pour aller plus vite quand la précision importe moins (retour user).
+    retouch_model_dropdown = ft.Dropdown(
+        value="gemini-3.1-flash-image",
+        options=[
+            ft.dropdown.Option("gemini-3.1-flash-image",
+                               text="Nano Banana 2"),
+            ft.dropdown.Option("gemini-3.1-flash-lite-image",
+                               text="Nano Banana 2 Lite"),
+        ],
+        label="Modèle",
+        text_size=11, dense=True, color=WHITE, bgcolor=GREY,
+        border_color=LIGHT_GREY, content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        width=170,
+    )
+
     prompt_field = ft.TextField(
         label="Décrivez la retouche souhaitée",
         hint_text='ex : "Remplace le ciel par un coucher de soleil"',
@@ -1265,13 +1282,15 @@ async def main(page: ft.Page) -> None:
         _prompt_history_add(prompt_text)
 
         quality = retouch_quality_dropdown.value or "1K"
+        gemini_model = (retouch_model_dropdown.value
+                        or "gemini-3.1-flash-image")
 
         def _do_gemini():
             buf = io.BytesIO()
             crop.save(buf, format="JPEG", quality=95)
             return _gemini_generate_image(
                 full_prompt, input_image_bytes=buf.getvalue(),
-                resolution=quality)
+                resolution=quality, model=gemini_model)
 
         _elapsed = {"s": 0}
 
@@ -2568,7 +2587,9 @@ async def main(page: ft.Page) -> None:
         title=ft.Text("Retouche IA (Gemini)"),
         content=ft.Column(
             [sel_info, dilate_row, prompt_aids, prompt_field,
-             retouch_quality_dropdown, progress_bar],
+             ft.Row([retouch_quality_dropdown, retouch_model_dropdown],
+                    spacing=8),
+             progress_bar],
             tight=True,
             spacing=10,
             width=420,
