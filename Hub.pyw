@@ -7307,6 +7307,14 @@ def main(page: ft.Page):
             _launch_tool("Transfert vers TEMP.py", is_local=True,
                         extra_env=extra_env)
 
+        if not picked:
+            # Aucun fichier sélectionné = source par défaut Downloads,
+            # le script supprime déjà d'office dans ce cas (voir
+            # Transfert vers TEMP.py). Pas besoin de demander (retour
+            # user).
+            _launch(True)
+            return
+
         ui_helpers.confirm_dialog(
             page, "Supprimer les fichiers après transfert ?",
             lambda: _launch(True), _KEYPAD_COLORS,
