@@ -7947,7 +7947,9 @@ def main(page: ft.Page):
         ("Pivoter 180°", ft.Icons.SCREEN_ROTATION, BLUE,
          lambda e: _run_action(_do_rotate, list(selected), 180)),
     ]
-    _fichier_list_actions = [
+    # Sur la même rangée d'icônes que le reste, à la fin (retour user) —
+    # plus de ListTile séparée pour Fichier.
+    _fichier_icon_actions += [
         ("Imprimer", ft.Icons.PRINT_OUTLINED, ORANGE, _launch_print),
         ("Nombre d'impressions", ft.Icons.NUMBERS, ORANGE,
          lambda e: _run_action(_set_print_count, list(selected))),
@@ -7959,7 +7961,7 @@ def main(page: ft.Page):
     # clés USB et les cartes SD, ce qui est là où on le cherche (retour
     # user 2026-08-07). Cf. _phone_row.
     _ACTION_CATEGORIES = [
-        ("Fichier", (_fichier_icon_actions, _fichier_list_actions)),
+        ("Fichier", _fichier_icon_actions),
         ("Préparation", [
             ("Conversion JPG", ft.Icons.IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Conversion JPG.py",
@@ -8065,10 +8067,7 @@ def main(page: ft.Page):
         # de l'overlay est quasi illisible, deux gris trop proches en
         # luminance — cf. retour user.
         if label == "Fichier":
-            icon_tools, list_tools = tools
-            body = [_icon_row(icon_tools),
-                    ft.Column([_action_row(*t) for t in list_tools],
-                              spacing=0)]
+            body = [_icon_row(tools)]
         else:
             body = [ft.Column([_action_row(*t) for t in tools], spacing=0)]
         return ft.Column([
@@ -8128,10 +8127,6 @@ def main(page: ft.Page):
                            size=CONSTANTS.ICON_SM),
                     ft.Text("Actions", size=CONSTANTS.TEXT_LG, color=WHITE,
                            weight=ft.FontWeight.W_700, expand=True),
-                    ft.IconButton(ft.Icons.PRINT_OUTLINED, icon_color=ORANGE,
-                                 icon_size=CONSTANTS.ICON_LG,
-                                 on_click=_launch_print,
-                                 tooltip="Imprimer la sélection (ou le dossier)"),
                     ft.IconButton(ft.Icons.CLOSE, icon_color=RED,
                                  icon_size=CONSTANTS.ICON_LG,
                                  on_click=lambda e: _close_actions(),
