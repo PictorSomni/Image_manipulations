@@ -1726,6 +1726,45 @@ def main(page: ft.Page):
 
         _run_bg_action(f"Duplication de {len(paths)} élément(s)", _work)
 
+    def _do_rotate(paths, degrees):
+        # Reprend la logique de _rotate_current (viewer, ligne ~3157)
+        # mais sur un lot de fichiers sélectionnés dans la grille plutôt
+        # que sur la seule image ouverte dans le viewer — même écrasement
+        # destructif de l'original (retour user), sans backup : la
+        # rotation n'en a jamais fait ici (cf. _rotate_current).
+        folder = state["folder"]
+        origin_tab_id = state["tab_id"]
+
+        def _work():
+            rotated_n = 0
+            for path in paths:
+                ext = os.path.splitext(path)[1].lower()
+                if ext not in CONSTANTS.ROTATABLE_EXTS:
+                    continue
+                try:
+                    with PILImage.open(path) as im:
+                        icc_profile = im.info.get("icc_profile")
+                        rotated = im.rotate(degrees, expand=True)
+                        if ext in (".jpg", ".jpeg"):
+                            rotated = rotated.convert("RGB")
+                    fmt = "JPEG" if ext in (".jpg", ".jpeg") else "PNG"
+                    save_kwargs = ({"quality": 100, "subsampling": 0}
+                                  if fmt == "JPEG" else {})
+                    if icc_profile:
+                        save_kwargs["icc_profile"] = icc_profile
+                    rotated.save(path, fmt, **save_kwargs)
+                    thumb_mem.pop(path, None)
+                    rotated_n += 1
+                except Exception as exc:
+                    _log_to_terminal(
+                        f"[ERREUR] {os.path.basename(path)} : {exc}", RED)
+            if rotated_n:
+                _log_to_terminal(f"[OK] {rotated_n} photo(s) pivotée(s)",
+                                GREEN)
+            page.run_task(_tool_refresh, folder, None, origin_tab_id)
+
+        _run_bg_action(f"Rotation de {len(paths)} élément(s)", _work)
+
     def _do_zip(paths):
         folder = state["folder"]
         paths = [p for p in paths if os.path.exists(p)]
@@ -3392,7 +3431,7 @@ def main(page: ft.Page):
         _set_drawer_space(0)
 
     viewer_bottom_bar.content.controls.insert(
-        -1, _viewer_btn(ft.Icons.TUNE,
+        -1, _viewer_btn(ft.Icons.CROP_FREE,
                        "Retoucher / recadrer (Recadrage manuel.pyw)",
                        _launch_editor_for_current("Recadrage manuel.pyw")))
     viewer_bottom_bar.content.controls.insert(
@@ -7879,14 +7918,13 @@ def main(page: ft.Page):
     # project_business_workflow), pas les intitulés génériques de la
     # maquette (celle-ci utilisait des actions fictives) — Bluetooth et
     # Imprimer n'y sont plus : remontés dans la barre de titre (accès global).
-    _fichier_actions = [
-        # Reprend les handlers des boutons de la barre de recherche et de
-        # la barre d'outils fichiers (retour user : clic droit → Actions
-        # est parfois plus pratique/habituel que ces icônes) — mêmes
-        # lambdas, donc mêmes garde-fous de sélection déjà en place.
-        ("Imprimer", ft.Icons.PRINT_OUTLINED, ORANGE, _launch_print),
-        ("Nombre d'impressions", ft.Icons.NUMBERS, ORANGE,
-         lambda e: _run_action(_set_print_count, list(selected))),
+    # Reprend les handlers des boutons de la barre de recherche et de la
+    # barre d'outils fichiers (retour user : clic droit → Actions est
+    # parfois plus pratique/habituel que ces icônes) — mêmes lambdas,
+    # donc mêmes garde-fous de sélection déjà en place. Rangée d'icônes
+    # seules (sans texte), Imprimer/Nombre d'impressions déplacés juste
+    # avant Supprimer dans la liste texte ci-dessous (retour user).
+    _fichier_icon_actions = [
         ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
          renommer_btn.on_click),
         ("Copier", ft.Icons.CONTENT_COPY, BLUE, copier_btn.on_click),
@@ -7902,6 +7940,17 @@ def main(page: ft.Page):
          zipper_btn.on_click),
         ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
          ajouter_ia_btn.on_click),
+        ("Pivoter 90° gauche", ft.Icons.ROTATE_LEFT, BLUE,
+         lambda e: _run_action(_do_rotate, list(selected), 90)),
+        ("Pivoter 90° droite", ft.Icons.ROTATE_RIGHT, BLUE,
+         lambda e: _run_action(_do_rotate, list(selected), -90)),
+        ("Pivoter 180°", ft.Icons.SCREEN_ROTATION, BLUE,
+         lambda e: _run_action(_do_rotate, list(selected), 180)),
+    ]
+    _fichier_list_actions = [
+        ("Imprimer", ft.Icons.PRINT_OUTLINED, ORANGE, _launch_print),
+        ("Nombre d'impressions", ft.Icons.NUMBERS, ORANGE,
+         lambda e: _run_action(_set_print_count, list(selected))),
         ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
          supprimer_btn.on_click),
     ]
@@ -7910,7 +7959,7 @@ def main(page: ft.Page):
     # clés USB et les cartes SD, ce qui est là où on le cherche (retour
     # user 2026-08-07). Cf. _phone_row.
     _ACTION_CATEGORIES = [
-        ("Fichier", _fichier_actions),
+        ("Fichier", (_fichier_icon_actions, _fichier_list_actions)),
         ("Préparation", [
             ("Conversion JPG", ft.Icons.IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Conversion JPG.py",
@@ -8000,14 +8049,32 @@ def main(page: ft.Page):
             content_padding=ft.Padding(left=8, top=4, right=8, bottom=4),
         )
 
+    def _icon_row(tools):
+        # Rangée d'icônes seules (sans texte) pour les actions fichier
+        # les plus fréquentes — évite une longue liste de ListTile pour
+        # ce qui est déjà reconnaissable à l'icône (retour user).
+        return ft.Row(
+            [ft.IconButton(t[1], icon_color=t[2],
+                          icon_size=CONSTANTS.ICON_LG, tooltip=t[0],
+                          on_click=t[3]) for t in tools],
+            spacing=0, wrap=True,
+        )
+
     def _action_category(label, tools):
         # Libellé de catégorie en BLUE (pas GREY) : GREY sur le fond DARK
         # de l'overlay est quasi illisible, deux gris trop proches en
         # luminance — cf. retour user.
+        if label == "Fichier":
+            icon_tools, list_tools = tools
+            body = [_icon_row(icon_tools),
+                    ft.Column([_action_row(*t) for t in list_tools],
+                              spacing=0)]
+        else:
+            body = [ft.Column([_action_row(*t) for t in tools], spacing=0)]
         return ft.Column([
             ft.Text(label.upper(), size=CONSTANTS.TEXT_SM, color=BLUE,
                     weight=ft.FontWeight.W_700),
-            ft.Column([_action_row(*t) for t in tools], spacing=0),
+            *body,
         ], spacing=6)
 
     # "Ouvrir avec" — ex-menu clic-droit (cf. _with_ctx_menu), déplacé ici
