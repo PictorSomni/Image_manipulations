@@ -3838,10 +3838,22 @@ class PhotoCropper:
         mettent à jour via la boucle d'événements (page.run_task)."""
         async def _apply():
             self._set_status(message)
-        try:
-            self.page.run_task(_apply)
-        except Exception:
-            pass
+        # Sur certaines versions de flet (constaté sur le Mac du magasin,
+        # requirements.txt n'épingle qu'un plancher flet>=0.85.0 donc les
+        # machines peuvent dériver sur des versions différentes),
+        # run_task planifie la coroutine sur self.session.connection.loop
+        # sans vérifier qu'il existe encore — session déjà fermée (export
+        # qui se termine pendant/après la fermeture de la fenêtre) donne
+        # une coroutine jamais awaited (RuntimeWarning, inoffensif mais
+        # bruyant dans les logs). On ne tente run_task que si une boucle
+        # est effectivement rattachée.
+        loop = getattr(getattr(getattr(self.page, "session", None),
+                              "connection", None), "loop", None)
+        if loop is not None:
+            try:
+                self.page.run_task(_apply)
+            except Exception:
+                pass
         self._log_to_file(message)
 
     def _log_to_file(self, message):
