@@ -1113,14 +1113,24 @@ def main(page: ft.Page):
                         now = time.monotonic()
                         if now - last_update >= 0.1 or done == total:
                             last_update = now
-                            page.run_task(_safe_update, batch)
+                            page.run_task(_safe_update, batch, token)
                             batch = []
             finally:
                 pool.shutdown(wait=False, cancel_futures=True)
 
         threading.Thread(target=_load, daemon=True).start()
 
-    async def _safe_update(controls):
+    async def _safe_update(controls, token):
+        # page.run_task ne fait que PLANIFIER l'appel : un changement de
+        # dossier ou un switch liste/vignettes entre-temps a déjà vidé et
+        # reconstruit files_list/files_grid (_render), rendant `controls`
+        # obsolètes (détachés de l'arbre courant). Sans ce re-check du
+        # token, page.update() sur ces contrôles fantômes provoquait côté
+        # client un crash Flutter aléatoire ("RangeError (length): Invalid
+        # value: Valid value range is empty: 0"), invisible côté Python
+        # (retour user).
+        if state["thumb_token"] != token:
+            return
         try:
             if controls:
                 page.update(*controls)
@@ -3111,7 +3121,10 @@ def main(page: ft.Page):
                     and paths_now[idx] == path
                     and path not in viewer_rotated_bytes):
                 ctrl.src = data
-                page.run_task(_safe_update, [ctrl])
+                # Hors sujet vignettes de dossier : ne pas invalider sur
+                # thumb_token, juste réutiliser le token courant pour que
+                # le garde-fou de _safe_update n'annule jamais cet appel.
+                page.run_task(_safe_update, [ctrl], state["thumb_token"])
 
         threading.Thread(target=_work, daemon=True).start()
 
