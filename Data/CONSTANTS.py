@@ -1213,7 +1213,13 @@ def attach_error_copy_snackbar(page, ignore=(), on_restart=None):
     ``on_restart`` : callback optionnel appelé sans argument. Quand fourni,
     un bouton "Redémarrer" apparaît à côté de "Copier" — utile sur une
     borne tactile (kiosk_flet.pyw) où une exception non fatale peut quand
-    même laisser l'IHM bloquée, sans clavier pour relancer à la main."""
+    même laisser l'IHM bloquée, sans clavier pour relancer à la main.
+
+    Un bouton "Fermer" est TOUJOURS présent (retour user) : sur un poste
+    sans clavier accessible (borne tactile, ou WDA disparue en accès à
+    distance), c'est le seul moyen de fermer l'appli plantée. os._exit()
+    plutôt que page.window.close()/destroy() — après un crash, ces
+    chemins de fermeture "propres" peuvent eux-mêmes être bloqués."""
     import flet as ft
 
     def _on_error(e):
@@ -1224,19 +1230,21 @@ def attach_error_copy_snackbar(page, ignore=(), on_restart=None):
         async def _copy(_):
             await page.clipboard.set(message)
 
+        def _force_quit(_):
+            os._exit(1)
+
         content = ft.Text(message, color="#000000", selectable=True,
                           expand=True)
-        if on_restart is None:
-            snackbar_content = content
-        else:
+        buttons = []
+        if on_restart is not None:
             def _restart(_):
                 on_restart()
-
-            snackbar_content = ft.Row([
-                content,
-                ft.TextButton("Redémarrer", on_click=_restart,
-                             style=ft.ButtonStyle(color="#000000")),
-            ], tight=True)
+            buttons.append(ft.TextButton(
+                "Redémarrer", on_click=_restart,
+                style=ft.ButtonStyle(color="#000000")))
+        buttons.append(ft.TextButton("Fermer", on_click=_force_quit,
+                                     style=ft.ButtonStyle(color="#000000")))
+        snackbar_content = ft.Row([content, *buttons], tight=True)
 
         page.show_dialog(ft.SnackBar(
             snackbar_content,

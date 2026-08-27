@@ -712,7 +712,8 @@ def main(page: ft.Page):
                 subprocess.Popen(["open", path])
             else:
                 subprocess.Popen(["xdg-open", path])
-        except Exception:
+        except Exception as exc:
+            _log_to_terminal(f"[ERREUR] Ouverture : {exc}", RED)
             return
         # Bascule en mode ruban comme les autres ouvertures externes
         # (explorateur, impression, bluetooth, navigateur) — laisse la
@@ -1906,7 +1907,8 @@ def main(page: ft.Page):
                     subprocess.Popen(["open", folder])
             else:
                 subprocess.Popen(["xdg-open", folder])
-        except Exception:
+        except Exception as exc:
+            _log_to_terminal(f"[ERREUR] Ouverture : {exc}", RED)
             return
         if not _strip_state["active"]:
             _toggle_strip()
@@ -4502,9 +4504,13 @@ def main(page: ft.Page):
             hub_path = os.path.abspath(__file__)
 
             async def _restart_async():
-                time.sleep(0.4)
+                # await asyncio.sleep, pas time.sleep : cette coroutine
+                # tourne sur la boucle asyncio (page.run_task) — un sleep
+                # bloquant gèlerait toute autre mise à jour UI en attente
+                # pendant ce temps (retour audit).
+                await asyncio.sleep(0.4)
                 subprocess.Popen([sys.executable, hub_path])
-                time.sleep(0.2)
+                await asyncio.sleep(0.2)
                 try:
                     await page.window.close()
                 except Exception:
@@ -4770,8 +4776,14 @@ def main(page: ft.Page):
         if folder:
             try:
                 _navigate(folder)
-            except Exception:
-                pass
+            except Exception as exc:
+                # _navigate() gère déjà OSError en interne (dossier
+                # disparu...) — si une exception remonte quand même
+                # jusqu'ici, ce n'est probablement pas ce cas bénin :
+                # la logguer plutôt que l'avaler en silence, sinon un
+                # vrai bug ailleurs (ex. KeyError sur `state`) passerait
+                # pour un simple souci de navigation (retour audit).
+                _log_to_terminal(f"[ERREUR] Navigation IA : {exc}", RED)
         # Comme le pubsub "refresh" de SidePanel : l'IA peut avoir écrit dans
         # le fichier .json actuellement ouvert dans la surface Liste (create_
         # file/edit_file, aucun outil dédié) — la recharger à chaque refresh.
@@ -5718,8 +5730,9 @@ def main(page: ft.Page):
     def _ai_save_history_now():
         try:
             _ai_save_history(ai_conversation, _ai_history_file)
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_to_terminal(
+                f"[ERREUR] Sauvegarde historique IA : {exc}", RED)
 
     def _ai_load_history():
         saved = _load_json(_ai_history_file, None)
@@ -6607,8 +6620,12 @@ def main(page: ft.Page):
             _backup_file(path)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(liste_entries, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as exc:
+            # Sans ce log, un échec d'écriture (disque plein, clé USB
+            # débranchée...) perdait les modifs de la Liste sans aucun
+            # signal, contrairement à _liste_load qui remonte déjà ses
+            # erreurs (retour audit).
+            _log_to_terminal(f"[ERREUR] Sauvegarde Liste : {exc}", RED)
 
     def _liste_copy(text):
         async def _do():
@@ -7079,8 +7096,11 @@ def main(page: ft.Page):
         if folder:
             try:
                 _navigate(folder)
-            except Exception:
-                pass
+            except Exception as exc:
+                # Même remarque que _ai_navigate_async : _navigate() gère
+                # déjà OSError en interne, ne pas avaler silencieusement
+                # une exception différente (retour audit).
+                _log_to_terminal(f"[ERREUR] Rafraîchissement : {exc}", RED)
         # "SELECTED_FILES:a.jpg|b.jpg" (cf. _launch_tool/_read_output) :
         # appliqué APRÈS _navigate() (qui vide `selected` en interne) pour
         # resélectionner ce que l'outil a repéré (ex. Fichiers identiques.py)
@@ -7390,14 +7410,15 @@ def main(page: ft.Page):
         for num, p in enumerate(imgs, start=1):
             _log_to_terminal(
                 f"Préparation {num}/{total} : {os.path.basename(p)}")
-            src = PILImage.open(p)
-            src.load()
-            # Relevé AVANT conversion : convert_to_srgb reconstruit l'image
-            # via ImageCms et ne recopie pas info["dpi"].
-            dpi = src.info.get("dpi")
-            if dpi:
-                dpis.add(round(float(dpi[0])))
-            img = image_ops.convert_to_srgb(src, src.info.get("icc_profile"))
+            with PILImage.open(p) as src:
+                src.load()
+                # Relevé AVANT conversion : convert_to_srgb reconstruit
+                # l'image via ImageCms et ne recopie pas info["dpi"].
+                dpi = src.info.get("dpi")
+                if dpi:
+                    dpis.add(round(float(dpi[0])))
+                img = image_ops.convert_to_srgb(
+                    src, src.info.get("icc_profile"))
             img = PILImageOps.exif_transpose(img)
             if img.mode == "RGBA":
                 bg = PILImage.new("RGB", img.size, (255, 255, 255))
@@ -7512,8 +7533,9 @@ def main(page: ft.Page):
                 subprocess.Popen(["fsquirt.exe", "/Receive"])
             else:
                 subprocess.Popen(["open", "-a", "Bluetooth File Exchange"])
-        except Exception:
-            pass
+        except Exception as exc:
+            _log_to_terminal(f"[ERREUR] Bluetooth : {exc}", RED)
+            return
         if not _strip_state["active"]:
             _toggle_strip()
 
@@ -8652,9 +8674,13 @@ def main(page: ft.Page):
                 hub_path = os.path.abspath(__file__)
 
                 async def _restart_after_update():
-                    time.sleep(0.4)
+                    # await asyncio.sleep, pas time.sleep : coroutine
+                    # planifiée sur la boucle asyncio, un sleep bloquant
+                    # la gèlerait (retour audit, même correctif que
+                    # _restart_async).
+                    await asyncio.sleep(0.4)
                     subprocess.Popen([sys.executable, hub_path])
-                    time.sleep(0.2)
+                    await asyncio.sleep(0.2)
                     try:
                         await page.window.close()
                     except Exception:

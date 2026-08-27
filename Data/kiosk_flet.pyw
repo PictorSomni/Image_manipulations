@@ -895,8 +895,16 @@ def main(page: ft.Page) -> None:
         try:
             os.makedirs(selection_dir, exist_ok=True)
         except OSError as mkdir_error:
+            # Bouton Fermer comme dans CONSTANTS.attach_error_copy_snackbar
+            # (retour user) : sur cette borne tactile sans clavier, c'est
+            # le seul moyen de fermer si l'IHM reste bloquée après
+            # l'erreur.
             page.show_dialog(ft.SnackBar(
-                ft.Text(f"Erreur création dossier : {mkdir_error}", color=C_RED),
+                ft.Row([
+                    ft.Text(f"Erreur création dossier : {mkdir_error}",
+                           color=C_RED, expand=True),
+                    ft.TextButton("Fermer", on_click=lambda e: os._exit(1)),
+                ], tight=True),
                 bgcolor=C_GREY,
                 duration=4000,
                 behavior=ft.SnackBarBehavior.FLOATING,
