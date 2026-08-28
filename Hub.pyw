@@ -262,6 +262,20 @@ def _lower_thread_priority():
 
 def main(page: ft.Page):
     CONSTANTS.attach_error_copy_snackbar(page)
+
+    def _run_task(fn, *args):
+        # Remplace TOUS les _run_task() de ce fichier (retour user,
+        # suite au crash CONSTANTS.py/Hub.pyw:1117 du 2026-08-28) :
+        # _run_task() lève RuntimeError("attempt to fetch destroyed
+        # session") si la fenêtre s'est fermée entre-temps — surtout
+        # visible depuis un thread d'arrière-plan (copie, suppression,
+        # miniatures...) qui continue de tourner après la fermeture.
+        # Un seul point de garde plutôt qu'un try/except à chacun des
+        # ~60 appels du fichier.
+        try:
+            return page.run_task(fn, *args)
+        except Exception:
+            return None
     # ─── Couleurs (rôles sémantiques, cf. CONSTANTS §3bis) ───────────────
     DARK       = CONSTANTS.COLOR_DARK
     BACKGROUND = CONSTANTS.COLOR_BACKGROUND
@@ -292,7 +306,7 @@ def main(page: ft.Page):
         page.window.maximized = False
     else:
         page.window.maximized = CONSTANTS.MAXIMIZED
-    page.run_task(page.window.to_front)
+    _run_task(page.window.to_front)
 
     # ─── État partagé ────────────────────────────────────────────────────
     _DEFAULT_THUMB_SIZE = 159    # 30% du curseur (min=90, max=320)
@@ -1114,7 +1128,7 @@ def main(page: ft.Page):
                         now = time.monotonic()
                         if now - last_update >= 0.1 or done == total:
                             last_update = now
-                            page.run_task(_safe_update, batch, token)
+                            _run_task(_safe_update, batch, token)
                             batch = []
             finally:
                 pool.shutdown(wait=False, cancel_futures=True)
@@ -1261,7 +1275,7 @@ def main(page: ft.Page):
                 page.overlay.append(dlg)
                 dlg.open = True
                 page.update()
-            page.run_task(_open_dlg)
+            _run_task(_open_dlg)
             choice_event.wait(timeout=300)
             return choice["value"], choice["apply_all"]
 
@@ -1316,7 +1330,7 @@ def main(page: ft.Page):
                     f"[INFO] {skipped} élément(s) ignoré(s)", LIGHT_GREY)
             if errors:
                 _log_to_terminal(f"[ATTENTION] {errors} erreur(s)", ORANGE)
-            page.run_task(_tool_refresh, folder, None, origin_tab_id)
+            _run_task(_tool_refresh, folder, None, origin_tab_id)
 
         _run_bg_action(f"Collage de {len(src_paths)} élément(s)", _work)
 
@@ -1655,7 +1669,7 @@ def main(page: ft.Page):
             # apparaissent au fur et à mesure, on peut commencer à
             # travailler sans attendre la fin (retour user : « il me faut
             # des feedback pour voir l'avancée »).
-            page.run_task(_tool_refresh, dest, None, origin_tab_id)
+            _run_task(_tool_refresh, dest, None, origin_tab_id)
             done, errors, copied_bytes = 0, 0, 0
             total = len(items)
             for i, item in enumerate(items, 1):
@@ -1675,7 +1689,7 @@ def main(page: ft.Page):
                 # _navigate, qui vide la sélection — ça effacerait le choix
                 # en train d'être fait pendant la copie.
                 if i % 10 == 0 and not selected:
-                    page.run_task(_tool_refresh, dest, None, origin_tab_id)
+                    _run_task(_tool_refresh, dest, None, origin_tab_id)
             if done:
                 _log_to_terminal(
                     f"[OK] {done} photo(s) copiée(s) dans {dest}", BLUE)
@@ -1684,7 +1698,7 @@ def main(page: ft.Page):
                     f"[ATTENTION] {errors} échec(s) — téléphone verrouillé "
                     "ou débranché en cours de copie ?", ORANGE)
             if not selected:
-                page.run_task(_tool_refresh, dest, None, origin_tab_id)
+                _run_task(_tool_refresh, dest, None, origin_tab_id)
 
         _run_bg_action(
             f"Copie de {len(items)} photo(s) depuis le téléphone", _work)
@@ -1706,7 +1720,7 @@ def main(page: ft.Page):
                 except Exception as exc:
                     _log_to_terminal(f"[ERREUR] {os.path.basename(p)} : {exc}", RED)
             _update_sel_count()
-            page.run_task(_tool_refresh, folder, None, origin_tab_id)
+            _run_task(_tool_refresh, folder, None, origin_tab_id)
 
         _run_bg_action(f"Suppression de {len(paths)} élément(s)", _work)
 
@@ -1733,7 +1747,7 @@ def main(page: ft.Page):
                     _log_to_terminal(f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
             if duplicated:
                 _log_to_terminal(f"[OK] {duplicated} élément(s) dupliqué(s)", BLUE)
-            page.run_task(_tool_refresh, folder, None, origin_tab_id)
+            _run_task(_tool_refresh, folder, None, origin_tab_id)
 
         _run_bg_action(f"Duplication de {len(paths)} élément(s)", _work)
 
@@ -1772,7 +1786,7 @@ def main(page: ft.Page):
             if rotated_n:
                 _log_to_terminal(f"[OK] {rotated_n} photo(s) pivotée(s)",
                                 GREEN)
-            page.run_task(_tool_refresh, folder, None, origin_tab_id)
+            _run_task(_tool_refresh, folder, None, origin_tab_id)
 
         _run_bg_action(f"Rotation de {len(paths)} élément(s)", _work)
 
@@ -1802,7 +1816,7 @@ def main(page: ft.Page):
                     f"[OK] Archive créée : {os.path.basename(zip_path)}", YELLOW)
             except Exception as exc:
                 _log_to_terminal(f"[ERREUR] Zip : {exc}", RED)
-            page.run_task(_tool_refresh, folder, None, origin_tab_id)
+            _run_task(_tool_refresh, folder, None, origin_tab_id)
 
         _run_bg_action(f"Compression de {len(paths)} élément(s)", _work)
 
@@ -1861,7 +1875,7 @@ def main(page: ft.Page):
                 async def _show_confirm():
                     _navigate(folder)
                     _confirm_delete_zips(extracted)
-                page.run_task(_show_confirm)
+                _run_task(_show_confirm)
 
         _run_bg_action(f"Décompression de {len(zips)} archive(s)", _work)
 
@@ -1967,7 +1981,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        page.run_task(_focus_dialog_field, name_field)
+        _run_task(_focus_dialog_field, name_field)
 
     _KEYPAD_COLORS = {"dark": DARK, "red": RED, "grey": GREY,
                       "green": GREEN, "white": WHITE}
@@ -2080,7 +2094,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        page.run_task(_focus_dialog_field, count_field)
+        _run_task(_focus_dialog_field, count_field)
 
     def _folder_unit_price(format_name, total_count):
         """Même tarif dégressif que Recadrage manuel.pyw::_unit_price /
@@ -2256,7 +2270,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        page.run_task(_focus_dialog_field, label_field)
+        _run_task(_focus_dialog_field, label_field)
 
     # ─── Onglets multi-dossiers (suite) ─────────────────────────────────
     def _find_tab(tab_id):
@@ -2438,7 +2452,7 @@ def main(page: ft.Page):
         _update_sel_count()
         _render()
         _render_folder_tabs()
-        page.run_task(_focus_active_surface)
+        _run_task(_focus_active_surface)
 
     def _on_files_path_submit(event):
         raw = (files_path.value or "").strip().strip('"').strip("'")
@@ -2807,7 +2821,7 @@ def main(page: ft.Page):
             if _search_debounce["token"] == token:
                 _set_search(value)
 
-        page.run_task(_apply)
+        _run_task(_apply)
 
     def _clear_search(event=None):
         _search_debounce["token"] += 1
@@ -3126,7 +3140,7 @@ def main(page: ft.Page):
                 # Hors sujet vignettes de dossier : ne pas invalider sur
                 # thumb_token, juste réutiliser le token courant pour que
                 # le garde-fou de _safe_update n'annule jamais cet appel.
-                page.run_task(_safe_update, [ctrl], state["thumb_token"])
+                _run_task(_safe_update, [ctrl], state["thumb_token"])
 
         threading.Thread(target=_work, daemon=True).start()
 
@@ -3183,7 +3197,7 @@ def main(page: ft.Page):
             return
         _close_drawers()
         if _HAS_PAGE_VIEW:
-            page.run_task(_viewer_animate_page, delta)
+            _run_task(_viewer_animate_page, delta)
         else:
             viewer_state["index"] = new_idx
             _update_viewer()
@@ -3194,7 +3208,7 @@ def main(page: ft.Page):
         if viewer_overlay in page.overlay:
             page.overlay.remove(viewer_overlay)
         page.update()
-        page.run_task(_focus_active_surface)
+        _run_task(_focus_active_surface)
 
     def _viewer_on_key(event):
         if event.key == "Escape":
@@ -3268,7 +3282,7 @@ def main(page: ft.Page):
         # jusqu'au redémarrage de Hub.
         thumb_mem.pop(path, None)
         if state["folder"]:
-            page.run_task(_ai_navigate_async, state["folder"])
+            _run_task(_ai_navigate_async, state["folder"])
 
     def _viewer_btn(icon, tip, cb):
         return ft.IconButton(icon=icon, icon_color=WHITE, icon_size=CONSTANTS.ICON_LG,
@@ -4113,7 +4127,7 @@ def main(page: ft.Page):
     # pas la pastille grise de ses voisins (style oublié à la main).
     create_order_btn = _bar_icon_btn(
         ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE,
-        lambda e: page.run_task(_create_order_folder, e),
+        lambda e: _run_task(_create_order_folder, e),
         "Créer le dossier de commande", visible=order_mode["value"])
 
     # _open_actions est défini plus loin dans main() (avec le dialogue
@@ -4516,7 +4530,7 @@ def main(page: ft.Page):
                 except Exception:
                     pass
                 os._exit(0)
-            page.run_task(_restart_async)
+            _run_task(_restart_async)
 
     async def _notes_autosave_after_delay():
         await asyncio.sleep(CONSTANTS.NOTEPAD_AUTOSAVE_DELAY)
@@ -4529,7 +4543,7 @@ def main(page: ft.Page):
         t = notes_autosave_timer["task"]
         if t is not None and not t.done():
             t.cancel()
-        notes_autosave_timer["task"] = page.run_task(_notes_autosave_after_delay)
+        notes_autosave_timer["task"] = _run_task(_notes_autosave_after_delay)
 
     notes_field.on_change = _notes_on_change
 
@@ -4765,7 +4779,7 @@ def main(page: ft.Page):
         # de _run, qui appellent tous les deux _ai_refresh(), et fait planter
         # le thread IA (retour user : crash à la fermeture de l'app).
         try:
-            page.run_task(_ai_update_and_scroll)
+            _run_task(_ai_update_and_scroll)
         except Exception:
             pass
 
@@ -4812,7 +4826,7 @@ def main(page: ft.Page):
                         pass
 
             try:
-                page.run_task(_apply_ui_update)
+                _run_task(_apply_ui_update)
             except Exception:
                 try:
                     page.update()
@@ -4970,7 +4984,7 @@ def main(page: ft.Page):
             except Exception:
                 pass
         try:
-            page.run_task(_repaint)
+            _run_task(_repaint)
         except Exception:
             pass
 
@@ -5075,7 +5089,7 @@ def main(page: ft.Page):
             except Exception:
                 pass
             await _focus_dialog_field(password_field)
-        page.run_task(_open_dlg)
+        _run_task(_open_dlg)
         cred_event.wait(timeout=timeout)
         return cred_result["value"]
 
@@ -5159,7 +5173,7 @@ def main(page: ft.Page):
                 f.write(img_bytes)
             _ai_add_image_bubble(save_path)
             if state["folder"]:
-                page.run_task(_ai_navigate_async, state["folder"])
+                _run_task(_ai_navigate_async, state["folder"])
             result = f"Image sauvegardée : {save_path}"
             if text:
                 result += f"\n\nRéponse du service : {text}"
@@ -5203,7 +5217,7 @@ def main(page: ft.Page):
                     _ai_add_image_bubble(p["path"])
         final = res.get("final_path")
         if final and os.path.isfile(final):
-            page.run_task(_ai_navigate_async, folder)
+            _run_task(_ai_navigate_async, folder)
             result = (f"Itération terminée ({len(res.get('passes', []))} passe(s)). "
                      f"Image finale : {final}")
         else:
@@ -5232,7 +5246,7 @@ def main(page: ft.Page):
             with open(save_path, "wb") as f:
                 f.write(audio_bytes)
             if state["folder"]:
-                page.run_task(_ai_navigate_async, state["folder"])
+                _run_task(_ai_navigate_async, state["folder"])
             result = f"Musique sauvegardée : {save_path}"
             if lyrics:
                 result += f"\n\nParoles / Structure :\n{lyrics}"
@@ -5287,7 +5301,7 @@ def main(page: ft.Page):
                 page.overlay.append(dlg)
                 dlg.open = True
                 page.update()
-            page.run_task(_open_dlg)
+            _run_task(_open_dlg)
             confirm_event.wait(timeout=300)
             confirmed = confirm_result["value"]
         if not confirmed:
@@ -5312,7 +5326,7 @@ def main(page: ft.Page):
                 moves.append(f"✓ {filename} → {subfolder}/")
             except Exception as exc:
                 errors.append(f"✗ {filename} : {exc}")
-        page.run_task(_ai_navigate_async, folder)
+        _run_task(_ai_navigate_async, folder)
         lines = [f"{len(moves)} fichier(s) déplacé(s)."] + moves
         if errors:
             lines += ["Erreurs :"] + errors
@@ -5377,7 +5391,7 @@ def main(page: ft.Page):
                 page.overlay.append(dlg)
                 dlg.open = True
                 page.update()
-            page.run_task(_open_dlg)
+            _run_task(_open_dlg)
             confirm_event.wait(timeout=300)
             if not confirm_result["value"]:
                 return "Commande annulée par l'utilisateur."
@@ -5435,13 +5449,13 @@ def main(page: ft.Page):
                 page.overlay.append(dlg)
                 dlg.open = True
                 page.update()
-            page.run_task(_open_dlg)
+            _run_task(_open_dlg)
             del_event.wait(timeout=300)
             confirmed = del_result["confirmed"]
         if not confirmed:
             return "Suppression annulée."
         result = _folder_delete_files(state["folder"], paths)
-        page.run_task(_ai_navigate_async, state["folder"])
+        _run_task(_ai_navigate_async, state["folder"])
         return result
 
     # Copie de Dashboard.pyw:3139-3202 : `analyze_images` est annoncé à l'IA
@@ -5574,7 +5588,7 @@ def main(page: ft.Page):
                 await page.window.to_front()
             except Exception:
                 pass
-        page.run_task(_open_dlg)
+        _run_task(_open_dlg)
         q_event.wait(timeout=600)
         return q_result["value"] or "(l'utilisateur n'a pas répondu à temps)"
 
@@ -5610,7 +5624,7 @@ def main(page: ft.Page):
         path = (args.get("path") or "").strip()
         if not path or not os.path.isdir(path):
             return f"Dossier introuvable : {path}"
-        page.run_task(_ai_navigate_async, path)
+        _run_task(_ai_navigate_async, path)
         return f"Navigation vers {path} effectuée."
 
     def _ai_tool_select_files(args):
@@ -5633,7 +5647,7 @@ def main(page: ft.Page):
                     _select_discard(p)
             _update_sel_count()
             _render()
-        page.run_task(_apply)
+        _run_task(_apply)
         return f"Sélection mise à jour ({mode}) : {len(paths)} fichier(s)."
 
     def _ai_tool_read_notepad(args):
@@ -5658,7 +5672,7 @@ def main(page: ft.Page):
             notes_field.value = new_value
             page.update()
             _notes_save()
-        page.run_task(_apply)
+        _run_task(_apply)
         note = (" (replace rétrogradé en append : bloc-notes non vide)"
                if downgraded else "")
         return f"Bloc-notes mis à jour ({action}).{note}"
@@ -5782,7 +5796,7 @@ def main(page: ft.Page):
             except Exception:
                 ai_status_text.value = "Erreur lors de la copie"
             page.update()
-        page.run_task(_copy)
+        _run_task(_copy)
 
         if to_notepad:
             current = notes_field.value or ""
@@ -5901,7 +5915,7 @@ def main(page: ft.Page):
                 _busy_start()
                 _log_to_terminal("🎤 Parlez maintenant… (recliquer pour arrêter)")
                 page.update()
-            page.run_task(_flip)
+            _run_task(_flip)
 
         try:
             recorder = _MicRecorder(sample_rate=CONSTANTS.AI_VOICE_STT_SAMPLE_RATE)
@@ -6002,7 +6016,7 @@ def main(page: ft.Page):
                     _log_to_terminal("Aucun texte reconnu", RED)
                     _busy_end()
                 page.update()
-            page.run_task(_apply)
+            _run_task(_apply)
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -6053,11 +6067,11 @@ def main(page: ft.Page):
 
         def _on_press(key):
             if _is_ptt(key):
-                page.run_task(_press_async)
+                _run_task(_press_async)
 
         def _on_release(key):
             if _is_ptt(key):
-                page.run_task(_release_async)
+                _run_task(_release_async)
 
         try:
             listener = _pynput_kb.Listener(
@@ -6177,7 +6191,7 @@ def main(page: ft.Page):
                     set_status=lambda t: setattr(ai_status_text, "value", t),
                     bubble=lambda t: _ai_add_bubble("assistant", t),
                     event=lambda t: None,
-                    refresh=lambda: page.run_task(_ai_navigate_async, folder),
+                    refresh=lambda: _run_task(_ai_navigate_async, folder),
                     paint=_ai_tool_paint,
                     credential=_ai_get_credential,
                 )
@@ -6632,7 +6646,7 @@ def main(page: ft.Page):
             await page.clipboard.set(text or "")
             status_left.value = f"Copié : {(text or '')[:60]}"
             page.update()
-        page.run_task(_do)
+        _run_task(_do)
 
     def _liste_delete(index):
         def _on_confirm():
@@ -6690,7 +6704,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        page.run_task(_focus_dialog_field, fields[0])
+        _run_task(_focus_dialog_field, fields[0])
 
     _LISTE_ACTIONS_WIDTH = 2 * (CONSTANTS.ICON_SM + 16)  # aligne l'en-tête sur les 2 IconButton
 
@@ -6840,7 +6854,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        page.run_task(_focus_dialog_field, name_field)
+        _run_task(_focus_dialog_field, name_field)
 
     liste_surface = ft.Column([
         ft.Container(
@@ -6939,7 +6953,7 @@ def main(page: ft.Page):
                         _actus_item_card(it) for it in items)
                 page.update()
 
-            page.run_task(_apply)
+            _run_task(_apply)
 
         threading.Thread(target=_work, daemon=True).start()
 
@@ -7043,7 +7057,7 @@ def main(page: ft.Page):
                                    else ft.FontWeight.NORMAL)
         _configure_size_control()
         page.update()
-        page.run_task(_focus_active_surface)
+        _run_task(_focus_active_surface)
 
     def _rail_tab(key, label, icon):
         is_active = key == "files"
@@ -7252,7 +7266,7 @@ def main(page: ft.Page):
                     page.update()
                     await page.window.to_front()
 
-                page.run_task(_restore_window)
+                _run_task(_restore_window)
                 # Un outil lancé depuis la visionneuse plein écran (Recadrage
                 # manuel/Augmentation IA sur l'image courante) laisse
                 # `viewer_overlay` ouvert pendant tout le subprocess (Hub est
@@ -7275,7 +7289,7 @@ def main(page: ft.Page):
                 _terminal_autohide["pinned"] = prev_pinned
                 _show_terminal_and_schedule_hide(
                     CONSTANTS.HUB_TERMINAL_TOOL_CLOSE_DELAY)
-            page.run_task(_tool_refresh, nav_target["path"] or folder,
+            _run_task(_tool_refresh, nav_target["path"] or folder,
                           sel_target["names"], origin_tab_id)
             action_progress_bar.visible = False
             try:
@@ -7322,7 +7336,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        page.run_task(_focus_dialog_field, name_field)
+        _run_task(_focus_dialog_field, name_field)
 
     def _launch_two_in_one(event=None):
         def _cancel(e):
@@ -7553,7 +7567,7 @@ def main(page: ft.Page):
 
         def _run():
             _copy_scored_photos(folder)
-            page.run_task(_actions_refresh_folder)
+            _run_task(_actions_refresh_folder)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -7625,7 +7639,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        page.run_task(_focus_dialog_field, text_fields[0])
+        _run_task(_focus_dialog_field, text_fields[0])
 
     def _launch_redimensionner(event=None):
         _launch_number_prompt("Redimensionner", [
@@ -7662,16 +7676,16 @@ def main(page: ft.Page):
         env["SELECTED_FILES"] = "|".join(names)
         env["TARIFF_TYPE"] = state["tariff_mode"]
         _close_actions()
-        page.run_task(_tool_set_status, "▶ Lancement du kiosque…")
+        _run_task(_tool_set_status, "▶ Lancement du kiosque…")
 
         def _run():
             try:
                 subprocess.Popen([sys.executable, kiosk_path], env=env,
                                  stdin=subprocess.DEVNULL)
             except Exception as exc:
-                page.run_task(_tool_set_status, f"[Erreur] Kiosque : {exc}")
+                _run_task(_tool_set_status, f"[Erreur] Kiosque : {exc}")
                 return
-            page.run_task(_tool_set_status, "✓ Kiosque lancé")
+            _run_task(_tool_set_status, "✓ Kiosque lancé")
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -7733,7 +7747,7 @@ def main(page: ft.Page):
                     "[INFO] Comparaison annulée (pas de second dossier "
                     "sélectionné)", LIGHT_GREY)
 
-        page.run_task(_pick_and_launch)
+        _run_task(_pick_and_launch)
 
     def _launch_recadrage_auto(event=None):
         saved = _load_crop_auto_config()
@@ -8069,7 +8083,7 @@ def main(page: ft.Page):
             # d'icône : détourné ici, il rendait cette ligne unique dans
             # tout le panneau sans que ça veuille dire quoi que ce soit.
             ("Synchroniser avec un autre dossier", ft.Icons.SYNC, BLUE,
-             lambda e: page.run_task(_sync_two_folders, e)),
+             lambda e: _run_task(_sync_two_folders, e)),
         ]),
     ]
 
@@ -8200,7 +8214,7 @@ def main(page: ft.Page):
         # sûr dans tous les cas. Pas de _render() complet : voir
         # _clear_selection_visuals.
         _clear_selection_visuals()
-        page.run_task(_focus_active_surface)
+        _run_task(_focus_active_surface)
 
     def _run_action(fn, *args):
         # Ferme le panneau Actions AVANT de lancer quoi que ce soit — le
@@ -8286,7 +8300,7 @@ def main(page: ft.Page):
             t.cancel()
         if not _terminal_autohide["pinned"]:
             try:
-                _terminal_autohide["task"] = page.run_task(
+                _terminal_autohide["task"] = _run_task(
                     _terminal_autohide_after_delay, delay)
             except RuntimeError:
                 # Fenêtre déjà fermée (session détruite) : un thread
@@ -8377,7 +8391,7 @@ def main(page: ft.Page):
             page.update()
 
         try:
-            page.run_task(_do)
+            _run_task(_do)
         except RuntimeError:
             # Fenêtre déjà fermée (session détruite) : le message reste
             # dans _terminal_log_path ci-dessus, pas besoin de l'afficher.
@@ -8399,7 +8413,7 @@ def main(page: ft.Page):
                 _log_to_terminal("[OK] Terminal copié dans le presse-papiers", BLUE)
             except Exception as exc:
                 _log_to_terminal(f"[ERREUR] Copie terminal : {exc}", RED)
-        page.run_task(_copy)
+        _run_task(_copy)
 
         if to_notepad:
             current = notes_field.value or ""
@@ -8518,7 +8532,7 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        page.run_task(_focus_dialog_field, pwd_field)
+        _run_task(_focus_dialog_field, pwd_field)
 
     def _update_app(event=None):
         """Sauvegarde les fichiers utilisateur, git pull --rebase, vérifie
@@ -8686,7 +8700,7 @@ def main(page: ft.Page):
                     except Exception:
                         pass
                     os._exit(0)
-                page.run_task(_restart_after_update)
+                _run_task(_restart_after_update)
             except Exception as error:
                 _log_to_terminal(f"[ERREUR] Mise à jour : {error}", RED)
 
@@ -8807,7 +8821,7 @@ def main(page: ft.Page):
             terminal_fullscreen_btn.icon = ft.Icons.FULLSCREEN
             terminal_fullscreen_btn.tooltip = "Terminal plein écran (Ctrl/Cmd+Maj+↑)"
         page.update()
-        page.run_task(_focus_active_surface)
+        _run_task(_focus_active_surface)
 
     # Curseur de taille unique dans la statusbar (retour user) : pilote la
     # taille des vignettes en Fichiers, et la taille du texte en IA/Bloc-
@@ -9282,9 +9296,9 @@ def main(page: ft.Page):
                                   else os.path.expanduser("~"))
             _navigate(default_folder)
 
-        page.run_task(_initial_navigate)
+        _run_task(_initial_navigate)
 
-    page.run_task(_focus_active_surface)
+    _run_task(_focus_active_surface)
     _mic_hotkey_start()
 
     # Scan initial synchrone (rapide, cf. _get_removable_drives) puis
@@ -9307,7 +9321,7 @@ def main(page: ft.Page):
             page.window.maximized = True
             page.update()
 
-        page.run_task(_delayed_maximize)
+        _run_task(_delayed_maximize)
 
 
 def _install_crash_logger():
