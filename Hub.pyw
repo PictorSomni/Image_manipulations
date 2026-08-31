@@ -482,11 +482,27 @@ def main(page: ft.Page):
     # hauteur de ligne naturelle, potentiellement > CONSTANTS.HUB_TOOLBAR_H
     # (retour user : voulait explicitement ce style-là, pas une variante
     # compacte).
+    async def _select_all_files_path():
+        # focus() est async-only en Flet 0.85 (cf. FormFieldControl) : la
+        # sélection ne prend qu'après le focus, d'où le passage par
+        # _run_task depuis le handler on_focus (sync).
+        await files_path.focus()
+        files_path.selection = ft.TextSelection(
+            base_offset=0, extent_offset=len(files_path.value or ""))
+        files_path.update()
+
+    def _on_files_path_focus(event=None):
+        # Tout le chemin sélectionné au clic : couper/copier/coller en un
+        # geste plutôt que de devoir resélectionner à la main à chaque
+        # fois (retour user).
+        _suspend_kb(event)
+        _run_task(_select_all_files_path)
+
     files_path = ft.TextField(
         label="Dossier sélectionné",
         hint_text="Cliquez sur Parcourir... ou collez un chemin",
         expand=True, bgcolor=DARK, border_color=GREY, color=WHITE,
-        on_focus=_suspend_kb, on_blur=_resume_kb,
+        on_focus=_on_files_path_focus, on_blur=_resume_kb,
     )
     # Vue liste : ListView + ListTile, primitives éprouvées de Dashboard.
     files_list = ft.ListView(expand=True, spacing=2, padding=8)
