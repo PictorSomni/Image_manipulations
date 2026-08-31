@@ -3460,6 +3460,12 @@ class PhotoCropper:
         self.white_balance_slider.value = 0.0
         self.white_balance_slider.label = "0"
         self.white_balance_slider.update()
+        # La netteté restait active après un "Tout à 0" / passage en
+        # mode ratio (qui appelle ce même reset) : seul réglage jamais
+        # remis à zéro avec les autres (retour user).
+        self.is_sharpen = False
+        self.sharpen_switch.value = False
+        self.sharpen_switch.update()
         self._render_preview()
         self.page.update()
         self._set_status("Tous les réglages remis à 0")
