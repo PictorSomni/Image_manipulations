@@ -316,6 +316,7 @@ def main(page: ft.Page):
              "font_size": _DEFAULT_FONT_SIZE,   # taille de texte IA/Bloc-notes
              "sort": "date", "search": "", "only_selected": False,
              "last_selected": None, "thumb_fit": "contain",
+             "shift_until": 0.0,  # cf. _shift_active
              # Tarif partagé avec Recadrage manuel.pyw et kiosk_flet.pyw
              # (propagé via TARIFF_TYPE au lancement) : un seul switch ici
              # au lieu d'un réglage dupliqué dans chaque outil.
@@ -532,6 +533,17 @@ def main(page: ft.Page):
             status_left.value = total_txt if total else ""
         _refresh_edit_buttons()
 
+    def _shift_active():
+        # cf. commentaire dans _on_global_key : approximation par fenêtre
+        # glissante, Flet ne remonte pas les key-up.
+        return time.monotonic() < state["shift_until"]
+
+    def _flat_order():
+        # Même ordre que _render() (dossiers d'abord, puis fichiers
+        # fusionnés/triés) : sert de référentiel pour la plage Maj+clic.
+        dirs, imgs, other = _visible_entries()
+        return dirs + _merge_files_sorted(imgs, other)
+
     def _set_selected(path, on):
         # Un clic sur une vignette/case ne fait pas toujours perdre le focus
         # clavier au champ recherche (auto-focus par _focus_active_surface
@@ -539,11 +551,26 @@ def main(page: ft.Page):
         # compteur de suspension reste bloqué > 0 et Ctrl+C/X/V/A ne
         # répondent plus après la moindre navigation (retour user).
         _kb_suspend["count"] = 0
-        if on:
+        touched = [path]
+        if on and state["last_selected"] and _shift_active():
+            # Maj+clic : sélectionne toute la plage entre le dernier
+            # élément coché et celui-ci, comme un explorateur de fichiers
+            # classique (retour user).
+            order = _flat_order()
+            if path in order and state["last_selected"] in order:
+                i = order.index(state["last_selected"])
+                j = order.index(path)
+                lo, hi = (i, j) if i <= j else (j, i)
+                touched = order[lo:hi + 1]
+                _select_update(touched)
+            else:
+                _select_add(path)
+        elif on:
             _select_add(path)
-            state["last_selected"] = path
         else:
             _select_discard(path)
+        if on:
+            state["last_selected"] = path
         _update_sel_count()
         if state["only_selected"]:
             # L'ensemble des éléments visibles change (filtre "ma
@@ -555,24 +582,26 @@ def main(page: ft.Page):
         # coche, et la rafale de page.update() qui en résulte rend les
         # clics suivants sans effet tant que le dossier charge (retour
         # user — comme Dashboard.pyw, dont le on_checkbox_change ne
-        # touche jamais au rendu complet). On ne met à jour que la case
-        # (déjà synchronisée côté client) et la bordure de la carte en
-        # vue vignettes.
+        # touche jamais au rendu complet). On ne met à jour que les cases
+        # touchées (déjà synchronisée côté client pour `path`) et leur
+        # bordure de carte en vue vignettes.
         status_left.update()
-        card = grid_card_refs.get(path)
-        if card is not None:
-            card.border = (ft.Border.all(2, BLUE) if on
-                          else ft.Border.all(1, GREY))
-            card.update()
-        # La case cochée dans la visionneuse plein écran est un Checkbox
-        # distinct de celui de la vignette (viewer_checkbox vs
-        # sel_checkbox_refs) : sans cette synchro, la sélection faite en
-        # plein écran ne se voyait pas au retour en mode vignettes (retour
-        # user).
-        cb = sel_checkbox_refs.get(path)
-        if cb is not None and cb.value != on:
-            cb.value = on
-            cb.update()
+        for p in touched:
+            is_sel = p in selected
+            card = grid_card_refs.get(p)
+            if card is not None:
+                card.border = (ft.Border.all(2, BLUE) if is_sel
+                              else ft.Border.all(1, GREY))
+                card.update()
+            # La case cochée dans la visionneuse plein écran est un Checkbox
+            # distinct de celui de la vignette (viewer_checkbox vs
+            # sel_checkbox_refs) : sans cette synchro, la sélection faite en
+            # plein écran ne se voyait pas au retour en mode vignettes (retour
+            # user).
+            cb = sel_checkbox_refs.get(p)
+            if cb is not None and cb.value != is_sel:
+                cb.value = is_sel
+                cb.update()
 
     def _clear_selection_visuals():
         # Utilisé à la fermeture du panneau Actions : décoche/décolore
@@ -9195,6 +9224,15 @@ def main(page: ft.Page):
         return any(getattr(o, "open", False) for o in page.overlay)
 
     def _on_global_key(event):
+        # ponytail: Flet (0.85) ne remonte que les key-down sur
+        # page.on_keyboard_event, jamais les key-up — impossible de savoir
+        # exactement quand Shift est relâché. On approxime "Shift tenu" par
+        # une fenêtre glissante de 2s après le dernier key-down où
+        # event.shift est vrai (rafraîchie tant que Shift est tenu et qu'une
+        # autre touche est pressée) : cf. _shift_active, utilisé par
+        # _set_selected pour le clic-plage Maj+clic sur les cases à cocher.
+        if event.shift:
+            state["shift_until"] = time.monotonic() + 2.0
         ctrl = event.ctrl or event.meta
         # Échap efface la recherche active de la surface courante, QUE le
         # champ ait le focus ou non : l'usage normal est de chercher un
