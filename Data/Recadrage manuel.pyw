@@ -90,6 +90,7 @@ import queue
 import re
 import threading
 import time
+import traceback
 import datetime
 from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageCms, ImageDraw
 import asyncio
@@ -3834,6 +3835,17 @@ class PhotoCropper:
             try:
                 self._export_job_run(job)
             except Exception as exc:
+                # ponytail: on a déjà eu ce thread daemon coupé net en
+                # plein affichage de sa propre trace (fenêtre fermée juste
+                # après le crash -> thread daemon tué à la fermeture de
+                # l'appli, trace tronquée dans .hub_terminal.log sans
+                # jamais atteindre la ligne "TypeError: ..."/message
+                # final). On écrit donc la trace complète d'un seul coup,
+                # ICI, synchrone, avant tout appel à _status_from_thread
+                # (qui passe par page.run_task / une écriture fichier
+                # séparée, donc un point de coupure de plus).
+                self._log_to_file(
+                    f"[ERREUR] Export : {exc}\n{traceback.format_exc()}")
                 self._status_from_thread(f"[ERREUR] Export : {exc}")
             finally:
                 job["done"].set()
