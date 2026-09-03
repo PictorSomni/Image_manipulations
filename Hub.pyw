@@ -316,7 +316,6 @@ def main(page: ft.Page):
              "font_size": _DEFAULT_FONT_SIZE,   # taille de texte IA/Bloc-notes
              "sort": "date", "search": "", "only_selected": False,
              "last_selected": None, "thumb_fit": "contain",
-             "shift_until": 0.0,  # cf. _shift_active
              # Tarif partagé avec Recadrage manuel.pyw et kiosk_flet.pyw
              # (propagé via TARIFF_TYPE au lancement) : un seul switch ici
              # au lieu d'un réglage dupliqué dans chaque outil.
@@ -533,44 +532,16 @@ def main(page: ft.Page):
             status_left.value = total_txt if total else ""
         _refresh_edit_buttons()
 
-    def _shift_active():
-        # cf. commentaire dans _on_global_key : approximation par fenêtre
-        # glissante, Flet ne remonte pas les key-up.
-        return time.monotonic() < state["shift_until"]
-
     def _flat_order():
         # Même ordre que _render() (dossiers d'abord, puis fichiers
-        # fusionnés/triés) : sert de référentiel pour la plage Maj+clic.
+        # fusionnés/triés) : sert de référentiel pour la plage clic droit.
         dirs, imgs, other = _visible_entries()
         return dirs + _merge_files_sorted(imgs, other)
 
-    def _set_selected(path, on):
-        # Un clic sur une vignette/case ne fait pas toujours perdre le focus
-        # clavier au champ recherche (auto-focus par _focus_active_surface
-        # après chaque navigation) côté Flet desktop : sans ce reset, le
-        # compteur de suspension reste bloqué > 0 et Ctrl+C/X/V/A ne
-        # répondent plus après la moindre navigation (retour user).
-        _kb_suspend["count"] = 0
-        touched = [path]
-        if on and state["last_selected"] and _shift_active():
-            # Maj+clic : sélectionne toute la plage entre le dernier
-            # élément coché et celui-ci, comme un explorateur de fichiers
-            # classique (retour user).
-            order = _flat_order()
-            if path in order and state["last_selected"] in order:
-                i = order.index(state["last_selected"])
-                j = order.index(path)
-                lo, hi = (i, j) if i <= j else (j, i)
-                touched = order[lo:hi + 1]
-                _select_update(touched)
-            else:
-                _select_add(path)
-        elif on:
-            _select_add(path)
-        else:
-            _select_discard(path)
-        if on:
-            state["last_selected"] = path
+    def _finish_selection_change(touched):
+        # Commun à _set_selected et _select_range_to : notifie le
+        # changement et resynchronise juste les cases/bordures touchées
+        # (pas de _render() complet — cf. commentaire plus bas).
         _update_sel_count()
         if state["only_selected"]:
             # L'ensemble des éléments visibles change (filtre "ma
@@ -602,6 +573,49 @@ def main(page: ft.Page):
             if cb is not None and cb.value != is_sel:
                 cb.value = is_sel
                 cb.update()
+
+    def _set_selected(path, on):
+        # Un clic sur une vignette/case ne fait pas toujours perdre le focus
+        # clavier au champ recherche (auto-focus par _focus_active_surface
+        # après chaque navigation) côté Flet desktop : sans ce reset, le
+        # compteur de suspension reste bloqué > 0 et Ctrl+C/X/V/A ne
+        # répondent plus après la moindre navigation (retour user).
+        _kb_suspend["count"] = 0
+        if on:
+            _select_add(path)
+            state["last_selected"] = path
+        else:
+            _select_discard(path)
+        _finish_selection_change([path])
+
+    def _select_range_to(path):
+        # Clic DROIT directement sur la case (pas la ligne) : sélectionne
+        # la plage entre le dernier élément coché et celui-ci, comme un
+        # explorateur de fichiers classique. Substitut au Maj+clic
+        # classique : Flet 0.85 ne remonte aucun key-down sur
+        # page.on_keyboard_event quand Shift est pressé seul (confirmé par
+        # un log de diagnostic resté vide, retour user) — aucun moyen de
+        # savoir si Shift est tenu pendant un clic souris dans ce Flet.
+        anchor = state["last_selected"]
+        order = _flat_order()
+        if not anchor or anchor not in order or path not in order:
+            _set_selected(path, True)
+            return
+        i, j = order.index(anchor), order.index(path)
+        lo, hi = (i, j) if i <= j else (j, i)
+        touched = order[lo:hi + 1]
+        _select_update(touched)
+        state["last_selected"] = path
+        _finish_selection_change(touched)
+
+    def _with_range_ctx(checkbox, path):
+        # Superpose le clic droit "sélectionner la plage" à la case, par
+        # dessus le clic droit "panneau Actions" du reste de la ligne/carte
+        # (_with_ctx_menu) — même idiome (GestureDetector scopé, pas toute
+        # la ligne).
+        return ft.GestureDetector(
+            on_secondary_tap_up=lambda e, p=path: _select_range_to(p),
+            content=checkbox)
 
     def _clear_selection_visuals():
         # Utilisé à la fermeture du panneau Actions : décoche/décolore
@@ -651,7 +665,7 @@ def main(page: ft.Page):
             on_change=lambda e, p=path: _set_selected(p, e.control.value))
         sel_checkbox_refs[path] = checkbox
         return ft.ListTile(
-            leading=checkbox,
+            leading=_with_range_ctx(checkbox, path),
             title=ft.Row([
                 _list_icon_box(ft.Icons.FOLDER, YELLOW),
                 ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
@@ -691,6 +705,7 @@ def main(page: ft.Page):
                 scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
                 on_change=lambda e, p=path: _set_selected(p, e.control.value))
             sel_checkbox_refs[path] = leading
+            leading = _with_range_ctx(leading, path)
             row_children = [visual, filename_text]
         return ft.ListTile(
             leading=leading,
@@ -731,7 +746,8 @@ def main(page: ft.Page):
             # (retour user, capture d'écran à l'appui).
             alignment=ft.Alignment.CENTER,
             expand=True, ink=True, on_click=lambda e, p=path: _navigate(p))
-        header = ft.Row([ft.Container(expand=True), checkbox])
+        header = ft.Row([ft.Container(expand=True),
+                         _with_range_ctx(checkbox, path)])
         return ft.Container(
             content=ft.Column([header, icon_zone], spacing=0, expand=True),
             padding=6, expand=True,
@@ -861,7 +877,7 @@ def main(page: ft.Page):
         sel_checkbox_refs[path] = checkbox
         icon, icon_color = _file_icon(path)
         return ft.ListTile(
-            leading=checkbox,
+            leading=_with_range_ctx(checkbox, path),
             title=ft.Row([
                 _list_icon_box(icon, icon_color),
                 ft.Text(os.path.basename(path),
@@ -892,7 +908,8 @@ def main(page: ft.Page):
                expand=True),
             alignment=ft.Alignment.CENTER,
             expand=True, ink=True, on_click=lambda e, p=path: _open_file(p))
-        header = ft.Row([ft.Container(expand=True), checkbox])
+        header = ft.Row([ft.Container(expand=True),
+                         _with_range_ctx(checkbox, path)])
         return ft.Container(
             content=ft.Column([header, icon_zone], spacing=0, expand=True),
             padding=6, expand=True,
@@ -934,7 +951,8 @@ def main(page: ft.Page):
                 scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
                 on_change=lambda e, p=path: _set_selected(p, e.control.value))
             sel_checkbox_refs[path] = checkbox
-            header = ft.Row([ft.Container(expand=True), checkbox])
+            header = ft.Row([ft.Container(expand=True),
+                             _with_range_ctx(checkbox, path)])
             highlighted = is_sel
             body = [header, img_zone, label]
         card = ft.Container(
@@ -9224,21 +9242,6 @@ def main(page: ft.Page):
         return any(getattr(o, "open", False) for o in page.overlay)
 
     def _on_global_key(event):
-        # ponytail: Flet (0.85) ne remonte que les key-down sur
-        # page.on_keyboard_event, jamais les key-up — impossible de savoir
-        # exactement quand Shift est relâché. On approxime "Shift tenu" par
-        # une fenêtre glissante de 2s après le dernier key-down où
-        # event.shift est vrai (rafraîchie tant que Shift est tenu et qu'une
-        # autre touche est pressée) : cf. _shift_active, utilisé par
-        # _set_selected pour le clic-plage Maj+clic sur les cases à cocher.
-        if event.shift or "shift" in (event.key or "").lower():
-            state["shift_until"] = time.monotonic() + 2.0
-            # ponytail: log temporaire de diagnostic (retour user : le
-            # Maj+clic ne fonctionne pas) — à retirer une fois confirmé
-            # si Flet remonte bien un key-down pour Shift seul appuyé.
-            _log_to_terminal(
-                f"[DEBUG shift] key={event.key!r} shift={event.shift}",
-                GREY)
         ctrl = event.ctrl or event.meta
         # Échap efface la recherche active de la surface courante, QUE le
         # champ ait le focus ou non : l'usage normal est de chercher un
