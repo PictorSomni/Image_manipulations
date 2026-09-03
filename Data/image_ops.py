@@ -811,25 +811,29 @@ def apply_auto_color_cast(input_image: Image.Image,
     indépendamment entre ses 0,5e/99,5e percentiles (« niveaux auto » par
     canal, les percentiles ignorent les quelques pixels extrêmes plutôt
     que le min/max bruts). `strength` : 0 = inchangé, 100 = correction
-    pleine, valeurs intermédiaires = mélange linéaire — chaque scan est
-    délavé différemment, ce curseur permet de doser sans repartir sur des
-    réglages manuels par photo."""
+    pleine (chaque canal occupe tout 0-255) — chaque scan est délavé
+    différemment, ce curseur permet de doser sans repartir sur des
+    réglages manuels par photo. Au-delà de 100, extrapole dans le même
+    sens (surcorrection) pour les photos les plus tenaces, avec un
+    écrêtage plus marqué en contrepartie (retour user : certaines photos
+    ont besoin de plus que la correction pleine)."""
     if strength <= 0:
         return input_image
     working_image = input_image.convert("RGB")
     original = np.asarray(working_image, dtype=np.float32)
-    corrected = original.copy()
+    stretched = original.copy()
     for channel in range(3):
         band = original[:, :, channel]
         low, high = np.percentile(band, (0.5, 99.5))
         if high - low < 1.0:
             continue  # canal quasi uniforme : l'étirer amplifierait du bruit
-        corrected[:, :, channel] = (band - low) * (255.0 / (high - low))
-    corrected = np.clip(corrected, 0, 255)
-    if strength < 100:
+        stretched[:, :, channel] = (band - low) * (255.0 / (high - low))
+    if strength == 100:
+        result = stretched
+    else:
         blend = strength / 100.0
-        corrected = original * (1.0 - blend) + corrected * blend
-    return Image.fromarray(corrected.astype(np.uint8), "RGB")
+        result = original + (stretched - original) * blend
+    return Image.fromarray(np.clip(result, 0, 255).astype(np.uint8), "RGB")
 
 
 # ================================================================ #

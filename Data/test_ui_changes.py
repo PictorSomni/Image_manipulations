@@ -338,6 +338,15 @@ def test_auto_color_cast_removes_dominant_and_is_dosable():
     for before, after in zip(gaps, gaps[1:]):
         assert after <= before + 1e-6, gaps          # monotone décroissant
     assert gaps[-1] < gaps[0] * 0.35, gaps            # dominante bien réduite
+
+    # Au-delà de 100 : surcorrection pour les photos les plus tenaces
+    # (retour user) — plus de pixels écrêtés à 0/255 qu'à 100 pile.
+    def clipped_fraction(strength):
+        out = np.asarray(image_ops.apply_auto_color_cast(img, strength))
+        return float(np.mean((out == 0) | (out == 255)))
+
+    assert clipped_fraction(200) > clipped_fraction(100), (
+        clipped_fraction(100), clipped_fraction(200))
     print("  correction de dominante (dosable) : OK")
 
 
