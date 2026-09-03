@@ -4753,6 +4753,7 @@ def main(page: ft.Page):
         Liste/IA reste affiché à côté) — remplace les anciens passages par
         _select_surface("notes")."""
         notes_panel.visible = True
+        _sync_notes_btn()
         page.update()
         _run_task(_focus_active_surface)
 
@@ -4760,6 +4761,7 @@ def main(page: ft.Page):
         notes_panel.visible = not notes_panel.visible
         if not notes_panel.visible:
             _notes_save()   # comme l'ancien changement d'onglet
+        _sync_notes_btn()
         page.update()
         _run_task(_focus_active_surface)
 
@@ -8386,6 +8388,7 @@ def main(page: ft.Page):
         await asyncio.sleep(
             delay if delay is not None else CONSTANTS.HUB_TERMINAL_AUTOHIDE_DELAY)
         terminal_panel.visible = False
+        _sync_terminal_btn()
         page.update()
 
     def _show_terminal_and_schedule_hide(delay=None):
@@ -8396,6 +8399,7 @@ def main(page: ft.Page):
         if state["surface"] == "ia" and not _terminal_autohide["pinned"]:
             return
         terminal_panel.visible = True
+        _sync_terminal_btn()
         t = _terminal_autohide["task"]
         if t is not None and not t.done():
             t.cancel()
@@ -8907,6 +8911,7 @@ def main(page: ft.Page):
         # ce bouton plein écran rend inutile un panneau compact plus haut).
         if not terminal_panel.visible:
             terminal_panel.visible = True
+            _sync_terminal_btn()
         _terminal_fullscreen["active"] = not _terminal_fullscreen["active"]
         is_full = _terminal_fullscreen["active"]
         main_row.visible = not is_full
@@ -8930,6 +8935,7 @@ def main(page: ft.Page):
 
     def _toggle_terminal(event):
         terminal_panel.visible = not terminal_panel.visible
+        _sync_terminal_btn()
         _terminal_autohide["pinned"] = terminal_panel.visible
         t = _terminal_autohide["task"]
         if t is not None and not t.done():
@@ -8982,29 +8988,53 @@ def main(page: ft.Page):
 
     _configure_size_control()
 
+    # Couleurs inversées quand le panneau associé est ouvert (retour
+    # user) : plus visuel que le texte seul pour repérer sur quel bouton
+    # appuyer. Même couleur que la poignée de redimensionnement du
+    # panneau (ORANGE terminal / VIOLET notes) pour que les deux se
+    # répondent visuellement.
+    terminal_btn_icon = ft.Icon(ft.Icons.TERMINAL, size=CONSTANTS.ICON_SM,
+                                color=WHITE)
+    terminal_btn_text = ft.Text("Terminal", size=CONSTANTS.TEXT_SM,
+                                color=WHITE)
+    terminal_toggle_btn = ft.TextButton(
+        content=ft.Row([terminal_btn_icon, terminal_btn_text], spacing=6,
+                       tight=True),
+        height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT, on_click=_toggle_terminal,
+    )
+
+    def _sync_terminal_btn():
+        active = terminal_panel.visible
+        terminal_toggle_btn.bgcolor = ORANGE if active else None
+        terminal_btn_icon.color = DARK if active else WHITE
+        terminal_btn_text.color = DARK if active else WHITE
+        terminal_toggle_btn.update()
+
+    notes_btn_icon = ft.Icon(ft.Icons.EDIT_NOTE_OUTLINED,
+                             size=CONSTANTS.ICON_SM, color=WHITE)
+    notes_btn_text = ft.Text("Notes", size=CONSTANTS.TEXT_SM, color=WHITE)
+    notes_toggle_btn = ft.TextButton(
+        content=ft.Row([notes_btn_icon, notes_btn_text], spacing=6,
+                       tight=True),
+        height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT, on_click=_toggle_notes,
+        tooltip="Bloc-notes (bandeau, sans quitter Fichiers/Actions)",
+    )
+
+    def _sync_notes_btn():
+        active = notes_panel.visible
+        notes_toggle_btn.bgcolor = VIOLET if active else None
+        notes_btn_icon.color = DARK if active else WHITE
+        notes_btn_text.color = DARK if active else WHITE
+        notes_toggle_btn.update()
+
     # Barre plus haute (56 au lieu de 40) + cibles tactiles agrandies pour
     # Terminal/Actions/curseur de taille — accès écran tactile (retour user).
     statusbar = ft.Container(
         content=ft.Row([
             status_left,
-            ft.TextButton(
-                content=ft.Row([
-                    ft.Icon(ft.Icons.TERMINAL, size=CONSTANTS.ICON_SM, color=WHITE),
-                    ft.Text("Terminal", size=CONSTANTS.TEXT_SM, color=WHITE),
-                ], spacing=6, tight=True),
-                height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT, on_click=_toggle_terminal,
-            ),
+            terminal_toggle_btn,
             actions_btn,
-            ft.TextButton(
-                content=ft.Row([
-                    ft.Icon(ft.Icons.EDIT_NOTE_OUTLINED,
-                           size=CONSTANTS.ICON_SM, color=WHITE),
-                    ft.Text("Notes", size=CONSTANTS.TEXT_SM, color=WHITE),
-                ], spacing=6, tight=True),
-                height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT,
-                on_click=_toggle_notes,
-                tooltip="Bloc-notes (bandeau, sans quitter Fichiers/Actions)",
-            ),
+            notes_toggle_btn,
             ft.Container(
                 content=ft.Row([
                     tariff_wrap,
