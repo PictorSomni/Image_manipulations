@@ -308,6 +308,39 @@ def test_params_roundtrip_shape(mod):
     print("  _update_in_place : OK")
 
 
+def test_auto_color_cast_removes_dominant_and_is_dosable():
+    """Reproduit un scan délavé jauni/rougi : dynamique écrasée vers le
+    milieu (délavage) + dominante rouge/jaune forte (R haut, B bas). La
+    correction doit réduire la dominante ET redonner du contraste,
+    progressivement avec `strength` (même exigence de dosage que
+    test_flood_is_dosable) — pas de bascule tout-ou-rien."""
+    from PIL import Image
+    rng = np.random.default_rng(3)
+    h, w = 200, 200
+    base = rng.integers(40, 215, (h, w)).astype(np.float32)
+    faded = 60 + base * 0.5                    # contraste écrasé
+    r = np.clip(faded * 1.35 + 30, 0, 255)
+    g = np.clip(faded * 1.05, 0, 255)
+    b = np.clip(faded * 0.55, 0, 255)
+    img = Image.fromarray(np.dstack([r, g, b]).astype(np.uint8), "RGB")
+
+    def channel_gap(strength):
+        out = np.asarray(image_ops.apply_auto_color_cast(img, strength),
+                         dtype=np.float32)
+        means = out.reshape(-1, 3).mean(axis=0)
+        return float(means.max() - means.min())
+
+    # strength=0 : no-op strict, pas juste "proche".
+    untouched = image_ops.apply_auto_color_cast(img, 0)
+    assert np.array_equal(np.asarray(untouched), np.asarray(img))
+
+    gaps = [channel_gap(s) for s in (0, 25, 50, 75, 100)]
+    for before, after in zip(gaps, gaps[1:]):
+        assert after <= before + 1e-6, gaps          # monotone décroissant
+    assert gaps[-1] < gaps[0] * 0.35, gaps            # dominante bien réduite
+    print("  correction de dominante (dosable) : OK")
+
+
 if __name__ == "__main__":
     print("Vérifications :")
     test_preview_max_px()
@@ -318,5 +351,6 @@ if __name__ == "__main__":
     test_preset_names(retouche)
     test_preset_roundtrip(retouche)
     test_params_roundtrip_shape(retouche)
+    test_auto_color_cast_removes_dominant_and_is_dosable()
     test_save_json_is_atomic(_load_hub())
     print("Tout est passé.")

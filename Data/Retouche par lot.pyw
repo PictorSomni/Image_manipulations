@@ -105,6 +105,7 @@ def default_params():
         },
         "couleur": {
             "enabled": C.RETOUCHE_LOT_COULEUR_ENABLED,
+            "auto_cast": C.RETOUCHE_LOT_COULEUR_AUTO_CAST,
             "exposure": C.RETOUCHE_LOT_COULEUR_EXPOSURE,
             "contrast": C.RETOUCHE_LOT_COULEUR_CONTRAST,
             "saturation": C.RETOUCHE_LOT_COULEUR_SATURATION,
@@ -265,6 +266,12 @@ def run_pipeline(image, params, *, date_label=None, filename_stem=""):
 
     c = params["couleur"]
     if c["enabled"]:
+        if c["auto_cast"] > 0:
+            # Avant les autres réglages : neutralise la dominante d'abord,
+            # exposition/contraste/etc. affinent ensuite sur une base
+            # déjà rééquilibrée plutôt que de composer avec le virage.
+            result = image_ops.apply_auto_color_cast(
+                result, strength=c["auto_cast"])
         result = image_ops.apply_adjustments(
             result, exposure=c["exposure"], contrast=c["contrast"],
             saturation=c["saturation"], hue=c["hue"],
@@ -793,6 +800,8 @@ def main(page: ft.Page):
     co = state["params"]["couleur"]
     section_couleur = _make_section(
         "Réglages couleur", BLUE, ft.Icons.PALETTE, co, [
+        _slider_row("Corriger la dominante (photos anciennes)",
+                   co, "auto_cast", 0, 100),
         _slider_row("Exposition", co, "exposure", -100, 100),
         _slider_row("Contraste", co, "contrast", -100, 100),
         _slider_row("Saturation", co, "saturation", -100, 100),

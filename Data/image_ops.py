@@ -804,6 +804,34 @@ def apply_white_balance(input_image: Image.Image, value: float) -> Image.Image:
     return Image.fromarray(pixel_array.astype(np.uint8), "RGB")
 
 
+def apply_auto_color_cast(input_image: Image.Image,
+                          strength: float = 100) -> Image.Image:
+    """Neutralise une dominante (scans anciens virés rouge/jaune) et
+    redonne du contraste perdu au délavage : étire chaque canal RVB
+    indépendamment entre ses 0,5e/99,5e percentiles (« niveaux auto » par
+    canal, les percentiles ignorent les quelques pixels extrêmes plutôt
+    que le min/max bruts). `strength` : 0 = inchangé, 100 = correction
+    pleine, valeurs intermédiaires = mélange linéaire — chaque scan est
+    délavé différemment, ce curseur permet de doser sans repartir sur des
+    réglages manuels par photo."""
+    if strength <= 0:
+        return input_image
+    working_image = input_image.convert("RGB")
+    original = np.asarray(working_image, dtype=np.float32)
+    corrected = original.copy()
+    for channel in range(3):
+        band = original[:, :, channel]
+        low, high = np.percentile(band, (0.5, 99.5))
+        if high - low < 1.0:
+            continue  # canal quasi uniforme : l'étirer amplifierait du bruit
+        corrected[:, :, channel] = (band - low) * (255.0 / (high - low))
+    corrected = np.clip(corrected, 0, 255)
+    if strength < 100:
+        blend = strength / 100.0
+        corrected = original * (1.0 - blend) + corrected * blend
+    return Image.fromarray(corrected.astype(np.uint8), "RGB")
+
+
 # ================================================================ #
 #                    SUPPRESSION DE FOND (rembg)                   #
 # ================================================================ #
