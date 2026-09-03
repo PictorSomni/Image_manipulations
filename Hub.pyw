@@ -9231,8 +9231,14 @@ def main(page: ft.Page):
         # event.shift est vrai (rafraîchie tant que Shift est tenu et qu'une
         # autre touche est pressée) : cf. _shift_active, utilisé par
         # _set_selected pour le clic-plage Maj+clic sur les cases à cocher.
-        if event.shift:
+        if event.shift or "shift" in (event.key or "").lower():
             state["shift_until"] = time.monotonic() + 2.0
+            # ponytail: log temporaire de diagnostic (retour user : le
+            # Maj+clic ne fonctionne pas) — à retirer une fois confirmé
+            # si Flet remonte bien un key-down pour Shift seul appuyé.
+            _log_to_terminal(
+                f"[DEBUG shift] key={event.key!r} shift={event.shift}",
+                GREY)
         ctrl = event.ctrl or event.meta
         # Échap efface la recherche active de la surface courante, QUE le
         # champ ait le focus ou non : l'usage normal est de chercher un
