@@ -8934,6 +8934,16 @@ def main(page: ft.Page):
                 height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT, on_click=_toggle_terminal,
             ),
             actions_btn,
+            ft.TextButton(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.EDIT_NOTE_OUTLINED,
+                           size=CONSTANTS.ICON_SM, color=WHITE),
+                    ft.Text("Notes", size=CONSTANTS.TEXT_SM, color=WHITE),
+                ], spacing=6, tight=True),
+                height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT,
+                on_click=lambda e: _select_surface("notes"),
+                tooltip="Bloc-notes (sans quitter Fichiers/Actions)",
+            ),
             ft.Container(
                 content=ft.Row([
                     tariff_wrap,
