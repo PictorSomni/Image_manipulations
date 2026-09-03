@@ -239,6 +239,19 @@ def _round_odd(value, minimum=3):
     return v if v % 2 == 1 else v + 1
 
 
+def apply_auto_cast_override(params, overrides, name):
+    """Réglages effectifs pour une photo donnée : sa correction de
+    dominante spécifique (revue avant export, certains vieux scans ont
+    besoin de plus ou moins que le réglage commun du lot) si elle a été
+    ajustée, sinon `params` tel quel — pas de copie inutile."""
+    value = overrides.get(name)
+    if value is None:
+        return params
+    params = copy.deepcopy(params)
+    params["couleur"]["auto_cast"] = value
+    return params
+
+
 def run_pipeline(image, params, *, date_label=None, filename_stem=""):
     """Applique les étapes activées, dans l'ordre : débruiter → couleur →
     virage → LUT → netteté → grain pellicule → copyright. Pure PIL/image_ops,
@@ -438,6 +451,10 @@ def main(page: ft.Page):
         "live_lock": threading.Lock(),
         "live_running": False,
         "params": default_params(),
+        # Correction de dominante ajustée photo par photo pendant la revue
+        # (nom de fichier -> valeur) — les autres réglages restent communs
+        # au lot. {} tant qu'aucune photo n'a été ajustée individuellement.
+        "overrides": {},
     }
 
     # Contrôles à resynchroniser quand le bouton Réinitialiser recharge
@@ -544,9 +561,11 @@ def main(page: ft.Page):
             with state["live_lock"]:
                 request_seen = state["live_req"]
             proxy = state["proxy"]
-            params_copy = copy.deepcopy(state["params"])
+            name = file_names[state["index"]]
+            params_copy = apply_auto_cast_override(
+                state["params"], state["overrides"], name)
             date_label = state["date_label"]
-            stem = Path(file_names[state["index"]]).stem
+            stem = Path(name).stem
             try:
                 if state.get("show_original"):
                     result = proxy.convert("RGB")
@@ -583,6 +602,9 @@ def main(page: ft.Page):
             time.sleep(0.03)
 
     def live_preview_tick():
+        # Le réglage commun du lot a pu bouger : si la photo affichée n'a
+        # pas de dominante spécifique, son étiquette doit suivre.
+        _refresh_override_ui()
         with state["live_lock"]:
             state["live_req"] += 1
             if state["live_running"]:
@@ -608,6 +630,7 @@ def main(page: ft.Page):
         _rebuild_proxy()
         counter_text.value = f"{idx + 1} / {len(file_names)} — {name}"
         page.update()
+        _refresh_override_ui()
         live_preview_tick()
 
     def _prev(e):
@@ -628,6 +651,49 @@ def main(page: ft.Page):
         ft.Icons.COMPARE, icon_color=WHITE, on_click=_toggle_compare,
         tooltip="Avant / Après (comparer avec l'original)")
 
+    # ── Dominante spécifique à la photo affichée ────────────────────
+    # Certains scans ont besoin de plus ou moins de correction que le
+    # réglage commun du lot (retour user) : ce curseur ne touche que la
+    # photo actuellement affichée, en revue avec les flèches ci-dessus,
+    # sans quitter le réglage par lot pour les autres.
+    override_text = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
+    override_reset_btn = ft.IconButton(
+        ft.Icons.RESTART_ALT, icon_size=CONSTANTS.ICON_SM, icon_color=BLUE,
+        tooltip="Revenir au réglage commun du lot pour cette photo")
+    override_slider = ft.Slider(min=0, max=125, divisions=125,
+                               active_color=BLUE, expand=True)
+
+    def _refresh_override_ui():
+        name = file_names[state["index"]]
+        has_override = name in state["overrides"]
+        value = state["overrides"].get(name, co["auto_cast"])
+        override_slider.value = value
+        override_text.value = (
+            f"Dominante pour cette photo : {round(value)}"
+            + (" (spécifique)" if has_override else " (réglage du lot)"))
+        override_reset_btn.disabled = not has_override
+        override_slider.update()
+        override_text.update()
+        override_reset_btn.update()
+
+    def _on_override_change(e):
+        name = file_names[state["index"]]
+        value = round(e.control.value)
+        if value == co["auto_cast"]:
+            state["overrides"].pop(name, None)  # rejoint le lot : pas
+                                                 # d'exception à retenir
+        else:
+            state["overrides"][name] = value
+        _refresh_override_ui()
+        live_preview_tick()
+    override_slider.on_change = _on_override_change
+
+    def _on_override_reset(e):
+        state["overrides"].pop(file_names[state["index"]], None)
+        _refresh_override_ui()
+        live_preview_tick()
+    override_reset_btn.on_click = _on_override_reset
+
     preview_column = ft.Column([
         preview_container,
         histogram_image,
@@ -640,6 +706,9 @@ def main(page: ft.Page):
             compare_btn,
         ], alignment=ft.MainAxisAlignment.CENTER,
            spacing=CONSTANTS.SPACE_XS),
+        override_text,
+        ft.Row([override_reset_btn, override_slider],
+              vertical_alignment=ft.CrossAxisAlignment.CENTER),
     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     # ── Panneaux repliables (un seul ouvert à la fois) ─────────────────
@@ -1061,7 +1130,9 @@ def main(page: ft.Page):
             except Exception:
                 continue
             stem = Path(name).stem
-            result = run_pipeline(img, params_snapshot,
+            file_params = apply_auto_cast_override(
+                params_snapshot, state["overrides"], name)
+            result = run_pipeline(img, file_params,
                                   date_label=date_label, filename_stem=stem)
             result.save(str(output_folder / f"{stem}.jpg"), format="JPEG",
                        subsampling=0, quality=100,
