@@ -554,7 +554,7 @@ AI_MCP_DESTRUCTIVE_KEYWORDS = (              # Un outil MCP dont le nom contient
 AI_IMAGE_ATTACH_DEFAULT_ORIGINAL = False     # True = images jointes manuellement en taille réelle par défaut
 AI_IMAGE_ATTACH_SELECTED_ORIGINAL = False    # True = images sélectionnées dans la preview en taille réelle
 AI_SHOW_REFINED_IMAGE_PROMPT = True          # True = affiche dans le chat le prompt final envoyé à Nano Banana
-AI_IMAGE_REFINER_MODEL = "gemini-3.7-flash"  # Modèle qui affine le prompt image (indépendant du cerveau de chat) — 1 appel/image, ~centimes, gros gain de qualité vs flash-lite
+AI_IMAGE_REFINER_MODEL = "gemini-3.8-flash"  # Modèle qui affine le prompt image (indépendant du cerveau de chat) — 1 appel/image, ~centimes, gros gain de qualité vs flash-lite
 AI_IMAGE_ITERATE_MAX_PASSES = 2              # Passes max de la boucle iterate_image (critique visuelle → régénération). Chaque passe = 1 génération Nano Banana. Arrêt anticipé si l'objectif est atteint.
 AI_USER_NAME         = "Charles"             # Appellation dans l'export de conversation
 AI_SEPARATOR_WIDTH   = 80                    # Nb de '#' pour les séparateurs d'export
@@ -568,7 +568,7 @@ AI_FOLDER_SELECT_QUALITY     = 85    # Qualité JPEG des images envoyées à l'I
 # Modèles affichés dans le dropdown de sélection rapide du Hub
 AI_DROPDOWN_MODELS = [
     "gemini-3.5-flash-lite",
-    "gemini-3.7-flash",
+    "gemini-3.8-flash",
     "claude-sonnet-4-6",
     "gemma4:e4b",
 ]

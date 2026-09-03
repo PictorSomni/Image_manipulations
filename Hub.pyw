@@ -8863,8 +8863,30 @@ def main(page: ft.Page):
     action_progress_bar = ft.ProgressBar(value=None, visible=False,
                                          color=GREEN, height=2)
 
+    _TERMINAL_MIN_HEIGHT, _TERMINAL_MAX_HEIGHT = 120, 700
+    _terminal_fullscreen = {"active": False,
+                            "last_height": CONSTANTS.HUB_TERMINAL_HEIGHT}
+
+    def _on_terminal_resize(e):
+        # Sans effet en plein écran : la hauteur y est pilotée par
+        # `expand`, pas par un pixel fixe (cf. _toggle_terminal_fullscreen).
+        if _terminal_fullscreen["active"]:
+            return
+        new_height = max(_TERMINAL_MIN_HEIGHT, min(
+            _TERMINAL_MAX_HEIGHT, terminal_panel.height - e.local_delta.y))
+        terminal_panel.height = new_height
+        _terminal_fullscreen["last_height"] = new_height
+        terminal_panel.update()
+
+    terminal_resize_handle = ft.GestureDetector(
+        content=ft.Container(height=6, bgcolor=ORANGE),
+        mouse_cursor=ft.MouseCursor.RESIZE_UP_DOWN,
+        on_pan_update=_on_terminal_resize,
+    )
+
     terminal_panel = ft.Container(
         content=ft.Column([
+            terminal_resize_handle,
             ft.Container(content=terminal_output, expand=True, padding=8),
             action_progress_bar,
             ft.Container(
@@ -8875,9 +8897,7 @@ def main(page: ft.Page):
                 padding=ft.Padding(8, 0, 8, 8)),
         ], spacing=0, expand=True),
         bgcolor=DARK, height=CONSTANTS.HUB_TERMINAL_HEIGHT, visible=False,
-        border=ft.Border(top=ft.BorderSide(2, ORANGE)),
     )
-    _terminal_fullscreen = {"active": False}
 
     def _toggle_terminal_fullscreen():
         # Bascule tout l'écran vers le terminal (cache la Row explorateur)
@@ -8891,7 +8911,8 @@ def main(page: ft.Page):
         is_full = _terminal_fullscreen["active"]
         main_row.visible = not is_full
         terminal_panel.expand = is_full
-        terminal_panel.height = None if is_full else CONSTANTS.HUB_TERMINAL_HEIGHT
+        terminal_panel.height = (
+            None if is_full else _terminal_fullscreen["last_height"])
         terminal_fullscreen_btn.icon = (
             ft.Icons.FULLSCREEN_EXIT if is_full else ft.Icons.FULLSCREEN)
         terminal_fullscreen_btn.tooltip = (
@@ -8917,7 +8938,7 @@ def main(page: ft.Page):
             _terminal_fullscreen["active"] = False
             main_row.visible = True
             terminal_panel.expand = False
-            terminal_panel.height = 200
+            terminal_panel.height = _terminal_fullscreen["last_height"]
             terminal_fullscreen_btn.icon = ft.Icons.FULLSCREEN
             terminal_fullscreen_btn.tooltip = "Terminal plein écran (Ctrl/Cmd+Maj+↑)"
         page.update()
