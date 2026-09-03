@@ -4180,11 +4180,14 @@ def main(page: ft.Page):
         active_color=BLUE, on_change=_toggle_tariff,
         label_text_style=ft.TextStyle(size=CONSTANTS.TEXT_SM, color=WHITE),
         tooltip="Tarif utilisé par Recadrage manuel et le Kiosque")
-    # Largeur fixe : "Tarif Impression" est plus long que "Tarif Studio",
-    # sans ça la bascule fait trembler le reste de la barre d'outils.
+    # Largeur fixe : "Tarif Impression" est plus long que "Tarif Studio".
+    # Le conteneur seul ne suffisait pas (retour user) : centré (0, 0), il
+    # recentrait tout le bloc switch+label à chaque changement de largeur
+    # de texte, donc le toggle lui-même se déplaçait. Alignement à gauche
+    # (-1, 0) : le toggle reste ancré, seul le texte à sa droite s'étire.
     tariff_wrap = ft.Container(
         content=tariff_switch, height=CONSTANTS.HUB_TOOLBAR_H, width=150,
-        alignment=ft.Alignment(0, 0), margin=ft.Margin.only(right=12))
+        alignment=ft.Alignment(-1, 0), margin=ft.Margin.only(right=12))
 
     # _create_order_folder est défini plus loin (avec le reste de la logique
     # de commande) : lambda pour différer la résolution du nom jusqu'au clic.
