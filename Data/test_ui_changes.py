@@ -341,12 +341,13 @@ def test_auto_color_cast_removes_dominant_and_is_dosable():
 
     # Au-delà de 100 : surcorrection pour les photos les plus tenaces
     # (retour user) — plus de pixels écrêtés à 0/255 qu'à 100 pile.
+    # Plafond UI à 125 (retour user : trop prononcé au-delà).
     def clipped_fraction(strength):
         out = np.asarray(image_ops.apply_auto_color_cast(img, strength))
         return float(np.mean((out == 0) | (out == 255)))
 
-    assert clipped_fraction(200) > clipped_fraction(100), (
-        clipped_fraction(100), clipped_fraction(200))
+    assert clipped_fraction(125) > clipped_fraction(100), (
+        clipped_fraction(100), clipped_fraction(125))
     print("  correction de dominante (dosable) : OK")
 
 

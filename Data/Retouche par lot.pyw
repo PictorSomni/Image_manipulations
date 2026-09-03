@@ -801,7 +801,7 @@ def main(page: ft.Page):
     section_couleur = _make_section(
         "Réglages couleur", BLUE, ft.Icons.PALETTE, co, [
         _slider_row("Corriger la dominante (photos anciennes)",
-                   co, "auto_cast", 0, 200),
+                   co, "auto_cast", 0, 125),
         _slider_row("Exposition", co, "exposure", -100, 100),
         _slider_row("Contraste", co, "contrast", -100, 100),
         _slider_row("Saturation", co, "saturation", -100, 100),
