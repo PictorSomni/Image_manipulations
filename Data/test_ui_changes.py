@@ -351,21 +351,30 @@ def test_auto_color_cast_removes_dominant_and_is_dosable():
     print("  correction de dominante (dosable) : OK")
 
 
-def test_auto_cast_override(mod):
-    """Revue photo par photo : une dominante spécifique ne doit affecter
-    que la photo concernée, et rejoindre le lot en repassant à la valeur
-    commune la retire de `overrides` (pas d'exception qui traîne)."""
+def test_photo_overrides(mod):
+    """Revue photo par photo (`override_switch`) : une exception ne doit
+    affecter que la photo concernée et le champ touché — les autres
+    champs de la même section suivent toujours le réglage du lot, même
+    modifié après coup (pas un instantané figé au moment de l'exception)."""
     params = mod.default_params()
     params["couleur"]["auto_cast"] = 40
-    overrides = {"photo2.jpg": 90}
+    params["couleur"]["exposure"] = 10
+    overrides = {"photo2.jpg": {"couleur": {"auto_cast": 90}}}
 
-    same = mod.apply_auto_cast_override(params, overrides, "photo1.jpg")
-    assert same is params, "pas de copie inutile en l'absence d'override"
+    same = mod.apply_photo_overrides(params, overrides, "photo1.jpg")
+    assert same is params, "pas de copie inutile en l'absence d'exception"
 
-    tweaked = mod.apply_auto_cast_override(params, overrides, "photo2.jpg")
-    assert tweaked["couleur"]["auto_cast"] == 90
+    tweaked = mod.apply_photo_overrides(params, overrides, "photo2.jpg")
+    assert tweaked["couleur"]["auto_cast"] == 90       # champ en exception
+    assert tweaked["couleur"]["exposure"] == 10         # suit le lot
     assert params["couleur"]["auto_cast"] == 40, "original non modifié"
-    print("  dominante par photo (revue avant export) : OK")
+
+    # Le lot change ensuite : la photo en exception le suit toujours sur
+    # les champs qu'elle n'a pas touchés.
+    params["couleur"]["exposure"] = -20
+    tweaked2 = mod.apply_photo_overrides(params, overrides, "photo2.jpg")
+    assert tweaked2["couleur"]["exposure"] == -20
+    print("  exceptions par photo (revue avant export) : OK")
 
 
 if __name__ == "__main__":
@@ -379,6 +388,6 @@ if __name__ == "__main__":
     test_preset_roundtrip(retouche)
     test_params_roundtrip_shape(retouche)
     test_auto_color_cast_removes_dominant_and_is_dosable()
-    test_auto_cast_override(retouche)
+    test_photo_overrides(retouche)
     test_save_json_is_atomic(_load_hub())
     print("Tout est passé.")

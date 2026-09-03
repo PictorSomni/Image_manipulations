@@ -239,16 +239,19 @@ def _round_odd(value, minimum=3):
     return v if v % 2 == 1 else v + 1
 
 
-def apply_auto_cast_override(params, overrides, name):
-    """Réglages effectifs pour une photo donnée : sa correction de
-    dominante spécifique (revue avant export, certains vieux scans ont
-    besoin de plus ou moins que le réglage commun du lot) si elle a été
-    ajustée, sinon `params` tel quel — pas de copie inutile."""
-    value = overrides.get(name)
-    if value is None:
+def apply_photo_overrides(params, overrides, name):
+    """Réglages effectifs pour une photo donnée : ses exceptions propres
+    (mode revue, `override_switch` actif au moment du réglage) par-dessus
+    les réglages communs du lot — `overrides` a la forme
+    {photo: {section: {champ: valeur}}}, seuls les champs touchés
+    divergent, le reste continue de suivre le lot même si celui-ci change
+    ensuite. Pas de copie si la photo n'a aucune exception."""
+    per_photo = overrides.get(name)
+    if not per_photo:
         return params
     params = copy.deepcopy(params)
-    params["couleur"]["auto_cast"] = value
+    for section, fields in per_photo.items():
+        params[section].update(fields)
     return params
 
 
@@ -451,9 +454,9 @@ def main(page: ft.Page):
         "live_lock": threading.Lock(),
         "live_running": False,
         "params": default_params(),
-        # Correction de dominante ajustée photo par photo pendant la revue
-        # (nom de fichier -> valeur) — les autres réglages restent communs
-        # au lot. {} tant qu'aucune photo n'a été ajustée individuellement.
+        # Exceptions réglées photo par photo en mode revue
+        # (`override_switch`) : {nom_fichier: {section: {champ: valeur}}},
+        # même forme que "params". {} tant qu'aucune photo n'a d'exception.
         "overrides": {},
     }
 
@@ -562,7 +565,7 @@ def main(page: ft.Page):
                 request_seen = state["live_req"]
             proxy = state["proxy"]
             name = file_names[state["index"]]
-            params_copy = apply_auto_cast_override(
+            params_copy = apply_photo_overrides(
                 state["params"], state["overrides"], name)
             date_label = state["date_label"]
             stem = Path(name).stem
@@ -602,9 +605,6 @@ def main(page: ft.Page):
             time.sleep(0.03)
 
     def live_preview_tick():
-        # Le réglage commun du lot a pu bouger : si la photo affichée n'a
-        # pas de dominante spécifique, son étiquette doit suivre.
-        _refresh_override_ui()
         with state["live_lock"]:
             state["live_req"] += 1
             if state["live_running"]:
@@ -630,7 +630,11 @@ def main(page: ft.Page):
         _rebuild_proxy()
         counter_text.value = f"{idx + 1} / {len(file_names)} — {name}"
         page.update()
-        _refresh_override_ui()
+        # Nouvelle photo : chaque curseur peut avoir sa propre exception
+        # (mode revue) — les resynchroniser tous depuis la valeur
+        # effective de cette photo plutôt que celle du lot.
+        for column, label, dct, key in reset_registry["sliders"]:
+            column.data()
         live_preview_tick()
 
     def _prev(e):
@@ -651,6 +655,13 @@ def main(page: ft.Page):
         ft.Icons.COMPARE, icon_color=WHITE, on_click=_toggle_compare,
         tooltip="Avant / Après (comparer avec l'original)")
 
+    # Mode revue photo par photo : tant qu'il est actif, tout réglage
+    # modifié (n'importe quel curseur) ne s'applique qu'à la photo
+    # affichée, sans toucher au réglage commun du lot (retour user —
+    # remplace le curseur dédié testé précédemment, trop étroit : un
+    # seul champ ; ceci marche pour tous).
+    override_switch = ft.Switch(active_color=BLUE, value=False)
+
     preview_column = ft.Column([
         preview_container,
         histogram_image,
@@ -663,6 +674,11 @@ def main(page: ft.Page):
             compare_btn,
         ], alignment=ft.MainAxisAlignment.CENTER,
            spacing=CONSTANTS.SPACE_XS),
+        ft.Row([override_switch,
+               ft.Text("Réglages valables pour cette photo seulement",
+                      size=CONSTANTS.TEXT_SM, color=WHITE)],
+              alignment=ft.MainAxisAlignment.CENTER,
+              spacing=CONSTANTS.SPACE_XS),
     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     # ── Panneaux repliables (un seul ouvert à la fois) ─────────────────
@@ -713,6 +729,23 @@ def main(page: ft.Page):
         sections[name] = {"body": body, "switch": switch}
         return ft.Column([header, body], spacing=CONSTANTS.SPACE_XS)
 
+    def _section_name(dct):
+        """Nom de la section (« couleur », « virage »...) portant `dct`
+        dans state["params"] — sert à retrouver où ranger une exception
+        photo par photo dans state["overrides"], qui a la même forme."""
+        for name_, val in state["params"].items():
+            if val is dct:
+                return name_
+        return None
+
+    def _effective_value(dct, key, default):
+        """Valeur à afficher/utiliser pour la photo affichée : son
+        exception éventuelle pour ce champ, sinon le réglage du lot."""
+        name = file_names[state["index"]]
+        section = _section_name(dct)
+        return (state["overrides"].get(name, {}).get(section, {})
+               .get(key, default))
+
     def _slider_row(label, dct, key, minv, maxv, *, divisions=None):
         """Slider cranté par pas entiers par défaut (un pas = une unité
         affichée) plutôt que des valeurs flottantes continues (retour
@@ -730,10 +763,18 @@ def main(page: ft.Page):
         apparaît et disparaît ferait sauter la hauteur de la ligne, et donc
         tout le panneau, à chaque mouvement de curseur.
 
+        Revue photo par photo (`override_switch`, retour user) : tant
+        qu'il est actif, ce curseur n'écrit plus dans `dct[key]` (réglage
+        du lot) mais dans state["overrides"][photo affichée][section][key]
+        — le reste du lot n'est pas affecté, et l'affichage suit toujours
+        la photo en cours (`column.data`, ci-dessous).
+
         `column.data` porte une fonction de rafraîchissement : elle relit
-        `dct[key]` et remet curseur, libellé et icône ↺ d'accord entre eux.
-        Utilisée par Réinitialiser, Charger des réglages et les préréglages
-        de virage, qui écrivent dans les paramètres sans passer par l'UI.
+        la valeur effective de la photo affichée et remet curseur,
+        libellé et icône ↺ d'accord — sans rien écrire (une navigation ne
+        doit pas créer d'exception). Utilisée par Réinitialiser, Charger
+        des réglages, les préréglages de virage et la navigation photo,
+        qui écrivent dans les paramètres sans passer par l'UI.
         """
         value = dct[key]
         if divisions is None:
@@ -755,19 +796,29 @@ def main(page: ft.Page):
             ft.Icons.ADD, icon_size=CONSTANTS.ICON_SM, icon_color=WHITE,
             tooltip=f"{label} + {step}", width=_touch, height=_touch)
 
-        def _write(new_value, *, move_slider=True):
-            """Point de passage unique : curseur, − / +, ↺ et chargement de
-            réglages écrivent tous ici, donc l'affichage ne peut pas
-            diverger de `dct[key]`."""
-            snapped = max(minv, min(maxv, round(new_value)))
-            dct[key] = snapped
+        def _display(snapped):
             text.value = f"{label} : {snapped}"
             reset_btn.disabled = (snapped == reset_value)
+            text.update()
+            reset_btn.update()
+
+        def _write(new_value, *, move_slider=True):
+            """Point de passage unique : curseur, − / +, ↺ et chargement de
+            réglages écrivent tous ici. En mode revue photo par photo,
+            écrit une exception pour la photo affichée plutôt que le
+            réglage du lot."""
+            snapped = max(minv, min(maxv, round(new_value)))
+            if override_switch.value:
+                name = file_names[state["index"]]
+                section = _section_name(dct)
+                state["overrides"].setdefault(name, {}).setdefault(
+                    section, {})[key] = snapped
+            else:
+                dct[key] = snapped
+            _display(snapped)
             if move_slider:
                 slider.value = snapped
                 slider.update()
-            text.update()
-            reset_btn.update()
 
         def _handle(e):
             # Le curseur est déjà à la bonne position : le repousser
@@ -781,7 +832,8 @@ def main(page: ft.Page):
 
         def _step(delta):
             def handler(e):
-                _write(dct[key] + delta)
+                current = _effective_value(dct, key, dct[key])
+                _write(current + delta)
                 live_preview_tick()
             return handler
 
@@ -797,10 +849,14 @@ def main(page: ft.Page):
                                         on_double_tap=_reset, expand=True)
 
         def _refresh():
-            """Resynchronise depuis dct[key] sans relancer l'aperçu :
-            l'appelant groupe ses modifications puis déclenche un seul
+            """Resynchronise depuis la valeur effective de la photo
+            affichée, sans rien écrire ni relancer l'aperçu : l'appelant
+            groupe ses modifications puis déclenche un seul
             live_preview_tick()."""
-            _write(dct[key])
+            value = _effective_value(dct, key, dct[key])
+            _display(value)
+            slider.value = value
+            slider.update()
 
         column = ft.Column([
             text,
@@ -821,121 +877,10 @@ def main(page: ft.Page):
 
     # ── Réglages couleur ────────────────────────────────────────────
     co = state["params"]["couleur"]
-
-    def _auto_cast_row():
-        """Corriger la dominante, avec bascule « cette photo seulement » :
-        switch éteint → le curseur modifie le réglage commun du lot ;
-        switch allumé → il ne modifie que la photo affichée (revue avant
-        export, retour user — un second curseur séparé était une couche
-        de trop). Un seul réglage concerné pour l'instant ; à généraliser
-        si le besoin se confirme pour d'autres curseurs."""
-        label = "Corriger la dominante (photos anciennes)"
-        minv, maxv, reset_value = 0, 125, 0
-        _touch = CONSTANTS.TOUCH_TARGET
-
-        def _name():
-            return file_names[state["index"]]
-
-        def _value():
-            name = _name()
-            if switch.value:
-                return state["overrides"].get(name, co["auto_cast"])
-            return co["auto_cast"]
-
-        text = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
-        switch_label = ft.Text("Cette photo seulement",
-                              size=CONSTANTS.TEXT_SM, color=WHITE)
-        reset_btn = ft.IconButton(
-            ft.Icons.RESTART_ALT, icon_size=CONSTANTS.ICON_SM,
-            icon_color=BLUE, tooltip=f"Réinitialiser « {label} »",
-            width=_touch, height=_touch)
-        minus_btn = ft.IconButton(
-            ft.Icons.REMOVE, icon_size=CONSTANTS.ICON_SM, icon_color=WHITE,
-            tooltip=f"{label} − 1", width=_touch, height=_touch)
-        plus_btn = ft.IconButton(
-            ft.Icons.ADD, icon_size=CONSTANTS.ICON_SM, icon_color=WHITE,
-            tooltip=f"{label} + 1", width=_touch, height=_touch)
-        switch = ft.Switch(active_color=BLUE, value=False)
-
-        def _write(new_value, *, move_slider=True):
-            snapped = max(minv, min(maxv, round(new_value)))
-            if switch.value:
-                state["overrides"][_name()] = snapped
-            else:
-                co["auto_cast"] = snapped
-            suffix = " — cette photo" if switch.value else ""
-            text.value = f"{label} : {snapped}{suffix}"
-            reset_btn.disabled = (snapped == reset_value)
-            if move_slider:
-                slider.value = snapped
-                slider.update()
-            text.update()
-            reset_btn.update()
-
-        def _handle(e):
-            _write(e.control.value, move_slider=False)
-            live_preview_tick()
-
-        slider = ft.Slider(min=minv, max=maxv, value=co["auto_cast"],
-                          expand=True, divisions=round(maxv - minv),
-                          on_change=_handle, active_color=BLUE)
-
-        def _step(delta):
-            def handler(e):
-                _write(_value() + delta)
-                live_preview_tick()
-            return handler
-        minus_btn.on_click = _step(-1)
-        plus_btn.on_click = _step(1)
-
-        def _reset(e):
-            _write(reset_value)
-            live_preview_tick()
-        reset_btn.on_click = _reset
-
-        def _refresh():
-            """Resynchronise sur la photo/réglage courant : navigation,
-            Réinitialiser, préréglages, et le réglage du lot qui a pu
-            bouger pendant que cette photo n'a pas d'exception."""
-            name = _name()
-            switch.value = name in state["overrides"]
-            value = _value()
-            text.value = (f"{label} : {round(value)}"
-                         + (" — cette photo" if switch.value else ""))
-            reset_btn.disabled = (round(value) == reset_value)
-            slider.value = value
-            switch.update()
-            text.update()
-            reset_btn.update()
-            slider.update()
-
-        def _on_switch(e):
-            name = _name()
-            if switch.value:
-                # Démarre depuis le réglage actuel du lot, sans saut.
-                state["overrides"][name] = co["auto_cast"]
-            else:
-                state["overrides"].pop(name, None)  # rejoint le lot
-            _refresh()
-            live_preview_tick()
-        switch.on_change = _on_switch
-
-        slider_area = ft.GestureDetector(content=slider, on_double_tap=_reset,
-                                        expand=True)
-        column = ft.Column([
-            text,
-            ft.Row([reset_btn, minus_btn, slider_area, plus_btn], spacing=0,
-                  vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            ft.Row([switch, switch_label], spacing=CONSTANTS.SPACE_XS),
-        ], spacing=0)
-        column.data = _refresh
-        return column, _refresh
-
-    auto_cast_row, _refresh_override_ui = _auto_cast_row()
-
     section_couleur = _make_section(
         "Réglages couleur", BLUE, ft.Icons.PALETTE, co, [
-        auto_cast_row,
+        _slider_row("Corriger la dominante (photos anciennes)",
+                   co, "auto_cast", 0, 125),
         _slider_row("Exposition", co, "exposure", -100, 100),
         _slider_row("Contraste", co, "contrast", -100, 100),
         _slider_row("Saturation", co, "saturation", -100, 100),
@@ -1195,7 +1140,7 @@ def main(page: ft.Page):
             except Exception:
                 continue
             stem = Path(name).stem
-            file_params = apply_auto_cast_override(
+            file_params = apply_photo_overrides(
                 params_snapshot, state["overrides"], name)
             result = run_pipeline(img, file_params,
                                   date_label=date_label, filename_stem=stem)
@@ -1291,7 +1236,6 @@ def main(page: ft.Page):
         for field, dct, key in reset_registry["fields"]:
             field.value = str(dct[key])
             field.update()
-        _refresh_override_ui()
 
         virage_preset_dd.value = vi["preset"]
         # "Auto" si le mode courant correspond à celui du préréglage (cas
