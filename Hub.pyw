@@ -4724,12 +4724,28 @@ def main(page: ft.Page):
     _notes_load()
 
     # Bandeau en bas (comme terminal_panel), pas surface plein écran
-    # (retour user) : reste replié à CONSTANTS.HUB_TERMINAL_HEIGHT plutôt
-    # que de prendre toute la hauteur de la fenêtre.
+    # (retour user) : reste replié à CONSTANTS.HUB_TERMINAL_HEIGHT par
+    # défaut, mais avec une poignée en haut pour l'ajuster (retour user).
+    _NOTES_MIN_HEIGHT, _NOTES_MAX_HEIGHT = 120, 700
+
+    def _on_notes_resize(e):
+        # Glisser vers le haut (delta.y négatif) doit agrandir le bandeau
+        # ancré en bas — même logique que _on_resize_edge de Recadrage
+        # manuel.pyw, sans le -> % (ici une hauteur en px directe).
+        notes_panel.height = max(_NOTES_MIN_HEIGHT, min(
+            _NOTES_MAX_HEIGHT, notes_panel.height - e.local_delta.y))
+        notes_panel.update()
+
+    notes_resize_handle = ft.GestureDetector(
+        content=ft.Container(height=6, bgcolor=VIOLET),
+        mouse_cursor=ft.MouseCursor.RESIZE_UP_DOWN,
+        on_pan_update=_on_notes_resize,
+    )
+
     notes_panel = ft.Container(
-        content=notes_surface, bgcolor=DARK,
-        height=CONSTANTS.HUB_TERMINAL_HEIGHT, visible=False,
-        border=ft.Border(top=ft.BorderSide(2, VIOLET)),
+        content=ft.Column([notes_resize_handle, notes_surface],
+                          spacing=0, expand=True),
+        bgcolor=DARK, height=CONSTANTS.HUB_TERMINAL_HEIGHT, visible=False,
     )
 
     def _show_notes_panel():
