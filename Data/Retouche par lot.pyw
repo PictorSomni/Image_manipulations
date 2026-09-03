@@ -651,49 +651,6 @@ def main(page: ft.Page):
         ft.Icons.COMPARE, icon_color=WHITE, on_click=_toggle_compare,
         tooltip="Avant / Après (comparer avec l'original)")
 
-    # ── Dominante spécifique à la photo affichée ────────────────────
-    # Certains scans ont besoin de plus ou moins de correction que le
-    # réglage commun du lot (retour user) : ce curseur ne touche que la
-    # photo actuellement affichée, en revue avec les flèches ci-dessus,
-    # sans quitter le réglage par lot pour les autres.
-    override_text = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
-    override_reset_btn = ft.IconButton(
-        ft.Icons.RESTART_ALT, icon_size=CONSTANTS.ICON_SM, icon_color=BLUE,
-        tooltip="Revenir au réglage commun du lot pour cette photo")
-    override_slider = ft.Slider(min=0, max=125, divisions=125,
-                               active_color=BLUE, expand=True)
-
-    def _refresh_override_ui():
-        name = file_names[state["index"]]
-        has_override = name in state["overrides"]
-        value = state["overrides"].get(name, co["auto_cast"])
-        override_slider.value = value
-        override_text.value = (
-            f"Dominante pour cette photo : {round(value)}"
-            + (" (spécifique)" if has_override else " (réglage du lot)"))
-        override_reset_btn.disabled = not has_override
-        override_slider.update()
-        override_text.update()
-        override_reset_btn.update()
-
-    def _on_override_change(e):
-        name = file_names[state["index"]]
-        value = round(e.control.value)
-        if value == co["auto_cast"]:
-            state["overrides"].pop(name, None)  # rejoint le lot : pas
-                                                 # d'exception à retenir
-        else:
-            state["overrides"][name] = value
-        _refresh_override_ui()
-        live_preview_tick()
-    override_slider.on_change = _on_override_change
-
-    def _on_override_reset(e):
-        state["overrides"].pop(file_names[state["index"]], None)
-        _refresh_override_ui()
-        live_preview_tick()
-    override_reset_btn.on_click = _on_override_reset
-
     preview_column = ft.Column([
         preview_container,
         histogram_image,
@@ -706,9 +663,6 @@ def main(page: ft.Page):
             compare_btn,
         ], alignment=ft.MainAxisAlignment.CENTER,
            spacing=CONSTANTS.SPACE_XS),
-        override_text,
-        ft.Row([override_reset_btn, override_slider],
-              vertical_alignment=ft.CrossAxisAlignment.CENTER),
     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     # ── Panneaux repliables (un seul ouvert à la fois) ─────────────────
@@ -867,10 +821,121 @@ def main(page: ft.Page):
 
     # ── Réglages couleur ────────────────────────────────────────────
     co = state["params"]["couleur"]
+
+    def _auto_cast_row():
+        """Corriger la dominante, avec bascule « cette photo seulement » :
+        switch éteint → le curseur modifie le réglage commun du lot ;
+        switch allumé → il ne modifie que la photo affichée (revue avant
+        export, retour user — un second curseur séparé était une couche
+        de trop). Un seul réglage concerné pour l'instant ; à généraliser
+        si le besoin se confirme pour d'autres curseurs."""
+        label = "Corriger la dominante (photos anciennes)"
+        minv, maxv, reset_value = 0, 125, 0
+        _touch = CONSTANTS.TOUCH_TARGET
+
+        def _name():
+            return file_names[state["index"]]
+
+        def _value():
+            name = _name()
+            if switch.value:
+                return state["overrides"].get(name, co["auto_cast"])
+            return co["auto_cast"]
+
+        text = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
+        switch_label = ft.Text("Cette photo seulement",
+                              size=CONSTANTS.TEXT_SM, color=WHITE)
+        reset_btn = ft.IconButton(
+            ft.Icons.RESTART_ALT, icon_size=CONSTANTS.ICON_SM,
+            icon_color=BLUE, tooltip=f"Réinitialiser « {label} »",
+            width=_touch, height=_touch)
+        minus_btn = ft.IconButton(
+            ft.Icons.REMOVE, icon_size=CONSTANTS.ICON_SM, icon_color=WHITE,
+            tooltip=f"{label} − 1", width=_touch, height=_touch)
+        plus_btn = ft.IconButton(
+            ft.Icons.ADD, icon_size=CONSTANTS.ICON_SM, icon_color=WHITE,
+            tooltip=f"{label} + 1", width=_touch, height=_touch)
+        switch = ft.Switch(active_color=BLUE, value=False)
+
+        def _write(new_value, *, move_slider=True):
+            snapped = max(minv, min(maxv, round(new_value)))
+            if switch.value:
+                state["overrides"][_name()] = snapped
+            else:
+                co["auto_cast"] = snapped
+            suffix = " — cette photo" if switch.value else ""
+            text.value = f"{label} : {snapped}{suffix}"
+            reset_btn.disabled = (snapped == reset_value)
+            if move_slider:
+                slider.value = snapped
+                slider.update()
+            text.update()
+            reset_btn.update()
+
+        def _handle(e):
+            _write(e.control.value, move_slider=False)
+            live_preview_tick()
+
+        slider = ft.Slider(min=minv, max=maxv, value=co["auto_cast"],
+                          expand=True, divisions=round(maxv - minv),
+                          on_change=_handle, active_color=BLUE)
+
+        def _step(delta):
+            def handler(e):
+                _write(_value() + delta)
+                live_preview_tick()
+            return handler
+        minus_btn.on_click = _step(-1)
+        plus_btn.on_click = _step(1)
+
+        def _reset(e):
+            _write(reset_value)
+            live_preview_tick()
+        reset_btn.on_click = _reset
+
+        def _refresh():
+            """Resynchronise sur la photo/réglage courant : navigation,
+            Réinitialiser, préréglages, et le réglage du lot qui a pu
+            bouger pendant que cette photo n'a pas d'exception."""
+            name = _name()
+            switch.value = name in state["overrides"]
+            value = _value()
+            text.value = (f"{label} : {round(value)}"
+                         + (" — cette photo" if switch.value else ""))
+            reset_btn.disabled = (round(value) == reset_value)
+            slider.value = value
+            switch.update()
+            text.update()
+            reset_btn.update()
+            slider.update()
+
+        def _on_switch(e):
+            name = _name()
+            if switch.value:
+                # Démarre depuis le réglage actuel du lot, sans saut.
+                state["overrides"][name] = co["auto_cast"]
+            else:
+                state["overrides"].pop(name, None)  # rejoint le lot
+            _refresh()
+            live_preview_tick()
+        switch.on_change = _on_switch
+
+        slider_area = ft.GestureDetector(content=slider, on_double_tap=_reset,
+                                        expand=True)
+        column = ft.Column([
+            text,
+            ft.Row([reset_btn, minus_btn, slider_area, plus_btn], spacing=0,
+                  vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            ft.Row([switch, switch_label], spacing=CONSTANTS.SPACE_XS),
+        ], spacing=0)
+        column.data = _refresh
+        return column, _refresh
+
+    auto_cast_row, _refresh_override_ui = _auto_cast_row()
+
     section_couleur = _make_section(
         "Réglages couleur", BLUE, ft.Icons.PALETTE, co, [
-        _slider_row("Corriger la dominante (photos anciennes)",
-                   co, "auto_cast", 0, 125),
+        auto_cast_row,
         _slider_row("Exposition", co, "exposure", -100, 100),
         _slider_row("Contraste", co, "contrast", -100, 100),
         _slider_row("Saturation", co, "saturation", -100, 100),
@@ -1226,6 +1291,7 @@ def main(page: ft.Page):
         for field, dct, key in reset_registry["fields"]:
             field.value = str(dct[key])
             field.update()
+        _refresh_override_ui()
 
         virage_preset_dd.value = vi["preset"]
         # "Auto" si le mode courant correspond à celui du préréglage (cas
