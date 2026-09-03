@@ -8888,17 +8888,28 @@ def main(page: ft.Page):
         on_pan_update=_on_terminal_resize,
     )
 
+    terminal_title = ft.Text("Terminal", size=CONSTANTS.TEXT_LG, color=WHITE,
+                             weight=ft.FontWeight.W_500, expand=True, no_wrap=True)
+
     terminal_panel = ft.Container(
         content=ft.Column([
             terminal_resize_handle,
+            # Barre de titre alignée sur celle du Bloc-notes (retour user) :
+            # titre à gauche, icônes d'action à droite plutôt que mêlées à
+            # la ligne de saisie.
+            ft.Container(
+                content=ft.Row([
+                    terminal_title, terminal_copy_button,
+                    terminal_to_notepad_button, terminal_clear_button,
+                    terminal_fullscreen_btn,
+                ], spacing=4),
+                padding=ft.Padding(8, 8, 8, 0),
+                bgcolor=BACKGROUND,
+            ),
+            ft.Divider(height=1, color=GREY),
             ft.Container(content=terminal_output, expand=True, padding=8),
             action_progress_bar,
-            ft.Container(
-                content=ft.Row([terminal_input, terminal_copy_button,
-                                terminal_to_notepad_button,
-                                terminal_clear_button,
-                                terminal_fullscreen_btn]),
-                padding=ft.Padding(8, 0, 8, 8)),
+            ft.Container(content=terminal_input, padding=ft.Padding(8, 0, 8, 8)),
         ], spacing=0, expand=True),
         bgcolor=DARK, height=CONSTANTS.HUB_TERMINAL_HEIGHT, visible=False,
     )
@@ -9005,7 +9016,11 @@ def main(page: ft.Page):
 
     def _sync_terminal_btn():
         active = terminal_panel.visible
-        terminal_toggle_btn.bgcolor = ORANGE if active else None
+        # TextButton n'a pas de `bgcolor` direct (attribut fantôme, sans
+        # effet) — il faut passer par style=ButtonStyle(bgcolor=...)
+        # (retour user : les boutons restaient gris malgré l'affectation).
+        terminal_toggle_btn.style = ft.ButtonStyle(
+            bgcolor=ORANGE if active else None)
         terminal_btn_icon.color = DARK if active else WHITE
         terminal_btn_text.color = DARK if active else WHITE
         terminal_toggle_btn.update()
@@ -9022,7 +9037,8 @@ def main(page: ft.Page):
 
     def _sync_notes_btn():
         active = notes_panel.visible
-        notes_toggle_btn.bgcolor = VIOLET if active else None
+        notes_toggle_btn.style = ft.ButtonStyle(
+            bgcolor=VIOLET if active else None)
         notes_btn_icon.color = DARK if active else WHITE
         notes_btn_text.color = DARK if active else WHITE
         notes_toggle_btn.update()
