@@ -74,8 +74,10 @@ SURFACES = [
     ("files", "Fichiers", ft.Icons.PHOTO_LIBRARY_OUTLINED),
     ("liste", "Liste",    ft.Icons.LIST_ALT_OUTLINED),
     ("ia",    "IA",       ft.Icons.SMART_TOY_OUTLINED),
-    ("notes", "Notes",    ft.Icons.EDIT_NOTE_OUTLINED),
     ("actus", "Actus",    ft.Icons.RSS_FEED_OUTLINED),
+    # Bloc-notes retiré du rail (retour user) : accessible en bandeau
+    # depuis la barre du bas (notes_panel), plus en surface plein écran —
+    # cf. bouton Notes de la statusbar.
 ]
 
 # Hauteur de fenêtre en mode bandeau (strip mode) — juste assez pour la
@@ -2779,11 +2781,11 @@ def main(page: ft.Page):
             return
         state["font_size"] = size
         notes_field.text_style = ft.TextStyle(font_family="monospace", size=size)
-        if state["surface"] == "notes" and not notes_is_preview["value"]:
+        if notes_panel.visible and not notes_is_preview["value"]:
             notes_field.update()
         notes_preview.md_style_sheet = ft.MarkdownStyleSheet(
             p_text_style=ft.TextStyle(size=size))
-        if state["surface"] == "notes" and notes_is_preview["value"]:
+        if notes_panel.visible and notes_is_preview["value"]:
             notes_preview.update()
         for ctrl, offset in ai_text_refs:
             if isinstance(ctrl, ft.Markdown):
@@ -4622,7 +4624,7 @@ def main(page: ft.Page):
             notes_body.content = notes_editor_content
             notes_preview_btn.icon = ft.Icons.VISIBILITY
             notes_preview_btn.tooltip = "Prévisualiser en Markdown"
-        _select_surface("notes")
+        _show_notes_panel()
 
     def _notes_go_home(event=None):
         """Recharge .notes.md, comme Dashboard.pyw:10259-10265 — mais
@@ -4720,6 +4722,30 @@ def main(page: ft.Page):
         notes_body,
     ], expand=True, spacing=0)
     _notes_load()
+
+    # Bandeau en bas (comme terminal_panel), pas surface plein écran
+    # (retour user) : reste replié à CONSTANTS.HUB_TERMINAL_HEIGHT plutôt
+    # que de prendre toute la hauteur de la fenêtre.
+    notes_panel = ft.Container(
+        content=notes_surface, bgcolor=DARK,
+        height=CONSTANTS.HUB_TERMINAL_HEIGHT, visible=False,
+        border=ft.Border(top=ft.BorderSide(2, VIOLET)),
+    )
+
+    def _show_notes_panel():
+        """Ouvre le panneau Notes sans toucher à l'onglet actif (Fichiers/
+        Liste/IA reste affiché à côté) — remplace les anciens passages par
+        _select_surface("notes")."""
+        notes_panel.visible = True
+        page.update()
+        _run_task(_focus_active_surface)
+
+    def _toggle_notes(event):
+        notes_panel.visible = not notes_panel.visible
+        if not notes_panel.visible:
+            _notes_save()   # comme l'ancien changement d'onglet
+        page.update()
+        _run_task(_focus_active_surface)
 
     # ═════════════════════════════════════════════════════════════════════
     #  Surface IA — chat + outils (cerveau mutualisé Data/ai_tools.py)
@@ -5869,8 +5895,7 @@ def main(page: ft.Page):
             _notes_save()
             if notes_is_preview["value"]:
                 notes_preview.value = notes_field.value or ""
-            _select_surface("notes")
-            page.update()
+            _show_notes_panel()
 
     def _ai_refresh_attach_row():
         ai_attach_row.controls.clear()
@@ -7047,7 +7072,6 @@ def main(page: ft.Page):
         "files": files_surface,
         "liste": liste_surface,
         "ia":    ia_surface,
-        "notes": notes_surface,
         "actus": actus_surface,
     }
     center = ft.Container(content=surface_content["files"], expand=True,
@@ -7078,21 +7102,19 @@ def main(page: ft.Page):
             if terminal_panel.visible:
                 await terminal_input.focus()
                 return
-            key = state["surface"]
-            if key == "notes":
+            if notes_panel.visible:
                 end = len(notes_field.value or "")
                 notes_field.selection = ft.TextSelection(
                     base_offset=end, extent_offset=end)
                 notes_field.update()
                 await notes_field.focus()
-            elif key == "ia":
+                return
+            if state["surface"] == "ia":
                 await ai_input_field.focus()
         except Exception:
             pass
 
     def _select_surface(key):
-        if state["surface"] == "notes" and key != "notes":
-            _notes_save()   # enregistre le bloc-notes au changement d'onglet
         # Bascule dynamique de l'épinglage forcé du terminal (_busy_start/
         # _busy_end) selon l'onglet visé — retour user : inutile de garder
         # le terminal ouvert de force sur l'onglet IA (le statut y est déjà
@@ -8486,8 +8508,7 @@ def main(page: ft.Page):
             _notes_save()
             if notes_is_preview["value"]:
                 notes_preview.value = notes_field.value or ""
-            _select_surface("notes")
-            page.update()
+            _show_notes_panel()
 
     def _exec_terminal_command(command_text, sudo_password=None):
         cwd = state["folder"] or _APP_DIR
@@ -8887,15 +8908,18 @@ def main(page: ft.Page):
         _run_task(_focus_active_surface)
 
     # Curseur de taille unique dans la statusbar (retour user) : pilote la
-    # taille des vignettes en Fichiers, et la taille du texte en IA/Bloc-
-    # notes — reconfiguré par _configure_size_control() plutôt que dupliqué
-    # par onglet. Double-clic dessus -> retour à la valeur par défaut.
+    # taille des vignettes en Fichiers, et la taille du texte en IA —
+    # reconfiguré par _configure_size_control() plutôt que dupliqué par
+    # onglet. Double-clic dessus -> retour à la valeur par défaut. Le
+    # Bloc-notes n'étant plus une surface (bandeau détaché, cf.
+    # notes_panel), son texte suit toujours state["font_size"] mais ne
+    # pilote plus ce curseur.
     size_control_icon = ft.Icon(ft.Icons.PHOTO_SIZE_SELECT_LARGE,
                                 size=CONSTANTS.ICON_SM, color=WHITE)
     size_control_slider = ft.Slider(width=140, active_color=BLUE)
 
     def _configure_size_control():
-        if state["surface"] in ("ia", "notes"):
+        if state["surface"] == "ia":
             size_control_icon.icon = ft.Icons.FORMAT_SIZE
             size_control_slider.min = 11
             size_control_slider.max = 24
@@ -8911,7 +8935,7 @@ def main(page: ft.Page):
             size_control_slider.tooltip = "Taille des vignettes (double-clic : réinitialiser)"
 
     def _reset_size_control(e=None):
-        if state["surface"] in ("ia", "notes"):
+        if state["surface"] == "ia":
             _apply_font_size(_DEFAULT_FONT_SIZE)
             size_control_slider.value = state["font_size"]
         else:
@@ -8941,8 +8965,8 @@ def main(page: ft.Page):
                     ft.Text("Notes", size=CONSTANTS.TEXT_SM, color=WHITE),
                 ], spacing=6, tight=True),
                 height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT,
-                on_click=lambda e: _select_surface("notes"),
-                tooltip="Bloc-notes (sans quitter Fichiers/Actions)",
+                on_click=_toggle_notes,
+                tooltip="Bloc-notes (bandeau, sans quitter Fichiers/Actions)",
             ),
             ft.Container(
                 content=ft.Row([
@@ -9237,6 +9261,7 @@ def main(page: ft.Page):
     body = ft.Column([
         ft.Divider(height=1, color=GREY),
         main_row,
+        notes_panel,
         terminal_panel,
         statusbar,
     ], expand=True, spacing=0)
