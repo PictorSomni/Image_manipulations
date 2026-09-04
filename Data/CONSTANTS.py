@@ -238,9 +238,9 @@ TWO_IN_ONE_FORMATS = [
     ("2 7x10 sur 10x15",  "76x102"),
     ("2 9x13 sur 13x18",  "89x127"),
     ("2 10x10 sur 10x20", "102x102"),
-    ("2 15x20 sur 20x30", "152x203"),
-    ("2 13x18 sur A4",    "127x178@210x297"),
-    ("2 10x15 sur A4",    "102x152@210x297"),
+   #  ("2 15x20 sur 20x30", "152x203"),
+   #  ("2 13x18 sur A4",    "127x178@210x297"),
+   # ("2 10x15 sur A4",    "102x152@210x297"),
 ]
 
 
@@ -527,7 +527,7 @@ AI_OLLAMA_URL          = "http://localhost:11434"      # URL de l'API Ollama loc
 AI_MODEL_TEXT          = "gemini-3.5-flash-lite"           # Modèle texte par défaut
 AI_MODEL_VISION        = "gemini-3.5-flash-lite"           # Modèle vision par défaut
 AI_GEMINI_MODEL        = "gemini-3.5-flash-lite"           # Modèle Gemini principal (API Google)
-AI_GEMINI_FALLBACK_CLOUD = "gemini-3.6-flash"  # Fallback cloud si modèle indisponible
+AI_GEMINI_FALLBACK_CLOUD = "gemini-3.8-flash"  # Fallback cloud si modèle indisponible
 AI_GEMINI_FALLBACK     = "gemma4:e4b"                 # Fallback Ollama local si hors-ligne
 AI_GEMINI_IMAGE_TIMEOUT = 300                # Timeout max (s) generate/edit image via Gemini (relevé de 120s, API parfois très sollicitée — retour user)
 AI_GEMINI_EXPAND_TIMEOUT = 600               # Timeout max (s) extension d'image (plus lourde, relevé de 300s pareil)
@@ -1022,9 +1022,9 @@ CA_AXIAL_RATIO = 0.64  # part de la composante axiale (0 = purement radial, 1 = 
 # teinte des HL — il faut éclaircir dans le fichier, pas à l'imprimante).
 
 VIRAGE_PRESETS = {
-    "SEPIA":       {"mode": "colorize", "hue": 25,  "sat": 25},  # retour user : réglage Photoshop/Affinity habituel
-    "JAUNI":       {"mode": "multiply", "hue": 46,  "sat": 85, "light": 85, "shadow_lift": 10},  # retour user : image trop sombre de base
-    "N&B ANCIEN":  {"mode": "colorize", "hue": 150, "sat": 4},
+    "SEPIA":       {"mode": "colorize", "hue": 25,  "sat": 13},  # retour user : réglage Photoshop/Affinity habituel
+    "JAUNI":       {"mode": "multiply", "hue": 40,  "sat": 85, "light": 85, "shadow_lift": 10},  # retour user : image trop sombre de base
+    "N&B ANCIEN":  {"mode": "colorize", "hue": 150, "sat": 3},
     "N&B":         {"mode": "colorize", "hue": 0,   "sat": 0},
 }
 VIRAGE_DEFAULT_PRESET = "SEPIA"
