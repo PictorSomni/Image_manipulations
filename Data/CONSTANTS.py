@@ -367,18 +367,14 @@ COLLAGE_WIDTH_CM_DEFAULT  = 40   # Largeur du canevas final, en cm
 COLLAGE_HEIGHT_CM_DEFAULT = 30   # Hauteur du canevas final, en cm
 # Résolution du canevas : pas de défaut dédié, DPI (§4.1) sert de base
 # partout dans l'app (retour user).
-# Les 4 curseurs à 15% par défaut (retour user, après test réel) : assez
-# de "lâché" pour ne pas ressembler à une grille figée, sans retomber
-# dans le vide que 50% laissait avec peu de photos (cf. fit_and_rotate
-# "cover" + plancher anti-recouvrement = cellule de grille, plus haut
-# dans le fichier — 15% reste dans le confort de ce compromis).
-COLLAGE_POSITION_VARIATION_DEFAULT = 15   # 0 = grille bien rangée, 100 = scatter "lâché"
+# Placement = partage récursif de l'aire du canevas proportionnel au
+# poids de chaque photo (cf. Montage collage.py:_split_weighted) — ne
+# laisse par construction ni trou ni chevauchement, donc plus besoin de
+# curseur Position (grille <-> scatter) ni de curseur Chevauchement max
+# (les 2 curseurs supprimés au réglage précédent) : la position de
+# chaque photo découle directement de sa taille (retour user).
 COLLAGE_SIZE_VARIATION_DEFAULT     = 15   # 0 = tailles uniformes, 100 = très inégales
 COLLAGE_ROTATION_VARIATION_DEFAULT = 15   # 0 = toutes droites, 100 = fortement penchées
-# 0 = jamais l'une sur l'autre, 100 = librement l'une sur l'autre (retour
-# user : des visages disparaissaient sous une autre photo, ex. selfies
-# déjà recadrés serrés, à un réglage plus permissif).
-COLLAGE_MAX_OVERLAP_DEFAULT        = 15
 COLLAGE_SAFE_MARGIN_CM_DEFAULT     = 0    # Marge tenue libre près des bords du canevas, en cm (retour user)
 
 

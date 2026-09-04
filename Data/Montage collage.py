@@ -1,17 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-Prépare un montage photo (grille bien rangée -> scrapbook "lâché") sur un
-canevas à la taille finale demandée par le client, à partir de toutes les
-images d'un dossier.
+Prépare un montage photo (mosaïque à tailles variables, façon scrapbook)
+sur un canevas à la taille finale demandée par le client, à partir de
+toutes les images d'un dossier.
 
-Répartit les photos sur une grille approximative puis fait varier position
-(COLLAGE_POSITION_VARIATION, grille bien rangée à scatter "lâché"), taille
-(COLLAGE_SIZE_VARIATION) et rotation (COLLAGE_ROTATION_VARIATION) de
-chacune, indépendamment. Une marge de sécurité (COLLAGE_SAFE_MARGIN_CM)
-tient la grille éloignée du bord réel du canevas, pour limiter le risque de
-détail important coupé au massicot. Une photo peut être désignée comme
-centrale (COLLAGE_CENTER_FILE, agrandie, posée au milieu, jamais pivotée) et
-d'autres comme mises en avant (COLLAGE_FEATURED_FILES, agrandies).
+Répartit les photos par un partage récursif de l'aire du canevas
+proportionnel au poids (COLLAGE_SIZE_VARIATION) de chacune — garantit par
+construction que les tuiles couvrent TOUT le canevas, sans trou ni
+recouvrement entre elles (le seul chevauchement volontaire vient de la
+photo centrale, cf. plus bas). Une légère rotation
+(COLLAGE_ROTATION_VARIATION) peut ensuite être appliquée à chaque tuile,
+rétrécie d'autant qu'il faut pour que sa boîte pivotée tienne quand même
+dans sa case d'origine — elle ne déborde donc jamais sur une voisine. Une
+marge de sécurité (COLLAGE_SAFE_MARGIN_CM) tient la mosaïque éloignée du
+bord réel du canevas, pour limiter le risque de détail important coupé au
+massicot. Une photo peut être désignée comme centrale (COLLAGE_CENTER_FILE,
+agrandie, posée au milieu, jamais pivotée) et d'autres comme mises en
+avant (COLLAGE_FEATURED_FILES, agrandies).
 
 Produit un aperçu à taille réelle (``Montage/apercu.png``, fond transparent)
 et, si demandé, un fichier .psd avec chaque photo sur son propre calque déjà
@@ -24,10 +29,8 @@ Variables d'environnement :
   COLLAGE_WIDTH_CM         — largeur du canevas final, en cm.
   COLLAGE_HEIGHT_CM        — hauteur du canevas final, en cm.
   COLLAGE_DPI              — résolution en ppp (défaut CONSTANTS.DPI).
-  COLLAGE_POSITION_VARIATION — 0-100, grille bien rangée (0) à scatter "lâché" (100) (défaut CONSTANTS.COLLAGE_POSITION_VARIATION_DEFAULT).
   COLLAGE_SIZE_VARIATION   — 0-100, écart de taille entre photos (défaut CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT).
   COLLAGE_ROTATION_VARIATION — 0-100, amplitude de rotation (défaut CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT).
-  COLLAGE_MAX_OVERLAP      — 0-100, chevauchement max toléré entre 2 photos : 0 = jamais l'une sur l'autre (rien de caché), 100 = librement l'une sur l'autre (défaut CONSTANTS.COLLAGE_MAX_OVERLAP_DEFAULT).
   COLLAGE_SAFE_MARGIN_CM   — marge de sécurité près des bords, en cm (défaut CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT).
   COLLAGE_CENTER_FILE      — nom d'une photo à poser au centre, agrandie (optionnel).
   COLLAGE_FEATURED_FILES   — noms de photos à mettre en avant, séparés par ``|`` (optionnel).
@@ -38,7 +41,7 @@ Dépendances : Pillow, numpy (déjà requis par image_ops).
   Optionnel (COLLAGE_PSD=1 uniquement) : pytoshop, six.
 """
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -60,210 +63,147 @@ import image_ops
 #############################################################
 PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 
-# Une photo mise en avant (mais pas centrale) ressort ~60% plus grande que
-# la variation de taille normale ne le ferait déjà — assez pour se voir
-# nettement dans le tas sans écraser le reste (pas exposé en réglage : un
-# multiplicateur de plus n'apporterait rien que la case à cocher ne dise
-# déjà, cf. retour user).
+# Une photo mise en avant (mais pas centrale) reçoit un poids ~60% plus
+# élevé dans le partage de l'aire (cf. _split_weighted) — assez pour se
+# voir nettement dans le tas sans écraser le reste (pas exposé en réglage :
+# un multiplicateur de plus n'apporterait rien que la case à cocher ne
+# dise déjà, cf. retour user).
 FEATURED_SCALE_BOOST = 1.6
-
-# Plafond de taille d'une tuile, en multiple de sa cellule de grille —
-# borne le cumul scale x overlap x rotation (cf. compute_layout) pour
-# qu'aucune tuile ne devienne assez grande pour rendre le canevas trop
-# à l'étroit pour l'anti-recouvrement (retour user, cf. plus bas).
-MAX_TILE_CELL_MULT = 1.8
 
 #############################################################
 #                          LAYOUT                            #
 #############################################################
 
-def _rotated_half_diag(w, h, angle_deg):
-    """Demi-diagonale de la boîte englobante (axis-aligned) de w x h une
-    fois pivotée de `angle_deg` — plus grande que w/h eux-mêmes dès que
-    l'angle n'est pas nul, exactement ce que gagne le rendu réel
-    (fit_and_rotate, expand=True)."""
+def _split_weighted(items, x, y, w, h):
+    """Partitionne récursivement le rectangle (x, y, w, h) en autant de
+    sous-rectangles que d'`items` (liste de (poids, clé)), chacun
+    proportionnel à son poids — coupe toujours le long du plus grand côté
+    du rectangle courant (évite les bandes trop fines). L'union des
+    rectangles renvoyés couvre EXACTEMENT (x, y, w, h), sans trou ni
+    recouvrement entre eux : c'est ce qui garantit qu'un écart de taille
+    marqué (poids très différents) ne laisse jamais de fond transparent
+    visible ni ne fait chevaucher deux photos entre elles (retour user :
+    "certaines images clairement plus petites et d'autres clairement plus
+    grandes... qu'elles se repositionnent pour avoir le moins de vide
+    possible" — la grille à jitter précédente ne pouvait pas garantir ça,
+    ce partage récursif le garantit par construction).
+
+    Renvoie une liste de (clé, x, y, w, h)."""
+    if len(items) == 1:
+        return [(items[0][1], x, y, w, h)]
+    total = sum(wt for wt, _ in items)
+    # Sépare en 2 groupes de poids aussi égal que possible (glouton sur
+    # les poids triés décroissants — pas besoin de l'optimal, juste d'un
+    # partage raisonnable pour que chaque moitié récursive reste
+    # équilibrée).
+    ordered = sorted(items, key=lambda t: -t[0])
+    group_a, sum_a = [], 0.0
+    for wt, k in ordered:
+        if not group_a or sum_a < total / 2:
+            group_a.append((wt, k))
+            sum_a += wt
+        else:
+            break
+    group_b = ordered[len(group_a):]
+    if not group_b:
+        # Poids extrêmement inégaux (ex. 1 item boosté qui dépasse déjà à
+        # lui seul la moitié du total) : lui laisser sa propre part plutôt
+        # que de forcer les autres à la partager avec lui.
+        group_b = [group_a.pop()]
+        sum_a -= group_b[0][0]
+    frac_a = sum_a / total
+    if w >= h:
+        wa = min(w - 1, max(1, round(w * frac_a)))
+        return (_split_weighted(group_a, x, y, wa, h)
+               + _split_weighted(group_b, x + wa, y, w - wa, h))
+    ha = min(h - 1, max(1, round(h * frac_a)))
+    return (_split_weighted(group_a, x, y, w, ha)
+           + _split_weighted(group_b, x, y + ha, w, h - ha))
+
+
+def _rotation_safe_scale(box_w, box_h, angle_deg):
+    """Facteur d'échelle (<=1) à appliquer à (box_w, box_h) pour que la
+    boîte ENGLOBANTE une fois pivotée (expand=True, cf. fit_and_rotate)
+    tienne quand même dans (box_w, box_h) d'origine. Sans ce
+    rétrécissement, une tuile pivotée déborderait sur sa voisine — aucune
+    des deux n'a de marge prévue pour ça, cf. _split_weighted qui les fait
+    se toucher pile."""
+    if abs(angle_deg) < 0.05:
+        return 1.0
     rad = math.radians(angle_deg)
-    ext_w = abs(w * math.cos(rad)) + abs(h * math.sin(rad))
-    ext_h = abs(w * math.sin(rad)) + abs(h * math.cos(rad))
-    return math.hypot(ext_w, ext_h) / 2
+    c, s = abs(math.cos(rad)), abs(math.sin(rad))
+    ext_w = box_w * c + box_h * s
+    ext_h = box_w * s + box_h * c
+    return min(box_w / ext_w, box_h / ext_h)
 
 
 def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
-                   rotation_variation, position_variation, max_overlap,
-                   seed=None, margin_px=0, center_key=None,
-                   featured_keys=frozenset()):
-    """Place chaque clé de `photo_keys` sur une grille approx. de la taille
-    du canevas (moins `margin_px` de marge sur chaque bord), puis fait
-    varier indépendamment position (`position_variation` — 0 = cellule de
-    grille pile centrée, 100 = scatter façon scrapbook), taille
-    (`size_variation`) et rotation (`rotation_variation`), chacune 0-100.
-    `max_overlap` (0-100) plafonne ensuite le chevauchement toléré entre
-    2 tuiles quelconques : 0 = jamais l'une sur l'autre (aucun visage ne
-    peut se retrouver caché), 100 = librement l'une sur l'autre (retour
-    user : des personnes disparaissaient sous une autre photo).
+                   rotation_variation, seed=None, margin_px=0,
+                   center_key=None, featured_keys=frozenset()):
+    """Place chaque clé de `photo_keys` sur le canevas (moins `margin_px`
+    de marge sur chaque bord) par un partage récursif de l'aire disponible
+    proportionnel au poids de chacune (cf. _split_weighted) — les tuiles
+    couvrent ainsi TOUJOURS tout le canevas, sans trou ni recouvrement
+    entre elles, quel que soit le nombre de photos. `size_variation`
+    (0-100) pilote l'écart entre les poids : 0 = tous égaux (mosaïque
+    régulière), 100 = certaines tuiles nettement plus grandes que
+    d'autres. Une rotation (`rotation_variation`, 0-100) peut ensuite être
+    appliquée à chaque tuile, rétrécie d'autant qu'il faut pour que sa
+    boîte pivotée tienne quand même dans sa case d'origine (cf.
+    _rotation_safe_scale) — jamais de débordement sur une voisine.
 
-    `center_key`, si présent dans `photo_keys`, est retirée du tirage de
-    grille et posée au milieu du canevas, agrandie, jamais pivotée — elle
-    n'est jamais concernée par `max_overlap` (mise en avant volontaire).
-    Les clés de `featured_keys` reçoivent un coup de pouce de taille en
-    plus de la variation aléatoire normale.
+    `center_key`, si présent dans `photo_keys`, est retirée du partage et
+    posée au milieu du canevas, agrandie, jamais pivotée, volontairement
+    au-dessus du reste (mise en avant délibérée, cf. render_montage). Les
+    clés de `featured_keys` reçoivent un poids plus élevé dans le partage
+    — donc une case proportionnellement plus grande.
 
     Renvoie une liste de (center_x, center_y, box_w, box_h, angle_deg)
-    dans le MÊME ORDRE que `photo_keys` (donc aussi l'ordre d'empilement
-    en cas de recouvrement, la centrale mise à part — toujours dessinée
-    en dernier, cf. render_montage)."""
+    dans le MÊME ORDRE que `photo_keys` (donc aussi l'ordre d'empilement,
+    la centrale mise à part — toujours dessinée en dernier, cf.
+    render_montage)."""
     rng = random.Random(seed)
     usable_w = max(1, canvas_w - 2 * margin_px)
     usable_h = max(1, canvas_h - 2 * margin_px)
 
     others = [k for k in photo_keys if k != center_key]
-    count = len(others)
-    cols = max(1, round(math.sqrt(max(count, 1) * usable_w / usable_h)))
-    rows = math.ceil(count / cols) if count else 0
-    # Cellule "nominale" (cols x rows plein) — sert de référence pour la
-    # photo centrale plus bas, pas pour les cellules réelles ci-dessous.
-    cell_w = usable_w / cols
-    cell_h = usable_h / rows if rows else usable_h
-
-    # Avec peu de photos, count ne remplit pas forcément cols x rows pile
-    # (ex. 3 photos -> grille 2x2) : une ligne reste alors incomplète. Une
-    # largeur de cellule fixe (usable_w / cols) y laissait carrément une ou
-    # plusieurs cellules VIDES (fond transparent visible sur tout le
-    # canevas, retour user : "beaucoup de blanc/vide" avec peu de photos).
-    # Chaque ligne répartit donc ses cellules sur la largeur RÉELLEMENT
-    # utilisée par cette ligne (nombre de photos qu'elle contient), pas sur
-    # `cols` : une ligne incomplète a moins de cellules mais plus larges,
-    # et couvre donc toujours toute la largeur du canevas.
-    row_counts = []
-    remaining, rows_left = count, rows
-    for _ in range(rows):
-        take = math.ceil(remaining / rows_left)
-        row_counts.append(take)
-        remaining -= take
-        rows_left -= 1
-
-    cells = [(c, r, row_counts[r]) for r in range(rows)
-            for c in range(row_counts[r])]
-    rng.shuffle(cells)
-
     size_t = max(0.0, min(1.0, size_variation / 100)) ** 0.6
     rotation_t = max(0.0, min(1.0, rotation_variation / 100))
-    position_t = max(0.0, min(1.0, position_variation / 100))
-    # Grossit toutes les boîtes (centrale incluse, ci-dessous) dans la
-    # même proportion pour compenser le jitter de position et fermer les
-    # trous qu'il crée sinon (retour user).
-    overlap = 1 + position_t * 0.7
 
-    placed = {}
-    cell_dims = {}
-    for key, (c, r, n_in_row) in zip(others, cells):
-        row_cell_w = usable_w / n_in_row
-        cell_dims[key] = (row_cell_w, cell_h)
-        cx = margin_px + (c + 0.5) * row_cell_w
-        cy = margin_px + (r + 0.5) * cell_h
-        # Indépendant de size_variation (retour user) : un slider dédié
-        # pour aller d'une grille bien rangée (0) à un scatter façon
-        # scrapbook (100). Plafonné à 0.35x la cellule (retour user : à
-        # 0.6 puis 0.85, deux tuiles de cellules voisines pouvaient
-        # dériver l'une vers l'autre jusqu'à des centres quasi confondus —
-        # "des images qui se chevauchent totalement" — la seule tuile
-        # rétrécie par la passe anti-recouvrement ne peut pas compenser un
-        # centre déplacé aussi loin. 0.35 laisse encore un vrai décalage
-        # "scrapbook" tout en gardant, au pire tirage, deux cellules
-        # voisines à bonne distance l'une de l'autre (mesuré : 0 paire en
-        # quasi-recouvrement total sur >4600 paires testées à 0.35, contre
-        # plusieurs à 0.6/0.85).
-        jitter = position_t * min(row_cell_w, cell_h) * 0.35
-        cx += rng.uniform(-jitter, jitter)
-        cy += rng.uniform(-jitter, jitter)
+    weights = []
+    for key in others:
         # Asymétrique (-0.5 à +1.1) plutôt que centré sur 1 : quelques
         # photos nettement plus grandes que la moyenne, comme un vrai
-        # scrapbook composé à la main plutôt qu'une grille uniformément
+        # scrapbook composé à la main plutôt qu'une mosaïque uniformément
         # redimensionnée (retour user : les tailles restaient trop
         # semblables avec un écart symétrique étroit).
-        scale = max(0.35, 1 + rng.uniform(-0.5, 1.1) * size_t)
+        weight = max(0.35, 1 + rng.uniform(-0.5, 1.1) * size_t)
         if key in featured_keys:
-            scale *= FEATURED_SCALE_BOOST
-        angle = rng.uniform(-28, 28) * rotation_t
-        # scale (jusqu'à 2.1, ou 3.4 pour une mise en avant), overlap
-        # (jusqu'à 1.7) et la rotation (jusqu'à x1.41 de diagonale une
-        # fois pivotée) se cumulent — sans plafond, quelques tuiles
-        # finissaient presque aussi grandes que le canevas et rien ne
-        # pouvait plus les empêcher d'en avaler d'autres (retour user :
-        # persistait malgré la passe anti-recouvrement ci-dessous).
-        # MAX_TILE_CELL_MULT borne chaque boîte à une taille encore
-        # nettement mise en avant sans devenir ingérable.
-        placed[key] = (cx, cy,
-                      min(row_cell_w * scale * overlap, row_cell_w * MAX_TILE_CELL_MULT),
-                      min(cell_h * scale * overlap, cell_h * MAX_TILE_CELL_MULT),
-                      angle)
+            weight *= FEATURED_SCALE_BOOST
+        weights.append((weight, key))
+    # Mélange avant le partage récursif (qui trie par poids en interne) :
+    # sans ça, deux photos consécutives dans `photo_keys` finiraient
+    # presque toujours voisines sur le canevas.
+    rng.shuffle(weights)
 
-    # Le chevauchement qui referme les trous ci-dessus peut, à l'inverse,
-    # cacher une partie ou la totalité d'une photo sous une autre —
-    # problématique dès qu'un visage se retrouve caché, pas seulement en
-    # cas de recouvrement total (retour user : "il faut vraiment parfois
-    # faire très attention pour éviter que les photos ne se chevauchent",
-    # ex. selfies déjà recadrés serrés où le moindre bout masqué se voit).
-    # `max_overlap` plafonne l'écart minimal entre CHAQUE paire de tuiles
-    # (pas seulement grande-avale-petite comme avant) : à 0, les cercles
-    # circonscrits (rayon = demi-diagonale APRÈS rotation, cf.
-    # _rotated_half_diag — le rendu réel, plus grand que la boîte tant que
-    # l'angle n'est pas nul) ne se touchent jamais, donc les tuiles non
-    # plus. RÉDUIRE la taille des tuiles en conflit (pas les repousser en
-    # position) : sur un canevas déjà plein (beaucoup de photos / tailles
-    # au max), une passe qui repousse sature contre les bords et peut au
-    # final RE-concentrer des tuiles ensemble — constaté empiriquement,
-    # nettement PIRE que ne rien faire. Réduire la taille, à l'inverse, ne
-    # peut jamais aggraver un recouvrement. Un chevauchement nul et une
-    # absence totale de trous sont deux objectifs contradictoires pour un
-    # placement au hasard (retour user antérieur sur les trous) : à
-    # max_overlap bas, quelques trous peuvent réapparaître — un fond
-    # visible est jugé préférable à un visage caché.
-    # Plancher par tuile = le plus PETIT entre sa cellule de grille et sa
-    # taille déjà voulue (post scale/overlap, avant toute réduction) — pas
-    # juste la cellule seule (retour user : ça faisait REGROSSIR toute
-    # tuile volontairement réduite par size_variation dès que la passe
-    # ci-dessous la touchait, puisque `max(min_w, wi * factor)` remonte au
-    # plancher si `wi` est déjà en dessous — l'écart de taille demandé
-    # disparaissait à l'usage). En prenant le minimum des deux :
-    #  - une tuile GROSSIE par scale/overlap garde son plancher à la
-    #    cellule (peut redescendre jusqu'à couvrir sa cellule pile, jamais
-    #    moins — c'est ce qui garantit l'absence de trou, cf. plus haut) ;
-    #  - une tuile RÉDUITE par size_variation garde son plancher à SA
-    #    PROPRE taille (déjà sous la cellule) — la passe ne peut plus la
-    #    faire regrossir, seule la tuile en face (généralement la plus
-    #    grande du conflit) absorbe l'ajustement anti-recouvrement.
-    overlap_t = max(0.0, min(1.0, max_overlap / 100))
-    min_w = {k: min(cell_dims[k][0], placed[k][2]) for k in others}
-    min_h = {k: min(cell_dims[k][1], placed[k][3]) for k in others}
-    for _pass in range(25):
-        shrunk = False
-        for i, ki in enumerate(others):
-            for kj in others[i + 1:]:
-                cxi, cyi, wi, hi, ai = placed[ki]
-                cxj, cyj, wj, hj, aj = placed[kj]
-                ri = _rotated_half_diag(wi, hi, ai)
-                rj = _rotated_half_diag(wj, hj, aj)
-                dist = math.hypot(cxi - cxj, cyi - cyj)
-                min_dist = (ri + rj) * (1 - overlap_t)
-                if dist >= min_dist or min_dist < 1e-6:
-                    continue
-                factor = max(0.5, dist / min_dist)
-                new_wi = max(min_w[ki], wi * factor)
-                new_hi = max(min_h[ki], hi * factor)
-                new_wj = max(min_w[kj], wj * factor)
-                new_hj = max(min_h[kj], hj * factor)
-                if (new_wi, new_hi) == (wi, hi) and (new_wj, new_hj) == (wj, hj):
-                    continue  # déjà au plancher des deux côtés, rien à faire
-                placed[ki] = (cxi, cyi, new_wi, new_hi, ai)
-                placed[kj] = (cxj, cyj, new_wj, new_hj, aj)
-                shrunk = True
-        if not shrunk:
-            break
+    placed = {}
+    if others:
+        for key, x, y, w, h in _split_weighted(weights, margin_px, margin_px,
+                                               usable_w, usable_h):
+            angle = rng.uniform(-28, 28) * rotation_t
+            scale = _rotation_safe_scale(w, h, angle)
+            placed[key] = (x + w / 2, y + h / 2, w * scale, h * scale, angle)
 
     if center_key is not None and center_key in photo_keys:
-        box_w = min(usable_w * 0.9, cell_w * 2.2 * overlap)
-        box_h = min(usable_h * 0.9, cell_h * 2.2 * overlap)
+        # Taille "nominale" de référence : l'aire moyenne qu'aurait une
+        # tuile si le canevas était partagé également entre toutes les
+        # autres photos, à l'aspect ratio du canevas — sert juste à faire
+        # ressortir la centrale nettement au-dessus de cette moyenne.
+        count = max(1, len(others))
+        nominal_w = usable_w / math.sqrt(count)
+        nominal_h = usable_h / math.sqrt(count)
+        box_w = min(usable_w * 0.9, nominal_w * 2.2)
+        box_h = min(usable_h * 0.9, nominal_h * 2.2)
         placed[center_key] = (canvas_w / 2, canvas_h / 2, box_w, box_h, 0.0)
 
     return [placed[k] for k in photo_keys]
@@ -277,8 +217,8 @@ def fit_and_rotate(image, box_w, box_h, angle_deg):
     image_ops.py:488-492) : BICUBIC pour la rotation, LANCZOS pour le
     resize.
 
-    Cover plutôt que contain (retour user) : même une grille sans la
-    moindre cellule vide (cf. compute_layout) laissait de grandes bandes
+    Cover plutôt que contain (retour user) : même une mosaïque sans le
+    moindre trou (cf. compute_layout) laissait de grandes bandes
     transparentes DANS chaque tuile dès que l'aspect ratio de la photo ne
     collait pas à celui de sa case — "les gens paient pour voir leurs
     photos, pas du vide". Recadre au centre : perd un peu des bords les
@@ -298,9 +238,8 @@ def fit_and_rotate(image, box_w, box_h, angle_deg):
 
 
 def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
-                   rotation_variation, position_variation, max_overlap,
-                   margin_px, seed, load_source, *, center_key=None,
-                   featured_keys=frozenset(),
+                   rotation_variation, margin_px, seed, load_source, *,
+                   center_key=None, featured_keys=frozenset(),
                    log=lambda msg: print(msg, flush=True)):
     """Calcule le placement (compute_layout) puis compose tout sur un
     canevas RGBA. `load_source(key)` doit renvoyer une image PIL RGBA (ou
@@ -309,19 +248,15 @@ def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
     thumb_cache côté Hub), le placement et le rendu restant identiques.
 
     Renvoie (canvas, layers) où layers est une liste de (nom, tuile RGBA
-    visible, left, top) — pour l'écriture PSD, ou pour rien si non utilisée.
-    La photo centrale (s'il y en a une) est dessinée en dernier, donc
-    toujours au-dessus du reste, et n'est jamais recalée par la marge
-    (les autres si, cf. boucle ci-dessous — compute_layout ne fait
-    qu'ESPACER la grille de départ, sans garantir qu'une tuile agrandie
-    par la variation de taille ne déborde pas jusqu'au bord réel)."""
+    visible, left, top) — pour l'écriture PSD, ou pour rien si non
+    utilisée. La photo centrale (s'il y en a une) est dessinée en dernier,
+    donc toujours au-dessus du reste."""
     order = photo_keys
     if center_key is not None and center_key in photo_keys:
         order = [k for k in photo_keys if k != center_key] + [center_key]
     layout = dict(zip(photo_keys, compute_layout(
         photo_keys, canvas_w, canvas_h, size_variation, rotation_variation,
-        position_variation, max_overlap, seed, margin_px, center_key,
-        featured_keys)))
+        seed, margin_px, center_key, featured_keys)))
 
     canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     layers = []
@@ -340,12 +275,10 @@ def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
         tw, th = tile.size
         left, top = round(cx - tw / 2), round(cy - th / 2)
         if key != center_key:
-            # Recale (ne recadre pas) pour que la marge de sécurité tienne
-            # même quand taille aléatoire + décalage auraient fait déborder
-            # jusqu'au bord réel — la case "grille inset" seule n'y
-            # suffisait pas dès qu'une photo grossissait beaucoup (retour
-            # user). Si la tuile est plus grande que la zone utile, ancrée
-            # côté marge plutôt que de dépasser des deux côtés à la fois.
+            # Recale (ne recadre pas) — filet de sécurité pour que la
+            # marge tienne même si un futur réglage produisait une tuile
+            # plus grande que sa case ; les tuiles de la mosaïque
+            # (compute_layout) ne la dépassent normalement jamais.
             left = max(margin_px, min(left, canvas_w - margin_px - tw))
             top = max(margin_px, min(top, canvas_h - margin_px - th))
         clip_left, clip_top = max(left, 0), max(top, 0)
@@ -393,10 +326,6 @@ def main():
         "COLLAGE_SIZE_VARIATION", CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT)))
     rotation_variation = max(0.0, min(100.0, env_float(
         "COLLAGE_ROTATION_VARIATION", CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT)))
-    position_variation = max(0.0, min(100.0, env_float(
-        "COLLAGE_POSITION_VARIATION", CONSTANTS.COLLAGE_POSITION_VARIATION_DEFAULT)))
-    max_overlap = max(0.0, min(100.0, env_float(
-        "COLLAGE_MAX_OVERLAP", CONSTANTS.COLLAGE_MAX_OVERLAP_DEFAULT)))
     safe_margin_cm = env_float(
         "COLLAGE_SAFE_MARGIN_CM", CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT)
     write_psd = os.environ.get("COLLAGE_PSD", "0") == "1"
@@ -417,9 +346,8 @@ def main():
 
     print(f"[INFO] Canevas {canvas_w}x{canvas_h}px "
           f"({width_cm:g}x{height_cm:g}cm @ {dpi:g}ppp), "
-          f"{len(photo_names)} photo(s), position={position_variation:g} "
-          f"taille={size_variation:g} rotation={rotation_variation:g} "
-          f"chevauchement_max={max_overlap:g} marge={safe_margin_cm:g}cm",
+          f"{len(photo_names)} photo(s), taille={size_variation:g} "
+          f"rotation={rotation_variation:g} marge={safe_margin_cm:g}cm",
           flush=True)
 
     def load_source(name):
@@ -427,7 +355,7 @@ def main():
 
     canvas, psd_layers = render_montage(
         photo_names, canvas_w, canvas_h, size_variation, rotation_variation,
-        position_variation, max_overlap, margin_px, seed, load_source,
+        margin_px, seed, load_source,
         center_key=center_file, featured_keys=featured_files)
 
     preview_path = out_dir / "apercu.png"
