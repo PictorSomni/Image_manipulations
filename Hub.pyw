@@ -7787,7 +7787,7 @@ def main(page: ft.Page):
             label="Format d'impression (optionnel)",
             options=[ft.dropdown.Option(name) for name in CONSTANTS.FORMATS],
             width=200, bgcolor=DARK, border_color=GREY, color=WHITE,
-            on_change=_apply_format)
+            on_select=_apply_format)
         dpi_field = ft.TextField(
             label="Résolution", value=str(CONSTANTS.COLLAGE_DPI_DEFAULT),
             suffix=ft.Text("ppp", color=GREY), width=200,
