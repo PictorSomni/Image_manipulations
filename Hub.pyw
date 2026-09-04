@@ -7789,6 +7789,15 @@ def main(page: ft.Page):
             page.update()
             return
 
+        # Génération des miniatures ci-dessous potentiellement lente avec
+        # beaucoup de photos — ferme le menu Actions et affiche tout de
+        # suite un retour visuel (barre + terminal) plutôt que de laisser
+        # l'utilisateur devant un menu figé sans explication (retour user).
+        _close_actions()
+        _busy_start()
+        _log_to_terminal("Préparation du montage collage…")
+        page.update()
+
         # Zone dédiée format/manuel, même bascule que _launch_recadrage_auto
         # ci-dessus (retour user) : le dropdown ET les champs manuels
         # affichés en même temps prêtaient à confusion — seule la zone
@@ -8067,6 +8076,7 @@ def main(page: ft.Page):
         )
         page.overlay.append(dlg)
         dlg.open = True
+        _busy_end()
         page.update()
         _run_task(_focus_dialog_field, format_dd)
 
