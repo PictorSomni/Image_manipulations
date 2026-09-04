@@ -7771,6 +7771,23 @@ def main(page: ft.Page):
             suffix=ft.Text("cm", color=GREY), width=200,
             bgcolor=DARK, border_color=GREY, color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
+
+        def _apply_format(e):
+            # CONSTANTS.FORMATS est en mm — juste un raccourci qui pré-
+            # remplit les champs cm (toujours modifiables ensuite) : la
+            # taille finale demandée par le client tombe le plus souvent
+            # sur l'un de ces formats déjà utilisés partout ailleurs
+            # (recadrage, impression) plutôt qu'une taille inventée.
+            width_mm, height_mm = CONSTANTS.FORMATS[e.control.value]
+            width_field.value = f"{width_mm / 10:g}"
+            height_field.value = f"{height_mm / 10:g}"
+            page.update()
+
+        format_dd = ft.Dropdown(
+            label="Format d'impression (optionnel)",
+            options=[ft.dropdown.Option(name) for name in CONSTANTS.FORMATS],
+            width=200, bgcolor=DARK, border_color=GREY, color=WHITE,
+            on_change=_apply_format)
         dpi_field = ft.TextField(
             label="Résolution", value=str(CONSTANTS.COLLAGE_DPI_DEFAULT),
             suffix=ft.Text("ppp", color=GREY), width=200,
@@ -7821,8 +7838,10 @@ def main(page: ft.Page):
         keypad = _numeric_keypad(text_fields, allow_decimal=True)
         dlg = ft.AlertDialog(
             title=ft.Text("Montage collage", size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column(text_fields + [psd_checkbox, keypad],
-                              spacing=8, tight=True),
+            content=ft.Column(
+                [width_field, height_field, format_dd, dpi_field,
+                 chaos_field, psd_checkbox, keypad],
+                spacing=8, tight=True),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
         )
