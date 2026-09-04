@@ -7759,6 +7759,78 @@ def main(page: ft.Page):
              "RESIZE_WATERMARK_SIZE"),
         ], "Redimensionner filigrane.py")
 
+    def _launch_montage_collage(event=None):
+        # Champs décimaux (cm) : pas _launch_number_prompt (int only).
+        width_field = ft.TextField(
+            label="Largeur", value=str(CONSTANTS.COLLAGE_WIDTH_CM_DEFAULT),
+            suffix=ft.Text("cm", color=GREY), autofocus=True, width=200,
+            bgcolor=DARK, border_color=GREY, color=WHITE,
+            keyboard_type=ft.KeyboardType.NUMBER)
+        height_field = ft.TextField(
+            label="Hauteur", value=str(CONSTANTS.COLLAGE_HEIGHT_CM_DEFAULT),
+            suffix=ft.Text("cm", color=GREY), width=200,
+            bgcolor=DARK, border_color=GREY, color=WHITE,
+            keyboard_type=ft.KeyboardType.NUMBER)
+        dpi_field = ft.TextField(
+            label="Résolution", value=str(CONSTANTS.COLLAGE_DPI_DEFAULT),
+            suffix=ft.Text("ppp", color=GREY), width=200,
+            bgcolor=DARK, border_color=GREY, color=WHITE,
+            keyboard_type=ft.KeyboardType.NUMBER)
+        chaos_field = ft.TextField(
+            label="Mosaïque (0) → lâché (100)",
+            value=str(CONSTANTS.COLLAGE_CHAOS_DEFAULT),
+            suffix=ft.Text("%", color=GREY), width=200,
+            bgcolor=DARK, border_color=GREY, color=WHITE,
+            keyboard_type=ft.KeyboardType.NUMBER)
+        psd_checkbox = ft.Checkbox(
+            label="Générer aussi un .psd (calque par calque)",
+            value=False, active_color=VIOLET, check_color=DARK)
+        text_fields = [width_field, height_field, dpi_field, chaos_field]
+        field_keys = ("COLLAGE_WIDTH_CM", "COLLAGE_HEIGHT_CM",
+                     "COLLAGE_DPI", "COLLAGE_CHAOS")
+
+        fired = {"done": False}
+
+        def _cancel(e):
+            dlg.open = False
+            page.update()
+
+        def _confirm(e):
+            if fired["done"]:
+                return
+            env = {}
+            valid = True
+            for field, key in zip(text_fields, field_keys):
+                try:
+                    env[key] = str(float((field.value or "").strip()
+                                        .replace(",", ".")))
+                    field.error_text = None
+                except ValueError:
+                    field.error_text = "Nombre requis"
+                    valid = False
+            if not valid:
+                page.update()
+                return
+            fired["done"] = True
+            dlg.open = False
+            page.update()
+            env["COLLAGE_PSD"] = "1" if psd_checkbox.value else "0"
+            _launch_tool("Montage collage.py", extra_env=env)
+
+        chaos_field.on_submit = _confirm
+        keypad = _numeric_keypad(text_fields, allow_decimal=True)
+        dlg = ft.AlertDialog(
+            title=ft.Text("Montage collage", size=CONSTANTS.TEXT_SM, color=WHITE),
+            content=ft.Column(text_fields + [psd_checkbox, keypad],
+                              spacing=8, tight=True),
+            actions=[ft.TextButton("Annuler", on_click=_cancel),
+                     ft.TextButton("Lancer", on_click=_confirm)],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+        _run_task(_focus_dialog_field, width_field)
+
     def _launch_kiosk(event=None):
         # Sélection curatée obligatoire (HUB_SPEC §9) : la sélection en
         # cours si non vide, sinon toutes les photos du dossier ouvert —
@@ -8163,6 +8235,10 @@ def main(page: ft.Page):
              lambda e: _launch_tool("Augmentation IA.py")),
             ("Comparaison", ft.Icons.COMPARE_OUTLINED, VIOLET,
              _launch_comparaison),
+        ]),
+        ("Montage", [
+            ("Montage collage", ft.Icons.GRID_VIEW_OUTLINED, VIOLET,
+             _launch_montage_collage),
         ]),
         ("Export & livrables", [
             ("Redimensionner", ft.Icons.PHOTO_SIZE_SELECT_LARGE_OUTLINED, ORANGE,

@@ -360,6 +360,15 @@ DASHBOARD_THUMB_SIZE = 50     # Taille des miniatures dans le panneau de prévis
 WATERMARK_ALPHA      = 0.35   # Opacité du filigrane (0.0 = invisible, 1.0 = opaque)
 
 
+# ── 6.2b  Montage collage ─────────────────────────────────────────────────────
+# Paramètres du script "Montage collage.py" (grille -> scrapbook "lâché").
+
+COLLAGE_WIDTH_CM_DEFAULT  = 40   # Largeur du canevas final, en cm
+COLLAGE_HEIGHT_CM_DEFAULT = 30   # Hauteur du canevas final, en cm
+COLLAGE_DPI_DEFAULT       = 300  # Résolution du canevas, en ppp
+COLLAGE_CHAOS_DEFAULT     = 50   # 0 = mosaïque bien rangée, 100 = photos lâchées
+
+
 # ── 6.3  Remerciements ────────────────────────────────────────────────────────
 # Paramètres du script Remerciements.py (tirage 2-en-1 client).
 

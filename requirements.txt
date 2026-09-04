@@ -38,6 +38,16 @@ PyMuPDF>=1.23.0
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# MONTAGE PHOTO — écriture .psd calque par calque (Data/Montage collage.py)
+# Optionnel : sans ce paquet, l'outil produit quand même l'aperçu PNG, juste
+# pas le .psd.
+# ──────────────────────────────────────────────────────────────────────────────
+
+pytoshop>=1.2.1
+six>=1.16.0   # dépendance transitive de pytoshop, non déclarée par son setup.py
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # SUPPRESSION DE FOND PAR IA
 # Requis par : Recadrage manuel.pyw
 # ──────────────────────────────────────────────────────────────────────────────
