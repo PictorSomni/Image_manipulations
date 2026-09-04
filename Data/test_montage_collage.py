@@ -214,6 +214,37 @@ def test_center_photo_is_centered_and_upright(mod):
     print("  photo centrale (centrée, agrandie, jamais pivotée) : OK")
 
 
+def test_center_photo_does_not_overlap_others(mod):
+    """Retour user : la centrale ne doit plus être posée par-dessus un
+    montage déjà complet une fois celui-ci construit sans elle — "vient
+    le recoller au-dessus de tout ensuite, ce qui n'est pas vraiment ce
+    qui est recherché" (ça cachait les photos en dessous). Elle réserve
+    maintenant sa propre place, entourée par les autres photos qui
+    mosaïquent l'espace restant (haut/bas/gauche/droite) sans jamais la
+    chevaucher — vérifié ici sans rotation, seule condition où
+    "jamais" est une garantie exacte (cf. test_rotation_overlap_stays_
+    bounded pour le débordement borné, normal, une fois pivoté)."""
+    keys = _keys(10)
+    layout = mod.compute_layout(keys, 4000, 3000, size_variation=50,
+                                rotation_variation=0, seed=6,
+                                center_key="photo4.jpg")
+    by_key = dict(zip(keys, layout))
+    ccx, ccy, cw, ch, _ = by_key["photo4.jpg"]
+    center_rect = (ccx - cw / 2, ccy - ch / 2, cw, ch)
+    total_area = cw * ch
+    for k, (cx, cy, w, h, _) in by_key.items():
+        if k == "photo4.jpg":
+            continue
+        rect = (cx - w / 2, cy - h / 2, w, h)
+        assert _rect_overlap_area(center_rect, rect) == 0, (
+            f"{k} chevauche la photo centrale")
+        total_area += w * h
+    # Union des aires = tout le canevas (marge nulle ici) : la centrale
+    # est un vrai TROU comblé par les autres, pas un ajout par-dessus.
+    assert abs(total_area - 4000 * 3000) < 4000 * 3000 * 0.01
+    print("  photo centrale intégrée sans chevauchement ni perte d'aire : OK")
+
+
 def test_featured_photo_is_bigger_on_average(mod):
     keys = _keys(20)
     layout = mod.compute_layout(keys, 4000, 3000, size_variation=50,
@@ -326,6 +357,7 @@ if __name__ == "__main__":
     test_rotation_overlap_stays_bounded(montage)
     test_safe_margin_keeps_mosaic_off_the_edge(montage)
     test_center_photo_is_centered_and_upright(montage)
+    test_center_photo_does_not_overlap_others(montage)
     test_featured_photo_is_bigger_on_average(montage)
     test_fit_and_rotate_covers_the_box_without_gaps(montage)
     test_fit_and_rotate_caps_crop_on_extreme_aspect(montage)

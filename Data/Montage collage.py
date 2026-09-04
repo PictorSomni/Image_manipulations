@@ -167,6 +167,26 @@ def _squarify(items, x, y, w, h):
     return result
 
 
+def _distribute_into_regions(items, regions):
+    """Répartit `items` (liste de (poids, clé)) entre les `regions`
+    (liste de (x, y, w, h)) en visant, pour chacune, une part de poids
+    proportionnelle à son aire — glouton (du plus gros item au plus
+    petit, chacun assigné à la région la plus en retard sur sa part
+    cible) : pas besoin de l'optimal, juste d'une répartition qui garde
+    une densité de photos comparable dans chaque région. Renvoie une
+    liste (même ordre que `regions`) de listes d'items."""
+    total_area = sum(w * h for _, _, w, h in regions) or 1
+    total_weight = sum(wt for wt, _ in items) or 1
+    targets = [total_weight * (rw * rh / total_area) for _, _, rw, rh in regions]
+    assigned = [0.0] * len(regions)
+    result = [[] for _ in regions]
+    for wt, key in sorted(items, key=lambda t: -t[0]):
+        idx = min(range(len(regions)), key=lambda i: assigned[i] - targets[i])
+        result[idx].append((wt, key))
+        assigned[idx] += wt
+    return result
+
+
 def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
                    rotation_variation, seed=None, margin_px=0,
                    center_key=None, featured_keys=frozenset()):
@@ -188,11 +208,16 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
     immédiatement voisines — jamais le chevauchement quasi total que
     provoquait l'ancien curseur Position (supprimé).
 
-    `center_key`, si présent dans `photo_keys`, est retirée du partage et
-    posée au milieu du canevas, agrandie, jamais pivotée, volontairement
-    au-dessus du reste (mise en avant délibérée, cf. render_montage). Les
-    clés de `featured_keys` reçoivent un poids plus élevé dans le partage
-    — donc une case proportionnellement plus grande.
+    `center_key`, si présent dans `photo_keys`, obtient une case agrandie
+    au milieu du canevas, jamais pivotée — mais reste une case du MÊME
+    partage que les autres : sa place est réservée au centre puis les
+    autres photos sont mosaïquées tout autour (haut/bas/gauche/droite),
+    toujours sans trou ni recouvrement (retour user : la centrale ne doit
+    plus être collée par-dessus un montage déjà complet une fois celui-ci
+    construit sans elle — ça cachait les photos en dessous, "pas
+    vraiment ce qui est recherché"). Les clés de `featured_keys`
+    reçoivent un poids plus élevé dans le partage — donc une case
+    proportionnellement plus grande.
 
     Renvoie une liste de (center_x, center_y, box_w, box_h, angle_deg)
     dans le MÊME ORDRE que `photo_keys` (donc aussi l'ordre d'empilement,
@@ -222,14 +247,15 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
     # presque toujours voisines sur le canevas.
     rng.shuffle(weights)
 
+    has_center = center_key is not None and center_key in photo_keys
     placed = {}
-    if others:
-        for key, x, y, w, h in _squarify(weights, margin_px, margin_px,
-                                         usable_w, usable_h):
+
+    def _place_group(group, rx, ry, rw, rh):
+        for key, x, y, w, h in _squarify(group, rx, ry, rw, rh):
             angle = rng.uniform(-28, 28) * rotation_t
             placed[key] = (x + w / 2, y + h / 2, w, h, angle)
 
-    if center_key is not None and center_key in photo_keys:
+    if has_center:
         # Taille "nominale" de référence : l'aire moyenne qu'aurait une
         # tuile si le canevas était partagé également entre toutes les
         # autres photos, à l'aspect ratio du canevas — sert juste à faire
@@ -237,9 +263,47 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
         count = max(1, len(others))
         nominal_w = usable_w / math.sqrt(count)
         nominal_h = usable_h / math.sqrt(count)
-        box_w = min(usable_w * 0.9, nominal_w * 2.2)
-        box_h = min(usable_h * 0.9, nominal_h * 2.2)
-        placed[center_key] = (canvas_w / 2, canvas_h / 2, box_w, box_h, 0.0)
+        center_w = min(usable_w * 0.9, nominal_w * 2.2)
+        center_h = min(usable_h * 0.9, nominal_h * 2.2)
+        placed[center_key] = (canvas_w / 2, canvas_h / 2, center_w, center_h, 0.0)
+
+    if others:
+        if not has_center:
+            _place_group(weights, margin_px, margin_px, usable_w, usable_h)
+        else:
+            # Réserve la case centrale (ci-dessus) comme un vrai TROU dans
+            # la mosaïque plutôt que de construire le montage sans elle
+            # puis de la recoller par-dessus à la fin (retour user :
+            # "vient le recoller au-dessus de tout ensuite, ce qui n'est
+            # pas vraiment ce qui est recherché" — ça cachait les photos
+            # en dessous). Les autres photos mosaïquent les 4 bandes
+            # (haut/bas/gauche/droite) qui encadrent ce trou — union des
+            # 5 rectangles = tout le canevas, sans trou ni recouvrement.
+            cx0 = margin_px + (usable_w - center_w) / 2
+            cy0 = margin_px + (usable_h - center_h) / 2
+            top_h = cy0 - margin_px
+            bottom_y = cy0 + center_h
+            bottom_h = (margin_px + usable_h) - bottom_y
+            left_w = cx0 - margin_px
+            right_x = cx0 + center_w
+            right_w = (margin_px + usable_w) - right_x
+            regions = [
+                (margin_px, margin_px, usable_w, top_h),
+                (margin_px, bottom_y, usable_w, bottom_h),
+                (margin_px, cy0, left_w, center_h),
+                (right_x, cy0, right_w, center_h),
+            ]
+            regions = [r for r in regions if r[2] > 0 and r[3] > 0]
+            if regions:
+                for region, group in zip(regions, _distribute_into_regions(weights, regions)):
+                    if group:
+                        _place_group(group, *region)
+            else:
+                # La centrale occupe déjà (quasi) tout l'espace utile :
+                # pas de place pour un cadre autour, filet de sécurité
+                # plutôt que de perdre des photos (posées par-dessus,
+                # comme avant).
+                _place_group(weights, margin_px, margin_px, usable_w, usable_h)
 
     return [placed[k] for k in photo_keys]
 
