@@ -7869,7 +7869,8 @@ def main(page: ft.Page):
             value=CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT,
             label="{value}%", active_color=VIOLET, width=280)
         psd_checkbox = ft.Checkbox(
-            label="Générer aussi un .psd (calque par calque)",
+            label=".psd",
+            tooltip="Générer aussi un .psd (calque par calque)",
             value=False, active_color=VIOLET, check_color=DARK)
 
         # Pavé numérique tactile : agit sur les champs manuels (largeur/
