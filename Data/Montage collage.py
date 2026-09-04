@@ -120,10 +120,30 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
     count = len(others)
     cols = max(1, round(math.sqrt(max(count, 1) * usable_w / usable_h)))
     rows = math.ceil(count / cols) if count else 0
+    # Cellule "nominale" (cols x rows plein) — sert de référence pour la
+    # photo centrale plus bas, pas pour les cellules réelles ci-dessous.
     cell_w = usable_w / cols
     cell_h = usable_h / rows if rows else usable_h
 
-    cells = [(c, r) for r in range(rows) for c in range(cols)]
+    # Avec peu de photos, count ne remplit pas forcément cols x rows pile
+    # (ex. 3 photos -> grille 2x2) : une ligne reste alors incomplète. Une
+    # largeur de cellule fixe (usable_w / cols) y laissait carrément une ou
+    # plusieurs cellules VIDES (fond transparent visible sur tout le
+    # canevas, retour user : "beaucoup de blanc/vide" avec peu de photos).
+    # Chaque ligne répartit donc ses cellules sur la largeur RÉELLEMENT
+    # utilisée par cette ligne (nombre de photos qu'elle contient), pas sur
+    # `cols` : une ligne incomplète a moins de cellules mais plus larges,
+    # et couvre donc toujours toute la largeur du canevas.
+    row_counts = []
+    remaining, rows_left = count, rows
+    for _ in range(rows):
+        take = math.ceil(remaining / rows_left)
+        row_counts.append(take)
+        remaining -= take
+        rows_left -= 1
+
+    cells = [(c, r, row_counts[r]) for r in range(rows)
+            for c in range(row_counts[r])]
     rng.shuffle(cells)
 
     size_t = max(0.0, min(1.0, size_variation / 100)) ** 0.6
@@ -135,8 +155,9 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
     overlap = 1 + position_t * 0.7
 
     placed = {}
-    for key, (c, r) in zip(others, cells):
-        cx = margin_px + (c + 0.5) * cell_w
+    for key, (c, r, n_in_row) in zip(others, cells):
+        row_cell_w = usable_w / n_in_row
+        cx = margin_px + (c + 0.5) * row_cell_w
         cy = margin_px + (r + 0.5) * cell_h
         # Indépendant de size_variation (retour user) : un slider dédié
         # pour aller d'une grille bien rangée (0) à un scatter façon
@@ -144,7 +165,7 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
         # sur les cellules voisines au maximum, sans perdre l'idée de
         # grille de départ qui garantit une couverture homogène du
         # canevas quel que soit le réglage.
-        jitter = position_t * min(cell_w, cell_h) * 0.6
+        jitter = position_t * min(row_cell_w, cell_h) * 0.6
         cx += rng.uniform(-jitter, jitter)
         cy += rng.uniform(-jitter, jitter)
         # Asymétrique (-0.5 à +1.1) plutôt que centré sur 1 : quelques
@@ -165,7 +186,7 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
         # MAX_TILE_CELL_MULT borne chaque boîte à une taille encore
         # nettement mise en avant sans devenir ingérable.
         placed[key] = (cx, cy,
-                      min(cell_w * scale * overlap, cell_w * MAX_TILE_CELL_MULT),
+                      min(row_cell_w * scale * overlap, row_cell_w * MAX_TILE_CELL_MULT),
                       min(cell_h * scale * overlap, cell_h * MAX_TILE_CELL_MULT),
                       angle)
 

@@ -7834,6 +7834,14 @@ def main(page: ft.Page):
             disabled=True, keyboard_type=ft.KeyboardType.NUMBER)
         manual_switch = ft.Switch(label="Saisie manuelle (cm)",
                                   value=False, active_color=BLUE)
+        # Tous les formats de CONSTANTS.FORMATS sont catalogués en portrait
+        # (largeur < hauteur) — sans ce réglage, impossible d'obtenir un
+        # montage à l'italienne sans repasser par la saisie manuelle et
+        # inverser soi-même largeur/hauteur (retour user : l'orientation du
+        # fichier final n'était pas choisissable). S'applique aussi bien au
+        # format prédéfini qu'à la saisie manuelle (cf. _read_canvas_params).
+        orientation_switch = ft.Switch(label="Paysage (à l'italienne)",
+                                       value=False, active_color=BLUE)
         # DPI (retour user) : CONSTANTS.DPI suffit dans l'immense majorité
         # des cas, pas besoin d'un champ toujours affiché — juste un
         # bouton pour l'ouvrir si vraiment besoin de le changer.
@@ -7990,6 +7998,15 @@ def main(page: ft.Page):
                 margin_cm = float((margin_field.value or "").strip().replace(",", "."))
             except ValueError:
                 return None
+            # Force l'orientation choisie quelle que soit la source
+            # (format prédéfini ou saisie manuelle) : n'inverse que si
+            # nécessaire, donc sans effet sur un format déjà carré ou déjà
+            # dans la bonne orientation (ex. saisie manuelle déjà à
+            # l'italienne + case Paysage cochée).
+            if orientation_switch.value and width_cm < height_cm:
+                width_cm, height_cm = height_cm, width_cm
+            elif not orientation_switch.value and width_cm > height_cm:
+                width_cm, height_cm = height_cm, width_cm
             return width_cm, height_cm, dpi, margin_cm
 
         def _render_preview_worker(width_cm, height_cm, dpi, margin_cm):
@@ -8104,6 +8121,7 @@ def main(page: ft.Page):
                     tiles_row,
                     ft.Divider(height=1, color=GREY),
                     format_dd,
+                    orientation_switch,
                     ft.Container(
                         content=ft.Column([
                             manual_switch,

@@ -44,6 +44,24 @@ def test_layout_covers_every_photo_and_stays_ordered(mod):
     print("  compute_layout (grille sage, sans variation) : OK")
 
 
+def test_sparse_last_row_stretches_to_fill_width(mod):
+    """Retour user : avec peu de photos, count ne remplit pas forcément
+    cols x rows pile (ex. 3 photos -> grille 2x2) — une largeur de cellule
+    fixe laissait une cellule entière VIDE (fond transparent visible,
+    "beaucoup de blanc/vide"). La ligne incomplète doit maintenant
+    s'étaler sur toute la largeur utile plutôt que de laisser un trou."""
+    keys = _keys(3)
+    layout = mod.compute_layout(keys, 4000, 3000, size_variation=0,
+                                rotation_variation=0, position_variation=0,
+                                max_overlap=100, seed=1)
+    widths = sorted(round(w) for _, _, w, h, _ in layout)
+    # 2 photos se partagent la première ligne (2000 chacune), la 3e est
+    # seule sur sa ligne et prend donc toute la largeur utile (4000).
+    assert widths == [2000, 2000, 4000], (
+        f"la ligne incomplète doit combler tout l'espace, obtenu {widths}")
+    print("  ligne incomplète étalée sur toute la largeur (pas de trou) : OK")
+
+
 def test_size_and_rotation_are_independent(mod):
     """Les curseurs doivent agir chacun sur son propre aspect, sans faire
     bouger les autres — c'est tout l'intérêt de les avoir séparés (retour
@@ -266,6 +284,7 @@ if __name__ == "__main__":
     print("Vérifications :")
     montage = _load_montage()
     test_layout_covers_every_photo_and_stays_ordered(montage)
+    test_sparse_last_row_stretches_to_fill_width(montage)
     test_size_and_rotation_are_independent(montage)
     test_position_variation_is_independent(montage)
     test_max_overlap_reduces_heavy_overlaps(montage)
