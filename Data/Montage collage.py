@@ -155,8 +155,10 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
     overlap = 1 + position_t * 0.7
 
     placed = {}
+    cell_dims = {}
     for key, (c, r, n_in_row) in zip(others, cells):
         row_cell_w = usable_w / n_in_row
+        cell_dims[key] = (row_cell_w, cell_h)
         cx = margin_px + (c + 0.5) * row_cell_w
         cy = margin_px + (r + 0.5) * cell_h
         # Indépendant de size_variation (retour user) : un slider dédié
@@ -211,14 +213,20 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
     # placement au hasard (retour user antérieur sur les trous) : à
     # max_overlap bas, quelques trous peuvent réapparaître — un fond
     # visible est jugé préférable à un visage caché.
-    # Plancher par tuile calculé sur sa taille D'ORIGINE (avant toute
-    # réduction) — sans ça, un facteur >=0.5 APPLIQUÉ À CHAQUE PASSE
-    # compose (0.5 ** 10 sur 10 passes = tuile quasi invisible, constaté :
-    # des largeurs tombées à 0px), pire que le recouvrement qu'on cherche
-    # à éviter. 40% de la taille voulue reste identifiable comme photo.
+    # Plancher par tuile = la taille de SA PROPRE cellule de grille (pas
+    # 0.4x de la boîte déjà grossie par scale/overlap comme avant) : cette
+    # cellule ne chevauche par construction aucune cellule voisine et,
+    # combinée à la grille sans trou de compute_layout (cf. row_cell_w
+    # ci-dessus), garantit que la passe anti-recouvrement ne peut jamais
+    # revenir sous couverture totale du canevas — seul l'agrandissement
+    # AU-DELÀ de la cellule (scale_variation, overlap de fermeture des
+    # trous du jitter) peut être rogné (retour user : au réglage par
+    # défaut, le plancher précédent, bien plus bas que la cellule,
+    # laissait la passe ci-dessous réduire les tuiles jusqu'à ~29% de
+    # couverture du canevas — "beaucoup de vide" même sans cellule vide).
     overlap_t = max(0.0, min(1.0, max_overlap / 100))
-    min_w = {k: placed[k][2] * 0.4 for k in others}
-    min_h = {k: placed[k][3] * 0.4 for k in others}
+    min_w = {k: cell_dims[k][0] for k in others}
+    min_h = {k: cell_dims[k][1] for k in others}
     for _pass in range(25):
         shrunk = False
         for i, ki in enumerate(others):
@@ -253,17 +261,30 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
 
 
 def fit_and_rotate(image, box_w, box_h, angle_deg):
-    """Redimensionne `image` (RGBA) pour tenir dans box_w x box_h (« contain »,
-    sans recadrage) puis pivote — expand=True agrandit le cadre pour ne rien
-    couper aux coins. rotate() n'accepte pas LANCZOS (transform affine, cf.
-    image_ops.py:488-492) : BICUBIC pour la rotation, LANCZOS pour le resize."""
-    ratio = min(box_w / image.width, box_h / image.height)
-    new_size = (max(1, round(image.width * ratio)),
-                max(1, round(image.height * ratio)))
+    """Redimensionne `image` (RGBA) pour REMPLIR box_w x box_h (« cover » —
+    recadre l'excédent au centre, jamais de bande transparente dans la
+    tuile) puis pivote — expand=True agrandit le cadre pour ne rien couper
+    aux coins. rotate() n'accepte pas LANCZOS (transform affine, cf.
+    image_ops.py:488-492) : BICUBIC pour la rotation, LANCZOS pour le
+    resize.
+
+    Cover plutôt que contain (retour user) : même une grille sans la
+    moindre cellule vide (cf. compute_layout) laissait de grandes bandes
+    transparentes DANS chaque tuile dès que l'aspect ratio de la photo ne
+    collait pas à celui de sa case — "les gens paient pour voir leurs
+    photos, pas du vide". Recadre au centre : perd un peu des bords les
+    plus longs, jamais le centre du sujet."""
+    box_w, box_h = max(1, round(box_w)), max(1, round(box_h))
+    ratio = max(box_w / image.width, box_h / image.height)
+    new_size = (max(box_w, round(image.width * ratio)),
+                max(box_h, round(image.height * ratio)))
     resized = image.resize(new_size, Image.Resampling.LANCZOS)
+    left = (resized.width - box_w) // 2
+    top = (resized.height - box_h) // 2
+    cropped = resized.crop((left, top, left + box_w, top + box_h))
     if abs(angle_deg) < 0.05:
-        return resized
-    return resized.rotate(angle_deg, expand=True,
+        return cropped
+    return cropped.rotate(angle_deg, expand=True,
                           resample=Image.Resampling.BICUBIC)
 
 

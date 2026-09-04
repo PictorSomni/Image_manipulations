@@ -218,16 +218,20 @@ def test_featured_photo_is_bigger_on_average(mod):
     print("  photo mise en avant (boost de taille appliqué) : OK")
 
 
-def test_fit_and_rotate_contains_without_cropping(mod):
+def test_fit_and_rotate_covers_the_box_without_gaps(mod):
+    """Retour user : même une grille sans cellule vide laissait de grandes
+    bandes transparentes DANS chaque tuile dès que l'aspect ratio de la
+    photo ne collait pas à sa case — la tuile doit désormais REMPLIR
+    exactement box_w x box_h (recadrée si besoin), jamais plus petite."""
     from PIL import Image
     source = Image.new("RGBA", (800, 400), (255, 0, 0, 255))
     tile = mod.fit_and_rotate(source, box_w=200, box_h=200, angle_deg=0)
-    assert tile.width <= 200 and tile.height <= 200
-    assert round(tile.width / tile.height) == round(800 / 400)
+    assert tile.size == (200, 200), (
+        "la tuile doit remplir exactement la boîte, sans letterbox")
 
     rotated = mod.fit_and_rotate(source, box_w=200, box_h=200, angle_deg=45)
     assert rotated.width > tile.width and rotated.height > tile.height
-    print("  fit_and_rotate (contain + expand) : OK")
+    print("  fit_and_rotate (cover + recadrage centré, sans bande vide) : OK")
 
 
 def test_render_montage_respects_margin_even_when_oversized(mod):
@@ -291,7 +295,7 @@ if __name__ == "__main__":
     test_safe_margin_keeps_grid_off_the_edge(montage)
     test_center_photo_is_centered_and_upright(montage)
     test_featured_photo_is_bigger_on_average(montage)
-    test_fit_and_rotate_contains_without_cropping(montage)
+    test_fit_and_rotate_covers_the_box_without_gaps(montage)
     test_render_montage_respects_margin_even_when_oversized(montage)
     test_render_montage_composites_and_skips_missing(montage)
     print("Tout est passé.")

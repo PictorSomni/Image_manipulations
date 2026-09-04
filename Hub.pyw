@@ -7836,12 +7836,33 @@ def main(page: ft.Page):
                                   value=False, active_color=BLUE)
         # Tous les formats de CONSTANTS.FORMATS sont catalogués en portrait
         # (largeur < hauteur) — sans ce réglage, impossible d'obtenir un
-        # montage à l'italienne sans repasser par la saisie manuelle et
-        # inverser soi-même largeur/hauteur (retour user : l'orientation du
-        # fichier final n'était pas choisissable). S'applique aussi bien au
-        # format prédéfini qu'à la saisie manuelle (cf. _read_canvas_params).
-        orientation_switch = ft.Switch(label="Paysage (à l'italienne)",
-                                       value=False, active_color=BLUE)
+        # montage paysage sans repasser par la saisie manuelle et inverser
+        # soi-même largeur/hauteur (retour user : l'orientation du fichier
+        # final n'était pas choisissable). S'applique aussi bien au format
+        # prédéfini qu'à la saisie manuelle (cf. _read_canvas_params).
+        # Un seul gros bouton plein plutôt qu'un switch avec libellé entre
+        # parenthèses (retour user) : le texte/icône bascule directement
+        # entre Portrait et Paysage, sans ambiguïté sur ce que fait le clic.
+        orientation = {"value": "portrait"}
+
+        def _toggle_orientation(e):
+            orientation["value"] = (
+                "paysage" if orientation["value"] == "portrait" else "portrait")
+            is_paysage = orientation["value"] == "paysage"
+            orientation_icon.name = (
+                ft.Icons.CROP_LANDSCAPE if is_paysage else ft.Icons.CROP_PORTRAIT)
+            orientation_text.value = "Paysage" if is_paysage else "Portrait"
+            orientation_btn.update()
+
+        orientation_icon = ft.Icon(ft.Icons.CROP_PORTRAIT, color=WHITE)
+        orientation_text = ft.Text("Portrait", color=WHITE,
+                                   size=CONSTANTS.TEXT_SM)
+        orientation_btn = ft.TextButton(
+            content=ft.Row([orientation_icon, orientation_text], spacing=8,
+                           tight=True, alignment=ft.MainAxisAlignment.CENTER),
+            style=ft.ButtonStyle(bgcolor=BLUE, padding=ft.Padding.all(12),
+                                 shape=ft.RoundedRectangleBorder(radius=8)),
+            width=280, on_click=_toggle_orientation)
         # DPI (retour user) : CONSTANTS.DPI suffit dans l'immense majorité
         # des cas, pas besoin d'un champ toujours affiché — juste un
         # bouton pour l'ouvrir si vraiment besoin de le changer.
@@ -8001,11 +8022,12 @@ def main(page: ft.Page):
             # Force l'orientation choisie quelle que soit la source
             # (format prédéfini ou saisie manuelle) : n'inverse que si
             # nécessaire, donc sans effet sur un format déjà carré ou déjà
-            # dans la bonne orientation (ex. saisie manuelle déjà à
-            # l'italienne + case Paysage cochée).
-            if orientation_switch.value and width_cm < height_cm:
+            # dans la bonne orientation (ex. saisie manuelle déjà en
+            # paysage + bouton Paysage sélectionné).
+            is_paysage = orientation["value"] == "paysage"
+            if is_paysage and width_cm < height_cm:
                 width_cm, height_cm = height_cm, width_cm
-            elif not orientation_switch.value and width_cm > height_cm:
+            elif not is_paysage and width_cm > height_cm:
                 width_cm, height_cm = height_cm, width_cm
             return width_cm, height_cm, dpi, margin_cm
 
@@ -8121,7 +8143,7 @@ def main(page: ft.Page):
                     tiles_row,
                     ft.Divider(height=1, color=GREY),
                     format_dd,
-                    orientation_switch,
+                    orientation_btn,
                     ft.Container(
                         content=ft.Column([
                             manual_switch,
@@ -8132,6 +8154,7 @@ def main(page: ft.Page):
                         padding=10),
                     dpi_toggle_btn,
                     dpi_field,
+                    ft.Container(height=14),
                     margin_field,
                     ft.Text("Position (grille ↔ aléatoire)",
                            size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
@@ -8161,9 +8184,16 @@ def main(page: ft.Page):
                 ], spacing=8, tight=True, scroll=ft.ScrollMode.AUTO,
                    horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             ),
+            # SPACE_BETWEEN sur 3 actions plaçait Annuler au milieu (un
+            # item par extrémité + un au centre) plutôt qu'à côté de
+            # Lancer (retour user) — regrouper Annuler+Lancer dans un Row
+            # comme UN SEUL item d'action ramène SPACE_BETWEEN à son
+            # comportement voulu : PSD tout à gauche, les deux boutons
+            # ensemble tout à droite.
             actions=[psd_checkbox,
-                     ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Lancer", on_click=_confirm)],
+                     ft.Row([ft.TextButton("Annuler", on_click=_cancel),
+                            ft.TextButton("Lancer", on_click=_confirm)],
+                           spacing=4, tight=True)],
             actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         )
         async def _show():
