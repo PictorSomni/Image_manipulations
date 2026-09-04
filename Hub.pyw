@@ -7797,6 +7797,18 @@ def main(page: ft.Page):
         _busy_start()
         _log_to_terminal("Préparation du montage collage…")
         page.update()
+        threading.Thread(target=_build_montage_dialog,
+                         args=(photo_paths,), daemon=True).start()
+
+    def _build_montage_dialog(photo_paths):
+        # Tourne hors du thread de l'appelant (retour user : le terminal
+        # ne s'ouvrait qu'en même temps que le dialogue, pas avant — la
+        # génération des miniatures ci-dessous, synchrone, bloquait la
+        # boucle asyncio de Flet et empêchait le page.update() précédent
+        # d'être réellement envoyé/peint avant la fin du calcul). Même
+        # motif que les autres actions longues du Hub (_print_paths...) :
+        # busy_start() sur l'appelant, thread pour le travail, _run_task
+        # pour revenir sur la boucle Flet à la fin.
 
         # Zone dédiée format/manuel, même bascule que _launch_recadrage_auto
         # ci-dessus (retour user) : le dropdown ET les champs manuels
@@ -7937,6 +7949,8 @@ def main(page: ft.Page):
                                  fit=ft.BoxFit.CONTAIN, border_radius=4,
                                  visible=False)
         preview_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY)
+        preview_progress = ft.ProgressBar(value=None, visible=False,
+                                          color=VIOLET, width=280)
 
         def _read_canvas_params():
             if manual["value"]:
@@ -7955,17 +7969,19 @@ def main(page: ft.Page):
                 return None
             return width_cm, height_cm, dpi, margin_cm
 
-        def _do_preview(e=None):
-            params = _read_canvas_params()
-            if params is None:
-                preview_status.value = "Valeurs invalides — vérifiez les champs."
-                page.update()
-                return
-            width_cm, height_cm, dpi, margin_cm = params
+        def _render_preview_worker(width_cm, height_cm, dpi, margin_cm):
+            # Hors thread appelant, même raison que _build_montage_dialog :
+            # le rendu (PIL, tout le dossier) bloquerait la boucle Flet et
+            # la barre de progression ci-dessous n'apparaîtrait jamais
+            # avant la fin du calcul (retour user).
             canvas_w = round(width_cm / 2.54 * dpi)
             canvas_h = round(height_cm / 2.54 * dpi)
             margin_px = round(margin_cm / 2.54 * dpi)
-            scale = min(1.0, 480 / max(canvas_w, canvas_h, 1))
+            # 1024px de large suffit pour un aperçu (retour user) — inutile
+            # de générer en pleine résolution pour un simple visuel affiché
+            # à 360x270 dans le dialogue ; l'aspect est conservé (échelle
+            # uniforme largeur/hauteur).
+            scale = min(1.0, 1024 / max(canvas_w, canvas_h, 1))
             prev_w = max(1, round(canvas_w * scale))
             prev_h = max(1, round(canvas_h * scale))
             prev_margin = round(margin_px * scale)
@@ -7976,8 +7992,6 @@ def main(page: ft.Page):
                     return None
                 return PILImage.open(io.BytesIO(data)).convert("RGBA")
 
-            preview_status.value = "Génération de l'aperçu…"
-            page.update()
             montage_mod = _load_montage_module()
             canvas, _ = montage_mod.render_montage(
                 photo_paths, prev_w, prev_h, size_slider.value,
@@ -7986,12 +8000,28 @@ def main(page: ft.Page):
                 featured_keys=frozenset(featured), log=lambda msg: None)
             buf = io.BytesIO()
             canvas.convert("RGB").save(buf, format="JPEG", quality=85)
-            preview_image.src = buf.getvalue()
-            preview_image.visible = True
-            preview_status.value = (
-                f"Aperçu — {canvas_w}x{canvas_h}px "
-                f"(tirage #{preview_seed['value'] % 1000})")
+
+            async def _apply():
+                preview_progress.visible = False
+                preview_image.src = buf.getvalue()
+                preview_image.visible = True
+                preview_status.value = (
+                    f"Aperçu — {canvas_w}x{canvas_h}px "
+                    f"(tirage #{preview_seed['value'] % 1000})")
+                page.update()
+            _run_task(_apply)
+
+        def _do_preview(e=None):
+            params = _read_canvas_params()
+            if params is None:
+                preview_status.value = "Valeurs invalides — vérifiez les champs."
+                page.update()
+                return
+            preview_status.value = "Génération de l'aperçu…"
+            preview_progress.visible = True
             page.update()
+            threading.Thread(target=_render_preview_worker, args=params,
+                             daemon=True).start()
 
         def _reroll(e):
             preview_seed["value"] = random.randint(0, 2**31 - 1)
@@ -8075,6 +8105,7 @@ def main(page: ft.Page):
                                      on_click=_reroll),
                     ], alignment=ft.MainAxisAlignment.CENTER),
                     preview_status,
+                    ft.Row([preview_progress], alignment=ft.MainAxisAlignment.CENTER),
                     ft.Row([preview_image], alignment=ft.MainAxisAlignment.CENTER),
                 ], spacing=8, tight=True, scroll=ft.ScrollMode.AUTO,
                    horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -8082,11 +8113,13 @@ def main(page: ft.Page):
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
         )
-        page.overlay.append(dlg)
-        dlg.open = True
-        _busy_end()
-        page.update()
-        _run_task(_focus_dialog_field, format_dd)
+        async def _show():
+            page.overlay.append(dlg)
+            dlg.open = True
+            _busy_end()
+            page.update()
+            await _focus_dialog_field(format_dd)
+        _run_task(_show)
 
     def _launch_kiosk(event=None):
         # Sélection curatée obligatoire (HUB_SPEC §9) : la sélection en
