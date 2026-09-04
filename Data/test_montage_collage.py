@@ -33,7 +33,8 @@ def _keys(n):
 def test_layout_covers_every_photo_and_stays_ordered(mod):
     keys = _keys(7)
     layout = mod.compute_layout(keys, 4000, 3000, size_variation=0,
-                                rotation_variation=0, seed=1)
+                                rotation_variation=0, position_variation=0,
+                                seed=1)
     assert len(layout) == 7
     for cx, cy, box_w, box_h, angle in layout:
         assert box_w > 0 and box_h > 0
@@ -43,20 +44,22 @@ def test_layout_covers_every_photo_and_stays_ordered(mod):
 
 
 def test_size_and_rotation_are_independent(mod):
-    """Les deux curseurs doivent agir chacun sur son propre aspect, sans
-    faire bouger l'autre — c'est tout l'intérêt de les avoir séparés
-    (retour user : un seul curseur "chaos" ne faisait pas assez varier
-    les tailles à mi-course)."""
+    """Les curseurs doivent agir chacun sur son propre aspect, sans faire
+    bouger les autres — c'est tout l'intérêt de les avoir séparés (retour
+    user : un seul curseur "chaos" ne faisait pas assez varier les tailles
+    à mi-course)."""
     keys = _keys(12)
 
     only_size = mod.compute_layout(keys, 4000, 3000, size_variation=100,
-                                   rotation_variation=0, seed=7)
+                                   rotation_variation=0,
+                                   position_variation=0, seed=7)
     assert all(angle == 0 for *_, angle in only_size)
     widths = {round(w) for _, _, w, h, _ in only_size}
     assert len(widths) > 1, "size_variation=100 doit produire des tailles différentes"
 
     only_rotation = mod.compute_layout(keys, 4000, 3000, size_variation=0,
-                                       rotation_variation=100, seed=7)
+                                       rotation_variation=100,
+                                       position_variation=0, seed=7)
     assert any(angle != 0 for *_, angle in only_rotation)
     base_w = only_rotation[0][2]
     assert all(abs(w - base_w) < 1e-6 for _, _, w, h, _ in only_rotation), (
@@ -65,11 +68,35 @@ def test_size_and_rotation_are_independent(mod):
     print("  size_variation / rotation_variation indépendants : OK")
 
 
+def test_position_variation_is_independent(mod):
+    """3e curseur (retour user) : grille bien rangée (0) à scatter "lâché"
+    (100), sans faire bouger taille ni rotation."""
+    keys = _keys(12)
+
+    grid = mod.compute_layout(keys, 4000, 3000, size_variation=0,
+                              rotation_variation=0, position_variation=0,
+                              seed=9)
+    scattered = mod.compute_layout(keys, 4000, 3000, size_variation=0,
+                                   rotation_variation=0,
+                                   position_variation=100, seed=9)
+    # Mêmes tailles/rotations (déterminées par size/rotation_variation
+    # uniquement) des deux côtés...
+    for (_, _, w0, h0, a0), (_, _, w1, h1, a1) in zip(grid, scattered):
+        assert abs(w0 - w1) < 1e-6 and abs(h0 - h1) < 1e-6 and a0 == a1 == 0
+    # ...mais des centres différents : le scatter doit s'écarter de la
+    # position de grille pile centrée.
+    moved = sum(1 for (cx0, cy0, *_), (cx1, cy1, *_) in zip(grid, scattered)
+               if abs(cx0 - cx1) > 1 or abs(cy0 - cy1) > 1)
+    assert moved > 0, "position_variation=100 doit décaler des centres"
+    print("  position_variation indépendant (grille <-> scatter) : OK")
+
+
 def test_safe_margin_keeps_grid_off_the_edge(mod):
     keys = _keys(6)
     margin = 200
     layout = mod.compute_layout(keys, 4000, 3000, size_variation=0,
-                                rotation_variation=0, seed=3, margin_px=margin)
+                                rotation_variation=0, position_variation=0,
+                                seed=3, margin_px=margin)
     for cx, cy, box_w, box_h, _ in layout:
         assert cx - box_w / 2 >= margin - 1e-6
         assert cy - box_h / 2 >= margin - 1e-6
@@ -81,7 +108,8 @@ def test_safe_margin_keeps_grid_off_the_edge(mod):
 def test_center_photo_is_centered_and_upright(mod):
     keys = _keys(9)
     layout = mod.compute_layout(keys, 4000, 3000, size_variation=100,
-                                rotation_variation=100, seed=5,
+                                rotation_variation=100,
+                                position_variation=100, seed=5,
                                 center_key="photo3.jpg")
     by_key = dict(zip(keys, layout))
     cx, cy, box_w, box_h, angle = by_key["photo3.jpg"]
@@ -96,7 +124,8 @@ def test_center_photo_is_centered_and_upright(mod):
 def test_featured_photo_is_bigger_on_average(mod):
     keys = _keys(20)
     layout = mod.compute_layout(keys, 4000, 3000, size_variation=50,
-                                rotation_variation=0, seed=11,
+                                rotation_variation=0, position_variation=50,
+                                seed=11,
                                 featured_keys=frozenset({"photo0.jpg"}))
     by_key = dict(zip(keys, layout))
     featured_w = by_key["photo0.jpg"][2]
@@ -131,8 +160,8 @@ def test_render_montage_respects_margin_even_when_oversized(mod):
     canvas_w, canvas_h, margin = 1600, 1200, 150
     canvas, layers = mod.render_montage(
         keys, canvas_w, canvas_h, size_variation=100, rotation_variation=0,
-        margin_px=margin, seed=13, load_source=lambda k: sources[k],
-        log=lambda msg: None)
+        position_variation=100, margin_px=margin, seed=13,
+        load_source=lambda k: sources[k], log=lambda msg: None)
     assert len(layers) == len(keys)
     for _, tile, left, top in layers:
         tw, th = tile.size
@@ -158,8 +187,8 @@ def test_render_montage_composites_and_skips_missing(mod):
     }
     canvas, layers = mod.render_montage(
         keys, 1000, 800, size_variation=30, rotation_variation=30,
-        margin_px=50, seed=2, load_source=lambda k: sources[k],
-        log=lambda msg: None)
+        position_variation=30, margin_px=50, seed=2,
+        load_source=lambda k: sources[k], log=lambda msg: None)
     assert canvas.size == (1000, 800)
     assert canvas.mode == "RGBA"
     # 3 sources valides posées ; la 4e (None) n'a pas dû produire de calque
@@ -173,6 +202,7 @@ if __name__ == "__main__":
     montage = _load_montage()
     test_layout_covers_every_photo_and_stays_ordered(montage)
     test_size_and_rotation_are_independent(montage)
+    test_position_variation_is_independent(montage)
     test_safe_margin_keeps_grid_off_the_edge(montage)
     test_center_photo_is_centered_and_upright(montage)
     test_featured_photo_is_bigger_on_average(montage)

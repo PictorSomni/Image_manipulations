@@ -7845,6 +7845,10 @@ def main(page: ft.Page):
             suffix=ft.Text("cm", color=GREY), width=280,
             bgcolor=DARK, border_color=GREY, color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
+        position_slider = ft.Slider(
+            min=0, max=100, divisions=20,
+            value=CONSTANTS.COLLAGE_POSITION_VARIATION_DEFAULT,
+            label="{value}%", active_color=VIOLET, width=280)
         size_slider = ft.Slider(
             min=0, max=100, divisions=20,
             value=CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT,
@@ -7995,8 +7999,8 @@ def main(page: ft.Page):
             montage_mod = _load_montage_module()
             canvas, _ = montage_mod.render_montage(
                 photo_paths, prev_w, prev_h, size_slider.value,
-                rotation_slider.value, prev_margin, preview_seed["value"],
-                load_thumb, center_key=center["path"],
+                rotation_slider.value, position_slider.value, prev_margin,
+                preview_seed["value"], load_thumb, center_key=center["path"],
                 featured_keys=frozenset(featured), log=lambda msg: None)
             buf = io.BytesIO()
             canvas.convert("RGB").save(buf, format="JPEG", quality=85)
@@ -8053,6 +8057,7 @@ def main(page: ft.Page):
                 "COLLAGE_HEIGHT_CM": str(height_cm),
                 "COLLAGE_DPI": str(dpi),
                 "COLLAGE_SAFE_MARGIN_CM": str(margin_cm),
+                "COLLAGE_POSITION_VARIATION": str(position_slider.value),
                 "COLLAGE_SIZE_VARIATION": str(size_slider.value),
                 "COLLAGE_ROTATION_VARIATION": str(rotation_slider.value),
                 "COLLAGE_PSD": "1" if psd_checkbox.value else "0",
@@ -8088,6 +8093,9 @@ def main(page: ft.Page):
                         padding=10),
                     dpi_field,
                     margin_field,
+                    ft.Text("Position (grille ↔ aléatoire)",
+                           size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
+                    position_slider,
                     ft.Text("Écart de taille", size=CONSTANTS.TEXT_SM,
                            color=LIGHT_GREY),
                     size_slider,

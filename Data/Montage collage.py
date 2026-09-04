@@ -4,8 +4,9 @@ Prépare un montage photo (grille bien rangée -> scrapbook "lâché") sur un
 canevas à la taille finale demandée par le client, à partir de toutes les
 images d'un dossier.
 
-Répartit les photos sur une grille approximative puis fait varier position,
-taille (COLLAGE_SIZE_VARIATION) et rotation (COLLAGE_ROTATION_VARIATION) de
+Répartit les photos sur une grille approximative puis fait varier position
+(COLLAGE_POSITION_VARIATION, grille bien rangée à scatter "lâché"), taille
+(COLLAGE_SIZE_VARIATION) et rotation (COLLAGE_ROTATION_VARIATION) de
 chacune, indépendamment. Une marge de sécurité (COLLAGE_SAFE_MARGIN_CM)
 tient la grille éloignée du bord réel du canevas, pour limiter le risque de
 détail important coupé au massicot. Une photo peut être désignée comme
@@ -23,6 +24,7 @@ Variables d'environnement :
   COLLAGE_WIDTH_CM         — largeur du canevas final, en cm.
   COLLAGE_HEIGHT_CM        — hauteur du canevas final, en cm.
   COLLAGE_DPI              — résolution en ppp (défaut CONSTANTS.COLLAGE_DPI_DEFAULT).
+  COLLAGE_POSITION_VARIATION — 0-100, grille bien rangée (0) à scatter "lâché" (100) (défaut CONSTANTS.COLLAGE_POSITION_VARIATION_DEFAULT).
   COLLAGE_SIZE_VARIATION   — 0-100, écart de taille entre photos (défaut CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT).
   COLLAGE_ROTATION_VARIATION — 0-100, amplitude de rotation (défaut CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT).
   COLLAGE_SAFE_MARGIN_CM   — marge de sécurité près des bords, en cm (défaut CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT).
@@ -69,12 +71,13 @@ FEATURED_SCALE_BOOST = 1.6
 #############################################################
 
 def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
-                   rotation_variation, seed=None, margin_px=0,
-                   center_key=None, featured_keys=frozenset()):
+                   rotation_variation, position_variation, seed=None,
+                   margin_px=0, center_key=None, featured_keys=frozenset()):
     """Place chaque clé de `photo_keys` sur une grille approx. de la taille
     du canevas (moins `margin_px` de marge sur chaque bord), puis fait
-    varier indépendamment taille (`size_variation`) et rotation
-    (`rotation_variation`), chacune 0-100.
+    varier indépendamment position (`position_variation` — 0 = cellule de
+    grille pile centrée, 100 = scatter façon scrapbook), taille
+    (`size_variation`) et rotation (`rotation_variation`), chacune 0-100.
 
     `center_key`, si présent dans `photo_keys`, est retirée du tirage de
     grille et posée au milieu du canevas, agrandie, jamais pivotée. Les
@@ -101,12 +104,19 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
 
     size_t = max(0.0, min(1.0, size_variation / 100)) ** 0.6
     rotation_t = max(0.0, min(1.0, rotation_variation / 100))
+    position_t = max(0.0, min(1.0, position_variation / 100))
 
     placed = {}
     for key, (c, r) in zip(others, cells):
         cx = margin_px + (c + 0.5) * cell_w
         cy = margin_px + (r + 0.5) * cell_h
-        jitter = size_t * min(cell_w, cell_h) * 0.35
+        # Indépendant de size_variation (retour user) : un slider dédié
+        # pour aller d'une grille bien rangée (0) à un scatter façon
+        # scrapbook (100) — 0.6 de la cellule laisse largement déborder
+        # sur les cellules voisines au maximum, sans perdre l'idée de
+        # grille de départ qui garantit une couverture homogène du
+        # canevas quel que soit le réglage.
+        jitter = position_t * min(cell_w, cell_h) * 0.6
         cx += rng.uniform(-jitter, jitter)
         cy += rng.uniform(-jitter, jitter)
         # Asymétrique (-0.5 à +1.1) plutôt que centré sur 1 : quelques
@@ -144,8 +154,9 @@ def fit_and_rotate(image, box_w, box_h, angle_deg):
 
 
 def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
-                   rotation_variation, margin_px, seed, load_source, *,
-                   center_key=None, featured_keys=frozenset(),
+                   rotation_variation, position_variation, margin_px, seed,
+                   load_source, *, center_key=None,
+                   featured_keys=frozenset(),
                    log=lambda msg: print(msg, flush=True)):
     """Calcule le placement (compute_layout) puis compose tout sur un
     canevas RGBA. `load_source(key)` doit renvoyer une image PIL RGBA (ou
@@ -165,7 +176,7 @@ def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
         order = [k for k in photo_keys if k != center_key] + [center_key]
     layout = dict(zip(photo_keys, compute_layout(
         photo_keys, canvas_w, canvas_h, size_variation, rotation_variation,
-        seed, margin_px, center_key, featured_keys)))
+        position_variation, seed, margin_px, center_key, featured_keys)))
 
     canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     layers = []
@@ -237,6 +248,8 @@ def main():
         "COLLAGE_SIZE_VARIATION", CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT)))
     rotation_variation = max(0.0, min(100.0, env_float(
         "COLLAGE_ROTATION_VARIATION", CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT)))
+    position_variation = max(0.0, min(100.0, env_float(
+        "COLLAGE_POSITION_VARIATION", CONSTANTS.COLLAGE_POSITION_VARIATION_DEFAULT)))
     safe_margin_cm = env_float(
         "COLLAGE_SAFE_MARGIN_CM", CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT)
     write_psd = os.environ.get("COLLAGE_PSD", "0") == "1"
@@ -257,16 +270,16 @@ def main():
 
     print(f"[INFO] Canevas {canvas_w}x{canvas_h}px "
           f"({width_cm:g}x{height_cm:g}cm @ {dpi:g}ppp), "
-          f"{len(photo_names)} photo(s), taille={size_variation:g} "
-          f"rotation={rotation_variation:g} marge={safe_margin_cm:g}cm",
-          flush=True)
+          f"{len(photo_names)} photo(s), position={position_variation:g} "
+          f"taille={size_variation:g} rotation={rotation_variation:g} "
+          f"marge={safe_margin_cm:g}cm", flush=True)
 
     def load_source(name):
         return image_ops.open_srgb(PATH / name).convert("RGBA")
 
     canvas, psd_layers = render_montage(
         photo_names, canvas_w, canvas_h, size_variation, rotation_variation,
-        margin_px, seed, load_source,
+        position_variation, margin_px, seed, load_source,
         center_key=center_file, featured_keys=featured_files)
 
     preview_path = out_dir / "apercu.png"

@@ -366,6 +366,7 @@ WATERMARK_ALPHA      = 0.35   # Opacité du filigrane (0.0 = invisible, 1.0 = op
 COLLAGE_WIDTH_CM_DEFAULT  = 40   # Largeur du canevas final, en cm
 COLLAGE_HEIGHT_CM_DEFAULT = 30   # Hauteur du canevas final, en cm
 COLLAGE_DPI_DEFAULT       = 300  # Résolution du canevas, en ppp
+COLLAGE_POSITION_VARIATION_DEFAULT = 50   # 0 = grille bien rangée, 100 = scatter "lâché"
 COLLAGE_SIZE_VARIATION_DEFAULT     = 50   # 0 = tailles uniformes, 100 = très inégales
 COLLAGE_ROTATION_VARIATION_DEFAULT = 50   # 0 = toutes droites, 100 = fortement penchées
 COLLAGE_SAFE_MARGIN_CM_DEFAULT     = 2    # Marge tenue libre près des bords du canevas, en cm
