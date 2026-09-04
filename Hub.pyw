@@ -7868,6 +7868,13 @@ def main(page: ft.Page):
             min=0, max=100, divisions=20,
             value=CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT,
             label="{value}%", active_color=VIOLET, width=280)
+        # Bas par défaut (retour user : des visages disparaissaient sous
+        # une autre photo, ex. selfies déjà recadrés serrés) — 0 = jamais
+        # l'une sur l'autre, 100 = librement l'une sur l'autre.
+        overlap_slider = ft.Slider(
+            min=0, max=100, divisions=20,
+            value=CONSTANTS.COLLAGE_MAX_OVERLAP_DEFAULT,
+            label="{value}%", active_color=VIOLET, width=280)
         psd_checkbox = ft.Checkbox(
             label=".psd",
             tooltip="Générer aussi un .psd (calque par calque)",
@@ -8011,8 +8018,9 @@ def main(page: ft.Page):
             montage_mod = _load_montage_module()
             canvas, _ = montage_mod.render_montage(
                 photo_paths, prev_w, prev_h, size_slider.value,
-                rotation_slider.value, position_slider.value, prev_margin,
-                preview_seed["value"], load_thumb, center_key=center["path"],
+                rotation_slider.value, position_slider.value,
+                overlap_slider.value, prev_margin, preview_seed["value"],
+                load_thumb, center_key=center["path"],
                 featured_keys=frozenset(featured), log=lambda msg: None)
             buf = io.BytesIO()
             canvas.convert("RGB").save(buf, format="JPEG", quality=85)
@@ -8072,6 +8080,7 @@ def main(page: ft.Page):
                 "COLLAGE_POSITION_VARIATION": str(position_slider.value),
                 "COLLAGE_SIZE_VARIATION": str(size_slider.value),
                 "COLLAGE_ROTATION_VARIATION": str(rotation_slider.value),
+                "COLLAGE_MAX_OVERLAP": str(overlap_slider.value),
                 "COLLAGE_PSD": "1" if psd_checkbox.value else "0",
                 # Même tirage que l'aperçu affiché en dernier (si généré) :
                 # le rendu final placé reproduit exactement ce qui a été
@@ -8115,6 +8124,10 @@ def main(page: ft.Page):
                     ft.Text("Rotation", size=CONSTANTS.TEXT_SM,
                            color=LIGHT_GREY),
                     rotation_slider,
+                    ft.Text("Chevauchement max (0 = jamais l'une sur "
+                           "l'autre)", size=CONSTANTS.TEXT_SM,
+                           color=LIGHT_GREY),
+                    overlap_slider,
                     ft.Row([keypad], alignment=ft.MainAxisAlignment.CENTER),
                     ft.Divider(height=1, color=GREY),
                     ft.Row([

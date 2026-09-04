@@ -27,6 +27,7 @@ Variables d'environnement :
   COLLAGE_POSITION_VARIATION — 0-100, grille bien rangée (0) à scatter "lâché" (100) (défaut CONSTANTS.COLLAGE_POSITION_VARIATION_DEFAULT).
   COLLAGE_SIZE_VARIATION   — 0-100, écart de taille entre photos (défaut CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT).
   COLLAGE_ROTATION_VARIATION — 0-100, amplitude de rotation (défaut CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT).
+  COLLAGE_MAX_OVERLAP      — 0-100, chevauchement max toléré entre 2 photos : 0 = jamais l'une sur l'autre (rien de caché), 100 = librement l'une sur l'autre (défaut CONSTANTS.COLLAGE_MAX_OVERLAP_DEFAULT).
   COLLAGE_SAFE_MARGIN_CM   — marge de sécurité près des bords, en cm (défaut CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT).
   COLLAGE_CENTER_FILE      — nom d'une photo à poser au centre, agrandie (optionnel).
   COLLAGE_FEATURED_FILES   — noms de photos à mettre en avant, séparés par ``|`` (optionnel).
@@ -88,18 +89,24 @@ def _rotated_half_diag(w, h, angle_deg):
 
 
 def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
-                   rotation_variation, position_variation, seed=None,
-                   margin_px=0, center_key=None, featured_keys=frozenset()):
+                   rotation_variation, position_variation, max_overlap,
+                   seed=None, margin_px=0, center_key=None,
+                   featured_keys=frozenset()):
     """Place chaque clé de `photo_keys` sur une grille approx. de la taille
     du canevas (moins `margin_px` de marge sur chaque bord), puis fait
     varier indépendamment position (`position_variation` — 0 = cellule de
     grille pile centrée, 100 = scatter façon scrapbook), taille
     (`size_variation`) et rotation (`rotation_variation`), chacune 0-100.
+    `max_overlap` (0-100) plafonne ensuite le chevauchement toléré entre
+    2 tuiles quelconques : 0 = jamais l'une sur l'autre (aucun visage ne
+    peut se retrouver caché), 100 = librement l'une sur l'autre (retour
+    user : des personnes disparaissaient sous une autre photo).
 
     `center_key`, si présent dans `photo_keys`, est retirée du tirage de
-    grille et posée au milieu du canevas, agrandie, jamais pivotée. Les
-    clés de `featured_keys` reçoivent un coup de pouce de taille en plus
-    de la variation aléatoire normale.
+    grille et posée au milieu du canevas, agrandie, jamais pivotée — elle
+    n'est jamais concernée par `max_overlap` (mise en avant volontaire).
+    Les clés de `featured_keys` reçoivent un coup de pouce de taille en
+    plus de la variation aléatoire normale.
 
     Renvoie une liste de (center_x, center_y, box_w, box_h, angle_deg)
     dans le MÊME ORDRE que `photo_keys` (donc aussi l'ordre d'empilement
@@ -163,23 +170,26 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
                       angle)
 
     # Le chevauchement qui referme les trous ci-dessus peut, à l'inverse,
-    # faire disparaître une petite tuile complètement sous une plus
-    # grande dessinée par-dessus (retour user : aucune photo ne doit être
-    # totalement recouverte, "j'ai toujours des photos qui se
-    # chevauchent"). Écarte chaque tuile plus grande dessinée après elle
-    # dans `others` (donc au-dessus, cf. ordre de calque dans
-    # render_montage) jusqu'à ce qu'un bord dépasse. Rayon = demi-diagonale
-    # de la boîte englobante APRÈS rotation (le rendu réel, plus grand que
-    # la boîte de compute_layout dès que l'angle n'est pas nul) — un rayon
-    # circonscrit plutôt qu'inscrit : sous-estimer la portée réelle d'une
-    # tuile (ex. via son plus petit côté) est ce qui laissait passer un
-    # recouvrement quasi total le long du grand axe (retour user, 1er
-    # essai du correctif). Plusieurs passes (relaxation façon layout à
-    # ressorts) : écarter i d'un conflit avec j peut le rapprocher d'un
-    # k déjà résolu — une seule passe laissait ce genre de conflit en
-    # chaîne (retour user, persistait après le 1er correctif). Le
-    # nombre de passes est un plafond, pas une garantie de convergence
-    # totale dans un cas pathologique — largement suffisant en pratique.
+    # cacher une partie ou la totalité d'une photo sous une autre —
+    # problématique dès qu'un visage se retrouve caché, pas seulement en
+    # cas de recouvrement total (retour user : "il faut vraiment parfois
+    # faire très attention pour éviter que les photos ne se chevauchent",
+    # ex. selfies déjà recadrés serrés où le moindre bout masqué se voit).
+    # `max_overlap` plafonne l'écart minimal entre CHAQUE paire de tuiles
+    # (pas seulement grande-avale-petite comme avant) : à 0, les cercles
+    # circonscrits (rayon = demi-diagonale APRÈS rotation, cf.
+    # _rotated_half_diag — le rendu réel, plus grand que la boîte tant que
+    # l'angle n'est pas nul) ne se touchent jamais, donc les tuiles non
+    # plus. Plusieurs passes (relaxation façon layout à ressorts) : écarter
+    # i d'un conflit avec j peut le rapprocher d'un k déjà résolu — une
+    # seule passe laissait ce genre de conflit en chaîne. Le nombre de
+    # passes est un plafond, pas une garantie de convergence totale dans
+    # un cas pathologique — largement suffisant en pratique. Un chevauchement
+    # nul et une absence totale de trous sont deux objectifs contradictoires
+    # pour un placement au hasard (retour user antérieur sur les trous) :
+    # à max_overlap bas, quelques trous peuvent réapparaître — un fond
+    # visible est jugé préférable à un visage caché.
+    overlap_t = max(0.0, min(1.0, max_overlap / 100))
     for _pass in range(20):
         moved = False
         for i, ki in enumerate(others):
@@ -188,11 +198,9 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
             for kj in others[i + 1:]:
                 cxj, cyj, wj, hj, aj = placed[kj]
                 rj = _rotated_half_diag(wj, hj, aj)
-                if rj <= ri:
-                    continue
                 dx, dy = cxi - cxj, cyi - cyj
                 dist = math.hypot(dx, dy)
-                min_dist = rj - ri + 0.15 * ri
+                min_dist = (ri + rj) * (1 - overlap_t)
                 if dist >= min_dist:
                     continue
                 if dist < 1e-6:
@@ -209,6 +217,35 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
                 moved = True
             placed[ki] = (cxi, cyi, wi, hi, ai)
         if not moved:
+            break
+
+    # Filet de sécurité : quand le canevas est trop plein pour écarter
+    # deux tuiles jusqu'à la distance voulue (beaucoup de photos / tailles
+    # au max, cf. ci-dessus), la passe de position seule sature contre les
+    # bords et peut au final RE-concentrer des tuiles ensemble (constaté
+    # empiriquement : plus de recouvrement qu'à max_overlap=100, donc pire
+    # que ne rien faire). Ici, dernier recours : réduire à parts égales
+    # les deux tuiles encore en conflit après la relaxation — une photo
+    # plus petite mais entièrement visible vaut mieux qu'un visage caché
+    # (retour user), et réduire la taille ne peut jamais aggraver un
+    # recouvrement (contrairement à repousser dans un espace saturé).
+    for _pass in range(10):
+        shrunk = False
+        for i, ki in enumerate(others):
+            for kj in others[i + 1:]:
+                cxi, cyi, wi, hi, ai = placed[ki]
+                cxj, cyj, wj, hj, aj = placed[kj]
+                ri = _rotated_half_diag(wi, hi, ai)
+                rj = _rotated_half_diag(wj, hj, aj)
+                dist = math.hypot(cxi - cxj, cyi - cyj)
+                min_dist = (ri + rj) * (1 - overlap_t)
+                if dist >= min_dist or min_dist < 1e-6:
+                    continue
+                factor = max(0.5, dist / min_dist)
+                placed[ki] = (cxi, cyi, wi * factor, hi * factor, ai)
+                placed[kj] = (cxj, cyj, wj * factor, hj * factor, aj)
+                shrunk = True
+        if not shrunk:
             break
 
     if center_key is not None and center_key in photo_keys:
@@ -235,8 +272,8 @@ def fit_and_rotate(image, box_w, box_h, angle_deg):
 
 
 def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
-                   rotation_variation, position_variation, margin_px, seed,
-                   load_source, *, center_key=None,
+                   rotation_variation, position_variation, max_overlap,
+                   margin_px, seed, load_source, *, center_key=None,
                    featured_keys=frozenset(),
                    log=lambda msg: print(msg, flush=True)):
     """Calcule le placement (compute_layout) puis compose tout sur un
@@ -257,7 +294,8 @@ def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
         order = [k for k in photo_keys if k != center_key] + [center_key]
     layout = dict(zip(photo_keys, compute_layout(
         photo_keys, canvas_w, canvas_h, size_variation, rotation_variation,
-        position_variation, seed, margin_px, center_key, featured_keys)))
+        position_variation, max_overlap, seed, margin_px, center_key,
+        featured_keys)))
 
     canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     layers = []
@@ -331,6 +369,8 @@ def main():
         "COLLAGE_ROTATION_VARIATION", CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT)))
     position_variation = max(0.0, min(100.0, env_float(
         "COLLAGE_POSITION_VARIATION", CONSTANTS.COLLAGE_POSITION_VARIATION_DEFAULT)))
+    max_overlap = max(0.0, min(100.0, env_float(
+        "COLLAGE_MAX_OVERLAP", CONSTANTS.COLLAGE_MAX_OVERLAP_DEFAULT)))
     safe_margin_cm = env_float(
         "COLLAGE_SAFE_MARGIN_CM", CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT)
     write_psd = os.environ.get("COLLAGE_PSD", "0") == "1"
@@ -353,14 +393,15 @@ def main():
           f"({width_cm:g}x{height_cm:g}cm @ {dpi:g}ppp), "
           f"{len(photo_names)} photo(s), position={position_variation:g} "
           f"taille={size_variation:g} rotation={rotation_variation:g} "
-          f"marge={safe_margin_cm:g}cm", flush=True)
+          f"chevauchement_max={max_overlap:g} marge={safe_margin_cm:g}cm",
+          flush=True)
 
     def load_source(name):
         return image_ops.open_srgb(PATH / name).convert("RGBA")
 
     canvas, psd_layers = render_montage(
         photo_names, canvas_w, canvas_h, size_variation, rotation_variation,
-        position_variation, margin_px, seed, load_source,
+        position_variation, max_overlap, margin_px, seed, load_source,
         center_key=center_file, featured_keys=featured_files)
 
     preview_path = out_dir / "apercu.png"

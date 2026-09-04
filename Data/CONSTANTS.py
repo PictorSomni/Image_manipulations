@@ -370,6 +370,10 @@ COLLAGE_HEIGHT_CM_DEFAULT = 30   # Hauteur du canevas final, en cm
 COLLAGE_POSITION_VARIATION_DEFAULT = 50   # 0 = grille bien rangée, 100 = scatter "lâché"
 COLLAGE_SIZE_VARIATION_DEFAULT     = 50   # 0 = tailles uniformes, 100 = très inégales
 COLLAGE_ROTATION_VARIATION_DEFAULT = 50   # 0 = toutes droites, 100 = fortement penchées
+# Bas par défaut (retour user : des visages disparaissaient sous une
+# autre photo, ex. selfies déjà recadrés serrés) — 0 = jamais l'une sur
+# l'autre, 100 = librement l'une sur l'autre.
+COLLAGE_MAX_OVERLAP_DEFAULT        = 15
 COLLAGE_SAFE_MARGIN_CM_DEFAULT     = 2    # Marge tenue libre près des bords du canevas, en cm
 
 

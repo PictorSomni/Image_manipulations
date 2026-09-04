@@ -35,7 +35,7 @@ def test_layout_covers_every_photo_and_stays_ordered(mod):
     keys = _keys(7)
     layout = mod.compute_layout(keys, 4000, 3000, size_variation=0,
                                 rotation_variation=0, position_variation=0,
-                                seed=1)
+                                max_overlap=15, seed=1)
     assert len(layout) == 7
     for cx, cy, box_w, box_h, angle in layout:
         assert box_w > 0 and box_h > 0
@@ -53,14 +53,16 @@ def test_size_and_rotation_are_independent(mod):
 
     only_size = mod.compute_layout(keys, 4000, 3000, size_variation=100,
                                    rotation_variation=0,
-                                   position_variation=0, seed=7)
+                                   position_variation=0, max_overlap=100,
+                                   seed=7)
     assert all(angle == 0 for *_, angle in only_size)
     widths = {round(w) for _, _, w, h, _ in only_size}
     assert len(widths) > 1, "size_variation=100 doit produire des tailles différentes"
 
     only_rotation = mod.compute_layout(keys, 4000, 3000, size_variation=0,
                                        rotation_variation=100,
-                                       position_variation=0, seed=7)
+                                       position_variation=0, max_overlap=100,
+                                       seed=7)
     assert any(angle != 0 for *_, angle in only_rotation)
     base_w = only_rotation[0][2]
     assert all(abs(w - base_w) < 1e-6 for _, _, w, h, _ in only_rotation), (
@@ -76,10 +78,11 @@ def test_position_variation_is_independent(mod):
 
     grid = mod.compute_layout(keys, 4000, 3000, size_variation=0,
                               rotation_variation=0, position_variation=0,
-                              seed=9)
+                              max_overlap=100, seed=9)
     scattered = mod.compute_layout(keys, 4000, 3000, size_variation=0,
                                    rotation_variation=0,
-                                   position_variation=100, seed=9)
+                                   position_variation=100, max_overlap=100,
+                                   seed=9)
     # Rotation toujours nulle (rotation_variation=0) des deux côtés, et
     # même angle (0) qu'importe la position...
     assert all(a == 0 for *_, a in grid) and all(a == 0 for *_, a in scattered)
@@ -100,26 +103,57 @@ def test_position_variation_is_independent(mod):
     print("  position_variation indépendant (grille <-> scatter, sans trou) : OK")
 
 
-def test_no_tile_fully_swallowed_by_a_bigger_one(mod):
-    """Retour user : le chevauchement qui ferme les trous ne doit pas, à
-    l'inverse, faire disparaître complètement une petite tuile sous une
-    plus grande dessinée après elle. Beaucoup de photos + réglages au
-    max pour maximiser le risque, seed fixe pour la reproductibilité."""
-    keys = _keys(30)
-    layout = mod.compute_layout(keys, 4000, 3000, size_variation=100,
-                                rotation_variation=100,
-                                position_variation=100, seed=17)
-    for i, (cxi, cyi, wi, hi, ai) in enumerate(layout):
-        ri = mod._rotated_half_diag(wi, hi, ai)
-        for cxj, cyj, wj, hj, aj in layout[i + 1:]:
-            rj = mod._rotated_half_diag(wj, hj, aj)
-            if rj <= ri:
-                continue
-            dist = math.hypot(cxi - cxj, cyi - cyj)
-            assert dist >= rj - ri, (
-                "une tuile plus grande dessinée après ne doit jamais "
-                "avaler entièrement une tuile précédente")
-    print("  aucune tuile totalement recouverte par une plus grande : OK")
+def _bbox(cx, cy, w, h, angle_deg):
+    """Boîte englobante axis-aligned (même formule que _rotated_half_diag),
+    pour mesurer le recouvrement RÉEL entre deux tuiles — le critère du
+    cercle circonscrit utilisé pour piloter compute_layout est volontai-
+    rement conservateur (2 rectangles adjacents sans le moindre
+    recouvrement violent déjà ce critère), donc inadapté à un test."""
+    rad = math.radians(angle_deg)
+    ext_w = abs(w * math.cos(rad)) + abs(h * math.sin(rad))
+    ext_h = abs(w * math.sin(rad)) + abs(h * math.cos(rad))
+    return (cx - ext_w / 2, cy - ext_h / 2, cx + ext_w / 2, cy + ext_h / 2)
+
+
+def _overlap_fraction(box_a, box_b):
+    ax0, ay0, ax1, ay1 = box_a
+    bx0, by0, bx1, by1 = box_b
+    iw = max(0, min(ax1, bx1) - max(ax0, bx0))
+    ih = max(0, min(ay1, by1) - max(ay0, by0))
+    inter = iw * ih
+    area_a, area_b = (ax1 - ax0) * (ay1 - ay0), (bx1 - bx0) * (by1 - by0)
+    smaller = min(area_a, area_b)
+    return inter / smaller if smaller > 0 else 0
+
+
+def test_max_overlap_reduces_heavy_overlaps(mod):
+    """Retour user (seuil généralisé, pas juste "pas d'avalement total") :
+    à faible max_overlap, il doit y avoir nettement moins de paires
+    lourdement recouvertes (>50% de la plus petite tuile cachée) qu'à
+    max_overlap=100 (libre) — c'est la garantie concrète contre les
+    visages cachés, mesurée sur le recouvrement réel des boîtes (pas le
+    cercle circonscrit, trop conservateur pour un seuil exact). Plusieurs
+    seeds + réglages costauds (beaucoup de photos, tailles variées) pour
+    ne pas dépendre d'un seul tirage chanceux."""
+    keys = _keys(12)
+
+    def heavy_overlap_count(max_overlap, seed):
+        layout = mod.compute_layout(keys, 4000, 3000, size_variation=50,
+                                    rotation_variation=50,
+                                    position_variation=50,
+                                    max_overlap=max_overlap, seed=seed)
+        boxes = [_bbox(*tile) for tile in layout]
+        return sum(1 for i in range(len(boxes))
+                  for j in range(i + 1, len(boxes))
+                  if _overlap_fraction(boxes[i], boxes[j]) > 0.5)
+
+    tight_total = sum(heavy_overlap_count(15, seed) for seed in range(10))
+    free_total = sum(heavy_overlap_count(100, seed) for seed in range(10))
+    assert tight_total < free_total, (
+        "max_overlap=15 doit produire nettement moins de recouvrements "
+        f"lourds que max_overlap=100 (obtenu : {tight_total} vs {free_total})")
+    print(f"  max_overlap réduit les recouvrements lourds "
+         f"({tight_total} à 15 vs {free_total} à 100) : OK")
 
 
 def test_safe_margin_keeps_grid_off_the_edge(mod):
@@ -127,7 +161,7 @@ def test_safe_margin_keeps_grid_off_the_edge(mod):
     margin = 200
     layout = mod.compute_layout(keys, 4000, 3000, size_variation=0,
                                 rotation_variation=0, position_variation=0,
-                                seed=3, margin_px=margin)
+                                max_overlap=100, seed=3, margin_px=margin)
     for cx, cy, box_w, box_h, _ in layout:
         assert cx - box_w / 2 >= margin - 1e-6
         assert cy - box_h / 2 >= margin - 1e-6
@@ -140,8 +174,8 @@ def test_center_photo_is_centered_and_upright(mod):
     keys = _keys(9)
     layout = mod.compute_layout(keys, 4000, 3000, size_variation=100,
                                 rotation_variation=100,
-                                position_variation=100, seed=5,
-                                center_key="photo3.jpg")
+                                position_variation=100, max_overlap=100,
+                                seed=5, center_key="photo3.jpg")
     by_key = dict(zip(keys, layout))
     cx, cy, box_w, box_h, angle = by_key["photo3.jpg"]
     assert cx == 2000 and cy == 1500
@@ -156,7 +190,7 @@ def test_featured_photo_is_bigger_on_average(mod):
     keys = _keys(20)
     layout = mod.compute_layout(keys, 4000, 3000, size_variation=50,
                                 rotation_variation=0, position_variation=50,
-                                seed=11,
+                                max_overlap=100, seed=11,
                                 featured_keys=frozenset({"photo0.jpg"}))
     by_key = dict(zip(keys, layout))
     featured_w = by_key["photo0.jpg"][2]
@@ -191,7 +225,7 @@ def test_render_montage_respects_margin_even_when_oversized(mod):
     canvas_w, canvas_h, margin = 1600, 1200, 150
     canvas, layers = mod.render_montage(
         keys, canvas_w, canvas_h, size_variation=100, rotation_variation=0,
-        position_variation=100, margin_px=margin, seed=13,
+        position_variation=100, max_overlap=100, margin_px=margin, seed=13,
         load_source=lambda k: sources[k], log=lambda msg: None)
     assert len(layers) == len(keys)
     for _, tile, left, top in layers:
@@ -218,7 +252,7 @@ def test_render_montage_composites_and_skips_missing(mod):
     }
     canvas, layers = mod.render_montage(
         keys, 1000, 800, size_variation=30, rotation_variation=30,
-        position_variation=30, margin_px=50, seed=2,
+        position_variation=30, max_overlap=15, margin_px=50, seed=2,
         load_source=lambda k: sources[k], log=lambda msg: None)
     assert canvas.size == (1000, 800)
     assert canvas.mode == "RGBA"
@@ -234,7 +268,7 @@ if __name__ == "__main__":
     test_layout_covers_every_photo_and_stays_ordered(montage)
     test_size_and_rotation_are_independent(montage)
     test_position_variation_is_independent(montage)
-    test_no_tile_fully_swallowed_by_a_bigger_one(montage)
+    test_max_overlap_reduces_heavy_overlaps(montage)
     test_safe_margin_keeps_grid_off_the_edge(montage)
     test_center_photo_is_centered_and_upright(montage)
     test_featured_photo_is_bigger_on_average(montage)
