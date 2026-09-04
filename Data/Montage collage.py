@@ -105,6 +105,10 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
     size_t = max(0.0, min(1.0, size_variation / 100)) ** 0.6
     rotation_t = max(0.0, min(1.0, rotation_variation / 100))
     position_t = max(0.0, min(1.0, position_variation / 100))
+    # Grossit toutes les boîtes (centrale incluse, ci-dessous) dans la
+    # même proportion pour compenser le jitter de position et fermer les
+    # trous qu'il crée sinon (retour user).
+    overlap = 1 + position_t * 0.7
 
     placed = {}
     for key, (c, r) in zip(others, cells):
@@ -128,11 +132,46 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
         if key in featured_keys:
             scale *= FEATURED_SCALE_BOOST
         angle = rng.uniform(-28, 28) * rotation_t
-        placed[key] = (cx, cy, cell_w * scale, cell_h * scale, angle)
+        placed[key] = (cx, cy, cell_w * scale * overlap,
+                      cell_h * scale * overlap, angle)
+
+    # Le chevauchement qui referme les trous ci-dessus peut, à l'inverse,
+    # faire disparaître une petite tuile complètement sous une plus
+    # grande dessinée par-dessus (retour user : aucune photo ne doit être
+    # totalement recouverte). Écarte chaque tuile plus grande dessinée
+    # après elle dans `others` (donc au-dessus, cf. ordre de calque dans
+    # render_montage) jusqu'à ce qu'un bord dépasse. Approximation par
+    # cercle inscrit (rayon = plus petit demi-côté) qui ignore la
+    # rotation exacte — suffisant pour garantir un morceau visible sans
+    # viser une géométrie pixel-perfect ; une seule passe, ne rattrape
+    # pas les conflits en chaîne (rare avec un nombre de photos usuel).
+    for i, ki in enumerate(others):
+        cxi, cyi, wi, hi, ai = placed[ki]
+        ri = min(wi, hi) / 2
+        for kj in others[i + 1:]:
+            cxj, cyj, wj, hj, _ = placed[kj]
+            rj = min(wj, hj) / 2
+            if rj <= ri:
+                continue
+            dx, dy = cxi - cxj, cyi - cyj
+            dist = math.hypot(dx, dy)
+            min_dist = rj - ri + 0.15 * ri
+            if dist >= min_dist:
+                continue
+            if dist < 1e-6:
+                angle_push = rng.uniform(0, 2 * math.pi)
+                dx, dy, dist = math.cos(angle_push), math.sin(angle_push), 1.0
+            cxi = cxj + dx / dist * min_dist
+            cyi = cyj + dy / dist * min_dist
+            cxi = max(margin_px + wi / 2,
+                      min(cxi, canvas_w - margin_px - wi / 2))
+            cyi = max(margin_px + hi / 2,
+                      min(cyi, canvas_h - margin_px - hi / 2))
+        placed[ki] = (cxi, cyi, wi, hi, ai)
 
     if center_key is not None and center_key in photo_keys:
-        box_w = min(usable_w * 0.9, cell_w * 2.2)
-        box_h = min(usable_h * 0.9, cell_h * 2.2)
+        box_w = min(usable_w * 0.9, cell_w * 2.2 * overlap)
+        box_h = min(usable_h * 0.9, cell_h * 2.2 * overlap)
         placed[center_key] = (canvas_w / 2, canvas_h / 2, box_w, box_h, 0.0)
 
     return [placed[k] for k in photo_keys]

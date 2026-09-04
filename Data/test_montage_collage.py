@@ -10,6 +10,7 @@ Lancer :  python3 "Data/test_montage_collage.py"
 
 import importlib.machinery
 import importlib.util
+import math
 import sys
 from pathlib import Path
 
@@ -79,16 +80,46 @@ def test_position_variation_is_independent(mod):
     scattered = mod.compute_layout(keys, 4000, 3000, size_variation=0,
                                    rotation_variation=0,
                                    position_variation=100, seed=9)
-    # Mêmes tailles/rotations (déterminées par size/rotation_variation
-    # uniquement) des deux côtés...
-    for (_, _, w0, h0, a0), (_, _, w1, h1, a1) in zip(grid, scattered):
-        assert abs(w0 - w1) < 1e-6 and abs(h0 - h1) < 1e-6 and a0 == a1 == 0
-    # ...mais des centres différents : le scatter doit s'écarter de la
+    # Rotation toujours nulle (rotation_variation=0) des deux côtés, et
+    # même angle (0) qu'importe la position...
+    assert all(a == 0 for *_, a in grid) and all(a == 0 for *_, a in scattered)
+    # ...mais les boîtes grossissent TOUTES dans la même proportion à fort
+    # position_variation (retour user : "il y a des trous" — le jitter de
+    # position, sans grossir les boîtes en face, laissait du fond
+    # transparent visible ; le grossissement compense, cf. `overlap` dans
+    # compute_layout). size_variation=0 -> même overlap partout.
+    ratios = {round(w1 / w0, 6) for (_, _, w0, *_), (_, _, w1, *_)
+             in zip(grid, scattered)}
+    assert len(ratios) == 1 and next(iter(ratios)) > 1, (
+        "position_variation=100 doit agrandir toutes les boîtes pareil")
+    # ...et des centres différents : le scatter doit s'écarter de la
     # position de grille pile centrée.
     moved = sum(1 for (cx0, cy0, *_), (cx1, cy1, *_) in zip(grid, scattered)
                if abs(cx0 - cx1) > 1 or abs(cy0 - cy1) > 1)
     assert moved > 0, "position_variation=100 doit décaler des centres"
-    print("  position_variation indépendant (grille <-> scatter) : OK")
+    print("  position_variation indépendant (grille <-> scatter, sans trou) : OK")
+
+
+def test_no_tile_fully_swallowed_by_a_bigger_one(mod):
+    """Retour user : le chevauchement qui ferme les trous ne doit pas, à
+    l'inverse, faire disparaître complètement une petite tuile sous une
+    plus grande dessinée après elle. Beaucoup de photos + réglages au
+    max pour maximiser le risque, seed fixe pour la reproductibilité."""
+    keys = _keys(30)
+    layout = mod.compute_layout(keys, 4000, 3000, size_variation=100,
+                                rotation_variation=0, position_variation=100,
+                                seed=17)
+    for i, (cxi, cyi, wi, hi, _) in enumerate(layout):
+        ri = min(wi, hi) / 2
+        for cxj, cyj, wj, hj, _ in layout[i + 1:]:
+            rj = min(wj, hj) / 2
+            if rj <= ri:
+                continue
+            dist = math.hypot(cxi - cxj, cyi - cyj)
+            assert dist >= rj - ri, (
+                "une tuile plus grande dessinée après ne doit jamais "
+                "avaler entièrement une tuile précédente")
+    print("  aucune tuile totalement recouverte par une plus grande : OK")
 
 
 def test_safe_margin_keeps_grid_off_the_edge(mod):
@@ -203,6 +234,7 @@ if __name__ == "__main__":
     test_layout_covers_every_photo_and_stays_ordered(montage)
     test_size_and_rotation_are_independent(montage)
     test_position_variation_is_independent(montage)
+    test_no_tile_fully_swallowed_by_a_bigger_one(montage)
     test_safe_margin_keeps_grid_off_the_edge(montage)
     test_center_photo_is_centered_and_upright(montage)
     test_featured_photo_is_bigger_on_average(montage)
