@@ -9035,7 +9035,7 @@ def main(page: ft.Page):
         content=ft.Row([notes_btn_icon, notes_btn_text], spacing=6,
                        tight=True),
         height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT, on_click=_toggle_notes,
-        tooltip="Bloc-notes (bandeau, sans quitter Fichiers/Actions)",
+        tooltip="Bloc-notes (bandeau, sans quitter Fichiers/Actions) — Ctrl/Cmd+↓",
     )
 
     def _sync_notes_btn():
@@ -9384,6 +9384,9 @@ def main(page: ft.Page):
             return
         if ctrl and event.key in ("Arrow Up", "ArrowUp"):
             _toggle_terminal(None)
+            return
+        if ctrl and event.key in ("Arrow Down", "ArrowDown"):
+            _toggle_notes(None)
             return
         if not ctrl and event.key in ("Arrow Up", "ArrowUp", "Arrow Down", "ArrowDown"):
             focused = _focused_input["name"]
