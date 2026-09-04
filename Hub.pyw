@@ -7936,7 +7936,7 @@ def main(page: ft.Page):
         preview_image = ft.Image(src=_BLANK_GIF, width=360, height=270,
                                  fit=ft.BoxFit.CONTAIN, border_radius=4,
                                  visible=False)
-        preview_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREY)
+        preview_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY)
 
         def _read_canvas_params():
             if manual["value"]:
@@ -8044,17 +8044,25 @@ def main(page: ft.Page):
                 width=360, height=560,
                 content=ft.Column([
                     ft.Text("Photo centrale / mises en avant (optionnel)",
-                           size=CONSTANTS.TEXT_SM, color=GREY),
+                           size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
                     tiles_row,
                     ft.Divider(height=1, color=GREY),
                     format_dd,
-                    ft.Row([width_field, height_field], spacing=8),
-                    manual_switch,
+                    ft.Container(
+                        content=ft.Column([
+                            manual_switch,
+                            ft.Row([width_field, height_field], spacing=8,
+                                  alignment=ft.MainAxisAlignment.CENTER),
+                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                        border=ft.Border.all(1, GREY), border_radius=8,
+                        padding=10),
                     dpi_field,
                     margin_field,
-                    ft.Text("Écart de taille", size=CONSTANTS.TEXT_SM, color=GREY),
+                    ft.Text("Écart de taille", size=CONSTANTS.TEXT_SM,
+                           color=LIGHT_GREY),
                     size_slider,
-                    ft.Text("Rotation", size=CONSTANTS.TEXT_SM, color=GREY),
+                    ft.Text("Rotation", size=CONSTANTS.TEXT_SM,
+                           color=LIGHT_GREY),
                     rotation_slider,
                     psd_checkbox,
                     ft.Row([keypad], alignment=ft.MainAxisAlignment.CENTER),
