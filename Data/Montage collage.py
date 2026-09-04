@@ -250,8 +250,26 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
     has_center = center_key is not None and center_key in photo_keys
     placed = {}
 
+    # _squarify trie ses items par poids décroissant en interne (utile à
+    # l'algorithme, cf. sa docstring) : les photos les plus lourdes
+    # (mises en avant) tombent donc TOUJOURS dans la première rangée
+    # traitée, donc toujours dans le même coin du canevas — le mélange
+    # de `weights` ci-dessus n'a aucun effet là-dessus puisque _squarify
+    # re-trie de toute façon (retour user : "à part être mis en haut à
+    # gauche, le fait de mettre des images en avant ne change rien").
+    # Un miroir horizontal/vertical aléatoire, appliqué UNE FOIS à tout
+    # le tirage, casse ce biais sans toucher à la qualité du pavage
+    # (une réflexion d'un pavage sans trou/recouvrement reste un pavage
+    # sans trou/recouvrement).
+    flip_x = rng.random() < 0.5
+    flip_y = rng.random() < 0.5
+
     def _place_group(group, rx, ry, rw, rh):
         for key, x, y, w, h in _squarify(group, rx, ry, rw, rh):
+            if flip_x:
+                x = margin_px + (usable_w - (x - margin_px) - w)
+            if flip_y:
+                y = margin_px + (usable_h - (y - margin_px) - h)
             angle = rng.uniform(-28, 28) * rotation_t
             placed[key] = (x + w / 2, y + h / 2, w, h, angle)
 
@@ -259,12 +277,15 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
         # Taille "nominale" de référence : l'aire moyenne qu'aurait une
         # tuile si le canevas était partagé également entre toutes les
         # autres photos, à l'aspect ratio du canevas — sert juste à faire
-        # ressortir la centrale nettement au-dessus de cette moyenne.
+        # ressortir la centrale un peu au-dessus de cette moyenne, sans
+        # écraser le reste de la mosaïque (retour user : "elle peut être
+        # légèrement plus grande mais pas prendre toute la place" — x2.2
+        # en linéaire, donc presque x5 en aire, était bien trop agressif).
         count = max(1, len(others))
         nominal_w = usable_w / math.sqrt(count)
         nominal_h = usable_h / math.sqrt(count)
-        center_w = min(usable_w * 0.9, nominal_w * 2.2)
-        center_h = min(usable_h * 0.9, nominal_h * 2.2)
+        center_w = min(usable_w * 0.6, nominal_w * 1.4)
+        center_h = min(usable_h * 0.6, nominal_h * 1.4)
         placed[center_key] = (canvas_w / 2, canvas_h / 2, center_w, center_h, 0.0)
 
     if others:

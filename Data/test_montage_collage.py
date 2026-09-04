@@ -258,6 +258,27 @@ def test_featured_photo_is_bigger_on_average(mod):
     print("  photo mise en avant (poids renforcé -> case plus grande) : OK")
 
 
+def test_featured_photo_position_is_not_always_the_same_corner(mod):
+    """_squarify trie ses items par poids décroissant en interne : sans
+    contre-mesure, la photo la plus lourde (mise en avant) tombe TOUJOURS
+    dans le même coin du canevas (retour user : "à part être mis en haut
+    à gauche, le fait de mettre des images en avant ne change rien").
+    Sur beaucoup de tirages, elle doit atterrir dans au moins 3 des 4
+    quadrants du canevas."""
+    keys = _keys(8)
+    quadrants = set()
+    for seed in range(60):
+        layout = mod.compute_layout(keys, 4000, 3000, size_variation=50,
+                                    rotation_variation=0, seed=seed,
+                                    featured_keys=frozenset({"photo0.jpg"}))
+        cx, cy, *_ = dict(zip(keys, layout))["photo0.jpg"]
+        quadrants.add((cx < 2000, cy < 1500))
+    assert len(quadrants) >= 3, (
+        f"la photo mise en avant ne devrait pas rester dans le même coin "
+        f"(quadrants observés : {quadrants})")
+    print("  photo mise en avant répartie sur plusieurs coins (pas figée) : OK")
+
+
 def test_fit_and_rotate_covers_the_box_without_gaps(mod):
     """Retour user : même une mosaïque sans le moindre trou laissait de
     grandes bandes transparentes DANS chaque tuile dès que l'aspect ratio
@@ -359,6 +380,7 @@ if __name__ == "__main__":
     test_center_photo_is_centered_and_upright(montage)
     test_center_photo_does_not_overlap_others(montage)
     test_featured_photo_is_bigger_on_average(montage)
+    test_featured_photo_position_is_not_always_the_same_corner(montage)
     test_fit_and_rotate_covers_the_box_without_gaps(montage)
     test_fit_and_rotate_caps_crop_on_extreme_aspect(montage)
     test_render_montage_respects_margin(montage)
