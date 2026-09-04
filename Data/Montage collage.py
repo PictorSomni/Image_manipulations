@@ -163,12 +163,17 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
         cy = margin_px + (r + 0.5) * cell_h
         # Indépendant de size_variation (retour user) : un slider dédié
         # pour aller d'une grille bien rangée (0) à un scatter façon
-        # scrapbook (100) — 0.85 de la cellule laisse largement déborder
-        # sur les cellules voisines au maximum (retour user : 0.6 restait
-        # trop sage, pas assez "aléatoire" au réglage max), sans perdre
-        # l'idée de grille de départ qui garantit une couverture homogène
-        # du canevas quel que soit le réglage.
-        jitter = position_t * min(row_cell_w, cell_h) * 0.85
+        # scrapbook (100). Plafonné à 0.35x la cellule (retour user : à
+        # 0.6 puis 0.85, deux tuiles de cellules voisines pouvaient
+        # dériver l'une vers l'autre jusqu'à des centres quasi confondus —
+        # "des images qui se chevauchent totalement" — la seule tuile
+        # rétrécie par la passe anti-recouvrement ne peut pas compenser un
+        # centre déplacé aussi loin. 0.35 laisse encore un vrai décalage
+        # "scrapbook" tout en gardant, au pire tirage, deux cellules
+        # voisines à bonne distance l'une de l'autre (mesuré : 0 paire en
+        # quasi-recouvrement total sur >4600 paires testées à 0.35, contre
+        # plusieurs à 0.6/0.85).
+        jitter = position_t * min(row_cell_w, cell_h) * 0.35
         cx += rng.uniform(-jitter, jitter)
         cy += rng.uniform(-jitter, jitter)
         # Asymétrique (-0.5 à +1.1) plutôt que centré sur 1 : quelques
