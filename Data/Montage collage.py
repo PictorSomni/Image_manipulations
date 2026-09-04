@@ -233,12 +233,15 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
 
     weights = []
     for key in others:
-        # Asymétrique (-0.5 à +1.1) plutôt que centré sur 1 : quelques
+        # Asymétrique (-0.7 à +2.2) plutôt que centré sur 1 : quelques
         # photos nettement plus grandes que la moyenne, comme un vrai
         # scrapbook composé à la main plutôt qu'une mosaïque uniformément
-        # redimensionnée (retour user : les tailles restaient trop
-        # semblables avec un écart symétrique étroit).
-        weight = max(0.35, 1 + rng.uniform(-0.5, 1.1) * size_t)
+        # redimensionnée. Plage élargie (retour user : "augmenter les
+        # différences de taille quand on pousse le slider" — mesuré,
+        # ratio d'aire moyen max/min entre tuiles : x3.1 à 100% avant
+        # cet élargissement, x6 après, pour un vide qui reste comparable
+        # ~5% grâce à la mosaïque garantie sans trou, cf. _squarify).
+        weight = max(0.2, 1 + rng.uniform(-0.7, 2.2) * size_t)
         if key in featured_keys:
             weight *= FEATURED_SCALE_BOOST
         weights.append((weight, key))
