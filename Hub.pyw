@@ -7834,11 +7834,22 @@ def main(page: ft.Page):
             disabled=True, keyboard_type=ft.KeyboardType.NUMBER)
         manual_switch = ft.Switch(label="Saisie manuelle (cm)",
                                   value=False, active_color=BLUE)
+        # DPI (retour user) : CONSTANTS.DPI suffit dans l'immense majorité
+        # des cas, pas besoin d'un champ toujours affiché — juste un
+        # bouton pour l'ouvrir si vraiment besoin de le changer.
         dpi_field = ft.TextField(
-            label="Résolution", value=str(CONSTANTS.COLLAGE_DPI_DEFAULT),
+            label="Résolution", value=str(CONSTANTS.DPI), visible=False,
             suffix=ft.Text("ppp", color=GREY), width=280,
             bgcolor=DARK, border_color=GREY, color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
+
+        def _toggle_dpi_field(e):
+            dpi_field.visible = not dpi_field.visible
+            page.update()
+
+        dpi_toggle_btn = ft.TextButton(
+            f"Résolution : {CONSTANTS.DPI} ppp", icon=ft.Icons.EDIT,
+            icon_color=LIGHT_GREY, on_click=_toggle_dpi_field)
         margin_field = ft.TextField(
             label="Marge de sécurité (rien d'important trop près du bord)",
             value=str(CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT),
@@ -8091,6 +8102,7 @@ def main(page: ft.Page):
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                         border=ft.Border.all(1, GREY), border_radius=8,
                         padding=10),
+                    dpi_toggle_btn,
                     dpi_field,
                     margin_field,
                     ft.Text("Position (grille ↔ aléatoire)",
@@ -8102,7 +8114,6 @@ def main(page: ft.Page):
                     ft.Text("Rotation", size=CONSTANTS.TEXT_SM,
                            color=LIGHT_GREY),
                     rotation_slider,
-                    psd_checkbox,
                     ft.Row([keypad], alignment=ft.MainAxisAlignment.CENTER),
                     ft.Divider(height=1, color=GREY),
                     ft.Row([
@@ -8118,8 +8129,10 @@ def main(page: ft.Page):
                 ], spacing=8, tight=True, scroll=ft.ScrollMode.AUTO,
                    horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             ),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
+            actions=[psd_checkbox,
+                     ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
+            actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
         )
         async def _show():
             page.overlay.append(dlg)

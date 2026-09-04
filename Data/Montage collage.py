@@ -23,7 +23,7 @@ Variables d'environnement :
   SELECTED_FILES           — liste de noms séparés par ``|`` (filtre optionnel).
   COLLAGE_WIDTH_CM         — largeur du canevas final, en cm.
   COLLAGE_HEIGHT_CM        — hauteur du canevas final, en cm.
-  COLLAGE_DPI              — résolution en ppp (défaut CONSTANTS.COLLAGE_DPI_DEFAULT).
+  COLLAGE_DPI              — résolution en ppp (défaut CONSTANTS.DPI).
   COLLAGE_POSITION_VARIATION — 0-100, grille bien rangée (0) à scatter "lâché" (100) (défaut CONSTANTS.COLLAGE_POSITION_VARIATION_DEFAULT).
   COLLAGE_SIZE_VARIATION   — 0-100, écart de taille entre photos (défaut CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT).
   COLLAGE_ROTATION_VARIATION — 0-100, amplitude de rotation (défaut CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT).
@@ -66,9 +66,26 @@ PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 # déjà, cf. retour user).
 FEATURED_SCALE_BOOST = 1.6
 
+# Plafond de taille d'une tuile, en multiple de sa cellule de grille —
+# borne le cumul scale x overlap x rotation (cf. compute_layout) pour
+# qu'aucune tuile ne devienne assez grande pour rendre le canevas trop
+# à l'étroit pour l'anti-recouvrement (retour user, cf. plus bas).
+MAX_TILE_CELL_MULT = 1.8
+
 #############################################################
 #                          LAYOUT                            #
 #############################################################
+
+def _rotated_half_diag(w, h, angle_deg):
+    """Demi-diagonale de la boîte englobante (axis-aligned) de w x h une
+    fois pivotée de `angle_deg` — plus grande que w/h eux-mêmes dès que
+    l'angle n'est pas nul, exactement ce que gagne le rendu réel
+    (fit_and_rotate, expand=True)."""
+    rad = math.radians(angle_deg)
+    ext_w = abs(w * math.cos(rad)) + abs(h * math.sin(rad))
+    ext_h = abs(w * math.sin(rad)) + abs(h * math.cos(rad))
+    return math.hypot(ext_w, ext_h) / 2
+
 
 def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
                    rotation_variation, position_variation, seed=None,
@@ -132,42 +149,67 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
         if key in featured_keys:
             scale *= FEATURED_SCALE_BOOST
         angle = rng.uniform(-28, 28) * rotation_t
-        placed[key] = (cx, cy, cell_w * scale * overlap,
-                      cell_h * scale * overlap, angle)
+        # scale (jusqu'à 2.1, ou 3.4 pour une mise en avant), overlap
+        # (jusqu'à 1.7) et la rotation (jusqu'à x1.41 de diagonale une
+        # fois pivotée) se cumulent — sans plafond, quelques tuiles
+        # finissaient presque aussi grandes que le canevas et rien ne
+        # pouvait plus les empêcher d'en avaler d'autres (retour user :
+        # persistait malgré la passe anti-recouvrement ci-dessous).
+        # MAX_TILE_CELL_MULT borne chaque boîte à une taille encore
+        # nettement mise en avant sans devenir ingérable.
+        placed[key] = (cx, cy,
+                      min(cell_w * scale * overlap, cell_w * MAX_TILE_CELL_MULT),
+                      min(cell_h * scale * overlap, cell_h * MAX_TILE_CELL_MULT),
+                      angle)
 
     # Le chevauchement qui referme les trous ci-dessus peut, à l'inverse,
     # faire disparaître une petite tuile complètement sous une plus
     # grande dessinée par-dessus (retour user : aucune photo ne doit être
-    # totalement recouverte). Écarte chaque tuile plus grande dessinée
-    # après elle dans `others` (donc au-dessus, cf. ordre de calque dans
-    # render_montage) jusqu'à ce qu'un bord dépasse. Approximation par
-    # cercle inscrit (rayon = plus petit demi-côté) qui ignore la
-    # rotation exacte — suffisant pour garantir un morceau visible sans
-    # viser une géométrie pixel-perfect ; une seule passe, ne rattrape
-    # pas les conflits en chaîne (rare avec un nombre de photos usuel).
-    for i, ki in enumerate(others):
-        cxi, cyi, wi, hi, ai = placed[ki]
-        ri = min(wi, hi) / 2
-        for kj in others[i + 1:]:
-            cxj, cyj, wj, hj, _ = placed[kj]
-            rj = min(wj, hj) / 2
-            if rj <= ri:
-                continue
-            dx, dy = cxi - cxj, cyi - cyj
-            dist = math.hypot(dx, dy)
-            min_dist = rj - ri + 0.15 * ri
-            if dist >= min_dist:
-                continue
-            if dist < 1e-6:
-                angle_push = rng.uniform(0, 2 * math.pi)
-                dx, dy, dist = math.cos(angle_push), math.sin(angle_push), 1.0
-            cxi = cxj + dx / dist * min_dist
-            cyi = cyj + dy / dist * min_dist
-            cxi = max(margin_px + wi / 2,
-                      min(cxi, canvas_w - margin_px - wi / 2))
-            cyi = max(margin_px + hi / 2,
-                      min(cyi, canvas_h - margin_px - hi / 2))
-        placed[ki] = (cxi, cyi, wi, hi, ai)
+    # totalement recouverte, "j'ai toujours des photos qui se
+    # chevauchent"). Écarte chaque tuile plus grande dessinée après elle
+    # dans `others` (donc au-dessus, cf. ordre de calque dans
+    # render_montage) jusqu'à ce qu'un bord dépasse. Rayon = demi-diagonale
+    # de la boîte englobante APRÈS rotation (le rendu réel, plus grand que
+    # la boîte de compute_layout dès que l'angle n'est pas nul) — un rayon
+    # circonscrit plutôt qu'inscrit : sous-estimer la portée réelle d'une
+    # tuile (ex. via son plus petit côté) est ce qui laissait passer un
+    # recouvrement quasi total le long du grand axe (retour user, 1er
+    # essai du correctif). Plusieurs passes (relaxation façon layout à
+    # ressorts) : écarter i d'un conflit avec j peut le rapprocher d'un
+    # k déjà résolu — une seule passe laissait ce genre de conflit en
+    # chaîne (retour user, persistait après le 1er correctif). Le
+    # nombre de passes est un plafond, pas une garantie de convergence
+    # totale dans un cas pathologique — largement suffisant en pratique.
+    for _pass in range(20):
+        moved = False
+        for i, ki in enumerate(others):
+            cxi, cyi, wi, hi, ai = placed[ki]
+            ri = _rotated_half_diag(wi, hi, ai)
+            for kj in others[i + 1:]:
+                cxj, cyj, wj, hj, aj = placed[kj]
+                rj = _rotated_half_diag(wj, hj, aj)
+                if rj <= ri:
+                    continue
+                dx, dy = cxi - cxj, cyi - cyj
+                dist = math.hypot(dx, dy)
+                min_dist = rj - ri + 0.15 * ri
+                if dist >= min_dist:
+                    continue
+                if dist < 1e-6:
+                    angle_push = rng.uniform(0, 2 * math.pi)
+                    dx = math.cos(angle_push)
+                    dy = math.sin(angle_push)
+                    dist = 1.0
+                cxi = cxj + dx / dist * min_dist
+                cyi = cyj + dy / dist * min_dist
+                cxi = max(margin_px + wi / 2,
+                          min(cxi, canvas_w - margin_px - wi / 2))
+                cyi = max(margin_px + hi / 2,
+                          min(cyi, canvas_h - margin_px - hi / 2))
+                moved = True
+            placed[ki] = (cxi, cyi, wi, hi, ai)
+        if not moved:
+            break
 
     if center_key is not None and center_key in photo_keys:
         box_w = min(usable_w * 0.9, cell_w * 2.2 * overlap)
@@ -282,7 +324,7 @@ def main():
 
     width_cm  = env_float("COLLAGE_WIDTH_CM", CONSTANTS.COLLAGE_WIDTH_CM_DEFAULT)
     height_cm = env_float("COLLAGE_HEIGHT_CM", CONSTANTS.COLLAGE_HEIGHT_CM_DEFAULT)
-    dpi       = env_float("COLLAGE_DPI", CONSTANTS.COLLAGE_DPI_DEFAULT)
+    dpi       = env_float("COLLAGE_DPI", CONSTANTS.DPI)
     size_variation = max(0.0, min(100.0, env_float(
         "COLLAGE_SIZE_VARIATION", CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT)))
     rotation_variation = max(0.0, min(100.0, env_float(

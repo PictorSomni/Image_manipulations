@@ -107,12 +107,12 @@ def test_no_tile_fully_swallowed_by_a_bigger_one(mod):
     max pour maximiser le risque, seed fixe pour la reproductibilité."""
     keys = _keys(30)
     layout = mod.compute_layout(keys, 4000, 3000, size_variation=100,
-                                rotation_variation=0, position_variation=100,
-                                seed=17)
-    for i, (cxi, cyi, wi, hi, _) in enumerate(layout):
-        ri = min(wi, hi) / 2
-        for cxj, cyj, wj, hj, _ in layout[i + 1:]:
-            rj = min(wj, hj) / 2
+                                rotation_variation=100,
+                                position_variation=100, seed=17)
+    for i, (cxi, cyi, wi, hi, ai) in enumerate(layout):
+        ri = mod._rotated_half_diag(wi, hi, ai)
+        for cxj, cyj, wj, hj, aj in layout[i + 1:]:
+            rj = mod._rotated_half_diag(wj, hj, aj)
             if rj <= ri:
                 continue
             dist = math.hypot(cxi - cxj, cyi - cyj)
