@@ -4,28 +4,38 @@ Prépare un montage photo (grille bien rangée -> scrapbook "lâché") sur un
 canevas à la taille finale demandée par le client, à partir de toutes les
 images d'un dossier.
 
-Répartit les photos sur une grille approximative puis, selon COLLAGE_CHAOS
-(0 = mosaïque, 100 = photos lâchées), fait varier la position, la taille et
-la rotation de chacune. Produit un aperçu à taille réelle
-(``Montage/apercu.png``, fond transparent) et, si demandé, un fichier .psd
-avec chaque photo sur son propre calque déjà placé — reste à retoucher les
-bords (flou, ombre) et poser le fond dans Affinity.
+Répartit les photos sur une grille approximative puis fait varier position,
+taille (COLLAGE_SIZE_VARIATION) et rotation (COLLAGE_ROTATION_VARIATION) de
+chacune, indépendamment. Une marge de sécurité (COLLAGE_SAFE_MARGIN_CM)
+tient la grille éloignée du bord réel du canevas, pour limiter le risque de
+détail important coupé au massicot. Une photo peut être désignée comme
+centrale (COLLAGE_CENTER_FILE, agrandie, posée au milieu, jamais pivotée) et
+d'autres comme mises en avant (COLLAGE_FEATURED_FILES, agrandies).
+
+Produit un aperçu à taille réelle (``Montage/apercu.png``, fond transparent)
+et, si demandé, un fichier .psd avec chaque photo sur son propre calque déjà
+placé — reste à retoucher les bords (flou, ombre) et poser le fond dans
+Affinity.
 
 Variables d'environnement :
-  FOLDER_PATH        — dossier source (défaut : répertoire du script).
-  SELECTED_FILES     — liste de noms séparés par ``|`` (filtre optionnel).
-  COLLAGE_WIDTH_CM   — largeur du canevas final, en cm.
-  COLLAGE_HEIGHT_CM  — hauteur du canevas final, en cm.
-  COLLAGE_DPI        — résolution en ppp (défaut CONSTANTS.COLLAGE_DPI_DEFAULT).
-  COLLAGE_CHAOS      — 0-100 (défaut CONSTANTS.COLLAGE_CHAOS_DEFAULT).
-  COLLAGE_PSD        — "1" pour écrire aussi un .psd calque par calque.
-  COLLAGE_SEED       — graine aléatoire (optionnel, pour reproduire un tirage).
+  FOLDER_PATH              — dossier source (défaut : répertoire du script).
+  SELECTED_FILES           — liste de noms séparés par ``|`` (filtre optionnel).
+  COLLAGE_WIDTH_CM         — largeur du canevas final, en cm.
+  COLLAGE_HEIGHT_CM        — hauteur du canevas final, en cm.
+  COLLAGE_DPI              — résolution en ppp (défaut CONSTANTS.COLLAGE_DPI_DEFAULT).
+  COLLAGE_SIZE_VARIATION   — 0-100, écart de taille entre photos (défaut CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT).
+  COLLAGE_ROTATION_VARIATION — 0-100, amplitude de rotation (défaut CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT).
+  COLLAGE_SAFE_MARGIN_CM   — marge de sécurité près des bords, en cm (défaut CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT).
+  COLLAGE_CENTER_FILE      — nom d'une photo à poser au centre, agrandie (optionnel).
+  COLLAGE_FEATURED_FILES   — noms de photos à mettre en avant, séparés par ``|`` (optionnel).
+  COLLAGE_PSD              — "1" pour écrire aussi un .psd calque par calque.
+  COLLAGE_SEED             — graine aléatoire (optionnel, pour reproduire un tirage).
 
 Dépendances : Pillow, numpy (déjà requis par image_ops).
   Optionnel (COLLAGE_PSD=1 uniquement) : pytoshop, six.
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -47,32 +57,75 @@ import image_ops
 #############################################################
 PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 
+# Une photo mise en avant (mais pas centrale) ressort ~60% plus grande que
+# la variation de taille normale ne le ferait déjà — assez pour se voir
+# nettement dans le tas sans écraser le reste (pas exposé en réglage : un
+# multiplicateur de plus n'apporterait rien que la case à cocher ne dise
+# déjà, cf. retour user).
+FEATURED_SCALE_BOOST = 1.6
+
 #############################################################
 #                          LAYOUT                            #
 #############################################################
 
-def compute_layout(count, canvas_w, canvas_h, chaos, seed=None):
-    """Place `count` photos sur une grille approx. de la taille du canevas,
-    puis fait varier position/taille/rotation selon `chaos` (0-100).
-    Renvoie une liste de (center_x, center_y, box_w, box_h, angle_deg),
-    une par photo, dans l'ordre où elles doivent être dessinées (donc
-    l'ordre d'empilement en cas de recouvrement)."""
+def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
+                   rotation_variation, seed=None, margin_px=0,
+                   center_key=None, featured_keys=frozenset()):
+    """Place chaque clé de `photo_keys` sur une grille approx. de la taille
+    du canevas (moins `margin_px` de marge sur chaque bord), puis fait
+    varier indépendamment taille (`size_variation`) et rotation
+    (`rotation_variation`), chacune 0-100.
+
+    `center_key`, si présent dans `photo_keys`, est retirée du tirage de
+    grille et posée au milieu du canevas, agrandie, jamais pivotée. Les
+    clés de `featured_keys` reçoivent un coup de pouce de taille en plus
+    de la variation aléatoire normale.
+
+    Renvoie une liste de (center_x, center_y, box_w, box_h, angle_deg)
+    dans le MÊME ORDRE que `photo_keys` (donc aussi l'ordre d'empilement
+    en cas de recouvrement, la centrale mise à part — toujours dessinée
+    en dernier, cf. render_montage)."""
     rng = random.Random(seed)
-    cols = max(1, round(math.sqrt(count * canvas_w / canvas_h)))
-    rows = math.ceil(count / cols)
-    cell_w, cell_h = canvas_w / cols, canvas_h / rows
+    usable_w = max(1, canvas_w - 2 * margin_px)
+    usable_h = max(1, canvas_h - 2 * margin_px)
+
+    others = [k for k in photo_keys if k != center_key]
+    count = len(others)
+    cols = max(1, round(math.sqrt(max(count, 1) * usable_w / usable_h)))
+    rows = math.ceil(count / cols) if count else 0
+    cell_w = usable_w / cols
+    cell_h = usable_h / rows if rows else usable_h
+
     cells = [(c, r) for r in range(rows) for c in range(cols)]
     rng.shuffle(cells)
-    layout = []
-    for c, r in cells[:count]:
-        cx, cy = (c + 0.5) * cell_w, (r + 0.5) * cell_h
-        jitter = (chaos / 100) * min(cell_w, cell_h) * 0.35
+
+    size_t = max(0.0, min(1.0, size_variation / 100)) ** 0.6
+    rotation_t = max(0.0, min(1.0, rotation_variation / 100))
+
+    placed = {}
+    for key, (c, r) in zip(others, cells):
+        cx = margin_px + (c + 0.5) * cell_w
+        cy = margin_px + (r + 0.5) * cell_h
+        jitter = size_t * min(cell_w, cell_h) * 0.35
         cx += rng.uniform(-jitter, jitter)
         cy += rng.uniform(-jitter, jitter)
-        scale = 1 + rng.uniform(-0.25, 0.45) * (chaos / 100)
-        angle = rng.uniform(-22, 22) * (chaos / 100)
-        layout.append((cx, cy, cell_w * scale, cell_h * scale, angle))
-    return layout
+        # Asymétrique (-0.5 à +1.1) plutôt que centré sur 1 : quelques
+        # photos nettement plus grandes que la moyenne, comme un vrai
+        # scrapbook composé à la main plutôt qu'une grille uniformément
+        # redimensionnée (retour user : les tailles restaient trop
+        # semblables avec un écart symétrique étroit).
+        scale = max(0.35, 1 + rng.uniform(-0.5, 1.1) * size_t)
+        if key in featured_keys:
+            scale *= FEATURED_SCALE_BOOST
+        angle = rng.uniform(-28, 28) * rotation_t
+        placed[key] = (cx, cy, cell_w * scale, cell_h * scale, angle)
+
+    if center_key is not None and center_key in photo_keys:
+        box_w = min(usable_w * 0.9, cell_w * 2.2)
+        box_h = min(usable_h * 0.9, cell_h * 2.2)
+        placed[center_key] = (canvas_w / 2, canvas_h / 2, box_w, box_h, 0.0)
+
+    return [placed[k] for k in photo_keys]
 
 
 def fit_and_rotate(image, box_w, box_h, angle_deg):
@@ -88,6 +141,68 @@ def fit_and_rotate(image, box_w, box_h, angle_deg):
         return resized
     return resized.rotate(angle_deg, expand=True,
                           resample=Image.Resampling.BICUBIC)
+
+
+def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
+                   rotation_variation, margin_px, seed, load_source, *,
+                   center_key=None, featured_keys=frozenset(),
+                   log=lambda msg: print(msg, flush=True)):
+    """Calcule le placement (compute_layout) puis compose tout sur un
+    canevas RGBA. `load_source(key)` doit renvoyer une image PIL RGBA (ou
+    None pour l'ignorer) — c'est ce qui change entre le rendu final (pleine
+    résolution, image_ops.open_srgb) et un aperçu rapide (miniatures
+    thumb_cache côté Hub), le placement et le rendu restant identiques.
+
+    Renvoie (canvas, layers) où layers est une liste de (nom, tuile RGBA
+    visible, left, top) — pour l'écriture PSD, ou pour rien si non utilisée.
+    La photo centrale (s'il y en a une) est dessinée en dernier, donc
+    toujours au-dessus du reste, et n'est jamais recalée par la marge
+    (les autres si, cf. boucle ci-dessous — compute_layout ne fait
+    qu'ESPACER la grille de départ, sans garantir qu'une tuile agrandie
+    par la variation de taille ne déborde pas jusqu'au bord réel)."""
+    order = photo_keys
+    if center_key is not None and center_key in photo_keys:
+        order = [k for k in photo_keys if k != center_key] + [center_key]
+    layout = dict(zip(photo_keys, compute_layout(
+        photo_keys, canvas_w, canvas_h, size_variation, rotation_variation,
+        seed, margin_px, center_key, featured_keys)))
+
+    canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    layers = []
+    total = len(order)
+    for index, key in enumerate(order, start=1):
+        cx, cy, box_w, box_h, angle = layout[key]
+        log(f"{index} / {total} — {key}")
+        try:
+            source = load_source(key)
+        except Exception as exc:
+            log(f"[WARN] {key} ignorée : {exc}")
+            continue
+        if source is None:
+            continue
+        tile = fit_and_rotate(source, box_w, box_h, angle)
+        tw, th = tile.size
+        left, top = round(cx - tw / 2), round(cy - th / 2)
+        if key != center_key:
+            # Recale (ne recadre pas) pour que la marge de sécurité tienne
+            # même quand taille aléatoire + décalage auraient fait déborder
+            # jusqu'au bord réel — la case "grille inset" seule n'y
+            # suffisait pas dès qu'une photo grossissait beaucoup (retour
+            # user). Si la tuile est plus grande que la zone utile, ancrée
+            # côté marge plutôt que de dépasser des deux côtés à la fois.
+            left = max(margin_px, min(left, canvas_w - margin_px - tw))
+            top = max(margin_px, min(top, canvas_h - margin_px - th))
+        clip_left, clip_top = max(left, 0), max(top, 0)
+        clip_right = min(left + tw, canvas_w)
+        clip_bottom = min(top + th, canvas_h)
+        if clip_right <= clip_left or clip_bottom <= clip_top:
+            log(f"[WARN] {key} entièrement hors cadre, ignorée.")
+            continue
+        visible = tile.crop((clip_left - left, clip_top - top,
+                             clip_right - left, clip_bottom - top))
+        canvas.alpha_composite(visible, (clip_left, clip_top))
+        layers.append((Path(str(key)).stem, visible, clip_left, clip_top))
+    return canvas, layers
 
 #############################################################
 #                           MAIN                            #
@@ -118,46 +233,41 @@ def main():
     width_cm  = env_float("COLLAGE_WIDTH_CM", CONSTANTS.COLLAGE_WIDTH_CM_DEFAULT)
     height_cm = env_float("COLLAGE_HEIGHT_CM", CONSTANTS.COLLAGE_HEIGHT_CM_DEFAULT)
     dpi       = env_float("COLLAGE_DPI", CONSTANTS.COLLAGE_DPI_DEFAULT)
-    chaos     = max(0.0, min(100.0, env_float(
-        "COLLAGE_CHAOS", CONSTANTS.COLLAGE_CHAOS_DEFAULT)))
+    size_variation = max(0.0, min(100.0, env_float(
+        "COLLAGE_SIZE_VARIATION", CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT)))
+    rotation_variation = max(0.0, min(100.0, env_float(
+        "COLLAGE_ROTATION_VARIATION", CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT)))
+    safe_margin_cm = env_float(
+        "COLLAGE_SAFE_MARGIN_CM", CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT)
     write_psd = os.environ.get("COLLAGE_PSD", "0") == "1"
     seed = os.environ.get("COLLAGE_SEED") or None
 
+    center_file = os.environ.get("COLLAGE_CENTER_FILE", "").strip() or None
+    if center_file and center_file not in photo_names:
+        center_file = None
+    featured_str = os.environ.get("COLLAGE_FEATURED_FILES", "")
+    featured_files = frozenset(
+        f for f in featured_str.split("|") if f) & frozenset(photo_names)
+
     canvas_w = round(width_cm / 2.54 * dpi)
     canvas_h = round(height_cm / 2.54 * dpi)
+    margin_px = round(safe_margin_cm / 2.54 * dpi)
     out_dir = PATH / "Montage"
     out_dir.mkdir(exist_ok=True)
 
     print(f"[INFO] Canevas {canvas_w}x{canvas_h}px "
           f"({width_cm:g}x{height_cm:g}cm @ {dpi:g}ppp), "
-          f"{len(photo_names)} photo(s), chaos={chaos:g}", flush=True)
+          f"{len(photo_names)} photo(s), taille={size_variation:g} "
+          f"rotation={rotation_variation:g} marge={safe_margin_cm:g}cm",
+          flush=True)
 
-    layout = compute_layout(len(photo_names), canvas_w, canvas_h, chaos, seed)
-    canvas = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
-    psd_layers = []  # (nom, tuile RGBA visible, left, top) — si write_psd
+    def load_source(name):
+        return image_ops.open_srgb(PATH / name).convert("RGBA")
 
-    for index, (name, (cx, cy, box_w, box_h, angle)) in enumerate(
-            zip(photo_names, layout), start=1):
-        print(f"{index} / {len(photo_names)} — {name}", flush=True)
-        try:
-            source = image_ops.open_srgb(PATH / name).convert("RGBA")
-        except Exception as exc:
-            print(f"[WARN] {name} ignorée : {exc}", flush=True)
-            continue
-        tile = fit_and_rotate(source, box_w, box_h, angle)
-        tw, th = tile.size
-        left, top = round(cx - tw / 2), round(cy - th / 2)
-        clip_left, clip_top = max(left, 0), max(top, 0)
-        clip_right = min(left + tw, canvas_w)
-        clip_bottom = min(top + th, canvas_h)
-        if clip_right <= clip_left or clip_bottom <= clip_top:
-            print(f"[WARN] {name} entièrement hors cadre, ignorée.", flush=True)
-            continue
-        visible = tile.crop((clip_left - left, clip_top - top,
-                             clip_right - left, clip_bottom - top))
-        canvas.alpha_composite(visible, (clip_left, clip_top))
-        if write_psd:
-            psd_layers.append((Path(name).stem, visible, clip_left, clip_top))
+    canvas, psd_layers = render_montage(
+        photo_names, canvas_w, canvas_h, size_variation, rotation_variation,
+        margin_px, seed, load_source,
+        center_key=center_file, featured_keys=featured_files)
 
     preview_path = out_dir / "apercu.png"
     canvas.save(preview_path)

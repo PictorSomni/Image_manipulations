@@ -343,7 +343,7 @@ TERMINAL_FONT_SIZE    = 16   # Taille du texte dans le terminal, le bloc-notes e
 TERMINAL_HEIGHT       = 170  # Hauteur du panneau terminal compact (px) — toujours visible
 WDA_HEIGHT            = 100  # Hauteur de la WindowDragArea (barre de titre custom, en px)
 HUB_TERMINAL_HEIGHT           = 280  # Hauteur du panneau terminal compact de Hub.pyw (px)
-HUB_TERMINAL_AUTOHIDE_DELAY   = 2.5  # Délai (secondes) avant fermeture auto du terminal de Hub.pyw
+HUB_TERMINAL_AUTOHIDE_DELAY   = 1.5  # Délai (secondes) avant fermeture auto du terminal de Hub.pyw
 HUB_TERMINAL_TOOL_CLOSE_DELAY = 1.5  # Délai (secondes) après un [OK] de _launch_tool avant fermeture
 HUB_TERMINAL_LOG_MAX_BYTES    = 200_000  # Taille max de .hub_terminal.log avant purge (octets, ~2000 lignes)
 HUB_TERMINAL_MAX_LINES        = 200  # Nombre max de lignes conservées dans le terminal de Hub.pyw
@@ -366,7 +366,9 @@ WATERMARK_ALPHA      = 0.35   # Opacité du filigrane (0.0 = invisible, 1.0 = op
 COLLAGE_WIDTH_CM_DEFAULT  = 40   # Largeur du canevas final, en cm
 COLLAGE_HEIGHT_CM_DEFAULT = 30   # Hauteur du canevas final, en cm
 COLLAGE_DPI_DEFAULT       = 300  # Résolution du canevas, en ppp
-COLLAGE_CHAOS_DEFAULT     = 50   # 0 = mosaïque bien rangée, 100 = photos lâchées
+COLLAGE_SIZE_VARIATION_DEFAULT     = 50   # 0 = tailles uniformes, 100 = très inégales
+COLLAGE_ROTATION_VARIATION_DEFAULT = 50   # 0 = toutes droites, 100 = fortement penchées
+COLLAGE_SAFE_MARGIN_CM_DEFAULT     = 2    # Marge tenue libre près des bords du canevas, en cm
 
 
 # ── 6.3  Remerciements ────────────────────────────────────────────────────────

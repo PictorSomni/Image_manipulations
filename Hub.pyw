@@ -22,10 +22,13 @@ import base64
 import concurrent.futures
 import datetime
 import hashlib
+import importlib.machinery
+import importlib.util
 import io
 import json
 import math
 import os
+import random
 import re
 import time
 import platform
@@ -221,6 +224,26 @@ def _load_order_bw():
 
 def _save_order_bw(order_bw):
     return _save_json(_ORDER_BW_FILE, order_bw)
+
+
+_montage_module_cache = {}
+
+
+def _load_montage_module():
+    """Charge dynamiquement "Montage collage.py" (espace dans le nom, donc
+    pas importable via `import` classique — même chargeur que
+    test_montage_collage.py) pour réutiliser compute_layout/render_montage
+    côté aperçu : l'aperçu affiché dans le dialogue et le rendu final du
+    subprocess passent alors par exactement le même code de placement."""
+    if "mod" not in _montage_module_cache:
+        path = os.path.join(_APP_DIR, "Data", "Montage collage.py")
+        spec = importlib.util.spec_from_loader(
+            "montage_collage",
+            importlib.machinery.SourceFileLoader("montage_collage", path))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _montage_module_cache["mod"] = module
+    return _montage_module_cache["mod"]
 
 
 def _lower_thread_priority():
@@ -7760,6 +7783,12 @@ def main(page: ft.Page):
         ], "Redimensionner filigrane.py")
 
     def _launch_montage_collage(event=None):
+        photo_paths = sorted(selected) if selected else list(content["imgs"])
+        if not photo_paths:
+            status_left.value = "Aucune photo dans ce dossier."
+            page.update()
+            return
+
         # Zone dédiée format/manuel, même bascule que _launch_recadrage_auto
         # ci-dessus (retour user) : le dropdown ET les champs manuels
         # affichés en même temps prêtaient à confusion — seule la zone
@@ -7789,20 +7818,29 @@ def main(page: ft.Page):
             suffix=ft.Text("ppp", color=GREY), width=280,
             bgcolor=DARK, border_color=GREY, color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
-        chaos_field = ft.TextField(
-            label="Mosaïque (0) → lâché (100)",
-            value=str(CONSTANTS.COLLAGE_CHAOS_DEFAULT),
-            suffix=ft.Text("%", color=GREY), width=280,
+        margin_field = ft.TextField(
+            label="Marge de sécurité (rien d'important trop près du bord)",
+            value=str(CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT),
+            suffix=ft.Text("cm", color=GREY), width=280,
             bgcolor=DARK, border_color=GREY, color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
+        size_slider = ft.Slider(
+            min=0, max=100, divisions=20,
+            value=CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT,
+            label="{value}%", active_color=VIOLET, width=280)
+        rotation_slider = ft.Slider(
+            min=0, max=100, divisions=20,
+            value=CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT,
+            label="{value}%", active_color=VIOLET, width=280)
         psd_checkbox = ft.Checkbox(
             label="Générer aussi un .psd (calque par calque)",
             value=False, active_color=VIOLET, check_color=DARK)
 
         # Pavé numérique tactile : agit sur les champs manuels (largeur/
         # hauteur, actifs seulement en saisie manuelle) ainsi que
-        # résolution/variation, toujours éditables.
-        keypad_fields = [width_field, height_field, dpi_field, chaos_field]
+        # résolution/marge, toujours éditables. Les curseurs taille/
+        # rotation n'en ont pas besoin (glisser suffit).
+        keypad_fields = [width_field, height_field, dpi_field, margin_field]
         keypad = _numeric_keypad(keypad_fields, allow_decimal=True)
 
         def _on_manual_change(e):
@@ -7819,6 +7857,137 @@ def main(page: ft.Page):
 
         manual_switch.on_change = _on_manual_change
 
+        # ── Photo centrale / mises en avant ─────────────────────────────
+        # Retour user : les clients pointent souvent une photo à poser au
+        # centre, en plus grand — même logique que le reste (une photo
+        # centrale au plus, plusieurs mises en avant possibles).
+        center = {"path": None}
+        featured = set()
+        tile_borders = {}
+
+        def _refresh_tile(path):
+            border = tile_borders.get(path)
+            if border is None:
+                return
+            is_center = center["path"] == path
+            is_featured = path in featured
+            border.border = ft.border.all(
+                3, ORANGE if is_center else
+                (VIOLET if is_featured else ft.Colors.TRANSPARENT))
+            border.update()
+
+        def _toggle_featured(path, e):
+            if path in featured:
+                featured.discard(path)
+            else:
+                featured.add(path)
+            _refresh_tile(path)
+
+        def _toggle_center(path, e):
+            previous = center["path"]
+            center["path"] = None if previous == path else path
+            _refresh_tile(path)
+            if previous and previous != path:
+                _refresh_tile(previous)
+
+        tiles_row = ft.Row(scroll=ft.ScrollMode.AUTO, spacing=6)
+        for path in photo_paths:
+            thumb_data = thumb_cache.get_or_generate(path, size_px=100)
+            thumb = (ft.Image(src=thumb_data, width=64, height=64,
+                              fit=ft.BoxFit.COVER, border_radius=4)
+                    if thumb_data else
+                    ft.Container(width=64, height=64, bgcolor=GREY))
+            tile_border = ft.Container(
+                content=ft.Column([
+                    thumb,
+                    ft.Row([
+                        ft.IconButton(
+                            ft.Icons.STAR_BORDER, icon_size=14,
+                            icon_color=VIOLET, tooltip="Mettre en avant",
+                            on_click=lambda e, p=path: _toggle_featured(p, e)),
+                        ft.IconButton(
+                            ft.Icons.CENTER_FOCUS_STRONG, icon_size=14,
+                            icon_color=ORANGE, tooltip="Poser au centre",
+                            on_click=lambda e, p=path: _toggle_center(p, e)),
+                    ], spacing=0, tight=True),
+                ], spacing=0, tight=True),
+                border=ft.border.all(3, ft.Colors.TRANSPARENT),
+                border_radius=6, padding=2)
+            tile_borders[path] = tile_border
+            tiles_row.controls.append(tile_border)
+
+        # ── Aperçu ───────────────────────────────────────────────────────
+        # Même code de placement que le rendu final (render_montage,
+        # importé dynamiquement — cf. _load_montage_module), sur des
+        # miniatures thumb_cache plutôt que les fichiers pleine résolution :
+        # rapide, et le tirage aléatoire (seed) est réutilisé tel quel au
+        # lancement réel, donc l'aperçu affiché est exactement ce qui sera
+        # produit (retour user : voir le placement avant de valider).
+        preview_seed = {"value": random.randint(0, 2**31 - 1)}
+        preview_image = ft.Image(src=_BLANK_GIF, width=360, height=270,
+                                 fit=ft.BoxFit.CONTAIN, border_radius=4,
+                                 visible=False)
+        preview_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREY)
+
+        def _read_canvas_params():
+            if manual["value"]:
+                try:
+                    width_cm = float((width_field.value or "").strip().replace(",", "."))
+                    height_cm = float((height_field.value or "").strip().replace(",", "."))
+                except ValueError:
+                    return None
+            else:
+                width_mm, height_mm = CONSTANTS.FORMATS[format_dd.value]
+                width_cm, height_cm = width_mm / 10, height_mm / 10
+            try:
+                dpi = float((dpi_field.value or "").strip().replace(",", "."))
+                margin_cm = float((margin_field.value or "").strip().replace(",", "."))
+            except ValueError:
+                return None
+            return width_cm, height_cm, dpi, margin_cm
+
+        def _do_preview(e=None):
+            params = _read_canvas_params()
+            if params is None:
+                preview_status.value = "Valeurs invalides — vérifiez les champs."
+                page.update()
+                return
+            width_cm, height_cm, dpi, margin_cm = params
+            canvas_w = round(width_cm / 2.54 * dpi)
+            canvas_h = round(height_cm / 2.54 * dpi)
+            margin_px = round(margin_cm / 2.54 * dpi)
+            scale = min(1.0, 480 / max(canvas_w, canvas_h, 1))
+            prev_w = max(1, round(canvas_w * scale))
+            prev_h = max(1, round(canvas_h * scale))
+            prev_margin = round(margin_px * scale)
+
+            def load_thumb(path):
+                data = thumb_cache.get_or_generate(path)
+                if data is None:
+                    return None
+                return PILImage.open(io.BytesIO(data)).convert("RGBA")
+
+            preview_status.value = "Génération de l'aperçu…"
+            page.update()
+            montage_mod = _load_montage_module()
+            canvas, _ = montage_mod.render_montage(
+                photo_paths, prev_w, prev_h, size_slider.value,
+                rotation_slider.value, prev_margin, preview_seed["value"],
+                load_thumb, center_key=center["path"],
+                featured_keys=frozenset(featured), log=lambda msg: None)
+            buf = io.BytesIO()
+            canvas.convert("RGB").save(buf, format="JPEG", quality=85)
+            preview_image.src = buf.getvalue()
+            preview_image.visible = True
+            preview_status.value = (
+                f"Aperçu — {canvas_w}x{canvas_h}px "
+                f"(tirage #{preview_seed['value'] % 1000})")
+            page.update()
+
+        def _reroll(e):
+            preview_seed["value"] = random.randint(0, 2**31 - 1)
+            _do_preview(e)
+
         fired = {"done": False}
 
         def _cancel(e):
@@ -7828,51 +7997,71 @@ def main(page: ft.Page):
         def _confirm(e):
             if fired["done"]:
                 return
-            if manual["value"]:
-                try:
-                    width_cm = float((width_field.value or "").strip().replace(",", "."))
-                    height_cm = float((height_field.value or "").strip().replace(",", "."))
-                    width_field.error_text = None
-                    height_field.error_text = None
-                except ValueError:
-                    width_field.error_text = "Nombre requis"
-                    page.update()
-                    return
-            else:
-                width_mm, height_mm = CONSTANTS.FORMATS[format_dd.value]
-                width_cm, height_cm = width_mm / 10, height_mm / 10
-            try:
-                dpi = float((dpi_field.value or "").strip().replace(",", "."))
-                chaos = float((chaos_field.value or "").strip().replace(",", "."))
-                dpi_field.error_text = None
-                chaos_field.error_text = None
-            except ValueError:
+            params = _read_canvas_params()
+            if params is None:
+                width_field.error_text = "Nombre requis"
                 dpi_field.error_text = "Nombre requis"
                 page.update()
                 return
+            width_cm, height_cm, dpi, margin_cm = params
+            width_field.error_text = None
+            dpi_field.error_text = None
             fired["done"] = True
             dlg.open = False
             page.update()
-            _launch_tool("Montage collage.py", extra_env={
+            env = {
                 "COLLAGE_WIDTH_CM": str(width_cm),
                 "COLLAGE_HEIGHT_CM": str(height_cm),
                 "COLLAGE_DPI": str(dpi),
-                "COLLAGE_CHAOS": str(chaos),
+                "COLLAGE_SAFE_MARGIN_CM": str(margin_cm),
+                "COLLAGE_SIZE_VARIATION": str(size_slider.value),
+                "COLLAGE_ROTATION_VARIATION": str(rotation_slider.value),
                 "COLLAGE_PSD": "1" if psd_checkbox.value else "0",
-            })
+                # Même tirage que l'aperçu affiché en dernier (si généré) :
+                # le rendu final placé reproduit exactement ce qui a été
+                # validé à l'écran plutôt qu'un nouveau tirage aléatoire.
+                "COLLAGE_SEED": str(preview_seed["value"]),
+            }
+            if center["path"]:
+                env["COLLAGE_CENTER_FILE"] = os.path.basename(center["path"])
+            if featured:
+                env["COLLAGE_FEATURED_FILES"] = "|".join(
+                    os.path.basename(p) for p in featured)
+            _launch_tool("Montage collage.py", extra_env=env)
 
-        chaos_field.on_submit = _confirm
         dlg = ft.AlertDialog(
             title=ft.Text("Montage collage", size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([
-                format_dd,
-                ft.Row([width_field, height_field], spacing=8),
-                manual_switch,
-                dpi_field,
-                chaos_field,
-                psd_checkbox,
-                ft.Row([keypad], alignment=ft.MainAxisAlignment.CENTER),
-            ], spacing=8, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            content=ft.Container(
+                width=360, height=560,
+                content=ft.Column([
+                    ft.Text("Photo centrale / mises en avant (optionnel)",
+                           size=CONSTANTS.TEXT_SM, color=GREY),
+                    tiles_row,
+                    ft.Divider(height=1, color=GREY),
+                    format_dd,
+                    ft.Row([width_field, height_field], spacing=8),
+                    manual_switch,
+                    dpi_field,
+                    margin_field,
+                    ft.Text("Écart de taille", size=CONSTANTS.TEXT_SM, color=GREY),
+                    size_slider,
+                    ft.Text("Rotation", size=CONSTANTS.TEXT_SM, color=GREY),
+                    rotation_slider,
+                    psd_checkbox,
+                    ft.Row([keypad], alignment=ft.MainAxisAlignment.CENTER),
+                    ft.Divider(height=1, color=GREY),
+                    ft.Row([
+                        ft.TextButton("Aperçu", icon=ft.Icons.PREVIEW,
+                                     on_click=_do_preview),
+                        ft.IconButton(ft.Icons.CASINO, icon_color=WHITE,
+                                     tooltip="Nouveau tirage aléatoire",
+                                     on_click=_reroll),
+                    ], alignment=ft.MainAxisAlignment.CENTER),
+                    preview_status,
+                    ft.Row([preview_image], alignment=ft.MainAxisAlignment.CENTER),
+                ], spacing=8, tight=True, scroll=ft.ScrollMode.AUTO,
+                   horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+            ),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
         )
