@@ -7760,51 +7760,64 @@ def main(page: ft.Page):
         ], "Redimensionner filigrane.py")
 
     def _launch_montage_collage(event=None):
-        # Champs décimaux (cm) : pas _launch_number_prompt (int only).
-        width_field = ft.TextField(
-            label="Largeur", value=str(CONSTANTS.COLLAGE_WIDTH_CM_DEFAULT),
-            suffix=ft.Text("cm", color=GREY), autofocus=True, width=200,
-            bgcolor=DARK, border_color=GREY, color=WHITE,
-            keyboard_type=ft.KeyboardType.NUMBER)
-        height_field = ft.TextField(
-            label="Hauteur", value=str(CONSTANTS.COLLAGE_HEIGHT_CM_DEFAULT),
-            suffix=ft.Text("cm", color=GREY), width=200,
-            bgcolor=DARK, border_color=GREY, color=WHITE,
-            keyboard_type=ft.KeyboardType.NUMBER)
-
-        def _apply_format(e):
-            # CONSTANTS.FORMATS est en mm — juste un raccourci qui pré-
-            # remplit les champs cm (toujours modifiables ensuite) : la
-            # taille finale demandée par le client tombe le plus souvent
-            # sur l'un de ces formats déjà utilisés partout ailleurs
-            # (recadrage, impression) plutôt qu'une taille inventée.
-            width_mm, height_mm = CONSTANTS.FORMATS[e.control.value]
-            width_field.value = f"{width_mm / 10:g}"
-            height_field.value = f"{height_mm / 10:g}"
-            page.update()
+        # Zone dédiée format/manuel, même bascule que _launch_recadrage_auto
+        # ci-dessus (retour user) : le dropdown ET les champs manuels
+        # affichés en même temps prêtaient à confusion — seule la zone
+        # active doit rester utilisable, l'autre grisée.
+        default_fmt = next(iter(CONSTANTS.FORMATS))
+        default_w_mm, default_h_mm = CONSTANTS.FORMATS[default_fmt]
+        manual = {"value": False}
 
         format_dd = ft.Dropdown(
-            label="Format d'impression (optionnel)",
+            label="Format d'impression", value=default_fmt,
             options=[ft.dropdown.Option(name) for name in CONSTANTS.FORMATS],
-            width=200, bgcolor=DARK, border_color=GREY, color=WHITE,
-            on_select=_apply_format)
+            width=280, bgcolor=DARK, border_color=BLUE, color=WHITE)
+        width_field = ft.TextField(
+            label="Largeur", value=f"{default_w_mm / 10:g}",
+            suffix=ft.Text("cm", color=GREY), width=132,
+            bgcolor=DARK, border_color=LIGHT_GREY, color=GREY,
+            disabled=True, keyboard_type=ft.KeyboardType.NUMBER)
+        height_field = ft.TextField(
+            label="Hauteur", value=f"{default_h_mm / 10:g}",
+            suffix=ft.Text("cm", color=GREY), width=132,
+            bgcolor=DARK, border_color=LIGHT_GREY, color=GREY,
+            disabled=True, keyboard_type=ft.KeyboardType.NUMBER)
+        manual_switch = ft.Switch(label="Saisie manuelle (cm)",
+                                  value=False, active_color=BLUE)
         dpi_field = ft.TextField(
             label="Résolution", value=str(CONSTANTS.COLLAGE_DPI_DEFAULT),
-            suffix=ft.Text("ppp", color=GREY), width=200,
+            suffix=ft.Text("ppp", color=GREY), width=280,
             bgcolor=DARK, border_color=GREY, color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
         chaos_field = ft.TextField(
             label="Mosaïque (0) → lâché (100)",
             value=str(CONSTANTS.COLLAGE_CHAOS_DEFAULT),
-            suffix=ft.Text("%", color=GREY), width=200,
+            suffix=ft.Text("%", color=GREY), width=280,
             bgcolor=DARK, border_color=GREY, color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
         psd_checkbox = ft.Checkbox(
             label="Générer aussi un .psd (calque par calque)",
             value=False, active_color=VIOLET, check_color=DARK)
-        text_fields = [width_field, height_field, dpi_field, chaos_field]
-        field_keys = ("COLLAGE_WIDTH_CM", "COLLAGE_HEIGHT_CM",
-                     "COLLAGE_DPI", "COLLAGE_CHAOS")
+
+        # Pavé numérique tactile : agit sur les champs manuels (largeur/
+        # hauteur, actifs seulement en saisie manuelle) ainsi que
+        # résolution/variation, toujours éditables.
+        keypad_fields = [width_field, height_field, dpi_field, chaos_field]
+        keypad = _numeric_keypad(keypad_fields, allow_decimal=True)
+
+        def _on_manual_change(e):
+            manual["value"] = manual_switch.value
+            format_dd.disabled = manual["value"]
+            width_field.disabled = not manual["value"]
+            height_field.disabled = not manual["value"]
+            width_field.color = WHITE if manual["value"] else GREY
+            height_field.color = WHITE if manual["value"] else GREY
+            format_dd.border_color = LIGHT_GREY if manual["value"] else BLUE
+            width_field.border_color = BLUE if manual["value"] else LIGHT_GREY
+            height_field.border_color = BLUE if manual["value"] else LIGHT_GREY
+            page.update()
+
+        manual_switch.on_change = _on_manual_change
 
         fired = {"done": False}
 
@@ -7815,40 +7828,58 @@ def main(page: ft.Page):
         def _confirm(e):
             if fired["done"]:
                 return
-            env = {}
-            valid = True
-            for field, key in zip(text_fields, field_keys):
+            if manual["value"]:
                 try:
-                    env[key] = str(float((field.value or "").strip()
-                                        .replace(",", ".")))
-                    field.error_text = None
+                    width_cm = float((width_field.value or "").strip().replace(",", "."))
+                    height_cm = float((height_field.value or "").strip().replace(",", "."))
+                    width_field.error_text = None
+                    height_field.error_text = None
                 except ValueError:
-                    field.error_text = "Nombre requis"
-                    valid = False
-            if not valid:
+                    width_field.error_text = "Nombre requis"
+                    page.update()
+                    return
+            else:
+                width_mm, height_mm = CONSTANTS.FORMATS[format_dd.value]
+                width_cm, height_cm = width_mm / 10, height_mm / 10
+            try:
+                dpi = float((dpi_field.value or "").strip().replace(",", "."))
+                chaos = float((chaos_field.value or "").strip().replace(",", "."))
+                dpi_field.error_text = None
+                chaos_field.error_text = None
+            except ValueError:
+                dpi_field.error_text = "Nombre requis"
                 page.update()
                 return
             fired["done"] = True
             dlg.open = False
             page.update()
-            env["COLLAGE_PSD"] = "1" if psd_checkbox.value else "0"
-            _launch_tool("Montage collage.py", extra_env=env)
+            _launch_tool("Montage collage.py", extra_env={
+                "COLLAGE_WIDTH_CM": str(width_cm),
+                "COLLAGE_HEIGHT_CM": str(height_cm),
+                "COLLAGE_DPI": str(dpi),
+                "COLLAGE_CHAOS": str(chaos),
+                "COLLAGE_PSD": "1" if psd_checkbox.value else "0",
+            })
 
         chaos_field.on_submit = _confirm
-        keypad = _numeric_keypad(text_fields, allow_decimal=True)
         dlg = ft.AlertDialog(
             title=ft.Text("Montage collage", size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column(
-                [width_field, height_field, format_dd, dpi_field,
-                 chaos_field, psd_checkbox, keypad],
-                spacing=8, tight=True),
+            content=ft.Column([
+                format_dd,
+                ft.Row([width_field, height_field], spacing=8),
+                manual_switch,
+                dpi_field,
+                chaos_field,
+                psd_checkbox,
+                ft.Row([keypad], alignment=ft.MainAxisAlignment.CENTER),
+            ], spacing=8, tight=True, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
         )
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        _run_task(_focus_dialog_field, width_field)
+        _run_task(_focus_dialog_field, format_dd)
 
     def _launch_kiosk(event=None):
         # Sélection curatée obligatoire (HUB_SPEC §9) : la sélection en
