@@ -180,56 +180,25 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
     # circonscrits (rayon = demi-diagonale APRÈS rotation, cf.
     # _rotated_half_diag — le rendu réel, plus grand que la boîte tant que
     # l'angle n'est pas nul) ne se touchent jamais, donc les tuiles non
-    # plus. Plusieurs passes (relaxation façon layout à ressorts) : écarter
-    # i d'un conflit avec j peut le rapprocher d'un k déjà résolu — une
-    # seule passe laissait ce genre de conflit en chaîne. Le nombre de
-    # passes est un plafond, pas une garantie de convergence totale dans
-    # un cas pathologique — largement suffisant en pratique. Un chevauchement
-    # nul et une absence totale de trous sont deux objectifs contradictoires
-    # pour un placement au hasard (retour user antérieur sur les trous) :
-    # à max_overlap bas, quelques trous peuvent réapparaître — un fond
+    # plus. RÉDUIRE la taille des tuiles en conflit (pas les repousser en
+    # position) : sur un canevas déjà plein (beaucoup de photos / tailles
+    # au max), une passe qui repousse sature contre les bords et peut au
+    # final RE-concentrer des tuiles ensemble — constaté empiriquement,
+    # nettement PIRE que ne rien faire. Réduire la taille, à l'inverse, ne
+    # peut jamais aggraver un recouvrement. Un chevauchement nul et une
+    # absence totale de trous sont deux objectifs contradictoires pour un
+    # placement au hasard (retour user antérieur sur les trous) : à
+    # max_overlap bas, quelques trous peuvent réapparaître — un fond
     # visible est jugé préférable à un visage caché.
+    # Plancher par tuile calculé sur sa taille D'ORIGINE (avant toute
+    # réduction) — sans ça, un facteur >=0.5 APPLIQUÉ À CHAQUE PASSE
+    # compose (0.5 ** 10 sur 10 passes = tuile quasi invisible, constaté :
+    # des largeurs tombées à 0px), pire que le recouvrement qu'on cherche
+    # à éviter. 40% de la taille voulue reste identifiable comme photo.
     overlap_t = max(0.0, min(1.0, max_overlap / 100))
-    for _pass in range(20):
-        moved = False
-        for i, ki in enumerate(others):
-            cxi, cyi, wi, hi, ai = placed[ki]
-            ri = _rotated_half_diag(wi, hi, ai)
-            for kj in others[i + 1:]:
-                cxj, cyj, wj, hj, aj = placed[kj]
-                rj = _rotated_half_diag(wj, hj, aj)
-                dx, dy = cxi - cxj, cyi - cyj
-                dist = math.hypot(dx, dy)
-                min_dist = (ri + rj) * (1 - overlap_t)
-                if dist >= min_dist:
-                    continue
-                if dist < 1e-6:
-                    angle_push = rng.uniform(0, 2 * math.pi)
-                    dx = math.cos(angle_push)
-                    dy = math.sin(angle_push)
-                    dist = 1.0
-                cxi = cxj + dx / dist * min_dist
-                cyi = cyj + dy / dist * min_dist
-                cxi = max(margin_px + wi / 2,
-                          min(cxi, canvas_w - margin_px - wi / 2))
-                cyi = max(margin_px + hi / 2,
-                          min(cyi, canvas_h - margin_px - hi / 2))
-                moved = True
-            placed[ki] = (cxi, cyi, wi, hi, ai)
-        if not moved:
-            break
-
-    # Filet de sécurité : quand le canevas est trop plein pour écarter
-    # deux tuiles jusqu'à la distance voulue (beaucoup de photos / tailles
-    # au max, cf. ci-dessus), la passe de position seule sature contre les
-    # bords et peut au final RE-concentrer des tuiles ensemble (constaté
-    # empiriquement : plus de recouvrement qu'à max_overlap=100, donc pire
-    # que ne rien faire). Ici, dernier recours : réduire à parts égales
-    # les deux tuiles encore en conflit après la relaxation — une photo
-    # plus petite mais entièrement visible vaut mieux qu'un visage caché
-    # (retour user), et réduire la taille ne peut jamais aggraver un
-    # recouvrement (contrairement à repousser dans un espace saturé).
-    for _pass in range(10):
+    min_w = {k: placed[k][2] * 0.4 for k in others}
+    min_h = {k: placed[k][3] * 0.4 for k in others}
+    for _pass in range(25):
         shrunk = False
         for i, ki in enumerate(others):
             for kj in others[i + 1:]:
@@ -242,8 +211,14 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
                 if dist >= min_dist or min_dist < 1e-6:
                     continue
                 factor = max(0.5, dist / min_dist)
-                placed[ki] = (cxi, cyi, wi * factor, hi * factor, ai)
-                placed[kj] = (cxj, cyj, wj * factor, hj * factor, aj)
+                new_wi = max(min_w[ki], wi * factor)
+                new_hi = max(min_h[ki], hi * factor)
+                new_wj = max(min_w[kj], wj * factor)
+                new_hj = max(min_h[kj], hj * factor)
+                if (new_wi, new_hi) == (wi, hi) and (new_wj, new_hj) == (wj, hj):
+                    continue  # déjà au plancher des deux côtés, rien à faire
+                placed[ki] = (cxi, cyi, new_wi, new_hi, ai)
+                placed[kj] = (cxj, cyj, new_wj, new_hj, aj)
                 shrunk = True
         if not shrunk:
             break
