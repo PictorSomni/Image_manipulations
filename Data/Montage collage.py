@@ -163,11 +163,12 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
         cy = margin_px + (r + 0.5) * cell_h
         # Indépendant de size_variation (retour user) : un slider dédié
         # pour aller d'une grille bien rangée (0) à un scatter façon
-        # scrapbook (100) — 0.6 de la cellule laisse largement déborder
-        # sur les cellules voisines au maximum, sans perdre l'idée de
-        # grille de départ qui garantit une couverture homogène du
-        # canevas quel que soit le réglage.
-        jitter = position_t * min(row_cell_w, cell_h) * 0.6
+        # scrapbook (100) — 0.85 de la cellule laisse largement déborder
+        # sur les cellules voisines au maximum (retour user : 0.6 restait
+        # trop sage, pas assez "aléatoire" au réglage max), sans perdre
+        # l'idée de grille de départ qui garantit une couverture homogène
+        # du canevas quel que soit le réglage.
+        jitter = position_t * min(row_cell_w, cell_h) * 0.85
         cx += rng.uniform(-jitter, jitter)
         cy += rng.uniform(-jitter, jitter)
         # Asymétrique (-0.5 à +1.1) plutôt que centré sur 1 : quelques
@@ -213,20 +214,23 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
     # placement au hasard (retour user antérieur sur les trous) : à
     # max_overlap bas, quelques trous peuvent réapparaître — un fond
     # visible est jugé préférable à un visage caché.
-    # Plancher par tuile = la taille de SA PROPRE cellule de grille (pas
-    # 0.4x de la boîte déjà grossie par scale/overlap comme avant) : cette
-    # cellule ne chevauche par construction aucune cellule voisine et,
-    # combinée à la grille sans trou de compute_layout (cf. row_cell_w
-    # ci-dessus), garantit que la passe anti-recouvrement ne peut jamais
-    # revenir sous couverture totale du canevas — seul l'agrandissement
-    # AU-DELÀ de la cellule (scale_variation, overlap de fermeture des
-    # trous du jitter) peut être rogné (retour user : au réglage par
-    # défaut, le plancher précédent, bien plus bas que la cellule,
-    # laissait la passe ci-dessous réduire les tuiles jusqu'à ~29% de
-    # couverture du canevas — "beaucoup de vide" même sans cellule vide).
+    # Plancher par tuile = le plus PETIT entre sa cellule de grille et sa
+    # taille déjà voulue (post scale/overlap, avant toute réduction) — pas
+    # juste la cellule seule (retour user : ça faisait REGROSSIR toute
+    # tuile volontairement réduite par size_variation dès que la passe
+    # ci-dessous la touchait, puisque `max(min_w, wi * factor)` remonte au
+    # plancher si `wi` est déjà en dessous — l'écart de taille demandé
+    # disparaissait à l'usage). En prenant le minimum des deux :
+    #  - une tuile GROSSIE par scale/overlap garde son plancher à la
+    #    cellule (peut redescendre jusqu'à couvrir sa cellule pile, jamais
+    #    moins — c'est ce qui garantit l'absence de trou, cf. plus haut) ;
+    #  - une tuile RÉDUITE par size_variation garde son plancher à SA
+    #    PROPRE taille (déjà sous la cellule) — la passe ne peut plus la
+    #    faire regrossir, seule la tuile en face (généralement la plus
+    #    grande du conflit) absorbe l'ajustement anti-recouvrement.
     overlap_t = max(0.0, min(1.0, max_overlap / 100))
-    min_w = {k: cell_dims[k][0] for k in others}
-    min_h = {k: cell_dims[k][1] for k in others}
+    min_w = {k: min(cell_dims[k][0], placed[k][2]) for k in others}
+    min_h = {k: min(cell_dims[k][1], placed[k][3]) for k in others}
     for _pass in range(25):
         shrunk = False
         for i, ki in enumerate(others):
