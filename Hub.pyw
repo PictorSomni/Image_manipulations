@@ -7854,8 +7854,11 @@ def main(page: ft.Page):
             orientation_text.value = "Paysage" if is_paysage else "Portrait"
             orientation_btn.update()
 
-        orientation_icon = ft.Icon(ft.Icons.CROP_PORTRAIT, color=WHITE)
-        orientation_text = ft.Text("Portrait", color=WHITE,
+        # DARK (pas WHITE) sur fond BLUE plein — même convention que les
+        # autres boutons colorés du Hub (ex. terminal_toggle_btn) : du
+        # blanc sur ce bleu restait peu lisible (retour user).
+        orientation_icon = ft.Icon(ft.Icons.CROP_PORTRAIT, color=DARK)
+        orientation_text = ft.Text("Portrait", color=DARK,
                                    size=CONSTANTS.TEXT_SM)
         orientation_btn = ft.TextButton(
             content=ft.Row([orientation_icon, orientation_text], spacing=8,

@@ -379,7 +379,7 @@ COLLAGE_ROTATION_VARIATION_DEFAULT = 15   # 0 = toutes droites, 100 = fortement 
 # user : des visages disparaissaient sous une autre photo, ex. selfies
 # déjà recadrés serrés, à un réglage plus permissif).
 COLLAGE_MAX_OVERLAP_DEFAULT        = 15
-COLLAGE_SAFE_MARGIN_CM_DEFAULT     = 2    # Marge tenue libre près des bords du canevas, en cm
+COLLAGE_SAFE_MARGIN_CM_DEFAULT     = 0    # Marge tenue libre près des bords du canevas, en cm (retour user)
 
 
 # ── 6.3  Remerciements ────────────────────────────────────────────────────────
