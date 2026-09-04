@@ -39,11 +39,11 @@ def _rect_overlap_area(a, b):
     return iw * ih
 
 
-def test_split_weighted_tiles_exactly_no_gap_no_overlap(mod):
+def test_squarify_tiles_exactly_no_gap_no_overlap(mod):
     """Le coeur de la garantie anti-vide/anti-chevauchement (retour user :
     "certaines images clairement plus petites et d'autres clairement plus
     grandes... qu'elles se repositionnent pour avoir le moins de vide
-    possible") : l'union des rectangles renvoyés par _split_weighted doit
+    possible") : l'union des rectangles renvoyés par _squarify doit
     couvrir EXACTEMENT le rectangle d'origine, sans le moindre trou ni
     chevauchement entre eux — quel que soit le nombre d'items ou l'écart
     de poids entre eux. Beaucoup de tirages aléatoires (comptes et poids
@@ -53,7 +53,7 @@ def test_split_weighted_tiles_exactly_no_gap_no_overlap(mod):
         n = rng.randint(1, 15)
         items = [(rng.uniform(0.35, 5.0), f"k{i}") for i in range(n)]
         w, h = rng.randint(200, 4000), rng.randint(200, 3000)
-        rects = mod._split_weighted(items, 0, 0, w, h)
+        rects = mod._squarify(items, 0, 0, w, h)
         assert len(rects) == n
         total_area = sum(rw * rh for _, _, _, rw, rh in rects)
         assert total_area == w * h, (
@@ -64,7 +64,35 @@ def test_split_weighted_tiles_exactly_no_gap_no_overlap(mod):
                 assert _rect_overlap_area(boxes[i], boxes[j]) == 0, (
                     f"tirage {trial} : chevauchement entre "
                     f"{boxes[i]} et {boxes[j]}")
-    print("  _split_weighted (aucun trou, aucun chevauchement, aire exacte) : OK")
+    print("  _squarify (aucun trou, aucun chevauchement, aire exacte) : OK")
+
+
+def test_squarify_keeps_typical_cells_reasonably_square(mod):
+    """La coupe binaire précédente (toujours le long du plus grand côté,
+    sans regrouper plusieurs petits items dans une même rangée) pouvait
+    créer des cases très allongées avec un fort écart de poids —
+    "certaines images sont bien tronquées" (retour user : une case
+    beaucoup plus large que haute force un recadrage très agressif de la
+    photo). _squarify doit garder les cases TYPIQUEMENT proches du carré
+    — pas de garantie absolue sur le pire cas isolé (un item seul en fin
+    de tirage peut toujours hériter d'un reliquat allongé) : c'est
+    fit_and_rotate/MAX_CROP_FRACTION qui borne les dégâts visuels dans
+    ces cas rares, cf. test dédié plus bas."""
+    rng = random.Random(1)
+    ratios = []
+    for trial in range(200):
+        n = rng.randint(4, 20)
+        # Poids réalistes (formule de compute_layout : 0.35 à ~3.36 avec
+        # le boost "mise en avant").
+        items = [(rng.uniform(0.35, 3.36), f"k{i}") for i in range(n)]
+        rects = mod._squarify(items, 0, 0, 4000, 3000)
+        for _, _, _, rw, rh in rects:
+            ratios.append(max(rw / rh, rh / rw))
+    ratios.sort()
+    median = ratios[len(ratios) // 2]
+    assert median < 2.0, f"aspect ratio médian trop élevé : {median:.2f}"
+    print(f"  _squarify garde les cases typiquement proches du carré "
+         f"(médiane {median:.2f}) : OK")
 
 
 def test_layout_covers_every_photo_and_stays_ordered(mod):
@@ -94,35 +122,68 @@ def test_size_and_rotation_are_independent(mod):
     only_rotation = mod.compute_layout(keys, 4000, 3000, size_variation=0,
                                        rotation_variation=100, seed=7)
     assert any(angle != 0 for *_, angle in only_rotation)
-    # size_variation=0 -> poids tous égaux -> cases toutes de même aire
-    # AVANT rétrécissement anti-rotation ; seul ce rétrécissement (qui
-    # dépend de l'angle ET de l'aspect de CHAQUE tuile, cf.
-    # _rotation_safe_scale) peut encore les faire un peu varier — need
-    # beaucoup moins que l'écart volontaire de size_variation=100.
+    # size_variation=0 -> poids tous égaux -> cases toutes de même aire,
+    # et la rotation ne rétrécit plus les tuiles (retour user : "quand je
+    # modifie la rotation, la taille des images est réduite") — les aires
+    # doivent donc rester EXACTEMENT égales, peu importe l'angle.
     areas_r = [w * h for _, _, w, h, _ in only_rotation]
-    assert max(areas_r) / min(areas_r) < max(areas) / min(areas)
+    assert max(areas_r) - min(areas_r) < 1e-6, (
+        "la rotation ne doit plus faire varier la taille des tuiles")
     print("  size_variation / rotation_variation indépendants : OK")
 
 
-def test_rotation_never_overflows_its_own_cell(mod):
-    """Une tuile pivotée doit toujours tenir dans sa case d'origine — donc
-    ne jamais déborder sur une voisine ni recréer le "chevauchement
-    total" observé quand la position pouvait déplacer une tuile entière
-    (retour user, réglage désormais supprimé) : ici la case elle-même ne
-    bouge jamais, seule la tuile PIVOTÉE à l'intérieur rétrécit."""
+def test_rotation_keeps_full_tile_size(mod):
+    """Retour user : "quand je modifie la rotation, la taille des images
+    est réduite, laissant apparaître plus de vide" — une tuile pivotée
+    garde désormais sa taille PLEINE (identique à sa case d'origine, sans
+    rotation), quitte à déborder légèrement sur ses voisines à ses coins
+    plutôt que de rétrécir."""
     keys = _keys(10)
     layout = mod.compute_layout(keys, 4000, 3000, size_variation=70,
                                 rotation_variation=100, seed=4)
-    # Les cases (sans rotation) tuilent exactement le canevas — aucune
-    # tuile pivotée (rétrécie pour tenir dedans) ne peut donc chevaucher
-    # sa voisine : on le revérifie ici en comparant à la version sans
-    # rotation, mêmes poids (même seed), qui donne les cases d'origine.
     baseline = mod.compute_layout(keys, 4000, 3000, size_variation=70,
                                   rotation_variation=0, seed=4)
     for (cx, cy, w, h, angle), (_, _, cell_w, cell_h, _) in zip(layout, baseline):
-        assert w <= cell_w + 1e-6 and h <= cell_h + 1e-6, (
-            "une tuile pivotée ne doit jamais dépasser sa case d'origine")
-    print("  rotation toujours contenue dans sa case (pas de chevauchement) : OK")
+        assert abs(w - cell_w) < 1e-6 and abs(h - cell_h) < 1e-6, (
+            "une tuile pivotée doit garder sa taille pleine, pas être rétrécie")
+    print("  rotation garde la taille pleine des tuiles (pas de rétrécissement) : OK")
+
+
+def _bbox(cx, cy, w, h, angle_deg):
+    import math
+    rad = math.radians(angle_deg)
+    ext_w = abs(w * math.cos(rad)) + abs(h * math.sin(rad))
+    ext_h = abs(w * math.sin(rad)) + abs(h * math.cos(rad))
+    return (cx - ext_w / 2, cy - ext_h / 2, cx + ext_w / 2, cy + ext_h / 2)
+
+
+def _bbox_overlap_fraction(a, b):
+    ax0, ay0, ax1, ay1 = a
+    bx0, by0, bx1, by1 = b
+    iw = max(0, min(ax1, bx1) - max(ax0, bx0))
+    ih = max(0, min(ay1, by1) - max(ay0, by0))
+    inter = iw * ih
+    area_a, area_b = (ax1 - ax0) * (ay1 - ay0), (bx1 - bx0) * (by1 - by0)
+    smaller = min(area_a, area_b)
+    return inter / smaller if smaller > 0 else 0
+
+
+def test_rotation_overlap_stays_bounded(mod):
+    """Le débordement d'une tuile pivotée sur ses voisines (angle borné à
+    ±28°, cf. compute_layout) doit rester localisé — jamais le
+    chevauchement quasi total que provoquait l'ancien jitter de position
+    (réglage désormais supprimé)."""
+    keys = _keys(10)
+    worst = 0.0
+    for seed in range(15):
+        layout = mod.compute_layout(keys, 4000, 3000, size_variation=50,
+                                    rotation_variation=100, seed=seed)
+        boxes = [_bbox(*tile) for tile in layout]
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                worst = max(worst, _bbox_overlap_fraction(boxes[i], boxes[j]))
+    assert worst < 0.5, f"chevauchement de rotation trop important : {worst:.2f}"
+    print(f"  débordement de rotation reste borné (pire cas {worst:.0%}) : OK")
 
 
 def test_safe_margin_keeps_mosaic_off_the_edge(mod):
@@ -183,12 +244,37 @@ def test_fit_and_rotate_covers_the_box_without_gaps(mod):
     print("  fit_and_rotate (cover + recadrage centré, sans bande vide) : OK")
 
 
+def test_fit_and_rotate_caps_crop_on_extreme_aspect(mod):
+    """Retour user : "certaines images sont bien tronquées" — avec une
+    case d'aspect très différent de la photo, le recadrage "cover" ne
+    doit plus dévorer plus de MAX_CROP_FRACTION du côté le plus recadré ;
+    au-delà, un peu d'espace transparent apparaît sur le côté opposé
+    plutôt que de perdre l'essentiel de la photo."""
+    from PIL import Image
+    # Photo très verticale (1:6) dans une case carrée : cover pur
+    # recadrerait l'essentiel de la hauteur (~83%).
+    source = Image.new("RGBA", (100, 600), (0, 255, 0, 255))
+    tile = mod.fit_and_rotate(source, box_w=300, box_h=300, angle_deg=0)
+    assert tile.size == (300, 300)
+    alpha = tile.split()[-1]
+    opaque = sum(1 for v in alpha.getdata() if v > 0)
+    transparent_frac = 1 - opaque / (300 * 300)
+    assert transparent_frac > 0.1, (
+        "le plafond de recadrage doit laisser un peu d'espace visible, "
+        f"obtenu {transparent_frac:.0%} de transparent")
+    print(f"  fit_and_rotate plafonne le recadrage extrême "
+         f"({transparent_frac:.0%} d'espace laissé plutôt qu'une photo "
+         f"tronquée) : OK")
+
+
 def test_render_montage_respects_margin(mod):
-    """Les tuiles de la mosaïque (hors centrale) ne peuvent, par
-    construction de compute_layout, jamais dépasser leur case — donc
-    jamais déborder de la marge de sécurité non plus. Vérifié ici sur le
-    rendu complet (pas seulement le layout), avec beaucoup de photos et
-    fort écart de taille/rotation pour maximiser le risque."""
+    """render_montage recale (sans recadrer) toute tuile qui déborderait
+    de la marge de sécurité — utile même sans rotation (une tuile de coin
+    peut à elle seule toucher le bord), et d'autant plus qu'une tuile
+    pivotée peut légèrement déborder de sa case (retour user : plus de
+    rétrécissement anti-rotation, cf. test_rotation_keeps_full_tile_size).
+    Vérifié ici sur le rendu complet, avec beaucoup de photos et fort
+    écart de taille/rotation pour maximiser le risque."""
     from PIL import Image
     keys = _keys(10)
     sources = {k: Image.new("RGBA", (500, 500), (255, 255, 255, 255))
@@ -232,14 +318,17 @@ def test_render_montage_composites_and_skips_missing(mod):
 if __name__ == "__main__":
     print("Vérifications :")
     montage = _load_montage()
-    test_split_weighted_tiles_exactly_no_gap_no_overlap(montage)
+    test_squarify_tiles_exactly_no_gap_no_overlap(montage)
+    test_squarify_keeps_typical_cells_reasonably_square(montage)
     test_layout_covers_every_photo_and_stays_ordered(montage)
     test_size_and_rotation_are_independent(montage)
-    test_rotation_never_overflows_its_own_cell(montage)
+    test_rotation_keeps_full_tile_size(montage)
+    test_rotation_overlap_stays_bounded(montage)
     test_safe_margin_keeps_mosaic_off_the_edge(montage)
     test_center_photo_is_centered_and_upright(montage)
     test_featured_photo_is_bigger_on_average(montage)
     test_fit_and_rotate_covers_the_box_without_gaps(montage)
+    test_fit_and_rotate_caps_crop_on_extreme_aspect(montage)
     test_render_montage_respects_margin(montage)
     test_render_montage_composites_and_skips_missing(montage)
     print("Tout est passé.")

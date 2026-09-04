@@ -64,77 +64,107 @@ import image_ops
 PATH = Path(os.environ.get("FOLDER_PATH", str(Path(__file__).resolve().parent)))
 
 # Une photo mise en avant (mais pas centrale) reçoit un poids ~60% plus
-# élevé dans le partage de l'aire (cf. _split_weighted) — assez pour se
-# voir nettement dans le tas sans écraser le reste (pas exposé en réglage :
-# un multiplicateur de plus n'apporterait rien que la case à cocher ne
-# dise déjà, cf. retour user).
+# élevé dans le partage de l'aire (cf. _squarify) — assez pour se voir
+# nettement dans le tas sans écraser le reste (pas exposé en réglage : un
+# multiplicateur de plus n'apporterait rien que la case à cocher ne dise
+# déjà, cf. retour user).
 FEATURED_SCALE_BOOST = 1.6
+
+# "Cover" (cf. fit_and_rotate) peut, avec une case d'aspect très différent
+# de la photo, recadrer une part écrasante de l'image — "certaines images
+# sont bien tronquées" (retour user, même après _squarify qui limite mais
+# n'élimine pas totalement les cases très allongées, ex. un seul item
+# restant après un tirage de poids très inégal). Ce plafond limite la
+# perte à MAX_CROP_FRACTION du côté le plus recadré : au-delà, mieux vaut
+# un peu d'espace vide sur le côté opposé qu'une photo méconnaissable.
+MAX_CROP_FRACTION = 0.5
 
 #############################################################
 #                          LAYOUT                            #
 #############################################################
 
-def _split_weighted(items, x, y, w, h):
-    """Partitionne récursivement le rectangle (x, y, w, h) en autant de
-    sous-rectangles que d'`items` (liste de (poids, clé)), chacun
-    proportionnel à son poids — coupe toujours le long du plus grand côté
-    du rectangle courant (évite les bandes trop fines). L'union des
-    rectangles renvoyés couvre EXACTEMENT (x, y, w, h), sans trou ni
-    recouvrement entre eux : c'est ce qui garantit qu'un écart de taille
-    marqué (poids très différents) ne laisse jamais de fond transparent
-    visible ni ne fait chevaucher deux photos entre elles (retour user :
-    "certaines images clairement plus petites et d'autres clairement plus
-    grandes... qu'elles se repositionnent pour avoir le moins de vide
-    possible" — la grille à jitter précédente ne pouvait pas garantir ça,
-    ce partage récursif le garantit par construction).
+def _row_worst_ratio(row, side, total_weight, total_area):
+    """Pire ratio largeur/hauteur qu'aurait un item de `row` (liste de
+    (poids, clé)) si cette rangée partageait `side` (le plus petit côté
+    du rectangle courant) — plus ce ratio est proche de 1, plus les items
+    de la rangée seraient carrés. Utilisé par _squarify pour décider
+    combien d'items regrouper dans une même rangée."""
+    row_weight = sum(wt for wt, _ in row)
+    if row_weight <= 0 or side <= 0 or total_weight <= 0:
+        return float("inf")
+    row_len = total_area * (row_weight / total_weight) / side
+    if row_len <= 0:
+        return float("inf")
+    worst = 0.0
+    for wt, _ in row:
+        item_side = total_area * (wt / total_weight) / row_len
+        if item_side <= 0:
+            return float("inf")
+        worst = max(worst, row_len / item_side, item_side / row_len)
+    return worst
+
+
+def _squarify(items, x, y, w, h):
+    """Treemap « squarified » (Bruls, Huizing, van Wijk 1999) : partitionne
+    (x, y, w, h) en autant de sous-rectangles que d'`items` (liste de
+    (poids, clé)), chacun proportionnel à son poids. Construit une rangée
+    à la fois le long du plus petit côté courant, en y ajoutant des items
+    tant que ça n'aggrave pas le pire ratio largeur/hauteur de la rangée
+    (cf. _row_worst_ratio) — contrairement à une coupe binaire simple qui
+    peut créer des bandes très allongées avec un fort écart de poids
+    (retour user : "certaines images sont bien tronquées" — une case
+    beaucoup trop large ou haute force un recadrage très agressif de la
+    photo qui doit la remplir), ça garde les cases proches du carré.
+
+    L'union des rectangles renvoyés couvre EXACTEMENT (x, y, w, h), sans
+    trou ni recouvrement entre eux — la garantie "jamais de fond visible,
+    jamais deux photos qui se chevauchent" reste intacte.
 
     Renvoie une liste de (clé, x, y, w, h)."""
-    if len(items) == 1:
-        return [(items[0][1], x, y, w, h)]
-    total = sum(wt for wt, _ in items)
-    # Sépare en 2 groupes de poids aussi égal que possible (glouton sur
-    # les poids triés décroissants — pas besoin de l'optimal, juste d'un
-    # partage raisonnable pour que chaque moitié récursive reste
-    # équilibrée).
-    ordered = sorted(items, key=lambda t: -t[0])
-    group_a, sum_a = [], 0.0
-    for wt, k in ordered:
-        if not group_a or sum_a < total / 2:
-            group_a.append((wt, k))
-            sum_a += wt
-        else:
+    remaining = sorted(items, key=lambda t: -t[0])
+    result = []
+    rx, ry, rw, rh = x, y, w, h
+    while remaining:
+        if len(remaining) == 1:
+            result.append((remaining[0][1], rx, ry, rw, rh))
             break
-    group_b = ordered[len(group_a):]
-    if not group_b:
-        # Poids extrêmement inégaux (ex. 1 item boosté qui dépasse déjà à
-        # lui seul la moitié du total) : lui laisser sa propre part plutôt
-        # que de forcer les autres à la partager avec lui.
-        group_b = [group_a.pop()]
-        sum_a -= group_b[0][0]
-    frac_a = sum_a / total
-    if w >= h:
-        wa = min(w - 1, max(1, round(w * frac_a)))
-        return (_split_weighted(group_a, x, y, wa, h)
-               + _split_weighted(group_b, x + wa, y, w - wa, h))
-    ha = min(h - 1, max(1, round(h * frac_a)))
-    return (_split_weighted(group_a, x, y, w, ha)
-           + _split_weighted(group_b, x, y + ha, w, h - ha))
-
-
-def _rotation_safe_scale(box_w, box_h, angle_deg):
-    """Facteur d'échelle (<=1) à appliquer à (box_w, box_h) pour que la
-    boîte ENGLOBANTE une fois pivotée (expand=True, cf. fit_and_rotate)
-    tienne quand même dans (box_w, box_h) d'origine. Sans ce
-    rétrécissement, une tuile pivotée déborderait sur sa voisine — aucune
-    des deux n'a de marge prévue pour ça, cf. _split_weighted qui les fait
-    se toucher pile."""
-    if abs(angle_deg) < 0.05:
-        return 1.0
-    rad = math.radians(angle_deg)
-    c, s = abs(math.cos(rad)), abs(math.sin(rad))
-    ext_w = box_w * c + box_h * s
-    ext_h = box_w * s + box_h * c
-    return min(box_w / ext_w, box_h / ext_h)
+        total = sum(wt for wt, _ in remaining)
+        side = min(rw, rh)
+        row = [remaining[0]]
+        best = _row_worst_ratio(row, side, total, rw * rh)
+        i = 1
+        while i < len(remaining):
+            trial = row + [remaining[i]]
+            trial_worst = _row_worst_ratio(trial, side, total, rw * rh)
+            if trial_worst > best:
+                break
+            row, best = trial, trial_worst
+            i += 1
+        remaining = remaining[len(row):]
+        row_weight = sum(wt for wt, _ in row)
+        last_row = not remaining
+        if rw >= rh:
+            # Dernière rangée : consomme tout ce qu'il reste (évite qu'une
+            # dérive d'arrondi cumulée sur les rangées précédentes laisse
+            # un reliquat de largeur non attribué).
+            row_len = rw if last_row else min(rw - 1, max(1, round(rw * row_weight / total)))
+            cy, cum = ry, 0.0
+            for idx, (wt, key) in enumerate(row):
+                cum += wt
+                next_cy = ry + rh if idx == len(row) - 1 else ry + round(rh * cum / row_weight)
+                result.append((key, rx, cy, row_len, next_cy - cy))
+                cy = next_cy
+            rx, rw = rx + row_len, rw - row_len
+        else:
+            row_len = rh if last_row else min(rh - 1, max(1, round(rh * row_weight / total)))
+            cx, cum = rx, 0.0
+            for idx, (wt, key) in enumerate(row):
+                cum += wt
+                next_cx = rx + rw if idx == len(row) - 1 else rx + round(rw * cum / row_weight)
+                result.append((key, cx, ry, next_cx - cx, row_len))
+                cx = next_cx
+            ry, rh = ry + row_len, rh - row_len
+    return result
 
 
 def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
@@ -142,15 +172,21 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
                    center_key=None, featured_keys=frozenset()):
     """Place chaque clé de `photo_keys` sur le canevas (moins `margin_px`
     de marge sur chaque bord) par un partage récursif de l'aire disponible
-    proportionnel au poids de chacune (cf. _split_weighted) — les tuiles
-    couvrent ainsi TOUJOURS tout le canevas, sans trou ni recouvrement
-    entre elles, quel que soit le nombre de photos. `size_variation`
+    proportionnel au poids de chacune (cf. _squarify) — les tuiles
+    couvrent ainsi TOUJOURS tout le canevas, sans trou ni recouvrement de
+    base entre elles, quel que soit le nombre de photos. `size_variation`
     (0-100) pilote l'écart entre les poids : 0 = tous égaux (mosaïque
     régulière), 100 = certaines tuiles nettement plus grandes que
     d'autres. Une rotation (`rotation_variation`, 0-100) peut ensuite être
-    appliquée à chaque tuile, rétrécie d'autant qu'il faut pour que sa
-    boîte pivotée tienne quand même dans sa case d'origine (cf.
-    _rotation_safe_scale) — jamais de débordement sur une voisine.
+    appliquée à chaque tuile, À TAILLE PLEINE (pas rétrécie) : une tuile
+    pivotée déborde donc légèrement sur ses voisines à ses coins, comme
+    un vrai tas de photos posées — préféré à un rétrécissement (retour
+    user : "quand je modifie la rotation, la taille des images est
+    réduite, laissant apparaître plus de vide" — rétrécir pour ne jamais
+    déborder allait à l'encontre du remplissage maximal). Le débordement
+    reste borné (angle max ±28°, cf. plus bas) et localisé aux tuiles
+    immédiatement voisines — jamais le chevauchement quasi total que
+    provoquait l'ancien curseur Position (supprimé).
 
     `center_key`, si présent dans `photo_keys`, est retirée du partage et
     posée au milieu du canevas, agrandie, jamais pivotée, volontairement
@@ -188,11 +224,10 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
 
     placed = {}
     if others:
-        for key, x, y, w, h in _split_weighted(weights, margin_px, margin_px,
-                                               usable_w, usable_h):
+        for key, x, y, w, h in _squarify(weights, margin_px, margin_px,
+                                         usable_w, usable_h):
             angle = rng.uniform(-28, 28) * rotation_t
-            scale = _rotation_safe_scale(w, h, angle)
-            placed[key] = (x + w / 2, y + h / 2, w * scale, h * scale, angle)
+            placed[key] = (x + w / 2, y + h / 2, w, h, angle)
 
     if center_key is not None and center_key in photo_keys:
         # Taille "nominale" de référence : l'aire moyenne qu'aurait une
@@ -221,12 +256,19 @@ def fit_and_rotate(image, box_w, box_h, angle_deg):
     moindre trou (cf. compute_layout) laissait de grandes bandes
     transparentes DANS chaque tuile dès que l'aspect ratio de la photo ne
     collait pas à celui de sa case — "les gens paient pour voir leurs
-    photos, pas du vide". Recadre au centre : perd un peu des bords les
-    plus longs, jamais le centre du sujet."""
+    photos, pas du vide". Recadre au centre, plafonné à MAX_CROP_FRACTION
+    du côté le plus recadré (retour user : une case d'aspect trop
+    différent de la photo tronquait l'essentiel de son contenu) — au-delà
+    du plafond, léger espace transparent sur le côté opposé plutôt qu'une
+    photo méconnaissable ; `crop()` remplit tout seul cet espace en
+    transparent, y compris hors des bords de l'image source (cf. Pillow,
+    testé)."""
     box_w, box_h = max(1, round(box_w)), max(1, round(box_h))
-    ratio = max(box_w / image.width, box_h / image.height)
-    new_size = (max(box_w, round(image.width * ratio)),
-                max(box_h, round(image.height * ratio)))
+    cover_ratio = max(box_w / image.width, box_h / image.height)
+    contain_ratio = min(box_w / image.width, box_h / image.height)
+    ratio = min(cover_ratio, contain_ratio / (1 - MAX_CROP_FRACTION))
+    new_size = (max(1, round(image.width * ratio)),
+                max(1, round(image.height * ratio)))
     resized = image.resize(new_size, Image.Resampling.LANCZOS)
     left = (resized.width - box_w) // 2
     top = (resized.height - box_h) // 2
