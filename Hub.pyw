@@ -7871,7 +7871,7 @@ def main(page: ft.Page):
                 return
             is_center = center["path"] == path
             is_featured = path in featured
-            border.border = ft.border.all(
+            border.border = ft.Border.all(
                 3, ORANGE if is_center else
                 (VIOLET if is_featured else ft.Colors.TRANSPARENT))
             border.update()
@@ -7911,7 +7911,7 @@ def main(page: ft.Page):
                             on_click=lambda e, p=path: _toggle_center(p, e)),
                     ], spacing=0, tight=True),
                 ], spacing=0, tight=True),
-                border=ft.border.all(3, ft.Colors.TRANSPARENT),
+                border=ft.Border.all(3, ft.Colors.TRANSPARENT),
                 border_radius=6, padding=2)
             tile_borders[path] = tile_border
             tiles_row.controls.append(tile_border)
