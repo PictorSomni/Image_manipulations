@@ -2074,14 +2074,15 @@ def main(page: ft.Page):
     _KEYPAD_COLORS = {"dark": DARK, "red": RED, "grey": GREY,
                       "green": GREEN, "white": WHITE}
 
-    def _numeric_keypad(fields, on_confirm=None, allow_decimal=False):
+    def _numeric_keypad(fields, on_confirm=None, allow_decimal=False,
+                         staged=False):
         """Pavé numérique tactile réutilisable — wrapper autour de
         ui_helpers.numeric_keypad (partagé avec les autres apps du
         dossier Data/, ex. Recadrage manuel.pyw) pour ne pas répéter les
         couleurs de Hub à chaque appel."""
         return ui_helpers.numeric_keypad(
             page, fields, _KEYPAD_COLORS, on_confirm=on_confirm,
-            allow_decimal=allow_decimal)
+            allow_decimal=allow_decimal, staged=staged)
 
     def _set_print_count(paths):
         # Préfixe "NX_" lu par Recadrage automatique.py (mode fit) pour
@@ -7910,23 +7911,33 @@ def main(page: ft.Page):
 
         # Masqué tant qu'aucun champ n'a le focus (retour user) — évite de
         # l'afficher en permanence alors qu'on ne s'en sert pas toujours.
-        # Posés AVANT l'appel à _numeric_keypad ci-dessous : ce dernier
-        # enchaîne sur l'on_focus/on_blur déjà présents plutôt que de les
-        # écraser (cf. ui_helpers.numeric_keypad._track_focus) — l'ordre
-        # inverse casserait le suivi du champ actif par le pavé lui-même.
+        # Posé AVANT l'appel à _numeric_keypad ci-dessous : ce dernier
+        # enchaîne sur l'on_focus déjà présent plutôt que de l'écraser
+        # (cf. ui_helpers.numeric_keypad._track_focus) — l'ordre inverse
+        # casserait le suivi du champ actif par le pavé lui-même.
+        #
+        # Pas de _hide_keypad sur on_blur (essayé, retiré) : taper un
+        # chiffre du pavé déclenche le blur natif du champ qui vient de
+        # perdre le focus, ce qui masquait le pavé pendant/avant le clic
+        # sur le chiffre lui-même (retour user : "je clique sur un
+        # chiffre et il disparait sans que rien ne se passe"). staged=True
+        # évite complètement ce problème : les chiffres s'accumulent dans
+        # le champ d'affichage du pavé, indépendant du focus, et ne sont
+        # copiés dans le champ visé qu'au clic sur ✓ (qui masque alors le
+        # pavé, la saisie étant terminée).
         def _show_keypad(event=None):
             keypad_box.visible = True
             page.update()
 
-        def _hide_keypad(event=None):
+        def _keypad_validated(event=None):
             keypad_box.visible = False
             page.update()
 
         for field in keypad_fields:
             field.on_focus = _show_keypad
-            field.on_blur = _hide_keypad
 
-        keypad = _numeric_keypad(keypad_fields, allow_decimal=True)
+        keypad = _numeric_keypad(keypad_fields, allow_decimal=True,
+                                 staged=True, on_confirm=_keypad_validated)
         keypad_box.controls = [keypad]
 
         def _on_manual_change(e):
@@ -8188,17 +8199,20 @@ def main(page: ft.Page):
                 ], spacing=8, tight=True, scroll=ft.ScrollMode.AUTO,
                    horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             ),
-            # SPACE_BETWEEN sur 3 actions plaçait Annuler au milieu (un
-            # item par extrémité + un au centre) plutôt qu'à côté de
-            # Lancer (retour user) — regrouper Annuler+Lancer dans un Row
-            # comme UN SEUL item d'action ramène SPACE_BETWEEN à son
-            # comportement voulu : PSD tout à gauche, les deux boutons
-            # ensemble tout à droite.
-            actions=[psd_checkbox,
-                     ft.Row([ft.TextButton("Annuler", on_click=_cancel),
-                            ft.TextButton("Lancer", on_click=_confirm)],
-                           spacing=4, tight=True)],
-            actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            # `actions` avec plusieurs items retombait sur une seule ligne
+            # trop étroite et passait le checkbox sur sa propre rangée,
+            # au-dessus d'Annuler/Lancer (retour user, capture d'écran) —
+            # un SEUL item d'action, un Row `expand=True` qui occupe toute
+            # la largeur, garantit que SPACE_BETWEEN aligne bien PSD à
+            # gauche et les deux boutons ensemble à droite sur une rangée.
+            actions=[
+                ft.Row([psd_checkbox,
+                        ft.Row([ft.TextButton("Annuler", on_click=_cancel),
+                               ft.TextButton("Lancer", on_click=_confirm)],
+                              spacing=4, tight=True)],
+                      alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                      expand=True),
+            ],
         )
         async def _show():
             page.overlay.append(dlg)
