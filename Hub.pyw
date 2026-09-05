@@ -7747,9 +7747,12 @@ def main(page: ft.Page):
         # `fields` : liste de (label, suffix, default, env_key) — un champ
         # numérique par tuple, tous requis pour lancer l'outil.
         text_fields = [
+            # Pas d'autofocus : ouvrirait le pavé numérique d'emblée
+            # (retour user) — il ne doit apparaître qu'au toucher d'un
+            # champ.
             ft.TextField(
                 label=label, value=str(default),
-                suffix=ft.Text(suffix, color=GREY), autofocus=(i == 0),
+                suffix=ft.Text(suffix, color=GREY),
                 width=200, bgcolor=DARK, border_color=GREY, color=WHITE,
                 keyboard_type=ft.KeyboardType.NUMBER)
             for i, (label, suffix, default, env_key) in enumerate(fields)
@@ -7809,7 +7812,9 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        _run_task(_focus_dialog_field, text_fields[0])
+        # Pas de focus programmatique du 1er champ : ça rouvrirait aussi
+        # le pavé numérique d'emblée (retour user), même effet que
+        # l'autofocus qu'on vient de retirer plus haut.
 
     def _launch_redimensionner(event=None):
         _launch_number_prompt("Redimensionner", [
