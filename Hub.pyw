@@ -7767,10 +7767,31 @@ def main(page: ft.Page):
             _launch_tool(script_name, extra_env=env)
 
         text_fields[-1].on_submit = _confirm
-        keypad = _numeric_keypad(text_fields, staged=True)
+
+        # Masqué tant qu'aucun champ n'a le focus, même motif que le
+        # Montage (retour user) — évite de l'afficher en permanence.
+        keypad_box = ft.Row(visible=False, alignment=ft.MainAxisAlignment.CENTER)
+
+        def _show_keypad(event=None):
+            keypad_box.visible = True
+            page.update()
+
+        def _keypad_validated(event=None):
+            keypad_box.visible = False
+            page.update()
+
+        for field in text_fields:
+            field.on_focus = _show_keypad
+
+        keypad = _numeric_keypad(text_fields, staged=True,
+                                 on_confirm=_keypad_validated)
+        keypad_box.controls = [keypad]
+
         dlg = ft.AlertDialog(
             title=ft.Text(title, size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column(text_fields + [keypad], spacing=8, tight=True),
+            content=ft.Column(
+                text_fields + [keypad_box], spacing=8, tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
         )
