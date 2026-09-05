@@ -7908,7 +7908,7 @@ def main(page: ft.Page):
         psd_checkbox = ft.Checkbox(
             label=".psd",
             tooltip="Générer aussi un .psd (calque par calque)",
-            value=False, active_color=VIOLET, check_color=DARK)
+            value=True, active_color=VIOLET, check_color=DARK)
 
         # Pavé numérique tactile : agit sur les champs manuels (largeur/
         # hauteur, actifs seulement en saisie manuelle) ainsi que

@@ -75,7 +75,16 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
             fresh[id(_f)] = True
             if staged:
                 display.value = _f.value or ""
-                display.update()
+                # .update() sur `display` seul lève une RuntimeError
+                # ("Control must be added to the page first") tant que
+                # le pavé n'a jamais été affiché — ce qui arrive
+                # précisément au tout premier focus, avant même que
+                # _prev (ex. _show_keypad) ne le montre. Cette exception
+                # coupait la chaîne AVANT le _prev(event) ci-dessous : le
+                # pavé ne s'affichait jamais (retour user). page.update()
+                # est l'idiome utilisé partout ailleurs dans ce module,
+                # sans ce piège.
+                page.update()
             if _prev:
                 _prev(event)
         target_field.on_focus = _on_focus
@@ -94,14 +103,14 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
             if text == "." and "." in (current or ""):
                 return  # un seul point décimal par nombre
             fld.value = (current or "") + text
-            fld.update() if staged else page.update()
+            page.update()
         return _on_click
 
     def _backspace(event):
         fld = display if staged else active["field"]
         fresh[id(active["field"])] = False
         fld.value = (fld.value or "")[:-1]
-        fld.update() if staged else page.update()
+        page.update()
 
     def _validate(event):
         fld = active["field"]
