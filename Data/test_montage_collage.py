@@ -337,12 +337,11 @@ def test_render_montage_respects_margin(mod):
         margin_px=margin, seed=13,
         load_source=lambda k: sources[k], log=lambda msg: None)
     assert len(layers) == len(keys)
-    for _, tile, left, top in layers:
-        tw, th = tile.size
-        assert left >= margin - 1
-        assert top >= margin - 1
-        assert left + tw <= canvas_w - margin + 1
-        assert top + th <= canvas_h - margin + 1
+    for _, _, _, _, mask_left, mask_top, mask_right, mask_bottom in layers:
+        assert mask_left >= margin - 1
+        assert mask_top >= margin - 1
+        assert mask_right <= canvas_w - margin + 1
+        assert mask_bottom <= canvas_h - margin + 1
     print("  render_montage (mosaïque toujours dans la marge) : OK")
 
 
@@ -367,6 +366,80 @@ def test_render_montage_composites_and_skips_missing(mod):
     print("  render_montage (composite + source manquante ignorée) : OK")
 
 
+def test_psd_layer_full_tile_covers_and_centers_mask_window(mod):
+    """Retour user : "les images sont recadrées, je ne sais pas les
+    déplacer pour refaire apparaitre les personnes au bord" — le calque
+    PSD doit contenir la photo COMPLÈTE (non recadrée), pas seulement la
+    portion visible, et cette portion visible (future fenêtre de masque)
+    doit être exactement centrée dedans (crop centré puis rotation
+    partagent le même centre, cf. _cover_resize) — sinon le masque ne
+    tomberait pas au bon endroit sur le calque."""
+    from PIL import Image
+    keys = _keys(6)
+    # Sources très allongées (```MAX_CROP_FRACTION``` mise à contribution)
+    # pour maximiser l'écart entre tuile complète et fenêtre visible.
+    sources = {k: Image.new("RGBA", (1200, 300), (200, 100, 50, 255))
+              for k in keys}
+    canvas, layers = mod.render_montage(
+        keys, 2000, 1500, size_variation=60, rotation_variation=40,
+        margin_px=0, seed=6, load_source=lambda k: sources[k],
+        log=lambda msg: None)
+    assert len(layers) == len(keys)
+    for _, full_img, full_left, full_top, mask_left, mask_top, \
+            mask_right, mask_bottom in layers:
+        fw, fh = full_img.size
+        mask_w, mask_h = mask_right - mask_left, mask_bottom - mask_top
+        assert fw >= mask_w - 1 and fh >= mask_h - 1, (
+            "le calque complet doit être au moins aussi grand que la "
+            "fenêtre visible")
+        # Centrage : le milieu de la fenêtre de masque doit coïncider
+        # avec le milieu du calque complet (tolérance d'arrondi).
+        full_cx, full_cy = full_left + fw / 2, full_top + fh / 2
+        mask_cx = (mask_left + mask_right) / 2
+        mask_cy = (mask_top + mask_bottom) / 2
+        assert abs(full_cx - mask_cx) < 2, "masque non centré horizontalement"
+        assert abs(full_cy - mask_cy) < 2, "masque non centré verticalement"
+    print("  calque PSD complet + fenêtre de masque centrée dedans : OK")
+
+
+def test_write_psd_produces_a_real_non_degenerate_mask(mod):
+    """Bug corrigé : pytoshop pose par défaut un masque 0x0 sur CHAQUE
+    calque dès qu'aucun masque n'est explicitement fourni — Affinity
+    refusait le fichier ("erreur de masques"). Vérifie, en relisant le
+    .psd avec pytoshop lui-même, que le masque écrit a bien la géométrie
+    voulue (pas 0x0)."""
+    try:
+        import pytoshop
+    except ImportError:
+        print("  écriture .psd (pytoshop non installé, test sauté)")
+        return
+    from PIL import Image
+    keys = _keys(3)
+    sources = {k: Image.new("RGBA", (400, 300), (10, 20, 30, 255))
+              for k in keys}
+    canvas, layers = mod.render_montage(
+        keys, 1200, 900, size_variation=40, rotation_variation=20,
+        margin_px=20, seed=8, load_source=lambda k: sources[k],
+        log=lambda msg: None)
+    psd_path = Path(__file__).resolve().parent / "_test_montage_tmp.psd"
+    try:
+        mod.write_psd_file(psd_path, canvas, layers, 1200, 900)
+        with open(psd_path, "rb") as f:
+            psd = pytoshop.read(f)
+        records = psd.layer_and_mask_info.layer_info.layer_records
+        assert len(records) == len(keys)
+        for record, (_, _, _, _, mask_left, mask_top, mask_right,
+                    mask_bottom) in zip(records, layers):
+            assert record.mask.width > 0 and record.mask.height > 0, (
+                "masque 0x0 — c'est exactement le bug qu'Affinity rejetait")
+            assert (record.mask.left, record.mask.top, record.mask.right,
+                   record.mask.bottom) == (mask_left, mask_top,
+                                           mask_right, mask_bottom)
+    finally:
+        psd_path.unlink(missing_ok=True)
+    print("  .psd écrit avec un masque réel (non 0x0) par calque : OK")
+
+
 if __name__ == "__main__":
     print("Vérifications :")
     montage = _load_montage()
@@ -385,4 +458,6 @@ if __name__ == "__main__":
     test_fit_and_rotate_caps_crop_on_extreme_aspect(montage)
     test_render_montage_respects_margin(montage)
     test_render_montage_composites_and_skips_missing(montage)
+    test_psd_layer_full_tile_covers_and_centers_mask_window(montage)
+    test_write_psd_produces_a_real_non_degenerate_mask(montage)
     print("Tout est passé.")
