@@ -1796,7 +1796,14 @@ def main(page: ft.Page):
         origin_tab_id = state["tab_id"]
 
         def _work():
-            for p in paths:
+            total = len(paths)
+            for i, p in enumerate(paths, 1):
+                name = os.path.basename(p)
+                # Même détail ligne par ligne que le collage (retour
+                # user) — sans ça, un gros lot ne donne aucun signe de
+                # progression avant la fin.
+                _log_to_terminal(f"[...] Suppression {i}/{total} : {name}",
+                                 ORANGE)
                 try:
                     _backup_file(p)
                     if os.path.isdir(p):
@@ -1804,9 +1811,9 @@ def main(page: ft.Page):
                     else:
                         os.remove(p)
                     _select_discard(p)
-                    _log_to_terminal(f"[OK] Supprimé : {os.path.basename(p)}", GREEN)
+                    _log_to_terminal(f"[OK] Supprimé : {name}", GREEN)
                 except Exception as exc:
-                    _log_to_terminal(f"[ERREUR] {os.path.basename(p)} : {exc}", RED)
+                    _log_to_terminal(f"[ERREUR] {name} : {exc}", RED)
             _update_sel_count()
             _run_task(_tool_refresh, folder, None, origin_tab_id)
 
@@ -2165,7 +2172,8 @@ def main(page: ft.Page):
         # Pavé numérique tactile : dialogue ouvert depuis le panneau
         # Actions, potentiellement sur écran tactile sans clavier commode
         # sous la main (retour user).
-        keypad = _numeric_keypad(count_field, on_confirm=_confirm)
+        keypad = _numeric_keypad(count_field, on_confirm=_confirm,
+                                 staged=True)
 
         dlg = ft.AlertDialog(
             # Le nombre de fichiers est le garde-fou du mode « dossier
@@ -7759,7 +7767,7 @@ def main(page: ft.Page):
             _launch_tool(script_name, extra_env=env)
 
         text_fields[-1].on_submit = _confirm
-        keypad = _numeric_keypad(text_fields)
+        keypad = _numeric_keypad(text_fields, staged=True)
         dlg = ft.AlertDialog(
             title=ft.Text(title, size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column(text_fields + [keypad], spacing=8, tight=True),
@@ -8359,7 +8367,7 @@ def main(page: ft.Page):
 
         # Pavé numérique tactile, visible seulement en saisie manuelle
         # (les champs ne sont éditables que dans ce mode).
-        keypad = _numeric_keypad([width_field, height_field])
+        keypad = _numeric_keypad([width_field, height_field], staged=True)
         keypad.visible = manual["value"]
 
         def _on_manual_change(e):

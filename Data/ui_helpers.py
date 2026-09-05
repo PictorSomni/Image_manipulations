@@ -104,8 +104,17 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
         fld.update() if staged else page.update()
 
     def _validate(event):
-        active["field"].value = display.value
-        active["field"].update()
+        fld = active["field"]
+        fld.value = display.value
+        fld.update()
+        # Le focus ne quitte jamais vraiment `fld` en mode staged (on
+        # tape dans `display`, pas dedans) — un on_blur posé par
+        # l'appelant pour réagir au changement (ex. Recadrage manuel.pyw,
+        # redessine le canevas) ne se déclencherait donc jamais tout
+        # seul : on l'appelle explicitement ici, la validation étant le
+        # même événement métier ("valeur changée, terminé").
+        if fld.on_blur:
+            fld.on_blur(event)
         if on_confirm is not None:
             on_confirm(event)
 

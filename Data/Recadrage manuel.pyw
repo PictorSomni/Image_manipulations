@@ -4819,7 +4819,7 @@ def main(page: ft.Page):
         page, [app.custom_w_field, app.custom_h_field],
         {"dark": DARK, "red": RED, "grey": GREY, "green": GREEN,
          "white": WHITE},
-        allow_decimal=True)
+        allow_decimal=True, staged=True)
     app.custom_keypad.visible = False
 
     app.custom_unit = "mm"
