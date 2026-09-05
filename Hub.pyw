@@ -7906,7 +7906,28 @@ def main(page: ft.Page):
         # résolution/marge, toujours éditables. Les curseurs taille/
         # rotation n'en ont pas besoin (glisser suffit).
         keypad_fields = [width_field, height_field, dpi_field, margin_field]
+        keypad_box = ft.Row(visible=False, alignment=ft.MainAxisAlignment.CENTER)
+
+        # Masqué tant qu'aucun champ n'a le focus (retour user) — évite de
+        # l'afficher en permanence alors qu'on ne s'en sert pas toujours.
+        # Posés AVANT l'appel à _numeric_keypad ci-dessous : ce dernier
+        # enchaîne sur l'on_focus/on_blur déjà présents plutôt que de les
+        # écraser (cf. ui_helpers.numeric_keypad._track_focus) — l'ordre
+        # inverse casserait le suivi du champ actif par le pavé lui-même.
+        def _show_keypad(event=None):
+            keypad_box.visible = True
+            page.update()
+
+        def _hide_keypad(event=None):
+            keypad_box.visible = False
+            page.update()
+
+        for field in keypad_fields:
+            field.on_focus = _show_keypad
+            field.on_blur = _hide_keypad
+
         keypad = _numeric_keypad(keypad_fields, allow_decimal=True)
+        keypad_box.controls = [keypad]
 
         def _on_manual_change(e):
             manual["value"] = manual_switch.value
@@ -8152,7 +8173,7 @@ def main(page: ft.Page):
                     ft.Text("Rotation", size=CONSTANTS.TEXT_SM,
                            color=LIGHT_GREY),
                     rotation_slider,
-                    ft.Row([keypad], alignment=ft.MainAxisAlignment.CENTER),
+                    keypad_box,
                     ft.Divider(height=1, color=GREY),
                     ft.Row([
                         ft.TextButton("Aperçu", icon=ft.Icons.PREVIEW,
