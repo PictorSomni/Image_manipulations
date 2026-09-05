@@ -2171,9 +2171,20 @@ def main(page: ft.Page):
 
         # Pavé numérique tactile : dialogue ouvert depuis le panneau
         # Actions, potentiellement sur écran tactile sans clavier commode
-        # sous la main (retour user).
+        # sous la main (retour user). Masqué tant que count_field n'a
+        # pas le focus, même motif que les autres dialogues (retour
+        # user) — autofocus=True sur count_field le fait apparaître dès
+        # l'ouverture, comme avant.
+        keypad_box = ft.Row(visible=False, alignment=ft.MainAxisAlignment.CENTER)
+
+        def _show_keypad(event=None):
+            keypad_box.visible = True
+            page.update()
+
+        count_field.on_focus = _show_keypad
         keypad = _numeric_keypad(count_field, on_confirm=_confirm,
                                  staged=True)
+        keypad_box.controls = [keypad]
 
         dlg = ft.AlertDialog(
             # Le nombre de fichiers est le garde-fou du mode « dossier
@@ -2183,7 +2194,7 @@ def main(page: ft.Page):
                 f"Nombre d'impressions — {len(targets)} fichier(s) "
                 "(0 = retirer le préfixe NX_)",
                 size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([count_field, keypad], spacing=12, tight=True),
+            content=ft.Column([count_field, keypad_box], spacing=12, tight=True),
             # Pas de bouton "Valider" ici : le ✓ vert du pavé numérique fait
             # déjà ça, juste au-dessus (retour user).
             actions=[ft.TextButton("Annuler", on_click=_cancel)],
@@ -8398,10 +8409,20 @@ def main(page: ft.Page):
             f"Portée auto : {'sélection en cours' if selected else 'tout le dossier'}",
             size=CONSTANTS.TEXT_SM, color=GREY)
 
-        # Pavé numérique tactile, visible seulement en saisie manuelle
-        # (les champs ne sont éditables que dans ce mode).
+        # Pavé numérique tactile, éditable seulement en saisie manuelle —
+        # masqué tant qu'aucun des deux champs n'a le focus, même motif
+        # que les autres dialogues (retour user).
+        keypad_box = ft.Row(visible=False, alignment=ft.MainAxisAlignment.CENTER)
+
+        def _show_keypad(event=None):
+            keypad_box.visible = True
+            page.update()
+
+        for f in (width_field, height_field):
+            f.on_focus = _show_keypad
+
         keypad = _numeric_keypad([width_field, height_field], staged=True)
-        keypad.visible = manual["value"]
+        keypad_box.controls = [keypad]
 
         def _on_manual_change(e):
             manual["value"] = manual_switch.value
@@ -8413,7 +8434,10 @@ def main(page: ft.Page):
             fmt_dd.border_color = LIGHT_GREY if manual["value"] else BLUE
             width_field.border_color = BLUE if manual["value"] else LIGHT_GREY
             height_field.border_color = BLUE if manual["value"] else LIGHT_GREY
-            keypad.visible = manual["value"]
+            if not manual["value"]:
+                # Champs redevenus désactivés : plus moyen de les
+                # refocaliser pour masquer le pavé via _show_keypad.
+                keypad_box.visible = False
             page.update()
 
         manual_switch.on_change = _on_manual_change
@@ -8466,7 +8490,7 @@ def main(page: ft.Page):
                     content=ft.Column([manual_switch,
                                        ft.Row([width_field, height_field],
                                               spacing=8),
-                                       keypad]),
+                                       keypad_box]),
                     border=ft.Border.all(1, GREY), border_radius=8,
                     padding=10),
                 ft.Row([fit_switch, center_switch], spacing=8),

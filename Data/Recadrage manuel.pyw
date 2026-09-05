@@ -4813,14 +4813,26 @@ def main(page: ft.Page):
     # Pavé numérique tactile (retour user : le clavier virtuel Windows
     # n'apparaît pas toujours sur le poste tactile) — décimales
     # autorisées, ces champs acceptent des valeurs comme "101.6" en mm.
-    # Visible seulement quand la saisie manuelle est active (les champs
-    # sont désactivés sinon), cf. _apply_custom_mode.
+    # Éditable seulement quand la saisie manuelle est active (les champs
+    # sont désactivés sinon), cf. _apply_custom_mode — et, dans ce mode,
+    # masqué tant qu'aucun des deux champs n'a le focus, même motif que
+    # les dialogues du Hub (retour user).
+    app.custom_keypad_box = ft.Row(
+        visible=False, alignment=ft.MainAxisAlignment.CENTER)
+
+    def _show_custom_keypad(event=None):
+        app.custom_keypad_box.visible = True
+        page.update()
+
+    for _f in (app.custom_w_field, app.custom_h_field):
+        _f.on_focus = _show_custom_keypad
+
     app.custom_keypad = ui_helpers.numeric_keypad(
         page, [app.custom_w_field, app.custom_h_field],
         {"dark": DARK, "red": RED, "grey": GREY, "green": GREEN,
          "white": WHITE},
         allow_decimal=True, staged=True)
-    app.custom_keypad.visible = False
+    app.custom_keypad_box.controls = [app.custom_keypad]
 
     app.custom_unit = "mm"
 
@@ -4869,7 +4881,10 @@ def main(page: ft.Page):
         app.custom_h_field.disabled = not enabled
         app.unit_dropdown.disabled = not enabled
         app.format_radio_group.disabled = enabled
-        app.custom_keypad.visible = enabled
+        if not enabled:
+            # Champs redevenus désactivés : plus moyen de les
+            # refocaliser pour masquer le pavé via _show_custom_keypad.
+            app.custom_keypad_box.visible = False
         if enabled:
             # Appliquer immédiatement les dimensions saisies en mode personnalisé
             app.change_ratio(type("Evt", (), {"control": type("Ctl", (), {"value": _CUSTOM_KEY})()})())
@@ -4934,7 +4949,7 @@ def main(page: ft.Page):
             spacing=8,
             alignment=ft.MainAxisAlignment.CENTER,
         ),
-        app.custom_keypad,
+        app.custom_keypad_box,
     ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     app.custom_panel = ft.Container(
