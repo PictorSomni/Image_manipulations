@@ -369,6 +369,10 @@ def main(page: ft.Page):
     # quand une sélection est fournie (retour user).
     selected = []                        # chemins sélectionnés (images + dossiers)
     clipboard = {"paths": [], "mode": None}   # mode: "copy" | "cut" | None
+    # Sous-processus d'un outil lancé par _launch_tool (Montage,
+    # Redimensionner, etc.) — pour le bouton STOP du terminal (retour
+    # user : "je me suis trompé dans le réglage" en plein batch).
+    running_proc = {"proc": None, "stopped": False}
     drives_state = {"list": []}          # [(nom, chemin), ...] — cache tenu à jour par _poll_removable_drives
     phones_state = {"list": []}          # [(description, id PnP), ...] — téléphones MTP, même sondage
 
@@ -7350,6 +7354,13 @@ def main(page: ft.Page):
             except Exception as exc:
                 _log_to_terminal(f"[ERREUR] {script_name} : {exc}", RED)
                 return
+            # Pour le bouton STOP du terminal (retour user : mauvais
+            # réglage repéré en plein batch) — nettoyé dans le finally
+            # ci-dessous, y compris si le process plante avant la fin.
+            running_proc["proc"] = proc
+            running_proc["stopped"] = False
+            terminal_stop_button.visible = True
+            page.update()
             # Outil avec sa propre fenêtre Flet (.pyw) : minimiser Hub le
             # temps qu'il tourne, comme Dashboard.pyw:8992-9004/9058-9068.
             is_gui_tool = (app_path.endswith(".pyw")
@@ -7427,7 +7438,15 @@ def main(page: ft.Page):
                 if viewer_overlay in page.overlay:
                     _close_viewer()
                 page.update()
-            if proc.returncode != 0:
+            running_proc["proc"] = None
+            terminal_stop_button.visible = False
+            if running_proc["stopped"]:
+                _log_to_terminal(f"[ARRÊTÉ] {script_name} interrompu", ORANGE)
+                # Comme une erreur : panneau laissé épinglé, l'utilisateur
+                # vient de l'arrêter volontairement pour corriger un
+                # réglage (retour user) — pas de fermeture auto qui le
+                # ferait disparaître avant qu'il ait pu relire le terminal.
+            elif proc.returncode != 0:
                 _log_to_terminal(
                     f"[ERREUR] {script_name} — code retour {proc.returncode}",
                     RED)
@@ -9399,6 +9418,25 @@ def main(page: ft.Page):
         ft.Icons.CLEAR_ALL, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
         tooltip="Effacer le terminal", on_click=_clear_terminal)
 
+    def _stop_running_tool(event=None):
+        # Un seul outil externe à la fois via _launch_tool — terminate()
+        # est TerminateProcess (immédiat) sous Windows, SIGTERM (arrêt
+        # par défaut d'un process Python) sous macOS/Linux (retour user :
+        # mauvais réglage repéré en plein batch, ex. Redimensionner).
+        proc = running_proc["proc"]
+        if proc is None:
+            return
+        running_proc["stopped"] = True
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+    terminal_stop_button = ft.IconButton(
+        ft.Icons.STOP_CIRCLE, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
+        tooltip="Arrêter l'outil en cours", visible=False,
+        on_click=_stop_running_tool)
+
     # Barre infinie (value=None) affichée pendant une action de fichiers
     # lancée en arrière-plan (copier/coller/dupliquer/zip/dézip/supprimer)
     # — même emplacement et même rôle que app_progress_bar dans
@@ -9439,7 +9477,7 @@ def main(page: ft.Page):
             # la ligne de saisie.
             ft.Container(
                 content=ft.Row([
-                    terminal_title, terminal_copy_button,
+                    terminal_title, terminal_stop_button, terminal_copy_button,
                     terminal_to_notepad_button, terminal_clear_button,
                     terminal_fullscreen_btn,
                 ], spacing=4),
