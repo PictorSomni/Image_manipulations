@@ -8164,47 +8164,59 @@ def main(page: ft.Page):
 
         dlg = ft.AlertDialog(
             title=ft.Text("Montage collage", size=CONSTANTS.TEXT_SM, color=WHITE),
+            # keypad_box est SORTI de la zone défilante ci-dessous et
+            # épinglé juste en dessous (retour user : enterré dans le
+            # scroll, il fallait défiler pour le voir en touchant un
+            # champ plus haut, ex. la marge). Une vraie surcouche
+            # page.overlay a été envisagée mais Flet fait passer les
+            # AlertDialog par une route modale toujours au-dessus des
+            # simples contrôles d'overlay, qui resteraient donc masqués
+            # dessous quel que soit l'ordre d'ajout — rester DANS le
+            # dialogue, juste hors de sa zone de scroll, est plus fiable.
             content=ft.Container(
                 width=360, height=560,
                 content=ft.Column([
-                    ft.Text("Photo centrale / mises en avant (optionnel)",
-                           size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
-                    tiles_row,
-                    ft.Divider(height=1, color=GREY),
-                    format_dd,
-                    orientation_btn,
-                    ft.Container(
-                        content=ft.Column([
-                            manual_switch,
-                            ft.Row([width_field, height_field], spacing=8,
-                                  alignment=ft.MainAxisAlignment.CENTER),
-                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                        border=ft.Border.all(1, GREY), border_radius=8,
-                        padding=10),
-                    dpi_toggle_btn,
-                    dpi_field,
-                    ft.Container(height=14),
-                    margin_field,
-                    ft.Text("Écart de taille (les photos se repositionnent "
-                           "pour combler l'espace)", size=CONSTANTS.TEXT_SM,
-                           color=LIGHT_GREY),
-                    size_slider,
-                    ft.Text("Rotation", size=CONSTANTS.TEXT_SM,
-                           color=LIGHT_GREY),
-                    rotation_slider,
+                    ft.Column([
+                        ft.Text("Photo centrale / mises en avant (optionnel)",
+                               size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
+                        tiles_row,
+                        ft.Divider(height=1, color=GREY),
+                        format_dd,
+                        orientation_btn,
+                        ft.Container(
+                            content=ft.Column([
+                                manual_switch,
+                                ft.Row([width_field, height_field], spacing=8,
+                                      alignment=ft.MainAxisAlignment.CENTER),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            border=ft.Border.all(1, GREY), border_radius=8,
+                            padding=10),
+                        dpi_toggle_btn,
+                        dpi_field,
+                        ft.Container(height=14),
+                        margin_field,
+                        ft.Text("Écart de taille (les photos se repositionnent "
+                               "pour combler l'espace)", size=CONSTANTS.TEXT_SM,
+                               color=LIGHT_GREY),
+                        size_slider,
+                        ft.Text("Rotation", size=CONSTANTS.TEXT_SM,
+                               color=LIGHT_GREY),
+                        rotation_slider,
+                        ft.Divider(height=1, color=GREY),
+                        ft.Row([
+                            ft.TextButton("Aperçu", icon=ft.Icons.PREVIEW,
+                                         on_click=_do_preview),
+                            ft.IconButton(ft.Icons.CASINO, icon_color=WHITE,
+                                         tooltip="Nouveau tirage aléatoire",
+                                         on_click=_reroll),
+                        ], alignment=ft.MainAxisAlignment.CENTER),
+                        preview_status,
+                        ft.Row([preview_progress], alignment=ft.MainAxisAlignment.CENTER),
+                        ft.Row([preview_image], alignment=ft.MainAxisAlignment.CENTER),
+                    ], spacing=8, scroll=ft.ScrollMode.AUTO, expand=True,
+                       horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                     keypad_box,
-                    ft.Divider(height=1, color=GREY),
-                    ft.Row([
-                        ft.TextButton("Aperçu", icon=ft.Icons.PREVIEW,
-                                     on_click=_do_preview),
-                        ft.IconButton(ft.Icons.CASINO, icon_color=WHITE,
-                                     tooltip="Nouveau tirage aléatoire",
-                                     on_click=_reroll),
-                    ], alignment=ft.MainAxisAlignment.CENTER),
-                    preview_status,
-                    ft.Row([preview_progress], alignment=ft.MainAxisAlignment.CENTER),
-                    ft.Row([preview_image], alignment=ft.MainAxisAlignment.CENTER),
-                ], spacing=8, tight=True, scroll=ft.ScrollMode.AUTO,
+                ], spacing=8, tight=True,
                    horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             ),
             # `actions` avec plusieurs items retombait sur une seule ligne
