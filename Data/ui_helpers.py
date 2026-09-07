@@ -115,7 +115,13 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
     def _validate(event):
         fld = active["field"]
         fld.value = display.value
-        fld.update()
+        # page.update(), pas fld.update() : même piège que display plus
+        # haut — RuntimeError ("Control must be added to the page
+        # first") si `fld` n'est pas monté à cet instant précis côté
+        # client, ce qui coupait tout le reste de _validate AVANT
+        # d'atteindre on_confirm — le pavé restait affiché après avoir
+        # validé (retour user).
+        page.update()
         # Le focus ne quitte jamais vraiment `fld` en mode staged (on
         # tape dans `display`, pas dedans) — un on_blur posé par
         # l'appelant pour réagir au changement (ex. Recadrage manuel.pyw,
