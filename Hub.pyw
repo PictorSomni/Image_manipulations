@@ -2085,15 +2085,14 @@ def main(page: ft.Page):
     _KEYPAD_COLORS = {"dark": DARK, "red": RED, "grey": GREY,
                       "green": GREEN, "white": WHITE}
 
-    def _numeric_keypad(fields, on_confirm=None, allow_decimal=False,
-                         staged=False):
+    def _numeric_keypad(fields, on_confirm=None, allow_decimal=False):
         """Pavé numérique tactile réutilisable — wrapper autour de
         ui_helpers.numeric_keypad (partagé avec les autres apps du
         dossier Data/, ex. Recadrage manuel.pyw) pour ne pas répéter les
         couleurs de Hub à chaque appel."""
         return ui_helpers.numeric_keypad(
             page, fields, _KEYPAD_COLORS, on_confirm=on_confirm,
-            allow_decimal=allow_decimal, staged=staged)
+            allow_decimal=allow_decimal)
 
     def _set_print_count(paths):
         # Préfixe "NX_" lu par Recadrage automatique.py (mode fit) pour
@@ -2186,8 +2185,7 @@ def main(page: ft.Page):
             page.update()
 
         count_field.on_focus = _show_keypad
-        keypad = _numeric_keypad(count_field, on_confirm=_confirm,
-                                 staged=True)
+        keypad = _numeric_keypad(count_field, on_confirm=_confirm)
         keypad_box.controls = [keypad]
 
         dlg = ft.AlertDialog(
@@ -7882,7 +7880,7 @@ def main(page: ft.Page):
         for field in text_fields:
             field.on_focus = _show_keypad
 
-        keypad = _numeric_keypad(text_fields, staged=True,
+        keypad = _numeric_keypad(text_fields,
                                  on_confirm=_keypad_validated)
         keypad_box.controls = [keypad]
 
@@ -8050,11 +8048,8 @@ def main(page: ft.Page):
         # chiffre du pavé déclenche le blur natif du champ qui vient de
         # perdre le focus, ce qui masquait le pavé pendant/avant le clic
         # sur le chiffre lui-même (retour user : "je clique sur un
-        # chiffre et il disparait sans que rien ne se passe"). staged=True
-        # évite complètement ce problème : les chiffres s'accumulent dans
-        # le champ d'affichage du pavé, indépendant du focus, et ne sont
-        # copiés dans le champ visé qu'au clic sur ✓ (qui masque alors le
-        # pavé, la saisie étant terminée).
+        # chiffre et il disparait sans que rien ne se passe"). Le masquage
+        # ne se fait donc qu'au clic sur ✓ (_keypad_validated).
         def _show_keypad(event=None):
             keypad_box.visible = True
             page.update()
@@ -8067,7 +8062,7 @@ def main(page: ft.Page):
             field.on_focus = _show_keypad
 
         keypad = _numeric_keypad(keypad_fields, allow_decimal=True,
-                                 staged=True, on_confirm=_keypad_validated)
+                                 on_confirm=_keypad_validated)
         keypad_box.controls = [keypad]
 
         def _on_manual_change(e):
@@ -8511,7 +8506,7 @@ def main(page: ft.Page):
         for f in (width_field, height_field):
             f.on_focus = _show_keypad
 
-        keypad = _numeric_keypad([width_field, height_field], staged=True)
+        keypad = _numeric_keypad([width_field, height_field])
         keypad_box.controls = [keypad]
 
         def _on_manual_change(e):

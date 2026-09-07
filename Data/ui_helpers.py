@@ -20,10 +20,13 @@ TEXT_SIZE_DEFAULT = 13  # = CONSTANTS.TEXT_SM au moment de l'écriture
 
 
 def numeric_keypad(page, fields, colors, on_confirm=None,
-                    allow_decimal=False, staged=False):
+                    allow_decimal=False):
     """Pavé numérique tactile réutilisable, attaché à un ou plusieurs
     champs texte (retour user : le clavier virtuel de l'OS n'apparaît
-    pas toujours de façon fiable sur un poste tactile).
+    pas toujours de façon fiable sur un poste tactile). Écrit
+    directement dans le champ actif (celui qui a le focus) — pas de
+    champ d'affichage intermédiaire (retour user : contre-intuitif,
+    "je pensais que ce serait un overlay par-dessus l'interface").
 
     - page : l'objet ft.Page de l'app appelante (pour .update()).
     - fields : un ft.TextField, ou une liste de plusieurs — avec
@@ -34,30 +37,16 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
       CONSTANTS, on les reçoit ici plutôt que ce module les importe en
       dur (les valeurs diffèrent d'un thème d'app à l'autre).
     - on_confirm : callback optionnel, appelé en plus de la validation
-      elle-même (ex. fermer un dialogue).
+      elle-même (ex. fermer un dialogue). Le bouton ✓ (Valider) est
+      toujours affiché — utile pour déclencher on_blur (ex. Recadrage
+      manuel.pyw redessine le canevas) même sans on_confirm.
     - allow_decimal : ajoute une touche "." — utile pour des
       dimensions en mm/px qui acceptent les décimales, pas pour un
       compteur entier (ex. nombre d'impressions).
-    - staged : si True, les chiffres tapés s'accumulent dans un champ
-      d'affichage propre au pavé, PAS dans le champ visé — qui n'est
-      mis à jour qu'au clic sur ✓ (Valider), désormais toujours
-      présent dans ce mode. Sert quand le pavé peut apparaître/
-      disparaître selon le focus du champ (ex. overlay Montage) : taper
-      un chiffre déclenche le blur natif du champ, donc écrire
-      directement dedans dépend d'un focus qui vient de sauter (retour
-      user : "je clique sur un chiffre et il disparait sans que rien
-      ne se passe"). Par défaut (False) : comportement historique,
-      écriture directe dans le champ actif — inchangé pour les
-      dialogues où le pavé reste affiché en permanence (pas de
-      show/hide sur focus), qui n'ont jamais eu ce problème.
     """
     field_list = ([fields] if isinstance(fields, ft.TextField)
                   else list(fields))
     active = {"field": field_list[0]}
-    display = ft.TextField(
-        value=field_list[0].value or "", width=56 * 3 + 16,
-        text_align=ft.TextAlign.CENTER, bgcolor=colors["dark"],
-        border_color=colors["grey"], color=colors["white"]) if staged else None
     # Un champ pré-rempli (valeur par défaut, ex. "100") doit s'effacer
     # au premier chiffre tapé plutôt que de s'y voir accolé ("1001") —
     # retour user. On ne vide pas .value dès le départ pour autant : du
@@ -73,18 +62,6 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
         def _on_focus(event, _prev=previous, _f=target_field):
             active["field"] = _f
             fresh[id(_f)] = True
-            if staged:
-                display.value = _f.value or ""
-                # .update() sur `display` seul lève une RuntimeError
-                # ("Control must be added to the page first") tant que
-                # le pavé n'a jamais été affiché — ce qui arrive
-                # précisément au tout premier focus, avant même que
-                # _prev (ex. _show_keypad) ne le montre. Cette exception
-                # coupait la chaîne AVANT le _prev(event) ci-dessous : le
-                # pavé ne s'affichait jamais (retour user). page.update()
-                # est l'idiome utilisé partout ailleurs dans ce module,
-                # sans ce piège.
-                page.update()
             if _prev:
                 _prev(event)
         target_field.on_focus = _on_focus
@@ -94,7 +71,7 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
 
     def _append(text):
         def _on_click(event):
-            fld = display if staged else active["field"]
+            fld = active["field"]
             if fresh[id(active["field"])]:
                 current = ""
                 fresh[id(active["field"])] = False
@@ -107,27 +84,19 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
         return _on_click
 
     def _backspace(event):
-        fld = display if staged else active["field"]
+        fld = active["field"]
         fresh[id(active["field"])] = False
         fld.value = (fld.value or "")[:-1]
         page.update()
 
     def _validate(event):
         fld = active["field"]
-        fld.value = display.value
-        # page.update(), pas fld.update() : même piège que display plus
-        # haut — RuntimeError ("Control must be added to the page
-        # first") si `fld` n'est pas monté à cet instant précis côté
-        # client, ce qui coupait tout le reste de _validate AVANT
-        # d'atteindre on_confirm — le pavé restait affiché après avoir
-        # validé (retour user).
-        page.update()
-        # Le focus ne quitte jamais vraiment `fld` en mode staged (on
-        # tape dans `display`, pas dedans) — un on_blur posé par
-        # l'appelant pour réagir au changement (ex. Recadrage manuel.pyw,
-        # redessine le canevas) ne se déclencherait donc jamais tout
-        # seul : on l'appelle explicitement ici, la validation étant le
-        # même événement métier ("valeur changée, terminé").
+        # Le focus reste sur `fld` tant qu'on tape dans le pavé — un
+        # on_blur posé par l'appelant pour réagir au changement (ex.
+        # Recadrage manuel.pyw, redessine le canevas) ne se
+        # déclencherait donc jamais tout seul : on l'appelle
+        # explicitement ici, la validation étant le même événement
+        # métier ("valeur changée, terminé").
         if fld.on_blur:
             fld.on_blur(event)
         if on_confirm is not None:
@@ -150,13 +119,12 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
     if allow_decimal:
         last_row.append(_key_btn("."))
     last_row.append(_key_btn("0"))
-    if staged or on_confirm is not None:
-        last_row.append(ft.IconButton(
-            ft.Icons.CHECK_CIRCLE_OUTLINE, icon_color=colors["green"],
-            icon_size=24,
-            style=ft.ButtonStyle(bgcolor=colors["grey"],
-                                 padding=ft.Padding.all(16)),
-            on_click=_validate if staged else on_confirm))
+    last_row.append(ft.IconButton(
+        ft.Icons.CHECK_CIRCLE_OUTLINE, icon_color=colors["green"],
+        icon_size=24,
+        style=ft.ButtonStyle(bgcolor=colors["grey"],
+                             padding=ft.Padding.all(16)),
+        on_click=_validate))
 
     rows = [
         ft.Row([_key_btn("7"), _key_btn("8"), _key_btn("9")], spacing=8),
@@ -164,8 +132,6 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
         ft.Row([_key_btn("1"), _key_btn("2"), _key_btn("3")], spacing=8),
         ft.Row(last_row, spacing=8),
     ]
-    if staged:
-        rows.insert(0, ft.Row([display], alignment=ft.MainAxisAlignment.CENTER))
     return ft.Column(rows, spacing=8, tight=True)
 
 
