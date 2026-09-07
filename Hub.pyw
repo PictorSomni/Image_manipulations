@@ -3586,6 +3586,9 @@ def main(page: ft.Page):
                        "Retoucher / recadrer (Recadrage manuel.pyw)",
                        _launch_editor_for_current("Recadrage manuel.pyw")))
     viewer_bottom_bar.content.controls.insert(
+        -1, _viewer_btn(ft.Icons.TUNE, "Retouche par lot (aperçu live)",
+                       _launch_editor_for_current("Retouche par lot.pyw")))
+    viewer_bottom_bar.content.controls.insert(
         -1, _viewer_btn(ft.Icons.AUTO_AWESOME, "Augmentation IA",
                        _launch_editor_for_current("Augmentation IA.py")))
 
@@ -4157,7 +4160,7 @@ def main(page: ft.Page):
         "Retouche par lot (aperçu live)")
 
     augmentation_ia_btn = _toolbar_icon_btn(
-        ft.Icons.AUTO_FIX_HIGH_OUTLINED, VIOLET,
+        ft.Icons.AUTO_AWESOME, VIOLET,
         lambda e: _launch_tool("Augmentation IA.py"),
         "Augmentation IA")
     # Toujours actifs, avec ou sans sélection : sans fichier sélectionné,
@@ -4485,7 +4488,7 @@ def main(page: ft.Page):
          lambda e: _launch_two_in_one(e)),
         (ft.Icons.TUNE, VIOLET, "Retouche par lot (aperçu live)",
          lambda e: _launch_tool("Retouche par lot.pyw")),
-        (ft.Icons.AUTO_FIX_HIGH_OUTLINED, VIOLET, "Augmentation IA",
+        (ft.Icons.AUTO_AWESOME, VIOLET, "Augmentation IA",
          lambda e: _launch_tool("Augmentation IA.py")),
     ]
     launcher_row = ft.Row([
@@ -8721,7 +8724,7 @@ def main(page: ft.Page):
         ("Retouche", [
             ("Retouche par lot", ft.Icons.TUNE, VIOLET,
              lambda e: _launch_tool("Retouche par lot.pyw")),
-            ("Augmentation IA", ft.Icons.AUTO_FIX_HIGH_OUTLINED, VIOLET,
+            ("Augmentation IA", ft.Icons.AUTO_AWESOME, VIOLET,
              lambda e: _launch_tool("Augmentation IA.py")),
             ("Comparaison", ft.Icons.COMPARE_OUTLINED, VIOLET,
              _launch_comparaison),
