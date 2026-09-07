@@ -3014,6 +3014,17 @@ def main(page: ft.Page):
     #  soucis d'expand/Stack imbriqué rencontrés dans la surface Fichiers).
     # ═════════════════════════════════════════════════════════════════════
     viewer_state = {"paths": [], "index": 0, "win_start": 0}
+    # Dézoomer sous "ajustée à l'écran" (InteractiveViewer.min_scale) ne
+    # marche pas à la souris ici : la PageView qui permet de glisser
+    # d'une photo à l'autre intercepte le défilement de la molette avant
+    # qu'il n'atteigne l'InteractiveViewer imbriqué (comportement Flutter
+    # connu, pas de réglage exposé côté Flet pour l'en empêcher) — retour
+    # user, remonté après le fix InteractiveViewer.min_scale/
+    # trackpad_scroll_causes_scale, qui ne suffisait pas. Boutons +/-
+    # explicites en repli fiable : appliquent un zoom via la propriété
+    # `scale` de l'image elle-même, indépendante de l'InteractiveViewer.
+    viewer_zoom = {"level": 1.0}
+    _VIEWER_ZOOM_MIN, _VIEWER_ZOOM_MAX, _VIEWER_ZOOM_STEP = 0.2, 3.0, 0.2
     _prev_keyboard = {"fn": None}
     # path -> bytes tournés cette session : le chemin fichier ne change pas
     # après rotation, donc Flet pourrait réafficher l'ancienne image en cache
@@ -3276,6 +3287,33 @@ def main(page: ft.Page):
         for offset in (0, 1, -1, 2, -2):
             _load_image_for_index(center + offset)
 
+    def _current_viewer_img_ctrl():
+        idx = viewer_state["index"]
+        return (page_image_controls.get(idx) if _HAS_PAGE_VIEW
+               else viewer_img)
+
+    def _apply_viewer_zoom():
+        ctrl = _current_viewer_img_ctrl()
+        if ctrl is not None:
+            ctrl.scale = viewer_zoom["level"]
+            # page.update(), pas ctrl.update() : RuntimeError si `ctrl`
+            # n'est pas monté à cet instant précis (page hors fenêtre
+            # glissante côté PageView) — même piège déjà vu sur le pavé
+            # numérique (ui_helpers._validate).
+            page.update()
+
+    def _viewer_zoom_by(delta):
+        def _click(event=None):
+            viewer_zoom["level"] = round(max(
+                _VIEWER_ZOOM_MIN, min(_VIEWER_ZOOM_MAX,
+                                      viewer_zoom["level"] + delta)), 2)
+            _apply_viewer_zoom()
+        return _click
+
+    def _viewer_zoom_reset():
+        viewer_zoom["level"] = 1.0
+        _apply_viewer_zoom()
+
     def _update_viewer():
         idx = viewer_state["index"]
         if _HAS_PAGE_VIEW:
@@ -3283,6 +3321,10 @@ def main(page: ft.Page):
             _load_pages_around(idx)
         else:
             viewer_img.src = _resolve_viewer_src(viewer_state["paths"][idx])
+        # Après le chargement : un contrôle réutilisé (fenêtre glissante)
+        # peut garder un zoom d'une visite précédente, à remettre à 1.0
+        # en changeant de photo.
+        _viewer_zoom_reset()
         _update_overlay_bar()
 
     async def _viewer_animate_page(delta):
@@ -3300,6 +3342,7 @@ def main(page: ft.Page):
         viewer_state["index"] = (viewer_state["win_start"]
                                  + e.control.selected_index)
         _load_pages_around(viewer_state["index"])
+        _viewer_zoom_reset()
         _update_overlay_bar()
         _maybe_shift_viewer_window()
 
@@ -3434,6 +3477,16 @@ def main(page: ft.Page):
                        lambda e: _rotate_current("right")),
             _viewer_btn(ft.Icons.ARROW_FORWARD_IOS_ROUNDED, "Suivante (→)",
                        lambda e: _viewer_nav(1)),
+            ft.VerticalDivider(width=1, color=LIGHT_GREY),
+            # En repli fiable à la molette (cf. viewer_zoom plus haut) :
+            # sous "ajustée à l'écran", pour voir l'image entière ou
+            # estimer une taille d'impression (retour user).
+            _viewer_btn(ft.Icons.ZOOM_OUT, "Dézoomer",
+                       _viewer_zoom_by(-_VIEWER_ZOOM_STEP)),
+            _viewer_btn(ft.Icons.ZOOM_IN, "Zoomer",
+                       _viewer_zoom_by(_VIEWER_ZOOM_STEP)),
+            _viewer_btn(ft.Icons.ZOOM_OUT_MAP, "Ajuster à l'écran",
+                       lambda e: _viewer_zoom_reset()),
             viewer_order_slot,
         ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         bgcolor=_VIEWER_BAR_BG, padding=ft.Padding(8, 6, 8, 6), border_radius=16,
