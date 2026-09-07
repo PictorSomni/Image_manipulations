@@ -3454,6 +3454,11 @@ def main(page: ft.Page):
         return ft.InteractiveViewer(
             content=img_ctrl, min_scale=0.2, max_scale=6.0,
             pan_enabled=True, scale_enabled=True, constrained=True,
+            # Sans ça, le défilement d'un TRACKPAD (2 doigts) est traité
+            # comme un déplacement (pan), pas un zoom, par Flutter — la
+            # molette d'une souris physique zoome déjà par défaut, mais
+            # au trackpad, impossible de dézoomer (retour user).
+            trackpad_scroll_causes_scale=True,
             width=win_w, height=win_h, clip_behavior=ft.ClipBehavior.HARD_EDGE)
 
     # Fenêtre glissante de pages : construire un contrôle par photo du
