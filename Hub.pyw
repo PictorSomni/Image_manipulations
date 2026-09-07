@@ -3446,8 +3446,13 @@ def main(page: ft.Page):
         # l'image (déjà lettrboxée) au lieu du plein écran, et zoomer
         # agrandit l'image DANS ce rectangle fixe au lieu du canevas
         # lui-même (retour user, captures à l'appui).
+        # min_scale=1.0 empêchait de dézoomer sous la taille "ajustée à
+        # l'écran" — impossible de voir l'image entière (parties sous
+        # les barres d'interface) ni de la rapetisser pour estimer un
+        # format d'impression (retour user). 0.2 laisse réduire l'image
+        # jusqu'à 1/5 de sa taille ajustée.
         return ft.InteractiveViewer(
-            content=img_ctrl, min_scale=1.0, max_scale=6.0,
+            content=img_ctrl, min_scale=0.2, max_scale=6.0,
             pan_enabled=True, scale_enabled=True, constrained=True,
             width=win_w, height=win_h, clip_behavior=ft.ClipBehavior.HARD_EDGE)
 
