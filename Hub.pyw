@@ -3335,6 +3335,17 @@ def main(page: ft.Page):
                 animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
                 animation_duration=ft.Duration(milliseconds=300))
 
+    async def _shift_window_deferred():
+        # Décalé d'un tick (pas d'appel synchrone direct) : muter
+        # `images_page_view.controls`/`selected_index` DANS le callback
+        # on_change du PageView lui-même — donc pendant que son propre
+        # PageController est encore en train de conclure le changement
+        # de page côté client — peut lui faire lire un itemCount
+        # transitoire à 0 (RangeError "Valid value range is empty: 0",
+        # retour user : plantage de la visionneuse en plein écran).
+        await asyncio.sleep(0)
+        _maybe_shift_viewer_window()
+
     def _on_viewer_page_change(e):
         _close_drawers()
         viewer_state["index"] = (viewer_state["win_start"]
@@ -3342,7 +3353,7 @@ def main(page: ft.Page):
         _load_pages_around(viewer_state["index"])
         _viewer_zoom_reset()
         _update_overlay_bar()
-        _maybe_shift_viewer_window()
+        _run_task(_shift_window_deferred)
 
     def _viewer_nav(delta):
         new_idx = viewer_state["index"] + delta
