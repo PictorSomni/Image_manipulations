@@ -684,15 +684,47 @@ def main(page: ft.Page):
     # ── Panneaux repliables (un seul ouvert à la fois) ─────────────────
     sections = {}
 
+    def _apply_section_visual(name, is_open):
+        """État visuel d'une section : chevron (▸/▾), couleur de l'en-tête
+        (gris en veille, teinte de section à 15 % quand ouverte) et
+        couleur icône/titre. Un seul point de vérité, appelé au toggle."""
+        sec = sections[name]
+        col = sec["color"]
+        sec["body"].visible = is_open
+        sec["chevron"].icon = (ft.Icons.EXPAND_MORE if is_open
+                               else ft.Icons.CHEVRON_RIGHT)
+        accent = col if is_open else LIGHT_GREY
+        sec["chevron"].color = accent
+        sec["head_icon"].color = accent
+        sec["title"].color = accent
+        sec["header"].bgcolor = (ft.Colors.with_opacity(0.15, col)
+                                 if is_open else GREY)
+
     def _toggle_section(name):
         def handler(e):
             opening = not sections[name]["body"].visible
-            for other_name, sec in sections.items():
-                sec["body"].visible = (other_name == name and opening)
+            for other_name in sections:
+                _apply_section_visual(
+                    other_name, other_name == name and opening)
             page.update()
         return handler
 
+    def _recolor_sliders(control, color):
+        """Curseurs à la couleur de leur section (retour user). Parcours
+        récursif : _slider_row imbrique le Slider dans Column > Row >
+        GestureDetector, et les sections Grain/Copyright n'en ont aucun."""
+        child = getattr(control, "content", None)
+        if child is not None:
+            _recolor_sliders(child, color)
+        for sub in getattr(control, "controls", None) or []:
+            _recolor_sliders(sub, color)
+        if isinstance(control, ft.Slider):
+            control.active_color = color
+
     def _make_section(name, color, icon, param, body_controls):
+        for ctrl in body_controls:
+            _recolor_sliders(ctrl, color)
+
         switch = ft.Switch(value=param["enabled"], active_color=color)
 
         def _on_switch(e):
@@ -701,33 +733,42 @@ def main(page: ft.Page):
         switch.on_change = _on_switch
         reset_registry["switches"].append((switch, param))
 
+        chevron = ft.Icon(ft.Icons.CHEVRON_RIGHT, color=LIGHT_GREY,
+                          size=CONSTANTS.ICON_SM)
+        head_icon = ft.Icon(icon, color=LIGHT_GREY, size=CONSTANTS.ICON_SM)
+        title = ft.Text(name, color=LIGHT_GREY, weight=ft.FontWeight.W_600,
+                        size=CONSTANTS.TEXT_SM)
+
         header = ft.Container(
             content=ft.Row([
                 ft.Container(
-                    content=ft.Row([
-                        ft.Icon(icon, color=color, size=CONSTANTS.ICON_SM),
-                        ft.Text(name, color=color,
-                               weight=ft.FontWeight.W_600,
-                               size=CONSTANTS.TEXT_SM),
-                    ], spacing=CONSTANTS.SPACE_SM),
+                    content=ft.Row([chevron, head_icon, title],
+                                   spacing=CONSTANTS.SPACE_SM),
                     on_click=_toggle_section(name), expand=True,
                     padding=ft.Padding(CONSTANTS.SPACE_XS, CONSTANTS.SPACE_SM,
                                       CONSTANTS.SPACE_XS, CONSTANTS.SPACE_SM),
                 ),
                 switch,
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            bgcolor=DARK, border_radius=6,
+            bgcolor=GREY, border_radius=6,
             padding=ft.Padding(CONSTANTS.SPACE_SM, 0, CONSTANTS.SPACE_SM, 0),
-            border=ft.Border.all(1, color),
         )
         body = ft.Container(
             content=ft.Column(body_controls, spacing=CONSTANTS.SPACE_MD),
             visible=False,
             padding=ft.Padding(CONSTANTS.SPACE_LG, CONSTANTS.SPACE_MD,
                               CONSTANTS.SPACE_LG, CONSTANTS.SPACE_MD),
-            bgcolor=BG, border_radius=6, border=ft.Border.all(1, color))
-        sections[name] = {"body": body, "switch": switch}
-        return ft.Column([header, body], spacing=CONSTANTS.SPACE_XS)
+            bgcolor=BG, border_radius=6)
+        sections[name] = {"body": body, "switch": switch, "color": color,
+                          "chevron": chevron, "head_icon": head_icon,
+                          "title": title, "header": header}
+        # Filet d'accent vertical (couleur de section) le long de
+        # l'en-tête ET du corps : repère de famille en scannant le
+        # panneau (retour user).
+        return ft.Container(
+            content=ft.Column([header, body], spacing=CONSTANTS.SPACE_XS),
+            border=ft.Border(left=ft.BorderSide(3, color)),
+            padding=ft.Padding(CONSTANTS.SPACE_SM, 0, 0, 0))
 
     def _section_name(dct):
         """Nom de la section (« couleur », « virage »...) portant `dct`
