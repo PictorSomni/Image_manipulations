@@ -721,6 +721,9 @@ def main(page: ft.Page):
             _recolor_sliders(sub, color)
         if isinstance(control, ft.Slider):
             control.active_color = color
+        setter = getattr(control, "set_accent", None)
+        if callable(setter):
+            setter(color)
 
     def _make_section(name, color, icon, param, body_controls):
         # Zébrage : une ligne sur deux sur fond GREY (une nuance plus
@@ -850,9 +853,13 @@ def main(page: ft.Page):
                              expand=True, max_lines=1,
                              overflow=ft.TextOverflow.ELLIPSIS,
                              tooltip=label)
+        # Valeur affichée : grise au repos, dans la couleur de la section
+        # (renseignée par _recolor_sliders) et en gras dès qu'elle bouge
+        # — repère fort de « ce que j'ai touché » (retour user).
+        accent = {"c": WHITE}
         value_text = ft.Text(str(round(value)), size=CONSTANTS.TEXT_SM,
-                             weight=ft.FontWeight.W_600,
-                             color=(WHITE if round(value) != reset_value
+                             weight=ft.FontWeight.W_700,
+                             color=(accent["c"] if round(value) != reset_value
                                     else LIGHT_GREY))
         _touch = CONSTANTS.TOUCH_TARGET
         reset_btn = ft.IconButton(
@@ -870,7 +877,8 @@ def main(page: ft.Page):
 
         def _display(snapped):
             value_text.value = str(snapped)
-            value_text.color = WHITE if snapped != reset_value else LIGHT_GREY
+            value_text.color = (accent["c"] if snapped != reset_value
+                                else LIGHT_GREY)
             reset_btn.disabled = (snapped == reset_value)
             value_text.update()
             reset_btn.update()
@@ -937,6 +945,12 @@ def main(page: ft.Page):
                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ], spacing=0)
         column.data = _refresh
+
+        def _set_accent(c):
+            accent["c"] = c
+            if value_text.value != str(reset_value):
+                value_text.color = c
+        column.set_accent = _set_accent
         reset_registry["sliders"].append((column, label, dct, key))
         return column
 
