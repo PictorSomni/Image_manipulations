@@ -857,7 +857,7 @@ def main(page: ft.Page):
         # (renseignée par _recolor_sliders) et en gras dès qu'elle bouge
         # — repère fort de « ce que j'ai touché » (retour user).
         accent = {"c": WHITE}
-        value_text = ft.Text(str(round(value)), size=CONSTANTS.TEXT_SM,
+        value_text = ft.Text(str(round(value)), size=CONSTANTS.TEXT_SM + 4,
                              weight=ft.FontWeight.W_700,
                              color=(accent["c"] if round(value) != reset_value
                                     else LIGHT_GREY))
