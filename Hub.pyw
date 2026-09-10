@@ -8892,17 +8892,44 @@ def main(page: ft.Page):
         ]),
     ]
 
-    def _action_row(label, icon, color, handler, trailing=None):
+    def _action_row(label, icon, color, handler, trailing=None, bg=None):
         # Ligne de liste (ft.ListTile) plutôt qu'une carte en grille : plus
         # aucun calcul de colonnes/aspect ratio à faire tenir juste, fiable
         # quelle que soit la largeur — la grille précédente n'a jamais
         # correctement rendu ses hauteurs (retour user, plusieurs essais).
+        # `bg` : fond d'une ligne sur deux (zébrage, retour user) pour
+        # suivre l'icône jusqu'au libellé sans se tromper de ligne.
         return ft.ListTile(
             leading=ft.Icon(icon, color=color, size=CONSTANTS.ICON_LG),
             title=ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE),
-            trailing=trailing,
+            trailing=trailing, bgcolor=bg,
             on_click=handler, hover_color=GREY,
             content_padding=ft.Padding(left=8, top=4, right=8, bottom=4),
+        )
+
+    def _category_header(label, accent):
+        # En-tête de catégorie : titre en capitales dans la couleur
+        # d'accent, sur un fond très légèrement teinté de cette couleur,
+        # coins arrondis — le libellé se détache nettement du fond DARK
+        # de l'overlay et chaque catégorie se distingue de la suivante
+        # (retour user). Même traitement que les sections de Retouche
+        # par lot.
+        return ft.Container(
+            content=ft.Text(label.upper(), size=CONSTANTS.TEXT_SM,
+                            color=accent, weight=ft.FontWeight.W_700),
+            bgcolor=ft.Colors.with_opacity(0.15, accent),
+            border_radius=6,
+            padding=ft.Padding(10, 6, 10, 6),
+        )
+
+    def _category_block(header, body, accent):
+        # Filet vertical à gauche dans la couleur d'accent : relie
+        # visuellement l'en-tête et ses lignes, et sépare la catégorie
+        # de la précédente.
+        return ft.Container(
+            content=ft.Column([header, body], spacing=6),
+            border=ft.Border(left=ft.BorderSide(3, accent)),
+            padding=ft.Padding(left=8, top=0, right=0, bottom=0),
         )
 
     def _icon_row(tools):
@@ -8917,18 +8944,17 @@ def main(page: ft.Page):
         )
 
     def _action_category(label, tools):
-        # Libellé de catégorie en BLUE (pas GREY) : GREY sur le fond DARK
-        # de l'overlay est quasi illisible, deux gris trop proches en
-        # luminance — cf. retour user.
+        # Accent = couleur de la 1re action de la catégorie (BLEU par
+        # défaut). GREY sur le fond DARK de l'overlay est quasi illisible,
+        # deux gris trop proches en luminance — cf. retour user.
+        accent = tools[0][2] if tools and label != "Fichier" else BLUE
         if label == "Fichier":
-            body = [_icon_row(tools)]
+            body = _icon_row(tools)
         else:
-            body = [ft.Column([_action_row(*t) for t in tools], spacing=0)]
-        return ft.Column([
-            ft.Text(label.upper(), size=CONSTANTS.TEXT_SM, color=BLUE,
-                    weight=ft.FontWeight.W_700),
-            *body,
-        ], spacing=6)
+            body = ft.Column(
+                [_action_row(*t, bg=(GREY if i % 2 else None))
+                 for i, t in enumerate(tools)], spacing=0)
+        return _category_block(_category_header(label, accent), body, accent)
 
     # "Ouvrir avec" — ex-menu clic-droit (cf. _with_ctx_menu), déplacé ici
     # car le clic droit ouvre désormais ce panneau au lieu d'un menu dédié.
@@ -8946,6 +8972,7 @@ def main(page: ft.Page):
         page.update()
 
     def _rebuild_open_with_category():
+        progs = _load_open_with_programs()
         rows = [
             _action_row(
                 f"Ouvrir avec {p['label']}", ft.Icons.OPEN_IN_NEW, BLUE,
@@ -8955,15 +8982,17 @@ def main(page: ft.Page):
                     ft.Icons.CLOSE, icon_color=RED,
                     icon_size=CONSTANTS.ICON_SM,
                     tooltip=f"Supprimer {p['label']}",
-                    on_click=lambda e, p=p: _remove_open_with_program(p)))
-            for p in _load_open_with_programs()
+                    on_click=lambda e, p=p: _remove_open_with_program(p)),
+                bg=(GREY if i % 2 else None))
+            for i, p in enumerate(progs)
         ]
         rows.append(_action_row("Ajouter un programme...", ft.Icons.ADD,
-                                GREEN, lambda e: _add_open_with_program()))
+                                GREEN, lambda e: _add_open_with_program(),
+                                bg=(GREY if len(progs) % 2 else None)))
         _open_with_category_col.controls = [
-            ft.Text("OUVRIR AVEC", size=CONSTANTS.TEXT_SM, color=BLUE,
-                    weight=ft.FontWeight.W_700),
-            ft.Column(rows, spacing=0),
+            _category_block(
+                _category_header("Ouvrir avec", BLUE),
+                ft.Column(rows, spacing=0), BLUE),
         ]
 
     _rebuild_open_with_category()
