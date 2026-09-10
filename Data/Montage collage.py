@@ -18,10 +18,10 @@ massicot. Une photo peut être désignée comme centrale (COLLAGE_CENTER_FILE,
 agrandie, posée au milieu, jamais pivotée) et d'autres comme mises en
 avant (COLLAGE_FEATURED_FILES, agrandies).
 
-Produit un aperçu à taille réelle (``Montage/apercu.png``, fond transparent)
-et, si demandé, un fichier .psd avec chaque photo sur son propre calque déjà
-placé — reste à retoucher les bords (flou, ombre) et poser le fond dans
-Affinity.
+Produit soit un aperçu à taille réelle (``Montage/apercu.png``, fond
+transparent), soit — si COLLAGE_PSD=1 — uniquement un fichier .psd avec
+chaque photo sur son propre calque déjà placé — reste à retoucher les
+bords (flou, ombre) et poser le fond dans Affinity.
 
 Variables d'environnement :
   FOLDER_PATH              — dossier source (défaut : répertoire du script).
@@ -34,7 +34,8 @@ Variables d'environnement :
   COLLAGE_SAFE_MARGIN_CM   — marge de sécurité près des bords, en cm (défaut CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT).
   COLLAGE_CENTER_FILE      — nom d'une photo à poser au centre, agrandie (optionnel).
   COLLAGE_FEATURED_FILES   — noms de photos à mettre en avant, séparés par ``|`` (optionnel).
-  COLLAGE_PSD              — "1" pour écrire aussi un .psd calque par calque.
+  COLLAGE_PSD              — "1" : écrit le .psd calque par calque et
+                            SANS apercu.png. "0" : apercu.png seul.
   COLLAGE_SEED             — graine aléatoire (optionnel, pour reproduire un tirage).
 
 Dépendances : Pillow, numpy (déjà requis par image_ops).
@@ -544,14 +545,20 @@ def main():
         margin_px, seed, load_source,
         center_key=center_file, featured_keys=featured_files)
 
-    preview_path = out_dir / "apercu.png"
-    canvas.save(preview_path)
-    print(f"[ok] Aperçu → {preview_path.name} ({canvas_w}x{canvas_h}px)",
-          flush=True)
-
+    # Avec PSD : pas d'apercu.png. Les photos se revérifient de toute
+    # façon à la main dans Affinity ensuite, et encoder ce PNG plein
+    # format à la résolution d'impression coûte plusieurs secondes pour
+    # rien (retour user). L'aperçu live du dialogue de création reste
+    # (rendu côté Hub, pas ce script). Sans PSD, on écrit apercu.png
+    # sinon l'outil ne produirait rien.
     if write_psd:
         write_psd_file(out_dir / "Montage.psd", canvas, psd_layers,
                        canvas_w, canvas_h)
+    else:
+        preview_path = out_dir / "apercu.png"
+        canvas.save(preview_path)
+        print(f"[ok] Aperçu → {preview_path.name} ({canvas_w}x{canvas_h}px)",
+              flush=True)
 
     print("[ok] Terminé.", flush=True)
 
