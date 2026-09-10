@@ -829,9 +829,17 @@ def main(page: ft.Page):
         qui écrivent dans les paramètres sans passer par l'UI.
         """
         value = dct[key]
+        span = round(maxv - minv)
         if divisions is None:
-            divisions = round(maxv - minv)
-        step = max(1, round((maxv - minv) / max(1, divisions)))
+            # Un cran par unité tant que ça reste lisible ; au-delà, on
+            # élargit le pas (1, 2, 5, 10…) pour garder ≤ ~40 graduations
+            # visibles sur le rail (Flutter masque des traits trop serrés).
+            # Comme Recadrage manuel : le pas des boutons − / + suit.
+            step = next(s for s in (1, 2, 5, 10, 20, 50, 100)
+                        if span / s <= 40)
+            divisions = max(1, span // step)
+        else:
+            step = max(1, round(span / max(1, divisions)))
         reset_value = max(0, minv)
         # Libellé à gauche (tronqué si trop long), valeur à droite sur la
         # MÊME ligne (retour user : une ligne dédiée à "Label : valeur"
