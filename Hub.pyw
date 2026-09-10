@@ -8823,7 +8823,7 @@ def main(page: ft.Page):
              lambda e: _launch_tool("Renommer pages Affinity.py")),
             ("Séparer RAW et JPG", ft.Icons.HIDE_IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Séparer RAW et JPG.py")),
-            ("Rassembler les sous-dossiers",
+            ("Rassembler sous-dossiers vers TEMP",
              ft.Icons.DRIVE_FOLDER_UPLOAD_OUTLINED, BLUE, _gather_subfolders),
         ]),
         # Ces quatre-là sont des copies vers un dossier : BLEU comme les
