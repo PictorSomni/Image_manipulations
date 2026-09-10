@@ -723,8 +723,18 @@ def main(page: ft.Page):
             control.active_color = color
 
     def _make_section(name, color, icon, param, body_controls):
-        for ctrl in body_controls:
+        # Zébrage : une ligne sur deux sur fond GREY (une nuance plus
+        # sombre que le fond BG du corps) — juste des rails de lecture
+        # pour suivre un curseur des yeux jusqu'à sa valeur (retour user).
+        striped = []
+        for i, ctrl in enumerate(body_controls):
             _recolor_sliders(ctrl, color)
+            striped.append(ft.Container(
+                content=ctrl,
+                bgcolor=(GREY if i % 2 else None),
+                border_radius=4,
+                padding=ft.Padding(CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS,
+                                   CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS)))
 
         switch = ft.Switch(value=param["enabled"], active_color=color)
 
@@ -755,7 +765,7 @@ def main(page: ft.Page):
             padding=ft.Padding(CONSTANTS.SPACE_SM, 0, CONSTANTS.SPACE_SM, 0),
         )
         body = ft.Container(
-            content=ft.Column(body_controls, spacing=CONSTANTS.SPACE_MD),
+            content=ft.Column(striped, spacing=CONSTANTS.SPACE_XS),
             visible=False,
             padding=ft.Padding(CONSTANTS.SPACE_LG, CONSTANTS.SPACE_MD,
                               CONSTANTS.SPACE_LG, CONSTANTS.SPACE_MD),
@@ -823,8 +833,19 @@ def main(page: ft.Page):
             divisions = round(maxv - minv)
         step = max(1, round((maxv - minv) / max(1, divisions)))
         reset_value = max(0, minv)
-        text = ft.Text(f"{label} : {round(value)}", size=CONSTANTS.TEXT_SM,
-                       color=WHITE)
+        # Libellé à gauche (tronqué si trop long), valeur à droite sur la
+        # MÊME ligne (retour user : une ligne dédiée à "Label : valeur"
+        # gâchait de la hauteur sur 10 curseurs). La valeur passe en blanc
+        # dès qu'elle s'écarte du défaut — repère de "ce que j'ai touché"
+        # en balayant la colonne.
+        label_text = ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE,
+                             expand=True, max_lines=1,
+                             overflow=ft.TextOverflow.ELLIPSIS,
+                             tooltip=label)
+        value_text = ft.Text(str(round(value)), size=CONSTANTS.TEXT_SM,
+                             weight=ft.FontWeight.W_600,
+                             color=(WHITE if round(value) != reset_value
+                                    else LIGHT_GREY))
         _touch = CONSTANTS.TOUCH_TARGET
         reset_btn = ft.IconButton(
             ft.Icons.RESTART_ALT, icon_size=CONSTANTS.ICON_SM,
@@ -832,16 +853,18 @@ def main(page: ft.Page):
             disabled=round(value) == reset_value,
             width=_touch, height=_touch)
         minus_btn = ft.IconButton(
-            ft.Icons.REMOVE, icon_size=CONSTANTS.ICON_SM, icon_color=WHITE,
+            ft.Icons.REMOVE, icon_size=CONSTANTS.ICON_SM,
+            icon_color=LIGHT_GREY,
             tooltip=f"{label} − {step}", width=_touch, height=_touch)
         plus_btn = ft.IconButton(
-            ft.Icons.ADD, icon_size=CONSTANTS.ICON_SM, icon_color=WHITE,
+            ft.Icons.ADD, icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
             tooltip=f"{label} + {step}", width=_touch, height=_touch)
 
         def _display(snapped):
-            text.value = f"{label} : {snapped}"
+            value_text.value = str(snapped)
+            value_text.color = WHITE if snapped != reset_value else LIGHT_GREY
             reset_btn.disabled = (snapped == reset_value)
-            text.update()
+            value_text.update()
             reset_btn.update()
 
         def _write(new_value, *, move_slider=True):
@@ -901,7 +924,7 @@ def main(page: ft.Page):
             slider.update()
 
         column = ft.Column([
-            text,
+            ft.Row([label_text, value_text], spacing=CONSTANTS.SPACE_SM),
             ft.Row([reset_btn, minus_btn, slider_area, plus_btn], spacing=0,
                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ], spacing=0)
