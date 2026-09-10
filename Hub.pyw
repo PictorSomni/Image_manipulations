@@ -7821,6 +7821,64 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
+    def _gather_subfolders(event=None):
+        # Carte client pleine de sous-dossiers d'1 ou 2 photos : "Tout
+        # sélectionner" ignore les dossiers (voulu), donc pas moyen de
+        # travailler sur tout d'un coup sans passer par l'explorateur
+        # (retour user). Ici : copie toutes les images du dossier ET de
+        # ses sous-dossiers (récursif) dans un sous-dossier RASSEMBLÉ/,
+        # puis navigue dedans. Lecture seule sur les sources — sûr même
+        # lancé direct sur la carte ; à faire de préférence après "Copie
+        # vers TEMP" pour ne rien écrire sur la carte du tout.
+        folder = state["folder"]
+        if not folder:
+            return
+        _close_actions()
+        dest = os.path.join(folder, "RASSEMBLÉ")
+        exts = CONSTANTS.IMAGE_EXTS | CONSTANTS.HUB_VECTOR_EXTS
+
+        def _work():
+            os.makedirs(dest, exist_ok=True)
+            dest_norm = os.path.normpath(dest)
+            srcs = []
+            for root, dirs, files in os.walk(folder):
+                if os.path.normpath(root) == dest_norm:
+                    dirs[:] = []   # ne pas re-copier RASSEMBLÉ/ sur relance
+                    continue
+                for name in files:
+                    if CONSTANTS.is_os_junk(name):
+                        continue
+                    if os.path.splitext(name)[1].lower() in exts:
+                        srcs.append(os.path.join(root, name))
+            total = len(srcs)
+            if not total:
+                _log_to_terminal(
+                    "[INFO] Aucune image à rassembler", LIGHT_GREY)
+                return
+            copied = 0
+            for i, src in enumerate(srcs, 1):
+                _log_to_terminal(
+                    f"[...] Copie {i}/{total} : {os.path.basename(src)}",
+                    ORANGE)
+                target = _unique_dest(dest, os.path.basename(src))
+                try:
+                    shutil.copy2(src, target)
+                    copied += 1
+                except Exception as exc:
+                    _log_to_terminal(
+                        f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
+            _log_to_terminal(
+                f"[OK] {copied} image(s) rassemblée(s) dans RASSEMBLÉ/", BLUE)
+
+            async def _go():
+                try:
+                    _navigate(dest)
+                except Exception:
+                    pass
+            _run_task(_go)
+
+        _run_bg_action("Rassemblement des sous-dossiers", _work)
+
     def _launch_text_prompt(title, label, hint, script_name, env_key):
         def _on_confirm(value):
             _launch_tool(script_name, extra_env={env_key: value})
@@ -8754,6 +8812,8 @@ def main(page: ft.Page):
              lambda e: _launch_tool("Renommer pages Affinity.py")),
             ("Séparer RAW et JPG", ft.Icons.HIDE_IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Séparer RAW et JPG.py")),
+            ("Rassembler les sous-dossiers",
+             ft.Icons.DRIVE_FOLDER_UPLOAD_OUTLINED, BLUE, _gather_subfolders),
         ]),
         # Ces quatre-là sont des copies vers un dossier : BLEU comme les
         # autres copies. Le JAUNE qu'elles portaient sert partout ailleurs
