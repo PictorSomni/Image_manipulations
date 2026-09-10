@@ -7821,30 +7821,39 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
+    def _next_temp_folder():
+        # Même schéma que Transfert vers TEMP.py:get_next_sequence_folder —
+        # TEMP/AAAA-MM-JJ/NN/ (NN = 1re séquence libre du jour). Dupliqué
+        # ici (8 lignes triviales) plutôt qu'importer ce .pyw (nom à
+        # espaces + fenêtre Flet montée à l'import).
+        day = datetime.datetime.now().strftime("%Y-%m-%d")
+        date_dir = os.path.join(CONSTANTS.TEMP_FOLDER, day)
+        n = 1
+        while True:
+            seq = os.path.join(date_dir, f"{n:02d}")
+            if not os.path.exists(seq):
+                os.makedirs(seq)
+                return seq
+            n += 1
+
     def _gather_subfolders(event=None):
         # Carte client pleine de sous-dossiers d'1 ou 2 photos : "Tout
         # sélectionner" ignore les dossiers (voulu), donc pas moyen de
         # travailler sur tout d'un coup sans passer par l'explorateur
         # (retour user). Ici : copie toutes les images du dossier ET de
-        # ses sous-dossiers (récursif) dans un sous-dossier RASSEMBLÉ/,
-        # puis navigue dedans. Lecture seule sur les sources — sûr même
-        # lancé direct sur la carte ; à faire de préférence après "Copie
-        # vers TEMP" pour ne rien écrire sur la carte du tout.
+        # ses sous-dossiers (récursif) à plat dans un nouveau dossier
+        # TEMP/AAAA-MM-JJ/NN/ (même destination que Transfert vers TEMP,
+        # retour user), puis navigue dedans. Lecture seule sur les
+        # sources — rien n'est écrit sur la carte.
         folder = state["folder"]
         if not folder:
             return
         _close_actions()
-        dest = os.path.join(folder, "RASSEMBLÉ")
         exts = CONSTANTS.IMAGE_EXTS | CONSTANTS.HUB_VECTOR_EXTS
 
         def _work():
-            os.makedirs(dest, exist_ok=True)
-            dest_norm = os.path.normpath(dest)
             srcs = []
-            for root, dirs, files in os.walk(folder):
-                if os.path.normpath(root) == dest_norm:
-                    dirs[:] = []   # ne pas re-copier RASSEMBLÉ/ sur relance
-                    continue
+            for root, _dirs, files in os.walk(folder):
                 for name in files:
                     if CONSTANTS.is_os_junk(name):
                         continue
@@ -7855,6 +7864,7 @@ def main(page: ft.Page):
                 _log_to_terminal(
                     "[INFO] Aucune image à rassembler", LIGHT_GREY)
                 return
+            dest = _next_temp_folder()
             copied = 0
             for i, src in enumerate(srcs, 1):
                 _log_to_terminal(
@@ -7868,7 +7878,8 @@ def main(page: ft.Page):
                     _log_to_terminal(
                         f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
             _log_to_terminal(
-                f"[OK] {copied} image(s) rassemblée(s) dans RASSEMBLÉ/", BLUE)
+                f"[OK] {copied} image(s) copiée(s) dans "
+                f"{os.path.relpath(dest, CONSTANTS.TEMP_FOLDER)}", BLUE)
 
             async def _go():
                 try:
