@@ -8585,6 +8585,14 @@ def main(page: ft.Page):
         fit_switch = ft.Switch(label="Fit 100% (sans rognage)",
                                value=bool(saved.get("fit", False)),
                                active_color=BLUE)
+        # Image entière redimensionnée pour tenir dans le format, bords
+        # blancs sur les 2 côtés les plus courts — même principe que le
+        # Fit-in de Recadrage manuel.pyw (retour user), mais en lot.
+        # Mutuellement exclusif avec Fit 100% (tuilage à taille native) :
+        # ce sont deux façons différentes de ne pas rogner l'image.
+        fitin_switch = ft.Switch(label="Fit-in (image entière, redimensionnée)",
+                                 value=bool(saved.get("fitin", False)),
+                                 active_color=BLUE)
         center_switch = ft.Switch(label="Centrer",
                                   value=bool(saved.get("center", False)),
                                   active_color=BLUE,
@@ -8630,10 +8638,19 @@ def main(page: ft.Page):
         manual_switch.on_change = _on_manual_change
 
         def _on_fit_change(e):
+            if fit_switch.value:
+                fitin_switch.value = False
+            center_switch.disabled = not fit_switch.value
+            page.update()
+
+        def _on_fitin_change(e):
+            if fitin_switch.value:
+                fit_switch.value = False
             center_switch.disabled = not fit_switch.value
             page.update()
 
         fit_switch.on_change = _on_fit_change
+        fitin_switch.on_change = _on_fitin_change
 
         def _cancel(e):
             dlg.open = False
@@ -8654,6 +8671,7 @@ def main(page: ft.Page):
                 "format": fmt_dd.value, "manual": manual["value"],
                 "manual_w": width_field.value, "manual_h": height_field.value,
                 "fit": fit_switch.value,
+                "fitin": fitin_switch.value,
                 "center": center_switch.value,
                 "white_border": white_border_switch.value,
             })
@@ -8663,6 +8681,7 @@ def main(page: ft.Page):
                 "FORCE_CROP_SIZE": f"{w}x{h}",
                 "FORCE_CROP_SCOPE": "selected" if selected else "folder",
                 "FORCE_CROP_FIT": "1" if fit_switch.value else "0",
+                "FORCE_CROP_FITIN": "1" if fitin_switch.value else "0",
                 "FORCE_CROP_CENTER": "1" if center_switch.value else "0",
                 "FORCE_CROP_WHITE_BORDER":
                     "1" if white_border_switch.value else "0",
@@ -8681,6 +8700,7 @@ def main(page: ft.Page):
                     border=ft.Border.all(1, GREY), border_radius=8,
                     padding=10),
                 ft.Row([fit_switch, center_switch], spacing=8),
+                fitin_switch,
                 white_border_switch, scope_text,
             ], spacing=12, tight=True, width=380),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
