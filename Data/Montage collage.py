@@ -9,19 +9,18 @@ proportionnel au poids (COLLAGE_SIZE_VARIATION) de chacune — garantit par
 construction que les tuiles couvrent TOUT le canevas, sans trou ni
 recouvrement entre elles (le seul chevauchement volontaire vient de la
 photo centrale, cf. plus bas). Une légère rotation
-(COLLAGE_ROTATION_VARIATION) peut ensuite être appliquée à chaque tuile,
-rétrécie d'autant qu'il faut pour que sa boîte pivotée tienne quand même
-dans sa case d'origine — elle ne déborde donc jamais sur une voisine. Une
-marge de sécurité (COLLAGE_SAFE_MARGIN_CM) tient la mosaïque éloignée du
-bord réel du canevas, pour limiter le risque de détail important coupé au
-massicot. Une photo peut être désignée comme centrale (COLLAGE_CENTER_FILE,
+(COLLAGE_ROTATION_VARIATION) peut ensuite être appliquée à chaque tuile, à
+taille pleine (pas rétrécie) : elle déborde donc légèrement sur ses
+voisines à ses coins, comme un vrai tas de photos posées. Une marge de
+sécurité (COLLAGE_SAFE_MARGIN_CM) tient la mosaïque éloignée du bord réel
+du canevas, pour limiter le risque de détail important coupé au massicot.
+Une photo peut être désignée comme centrale (COLLAGE_CENTER_FILE,
 agrandie, posée au milieu, jamais pivotée) et d'autres comme mises en
 avant (COLLAGE_FEATURED_FILES, agrandies).
 
 Produit un aperçu à taille réelle (``Montage/apercu.png``, fond transparent)
-et, si demandé, un fichier .psd avec chaque photo sur son propre calque déjà
-placé — reste à retoucher les bords (flou, ombre) et poser le fond dans
-Affinity.
+et un fichier .psd avec chaque photo sur son propre calque déjà placé —
+reste à retoucher les bords (flou, ombre) et poser le fond dans Affinity.
 
 Variables d'environnement :
   FOLDER_PATH              — dossier source (défaut : répertoire du script).
@@ -34,11 +33,10 @@ Variables d'environnement :
   COLLAGE_SAFE_MARGIN_CM   — marge de sécurité près des bords, en cm (défaut CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT).
   COLLAGE_CENTER_FILE      — nom d'une photo à poser au centre, agrandie (optionnel).
   COLLAGE_FEATURED_FILES   — noms de photos à mettre en avant, séparés par ``|`` (optionnel).
-  COLLAGE_PSD              — "1" pour écrire aussi un .psd calque par calque.
   COLLAGE_SEED             — graine aléatoire (optionnel, pour reproduire un tirage).
 
-Dépendances : Pillow, numpy (déjà requis par image_ops).
-  Optionnel (COLLAGE_PSD=1 uniquement) : pytoshop, six.
+Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
+  (pour le .psd — sans pytoshop, seul l'aperçu PNG est produit).
 """
 
 __version__ = "3.0.0"
@@ -458,7 +456,6 @@ def main():
         "COLLAGE_ROTATION_VARIATION", CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT)))
     safe_margin_cm = env_float(
         "COLLAGE_SAFE_MARGIN_CM", CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT)
-    write_psd = os.environ.get("COLLAGE_PSD", "0") == "1"
     seed = os.environ.get("COLLAGE_SEED") or None
 
     center_file = os.environ.get("COLLAGE_CENTER_FILE", "").strip() or None
@@ -493,9 +490,8 @@ def main():
     print(f"[ok] Aperçu → {preview_path.name} ({canvas_w}x{canvas_h}px)",
           flush=True)
 
-    if write_psd:
-        write_psd_file(out_dir / "Montage.psd", canvas, psd_layers,
-                       canvas_w, canvas_h)
+    write_psd_file(out_dir / "Montage.psd", canvas, psd_layers,
+                   canvas_w, canvas_h)
 
     print("[ok] Terminé.", flush=True)
 

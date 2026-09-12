@@ -7822,17 +7822,47 @@ def main(page: ft.Page):
             label="Format d'impression", value=default_fmt,
             options=[ft.dropdown.Option(name) for name in CONSTANTS.FORMATS],
             width=280, bgcolor=DARK, border_color=BLUE, color=WHITE)
+        # Unité de la saisie manuelle (mm/px, comme Recadrage manuel.pyw) —
+        # converti en cm pour le calcul interne dans _read_canvas_params.
+        unit = {"value": "mm"}
         width_field = ft.TextField(
-            label="Largeur", value=f"{default_w_mm / 10:g}",
-            suffix=ft.Text("cm", color=GREY), width=132,
+            label="Largeur (mm)", value=f"{default_w_mm:g}", width=132,
             bgcolor=DARK, border_color=LIGHT_GREY, color=GREY,
             disabled=True, keyboard_type=ft.KeyboardType.NUMBER)
         height_field = ft.TextField(
-            label="Hauteur", value=f"{default_h_mm / 10:g}",
-            suffix=ft.Text("cm", color=GREY), width=132,
+            label="Hauteur (mm)", value=f"{default_h_mm:g}", width=132,
             bgcolor=DARK, border_color=LIGHT_GREY, color=GREY,
             disabled=True, keyboard_type=ft.KeyboardType.NUMBER)
-        manual_switch = ft.Switch(label="Saisie manuelle (cm)",
+
+        def _on_unit_change(e):
+            new_unit = e.control.value
+            try:
+                w = float((width_field.value or "").strip().replace(",", "."))
+                h = float((height_field.value or "").strip().replace(",", "."))
+                dpi_val = float((dpi_field.value or "").strip().replace(",", "."))
+                if unit["value"] == "mm" and new_unit == "px":
+                    w = round(w / 25.4 * dpi_val)
+                    h = round(h / 25.4 * dpi_val)
+                elif unit["value"] == "px" and new_unit == "mm":
+                    w = round(w / dpi_val * 25.4, 1)
+                    h = round(h / dpi_val * 25.4, 1)
+                width_field.value = str(w)
+                height_field.value = str(h)
+            except ValueError:
+                pass
+            unit["value"] = new_unit
+            width_field.label = f"Largeur ({new_unit})"
+            height_field.label = f"Hauteur ({new_unit})"
+            page.update()
+
+        unit_dropdown = ft.Dropdown(
+            value="mm",
+            options=[ft.dropdown.Option("mm"), ft.dropdown.Option("px")],
+            width=90, text_size=12, bgcolor=DARK, border_color=BLUE,
+            focused_border_color=BLUE, on_select=_on_unit_change,
+            content_padding=ft.Padding.symmetric(horizontal=8, vertical=0),
+            disabled=True)
+        manual_switch = ft.Switch(label="Saisie manuelle",
                                   value=False, active_color=BLUE)
         # Tous les formats de CONSTANTS.FORMATS sont catalogués en portrait
         # (largeur < hauteur) — sans ce réglage, impossible d'obtenir un
@@ -7896,11 +7926,6 @@ def main(page: ft.Page):
             min=0, max=100, divisions=20,
             value=CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT,
             label="{value}%", active_color=VIOLET, width=280)
-        psd_checkbox = ft.Checkbox(
-            label=".psd",
-            tooltip="Générer aussi un .psd (calque par calque)",
-            value=False, active_color=VIOLET, check_color=DARK)
-
         # Pavé numérique tactile : agit sur les champs manuels (largeur/
         # hauteur, actifs seulement en saisie manuelle) ainsi que
         # résolution/marge, toujours éditables. Les curseurs taille/
@@ -7913,6 +7938,7 @@ def main(page: ft.Page):
             format_dd.disabled = manual["value"]
             width_field.disabled = not manual["value"]
             height_field.disabled = not manual["value"]
+            unit_dropdown.disabled = not manual["value"]
             width_field.color = WHITE if manual["value"] else GREY
             height_field.color = WHITE if manual["value"] else GREY
             format_dd.border_color = LIGHT_GREY if manual["value"] else BLUE
@@ -7997,20 +8023,24 @@ def main(page: ft.Page):
                                           color=VIOLET, width=280)
 
         def _read_canvas_params():
-            if manual["value"]:
-                try:
-                    width_cm = float((width_field.value or "").strip().replace(",", "."))
-                    height_cm = float((height_field.value or "").strip().replace(",", "."))
-                except ValueError:
-                    return None
-            else:
-                width_mm, height_mm = CONSTANTS.FORMATS[format_dd.value]
-                width_cm, height_cm = width_mm / 10, height_mm / 10
             try:
                 dpi = float((dpi_field.value or "").strip().replace(",", "."))
                 margin_cm = float((margin_field.value or "").strip().replace(",", "."))
             except ValueError:
                 return None
+            if manual["value"]:
+                try:
+                    w = float((width_field.value or "").strip().replace(",", "."))
+                    h = float((height_field.value or "").strip().replace(",", "."))
+                except ValueError:
+                    return None
+                if unit["value"] == "px":
+                    width_cm, height_cm = w / dpi * 2.54, h / dpi * 2.54
+                else:  # mm
+                    width_cm, height_cm = w / 10, h / 10
+            else:
+                width_mm, height_mm = CONSTANTS.FORMATS[format_dd.value]
+                width_cm, height_cm = width_mm / 10, height_mm / 10
             # Force l'orientation choisie quelle que soit la source
             # (format prédéfini ou saisie manuelle) : n'inverse que si
             # nécessaire, donc sans effet sur un format déjà carré ou déjà
@@ -8109,7 +8139,6 @@ def main(page: ft.Page):
                 "COLLAGE_SAFE_MARGIN_CM": str(margin_cm),
                 "COLLAGE_SIZE_VARIATION": str(size_slider.value),
                 "COLLAGE_ROTATION_VARIATION": str(rotation_slider.value),
-                "COLLAGE_PSD": "1" if psd_checkbox.value else "0",
                 # Même tirage que l'aperçu affiché en dernier (si généré) :
                 # le rendu final placé reproduit exactement ce qui a été
                 # validé à l'écran plutôt qu'un nouveau tirage aléatoire.
@@ -8137,6 +8166,10 @@ def main(page: ft.Page):
                         content=ft.Column([
                             manual_switch,
                             ft.Row([width_field, height_field], spacing=8,
+                                  alignment=ft.MainAxisAlignment.CENTER),
+                            ft.Row([ft.Text("Unité :", size=CONSTANTS.TEXT_SM,
+                                           color=LIGHT_GREY), unit_dropdown],
+                                  spacing=8,
                                   alignment=ft.MainAxisAlignment.CENTER),
                         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                         border=ft.Border.all(1, GREY), border_radius=8,
@@ -8167,17 +8200,9 @@ def main(page: ft.Page):
                 ], spacing=8, tight=True, scroll=ft.ScrollMode.AUTO,
                    horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             ),
-            # SPACE_BETWEEN sur 3 actions plaçait Annuler au milieu (un
-            # item par extrémité + un au centre) plutôt qu'à côté de
-            # Lancer (retour user) — regrouper Annuler+Lancer dans un Row
-            # comme UN SEUL item d'action ramène SPACE_BETWEEN à son
-            # comportement voulu : PSD tout à gauche, les deux boutons
-            # ensemble tout à droite.
-            actions=[psd_checkbox,
-                     ft.Row([ft.TextButton("Annuler", on_click=_cancel),
-                            ft.TextButton("Lancer", on_click=_confirm)],
-                           spacing=4, tight=True)],
-            actions_alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            actions=[ft.TextButton("Annuler", on_click=_cancel),
+                     ft.TextButton("Lancer", on_click=_confirm)],
+            actions_alignment=ft.MainAxisAlignment.END,
         )
         async def _show():
             page.overlay.append(dlg)
