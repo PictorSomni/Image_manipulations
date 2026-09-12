@@ -566,6 +566,12 @@ AI_DELETE_CONFIRM    = True                  # True = confirmation avant chaque 
 # AI_BACKUP_DIRNAME. Général : s'applique à toute demande, pas à un service précis.
 AI_BACKUP_ENABLED  = True
 AI_BACKUP_DIRNAME  = ".ai_backups"           # Dossier de sauvegarde (créé sous Data/)
+# Filet anti-perte, pas un historique permanent : au-delà de ce nombre de
+# sauvegardes (fichiers/dossiers copiés, ou mutations MCP), les plus
+# anciennes sont supprimées après chaque nouvelle sauvegarde (retour user :
+# le dossier a atteint 30 Go avant d'être vidé à la main — un dossier
+# photos entier peut être copié à chaque opération destructrice).
+AI_BACKUP_MAX_ENTRIES = 5
 AI_MCP_DESTRUCTIVE_KEYWORDS = (              # Un outil MCP dont le nom contient l'un de ces mots est sauvegardé avant exécution
     "delete", "remove", "archive", "trash", "clear", "update", "patch",
     "replace", "overwrite", "move", "drop", "set-", "destroy", "purge",

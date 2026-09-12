@@ -365,6 +365,23 @@ def _backup_dir():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), dirname)
 
 
+def _prune_backup_dir(base_dir, max_entries):
+    """Garde seulement les `max_entries` sauvegardes JSON les plus
+    récentes dans `base_dir` — filet anti-perte, pas un historique
+    permanent (même motif que ai_tools._prune_backup_dir pour les
+    sauvegardes de fichiers, retour user). Ne lève jamais."""
+    try:
+        entries = list(os.scandir(base_dir))
+        entries.sort(key=lambda e: e.stat().st_mtime, reverse=True)
+        for stale in entries[max_entries:]:
+            try:
+                os.remove(stale.path)
+            except OSError:
+                pass
+    except Exception as exc:
+        _logger.warning("purge des anciennes sauvegardes MCP échouée : %r", exc)
+
+
 def _backup_mcp_mutation(qualified_name, arguments):
     """Instantané d'une mutation MCP avant exécution (filet anti-perte).
 
@@ -395,6 +412,7 @@ def _backup_mcp_mutation(qualified_name, arguments):
                  "arguments": arguments},
                 _f, ensure_ascii=False, indent=2, default=str,
             )
+        _prune_backup_dir(_dir, getattr(CONSTANTS, "AI_BACKUP_MAX_ENTRIES", 5))
     except Exception as exc:
         _logger.warning(
             "backup MCP avant mutation échoué pour %r : %r",

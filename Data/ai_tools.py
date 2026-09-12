@@ -1768,6 +1768,29 @@ def _folder_list_contents(folder_path):
         return f"Erreur lors de la lecture du dossier : {exc}"
 
 
+def _prune_backup_dir(base_dir, max_entries):
+    """Garde seulement les `max_entries` sauvegardes les plus récentes dans
+    `base_dir` (fichiers ou dossiers copiés par _backup_file), supprime le
+    reste — la sauvegarde avant modification est un filet anti-perte, pas
+    un historique permanent (retour user : le dossier a atteint 30 Go
+    avant d'être vidé à la main). `index.jsonl` (le journal, pas une
+    sauvegarde) n'est jamais compté ni supprimé. Ne lève jamais."""
+    try:
+        import shutil as _sh_prune
+        entries = [e for e in _os.scandir(base_dir) if e.name != "index.jsonl"]
+        entries.sort(key=lambda e: e.stat().st_mtime, reverse=True)
+        for stale in entries[max_entries:]:
+            if stale.is_dir():
+                _sh_prune.rmtree(stale.path, ignore_errors=True)
+            else:
+                try:
+                    _os.remove(stale.path)
+                except OSError:
+                    pass
+    except Exception as exc:
+        _logger.warning("purge des anciennes sauvegardes échouée : %r", exc)
+
+
 def _backup_file(path):
     """
     Copie un fichier/dossier existant dans le dossier de sauvegarde AVANT qu'il
@@ -1808,6 +1831,8 @@ def _backup_file(path):
                     ensure_ascii=False) + "\n")
         except Exception:
             pass
+        _prune_backup_dir(_base_dir, getattr(
+            CONSTANTS, "AI_BACKUP_MAX_ENTRIES", 5))
         return _dest
     except Exception as exc:
         _logger.warning("backup fichier échoué pour %r : %r", path, exc)
