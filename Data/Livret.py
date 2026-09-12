@@ -25,7 +25,8 @@ Variables d'environnement :
   SELECTED_FILES  — liste de noms séparés par ``|``, DANS L'ORDRE DE
                     LECTURE du livret (ordre de sélection dans Hub).
                     Sans elle : tri alphabétique de tout le dossier.
-  LIVRET_NAME     — nom du fichier PDF sans extension (optionnel).
+  LIVRET_NAME     — nom du fichier PDF sans extension (optionnel,
+                    défaut : "Livret.pdf").
 
 Dépendances : Pillow (PIL)
 """
@@ -66,7 +67,7 @@ else:
                   and f.name.lower() != "watermark.png"]
 TOTAL = len(IMAGE_FILES)
 
-LIVRET_NAME = os.environ.get("LIVRET_NAME", "").strip() or PATH.name
+LIVRET_NAME = os.environ.get("LIVRET_NAME", "").strip()
 
 
 #############################################################
@@ -166,7 +167,8 @@ for s in range(sheets):
 # Une seule résolution pour tout le PDF (limitation Pillow, cf.
 # Hub.pyw:_images_to_pdf) : CONSTANTS.DPI, celle à laquelle les pages
 # sources sont normalement déjà imprimées dans cette appli.
-pdf_path = PATH / f"{LIVRET_NAME} - Livret.pdf"
+pdf_path = (PATH / f"{LIVRET_NAME} - Livret.pdf" if LIVRET_NAME
+           else PATH / "Livret.pdf")
 output_pages[0].save(str(pdf_path), "PDF", resolution=float(CONSTANTS.DPI),
                      save_all=True, append_images=output_pages[1:])
 

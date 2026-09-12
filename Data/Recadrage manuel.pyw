@@ -473,10 +473,10 @@ class PhotoCropper:
 
 
         # Rotation. self.rotation = angle total appliqué au rendu/export
-        # = rotation_coarse (pas de 45°, boutons dédiés) + la valeur du
+        # = rotation_coarse (pas de 90°, boutons dédiés) + la valeur du
         # slider (fine, −15°…+15°). Séparés pour que le slider reste
         # toujours dans sa plage propre et ne "saute" jamais à sa borne
-        # au premier contact après un clic sur un bouton 45° (retour
+        # au premier contact après un clic sur un bouton 90° (retour
         # user : sinon le slider, qui accumule des deltas depuis sa
         # valeur courante, se retrouvait à re-clamper depuis un
         # self.rotation hors de sa plage et retombait instantanément à
@@ -2481,12 +2481,40 @@ class PhotoCropper:
     # ================================================================ #
     #              RÉINITIALISATIONS & SLIDERS                        #
     # ================================================================ #
-    def rotate_45(self, e, delta):
+    def _recompute_cover_for_coarse(self):
+        """Recalcule base_scale / display_w / display_h pour que l'image
+        couvre le canevas à zoom 1.00× EN TENANT COMPTE d'un quart de
+        tour (rotation_coarse ±90°) : dans son repère natif, l'image
+        "voit" alors un canevas dont largeur et hauteur sont permutées.
+
+        Sans ça, après un bouton 90° + changement d'orientation, la
+        géométrie restait calée sur les dimensions non tournées et
+        l'image restait baladable à 1.00× (retour user). load_image
+        remet toujours rotation_coarse à 0 : appelée seulement par les
+        boutons 90° et reset_rotation.
         """
-        Tourne l'image de 45° dans un sens ou l'autre (boutons rapides
+        if not getattr(self, "original_width", None):
+            return
+        quarter = round(self.rotation_coarse / 90.0) % 2 == 1
+        seen_w = self.canvas_h if quarter else self.canvas_w
+        seen_h = self.canvas_w if quarter else self.canvas_h
+        sfw = seen_w / self.original_width
+        sfh = seen_h / self.original_height
+        self.base_scale = (min(sfw, sfh) if self.is_fit_in
+                           else max(sfw, sfh))
+        self.display_w = int(round(self.original_width * self.base_scale))
+        self.display_h = int(round(self.original_height * self.base_scale))
+        if not self.is_fit_in:
+            self.display_w = max(self.display_w, math.ceil(seen_w) + 4)
+            self.display_h = max(self.display_h, math.ceil(seen_h) + 4)
+        self.image_display.width = self.display_w
+        self.image_display.height = self.display_h
+
+    def rotate_90(self, e, delta):
+        """
+        Tourne l'image de 90° dans un sens ou l'autre (boutons rapides
         au-dessus du bouton « Orientation »), en plus de la rotation
-        fine du slider (−15° … +15°) — retour user : évite d'avoir à
-        cumuler les petits pas du slider pour un cadrage en diagonale.
+        fine du slider (−15° … +15°).
 
         N'agit que sur `rotation_coarse` : le slider (et sa valeur
         interne bornée à ±15°) n'est jamais touché ici, pour qu'un
@@ -2499,8 +2527,8 @@ class PhotoCropper:
         e : ft.ControlEvent
             Événement du bouton (non utilisé directement).
         delta : float
-            Angle ajouté à la rotation courante, en degrés (+45 ou
-            -45 selon le bouton).
+            Angle ajouté à la rotation courante, en degrés (+90 ou
+            -90 selon le bouton).
         """
 
         self.rotation_coarse = (
@@ -2510,6 +2538,7 @@ class PhotoCropper:
         self.rotation_slider.update()
         if not self.image_paths or not hasattr(self, 'original_width'):
             return
+        self._recompute_cover_for_coarse()
         self._clamp_offsets()
         self._update_transform()
         self._set_status(f"Rotation : {self.rotation:.0f}°")
@@ -2536,6 +2565,7 @@ class PhotoCropper:
         self.rotation_slider.update()
         if not self.image_paths or not hasattr(self, 'original_width'):
             return
+        self._recompute_cover_for_coarse()   # revient à la géométrie non tournée
         self._clamp_offsets()
         self._update_transform()
         self._set_status("Rotation réinitialisée à 0°")
@@ -4813,14 +4843,26 @@ def main(page: ft.Page):
     # Pavé numérique tactile (retour user : le clavier virtuel Windows
     # n'apparaît pas toujours sur le poste tactile) — décimales
     # autorisées, ces champs acceptent des valeurs comme "101.6" en mm.
-    # Visible seulement quand la saisie manuelle est active (les champs
-    # sont désactivés sinon), cf. _apply_custom_mode.
+    # Éditable seulement quand la saisie manuelle est active (les champs
+    # sont désactivés sinon), cf. _apply_custom_mode — et, dans ce mode,
+    # masqué tant qu'aucun des deux champs n'a le focus, même motif que
+    # les dialogues du Hub (retour user).
+    app.custom_keypad_box = ft.Row(
+        visible=False, alignment=ft.MainAxisAlignment.CENTER)
+
+    def _show_custom_keypad(event=None):
+        app.custom_keypad_box.visible = True
+        page.update()
+
+    for _f in (app.custom_w_field, app.custom_h_field):
+        _f.on_focus = _show_custom_keypad
+
     app.custom_keypad = ui_helpers.numeric_keypad(
         page, [app.custom_w_field, app.custom_h_field],
         {"dark": DARK, "red": RED, "grey": GREY, "green": GREEN,
          "white": WHITE},
         allow_decimal=True)
-    app.custom_keypad.visible = False
+    app.custom_keypad_box.controls = [app.custom_keypad]
 
     app.custom_unit = "mm"
 
@@ -4869,7 +4911,10 @@ def main(page: ft.Page):
         app.custom_h_field.disabled = not enabled
         app.unit_dropdown.disabled = not enabled
         app.format_radio_group.disabled = enabled
-        app.custom_keypad.visible = enabled
+        if not enabled:
+            # Champs redevenus désactivés : plus moyen de les
+            # refocaliser pour masquer le pavé via _show_custom_keypad.
+            app.custom_keypad_box.visible = False
         if enabled:
             # Appliquer immédiatement les dimensions saisies en mode personnalisé
             app.change_ratio(type("Evt", (), {"control": type("Ctl", (), {"value": _CUSTOM_KEY})()})())
@@ -4934,7 +4979,7 @@ def main(page: ft.Page):
             spacing=8,
             alignment=ft.MainAxisAlignment.CENTER,
         ),
-        app.custom_keypad,
+        app.custom_keypad_box,
     ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
     app.custom_panel = ft.Container(
@@ -5161,15 +5206,15 @@ def main(page: ft.Page):
                                                 ft.IconButton(
                                                     icon=ft.Icons.ROTATE_LEFT,
                                                     icon_color=BLUE,
-                                                    tooltip="Rotation 45° (antihoraire)",
-                                                    on_click=lambda e: app.rotate_45(e, -45.0),
+                                                    tooltip="Rotation 90° (antihoraire)",
+                                                    on_click=lambda e: app.rotate_90(e, -90.0),
                                                     icon_size=20,
                                                 ),
                                                 ft.IconButton(
                                                     icon=ft.Icons.ROTATE_RIGHT,
                                                     icon_color=BLUE,
-                                                    tooltip="Rotation 45° (horaire)",
-                                                    on_click=lambda e: app.rotate_45(e, 45.0),
+                                                    tooltip="Rotation 90° (horaire)",
+                                                    on_click=lambda e: app.rotate_90(e, 90.0),
                                                     icon_size=20,
                                                 ),
                                             ], spacing=0, alignment=ft.MainAxisAlignment.START),

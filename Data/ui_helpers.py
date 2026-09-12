@@ -23,7 +23,10 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
                     allow_decimal=False):
     """Pavé numérique tactile réutilisable, attaché à un ou plusieurs
     champs texte (retour user : le clavier virtuel de l'OS n'apparaît
-    pas toujours de façon fiable sur un poste tactile).
+    pas toujours de façon fiable sur un poste tactile). Écrit
+    directement dans le champ actif (celui qui a le focus) — pas de
+    champ d'affichage intermédiaire (retour user : contre-intuitif,
+    "je pensais que ce serait un overlay par-dessus l'interface").
 
     - page : l'objet ft.Page de l'app appelante (pour .update()).
     - fields : un ft.TextField, ou une liste de plusieurs — avec
@@ -31,9 +34,12 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
       champ par défaut).
     - colors : dict avec les clés "dark", "red", "grey", "green",
       "white" — chaque app définit ses propres couleurs depuis
-      CONSTANTS, on les reçoit ici plutôt que de les importer en dur
-      (les valeurs diffèrent d'un thème d'app à l'autre).
-    - on_confirm : callback optionnel, ajoute un bouton ✓ au pavé.
+      CONSTANTS, on les reçoit ici plutôt que ce module les importe en
+      dur (les valeurs diffèrent d'un thème d'app à l'autre).
+    - on_confirm : callback optionnel, appelé en plus de la validation
+      elle-même (ex. fermer un dialogue). Le bouton ✓ (Valider) est
+      toujours affiché — utile pour déclencher on_blur (ex. Recadrage
+      manuel.pyw redessine le canevas) même sans on_confirm.
     - allow_decimal : ajoute une touche "." — utile pour des
       dimensions en mm/px qui acceptent les décimales, pas pour un
       compteur entier (ex. nombre d'impressions).
@@ -66,9 +72,9 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
     def _append(text):
         def _on_click(event):
             fld = active["field"]
-            if fresh[id(fld)]:
+            if fresh[id(active["field"])]:
                 current = ""
-                fresh[id(fld)] = False
+                fresh[id(active["field"])] = False
             else:
                 current = "" if fld.value in (None, "0") else fld.value
             if text == "." and "." in (current or ""):
@@ -79,9 +85,22 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
 
     def _backspace(event):
         fld = active["field"]
-        fresh[id(fld)] = False
+        fresh[id(active["field"])] = False
         fld.value = (fld.value or "")[:-1]
         page.update()
+
+    def _validate(event):
+        fld = active["field"]
+        # Le focus reste sur `fld` tant qu'on tape dans le pavé — un
+        # on_blur posé par l'appelant pour réagir au changement (ex.
+        # Recadrage manuel.pyw, redessine le canevas) ne se
+        # déclencherait donc jamais tout seul : on l'appelle
+        # explicitement ici, la validation étant le même événement
+        # métier ("valeur changée, terminé").
+        if fld.on_blur:
+            fld.on_blur(event)
+        if on_confirm is not None:
+            on_confirm(event)
 
     def _key_btn(label):
         return ft.Button(
@@ -100,20 +119,20 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
     if allow_decimal:
         last_row.append(_key_btn("."))
     last_row.append(_key_btn("0"))
-    if on_confirm is not None:
-        last_row.append(ft.IconButton(
-            ft.Icons.CHECK_CIRCLE_OUTLINE, icon_color=colors["green"],
-            icon_size=24,
-            style=ft.ButtonStyle(bgcolor=colors["grey"],
-                                 padding=ft.Padding.all(16)),
-            on_click=on_confirm))
+    last_row.append(ft.IconButton(
+        ft.Icons.CHECK_CIRCLE_OUTLINE, icon_color=colors["green"],
+        icon_size=24,
+        style=ft.ButtonStyle(bgcolor=colors["grey"],
+                             padding=ft.Padding.all(16)),
+        on_click=_validate))
 
-    return ft.Column([
+    rows = [
         ft.Row([_key_btn("7"), _key_btn("8"), _key_btn("9")], spacing=8),
         ft.Row([_key_btn("4"), _key_btn("5"), _key_btn("6")], spacing=8),
         ft.Row([_key_btn("1"), _key_btn("2"), _key_btn("3")], spacing=8),
         ft.Row(last_row, spacing=8),
-    ], spacing=8, tight=True)
+    ]
+    return ft.Column(rows, spacing=8, tight=True)
 
 
 async def _focus_soon(field):

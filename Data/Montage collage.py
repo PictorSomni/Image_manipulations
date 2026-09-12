@@ -18,9 +18,12 @@ Une photo peut être désignée comme centrale (COLLAGE_CENTER_FILE,
 agrandie, posée au milieu, jamais pivotée) et d'autres comme mises en
 avant (COLLAGE_FEATURED_FILES, agrandies).
 
-Produit un aperçu à taille réelle (``Montage/apercu.png``, fond transparent)
-et un fichier .psd avec chaque photo sur son propre calque déjà placé —
-reste à retoucher les bords (flou, ombre) et poser le fond dans Affinity.
+Produit un fichier .psd avec chaque photo sur son propre calque déjà
+placé (calque complet, sous un masque rectangulaire déplaçable pour
+révéler ce que le cadrage automatique avait coupé) — reste à retoucher
+les bords (flou, ombre) et poser le fond dans Affinity. Si pytoshop
+n'est pas installé, un aperçu PNG à taille réelle (``Montage/apercu.png``,
+fond transparent) est produit à la place.
 
 Variables d'environnement :
   FOLDER_PATH              — dossier source (défaut : répertoire du script).
@@ -330,32 +333,43 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
     return [placed[k] for k in photo_keys]
 
 
-def fit_and_rotate(image, box_w, box_h, angle_deg):
+def _cover_resize(image, box_w, box_h):
     """Redimensionne `image` (RGBA) pour REMPLIR box_w x box_h (« cover » —
-    recadre l'excédent au centre, jamais de bande transparente dans la
-    tuile) puis pivote — expand=True agrandit le cadre pour ne rien couper
-    aux coins. rotate() n'accepte pas LANCZOS (transform affine, cf.
-    image_ops.py:488-492) : BICUBIC pour la rotation, LANCZOS pour le
-    resize.
+    l'excédent dépasse le cadre plutôt que de laisser une bande
+    transparente), SANS recadrer — factorisé hors de fit_and_rotate pour
+    être réutilisé tel quel par render_montage, qui a besoin à la fois de
+    la version recadrée (aperçu/canevas) et de la version complète, non
+    recadrée (calque PSD sous masque, cf. write_psd_file — retour user :
+    "les images sont recadrées, je ne sais pas les déplacer pour refaire
+    apparaitre les personnes au bord").
 
     Cover plutôt que contain (retour user) : même une mosaïque sans le
     moindre trou (cf. compute_layout) laissait de grandes bandes
     transparentes DANS chaque tuile dès que l'aspect ratio de la photo ne
     collait pas à celui de sa case — "les gens paient pour voir leurs
-    photos, pas du vide". Recadre au centre, plafonné à MAX_CROP_FRACTION
-    du côté le plus recadré (retour user : une case d'aspect trop
-    différent de la photo tronquait l'essentiel de son contenu) — au-delà
-    du plafond, léger espace transparent sur le côté opposé plutôt qu'une
-    photo méconnaissable ; `crop()` remplit tout seul cet espace en
-    transparent, y compris hors des bords de l'image source (cf. Pillow,
-    testé)."""
+    photos, pas du vide". Plafonné à MAX_CROP_FRACTION du côté le plus
+    recadré (retour user : une case d'aspect trop différent de la photo
+    tronquait l'essentiel de son contenu) — au-delà du plafond, léger
+    espace transparent sur le côté opposé plutôt qu'une photo
+    méconnaissable."""
     box_w, box_h = max(1, round(box_w)), max(1, round(box_h))
     cover_ratio = max(box_w / image.width, box_h / image.height)
     contain_ratio = min(box_w / image.width, box_h / image.height)
     ratio = min(cover_ratio, contain_ratio / (1 - MAX_CROP_FRACTION))
     new_size = (max(1, round(image.width * ratio)),
                 max(1, round(image.height * ratio)))
-    resized = image.resize(new_size, Image.Resampling.LANCZOS)
+    return image.resize(new_size, Image.Resampling.LANCZOS)
+
+
+def fit_and_rotate(image, box_w, box_h, angle_deg):
+    """Redimensionne `image` pour REMPLIR box_w x box_h (cf. _cover_resize),
+    recadre au centre puis pivote — expand=True agrandit le cadre pour ne
+    rien couper aux coins. rotate() n'accepte pas LANCZOS (transform
+    affine, cf. image_ops.py:488-492) : BICUBIC pour la rotation, LANCZOS
+    pour le resize ; `crop()` remplit tout seul l'espace hors image
+    source en transparent (cf. Pillow, testé)."""
+    box_w, box_h = max(1, round(box_w)), max(1, round(box_h))
+    resized = _cover_resize(image, box_w, box_h)
     left = (resized.width - box_w) // 2
     top = (resized.height - box_h) // 2
     cropped = resized.crop((left, top, left + box_w, top + box_h))
@@ -376,9 +390,12 @@ def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
     thumb_cache côté Hub), le placement et le rendu restant identiques.
 
     Renvoie (canvas, layers) où layers est une liste de (nom, tuile RGBA
-    visible, left, top) — pour l'écriture PSD, ou pour rien si non
-    utilisée. La photo centrale (s'il y en a une) est dessinée en dernier,
-    donc toujours au-dessus du reste."""
+    COMPLÈTE (non recadrée), full_left, full_top, mask_left, mask_top,
+    mask_right, mask_bottom) — pour l'écriture PSD (cf. write_psd_file :
+    la portion (mask_*) est posée comme masque rectangulaire, le reste de
+    la tuile déborde sous ce masque, déplaçable dans Affinity), ou pour
+    rien si non utilisée. La photo centrale (s'il y en a une) est
+    dessinée en dernier, donc toujours au-dessus du reste."""
     order = photo_keys
     if center_key is not None and center_key in photo_keys:
         order = [k for k in photo_keys if k != center_key] + [center_key]
@@ -399,7 +416,38 @@ def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
             continue
         if source is None:
             continue
-        tile = fit_and_rotate(source, box_w, box_h, angle)
+        # Version complète (non recadrée) gardée à part de la version
+        # visible : même resize, donc même centre — un crop centré puis
+        # une rotation expand=True partagent toujours ce centre, cf.
+        # _cover_resize/write_psd_file — le calque PSD peut donc se
+        # positionner par rapport au même point que la tuile visible.
+        box_w_r, box_h_r = max(1, round(box_w)), max(1, round(box_h))
+        resized = _cover_resize(source, box_w_r, box_h_r)
+        crop_left = (resized.width - box_w_r) // 2
+        crop_top = (resized.height - box_h_r) // 2
+        cropped = resized.crop((crop_left, crop_top,
+                                crop_left + box_w_r, crop_top + box_h_r))
+        # `resized` peut être plus PETIT que la case sur un axe (recadrage
+        # plafonné par MAX_CROP_FRACTION, cf. _cover_resize) — `crop()`
+        # comble alors l'écart en transparent tout seul pour `cropped`,
+        # mais le calque complet doit lui aussi couvrir au moins la case
+        # (retour user : le calque doit pouvoir se déplacer SOUS toute la
+        # fenêtre du masque) : on pose `resized` sur un canevas transparent
+        # au moins aussi grand, centré pareil que le crop ci-dessus.
+        full_w = max(resized.width, box_w_r)
+        full_h = max(resized.height, box_h_r)
+        if (full_w, full_h) != resized.size:
+            padded = Image.new("RGBA", (full_w, full_h), (0, 0, 0, 0))
+            padded.paste(resized, ((full_w - resized.width) // 2,
+                                   (full_h - resized.height) // 2))
+            resized = padded
+        if abs(angle) < 0.05:
+            tile, full_tile = cropped, resized
+        else:
+            tile = cropped.rotate(angle, expand=True,
+                                  resample=Image.Resampling.BICUBIC)
+            full_tile = resized.rotate(angle, expand=True,
+                                       resample=Image.Resampling.BICUBIC)
         tw, th = tile.size
         left, top = round(cx - tw / 2), round(cy - th / 2)
         if key != center_key:
@@ -418,7 +466,18 @@ def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
         visible = tile.crop((clip_left - left, clip_top - top,
                              clip_right - left, clip_bottom - top))
         canvas.alpha_composite(visible, (clip_left, clip_top))
-        layers.append((Path(str(key)).stem, visible, clip_left, clip_top))
+        # Calque PSD : la photo COMPLÈTE (full_tile), positionnée pour que
+        # sa portion actuellement visible tombe pile sur (left, top,
+        # left+tw, top+th) — c'est cette portion que write_psd_file pose
+        # comme masque rectangulaire, donc l'aperçu Affinity par défaut
+        # est identique à l'aperçu PNG, mais l'utilisateur peut déplacer
+        # le calque SOUS le masque pour révéler ce qui était coupé.
+        eff_cx, eff_cy = left + tw / 2, top + th / 2
+        fw, fh = full_tile.size
+        full_left = round(eff_cx - fw / 2)
+        full_top = round(eff_cy - fh / 2)
+        layers.append((Path(str(key)).stem, full_tile, full_left, full_top,
+                      left, top, left + tw, top + th))
     return canvas, layers
 
 #############################################################
@@ -485,46 +544,86 @@ def main():
         margin_px, seed, load_source,
         center_key=center_file, featured_keys=featured_files)
 
-    preview_path = out_dir / "apercu.png"
-    canvas.save(preview_path)
-    print(f"[ok] Aperçu → {preview_path.name} ({canvas_w}x{canvas_h}px)",
-          flush=True)
-
-    write_psd_file(out_dir / "Montage.psd", canvas, psd_layers,
-                   canvas_w, canvas_h)
+    # Plus de case à cocher (retour user : "supprime le checkbox .psd vu
+    # que c'est l'unique option") — le .psd (calque complet + masque
+    # déplaçable) est désormais le seul format produit. Pas d'apercu.png
+    # à côté : les photos se revérifient de toute façon à la main dans
+    # Affinity ensuite, et encoder ce PNG plein format à la résolution
+    # d'impression coûte plusieurs secondes pour rien quand le .psd,
+    # lui, s'ouvre déjà avec le même rendu par défaut. L'aperçu live du
+    # dialogue de création reste (rendu côté Hub, pas ce script). Filet
+    # de sécurité : sans pytoshop, write_psd_file ne produit rien —
+    # apercu.png prend alors le relais pour que l'outil ne reste jamais
+    # sans rien produire.
+    if not write_psd_file(out_dir / "Montage.psd", canvas, psd_layers,
+                          canvas_w, canvas_h):
+        preview_path = out_dir / "apercu.png"
+        canvas.save(preview_path)
+        print(f"[ok] Aperçu → {preview_path.name} ({canvas_w}x{canvas_h}px)",
+              flush=True)
 
     print("[ok] Terminé.", flush=True)
 
 
 def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h):
-    """Écrit un .psd avec un calque par photo (pixels déjà mis à l'échelle
-    et pivotés, position déjà posée) + l'image composite requise par le
-    format PSD (sans elle, Pillow/certains lecteurs affichent une page
-    blanche — cf. test manuel avant intégration)."""
+    """Écrit un .psd avec un calque par photo — chaque calque contient la
+    photo COMPLÈTE (non recadrée, cf. render_montage), sous un masque
+    rectangulaire qui ne montre que sa portion actuellement visible :
+    l'aperçu par défaut dans Affinity est identique à apercu.png, mais on
+    peut déplacer le calque (indépendamment du masque) pour révéler ce
+    que le cadrage automatique avait coupé (retour user). Ajoute aussi
+    l'image composite requise par le format PSD (sans elle, Pillow/
+    certains lecteurs affichent une page blanche — cf. test manuel avant
+    intégration).
+
+    Renvoie True si le .psd a été écrit, False si pytoshop est absent
+    (main() écrit alors un apercu.png à la place, cf. plus haut)."""
     try:
         import numpy as np
         import pytoshop
         from pytoshop import layers as psd_layer_mod
-        from pytoshop.enums import ColorMode, Compression
+        from pytoshop.enums import ChannelId, ColorMode, Compression
         from pytoshop.image_data import ImageData
     except ImportError:
         print("[WARN] pytoshop introuvable (pip install pytoshop six) — "
-              ".psd non généré, l'aperçu PNG reste disponible.", flush=True)
-        return
+              ".psd non généré, aperçu PNG généré à la place.", flush=True)
+        return False
 
     records = []
-    for layer_name, tile_img, left, top in psd_layers:
-        arr = np.array(tile_img)
+    for layer_name, full_img, full_left, full_top, mask_left, mask_top, \
+            mask_right, mask_bottom in psd_layers:
+        arr = np.array(full_img)
         channels = {
             0: psd_layer_mod.ChannelImageData(image=arr[..., 0], compression=Compression.raw),
             1: psd_layer_mod.ChannelImageData(image=arr[..., 1], compression=Compression.raw),
             2: psd_layer_mod.ChannelImageData(image=arr[..., 2], compression=Compression.raw),
             -1: psd_layer_mod.ChannelImageData(image=arr[..., 3], compression=Compression.raw),
         }
-        records.append(psd_layer_mod.LayerRecord(
-            channels=channels, top=top, left=left,
-            bottom=top + arr.shape[0], right=left + arr.shape[1],
-            name=layer_name, opacity=255))
+        # Masque rectangulaire plein (255 partout) délimitant la portion
+        # actuellement visible — le calque lui-même (full_img) contient
+        # TOUTE la photo, qui déborde du masque ; `default_color=False`
+        # cache tout ce qui est hors du rectangle du masque, donc
+        # l'aperçu Affinity par défaut est identique à apercu.png, mais
+        # déplacer le calque (pas le masque) sous ce cadre révèle ce que
+        # le cadrage automatique masquait (retour user : "les images sont
+        # recadrées, je ne sais pas les déplacer pour refaire apparaitre
+        # les personnes au bord"). Coordonnées du masque dans le même
+        # repère absolu (canevas) que top/left/bottom/right du calque —
+        # vérifié avec psd-tools avant intégration (pytoshop ne documente
+        # pas ce point).
+        mask_h = max(1, mask_bottom - mask_top)
+        mask_w = max(1, mask_right - mask_left)
+        channels[int(ChannelId.user_layer_mask)] = psd_layer_mod.ChannelImageData(
+            image=np.full((mask_h, mask_w), 255, dtype=np.uint8),
+            compression=Compression.raw)
+        record = psd_layer_mod.LayerRecord(
+            channels=channels, top=full_top, left=full_left,
+            bottom=full_top + arr.shape[0], right=full_left + arr.shape[1],
+            name=layer_name, opacity=255)
+        record.mask = psd_layer_mod.LayerMask(
+            top=mask_top, left=mask_left, bottom=mask_bottom,
+            right=mask_right, default_color=False)
+        records.append(record)
 
     psd = pytoshop.core.PsdFile(num_channels=4, height=canvas_h,
                                 width=canvas_w, color_mode=ColorMode.rgb)
@@ -537,6 +636,7 @@ def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h):
     with open(psd_path, "wb") as f:
         psd.write(f)
     print(f"[ok] PSD → {psd_path.name} ({len(records)} calque(s))", flush=True)
+    return True
 
 
 if __name__ == "__main__":

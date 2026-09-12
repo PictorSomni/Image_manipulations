@@ -52,6 +52,7 @@ YELLOW = CONSTANTS.COLOR_YELLOW
 ORANGE = CONSTANTS.COLOR_ORANGE
 RED = CONSTANTS.COLOR_RED
 WHITE = CONSTANTS.COLOR_WHITE
+LIGHT_GREY = CONSTANTS.COLOR_LIGHT_GREY
 
 # Image 1x1 transparente — placeholder avant chargement du premier aperçu.
 _BLANK_SRC = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
@@ -684,15 +685,60 @@ def main(page: ft.Page):
     # ── Panneaux repliables (un seul ouvert à la fois) ─────────────────
     sections = {}
 
+    def _apply_section_visual(name, is_open):
+        """État visuel d'une section : chevron (▸/▾), couleur de l'en-tête
+        (gris en veille, teinte de section à 15 % quand ouverte) et
+        couleur icône/titre. Un seul point de vérité, appelé au toggle."""
+        sec = sections[name]
+        col = sec["color"]
+        sec["body"].visible = is_open
+        sec["chevron"].icon = (ft.Icons.EXPAND_MORE if is_open
+                               else ft.Icons.CHEVRON_RIGHT)
+        accent = col if is_open else LIGHT_GREY
+        sec["chevron"].color = accent
+        sec["head_icon"].color = accent
+        sec["title"].color = accent
+        sec["header"].bgcolor = (ft.Colors.with_opacity(0.15, col)
+                                 if is_open else GREY)
+
     def _toggle_section(name):
         def handler(e):
             opening = not sections[name]["body"].visible
-            for other_name, sec in sections.items():
-                sec["body"].visible = (other_name == name and opening)
+            for other_name in sections:
+                _apply_section_visual(
+                    other_name, other_name == name and opening)
             page.update()
         return handler
 
+    def _recolor_sliders(control, color):
+        """Curseurs à la couleur de leur section (retour user). Parcours
+        récursif : _slider_row imbrique le Slider dans Column > Row >
+        GestureDetector, et les sections Grain/Copyright n'en ont aucun."""
+        child = getattr(control, "content", None)
+        if child is not None:
+            _recolor_sliders(child, color)
+        for sub in getattr(control, "controls", None) or []:
+            _recolor_sliders(sub, color)
+        if isinstance(control, ft.Slider):
+            control.active_color = color
+        setter = getattr(control, "set_accent", None)
+        if callable(setter):
+            setter(color)
+
     def _make_section(name, color, icon, param, body_controls):
+        # Zébrage : une ligne sur deux sur fond GREY (une nuance plus
+        # sombre que le fond BG du corps) — juste des rails de lecture
+        # pour suivre un curseur des yeux jusqu'à sa valeur (retour user).
+        striped = []
+        for i, ctrl in enumerate(body_controls):
+            _recolor_sliders(ctrl, color)
+            striped.append(ft.Container(
+                content=ctrl,
+                bgcolor=(GREY if i % 2 else None),
+                border_radius=4,
+                padding=ft.Padding(CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS,
+                                   CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS)))
+
         switch = ft.Switch(value=param["enabled"], active_color=color)
 
         def _on_switch(e):
@@ -701,33 +747,42 @@ def main(page: ft.Page):
         switch.on_change = _on_switch
         reset_registry["switches"].append((switch, param))
 
+        chevron = ft.Icon(ft.Icons.CHEVRON_RIGHT, color=LIGHT_GREY,
+                          size=CONSTANTS.ICON_SM)
+        head_icon = ft.Icon(icon, color=LIGHT_GREY, size=CONSTANTS.ICON_SM)
+        title = ft.Text(name, color=LIGHT_GREY, weight=ft.FontWeight.W_600,
+                        size=CONSTANTS.TEXT_SM)
+
         header = ft.Container(
             content=ft.Row([
                 ft.Container(
-                    content=ft.Row([
-                        ft.Icon(icon, color=color, size=CONSTANTS.ICON_SM),
-                        ft.Text(name, color=color,
-                               weight=ft.FontWeight.W_600,
-                               size=CONSTANTS.TEXT_SM),
-                    ], spacing=CONSTANTS.SPACE_SM),
+                    content=ft.Row([chevron, head_icon, title],
+                                   spacing=CONSTANTS.SPACE_SM),
                     on_click=_toggle_section(name), expand=True,
                     padding=ft.Padding(CONSTANTS.SPACE_XS, CONSTANTS.SPACE_SM,
                                       CONSTANTS.SPACE_XS, CONSTANTS.SPACE_SM),
                 ),
                 switch,
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            bgcolor=DARK, border_radius=6,
+            bgcolor=GREY, border_radius=6,
             padding=ft.Padding(CONSTANTS.SPACE_SM, 0, CONSTANTS.SPACE_SM, 0),
-            border=ft.Border.all(1, color),
         )
         body = ft.Container(
-            content=ft.Column(body_controls, spacing=CONSTANTS.SPACE_MD),
+            content=ft.Column(striped, spacing=CONSTANTS.SPACE_XS),
             visible=False,
             padding=ft.Padding(CONSTANTS.SPACE_LG, CONSTANTS.SPACE_MD,
                               CONSTANTS.SPACE_LG, CONSTANTS.SPACE_MD),
-            bgcolor=BG, border_radius=6, border=ft.Border.all(1, color))
-        sections[name] = {"body": body, "switch": switch}
-        return ft.Column([header, body], spacing=CONSTANTS.SPACE_XS)
+            bgcolor=BG, border_radius=6)
+        sections[name] = {"body": body, "switch": switch, "color": color,
+                          "chevron": chevron, "head_icon": head_icon,
+                          "title": title, "header": header}
+        # Filet d'accent vertical (couleur de section) le long de
+        # l'en-tête ET du corps : repère de famille en scannant le
+        # panneau (retour user).
+        return ft.Container(
+            content=ft.Column([header, body], spacing=CONSTANTS.SPACE_XS),
+            border=ft.Border(left=ft.BorderSide(3, color)),
+            padding=ft.Padding(CONSTANTS.SPACE_SM, 0, 0, 0))
 
     def _section_name(dct):
         """Nom de la section (« couleur », « virage »...) portant `dct`
@@ -777,12 +832,35 @@ def main(page: ft.Page):
         qui écrivent dans les paramètres sans passer par l'UI.
         """
         value = dct[key]
+        span = round(maxv - minv)
         if divisions is None:
-            divisions = round(maxv - minv)
-        step = max(1, round((maxv - minv) / max(1, divisions)))
+            # Un cran par unité tant que ça reste lisible ; au-delà, on
+            # élargit le pas (1, 2, 5, 10…) pour garder ≤ ~40 graduations
+            # visibles sur le rail (Flutter masque des traits trop serrés).
+            # Comme Recadrage manuel : le pas des boutons − / + suit.
+            step = next(s for s in (1, 2, 5, 10, 20, 50, 100)
+                        if span / s <= 40)
+            divisions = max(1, span // step)
+        else:
+            step = max(1, round(span / max(1, divisions)))
         reset_value = max(0, minv)
-        text = ft.Text(f"{label} : {round(value)}", size=CONSTANTS.TEXT_SM,
-                       color=WHITE)
+        # Libellé à gauche (tronqué si trop long), valeur à droite sur la
+        # MÊME ligne (retour user : une ligne dédiée à "Label : valeur"
+        # gâchait de la hauteur sur 10 curseurs). La valeur passe en blanc
+        # dès qu'elle s'écarte du défaut — repère de "ce que j'ai touché"
+        # en balayant la colonne.
+        label_text = ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE,
+                             expand=True, max_lines=1,
+                             overflow=ft.TextOverflow.ELLIPSIS,
+                             tooltip=label)
+        # Valeur affichée : grise au repos, dans la couleur de la section
+        # (renseignée par _recolor_sliders) et en gras dès qu'elle bouge
+        # — repère fort de « ce que j'ai touché » (retour user).
+        accent = {"c": WHITE}
+        value_text = ft.Text(str(round(value)), size=CONSTANTS.TEXT_SM + 4,
+                             weight=ft.FontWeight.W_700,
+                             color=(accent["c"] if round(value) != reset_value
+                                    else LIGHT_GREY))
         _touch = CONSTANTS.TOUCH_TARGET
         reset_btn = ft.IconButton(
             ft.Icons.RESTART_ALT, icon_size=CONSTANTS.ICON_SM,
@@ -790,16 +868,19 @@ def main(page: ft.Page):
             disabled=round(value) == reset_value,
             width=_touch, height=_touch)
         minus_btn = ft.IconButton(
-            ft.Icons.REMOVE, icon_size=CONSTANTS.ICON_SM, icon_color=WHITE,
+            ft.Icons.REMOVE, icon_size=CONSTANTS.ICON_SM,
+            icon_color=LIGHT_GREY,
             tooltip=f"{label} − {step}", width=_touch, height=_touch)
         plus_btn = ft.IconButton(
-            ft.Icons.ADD, icon_size=CONSTANTS.ICON_SM, icon_color=WHITE,
+            ft.Icons.ADD, icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
             tooltip=f"{label} + {step}", width=_touch, height=_touch)
 
         def _display(snapped):
-            text.value = f"{label} : {snapped}"
+            value_text.value = str(snapped)
+            value_text.color = (accent["c"] if snapped != reset_value
+                                else LIGHT_GREY)
             reset_btn.disabled = (snapped == reset_value)
-            text.update()
+            value_text.update()
             reset_btn.update()
 
         def _write(new_value, *, move_slider=True):
@@ -859,11 +940,17 @@ def main(page: ft.Page):
             slider.update()
 
         column = ft.Column([
-            text,
+            ft.Row([label_text, value_text], spacing=CONSTANTS.SPACE_SM),
             ft.Row([reset_btn, minus_btn, slider_area, plus_btn], spacing=0,
                   vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ], spacing=0)
         column.data = _refresh
+
+        def _set_accent(c):
+            accent["c"] = c
+            if value_text.value != str(reset_value):
+                value_text.color = c
+        column.set_accent = _set_accent
         reset_registry["sliders"].append((column, label, dct, key))
         return column
 

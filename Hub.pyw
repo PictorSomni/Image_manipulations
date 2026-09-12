@@ -369,6 +369,10 @@ def main(page: ft.Page):
     # quand une sélection est fournie (retour user).
     selected = []                        # chemins sélectionnés (images + dossiers)
     clipboard = {"paths": [], "mode": None}   # mode: "copy" | "cut" | None
+    # Sous-processus d'un outil lancé par _launch_tool (Montage,
+    # Redimensionner, etc.) — pour le bouton STOP du terminal (retour
+    # user : "je me suis trompé dans le réglage" en plein batch).
+    running_proc = {"proc": None, "stopped": False}
     drives_state = {"list": []}          # [(nom, chemin), ...] — cache tenu à jour par _poll_removable_drives
     phones_state = {"list": []}          # [(description, id PnP), ...] — téléphones MTP, même sondage
 
@@ -1796,7 +1800,14 @@ def main(page: ft.Page):
         origin_tab_id = state["tab_id"]
 
         def _work():
-            for p in paths:
+            total = len(paths)
+            for i, p in enumerate(paths, 1):
+                name = os.path.basename(p)
+                # Même détail ligne par ligne que le collage (retour
+                # user) — sans ça, un gros lot ne donne aucun signe de
+                # progression avant la fin.
+                _log_to_terminal(f"[...] Suppression {i}/{total} : {name}",
+                                 ORANGE)
                 try:
                     _backup_file(p)
                     if os.path.isdir(p):
@@ -1804,9 +1815,9 @@ def main(page: ft.Page):
                     else:
                         os.remove(p)
                     _select_discard(p)
-                    _log_to_terminal(f"[OK] Supprimé : {os.path.basename(p)}", GREEN)
+                    _log_to_terminal(f"[OK] Supprimé : {name}", GREEN)
                 except Exception as exc:
-                    _log_to_terminal(f"[ERREUR] {os.path.basename(p)} : {exc}", RED)
+                    _log_to_terminal(f"[ERREUR] {name} : {exc}", RED)
             _update_sel_count()
             _run_task(_tool_refresh, folder, None, origin_tab_id)
 
@@ -2163,8 +2174,19 @@ def main(page: ft.Page):
 
         # Pavé numérique tactile : dialogue ouvert depuis le panneau
         # Actions, potentiellement sur écran tactile sans clavier commode
-        # sous la main (retour user).
+        # sous la main (retour user). Masqué tant que count_field n'a
+        # pas le focus, même motif que les autres dialogues (retour
+        # user) — autofocus=True sur count_field le fait apparaître dès
+        # l'ouverture, comme avant.
+        keypad_box = ft.Row(visible=False, alignment=ft.MainAxisAlignment.CENTER)
+
+        def _show_keypad(event=None):
+            keypad_box.visible = True
+            page.update()
+
+        count_field.on_focus = _show_keypad
         keypad = _numeric_keypad(count_field, on_confirm=_confirm)
+        keypad_box.controls = [keypad]
 
         dlg = ft.AlertDialog(
             # Le nombre de fichiers est le garde-fou du mode « dossier
@@ -2174,7 +2196,7 @@ def main(page: ft.Page):
                 f"Nombre d'impressions — {len(targets)} fichier(s) "
                 "(0 = retirer le préfixe NX_)",
                 size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([count_field, keypad], spacing=12, tight=True),
+            content=ft.Column([count_field, keypad_box], spacing=12, tight=True),
             # Pas de bouton "Valider" ici : le ✓ vert du pavé numérique fait
             # déjà ça, juste au-dessus (retour user).
             actions=[ft.TextButton("Annuler", on_click=_cancel)],
@@ -2990,6 +3012,17 @@ def main(page: ft.Page):
     #  soucis d'expand/Stack imbriqué rencontrés dans la surface Fichiers).
     # ═════════════════════════════════════════════════════════════════════
     viewer_state = {"paths": [], "index": 0, "win_start": 0}
+    # Dézoomer sous "ajustée à l'écran" (InteractiveViewer.min_scale) ne
+    # marche pas à la souris ici : la PageView qui permet de glisser
+    # d'une photo à l'autre intercepte le défilement de la molette avant
+    # qu'il n'atteigne l'InteractiveViewer imbriqué (comportement Flutter
+    # connu, pas de réglage exposé côté Flet pour l'en empêcher) — retour
+    # user, remonté après le fix InteractiveViewer.min_scale/
+    # trackpad_scroll_causes_scale, qui ne suffisait pas. Boutons +/-
+    # explicites en repli fiable : appliquent un zoom via la propriété
+    # `scale` de l'image elle-même, indépendante de l'InteractiveViewer.
+    viewer_zoom = {"level": 1.0}
+    _VIEWER_ZOOM_MIN, _VIEWER_ZOOM_MAX, _VIEWER_ZOOM_STEP = 0.2, 3.0, 0.2
     _prev_keyboard = {"fn": None}
     # path -> bytes tournés cette session : le chemin fichier ne change pas
     # après rotation, donc Flet pourrait réafficher l'ancienne image en cache
@@ -3252,6 +3285,33 @@ def main(page: ft.Page):
         for offset in (0, 1, -1, 2, -2):
             _load_image_for_index(center + offset)
 
+    def _current_viewer_img_ctrl():
+        idx = viewer_state["index"]
+        return (page_image_controls.get(idx) if _HAS_PAGE_VIEW
+               else viewer_img)
+
+    def _apply_viewer_zoom():
+        ctrl = _current_viewer_img_ctrl()
+        if ctrl is not None:
+            ctrl.scale = viewer_zoom["level"]
+            # page.update(), pas ctrl.update() : RuntimeError si `ctrl`
+            # n'est pas monté à cet instant précis (page hors fenêtre
+            # glissante côté PageView) — même piège déjà vu sur le pavé
+            # numérique (ui_helpers._validate).
+            page.update()
+
+    def _viewer_zoom_by(delta):
+        def _click(event=None):
+            viewer_zoom["level"] = round(max(
+                _VIEWER_ZOOM_MIN, min(_VIEWER_ZOOM_MAX,
+                                      viewer_zoom["level"] + delta)), 2)
+            _apply_viewer_zoom()
+        return _click
+
+    def _viewer_zoom_reset():
+        viewer_zoom["level"] = 1.0
+        _apply_viewer_zoom()
+
     def _update_viewer():
         idx = viewer_state["index"]
         if _HAS_PAGE_VIEW:
@@ -3259,6 +3319,10 @@ def main(page: ft.Page):
             _load_pages_around(idx)
         else:
             viewer_img.src = _resolve_viewer_src(viewer_state["paths"][idx])
+        # Après le chargement : un contrôle réutilisé (fenêtre glissante)
+        # peut garder un zoom d'une visite précédente, à remettre à 1.0
+        # en changeant de photo.
+        _viewer_zoom_reset()
         _update_overlay_bar()
 
     async def _viewer_animate_page(delta):
@@ -3271,13 +3335,25 @@ def main(page: ft.Page):
                 animation_curve=ft.AnimationCurve.EASE_IN_OUT_CUBIC_EMPHASIZED,
                 animation_duration=ft.Duration(milliseconds=300))
 
+    async def _shift_window_deferred():
+        # Décalé d'un tick (pas d'appel synchrone direct) : muter
+        # `images_page_view.controls`/`selected_index` DANS le callback
+        # on_change du PageView lui-même — donc pendant que son propre
+        # PageController est encore en train de conclure le changement
+        # de page côté client — peut lui faire lire un itemCount
+        # transitoire à 0 (RangeError "Valid value range is empty: 0",
+        # retour user : plantage de la visionneuse en plein écran).
+        await asyncio.sleep(0)
+        _maybe_shift_viewer_window()
+
     def _on_viewer_page_change(e):
         _close_drawers()
         viewer_state["index"] = (viewer_state["win_start"]
                                  + e.control.selected_index)
         _load_pages_around(viewer_state["index"])
+        _viewer_zoom_reset()
         _update_overlay_bar()
-        _maybe_shift_viewer_window()
+        _run_task(_shift_window_deferred)
 
     def _viewer_nav(delta):
         new_idx = viewer_state["index"] + delta
@@ -3410,6 +3486,16 @@ def main(page: ft.Page):
                        lambda e: _rotate_current("right")),
             _viewer_btn(ft.Icons.ARROW_FORWARD_IOS_ROUNDED, "Suivante (→)",
                        lambda e: _viewer_nav(1)),
+            ft.VerticalDivider(width=1, color=LIGHT_GREY),
+            # En repli fiable à la molette (cf. viewer_zoom plus haut) :
+            # sous "ajustée à l'écran", pour voir l'image entière ou
+            # estimer une taille d'impression (retour user).
+            _viewer_btn(ft.Icons.ZOOM_OUT, "Dézoomer",
+                       _viewer_zoom_by(-_VIEWER_ZOOM_STEP)),
+            _viewer_btn(ft.Icons.ZOOM_IN, "Zoomer",
+                       _viewer_zoom_by(_VIEWER_ZOOM_STEP)),
+            _viewer_btn(ft.Icons.ZOOM_OUT_MAP, "Ajuster à l'écran",
+                       lambda e: _viewer_zoom_reset()),
             viewer_order_slot,
         ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         bgcolor=_VIEWER_BAR_BG, padding=ft.Padding(8, 6, 8, 6), border_radius=16,
@@ -3422,9 +3508,19 @@ def main(page: ft.Page):
         # l'image (déjà lettrboxée) au lieu du plein écran, et zoomer
         # agrandit l'image DANS ce rectangle fixe au lieu du canevas
         # lui-même (retour user, captures à l'appui).
+        # min_scale=1.0 empêchait de dézoomer sous la taille "ajustée à
+        # l'écran" — impossible de voir l'image entière (parties sous
+        # les barres d'interface) ni de la rapetisser pour estimer un
+        # format d'impression (retour user). 0.2 laisse réduire l'image
+        # jusqu'à 1/5 de sa taille ajustée.
         return ft.InteractiveViewer(
-            content=img_ctrl, min_scale=1.0, max_scale=6.0,
+            content=img_ctrl, min_scale=0.2, max_scale=6.0,
             pan_enabled=True, scale_enabled=True, constrained=True,
+            # Sans ça, le défilement d'un TRACKPAD (2 doigts) est traité
+            # comme un déplacement (pan), pas un zoom, par Flutter — la
+            # molette d'une souris physique zoome déjà par défaut, mais
+            # au trackpad, impossible de dézoomer (retour user).
+            trackpad_scroll_causes_scale=True,
             width=win_w, height=win_h, clip_behavior=ft.ClipBehavior.HARD_EDGE)
 
     # Fenêtre glissante de pages : construire un contrôle par photo du
@@ -3551,6 +3647,9 @@ def main(page: ft.Page):
         -1, _viewer_btn(ft.Icons.CROP_FREE,
                        "Retoucher / recadrer (Recadrage manuel.pyw)",
                        _launch_editor_for_current("Recadrage manuel.pyw")))
+    viewer_bottom_bar.content.controls.insert(
+        -1, _viewer_btn(ft.Icons.TUNE, "Retouche par lot (aperçu live)",
+                       _launch_editor_for_current("Retouche par lot.pyw")))
     viewer_bottom_bar.content.controls.insert(
         -1, _viewer_btn(ft.Icons.AUTO_AWESOME, "Augmentation IA",
                        _launch_editor_for_current("Augmentation IA.py")))
@@ -4123,7 +4222,7 @@ def main(page: ft.Page):
         "Retouche par lot (aperçu live)")
 
     augmentation_ia_btn = _toolbar_icon_btn(
-        ft.Icons.AUTO_FIX_HIGH_OUTLINED, VIOLET,
+        ft.Icons.AUTO_AWESOME, VIOLET,
         lambda e: _launch_tool("Augmentation IA.py"),
         "Augmentation IA")
     # Toujours actifs, avec ou sans sélection : sans fichier sélectionné,
@@ -4451,7 +4550,7 @@ def main(page: ft.Page):
          lambda e: _launch_two_in_one(e)),
         (ft.Icons.TUNE, VIOLET, "Retouche par lot (aperçu live)",
          lambda e: _launch_tool("Retouche par lot.pyw")),
-        (ft.Icons.AUTO_FIX_HIGH_OUTLINED, VIOLET, "Augmentation IA",
+        (ft.Icons.AUTO_AWESOME, VIOLET, "Augmentation IA",
          lambda e: _launch_tool("Augmentation IA.py")),
     ]
     launcher_row = ft.Row([
@@ -7330,6 +7429,13 @@ def main(page: ft.Page):
             except Exception as exc:
                 _log_to_terminal(f"[ERREUR] {script_name} : {exc}", RED)
                 return
+            # Pour le bouton STOP du terminal (retour user : mauvais
+            # réglage repéré en plein batch) — nettoyé dans le finally
+            # ci-dessous, y compris si le process plante avant la fin.
+            running_proc["proc"] = proc
+            running_proc["stopped"] = False
+            terminal_stop_button.visible = True
+            page.update()
             # Outil avec sa propre fenêtre Flet (.pyw) : minimiser Hub le
             # temps qu'il tourne, comme Dashboard.pyw:8992-9004/9058-9068.
             is_gui_tool = (app_path.endswith(".pyw")
@@ -7407,7 +7513,15 @@ def main(page: ft.Page):
                 if viewer_overlay in page.overlay:
                     _close_viewer()
                 page.update()
-            if proc.returncode != 0:
+            running_proc["proc"] = None
+            terminal_stop_button.visible = False
+            if running_proc["stopped"]:
+                _log_to_terminal(f"[ARRÊTÉ] {script_name} interrompu", ORANGE)
+                # Comme une erreur : panneau laissé épinglé, l'utilisateur
+                # vient de l'arrêter volontairement pour corriger un
+                # réglage (retour user) — pas de fermeture auto qui le
+                # ferait disparaître avant qu'il ait pu relire le terminal.
+            elif proc.returncode != 0:
                 _log_to_terminal(
                     f"[ERREUR] {script_name} — code retour {proc.returncode}",
                     RED)
@@ -7707,6 +7821,75 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
+    def _next_temp_folder():
+        # Même schéma que Transfert vers TEMP.py:get_next_sequence_folder —
+        # TEMP/AAAA-MM-JJ/NN/ (NN = 1re séquence libre du jour). Dupliqué
+        # ici (8 lignes triviales) plutôt qu'importer ce .pyw (nom à
+        # espaces + fenêtre Flet montée à l'import).
+        day = datetime.datetime.now().strftime("%Y-%m-%d")
+        date_dir = os.path.join(CONSTANTS.TEMP_FOLDER, day)
+        n = 1
+        while True:
+            seq = os.path.join(date_dir, f"{n:02d}")
+            if not os.path.exists(seq):
+                os.makedirs(seq)
+                return seq
+            n += 1
+
+    def _gather_subfolders(event=None):
+        # Carte client pleine de sous-dossiers d'1 ou 2 photos : "Tout
+        # sélectionner" ignore les dossiers (voulu), donc pas moyen de
+        # travailler sur tout d'un coup sans passer par l'explorateur
+        # (retour user). Ici : copie toutes les images du dossier ET de
+        # ses sous-dossiers (récursif) à plat dans un nouveau dossier
+        # TEMP/AAAA-MM-JJ/NN/ (même destination que Transfert vers TEMP,
+        # retour user), puis navigue dedans. Lecture seule sur les
+        # sources — rien n'est écrit sur la carte.
+        folder = state["folder"]
+        if not folder:
+            return
+        _close_actions()
+        exts = CONSTANTS.IMAGE_EXTS | CONSTANTS.HUB_VECTOR_EXTS
+
+        def _work():
+            srcs = []
+            for root, _dirs, files in os.walk(folder):
+                for name in files:
+                    if CONSTANTS.is_os_junk(name):
+                        continue
+                    if os.path.splitext(name)[1].lower() in exts:
+                        srcs.append(os.path.join(root, name))
+            total = len(srcs)
+            if not total:
+                _log_to_terminal(
+                    "[INFO] Aucune image à rassembler", LIGHT_GREY)
+                return
+            dest = _next_temp_folder()
+            copied = 0
+            for i, src in enumerate(srcs, 1):
+                _log_to_terminal(
+                    f"[...] Copie {i}/{total} : {os.path.basename(src)}",
+                    ORANGE)
+                target = _unique_dest(dest, os.path.basename(src))
+                try:
+                    shutil.copy2(src, target)
+                    copied += 1
+                except Exception as exc:
+                    _log_to_terminal(
+                        f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
+            _log_to_terminal(
+                f"[OK] {copied} image(s) copiée(s) dans "
+                f"{os.path.relpath(dest, CONSTANTS.TEMP_FOLDER)}", BLUE)
+
+            async def _go():
+                try:
+                    _navigate(dest)
+                except Exception:
+                    pass
+            _run_task(_go)
+
+        _run_bg_action("Rassemblement des sous-dossiers", _work)
+
     def _launch_text_prompt(title, label, hint, script_name, env_key):
         def _on_confirm(value):
             _launch_tool(script_name, extra_env={env_key: value})
@@ -7727,9 +7910,12 @@ def main(page: ft.Page):
         # `fields` : liste de (label, suffix, default, env_key) — un champ
         # numérique par tuple, tous requis pour lancer l'outil.
         text_fields = [
+            # Pas d'autofocus : ouvrirait le pavé numérique d'emblée
+            # (retour user) — il ne doit apparaître qu'au toucher d'un
+            # champ.
             ft.TextField(
                 label=label, value=str(default),
-                suffix=ft.Text(suffix, color=GREY), autofocus=(i == 0),
+                suffix=ft.Text(suffix, color=GREY),
                 width=200, bgcolor=DARK, border_color=GREY, color=WHITE,
                 keyboard_type=ft.KeyboardType.NUMBER)
             for i, (label, suffix, default, env_key) in enumerate(fields)
@@ -7758,17 +7944,40 @@ def main(page: ft.Page):
             _launch_tool(script_name, extra_env=env)
 
         text_fields[-1].on_submit = _confirm
-        keypad = _numeric_keypad(text_fields)
+
+        # Masqué tant qu'aucun champ n'a le focus, même motif que le
+        # Montage (retour user) — évite de l'afficher en permanence.
+        keypad_box = ft.Row(visible=False, alignment=ft.MainAxisAlignment.CENTER)
+
+        def _show_keypad(event=None):
+            keypad_box.visible = True
+            page.update()
+
+        def _keypad_validated(event=None):
+            keypad_box.visible = False
+            page.update()
+
+        for field in text_fields:
+            field.on_focus = _show_keypad
+
+        keypad = _numeric_keypad(text_fields,
+                                 on_confirm=_keypad_validated)
+        keypad_box.controls = [keypad]
+
         dlg = ft.AlertDialog(
             title=ft.Text(title, size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column(text_fields + [keypad], spacing=8, tight=True),
+            content=ft.Column(
+                text_fields + [keypad_box], spacing=8, tight=True,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
         )
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        _run_task(_focus_dialog_field, text_fields[0])
+        # Pas de focus programmatique du 1er champ : ça rouvrirait aussi
+        # le pavé numérique d'emblée (retour user), même effet que
+        # l'autofocus qu'on vient de retirer plus haut.
 
     def _launch_redimensionner(event=None):
         _launch_number_prompt("Redimensionner", [
@@ -7931,7 +8140,35 @@ def main(page: ft.Page):
         # résolution/marge, toujours éditables. Les curseurs taille/
         # rotation n'en ont pas besoin (glisser suffit).
         keypad_fields = [width_field, height_field, dpi_field, margin_field]
-        keypad = _numeric_keypad(keypad_fields, allow_decimal=True)
+        keypad_box = ft.Row(visible=False, alignment=ft.MainAxisAlignment.CENTER)
+
+        # Masqué tant qu'aucun champ n'a le focus (retour user) — évite de
+        # l'afficher en permanence alors qu'on ne s'en sert pas toujours.
+        # Posé AVANT l'appel à _numeric_keypad ci-dessous : ce dernier
+        # enchaîne sur l'on_focus déjà présent plutôt que de l'écraser
+        # (cf. ui_helpers.numeric_keypad._track_focus) — l'ordre inverse
+        # casserait le suivi du champ actif par le pavé lui-même.
+        #
+        # Pas de _hide_keypad sur on_blur (essayé, retiré) : taper un
+        # chiffre du pavé déclenche le blur natif du champ qui vient de
+        # perdre le focus, ce qui masquait le pavé pendant/avant le clic
+        # sur le chiffre lui-même (retour user : "je clique sur un
+        # chiffre et il disparait sans que rien ne se passe"). Le masquage
+        # ne se fait donc qu'au clic sur ✓ (_keypad_validated).
+        def _show_keypad(event=None):
+            keypad_box.visible = True
+            page.update()
+
+        def _keypad_validated(event=None):
+            keypad_box.visible = False
+            page.update()
+
+        for field in keypad_fields:
+            field.on_focus = _show_keypad
+
+        keypad = _numeric_keypad(keypad_fields, allow_decimal=True,
+                                 on_confirm=_keypad_validated)
+        keypad_box.controls = [keypad]
 
         def _on_manual_change(e):
             manual["value"] = manual_switch.value
@@ -8153,51 +8390,63 @@ def main(page: ft.Page):
 
         dlg = ft.AlertDialog(
             title=ft.Text("Montage collage", size=CONSTANTS.TEXT_SM, color=WHITE),
+            # keypad_box est SORTI de la zone défilante ci-dessous et
+            # épinglé juste en dessous (retour user : enterré dans le
+            # scroll, il fallait défiler pour le voir en touchant un
+            # champ plus haut, ex. la marge). Une vraie surcouche
+            # page.overlay a été envisagée mais Flet fait passer les
+            # AlertDialog par une route modale toujours au-dessus des
+            # simples contrôles d'overlay, qui resteraient donc masqués
+            # dessous quel que soit l'ordre d'ajout — rester DANS le
+            # dialogue, juste hors de sa zone de scroll, est plus fiable.
             content=ft.Container(
                 width=360, height=560,
                 content=ft.Column([
-                    ft.Text("Photo centrale / mises en avant (optionnel)",
-                           size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
-                    tiles_row,
-                    ft.Divider(height=1, color=GREY),
-                    format_dd,
-                    orientation_btn,
-                    ft.Container(
-                        content=ft.Column([
-                            manual_switch,
-                            ft.Row([width_field, height_field], spacing=8,
-                                  alignment=ft.MainAxisAlignment.CENTER),
-                            ft.Row([ft.Text("Unité :", size=CONSTANTS.TEXT_SM,
-                                           color=LIGHT_GREY), unit_dropdown],
-                                  spacing=8,
-                                  alignment=ft.MainAxisAlignment.CENTER),
-                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                        border=ft.Border.all(1, GREY), border_radius=8,
-                        padding=10),
-                    dpi_toggle_btn,
-                    dpi_field,
-                    ft.Container(height=14),
-                    margin_field,
-                    ft.Text("Écart de taille (les photos se repositionnent "
-                           "pour combler l'espace)", size=CONSTANTS.TEXT_SM,
-                           color=LIGHT_GREY),
-                    size_slider,
-                    ft.Text("Rotation", size=CONSTANTS.TEXT_SM,
-                           color=LIGHT_GREY),
-                    rotation_slider,
-                    ft.Row([keypad], alignment=ft.MainAxisAlignment.CENTER),
-                    ft.Divider(height=1, color=GREY),
-                    ft.Row([
-                        ft.TextButton("Aperçu", icon=ft.Icons.PREVIEW,
-                                     on_click=_do_preview),
-                        ft.IconButton(ft.Icons.CASINO, icon_color=WHITE,
-                                     tooltip="Nouveau tirage aléatoire",
-                                     on_click=_reroll),
-                    ], alignment=ft.MainAxisAlignment.CENTER),
-                    preview_status,
-                    ft.Row([preview_progress], alignment=ft.MainAxisAlignment.CENTER),
-                    ft.Row([preview_image], alignment=ft.MainAxisAlignment.CENTER),
-                ], spacing=8, tight=True, scroll=ft.ScrollMode.AUTO,
+                    ft.Column([
+                        ft.Text("Photo centrale / mises en avant (optionnel)",
+                               size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
+                        tiles_row,
+                        ft.Divider(height=1, color=GREY),
+                        format_dd,
+                        orientation_btn,
+                        ft.Container(
+                            content=ft.Column([
+                                manual_switch,
+                                ft.Row([width_field, height_field], spacing=8,
+                                      alignment=ft.MainAxisAlignment.CENTER),
+                                ft.Row([ft.Text("Unité :", size=CONSTANTS.TEXT_SM,
+                                               color=LIGHT_GREY), unit_dropdown],
+                                      spacing=8,
+                                      alignment=ft.MainAxisAlignment.CENTER),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                            border=ft.Border.all(1, GREY), border_radius=8,
+                            padding=10),
+                        dpi_toggle_btn,
+                        dpi_field,
+                        ft.Container(height=14),
+                        margin_field,
+                        ft.Text("Écart de taille (les photos se repositionnent "
+                               "pour combler l'espace)", size=CONSTANTS.TEXT_SM,
+                               color=LIGHT_GREY),
+                        size_slider,
+                        ft.Text("Rotation", size=CONSTANTS.TEXT_SM,
+                               color=LIGHT_GREY),
+                        rotation_slider,
+                        ft.Divider(height=1, color=GREY),
+                        ft.Row([
+                            ft.TextButton("Aperçu", icon=ft.Icons.PREVIEW,
+                                         on_click=_do_preview),
+                            ft.IconButton(ft.Icons.CASINO, icon_color=WHITE,
+                                         tooltip="Nouveau tirage aléatoire",
+                                         on_click=_reroll),
+                        ], alignment=ft.MainAxisAlignment.CENTER),
+                        preview_status,
+                        ft.Row([preview_progress], alignment=ft.MainAxisAlignment.CENTER),
+                        ft.Row([preview_image], alignment=ft.MainAxisAlignment.CENTER),
+                    ], spacing=8, scroll=ft.ScrollMode.AUTO, expand=True,
+                       horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    keypad_box,
+                ], spacing=8, tight=True,
                    horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             ),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
@@ -8347,10 +8596,20 @@ def main(page: ft.Page):
             f"Portée auto : {'sélection en cours' if selected else 'tout le dossier'}",
             size=CONSTANTS.TEXT_SM, color=GREY)
 
-        # Pavé numérique tactile, visible seulement en saisie manuelle
-        # (les champs ne sont éditables que dans ce mode).
+        # Pavé numérique tactile, éditable seulement en saisie manuelle —
+        # masqué tant qu'aucun des deux champs n'a le focus, même motif
+        # que les autres dialogues (retour user).
+        keypad_box = ft.Row(visible=False, alignment=ft.MainAxisAlignment.CENTER)
+
+        def _show_keypad(event=None):
+            keypad_box.visible = True
+            page.update()
+
+        for f in (width_field, height_field):
+            f.on_focus = _show_keypad
+
         keypad = _numeric_keypad([width_field, height_field])
-        keypad.visible = manual["value"]
+        keypad_box.controls = [keypad]
 
         def _on_manual_change(e):
             manual["value"] = manual_switch.value
@@ -8362,7 +8621,10 @@ def main(page: ft.Page):
             fmt_dd.border_color = LIGHT_GREY if manual["value"] else BLUE
             width_field.border_color = BLUE if manual["value"] else LIGHT_GREY
             height_field.border_color = BLUE if manual["value"] else LIGHT_GREY
-            keypad.visible = manual["value"]
+            if not manual["value"]:
+                # Champs redevenus désactivés : plus moyen de les
+                # refocaliser pour masquer le pavé via _show_keypad.
+                keypad_box.visible = False
             page.update()
 
         manual_switch.on_change = _on_manual_change
@@ -8415,7 +8677,7 @@ def main(page: ft.Page):
                     content=ft.Column([manual_switch,
                                        ft.Row([width_field, height_field],
                                               spacing=8),
-                                       keypad]),
+                                       keypad_box]),
                     border=ft.Border.all(1, GREY), border_radius=8,
                     padding=10),
                 ft.Row([fit_switch, center_switch], spacing=8),
@@ -8583,6 +8845,8 @@ def main(page: ft.Page):
              lambda e: _launch_tool("Renommer pages Affinity.py")),
             ("Séparer RAW et JPG", ft.Icons.HIDE_IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Séparer RAW et JPG.py")),
+            ("Rassembler sous-dossiers vers TEMP",
+             ft.Icons.DRIVE_FOLDER_UPLOAD_OUTLINED, BLUE, _gather_subfolders),
         ]),
         # Ces quatre-là sont des copies vers un dossier : BLEU comme les
         # autres copies. Le JAUNE qu'elles portaient sert partout ailleurs
@@ -8612,7 +8876,7 @@ def main(page: ft.Page):
         ("Retouche", [
             ("Retouche par lot", ft.Icons.TUNE, VIOLET,
              lambda e: _launch_tool("Retouche par lot.pyw")),
-            ("Augmentation IA", ft.Icons.AUTO_FIX_HIGH_OUTLINED, VIOLET,
+            ("Augmentation IA", ft.Icons.AUTO_AWESOME, VIOLET,
              lambda e: _launch_tool("Augmentation IA.py")),
             ("Comparaison", ft.Icons.COMPARE_OUTLINED, VIOLET,
              _launch_comparaison),
@@ -8655,12 +8919,39 @@ def main(page: ft.Page):
         # aucun calcul de colonnes/aspect ratio à faire tenir juste, fiable
         # quelle que soit la largeur — la grille précédente n'a jamais
         # correctement rendu ses hauteurs (retour user, plusieurs essais).
+        # Pas de zébrage : GREY est aussi la couleur de survol, une ligne
+        # sur deux paraîtrait survolée (retour user).
         return ft.ListTile(
             leading=ft.Icon(icon, color=color, size=CONSTANTS.ICON_LG),
             title=ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE),
             trailing=trailing,
             on_click=handler, hover_color=GREY,
             content_padding=ft.Padding(left=8, top=4, right=8, bottom=4),
+        )
+
+    def _category_header(label, accent):
+        # En-tête de catégorie : titre en capitales dans la couleur
+        # d'accent, sur un fond très légèrement teinté de cette couleur,
+        # coins arrondis — le libellé se détache nettement du fond DARK
+        # de l'overlay et chaque catégorie se distingue de la suivante
+        # (retour user). Même traitement que les sections de Retouche
+        # par lot.
+        return ft.Container(
+            content=ft.Text(label.upper(), size=CONSTANTS.TEXT_SM,
+                            color=accent, weight=ft.FontWeight.W_700),
+            bgcolor=ft.Colors.with_opacity(0.15, accent),
+            border_radius=6,
+            padding=ft.Padding(10, 6, 10, 6),
+        )
+
+    def _category_block(header, body, accent):
+        # Filet vertical à gauche dans la couleur d'accent : relie
+        # visuellement l'en-tête et ses lignes, et sépare la catégorie
+        # de la précédente.
+        return ft.Container(
+            content=ft.Column([header, body], spacing=6),
+            border=ft.Border(left=ft.BorderSide(3, accent)),
+            padding=ft.Padding(left=8, top=0, right=0, bottom=0),
         )
 
     def _icon_row(tools):
@@ -8675,18 +8966,15 @@ def main(page: ft.Page):
         )
 
     def _action_category(label, tools):
-        # Libellé de catégorie en BLUE (pas GREY) : GREY sur le fond DARK
-        # de l'overlay est quasi illisible, deux gris trop proches en
-        # luminance — cf. retour user.
+        # Accent = couleur de la 1re action de la catégorie (BLEU par
+        # défaut). GREY sur le fond DARK de l'overlay est quasi illisible,
+        # deux gris trop proches en luminance — cf. retour user.
+        accent = tools[0][2] if tools and label != "Fichier" else BLUE
         if label == "Fichier":
-            body = [_icon_row(tools)]
+            body = _icon_row(tools)
         else:
-            body = [ft.Column([_action_row(*t) for t in tools], spacing=0)]
-        return ft.Column([
-            ft.Text(label.upper(), size=CONSTANTS.TEXT_SM, color=BLUE,
-                    weight=ft.FontWeight.W_700),
-            *body,
-        ], spacing=6)
+            body = ft.Column([_action_row(*t) for t in tools], spacing=0)
+        return _category_block(_category_header(label, accent), body, accent)
 
     # "Ouvrir avec" — ex-menu clic-droit (cf. _with_ctx_menu), déplacé ici
     # car le clic droit ouvre désormais ce panneau au lieu d'un menu dédié.
@@ -8719,9 +9007,9 @@ def main(page: ft.Page):
         rows.append(_action_row("Ajouter un programme...", ft.Icons.ADD,
                                 GREEN, lambda e: _add_open_with_program()))
         _open_with_category_col.controls = [
-            ft.Text("OUVRIR AVEC", size=CONSTANTS.TEXT_SM, color=BLUE,
-                    weight=ft.FontWeight.W_700),
-            ft.Column(rows, spacing=0),
+            _category_block(
+                _category_header("Ouvrir avec", BLUE),
+                ft.Column(rows, spacing=0), BLUE),
         ]
 
     _rebuild_open_with_category()
@@ -9319,6 +9607,25 @@ def main(page: ft.Page):
         ft.Icons.CLEAR_ALL, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
         tooltip="Effacer le terminal", on_click=_clear_terminal)
 
+    def _stop_running_tool(event=None):
+        # Un seul outil externe à la fois via _launch_tool — terminate()
+        # est TerminateProcess (immédiat) sous Windows, SIGTERM (arrêt
+        # par défaut d'un process Python) sous macOS/Linux (retour user :
+        # mauvais réglage repéré en plein batch, ex. Redimensionner).
+        proc = running_proc["proc"]
+        if proc is None:
+            return
+        running_proc["stopped"] = True
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+    terminal_stop_button = ft.IconButton(
+        ft.Icons.STOP_CIRCLE, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
+        tooltip="Arrêter l'outil en cours", visible=False,
+        on_click=_stop_running_tool)
+
     # Barre infinie (value=None) affichée pendant une action de fichiers
     # lancée en arrière-plan (copier/coller/dupliquer/zip/dézip/supprimer)
     # — même emplacement et même rôle que app_progress_bar dans
@@ -9359,7 +9666,7 @@ def main(page: ft.Page):
             # la ligne de saisie.
             ft.Container(
                 content=ft.Row([
-                    terminal_title, terminal_copy_button,
+                    terminal_title, terminal_stop_button, terminal_copy_button,
                     terminal_to_notepad_button, terminal_clear_button,
                     terminal_fullscreen_btn,
                 ], spacing=4),
