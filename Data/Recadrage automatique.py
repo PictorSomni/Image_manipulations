@@ -2,19 +2,24 @@
 """
 Recadre des images au format cible (mm) en mode "automatique".
 
-Deux modes :
+Trois modes (un seul actif a la fois ; priorite fit > fit-in > crop) :
   - Mode crop (defaut) : recadrage plein-format via ImageOps.fit (remplit exactement).
-  - Mode fit 100%      : image entiere placee dans le canvas sans rognage.
+  - Mode fit 100%      : image entiere placee dans le canvas sans rognage,
+    a sa taille NATIVE (pas de redimensionnement) :
     * Une seule image  : positionnee en (0, 0) (coin haut-gauche) sur fond blanc.
     * Plusieurs copies : tuilees et centrees sur le canvas.
+  - Mode fit-in        : image entiere REDIMENSIONNEE pour tenir dans le
+    format cible (bords blancs sur les 2 cotes les plus courts, une seule
+    image par canevas) -- meme principe que le Fit-in de Recadrage
+    manuel.pyw (delegue a image_ops.compute_fit_in), mais applique en lot.
 
 Nomenclature des fichiers :
   - Le nom de sortie ne répète pas le format cible : le fichier est déjà
     dans le sous-dossier nommé d'après le format (ex: "10x15/").
   - Préfixe NX_ (ex: "2X_photo.jpg", "3x_maphoto.png") = nombre d'impressions
-    demandé. Il est TOUJOURS respecté, dans les deux modes :
-    * Mode crop : une image recadrée, le préfixe est reporté tel quel sur le
-      fichier de sortie ("3X_photo.jpg" -> "3X_photo.jpg").
+    demandé. Il est TOUJOURS respecté, dans les trois modes :
+    * Mode crop ou fit-in : une image par canevas, le préfixe est reporté
+      tel quel sur le fichier de sortie ("3X_photo.jpg" -> "3X_photo.jpg").
     * Mode fit  : N copies tuilées sur le canvas. Si elles n'y tiennent pas
       toutes, on génère autant de canvas que nécessaire — le dernier reste
       partiellement blanc plutôt que d'être complété par des copies en trop.
@@ -22,7 +27,7 @@ Nomenclature des fichiers :
       toujours reporté en préfixe (y compris quand toutes les copies
       tiennent sur un seul canevas).
   - Sans préfixe : mode automatique (le canvas est rempli au maximum en mode
-    fit, une image en mode crop), et aucun préfixe en sortie.
+    fit, une image en mode crop ou fit-in), et aucun préfixe en sortie.
 
 Variables d'environnement :
   FOLDER_PATH         -- dossier source (defaut : repertoire du script)
@@ -32,6 +37,8 @@ Variables d'environnement :
   FORCE_CROP_HEIGHT   -- hauteur manuelle en mm (fallback)
   FORCE_CROP_SCOPE    -- "selected" ou "all" (defaut : selected)
   FORCE_CROP_FIT      -- "1" pour le mode fit 100% (defaut : 0 = crop)
+  FORCE_CROP_FITIN    -- "1" pour le mode fit-in (defaut : 0), ignore si
+                         FORCE_CROP_FIT=1.
 
 Sortie :
   Un sous-dossier nomme d'apres la taille cible (ex: "10x15" ou "12x17").
@@ -333,6 +340,10 @@ if scope not in {"selected", "all"}:
     scope = "selected"
 
 fit_mode = os.environ.get("FORCE_CROP_FIT", "0").strip() == "1"
+# Ignoré si fit_mode (tuilage prioritaire) : les deux modes sont mutuellement
+# exclusifs côté dialogue Hub (cf. _launch_recadrage_auto).
+fitin_mode = (not fit_mode
+             and os.environ.get("FORCE_CROP_FITIN", "0").strip() == "1")
 center_single = os.environ.get("FORCE_CROP_CENTER", "0").strip() == "1"
 white_border_mode = os.environ.get("FORCE_CROP_WHITE_BORDER", "0").strip() == "1"
 
@@ -358,7 +369,7 @@ folder_name = f"{normalize_mm_for_folder(height_mm)}x{normalize_mm_for_folder(wi
 output_folder = PATH / folder_name
 output_folder.mkdir(exist_ok=True)
 
-mode_label = "fit 100%" if fit_mode else "crop"
+mode_label = "fit 100%" if fit_mode else ("fit-in" if fitin_mode else "crop")
 
 if fit_mode:
     # ==== MODE FIT 100% : BATCH PACKING ====
@@ -499,6 +510,52 @@ if fit_mode:
     else:
         ok_count = 0
         err_count = len(images)
+elif fitin_mode:
+    # ==== MODE FIT-IN : TRAITEMENT PAR IMAGE (une par canevas) ====
+    # Image entière redimensionnée pour tenir dans le format cible, bords
+    # blancs sur les 2 côtés les plus courts (jamais rognée) — même
+    # principe que le Fit-in de Recadrage manuel.pyw, cf.
+    # image_ops.compute_fit_in (retour user).
+    ok_count = 0
+    err_count = 0
+
+    for index, filename in enumerate(images, start=1):
+        source_path = PATH / filename
+        print(f"[{index}/{total}] {filename}")
+
+        try:
+            copy_count, clean_filename = extract_copy_count_from_filename(filename)
+
+            img = image_ops.open_srgb(source_path)
+
+            # Même logique d'orientation que le mode crop (retour user :
+            # sans ça, une photo mal orientée par rapport au canevas
+            # ressortirait minuscule, doublement bordée de blanc sur les
+            # deux axes) : pivote pour matcher l'orientation du canevas
+            # avant le fit-in, repivote le résultat à la fin pour que le
+            # fichier de sortie respecte l'orientation naturelle de la
+            # photo.
+            rotated_back = False
+            if img.width < img.height:
+                img = img.rotate(90, expand=True)
+                rotated_back = True
+            result = image_ops.compute_fit_in(
+                img, width_px, height_px, img.width, img.height)
+            if rotated_back:
+                result = result.rotate(270, expand=True)
+
+            stem = Path(clean_filename).stem
+            prefix = f"{copy_count}X_" if copy_count is not None else ""
+            out_path = output_folder / f"{prefix}{stem}.jpg"
+
+            result.save(out_path, dpi=(DPI, DPI), format="JPEG",
+                       subsampling=0, quality=100,
+                       icc_profile=image_ops._SRGB_ICC)
+
+            ok_count += 1
+        except Exception as exc:
+            err_count += 1
+            print(f"[ERREUR] {filename} : {exc}")
 else:
     # ==== MODE CROP : TRAITEMENT PAR IMAGE ====
     ok_count = 0
@@ -556,3 +613,7 @@ else:
 print("#" * 40)
 if fit_mode:
     print(f"Termine ! {ok_count} canvas genere(e)s.")
+elif fitin_mode:
+    print(f"Termine ! {ok_count} image(s) fit-in, {err_count} erreur(s).")
+else:
+    print(f"Termine ! {ok_count} image(s) recadree(s), {err_count} erreur(s).")

@@ -9,19 +9,21 @@ proportionnel au poids (COLLAGE_SIZE_VARIATION) de chacune — garantit par
 construction que les tuiles couvrent TOUT le canevas, sans trou ni
 recouvrement entre elles (le seul chevauchement volontaire vient de la
 photo centrale, cf. plus bas). Une légère rotation
-(COLLAGE_ROTATION_VARIATION) peut ensuite être appliquée à chaque tuile,
-rétrécie d'autant qu'il faut pour que sa boîte pivotée tienne quand même
-dans sa case d'origine — elle ne déborde donc jamais sur une voisine. Une
-marge de sécurité (COLLAGE_SAFE_MARGIN_CM) tient la mosaïque éloignée du
-bord réel du canevas, pour limiter le risque de détail important coupé au
-massicot. Une photo peut être désignée comme centrale (COLLAGE_CENTER_FILE,
+(COLLAGE_ROTATION_VARIATION) peut ensuite être appliquée à chaque tuile, à
+taille pleine (pas rétrécie) : elle déborde donc légèrement sur ses
+voisines à ses coins, comme un vrai tas de photos posées. Une marge de
+sécurité (COLLAGE_SAFE_MARGIN_CM) tient la mosaïque éloignée du bord réel
+du canevas, pour limiter le risque de détail important coupé au massicot.
+Une photo peut être désignée comme centrale (COLLAGE_CENTER_FILE,
 agrandie, posée au milieu, jamais pivotée) et d'autres comme mises en
 avant (COLLAGE_FEATURED_FILES, agrandies).
 
-Produit soit un aperçu à taille réelle (``Montage/apercu.png``, fond
-transparent), soit — si COLLAGE_PSD=1 — uniquement un fichier .psd avec
-chaque photo sur son propre calque déjà placé — reste à retoucher les
-bords (flou, ombre) et poser le fond dans Affinity.
+Produit un fichier .psd avec chaque photo sur son propre calque déjà
+placé (calque complet, sous un masque rectangulaire déplaçable pour
+révéler ce que le cadrage automatique avait coupé) — reste à retoucher
+les bords (flou, ombre) et poser le fond dans Affinity. Si pytoshop
+n'est pas installé, un aperçu PNG à taille réelle (``Montage/apercu.png``,
+fond transparent) est produit à la place.
 
 Variables d'environnement :
   FOLDER_PATH              — dossier source (défaut : répertoire du script).
@@ -34,12 +36,10 @@ Variables d'environnement :
   COLLAGE_SAFE_MARGIN_CM   — marge de sécurité près des bords, en cm (défaut CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT).
   COLLAGE_CENTER_FILE      — nom d'une photo à poser au centre, agrandie (optionnel).
   COLLAGE_FEATURED_FILES   — noms de photos à mettre en avant, séparés par ``|`` (optionnel).
-  COLLAGE_PSD              — "1" : écrit le .psd calque par calque et
-                            SANS apercu.png. "0" : apercu.png seul.
   COLLAGE_SEED             — graine aléatoire (optionnel, pour reproduire un tirage).
 
-Dépendances : Pillow, numpy (déjà requis par image_ops).
-  Optionnel (COLLAGE_PSD=1 uniquement) : pytoshop, six.
+Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
+  (pour le .psd — sans pytoshop, seul l'aperçu PNG est produit).
 """
 
 __version__ = "3.0.0"
@@ -515,7 +515,6 @@ def main():
         "COLLAGE_ROTATION_VARIATION", CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT)))
     safe_margin_cm = env_float(
         "COLLAGE_SAFE_MARGIN_CM", CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT)
-    write_psd = os.environ.get("COLLAGE_PSD", "0") == "1"
     seed = os.environ.get("COLLAGE_SEED") or None
 
     center_file = os.environ.get("COLLAGE_CENTER_FILE", "").strip() or None
@@ -545,16 +544,19 @@ def main():
         margin_px, seed, load_source,
         center_key=center_file, featured_keys=featured_files)
 
-    # Avec PSD : pas d'apercu.png. Les photos se revérifient de toute
-    # façon à la main dans Affinity ensuite, et encoder ce PNG plein
-    # format à la résolution d'impression coûte plusieurs secondes pour
-    # rien (retour user). L'aperçu live du dialogue de création reste
-    # (rendu côté Hub, pas ce script). Sans PSD, on écrit apercu.png
-    # sinon l'outil ne produirait rien.
-    if write_psd:
-        write_psd_file(out_dir / "Montage.psd", canvas, psd_layers,
-                       canvas_w, canvas_h)
-    else:
+    # Plus de case à cocher (retour user : "supprime le checkbox .psd vu
+    # que c'est l'unique option") — le .psd (calque complet + masque
+    # déplaçable) est désormais le seul format produit. Pas d'apercu.png
+    # à côté : les photos se revérifient de toute façon à la main dans
+    # Affinity ensuite, et encoder ce PNG plein format à la résolution
+    # d'impression coûte plusieurs secondes pour rien quand le .psd,
+    # lui, s'ouvre déjà avec le même rendu par défaut. L'aperçu live du
+    # dialogue de création reste (rendu côté Hub, pas ce script). Filet
+    # de sécurité : sans pytoshop, write_psd_file ne produit rien —
+    # apercu.png prend alors le relais pour que l'outil ne reste jamais
+    # sans rien produire.
+    if not write_psd_file(out_dir / "Montage.psd", canvas, psd_layers,
+                          canvas_w, canvas_h):
         preview_path = out_dir / "apercu.png"
         canvas.save(preview_path)
         print(f"[ok] Aperçu → {preview_path.name} ({canvas_w}x{canvas_h}px)",
@@ -572,7 +574,10 @@ def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h):
     que le cadrage automatique avait coupé (retour user). Ajoute aussi
     l'image composite requise par le format PSD (sans elle, Pillow/
     certains lecteurs affichent une page blanche — cf. test manuel avant
-    intégration)."""
+    intégration).
+
+    Renvoie True si le .psd a été écrit, False si pytoshop est absent
+    (main() écrit alors un apercu.png à la place, cf. plus haut)."""
     try:
         import numpy as np
         import pytoshop
@@ -581,8 +586,8 @@ def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h):
         from pytoshop.image_data import ImageData
     except ImportError:
         print("[WARN] pytoshop introuvable (pip install pytoshop six) — "
-              ".psd non généré, l'aperçu PNG reste disponible.", flush=True)
-        return
+              ".psd non généré, aperçu PNG généré à la place.", flush=True)
+        return False
 
     records = []
     for layer_name, full_img, full_left, full_top, mask_left, mask_top, \
@@ -631,6 +636,7 @@ def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h):
     with open(psd_path, "wb") as f:
         psd.write(f)
     print(f"[ok] PSD → {psd_path.name} ({len(records)} calque(s))", flush=True)
+    return True
 
 
 if __name__ == "__main__":
