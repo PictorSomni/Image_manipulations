@@ -8847,7 +8847,7 @@ def main(page: ft.Page):
          lambda e: _run_action(_do_rotate, list(selected), 90)),
         ("Pivoter 90° droite", ft.Icons.ROTATE_RIGHT, GREEN,
          lambda e: _run_action(_do_rotate, list(selected), -90)),
-        ("Pivoter 180°", ft.Icons.SCREEN_ROTATION, BLUE,
+        ("Pivoter 180°", ft.Icons.SCREEN_ROTATION, GREEN,
          lambda e: _run_action(_do_rotate, list(selected), 180)),
     ]
     # Sur la même rangée d'icônes que le reste, à la fin (retour user) —
