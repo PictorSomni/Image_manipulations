@@ -312,6 +312,10 @@ def main(page: ft.Page):
     RED        = CONSTANTS.COLOR_RED
     VIOLET     = CONSTANTS.COLOR_VIOLET
     GREEN      = CONSTANTS.COLOR_GREEN
+    HOVER_YELLOW = CONSTANTS.COLOR_HOVER_YELLOW
+    BLUE_LIGHT = CONSTANTS.COLOR_BLUE_LIGHT
+    VIOLET_LIGHT = CONSTANTS.COLOR_VIOLET_LIGHT
+    RED_LIGHT  = CONSTANTS.COLOR_RED_LIGHT
     LIGHT_GREY = CONSTANTS.COLOR_LIGHT_GREY
     ICON_ACTION = CONSTANTS.ICON_ACTION
 
@@ -765,7 +769,9 @@ def main(page: ft.Page):
             content=ft.Column([
                 icon,
                 ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
-                        color=WHITE, no_wrap=True),
+                        color=WHITE, no_wrap=True,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                        tooltip=os.path.basename(path)),
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6,
                expand=True),
@@ -931,7 +937,9 @@ def main(page: ft.Page):
             content=ft.Column([
                 icon_ctl,
                 ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
-                        color=WHITE, no_wrap=True),
+                        color=WHITE, no_wrap=True,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                        tooltip=os.path.basename(path)),
             ], alignment=ft.MainAxisAlignment.CENTER,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6,
                expand=True),
@@ -968,7 +976,9 @@ def main(page: ft.Page):
                                 on_click=lambda e, p=path: _open_viewer(p))
         is_ordered = path in order
         label = ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
-                        color=WHITE, no_wrap=True)
+                        color=WHITE, no_wrap=True,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                        tooltip=os.path.basename(path))
         if order_mode["value"]:
             # Badge commande sous le nom (pas de case à cocher sur l'image) —
             # clic = dialogue plusieurs tailles, jamais de clic droit.
@@ -4208,21 +4218,21 @@ def main(page: ft.Page):
         "Recadrage manuel")
 
     recadrage_auto_btn = _toolbar_icon_btn(
-        ft.Icons.CROP, GREEN, lambda e: _launch_recadrage_auto(e),
+        ft.Icons.CROP, RED_LIGHT, lambda e: _launch_recadrage_auto(e),
         "Recadrage automatique")
 
     two_en_un_btn = _toolbar_icon_btn(
-        ft.CupertinoIcons.SQUARE_SPLIT_2X1, GREEN,
+        ft.CupertinoIcons.SQUARE_SPLIT_2X1, RED_LIGHT,
         lambda e: _launch_two_in_one(e),
         "2 en 1")
 
     retouche_par_lot_btn = _toolbar_icon_btn(
-        ft.Icons.TUNE, VIOLET,
+        ft.Icons.TUNE, YELLOW,
         lambda e: _launch_tool("Retouche par lot.pyw"),
         "Retouche par lot (aperçu live)")
 
     augmentation_ia_btn = _toolbar_icon_btn(
-        ft.Icons.AUTO_AWESOME, VIOLET,
+        ft.Icons.AUTO_AWESOME, YELLOW,
         lambda e: _launch_tool("Augmentation IA.py"),
         "Augmentation IA")
     # Toujours actifs, avec ou sans sélection : sans fichier sélectionné,
@@ -4363,7 +4373,7 @@ def main(page: ft.Page):
     # LUI, aucun état désactivé. Sans la garde, une ligne Actions cliquée
     # sans sélection lance l'action à vide.
     renommer_btn = _edit_icon_btn(
-        ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
+        ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_LIGHT,
         lambda e: _run_action(_rename_item, list(selected))
                   if len(selected) == 1 else None,
         "Renommer")
@@ -4379,11 +4389,11 @@ def main(page: ft.Page):
     # (clipboard["paths"]) — grisé/dégrisé séparément, cf. _do_copy/_do_cut/
     # _do_paste : hors de _sel_edit_btns.
     coller_btn = _edit_icon_btn(
-        ft.Icons.CONTENT_PASTE, BLUE,
+        ft.Icons.CONTENT_PASTE, HOVER_YELLOW,
         lambda e: _run_action(_do_paste),
         "Coller", selection_driven=False)
     dupliquer_btn = _edit_icon_btn(
-        ft.Icons.FILE_COPY_OUTLINED, BLUE,
+        ft.Icons.FILE_COPY_OUTLINED, VIOLET_LIGHT,
         lambda e: _run_action(_do_duplicate, list(selected)) if selected else None,
         "Dupliquer")
     # ORANGE volontaire : « Zipper » produit un fichier au lieu d'agir sur
@@ -4440,7 +4450,7 @@ def main(page: ft.Page):
     # None`), donc cliquer un item du menu sans rien sélectionné ne fait
     # rien — juste sans le retour visuel grisé de la version large.
     _EDIT_MENU_TOOLS = [
-        (ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE, "Renommer",
+        (ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_LIGHT, "Renommer",
          lambda e: _run_action(_rename_item, list(selected))
                    if len(selected) == 1 else None),
         (ft.Icons.CONTENT_COPY, BLUE, "Copier",
@@ -4449,9 +4459,9 @@ def main(page: ft.Page):
         (ft.Icons.CONTENT_CUT, BLUE, "Couper",
          lambda e: _run_action(_do_cut, list(selected)) if selected
                    else None),
-        (ft.Icons.CONTENT_PASTE, BLUE, "Coller",
+        (ft.Icons.CONTENT_PASTE, HOVER_YELLOW, "Coller",
          lambda e: _run_action(_do_paste)),
-        (ft.Icons.FILE_COPY_OUTLINED, BLUE, "Dupliquer",
+        (ft.Icons.FILE_COPY_OUTLINED, VIOLET_LIGHT, "Dupliquer",
          lambda e: _run_action(_do_duplicate, list(selected)) if selected
                    else None),
         (ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE, "Zipper",
@@ -4545,13 +4555,13 @@ def main(page: ft.Page):
          lambda e: _launch_tool(
              "Recadrage manuel.pyw",
              extra_env={"TARIFF_TYPE": state["tariff_mode"]})),
-        (ft.Icons.CROP, GREEN, "Recadrage automatique",
+        (ft.Icons.CROP, RED_LIGHT, "Recadrage automatique",
          lambda e: _launch_recadrage_auto(e)),
-        (ft.CupertinoIcons.SQUARE_SPLIT_2X1, GREEN, "2 en 1",
+        (ft.CupertinoIcons.SQUARE_SPLIT_2X1, RED_LIGHT, "2 en 1",
          lambda e: _launch_two_in_one(e)),
-        (ft.Icons.TUNE, VIOLET, "Retouche par lot (aperçu live)",
+        (ft.Icons.TUNE, YELLOW, "Retouche par lot (aperçu live)",
          lambda e: _launch_tool("Retouche par lot.pyw")),
-        (ft.Icons.AUTO_AWESOME, VIOLET, "Augmentation IA",
+        (ft.Icons.AUTO_AWESOME, YELLOW, "Augmentation IA",
          lambda e: _launch_tool("Augmentation IA.py")),
     ]
     launcher_row = ft.Row([
@@ -8816,24 +8826,26 @@ def main(page: ft.Page):
     # seules (sans texte), Imprimer/Nombre d'impressions déplacés juste
     # avant Supprimer dans la liste texte ci-dessous (retour user).
     _fichier_icon_actions = [
-        ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE,
+        ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_LIGHT,
          renommer_btn.on_click),
         ("Copier", ft.Icons.CONTENT_COPY, BLUE, copier_btn.on_click),
-        # Ces trois-là déclenchent EXACTEMENT le même handler que les
-        # boutons de la barre d'outils (couper/coller/zipper) : ils
+        # Ces entrées déclenchent EXACTEMENT le même handler que les
+        # boutons de la barre d'outils (couper/coller/zipper) : elles
         # doivent en porter la couleur, sinon la même action a deux
-        # identités selon l'endroit où on la lance.
+        # identités selon l'endroit où on la lance. Coller fait exception
+        # (HOVER_YELLOW au lieu de BLEU) : demandé tel quel par Charles
+        # pour le distinguer visuellement des autres actions presse-papiers.
         ("Couper", ft.Icons.CONTENT_CUT, BLUE, couper_btn.on_click),
-        ("Coller", ft.Icons.CONTENT_PASTE, BLUE, coller_btn.on_click),
-        ("Dupliquer", ft.Icons.FILE_COPY_OUTLINED, BLUE,
+        ("Coller", ft.Icons.CONTENT_PASTE, HOVER_YELLOW, coller_btn.on_click),
+        ("Dupliquer", ft.Icons.FILE_COPY_OUTLINED, VIOLET_LIGHT,
          dupliquer_btn.on_click),
         ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE,
          zipper_btn.on_click),
         ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
          ajouter_ia_btn.on_click),
-        ("Pivoter 90° gauche", ft.Icons.ROTATE_LEFT, BLUE,
+        ("Pivoter 90° gauche", ft.Icons.ROTATE_LEFT, GREEN,
          lambda e: _run_action(_do_rotate, list(selected), 90)),
-        ("Pivoter 90° droite", ft.Icons.ROTATE_RIGHT, BLUE,
+        ("Pivoter 90° droite", ft.Icons.ROTATE_RIGHT, GREEN,
          lambda e: _run_action(_do_rotate, list(selected), -90)),
         ("Pivoter 180°", ft.Icons.SCREEN_ROTATION, BLUE,
          lambda e: _run_action(_do_rotate, list(selected), 180)),
@@ -8891,17 +8903,17 @@ def main(page: ft.Page):
         ("Recadrage", [
             ("Recadrage manuel", ft.Icons.CROP_FREE, RED,
              recadrage_manuel_btn.on_click),
-            ("Recadrage automatique", ft.Icons.CROP, GREEN,
+            ("Recadrage automatique", ft.Icons.CROP, RED_LIGHT,
              recadrage_auto_btn.on_click),
-            ("2 en 1", ft.CupertinoIcons.SQUARE_SPLIT_2X1, GREEN,
+            ("2 en 1", ft.CupertinoIcons.SQUARE_SPLIT_2X1, RED_LIGHT,
              two_en_un_btn.on_click),
         ]),
         ("Retouche", [
-            ("Retouche par lot", ft.Icons.TUNE, VIOLET,
+            ("Retouche par lot", ft.Icons.TUNE, YELLOW,
              lambda e: _launch_tool("Retouche par lot.pyw")),
-            ("Augmentation IA", ft.Icons.AUTO_AWESOME, VIOLET,
+            ("Augmentation IA", ft.Icons.AUTO_AWESOME, YELLOW,
              lambda e: _launch_tool("Augmentation IA.py")),
-            ("Comparaison", ft.Icons.COMPARE_OUTLINED, VIOLET,
+            ("Comparaison", ft.Icons.COMPARE_OUTLINED, YELLOW,
              _launch_comparaison),
         ]),
         ("Montage", [
