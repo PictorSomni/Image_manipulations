@@ -9010,10 +9010,15 @@ def main(page: ft.Page):
         # gris trop proches en luminance — cf. retour user.
         accent = _ACTION_CATEGORY_COLORS.get(
             label, tools[0][2] if tools else BLUE)
+        # Icônes recolorées dans l'accent de la catégorie (retour user) :
+        # la couleur individuelle du tuple ne sert plus qu'ailleurs
+        # (aucun autre usage actuellement).
         if label == "Fichier":
-            body = _icon_row(tools)
+            body = _icon_row([(t[0], t[1], accent, t[3]) for t in tools])
         else:
-            body = ft.Column([_action_row(*t) for t in tools], spacing=0)
+            body = ft.Column(
+                [_action_row(t[0], t[1], accent, t[3]) for t in tools],
+                spacing=0)
         return _category_block(_category_header(label, accent), body, accent)
 
     # "Ouvrir avec" — ex-menu clic-droit (cf. _with_ctx_menu), déplacé ici
