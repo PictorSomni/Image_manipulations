@@ -4523,12 +4523,13 @@ def main(page: ft.Page):
        vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     # Ligne 1 : dossier parent/rafraîchir/nouveau dossier/créer fichier +
-    # Kiosk gauche/Transfert TEMP (absents du panneau Actions) + tri/
-    # affichage TOUJOURS visibles (retour user : seules les icônes qui ont
-    # un double dans le panneau Actions peuvent se replier). Seuls les 5
-    # lanceurs présents dans _ACTION_CATEGORIES (Recadrage manuel/auto,
-    # 2 en 1, Retouche par lot, Augmentation IA) se replient dans un menu
-    # "..." en dessous de CONSTANTS.HUB_TITLEBAR_NARROW_WIDTH.
+    # Kiosk gauche/Transfert TEMP + tri/affichage TOUJOURS visibles
+    # (retour user : seules les icônes qui ont un double dans le panneau
+    # Actions peuvent se replier — Transfert TEMP en a désormais un, mais
+    # reste ici toujours visible par cohérence avec Kiosk gauche). Seuls
+    # les 5 lanceurs présents dans _ACTION_CATEGORIES (Recadrage
+    # manuel/auto, 2 en 1, Retouche par lot, Augmentation IA) se replient
+    # dans un menu "..." en dessous de CONSTANTS.HUB_TITLEBAR_NARROW_WIDTH.
     tools_nav_row = ft.Row([
         parent_folder_btn, refresh_folder_btn, new_folder_btn,
         ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
@@ -8823,6 +8824,8 @@ def main(page: ft.Page):
              lambda e: _launch_tool("Renommer pages Affinity.py")),
             ("Séparer RAW et JPG", ft.Icons.HIDE_IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Séparer RAW et JPG.py")),
+            ("Transfert vers TEMP", ft.Icons.DRIVE_FILE_MOVE_OUTLINED, BLUE,
+             lambda e: _launch_transfert_temp(e)),
             ("Rassembler sous-dossiers vers TEMP",
              ft.Icons.DRIVE_FOLDER_UPLOAD_OUTLINED, BLUE, _gather_subfolders),
         ]),
@@ -8943,11 +8946,28 @@ def main(page: ft.Page):
             spacing=0, wrap=True,
         )
 
+    # Une couleur par catégorie, fixée ici plutôt que déduite de la 1re
+    # action : deux catégories voisines partageaient souvent la couleur
+    # de leurs outils (Préparation/Sélection en bleu, Retouche/Montage en
+    # violet...) et se distinguaient mal l'une de l'autre (retour user).
+    # Choisies pour qu'aucune catégorie adjacente ne partage sa couleur.
+    _ACTION_CATEGORY_COLORS = {
+        "Fichier": BLUE,
+        "Préparation": VIOLET,
+        "Sélection": GREEN,
+        "Kiosque (mode client)": ORANGE,
+        "Recadrage": RED,
+        "Retouche": YELLOW,
+        "Montage": BLUE,
+        "Export & livrables": ORANGE,
+        "Maintenance": RED,
+    }
+
     def _action_category(label, tools):
-        # Accent = couleur de la 1re action de la catégorie (BLEU par
-        # défaut). GREY sur le fond DARK de l'overlay est quasi illisible,
-        # deux gris trop proches en luminance — cf. retour user.
-        accent = tools[0][2] if tools and label != "Fichier" else BLUE
+        # GREY sur le fond DARK de l'overlay est quasi illisible, deux
+        # gris trop proches en luminance — cf. retour user.
+        accent = _ACTION_CATEGORY_COLORS.get(
+            label, tools[0][2] if tools else BLUE)
         if label == "Fichier":
             body = _icon_row(tools)
         else:
