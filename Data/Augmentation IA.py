@@ -1719,7 +1719,7 @@ async def main(page: ft.Page) -> None:
     topaz_face_recovery_btn = ft.Button(
         "Face Recovery", icon=ft.Icons.FACE_RETOUCHING_NATURAL,
         bgcolor=YELLOW, color=DARK, expand=True,
-        tooltip="Topaz Face Recovery (Recover 3) — restauration/netteté des visages",
+        tooltip="Topaz Face Recovery V3 — restauration/netteté des visages",
     )
 
     _topaz_buttons = [topaz_wonder_btn, topaz_wonder_x2_btn,
@@ -1729,7 +1729,8 @@ async def main(page: ft.Page) -> None:
         for btn in _topaz_buttons:
             btn.disabled = disabled
 
-    async def _run_topaz(model: str, label: str, extra_data: dict) -> None:
+    async def _run_topaz(model: str, label: str, extra_data: dict,
+                          endpoint: str = "enhance-gen") -> None:
         base = state["work_img"] or state["orig_img"]
         if base is None or state["working"]:
             return
@@ -1755,7 +1756,7 @@ async def main(page: ft.Page) -> None:
             buf.seek(0)
             data = {"model": model, **extra_data}
             resp = requests.post(
-                "https://api.topazlabs.com/image/v1/enhance-gen/async",
+                f"https://api.topazlabs.com/image/v1/{endpoint}/async",
                 headers={"X-API-KEY": api_key},
                 data=data,
                 files={"image": ("image.jpg", buf, "image/jpeg")},
@@ -1822,8 +1823,8 @@ async def main(page: ft.Page) -> None:
         await _run_topaz("Wonder 3.5", "Topaz Wonder x4", _wonder_data(4))
 
     async def on_run_topaz_face_recovery(e) -> None:
-        await _run_topaz("Recover 3", "Topaz Face Recovery",
-                          {"faceEnhancement": True})
+        await _run_topaz("Face Recovery V3", "Topaz Face Recovery", {},
+                          endpoint="restore-gen")
 
     topaz_wonder_btn.on_click        = on_run_topaz_wonder
     topaz_wonder_x2_btn.on_click     = on_run_topaz_wonder_x2
