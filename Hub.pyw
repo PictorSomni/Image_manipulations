@@ -4219,11 +4219,11 @@ def main(page: ft.Page):
         "Recadrage manuel")
 
     recadrage_auto_btn = _toolbar_icon_btn(
-        ft.Icons.CROP, RED_LIGHT, lambda e: _launch_recadrage_auto(e),
+        ft.Icons.CROP, RED, lambda e: _launch_recadrage_auto(e),
         "Recadrage automatique")
 
     two_en_un_btn = _toolbar_icon_btn(
-        ft.CupertinoIcons.SQUARE_SPLIT_2X1, RED_LIGHT,
+        ft.CupertinoIcons.SQUARE_SPLIT_2X1, RED,
         lambda e: _launch_two_in_one(e),
         "2 en 1")
 
@@ -4556,9 +4556,9 @@ def main(page: ft.Page):
          lambda e: _launch_tool(
              "Recadrage manuel.pyw",
              extra_env={"TARIFF_TYPE": state["tariff_mode"]})),
-        (ft.Icons.CROP, RED_LIGHT, "Recadrage automatique",
+        (ft.Icons.CROP, RED, "Recadrage automatique",
          lambda e: _launch_recadrage_auto(e)),
-        (ft.CupertinoIcons.SQUARE_SPLIT_2X1, RED_LIGHT, "2 en 1",
+        (ft.CupertinoIcons.SQUARE_SPLIT_2X1, RED, "2 en 1",
          lambda e: _launch_two_in_one(e)),
         (ft.Icons.TUNE, YELLOW, "Retouche par lot (aperçu live)",
          lambda e: _launch_tool("Retouche par lot.pyw")),
@@ -8904,9 +8904,9 @@ def main(page: ft.Page):
         ("Recadrage", [
             ("Recadrage manuel", ft.Icons.CROP_FREE, RED,
              recadrage_manuel_btn.on_click),
-            ("Recadrage automatique", ft.Icons.CROP, RED_LIGHT,
+            ("Recadrage automatique", ft.Icons.CROP, RED,
              recadrage_auto_btn.on_click),
-            ("2 en 1", ft.CupertinoIcons.SQUARE_SPLIT_2X1, RED_LIGHT,
+            ("2 en 1", ft.CupertinoIcons.SQUARE_SPLIT_2X1, RED,
              two_en_un_btn.on_click),
         ]),
         ("Retouche", [
