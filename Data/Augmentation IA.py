@@ -46,6 +46,7 @@ import importlib.util
 import json
 import threading
 import time
+import shutil
 from pathlib import Path
 import sys
 import requests
@@ -1441,38 +1442,50 @@ async def main(page: ft.Page) -> None:
         else:
             await page.window.close()  # type: ignore[misc]
 
-    def _unique_path(folder: str, basename: str) -> str:
-        name, ext = os.path.splitext(basename)
-        candidate = os.path.join(folder, basename)
-        n = 1
-        while os.path.exists(candidate):
-            candidate = os.path.join(folder, f"{name} ({n}){ext}")
-            n += 1
-        return candidate
-
-    def _retouche_path() -> str | None:
+    def _save_path() -> str | None:
+        # Enregistre dans le dossier courant, à côté de l'original — plus
+        # de sous-dossier Retouche/ qui finissait par s'imbriquer au fil
+        # des retouches successives (retour user).
         src = state["source_path"]
         if not src:
             return None
-        src_dir = os.path.dirname(src)
         basename = os.path.basename(src)
         if state["rembg_active"] and rembg_dropdown.value == "Transparent":
             basename = os.path.splitext(basename)[0] + ".png"
-        if os.path.basename(src_dir) == "Retouche":
-            # Image déjà issue d'un dossier Retouche : on réutilise ce
-            # dossier au lieu d'imbriquer un Retouche/Retouche, et on
-            # incrémente le nom pour ne pas écraser silencieusement le
-            # fichier déjà retouché (retour user).
-            return _unique_path(src_dir, basename)
-        retouche_dir = os.path.join(src_dir, "Retouche")
-        os.makedirs(retouche_dir, exist_ok=True)
-        return os.path.join(retouche_dir, basename)
+        return os.path.join(os.path.dirname(src), basename)
+
+    def _backup_original(src: str) -> None:
+        # Copie l'original dans ORIGINAUX/ avant la première retouche —
+        # une seule fois : les retouches suivantes du même fichier
+        # n'écrasent jamais cette sauvegarde initiale (retour user).
+        originaux_dir = os.path.join(os.path.dirname(src), "ORIGINAUX")
+        dest = os.path.join(originaux_dir, os.path.basename(src))
+        if os.path.exists(dest):
+            return
+        os.makedirs(originaux_dir, exist_ok=True)
+        shutil.copy2(src, dest)
+
+    async def _save_current() -> bool:
+        if state["work_img"] is None:
+            return False
+        src  = state["source_path"]
+        path = _save_path()
+        if not path:
+            return False
+        if src:
+            _backup_original(src)
+            # Le nom change (ex. export PNG transparent) : l'ancien
+            # fichier reste sinon en double dans le dossier courant,
+            # alors qu'il est déjà préservé dans ORIGINAUX/.
+            if src != path and os.path.exists(src):
+                try:
+                    os.remove(src)
+                except OSError:
+                    pass
+        return await _save_to(path)
 
     async def on_save(e) -> None:
-        if state["work_img"] is None:
-            return
-        path = _retouche_path()
-        if path and await _save_to(path):
+        if await _save_current():
             await _advance_after_save()
 
     # ── Ouverture manuelle ───────────────────────────────────────────────────
@@ -2837,8 +2850,7 @@ async def main(page: ft.Page) -> None:
     async def _dialog_save() -> None:
         close_dialog.open = False
         page.update()
-        path = _retouche_path()
-        if path and await _save_to(path):
+        if await _save_current():
             await _force_close()
 
     close_dialog = ft.AlertDialog(
