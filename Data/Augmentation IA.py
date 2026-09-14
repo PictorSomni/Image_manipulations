@@ -45,11 +45,11 @@ import asyncio
 import importlib.util
 import json
 import threading
-import subprocess
 import time
 from pathlib import Path
 import sys
 import requests
+import credentials
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
@@ -1696,14 +1696,7 @@ async def main(page: ft.Page) -> None:
     # nom de modèle une fois ce circuit validé à l'usage.
 
     def _topaz_api_key() -> str | None:
-        try:
-            out = subprocess.run(
-                ["pass", "show", "topaz/api-key"],
-                capture_output=True, text=True, timeout=10, check=True,
-            )
-            return out.stdout.splitlines()[0].strip() or None
-        except Exception:
-            return None
+        return credentials.get_credential("topaz", "api-key")
 
     topaz_wonder_btn = ft.IconButton(
         icon=ft.Icons.AUTO_AWESOME,
@@ -1719,7 +1712,7 @@ async def main(page: ft.Page) -> None:
         api_key = _topaz_api_key()
         if not api_key:
             enhance_status.value = ("[ERREUR] Clé API Topaz introuvable — "
-                                     "pass insert topaz/api-key")
+                                     "python credentials.py set topaz api-key")
             page.update()
             return
 
