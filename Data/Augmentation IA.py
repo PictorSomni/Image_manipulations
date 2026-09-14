@@ -1703,11 +1703,24 @@ async def main(page: ft.Page) -> None:
         icon=ft.Icons.AUTO_AWESOME,
         bgcolor=YELLOW,
         color=DARK,
-        expand=True,
+        expand=2,
         tooltip="Topaz Wonder — upscale génératif via l'API Topaz Labs",
     )
+    topaz_wonder_x2_btn = ft.Button(
+        "x2", bgcolor=GREY, color=WHITE, expand=1,
+        tooltip="Topaz Wonder — sortie à 2x la taille de l'image de travail",
+    )
+    topaz_wonder_x4_btn = ft.Button(
+        "x4", bgcolor=GREY, color=WHITE, expand=1,
+        tooltip="Topaz Wonder — sortie à 4x la taille de l'image de travail",
+    )
 
-    async def on_run_topaz_wonder(e) -> None:
+    def _set_topaz_buttons_disabled(disabled: bool) -> None:
+        topaz_wonder_btn.disabled = disabled
+        topaz_wonder_x2_btn.disabled = disabled
+        topaz_wonder_x4_btn.disabled = disabled
+
+    async def _run_topaz_wonder(scale: int | None) -> None:
         base = state["work_img"] or state["orig_img"]
         if base is None or state["working"]:
             return
@@ -1718,23 +1731,28 @@ async def main(page: ft.Page) -> None:
             page.update()
             return
 
+        label = f"Topaz Wonder x{scale}" if scale else "Topaz Wonder"
         state["working"]             = True
-        topaz_wonder_btn.disabled    = True
+        _set_topaz_buttons_disabled(True)
         run_model_btn.disabled       = True
         send_btn.disabled            = True
         enhance_progress_bar.value   = None
         enhance_progress_bar.visible = True
-        enhance_status.value         = "Topaz Wonder — envoi de l'image…"
+        enhance_status.value         = f"{label} — envoi de l'image…"
         page.update()
 
         def _do_run():
             buf = io.BytesIO()
             base.convert("RGB").save(buf, format="JPEG", quality=95)
             buf.seek(0)
+            data = {"model": "Wonder 3.5"}
+            if scale:
+                data["outputWidth"]  = base.width * scale
+                data["outputHeight"] = base.height * scale
             resp = requests.post(
                 "https://api.topazlabs.com/image/v1/enhance-gen/async",
                 headers={"X-API-KEY": api_key},
-                data={"model": "Wonder 3.5"},
+                data=data,
                 files={"image": ("image.jpg", buf, "image/jpeg")},
                 timeout=60,
             )
@@ -1768,13 +1786,13 @@ async def main(page: ft.Page) -> None:
             state["modified"]  = True
             undo_btn.disabled  = False
             save_btn.disabled  = False
-            enhance_status.value = f"[OK] Topaz Wonder → {result.width}×{result.height} px"
+            enhance_status.value = f"[OK] {label} → {result.width}×{result.height} px"
         except Exception as ex:
-            enhance_status.value = f"[ERREUR] Topaz Wonder : {ex}"
+            enhance_status.value = f"[ERREUR] {label} : {ex}"
         finally:
             state["working"]             = False
             enhance_progress_bar.visible = False
-            topaz_wonder_btn.disabled    = False
+            _set_topaz_buttons_disabled(False)
             run_model_btn.disabled       = not ESRGAN_AVAILABLE or not _list_pth_models()
             has_sel    = state["selection"] is not None
             has_prompt = bool(prompt_field.value and prompt_field.value.strip())
@@ -1782,7 +1800,18 @@ async def main(page: ft.Page) -> None:
             page.update()
             _render_preview()
 
-    topaz_wonder_btn.on_click = on_run_topaz_wonder
+    async def on_run_topaz_wonder(e) -> None:
+        await _run_topaz_wonder(None)
+
+    async def on_run_topaz_wonder_x2(e) -> None:
+        await _run_topaz_wonder(2)
+
+    async def on_run_topaz_wonder_x4(e) -> None:
+        await _run_topaz_wonder(4)
+
+    topaz_wonder_btn.on_click    = on_run_topaz_wonder
+    topaz_wonder_x2_btn.on_click = on_run_topaz_wonder_x2
+    topaz_wonder_x4_btn.on_click = on_run_topaz_wonder_x4
 
     # ── Extension IA — outpainting ───────────────────────────────────────────
 
@@ -2716,7 +2745,10 @@ async def main(page: ft.Page) -> None:
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            topaz_wonder_btn,
+            ft.Row(
+                [topaz_wonder_btn, topaz_wonder_x2_btn, topaz_wonder_x4_btn],
+                spacing=4,
+            ),
             enhance_progress_bar,
             enhance_status,
             ft.Divider(color=GREY),
