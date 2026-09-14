@@ -1714,13 +1714,22 @@ async def main(page: ft.Page) -> None:
         "x4", bgcolor=GREY, color=WHITE, expand=1,
         tooltip="Topaz Wonder — sortie à 4x la taille de l'image de travail",
     )
+    # Bloom volontairement absent : gourmand en crédits même en test
+    # (retour user) — à ajouter plus tard si besoin ponctuel confirmé.
+    topaz_face_recovery_btn = ft.Button(
+        "Face Recovery", icon=ft.Icons.FACE_RETOUCHING_NATURAL,
+        bgcolor=YELLOW, color=DARK, expand=True,
+        tooltip="Topaz Face Recovery (Recover 3) — restauration/netteté des visages",
+    )
+
+    _topaz_buttons = [topaz_wonder_btn, topaz_wonder_x2_btn,
+                      topaz_wonder_x4_btn, topaz_face_recovery_btn]
 
     def _set_topaz_buttons_disabled(disabled: bool) -> None:
-        topaz_wonder_btn.disabled = disabled
-        topaz_wonder_x2_btn.disabled = disabled
-        topaz_wonder_x4_btn.disabled = disabled
+        for btn in _topaz_buttons:
+            btn.disabled = disabled
 
-    async def _run_topaz_wonder(scale: int | None) -> None:
+    async def _run_topaz(model: str, label: str, extra_data: dict) -> None:
         base = state["work_img"] or state["orig_img"]
         if base is None or state["working"]:
             return
@@ -1731,7 +1740,6 @@ async def main(page: ft.Page) -> None:
             page.update()
             return
 
-        label = f"Topaz Wonder x{scale}" if scale else "Topaz Wonder"
         state["working"]             = True
         _set_topaz_buttons_disabled(True)
         run_model_btn.disabled       = True
@@ -1745,10 +1753,7 @@ async def main(page: ft.Page) -> None:
             buf = io.BytesIO()
             base.convert("RGB").save(buf, format="JPEG", quality=95)
             buf.seek(0)
-            data = {"model": "Wonder 3.5"}
-            if scale:
-                data["outputWidth"]  = base.width * scale
-                data["outputHeight"] = base.height * scale
+            data = {"model": model, **extra_data}
             resp = requests.post(
                 "https://api.topazlabs.com/image/v1/enhance-gen/async",
                 headers={"X-API-KEY": api_key},
@@ -1800,18 +1805,30 @@ async def main(page: ft.Page) -> None:
             page.update()
             _render_preview()
 
+    def _wonder_data(scale: int | None) -> dict:
+        base = state["work_img"] or state["orig_img"]
+        if not scale or base is None:
+            return {}
+        return {"outputWidth": base.width * scale,
+                "outputHeight": base.height * scale}
+
     async def on_run_topaz_wonder(e) -> None:
-        await _run_topaz_wonder(None)
+        await _run_topaz("Wonder 3.5", "Topaz Wonder", _wonder_data(None))
 
     async def on_run_topaz_wonder_x2(e) -> None:
-        await _run_topaz_wonder(2)
+        await _run_topaz("Wonder 3.5", "Topaz Wonder x2", _wonder_data(2))
 
     async def on_run_topaz_wonder_x4(e) -> None:
-        await _run_topaz_wonder(4)
+        await _run_topaz("Wonder 3.5", "Topaz Wonder x4", _wonder_data(4))
 
-    topaz_wonder_btn.on_click    = on_run_topaz_wonder
-    topaz_wonder_x2_btn.on_click = on_run_topaz_wonder_x2
-    topaz_wonder_x4_btn.on_click = on_run_topaz_wonder_x4
+    async def on_run_topaz_face_recovery(e) -> None:
+        await _run_topaz("Recover 3", "Topaz Face Recovery",
+                          {"faceEnhancement": True})
+
+    topaz_wonder_btn.on_click        = on_run_topaz_wonder
+    topaz_wonder_x2_btn.on_click     = on_run_topaz_wonder_x2
+    topaz_wonder_x4_btn.on_click     = on_run_topaz_wonder_x4
+    topaz_face_recovery_btn.on_click = on_run_topaz_face_recovery
 
     # ── Extension IA — outpainting ───────────────────────────────────────────
 
@@ -2749,6 +2766,7 @@ async def main(page: ft.Page) -> None:
                 [topaz_wonder_btn, topaz_wonder_x2_btn, topaz_wonder_x4_btn],
                 spacing=4,
             ),
+            topaz_face_recovery_btn,
             enhance_progress_bar,
             enhance_status,
             ft.Divider(color=GREY),
