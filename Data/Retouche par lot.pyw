@@ -30,6 +30,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
 import threading
 import time
@@ -1207,8 +1208,12 @@ def main(page: ft.Page):
         progress_text.value = f"{done} / {total}"
 
     def batch_worker(params_snapshot):
-        output_folder = folder_path / "RETOUCHE"
-        output_folder.mkdir(exist_ok=True)
+        # Enregistre en place, dans le dossier source — plus de sous-dossier
+        # RETOUCHE. Le tout premier original de chaque fichier est préservé
+        # dans ORIGINAUX/ (jamais écrasé par un lot ultérieur) ; le fichier
+        # dans le dossier courant, lui, reflète toujours la dernière version
+        # validée (retour user).
+        originaux_folder = folder_path / "ORIGINAUX"
         # Réglages utilisés pour ce lot — rechargeables via "Charger des
         # réglages…" pour reprendre et ajuster un lot précédent.
         with open(folder_path / "retouche_params.json", "w",
@@ -1220,20 +1225,31 @@ def main(page: ft.Page):
             if batch_stop.is_set():
                 break
             print(f"Image {i + 1} sur {total}")
+            src_path = folder_path / name
             try:
-                raw = Image.open(folder_path / name)
+                raw = Image.open(src_path)
                 date_label = image_ops.get_date_taken(raw)
-                img = image_ops.open_srgb(folder_path / name)
+                img = image_ops.open_srgb(src_path)
             except Exception:
                 continue
+            dest = originaux_folder / name
+            if not dest.exists():
+                originaux_folder.mkdir(exist_ok=True)
+                shutil.copy2(src_path, dest)
             stem = Path(name).stem
             file_params = apply_photo_overrides(
                 params_snapshot, state["overrides"], name)
             result = run_pipeline(img, file_params,
                                   date_label=date_label, filename_stem=stem)
-            result.save(str(output_folder / f"{stem}.jpg"), format="JPEG",
+            out_path = folder_path / f"{stem}.jpg"
+            result.save(str(out_path), format="JPEG",
                        subsampling=0, quality=100,
                        icc_profile=image_ops._SRGB_ICC)
+            # L'original est déjà en sécurité dans ORIGINAUX/ : on retire
+            # la source d'extension différente pour ne garder qu'une seule
+            # version (la dernière validée) dans le dossier courant.
+            if src_path != out_path and src_path.exists():
+                src_path.unlink()
 
             done = i + 1
 
@@ -1246,18 +1262,18 @@ def main(page: ft.Page):
         stopped = batch_stop.is_set()
         if stopped:
             print(f"Traitement interrompu — {done} image(s) sur {total} "
-                  f"traitées, conservées dans {output_folder}")
+                  f"traitées, enregistrées dans {folder_path}")
         else:
             print("Terminé !")
-            print(f"NAVIGATE_TO:{output_folder}")
+            print(f"NAVIGATE_TO:{folder_path}")
 
         async def _done(stopped=stopped, done=done, total=total):
             # Interruption : on reste dans l'app (les réglages sont encore
             # là, on peut relancer) ; fin normale : on ferme comme avant.
             if stopped:
                 progress_text.value = (
-                    f"Interrompu — {done} / {total} traitées, conservées "
-                    f"dans RETOUCHE/.")
+                    f"Interrompu — {done} / {total} traitées, enregistrées "
+                    f"sur place.")
                 _set_batch_running(False)
                 page.update()
                 return
@@ -1291,7 +1307,8 @@ def main(page: ft.Page):
         title=ft.Text("Lancer le traitement complet ?",
                      size=CONSTANTS.TEXT_SM, color=WHITE),
         content=ft.Text(f"{len(file_names)} image(s) seront traitées avec "
-                        "les réglages actuels, dans RETOUCHE/.",
+                        "les réglages actuels, sur place (originaux "
+                        "conservés dans ORIGINAUX/).",
                         size=CONSTANTS.TEXT_SM, color=WHITE),
         actions=[ft.TextButton("Annuler", on_click=_cancel_batch),
                 ft.TextButton("Lancer", on_click=_confirm_batch)],
