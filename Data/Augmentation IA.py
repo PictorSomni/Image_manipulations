@@ -1825,7 +1825,7 @@ async def main(page: ft.Page) -> None:
         await _run_topaz("Wonder 3.5", "Topaz Wonder x4", _wonder_data(4))
 
     async def on_run_topaz_face_recovery(e) -> None:
-        await _run_topaz("Face Recovery V3", "Topaz Face Recovery", {},
+        await _run_topaz("Face Recovery 3", "Topaz Face Recovery", {},
                           endpoint="restore-gen")
 
     topaz_wonder_btn.on_click        = on_run_topaz_wonder
