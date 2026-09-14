@@ -944,7 +944,8 @@ def main(page: ft.Page):
                horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=6,
                expand=True),
             alignment=ft.Alignment.CENTER,
-            expand=True, ink=True, on_click=lambda e, p=path: _open_file(p))
+            expand=True, ink=True, tooltip=os.path.basename(path),
+            on_click=lambda e, p=path: _open_file(p))
         header = ft.Row([ft.Container(expand=True),
                          _with_range_ctx(checkbox, path)])
         return ft.Container(
@@ -972,7 +973,7 @@ def main(page: ft.Page):
         # (retour user : montrer la miniature entière plutôt que recadrée).
         img_zone = ft.Container(content=img, expand=True, border_radius=6,
                                 bgcolor=GREY if fit_contain else None,
-                                ink=True,
+                                ink=True, tooltip=os.path.basename(path),
                                 on_click=lambda e, p=path: _open_viewer(p))
         is_ordered = path in order
         label = ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM,
