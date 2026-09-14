@@ -45,8 +45,11 @@ import asyncio
 import importlib.util
 import json
 import threading
+import subprocess
+import time
 from pathlib import Path
 import sys
+import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
@@ -67,6 +70,7 @@ BLUE       = CONSTANTS.COLOR_BLUE
 VIOLET     = CONSTANTS.COLOR_VIOLET
 GREEN      = CONSTANTS.COLOR_GREEN
 ORANGE     = CONSTANTS.COLOR_ORANGE
+YELLOW     = CONSTANTS.COLOR_YELLOW
 RED        = CONSTANTS.COLOR_RED
 WHITE      = CONSTANTS.COLOR_WHITE
 
@@ -1686,6 +1690,105 @@ async def main(page: ft.Page) -> None:
     run_model_btn.on_click      = on_run_model
     refresh_models_btn.on_click = on_refresh_models
 
+    # ── Topaz Wonder (API) ───────────────────────────────────────────────────
+    # ponytail: un seul modèle Topaz pour l'instant (Wonder). Bloom et Face
+    # Recovery pourront être ajoutés en dupliquant ce bouton avec un autre
+    # nom de modèle une fois ce circuit validé à l'usage.
+
+    def _topaz_api_key() -> str | None:
+        try:
+            out = subprocess.run(
+                ["pass", "show", "topaz/api-key"],
+                capture_output=True, text=True, timeout=10, check=True,
+            )
+            return out.stdout.splitlines()[0].strip() or None
+        except Exception:
+            return None
+
+    topaz_wonder_btn = ft.IconButton(
+        icon=ft.Icons.AUTO_AWESOME,
+        icon_color=DARK,
+        bgcolor=YELLOW,
+        tooltip="Topaz Wonder — upscale génératif via l'API Topaz Labs",
+    )
+
+    async def on_run_topaz_wonder(e) -> None:
+        base = state["work_img"] or state["orig_img"]
+        if base is None or state["working"]:
+            return
+        api_key = _topaz_api_key()
+        if not api_key:
+            enhance_status.value = ("[ERREUR] Clé API Topaz introuvable — "
+                                     "pass insert topaz/api-key")
+            page.update()
+            return
+
+        state["working"]             = True
+        topaz_wonder_btn.disabled    = True
+        run_model_btn.disabled       = True
+        send_btn.disabled            = True
+        enhance_progress_bar.value   = None
+        enhance_progress_bar.visible = True
+        enhance_status.value         = "Topaz Wonder — envoi de l'image…"
+        page.update()
+
+        def _do_run():
+            buf = io.BytesIO()
+            base.convert("RGB").save(buf, format="JPEG", quality=95)
+            buf.seek(0)
+            resp = requests.post(
+                "https://api.topazlabs.com/image/v1/enhance-gen/async",
+                headers={"X-API-KEY": api_key},
+                data={"model": "Wonder 3.5"},
+                files={"image": ("image.jpg", buf, "image/jpeg")},
+                timeout=60,
+            )
+            resp.raise_for_status()
+            process_id = resp.json()["process_id"]
+
+            status_url = f"https://api.topazlabs.com/image/v1/status/{process_id}"
+            while True:
+                time.sleep(2)
+                st = requests.get(status_url, headers={"X-API-KEY": api_key},
+                                   timeout=30).json()["status"]
+                if st == "Completed":
+                    break
+                if st in ("Failed", "Cancelled"):
+                    raise RuntimeError(f"Topaz a renvoyé le statut : {st}")
+
+            dl = requests.get(
+                f"https://api.topazlabs.com/image/v1/download/{process_id}",
+                headers={"X-API-KEY": api_key}, timeout=30,
+            )
+            dl.raise_for_status()
+            image_url = dl.json()["url"]
+            img_resp = requests.get(image_url, timeout=60)
+            img_resp.raise_for_status()
+            return Image.open(io.BytesIO(img_resp.content)).convert("RGB")
+
+        try:
+            result = await asyncio.to_thread(_do_run)
+            state["undo_img"]  = state["work_img"]
+            state["work_img"]  = result
+            state["modified"]  = True
+            undo_btn.disabled  = False
+            save_btn.disabled  = False
+            enhance_status.value = f"[OK] Topaz Wonder → {result.width}×{result.height} px"
+        except Exception as ex:
+            enhance_status.value = f"[ERREUR] Topaz Wonder : {ex}"
+        finally:
+            state["working"]             = False
+            enhance_progress_bar.visible = False
+            topaz_wonder_btn.disabled    = False
+            run_model_btn.disabled       = not ESRGAN_AVAILABLE or not _list_pth_models()
+            has_sel    = state["selection"] is not None
+            has_prompt = bool(prompt_field.value and prompt_field.value.strip())
+            send_btn.disabled = not (has_sel and has_prompt)
+            page.update()
+            _render_preview()
+
+    topaz_wonder_btn.on_click = on_run_topaz_wonder
+
     # ── Extension IA — outpainting ───────────────────────────────────────────
 
     _PREV_SZ  = 280
@@ -2615,6 +2718,12 @@ async def main(page: ft.Page) -> None:
             ft.Text("Modèle IA local", size=12, color=LIGHT_GREY),
             ft.Row(
                 [model_dropdown, refresh_models_btn, run_model_btn],
+                spacing=4,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            ),
+            ft.Row(
+                [ft.Text("Topaz Wonder", size=12, color=LIGHT_GREY),
+                 topaz_wonder_btn],
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
