@@ -1762,7 +1762,9 @@ async def main(page: ft.Page) -> None:
                 files={"image": ("image.jpg", buf, "image/jpeg")},
                 timeout=60,
             )
-            resp.raise_for_status()
+            if not resp.ok:
+                raise RuntimeError(
+                    f"HTTP {resp.status_code} — {resp.text[:300]}")
             process_id = resp.json()["process_id"]
 
             status_url = f"https://api.topazlabs.com/image/v1/status/{process_id}"
