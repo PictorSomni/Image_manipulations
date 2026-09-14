@@ -9022,11 +9022,11 @@ def main(page: ft.Page):
         # gris trop proches en luminance — cf. retour user.
         accent = _ACTION_CATEGORY_COLORS.get(
             label, tools[0][2] if tools else BLUE)
-        # Icônes recolorées dans l'accent de la catégorie (retour user) :
-        # la couleur individuelle du tuple ne sert plus qu'ailleurs
-        # (aucun autre usage actuellement).
         if label == "Fichier":
-            body = _icon_row([(t[0], t[1], accent, t[3]) for t in tools])
+            # Fichier garde la couleur propre à chaque action (Coller,
+            # Renommer, rotations...), trop d'actions différentes pour
+            # qu'un seul accent reste lisible (retour user).
+            body = _icon_row(tools)
         else:
             body = ft.Column(
                 [_action_row(t[0], t[1], accent, t[3]) for t in tools],
