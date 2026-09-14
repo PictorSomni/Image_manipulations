@@ -4425,8 +4425,8 @@ def main(page: ft.Page):
             # création des boutons.
             enabled = (n == 1) if btn is renommer_btn else (n > 0)
             _set_edit_btn_state(btn, color, enabled)
-        _set_edit_btn_state(coller_btn, BLUE, bool(clipboard["paths"]))
-        for btn, _color in _sel_edit_btns + [(coller_btn, BLUE)]:
+        _set_edit_btn_state(coller_btn, HOVER_YELLOW, bool(clipboard["paths"]))
+        for btn, _color in _sel_edit_btns + [(coller_btn, HOVER_YELLOW)]:
             try:
                 btn.update()
             except Exception:
