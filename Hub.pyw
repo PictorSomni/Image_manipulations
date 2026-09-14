@@ -9500,7 +9500,22 @@ def main(page: ft.Page):
                     return
 
                 if had_local_changes:
-                    run_git_command("stash", "drop")
+                    # "drop" jetait définitivement les modifs locales non
+                    # listées dans user_data_filenames (ex. .notes.md,
+                    # suivi par git malgré .gitignore) — perte de données
+                    # constatée avec une clé API tapée dans le Bloc-notes
+                    # (retour user). "pop" les réapplique ; en cas de
+                    # conflit avec le rebase, le stash reste pour une
+                    # fusion manuelle au lieu d'être perdu.
+                    pop_result = run_git_command("stash", "pop")
+                    if pop_result.returncode != 0:
+                        _log_to_terminal(
+                            "[ATTENTION] Mise à jour effectuée mais tes "
+                            "modifications locales n'ont pas pu être "
+                            "réappliquées (conflit) — elles restent dans "
+                            "'git stash list', à fusionner à la main.\n"
+                            + (pop_result.stdout + pop_result.stderr).strip(),
+                            YELLOW)
 
                 _restore_user_data_files()
 
