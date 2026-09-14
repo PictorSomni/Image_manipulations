@@ -1698,10 +1698,12 @@ async def main(page: ft.Page) -> None:
     def _topaz_api_key() -> str | None:
         return credentials.get_credential("topaz", "api-key")
 
-    topaz_wonder_btn = ft.IconButton(
+    topaz_wonder_btn = ft.Button(
+        "Wonder",
         icon=ft.Icons.AUTO_AWESOME,
-        icon_color=DARK,
         bgcolor=YELLOW,
+        color=DARK,
+        expand=True,
         tooltip="Topaz Wonder — upscale génératif via l'API Topaz Labs",
     )
 
@@ -1754,7 +1756,7 @@ async def main(page: ft.Page) -> None:
                 headers={"X-API-KEY": api_key}, timeout=30,
             )
             dl.raise_for_status()
-            image_url = dl.json()["url"]
+            image_url = dl.json()["download_url"]
             img_resp = requests.get(image_url, timeout=60)
             img_resp.raise_for_status()
             return Image.open(io.BytesIO(img_resp.content)).convert("RGB")
@@ -2714,12 +2716,7 @@ async def main(page: ft.Page) -> None:
                 spacing=4,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            ft.Row(
-                [ft.Text("Topaz Wonder", size=12, color=LIGHT_GREY),
-                 topaz_wonder_btn],
-                spacing=4,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
+            topaz_wonder_btn,
             enhance_progress_bar,
             enhance_status,
             ft.Divider(color=GREY),
