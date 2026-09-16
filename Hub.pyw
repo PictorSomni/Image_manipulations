@@ -2506,6 +2506,17 @@ def main(page: ft.Page):
         _restore_tab(tab_id)
         _toggle_open_menu()
 
+    def _open_folder_new_tab(paths):
+        if len(paths) != 1 or not os.path.isdir(paths[0]):
+            return
+        path = paths[0]
+        _snapshot_active_tab()
+        _next_tab_id["n"] += 1
+        tab_id = _next_tab_id["n"]
+        tabs.append({"id": tab_id, "folder": None, "selected": []})
+        _restore_tab(tab_id)
+        _navigate(path)
+
     def _close_folder_tab(tab_id, event=None):
         if len(tabs) <= 1:
             return   # toujours >= 1 onglet
@@ -8829,6 +8840,11 @@ def main(page: ft.Page):
     _fichier_icon_actions = [
         ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_LIGHT,
          renommer_btn.on_click),
+        # JAUNE comme les autres icônes/actions liées aux dossiers (icône
+        # de dossier, "Créer un dossier") — n'agit que sur un seul dossier
+        # sélectionné (garde dans _open_folder_new_tab).
+        ("Ouvrir dans un nouvel onglet", ft.Icons.TAB_OUTLINED, YELLOW,
+         lambda e: _open_folder_new_tab(list(selected))),
         ("Copier", ft.Icons.CONTENT_COPY, BLUE, copier_btn.on_click),
         # Ces entrées déclenchent EXACTEMENT le même handler que les
         # boutons de la barre d'outils (couper/coller/zipper) : elles
