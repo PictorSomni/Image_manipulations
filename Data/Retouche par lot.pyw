@@ -1303,13 +1303,32 @@ def main(page: ft.Page):
         dlg.open = False
         page.update()
 
+    # Pipeline de retouche géré en RVB sRGB (cf. image_ops.open_srgb) : une
+    # image source CMJN (ex. FOGRA29, usage B2B) en ressort en RVB, profil
+    # colorimétrique perdu — on prévient AVANT le lancement plutôt qu'après
+    # coup (retour user, cas réel avec un client B2B).
+    _dlg_content = [ft.Text(
+        f"{len(file_names)} image(s) seront traitées avec les réglages "
+        "actuels, sur place (originaux conservés dans ORIGINAUX/).",
+        size=CONSTANTS.TEXT_SM, color=WHITE)]
+    _cmyk_count = 0
+    for _name in file_names:
+        try:
+            with Image.open(folder_path / _name) as _im:
+                if _im.mode == "CMYK":
+                    _cmyk_count += 1
+        except Exception:
+            pass
+    if _cmyk_count:
+        _dlg_content.append(ft.Text(
+            f"⚠ {_cmyk_count} image(s) en CMJN seront converties en RVB "
+            "sRGB (profil colorimétrique non conservé).",
+            size=CONSTANTS.TEXT_SM, color=ORANGE))
+
     dlg = ft.AlertDialog(
         title=ft.Text("Lancer le traitement complet ?",
                      size=CONSTANTS.TEXT_SM, color=WHITE),
-        content=ft.Text(f"{len(file_names)} image(s) seront traitées avec "
-                        "les réglages actuels, sur place (originaux "
-                        "conservés dans ORIGINAUX/).",
-                        size=CONSTANTS.TEXT_SM, color=WHITE),
+        content=ft.Column(_dlg_content, tight=True, spacing=6),
         actions=[ft.TextButton("Annuler", on_click=_cancel_batch),
                 ft.TextButton("Lancer", on_click=_confirm_batch)],
     )

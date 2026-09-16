@@ -794,10 +794,17 @@ async def main(page: ft.Page) -> None:
         # crops envoyés à Gemini ET le fichier enregistré gardaient les
         # valeurs de l'espace source — couleurs fausses par rapport à
         # Aperçu/Photos (retour user).
-        if icc_profile or img.mode == "CMYK":
+        was_cmyk = img.mode == "CMYK"
+        if icc_profile or was_cmyk:
             img = image_ops.convert_to_srgb(img, icc_profile)
         if img.mode not in ("RGB", "RGBA"):
             img = img.convert("RGB")
+        # Rangé dans .info (pas de changement de signature) : l'enregistrement
+        # se fait toujours en RVB sRGB (_save_to/image_ops), donc une source
+        # CMJN (ex. FOGRA29, usage B2B) perd son profil colorimétrique —
+        # à signaler avant que ça surprenne côté client (retour user).
+        if was_cmyk:
+            img.info["_was_cmyk"] = True
         return img
 
     async def _load_image_path(path: str, pre_decoded=None) -> None:
@@ -818,6 +825,9 @@ async def main(page: ft.Page) -> None:
 
             image_label.value  = os.path.basename(path)
             status_text.value  = f"{img.width} × {img.height} px"
+            if img.info.get("_was_cmyk"):
+                status_text.value += (
+                    "  |  ⚠ source CMJN, sera enregistrée en RVB sRGB")
             sel_info.value     = "Aucune sélection — clic pour un objet, glisser pour une zone"
             send_btn.disabled  = True
             undo_btn.disabled  = True
