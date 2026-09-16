@@ -7013,6 +7013,20 @@ def main(page: ft.Page):
         liste_search["value"] = ""
         _liste_render()
 
+    async def _select_all_liste_search():
+        # Même principe que _select_all_files_path : focus() est
+        # async-only en Flet 0.85, la sélection ne prend qu'après.
+        await liste_search_field.focus()
+        liste_search_field.selection = ft.TextSelection(
+            base_offset=0, extent_offset=len(liste_search_field.value or ""))
+        liste_search_field.update()
+
+    def _on_liste_search_focus(event=None):
+        # Texte précédent sélectionné au clic : on tape directement la
+        # recherche suivante sans effacer à la main (retour user).
+        _focus_search("liste_search")(event)
+        _run_task(_select_all_liste_search)
+
     liste_search_field = ft.TextField(
         hint_text="Rechercher dans toutes les colonnes…",
         on_change=lambda e: _liste_set_search(e.control.value),
@@ -7021,7 +7035,7 @@ def main(page: ft.Page):
         color=WHITE, text_size=CONSTANTS.TEXT_SM,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH, expand=True,
-        on_focus=_focus_search("liste_search"), on_blur=_blur_search,
+        on_focus=_on_liste_search_focus, on_blur=_blur_search,
     )
     liste_search_close_btn = ft.IconButton(
         ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
