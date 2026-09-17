@@ -720,7 +720,7 @@ def main(page: ft.Page):
         page, value_field,
         {"dark": DARK, "red": RED, "grey": GREY, "green": GREEN,
          "white": WHITE},
-        on_confirm=_apply_value_dialog)
+        on_confirm=_apply_value_dialog, allow_decimal=True)
     value_dialog = ft.AlertDialog(
         title=ft.Text("Valeur", size=CONSTANTS.TEXT_SM, color=WHITE),
         content=ft.Column([value_field, value_keypad], tight=True,
@@ -729,7 +729,11 @@ def main(page: ft.Page):
     page.overlay.append(value_dialog)
 
     def _open_value_dialog(current, on_apply):
-        value_field.value = str(round(current))
+        # Entiers affichés sans décimale (sliders) ; certains champs
+        # Grain (ratios, tailles) sont de vrais flottants — pas de
+        # round() qui tronquerait leur valeur à l'ouverture.
+        value_field.value = (str(int(current)) if float(current).is_integer()
+                             else str(current))
         _value_dialog_apply["fn"] = on_apply
         value_dialog.open = True
         page.update()
@@ -740,17 +744,19 @@ def main(page: ft.Page):
 
     def _apply_section_visual(name, is_open):
         """État visuel d'une section : chevron (▸/▾), couleur de l'en-tête
-        (gris en veille, teinte de section à 15 % quand ouverte OU quand
-        un curseur à l'intérieur diffère de son défaut — retour user :
-        repérer une section modifiée même repliée) et couleur
-        icône/titre. Un seul point de vérité, appelé au toggle et à
-        chaque changement de curseur (_slider_row)."""
+        (gris en veille, teinte de section à 15 % quand ouverte, quand
+        elle est activée (interrupteur), OU quand un élément à
+        l'intérieur diffère de son défaut — retour user : repérer une
+        section activée/modifiée même repliée) et couleur icône/titre.
+        Un seul point de vérité, appelé au toggle, à l'activation du
+        switch et à chaque changement de curseur/champ."""
         sec = sections[name]
         col = sec["color"]
         sec["body"].visible = is_open
         sec["chevron"].icon = (ft.Icons.EXPAND_MORE if is_open
                                else ft.Icons.CHEVRON_RIGHT)
-        highlight = is_open or sec.get("modified_count", 0) > 0
+        highlight = (is_open or sec["switch"].value
+                    or sec.get("modified_count", 0) > 0)
         accent = col if highlight else LIGHT_GREY
         sec["chevron"].color = accent
         sec["head_icon"].color = accent
@@ -813,6 +819,7 @@ def main(page: ft.Page):
 
         def _on_switch(e):
             param["enabled"] = switch.value
+            _refresh_header(name)
             live_preview_tick()
         switch.on_change = _on_switch
         reset_registry["switches"].append((switch, param))
@@ -1185,6 +1192,19 @@ def main(page: ft.Page):
             live_preview_tick()
         field.on_blur = _handle
         field.on_submit = _handle
+
+        def _open_editor(e):
+            def _apply(v):
+                sub[key] = v
+                field.value = (str(int(v)) if float(v).is_integer()
+                              else str(v))
+                field.update()
+                _sync_accent()
+                live_preview_tick()
+            _open_value_dialog(sub[key], _apply)
+        # Tap → pavé numérique tactile (mêmes catégories que les sliders,
+        # retour user), sans retirer la saisie clavier existante.
+        field.on_focus = _open_editor
         field.data = _sync_accent
         reset_registry["fields"].append((field, sub, key))
         return ft.Row([field])
@@ -1449,6 +1469,7 @@ def main(page: ft.Page):
         for switch, dct in reset_registry["switches"]:
             switch.value = dct["enabled"]
             switch.update()
+            _refresh_header(_dct_to_section.get(id(dct)))
         for column, label, dct, key in reset_registry["sliders"]:
             column.data()  # cf. _slider_row : rafraîchit depuis dct[key]
         for field, dct, key in reset_registry["fields"]:
