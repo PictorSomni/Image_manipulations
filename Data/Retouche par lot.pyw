@@ -719,29 +719,15 @@ def main(page: ft.Page):
             page.update()
         return handler
 
-    def _recolor_sliders(control, color):
-        """Couleur de section à afficher quand le curseur s'écarte de son
-        défaut (retour user : gris au repos, coloré dès qu'on y touche —
-        _set_accent, posé par _slider_row, gère lequel des deux montrer).
-        Parcours récursif : _slider_row imbrique le Slider dans Column >
-        Row > GestureDetector, et les sections Grain/Copyright n'en ont
-        aucun."""
-        child = getattr(control, "content", None)
-        if child is not None:
-            _recolor_sliders(child, color)
-        for sub in getattr(control, "controls", None) or []:
-            _recolor_sliders(sub, color)
-        setter = getattr(control, "set_accent", None)
-        if callable(setter):
-            setter(color)
-
     def _make_section(name, color, icon, param, body_controls):
         # Zébrage : une ligne sur deux sur fond GREY (une nuance plus
         # sombre que le fond BG du corps) — juste des rails de lecture
         # pour suivre un curseur des yeux jusqu'à sa valeur (retour user).
+        # Les curseurs eux-mêmes sont blanc/bleu partout, indépendamment
+        # de la couleur de section (retour user : incohérent sinon,
+        # certains bleus d'autres gris selon la section).
         striped = []
         for i, ctrl in enumerate(body_controls):
-            _recolor_sliders(ctrl, color)
             striped.append(ft.Container(
                 content=ctrl,
                 bgcolor=(GREY if i % 2 else None),
@@ -856,20 +842,19 @@ def main(page: ft.Page):
         # Valeur affichée : grise au repos, dans la couleur de la section
         # (renseignée par _recolor_sliders) et en gras dès qu'elle bouge
         # — repère fort de « ce que j'ai touché » (retour user).
-        accent = {"c": WHITE}
         is_default = round(value) == reset_value
         value_text = ft.Text(str(round(value)), size=CONSTANTS.TEXT_SM + 4,
                              weight=ft.FontWeight.W_700,
-                             color=(LIGHT_GREY if is_default else accent["c"]))
+                             color=(WHITE if is_default else BLUE))
 
         def _display(snapped):
             value_text.value = str(snapped)
             active = snapped != reset_value
-            value_text.color = accent["c"] if active else LIGHT_GREY
-            # Trait du curseur gris au repos, coloré dès qu'on s'écarte du
-            # défaut (retour user) — l'ombre (au-delà du curseur) reste
-            # grise dans les deux cas, seul le trait "parcouru" change.
-            slider.active_color = accent["c"] if active else GREY
+            # Blanc au repos, bleu dès qu'on s'écarte du défaut — même
+            # code pour le curseur et sa valeur, sur tous les sliders
+            # sans distinction de section (retour user).
+            value_text.color = BLUE if active else WHITE
+            slider.active_color = BLUE if active else WHITE
             value_text.update()
             slider.update()
 
@@ -899,7 +884,7 @@ def main(page: ft.Page):
 
         slider = ft.Slider(min=minv, max=maxv, value=value, expand=True,
                           divisions=divisions, on_change=_handle,
-                          active_color=(WHITE if not is_default else GREY),
+                          active_color=(WHITE if is_default else BLUE),
                           inactive_color=GREY)
 
         def _reset(e):
@@ -924,14 +909,6 @@ def main(page: ft.Page):
             slider_area,
         ], spacing=0)
         column.data = _refresh
-
-        def _set_accent(c):
-            accent["c"] = c
-            active = round(slider.value) != reset_value
-            if active:
-                value_text.color = c
-                slider.active_color = c
-        column.set_accent = _set_accent
         reset_registry["sliders"].append((column, label, dct, key))
         return column
 
