@@ -44,7 +44,7 @@ Sortie :
   Un sous-dossier nomme d'apres la taille cible (ex: "10x15" ou "12x17").
 """
 
-__version__ = "3.1.0"
+__version__ = "2.0.0"
 
 #############################################################
 #                          IMPORTS                          #
