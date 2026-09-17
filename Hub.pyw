@@ -9787,7 +9787,7 @@ def main(page: ft.Page):
         terminal_panel.update()
 
     terminal_resize_handle = ft.GestureDetector(
-        content=ft.Container(height=6, bgcolor=ORANGE),
+        content=ft.Container(height=6, bgcolor=MINT),
         mouse_cursor=ft.MouseCursor.RESIZE_UP_DOWN,
         on_pan_update=_on_terminal_resize,
     )
@@ -9906,8 +9906,9 @@ def main(page: ft.Page):
     # Couleurs inversées quand le panneau associé est ouvert (retour
     # user) : plus visuel que le texte seul pour repérer sur quel bouton
     # appuyer. Même couleur que la poignée de redimensionnement du
-    # panneau (ORANGE terminal / VIOLET notes) pour que les deux se
-    # répondent visuellement.
+    # panneau (MINT terminal / VIOLET notes) pour que les deux se
+    # répondent visuellement — distinct de l'ORANGE du bouton Actions
+    # juste à côté (retour user).
     terminal_btn_icon = ft.Icon(ft.Icons.TERMINAL, size=CONSTANTS.ICON_SM,
                                 color=WHITE)
     terminal_btn_text = ft.Text("Terminal", size=CONSTANTS.TEXT_SM,
@@ -9924,7 +9925,7 @@ def main(page: ft.Page):
         # effet) — il faut passer par style=ButtonStyle(bgcolor=...)
         # (retour user : les boutons restaient gris malgré l'affectation).
         terminal_toggle_btn.style = ft.ButtonStyle(
-            bgcolor=ORANGE if active else None)
+            bgcolor=MINT if active else None)
         terminal_btn_icon.color = DARK if active else WHITE
         terminal_btn_text.color = DARK if active else WHITE
         terminal_toggle_btn.update()
