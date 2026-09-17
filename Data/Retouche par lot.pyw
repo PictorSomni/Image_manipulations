@@ -1098,19 +1098,42 @@ def main(page: ft.Page):
         # expand=True dans une Row, pas dans la Column du corps de section
         # directement : un TextField ne s'étire pas tout seul comme un
         # Slider (retour user, champs Grain restés étroits).
+        default = sub[key]
+        was_active = {"v": False}
         field = ft.TextField(
             label=label, value=str(sub[key]), bgcolor=DARK,
             border=CONSTANTS.input_border(GREY), color=WHITE, expand=True,
             keyboard_type=ft.KeyboardType.NUMBER)
+
+        def _sync_accent():
+            """Même mécanique que _slider_row : notifie la section
+            (modified_count / en-tête) quand ce champ s'écarte de son
+            défaut — Grain/Bloom/Halation/etc. n'ont que des TextField,
+            pas de curseur (retour user : leur en-tête ne se colorait
+            jamais, y compris après chargement d'un préréglage)."""
+            try:
+                active = float(field.value) != default
+            except ValueError:
+                active = False
+            if active != was_active["v"]:
+                was_active["v"] = active
+                name = _dct_to_section.get(id(sub))
+                sec = sections.get(name)
+                if sec is not None:
+                    sec["modified_count"] = (sec.get("modified_count", 0)
+                                             + (1 if active else -1))
+                    _refresh_header(name)
 
         def _handle(e):
             try:
                 sub[key] = float(field.value)
             except ValueError:
                 return
+            _sync_accent()
             live_preview_tick()
         field.on_blur = _handle
         field.on_submit = _handle
+        field.data = _sync_accent
         reset_registry["fields"].append((field, sub, key))
         return ft.Row([field])
 
@@ -1379,6 +1402,7 @@ def main(page: ft.Page):
         for field, dct, key in reset_registry["fields"]:
             field.value = str(dct[key])
             field.update()
+            field.data()
 
         virage_preset_dd.value = vi["preset"]
         # "Auto" si le mode courant correspond à celui du préréglage (cas
