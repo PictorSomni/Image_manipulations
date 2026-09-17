@@ -743,11 +743,11 @@ def main(page: ft.Page):
     _dct_to_section = {}
 
     def _apply_section_visual(name, is_open):
-        """État visuel d'une section : chevron (▸/▾), couleur de l'en-tête
-        (gris en veille, teinte de section à 15 % quand ouverte, quand
-        elle est activée (interrupteur), OU quand un élément à
-        l'intérieur diffère de son défaut — retour user : repérer une
-        section activée/modifiée même repliée) et couleur icône/titre.
+        """État visuel d'une section : chevron (▸/▾, seulement lié à
+        l'ouverture) et couleur de l'en-tête — teinte de section
+        seulement quand elle est activée (interrupteur) OU qu'un élément
+        à l'intérieur diffère de son défaut (retour user : ouvrir une
+        section sans rien y activer/modifier ne doit pas la colorer).
         Un seul point de vérité, appelé au toggle, à l'activation du
         switch et à chaque changement de curseur/champ."""
         sec = sections[name]
@@ -755,7 +755,7 @@ def main(page: ft.Page):
         sec["body"].visible = is_open
         sec["chevron"].icon = (ft.Icons.EXPAND_MORE if is_open
                                else ft.Icons.CHEVRON_RIGHT)
-        highlight = (is_open or sec["switch"].value
+        highlight = (sec["switch"].value
                     or sec.get("modified_count", 0) > 0)
         accent = col if highlight else LIGHT_GREY
         sec["chevron"].color = accent
