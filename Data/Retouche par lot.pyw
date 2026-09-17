@@ -1247,7 +1247,7 @@ def main(page: ft.Page):
     # ── Copyright ───────────────────────────────────────────────────
     cp = state["params"]["copyright"]
     copyright_custom_field = ft.TextField(
-        label="Texte personnalisé", value=cp["custom_text"], width=280,
+        label="Texte personnalisé", value=cp["custom_text"], expand=True,
         bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
         visible=(cp["mode"] == "custom"))
 
