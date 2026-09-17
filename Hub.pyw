@@ -314,7 +314,10 @@ def main(page: ft.Page):
     GREEN      = CONSTANTS.COLOR_GREEN
     HOVER_YELLOW = CONSTANTS.COLOR_HOVER_YELLOW
     BLUE_LIGHT = CONSTANTS.COLOR_BLUE_LIGHT
+    BLUE_DARK  = CONSTANTS.COLOR_BLUE_DARK
     VIOLET_LIGHT = CONSTANTS.COLOR_PINK
+    PINK       = CONSTANTS.COLOR_PINK
+    MINT       = CONSTANTS.COLOR_MINT
     LIGHT_GREY = CONSTANTS.COLOR_LIGHT_GREY
     ICON_ACTION = CONSTANTS.ICON_ACTION
 
@@ -9069,12 +9072,12 @@ def main(page: ft.Page):
         "Fichier": BLUE,
         "Préparation": VIOLET,
         "Sélection": GREEN,
-        "Kiosque (mode client)": ORANGE,
+        "Kiosque (mode client)": MINT,
         "Recadrage": RED,
         "Retouche": YELLOW,
-        "Montage": BLUE,
+        "Montage": PINK,
         "Export & livrables": ORANGE,
-        "Maintenance": RED,
+        "Maintenance": BLUE_DARK,
     }
 
     def _action_category(label, tools):
