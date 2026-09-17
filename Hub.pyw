@@ -4392,7 +4392,7 @@ def main(page: ft.Page):
     # LUI, aucun état désactivé. Sans la garde, une ligne Actions cliquée
     # sans sélection lance l'action à vide.
     renommer_btn = _edit_icon_btn(
-        ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_LIGHT,
+        ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_DARK,
         lambda e: _run_action(_rename_item, list(selected))
                   if len(selected) == 1 else None,
         "Renommer")
@@ -4469,7 +4469,7 @@ def main(page: ft.Page):
     # None`), donc cliquer un item du menu sans rien sélectionné ne fait
     # rien — juste sans le retour visuel grisé de la version large.
     _EDIT_MENU_TOOLS = [
-        (ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_LIGHT, "Renommer",
+        (ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_DARK, "Renommer",
          lambda e: _run_action(_rename_item, list(selected))
                    if len(selected) == 1 else None),
         (ft.Icons.CONTENT_COPY, BLUE, "Copier",
@@ -8884,7 +8884,7 @@ def main(page: ft.Page):
     # seules (sans texte), Imprimer/Nombre d'impressions déplacés juste
     # avant Supprimer dans la liste texte ci-dessous (retour user).
     _fichier_icon_actions = [
-        ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_LIGHT,
+        ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_DARK,
          renommer_btn.on_click),
         # JAUNE comme les autres icônes/actions liées aux dossiers (icône
         # de dossier, "Créer un dossier") — n'agit que sur un seul dossier
