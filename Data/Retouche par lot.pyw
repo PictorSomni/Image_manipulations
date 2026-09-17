@@ -39,6 +39,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
 import image_ops
+import ui_helpers
 import flet as ft
 import numpy as np
 from PIL import Image, ImageDraw
@@ -691,6 +692,48 @@ def main(page: ft.Page):
               spacing=CONSTANTS.SPACE_XS),
     ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
 
+    # ── Saisie précise d'une valeur de curseur (retour user : taper un
+    # chiffre plutôt que tâtonner à la souris/au doigt) — un seul dialogue
+    # partagé par tous les sliders plutôt qu'un pavé par ligne (30+
+    # curseurs). Réutilise le pavé numérique tactile de ui_helpers (même
+    # composant que Recadrage manuel.pyw).
+    _value_dialog_apply = {"fn": None}
+
+    def _apply_value_dialog(e=None):
+        try:
+            v = float((value_field.value or "").replace(",", "."))
+        except ValueError:
+            return
+        value_dialog.open = False
+        page.update()
+        fn = _value_dialog_apply["fn"]
+        if fn is not None:
+            fn(v)
+
+    value_field = ft.TextField(
+        value="0", autofocus=True, text_align=ft.TextAlign.CENTER,
+        bgcolor=DARK, color=WHITE, width=140,
+        border=CONSTANTS.input_border(GREY),
+        keyboard_type=ft.KeyboardType.NUMBER,
+        on_submit=_apply_value_dialog)
+    value_keypad = ui_helpers.numeric_keypad(
+        page, value_field,
+        {"dark": DARK, "red": RED, "grey": GREY, "green": GREEN,
+         "white": WHITE},
+        on_confirm=_apply_value_dialog)
+    value_dialog = ft.AlertDialog(
+        title=ft.Text("Valeur", size=CONSTANTS.TEXT_SM, color=WHITE),
+        content=ft.Column([value_field, value_keypad], tight=True,
+                          spacing=CONSTANTS.SPACE_SM,
+                          horizontal_alignment=ft.CrossAxisAlignment.CENTER))
+    page.overlay.append(value_dialog)
+
+    def _open_value_dialog(current, on_apply):
+        value_field.value = str(round(current))
+        _value_dialog_apply["fn"] = on_apply
+        value_dialog.open = True
+        page.update()
+
     # ── Panneaux repliables (un seul ouvert à la fois) ─────────────────
     sections = {}
     _dct_to_section = {}
@@ -933,6 +976,12 @@ def main(page: ft.Page):
             _write(e.control.value, move_slider=False)
             live_preview_tick()
 
+        def _open_editor(e):
+            def _apply(v):
+                _write(v)
+                live_preview_tick()
+            _open_value_dialog(float(value_text.value), _apply)
+
         slider = ft.Slider(min=minv, max=maxv, value=value, expand=True,
                           divisions=divisions, on_change=_handle,
                           active_color=(WHITE if is_default else accent["c"]),
@@ -956,7 +1005,10 @@ def main(page: ft.Page):
             slider.update()
 
         column = ft.Column([
-            ft.Row([label_text, value_text], spacing=CONSTANTS.SPACE_SM),
+            ft.Row([label_text,
+                   ft.GestureDetector(content=value_text,
+                                      on_tap=_open_editor)],
+                  spacing=CONSTANTS.SPACE_SM),
             slider_area,
         ], spacing=0)
         column.data = _refresh
