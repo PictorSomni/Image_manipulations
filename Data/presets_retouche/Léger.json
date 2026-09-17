@@ -23,9 +23,9 @@
     "enabled": false,
     "preset": "SEPIA",
     "mode": "colorize",
-    "hue": 25,
-    "sat": 25,
-    "light": 50
+    "hue": 0,
+    "sat": 0,
+    "light": 0
   },
   "lut": {
     "enabled": true,

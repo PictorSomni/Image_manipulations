@@ -1,8 +1,8 @@
 {
   "denoise": {
     "enabled": false,
-    "h": 4,
-    "h_color": 2,
+    "h": 0,
+    "h_color": 0,
     "template_window": 7,
     "search_window": 21
   },
@@ -30,14 +30,14 @@
   "lut": {
     "enabled": false,
     "name": "M31 - Rec.709.cube",
-    "intensity": 15
+    "intensity": 0
   },
   "nettete": {
     "enabled": false,
-    "radius1": 4,
-    "percent1": 42,
-    "radius2": 2,
-    "percent2": 42
+    "radius1": 1,
+    "percent1": 0,
+    "radius2": 1,
+    "percent2": 0
   },
   "grain": {
     "enabled": false,

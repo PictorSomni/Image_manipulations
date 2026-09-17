@@ -1,8 +1,8 @@
 {
   "denoise": {
     "enabled": false,
-    "h": 4,
-    "h_color": 2,
+    "h": 0,
+    "h_color": 0,
     "template_window": 7,
     "search_window": 21
   },
@@ -22,9 +22,9 @@
     "enabled": false,
     "preset": "SEPIA",
     "mode": "colorize",
-    "hue": 25,
-    "sat": 25,
-    "light": 50
+    "hue": 0,
+    "sat": 0,
+    "light": 0
   },
   "lut": {
     "enabled": true,
