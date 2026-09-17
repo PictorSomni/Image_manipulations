@@ -135,8 +135,13 @@ BG           = CONSTANTS.COLOR_BACKGROUND
 GREY         = CONSTANTS.COLOR_GREY
 LIGHT_GREY   = CONSTANTS.COLOR_LIGHT_GREY
 BLUE         = CONSTANTS.COLOR_BLUE
+BLUE_LIGHT   = CONSTANTS.COLOR_BLUE_LIGHT
+BLUE_DARK    = CONSTANTS.COLOR_BLUE_DARK
 VIOLET       = CONSTANTS.COLOR_VIOLET
+PINK         = CONSTANTS.COLOR_PINK
 GREEN        = CONSTANTS.COLOR_GREEN
+YELLOW_GREEN = CONSTANTS.COLOR_YELLOW_GREEN
+MINT         = CONSTANTS.COLOR_MINT
 YELLOW       = CONSTANTS.COLOR_YELLOW
 HOVER_YELLOW = CONSTANTS.COLOR_HOVER_YELLOW
 ORANGE       = CONSTANTS.COLOR_ORANGE
@@ -732,10 +737,10 @@ class PhotoCropper:
 
 
 
-        self.border_switch_polaroid = ft.Switch(label="Polaroid", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_POLAROID, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_polaroid)
-        self.border_switch_ID2 = ft.Switch(label="ID X2", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_ID2, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id2)
-        self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=ORANGE, value=CONSTANTS.RECADRAGE_BORDER_ID4, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id4)
-        self.id4_10x20_switch = ft.Switch(label="10x20", active_color=ORANGE, value=CONSTANTS.RECADRAGE_ID4_10x20, visible="ID" in self.current_format_label and self.border_id4, on_change=self.on_id4_10x20_toggle)
+        self.border_switch_polaroid = ft.Switch(label="Polaroid", active_color=PINK, value=CONSTANTS.RECADRAGE_BORDER_POLAROID, visible="10x10" in self.current_format_label, on_change=self.on_border_toggle_polaroid)
+        self.border_switch_ID2 = ft.Switch(label="ID X2", active_color=BLUE_LIGHT, value=CONSTANTS.RECADRAGE_BORDER_ID2, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id2)
+        self.border_switch_ID4 = ft.Switch(label="ID X4", active_color=BLUE_DARK, value=CONSTANTS.RECADRAGE_BORDER_ID4, visible="ID" in self.current_format_label, on_change=self.on_border_toggle_id4)
+        self.id4_10x20_switch = ft.Switch(label="10x20", active_color=MINT, value=CONSTANTS.RECADRAGE_ID4_10x20, visible="ID" in self.current_format_label and self.border_id4, on_change=self.on_id4_10x20_toggle)
         self.network_switch = ft.Switch(label="Sauver sur réseau", active_color=GREEN, value=CONSTANTS.RECADRAGE_SAVE_TO_NETWORK, visible="ID" in self.current_format_label, on_change=self.on_network_toggle)
         self.sharpen_switch = ft.Switch(label="Netteté", active_color=BLUE, value=CONSTANTS.RECADRAGE_IS_SHARPEN, visible=True, on_change=self.on_sharpen_toggle)
         self.is_sharpen = CONSTANTS.RECADRAGE_IS_SHARPEN
@@ -745,7 +750,7 @@ class PhotoCropper:
         self.white_border = CONSTANTS.RECADRAGE_WHITE_BORDER
         self.white_border_switch = ft.Switch(label="Bord blanc 5mm", active_color=WHITE, value=CONSTANTS.RECADRAGE_WHITE_BORDER, on_change=self.on_white_border_toggle)
         self.show_grid = CONSTANTS.RECADRAGE_SHOW_GRID
-        self.grid_switch = ft.Switch(label="Grille", active_color=BLUE, value=CONSTANTS.RECADRAGE_SHOW_GRID, on_change=self.on_grid_toggle)
+        self.grid_switch = ft.Switch(label="Grille", active_color=RED, value=CONSTANTS.RECADRAGE_SHOW_GRID, on_change=self.on_grid_toggle)
         # "resolution" = recadrage mm×DPI (défaut), "ratio" = crop natif, "none" = retouche seule
         self.crop_mode = "resolution"
 
@@ -4932,7 +4937,7 @@ def main(page: ft.Page):
     app.custom_mode_switch = ft.Switch(
         label="Taille manuelle",
         value=False,
-        active_color=BLUE,
+        active_color=YELLOW_GREEN,
     )
 
     def _apply_custom_mode(enabled: bool):
