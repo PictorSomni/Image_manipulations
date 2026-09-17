@@ -971,13 +971,13 @@ def main(page: ft.Page):
                    co, "auto_cast", 0, 125),
         _slider_row("Exposition", co, "exposure", -100, 100),
         _slider_row("Contraste", co, "contrast", -100, 100),
-        _slider_row("Saturation", co, "saturation", -100, 100),
-        _slider_row("Teinte", co, "hue", -100, 100),
-        _slider_row("Balance des blancs", co, "white_balance", -100, 100),
         _slider_row("Hautes lumières", co, "highlights", -100, 100),
         _slider_row("Ombres", co, "shadows", -100, 100),
         _slider_row("Blancs", co, "whites", -100, 100),
         _slider_row("Noirs", co, "blacks", -100, 100),
+        _slider_row("Saturation", co, "saturation", -100, 100),
+        _slider_row("Teinte", co, "hue", -100, 100),
+        _slider_row("Balance des blancs", co, "white_balance", -100, 100),
     ])
 
     # ── Virage ──────────────────────────────────────────────────────
