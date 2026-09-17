@@ -1257,7 +1257,9 @@ def attach_error_copy_snackbar(page, ignore=(), on_restart=None):
             return
 
         async def _copy(_):
-            await page.clipboard.set(message)
+            # page.clipboard retiré en Flet 1.0 (devenu un service séparé) ;
+            # ft.Clipboard() existe déjà en 0.85.x, compatible les deux.
+            await ft.Clipboard().set(message)
 
         def _force_quit(_):
             os._exit(1)
@@ -1283,3 +1285,13 @@ def attach_error_copy_snackbar(page, ignore=(), on_restart=None):
         ))
 
     page.on_error = _on_error
+
+
+def input_border(color, width=1, radius=None):
+    """Remplace le border_color=... des champs Flet (TextField, Dropdown...),
+    déprécié en 1.0.0 (retiré en 1.3.0) au profit de border=OutlineInputBorder
+    (side=BorderSide(...)) — évite de répéter ce couple de constructeurs
+    partout où un champ ne fixait qu'une couleur de bordure unie."""
+    import flet as ft
+    kwargs = {} if radius is None else {"border_radius": radius}
+    return ft.OutlineInputBorder(side=ft.BorderSide(width, color), **kwargs)

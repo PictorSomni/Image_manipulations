@@ -534,7 +534,8 @@ def main(page: ft.Page):
     files_path = ft.TextField(
         label="Dossier sélectionné",
         hint_text="Cliquez sur Parcourir... ou collez un chemin",
-        expand=True, bgcolor=DARK, border_color=GREY, color=WHITE,
+        expand=True, bgcolor=DARK,
+        border=CONSTANTS.input_border(GREY), color=WHITE,
         on_focus=_on_files_path_focus, on_blur=_resume_kb,
     )
     # Vue liste : ListView + ListTile, primitives éprouvées de Dashboard.
@@ -2047,7 +2048,8 @@ def main(page: ft.Page):
         name_field = ft.TextField(
             value=stem if ext else current_name,
             suffix=ft.Text(ext, color=GREY) if ext else None,
-            autofocus=True, width=320, bgcolor=DARK, border_color=GREY,
+            autofocus=True, width=320, bgcolor=DARK,
+            border=CONSTANTS.input_border(GREY),
             color=WHITE)
 
         fired = {"done": False}
@@ -2129,7 +2131,7 @@ def main(page: ft.Page):
             # Le filigrane n'a de sens que sur un fichier : sur un lot, les
             # nombres actuels diffèrent d'une photo à l'autre.
             hint_text=str(current_count) if len(targets) == 1 else "",
-            bgcolor=DARK, border_color=GREY, color=WHITE,
+            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
 
         fired = {"done": False}
@@ -2354,12 +2356,15 @@ def main(page: ft.Page):
 
     def _add_open_with_program(event=None):
         label_field = ft.TextField(hint_text="Nom (ex. Photoshop)", autofocus=True,
-                                   width=280, bgcolor=DARK, border_color=BLUE,
+                                   width=280, bgcolor=DARK,
+                                   border=CONSTANTS.input_border(BLUE),
                                    color=WHITE, text_size=CONSTANTS.TEXT_SM,
                                    height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
                                    content_padding=ft.Padding(8, 4, 8, 4))
         exe_field = ft.TextField(hint_text="Chemin de l'exécutable", width=280,
-                                 bgcolor=DARK, border_color=BLUE, color=WHITE,
+                                 bgcolor=DARK,
+                                 border=CONSTANTS.input_border(BLUE),
+                                 color=WHITE,
                                  text_size=CONSTANTS.TEXT_SM,
                                  height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
                                  content_padding=ft.Padding(8, 4, 8, 4))
@@ -2971,7 +2976,7 @@ def main(page: ft.Page):
     search_field = ft.TextField(
         hint_text="Rechercher…", on_change=_on_search_change,
         on_submit=_clear_search,
-        height=45, bgcolor=DARK, border_color=BLUE,
+        height=45, bgcolor=DARK, border=CONSTANTS.input_border(BLUE),
         color=WHITE, text_size=CONSTANTS.TEXT_SM,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH,
@@ -4675,7 +4680,8 @@ def main(page: ft.Page):
         notes_field = ft.TextField(
             multiline=True, expand=True, min_lines=4,
             text_style=ft.TextStyle(font_family="monospace", size=state["font_size"]),
-            color=WHITE, border_color=ft.Colors.TRANSPARENT, border_radius=6,
+            color=WHITE,
+            border=CONSTANTS.input_border(ft.Colors.TRANSPARENT, radius=6),
             bgcolor=DARK, filled=True,
             hint_text="Écrivez vos notes ici…",
             hint_style=ft.TextStyle(color=LIGHT_GREY, italic=True),
@@ -4949,7 +4955,7 @@ def main(page: ft.Page):
 
     ai_input_field = ft.TextField(
         hint_text="Posez votre question… (Entrée pour envoyer)",
-        border_color=BLUE,
+        border=CONSTANTS.input_border(BLUE),
         text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
         dense=True, expand=True, color=WHITE, bgcolor=DARK, shift_enter=True,
         on_focus=_ai_input_on_focus, on_blur=_ai_input_on_blur)
@@ -4957,7 +4963,8 @@ def main(page: ft.Page):
         value=CONSTANTS.AI_MODEL_TEXT,
         options=[ft.dropdown.Option(m) for m in CONSTANTS.AI_DROPDOWN_MODELS
                  if m.startswith(("gemini", "claude"))],
-        text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK, border_color=GREY,
+        text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK,
+        border=CONSTANTS.input_border(GREY),
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=180)
     # Qualité des images générées/éditées via generate_image/edit_image —
     # 1K par défaut (coût/temps), à monter à 4K pour une image destinée à
@@ -4966,7 +4973,8 @@ def main(page: ft.Page):
         value="1K",
         options=[ft.dropdown.Option(q) for q in ("1K", "2K", "4K")],
         tooltip="Qualité des images générées/éditées par l'IA (1K/2K/4K)",
-        text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK, border_color=GREY,
+        text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK,
+        border=CONSTANTS.input_border(GREY),
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=90)
     # Modèle Nano Banana 2 pour generate_image/edit_image : "full" par
     # défaut (qualité/cohérence), "Lite" en option pour aller plus vite.
@@ -4978,7 +4986,8 @@ def main(page: ft.Page):
                                text="NB2 Lite"),
         ],
         tooltip="Modèle Nano Banana 2 utilisé pour générer/éditer des images",
-        text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK, border_color=GREY,
+        text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK,
+        border=CONSTANTS.input_border(GREY),
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=150)
     ai_status_text = ft.Text("", color=LIGHT_GREY, size=CONSTANTS.TEXT_SM, italic=True, max_lines=1,
                              overflow=ft.TextOverflow.ELLIPSIS, expand=True)
@@ -5299,7 +5308,7 @@ def main(page: ft.Page):
         password_field = ft.TextField(
             label=f"Mot de passe pour {username}@{service}",
             password=True, can_reveal_password=True, autofocus=True, width=360,
-            bgcolor=DARK, border_color=GREY, color=WHITE)
+            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
 
         fired = {"done": False}
 
@@ -5814,7 +5823,9 @@ def main(page: ft.Page):
             return _handler
 
         other_field = ft.TextField(label="Autre réponse…", width=380,
-                                   bgcolor=DARK, border_color=GREY, color=WHITE)
+                                   bgcolor=DARK,
+                                   border=CONSTANTS.input_border(GREY),
+                                   color=WHITE)
 
         def _other(e=None):
             q_result["value"] = (other_field.value or "").strip() or "(pas de réponse précisée)"
@@ -6897,7 +6908,10 @@ def main(page: ft.Page):
 
     def _liste_copy(text):
         async def _do():
-            await page.clipboard.set(text or "")
+            # ponytail: page.clipboard a été retiré en Flet 1.0 (devenu un
+            # service séparé) ; ft.Clipboard() existe déjà en 0.85.x, donc
+            # compatible avec les deux versions installées en prod.
+            await ft.Clipboard().set(text or "")
             status_left.value = f"Copié : {(text or '')[:60]}"
             page.update()
         _run_task(_do)
@@ -6922,7 +6936,7 @@ def main(page: ft.Page):
                 label=col, value=current.get(col, ""),
                 autofocus=(i == 0), width=320,
                 multiline=(i > 0), min_lines=1, max_lines=5,
-                bgcolor=DARK, border_color=GREY, color=WHITE)
+                bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
             for i, col in enumerate(columns)
         ]
 
@@ -7031,7 +7045,7 @@ def main(page: ft.Page):
         hint_text="Rechercher dans toutes les colonnes…",
         on_change=lambda e: _liste_set_search(e.control.value),
         on_submit=_liste_clear_search,
-        height=45, bgcolor=DARK, border_color=BLUE,
+        height=45, bgcolor=DARK, border=CONSTANTS.input_border(BLUE),
         color=WHITE, text_size=CONSTANTS.TEXT_SM,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH, expand=True,
@@ -7090,7 +7104,8 @@ def main(page: ft.Page):
             return
         name_field = ft.TextField(
             label="Nom du fichier", value="liste.json", autofocus=True,
-            width=280, bgcolor=DARK, border_color=GREY, color=WHITE)
+            width=280, bgcolor=DARK,
+            border=CONSTANTS.input_border(GREY), color=WHITE)
 
         def _cancel(event):
             dlg.open = False
@@ -7582,7 +7597,8 @@ def main(page: ft.Page):
     def _launch_renommer_sequence(event=None):
         name_field = ft.TextField(
             label="Nom de la série", hint_text="Ex: Mariage_Martin",
-            autofocus=True, width=280, bgcolor=DARK, border_color=GREY,
+            autofocus=True, width=280, bgcolor=DARK,
+            border=CONSTANTS.input_border(GREY),
             color=WHITE)
         # Garde anti double-déclenchement : ENTER (on_submit) et le bouton
         # "Lancer" appellent tous deux _confirm. Sans ce verrou, un second
@@ -7953,7 +7969,8 @@ def main(page: ft.Page):
             ft.TextField(
                 label=label, value=str(default),
                 suffix=ft.Text(suffix, color=GREY),
-                width=200, bgcolor=DARK, border_color=GREY, color=WHITE,
+                width=200, bgcolor=DARK,
+                border=CONSTANTS.input_border(GREY), color=WHITE,
                 keyboard_type=ft.KeyboardType.NUMBER)
             for i, (label, suffix, default, env_key) in enumerate(fields)
         ]
@@ -8067,17 +8084,20 @@ def main(page: ft.Page):
         format_dd = ft.Dropdown(
             label="Format d'impression", value=default_fmt,
             options=[ft.dropdown.Option(name) for name in CONSTANTS.FORMATS],
-            width=280, bgcolor=DARK, border_color=BLUE, color=WHITE)
+            width=280, bgcolor=DARK,
+            border=CONSTANTS.input_border(BLUE), color=WHITE)
         # Unité de la saisie manuelle (mm/px, comme Recadrage manuel.pyw) —
         # converti en cm pour le calcul interne dans _read_canvas_params.
         unit = {"value": "mm"}
         width_field = ft.TextField(
             label="Largeur (mm)", value=f"{default_w_mm:g}", width=132,
-            bgcolor=DARK, border_color=LIGHT_GREY, color=GREY,
+            bgcolor=DARK,
+            border=CONSTANTS.input_border(LIGHT_GREY), color=GREY,
             disabled=True, keyboard_type=ft.KeyboardType.NUMBER)
         height_field = ft.TextField(
             label="Hauteur (mm)", value=f"{default_h_mm:g}", width=132,
-            bgcolor=DARK, border_color=LIGHT_GREY, color=GREY,
+            bgcolor=DARK,
+            border=CONSTANTS.input_border(LIGHT_GREY), color=GREY,
             disabled=True, keyboard_type=ft.KeyboardType.NUMBER)
 
         def _on_unit_change(e):
@@ -8104,8 +8124,9 @@ def main(page: ft.Page):
         unit_dropdown = ft.Dropdown(
             value="mm",
             options=[ft.dropdown.Option("mm"), ft.dropdown.Option("px")],
-            width=90, text_size=12, bgcolor=DARK, border_color=BLUE,
-            focused_border_color=BLUE, on_select=_on_unit_change,
+            width=90, text_size=12, bgcolor=DARK,
+            border=CONSTANTS.input_border(BLUE),
+            on_select=_on_unit_change,
             content_padding=ft.Padding.symmetric(horizontal=8, vertical=0),
             disabled=True)
         manual_switch = ft.Switch(label="Saisie manuelle",
@@ -8148,7 +8169,7 @@ def main(page: ft.Page):
         dpi_field = ft.TextField(
             label="Résolution", value=str(CONSTANTS.DPI), visible=False,
             suffix=ft.Text("ppp", color=GREY), width=280,
-            bgcolor=DARK, border_color=GREY, color=WHITE,
+            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
 
         def _toggle_dpi_field(e):
@@ -8162,7 +8183,7 @@ def main(page: ft.Page):
             label="Marge de sécurité (rien d'important trop près du bord)",
             value=str(CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT),
             suffix=ft.Text("cm", color=GREY), width=280,
-            bgcolor=DARK, border_color=GREY, color=WHITE,
+            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
         size_slider = ft.Slider(
             min=0, max=100, divisions=20,
@@ -8215,9 +8236,12 @@ def main(page: ft.Page):
             unit_dropdown.disabled = not manual["value"]
             width_field.color = WHITE if manual["value"] else GREY
             height_field.color = WHITE if manual["value"] else GREY
-            format_dd.border_color = LIGHT_GREY if manual["value"] else BLUE
-            width_field.border_color = BLUE if manual["value"] else LIGHT_GREY
-            height_field.border_color = BLUE if manual["value"] else LIGHT_GREY
+            format_dd.border = CONSTANTS.input_border(
+                LIGHT_GREY if manual["value"] else BLUE)
+            width_field.border = CONSTANTS.input_border(
+                BLUE if manual["value"] else LIGHT_GREY)
+            height_field.border = CONSTANTS.input_border(
+                BLUE if manual["value"] else LIGHT_GREY)
             page.update()
 
         manual_switch.on_change = _on_manual_change
@@ -8603,18 +8627,21 @@ def main(page: ft.Page):
         fmt_dd = ft.Dropdown(
             options=[ft.dropdown.Option(name) for name in CONSTANTS.FORMATS],
             value=default_fmt, width=280, bgcolor=DARK,
-            border_color=LIGHT_GREY if manual["value"] else BLUE,
+            border=CONSTANTS.input_border(
+                LIGHT_GREY if manual["value"] else BLUE),
             color=WHITE, disabled=manual["value"])
         width_field = ft.TextField(
             label="Largeur (mm)", value=str(saved.get("manual_w", default_w)),
             width=132, bgcolor=DARK,
-            border_color=BLUE if manual["value"] else LIGHT_GREY,
+            border=CONSTANTS.input_border(
+                BLUE if manual["value"] else LIGHT_GREY),
             color=WHITE if manual["value"] else GREY,
             disabled=not manual["value"], keyboard_type=ft.KeyboardType.NUMBER)
         height_field = ft.TextField(
             label="Hauteur (mm)", value=str(saved.get("manual_h", default_h)),
             width=132, bgcolor=DARK,
-            border_color=BLUE if manual["value"] else LIGHT_GREY,
+            border=CONSTANTS.input_border(
+                BLUE if manual["value"] else LIGHT_GREY),
             color=WHITE if manual["value"] else GREY,
             disabled=not manual["value"], keyboard_type=ft.KeyboardType.NUMBER)
         manual_switch = ft.Switch(label="Saisie manuelle (mm)",
@@ -8663,9 +8690,12 @@ def main(page: ft.Page):
             height_field.disabled = not manual["value"]
             width_field.color = WHITE if manual["value"] else GREY
             height_field.color = WHITE if manual["value"] else GREY
-            fmt_dd.border_color = LIGHT_GREY if manual["value"] else BLUE
-            width_field.border_color = BLUE if manual["value"] else LIGHT_GREY
-            height_field.border_color = BLUE if manual["value"] else LIGHT_GREY
+            fmt_dd.border = CONSTANTS.input_border(
+                LIGHT_GREY if manual["value"] else BLUE)
+            width_field.border = CONSTANTS.input_border(
+                BLUE if manual["value"] else LIGHT_GREY)
+            height_field.border = CONSTANTS.input_border(
+                BLUE if manual["value"] else LIGHT_GREY)
             if not manual["value"]:
                 # Champs redevenus désactivés : plus moyen de les
                 # refocaliser pour masquer le pavé via _show_keypad.
@@ -9205,7 +9235,8 @@ def main(page: ft.Page):
         _history_idx["terminal"] = None
 
     terminal_input = ft.TextField(
-        hint_text="> Terminal", bgcolor=DARK, border_color=GREY, color=WHITE,
+        hint_text="> Terminal", bgcolor=DARK,
+        border=CONSTANTS.input_border(GREY), color=WHITE,
         text_size=CONSTANTS.TERMINAL_FONT_SIZE, expand=True,
         content_padding=ft.Padding(10, 8, 10, 8),
         on_focus=_terminal_input_on_focus, on_blur=_terminal_input_on_blur)
@@ -9440,7 +9471,8 @@ def main(page: ft.Page):
         pwd_field = ft.TextField(
             hint_text="Mot de passe administrateur", password=True,
             can_reveal_password=True, autofocus=True, width=280,
-            bgcolor=DARK, border_color=BLUE, text_size=CONSTANTS.TEXT_SM,
+            bgcolor=DARK, border=CONSTANTS.input_border(BLUE),
+            text_size=CONSTANTS.TEXT_SM,
             height=CONSTANTS.HUB_DIALOG_FIELD_HEIGHT,
             content_padding=ft.Padding(8, 4, 8, 4))
 

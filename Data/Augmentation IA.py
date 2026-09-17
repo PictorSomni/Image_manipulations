@@ -75,6 +75,19 @@ YELLOW     = CONSTANTS.COLOR_YELLOW
 RED        = CONSTANTS.COLOR_RED
 WHITE      = CONSTANTS.COLOR_WHITE
 
+def input_border(color, focused_color=None):
+    """OutlineInputBorder helper (border_color/focused_border_color
+    are deprecated since Flet 1.0.0)."""
+    if focused_color is None:
+        return ft.OutlineInputBorder(side=ft.BorderSide(color=color))
+    return {
+        ft.ControlState.DEFAULT: ft.OutlineInputBorder(
+            side=ft.BorderSide(color=color)),
+        ft.ControlState.FOCUSED: ft.OutlineInputBorder(
+            side=ft.BorderSide(color=focused_color)),
+    }
+
+
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".bmp", ".webp"}
 DPI = CONSTANTS.DPI
 
@@ -355,7 +368,8 @@ async def main(page: ft.Page) -> None:
         options=[ft.dropdown.Option(q) for q in ("1K", "2K", "4K")],
         label="Qualité",
         text_size=11, dense=True, color=WHITE, bgcolor=GREY,
-        border_color=LIGHT_GREY, content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        border=input_border(LIGHT_GREY),
+        content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
         width=100,
     )
 
@@ -371,7 +385,8 @@ async def main(page: ft.Page) -> None:
         ],
         label="Modèle",
         text_size=11, dense=True, color=WHITE, bgcolor=GREY,
-        border_color=LIGHT_GREY, content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        border=input_border(LIGHT_GREY),
+        content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
         width=170,
     )
 
@@ -382,8 +397,7 @@ async def main(page: ft.Page) -> None:
         min_lines=3,
         max_lines=6,
         bgcolor=GREY,
-        border_color=LIGHT_GREY,
-        focused_border_color=BLUE,
+        border=input_border(LIGHT_GREY, BLUE),
         color=WHITE,
         label_style=ft.TextStyle(color=LIGHT_GREY),
     )
@@ -1549,7 +1563,7 @@ async def main(page: ft.Page) -> None:
         value=(_list_pth_models() or [""])[0],
         bgcolor=GREY,
         color=WHITE,
-        border_color=LIGHT_GREY,
+        border=input_border(LIGHT_GREY),
         text_size=11,
         dense=True,
         expand=True,
@@ -1885,7 +1899,8 @@ async def main(page: ft.Page) -> None:
         options=[ft.dropdown.Option(q) for q in ("1K", "2K", "4K")],
         label="Qualité",
         text_size=11, dense=True, color=WHITE, bgcolor=GREY,
-        border_color=LIGHT_GREY, content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
+        border=input_border(LIGHT_GREY),
+        content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
         width=100,
     )
 
@@ -1900,7 +1915,8 @@ async def main(page: ft.Page) -> None:
         label="Consigne (optionnel)",
         hint_text="Ex. : continue exactement la guirlande de ballons, même taille et espacement",
         text_size=11, dense=True, color=WHITE, bgcolor=GREY,
-        border_color=LIGHT_GREY, multiline=True, min_lines=2, max_lines=3,
+        border=input_border(LIGHT_GREY),
+        multiline=True, min_lines=2, max_lines=3,
     )
 
     # Slider de fondu du raccord extension/photo d'origine, visible
@@ -2281,7 +2297,7 @@ async def main(page: ft.Page) -> None:
         value="Blanc",
         bgcolor=GREY,
         color=WHITE,
-        border_color=LIGHT_GREY,
+        border=input_border(LIGHT_GREY),
         text_size=11,
         dense=True,
         expand=True,

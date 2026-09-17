@@ -167,7 +167,9 @@ def text_prompt_dialog(page, title, on_confirm, colors, label=None,
     """
     field = ft.TextField(
         label=label, hint_text=hint_text, value=value, autofocus=True,
-        width=width, bgcolor=colors["dark"], border_color=colors["grey"],
+        width=width, bgcolor=colors["dark"],
+        border=ft.OutlineInputBorder(
+            side=ft.BorderSide(1, colors["grey"])),
         color=colors["white"])
 
     fired = {"done": False}

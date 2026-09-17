@@ -583,7 +583,7 @@ def main(page: ft.Page):
         label="Dossier 1 (source principale)",
         value=folder1_path,
         hint_text="Chemin du premier dossier",
-        bgcolor=DARK, border_color=GREY,
+        bgcolor=DARK, border=CONSTANTS.input_border(GREY),
         expand=True, read_only=False,
         text_size=13,
     )
@@ -591,7 +591,7 @@ def main(page: ft.Page):
         label="Dossier 2 (à comparer)",
         value=folder2_path or folder1_path,
         hint_text="Chemin du second dossier",
-        bgcolor=DARK, border_color=GREY,
+        bgcolor=DARK, border=CONSTANTS.input_border(GREY),
         expand=True, read_only=False,
         text_size=13,
     )

@@ -1010,7 +1010,7 @@ def main(page: ft.Page):
         label="Préréglage", value=vi["preset"],
         options=[ft.dropdown.Option(name)
                 for name in CONSTANTS.VIRAGE_PRESETS],
-        bgcolor=DARK, border_color=GREY, color=WHITE,
+        bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
         on_select=_on_virage_preset)
 
     _mode_labels = {"colorize": "Coloriser", "multiply": "Multiplier"}
@@ -1030,7 +1030,7 @@ def main(page: ft.Page):
         options=[ft.dropdown.Option("Auto (préréglage)"),
                 ft.dropdown.Option("Coloriser"),
                 ft.dropdown.Option("Multiplier")],
-        bgcolor=DARK, border_color=GREY, color=WHITE,
+        bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
         on_select=_on_virage_mode)
 
     section_virage = _make_section(
@@ -1050,7 +1050,7 @@ def main(page: ft.Page):
     lut_dd = ft.Dropdown(
         label="Fichier LUT", value=lu["name"] or None,
         options=[ft.dropdown.Option(name) for name in _cube_luts],
-        bgcolor=DARK, border_color=GREY, color=WHITE,
+        bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
         hint_text=("Aucun .cube dans Data/LUTs" if not _cube_luts
                   else None),
         on_select=_on_lut_select)
@@ -1081,7 +1081,7 @@ def main(page: ft.Page):
         # Slider (retour user, champs Grain restés étroits).
         field = ft.TextField(
             label=label, value=str(sub[key]), bgcolor=DARK,
-            border_color=GREY, color=WHITE, expand=True,
+            border=CONSTANTS.input_border(GREY), color=WHITE, expand=True,
             keyboard_type=ft.KeyboardType.NUMBER)
 
         def _handle(e):
@@ -1133,7 +1133,7 @@ def main(page: ft.Page):
     cp = state["params"]["copyright"]
     copyright_custom_field = ft.TextField(
         label="Texte personnalisé", value=cp["custom_text"], width=280,
-        bgcolor=DARK, border_color=GREY, color=WHITE,
+        bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
         visible=(cp["mode"] == "custom"))
 
     def _on_copyright_text(e):
@@ -1155,7 +1155,7 @@ def main(page: ft.Page):
         options=[ft.dropdown.Option("Date"),
                 ft.dropdown.Option("Nom de fichier"),
                 ft.dropdown.Option("Personnalisé")],
-        bgcolor=DARK, border_color=GREY, color=WHITE,
+        bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
         on_select=_on_copyright_mode)
 
     section_copyright = _make_section(
@@ -1449,12 +1449,12 @@ def main(page: ft.Page):
         label="Préréglage", options=_preset_options(), expand=True,
         hint_text=("Aucun préréglage enregistré" if not list_presets()
                   else None),
-        bgcolor=DARK, border_color=VIOLET, color=WHITE,
+        bgcolor=DARK, border=CONSTANTS.input_border(VIOLET), color=WHITE,
         on_select=_on_preset_select)
 
     preset_name_field = ft.TextField(
         label="Nom du préréglage", autofocus=True,
-        bgcolor=DARK, border_color=VIOLET, color=WHITE,
+        bgcolor=DARK, border=CONSTANTS.input_border(VIOLET), color=WHITE,
         text_size=CONSTANTS.TEXT_SM)
 
     def _confirm_save_preset(e):

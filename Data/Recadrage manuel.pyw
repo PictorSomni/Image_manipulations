@@ -4823,14 +4823,14 @@ def main(page: ft.Page):
     app.custom_w_field = ft.TextField(
         label="Largeur (mm)", value="100", expand=True,
         text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
-        border=ft.InputBorder.OUTLINE, border_color=BLUE, focused_border_color=BLUE, bgcolor=BG,
+        border=CONSTANTS.input_border(BLUE), bgcolor=BG,
         disabled=True,
         on_submit=_on_custom_dim_change, on_blur=_on_custom_dim_change,
     )
     app.custom_h_field = ft.TextField(
         label="Hauteur (mm)", value="100", expand=True,
         text_size=12, keyboard_type=ft.KeyboardType.NUMBER,
-        border=ft.InputBorder.OUTLINE, border_color=BLUE, focused_border_color=BLUE, bgcolor=BG,
+        border=CONSTANTS.input_border(BLUE), bgcolor=BG,
         disabled=True,
         on_submit=_on_custom_dim_change, on_blur=_on_custom_dim_change,
     )
@@ -4893,8 +4893,7 @@ def main(page: ft.Page):
         width=90,
         text_size=12,
         bgcolor=BG,
-        border_color=BLUE,
-        focused_border_color=BLUE,
+        border=CONSTANTS.input_border(BLUE),
         on_select=_on_unit_change,
         content_padding=ft.Padding.symmetric(horizontal=8, vertical=0),
         disabled=True,
