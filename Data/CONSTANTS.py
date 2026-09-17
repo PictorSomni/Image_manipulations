@@ -930,8 +930,8 @@ SIZES = STUDIOS   # Alias conservé pour compatibilité ascendante
 # template   : taille de la fenêtre de comparaison (doit être impair, typiquement 7)
 # search     : taille de la fenêtre de recherche   (doit être impair, typiquement 21)
 
-DENOISE_H               = 4  # Force luminance
-DENOISE_H_COLOR         = 2  # Force couleur
+DENOISE_H               = 0  # Force luminance
+DENOISE_H_COLOR         = 0  # Force couleur
 DENOISE_TEMPLATE_WINDOW = 7     # Fenêtre de comparaison (px, impair)
 DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
 

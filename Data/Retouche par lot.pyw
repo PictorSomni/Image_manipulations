@@ -693,6 +693,7 @@ def main(page: ft.Page):
 
     # ── Panneaux repliables (un seul ouvert à la fois) ─────────────────
     sections = {}
+    _dct_to_section = {}
 
     def _apply_section_visual(name, is_open):
         """État visuel d'une section : chevron (▸/▾), couleur de l'en-tête
@@ -734,6 +735,10 @@ def main(page: ft.Page):
             setter(color)
 
     def _make_section(name, color, icon, param, body_controls):
+        # Sert à retrouver le switch d'une section depuis son dict de
+        # paramètres (id() : `param` est parfois un sous-dict de "grain",
+        # que _section_name ne sait pas retrouver dans state["params"]).
+        _dct_to_section[id(param)] = name
         # Zébrage : une ligne sur deux sur fond GREY (une nuance plus
         # sombre que le fond BG du corps) — juste des rails de lecture
         # pour suivre un curseur des yeux jusqu'à sa valeur (retour user).
@@ -875,6 +880,15 @@ def main(page: ft.Page):
             écrit une exception pour la photo affichée plutôt que le
             réglage du lot."""
             snapped = max(minv, min(maxv, round(new_value)))
+            if snapped != reset_value:
+                # Toucher un curseur active sa section si elle est encore
+                # éteinte (retour user) : sinon le réglage ne se voit pas
+                # tant qu'on ne pense pas à cocher l'interrupteur à part.
+                section = sections.get(_dct_to_section.get(id(dct)))
+                if section is not None and not section["switch"].value:
+                    dct["enabled"] = True
+                    section["switch"].value = True
+                    section["switch"].update()
             if override_switch.value:
                 name = file_names[state["index"]]
                 section = _section_name(dct)
