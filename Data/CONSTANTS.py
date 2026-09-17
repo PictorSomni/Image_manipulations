@@ -10,8 +10,6 @@ toucher aux scripts eux-mêmes.
 import json
 import os
 
-from cv2 import COLORMAP_PINK
-
 # ==============================================================================
 # TABLE DES MATIÈRES
 # ==============================================================================
