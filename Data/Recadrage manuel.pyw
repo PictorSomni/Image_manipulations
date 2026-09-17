@@ -5073,6 +5073,12 @@ def main(page: ft.Page):
 
 
                         # ── Luminosité ────────────────────────────────────
+                        # Liseré coloré + titre, sans boîte complète (fond +
+                        # bordure sur les 4 côtés) : le panneau "Réglages"
+                        # a déjà sa propre boîte, en remettre une par groupe
+                        # empilait les rectangles et rendait la colonne
+                        # difficile à lire (retour user). Même traitement
+                        # que les catégories du panneau Actions de Hub.pyw.
                         ft.Container(
                             content=ft.Column([
                                 ft.Text("LUMINOSITÉ", size=10, color=YELLOW, weight=ft.FontWeight.BOLD),
@@ -5089,11 +5095,10 @@ def main(page: ft.Page):
                                 ft.Text("Noirs  (point noir)", size=12, color=LIGHT_GREY),
                                 ft.GestureDetector(content=app.blacks_slider, on_double_tap=lambda e: app._reset_slider(app.blacks_slider, 'blacks', 0.0, '0')),
                             ], spacing=4),
-                            bgcolor=DARK, border_radius=6,
-                            padding=ft.Padding.symmetric(horizontal=8, vertical=8),
-                            border=ft.Border.all(1, YELLOW),
+                            border=ft.Border(left=ft.BorderSide(2, YELLOW)),
+                            padding=ft.Padding.only(left=8),
                         ),
-                        ft.Divider(height=6),
+                        ft.Divider(height=10),
 
 
                         # ── Couleur ───────────────────────────────────────
@@ -5107,11 +5112,10 @@ def main(page: ft.Page):
                                 ft.Text("Balance des blancs  (−froid / +chaud)", size=12, color=LIGHT_GREY),
                                 ft.GestureDetector(content=app.white_balance_slider, on_double_tap=lambda e: app._reset_slider(app.white_balance_slider, 'white_balance', 0.0, '0')),
                             ], spacing=4),
-                            bgcolor=DARK, border_radius=6,
-                            padding=ft.Padding.symmetric(horizontal=8, vertical=8),
-                            border=ft.Border.all(1, VIOLET),
+                            border=ft.Border(left=ft.BorderSide(2, VIOLET)),
+                            padding=ft.Padding.only(left=8),
                         ),
-                        ft.Divider(height=6),
+                        ft.Divider(height=10),
 
 
                         # ── Netteté ───────────────────────────────────────
@@ -5120,12 +5124,11 @@ def main(page: ft.Page):
                                 ft.Text("NETTETÉ", size=10, color=GREEN, weight=ft.FontWeight.BOLD),
                                 app.sharpen_switch,
                             ], spacing=2),
-                            bgcolor=DARK, border_radius=6,
-                            padding=ft.Padding.symmetric(horizontal=8, vertical=6),
-                            border=ft.Border.all(1, GREEN),
+                            border=ft.Border(left=ft.BorderSide(2, GREEN)),
+                            padding=ft.Padding.only(left=8),
                             width=LEFT_COL_WIDTH - 20,
                         ),
-                        ft.Divider(height=6),
+                        ft.Divider(height=10),
                         ft.Button("Tout à 0", on_click=app.reset_adjustments, bgcolor=BG, color=WHITE, width=LEFT_COL_WIDTH - 20),
                         ft.Button("Réglages par défaut", on_click=app.reset_to_defaults, bgcolor=DARK, color=LIGHT_GREY, width=LEFT_COL_WIDTH - 20),
                     ], spacing=4, scroll=ft.ScrollMode.AUTO),
