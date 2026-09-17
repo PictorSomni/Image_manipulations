@@ -697,19 +697,33 @@ def main(page: ft.Page):
 
     def _apply_section_visual(name, is_open):
         """État visuel d'une section : chevron (▸/▾), couleur de l'en-tête
-        (gris en veille, teinte de section à 15 % quand ouverte) et
-        couleur icône/titre. Un seul point de vérité, appelé au toggle."""
+        (gris en veille, teinte de section à 15 % quand ouverte OU quand
+        un curseur à l'intérieur diffère de son défaut — retour user :
+        repérer une section modifiée même repliée) et couleur
+        icône/titre. Un seul point de vérité, appelé au toggle et à
+        chaque changement de curseur (_slider_row)."""
         sec = sections[name]
         col = sec["color"]
         sec["body"].visible = is_open
         sec["chevron"].icon = (ft.Icons.EXPAND_MORE if is_open
                                else ft.Icons.CHEVRON_RIGHT)
-        accent = col if is_open else LIGHT_GREY
+        highlight = is_open or sec.get("modified_count", 0) > 0
+        accent = col if highlight else LIGHT_GREY
         sec["chevron"].color = accent
         sec["head_icon"].color = accent
         sec["title"].color = accent
         sec["header"].bgcolor = (ft.Colors.with_opacity(0.15, col)
-                                 if is_open else GREY)
+                                 if highlight else GREY)
+
+    def _refresh_header(name):
+        """Recalcule l'en-tête d'une section après qu'un de ses curseurs
+        a changé d'état (modifié / au défaut) — utilisé par _slider_row,
+        indépendamment de l'ouverture/fermeture (_toggle_section)."""
+        sec = sections.get(name)
+        if sec is None:
+            return
+        _apply_section_visual(name, sec["body"].visible)
+        sec["header"].update()
 
     def _toggle_section(name):
         def handler(e):
@@ -788,7 +802,8 @@ def main(page: ft.Page):
             bgcolor=BG, border_radius=6)
         sections[name] = {"body": body, "switch": switch, "color": color,
                           "chevron": chevron, "head_icon": head_icon,
-                          "title": title, "header": header}
+                          "title": title, "header": header,
+                          "modified_count": 0}
         # Filet d'accent vertical (couleur de section) le long de
         # l'en-tête ET du corps : repère de famille en scannant le
         # panneau (retour user).
@@ -862,6 +877,7 @@ def main(page: ft.Page):
         # chaque section (retour user).
         accent = {"c": WHITE}
         is_default = round(value) == reset_value
+        was_active = {"v": not is_default}
         value_text = ft.Text(str(round(value)), size=CONSTANTS.TEXT_SM + 4,
                              weight=ft.FontWeight.W_700,
                              color=(WHITE if is_default else accent["c"]))
@@ -873,6 +889,16 @@ def main(page: ft.Page):
             slider.active_color = accent["c"] if active else WHITE
             value_text.update()
             slider.update()
+            if active != was_active["v"]:
+                # Répercute sur l'en-tête de la section (retour user :
+                # visible même repliée) — indépendant de l'ouverture.
+                was_active["v"] = active
+                name = _dct_to_section.get(id(dct))
+                sec = sections.get(name)
+                if sec is not None:
+                    sec["modified_count"] = (sec.get("modified_count", 0)
+                                             + (1 if active else -1))
+                    _refresh_header(name)
 
         def _write(new_value, *, move_slider=True):
             """Point de passage unique : curseur, − / +, ↺ et chargement de
