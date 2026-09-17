@@ -47,8 +47,13 @@ DARK = CONSTANTS.COLOR_DARK
 BG = CONSTANTS.COLOR_BACKGROUND
 GREY = CONSTANTS.COLOR_GREY
 BLUE = CONSTANTS.COLOR_BLUE
+BLUE_LIGHT = CONSTANTS.COLOR_BLUE_LIGHT
+BLUE_DARK = CONSTANTS.COLOR_BLUE_DARK
 VIOLET = CONSTANTS.COLOR_VIOLET
+PINK = CONSTANTS.COLOR_PINK
 GREEN = CONSTANTS.COLOR_GREEN
+YELLOW_GREEN = CONSTANTS.COLOR_YELLOW_GREEN
+MINT = CONSTANTS.COLOR_MINT
 YELLOW = CONSTANTS.COLOR_YELLOW
 ORANGE = CONSTANTS.COLOR_ORANGE
 RED = CONSTANTS.COLOR_RED
@@ -806,18 +811,11 @@ def main(page: ft.Page):
         """Slider cranté par pas entiers par défaut (un pas = une unité
         affichée) plutôt que des valeurs flottantes continues (retour
         user) — passer `divisions` explicitement pour un pas plus fin.
-        Double-clic : revient à 0 (ou au minimum si 0 est hors plage,
-        ex. rayons de netteté qui commencent à 1). Auto-enregistré dans
-        `reset_registry` pour le bouton Réinitialiser.
-
-        Utilisable sans clavier ni souris : les boutons − / + permettent le
-        pas à pas (au doigt, la main masque le curseur qu'elle déplace) et
-        le ↺ s'active dès que la valeur s'écarte du défaut — le double-clic
-        reste, mais il n'est plus le seul accès à la remise à zéro, ce qui
-        le rendait introuvable sur écran tactile. Les trois boutons sont
-        toujours présents (grisés plutôt que masqués) : une icône qui
-        apparaît et disparaît ferait sauter la hauteur de la ligne, et donc
-        tout le panneau, à chaque mouvement de curseur.
+        Double-clic/double-tap : revient à 0 (ou au minimum si 0 est hors
+        plage, ex. rayons de netteté qui commencent à 1). Auto-enregistré
+        dans `reset_registry` pour le bouton Réinitialiser. Pas de
+        boutons ↺/−/+ à côté du curseur (retour user : inutiles, le
+        double-tap suffit et ils alourdissaient chaque ligne).
 
         Revue photo par photo (`override_switch`, retour user) : tant
         qu'il est actif, ce curseur n'écrit plus dans `dct[key]` (réglage
@@ -838,12 +836,9 @@ def main(page: ft.Page):
             # Un cran par unité tant que ça reste lisible ; au-delà, on
             # élargit le pas (1, 2, 5, 10…) pour garder ≤ ~40 graduations
             # visibles sur le rail (Flutter masque des traits trop serrés).
-            # Comme Recadrage manuel : le pas des boutons − / + suit.
             step = next(s for s in (1, 2, 5, 10, 20, 50, 100)
                         if span / s <= 40)
             divisions = max(1, span // step)
-        else:
-            step = max(1, round(span / max(1, divisions)))
         reset_value = max(0, minv)
         # Libellé à gauche (tronqué si trop long), valeur à droite sur la
         # MÊME ligne (retour user : une ligne dédiée à "Label : valeur"
@@ -862,27 +857,11 @@ def main(page: ft.Page):
                              weight=ft.FontWeight.W_700,
                              color=(accent["c"] if round(value) != reset_value
                                     else LIGHT_GREY))
-        _touch = CONSTANTS.TOUCH_TARGET
-        reset_btn = ft.IconButton(
-            ft.Icons.RESTART_ALT, icon_size=CONSTANTS.ICON_SM,
-            icon_color=BLUE, tooltip=f"Réinitialiser « {label} »",
-            disabled=round(value) == reset_value,
-            width=_touch, height=_touch)
-        minus_btn = ft.IconButton(
-            ft.Icons.REMOVE, icon_size=CONSTANTS.ICON_SM,
-            icon_color=LIGHT_GREY,
-            tooltip=f"{label} − {step}", width=_touch, height=_touch)
-        plus_btn = ft.IconButton(
-            ft.Icons.ADD, icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
-            tooltip=f"{label} + {step}", width=_touch, height=_touch)
-
         def _display(snapped):
             value_text.value = str(snapped)
             value_text.color = (accent["c"] if snapped != reset_value
                                 else LIGHT_GREY)
-            reset_btn.disabled = (snapped == reset_value)
             value_text.update()
-            reset_btn.update()
 
         def _write(new_value, *, move_slider=True):
             """Point de passage unique : curseur, − / +, ↺ et chargement de
@@ -912,21 +891,10 @@ def main(page: ft.Page):
                           divisions=divisions, on_change=_handle,
                           active_color=BLUE)
 
-        def _step(delta):
-            def handler(e):
-                current = _effective_value(dct, key, dct[key])
-                _write(current + delta)
-                live_preview_tick()
-            return handler
-
-        minus_btn.on_click = _step(-step)
-        plus_btn.on_click = _step(step)
-
         def _reset(e):
             _write(reset_value)
             live_preview_tick()
 
-        reset_btn.on_click = _reset
         slider_area = ft.GestureDetector(content=slider,
                                         on_double_tap=_reset, expand=True)
 
@@ -942,8 +910,7 @@ def main(page: ft.Page):
 
         column = ft.Column([
             ft.Row([label_text, value_text], spacing=CONSTANTS.SPACE_SM),
-            ft.Row([reset_btn, minus_btn, slider_area, plus_btn], spacing=0,
-                  vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            slider_area,
         ], spacing=0)
         column.data = _refresh
 
@@ -1100,30 +1067,30 @@ def main(page: ft.Page):
         return _make_section(label, color, icon, sub, fields)
 
     section_ca = _grain_section(
-        "Aberrations chromatiques", YELLOW, ft.Icons.BLUR_LINEAR, ga["ca"], [
+        "Aberrations chromatiques", PINK, ft.Icons.BLUR_LINEAR, ga["ca"], [
             ("strength", "Intensité"), ("axial_ratio", "Ratio axial")])
     section_desat = _grain_section(
-        "Désaturation des extrêmes", VIOLET, ft.Icons.CONTRAST, ga["desat"], [
+        "Désaturation des extrêmes", MINT, ft.Icons.CONTRAST, ga["desat"], [
             ("shadow_threshold", "Seuil ombres"),
             ("shadow_intensity", "Intensité ombres"),
             ("highlight_threshold", "Seuil HL"),
             ("highlight_intensity", "Intensité HL"),
             ("midtone_boost", "Boost mi-tons")])
     section_halation = _grain_section(
-        "Halation", RED, ft.Icons.FLARE, ga["halation"], [
+        "Halation", ORANGE, ft.Icons.FLARE, ga["halation"], [
             ("threshold", "Seuil"), ("radius", "Rayon"),
             ("intensity", "Intensité"), ("red_shift", "Décalage rouge")])
     section_bloom = _grain_section(
-        "Bloom (Soft Light)", BLUE, ft.Icons.WB_SUNNY, ga["bloom"], [
+        "Bloom (Soft Light)", BLUE_LIGHT, ft.Icons.WB_SUNNY, ga["bloom"], [
             ("radius", "Rayon"), ("intensity", "Intensité")])
     section_grain1 = _grain_section(
-        "Grain — Couche 1", ORANGE, ft.Icons.GRAIN, ga["grain1"], [
+        "Grain — Couche 1", YELLOW_GREEN, ft.Icons.GRAIN, ga["grain1"], [
             ("amount", "Intensité"), ("size", "Taille"),
             ("color_ratio", "Part couleur"),
             ("shadow_boost", "Concentration mi-tons"),
             ("chroma_shift", "Décalage inter-canal")])
     section_grain2 = _grain_section(
-        "Grain — Couche 2", ORANGE, ft.Icons.GRAIN, ga["grain2"], [
+        "Grain — Couche 2", BLUE_DARK, ft.Icons.GRAIN, ga["grain2"], [
             ("amount", "Intensité"), ("size", "Taille"),
             ("color_ratio", "Part couleur"),
             ("shadow_boost", "Concentration mi-tons"),
