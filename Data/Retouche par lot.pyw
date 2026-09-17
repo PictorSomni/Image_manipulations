@@ -719,15 +719,27 @@ def main(page: ft.Page):
             page.update()
         return handler
 
+    def _recolor_sliders(control, color):
+        """Curseurs à la couleur de leur section une fois modifiés (blanc
+        au repos partout — retour user). Parcours récursif : _slider_row
+        imbrique le Slider dans Column > Row > GestureDetector, et les
+        sections Grain/Copyright n'en ont aucun."""
+        child = getattr(control, "content", None)
+        if child is not None:
+            _recolor_sliders(child, color)
+        for sub in getattr(control, "controls", None) or []:
+            _recolor_sliders(sub, color)
+        setter = getattr(control, "set_accent", None)
+        if callable(setter):
+            setter(color)
+
     def _make_section(name, color, icon, param, body_controls):
         # Zébrage : une ligne sur deux sur fond GREY (une nuance plus
         # sombre que le fond BG du corps) — juste des rails de lecture
         # pour suivre un curseur des yeux jusqu'à sa valeur (retour user).
-        # Les curseurs eux-mêmes sont blanc/bleu partout, indépendamment
-        # de la couleur de section (retour user : incohérent sinon,
-        # certains bleus d'autres gris selon la section).
         striped = []
         for i, ctrl in enumerate(body_controls):
+            _recolor_sliders(ctrl, color)
             striped.append(ft.Container(
                 content=ctrl,
                 bgcolor=(GREY if i % 2 else None),
@@ -839,22 +851,21 @@ def main(page: ft.Page):
                              expand=True, max_lines=1,
                              overflow=ft.TextOverflow.ELLIPSIS,
                              tooltip=label)
-        # Valeur affichée : grise au repos, dans la couleur de la section
-        # (renseignée par _recolor_sliders) et en gras dès qu'elle bouge
-        # — repère fort de « ce que j'ai touché » (retour user).
+        # Valeur affichée : blanche au repos, dans la couleur de la
+        # section (renseignée par _recolor_sliders) et en gras dès
+        # qu'elle bouge — repère fort de « ce que j'ai touché », propre à
+        # chaque section (retour user).
+        accent = {"c": WHITE}
         is_default = round(value) == reset_value
         value_text = ft.Text(str(round(value)), size=CONSTANTS.TEXT_SM + 4,
                              weight=ft.FontWeight.W_700,
-                             color=(WHITE if is_default else BLUE))
+                             color=(WHITE if is_default else accent["c"]))
 
         def _display(snapped):
             value_text.value = str(snapped)
             active = snapped != reset_value
-            # Blanc au repos, bleu dès qu'on s'écarte du défaut — même
-            # code pour le curseur et sa valeur, sur tous les sliders
-            # sans distinction de section (retour user).
-            value_text.color = BLUE if active else WHITE
-            slider.active_color = BLUE if active else WHITE
+            value_text.color = accent["c"] if active else WHITE
+            slider.active_color = accent["c"] if active else WHITE
             value_text.update()
             slider.update()
 
@@ -884,7 +895,7 @@ def main(page: ft.Page):
 
         slider = ft.Slider(min=minv, max=maxv, value=value, expand=True,
                           divisions=divisions, on_change=_handle,
-                          active_color=(WHITE if is_default else BLUE),
+                          active_color=(WHITE if is_default else accent["c"]),
                           inactive_color=GREY)
 
         def _reset(e):
@@ -909,9 +920,20 @@ def main(page: ft.Page):
             slider_area,
         ], spacing=0)
         column.data = _refresh
+
+        def _set_accent(c):
+            accent["c"] = c
+            if round(slider.value) != reset_value:
+                value_text.color = c
+                slider.active_color = c
+        column.set_accent = _set_accent
         reset_registry["sliders"].append((column, label, dct, key))
         return column
 
+    # Couleurs de section en rotation arc-en-ciel du haut vers le bas
+    # (retour user) : RED, ORANGE, YELLOW, YELLOW_GREEN, GREEN, MINT,
+    # BLUE_LIGHT, BLUE, BLUE_DARK, VIOLET, PINK, puis WHITE (Copyright,
+    # hors spectre — pas un réglage d'image).
     # ── Débruiter ───────────────────────────────────────────────────
     dn = state["params"]["denoise"]
     section_denoise = _make_section(
@@ -923,7 +945,7 @@ def main(page: ft.Page):
     # ── Réglages couleur ────────────────────────────────────────────
     co = state["params"]["couleur"]
     section_couleur = _make_section(
-        "Réglages couleur", BLUE, ft.Icons.PALETTE, co, [
+        "Réglages couleur", ORANGE, ft.Icons.PALETTE, co, [
         _slider_row("Corriger la dominante (photos anciennes)",
                    co, "auto_cast", 0, 125),
         _slider_row("Exposition", co, "exposure", -100, 100),
@@ -1013,7 +1035,7 @@ def main(page: ft.Page):
         on_select=_on_lut_select)
     lut_intensity_row = _slider_row("Intensité", lu, "intensity", 0, 100)
 
-    section_lut = _make_section("LUT", VIOLET, ft.Icons.GRADIENT, lu, [
+    section_lut = _make_section("LUT", YELLOW_GREEN, ft.Icons.GRADIENT, lu, [
         lut_dd, lut_intensity_row,
     ])
 
@@ -1057,30 +1079,31 @@ def main(page: ft.Page):
         return _make_section(label, color, icon, sub, fields)
 
     section_ca = _grain_section(
-        "Aberrations chromatiques", PINK, ft.Icons.BLUR_LINEAR, ga["ca"], [
+        "Aberrations chromatiques", MINT, ft.Icons.BLUR_LINEAR, ga["ca"], [
             ("strength", "Intensité"), ("axial_ratio", "Ratio axial")])
     section_desat = _grain_section(
-        "Désaturation des extrêmes", MINT, ft.Icons.CONTRAST, ga["desat"], [
+        "Désaturation des extrêmes", BLUE_LIGHT, ft.Icons.CONTRAST,
+        ga["desat"], [
             ("shadow_threshold", "Seuil ombres"),
             ("shadow_intensity", "Intensité ombres"),
             ("highlight_threshold", "Seuil HL"),
             ("highlight_intensity", "Intensité HL"),
             ("midtone_boost", "Boost mi-tons")])
     section_halation = _grain_section(
-        "Halation", ORANGE, ft.Icons.FLARE, ga["halation"], [
+        "Halation", BLUE, ft.Icons.FLARE, ga["halation"], [
             ("threshold", "Seuil"), ("radius", "Rayon"),
             ("intensity", "Intensité"), ("red_shift", "Décalage rouge")])
     section_bloom = _grain_section(
-        "Bloom (Soft Light)", BLUE_LIGHT, ft.Icons.WB_SUNNY, ga["bloom"], [
+        "Bloom (Soft Light)", BLUE_DARK, ft.Icons.WB_SUNNY, ga["bloom"], [
             ("radius", "Rayon"), ("intensity", "Intensité")])
     section_grain1 = _grain_section(
-        "Grain — Couche 1", YELLOW_GREEN, ft.Icons.GRAIN, ga["grain1"], [
+        "Grain — Couche 1", VIOLET, ft.Icons.GRAIN, ga["grain1"], [
             ("amount", "Intensité"), ("size", "Taille"),
             ("color_ratio", "Part couleur"),
             ("shadow_boost", "Concentration mi-tons"),
             ("chroma_shift", "Décalage inter-canal")])
     section_grain2 = _grain_section(
-        "Grain — Couche 2", BLUE_DARK, ft.Icons.GRAIN, ga["grain2"], [
+        "Grain — Couche 2", PINK, ft.Icons.GRAIN, ga["grain2"], [
             ("amount", "Intensité"), ("size", "Taille"),
             ("color_ratio", "Part couleur"),
             ("shadow_boost", "Concentration mi-tons"),
