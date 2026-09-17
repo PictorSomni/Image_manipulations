@@ -10,6 +10,8 @@ toucher aux scripts eux-mêmes.
 import json
 import os
 
+from cv2 import COLORMAP_PINK
+
 # ==============================================================================
 # TABLE DES MATIÈRES
 # ==============================================================================
@@ -91,15 +93,17 @@ COLOR_BACKGROUND   = "#373d4a"
 COLOR_GREY         = "#2C3038"
 COLOR_LIGHT_GREY   = "#9399A6"
 COLOR_BLUE         = "#45B8F5"
-COLOR_BLUE_LIGHT   = "#8ED2FA"
-COLOR_VIOLET       = "#B587FE"
-COLOR_VIOLET_LIGHT = "#D5B8FF"
+COLOR_BLUE_LIGHT   = "#4EC3FF"
+COLOR_BLUE_DARK    = "#5E94FF"
+COLOR_VIOLET       = "#A071FF"
 COLOR_GREEN        = "#49B76C"
+COLOR_YELLOW_GREEN = "#A3C94C"
+COLOR_MINT         = "#51DBC3"
 COLOR_YELLOW       = "#FBCD5F"
 COLOR_HOVER_YELLOW = "#F9BA4E"
 COLOR_ORANGE       = "#FFA071"
 COLOR_RED          = "#F17171"
-COLOR_RED_LIGHT    = "#F7A6A6"
+COLORMAP_PINK      = "#F471B7"
 COLOR_WHITE        = "#c7ccd8"
 
 
