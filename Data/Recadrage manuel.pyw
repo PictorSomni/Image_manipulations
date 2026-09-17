@@ -523,7 +523,7 @@ class PhotoCropper:
             max=100,
             divisions=20,
             label=str(CONSTANTS.RECADRAGE_DEFAULT_SHADOWS),
-            active_color=YELLOW,
+            active_color=WHITE,
             on_change=self.on_shadows_label,
             on_change_end=self.on_shadows_end,
         )
@@ -538,7 +538,7 @@ class PhotoCropper:
             max=100,
             divisions=20,
             label=str(CONSTANTS.RECADRAGE_DEFAULT_HIGHLIGHTS),
-            active_color=YELLOW,
+            active_color=WHITE,
             on_change=self.on_highlights_label,
             on_change_end=self.on_highlights_end,
         )
@@ -556,7 +556,7 @@ class PhotoCropper:
             max=100,
             divisions=20,
             label="0",
-            active_color=YELLOW,
+            active_color=WHITE,
             on_change=self.on_whites_label,
             on_change_end=self.on_whites_end,
         )
@@ -567,7 +567,7 @@ class PhotoCropper:
             max=100,
             divisions=20,
             label="0",
-            active_color=YELLOW,
+            active_color=WHITE,
             on_change=self.on_blacks_label,
             on_change_end=self.on_blacks_end,
         )
@@ -898,7 +898,7 @@ class PhotoCropper:
         self.contrast = float(CONSTANTS.RECADRAGE_DEFAULT_CONTRAST)
         self.contrast_slider = ft.Slider(
             value=CONSTANTS.RECADRAGE_DEFAULT_CONTRAST, min=-20, max=20, divisions=40, label=str(CONSTANTS.RECADRAGE_DEFAULT_CONTRAST),
-            active_color=YELLOW,
+            active_color=(ORANGE if CONSTANTS.RECADRAGE_DEFAULT_CONTRAST else WHITE),
             on_change=self.on_contrast_label,
             on_change_end=self.on_contrast_end,
         )
@@ -907,7 +907,7 @@ class PhotoCropper:
         self.saturation = float(CONSTANTS.RECADRAGE_DEFAULT_SATURATION)
         self.saturation_slider = ft.Slider(
             value=CONSTANTS.RECADRAGE_DEFAULT_SATURATION, min=-100, max=100, divisions=20, label=str(CONSTANTS.RECADRAGE_DEFAULT_SATURATION),
-            active_color=VIOLET,
+            active_color=(GREEN if CONSTANTS.RECADRAGE_DEFAULT_SATURATION else WHITE),
             on_change=self.on_saturation_label,
             on_change_end=self.on_saturation_end,
         )
@@ -916,7 +916,7 @@ class PhotoCropper:
         self.exposure = float(CONSTANTS.RECADRAGE_DEFAULT_EXPOSURE)
         self.exposure_slider = ft.Slider(
             value=CONSTANTS.RECADRAGE_DEFAULT_EXPOSURE, min=-100, max=100, divisions=20, label=str(CONSTANTS.RECADRAGE_DEFAULT_EXPOSURE),
-            active_color=YELLOW,
+            active_color=(ORANGE if CONSTANTS.RECADRAGE_DEFAULT_EXPOSURE else WHITE),
             on_change=self.on_exposure_label,
             on_change_end=self.on_exposure_end,
         )
@@ -925,7 +925,7 @@ class PhotoCropper:
         self.hue = float(CONSTANTS.RECADRAGE_DEFAULT_HUE)
         self.hue_slider = ft.Slider(
             value=CONSTANTS.RECADRAGE_DEFAULT_HUE, min=-180, max=180, divisions=36, label=str(CONSTANTS.RECADRAGE_DEFAULT_HUE),
-            active_color=VIOLET,
+            active_color=(GREEN if CONSTANTS.RECADRAGE_DEFAULT_HUE else WHITE),
             on_change=self.on_hue_label,
             on_change_end=self.on_hue_end,
         )
@@ -934,7 +934,7 @@ class PhotoCropper:
         self.white_balance = float(CONSTANTS.RECADRAGE_DEFAULT_WHITE_BALANCE)
         self.white_balance_slider = ft.Slider(
             value=CONSTANTS.RECADRAGE_DEFAULT_WHITE_BALANCE, min=-100, max=100, divisions=20, label=str(CONSTANTS.RECADRAGE_DEFAULT_WHITE_BALANCE),
-            active_color=VIOLET,
+            active_color=(GREEN if CONSTANTS.RECADRAGE_DEFAULT_WHITE_BALANCE else WHITE),
             on_change=self.on_wb_label,
             on_change_end=self.on_wb_end,
         )
@@ -2594,6 +2594,7 @@ class PhotoCropper:
         setattr(self, attr, default_val)
         slider.value = default_val
         slider.label = label_str
+        slider.active_color = WHITE
         slider.update()
         self._render_preview()
         self.page.update()
@@ -3205,6 +3206,7 @@ class PhotoCropper:
 
         self.shadows = e.control.value
         e.control.label = str(int(self.shadows))
+        e.control.active_color = ORANGE if self.shadows else WHITE
         e.control.update()
         self._live_preview_tick()
 
@@ -3242,6 +3244,7 @@ class PhotoCropper:
 
         self.highlights = e.control.value
         e.control.label = str(int(self.highlights))
+        e.control.active_color = ORANGE if self.highlights else WHITE
         e.control.update()
         self._live_preview_tick()
 
@@ -3269,6 +3272,7 @@ class PhotoCropper:
         (aperçu live, rendu complet au relâchement)."""
         self.whites = e.control.value
         e.control.label = str(int(self.whites))
+        e.control.active_color = ORANGE if self.whites else WHITE
         e.control.update()
         self._live_preview_tick()
 
@@ -3283,6 +3287,7 @@ class PhotoCropper:
         (aperçu live, rendu complet au relâchement)."""
         self.blacks = e.control.value
         e.control.label = str(int(self.blacks))
+        e.control.active_color = ORANGE if self.blacks else WHITE
         e.control.update()
         self._live_preview_tick()
 
@@ -3304,6 +3309,7 @@ class PhotoCropper:
 
         self.contrast = e.control.value
         e.control.label = str(int(self.contrast))
+        e.control.active_color = ORANGE if self.contrast else WHITE
         e.control.update()
         self._live_preview_tick()
 
@@ -3337,6 +3343,7 @@ class PhotoCropper:
 
         self.saturation = e.control.value
         e.control.label = str(int(self.saturation))
+        e.control.active_color = GREEN if self.saturation else WHITE
         e.control.update()
         self._live_preview_tick()
 
@@ -3370,6 +3377,7 @@ class PhotoCropper:
 
         self.exposure = e.control.value
         e.control.label = str(int(self.exposure))
+        e.control.active_color = ORANGE if self.exposure else WHITE
         e.control.update()
         self._live_preview_tick()
 
@@ -3395,6 +3403,7 @@ class PhotoCropper:
         """Mise à jour du label du slider Teinte pendant le glissement."""
         self.hue = e.control.value
         e.control.label = str(int(self.hue))
+        e.control.active_color = GREEN if self.hue else WHITE
         e.control.update()
         self._live_preview_tick()
 
@@ -3412,6 +3421,7 @@ class PhotoCropper:
         """Mise à jour du label du slider Balance des blancs pendant le glissement."""
         self.white_balance = e.control.value
         e.control.label = str(int(self.white_balance))
+        e.control.active_color = GREEN if self.white_balance else WHITE
         e.control.update()
         self._live_preview_tick()
 
@@ -3441,10 +3451,12 @@ class PhotoCropper:
         self.shadows = 0.0
         self.shadows_slider.value = 0.0
         self.shadows_slider.label = "0"
+        self.shadows_slider.active_color = WHITE
         self.shadows_slider.update()
         self.highlights = 0.0
         self.highlights_slider.value = 0.0
         self.highlights_slider.label = "0"
+        self.highlights_slider.active_color = WHITE
         self.highlights_slider.update()
         self._render_preview()
         self.page.update()
@@ -3458,38 +3470,47 @@ class PhotoCropper:
         self.contrast = 0.0
         self.contrast_slider.value = 0.0
         self.contrast_slider.label = "0"
+        self.contrast_slider.active_color = WHITE
         self.contrast_slider.update()
         self.saturation = 0.0
         self.saturation_slider.value = 0.0
         self.saturation_slider.label = "0"
+        self.saturation_slider.active_color = WHITE
         self.saturation_slider.update()
         self.exposure = 0.0
         self.exposure_slider.value = 0.0
         self.exposure_slider.label = "0"
+        self.exposure_slider.active_color = WHITE
         self.exposure_slider.update()
         self.shadows = 0.0
         self.shadows_slider.value = 0.0
         self.shadows_slider.label = "0"
+        self.shadows_slider.active_color = WHITE
         self.shadows_slider.update()
         self.highlights = 0.0
         self.highlights_slider.value = 0.0
         self.highlights_slider.label = "0"
+        self.highlights_slider.active_color = WHITE
         self.highlights_slider.update()
         self.whites = 0.0
         self.whites_slider.value = 0.0
         self.whites_slider.label = "0"
+        self.whites_slider.active_color = WHITE
         self.whites_slider.update()
         self.blacks = 0.0
         self.blacks_slider.value = 0.0
         self.blacks_slider.label = "0"
+        self.blacks_slider.active_color = WHITE
         self.blacks_slider.update()
         self.hue = 0.0
         self.hue_slider.value = 0.0
         self.hue_slider.label = "0"
+        self.hue_slider.active_color = WHITE
         self.hue_slider.update()
         self.white_balance = 0.0
         self.white_balance_slider.value = 0.0
         self.white_balance_slider.label = "0"
+        self.white_balance_slider.active_color = WHITE
         self.white_balance_slider.update()
         # La netteté restait active après un "Tout à 0" / passage en
         # mode ratio (qui appelle ce même reset) : seul réglage jamais
@@ -3509,39 +3530,48 @@ class PhotoCropper:
         self.contrast = float(CONSTANTS.RECADRAGE_DEFAULT_CONTRAST)
         self.contrast_slider.value = self.contrast
         self.contrast_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_CONTRAST)
+        self.contrast_slider.active_color = ORANGE if self.contrast else WHITE
         self.contrast_slider.update()
         self.saturation = float(CONSTANTS.RECADRAGE_DEFAULT_SATURATION)
         self.saturation_slider.value = self.saturation
         self.saturation_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_SATURATION)
+        self.saturation_slider.active_color = GREEN if self.saturation else WHITE
         self.saturation_slider.update()
         self.exposure = float(CONSTANTS.RECADRAGE_DEFAULT_EXPOSURE)
         self.exposure_slider.value = self.exposure
         self.exposure_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_EXPOSURE)
+        self.exposure_slider.active_color = ORANGE if self.exposure else WHITE
         self.exposure_slider.update()
         self.shadows = float(CONSTANTS.RECADRAGE_DEFAULT_SHADOWS)
         self.shadows_slider.value = self.shadows
         self.shadows_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_SHADOWS)
+        self.shadows_slider.active_color = ORANGE if self.shadows else WHITE
         self.shadows_slider.update()
         self.highlights = float(CONSTANTS.RECADRAGE_DEFAULT_HIGHLIGHTS)
         self.highlights_slider.value = self.highlights
         self.highlights_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_HIGHLIGHTS)
+        self.highlights_slider.active_color = ORANGE if self.highlights else WHITE
         self.highlights_slider.update()
         # Blancs/Noirs : pas de valeur par défaut CONSTANTS, neutre = 0
         self.whites = 0.0
         self.whites_slider.value = 0.0
         self.whites_slider.label = "0"
+        self.whites_slider.active_color = WHITE
         self.whites_slider.update()
         self.blacks = 0.0
         self.blacks_slider.value = 0.0
         self.blacks_slider.label = "0"
+        self.blacks_slider.active_color = WHITE
         self.blacks_slider.update()
         self.hue = float(CONSTANTS.RECADRAGE_DEFAULT_HUE)
         self.hue_slider.value = self.hue
         self.hue_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_HUE)
+        self.hue_slider.active_color = GREEN if self.hue else WHITE
         self.hue_slider.update()
         self.white_balance = float(CONSTANTS.RECADRAGE_DEFAULT_WHITE_BALANCE)
         self.white_balance_slider.value = self.white_balance
         self.white_balance_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_WHITE_BALANCE)
+        self.white_balance_slider.active_color = GREEN if self.white_balance else WHITE
         self.white_balance_slider.update()
         self._render_preview()
         self.page.update()
@@ -5081,7 +5111,7 @@ def main(page: ft.Page):
                         # que les catégories du panneau Actions de Hub.pyw.
                         ft.Container(
                             content=ft.Column([
-                                ft.Text("LUMINOSITÉ", size=10, color=YELLOW, weight=ft.FontWeight.BOLD),
+                                ft.Text("LUMINOSITÉ", size=10, color=ORANGE, weight=ft.FontWeight.BOLD),
                                 ft.Text("Exposition", size=12, color=LIGHT_GREY),
                                 ft.GestureDetector(content=app.exposure_slider, on_double_tap=lambda e: app._reset_slider(app.exposure_slider, 'exposure', 0.0, '0')),
                                 ft.Text("Contraste", size=12, color=LIGHT_GREY),
@@ -5095,7 +5125,7 @@ def main(page: ft.Page):
                                 ft.Text("Noirs  (point noir)", size=12, color=LIGHT_GREY),
                                 ft.GestureDetector(content=app.blacks_slider, on_double_tap=lambda e: app._reset_slider(app.blacks_slider, 'blacks', 0.0, '0')),
                             ], spacing=4),
-                            border=ft.Border(left=ft.BorderSide(2, YELLOW)),
+                            border=ft.Border(left=ft.BorderSide(2, ORANGE)),
                             padding=ft.Padding.only(left=8),
                         ),
                         ft.Divider(height=10),
@@ -5104,7 +5134,7 @@ def main(page: ft.Page):
                         # ── Couleur ───────────────────────────────────────
                         ft.Container(
                             content=ft.Column([
-                                ft.Text("COULEUR", size=10, color=VIOLET, weight=ft.FontWeight.BOLD),
+                                ft.Text("COULEUR", size=10, color=GREEN, weight=ft.FontWeight.BOLD),
                                 ft.Text("Saturation", size=12, color=LIGHT_GREY),
                                 ft.GestureDetector(content=app.saturation_slider, on_double_tap=lambda e: app._reset_slider(app.saturation_slider, 'saturation', 0.0, '0')),
                                 ft.Text("Teinte  (−vert / +magenta)", size=12, color=LIGHT_GREY),
@@ -5112,7 +5142,7 @@ def main(page: ft.Page):
                                 ft.Text("Balance des blancs  (−froid / +chaud)", size=12, color=LIGHT_GREY),
                                 ft.GestureDetector(content=app.white_balance_slider, on_double_tap=lambda e: app._reset_slider(app.white_balance_slider, 'white_balance', 0.0, '0')),
                             ], spacing=4),
-                            border=ft.Border(left=ft.BorderSide(2, VIOLET)),
+                            border=ft.Border(left=ft.BorderSide(2, GREEN)),
                             padding=ft.Padding.only(left=8),
                         ),
                         ft.Divider(height=10),
@@ -5121,10 +5151,10 @@ def main(page: ft.Page):
                         # ── Netteté ───────────────────────────────────────
                         ft.Container(
                             content=ft.Column([
-                                ft.Text("NETTETÉ", size=10, color=GREEN, weight=ft.FontWeight.BOLD),
+                                ft.Text("NETTETÉ", size=10, color=BLUE, weight=ft.FontWeight.BOLD),
                                 app.sharpen_switch,
                             ], spacing=2),
-                            border=ft.Border(left=ft.BorderSide(2, GREEN)),
+                            border=ft.Border(left=ft.BorderSide(2, BLUE)),
                             padding=ft.Padding.only(left=8),
                             width=LEFT_COL_WIDTH - 20,
                         ),
