@@ -103,7 +103,7 @@ COLOR_YELLOW       = "#FBCD5F"
 COLOR_HOVER_YELLOW = "#F9BA4E"
 COLOR_ORANGE       = "#FFA071"
 COLOR_RED          = "#F17171"
-COLORMAP_PINK      = "#F471B7"
+COLOR_PINK         = "#F471B7"
 COLOR_WHITE        = "#c7ccd8"
 
 
