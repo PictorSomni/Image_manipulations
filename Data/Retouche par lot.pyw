@@ -431,6 +431,9 @@ def main(page: ft.Page):
         page, ignore=("Codec failed to produce an image",))
     page.title = "Retouche par lot"
     page.theme_mode = ft.ThemeMode.DARK
+    # Rail plus fin (retour user) — global : Flet ne permet pas de varier
+    # l'épaisseur par curseur ni selon sa valeur, seule la couleur l'est.
+    page.theme = ft.Theme(slider_theme=ft.SliderTheme(track_height=2))
     page.bgcolor = BG
     page.padding = 0
     page.run_task(page.window.to_front)
@@ -717,16 +720,17 @@ def main(page: ft.Page):
         return handler
 
     def _recolor_sliders(control, color):
-        """Curseurs à la couleur de leur section (retour user). Parcours
-        récursif : _slider_row imbrique le Slider dans Column > Row >
-        GestureDetector, et les sections Grain/Copyright n'en ont aucun."""
+        """Couleur de section à afficher quand le curseur s'écarte de son
+        défaut (retour user : gris au repos, coloré dès qu'on y touche —
+        _set_accent, posé par _slider_row, gère lequel des deux montrer).
+        Parcours récursif : _slider_row imbrique le Slider dans Column >
+        Row > GestureDetector, et les sections Grain/Copyright n'en ont
+        aucun."""
         child = getattr(control, "content", None)
         if child is not None:
             _recolor_sliders(child, color)
         for sub in getattr(control, "controls", None) or []:
             _recolor_sliders(sub, color)
-        if isinstance(control, ft.Slider):
-            control.active_color = color
         setter = getattr(control, "set_accent", None)
         if callable(setter):
             setter(color)
@@ -853,15 +857,21 @@ def main(page: ft.Page):
         # (renseignée par _recolor_sliders) et en gras dès qu'elle bouge
         # — repère fort de « ce que j'ai touché » (retour user).
         accent = {"c": WHITE}
+        is_default = round(value) == reset_value
         value_text = ft.Text(str(round(value)), size=CONSTANTS.TEXT_SM + 4,
                              weight=ft.FontWeight.W_700,
-                             color=(accent["c"] if round(value) != reset_value
-                                    else LIGHT_GREY))
+                             color=(LIGHT_GREY if is_default else accent["c"]))
+
         def _display(snapped):
             value_text.value = str(snapped)
-            value_text.color = (accent["c"] if snapped != reset_value
-                                else LIGHT_GREY)
+            active = snapped != reset_value
+            value_text.color = accent["c"] if active else LIGHT_GREY
+            # Trait du curseur gris au repos, coloré dès qu'on s'écarte du
+            # défaut (retour user) — l'ombre (au-delà du curseur) reste
+            # grise dans les deux cas, seul le trait "parcouru" change.
+            slider.active_color = accent["c"] if active else GREY
             value_text.update()
+            slider.update()
 
         def _write(new_value, *, move_slider=True):
             """Point de passage unique : curseur, − / +, ↺ et chargement de
@@ -889,7 +899,8 @@ def main(page: ft.Page):
 
         slider = ft.Slider(min=minv, max=maxv, value=value, expand=True,
                           divisions=divisions, on_change=_handle,
-                          active_color=BLUE)
+                          active_color=(WHITE if not is_default else GREY),
+                          inactive_color=GREY)
 
         def _reset(e):
             _write(reset_value)
@@ -916,8 +927,10 @@ def main(page: ft.Page):
 
         def _set_accent(c):
             accent["c"] = c
-            if value_text.value != str(reset_value):
+            active = round(slider.value) != reset_value
+            if active:
                 value_text.color = c
+                slider.active_color = c
         column.set_accent = _set_accent
         reset_registry["sliders"].append((column, label, dct, key))
         return column
