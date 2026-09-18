@@ -8303,6 +8303,81 @@ def main(page: ft.Page):
 
         manual_switch.on_change = _on_manual_change
 
+        # ── Mode : mosaïque artistique / grille ──────────────────────────
+        # Retour user : besoin ponctuel d'une planche N photos identiques
+        # sur une feuille (ex. 3 ou 9 sur A4), sans le côté scrapbook du
+        # mode mosaïque — lignes x colonnes calculées automatiquement
+        # depuis le nombre de photos (Montage collage.py:
+        # compute_grid_layout). Même bascule bouton plein que Portrait/
+        # Paysage juste au-dessus (retour user), pour la cohérence.
+        mode = {"value": "scrapbook"}
+        grid_fit = {"value": CONSTANTS.COLLAGE_GRID_FIT_DEFAULT}
+
+        def _toggle_mode(e):
+            mode["value"] = (
+                "grid" if mode["value"] == "scrapbook" else "scrapbook")
+            is_grid = mode["value"] == "grid"
+            mode_icon.name = (ft.Icons.GRID_VIEW if is_grid
+                             else ft.Icons.AUTO_AWESOME_MOSAIC)
+            mode_text.value = ("Grille (planche photo)" if is_grid
+                              else "Mosaïque artistique")
+            mode_btn.update()
+            featured_section.visible = not is_grid
+            size_section.visible = not is_grid
+            rotation_section.visible = not is_grid
+            fit_section.visible = is_grid
+            margin_field.label = (
+                "Marge extérieure et écart entre photos" if is_grid
+                else "Marge de sécurité (rien d'important trop près du bord)")
+            margin_field.update()
+            page.update()
+
+        mode_icon = ft.Icon(ft.Icons.AUTO_AWESOME_MOSAIC, color=DARK)
+        mode_text = ft.Text("Mosaïque artistique", color=DARK,
+                            size=CONSTANTS.TEXT_SM)
+        mode_btn = ft.TextButton(
+            content=ft.Row([mode_icon, mode_text], spacing=8, tight=True,
+                           alignment=ft.MainAxisAlignment.CENTER),
+            style=ft.ButtonStyle(bgcolor=VIOLET, padding=ft.Padding.all(12),
+                                 shape=ft.RoundedRectangleBorder(radius=8)),
+            width=280, on_click=_toggle_mode)
+
+        def _toggle_fit(e):
+            grid_fit["value"] = (
+                "contain" if grid_fit["value"] == "cover" else "cover")
+            is_contain = grid_fit["value"] == "contain"
+            fit_icon.name = (ft.Icons.FIT_SCREEN if is_contain
+                             else ft.Icons.CROP)
+            fit_text.value = ("Préserver les proportions" if is_contain
+                              else "Remplir la case (recadre)")
+            fit_btn.update()
+
+        fit_icon = ft.Icon(ft.Icons.CROP, color=DARK)
+        fit_text = ft.Text("Remplir la case (recadre)", color=DARK,
+                          size=CONSTANTS.TEXT_SM)
+        fit_btn = ft.TextButton(
+            content=ft.Row([fit_icon, fit_text], spacing=8, tight=True,
+                           alignment=ft.MainAxisAlignment.CENTER),
+            style=ft.ButtonStyle(bgcolor=BLUE, padding=ft.Padding.all(12),
+                                 shape=ft.RoundedRectangleBorder(radius=8)),
+            width=280, on_click=_toggle_fit)
+        fit_section = ft.Column([
+            ft.Text("Chaque photo remplit sa case (recadrée) ou garde ses "
+                   "proportions (bande blanche autour) — au choix.",
+                   size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
+            fit_btn,
+        ], visible=False)
+        size_section = ft.Column([
+            ft.Text("Écart de taille (les photos se repositionnent "
+                   "pour combler l'espace)", size=CONSTANTS.TEXT_SM,
+                   color=LIGHT_GREY),
+            size_slider,
+        ])
+        rotation_section = ft.Column([
+            ft.Text("Rotation", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
+            rotation_slider,
+        ])
+
         # ── Photo centrale / mises en avant ─────────────────────────────
         # Retour user : les clients pointent souvent une photo à poser au
         # centre, en plus grand — même logique que le reste (une photo
@@ -8361,6 +8436,12 @@ def main(page: ft.Page):
                 border_radius=6, padding=2)
             tile_borders[path] = tile_border
             tiles_row.controls.append(tile_border)
+
+        featured_section = ft.Column([
+            ft.Text("Photo centrale / mises en avant (optionnel)",
+                   size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
+            tiles_row,
+        ])
 
         # ── Aperçu ───────────────────────────────────────────────────────
         # Même code de placement que le rendu final (render_montage,
@@ -8432,11 +8513,18 @@ def main(page: ft.Page):
                 return PILImage.open(io.BytesIO(data)).convert("RGBA")
 
             montage_mod = _load_montage_module()
-            canvas, _ = montage_mod.render_montage(
-                photo_paths, prev_w, prev_h, size_slider.value,
-                rotation_slider.value, prev_margin, preview_seed["value"],
-                load_thumb, center_key=center["path"],
-                featured_keys=frozenset(featured), log=lambda msg: None)
+            if mode["value"] == "grid":
+                # Même valeur pour la marge extérieure et l'écart entre
+                # photos (retour user) — un seul champ pour les deux.
+                canvas = montage_mod.render_grid_montage(
+                    photo_paths, prev_w, prev_h, prev_margin, prev_margin,
+                    grid_fit["value"], load_thumb, log=lambda msg: None)
+            else:
+                canvas, _ = montage_mod.render_montage(
+                    photo_paths, prev_w, prev_h, size_slider.value,
+                    rotation_slider.value, prev_margin, preview_seed["value"],
+                    load_thumb, center_key=center["path"],
+                    featured_keys=frozenset(featured), log=lambda msg: None)
             buf = io.BytesIO()
             canvas.convert("RGB").save(buf, format="JPEG", quality=85)
 
@@ -8492,6 +8580,9 @@ def main(page: ft.Page):
                 "COLLAGE_HEIGHT_CM": str(height_cm),
                 "COLLAGE_DPI": str(dpi),
                 "COLLAGE_SAFE_MARGIN_CM": str(margin_cm),
+                "COLLAGE_MODE": mode["value"],
+                "COLLAGE_GRID_FIT": grid_fit["value"],
+                "COLLAGE_GRID_GAP_CM": str(margin_cm),
                 "COLLAGE_SIZE_VARIATION": str(size_slider.value),
                 "COLLAGE_ROTATION_VARIATION": str(rotation_slider.value),
                 # Même tirage que l'aperçu affiché en dernier (si généré) :
@@ -8521,9 +8612,8 @@ def main(page: ft.Page):
                 width=360, height=560,
                 content=ft.Column([
                     ft.Column([
-                        ft.Text("Photo centrale / mises en avant (optionnel)",
-                               size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
-                        tiles_row,
+                        mode_btn,
+                        featured_section,
                         ft.Divider(height=1, color=GREY),
                         format_dd,
                         orientation_btn,
@@ -8543,13 +8633,9 @@ def main(page: ft.Page):
                         dpi_field,
                         ft.Container(height=14),
                         margin_field,
-                        ft.Text("Écart de taille (les photos se repositionnent "
-                               "pour combler l'espace)", size=CONSTANTS.TEXT_SM,
-                               color=LIGHT_GREY),
-                        size_slider,
-                        ft.Text("Rotation", size=CONSTANTS.TEXT_SM,
-                               color=LIGHT_GREY),
-                        rotation_slider,
+                        size_section,
+                        rotation_section,
+                        fit_section,
                         ft.Divider(height=1, color=GREY),
                         ft.Row([
                             ft.TextButton("Aperçu", icon=ft.Icons.PREVIEW,

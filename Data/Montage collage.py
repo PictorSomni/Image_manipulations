@@ -333,6 +333,91 @@ def compute_layout(photo_keys, canvas_w, canvas_h, size_variation,
     return [placed[k] for k in photo_keys]
 
 
+def compute_grid_layout(count, canvas_w, canvas_h, margin_px=0, gap_px=0):
+    """Découpe le canevas en une grille rows x cols de cases TOUTES
+    identiques (retour user : "j'aurais divisé la surface en 3 parties
+    égales", pas des bandes inégales) — seuls les couples (rows, cols)
+    qui multiplient exactement à `count` sont considérés, sans case vide
+    ni recouvrement ; le couple le plus proche du ratio du canevas est
+    choisi (ex. 9 → 3x3, 3 → 1x3 ou 3x1 selon l'orientation, 5 (premier)
+    → 1x5/5x1, seules factorisations exactes possibles).
+
+    `gap_px` grignote symétriquement chaque case pour créer un espace
+    visuel entre les photos. Renvoie une liste de (x, y, w, h) dans
+    l'ordre 0..count-1."""
+    usable_w = max(1, canvas_w - 2 * margin_px)
+    usable_h = max(1, canvas_h - 2 * margin_px)
+    best = None
+    for rows in range(1, count + 1):
+        if count % rows:
+            continue
+        cols = count // rows
+        mismatch = abs(math.log((usable_w / cols) / (usable_h / rows)))
+        if best is None or mismatch < best[0]:
+            best = (mismatch, rows, cols)
+    _, rows, cols = best
+    cell_w, cell_h = usable_w / cols, usable_h / rows
+    half_gap = gap_px / 2
+    cells = []
+    for i in range(count):
+        row, col = divmod(i, cols)
+        x = margin_px + col * cell_w + half_gap
+        y = margin_px + row * cell_h + half_gap
+        cells.append((x, y, max(1, cell_w - gap_px), max(1, cell_h - gap_px)))
+    return cells
+
+
+def _contain_resize(image, box_w, box_h):
+    """Redimensionne `image` pour tenir ENTIÈREMENT dans box_w x box_h
+    (« contain » — préserve les proportions, pas de recadrage) ; l'appelant
+    (render_grid_montage) centre le résultat sur fond blanc."""
+    box_w, box_h = max(1, round(box_w)), max(1, round(box_h))
+    ratio = min(box_w / image.width, box_h / image.height)
+    new_size = (max(1, round(image.width * ratio)),
+               max(1, round(image.height * ratio)))
+    return image.resize(new_size, Image.Resampling.LANCZOS)
+
+
+def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
+                        fit_mode, load_source,
+                        log=lambda msg: print(msg, flush=True)):
+    """Place chaque photo dans une grille auto-calculée (compute_grid_layout)
+    sur fond blanc plein — prêt à imprimer directement, pas de calque PSD.
+    `fit_mode` "cover" remplit chaque case (recadre, cf. fit_and_rotate) ;
+    "contain" préserve les proportions de la photo (bande blanche dans la
+    case, cf. _contain_resize) — les deux options demandées par un client
+    (certaines photos ne doivent pas être recadrées). Renvoie une image
+    RGB."""
+    cells = compute_grid_layout(len(photo_keys), canvas_w, canvas_h,
+                                margin_px, gap_px)
+    canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
+    total = len(photo_keys)
+    for index, (key, (x, y, w, h)) in enumerate(zip(photo_keys, cells),
+                                                start=1):
+        log(f"{index} / {total} — {key}")
+        try:
+            source = load_source(key)
+        except Exception as exc:
+            log(f"[WARN] {key} ignorée : {exc}")
+            continue
+        if source is None:
+            continue
+        box_w, box_h = max(1, round(w)), max(1, round(h))
+        if fit_mode == "contain":
+            resized = _contain_resize(source, box_w, box_h)
+            tile = Image.new("RGBA", (box_w, box_h), (255, 255, 255, 255))
+            tile.paste(resized, ((box_w - resized.width) // 2,
+                                 (box_h - resized.height) // 2), resized)
+        else:
+            tile = fit_and_rotate(source, box_w, box_h, 0.0)
+        if tile.mode == "RGBA":
+            flat = Image.new("RGB", tile.size, (255, 255, 255))
+            flat.paste(tile, (0, 0), tile)
+            tile = flat
+        canvas.paste(tile, (round(x), round(y)))
+    return canvas
+
+
 def _cover_resize(image, box_w, box_h):
     """Redimensionne `image` (RGBA) pour REMPLIR box_w x box_h (« cover » —
     l'excédent dépasse le cadre plutôt que de laisser une bande
@@ -530,14 +615,39 @@ def main():
     out_dir = PATH / "Montage"
     out_dir.mkdir(exist_ok=True)
 
+    def load_source(name):
+        return image_ops.open_srgb(PATH / name).convert("RGBA")
+
+    grid_mode = os.environ.get(
+        "COLLAGE_MODE", "").strip().lower() == "grid"
+    if grid_mode:
+        # Planche N photos égales (retour user : besoin ponctuel d'un
+        # tirage multi-photos simple sur une feuille, ex. 3 ou 9 photos
+        # sur A4) — grille auto, prête à imprimer directement (JPG),
+        # pas de PSD à retoucher.
+        grid_fit = os.environ.get(
+            "COLLAGE_GRID_FIT", CONSTANTS.COLLAGE_GRID_FIT_DEFAULT).strip().lower()
+        gap_cm = env_float(
+            "COLLAGE_GRID_GAP_CM", CONSTANTS.COLLAGE_GRID_GAP_CM_DEFAULT)
+        gap_px = round(gap_cm / 2.54 * dpi)
+        print(f"[INFO] Grille {canvas_w}x{canvas_h}px "
+              f"({width_cm:g}x{height_cm:g}cm @ {dpi:g}ppp), "
+              f"{len(photo_names)} photo(s), mode={grid_fit}", flush=True)
+        canvas = render_grid_montage(
+            photo_names, canvas_w, canvas_h, margin_px, gap_px, grid_fit,
+            load_source)
+        out_path = out_dir / "Planche.jpg"
+        canvas.save(out_path, quality=92)
+        print(f"[ok] Planche → {out_path.name} ({canvas_w}x{canvas_h}px)",
+              flush=True)
+        print("[ok] Terminé.", flush=True)
+        return
+
     print(f"[INFO] Canevas {canvas_w}x{canvas_h}px "
           f"({width_cm:g}x{height_cm:g}cm @ {dpi:g}ppp), "
           f"{len(photo_names)} photo(s), taille={size_variation:g} "
           f"rotation={rotation_variation:g} marge={safe_margin_cm:g}cm",
           flush=True)
-
-    def load_source(name):
-        return image_ops.open_srgb(PATH / name).convert("RGBA")
 
     canvas, psd_layers = render_montage(
         photo_names, canvas_w, canvas_h, size_variation, rotation_variation,
