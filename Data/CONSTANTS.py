@@ -383,6 +383,14 @@ COLLAGE_SIZE_VARIATION_DEFAULT     = 15   # 0 = tailles uniformes, 100 = très i
 COLLAGE_ROTATION_VARIATION_DEFAULT = 15   # 0 = toutes droites, 100 = fortement penchées
 COLLAGE_SAFE_MARGIN_CM_DEFAULT     = 0    # Marge tenue libre près des bords du canevas, en cm (retour user)
 
+# Mode "Grille" (planche N photos égales, ex. 3/9 sur A4 — retour user :
+# besoin ponctuel d'un tirage multi-photos simple, sans le côté scrapbook
+# du mode mosaïque ci-dessus) : lignes x colonnes calculées automatiquement
+# depuis le nombre de photos, chaque case identique.
+COLLAGE_GRID_MODE_DEFAULT = False   # False = mosaïque scrapbook, True = grille
+COLLAGE_GRID_FIT_DEFAULT  = "cover"  # "cover" (remplit, recadre) ou "contain" (préserve les proportions)
+COLLAGE_GRID_GAP_CM_DEFAULT = 0.2   # Écart entre cases, en cm
+
 
 # ── 6.3  Remerciements ────────────────────────────────────────────────────────
 # Paramètres du script Remerciements.py (tirage 2-en-1 client).
