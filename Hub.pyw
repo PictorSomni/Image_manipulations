@@ -7045,6 +7045,34 @@ def main(page: ft.Page):
         _run_task(_focus_dialog_field,
                  fields[columns.index(text_columns[0])])
 
+    def _liste_is_todo_shaped():
+        return set(_liste_columns()) <= set(_LISTE_DEFAULT_COLUMNS)
+
+    def _liste_quick_add(event=None):
+        text = (liste_quick_add_field.value or "").strip()
+        if not text:
+            return
+        columns = _liste_columns()
+        entry = {c: "" for c in columns}
+        entry[next(c for c in columns if c != _LISTE_DONE_COLUMN)] = text
+        if _LISTE_DONE_COLUMN in columns:
+            entry[_LISTE_DONE_COLUMN] = "False"
+        liste_entries.insert(0, entry)
+        _liste_save()
+        liste_quick_add_field.value = ""
+        _liste_render()
+
+    liste_quick_add_field = ft.TextField(
+        hint_text="Nouvelle tâche…", on_submit=_liste_quick_add,
+        height=45, bgcolor=DARK, border=CONSTANTS.input_border(BLUE),
+        color=WHITE, text_size=CONSTANTS.TEXT_SM,
+        content_padding=ft.Padding(8, 2, 8, 2),
+        prefix_icon=ft.Icons.ADD, expand=True)
+    liste_quick_add_row = ft.Container(
+        content=liste_quick_add_field, padding=ft.Padding(8, 0, 8, 6))
+    liste_add_btn = ft.Button("Ajouter", icon=ft.Icons.ADD,
+                              on_click=lambda e: _liste_edit(None))
+
     _LISTE_ACTIONS_WIDTH = 2 * (CONSTANTS.ICON_SM + 16)  # aligne l'en-tête sur les 2 IconButton
 
     def _liste_toggle_done(index, value):
@@ -7150,6 +7178,9 @@ def main(page: ft.Page):
         vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     def _liste_render():
+        is_todo_shaped = _liste_is_todo_shaped()
+        liste_quick_add_row.visible = is_todo_shaped
+        liste_add_btn.visible = not is_todo_shaped
         liste_header_row.content = _liste_header()
         liste_header_row.visible = bool(liste_entries)
         liste_back_to_todo_btn.visible = (
@@ -7256,18 +7287,10 @@ def main(page: ft.Page):
                 ft.IconButton(ft.Icons.REFRESH, icon_color=BLUE, icon_size=CONSTANTS.ICON_SM,
                              tooltip="Recharger depuis le disque",
                              on_click=_liste_reload),
-                ft.Button("Ajouter", icon=ft.Icons.ADD,
-                                  on_click=lambda e: _liste_edit(None)),
+                liste_add_btn,
             ], spacing=6),
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
-        ft.Container(
-            content=ft.Text(
-                "Todo list par défaut (case à cocher, tâches faites "
-                "barrées). Peut aussi afficher n'importe quel autre "
-                "fichier .json (colonnes adaptées) — cliquer une valeur "
-                "la copie dans le presse-papiers.",
-                size=CONSTANTS.TEXT_SM, color=WHITE),
-            padding=ft.Padding(8, 0, 8, 4)),
+        liste_quick_add_row,
         ft.Container(content=liste_search_row, padding=ft.Padding(8, 0, 8, 6)),
         ft.Divider(height=1, color=GREY),
         liste_header_row,
