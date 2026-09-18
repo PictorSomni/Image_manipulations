@@ -7073,8 +7073,6 @@ def main(page: ft.Page):
     liste_add_btn = ft.Button("Ajouter", icon=ft.Icons.ADD,
                               on_click=lambda e: _liste_edit(None))
 
-    _LISTE_ACTIONS_WIDTH = 2 * (CONSTANTS.ICON_SM + 16)  # aligne l'en-tête sur les 2 IconButton
-
     def _liste_toggle_done(index, value):
         if 0 <= index < len(liste_entries):
             liste_entries[index][_LISTE_DONE_COLUMN] = str(value)
@@ -7085,14 +7083,20 @@ def main(page: ft.Page):
         columns = _liste_columns()
         done = _liste_is_done(entry)
         cells = []
+        done_group = None
         for col in columns:
             if col == _LISTE_DONE_COLUMN:
-                cells.append(ft.Container(
-                    content=ft.Checkbox(
-                        value=done, active_color=GREEN,
+                # "Fait" + case à cocher (agrandie) groupés tout à droite,
+                # avant le séparateur qui précède le bouton supprimer
+                # (retour user).
+                done_group = ft.Row([
+                    ft.Text("Fait", size=CONSTANTS.TEXT_SM, color=GREY),
+                    ft.Checkbox(
+                        value=done, active_color=GREEN, scale=1.3,
                         on_change=lambda e, i=index: _liste_toggle_done(
                             i, e.control.value)),
-                    expand=True, alignment=ft.Alignment.CENTER))
+                ], spacing=6, tight=True,
+                   vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 continue
             value = entry.get(col, "")
             cells.append(ft.Container(
@@ -7105,24 +7109,31 @@ def main(page: ft.Page):
                     if done else None),
                 tooltip=f"Copier {col} : {value}", expand=True, ink=True,
                 on_click=lambda e, t=value: _liste_copy(t)))
+        row_controls = [*cells]
+        if done_group is not None:
+            row_controls.append(done_group)
+        row_controls.append(
+            ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_size=CONSTANTS.ICON_SM,
+                         icon_color=GREY, on_click=lambda e, i=index: _liste_edit(i)))
+        row_controls.append(ft.VerticalDivider(width=1, color=GREY))
+        row_controls.append(
+            ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_size=CONSTANTS.ICON_SM,
+                         icon_color=RED, on_click=lambda e, i=index: _liste_delete(i)))
         return ft.Container(
-            content=ft.Row([
-                *cells,
-                ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_size=CONSTANTS.ICON_SM, icon_color=GREY,
-                             on_click=lambda e, i=index: _liste_edit(i)),
-                ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_size=CONSTANTS.ICON_SM, icon_color=RED,
-                             on_click=lambda e, i=index: _liste_delete(i)),
-            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=ft.Padding(10, 8, 10, 8), bgcolor=GREY, border_radius=6)
+            content=ft.Row(row_controls, spacing=8,
+                           vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            padding=ft.Padding(10, 8, 4, 8), bgcolor=GREY, border_radius=6)
 
     def _liste_header():
-        columns = _liste_columns()
+        # "Fait" et les icônes sont maintenant regroupées à droite dans
+        # chaque ligne (cf. _liste_row) — plus besoin d'un en-tête dédié
+        # pour cette colonne.
+        columns = [c for c in _liste_columns() if c != _LISTE_DONE_COLUMN]
         return ft.Row([
             *[ft.Container(
                 content=ft.Text(col.upper(), size=CONSTANTS.TEXT_SM, color=WHITE,
                                 weight=ft.FontWeight.W_600),
                 expand=True) for col in columns],
-            ft.Container(width=_LISTE_ACTIONS_WIDTH),
         ], spacing=8)
 
     liste_header_row = ft.Container(content=_liste_header(),
@@ -7276,9 +7287,6 @@ def main(page: ft.Page):
         _run_task(_focus_dialog_field, name_field)
 
     liste_surface = ft.Column([
-        ft.Container(content=liste_search_row, padding=ft.Padding(8, 8, 8, 6)),
-        ft.Divider(height=1, color=GREY),
-        liste_quick_add_row,
         ft.Container(
             content=ft.Row([
                 ft.Icon(ft.Icons.DATA_OBJECT, color=VIOLET,
@@ -7293,7 +7301,12 @@ def main(page: ft.Page):
                              on_click=_liste_reload),
                 liste_add_btn,
             ], spacing=6),
-            padding=ft.Padding(8, 0, 8, 0), bgcolor=BACKGROUND),
+            padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
+        ft.Container(content=liste_search_row, padding=ft.Padding(8, 6, 8, 0)),
+        ft.Container(height=8),
+        ft.Divider(height=1, color=GREY),
+        ft.Container(height=8),
+        liste_quick_add_row,
         ft.Divider(height=1, color=GREY),
         liste_header_row,
         ft.Container(content=liste_list_view, expand=True),
