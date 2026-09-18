@@ -8274,14 +8274,24 @@ def main(page: ft.Page):
             suffix=ft.Text("cm", color=GREY), width=280,
             bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
-        # Écart entre photos en grille : en mm (retour user — plus précis
-        # que le cm de la marge extérieure ci-dessus, unité distincte).
-        gap_field = ft.TextField(
-            label="Écart entre les photos",
-            value=str(round(CONSTANTS.COLLAGE_GRID_GAP_CM_DEFAULT * 10)),
-            suffix=ft.Text("mm", color=GREY), width=280, visible=False,
-            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
-            keyboard_type=ft.KeyboardType.NUMBER)
+        # Mode grille : un seul écart, identique entre le bord de la
+        # feuille et entre les photos (retour user), seulement 0/5/10mm.
+        _GAP_CHOICES_MM = [0, 5, 10]
+        gap_mode = {"value": _GAP_CHOICES_MM[0]}
+
+        def _on_gap_change(e):
+            gap_mode["value"] = _GAP_CHOICES_MM[gap_btn.selected_index]
+
+        gap_btn = ft.CupertinoSlidingSegmentedButton(
+            selected_index=0,
+            controls=[ft.Text(f"{mm} mm", size=CONSTANTS.TEXT_SM)
+                     for mm in _GAP_CHOICES_MM],
+            thumb_color=BLUE, on_change=_on_gap_change)
+        gap_section = ft.Column([
+            ft.Text("Écart entre les photos et avec le bord",
+                   size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
+            gap_btn,
+        ], visible=False, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         size_slider = ft.Slider(
             min=0, max=100, divisions=20,
             value=CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT,
@@ -8295,8 +8305,7 @@ def main(page: ft.Page):
         # résolution/marge, toujours éditables. Les curseurs taille/
         # rotation n'en ont pas besoin (glisser suffit).
         # Pavé numérique en overlay (retour user), un par champ.
-        for field in (width_field, height_field, dpi_field, margin_field,
-                     gap_field):
+        for field in (width_field, height_field, dpi_field, margin_field):
             _attach_keypad(field)
 
         def _on_manual_change(e):
@@ -8340,7 +8349,8 @@ def main(page: ft.Page):
             size_section.visible = not is_grid
             rotation_section.visible = not is_grid
             fit_section.visible = is_grid
-            gap_field.visible = is_grid
+            gap_section.visible = is_grid
+            margin_field.visible = not is_grid
             page.update()
 
         mode_icon = ft.Icon(ft.Icons.AUTO_AWESOME_MOSAIC, color=DARK)
@@ -8377,7 +8387,7 @@ def main(page: ft.Page):
                    "proportions (bande blanche autour) — au choix.",
                    size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
             fit_btn,
-        ], visible=False)
+        ], visible=False, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         size_section = ft.Column([
             ft.Text("Écart de taille (les photos se repositionnent "
                    "pour combler l'espace)", size=CONSTANTS.TEXT_SM,
@@ -8500,13 +8510,6 @@ def main(page: ft.Page):
                 width_cm, height_cm = height_cm, width_cm
             return width_cm, height_cm, dpi, margin_cm
 
-        def _read_gap_mm():
-            try:
-                return float((gap_field.value or "").strip()
-                            .replace(",", "."))
-            except ValueError:
-                return CONSTANTS.COLLAGE_GRID_GAP_CM_DEFAULT * 10
-
         def _render_preview_worker(width_cm, height_cm, dpi, margin_cm):
             # Hors thread appelant, même raison que _build_montage_dialog :
             # le rendu (PIL, tout le dossier) bloquerait la boucle Flet et
@@ -8532,9 +8535,10 @@ def main(page: ft.Page):
 
             montage_mod = _load_montage_module()
             if mode["value"] == "grid":
-                gap_px = round(_read_gap_mm() / 10 / 2.54 * dpi * scale)
+                # Un seul écart, identique bord/entre-photos (retour user).
+                gap_px = round(gap_mode["value"] / 10 / 2.54 * dpi * scale)
                 canvas = montage_mod.render_grid_montage(
-                    photo_paths, prev_w, prev_h, prev_margin, gap_px,
+                    photo_paths, prev_w, prev_h, gap_px, gap_px,
                     grid_fit["value"], load_thumb, log=lambda msg: None)
             else:
                 canvas, _ = montage_mod.render_montage(
@@ -8592,14 +8596,20 @@ def main(page: ft.Page):
             fired["done"] = True
             dlg.open = False
             page.update()
+            # Mode grille : la marge extérieure ET l'écart entre photos
+            # utilisent tous les deux gap_mode (retour user : un seul
+            # écart identique bord/entre-photos), le champ margin_cm
+            # classique n'a de sens qu'en mosaïque scrapbook.
+            grid_margin_cm = gap_mode["value"] / 10
             env = {
                 "COLLAGE_WIDTH_CM": str(width_cm),
                 "COLLAGE_HEIGHT_CM": str(height_cm),
                 "COLLAGE_DPI": str(dpi),
-                "COLLAGE_SAFE_MARGIN_CM": str(margin_cm),
+                "COLLAGE_SAFE_MARGIN_CM": str(
+                    grid_margin_cm if mode["value"] == "grid" else margin_cm),
                 "COLLAGE_MODE": mode["value"],
                 "COLLAGE_GRID_FIT": grid_fit["value"],
-                "COLLAGE_GRID_GAP_CM": str(_read_gap_mm() / 10),
+                "COLLAGE_GRID_GAP_CM": str(grid_margin_cm),
                 "COLLAGE_SIZE_VARIATION": str(size_slider.value),
                 "COLLAGE_ROTATION_VARIATION": str(rotation_slider.value),
                 # Même tirage que l'aperçu affiché en dernier (si généré) :
@@ -8643,7 +8653,7 @@ def main(page: ft.Page):
                         size_section,
                         rotation_section,
                         fit_section,
-                        gap_field,
+                        gap_section,
                         ft.Divider(height=1, color=GREY),
                         ft.Row([
                             ft.TextButton("Aperçu", icon=ft.Icons.PREVIEW,
