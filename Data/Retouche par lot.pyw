@@ -697,7 +697,12 @@ def main(page: ft.Page):
     # partagé par tous les sliders plutôt qu'un pavé par ligne (30+
     # curseurs). Réutilise le pavé numérique tactile de ui_helpers (même
     # composant que Recadrage manuel.pyw).
-    _value_dialog_apply = {"fn": None}
+    _value_dialog_apply = {"fn": None, "refocus_field": None}
+    # Fermer le dialogue redonne le focus au TextField qui l'a ouvert (ex.
+    # champs Grain/Bloom) — son on_focus se redéclenche alors aussitôt et
+    # rouvre le pavé, qui semble ne jamais se fermer (retour user). On
+    # ignore ce premier refocus "fantôme" juste après validation.
+    _suppress_field_focus = {"id": None}
 
     def _apply_value_dialog(e=None):
         try:
@@ -707,6 +712,9 @@ def main(page: ft.Page):
         value_dialog.open = False
         page.update()
         fn = _value_dialog_apply["fn"]
+        refocus_field = _value_dialog_apply["refocus_field"]
+        if refocus_field is not None:
+            _suppress_field_focus["id"] = id(refocus_field)
         if fn is not None:
             fn(v)
 
@@ -728,13 +736,14 @@ def main(page: ft.Page):
                           horizontal_alignment=ft.CrossAxisAlignment.CENTER))
     page.overlay.append(value_dialog)
 
-    def _open_value_dialog(current, on_apply):
+    def _open_value_dialog(current, on_apply, refocus_field=None):
         # Entiers affichés sans décimale (sliders) ; certains champs
         # Grain (ratios, tailles) sont de vrais flottants — pas de
         # round() qui tronquerait leur valeur à l'ouverture.
         value_field.value = (str(int(current)) if float(current).is_integer()
                              else str(current))
         _value_dialog_apply["fn"] = on_apply
+        _value_dialog_apply["refocus_field"] = refocus_field
         value_dialog.open = True
         page.update()
 
@@ -1194,6 +1203,11 @@ def main(page: ft.Page):
         field.on_submit = _handle
 
         def _open_editor(e):
+            if _suppress_field_focus["id"] == id(field):
+                # Refocus fantôme causé par la fermeture du dialogue
+                # précédent (voir _value_dialog_apply) — pas un vrai tap.
+                _suppress_field_focus["id"] = None
+                return
             def _apply(v):
                 sub[key] = v
                 field.value = (str(int(v)) if float(v).is_integer()
@@ -1201,7 +1215,7 @@ def main(page: ft.Page):
                 field.update()
                 _sync_accent()
                 live_preview_tick()
-            _open_value_dialog(sub[key], _apply)
+            _open_value_dialog(sub[key], _apply, refocus_field=field)
         # Tap → pavé numérique tactile (mêmes catégories que les sliders,
         # retour user), sans retirer la saisie clavier existante.
         field.on_focus = _open_editor
