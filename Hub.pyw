@@ -7166,7 +7166,11 @@ def main(page: ft.Page):
             cells.append(ft.Container(
                 content=ft.Text(
                     value or "—", size=CONSTANTS.TEXT_SM,
-                    color=GREY if done else WHITE, max_lines=2,
+                    # LIGHT_GREY et non GREY : la ligne barrait le texte,
+                    # mais GREY sur le fond GREY de la ligne le rendait
+                    # invisible — ne restait visible que le trait (retour
+                    # user : "je vois juste des tirets").
+                    color=LIGHT_GREY if done else WHITE, max_lines=2,
                     overflow=ft.TextOverflow.ELLIPSIS,
                     style=ft.TextStyle(
                         decoration=ft.TextDecoration.LINE_THROUGH)
