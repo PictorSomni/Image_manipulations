@@ -2101,14 +2101,76 @@ def main(page: ft.Page):
     _KEYPAD_COLORS = {"dark": DARK, "red": RED, "grey": GREY,
                       "green": GREEN, "white": WHITE}
 
-    def _numeric_keypad(fields, on_confirm=None, allow_decimal=False):
-        """Pavé numérique tactile réutilisable — wrapper autour de
-        ui_helpers.numeric_keypad (partagé avec les autres apps du
-        dossier Data/, ex. Recadrage manuel.pyw) pour ne pas répéter les
-        couleurs de Hub à chaque appel."""
-        return ui_helpers.numeric_keypad(
-            page, fields, _KEYPAD_COLORS, on_confirm=on_confirm,
-            allow_decimal=allow_decimal)
+    # ── Pavé numérique tactile en overlay (retour user : "plus lisible et
+    # plus pratique" qu'un pavé intégré dans le dialogue, comme dans
+    # Retouche par lot.pyw) — un seul dialogue partagé par tous les champs
+    # numériques du Hub plutôt qu'un pavé par dialogue.
+    _keypad_state = {"fn": None, "refocus_field": None}
+    # Fermer le popup redonne le focus au champ qui l'a ouvert, ce qui
+    # redéclenche aussitôt son on_focus et rouvrirait le popup (retour
+    # user, même bug que Retouche par lot.pyw) — on ignore ce refocus
+    # fantôme juste après validation.
+    _keypad_suppress_focus = {"id": None}
+    _keypad_value_field = ft.TextField(
+        value="0", autofocus=True, text_align=ft.TextAlign.CENTER,
+        bgcolor=DARK, color=WHITE, width=140,
+        border=CONSTANTS.input_border(GREY),
+        keyboard_type=ft.KeyboardType.NUMBER)
+
+    def _apply_keypad_dialog(e=None):
+        try:
+            v = float((_keypad_value_field.value or "").replace(",", "."))
+        except ValueError:
+            return
+        _keypad_dialog.open = False
+        page.update()
+        fn = _keypad_state["fn"]
+        refocus_field = _keypad_state["refocus_field"]
+        if refocus_field is not None:
+            _keypad_suppress_focus["id"] = id(refocus_field)
+        if fn is not None:
+            fn(v)
+
+    _keypad_value_field.on_submit = _apply_keypad_dialog
+    _keypad_dialog = ft.AlertDialog(
+        title=ft.Text("Valeur", size=CONSTANTS.TEXT_SM, color=WHITE),
+        content=ft.Column(
+            [_keypad_value_field,
+             ui_helpers.numeric_keypad(
+                 page, _keypad_value_field, _KEYPAD_COLORS,
+                 on_confirm=_apply_keypad_dialog, allow_decimal=True)],
+            tight=True, spacing=CONSTANTS.SPACE_SM,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER))
+    page.overlay.append(_keypad_dialog)
+
+    def _attach_keypad(field, is_int=False, on_apply=None):
+        """Attache le pavé numérique en overlay à `field` : le toucher
+        ouvre le popup pré-rempli de sa valeur actuelle ; valider réécrit
+        `field` et referme (et appelle `on_apply(v)` si fourni, ex. pour
+        soumettre directement le dialogue parent comme le faisait avant
+        le bouton ✓ du pavé intégré)."""
+        def _open_editor(e):
+            if _keypad_suppress_focus["id"] == id(field):
+                _keypad_suppress_focus["id"] = None
+                return
+            try:
+                current = float((field.value or "0").replace(",", "."))
+            except ValueError:
+                current = 0.0
+
+            def _apply(v):
+                field.value = str(int(v)) if is_int else str(v)
+                field.update()
+                if on_apply is not None:
+                    on_apply(v)
+
+            _keypad_value_field.value = (
+                str(int(current)) if current.is_integer() else str(current))
+            _keypad_state["fn"] = _apply
+            _keypad_state["refocus_field"] = field
+            _keypad_dialog.open = True
+            page.update()
+        field.on_focus = _open_editor
 
     def _set_print_count(paths):
         # Préfixe "NX_" lu par Recadrage automatique.py (mode fit) pour
@@ -2188,21 +2250,11 @@ def main(page: ft.Page):
 
         count_field.on_submit = _confirm
 
-        # Pavé numérique tactile : dialogue ouvert depuis le panneau
-        # Actions, potentiellement sur écran tactile sans clavier commode
-        # sous la main (retour user). Masqué tant que count_field n'a
-        # pas le focus, même motif que les autres dialogues (retour
-        # user) — autofocus=True sur count_field le fait apparaître dès
-        # l'ouverture, comme avant.
-        keypad_box = ft.Row(visible=False, alignment=ft.MainAxisAlignment.CENTER)
-
-        def _show_keypad(event=None):
-            keypad_box.visible = True
-            page.update()
-
-        count_field.on_focus = _show_keypad
-        keypad = _numeric_keypad(count_field, on_confirm=_confirm)
-        keypad_box.controls = [keypad]
+        # Pavé numérique tactile en overlay (retour user) : le toucher du
+        # champ ouvre le popup partagé du Hub, valider soumet directement
+        # ce dialogue (même effet que l'ancien bouton ✓ intégré).
+        _attach_keypad(count_field, is_int=True,
+                       on_apply=lambda v: _confirm(None))
 
         dlg = ft.AlertDialog(
             # Le nombre de fichiers est le garde-fou du mode « dossier
@@ -2212,9 +2264,7 @@ def main(page: ft.Page):
                 f"Nombre d'impressions — {len(targets)} fichier(s) "
                 "(0 = retirer le préfixe NX_)",
                 size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([count_field, keypad_box], spacing=12, tight=True),
-            # Pas de bouton "Valider" ici : le ✓ vert du pavé numérique fait
-            # déjà ça, juste au-dessus (retour user).
+            content=ft.Column([count_field], spacing=12, tight=True),
             actions=[ft.TextButton("Annuler", on_click=_cancel)],
         )
         page.overlay.append(dlg)
@@ -8056,29 +8106,14 @@ def main(page: ft.Page):
 
         text_fields[-1].on_submit = _confirm
 
-        # Masqué tant qu'aucun champ n'a le focus, même motif que le
-        # Montage (retour user) — évite de l'afficher en permanence.
-        keypad_box = ft.Row(visible=False, alignment=ft.MainAxisAlignment.CENTER)
-
-        def _show_keypad(event=None):
-            keypad_box.visible = True
-            page.update()
-
-        def _keypad_validated(event=None):
-            keypad_box.visible = False
-            page.update()
-
+        # Pavé numérique en overlay (retour user), un par champ.
         for field in text_fields:
-            field.on_focus = _show_keypad
-
-        keypad = _numeric_keypad(text_fields,
-                                 on_confirm=_keypad_validated)
-        keypad_box.controls = [keypad]
+            _attach_keypad(field, is_int=True)
 
         dlg = ft.AlertDialog(
             title=ft.Text(title, size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column(
-                text_fields + [keypad_box], spacing=8, tight=True,
+                text_fields, spacing=8, tight=True,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
@@ -8086,9 +8121,6 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        # Pas de focus programmatique du 1er champ : ça rouvrirait aussi
-        # le pavé numérique d'emblée (retour user), même effet que
-        # l'autofocus qu'on vient de retirer plus haut.
 
     def _launch_redimensionner(event=None):
         _launch_number_prompt("Redimensionner", [
@@ -8242,6 +8274,14 @@ def main(page: ft.Page):
             suffix=ft.Text("cm", color=GREY), width=280,
             bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
+        # Écart entre photos en grille : en mm (retour user — plus précis
+        # que le cm de la marge extérieure ci-dessus, unité distincte).
+        gap_field = ft.TextField(
+            label="Écart entre les photos",
+            value=str(round(CONSTANTS.COLLAGE_GRID_GAP_CM_DEFAULT * 10)),
+            suffix=ft.Text("mm", color=GREY), width=280, visible=False,
+            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
+            keyboard_type=ft.KeyboardType.NUMBER)
         size_slider = ft.Slider(
             min=0, max=100, divisions=20,
             value=CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT,
@@ -8254,36 +8294,10 @@ def main(page: ft.Page):
         # hauteur, actifs seulement en saisie manuelle) ainsi que
         # résolution/marge, toujours éditables. Les curseurs taille/
         # rotation n'en ont pas besoin (glisser suffit).
-        keypad_fields = [width_field, height_field, dpi_field, margin_field]
-        keypad_box = ft.Row(visible=False, alignment=ft.MainAxisAlignment.CENTER)
-
-        # Masqué tant qu'aucun champ n'a le focus (retour user) — évite de
-        # l'afficher en permanence alors qu'on ne s'en sert pas toujours.
-        # Posé AVANT l'appel à _numeric_keypad ci-dessous : ce dernier
-        # enchaîne sur l'on_focus déjà présent plutôt que de l'écraser
-        # (cf. ui_helpers.numeric_keypad._track_focus) — l'ordre inverse
-        # casserait le suivi du champ actif par le pavé lui-même.
-        #
-        # Pas de _hide_keypad sur on_blur (essayé, retiré) : taper un
-        # chiffre du pavé déclenche le blur natif du champ qui vient de
-        # perdre le focus, ce qui masquait le pavé pendant/avant le clic
-        # sur le chiffre lui-même (retour user : "je clique sur un
-        # chiffre et il disparait sans que rien ne se passe"). Le masquage
-        # ne se fait donc qu'au clic sur ✓ (_keypad_validated).
-        def _show_keypad(event=None):
-            keypad_box.visible = True
-            page.update()
-
-        def _keypad_validated(event=None):
-            keypad_box.visible = False
-            page.update()
-
-        for field in keypad_fields:
-            field.on_focus = _show_keypad
-
-        keypad = _numeric_keypad(keypad_fields, allow_decimal=True,
-                                 on_confirm=_keypad_validated)
-        keypad_box.controls = [keypad]
+        # Pavé numérique en overlay (retour user), un par champ.
+        for field in (width_field, height_field, dpi_field, margin_field,
+                     gap_field):
+            _attach_keypad(field)
 
         def _on_manual_change(e):
             manual["value"] = manual_switch.value
@@ -8326,10 +8340,7 @@ def main(page: ft.Page):
             size_section.visible = not is_grid
             rotation_section.visible = not is_grid
             fit_section.visible = is_grid
-            margin_field.label = (
-                "Marge extérieure et écart entre photos" if is_grid
-                else "Marge de sécurité (rien d'important trop près du bord)")
-            margin_field.update()
+            gap_field.visible = is_grid
             page.update()
 
         mode_icon = ft.Icon(ft.Icons.AUTO_AWESOME_MOSAIC, color=DARK)
@@ -8489,6 +8500,13 @@ def main(page: ft.Page):
                 width_cm, height_cm = height_cm, width_cm
             return width_cm, height_cm, dpi, margin_cm
 
+        def _read_gap_mm():
+            try:
+                return float((gap_field.value or "").strip()
+                            .replace(",", "."))
+            except ValueError:
+                return CONSTANTS.COLLAGE_GRID_GAP_CM_DEFAULT * 10
+
         def _render_preview_worker(width_cm, height_cm, dpi, margin_cm):
             # Hors thread appelant, même raison que _build_montage_dialog :
             # le rendu (PIL, tout le dossier) bloquerait la boucle Flet et
@@ -8514,10 +8532,9 @@ def main(page: ft.Page):
 
             montage_mod = _load_montage_module()
             if mode["value"] == "grid":
-                # Même valeur pour la marge extérieure et l'écart entre
-                # photos (retour user) — un seul champ pour les deux.
+                gap_px = round(_read_gap_mm() / 10 / 2.54 * dpi * scale)
                 canvas = montage_mod.render_grid_montage(
-                    photo_paths, prev_w, prev_h, prev_margin, prev_margin,
+                    photo_paths, prev_w, prev_h, prev_margin, gap_px,
                     grid_fit["value"], load_thumb, log=lambda msg: None)
             else:
                 canvas, _ = montage_mod.render_montage(
@@ -8582,7 +8599,7 @@ def main(page: ft.Page):
                 "COLLAGE_SAFE_MARGIN_CM": str(margin_cm),
                 "COLLAGE_MODE": mode["value"],
                 "COLLAGE_GRID_FIT": grid_fit["value"],
-                "COLLAGE_GRID_GAP_CM": str(margin_cm),
+                "COLLAGE_GRID_GAP_CM": str(_read_gap_mm() / 10),
                 "COLLAGE_SIZE_VARIATION": str(size_slider.value),
                 "COLLAGE_ROTATION_VARIATION": str(rotation_slider.value),
                 # Même tirage que l'aperçu affiché en dernier (si généré) :
@@ -8599,19 +8616,9 @@ def main(page: ft.Page):
 
         dlg = ft.AlertDialog(
             title=ft.Text("Montage collage", size=CONSTANTS.TEXT_SM, color=WHITE),
-            # keypad_box est SORTI de la zone défilante ci-dessous et
-            # épinglé juste en dessous (retour user : enterré dans le
-            # scroll, il fallait défiler pour le voir en touchant un
-            # champ plus haut, ex. la marge). Une vraie surcouche
-            # page.overlay a été envisagée mais Flet fait passer les
-            # AlertDialog par une route modale toujours au-dessus des
-            # simples contrôles d'overlay, qui resteraient donc masqués
-            # dessous quel que soit l'ordre d'ajout — rester DANS le
-            # dialogue, juste hors de sa zone de scroll, est plus fiable.
             content=ft.Container(
                 width=360, height=560,
                 content=ft.Column([
-                    ft.Column([
                         mode_btn,
                         featured_section,
                         ft.Divider(height=1, color=GREY),
@@ -8636,6 +8643,7 @@ def main(page: ft.Page):
                         size_section,
                         rotation_section,
                         fit_section,
+                        gap_field,
                         ft.Divider(height=1, color=GREY),
                         ft.Row([
                             ft.TextButton("Aperçu", icon=ft.Icons.PREVIEW,
@@ -8649,9 +8657,6 @@ def main(page: ft.Page):
                         ft.Row([preview_image], alignment=ft.MainAxisAlignment.CENTER),
                     ], spacing=8, scroll=ft.ScrollMode.AUTO, expand=True,
                        horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                    keypad_box,
-                ], spacing=8, tight=True,
-                   horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             ),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
@@ -8812,19 +8817,9 @@ def main(page: ft.Page):
             size=CONSTANTS.TEXT_SM, color=GREY)
 
         # Pavé numérique tactile, éditable seulement en saisie manuelle —
-        # masqué tant qu'aucun des deux champs n'a le focus, même motif
-        # que les autres dialogues (retour user).
-        keypad_box = ft.Row(visible=False, alignment=ft.MainAxisAlignment.CENTER)
-
-        def _show_keypad(event=None):
-            keypad_box.visible = True
-            page.update()
-
+        # en overlay (retour user), un par champ.
         for f in (width_field, height_field):
-            f.on_focus = _show_keypad
-
-        keypad = _numeric_keypad([width_field, height_field])
-        keypad_box.controls = [keypad]
+            _attach_keypad(f)
 
         def _on_manual_change(e):
             manual["value"] = manual_switch.value
@@ -8839,10 +8834,6 @@ def main(page: ft.Page):
                 BLUE if manual["value"] else LIGHT_GREY)
             height_field.border = CONSTANTS.input_border(
                 BLUE if manual["value"] else LIGHT_GREY)
-            if not manual["value"]:
-                # Champs redevenus désactivés : plus moyen de les
-                # refocaliser pour masquer le pavé via _show_keypad.
-                keypad_box.visible = False
             page.update()
 
         manual_switch.on_change = _on_manual_change
@@ -8905,8 +8896,7 @@ def main(page: ft.Page):
                 ft.Container(
                     content=ft.Column([manual_switch,
                                        ft.Row([width_field, height_field],
-                                              spacing=8),
-                                       keypad_box]),
+                                              spacing=8)]),
                     border=ft.Border.all(1, GREY), border_radius=8,
                     padding=10),
                 ft.Row([fit_switch, center_switch], spacing=8),
