@@ -8197,7 +8197,8 @@ def main(page: ft.Page):
             label="Format d'impression", value=default_fmt,
             options=[ft.dropdown.Option(name) for name in CONSTANTS.FORMATS],
             width=280, bgcolor=DARK,
-            border=CONSTANTS.input_border(BLUE), color=WHITE)
+            border=CONSTANTS.input_border(BLUE), color=WHITE,
+            on_select=lambda e: _do_preview())
         # Unité de la saisie manuelle (mm/px, comme Recadrage manuel.pyw) —
         # converti en cm pour le calcul interne dans _read_canvas_params.
         unit = {"value": "mm"}
@@ -8232,6 +8233,7 @@ def main(page: ft.Page):
             width_field.label = f"Largeur ({new_unit})"
             height_field.label = f"Hauteur ({new_unit})"
             page.update()
+            _do_preview()
 
         unit_dropdown = ft.Dropdown(
             value="mm",
@@ -8254,16 +8256,28 @@ def main(page: ft.Page):
         # entre Portrait et Paysage, sans ambiguïté sur ce que fait le clic.
         orientation = {"value": "portrait"}
 
+        # Texte du segment actif en DARK plutôt que WHITE (retour user :
+        # illisible sur le thumb coloré), sur les 4 boutons segmentés
+        # ci-dessous — même principe que view_seg (icônes) plus haut.
+        def _style_segments(btn, texts):
+            for i, t in enumerate(texts):
+                t.color = DARK if i == btn.selected_index else WHITE
+
         def _on_orientation_change(e):
             orientation["value"] = (
                 "paysage" if orientation_btn.selected_index == 1
                 else "portrait")
+            _style_segments(orientation_btn, orientation_texts)
+            for t in orientation_texts:
+                t.update()
+            _do_preview()
 
+        orientation_texts = [ft.Text("Portrait", size=CONSTANTS.TEXT_SM),
+                             ft.Text("Paysage", size=CONSTANTS.TEXT_SM)]
         orientation_btn = ft.CupertinoSlidingSegmentedButton(
-            selected_index=0,
-            controls=[ft.Text("Portrait", size=CONSTANTS.TEXT_SM),
-                     ft.Text("Paysage", size=CONSTANTS.TEXT_SM)],
+            selected_index=0, controls=orientation_texts,
             thumb_color=BLUE, on_change=_on_orientation_change)
+        _style_segments(orientation_btn, orientation_texts)
         # DPI (retour user) : CONSTANTS.DPI suffit dans l'immense majorité
         # des cas, pas besoin d'un champ toujours affiché — juste un
         # bouton pour l'ouvrir si vraiment besoin de le changer.
@@ -8294,22 +8308,29 @@ def main(page: ft.Page):
 
         def _on_gap_change(e):
             gap_mode["value"] = _GAP_CHOICES_MM[gap_btn.selected_index]
+            _style_segments(gap_btn, gap_texts)
+            for t in gap_texts:
+                t.update()
+            _do_preview()
 
+        gap_texts = [ft.Text(f"{mm} mm", size=CONSTANTS.TEXT_SM)
+                    for mm in _GAP_CHOICES_MM]
         gap_btn = ft.CupertinoSlidingSegmentedButton(
-            selected_index=1,
-            controls=[ft.Text(f"{mm} mm", size=CONSTANTS.TEXT_SM)
-                     for mm in _GAP_CHOICES_MM],
+            selected_index=1, controls=gap_texts,
             thumb_color=ORANGE, on_change=_on_gap_change)
+        _style_segments(gap_btn, gap_texts)
         gap_section = gap_btn
         gap_section.visible = False
         size_slider = ft.Slider(
             min=0, max=100, divisions=20,
             value=CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT,
-            label="{value}%", active_color=VIOLET, width=280)
+            label="{value}%", active_color=VIOLET, width=280,
+            on_change_end=lambda e: _do_preview())
         rotation_slider = ft.Slider(
             min=0, max=100, divisions=20,
             value=CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT,
-            label="{value}%", active_color=VIOLET, width=280)
+            label="{value}%", active_color=VIOLET, width=280,
+            on_change_end=lambda e: _do_preview())
         size_section = size_slider
         rotation_section = rotation_slider
         # Pavé numérique tactile : agit sur les champs manuels (largeur/
@@ -8318,10 +8339,12 @@ def main(page: ft.Page):
         # rotation n'en ont pas besoin (glisser suffit).
         # Pavé numérique en overlay (retour user), un par champ.
         for field in (width_field, height_field, dpi_field, margin_field):
-            _attach_keypad(field)
+            _attach_keypad(field, on_apply=lambda v: _do_preview())
+            field.on_submit = lambda e: _do_preview()
 
         def _on_manual_change(e):
             manual["value"] = manual_switch.value
+            _do_preview()
             format_dd.disabled = manual["value"]
             width_field.disabled = not manual["value"]
             height_field.disabled = not manual["value"]
@@ -8357,27 +8380,37 @@ def main(page: ft.Page):
             fit_section.visible = is_grid
             gap_section.visible = is_grid
             margin_field.visible = not is_grid
+            _style_segments(mode_btn, mode_texts)
+            for t in mode_texts:
+                t.update()
             page.update()
+            _do_preview()
 
         # CupertinoSlidingSegmentedButton (retour user) plutôt qu'un simple
         # bouton plein basculant de texte — plus lisible, et cohérent avec
         # les autres bascules du dialogue (orientation, fit, écart).
+        mode_texts = [ft.Text("Mosaïque", size=CONSTANTS.TEXT_SM),
+                     ft.Text("Grille", size=CONSTANTS.TEXT_SM)]
         mode_btn = ft.CupertinoSlidingSegmentedButton(
-            selected_index=0,
-            controls=[ft.Text("Mosaïque", size=CONSTANTS.TEXT_SM),
-                     ft.Text("Grille", size=CONSTANTS.TEXT_SM)],
+            selected_index=0, controls=mode_texts,
             thumb_color=VIOLET, on_change=_on_mode_change)
+        _style_segments(mode_btn, mode_texts)
 
         def _on_fit_change(e):
             grid_fit["value"] = "contain" if fit_btn.selected_index == 0 else "cover"
+            _style_segments(fit_btn, fit_texts)
+            for t in fit_texts:
+                t.update()
+            _do_preview()
 
         # Fit-in (contain, préserve les proportions) / Fill-in (cover,
         # remplit et recadre) — défaut = Fill-in (retour user).
+        fit_texts = [ft.Text("Fit-in", size=CONSTANTS.TEXT_SM),
+                    ft.Text("Fill-in", size=CONSTANTS.TEXT_SM)]
         fit_btn = ft.CupertinoSlidingSegmentedButton(
-            selected_index=1,
-            controls=[ft.Text("Fit-in", size=CONSTANTS.TEXT_SM),
-                     ft.Text("Fill-in", size=CONSTANTS.TEXT_SM)],
+            selected_index=1, controls=fit_texts,
             thumb_color=MINT, on_change=_on_fit_change)
+        _style_segments(fit_btn, fit_texts)
         fit_section = fit_btn
         fit_section.visible = False
 
@@ -8406,6 +8439,7 @@ def main(page: ft.Page):
             else:
                 featured.add(path)
             _refresh_tile(path)
+            _do_preview()
 
         def _toggle_center(path, e):
             previous = center["path"]
@@ -8413,6 +8447,7 @@ def main(page: ft.Page):
             _refresh_tile(path)
             if previous and previous != path:
                 _refresh_tile(previous)
+            _do_preview()
 
         tiles_row = ft.Row(scroll=ft.ScrollMode.AUTO, spacing=6)
         for path in photo_paths:
@@ -8450,7 +8485,7 @@ def main(page: ft.Page):
         # lancement réel, donc l'aperçu affiché est exactement ce qui sera
         # produit (retour user : voir le placement avant de valider).
         preview_seed = {"value": random.randint(0, 2**31 - 1)}
-        preview_image = ft.Image(src=_BLANK_GIF, width=360, height=270,
+        preview_image = ft.Image(src=_BLANK_GIF, width=320, height=420,
                                  fit=ft.BoxFit.CONTAIN, border_radius=4,
                                  visible=False)
         preview_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY)
@@ -8602,46 +8637,56 @@ def main(page: ft.Page):
                     os.path.basename(p) for p in featured)
             _launch_tool("Montage collage.py", extra_env=env)
 
+        # Menus à gauche, aperçu à droite (retour user) — l'aperçu se
+        # régénère seul à chaque changement (cf. tous les on_change/
+        # on_submit ci-dessus), plus besoin d'un bouton "Aperçu" dédié ;
+        # le dé reste pour changer le tirage aléatoire.
+        menu_column = ft.Column([
+                mode_btn,
+                ft.Divider(height=1, color=VIOLET),
+                format_dd,
+                orientation_btn,
+                ft.Container(
+                    content=ft.Column([
+                        manual_switch,
+                        ft.Row([width_field, height_field], spacing=8,
+                              alignment=ft.MainAxisAlignment.CENTER),
+                        unit_dropdown,
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                    border=ft.Border.all(1, BLUE), border_radius=8,
+                    padding=10),
+                dpi_toggle_btn,
+                dpi_field,
+                margin_field,
+                ft.Divider(height=1, color=BLUE),
+                featured_section,
+                size_section,
+                rotation_section,
+                fit_section,
+                gap_section,
+            ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=320)
+
+        preview_column = ft.Column([
+                ft.Row([
+                    ft.IconButton(ft.Icons.CASINO, icon_color=GREEN,
+                                 tooltip="Nouveau tirage aléatoire",
+                                 on_click=_reroll),
+                ], alignment=ft.MainAxisAlignment.CENTER),
+                preview_status,
+                ft.Row([preview_progress], alignment=ft.MainAxisAlignment.CENTER),
+                ft.Row([preview_image], alignment=ft.MainAxisAlignment.CENTER),
+            ], spacing=10, expand=True,
+               horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=340)
+
         dlg = ft.AlertDialog(
             title=ft.Text("Montage collage", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Container(
-                width=360, height=560,
-                content=ft.Column([
-                        mode_btn,
-                        ft.Divider(height=1, color=VIOLET),
-                        format_dd,
-                        orientation_btn,
-                        ft.Container(
-                            content=ft.Column([
-                                manual_switch,
-                                ft.Row([width_field, height_field], spacing=8,
-                                      alignment=ft.MainAxisAlignment.CENTER),
-                                unit_dropdown,
-                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                            border=ft.Border.all(1, BLUE), border_radius=8,
-                            padding=10),
-                        dpi_toggle_btn,
-                        dpi_field,
-                        margin_field,
-                        ft.Divider(height=1, color=BLUE),
-                        featured_section,
-                        size_section,
-                        rotation_section,
-                        fit_section,
-                        gap_section,
-                        ft.Divider(height=1, color=GREEN),
-                        ft.Row([
-                            ft.TextButton("Aperçu", icon=ft.Icons.PREVIEW,
-                                         icon_color=GREEN, on_click=_do_preview),
-                            ft.IconButton(ft.Icons.CASINO, icon_color=GREEN,
-                                         tooltip="Nouveau tirage aléatoire",
-                                         on_click=_reroll),
-                        ], alignment=ft.MainAxisAlignment.CENTER),
-                        preview_status,
-                        ft.Row([preview_progress], alignment=ft.MainAxisAlignment.CENTER),
-                        ft.Row([preview_image], alignment=ft.MainAxisAlignment.CENTER),
-                    ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True,
-                       horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                width=700, height=580,
+                content=ft.Row([menu_column, ft.VerticalDivider(width=1, color=GREEN),
+                                preview_column],
+                               spacing=10, expand=True,
+                               vertical_alignment=ft.CrossAxisAlignment.START),
             ),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Lancer", on_click=_confirm)],
@@ -8653,6 +8698,7 @@ def main(page: ft.Page):
             _busy_end()
             page.update()
             await _focus_dialog_field(format_dd)
+            _do_preview()
         _run_task(_show)
 
     def _launch_kiosk(event=None):
