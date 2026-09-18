@@ -1810,6 +1810,43 @@ def main(page: ft.Page):
         _run_bg_action(
             f"Copie de {len(items)} photo(s) depuis le téléphone", _work)
 
+    def _rmtree_with_progress(path, progress_text):
+        # Décompte des sous-fichiers pendant la suppression d'un dossier
+        # (retour user) — shutil.rmtree ne donne aucune progression, donc
+        # on marche l'arbre nous-mêmes pour pouvoir logguer un pourcentage.
+        sub_total = sum(len(files) for _root, _dirs, files in os.walk(path))
+        if sub_total == 0:
+            shutil.rmtree(path)
+            return
+        done = 0
+        last_update = 0
+        for root, dirs, files in os.walk(path, topdown=False):
+            for f in files:
+                try:
+                    os.remove(os.path.join(root, f))
+                except Exception:
+                    pass
+                done += 1
+                now = time.time()
+                if now - last_update >= 0.1 or done == sub_total:
+                    last_update = now
+                    pct = int(done * 100 / sub_total)
+                    progress_text.value = (
+                        f"    ↳ {done}/{sub_total} sous-fichier(s) ({pct}%)")
+                    try:
+                        progress_text.update()
+                    except Exception:
+                        pass
+            for d in dirs:
+                try:
+                    os.rmdir(os.path.join(root, d))
+                except Exception:
+                    pass
+        try:
+            os.rmdir(path)
+        except Exception:
+            pass
+
     def _do_delete(paths):
         folder = state["folder"]
         origin_tab_id = state["tab_id"]
@@ -1826,7 +1863,15 @@ def main(page: ft.Page):
                 try:
                     _backup_file(p)
                     if os.path.isdir(p):
-                        shutil.rmtree(p)
+                        progress_text = ft.Text(
+                            "", size=CONSTANTS.TERMINAL_FONT_SIZE,
+                            color=BLUE, font_family="monospace")
+                        terminal_output.controls.append(progress_text)
+                        try:
+                            page.update()
+                        except Exception:
+                            pass
+                        _rmtree_with_progress(p, progress_text)
                     else:
                         os.remove(p)
                     _select_discard(p)
@@ -1875,8 +1920,27 @@ def main(page: ft.Page):
         origin_tab_id = state["tab_id"]
 
         def _work():
+            total = len(paths)
+            progress_text = ft.Text("", size=CONSTANTS.TERMINAL_FONT_SIZE,
+                                    color=BLUE, font_family="monospace")
+            terminal_output.controls.append(progress_text)
+            try:
+                page.update()
+            except Exception:
+                pass
+
             rotated_n = 0
-            for path in paths:
+            last_update = 0
+            for i, path in enumerate(paths, start=1):
+                name = os.path.basename(path)
+                progress_text.value = f"[{i}/{total}] {name}"
+                now = time.time()
+                if now - last_update >= 0.1 or i == total:
+                    last_update = now
+                    try:
+                        progress_text.update()
+                    except Exception:
+                        pass
                 ext = os.path.splitext(path)[1].lower()
                 if ext not in CONSTANTS.ROTATABLE_EXTS:
                     continue
