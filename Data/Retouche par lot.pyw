@@ -754,18 +754,17 @@ def main(page: ft.Page):
     def _apply_section_visual(name, is_open):
         """État visuel d'une section : chevron (▸/▾, seulement lié à
         l'ouverture) et couleur de l'en-tête — teinte de section
-        seulement quand elle est activée (interrupteur) OU qu'un élément
-        à l'intérieur diffère de son défaut (retour user : ouvrir une
-        section sans rien y activer/modifier ne doit pas la colorer).
-        Un seul point de vérité, appelé au toggle, à l'activation du
-        switch et à chaque changement de curseur/champ."""
+        seulement quand elle est activée (interrupteur), jamais sur
+        simple valeur modifiée avec le switch éteint (retour user :
+        plus clair visuellement de ne suivre que l'activation). Un seul
+        point de vérité, appelé au toggle, à l'activation du switch et à
+        chaque changement de curseur/champ."""
         sec = sections[name]
         col = sec["color"]
         sec["body"].visible = is_open
         sec["chevron"].icon = (ft.Icons.EXPAND_MORE if is_open
                                else ft.Icons.CHEVRON_RIGHT)
-        highlight = (sec["switch"].value
-                    or sec.get("modified_count", 0) > 0)
+        highlight = sec["switch"].value
         accent = col if highlight else LIGHT_GREY
         sec["chevron"].color = accent
         sec["head_icon"].color = accent
@@ -782,6 +781,19 @@ def main(page: ft.Page):
             return
         _apply_section_visual(name, sec["body"].visible)
         sec["header"].update()
+
+    def _maybe_activate_section(dct):
+        """Active automatiquement l'interrupteur d'une section dès qu'une
+        de ses valeurs (curseur ou champ) s'écarte de son défaut (retour
+        user : sinon le réglage ne se voit pas tant qu'on ne pense pas à
+        cocher l'interrupteur à part)."""
+        name = _dct_to_section.get(id(dct))
+        section = sections.get(name)
+        if section is not None and not section["switch"].value:
+            dct["enabled"] = True
+            section["switch"].value = True
+            section["switch"].update()
+            _refresh_header(name)
 
     def _toggle_section(name):
         def handler(e):
@@ -861,8 +873,7 @@ def main(page: ft.Page):
             bgcolor=BG, border_radius=6)
         sections[name] = {"body": body, "switch": switch, "color": color,
                           "chevron": chevron, "head_icon": head_icon,
-                          "title": title, "header": header,
-                          "modified_count": 0}
+                          "title": title, "header": header}
         # Filet d'accent vertical (couleur de section) le long de
         # l'en-tête ET du corps : repère de famille en scannant le
         # panneau (retour user).
@@ -936,7 +947,6 @@ def main(page: ft.Page):
         # chaque section (retour user).
         accent = {"c": WHITE}
         is_default = round(value) == reset_value
-        was_active = {"v": not is_default}
         value_text = ft.Text(str(round(value)), size=CONSTANTS.TEXT_SM + 4,
                              weight=ft.FontWeight.W_700,
                              color=(WHITE if is_default else accent["c"]))
@@ -948,16 +958,6 @@ def main(page: ft.Page):
             slider.active_color = accent["c"] if active else WHITE
             value_text.update()
             slider.update()
-            if active != was_active["v"]:
-                # Répercute sur l'en-tête de la section (retour user :
-                # visible même repliée) — indépendant de l'ouverture.
-                was_active["v"] = active
-                name = _dct_to_section.get(id(dct))
-                sec = sections.get(name)
-                if sec is not None:
-                    sec["modified_count"] = (sec.get("modified_count", 0)
-                                             + (1 if active else -1))
-                    _refresh_header(name)
 
         def _write(new_value, *, move_slider=True):
             """Point de passage unique : curseur, − / +, ↺ et chargement de
@@ -966,14 +966,7 @@ def main(page: ft.Page):
             réglage du lot."""
             snapped = max(minv, min(maxv, round(new_value)))
             if snapped != reset_value:
-                # Toucher un curseur active sa section si elle est encore
-                # éteinte (retour user) : sinon le réglage ne se voit pas
-                # tant qu'on ne pense pas à cocher l'interrupteur à part.
-                section = sections.get(_dct_to_section.get(id(dct)))
-                if section is not None and not section["switch"].value:
-                    dct["enabled"] = True
-                    section["switch"].value = True
-                    section["switch"].update()
+                _maybe_activate_section(dct)
             if override_switch.value:
                 name = file_names[state["index"]]
                 section = _section_name(dct)
@@ -1167,30 +1160,21 @@ def main(page: ft.Page):
         # directement : un TextField ne s'étire pas tout seul comme un
         # Slider (retour user, champs Grain restés étroits).
         default = sub[key]
-        was_active = {"v": False}
         field = ft.TextField(
             label=label, value=str(sub[key]), bgcolor=DARK,
             border=CONSTANTS.input_border(GREY), color=WHITE, expand=True,
             keyboard_type=ft.KeyboardType.NUMBER)
 
         def _sync_accent():
-            """Même mécanique que _slider_row : notifie la section
-            (modified_count / en-tête) quand ce champ s'écarte de son
-            défaut — Grain/Bloom/Halation/etc. n'ont que des TextField,
-            pas de curseur (retour user : leur en-tête ne se colorait
-            jamais, y compris après chargement d'un préréglage)."""
+            """Même mécanique que _slider_row : active la section dès que
+            ce champ s'écarte de son défaut — Grain/Bloom/Halation/etc.
+            n'ont que des TextField, pas de curseur."""
             try:
                 active = float(field.value) != default
             except ValueError:
                 active = False
-            if active != was_active["v"]:
-                was_active["v"] = active
-                name = _dct_to_section.get(id(sub))
-                sec = sections.get(name)
-                if sec is not None:
-                    sec["modified_count"] = (sec.get("modified_count", 0)
-                                             + (1 if active else -1))
-                    _refresh_header(name)
+            if active:
+                _maybe_activate_section(sub)
 
         def _handle(e):
             try:
