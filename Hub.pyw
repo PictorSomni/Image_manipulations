@@ -8231,27 +8231,16 @@ def main(page: ft.Page):
         # entre Portrait et Paysage, sans ambiguïté sur ce que fait le clic.
         orientation = {"value": "portrait"}
 
-        def _toggle_orientation(e):
+        def _on_orientation_change(e):
             orientation["value"] = (
-                "paysage" if orientation["value"] == "portrait" else "portrait")
-            is_paysage = orientation["value"] == "paysage"
-            orientation_icon.name = (
-                ft.Icons.CROP_LANDSCAPE if is_paysage else ft.Icons.CROP_PORTRAIT)
-            orientation_text.value = "Paysage" if is_paysage else "Portrait"
-            orientation_btn.update()
+                "paysage" if orientation_btn.selected_index == 1
+                else "portrait")
 
-        # DARK (pas WHITE) sur fond BLUE plein — même convention que les
-        # autres boutons colorés du Hub (ex. terminal_toggle_btn) : du
-        # blanc sur ce bleu restait peu lisible (retour user).
-        orientation_icon = ft.Icon(ft.Icons.CROP_PORTRAIT, color=DARK)
-        orientation_text = ft.Text("Portrait", color=DARK,
-                                   size=CONSTANTS.TEXT_SM)
-        orientation_btn = ft.TextButton(
-            content=ft.Row([orientation_icon, orientation_text], spacing=8,
-                           tight=True, alignment=ft.MainAxisAlignment.CENTER),
-            style=ft.ButtonStyle(bgcolor=BLUE, padding=ft.Padding.all(12),
-                                 shape=ft.RoundedRectangleBorder(radius=8)),
-            width=280, on_click=_toggle_orientation)
+        orientation_btn = ft.CupertinoSlidingSegmentedButton(
+            selected_index=0,
+            controls=[ft.Text("Portrait", size=CONSTANTS.TEXT_SM),
+                     ft.Text("Paysage", size=CONSTANTS.TEXT_SM)],
+            thumb_color=BLUE, on_change=_on_orientation_change)
         # DPI (retour user) : CONSTANTS.DPI suffit dans l'immense majorité
         # des cas, pas besoin d'un champ toujours affiché — juste un
         # bouton pour l'ouvrir si vraiment besoin de le changer.
@@ -8269,29 +8258,27 @@ def main(page: ft.Page):
             f"Résolution : {CONSTANTS.DPI} ppp", icon=ft.Icons.EDIT,
             icon_color=LIGHT_GREY, on_click=_toggle_dpi_field)
         margin_field = ft.TextField(
-            label="Marge de sécurité (rien d'important trop près du bord)",
+            label="Marge",
             value=str(CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT),
             suffix=ft.Text("cm", color=GREY), width=280,
             bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
             keyboard_type=ft.KeyboardType.NUMBER)
         # Mode grille : un seul écart, identique entre le bord de la
-        # feuille et entre les photos (retour user), seulement 0/5/10mm.
+        # feuille et entre les photos (retour user), seulement 0/5/10mm,
+        # 5mm par défaut (retour user).
         _GAP_CHOICES_MM = [0, 5, 10]
-        gap_mode = {"value": _GAP_CHOICES_MM[0]}
+        gap_mode = {"value": 5}
 
         def _on_gap_change(e):
             gap_mode["value"] = _GAP_CHOICES_MM[gap_btn.selected_index]
 
         gap_btn = ft.CupertinoSlidingSegmentedButton(
-            selected_index=0,
+            selected_index=1,
             controls=[ft.Text(f"{mm} mm", size=CONSTANTS.TEXT_SM)
                      for mm in _GAP_CHOICES_MM],
-            thumb_color=BLUE, on_change=_on_gap_change)
-        gap_section = ft.Column([
-            ft.Text("Écart entre les photos et avec le bord",
-                   size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
-            gap_btn,
-        ], visible=False, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+            thumb_color=ORANGE, on_change=_on_gap_change)
+        gap_section = gap_btn
+        gap_section.visible = False
         size_slider = ft.Slider(
             min=0, max=100, divisions=20,
             value=CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT,
@@ -8300,6 +8287,8 @@ def main(page: ft.Page):
             min=0, max=100, divisions=20,
             value=CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT,
             label="{value}%", active_color=VIOLET, width=280)
+        size_section = size_slider
+        rotation_section = rotation_slider
         # Pavé numérique tactile : agit sur les champs manuels (largeur/
         # hauteur, actifs seulement en saisie manuelle) ainsi que
         # résolution/marge, toujours éditables. Les curseurs taille/
@@ -8336,15 +8325,9 @@ def main(page: ft.Page):
         mode = {"value": "scrapbook"}
         grid_fit = {"value": CONSTANTS.COLLAGE_GRID_FIT_DEFAULT}
 
-        def _toggle_mode(e):
-            mode["value"] = (
-                "grid" if mode["value"] == "scrapbook" else "scrapbook")
+        def _on_mode_change(e):
+            mode["value"] = "grid" if mode_btn.selected_index == 1 else "scrapbook"
             is_grid = mode["value"] == "grid"
-            mode_icon.name = (ft.Icons.GRID_VIEW if is_grid
-                             else ft.Icons.AUTO_AWESOME_MOSAIC)
-            mode_text.value = ("Grille (planche photo)" if is_grid
-                              else "Mosaïque artistique")
-            mode_btn.update()
             featured_section.visible = not is_grid
             size_section.visible = not is_grid
             rotation_section.visible = not is_grid
@@ -8353,51 +8336,27 @@ def main(page: ft.Page):
             margin_field.visible = not is_grid
             page.update()
 
-        mode_icon = ft.Icon(ft.Icons.AUTO_AWESOME_MOSAIC, color=DARK)
-        mode_text = ft.Text("Mosaïque artistique", color=DARK,
-                            size=CONSTANTS.TEXT_SM)
-        mode_btn = ft.TextButton(
-            content=ft.Row([mode_icon, mode_text], spacing=8, tight=True,
-                           alignment=ft.MainAxisAlignment.CENTER),
-            style=ft.ButtonStyle(bgcolor=VIOLET, padding=ft.Padding.all(12),
-                                 shape=ft.RoundedRectangleBorder(radius=8)),
-            width=280, on_click=_toggle_mode)
+        # CupertinoSlidingSegmentedButton (retour user) plutôt qu'un simple
+        # bouton plein basculant de texte — plus lisible, et cohérent avec
+        # les autres bascules du dialogue (orientation, fit, écart).
+        mode_btn = ft.CupertinoSlidingSegmentedButton(
+            selected_index=0,
+            controls=[ft.Text("Mosaïque", size=CONSTANTS.TEXT_SM),
+                     ft.Text("Grille", size=CONSTANTS.TEXT_SM)],
+            thumb_color=VIOLET, on_change=_on_mode_change)
 
-        def _toggle_fit(e):
-            grid_fit["value"] = (
-                "contain" if grid_fit["value"] == "cover" else "cover")
-            is_contain = grid_fit["value"] == "contain"
-            fit_icon.name = (ft.Icons.FIT_SCREEN if is_contain
-                             else ft.Icons.CROP)
-            fit_text.value = ("Préserver les proportions" if is_contain
-                              else "Remplir la case (recadre)")
-            fit_btn.update()
+        def _on_fit_change(e):
+            grid_fit["value"] = "contain" if fit_btn.selected_index == 0 else "cover"
 
-        fit_icon = ft.Icon(ft.Icons.CROP, color=DARK)
-        fit_text = ft.Text("Remplir la case (recadre)", color=DARK,
-                          size=CONSTANTS.TEXT_SM)
-        fit_btn = ft.TextButton(
-            content=ft.Row([fit_icon, fit_text], spacing=8, tight=True,
-                           alignment=ft.MainAxisAlignment.CENTER),
-            style=ft.ButtonStyle(bgcolor=BLUE, padding=ft.Padding.all(12),
-                                 shape=ft.RoundedRectangleBorder(radius=8)),
-            width=280, on_click=_toggle_fit)
-        fit_section = ft.Column([
-            ft.Text("Chaque photo remplit sa case (recadrée) ou garde ses "
-                   "proportions (bande blanche autour) — au choix.",
-                   size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
-            fit_btn,
-        ], visible=False, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
-        size_section = ft.Column([
-            ft.Text("Écart de taille (les photos se repositionnent "
-                   "pour combler l'espace)", size=CONSTANTS.TEXT_SM,
-                   color=LIGHT_GREY),
-            size_slider,
-        ])
-        rotation_section = ft.Column([
-            ft.Text("Rotation", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
-            rotation_slider,
-        ])
+        # Fit-in (contain, préserve les proportions) / Fill-in (cover,
+        # remplit et recadre) — défaut = Fill-in (retour user).
+        fit_btn = ft.CupertinoSlidingSegmentedButton(
+            selected_index=1,
+            controls=[ft.Text("Fit-in", size=CONSTANTS.TEXT_SM),
+                     ft.Text("Fill-in", size=CONSTANTS.TEXT_SM)],
+            thumb_color=MINT, on_change=_on_fit_change)
+        fit_section = fit_btn
+        fit_section.visible = False
 
         # ── Photo centrale / mises en avant ─────────────────────────────
         # Retour user : les clients pointent souvent une photo à poser au
@@ -8458,11 +8417,7 @@ def main(page: ft.Page):
             tile_borders[path] = tile_border
             tiles_row.controls.append(tile_border)
 
-        featured_section = ft.Column([
-            ft.Text("Photo centrale / mises en avant (optionnel)",
-                   size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
-            tiles_row,
-        ])
+        featured_section = tiles_row
 
         # ── Aperçu ───────────────────────────────────────────────────────
         # Même code de placement que le rendu final (render_montage,
@@ -8630,8 +8585,7 @@ def main(page: ft.Page):
                 width=360, height=560,
                 content=ft.Column([
                         mode_btn,
-                        featured_section,
-                        ft.Divider(height=1, color=GREY),
+                        ft.Divider(height=1, color=VIOLET),
                         format_dd,
                         orientation_btn,
                         ft.Container(
@@ -8639,33 +8593,31 @@ def main(page: ft.Page):
                                 manual_switch,
                                 ft.Row([width_field, height_field], spacing=8,
                                       alignment=ft.MainAxisAlignment.CENTER),
-                                ft.Row([ft.Text("Unité :", size=CONSTANTS.TEXT_SM,
-                                               color=LIGHT_GREY), unit_dropdown],
-                                      spacing=8,
-                                      alignment=ft.MainAxisAlignment.CENTER),
+                                unit_dropdown,
                             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                            border=ft.Border.all(1, GREY), border_radius=8,
+                            border=ft.Border.all(1, BLUE), border_radius=8,
                             padding=10),
                         dpi_toggle_btn,
                         dpi_field,
-                        ft.Container(height=14),
                         margin_field,
+                        ft.Divider(height=1, color=BLUE),
+                        featured_section,
                         size_section,
                         rotation_section,
                         fit_section,
                         gap_section,
-                        ft.Divider(height=1, color=GREY),
+                        ft.Divider(height=1, color=GREEN),
                         ft.Row([
                             ft.TextButton("Aperçu", icon=ft.Icons.PREVIEW,
-                                         on_click=_do_preview),
-                            ft.IconButton(ft.Icons.CASINO, icon_color=WHITE,
+                                         icon_color=GREEN, on_click=_do_preview),
+                            ft.IconButton(ft.Icons.CASINO, icon_color=GREEN,
                                          tooltip="Nouveau tirage aléatoire",
                                          on_click=_reroll),
                         ], alignment=ft.MainAxisAlignment.CENTER),
                         preview_status,
                         ft.Row([preview_progress], alignment=ft.MainAxisAlignment.CENTER),
                         ft.Row([preview_image], alignment=ft.MainAxisAlignment.CENTER),
-                    ], spacing=8, scroll=ft.ScrollMode.AUTO, expand=True,
+                    ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True,
                        horizontal_alignment=ft.CrossAxisAlignment.CENTER),
             ),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
@@ -9101,7 +9053,7 @@ def main(page: ft.Page):
             ("Fichiers identiques", ft.Icons.CONTENT_COPY, BLUE,
              lambda e: _launch_tool("Fichiers identiques.py")),
         ]),
-        ("Kiosque (mode client)", [
+        ("Kiosque", [
             ("Kiosque", ft.Icons.STOREFRONT_OUTLINED, ORANGE, _launch_kiosk),
         ]),
         ("Recadrage", [
@@ -9213,7 +9165,7 @@ def main(page: ft.Page):
         "Fichier": BLUE,
         "Préparation": VIOLET,
         "Sélection": GREEN,
-        "Kiosque (mode client)": MINT,
+        "Kiosque": MINT,
         "Recadrage": RED,
         "Retouche": YELLOW,
         "Montage": PINK,

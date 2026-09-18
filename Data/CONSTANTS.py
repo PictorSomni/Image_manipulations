@@ -387,9 +387,8 @@ COLLAGE_SAFE_MARGIN_CM_DEFAULT     = 0    # Marge tenue libre près des bords du
 # besoin ponctuel d'un tirage multi-photos simple, sans le côté scrapbook
 # du mode mosaïque ci-dessus) : lignes x colonnes calculées automatiquement
 # depuis le nombre de photos, chaque case identique.
-COLLAGE_GRID_MODE_DEFAULT = False   # False = mosaïque scrapbook, True = grille
 COLLAGE_GRID_FIT_DEFAULT  = "cover"  # "cover" (remplit, recadre) ou "contain" (préserve les proportions)
-COLLAGE_GRID_GAP_CM_DEFAULT = 0.2   # Écart entre cases, en cm
+COLLAGE_GRID_GAP_CM_DEFAULT = 0.5   # Écart bord/entre cases, en cm (retour user : 5mm par défaut)
 
 
 # ── 6.3  Remerciements ────────────────────────────────────────────────────────
