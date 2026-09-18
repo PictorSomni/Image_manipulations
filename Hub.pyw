@@ -7102,6 +7102,8 @@ def main(page: ft.Page):
     def _liste_render():
         liste_header_row.content = _liste_header()
         liste_header_row.visible = bool(liste_entries)
+        liste_back_to_todo_btn.visible = (
+            _liste_file["path"] != _LISTE_TODO_PATH)
         liste_list_view.controls.clear()
         query = liste_search["value"]
         rows = ([(i, e) for i, e in enumerate(liste_entries)
@@ -7125,6 +7127,19 @@ def main(page: ft.Page):
     def _liste_reload(event=None):
         _liste_load()
         _liste_render()
+
+    _LISTE_TODO_PATH = _liste_file["path"]
+
+    def _liste_back_to_todo(event=None):
+        _liste_file["path"] = _LISTE_TODO_PATH
+        liste_search_field.value = ""
+        liste_search["value"] = ""
+        _liste_reload()
+
+    liste_back_to_todo_btn = ft.IconButton(
+        ft.Icons.CHECKLIST, icon_color=GREEN, icon_size=CONSTANTS.ICON_SM,
+        tooltip="Revenir à la todo list", visible=False,
+        on_click=_liste_back_to_todo)
 
     def _liste_open_path(path):
         # Sélectionner un .json dans Fichiers l'ouvre ici — pas de bouton
@@ -7184,6 +7199,7 @@ def main(page: ft.Page):
                 ft.Icon(ft.Icons.DATA_OBJECT, color=VIOLET,
                        size=CONSTANTS.ICON_SM),
                 liste_path_text,
+                liste_back_to_todo_btn,
                 ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED, icon_color=YELLOW,
                              icon_size=CONSTANTS.ICON_SM, tooltip="Nouveau fichier .json",
                              on_click=_liste_new_file),
