@@ -380,14 +380,20 @@ def _contain_resize(image, box_w, box_h):
 
 def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
                         fit_mode, load_source,
-                        log=lambda msg: print(msg, flush=True)):
+                        log=lambda msg: print(msg, flush=True),
+                        auto_rotate=True):
     """Place chaque photo dans une grille auto-calculée (compute_grid_layout)
     sur fond blanc plein — prêt à imprimer directement, pas de calque PSD.
     `fit_mode` "cover" remplit chaque case (recadre, cf. fit_and_rotate) ;
     "contain" préserve les proportions de la photo (bande blanche dans la
     case, cf. _contain_resize) — les deux options demandées par un client
-    (certaines photos ne doivent pas être recadrées). Renvoie une image
-    RGB."""
+    (certaines photos ne doivent pas être recadrées).
+
+    `auto_rotate` (retour user) : pivote la photo de 90° quand son
+    orientation (portrait/paysage) ne correspond pas à celle de sa case —
+    réduit le recadrage en "cover" et les bandes blanches en "contain".
+    Désactivable pour respecter l'orientation d'origine des photos.
+    Renvoie une image RGB."""
     cells = compute_grid_layout(len(photo_keys), canvas_w, canvas_h,
                                 margin_px, gap_px)
     canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
@@ -403,6 +409,8 @@ def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
         if source is None:
             continue
         box_w, box_h = max(1, round(w)), max(1, round(h))
+        if auto_rotate and (source.width < source.height) != (box_w < box_h):
+            source = source.transpose(Image.Transpose.ROTATE_90)
         if fit_mode == "contain":
             resized = _contain_resize(source, box_w, box_h)
             tile = Image.new("RGBA", (box_w, box_h), (255, 255, 255, 255))
@@ -630,12 +638,15 @@ def main():
         gap_cm = env_float(
             "COLLAGE_GRID_GAP_CM", CONSTANTS.COLLAGE_GRID_GAP_CM_DEFAULT)
         gap_px = round(gap_cm / 2.54 * dpi)
+        auto_rotate = os.environ.get(
+            "COLLAGE_GRID_AUTOROTATE", "1").strip() != "0"
         print(f"[INFO] Grille {canvas_w}x{canvas_h}px "
               f"({width_cm:g}x{height_cm:g}cm @ {dpi:g}ppp), "
-              f"{len(photo_names)} photo(s), mode={grid_fit}", flush=True)
+              f"{len(photo_names)} photo(s), mode={grid_fit}, "
+              f"rotation_auto={auto_rotate}", flush=True)
         canvas = render_grid_montage(
             photo_names, canvas_w, canvas_h, margin_px, gap_px, grid_fit,
-            load_source)
+            load_source, auto_rotate=auto_rotate)
         out_path = out_dir / "Planche.jpg"
         canvas.save(out_path, quality=92)
         print(f"[ok] Planche → {out_path.name} ({canvas_w}x{canvas_h}px)",
