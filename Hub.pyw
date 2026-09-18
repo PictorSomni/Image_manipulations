@@ -7100,8 +7100,9 @@ def main(page: ft.Page):
                     value or "—", size=CONSTANTS.TEXT_SM,
                     color=GREY if done else WHITE, max_lines=2,
                     overflow=ft.TextOverflow.ELLIPSIS,
-                    decoration=(ft.TextDecoration.LINE_THROUGH if done
-                               else None)),
+                    style=ft.TextStyle(
+                        decoration=ft.TextDecoration.LINE_THROUGH)
+                    if done else None),
                 tooltip=f"Copier {col} : {value}", expand=True, ink=True,
                 on_click=lambda e, t=value: _liste_copy(t)))
         return ft.Container(
@@ -7275,6 +7276,9 @@ def main(page: ft.Page):
         _run_task(_focus_dialog_field, name_field)
 
     liste_surface = ft.Column([
+        ft.Container(content=liste_search_row, padding=ft.Padding(8, 8, 8, 6)),
+        ft.Divider(height=1, color=GREY),
+        liste_quick_add_row,
         ft.Container(
             content=ft.Row([
                 ft.Icon(ft.Icons.DATA_OBJECT, color=VIOLET,
@@ -7289,9 +7293,7 @@ def main(page: ft.Page):
                              on_click=_liste_reload),
                 liste_add_btn,
             ], spacing=6),
-            padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
-        liste_quick_add_row,
-        ft.Container(content=liste_search_row, padding=ft.Padding(8, 0, 8, 6)),
+            padding=ft.Padding(8, 0, 8, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
         liste_header_row,
         ft.Container(content=liste_list_view, expand=True),
@@ -8321,6 +8323,29 @@ def main(page: ft.Page):
         _style_segments(gap_btn, gap_texts)
         gap_section = gap_btn
         gap_section.visible = False
+
+        # Mode grille : pivote une photo de 90° quand son orientation ne
+        # correspond pas à celle de sa case, pour réduire recadrage/bandes
+        # blanches — désactivable pour respecter l'orientation d'origine
+        # (retour user).
+        grid_auto_rotate = {"value": True}
+
+        def _on_rotate_change(e):
+            grid_auto_rotate["value"] = rotate_btn.selected_index == 1
+            _style_segments(rotate_btn, rotate_texts)
+            for t in rotate_texts:
+                t.update()
+            _do_preview()
+
+        rotate_texts = [ft.Text("Respecter", size=CONSTANTS.TEXT_SM),
+                        ft.Text("Rotation auto", size=CONSTANTS.TEXT_SM)]
+        rotate_btn = ft.CupertinoSlidingSegmentedButton(
+            selected_index=1, controls=rotate_texts,
+            thumb_color=PINK, on_change=_on_rotate_change)
+        _style_segments(rotate_btn, rotate_texts)
+        rotate_section = rotate_btn
+        rotate_section.visible = False
+
         size_slider = ft.Slider(
             min=0, max=100, divisions=20,
             value=CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT,
@@ -8331,8 +8356,16 @@ def main(page: ft.Page):
             value=CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT,
             label="{value}%", active_color=VIOLET, width=280,
             on_change_end=lambda e: _do_preview())
-        size_section = size_slider
-        rotation_section = rotation_slider
+        # Libellés brefs au-dessus des curseurs (retour user) : sans eux,
+        # impossible de distinguer taille et rotation au premier coup d'œil.
+        size_section = ft.Column(
+            [ft.Text("Taille", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
+            size_slider], spacing=0,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+        rotation_section = ft.Column(
+            [ft.Text("Rotation", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
+            rotation_slider], spacing=0,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         # Pavé numérique tactile : agit sur les champs manuels (largeur/
         # hauteur, actifs seulement en saisie manuelle) ainsi que
         # résolution/marge, toujours éditables. Les curseurs taille/
@@ -8379,6 +8412,7 @@ def main(page: ft.Page):
             rotation_section.visible = not is_grid
             fit_section.visible = is_grid
             gap_section.visible = is_grid
+            rotate_section.visible = is_grid
             margin_field.visible = not is_grid
             _style_segments(mode_btn, mode_texts)
             for t in mode_texts:
@@ -8552,7 +8586,8 @@ def main(page: ft.Page):
                 gap_px = round(gap_mode["value"] / 10 / 2.54 * dpi * scale)
                 canvas = montage_mod.render_grid_montage(
                     photo_paths, prev_w, prev_h, gap_px, gap_px,
-                    grid_fit["value"], load_thumb, log=lambda msg: None)
+                    grid_fit["value"], load_thumb, log=lambda msg: None,
+                    auto_rotate=grid_auto_rotate["value"])
             else:
                 canvas, _ = montage_mod.render_montage(
                     photo_paths, prev_w, prev_h, size_slider.value,
@@ -8623,6 +8658,8 @@ def main(page: ft.Page):
                 "COLLAGE_MODE": mode["value"],
                 "COLLAGE_GRID_FIT": grid_fit["value"],
                 "COLLAGE_GRID_GAP_CM": str(grid_margin_cm),
+                "COLLAGE_GRID_AUTOROTATE":
+                    "1" if grid_auto_rotate["value"] else "0",
                 "COLLAGE_SIZE_VARIATION": str(size_slider.value),
                 "COLLAGE_ROTATION_VARIATION": str(rotation_slider.value),
                 # Même tirage que l'aperçu affiché en dernier (si généré) :
@@ -8664,6 +8701,7 @@ def main(page: ft.Page):
                 rotation_section,
                 fit_section,
                 gap_section,
+                rotate_section,
             ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=320)
 
