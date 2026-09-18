@@ -6852,7 +6852,16 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
     _liste_file = {"path": os.path.join(_APP_DIR, ".liste.json")}
     liste_entries = []
-    _LISTE_DEFAULT_COLUMNS = ["nom", "description"]
+    # tâche/fait par défaut (retour user : usage principal = todo list du
+    # jour) — une colonne "fait" est rendue en case à cocher (_liste_row),
+    # le reste s'affiche en texte comme n'importe quelle autre liste .json
+    # chargée (fiches PrestaShop, mots-clés...).
+    _LISTE_DEFAULT_COLUMNS = ["tâche", "fait"]
+    _LISTE_DONE_COLUMN = "fait"
+
+    def _liste_is_done(entry):
+        return str(entry.get(_LISTE_DONE_COLUMN, "")).strip().lower() in (
+            "true", "1", "oui", "x")
 
     def _liste_columns():
         # ponytail: colonnes = union ordonnée des clés rencontrées ;
@@ -6934,27 +6943,35 @@ def main(page: ft.Page):
         is_new = index is None
         columns = _liste_columns()
         current = liste_entries[index] if not is_new else {}
-        fields = [
-            ft.TextField(
-                label=col, value=current.get(col, ""),
-                autofocus=(i == 0), width=320,
-                multiline=(i > 0), min_lines=1, max_lines=5,
-                bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
-            for i, col in enumerate(columns)
-        ]
+        text_columns = [c for c in columns if c != _LISTE_DONE_COLUMN]
+        fields = []
+        for col in columns:
+            if col == _LISTE_DONE_COLUMN:
+                fields.append(ft.Checkbox(
+                    label=col, value=_liste_is_done(current)))
+            else:
+                fields.append(ft.TextField(
+                    label=col, value=current.get(col, ""),
+                    autofocus=(col == text_columns[0]), width=320,
+                    multiline=(col != text_columns[0]), min_lines=1,
+                    max_lines=5, bgcolor=DARK,
+                    border=CONSTANTS.input_border(GREY), color=WHITE))
 
         def _cancel(event):
             dlg.open = False
             page.update()
 
         def _confirm(event):
-            first = (fields[0].value or "").strip()
+            first_field = fields[columns.index(text_columns[0])]
+            first = (first_field.value or "").strip()
             if not first:
-                fields[0].error_text = "Requis"
+                first_field.error_text = "Requis"
                 page.update()
                 return
-            entry = {col: (f.value or "").strip()
-                     for col, f in zip(columns, fields)}
+            entry = {}
+            for col, f in zip(columns, fields):
+                entry[col] = (str(f.value) if isinstance(f, ft.Checkbox)
+                             else (f.value or "").strip())
             if is_new:
                 liste_entries.insert(0, entry)
             else:
@@ -6975,19 +6992,38 @@ def main(page: ft.Page):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
-        _run_task(_focus_dialog_field, fields[0])
+        _run_task(_focus_dialog_field,
+                 fields[columns.index(text_columns[0])])
 
     _LISTE_ACTIONS_WIDTH = 2 * (CONSTANTS.ICON_SM + 16)  # aligne l'en-tête sur les 2 IconButton
 
+    def _liste_toggle_done(index, value):
+        if 0 <= index < len(liste_entries):
+            liste_entries[index][_LISTE_DONE_COLUMN] = str(value)
+            _liste_save()
+            _liste_render()
+
     def _liste_row(index, entry):
         columns = _liste_columns()
+        done = _liste_is_done(entry)
         cells = []
         for col in columns:
+            if col == _LISTE_DONE_COLUMN:
+                cells.append(ft.Container(
+                    content=ft.Checkbox(
+                        value=done, active_color=GREEN,
+                        on_change=lambda e, i=index: _liste_toggle_done(
+                            i, e.control.value)),
+                    expand=True, alignment=ft.Alignment.CENTER))
+                continue
             value = entry.get(col, "")
             cells.append(ft.Container(
-                content=ft.Text(value or "—", size=CONSTANTS.TEXT_SM,
-                                color=WHITE, max_lines=2,
-                                overflow=ft.TextOverflow.ELLIPSIS),
+                content=ft.Text(
+                    value or "—", size=CONSTANTS.TEXT_SM,
+                    color=GREY if done else WHITE, max_lines=2,
+                    overflow=ft.TextOverflow.ELLIPSIS,
+                    decoration=(ft.TextDecoration.LINE_THROUGH if done
+                               else None)),
                 tooltip=f"Copier {col} : {value}", expand=True, ink=True,
                 on_click=lambda e, t=value: _liste_copy(t)))
         return ft.Container(
@@ -7160,8 +7196,10 @@ def main(page: ft.Page):
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
         ft.Container(
             content=ft.Text(
-                "Colonnes adaptées au fichier .json chargé. Cliquer sur "
-                "une valeur la copie dans le presse-papiers.",
+                "Todo list par défaut (case à cocher, tâches faites "
+                "barrées). Peut aussi afficher n'importe quel autre "
+                "fichier .json (colonnes adaptées) — cliquer une valeur "
+                "la copie dans le presse-papiers.",
                 size=CONSTANTS.TEXT_SM, color=WHITE),
             padding=ft.Padding(8, 0, 8, 4)),
         ft.Container(content=liste_search_row, padding=ft.Padding(8, 0, 8, 6)),
