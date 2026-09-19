@@ -8693,8 +8693,13 @@ def main(page: ft.Page):
                 # Un seul écart, identique bord/entre-photos (retour user).
                 gap_px = round(gap_mode["value"] / 10 / 2.54 * dpi * scale)
                 max_per_sheet = max_per_sheet_mode["value"]
-                sheet_photos = (photo_paths[:max_per_sheet] if max_per_sheet
-                                else photo_paths)
+                # Même tirage que le rendu final (retour user : le dé ne
+                # faisait rien en mode grille) — répartition aléatoire des
+                # photos, reproductible par preview_seed comme en mosaïque.
+                ordered_paths = list(photo_paths)
+                random.Random(preview_seed["value"]).shuffle(ordered_paths)
+                sheet_photos = (ordered_paths[:max_per_sheet] if max_per_sheet
+                                else ordered_paths)
                 if max_per_sheet:
                     n_sheets = math.ceil(len(photo_paths) / max_per_sheet)
                 canvas = montage_mod.render_grid_montage(

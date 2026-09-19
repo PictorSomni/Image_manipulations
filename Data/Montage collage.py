@@ -343,28 +343,35 @@ def compute_grid_layout(count, canvas_w, canvas_h, margin_px=0, gap_px=0):
     choisi (ex. 9 → 3x3, 3 → 1x3 ou 3x1 selon l'orientation, 5 (premier)
     → 1x5/5x1, seules factorisations exactes possibles).
 
-    `gap_px` grignote symétriquement chaque case pour créer un espace
-    visuel entre les photos. Renvoie une liste de (x, y, w, h) dans
-    l'ordre 0..count-1."""
-    usable_w = max(1, canvas_w - 2 * margin_px)
-    usable_h = max(1, canvas_h - 2 * margin_px)
+    `gap_px` sépare les cases voisines ; `margin_px` sépare la grille du
+    bord de la feuille — les deux écarts sont pleins (pas la moitié
+    chacun) pour rester visuellement identiques (retour user : le bord
+    de la feuille paraissait plus épais que l'écart entre les photos,
+    car l'ancien calcul ajoutait margin_px PUIS la moitié du gap par
+    case, cumulant les deux au bord). Renvoie une liste de (x, y, w, h)
+    dans l'ordre 0..count-1."""
+    def _usable(cols, rows):
+        return (max(1, canvas_w - 2 * margin_px - (cols - 1) * gap_px),
+               max(1, canvas_h - 2 * margin_px - (rows - 1) * gap_px))
+
     best = None
     for rows in range(1, count + 1):
         if count % rows:
             continue
         cols = count // rows
+        usable_w, usable_h = _usable(cols, rows)
         mismatch = abs(math.log((usable_w / cols) / (usable_h / rows)))
         if best is None or mismatch < best[0]:
             best = (mismatch, rows, cols)
     _, rows, cols = best
+    usable_w, usable_h = _usable(cols, rows)
     cell_w, cell_h = usable_w / cols, usable_h / rows
-    half_gap = gap_px / 2
     cells = []
     for i in range(count):
         row, col = divmod(i, cols)
-        x = margin_px + col * cell_w + half_gap
-        y = margin_px + row * cell_h + half_gap
-        cells.append((x, y, max(1, cell_w - gap_px), max(1, cell_h - gap_px)))
+        x = margin_px + col * (cell_w + gap_px)
+        y = margin_px + row * (cell_h + gap_px)
+        cells.append((x, y, max(1, cell_w), max(1, cell_h)))
     return cells
 
 
@@ -651,9 +658,15 @@ def main():
         # ou 9 par planche plutôt que toutes sur une seule) — 0/absent =
         # toutes sur une seule feuille (comportement historique).
         max_per_sheet = int(env_float("COLLAGE_GRID_MAX_PER_SHEET", 0)) or None
-        sheets = ([photo_names[i:i + max_per_sheet]
-                  for i in range(0, len(photo_names), max_per_sheet)]
-                 if max_per_sheet else [photo_names])
+        # Même tirage que l'aperçu (retour user : le dé ne faisait rien en
+        # mode grille, qui plaçait toujours les photos dans l'ordre des
+        # fichiers) — répartition aléatoire des photos entre les cases/
+        # feuilles, reproductible via COLLAGE_SEED comme en mode mosaïque.
+        ordered_names = list(photo_names)
+        random.Random(int(seed) if seed else None).shuffle(ordered_names)
+        sheets = ([ordered_names[i:i + max_per_sheet]
+                  for i in range(0, len(ordered_names), max_per_sheet)]
+                 if max_per_sheet else [ordered_names])
         print(f"[INFO] Grille {canvas_w}x{canvas_h}px "
               f"({width_cm:g}x{height_cm:g}cm @ {dpi:g}ppp), "
               f"{len(photo_names)} photo(s) sur {len(sheets)} feuille(s), "
