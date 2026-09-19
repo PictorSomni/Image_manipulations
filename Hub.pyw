@@ -8405,6 +8405,31 @@ def main(page: ft.Page):
         gap_section = gap_btn
         gap_section.visible = False
 
+        # Mode grille : nb max de photos par feuille (retour user), au-delà
+        # les photos débordent sur une/des feuille(s) suivante(s) — même
+        # bascule bouton plein que le reste ; "Toutes" = comportement
+        # historique (une seule feuille, quel que soit le nombre de photos).
+        _MAX_PER_SHEET_CHOICES = [2, 4, 9, None]
+        max_per_sheet_mode = {"value": None}
+
+        def _on_max_per_sheet_change(e):
+            max_per_sheet_mode["value"] = (
+                _MAX_PER_SHEET_CHOICES[max_per_sheet_btn.selected_index])
+            _style_segments(max_per_sheet_btn, max_per_sheet_texts)
+            for t in max_per_sheet_texts:
+                t.update()
+            _do_preview()
+
+        max_per_sheet_texts = [
+            ft.Text(str(n) if n else "Toutes", size=CONSTANTS.TEXT_SM)
+            for n in _MAX_PER_SHEET_CHOICES]
+        max_per_sheet_btn = ft.CupertinoSlidingSegmentedButton(
+            selected_index=3, controls=max_per_sheet_texts,
+            thumb_color=BLUE, on_change=_on_max_per_sheet_change)
+        _style_segments(max_per_sheet_btn, max_per_sheet_texts)
+        max_per_sheet_section = max_per_sheet_btn
+        max_per_sheet_section.visible = False
+
         # Mode grille : pivote une photo de 90° quand son orientation ne
         # correspond pas à celle de sa case, pour réduire recadrage/bandes
         # blanches — désactivable pour respecter l'orientation d'origine
@@ -8494,6 +8519,7 @@ def main(page: ft.Page):
             fit_section.visible = is_grid
             gap_section.visible = is_grid
             rotate_section.visible = is_grid
+            max_per_sheet_section.visible = is_grid
             margin_field.visible = not is_grid
             _style_segments(mode_btn, mode_texts)
             for t in mode_texts:
@@ -8662,11 +8688,17 @@ def main(page: ft.Page):
                 return PILImage.open(io.BytesIO(data)).convert("RGBA")
 
             montage_mod = _load_montage_module()
+            n_sheets = 1
             if mode["value"] == "grid":
                 # Un seul écart, identique bord/entre-photos (retour user).
                 gap_px = round(gap_mode["value"] / 10 / 2.54 * dpi * scale)
+                max_per_sheet = max_per_sheet_mode["value"]
+                sheet_photos = (photo_paths[:max_per_sheet] if max_per_sheet
+                                else photo_paths)
+                if max_per_sheet:
+                    n_sheets = math.ceil(len(photo_paths) / max_per_sheet)
                 canvas = montage_mod.render_grid_montage(
-                    photo_paths, prev_w, prev_h, gap_px, gap_px,
+                    sheet_photos, prev_w, prev_h, gap_px, gap_px,
                     grid_fit["value"], load_thumb, log=lambda msg: None,
                     auto_rotate=grid_auto_rotate["value"])
             else:
@@ -8682,9 +8714,11 @@ def main(page: ft.Page):
                 preview_progress.visible = False
                 preview_image.src = buf.getvalue()
                 preview_image.visible = True
+                sheets_note = (f", 1ère feuille sur {n_sheets}"
+                              if n_sheets > 1 else "")
                 preview_status.value = (
                     f"Aperçu — {canvas_w}x{canvas_h}px "
-                    f"(tirage #{preview_seed['value'] % 1000})")
+                    f"(tirage #{preview_seed['value'] % 1000}{sheets_note})")
                 page.update()
             _run_task(_apply)
 
@@ -8741,6 +8775,8 @@ def main(page: ft.Page):
                 "COLLAGE_GRID_GAP_CM": str(grid_margin_cm),
                 "COLLAGE_GRID_AUTOROTATE":
                     "1" if grid_auto_rotate["value"] else "0",
+                "COLLAGE_GRID_MAX_PER_SHEET":
+                    str(max_per_sheet_mode["value"] or 0),
                 "COLLAGE_SIZE_VARIATION": str(size_slider.value),
                 "COLLAGE_ROTATION_VARIATION": str(rotation_slider.value),
                 # Même tirage que l'aperçu affiché en dernier (si généré) :
@@ -8783,6 +8819,7 @@ def main(page: ft.Page):
                 fit_section,
                 gap_section,
                 rotate_section,
+                max_per_sheet_section,
             ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=320)
 

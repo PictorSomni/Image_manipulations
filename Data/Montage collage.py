@@ -37,6 +37,7 @@ Variables d'environnement :
   COLLAGE_CENTER_FILE      — nom d'une photo à poser au centre, agrandie (optionnel).
   COLLAGE_FEATURED_FILES   — noms de photos à mettre en avant, séparés par ``|`` (optionnel).
   COLLAGE_SEED             — graine aléatoire (optionnel, pour reproduire un tirage).
+  COLLAGE_GRID_MAX_PER_SHEET — mode grille : nb max de photos par feuille (2/4/9, 0 = toutes sur une seule feuille).
 
 Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
   (pour le .psd — sans pytoshop, seul l'aperçu PNG est produit).
@@ -640,17 +641,26 @@ def main():
         gap_px = round(gap_cm / 2.54 * dpi)
         auto_rotate = os.environ.get(
             "COLLAGE_GRID_AUTOROTATE", "1").strip() != "0"
+        # Limite un nombre max de photos par feuille (retour user : ex. 4
+        # ou 9 par planche plutôt que toutes sur une seule) — 0/absent =
+        # toutes sur une seule feuille (comportement historique).
+        max_per_sheet = int(env_float("COLLAGE_GRID_MAX_PER_SHEET", 0)) or None
+        sheets = ([photo_names[i:i + max_per_sheet]
+                  for i in range(0, len(photo_names), max_per_sheet)]
+                 if max_per_sheet else [photo_names])
         print(f"[INFO] Grille {canvas_w}x{canvas_h}px "
               f"({width_cm:g}x{height_cm:g}cm @ {dpi:g}ppp), "
-              f"{len(photo_names)} photo(s), mode={grid_fit}, "
-              f"rotation_auto={auto_rotate}", flush=True)
-        canvas = render_grid_montage(
-            photo_names, canvas_w, canvas_h, margin_px, gap_px, grid_fit,
-            load_source, auto_rotate=auto_rotate)
-        out_path = out_dir / "Planche.jpg"
-        canvas.save(out_path, quality=92)
-        print(f"[ok] Planche → {out_path.name} ({canvas_w}x{canvas_h}px)",
-              flush=True)
+              f"{len(photo_names)} photo(s) sur {len(sheets)} feuille(s), "
+              f"mode={grid_fit}, rotation_auto={auto_rotate}", flush=True)
+        for i, sheet_photos in enumerate(sheets, start=1):
+            canvas = render_grid_montage(
+                sheet_photos, canvas_w, canvas_h, margin_px, gap_px,
+                grid_fit, load_source, auto_rotate=auto_rotate)
+            suffix = "" if len(sheets) == 1 else f" {i}"
+            out_path = out_dir / f"Planche{suffix}.jpg"
+            canvas.save(out_path, quality=92)
+            print(f"[ok] Planche{suffix} → {out_path.name} "
+                  f"({canvas_w}x{canvas_h}px)", flush=True)
         print("[ok] Terminé.", flush=True)
         return
 
