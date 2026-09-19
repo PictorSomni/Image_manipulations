@@ -382,7 +382,7 @@ def _contain_resize(image, box_w, box_h):
 def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
                         fit_mode, load_source,
                         log=lambda msg: print(msg, flush=True),
-                        auto_rotate=True):
+                        auto_rotate=True, slots=None):
     """Place chaque photo dans une grille auto-calculée (compute_grid_layout)
     sur fond blanc plein — prêt à imprimer directement, pas de calque PSD.
     `fit_mode` "cover" remplit chaque case (recadre, cf. fit_and_rotate) ;
@@ -390,12 +390,18 @@ def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
     case, cf. _contain_resize) — les deux options demandées par un client
     (certaines photos ne doivent pas être recadrées).
 
+    `slots` (retour user) : taille de grille demandée (ex. 9), qui peut
+    dépasser le nombre de photos disponibles — les cases en trop restent
+    blanches plutôt que de retomber sur une grille plus petite calculée sur
+    le nombre réel de photos ; défaut (None) = une case par photo, comme
+    avant.
+
     `auto_rotate` (retour user) : pivote la photo de 90° quand son
     orientation (portrait/paysage) ne correspond pas à celle de sa case —
     réduit le recadrage en "cover" et les bandes blanches en "contain".
     Désactivable pour respecter l'orientation d'origine des photos.
     Renvoie une image RGB."""
-    cells = compute_grid_layout(len(photo_keys), canvas_w, canvas_h,
+    cells = compute_grid_layout(slots or len(photo_keys), canvas_w, canvas_h,
                                 margin_px, gap_px)
     canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
     total = len(photo_keys)
@@ -655,7 +661,8 @@ def main():
         for i, sheet_photos in enumerate(sheets, start=1):
             canvas = render_grid_montage(
                 sheet_photos, canvas_w, canvas_h, margin_px, gap_px,
-                grid_fit, load_source, auto_rotate=auto_rotate)
+                grid_fit, load_source, auto_rotate=auto_rotate,
+                slots=max_per_sheet)
             suffix = "" if len(sheets) == 1 else f" {i}"
             out_path = out_dir / f"Planche{suffix}.jpg"
             canvas.save(out_path, quality=92)
