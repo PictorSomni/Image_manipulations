@@ -8700,7 +8700,8 @@ def main(page: ft.Page):
                 canvas = montage_mod.render_grid_montage(
                     sheet_photos, prev_w, prev_h, gap_px, gap_px,
                     grid_fit["value"], load_thumb, log=lambda msg: None,
-                    auto_rotate=grid_auto_rotate["value"])
+                    auto_rotate=grid_auto_rotate["value"],
+                    slots=max_per_sheet)
             else:
                 canvas, _ = montage_mod.render_montage(
                     photo_paths, prev_w, prev_h, size_slider.value,
