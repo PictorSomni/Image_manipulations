@@ -970,34 +970,40 @@ class PhotoCropper:
         )
 
         # Bords à étirer (mode Ratio + Personnalisé uniquement) : glisser
-        # le bord droit / bas du canevas ajuste Largeur/Hauteur (%) en
-        # direct, sans passer par les champs texte (retour user). Barres
-        # larges + contour marqué (cf. update_canvas_size) pour rester
-        # visibles sur fond clair (retour user : peu visibles à l'essai).
+        # un bord du canevas ajuste Largeur/Hauteur (%) en direct, sans
+        # passer par les champs texte (retour user). 4 bords indépendants
+        # (pas juste droit/bas) — glisser un bord ne bouge QUE ce bord,
+        # le bord opposé restant ancré (cf. _on_resize_edge), pour couper
+        # précisément un côté (ex. bord de scanner visible sur un seul
+        # côté) sans que le cadrage ne s'élargisse en se recentrant sur
+        # la photo (retour user). Barres larges + contour marqué (cf.
+        # update_canvas_size) pour rester visibles sur fond clair (retour
+        # user : peu visibles à l'essai).
         self._EDGE_THICK = 16
         self._EDGE_LEN = 70
-        self._edge_handle_w = ft.Container(
-            content=ft.GestureDetector(
-                content=ft.Container(
-                    width=self._EDGE_THICK, height=self._EDGE_LEN,
-                    bgcolor=BLUE, border=ft.Border.all(2, WHITE), border_radius=6,
+
+        def _make_edge_handle(side, horizontal_bar):
+            bar_w, bar_h = ((self._EDGE_LEN, self._EDGE_THICK) if horizontal_bar
+                           else (self._EDGE_THICK, self._EDGE_LEN))
+            cursor = (ft.MouseCursor.RESIZE_UP_DOWN if horizontal_bar
+                     else ft.MouseCursor.RESIZE_LEFT_RIGHT)
+            return ft.Container(
+                content=ft.GestureDetector(
+                    content=ft.Container(
+                        width=bar_w, height=bar_h,
+                        bgcolor=BLUE, border=ft.Border.all(2, WHITE),
+                        border_radius=6,
+                    ),
+                    mouse_cursor=cursor,
+                    on_pan_update=lambda e, s=side: self._on_resize_edge(e, s),
                 ),
-                mouse_cursor=ft.MouseCursor.RESIZE_LEFT_RIGHT,
-                on_pan_update=lambda e: self._on_resize_edge(e, 'w'),
-            ),
-            width=self._EDGE_THICK, height=self._EDGE_LEN, left=0, top=0, visible=False,
-        )
-        self._edge_handle_h = ft.Container(
-            content=ft.GestureDetector(
-                content=ft.Container(
-                    width=self._EDGE_LEN, height=self._EDGE_THICK,
-                    bgcolor=BLUE, border=ft.Border.all(2, WHITE), border_radius=6,
-                ),
-                mouse_cursor=ft.MouseCursor.RESIZE_UP_DOWN,
-                on_pan_update=lambda e: self._on_resize_edge(e, 'h'),
-            ),
-            width=self._EDGE_LEN, height=self._EDGE_THICK, left=0, top=0, visible=False,
-        )
+                width=bar_w, height=bar_h, left=0, top=0, visible=False,
+            )
+
+        self._edge_handle_r = _make_edge_handle('right', horizontal_bar=False)
+        self._edge_handle_l = _make_edge_handle('left', horizontal_bar=False)
+        self._edge_handle_b = _make_edge_handle('bottom', horizontal_bar=True)
+        self._edge_handle_t = _make_edge_handle('top', horizontal_bar=True)
         # Contour dessiné EN DEHORS du canevas (pas dessus) : un contour
         # superposé mangerait les derniers pixels de l'image, gênant la
         # précision près des bords (retour user : ex. retirer un bord noir
@@ -1007,7 +1013,9 @@ class PhotoCropper:
             border=ft.Border.all(3, BLUE), border_radius=2, visible=False,
         )
         self.canvas_stack = ft.Stack(
-            controls=[self._crop_outline, self.canvas_container, self._edge_handle_w, self._edge_handle_h],
+            controls=[self._crop_outline, self.canvas_container,
+                     self._edge_handle_r, self._edge_handle_l,
+                     self._edge_handle_b, self._edge_handle_t],
             width=self.canvas_w, height=self.canvas_h,
             clip_behavior=ft.ClipBehavior.NONE,
         )
@@ -1139,7 +1147,7 @@ class PhotoCropper:
         # `canvas_stack` (marge réservée), sinon le débordement n'est pas
         # toujours cliquable selon la mise en page (retour user : plus
         # aucune interaction possible avec les barres décalées).
-        if hasattr(self, '_edge_handle_w'):
+        if hasattr(self, '_edge_handle_r'):
             show_handles = (
                 getattr(self, 'crop_mode', 'resolution') == 'ratio'
                 and self.current_format_label == _CUSTOM_KEY
@@ -1158,12 +1166,17 @@ class PhotoCropper:
             self._crop_outline.height = self.canvas_h + 2 * gap
 
             half_len = self._EDGE_LEN / 2
-            self._edge_handle_w.visible = show_handles
-            self._edge_handle_h.visible = show_handles
-            self._edge_handle_w.left = margin + self.canvas_w + gap
-            self._edge_handle_w.top  = margin + self.canvas_h / 2 - half_len
-            self._edge_handle_h.left = margin + self.canvas_w / 2 - half_len
-            self._edge_handle_h.top  = margin + self.canvas_h + gap
+            for handle in (self._edge_handle_r, self._edge_handle_l,
+                          self._edge_handle_b, self._edge_handle_t):
+                handle.visible = show_handles
+            self._edge_handle_r.left = margin + self.canvas_w + gap
+            self._edge_handle_r.top  = margin + self.canvas_h / 2 - half_len
+            self._edge_handle_l.left = margin - gap - self._EDGE_THICK
+            self._edge_handle_l.top  = margin + self.canvas_h / 2 - half_len
+            self._edge_handle_b.left = margin + self.canvas_w / 2 - half_len
+            self._edge_handle_b.top  = margin + self.canvas_h + gap
+            self._edge_handle_t.left = margin + self.canvas_w / 2 - half_len
+            self._edge_handle_t.top  = margin - gap - self._EDGE_THICK
 
         # Redimensionner les sliders verticaux
         self.rotation_slider.resize(int(self.canvas_h))
@@ -3595,13 +3608,19 @@ class PhotoCropper:
     # ================================================================ #
     #                  FORMAT & ORIENTATION                           #
     # ================================================================ #
-    def _on_resize_edge(self, e, axis):
-        """Glisser le bord droit ('w') ou bas ('h') du canevas en mode
-        Ratio + Personnalisé : ajuste Largeur/Hauteur (%) en direct et
-        recale la géométrie via `_refit_canvas` (pas de redécodage —
-        même mécanisme que le redimensionnement de fenêtre)."""
+    def _on_resize_edge(self, e, side):
+        """Glisser un bord (`side` = 'left'/'right'/'top'/'bottom') du
+        canevas en mode Ratio + Personnalisé : ajuste Largeur/Hauteur (%)
+        en direct, ET compense offset_x/offset_y pour que le bord OPPOSÉ
+        reste ancré à la même position sur la photo (retour user : sans
+        ça, agrandir/rétrécir % recentrait le cadrage sur la photo au
+        lieu de ne bouger QUE le bord tiré — impossible de couper
+        uniquement un bord de scan visible d'un seul côté). Recale la
+        géométrie via `_refit_canvas` (pas de redécodage — même
+        mécanisme que le redimensionnement de fenêtre)."""
         if self.crop_mode != 'ratio' or self.current_format_label != _CUSTOM_KEY:
             return
+        axis = 'w' if side in ('left', 'right') else 'h'
         if self.canvas_is_portrait:
             width_field, height_field = self.custom_w_field, self.custom_h_field
         else:
@@ -3614,17 +3633,58 @@ class PhotoCropper:
             current_pct = float((field.value or "").strip())
         except ValueError:
             current_pct = 100.0
-        delta_px = e.local_delta.x if axis == 'w' else e.local_delta.y
+        raw_delta = e.local_delta.x if axis == 'w' else e.local_delta.y
+        # Bord "de départ" (gauche/haut) : glisser vers l'extérieur (delta
+        # négatif) agrandit le cadrage — signe inverse du bord "d'arrivée"
+        # (droite/bas), où glisser vers l'extérieur (delta positif) agrandit.
+        sign = -1 if side in ('left', 'top') else 1
+        delta_px = sign * raw_delta
         new_pct = max(5.0, min(100.0, current_pct + delta_px / canvas_dim * current_pct))
+        if new_pct == current_pct:
+            return
         field.value = f"{new_pct:.1f}"
         try:
             w = float(self.custom_w_field.value)
             h = float(self.custom_h_field.value)
         except (TypeError, ValueError):
             return
-        if w > 0 and h > 0:
-            self.current_format = (w, h)
+        if w <= 0 or h <= 0:
+            return
+        self.current_format = (w, h)
+
+        # Ancre l'image-espace du bord opposé AVANT le recalage (canvas_w/h
+        # et base_scale changent tous les deux avec %, cf. update_canvas_size).
+        orig_dim = (self.original_width if axis == 'w'
+                   else self.original_height)
+        old_canvas_dim = canvas_dim
+        eff_scale_old = self.base_scale * self.scale
+        old_offset = self.offset_x if axis == 'w' else self.offset_y
+        if eff_scale_old <= 0:
             self._refit_canvas()
+            return
+        if side in ('right', 'bottom'):
+            anchor_img = (((orig_dim * eff_scale_old - old_canvas_dim) / 2
+                          - old_offset) / eff_scale_old)
+        else:
+            anchor_img = (((old_canvas_dim + orig_dim * eff_scale_old) / 2
+                          - old_offset) / eff_scale_old)
+
+        self._refit_canvas()
+
+        new_canvas_dim = self.canvas_w if axis == 'w' else self.canvas_h
+        eff_scale_new = self.base_scale * self.scale
+        if side in ('right', 'bottom'):
+            new_offset = ((orig_dim * eff_scale_new - new_canvas_dim) / 2
+                         - anchor_img * eff_scale_new)
+        else:
+            new_offset = ((new_canvas_dim + orig_dim * eff_scale_new) / 2
+                         - anchor_img * eff_scale_new)
+        if axis == 'w':
+            self.offset_x = new_offset
+        else:
+            self.offset_y = new_offset
+        self._clamp_offsets()
+        self._update_transform()
 
     def change_ratio(self, e=None):
         """
