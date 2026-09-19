@@ -1260,8 +1260,18 @@ class PhotoCropper:
         source_image = ImageOps.exif_transpose(source_image)
         try:
             raw_exif = source_image.getexif()
-            # Tag Orientation (274) retiré : l'image est déjà corrigée
+            # Tag Orientation (274) retiré : l'image est déjà corrigée.
+            # XResolution/YResolution/ResolutionUnit (282/283/296) forcés à
+            # DPI plutôt que retirés : sans ça, la résolution d'origine du
+            # fichier source (souvent 72dpi) restait recopiée telle quelle
+            # dans l'export, et Photoshop/Affinity s'y fient en priorité
+            # sur le "dpi" JFIF pour la taille physique affichée — d'où
+            # une image "beaucoup trop grande" à l'ouverture malgré des
+            # pixels déjà bons pour du 300dpi (retour user).
             raw_exif.pop(274, None)
+            raw_exif[282] = float(DPI)
+            raw_exif[283] = float(DPI)
+            raw_exif[296] = 2  # 2 = pouces (cohérent avec DPI)
             exif_bytes = raw_exif.tobytes()
         except Exception:
             exif_bytes = None
