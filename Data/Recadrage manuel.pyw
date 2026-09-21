@@ -5221,7 +5221,7 @@ def main(page: ft.Page):
                                                     ], alignment=ft.MainAxisAlignment.START, spacing=8),
                                                 ], spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=330),
                                             ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16),
-                                            ft.Divider(height=1, color=GREY),
+                                            ft.Container(width=520, height=1, bgcolor=LIGHT_GREY),
                                             ft.Row([
                                                 app.bw_switch,
                                                 app.fit_in_switch,
