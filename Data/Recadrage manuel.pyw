@@ -765,47 +765,23 @@ class PhotoCropper:
         self.rembg_bg_mode = 0 if CONSTANTS.RECADRAGE_REMBG_BG_WHITE else 2
         self.rembg_human_seg = CONSTANTS.RECADRAGE_REMBG_HUMAN_SEG
         self.rembg_mode = CONSTANTS.RECADRAGE_REMBG_MODE  # 0=rapide(u2net) 1=précis(birefnet) 2=instantané(flood)
-        self._rembg_bg_label = ft.Text("Fond blanc", size=12, color=DARK)
-        self.rembg_bg_btn = ft.Button(
-            content=self._rembg_bg_label,
-            bgcolor=ft.Colors.GREY_200,
-            on_click=self.on_rembg_bg_toggle,
-            style=ft.ButtonStyle(
-                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                shape=ft.RoundedRectangleBorder(radius=6),
-            ),
-            height=30,
-            width=90,
-            tooltip="Fond blanc / Fond flou",
-        )
-        self._rembg_model_label = ft.Text("Humain", size=12, color=DARK)
-        self.rembg_model_btn = ft.Button(
-            content=self._rembg_model_label,
-            bgcolor=VIOLET,
-            on_click=self.on_rembg_model_toggle,
-            style=ft.ButtonStyle(
-                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                shape=ft.RoundedRectangleBorder(radius=6),
-            ),
-            height=30,
-            tooltip="Portrait / Généraliste" if REMBG_AVAILABLE else "",
-        )
-        # Bouton à 3 états : Rapide (u2net) -> Précis (birefnet) ->
-        # Instantané (pipette flood fill, sans IA — pas besoin de rembg installé).
-        _REMBG_MODE_LABELS = {0: ("Rapide", BLUE), 1: ("Précis", VIOLET), 2: ("Instantané", GREEN)}
-        _mode_label, _mode_color = _REMBG_MODE_LABELS[self.rembg_mode]
-        self._rembg_precise_label = ft.Text(_mode_label, size=12, color=DARK)
-        self.rembg_precise_btn = ft.Button(
-            content=self._rembg_precise_label,
-            bgcolor=_mode_color if (REMBG_AVAILABLE or self.rembg_mode == 2) else GREY,
-            on_click=self.on_rembg_precise_toggle,
-            style=ft.ButtonStyle(
-                padding=ft.Padding.symmetric(horizontal=6, vertical=2),
-                shape=ft.RoundedRectangleBorder(radius=6),
-            ),
-            height=30,
-            tooltip="Rapide (u2net) / Précis (birefnet) / Instantané (fond uni, sans IA)",
-        )
+        def _seg(labels, index, on_change, width, tooltip=None, visible=True):
+            return ft.CupertinoSlidingSegmentedButton(
+                selected_index=index,
+                controls=[ft.Text(t, size=12) for t in labels],
+                on_change=on_change,
+                padding=ft.Padding.symmetric(horizontal=2, vertical=2),
+                width=width, tooltip=tooltip, visible=visible,
+            )
+        self.rembg_bg_btn = _seg(["Blanc", "Gris", "Flou"], self.rembg_bg_mode,
+                                 self.on_rembg_bg_change, 165, "Fond de remplacement")
+        self.rembg_model_btn = _seg(["Humain", "Général"],
+                                    0 if self.rembg_human_seg else 1,
+                                    self.on_rembg_model_change, 130,
+                                    "Portrait / Généraliste" if REMBG_AVAILABLE else "")
+        self.rembg_precise_btn = _seg(["Rapide", "Précis", "Instantané"], self.rembg_mode,
+                                      self.on_rembg_precise_change, 245,
+                                      "Rapide (u2net) / Précis (birefnet) / Instantané (fond uni, sans IA)")
 
 
 
@@ -851,15 +827,10 @@ class PhotoCropper:
         self._pipette_start = None   # coordonnées écran (repère gesture_detector), propres à cette app
         self._rembg_tolerance_label = ft.Text(
             f"Tol. {self._pipette.tolerance}", size=11, color=LIGHT_GREY)
-        self.pipette_sign_btn = ft.IconButton(
-            icon=ft.Icons.ADD_CIRCLE_OUTLINE,
-            icon_color=GREEN,
-            tooltip="Pipette : ajoute à la sélection (cliquer pour passer en retrait)",
-            on_click=self.on_pipette_sign_toggle,
-            visible=self.rembg_mode == 2,  # cf. _sync_pipette_sign_btn pour l'icône/couleur
-            icon_size=18,
-            style=ft.ButtonStyle(padding=ft.Padding.all(2)),
-        )
+        self.pipette_sign_btn = _seg(
+            ["+ Ajout", "− Retrait"], 0, self.on_pipette_sign_change, 130,
+            "Pipette : ajoute / retire de la sélection (clic droit = bascule)",
+            visible=self.rembg_mode == 2)
         self.rembg_btn = ft.IconButton(
             icon=ft.Icons.AUTO_FIX_HIGH,
             selected_icon=ft.Icons.AUTO_FIX_HIGH,
@@ -2747,39 +2718,20 @@ class PhotoCropper:
 
 
 
-    def on_rembg_model_toggle(self, e):
-        """Bascule entre portrait et général."""
+    def on_rembg_model_change(self, e):
+        """Portrait / général (index 0 = portrait)."""
 
-        self.rembg_human_seg = not self.rembg_human_seg
-
-        # Invalider toutes les sessions pour forcer le rechargement
+        self.rembg_human_seg = int(e.control.selected_index) == 0
         self._rembg_session[0] = None
         self._rembg_session_u2net[0] = None
-        if self.rembg_human_seg:
-            self._rembg_model_label.value = "Humain"
-            self.rembg_model_btn.bgcolor = VIOLET
-        else:
-            self._rembg_model_label.value = "Général"
-            self.rembg_model_btn.bgcolor = BLUE
-        self.rembg_model_btn.update()
 
 
 
-    def on_rembg_precise_toggle(self, e):
-        """Cycle rapide (u2net) -> précis (birefnet) -> instantané (flood)."""
+    def on_rembg_precise_change(self, e):
+        """Rapide (u2net) / précis (birefnet) / instantané (flood)."""
 
         self._pipette_cancel()
-        self.rembg_mode = (self.rembg_mode + 1) % 3
-        if self.rembg_mode == 0:
-            self._rembg_precise_label.value = "Rapide"
-            self.rembg_precise_btn.bgcolor = BLUE
-        elif self.rembg_mode == 1:
-            self._rembg_precise_label.value = "Précis"
-            self.rembg_precise_btn.bgcolor = VIOLET
-        else:
-            self._rembg_precise_label.value = "Instantané"
-            self.rembg_precise_btn.bgcolor = GREEN
-        self.rembg_precise_btn.update()
+        self.rembg_mode = int(e.control.selected_index)
         self.pipette_sign_btn.visible = self.rembg_mode == 2
         self.pipette_sign_btn.update()
 
@@ -2796,25 +2748,22 @@ class PhotoCropper:
             self.on_pipette_sign_toggle(e)
 
     def on_pipette_sign_toggle(self, e):
-        """Bascule la pipette entre ajoute (+ vert) et retire (− rouge),
-        via le bouton `pipette_sign_btn` ou un clic droit sur le canevas
-        (cf. `on_canvas_secondary_tap`)."""
+        """Bascule ajoute/retire (clic droit sur le canevas, cf.
+        `on_canvas_secondary_tap`)."""
 
         self._pipette.toggle_sign()
         self._sync_pipette_sign_btn()
 
-    def _sync_pipette_sign_btn(self) -> None:
-        """Aligne l'icône/couleur/tooltip de `pipette_sign_btn` sur
-        `self._pipette.sign` — appelé après bascule ou reset."""
+    def on_pipette_sign_change(self, e):
+        self._pipette.sign = 1 if int(e.control.selected_index) == 0 else -1
+        self.pipette_sign_btn.thumb_color = GREEN if self._pipette.sign == 1 else RED
+        self.pipette_sign_btn.update()
 
-        if self._pipette.sign == 1:
-            self.pipette_sign_btn.icon = ft.Icons.ADD_CIRCLE_OUTLINE
-            self.pipette_sign_btn.icon_color = GREEN
-            self.pipette_sign_btn.tooltip = "Pipette : ajoute à la sélection (cliquer pour passer en retrait)"
-        else:
-            self.pipette_sign_btn.icon = ft.Icons.REMOVE_CIRCLE_OUTLINE
-            self.pipette_sign_btn.icon_color = RED
-            self.pipette_sign_btn.tooltip = "Pipette : retire de la sélection (cliquer pour repasser en ajout)"
+    def _sync_pipette_sign_btn(self) -> None:
+        """Aligne le sélecteur sur `self._pipette.sign` (après bascule/reset)."""
+
+        self.pipette_sign_btn.selected_index = 0 if self._pipette.sign == 1 else 1
+        self.pipette_sign_btn.thumb_color = GREEN if self._pipette.sign == 1 else RED
         self.pipette_sign_btn.update()
 
 
@@ -2957,26 +2906,10 @@ class PhotoCropper:
 
 
 
-    def on_rembg_bg_toggle(self, e):
-        """Cycle blanc → gris clair → flou → blanc (3 états)."""
+    def on_rembg_bg_change(self, e):
+        """Fond blanc / gris clair / flou."""
 
-        self.rembg_bg_mode = (self.rembg_bg_mode + 1) % 3
-        if self.rembg_bg_mode == 0:
-            self._rembg_bg_label.value = "Fond blanc"
-            self._rembg_bg_label.color = DARK
-            self.rembg_bg_btn.bgcolor = ft.Colors.GREY_200
-            self.rembg_bg_btn.tooltip = "Fond blanc / Fond gris / Fond flou"
-        elif self.rembg_bg_mode == 1:
-            self._rembg_bg_label.value = "Fond gris"
-            self._rembg_bg_label.color = DARK
-            self.rembg_bg_btn.bgcolor = ft.Colors.GREY_400
-            self.rembg_bg_btn.tooltip = "Fond blanc / Fond gris / Fond flou"
-        else:
-            self._rembg_bg_label.value = "Fond flou"
-            self._rembg_bg_label.color = DARK
-            self.rembg_bg_btn.bgcolor = BLUE
-            self.rembg_bg_btn.tooltip = "Fond blanc / Fond gris / Fond flou"
-        self.rembg_bg_btn.update()
+        self.rembg_bg_mode = int(e.control.selected_index)
         self._render_preview()
         self.page.update()
 
@@ -5255,51 +5188,56 @@ def main(page: ft.Page):
                                     ft.Divider(height=4),
                                     ft.Row([
                                         ft.Column([
-                                            ft.Text("Exemplaires", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
                                             ft.Row([
-                                                app.copies_minus_btn,
-                                                app.copies_text,
-                                                app.copies_plus_btn,
-                                            ], alignment=ft.MainAxisAlignment.CENTER, spacing=0),
-                                        ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=200),
-                                        ft.VerticalDivider(width=1, color=LIGHT_GREY),
-                                        ft.Column([
-                                            ft.Text("Formats multiples", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                                                ft.Column([
+                                                    ft.Text("Exemplaires", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                                                    ft.Row([
+                                                        app.copies_minus_btn,
+                                                        app.copies_text,
+                                                        app.copies_plus_btn,
+                                                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=0),
+                                                ], spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=150),
+                                                ft.Container(width=1, height=70, bgcolor=LIGHT_GREY),
+                                                ft.Column([
+                                                    ft.Text("Formats multiples", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
+                                                    ft.Row([
+                                                        ft.IconButton(
+                                                            icon=ft.Icons.CLEAR,
+                                                            icon_color=RED,
+                                                            tooltip="Vider la liste",
+                                                            on_click=app.clear_extra_formats,
+                                                            icon_size=24,
+                                                        ),
+                                                        ft.IconButton(
+                                                            icon=ft.Icons.ADD_CIRCLE_OUTLINE,
+                                                            icon_color=BLUE,
+                                                            tooltip="Ajouter le format courant à la liste",
+                                                            on_click=app.add_extra_format,
+                                                            icon_size=24,
+                                                        ),
+                                                        ft.Row([
+                                                            app.extra_formats_display,
+                                                        ], scroll=ft.ScrollMode.AUTO, width=210, height=32, alignment=ft.MainAxisAlignment.START),
+                                                    ], alignment=ft.MainAxisAlignment.START, spacing=8),
+                                                ], spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=330),
+                                            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16),
+                                            ft.Divider(height=1, color=GREY),
                                             ft.Row([
-                                                ft.IconButton(
-                                                    icon=ft.Icons.CLEAR,
-                                                    icon_color=RED,
-                                                    tooltip="Vider la liste",
-                                                    on_click=app.clear_extra_formats,
-                                                    icon_size=24,
-                                                ),
-                                                ft.IconButton(
-                                                    icon=ft.Icons.ADD_CIRCLE_OUTLINE,
-                                                    icon_color=BLUE,
-                                                    tooltip="Ajouter le format courant à la liste",
-                                                    on_click=app.add_extra_format,
-                                                    icon_size=24,
-                                                ),
-                                                ft.Row([
-                                                    app.extra_formats_display,
-                                                ], scroll=ft.ScrollMode.AUTO, width=100, height=32, alignment=ft.MainAxisAlignment.START),
-                                            ], width=210, alignment=ft.MainAxisAlignment.START, spacing=8),
-                                        ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=210),
+                                                app.bw_switch,
+                                                app.fit_in_switch,
+                                                app.white_border_switch,
+                                            ], alignment=ft.MainAxisAlignment.CENTER, spacing=16),
+                                        ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                                         ft.VerticalDivider(width=1, color=LIGHT_GREY),
-                                        ft.Column([
-                                            app.bw_switch,
-                                            app.fit_in_switch,
-                                            app.white_border_switch,
-                                        ], horizontal_alignment=ft.CrossAxisAlignment.START, spacing=4),
-                                        ft.VerticalDivider(width=1, color=LIGHT_GREY),                                            
                                         ft.Column([
                                             ft.Text("Fond IA", size=12, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
-                                            app.rembg_btn,
                                             ft.Row([
-                                                app.rembg_bg_btn, app.rembg_model_btn,
+                                                app.rembg_btn, app.rembg_bg_btn, app.rembg_model_btn,
+                                            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                            ft.Row([
                                                 app.rembg_precise_btn, app.pipette_sign_btn,
                                                 app._rembg_tolerance_label,
-                                            ], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                             ft.Row([
                                                 ft.Text("Ér.", size=11, color=LIGHT_GREY),
                                                 app.rembg_erosion_slider,
