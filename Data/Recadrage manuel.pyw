@@ -3774,31 +3774,8 @@ class PhotoCropper:
 
 
 
-    def add_extra_format(self, e):
-        """
-        Enregistre un snapshot du cadrage courant dans la liste des formats
-        multiples (`extra_formats`).
-
-        Un snapshot est un dictionnaire qui capture l'état complet de la
-        vue à cet instant : format, orientation, dimensions du canevas,
-        base_scale, scale, offsets, rotation, réglages actifs (N&B, netteté,
-        ombres, hautes lumières, contraste, saturation, exposition, etc.).
-
-        Après l'ajout :
-          - L'affichage de la liste des formats est mis à jour.
-          - Le compteur d'exemplaires est remis à 1.
-          - Tous les filtres (N&B, ombres, hautes lumières, contraste,
-            saturation, exposition) sont remis à zéro pour préparer le
-            prochain cadrage.
-
-        À la validation (`validate_and_next`), tous les snapshots de
-        `extra_formats` seront exportés en plus du cadrage principal.
-
-        Parameters
-        ----------
-        e : ft.ControlEvent
-            Événement du bouton « Ajouter le format courant ».
-        """
+    def _snapshot_current(self):
+        """État complet du cadrage courant (cf. `add_extra_format`)."""
 
         label = self.current_format_label
         dims = self.current_format
@@ -3831,6 +3808,51 @@ class PhotoCropper:
             "rembg_active": self.rembg_btn.selected,
             "crop_mode": getattr(self, 'crop_mode', 'resolution'),
         }
+        return snapshot
+
+
+
+    def _extra_formats_for_export(self):
+        """Formats multiples + cadrage courant, sans devoir presser « + » sur
+        le dernier (sinon il était ignoré dès qu'un format était déjà listé).
+        Pas de doublon si le dernier « + » correspond déjà au cadrage."""
+
+        extra = [dict(s) for s in self.extra_formats]
+        if extra:
+            cur = self._snapshot_current()
+            keys = ("label", "dims", "is_portrait", "scale", "offset_x",
+                    "offset_y", "rotation", "crop_mode")
+            if any(cur[k] != extra[-1][k] for k in keys):
+                extra.append(cur)
+        return extra
+
+    def add_extra_format(self, e):
+        """
+        Enregistre un snapshot du cadrage courant dans la liste des formats
+        multiples (`extra_formats`).
+
+        Un snapshot est un dictionnaire qui capture l'état complet de la
+        vue à cet instant : format, orientation, dimensions du canevas,
+        base_scale, scale, offsets, rotation, réglages actifs (N&B, netteté,
+        ombres, hautes lumières, contraste, saturation, exposition, etc.).
+
+        Après l'ajout :
+          - L'affichage de la liste des formats est mis à jour.
+          - Le compteur d'exemplaires est remis à 1.
+          - Tous les filtres (N&B, ombres, hautes lumières, contraste,
+            saturation, exposition) sont remis à zéro pour préparer le
+            prochain cadrage.
+
+        À la validation (`validate_and_next`), tous les snapshots de
+        `extra_formats` seront exportés en plus du cadrage principal.
+
+        Parameters
+        ----------
+        e : ft.ControlEvent
+            Événement du bouton « Ajouter le format courant ».
+        """
+
+        snapshot = self._snapshot_current()
         self.extra_formats.append(snapshot)
         self._update_extra_formats_display()
         # Remettre uniquement le compteur d'exemplaires à 1 pour le prochain format
@@ -4009,7 +4031,7 @@ class PhotoCropper:
             "id4_10x20": self.id4_10x20,
             "save_to_network": self.save_to_network,
             "copies_count": self.copies_count,
-            "extra_formats": [dict(s) for s in self.extra_formats],
+            "extra_formats": self._extra_formats_for_export(),
         }
 
     @staticmethod
