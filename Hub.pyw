@@ -9283,6 +9283,8 @@ def main(page: ft.Page):
              ft.Icons.WORKSPACE_PREMIUM_OUTLINED, BLUE, _launch_copy_scored),
             ("Fichiers identiques", ft.Icons.CONTENT_COPY, BLUE,
              lambda e: _launch_tool("Fichiers identiques.py")),
+            ("Comparaison", ft.Icons.COMPARE_OUTLINED, BLUE,
+             _launch_comparaison),
         ]),
         ("Kiosque", [
             ("Kiosque", ft.Icons.STOREFRONT_OUTLINED, ORANGE, _launch_kiosk),
@@ -9300,8 +9302,8 @@ def main(page: ft.Page):
              lambda e: _launch_tool("Retouche par lot.pyw")),
             ("Augmentation IA", ft.Icons.AUTO_AWESOME, YELLOW,
              lambda e: _launch_tool("Augmentation IA.py")),
-            ("Comparaison", ft.Icons.COMPARE_OUTLINED, YELLOW,
-             _launch_comparaison),
+            ("Nettoyer métadonnées", ft.Icons.CLEANING_SERVICES_OUTLINED, YELLOW,
+             lambda e: _launch_tool("Nettoyer metadonnées.py")),
         ]),
         ("Montage", [
             ("Montage collage", ft.Icons.GRID_VIEW_OUTLINED, VIOLET,
@@ -9321,8 +9323,6 @@ def main(page: ft.Page):
             # Ne PAS « corriger » en icône cadeau/carte (retour user).
             ("Remerciements", ft.CupertinoIcons.BIN_XMARK_FILL, ORANGE,
              lambda e: _launch_tool("Remerciements.py")),
-            ("Nettoyer métadonnées", ft.Icons.CLEANING_SERVICES_OUTLINED, ORANGE,
-             lambda e: _launch_tool("Nettoyer metadonnées.py")),
         ]),
         ("Maintenance", [
             ("Nettoyer anciens fichiers (> 60 jours)", ft.Icons.AUTO_DELETE,
