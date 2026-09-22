@@ -334,6 +334,13 @@ def main(page: ft.Page):
     KANBAN_PAYE_OPTIONS = ["Non payé", "Payé"]
     KANBAN_PREVENU_OPTIONS = ["Appeler si indisponible", "Prévenu"]
 
+    # Couleur par valeur, comme dans Notion (cf. _kanban_prop_menu).
+    KANBAN_PROJET_COLORS = {"Faire projet": BLUE, "Projet envoyé": YELLOW,
+                            "Projet validé": VIOLET, "Fichiers prêts": VIOLET}
+    KANBAN_PAYE_COLORS = {"Non payé": RED, "Payé": GREEN}
+    KANBAN_PREVENU_COLORS = {"Appeler si indisponible": VIOLET,
+                             "Prévenu": VIOLET}
+
     # ─── Fenêtre ─────────────────────────────────────────────────────────
     page.title      = "Hub"
     page.theme_mode = ft.ThemeMode.DARK
@@ -7497,10 +7504,11 @@ def main(page: ft.Page):
 
     # (propriété Notion, clé du dict `row`, options disponibles)
     KANBAN_EDITABLE_PROPS = [
-        ("Etat", "etat", [e for e, _c in KANBAN_ETATS]),
-        ("Projet ?", "projet", KANBAN_PROJET_OPTIONS),
-        ("Payé ?", "paye", KANBAN_PAYE_OPTIONS),
-        ("Prévenu ?", "prevenu", KANBAN_PREVENU_OPTIONS),
+        ("Etat", "etat", [e for e, _c in KANBAN_ETATS], {}),
+        ("Projet ?", "projet", KANBAN_PROJET_OPTIONS, KANBAN_PROJET_COLORS),
+        ("Payé ?", "paye", KANBAN_PAYE_OPTIONS, KANBAN_PAYE_COLORS),
+        ("Prévenu ?", "prevenu", KANBAN_PREVENU_OPTIONS,
+         KANBAN_PREVENU_COLORS),
     ]
 
     def _kanban_change_property(row, notion_prop, state_key, new_value):
@@ -7538,11 +7546,13 @@ def main(page: ft.Page):
             bgcolor=ft.Colors.with_opacity(0.15, color),
             border_radius=4, padding=ft.Padding(6, 2, 6, 2))
 
-    def _kanban_prop_menu(row, notion_prop, state_key, options, accent):
+    def _kanban_prop_menu(row, notion_prop, state_key, options, colors):
         # Champ optionnel : "(vide)" laisse la propriété non renseignée
         # jusqu'à ce qu'elle ait un sens (ex. Projet ? tant que les
         # fichiers ne sont pas prêts) — toujours visible pour pouvoir
         # être remplie, même si elle n'a encore aucune valeur.
+        # Couleur par valeur (comme dans Notion), via `colors` — valeur
+        # sans couleur définie -> VIOLET, cohérent avec l'existant.
         current = row.get(state_key, "")
         items = [ft.PopupMenuItem(
             content=ft.Text("(vide)", italic=True),
@@ -7550,14 +7560,15 @@ def main(page: ft.Page):
                 row, notion_prop, state_key, "")))]
         items += [
             ft.PopupMenuItem(
-                content=ft.Text(opt),
+                content=ft.Text(opt, color=colors.get(opt, VIOLET)),
                 on_click=(lambda e, o=opt: _kanban_change_property(
                     row, notion_prop, state_key, o)))
             for opt in options
         ]
         return ft.PopupMenuButton(
-            content=_kanban_chip(f"{current or '—'}  ▾",
-                                 accent if current else LIGHT_GREY),
+            content=_kanban_chip(
+                f"{current or '—'}  ▾",
+                colors.get(current, VIOLET) if current else LIGHT_GREY),
             items=items,
         )
 
@@ -7755,8 +7766,8 @@ def main(page: ft.Page):
         # Pas de badge Etat ici : la colonne le représente déjà — on
         # change l'Etat en glissant la carte vers une autre colonne.
         badges = [_kanban_prop_menu(row, notion_prop, state_key,
-                                    options, VIOLET)
-                 for notion_prop, state_key, options
+                                    options, colors)
+                 for notion_prop, state_key, options, colors
                  in KANBAN_EDITABLE_PROPS[1:]]
         rows.append(ft.Row(badges, spacing=4, wrap=True))
         card = ft.Container(
