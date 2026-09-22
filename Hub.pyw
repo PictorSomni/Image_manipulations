@@ -76,9 +76,9 @@ from ai_tools import (
 SURFACES = [
     ("files", "Fichiers", ft.Icons.PHOTO_LIBRARY_OUTLINED),
     ("liste", "Liste",    ft.Icons.LIST_ALT_OUTLINED),
+    ("kanban", "Tâches",  ft.Icons.VIEW_KANBAN_OUTLINED),
     ("ia",    "IA",       ft.Icons.SMART_TOY_OUTLINED),
     ("actus", "Actus",    ft.Icons.RSS_FEED_OUTLINED),
-    ("kanban", "Tâches",  ft.Icons.VIEW_KANBAN_OUTLINED),
     # Bloc-notes retiré du rail (retour user) : accessible en bandeau
     # depuis la barre du bas (notes_panel), plus en surface plein écran —
     # cf. bouton Notes de la statusbar.
