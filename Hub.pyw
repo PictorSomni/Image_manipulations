@@ -8035,12 +8035,16 @@ def main(page: ft.Page):
                 kanban_columns[etat],
             ], spacing=6, expand=True, tight=True),
             expand=True, padding=ft.Padding(4, 0, 4, 0))
-        # `expand=True` doit aussi être passé au DragTarget lui-même, pas
-        # seulement à son contenu — sinon il ne s'étire pas dans le Row et
-        # les 5 colonnes s'écrasent sur la largeur du premier libellé
-        # (retour user : plus rien d'autre que "À faire" ne s'affichait).
+        # ResponsiveRow (grille 12 colonnes) plutôt qu'un Row+expand="fait
+        # main" : deux tentatives avec Row/DragTarget expand=True ont
+        # échoué (colonnes écrasées à la largeur du 1er libellé, retour
+        # user) — ResponsiveRow est le mécanisme Flet standard, testé,
+        # pour ce cas précis. `col` en pourcentage de 12 : 5 colonnes
+        # pleine largeur sur grand écran, qui se replient par paires puis
+        # en pleine largeur sur fenêtre étroite (mode "bande").
         return ft.DragTarget(
-            group="kanban_card", content=column_body, expand=True,
+            group="kanban_card", content=column_body,
+            col={"xs": 12, "sm": 6, "md": 4, "lg": 2.4},
             on_accept=(lambda e, t=etat: _kanban_drop(e, t)))
 
     def _kanban_search_change(event):
@@ -8095,12 +8099,12 @@ def main(page: ft.Page):
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
         # Colonnes réparties sur toute la largeur de la fenêtre (retour
-        # user) plutôt qu'une largeur fixe à défiler horizontalement —
-        # `expand=True` sur chaque colonne et pas de scroll ici (les deux
-        # sont incompatibles côté Flet : un Row défilant ne peut pas avoir
-        # d'enfants "expand", il n'a plus de largeur bornée à répartir).
-        ft.Row([_kanban_column(etat, color) for etat, color in KANBAN_ETATS],
-              expand=True, spacing=0),
+        # user) via ResponsiveRow — cf. le `col` de chaque DragTarget dans
+        # _kanban_column pour le détail des points de rupture.
+        ft.ResponsiveRow(
+            [_kanban_column(etat, color) for etat, color in KANBAN_ETATS],
+            expand=True, spacing=0, run_spacing=8,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH),
     ], expand=True, spacing=0,
        # Sans ça, une Column ne force pas ses enfants à sa pleine largeur
        # (horizontal_alignment=START par défaut) : la Row des colonnes se
