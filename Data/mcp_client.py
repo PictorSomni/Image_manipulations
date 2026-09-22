@@ -253,8 +253,18 @@ async def _connect_server(server_cfg):
                 if token:
                     headers["Authorization"] = f"Bearer {token}"
 
-        ctx = streamablehttp_client(
-            server_cfg["url"], headers=headers or None, auth=auth)
+        try:
+            ctx = streamablehttp_client(
+                server_cfg["url"], headers=headers or None, auth=auth)
+        except TypeError:
+            # mcp>=2.2 : streamable_http_client() ne prend plus headers/auth
+            # directement — ils passent par un client HTTP dédié
+            # (http_client=..., un httpx2.AsyncClient, fork interne au SDK).
+            from mcp.client.streamable_http import httpx2
+            http_client = httpx2.AsyncClient(headers=headers or None,
+                                             auth=auth)
+            ctx = streamablehttp_client(server_cfg["url"],
+                                        http_client=http_client)
     else:
         from mcp import StdioServerParameters
         from mcp.client.stdio import stdio_client
