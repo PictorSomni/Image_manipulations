@@ -345,6 +345,14 @@ async def _connect_server(server_cfg):
         _session_ctxs[name] = (ctx, session_ctx)
         return session
     except BaseException as exc:
+        # Log ICI, dans la même tâche que l'échec réel : une fois remontée
+        # jusqu'à mcp_call_tool via _run_sync/run_coroutine_threadsafe, une
+        # authentique CancelledError levée en interne (pas une annulation
+        # externe de notre part) perd sa trace d'origine — _chain_future ne
+        # laisse passer que "CancelledError()" nu côté concurrent.futures.
+        # Ce log-ci, avec la trace complète, dit où ça a vraiment planté.
+        _logger.warning("connexion %r : échec réel — %s", name,
+                        _describe_exception(exc), exc_info=True)
         # Démontage dans LA MÊME tâche que __aenter__. Sinon un ctx entré mais
         # jamais fermé (ex. échec 401 à initialize) est finalisé plus tard par
         # le GC dans une autre tâche → "Attempted to exit cancel scope in a
