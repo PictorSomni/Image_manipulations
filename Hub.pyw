@@ -6851,8 +6851,10 @@ def main(page: ft.Page):
             # tout à droite derrière son séparateur : la corbeille rouge
             # était collée au bouton « transférer vers le bloc-notes ».
             content=ft.Row([
-                ft.Text("Assistant IA", size=CONSTANTS.TEXT_LG, color=WHITE,
-                        weight=ft.FontWeight.W_500, expand=True),
+                # Titre retiré (retour user : déjà le nom de l'onglet) —
+                # le Container vide garde l'espace flexible qui poussait
+                # les groupes de boutons vers la droite.
+                ft.Container(expand=True),
                 ai_model_dropdown,
                 _ai_header_separator(),
                 ai_image_model_dropdown,
@@ -7270,7 +7272,8 @@ def main(page: ft.Page):
         hint_text="Rechercher dans toutes les colonnes…",
         on_change=lambda e: _liste_set_search(e.control.value),
         on_submit=_liste_clear_search,
-        height=45, bgcolor=DARK, border=CONSTANTS.input_border(BLUE),
+        height=45, bgcolor=DARK,
+        border=CONSTANTS.input_border(SURFACE_ACCENT["liste"]),
         color=WHITE, text_size=CONSTANTS.TEXT_SM,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.SEARCH, expand=True,
@@ -7391,10 +7394,13 @@ def main(page: ft.Page):
                 liste_search_row,
                 liste_path_text,
                 liste_back_to_todo_btn,
-                ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED, icon_color=YELLOW,
+                ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED,
+                             icon_color=SURFACE_ACCENT["liste"],
                              icon_size=CONSTANTS.ICON_SM, tooltip="Nouveau fichier .json",
                              on_click=_liste_new_file),
-                ft.IconButton(ft.Icons.REFRESH, icon_color=BLUE, icon_size=CONSTANTS.ICON_SM,
+                ft.IconButton(ft.Icons.REFRESH,
+                             icon_color=SURFACE_ACCENT["liste"],
+                             icon_size=CONSTANTS.ICON_SM,
                              tooltip="Recharger depuis le disque",
                              on_click=_liste_reload),
                 liste_add_btn,
@@ -7497,15 +7503,16 @@ def main(page: ft.Page):
 
     actus_surface = ft.Column([
         ft.Container(
+            # Titre retiré (déjà le nom de l'onglet) — bouton Actualiser
+            # tout à droite, cohérent avec Tâches/Liste (retour user).
             content=ft.Row([
-                ft.Text("Actus", size=CONSTANTS.TEXT_SM, color=WHITE,
-                        weight=ft.FontWeight.W_700),
+                actus_status,
+                ft.Container(expand=True),
                 ft.IconButton(ft.Icons.REFRESH,
                              icon_color=SURFACE_ACCENT["actus"],
                              icon_size=CONSTANTS.ICON_SM,
                              tooltip="Actualiser les flux",
                              on_click=_actus_refresh),
-                actus_status,
             ], spacing=8),
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
