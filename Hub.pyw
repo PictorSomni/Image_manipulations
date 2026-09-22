@@ -7629,6 +7629,14 @@ def main(page: ft.Page):
 
             threading.Thread(target=_work, daemon=True).start()
 
+        # Contenu de la page (texte libre, sous-tâches, check-listes) : pas
+        # une propriété de la base, donc absent de notion-query-data-sources
+        # — récupéré à part via notion-fetch, affiché en lecture seule
+        # (l'édition round-trip du Markdown Notion est hors scope v1).
+        content_md = ft.Markdown(
+            "*Chargement du contenu…*", selectable=True,
+            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED)
+
         dlg = ft.AlertDialog(
             title=ft.Text("Détails de la tâche", size=CONSTANTS.TEXT_SM,
                           color=WHITE),
@@ -7637,13 +7645,31 @@ def main(page: ft.Page):
                 prix_field,
                 ft.Text(f"Créé le : {row['cree_le'] or '?'}", size=11,
                        color=LIGHT_GREY),
-            ], tight=True, spacing=8),
+                ft.Divider(height=1, color=GREY),
+                ft.Container(content=content_md, height=220,
+                            expand=False),
+            ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
+               width=380, height=520),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Enregistrer", on_click=_confirm)],
         )
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+
+        def _load_content():
+            raw = mcp_client.mcp_call_tool(
+                "mcp__notion__notion-fetch", {"id": row["page_id"]})
+            failed = raw.startswith("Erreur")
+
+            async def _apply():
+                content_md.value = ("(contenu indisponible)" if failed
+                                    else raw)
+                page.update()
+
+            _run_task(_apply)
+
+        threading.Thread(target=_load_content, daemon=True).start()
 
     def _kanban_item_card(row):
         rows = [
