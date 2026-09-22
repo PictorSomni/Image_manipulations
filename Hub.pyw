@@ -8040,6 +8040,9 @@ def main(page: ft.Page):
         return max(KANBAN_COL_MIN_WIDTH, avail / n)
 
     def _kanban_column(etat, color):
+        # La largeur est portée par ce Container (le contenu du
+        # DragTarget), pas par le DragTarget lui-même — `width` n'existe
+        # pas dans son constructeur (seulement `expand`/`col`).
         column_body = ft.Container(
             content=ft.Column([
                 ft.Container(
@@ -8049,20 +8052,18 @@ def main(page: ft.Page):
                     border_radius=6, padding=ft.Padding(8, 4, 8, 4)),
                 kanban_columns[etat],
             ], spacing=6, expand=True, tight=True),
-            expand=True, padding=ft.Padding(4, 0, 4, 0))
-        target = ft.DragTarget(
+            width=_kanban_col_width(), padding=ft.Padding(4, 0, 4, 0))
+        kanban_column_targets[etat] = column_body
+        return ft.DragTarget(
             group="kanban_card", content=column_body,
-            width=_kanban_col_width(),
             on_accept=(lambda e, t=etat: _kanban_drop(e, t)))
-        kanban_column_targets[etat] = target
-        return target
 
     def _kanban_on_resize(event=None):
         new_width = _kanban_col_width()
         changed = False
-        for target in kanban_column_targets.values():
-            if target.width != new_width:
-                target.width = new_width
+        for container in kanban_column_targets.values():
+            if container.width != new_width:
+                container.width = new_width
                 changed = True
         if changed:
             page.update()
