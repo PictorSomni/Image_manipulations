@@ -50,7 +50,7 @@ if not _logger.handlers:
     # échec interne (ex. tâche post_writer/handle_get_stream du transport)
     # avant qu'elle ne se perde dans un CancelledError nu côté appelant —
     # on capture ces loggers dans le même fichier pour ne rien manquer.
-    for _name in ("mcp", "anyio"):
+    for _name in ("mcp", "anyio", "httpx2", "httpcore", "httpx"):
         _sdk_logger = logging.getLogger(_name)
         _sdk_logger.addHandler(_handler)
         _sdk_logger.setLevel(logging.DEBUG)
