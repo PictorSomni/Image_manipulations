@@ -8049,7 +8049,7 @@ def main(page: ft.Page):
     # pour search_field (recherche Fichiers, plus haut dans ce fichier) :
     # `suffix=` plaque le hint_text vers le bas.
     kanban_search_field = ft.TextField(
-        hint_text="Rechercher…", width=320, height=36, dense=True,
+        hint_text="Rechercher…", height=36, dense=True, expand=True,
         bgcolor=DARK, border=CONSTANTS.input_border(SURFACE_ACCENT["kanban"]),
         color=WHITE, prefix_icon=ft.Icons.SEARCH,
         on_change=_kanban_search_change, on_submit=_kanban_search_clear)
@@ -8060,13 +8060,17 @@ def main(page: ft.Page):
         style=ft.ButtonStyle(padding=ft.Padding.all(4)))
     kanban_search_wrap = ft.Row(
         [kanban_search_field, kanban_search_clear_btn], spacing=4,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     kanban_surface = ft.Column([
         ft.Container(
+            # Recherche d'abord (extensible), les 2 boutons tout à droite
+            # (retour user — même agencement que la barre Liste).
             content=ft.Row([
                 ft.Text("Tâches", size=CONSTANTS.TEXT_SM, color=WHITE,
                         weight=ft.FontWeight.W_700),
+                kanban_search_wrap,
+                kanban_status,
                 ft.IconButton(ft.Icons.ADD,
                              icon_color=SURFACE_ACCENT["kanban"],
                              icon_size=CONSTANTS.ICON_SM,
@@ -8077,8 +8081,6 @@ def main(page: ft.Page):
                              icon_size=CONSTANTS.ICON_SM,
                              tooltip="Actualiser depuis Notion",
                              on_click=_kanban_refresh),
-                kanban_search_wrap,
-                kanban_status,
             ], spacing=8),
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
