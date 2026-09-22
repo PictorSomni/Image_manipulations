@@ -7512,10 +7512,13 @@ def main(page: ft.Page):
         page.update()
 
         def _work():
+            # Notion attend `null` (pas une chaîne vide) pour vider un
+            # select/status — cf. "(vide)" dans _kanban_prop_menu.
+            api_value = new_value if new_value else None
             result = mcp_client.mcp_call_tool(
                 "mcp__notion__notion-update-page",
                 {"page_id": row["page_id"], "command": "update_properties",
-                 "properties": {notion_prop: new_value}})
+                 "properties": {notion_prop: api_value}})
             failed = result.startswith("Erreur")
 
             async def _apply():
@@ -7536,20 +7539,29 @@ def main(page: ft.Page):
             border_radius=4, padding=ft.Padding(6, 2, 6, 2))
 
     def _kanban_prop_menu(row, notion_prop, state_key, options, accent):
-        current = row.get(state_key, "") or options[0]
+        # Champ optionnel : "(vide)" laisse la propriété non renseignée
+        # jusqu'à ce qu'elle ait un sens (ex. Projet ? tant que les
+        # fichiers ne sont pas prêts) — toujours visible pour pouvoir
+        # être remplie, même si elle n'a encore aucune valeur.
+        current = row.get(state_key, "")
+        items = [ft.PopupMenuItem(
+            content=ft.Text("(vide)", italic=True),
+            on_click=(lambda e: _kanban_change_property(
+                row, notion_prop, state_key, "")))]
+        items += [
+            ft.PopupMenuItem(
+                content=ft.Text(opt),
+                on_click=(lambda e, o=opt: _kanban_change_property(
+                    row, notion_prop, state_key, o)))
+            for opt in options
+        ]
         return ft.PopupMenuButton(
-            content=_kanban_chip(f"{current}  ▾", accent),
-            items=[
-                ft.PopupMenuItem(
-                    content=ft.Text(opt),
-                    on_click=(lambda e, o=opt: _kanban_change_property(
-                        row, notion_prop, state_key, o)))
-                for opt in options
-            ],
+            content=_kanban_chip(f"{current or '—'}  ▾",
+                                 accent if current else LIGHT_GREY),
+            items=items,
         )
 
     def _kanban_item_card(row):
-        etat_color = dict(KANBAN_ETATS).get(row["etat"], BLUE)
         rows = [
             ft.Text(row["demande"], size=CONSTANTS.TEXT_SM, color=WHITE,
                     weight=ft.FontWeight.W_600, max_lines=3,
@@ -7565,16 +7577,18 @@ def main(page: ft.Page):
         if info_bits:
             rows.append(ft.Text("  •  ".join(info_bits), size=11,
                                 color=LIGHT_GREY))
-        badges = [_kanban_prop_menu(row, "Etat", "etat",
-                                    [e for e, _c in KANBAN_ETATS], etat_color)]
-        for notion_prop, state_key, options in KANBAN_EDITABLE_PROPS[1:]:
-            if row.get(state_key):
-                badges.append(_kanban_prop_menu(
-                    row, notion_prop, state_key, options, VIOLET))
+        # Pas de badge Etat ici : la colonne le représente déjà — on
+        # change l'Etat en glissant la carte vers une autre colonne.
+        badges = [_kanban_prop_menu(row, notion_prop, state_key,
+                                    options, VIOLET)
+                 for notion_prop, state_key, options
+                 in KANBAN_EDITABLE_PROPS[1:]]
         rows.append(ft.Row(badges, spacing=4, wrap=True))
-        return ft.Container(
+        card = ft.Container(
             content=ft.Column(rows, spacing=4, tight=True),
             bgcolor=GREY, border_radius=8, padding=10)
+        return ft.Draggable(group="kanban_card", data=row["page_id"],
+                            content=card)
 
     def _kanban_rebuild_columns():
         for etat, _color in KANBAN_ETATS:
@@ -7606,6 +7620,55 @@ def main(page: ft.Page):
                 "cree_le": r.get("Créé le", ""),
             })
         return rows
+
+    def _kanban_new_task(event=None):
+        title_field = ft.TextField(
+            label="Demande", autofocus=True, width=320, bgcolor=DARK,
+            border=CONSTANTS.input_border(GREY), color=WHITE)
+
+        def _cancel(event):
+            dlg.open = False
+            page.update()
+
+        def _confirm(event):
+            title = (title_field.value or "").strip()
+            if not title:
+                return
+            dlg.open = False
+            kanban_status.value = "Création…"
+            page.update()
+
+            def _work():
+                data_source_id = KANBAN_DATA_SOURCE.split("://", 1)[-1]
+                result = mcp_client.mcp_call_tool(
+                    "mcp__notion__notion-create-pages",
+                    {"parent": {"type": "data_source_id",
+                                "data_source_id": data_source_id},
+                     "pages": [{"properties": {"Demande": title,
+                                               "Etat": "À faire"}}]})
+                failed = result.startswith("Erreur")
+
+                async def _apply():
+                    if failed:
+                        kanban_status.value = f"Échec de création : {result}"
+                        page.update()
+                    else:
+                        _kanban_refresh()
+
+                _run_task(_apply)
+
+            threading.Thread(target=_work, daemon=True).start()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Nouvelle tâche", size=CONSTANTS.TEXT_SM,
+                          color=WHITE),
+            content=title_field,
+            actions=[ft.TextButton("Annuler", on_click=_cancel),
+                     ft.TextButton("Créer", on_click=_confirm)],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
 
     def _kanban_refresh(event=None):
         if kanban_state["loading"]:
@@ -7642,8 +7705,15 @@ def main(page: ft.Page):
 
         threading.Thread(target=_work, daemon=True).start()
 
+    def _kanban_drop(e, new_etat):
+        page_id = e.src.data
+        row = next((r for r in kanban_state["rows"]
+                    if r["page_id"] == page_id), None)
+        if row is not None:
+            _kanban_change_property(row, "Etat", "etat", new_etat)
+
     def _kanban_column(etat, color):
-        return ft.Container(
+        column_body = ft.Container(
             content=ft.Column([
                 ft.Container(
                     content=ft.Text(etat, size=12, color=color,
@@ -7653,12 +7723,19 @@ def main(page: ft.Page):
                 kanban_columns[etat],
             ], spacing=6, expand=True, tight=True),
             width=280, padding=ft.Padding(4, 0, 4, 0))
+        return ft.DragTarget(
+            group="kanban_card", content=column_body,
+            on_accept=(lambda e, t=etat: _kanban_drop(e, t)))
 
     kanban_surface = ft.Column([
         ft.Container(
             content=ft.Row([
                 ft.Text("Tâches", size=CONSTANTS.TEXT_SM, color=WHITE,
                         weight=ft.FontWeight.W_700),
+                ft.IconButton(ft.Icons.ADD, icon_color=ICON_ACTION,
+                             icon_size=CONSTANTS.ICON_SM,
+                             tooltip="Nouvelle tâche",
+                             on_click=_kanban_new_task),
                 ft.IconButton(ft.Icons.REFRESH, icon_color=ICON_ACTION,
                              icon_size=CONSTANTS.ICON_SM,
                              tooltip="Actualiser depuis Notion",
