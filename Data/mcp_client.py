@@ -138,7 +138,10 @@ class _OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
 
 async def _oauth_redirect_handler(url):
     webbrowser.open(url)
-    print(f"[MCP] Ouvre ce lien pour autoriser la connexion : {url}")
+    # Pas de print() : Hub tourne en .pyw, sans console attachée — stdout
+    # y est invalide et un print() y lève un OSError (Errno 5) qui, une
+    # fois relayé par le SDK, se perd en CancelledError nu côté appelant.
+    _logger.info("connexion : lien d'autorisation OAuth ouvert (%s)", url)
 
 
 async def _oauth_callback_handler():
