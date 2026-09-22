@@ -50,7 +50,8 @@ if not _logger.handlers:
     # échec interne (ex. tâche post_writer/handle_get_stream du transport)
     # avant qu'elle ne se perde dans un CancelledError nu côté appelant —
     # on capture ces loggers dans le même fichier pour ne rien manquer.
-    for _name in ("mcp", "anyio", "httpx2", "httpcore", "httpx"):
+    for _name in ("mcp", "anyio", "httpx2", "httpcore", "httpcore2",
+                  "httpx"):
         _sdk_logger = logging.getLogger(_name)
         _sdk_logger.addHandler(_handler)
         _sdk_logger.setLevel(logging.DEBUG)
@@ -97,6 +98,12 @@ class _KeyringTokenStorage:
         """
         raw = credentials.get_credential(self._service, "expiry")
         return float(raw) if raw else None
+
+    def clear_tokens(self):
+        """Efface le token stocké (mais pas client_info : pas besoin de
+        redemander une inscription dynamique du client pour ça)."""
+        credentials.delete_credential(self._service, "tokens")
+        credentials.delete_credential(self._service, "expiry")
 
     async def get_client_info(self):
         from mcp.shared.auth import OAuthClientInformationFull
@@ -295,6 +302,19 @@ async def _connect_server(server_cfg):
             stored_expiry = token_storage.get_expiry()
             if stored_expiry is not None:
                 auth.context.token_expiry_time = stored_expiry
+            else:
+                # Expiration inconnue (jamais enregistrée, ou effacée
+                # séparément d'un vieux token encore présent) : le SDK
+                # considère alors un token stocké comme valide *pour
+                # toujours* (`is_token_valid()` : `not token_expiry_time`
+                # → True) et l'attache tel quel à la requête — s'il est en
+                # réalité expiré/révoqué, ça produit côté serveur un rejet
+                # qui ne remonte jamais proprement en 401 côté client
+                # (déconnexion brute → CancelledError nu, sans traceback
+                # exploitable). On efface donc aussi le token lui-même
+                # dans ce cas, pour forcer une ré-authentification propre
+                # plutôt que d'envoyer un Bearer dont on ignore la validité.
+                token_storage.clear_tokens()
             _logger.info(
                 "connexion %r : OAuthClientProvider prêt (expiry stocké "
                 "= %r)", name, stored_expiry)
