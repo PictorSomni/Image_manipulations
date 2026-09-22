@@ -7940,11 +7940,10 @@ def main(page: ft.Page):
               scroll=ft.ScrollMode.AUTO, expand=True, spacing=0),
     ], expand=True, spacing=0)
     if kanban_state["rows"]:
-        # Affiche tout de suite le cache (rempli au run précédent), avant
-        # même le premier passage sur l'onglet et son appel réseau.
+        # Affiche tout de suite le cache (rempli au run précédent) — plus
+        # de rechargement auto (retour user), actualisation via le bouton.
         _kanban_rebuild_columns()
-        kanban_status.value = "Données en cache — actualisation au prochain "\
-                              "passage sur l'onglet"
+        kanban_status.value = "Données en cache — Actualiser pour resynchroniser"
 
     # ─── Surfaces encore à construire (placeholders structurés) ──────────
     def _placeholder(label):
@@ -8019,12 +8018,9 @@ def main(page: ft.Page):
         center.content = surface_content[key]
         if key == "actus" and not actus_list_view.controls:
             _actus_refresh()   # chargement paresseux : au premier passage
-        if key == "kanban":
-            # Toujours rechargé (pas seulement au premier passage, contrairement
-            # à Actus) : peu de requêtes en jeu (retour user), et on veut voir
-            # tout changement fait depuis l'app Notion elle-même à chaque
-            # retour sur l'onglet.
-            _kanban_refresh()
+        # Kanban : plus de rechargement auto à chaque passage sur l'onglet
+        # (retour user, coût des appels) — le cache local suffit à
+        # l'affichage, l'actualisation se fait via le bouton dédié.
         for k, tab in rail_tabs.items():
             is_active = k == key
             tab["container"].bgcolor = BLUE if is_active else None
