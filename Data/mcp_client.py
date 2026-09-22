@@ -175,6 +175,23 @@ def _ensure_loop(server_name):
         return holder["loop"]
 
 
+def _drop_loop(server_name):
+    """Jette la boucle dédiée à `server_name` (potentiellement corrompue
+    après une connexion ratée, cf. _ensure_loop) et l'état de session qui
+    va avec, pour qu'un prochain appel reparte sur une boucle neuve plutôt
+    que de réutiliser un état anyio éventuellement cassé. Peut être appelé
+    depuis une coroutine tournant SUR cette boucle elle-même — on se
+    contente de l'oublier (le prochain _ensure_loop en recrée une neuve),
+    jamais de join/close/stop synchrone : ça retarderait la livraison du
+    résultat de CET appel-ci, qui doit encore transiter par cette même
+    boucle. L'ancien thread (daemon) tourne à vide et meurt avec l'appli.
+    """
+    _sessions.pop(server_name, None)
+    _session_ctxs.pop(server_name, None)
+    with _loops_lock:
+        _loops.pop(server_name, None)
+
+
 def _run_sync(server_name, coro, timeout=30):
     loop = _ensure_loop(server_name)
     future = asyncio.run_coroutine_threadsafe(coro, loop)
@@ -343,6 +360,16 @@ async def _get_or_connect(server_cfg):
         # asynchrone, la connexion en cours continue tranquillement sur
         # sa boucle dédiée et le message suivant la retrouve en vol.
         return await task
+    except BaseException:
+        # Une connexion ratée peut laisser l'état interne d'anyio corrompu
+        # sur LA boucle dédiée à ce serveur (cancel scope resté ouvert dans
+        # une tâche déjà terminée, cf. commentaire plus haut) — les essais
+        # suivants échoueraient alors instantanément (CancelledError sans
+        # cause visible) même après correction du problème d'origine. On
+        # jette la boucle pour repartir sur une base saine au prochain
+        # appel plutôt que d'exiger un redémarrage complet de l'app.
+        _drop_loop(name)
+        raise
     finally:
         if task.done():
             _pending_connects.pop(name, None)
