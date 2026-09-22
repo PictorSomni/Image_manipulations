@@ -96,6 +96,7 @@ _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 _RECENT_FILE = os.path.join(_APP_DIR, ".recent_folders.json")
 _FAVORITES_FILE = os.path.join(_APP_DIR, ".favorites.json")
 _OPEN_TABS_FILE = os.path.join(_APP_DIR, ".open_tabs.json")
+_KANBAN_CACHE_FILE = os.path.join(_APP_DIR, ".kanban_cache.json")
 
 
 # Persistance JSON partagée avec ai_tools.py (historique de conversation) :
@@ -7500,7 +7501,11 @@ def main(page: ft.Page):
     kanban_columns = {etat: ft.ListView(expand=True, spacing=8,
                                         padding=ft.Padding(6, 4, 6, 8))
                       for etat, _color in KANBAN_ETATS}
-    kanban_state = {"loading": False, "rows": []}
+    # Cache local (.kanban_cache.json) : évite un tableau vide le temps du
+    # premier appel réseau à chaque passage sur l'onglet — comme Notion,
+    # qui affiche l'état connu avant de resynchroniser (retour user).
+    kanban_state = {"loading": False,
+                    "rows": _load_json(_KANBAN_CACHE_FILE, [])}
 
     # (propriété Notion, clé du dict `row`, options disponibles)
     KANBAN_EDITABLE_PROPS = [
@@ -7881,6 +7886,7 @@ def main(page: ft.Page):
                     kanban_status.value = f"Erreur de chargement : {error}"
                 else:
                     kanban_state["rows"] = rows
+                    _save_json(_KANBAN_CACHE_FILE, rows)
                     kanban_status.value = (
                         f"{len(rows)} tâches — mis à jour à "
                         f"{datetime.datetime.now().strftime('%H:%M')}")
@@ -7933,6 +7939,12 @@ def main(page: ft.Page):
         ft.Row([_kanban_column(etat, color) for etat, color in KANBAN_ETATS],
               scroll=ft.ScrollMode.AUTO, expand=True, spacing=0),
     ], expand=True, spacing=0)
+    if kanban_state["rows"]:
+        # Affiche tout de suite le cache (rempli au run précédent), avant
+        # même le premier passage sur l'onglet et son appel réseau.
+        _kanban_rebuild_columns()
+        kanban_status.value = "Données en cache — actualisation au prochain "\
+                              "passage sur l'onglet"
 
     # ─── Surfaces encore à construire (placeholders structurés) ──────────
     def _placeholder(label):

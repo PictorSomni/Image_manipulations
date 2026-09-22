@@ -62,6 +62,7 @@ open_with.json
 .adresses.md
 .mots_cles.json
 .ai_conversation.json
+.kanban_cache.json
 .ai_conversation_sp.json
 .ai_conversation_hub.json
 # Les sauvegardes .bak échappaient aux motifs ci-dessus : une conversation
