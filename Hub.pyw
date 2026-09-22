@@ -7593,6 +7593,18 @@ def main(page: ft.Page):
             width=340, bgcolor=DARK,
             border=CONSTANTS.input_border(GREY), color=WHITE)
 
+        # Contenu de la page (texte libre, sous-tâches, check-listes) : pas
+        # une propriété de la base, donc absent de notion-query-data-sources
+        # — récupéré à part via notion-fetch, affiché/éditable tel quel
+        # (syntaxe Markdown Notion brute, ex. <br> pour un saut de ligne —
+        # pas "nettoyé" pour l'affichage, pour un aller-retour sans risque
+        # de casser un tableau/toggle/colonne imbriqué).
+        content_field = ft.TextField(
+            value="Chargement…", multiline=True, min_lines=6, max_lines=14,
+            width=340, bgcolor=DARK, border=CONSTANTS.input_border(GREY),
+            color=WHITE, disabled=True)
+        content_loaded = {"original": None}
+
         def _cancel(event):
             dlg.open = False
             page.update()
@@ -7619,21 +7631,37 @@ def main(page: ft.Page):
                 new_prix = row["prix"]
             if new_prix != row["prix"]:
                 props["Prix"] = new_prix
+            new_content = content_field.value
+            content_changed = (content_loaded["original"] is not None and
+                              new_content != content_loaded["original"])
             dlg.open = False
             page.update()
-            if not props:
+            if not props and not content_changed:
                 return
 
             def _work():
-                result = mcp_client.mcp_call_tool(
-                    "mcp__notion__notion-update-page",
-                    {"page_id": row["page_id"], "command": "update_properties",
-                     "properties": props})
-                failed = result.startswith("Erreur")
+                errors = []
+                if props:
+                    result = mcp_client.mcp_call_tool(
+                        "mcp__notion__notion-update-page",
+                        {"page_id": row["page_id"],
+                         "command": "update_properties",
+                         "properties": props})
+                    if result.startswith("Erreur"):
+                        errors.append(result)
+                if content_changed:
+                    result = mcp_client.mcp_call_tool(
+                        "mcp__notion__notion-update-page",
+                        {"page_id": row["page_id"],
+                         "command": "replace_content",
+                         "new_str": new_content})
+                    if result.startswith("Erreur"):
+                        errors.append(result)
 
                 async def _apply():
-                    if failed:
-                        kanban_status.value = f"Échec de la mise à jour : {result}"
+                    if errors:
+                        kanban_status.value = ("Échec de la mise à jour : "
+                                               + " / ".join(errors))
                         page.update()
                     else:
                         _kanban_refresh()
@@ -7641,14 +7669,6 @@ def main(page: ft.Page):
                 _run_task(_apply)
 
             threading.Thread(target=_work, daemon=True).start()
-
-        # Contenu de la page (texte libre, sous-tâches, check-listes) : pas
-        # une propriété de la base, donc absent de notion-query-data-sources
-        # — récupéré à part via notion-fetch, affiché en lecture seule
-        # (l'édition round-trip du Markdown Notion est hors scope v1).
-        content_md = ft.Markdown(
-            "*Chargement du contenu…*", selectable=True,
-            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED)
 
         dlg = ft.AlertDialog(
             title=ft.Text("Détails de la tâche", size=CONSTANTS.TEXT_SM,
@@ -7659,8 +7679,7 @@ def main(page: ft.Page):
                 ft.Text(f"Créé le : {row['cree_le'] or '?'}", size=11,
                        color=LIGHT_GREY),
                 ft.Divider(height=1, color=GREY),
-                ft.Container(content=content_md, height=220,
-                            expand=False),
+                content_field,
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
                width=380, height=520),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
@@ -7677,7 +7696,9 @@ def main(page: ft.Page):
                 _kanban_extract_page_content(raw)
 
             async def _apply():
-                content_md.value = body or "*(pas de contenu)*"
+                content_loaded["original"] = body or ""
+                content_field.value = body or ""
+                content_field.disabled = False
                 page.update()
 
             _run_task(_apply)
