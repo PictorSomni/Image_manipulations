@@ -42,7 +42,10 @@ if not _logger.handlers:
     _handler = logging.FileHandler(_log_path, encoding="utf-8")
     _handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
     _logger.addHandler(_handler)
-    _logger.setLevel(logging.WARNING)
+    # INFO (pas seulement WARNING) : quelques repères de progression sont
+    # loggés pendant la connexion MCP pour localiser un blocage silencieux
+    # (ex. CancelledError sans traceback exploitable — cf. _connect_server).
+    _logger.setLevel(logging.INFO)
 
 # ── OAuth (serveurs MCP hébergés — Notion, et plus généralement tout
 # serveur SaaS distant, la spec MCP standardise OAuth 2.1 pour ce cas) ──
@@ -185,6 +188,11 @@ async def _connect_server(server_cfg):
     name = server_cfg["name"]
     ctx = None
     session_ctx = None
+    # Repères de progression : en cas d'échec silencieux (ex. CancelledError
+    # sans traceback exploitable, la tâche asyncio ayant été annulée plutôt
+    # qu'une exception levée dans notre code), ces logs disent où on en
+    # était rendu — le dernier repère atteint borne l'étape fautive.
+    _logger.info("connexion %r : début", name)
     if server_cfg.get("transport") == "http":
         try:
             # mcp>=2.2 a renommé streamablehttp_client -> streamable_http_client.
@@ -238,6 +246,9 @@ async def _connect_server(server_cfg):
             stored_expiry = token_storage.get_expiry()
             if stored_expiry is not None:
                 auth.context.token_expiry_time = stored_expiry
+            _logger.info(
+                "connexion %r : OAuthClientProvider prêt (expiry stocké "
+                "= %r)", name, stored_expiry)
         elif server_cfg.get("auth") == "token":
             # Jeton statique généré côté serveur MCP (page "Members" de
             # PrestaShop par ex.), lié à un compte précis plutôt qu'à la
@@ -276,14 +287,19 @@ async def _connect_server(server_cfg):
         ctx = stdio_client(params)
 
     try:
+        _logger.info("connexion %r : ouverture du transport…", name)
         streams = await ctx.__aenter__()
         # mcp>=2.2 : streamable_http_client() ne renvoie plus le callback
         # get_session_id, juste (read, write) — comme stdio_client. Ancien
         # SDK : (read, write, get_session_id) pour le transport http.
         read, write = streams[0], streams[1]
+        _logger.info("connexion %r : transport ouvert, création session…",
+                     name)
         session_ctx = ClientSession(read, write)
         session = await session_ctx.__aenter__()
+        _logger.info("connexion %r : session créée, initialize()…", name)
         await session.initialize()
+        _logger.info("connexion %r : initialize() OK", name)
         _sessions[name] = session
         _session_ctxs[name] = (ctx, session_ctx)
         return session
@@ -342,8 +358,12 @@ async def _discover_server_tools(server_cfg):
 
 
 async def _call_tool(server_cfg, tool_name, arguments):
+    name = server_cfg["name"]
     session = await _get_or_connect(server_cfg)
+    _logger.info("appel outil %r : session prête, call_tool(%r)…",
+                 name, tool_name)
     result = await session.call_tool(tool_name, arguments)
+    _logger.info("appel outil %r : call_tool(%r) terminé", name, tool_name)
     parts = [c.text for c in result.content if getattr(c, "text", None)]
     text = "\n".join(parts) or "(résultat vide)"
     return f"Erreur : {text}" if result.isError else text
