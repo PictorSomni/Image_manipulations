@@ -8035,8 +8035,12 @@ def main(page: ft.Page):
                 kanban_columns[etat],
             ], spacing=6, expand=True, tight=True),
             expand=True, padding=ft.Padding(4, 0, 4, 0))
+        # `expand=True` doit aussi être passé au DragTarget lui-même, pas
+        # seulement à son contenu — sinon il ne s'étire pas dans le Row et
+        # les 5 colonnes s'écrasent sur la largeur du premier libellé
+        # (retour user : plus rien d'autre que "À faire" ne s'affichait).
         return ft.DragTarget(
-            group="kanban_card", content=column_body,
+            group="kanban_card", content=column_body, expand=True,
             on_accept=(lambda e, t=etat: _kanban_drop(e, t)))
 
     def _kanban_search_change(event):
