@@ -7547,14 +7547,14 @@ def main(page: ft.Page):
         threading.Thread(target=_work, daemon=True).start()
 
     def _kanban_chip(text, color):
-        # Fond plus saturé (0.35 au lieu de 0.15) + texte blanc en gras :
-        # se repère d'un coup d'œil, comme les pastilles de Notion (retour
-        # user — l'ancien fond très translucide se distinguait mal du
-        # fond gris de la carte).
+        # Fond quasi plein (0.85, encore relevé depuis 0.35 puis 0.15) +
+        # texte blanc en gras : se repère d'un coup d'œil, comme les
+        # pastilles de Notion (retour user répété — encore trop discret
+        # tant que ce n'est pas quasi opaque).
         return ft.Container(
             content=ft.Text(text, size=11, color=WHITE,
                             weight=ft.FontWeight.W_600),
-            bgcolor=ft.Colors.with_opacity(0.35, color),
+            bgcolor=ft.Colors.with_opacity(0.85, color),
             border_radius=4, padding=ft.Padding(6, 2, 6, 2))
 
     def _kanban_prop_menu(row, notion_prop, state_key, options, colors):
