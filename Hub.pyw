@@ -7546,9 +7546,14 @@ def main(page: ft.Page):
         threading.Thread(target=_work, daemon=True).start()
 
     def _kanban_chip(text, color):
+        # Fond plus saturé (0.35 au lieu de 0.15) + texte blanc en gras :
+        # se repère d'un coup d'œil, comme les pastilles de Notion (retour
+        # user — l'ancien fond très translucide se distinguait mal du
+        # fond gris de la carte).
         return ft.Container(
-            content=ft.Text(text, size=11, color=color),
-            bgcolor=ft.Colors.with_opacity(0.15, color),
+            content=ft.Text(text, size=11, color=WHITE,
+                            weight=ft.FontWeight.W_600),
+            bgcolor=ft.Colors.with_opacity(0.35, color),
             border_radius=4, padding=ft.Padding(6, 2, 6, 2))
 
     def _kanban_prop_menu(row, notion_prop, state_key, options, colors):
@@ -7822,9 +7827,33 @@ def main(page: ft.Page):
         return rows
 
     def _kanban_new_task(event=None):
+        # Overlay complet dès la création (retour user : dans Notion, la
+        # nouvelle page s'ouvre avec toutes les propriétés éditables tout
+        # de suite — remplir en un seul passage plutôt que de créer avec
+        # juste un titre puis rouvrir le détail pour compléter).
         title_field = ft.TextField(
-            label="Demande", autofocus=True, width=320, bgcolor=DARK,
+            label="Demande", autofocus=True, width=560, bgcolor=DARK,
             border=CONSTANTS.input_border(GREY), color=WHITE)
+        deadline_field = ft.TextField(
+            label="Deadline (AAAA-MM-JJ)", width=560, bgcolor=DARK,
+            border=CONSTANTS.input_border(GREY), color=WHITE)
+        telephone_field = ft.TextField(
+            label="Téléphone", width=560, bgcolor=DARK,
+            border=CONSTANTS.input_border(GREY), color=WHITE)
+        email_field = ft.TextField(
+            label="E-mail", width=560, bgcolor=DARK,
+            border=CONSTANTS.input_border(GREY), color=WHITE)
+        prix_field = ft.TextField(
+            label="Prix", width=560, bgcolor=DARK,
+            border=CONSTANTS.input_border(GREY), color=WHITE)
+        prop_dropdowns = {}
+        for notion_prop, _state_key, options, _colors in KANBAN_EDITABLE_PROPS:
+            prop_dropdowns[notion_prop] = ft.Dropdown(
+                label=notion_prop,
+                value=options[0] if notion_prop == "Etat" else None,
+                options=[ft.dropdown.Option(o) for o in options],
+                width=560, bgcolor=DARK,
+                border=CONSTANTS.input_border(GREY), color=WHITE)
 
         def _cancel(event):
             dlg.open = False
@@ -7834,6 +7863,26 @@ def main(page: ft.Page):
             title = (title_field.value or "").strip()
             if not title:
                 return
+            properties = {"Demande": title}
+            for notion_prop, dd in prop_dropdowns.items():
+                if dd.value:
+                    properties[notion_prop] = dd.value
+            properties.setdefault("Etat", "À faire")
+            deadline = (deadline_field.value or "").strip()
+            if deadline:
+                properties["Deadline"] = deadline
+            telephone = (telephone_field.value or "").strip()
+            if telephone:
+                properties["Téléphone"] = telephone
+            email = (email_field.value or "").strip()
+            if email:
+                properties["E-mail"] = email
+            prix_raw = (prix_field.value or "").strip()
+            if prix_raw:
+                try:
+                    properties["Prix"] = float(prix_raw.replace(",", "."))
+                except ValueError:
+                    pass
             dlg.open = False
             kanban_status.value = "Création…"
             page.update()
@@ -7844,8 +7893,7 @@ def main(page: ft.Page):
                     "mcp__notion__notion-create-pages",
                     {"parent": {"type": "data_source_id",
                                 "data_source_id": data_source_id},
-                     "pages": [{"properties": {"Demande": title,
-                                               "Etat": "À faire"}}]})
+                     "pages": [{"properties": properties}]})
                 failed = result.startswith("Erreur")
 
                 async def _apply():
@@ -7862,7 +7910,12 @@ def main(page: ft.Page):
         dlg = ft.AlertDialog(
             title=ft.Text("Nouvelle tâche", size=CONSTANTS.TEXT_SM,
                           color=WHITE),
-            content=title_field,
+            content=ft.Column([
+                title_field,
+                *prop_dropdowns.values(),
+                deadline_field, telephone_field, email_field, prix_field,
+            ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
+               width=600, height=560),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Créer", on_click=_confirm)],
         )
