@@ -8101,10 +8101,15 @@ def main(page: ft.Page):
         # Colonnes réparties sur toute la largeur de la fenêtre (retour
         # user) via ResponsiveRow — cf. le `col` de chaque DragTarget dans
         # _kanban_column pour le détail des points de rupture.
+        # scroll=AUTO : en fenêtre étroite, ResponsiveRow replie les
+        # colonnes en plusieurs lignes (cf. `col` dans _kanban_column) —
+        # sans défilement vertical, les lignes repliées au-delà de la
+        # première étaient inaccessibles (retour user).
         ft.ResponsiveRow(
             [_kanban_column(etat, color) for etat, color in KANBAN_ETATS],
             expand=True, spacing=0, run_spacing=8,
-            vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH,
+            scroll=ft.ScrollMode.AUTO),
     ], expand=True, spacing=0,
        # Sans ça, une Column ne force pas ses enfants à sa pleine largeur
        # (horizontal_alignment=START par défaut) : la Row des colonnes se
