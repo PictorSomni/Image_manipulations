@@ -7237,7 +7237,7 @@ def main(page: ft.Page):
     liste_list_view = ft.ListView(expand=True, spacing=4, padding=8)
     liste_path_text = ft.Text(os.path.basename(_liste_file["path"]),
                               size=CONSTANTS.TEXT_SM, color=WHITE,
-                              no_wrap=True, expand=True)
+                              no_wrap=True)
     liste_search = {"value": ""}
 
     def _liste_matches_search(entry, query):
@@ -7283,7 +7283,7 @@ def main(page: ft.Page):
         style=ft.ButtonStyle(padding=ft.Padding.all(4)))
     liste_search_row = ft.Row(
         [liste_search_field, liste_search_close_btn], spacing=4,
-        vertical_alignment=ft.CrossAxisAlignment.CENTER)
+        expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     def _liste_render():
         is_todo_shaped = _liste_is_todo_shaped()
@@ -7384,9 +7384,11 @@ def main(page: ft.Page):
 
     liste_surface = ft.Column([
         ft.Container(
+            # Recherche d'abord (extensible), nom puis les boutons tout à
+            # droite (retour user — même agencement que Tâches, pour
+            # réduire à 2 barres l'interface avant la liste elle-même).
             content=ft.Row([
-                ft.Icon(ft.Icons.DATA_OBJECT, color=VIOLET,
-                       size=CONSTANTS.ICON_SM),
+                liste_search_row,
                 liste_path_text,
                 liste_back_to_todo_btn,
                 ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED, icon_color=YELLOW,
@@ -7398,7 +7400,6 @@ def main(page: ft.Page):
                 liste_add_btn,
             ], spacing=6),
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
-        ft.Container(content=liste_search_row, padding=ft.Padding(8, 6, 8, 0)),
         ft.Container(height=8),
         ft.Divider(height=1, color=GREY),
         ft.Container(height=8),
