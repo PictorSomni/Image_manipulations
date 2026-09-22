@@ -7505,7 +7505,7 @@ def main(page: ft.Page):
     # Cache local (.kanban_cache.json) : évite un tableau vide le temps du
     # premier appel réseau à chaque passage sur l'onglet — comme Notion,
     # qui affiche l'état connu avant de resynchroniser (retour user).
-    kanban_state = {"loading": False,
+    kanban_state = {"loading": False, "search": "",
                     "rows": _load_json(_KANBAN_CACHE_FILE, [])}
 
     # (propriété Notion, clé du dict `row`, options disponibles)
@@ -7805,6 +7805,13 @@ def main(page: ft.Page):
             kanban_columns[etat].controls.clear()
         rows_sorted = sorted(kanban_state["rows"],
                              key=lambda r: r["cree_le"], reverse=True)
+        needle = kanban_state["search"].strip().lower()
+        if needle:
+            rows_sorted = [
+                r for r in rows_sorted
+                if needle in (r["demande"] or "").lower()
+                or needle in (r["telephone"] or "").lower()
+                or needle in (r["email"] or "").lower()]
         for row in rows_sorted:
             column = kanban_columns.get(row["etat"])
             if column is not None:
@@ -8003,6 +8010,19 @@ def main(page: ft.Page):
             group="kanban_card", content=column_body,
             on_accept=(lambda e, t=etat: _kanban_drop(e, t)))
 
+    def _kanban_search_change(event):
+        kanban_state["search"] = kanban_search_field.value or ""
+        _kanban_rebuild_columns()
+        page.update()
+
+    # Filtre local sur les tâches déjà chargées (titre/téléphone/e-mail) —
+    # pas un nouvel appel MCP à chaque frappe (retour user : limiter les
+    # appels réseau).
+    kanban_search_field = ft.TextField(
+        hint_text="Rechercher…", width=220, height=36, dense=True,
+        bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
+        prefix_icon=ft.Icons.SEARCH, on_change=_kanban_search_change)
+
     kanban_surface = ft.Column([
         ft.Container(
             content=ft.Row([
@@ -8016,6 +8036,7 @@ def main(page: ft.Page):
                              icon_size=CONSTANTS.ICON_SM,
                              tooltip="Actualiser depuis Notion",
                              on_click=_kanban_refresh),
+                kanban_search_field,
                 kanban_status,
             ], spacing=8),
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
