@@ -7755,16 +7755,25 @@ def main(page: ft.Page):
                                        _kanban_open_details(r))),
             ], spacing=0),
         ]
+        # Deadline en rouge (attire l'œil), téléphone/e-mail en blanc
+        # (coordonnées à contacter, lisibilité), prix en gris (secondaire).
         info_bits = []
         if row["deadline"]:
-            info_bits.append(row["deadline"])
+            info_bits.append(ft.Text(row["deadline"], size=11, color=RED))
         if row["telephone"]:
-            info_bits.append(row["telephone"])
+            info_bits.append(ft.Text(row["telephone"], size=11, color=WHITE))
+        if row["email"]:
+            info_bits.append(ft.Text(row["email"], size=11, color=WHITE))
         if row["prix"] not in (None, ""):
-            info_bits.append(f"{row['prix']:g} €")
+            info_bits.append(ft.Text(f"{row['prix']:g} €", size=11,
+                                     color=LIGHT_GREY))
         if info_bits:
-            rows.append(ft.Text("  •  ".join(info_bits), size=11,
-                                color=LIGHT_GREY))
+            spans = []
+            for i, bit in enumerate(info_bits):
+                if i:
+                    spans.append(ft.Text("  •  ", size=11, color=LIGHT_GREY))
+                spans.append(bit)
+            rows.append(ft.Row(spans, spacing=0, wrap=True))
         if row["cree_le"]:
             rows.append(ft.Text(f"Créé le {row['cree_le'][:10]}", size=10,
                                 color=LIGHT_GREY))
