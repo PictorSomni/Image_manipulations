@@ -8034,7 +8034,7 @@ def main(page: ft.Page):
                     border_radius=6, padding=ft.Padding(8, 4, 8, 4)),
                 kanban_columns[etat],
             ], spacing=6, expand=True, tight=True),
-            width=280, padding=ft.Padding(4, 0, 4, 0))
+            expand=True, padding=ft.Padding(4, 0, 4, 0))
         return ft.DragTarget(
             group="kanban_card", content=column_body,
             on_accept=(lambda e, t=etat: _kanban_drop(e, t)))
@@ -8090,8 +8090,13 @@ def main(page: ft.Page):
             ], spacing=8),
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
+        # Colonnes réparties sur toute la largeur de la fenêtre (retour
+        # user) plutôt qu'une largeur fixe à défiler horizontalement —
+        # `expand=True` sur chaque colonne et pas de scroll ici (les deux
+        # sont incompatibles côté Flet : un Row défilant ne peut pas avoir
+        # d'enfants "expand", il n'a plus de largeur bornée à répartir).
         ft.Row([_kanban_column(etat, color) for etat, color in KANBAN_ETATS],
-              scroll=ft.ScrollMode.AUTO, expand=True, spacing=0),
+              expand=True, spacing=0),
     ], expand=True, spacing=0)
     if kanban_state["rows"]:
         # Affiche tout de suite le cache (rempli au run précédent) — plus
