@@ -340,9 +340,19 @@ async def _connect_server(server_cfg):
             # mcp>=2.2 : streamable_http_client() ne prend plus headers/auth
             # directement — ils passent par un client HTTP dédié
             # (http_client=..., un httpx2.AsyncClient, fork interne au SDK).
+            import ssl
             from mcp.client.streamable_http import httpx2
-            http_client = httpx2.AsyncClient(headers=headers or None,
-                                             auth=auth)
+            # httpx2 utilise par défaut truststore.SSLContext (magasin de
+            # certificats natif de l'OS) — sur certaines installations
+            # macOS (Python.org 3.11 + truststore récent), le handshake
+            # TLS plante avec un RecursionError interne à truststore
+            # (boucle __getattr__ entre son SSLContext et le vrai
+            # ssl.SSLContext), qui remonte comme un CancelledError nu et
+            # sans traceback côté appelant. On force un ssl.SSLContext
+            # standard pour contourner truststore entièrement.
+            http_client = httpx2.AsyncClient(
+                headers=headers or None, auth=auth,
+                verify=ssl.create_default_context())
             ctx = streamablehttp_client(server_cfg["url"],
                                         http_client=http_client)
     else:
