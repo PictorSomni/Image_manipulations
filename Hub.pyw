@@ -8101,7 +8101,13 @@ def main(page: ft.Page):
         # d'enfants "expand", il n'a plus de largeur bornée à répartir).
         ft.Row([_kanban_column(etat, color) for etat, color in KANBAN_ETATS],
               expand=True, spacing=0),
-    ], expand=True, spacing=0)
+    ], expand=True, spacing=0,
+       # Sans ça, une Column ne force pas ses enfants à sa pleine largeur
+       # (horizontal_alignment=START par défaut) : la Row des colonnes se
+       # réduisait alors à la largeur intrinsèque de son contenu, laissant
+       # les colonnes "expand" sans largeur bornée à se répartir (retour
+       # user : rien d'autre que "À faire" ne s'affichait toujours).
+       horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
     if kanban_state["rows"]:
         # Affiche tout de suite le cache (rempli au run précédent) — plus
         # de rechargement auto (retour user), actualisation via le bouton.
