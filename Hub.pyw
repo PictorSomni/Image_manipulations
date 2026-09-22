@@ -7574,6 +7574,26 @@ def main(page: ft.Page):
         match = re.search(r"<content>\n?(.*?)\n?</content>", text, re.S)
         return match.group(1).strip() if match else None
 
+    def _kanban_notion_to_plain(text):
+        """<br> (saut de ligne Notion, dans un même bloc) -> vrai saut de
+        ligne, plus lisible pour un collègue non-technique. <empty-block/>
+        (ligne vide explicite requise par Notion) -> ligne vide."""
+        text = text.replace("<br>", "\n")
+        lines = ["" if line.strip() == "<empty-block/>" else line
+                 for line in text.split("\n")]
+        return "\n".join(lines)
+
+    def _kanban_plain_to_notion(text):
+        """Inverse partiel de _kanban_notion_to_plain : une ligne vide doit
+        redevenir <empty-block/> pour Notion. On ne réintroduit PAS de
+        <br> (un ex-saut de ligne "<br>" redevient un bloc/paragraphe à
+        part entière, à peine plus espacé visuellement) — plus simple et
+        sans risque de casser une liste à puces/checklist en fusionnant
+        des lignes qui doivent rester des blocs séparés."""
+        lines = ["<empty-block/>" if not line.strip() else line
+                 for line in text.split("\n")]
+        return "\n".join(lines)
+
     def _kanban_open_details(row):
         demande_field = ft.TextField(
             label="Demande", value=row["demande"], width=340,
@@ -7654,7 +7674,7 @@ def main(page: ft.Page):
                         "mcp__notion__notion-update-page",
                         {"page_id": row["page_id"],
                          "command": "replace_content",
-                         "new_str": new_content})
+                         "new_str": _kanban_plain_to_notion(new_content)})
                     if result.startswith("Erreur"):
                         errors.append(result)
 
@@ -7696,8 +7716,9 @@ def main(page: ft.Page):
                 _kanban_extract_page_content(raw)
 
             async def _apply():
-                content_loaded["original"] = body or ""
-                content_field.value = body or ""
+                plain = _kanban_notion_to_plain(body or "")
+                content_loaded["original"] = plain
+                content_field.value = plain
                 content_field.disabled = False
                 page.update()
 
