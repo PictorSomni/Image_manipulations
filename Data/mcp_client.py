@@ -46,6 +46,14 @@ if not _logger.handlers:
     # loggés pendant la connexion MCP pour localiser un blocage silencieux
     # (ex. CancelledError sans traceback exploitable — cf. _connect_server).
     _logger.setLevel(logging.INFO)
+    # Le SDK mcp (et anyio) logue parfois lui-même la cause réelle d'un
+    # échec interne (ex. tâche post_writer/handle_get_stream du transport)
+    # avant qu'elle ne se perde dans un CancelledError nu côté appelant —
+    # on capture ces loggers dans le même fichier pour ne rien manquer.
+    for _name in ("mcp", "anyio"):
+        _sdk_logger = logging.getLogger(_name)
+        _sdk_logger.addHandler(_handler)
+        _sdk_logger.setLevel(logging.DEBUG)
 
 # ── OAuth (serveurs MCP hébergés — Notion, et plus généralement tout
 # serveur SaaS distant, la spec MCP standardise OAuth 2.1 pour ce cas) ──
