@@ -7415,15 +7415,27 @@ def main(page: ft.Page):
                                   padding=ft.Padding(8, 4, 8, 8))
     actus_state = {"loading": False}
 
+    # Une couleur par source (retour user : fond de chaque ligne selon la
+    # provenance) — dérivée de l'ordre de rss_feeds.FEEDS, donc une source
+    # ajoutée là-bas récupère automatiquement une couleur sans y retoucher
+    # ici (cycle sur la palette si plus de sources que de couleurs).
+    ACTUS_SOURCE_PALETTE = [BLUE, VIOLET, GREEN, YELLOW, ORANGE, RED, PINK,
+                            MINT, YELLOW_GREEN, BLUE_LIGHT]
+    ACTUS_SOURCE_COLORS = {
+        name: ACTUS_SOURCE_PALETTE[i % len(ACTUS_SOURCE_PALETTE)]
+        for i, (_url, name) in enumerate(rss_feeds.FEEDS)}
+
     def _actus_item_card(item):
         date_txt = (item["date"].astimezone().strftime("%d/%m/%Y %H:%M")
                    if item["date"] else "")
+        source_color = ACTUS_SOURCE_COLORS.get(item["source"], GREY)
         rows = [
             ft.Row([
                 ft.Container(
                     content=ft.Text(item["source"], size=11,
-                                    color=BLUE),
-                    bgcolor=ft.Colors.with_opacity(0.15, BLUE),
+                                    color=ft.Colors.BLACK,
+                                    weight=ft.FontWeight.W_600),
+                    bgcolor=ft.Colors.with_opacity(0.85, source_color),
                     border_radius=4, padding=ft.Padding(6, 2, 6, 2)),
                 ft.Text(date_txt, size=11, color=LIGHT_GREY),
             ], spacing=8),
@@ -7437,7 +7449,8 @@ def main(page: ft.Page):
         link = item["link"]
         return ft.Container(
             content=ft.Column(rows, spacing=4, tight=True),
-            bgcolor=GREY, border_radius=8, padding=10, ink=True,
+            bgcolor=ft.Colors.with_opacity(0.18, source_color),
+            border_radius=8, padding=10, ink=True,
             on_click=(lambda e, u=link: webbrowser.open(u)) if link
                      else None)
 
