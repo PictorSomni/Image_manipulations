@@ -7561,6 +7561,19 @@ def main(page: ft.Page):
             items=items,
         )
 
+    def _kanban_extract_page_content(raw_json_str):
+        """notion-fetch renvoie un JSON dont le champ "text" contient un
+        gros bloc XML-ish (<page><properties>...</properties><content>
+        ...</content></page>) — seul le <content> nous intéresse ici, le
+        reste (properties, ancestor-path) est déjà affiché via les champs
+        du formulaire ou redondant."""
+        try:
+            text = json.loads(raw_json_str).get("text", "")
+        except (json.JSONDecodeError, AttributeError):
+            return None
+        match = re.search(r"<content>\n?(.*?)\n?</content>", text, re.S)
+        return match.group(1).strip() if match else None
+
     def _kanban_open_details(row):
         demande_field = ft.TextField(
             label="Demande", value=row["demande"], width=340,
@@ -7660,11 +7673,11 @@ def main(page: ft.Page):
         def _load_content():
             raw = mcp_client.mcp_call_tool(
                 "mcp__notion__notion-fetch", {"id": row["page_id"]})
-            failed = raw.startswith("Erreur")
+            body = None if raw.startswith("Erreur") else \
+                _kanban_extract_page_content(raw)
 
             async def _apply():
-                content_md.value = ("(contenu indisponible)" if failed
-                                    else raw)
+                content_md.value = body or "*(pas de contenu)*"
                 page.update()
 
             _run_task(_apply)
