@@ -8067,8 +8067,6 @@ def main(page: ft.Page):
             # Recherche d'abord (extensible), les 2 boutons tout à droite
             # (retour user — même agencement que la barre Liste).
             content=ft.Row([
-                ft.Text("Tâches", size=CONSTANTS.TEXT_SM, color=WHITE,
-                        weight=ft.FontWeight.W_700),
                 kanban_search_wrap,
                 kanban_status,
                 ft.IconButton(ft.Icons.ADD,
