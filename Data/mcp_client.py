@@ -473,4 +473,19 @@ def mcp_call_tool(qualified_name, arguments):
         _logger.warning(
             "appel d'outil MCP %r échoué : %r", qualified_name, exc,
             exc_info=True)
-        return f"Erreur outil MCP {qualified_name} : {exc}"
+        return (f"Erreur outil MCP {qualified_name} : "
+                f"{_describe_exception(exc)}")
+
+
+def _describe_exception(exc):
+    """Description lisible d'une exception, même sans message (ex. un
+    ExceptionGroup vide dont str() ne rend rien) : on affiche le type et,
+    pour un groupe, on déplie récursivement les sous-exceptions."""
+    sub_excs = getattr(exc, "exceptions", None)
+    if sub_excs:
+        details = "; ".join(_describe_exception(e) for e in sub_excs)
+        return f"{type(exc).__name__}({details})"
+    text = str(exc)
+    if text:
+        return f"{type(exc).__name__}: {text}"
+    return type(exc).__name__
