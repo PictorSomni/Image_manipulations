@@ -334,6 +334,7 @@ def main(page: ft.Page):
                              "Projet validé", "Fichiers prêts"]
     KANBAN_PAYE_OPTIONS = ["Non payé", "Payé"]
     KANBAN_PREVENU_OPTIONS = ["Appeler si indisponible", "Prévenu"]
+    KANBAN_ETAT_COLORS = dict(KANBAN_ETATS)
 
     # Couleur par valeur, comme dans Notion (cf. _kanban_prop_menu).
     KANBAN_PROJET_COLORS = {"Faire projet": BLUE, "Projet envoyé": YELLOW,
@@ -7789,9 +7790,14 @@ def main(page: ft.Page):
                  for notion_prop, state_key, options, colors
                  in KANBAN_EDITABLE_PROPS[1:]]
         rows.append(ft.Row(badges, spacing=4, wrap=True))
+        # Fond de la tuile teinté selon l'Etat (retour user) — en plus de
+        # la couleur de colonne, pour repérer le statut même une fois les
+        # colonnes défilées hors champ horizontalement.
+        etat_color = KANBAN_ETAT_COLORS.get(row["etat"], GREY)
         card = ft.Container(
             content=ft.Column(rows, spacing=4, tight=True),
-            bgcolor=GREY, border_radius=8, padding=10)
+            bgcolor=ft.Colors.with_opacity(0.18, etat_color),
+            border_radius=8, padding=10)
         return ft.Draggable(group="kanban_card", data=row["page_id"],
                             content=card)
 
@@ -7846,11 +7852,22 @@ def main(page: ft.Page):
         prix_field = ft.TextField(
             label="Prix", width=560, bgcolor=DARK,
             border=CONSTANTS.input_border(GREY), color=WHITE)
+        # Notes envoyées directement dans le contenu de la page Notion
+        # (notion-create-pages accepte "content" dès la création) — pas
+        # besoin d'un aller-retour create-puis-replace_content, donc rien
+        # ne se perd si l'appel MCP échoue en cours de route.
+        notes_field = ft.TextField(
+            label="Notes (contenu de la page)", multiline=True,
+            min_lines=4, max_lines=10, width=560, bgcolor=DARK,
+            border=CONSTANTS.input_border(GREY), color=WHITE)
+        # Payé ? à "Non payé" par défaut (retour user), comme Etat à
+        # "À faire" — les autres restent vides tant que non pertinents.
+        DEFAULT_DROPDOWN_VALUES = {"Etat": "À faire", "Payé ?": "Non payé"}
         prop_dropdowns = {}
         for notion_prop, _state_key, options, _colors in KANBAN_EDITABLE_PROPS:
             prop_dropdowns[notion_prop] = ft.Dropdown(
                 label=notion_prop,
-                value=options[0] if notion_prop == "Etat" else None,
+                value=DEFAULT_DROPDOWN_VALUES.get(notion_prop),
                 options=[ft.dropdown.Option(o) for o in options],
                 width=560, bgcolor=DARK,
                 border=CONSTANTS.input_border(GREY), color=WHITE)
@@ -7883,17 +7900,22 @@ def main(page: ft.Page):
                     properties["Prix"] = float(prix_raw.replace(",", "."))
                 except ValueError:
                     pass
+            notes = (notes_field.value or "").strip()
+            content = _kanban_plain_to_notion(notes) if notes else None
             dlg.open = False
             kanban_status.value = "Création…"
             page.update()
 
             def _work():
                 data_source_id = KANBAN_DATA_SOURCE.split("://", 1)[-1]
+                page_data = {"properties": properties}
+                if content:
+                    page_data["content"] = content
                 result = mcp_client.mcp_call_tool(
                     "mcp__notion__notion-create-pages",
                     {"parent": {"type": "data_source_id",
                                 "data_source_id": data_source_id},
-                     "pages": [{"properties": properties}]})
+                     "pages": [page_data]})
                 failed = result.startswith("Erreur")
 
                 async def _apply():
@@ -7914,8 +7936,9 @@ def main(page: ft.Page):
                 title_field,
                 *prop_dropdowns.values(),
                 deadline_field, telephone_field, email_field, prix_field,
+                notes_field,
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
-               width=600, height=560),
+               width=600, height=640),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Créer", on_click=_confirm)],
         )
