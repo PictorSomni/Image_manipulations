@@ -127,10 +127,34 @@ async def _oauth_redirect_handler(url):
 
 
 async def _oauth_callback_handler():
-    httpd = http.server.HTTPServer(
-        ("localhost", _OAUTH_CALLBACK_PORT), _OAuthCallbackHandler)
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, httpd.handle_request)
+    try:
+        httpd = http.server.HTTPServer(
+            ("localhost", _OAUTH_CALLBACK_PORT), _OAuthCallbackHandler)
+    except OSError as exc:
+        # Le port est probablement encore tenu par un essai précédent resté
+        # bloqué indéfiniment sur handle_request() — cf. le commentaire plus
+        # bas sur httpd.timeout, qui évite que ça se reproduise à l'avenir.
+        _logger.warning(
+            "callback OAuth local (port %d) : bind impossible (%r)",
+            _OAUTH_CALLBACK_PORT, exc)
+        raise
+    httpd.oauth_code = None
+    httpd.oauth_state = None
+    # Timeout : si l'utilisateur ne termine jamais la connexion dans le
+    # navigateur, handle_request() resterait sinon bloqué indéfiniment sur
+    # un thread de l'executor — gardant le port occupé pour TOUT essai
+    # suivant (symptôme déjà observé : échec quasi instantané d'un nouvel
+    # essai, faute de pouvoir se lier à ce même port encore tenu).
+    httpd.timeout = 300
+    try:
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, httpd.handle_request)
+    finally:
+        httpd.server_close()
+    if httpd.oauth_code is None:
+        raise TimeoutError(
+            "Pas de retour du navigateur pour l'autorisation OAuth "
+            f"(port {_OAUTH_CALLBACK_PORT}) — délai dépassé.")
     return httpd.oauth_code, httpd.oauth_state
 
 _loops = {}   # nom de serveur -> (event loop, thread) dédiés à CE serveur
