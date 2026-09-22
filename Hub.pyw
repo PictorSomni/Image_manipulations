@@ -8024,6 +8024,21 @@ def main(page: ft.Page):
         if row is not None:
             _kanban_change_property(row, "Etat", "etat", new_etat)
 
+    # Largeur de colonne calculée dynamiquement (voir _kanban_col_width) :
+    # plein écran → les 5 colonnes se répartissent toute la largeur ; en
+    # dessous de la largeur mini, elles gardent cette largeur mini et la
+    # Row défile horizontalement (comme Notion) plutôt que de se replier
+    # sur plusieurs lignes — le repli en lignes (essayé via ResponsiveRow)
+    # cassait le défilement vertical propre à chaque colonne (retour user).
+    KANBAN_COL_MIN_WIDTH = 260
+    KANBAN_COL_SPACING = 8
+    kanban_column_targets = {}
+
+    def _kanban_col_width():
+        n = len(KANBAN_ETATS)
+        avail = (page.width or 1200) - 32 - KANBAN_COL_SPACING * (n - 1)
+        return max(KANBAN_COL_MIN_WIDTH, avail / n)
+
     def _kanban_column(etat, color):
         column_body = ft.Container(
             content=ft.Column([
@@ -8035,17 +8050,22 @@ def main(page: ft.Page):
                 kanban_columns[etat],
             ], spacing=6, expand=True, tight=True),
             expand=True, padding=ft.Padding(4, 0, 4, 0))
-        # ResponsiveRow (grille 12 colonnes) plutôt qu'un Row+expand="fait
-        # main" : deux tentatives avec Row/DragTarget expand=True ont
-        # échoué (colonnes écrasées à la largeur du 1er libellé, retour
-        # user) — ResponsiveRow est le mécanisme Flet standard, testé,
-        # pour ce cas précis. `col` en pourcentage de 12 : 5 colonnes
-        # pleine largeur sur grand écran, qui se replient par paires puis
-        # en pleine largeur sur fenêtre étroite (mode "bande").
-        return ft.DragTarget(
+        target = ft.DragTarget(
             group="kanban_card", content=column_body,
-            col={"xs": 12, "sm": 6, "md": 4, "lg": 2.4},
+            width=_kanban_col_width(),
             on_accept=(lambda e, t=etat: _kanban_drop(e, t)))
+        kanban_column_targets[etat] = target
+        return target
+
+    def _kanban_on_resize(event=None):
+        new_width = _kanban_col_width()
+        changed = False
+        for target in kanban_column_targets.values():
+            if target.width != new_width:
+                target.width = new_width
+                changed = True
+        if changed:
+            page.update()
 
     def _kanban_search_change(event):
         kanban_state["search"] = kanban_search_field.value or ""
@@ -8098,16 +8118,15 @@ def main(page: ft.Page):
             ], spacing=8),
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
-        # Colonnes réparties sur toute la largeur de la fenêtre (retour
-        # user) via ResponsiveRow — cf. le `col` de chaque DragTarget dans
-        # _kanban_column pour le détail des points de rupture.
-        # scroll=AUTO : en fenêtre étroite, ResponsiveRow replie les
-        # colonnes en plusieurs lignes (cf. `col` dans _kanban_column) —
-        # sans défilement vertical, les lignes repliées au-delà de la
-        # première étaient inaccessibles (retour user).
-        ft.ResponsiveRow(
+        # Colonnes à largeur calculée (cf. _kanban_col_width) : se
+        # répartissent toute la largeur en plein écran, gardent leur
+        # largeur mini en fenêtre étroite avec défilement horizontal pour
+        # atteindre les autres — chaque colonne garde ainsi son propre
+        # défilement vertical (ListView expand=True), contrairement au
+        # repli multi-lignes ResponsiveRow essayé avant (retour user).
+        ft.Row(
             [_kanban_column(etat, color) for etat, color in KANBAN_ETATS],
-            expand=True, spacing=0, run_spacing=8,
+            expand=True, spacing=KANBAN_COL_SPACING,
             vertical_alignment=ft.CrossAxisAlignment.STRETCH,
             scroll=ft.ScrollMode.AUTO),
     ], expand=True, spacing=0,
@@ -8122,6 +8141,17 @@ def main(page: ft.Page):
         # de rechargement auto (retour user), actualisation via le bouton.
         _kanban_rebuild_columns()
         kanban_status.value = "Données en cache — Actualiser pour resynchroniser"
+
+    # Recalcule la largeur des colonnes à chaque redimensionnement de la
+    # fenêtre (mode plein écran / demi-écran...) — cf. _kanban_col_width.
+    _existing_on_resize = page.on_resize
+
+    def _on_page_resize(event):
+        if _existing_on_resize:
+            _existing_on_resize(event)
+        _kanban_on_resize(event)
+
+    page.on_resize = _on_page_resize
 
     # ─── Surfaces encore à construire (placeholders structurés) ──────────
     def _placeholder(label):
