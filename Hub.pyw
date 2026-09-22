@@ -7577,11 +7577,12 @@ def main(page: ft.Page):
     def _kanban_notion_to_plain(text):
         """<br> (saut de ligne Notion, dans un même bloc) -> vrai saut de
         ligne, plus lisible pour un collègue non-technique. <empty-block/>
-        (ligne vide explicite requise par Notion) -> ligne vide."""
+        (marqueur technique Notion pour une ligne vide) masqué entièrement
+        — regex plutôt qu'un match ligne entière, pour couvrir aussi un
+        <empty-block/> qui ne serait pas seul sur sa ligne."""
         text = text.replace("<br>", "\n")
-        lines = ["" if line.strip() == "<empty-block/>" else line
-                 for line in text.split("\n")]
-        return "\n".join(lines)
+        text = re.sub(r"[ \t]*<empty-block/>[ \t]*\n?", "", text)
+        return text
 
     def _kanban_plain_to_notion(text):
         """Inverse partiel de _kanban_notion_to_plain : une ligne vide doit
