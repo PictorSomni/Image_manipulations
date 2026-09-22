@@ -170,7 +170,18 @@ async def _oauth_callback_handler():
         raise TimeoutError(
             "Pas de retour du navigateur pour l'autorisation OAuth "
             f"(port {_OAUTH_CALLBACK_PORT}) — délai dépassé.")
-    return httpd.oauth_code, httpd.oauth_state
+    try:
+        # mcp>=2.0 attend un AuthorizationCodeResult (accès à .code/.state/
+        # .iss en interne, ex. oauth2.py::_perform_authorization_code_grant)
+        # — un simple tuple (code, state) lève un AttributeError nu qui se
+        # perd ensuite en CancelledError côté appelant (cf. laundering dans
+        # _connect_server/_get_or_connect).
+        from mcp.shared.auth import AuthorizationCodeResult
+        return AuthorizationCodeResult(
+            code=httpd.oauth_code, state=httpd.oauth_state)
+    except ImportError:
+        # SDK plus ancien (pré-2.0) : signature encore basée sur un tuple.
+        return httpd.oauth_code, httpd.oauth_state
 
 _loops = {}   # nom de serveur -> (event loop, thread) dédiés à CE serveur
 _loops_lock = threading.Lock()
