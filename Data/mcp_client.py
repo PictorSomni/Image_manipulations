@@ -186,7 +186,12 @@ async def _connect_server(server_cfg):
     ctx = None
     session_ctx = None
     if server_cfg.get("transport") == "http":
-        from mcp.client.streamable_http import streamablehttp_client
+        try:
+            # mcp>=2.2 a renommé streamablehttp_client -> streamable_http_client.
+            from mcp.client.streamable_http import streamablehttp_client
+        except ImportError:
+            from mcp.client.streamable_http import (
+                streamable_http_client as streamablehttp_client)
 
         auth = None
         headers = {}
@@ -194,24 +199,36 @@ async def _connect_server(server_cfg):
             from mcp.client.auth import OAuthClientProvider
             from mcp.shared.auth import OAuthClientMetadata
             token_storage = _KeyringTokenStorage(name)
-            auth = OAuthClientProvider(
-                server_url=server_cfg["url"],
-                client_metadata=OAuthClientMetadata(
-                    redirect_uris=[_OAUTH_REDIRECT_URI],
-                    client_name="Hub Image Manipulation",
-                    # Client public (PKCE, pas de secret) : certains
-                    # serveurs MCP (Notion) rejettent l'échange de token
-                    # si le client présente à la fois un secret et PKCE
-                    # ("Client must not use multiple authentication
-                    # methods"). Sans ce champ explicite, l'enregistrement
-                    # dynamique peut aboutir à un client jugé incompatible.
-                    token_endpoint_auth_method="none",
-                ),
-                storage=token_storage,
-                redirect_handler=_oauth_redirect_handler,
-                callback_handler=_oauth_callback_handler,
-                timeout=300,
+            _oauth_metadata = OAuthClientMetadata(
+                redirect_uris=[_OAUTH_REDIRECT_URI],
+                client_name="Hub Image Manipulation",
+                # Client public (PKCE, pas de secret) : certains
+                # serveurs MCP (Notion) rejettent l'échange de token
+                # si le client présente à la fois un secret et PKCE
+                # ("Client must not use multiple authentication
+                # methods"). Sans ce champ explicite, l'enregistrement
+                # dynamique peut aboutir à un client jugé incompatible.
+                token_endpoint_auth_method="none",
             )
+            try:
+                auth = OAuthClientProvider(
+                    server_url=server_cfg["url"],
+                    client_metadata=_oauth_metadata,
+                    storage=token_storage,
+                    redirect_handler=_oauth_redirect_handler,
+                    callback_handler=_oauth_callback_handler,
+                    timeout=300,
+                )
+            except TypeError:
+                # mcp>=2.2 a retiré `timeout` du constructeur (le timeout
+                # global de _run_sync/_call_tool couvre déjà l'appel).
+                auth = OAuthClientProvider(
+                    server_url=server_cfg["url"],
+                    client_metadata=_oauth_metadata,
+                    storage=token_storage,
+                    redirect_handler=_oauth_redirect_handler,
+                    callback_handler=_oauth_callback_handler,
+                )
             # Le SDK ne recalcule l'expiration qu'après une authorization/
             # refresh fraîche, jamais après un simple rechargement depuis le
             # stockage — sans ça, un token expiré passe pour valide jusqu'au

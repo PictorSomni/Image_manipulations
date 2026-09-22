@@ -78,6 +78,7 @@ SURFACES = [
     ("liste", "Liste",    ft.Icons.LIST_ALT_OUTLINED),
     ("ia",    "IA",       ft.Icons.SMART_TOY_OUTLINED),
     ("actus", "Actus",    ft.Icons.RSS_FEED_OUTLINED),
+    ("kanban", "Tâches",  ft.Icons.VIEW_KANBAN_OUTLINED),
     # Bloc-notes retiré du rail (retour user) : accessible en bandeau
     # depuis la barre du bas (notes_panel), plus en surface plein écran —
     # cf. bouton Notes de la statusbar.
@@ -321,6 +322,17 @@ def main(page: ft.Page):
     YELLOW_GREEN = CONSTANTS.COLOR_YELLOW_GREEN
     LIGHT_GREY = CONSTANTS.COLOR_LIGHT_GREY
     ICON_ACTION = CONSTANTS.ICON_ACTION
+
+    # Base Notion "Tâches" (page "Travail") — cf. surface Kanban plus bas.
+    KANBAN_DATA_SOURCE = "collection://34f4c64b-5c00-4415-99cb-76234faecef1"
+    KANBAN_ETATS = [
+        ("À faire", BLUE), ("En cours / en attente", VIOLET),
+        ("Terminé", GREEN), ("A commander", YELLOW), ("Commandé", ORANGE),
+    ]
+    KANBAN_PROJET_OPTIONS = ["Faire projet", "Projet envoyé",
+                             "Projet validé", "Fichiers prêts"]
+    KANBAN_PAYE_OPTIONS = ["Non payé", "Payé"]
+    KANBAN_PREVENU_OPTIONS = ["Appeler si indisponible", "Prévenu"]
 
     # ─── Fenêtre ─────────────────────────────────────────────────────────
     page.title      = "Hub"
@@ -7469,6 +7481,195 @@ def main(page: ft.Page):
         ft.Container(content=actus_list_view, expand=True),
     ], expand=True, spacing=0)
 
+    # ═════════════════════════════════════════════════════════════════════
+    #  Surface Tâches — miroir de la base Notion "Tâches" (page "Travail"),
+    #  via mcp_client (même connexion OAuth que l'assistant IA — cf. Data/
+    #  mcp_client.py). Pas de rafraîchissement en fond (retour user : peu
+    #  de changements par heure, inutile de sonder en continu) : le
+    #  panneau se recharge à chaque fois qu'on revient dessus, plus un
+    #  bouton "Actualiser" manuel.
+    # ═════════════════════════════════════════════════════════════════════
+    kanban_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY)
+    kanban_columns = {etat: ft.ListView(expand=True, spacing=8,
+                                        padding=ft.Padding(6, 4, 6, 8))
+                      for etat, _color in KANBAN_ETATS}
+    kanban_state = {"loading": False, "rows": []}
+
+    # (propriété Notion, clé du dict `row`, options disponibles)
+    KANBAN_EDITABLE_PROPS = [
+        ("Etat", "etat", [e for e, _c in KANBAN_ETATS]),
+        ("Projet ?", "projet", KANBAN_PROJET_OPTIONS),
+        ("Payé ?", "paye", KANBAN_PAYE_OPTIONS),
+        ("Prévenu ?", "prevenu", KANBAN_PREVENU_OPTIONS),
+    ]
+
+    def _kanban_change_property(row, notion_prop, state_key, new_value):
+        old_value = row.get(state_key, "")
+        if old_value == new_value:
+            return
+        row[state_key] = new_value
+        _kanban_rebuild_columns()
+        page.update()
+
+        def _work():
+            result = mcp_client.mcp_call_tool(
+                "mcp__notion__notion-update-page",
+                {"page_id": row["page_id"], "command": "update_properties",
+                 "properties": {notion_prop: new_value}})
+            failed = result.startswith("Erreur")
+
+            async def _apply():
+                if failed:
+                    row[state_key] = old_value
+                    _kanban_rebuild_columns()
+                    kanban_status.value = f"Échec de la mise à jour : {result}"
+                    page.update()
+
+            _run_task(_apply)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _kanban_chip(text, color):
+        return ft.Container(
+            content=ft.Text(text, size=11, color=color),
+            bgcolor=ft.Colors.with_opacity(0.15, color),
+            border_radius=4, padding=ft.Padding(6, 2, 6, 2))
+
+    def _kanban_prop_menu(row, notion_prop, state_key, options, accent):
+        current = row.get(state_key, "") or options[0]
+        return ft.PopupMenuButton(
+            content=_kanban_chip(f"{current}  ▾", accent),
+            items=[
+                ft.PopupMenuItem(
+                    content=ft.Text(opt),
+                    on_click=(lambda e, o=opt: _kanban_change_property(
+                        row, notion_prop, state_key, o)))
+                for opt in options
+            ],
+        )
+
+    def _kanban_item_card(row):
+        etat_color = dict(KANBAN_ETATS).get(row["etat"], BLUE)
+        rows = [
+            ft.Text(row["demande"], size=CONSTANTS.TEXT_SM, color=WHITE,
+                    weight=ft.FontWeight.W_600, max_lines=3,
+                    overflow=ft.TextOverflow.ELLIPSIS),
+        ]
+        info_bits = []
+        if row["deadline"]:
+            info_bits.append(row["deadline"])
+        if row["telephone"]:
+            info_bits.append(row["telephone"])
+        if row["prix"] not in (None, ""):
+            info_bits.append(f"{row['prix']:g} €")
+        if info_bits:
+            rows.append(ft.Text("  •  ".join(info_bits), size=11,
+                                color=LIGHT_GREY))
+        badges = [_kanban_prop_menu(row, "Etat", "etat",
+                                    [e for e, _c in KANBAN_ETATS], etat_color)]
+        for notion_prop, state_key, options in KANBAN_EDITABLE_PROPS[1:]:
+            if row.get(state_key):
+                badges.append(_kanban_prop_menu(
+                    row, notion_prop, state_key, options, VIOLET))
+        rows.append(ft.Row(badges, spacing=4, wrap=True))
+        return ft.Container(
+            content=ft.Column(rows, spacing=4, tight=True),
+            bgcolor=GREY, border_radius=8, padding=10)
+
+    def _kanban_rebuild_columns():
+        for etat, _color in KANBAN_ETATS:
+            kanban_columns[etat].controls.clear()
+        rows_sorted = sorted(kanban_state["rows"],
+                             key=lambda r: r["cree_le"], reverse=True)
+        for row in rows_sorted:
+            column = kanban_columns.get(row["etat"])
+            if column is not None:
+                column.controls.append(_kanban_item_card(row))
+
+    def _kanban_parse_rows(raw_json_str):
+        data = json.loads(raw_json_str)
+        rows = []
+        for r in data.get("results", []):
+            url = r.get("url", "")
+            page_id = url.rsplit("/", 1)[-1].split("?")[0] if url else ""
+            rows.append({
+                "page_id": page_id,
+                "demande": r.get("Demande") or "(sans titre)",
+                "etat": r.get("Etat") or "À faire",
+                "deadline": r.get("date:Deadline:start", ""),
+                "telephone": r.get("Téléphone", ""),
+                "email": r.get("E-mail", ""),
+                "prix": r.get("Prix"),
+                "projet": r.get("Projet ?", ""),
+                "paye": r.get("Payé ?", ""),
+                "prevenu": r.get("Prévenu ?", ""),
+                "cree_le": r.get("Créé le", ""),
+            })
+        return rows
+
+    def _kanban_refresh(event=None):
+        if kanban_state["loading"]:
+            return
+        kanban_state["loading"] = True
+        kanban_status.value = "Chargement…"
+        page.update()
+
+        def _work():
+            try:
+                raw = mcp_client.mcp_call_tool(
+                    "mcp__notion__notion-query-data-sources",
+                    {"mode": "rows", "data_source_url": KANBAN_DATA_SOURCE,
+                     "limit": 100})
+                error = raw if raw.startswith("Erreur") else None
+                rows = [] if error else _kanban_parse_rows(raw)
+            except Exception as exc:
+                rows, error = [], str(exc)
+
+            async def _apply():
+                kanban_state["loading"] = False
+                if error:
+                    kanban_status.value = f"Erreur de chargement : {error}"
+                else:
+                    kanban_state["rows"] = rows
+                    kanban_status.value = (
+                        f"{len(rows)} tâches — mis à jour à "
+                        f"{datetime.datetime.now().strftime('%H:%M')}")
+                    _kanban_rebuild_columns()
+                page.update()
+
+            _run_task(_apply)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _kanban_column(etat, color):
+        return ft.Container(
+            content=ft.Column([
+                ft.Container(
+                    content=ft.Text(etat, size=12, color=color,
+                                    weight=ft.FontWeight.W_700),
+                    bgcolor=ft.Colors.with_opacity(0.15, color),
+                    border_radius=6, padding=ft.Padding(8, 4, 8, 4)),
+                kanban_columns[etat],
+            ], spacing=6, expand=True, tight=True),
+            width=280, padding=ft.Padding(4, 0, 4, 0))
+
+    kanban_surface = ft.Column([
+        ft.Container(
+            content=ft.Row([
+                ft.Text("Tâches", size=CONSTANTS.TEXT_SM, color=WHITE,
+                        weight=ft.FontWeight.W_700),
+                ft.IconButton(ft.Icons.REFRESH, icon_color=ICON_ACTION,
+                             icon_size=CONSTANTS.ICON_SM,
+                             tooltip="Actualiser depuis Notion",
+                             on_click=_kanban_refresh),
+                kanban_status,
+            ], spacing=8),
+            padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
+        ft.Divider(height=1, color=GREY),
+        ft.Row([_kanban_column(etat, color) for etat, color in KANBAN_ETATS],
+              scroll=ft.ScrollMode.AUTO, expand=True, spacing=0),
+    ], expand=True, spacing=0)
+
     # ─── Surfaces encore à construire (placeholders structurés) ──────────
     def _placeholder(label):
         return ft.Container(
@@ -7481,6 +7682,7 @@ def main(page: ft.Page):
         "liste": liste_surface,
         "ia":    ia_surface,
         "actus": actus_surface,
+        "kanban": kanban_surface,
     }
     center = ft.Container(content=surface_content["files"], expand=True,
                           bgcolor=DARK)
@@ -7541,6 +7743,12 @@ def main(page: ft.Page):
         center.content = surface_content[key]
         if key == "actus" and not actus_list_view.controls:
             _actus_refresh()   # chargement paresseux : au premier passage
+        if key == "kanban":
+            # Toujours rechargé (pas seulement au premier passage, contrairement
+            # à Actus) : peu de requêtes en jeu (retour user), et on veut voir
+            # tout changement fait depuis l'app Notion elle-même à chaque
+            # retour sur l'onglet.
+            _kanban_refresh()
         for k, tab in rail_tabs.items():
             is_active = k == key
             tab["container"].bgcolor = BLUE if is_active else None
