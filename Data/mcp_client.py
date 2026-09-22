@@ -477,7 +477,11 @@ async def _call_tool(server_cfg, tool_name, arguments):
     _logger.info("appel outil %r : call_tool(%r) terminé", name, tool_name)
     parts = [c.text for c in result.content if getattr(c, "text", None)]
     text = "\n".join(parts) or "(résultat vide)"
-    return f"Erreur : {text}" if result.isError else text
+    # `isError` (camelCase, alias JSON) n'est pas forcément exposé tel
+    # quel comme attribut Python — le SDK expose le champ pydantic sous
+    # son nom snake_case `is_error` selon la version.
+    is_error = getattr(result, "is_error", getattr(result, "isError", False))
+    return f"Erreur : {text}" if is_error else text
 
 
 def mcp_get_all_tools():

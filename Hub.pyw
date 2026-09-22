@@ -7618,8 +7618,9 @@ def main(page: ft.Page):
             try:
                 raw = mcp_client.mcp_call_tool(
                     "mcp__notion__notion-query-data-sources",
-                    {"mode": "rows", "data_source_url": KANBAN_DATA_SOURCE,
-                     "limit": 100})
+                    {"data": {"mode": "rows",
+                              "data_source_url": KANBAN_DATA_SOURCE,
+                              "limit": 100}})
                 error = raw if raw.startswith("Erreur") else None
                 rows = [] if error else _kanban_parse_rows(raw)
             except Exception as exc:
