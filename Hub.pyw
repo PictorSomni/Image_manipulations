@@ -336,6 +336,13 @@ def main(page: ft.Page):
     KANBAN_PREVENU_OPTIONS = ["Appeler si indisponible", "Prévenu"]
     KANBAN_ETAT_COLORS = dict(KANBAN_ETATS)
 
+    # Une couleur "primaire" par onglet du rail (retour user, même principe
+    # que Terminal=YELLOW_GREEN / Notes=VIOLET / Actions=ORANGE en barre du
+    # bas) — sert à la fois au surlignage de l'onglet actif et aux actions
+    # principales de la surface correspondante.
+    SURFACE_ACCENT = {"files": BLUE, "liste": PINK, "kanban": MINT,
+                      "ia": YELLOW, "actus": RED}
+
     # Couleur par valeur, comme dans Notion (cf. _kanban_prop_menu).
     KANBAN_PROJET_COLORS = {"Faire projet": BLUE, "Projet envoyé": YELLOW,
                             "Projet validé": VIOLET, "Fichiers prêts": VIOLET}
@@ -7492,7 +7499,8 @@ def main(page: ft.Page):
             content=ft.Row([
                 ft.Text("Actus", size=CONSTANTS.TEXT_SM, color=WHITE,
                         weight=ft.FontWeight.W_700),
-                ft.IconButton(ft.Icons.REFRESH, icon_color=ICON_ACTION,
+                ft.IconButton(ft.Icons.REFRESH,
+                             icon_color=SURFACE_ACCENT["actus"],
                              icon_size=CONSTANTS.ICON_SM,
                              tooltip="Actualiser les flux",
                              on_click=_actus_refresh),
@@ -8028,28 +8036,48 @@ def main(page: ft.Page):
         _kanban_rebuild_columns()
         page.update()
 
+    def _kanban_search_clear(event=None):
+        kanban_search_field.value = ""
+        kanban_state["search"] = ""
+        _kanban_rebuild_columns()
+        page.update()
+
     # Filtre local sur les tâches déjà chargées (titre/téléphone/e-mail) —
     # pas un nouvel appel MCP à chaque frappe (retour user : limiter les
-    # appels réseau).
+    # appels réseau). Bouton d'effacement séparé (IconButton à côté, PAS
+    # `suffix=` sur le TextField) — cf. l'exact même piège déjà documenté
+    # pour search_field (recherche Fichiers, plus haut dans ce fichier) :
+    # `suffix=` plaque le hint_text vers le bas.
     kanban_search_field = ft.TextField(
-        hint_text="Rechercher…", width=220, height=36, dense=True,
-        bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
-        prefix_icon=ft.Icons.SEARCH, on_change=_kanban_search_change)
+        hint_text="Rechercher…", width=320, height=36, dense=True,
+        bgcolor=DARK, border=CONSTANTS.input_border(SURFACE_ACCENT["kanban"]),
+        color=WHITE, prefix_icon=ft.Icons.SEARCH,
+        on_change=_kanban_search_change, on_submit=_kanban_search_clear)
+    kanban_search_clear_btn = ft.IconButton(
+        ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
+        bgcolor=GREY, tooltip="Effacer la recherche",
+        on_click=_kanban_search_clear,
+        style=ft.ButtonStyle(padding=ft.Padding.all(4)))
+    kanban_search_wrap = ft.Row(
+        [kanban_search_field, kanban_search_clear_btn], spacing=4,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     kanban_surface = ft.Column([
         ft.Container(
             content=ft.Row([
                 ft.Text("Tâches", size=CONSTANTS.TEXT_SM, color=WHITE,
                         weight=ft.FontWeight.W_700),
-                ft.IconButton(ft.Icons.ADD, icon_color=ICON_ACTION,
+                ft.IconButton(ft.Icons.ADD,
+                             icon_color=SURFACE_ACCENT["kanban"],
                              icon_size=CONSTANTS.ICON_SM,
                              tooltip="Nouvelle tâche",
                              on_click=_kanban_new_task),
-                ft.IconButton(ft.Icons.REFRESH, icon_color=ICON_ACTION,
+                ft.IconButton(ft.Icons.REFRESH,
+                             icon_color=SURFACE_ACCENT["kanban"],
                              icon_size=CONSTANTS.ICON_SM,
                              tooltip="Actualiser depuis Notion",
                              on_click=_kanban_refresh),
-                kanban_search_field,
+                kanban_search_wrap,
                 kanban_status,
             ], spacing=8),
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
@@ -8141,7 +8169,8 @@ def main(page: ft.Page):
         # l'affichage, l'actualisation se fait via le bouton dédié.
         for k, tab in rail_tabs.items():
             is_active = k == key
-            tab["container"].bgcolor = BLUE if is_active else None
+            tab["container"].bgcolor = (SURFACE_ACCENT.get(k, BLUE)
+                                        if is_active else None)
             tab["icon"].color = DARK if is_active else WHITE
             tab["label"].color = DARK if is_active else WHITE
             tab["label"].weight = (ft.FontWeight.W_700 if is_active
