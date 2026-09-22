@@ -7561,11 +7561,101 @@ def main(page: ft.Page):
             items=items,
         )
 
+    def _kanban_open_details(row):
+        demande_field = ft.TextField(
+            label="Demande", value=row["demande"], width=340,
+            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
+        deadline_field = ft.TextField(
+            label="Deadline", value=row["deadline"], width=340,
+            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
+        telephone_field = ft.TextField(
+            label="Téléphone", value=row["telephone"], width=340,
+            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
+        email_field = ft.TextField(
+            label="E-mail", value=row["email"], width=340,
+            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
+        prix_field = ft.TextField(
+            label="Prix", value=(f"{row['prix']:g}"
+                                 if row["prix"] not in (None, "") else ""),
+            width=340, bgcolor=DARK,
+            border=CONSTANTS.input_border(GREY), color=WHITE)
+
+        def _cancel(event):
+            dlg.open = False
+            page.update()
+
+        def _confirm(event):
+            props = {}
+            new_demande = (demande_field.value or "").strip()
+            if new_demande and new_demande != row["demande"]:
+                props["Demande"] = new_demande
+            new_deadline = (deadline_field.value or "").strip()
+            if new_deadline != (row["deadline"] or ""):
+                props["Deadline"] = new_deadline or None
+            new_tel = (telephone_field.value or "").strip()
+            if new_tel != (row["telephone"] or ""):
+                props["Téléphone"] = new_tel or None
+            new_email = (email_field.value or "").strip()
+            if new_email != (row["email"] or ""):
+                props["E-mail"] = new_email or None
+            new_prix_raw = (prix_field.value or "").strip()
+            try:
+                new_prix = float(new_prix_raw.replace(",", ".")) \
+                    if new_prix_raw else None
+            except ValueError:
+                new_prix = row["prix"]
+            if new_prix != row["prix"]:
+                props["Prix"] = new_prix
+            dlg.open = False
+            page.update()
+            if not props:
+                return
+
+            def _work():
+                result = mcp_client.mcp_call_tool(
+                    "mcp__notion__notion-update-page",
+                    {"page_id": row["page_id"], "command": "update_properties",
+                     "properties": props})
+                failed = result.startswith("Erreur")
+
+                async def _apply():
+                    if failed:
+                        kanban_status.value = f"Échec de la mise à jour : {result}"
+                        page.update()
+                    else:
+                        _kanban_refresh()
+
+                _run_task(_apply)
+
+            threading.Thread(target=_work, daemon=True).start()
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Détails de la tâche", size=CONSTANTS.TEXT_SM,
+                          color=WHITE),
+            content=ft.Column([
+                demande_field, deadline_field, telephone_field, email_field,
+                prix_field,
+                ft.Text(f"Créé le : {row['cree_le'] or '?'}", size=11,
+                       color=LIGHT_GREY),
+            ], tight=True, spacing=8),
+            actions=[ft.TextButton("Annuler", on_click=_cancel),
+                     ft.TextButton("Enregistrer", on_click=_confirm)],
+        )
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
     def _kanban_item_card(row):
         rows = [
-            ft.Text(row["demande"], size=CONSTANTS.TEXT_SM, color=WHITE,
-                    weight=ft.FontWeight.W_600, max_lines=3,
-                    overflow=ft.TextOverflow.ELLIPSIS),
+            ft.Row([
+                ft.Text(row["demande"], size=CONSTANTS.TEXT_SM, color=WHITE,
+                        weight=ft.FontWeight.W_600, max_lines=3,
+                        overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                ft.IconButton(ft.Icons.OPEN_IN_FULL, icon_color=LIGHT_GREY,
+                             icon_size=14, tooltip="Détails / modifier",
+                             on_click=(lambda e, r=row:
+                                       _kanban_open_details(r))),
+            ], spacing=0),
         ]
         info_bits = []
         if row["deadline"]:
@@ -7576,6 +7666,9 @@ def main(page: ft.Page):
             info_bits.append(f"{row['prix']:g} €")
         if info_bits:
             rows.append(ft.Text("  •  ".join(info_bits), size=11,
+                                color=LIGHT_GREY))
+        if row["cree_le"]:
+            rows.append(ft.Text(f"Créé le {row['cree_le'][:10]}", size=10,
                                 color=LIGHT_GREY))
         # Pas de badge Etat ici : la colonne le représente déjà — on
         # change l'Etat en glissant la carte vers une autre colonne.
