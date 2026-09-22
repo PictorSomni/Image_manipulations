@@ -7597,21 +7597,21 @@ def main(page: ft.Page):
 
     def _kanban_open_details(row):
         demande_field = ft.TextField(
-            label="Demande", value=row["demande"], width=340,
+            label="Demande", value=row["demande"], width=560,
             bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
         deadline_field = ft.TextField(
-            label="Deadline", value=row["deadline"], width=340,
+            label="Deadline", value=row["deadline"], width=560,
             bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
         telephone_field = ft.TextField(
-            label="Téléphone", value=row["telephone"], width=340,
+            label="Téléphone", value=row["telephone"], width=560,
             bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
         email_field = ft.TextField(
-            label="E-mail", value=row["email"], width=340,
+            label="E-mail", value=row["email"], width=560,
             bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
         prix_field = ft.TextField(
             label="Prix", value=(f"{row['prix']:g}"
                                  if row["prix"] not in (None, "") else ""),
-            width=340, bgcolor=DARK,
+            width=560, bgcolor=DARK,
             border=CONSTANTS.input_border(GREY), color=WHITE)
 
         # Contenu de la page (texte libre, sous-tâches, check-listes) : pas
@@ -7621,8 +7621,8 @@ def main(page: ft.Page):
         # pas "nettoyé" pour l'affichage, pour un aller-retour sans risque
         # de casser un tableau/toggle/colonne imbriqué).
         content_field = ft.TextField(
-            value="Chargement…", multiline=True, min_lines=6, max_lines=14,
-            width=340, bgcolor=DARK, border=CONSTANTS.input_border(GREY),
+            value="Chargement…", multiline=True, min_lines=8, max_lines=20,
+            width=560, bgcolor=DARK, border=CONSTANTS.input_border(GREY),
             color=WHITE, disabled=True)
         content_loaded = {"original": None}
 
@@ -7702,7 +7702,7 @@ def main(page: ft.Page):
                 ft.Divider(height=1, color=GREY),
                 content_field,
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
-               width=380, height=520),
+               width=600, height=680),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Enregistrer", on_click=_confirm)],
         )
