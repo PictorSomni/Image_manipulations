@@ -276,10 +276,11 @@ async def _connect_server(server_cfg):
         ctx = stdio_client(params)
 
     try:
-        if server_cfg.get("transport") == "http":
-            read, write, _ = await ctx.__aenter__()
-        else:
-            read, write = await ctx.__aenter__()
+        streams = await ctx.__aenter__()
+        # mcp>=2.2 : streamable_http_client() ne renvoie plus le callback
+        # get_session_id, juste (read, write) — comme stdio_client. Ancien
+        # SDK : (read, write, get_session_id) pour le transport http.
+        read, write = streams[0], streams[1]
         session_ctx = ClientSession(read, write)
         session = await session_ctx.__aenter__()
         await session.initialize()
