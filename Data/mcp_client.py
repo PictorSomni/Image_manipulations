@@ -39,7 +39,15 @@ _TOOL_PREFIX = "mcp__"
 _logger = logging.getLogger("mcp_client")
 if not _logger.handlers:
     _log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".mcp_errors.log")
-    _handler = logging.FileHandler(_log_path, encoding="utf-8")
+    # RotatingFileHandler (pas FileHandler brut) : les loggers SDK en DEBUG
+    # ci-dessous (mcp/httpx2/httpcore2...) sont verbeux et ce fichier n'avait
+    # jusqu'ici aucune limite — il a fini par geler Hub le temps de charger
+    # son contenu dans le bloc-notes (retour user). backupCount=1 garde un
+    # seul fichier .1 de secours, pas un historique complet.
+    import logging.handlers
+    _handler = logging.handlers.RotatingFileHandler(
+        _log_path, maxBytes=CONSTANTS.MCP_ERRORS_LOG_MAX_BYTES,
+        backupCount=1, encoding="utf-8")
     _handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
     _logger.addHandler(_handler)
     # INFO (pas seulement WARNING) : quelques repères de progression sont

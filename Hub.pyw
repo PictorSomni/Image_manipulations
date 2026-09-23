@@ -4866,18 +4866,45 @@ def main(page: ft.Page):
 
     def _notes_load():
         path = note_target["path"]
+        note_target["truncated"] = False
         try:
             if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as f:
-                    notes_field.value = f.read()
+                size = os.path.getsize(path)
+                if size > CONSTANTS.NOTEPAD_MAX_LOAD_BYTES:
+                    # Un gros fichier (ex. .mcp_errors.log sans rotation
+                    # avant ce fix) chargé en entier gelait l'UI le temps
+                    # du rendu, surtout dans l'éditeur avec coloration
+                    # syntaxique (retour user) — on ne charge que la fin,
+                    # comme le journal du terminal (HUB_TERMINAL_LOG_
+                    # MAX_BYTES). Lecture seule : sauvegarder ce buffer
+                    # tronqué écraserait le reste du fichier sur disque.
+                    with open(path, "rb") as f:
+                        f.seek(-CONSTANTS.NOTEPAD_MAX_LOAD_BYTES, os.SEEK_END)
+                        tail = f.read().decode("utf-8", errors="replace")
+                    kb = CONSTANTS.NOTEPAD_MAX_LOAD_BYTES // 1000
+                    notes_field.value = (
+                        f"[Fichier tronqué : {size / 1e6:.1f} Mo au total, "
+                        f"seules les {kb} derniers ko sont affichés ici, en "
+                        "lecture seule]\n\n" + tail)
+                    note_target["truncated"] = True
+                else:
+                    with open(path, "r", encoding="utf-8") as f:
+                        notes_field.value = f.read()
             else:
                 notes_field.value = ""
         except Exception:
             notes_field.value = ""
+        notes_field.disabled = note_target["truncated"]
         notes_dirty["value"] = False
 
     def _notes_save(event=None):
         path = note_target["path"]
+        if note_target.get("truncated"):
+            # Filet de sécurité : même si le champ est désactivé (donc
+            # normalement pas modifiable), l'autosave différé ne doit
+            # jamais pouvoir réécrire le fichier avec le seul extrait
+            # chargé en mémoire.
+            return
         try:
             _backup_file(path)   # filet anti-perte avant écrasement
             with open(path, "w", encoding="utf-8") as f:
@@ -5590,8 +5617,27 @@ def main(page: ft.Page):
             dest_folder = state["folder"] or os.path.join(_APP_DIR, "Generated")
             os.makedirs(dest_folder, exist_ok=True)
             save_path = os.path.join(dest_folder, out_filename)
-            with open(save_path, "wb") as f:
-                f.write(img_bytes)
+            # Plusieurs tentatives (retour user, crash total de Hub) : sur
+            # un dossier synchronisé (OneDrive...), un verrou transitoire
+            # pendant la synchronisation côté serveur peut lever
+            # PermissionError l'espace d'un instant — le fichier finissait
+            # par être écrit correctement (présent après redémarrage), ce
+            # n'était donc pas une vraie erreur d'accès mais une course.
+            write_error = None
+            for attempt in range(5):
+                try:
+                    with open(save_path, "wb") as f:
+                        f.write(img_bytes)
+                    write_error = None
+                    break
+                except OSError as exc:
+                    write_error = exc
+                    time.sleep(0.5 * (attempt + 1))
+            if write_error is not None:
+                _log_to_terminal(
+                    f"[ERREUR] Écriture impossible ({save_path}) : "
+                    f"{write_error}", RED)
+                return f"[Erreur] Écriture impossible : {write_error}"
             _ai_add_image_bubble(save_path)
             if state["folder"]:
                 _run_task(_ai_navigate_async, state["folder"])

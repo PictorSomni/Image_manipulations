@@ -357,6 +357,8 @@ HUB_TERMINAL_MAX_LINES        = 200  # Nombre max de lignes conservées dans le 
 HUB_AI_MAX_BUBBLES            = 120  # Nombre max de bulles gardées à l'écran dans l'onglet IA (la conversation complète reste dans .ai_conversation_hub.json)
 NOTEPAD_AUTOSAVE_DELAY = 10  # Délai (secondes) avant sauvegarde automatique du bloc-notes
 NOTEPAD_DEFAULT_LANGUAGE = "MARKDOWN"  # Langage de coloration syntaxique par défaut du bloc-notes (voir fce.CodeLanguage)
+NOTEPAD_MAX_LOAD_BYTES = 500_000  # Au-delà, seule la fin du fichier est chargée dans le bloc-notes (retour user : un gros .log gelait l'UI le temps du rendu) — lecture seule dans ce cas
+MCP_ERRORS_LOG_MAX_BYTES = 500_000  # Taille max de Data/.mcp_errors.log avant rotation (RotatingFileHandler) — logs DEBUG du SDK mcp/httpx2/httpcore2, verbeux sans limite
 
 
 # ── 6.2  Redimensionnement & filigrane ────────────────────────────────────────
