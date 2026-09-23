@@ -3629,6 +3629,14 @@ def main(page: ft.Page):
         return ft.IconButton(icon=icon, icon_color=WHITE, icon_size=CONSTANTS.ICON_LG,
                              tooltip=tip, on_click=cb)
 
+    def _viewer_print_current():
+        # Ferme d'abord la visionneuse (retour user) : sinon _print_paths
+        # bascule en mode ruban PAR-DESSUS le plein écran, sans moyen d'en
+        # sortir au tactile — seul Échap le permettait.
+        path = viewer_state["paths"][viewer_state["index"]]
+        _close_viewer()
+        _print_paths([path])
+
     # Pastilles flottantes semi-transparentes (façon Dashboard.pyw:5928-6052 —
     # overlay_bar_color/top_bar/close_btn_top/navigation_bar), jamais une
     # barre pleine largeur : celle-ci masquait une partie de l'image (retour
@@ -3676,10 +3684,9 @@ def main(page: ft.Page):
             ft.VerticalDivider(width=1, color=LIGHT_GREY),
             # Imprime le fichier actuellement affiché (image ou PDF) —
             # réutilise _print_paths, partagé avec le bouton Imprimer de
-            # la barre d'actions et le menu clic-droit (retour user).
+            # la barre d'actions et le menu clic-droit.
             _viewer_btn(ft.Icons.PRINT_OUTLINED, "Imprimer",
-                       lambda e: _print_paths(
-                           [viewer_state["paths"][viewer_state["index"]]])),
+                       lambda e: _viewer_print_current()),
             viewer_order_slot,
         ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         bgcolor=_VIEWER_BAR_BG, padding=ft.Padding(8, 6, 8, 6), border_radius=16,
