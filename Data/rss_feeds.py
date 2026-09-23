@@ -26,6 +26,7 @@ FEEDS = [
     ("https://tldr.tech/api/rss/tech", "TLDR Tech"),
     ("https://news.ycombinator.com/rss", "Hacker News"),
     ("https://simonwillison.net/atom/everything/", "Simon Willison"),
+    ("https://blog.google/innovation-and-ai/technology/ai/rss/", "Google AI Blog"),       
     # Podcasts : pas de transcript complet disponible sur ces flux,
     # seulement les notes d'épisode écrites (retour user, déjà vérifié).
     ("https://feeds.acast.com/public/shows/64d7fb0db4d0da0010a2f09d",
