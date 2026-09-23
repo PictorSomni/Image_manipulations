@@ -3673,6 +3673,13 @@ def main(page: ft.Page):
                        _viewer_zoom_by(_VIEWER_ZOOM_STEP)),
             _viewer_btn(ft.Icons.ZOOM_OUT_MAP, "Ajuster à l'écran",
                        lambda e: _viewer_zoom_reset()),
+            ft.VerticalDivider(width=1, color=LIGHT_GREY),
+            # Imprime le fichier actuellement affiché (image ou PDF) —
+            # réutilise _print_paths, partagé avec le bouton Imprimer de
+            # la barre d'actions et le menu clic-droit (retour user).
+            _viewer_btn(ft.Icons.PRINT_OUTLINED, "Imprimer",
+                       lambda e: _print_paths(
+                           [viewer_state["paths"][viewer_state["index"]]])),
             viewer_order_slot,
         ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         bgcolor=_VIEWER_BAR_BG, padding=ft.Padding(8, 6, 8, 6), border_radius=16,
