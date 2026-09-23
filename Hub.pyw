@@ -10942,7 +10942,15 @@ def main(page: ft.Page):
             bgcolor=YELLOW_GREEN if active else None)
         terminal_btn_icon.color = DARK if active else WHITE
         terminal_btn_text.color = DARK if active else WHITE
-        terminal_toggle_btn.update()
+        try:
+            terminal_toggle_btn.update()
+        except RuntimeError:
+            # Fenêtre déjà fermée (session détruite) : un thread
+            # d'arrière-plan (ex. génération d'image) encore en cours à la
+            # fermeture appelait _busy_end -> ... -> ce .update() sur un
+            # bouton qui n'existe plus — même cas que _show_terminal_and_
+            # schedule_hide/_log_to_terminal ci-dessus, rien à faire.
+            pass
 
     notes_btn_icon = ft.Icon(ft.Icons.EDIT_NOTE_OUTLINED,
                              size=CONSTANTS.ICON_SM, color=WHITE)
