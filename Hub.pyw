@@ -7679,6 +7679,52 @@ def main(page: ft.Page):
             width=560, bgcolor=DARK,
             border=CONSTANTS.input_border(GREY), color=WHITE)
 
+        # Etat + Payé ? directement dans l'overlay (retour user) : en
+        # CupertinoSlidingSegmentedButton plutôt qu'un dropdown, pour
+        # pouvoir changer le prix ET l'état en une seule sauvegarde, sans
+        # repasser par le menu déroulant de la tuile juste après.
+        def _style_segments(btn, texts):
+            for i, t in enumerate(texts):
+                t.color = DARK if i == btn.selected_index else WHITE
+
+        etat_names = [e for e, _c in KANBAN_ETATS]
+        etat_index = (etat_names.index(row["etat"])
+                     if row["etat"] in etat_names else 0)
+        etat_texts = [ft.Text(e, size=11) for e in etat_names]
+
+        def _on_etat_seg_change(event):
+            _style_segments(etat_seg, etat_texts)
+            etat_seg.thumb_color = KANBAN_ETAT_COLORS.get(
+                etat_names[etat_seg.selected_index], MINT)
+            for t in etat_texts:
+                t.update()
+            etat_seg.update()
+
+        etat_seg = ft.CupertinoSlidingSegmentedButton(
+            selected_index=etat_index, controls=etat_texts,
+            thumb_color=KANBAN_ETAT_COLORS.get(row["etat"], MINT),
+            on_change=_on_etat_seg_change)
+        _style_segments(etat_seg, etat_texts)
+
+        paye_index = (KANBAN_PAYE_OPTIONS.index(row["paye"])
+                     if row.get("paye") in KANBAN_PAYE_OPTIONS else 0)
+        paye_texts = [ft.Text(o, size=11) for o in KANBAN_PAYE_OPTIONS]
+
+        def _on_paye_seg_change(event):
+            _style_segments(paye_seg, paye_texts)
+            paye_seg.thumb_color = KANBAN_PAYE_COLORS.get(
+                KANBAN_PAYE_OPTIONS[paye_seg.selected_index], VIOLET)
+            for t in paye_texts:
+                t.update()
+            paye_seg.update()
+
+        paye_seg = ft.CupertinoSlidingSegmentedButton(
+            selected_index=paye_index, controls=paye_texts,
+            thumb_color=KANBAN_PAYE_COLORS.get(
+                KANBAN_PAYE_OPTIONS[paye_index], VIOLET),
+            on_change=_on_paye_seg_change)
+        _style_segments(paye_seg, paye_texts)
+
         # Contenu de la page (texte libre, sous-tâches, check-listes) : pas
         # une propriété de la base, donc absent de notion-query-data-sources
         # — récupéré à part via notion-fetch, affiché/éditable tel quel
@@ -7722,6 +7768,12 @@ def main(page: ft.Page):
                 new_prix = row["prix"]
             if new_prix != row["prix"]:
                 props["Prix"] = new_prix
+            new_etat = etat_names[etat_seg.selected_index]
+            if new_etat != row["etat"]:
+                props["Etat"] = new_etat
+            new_paye = KANBAN_PAYE_OPTIONS[paye_seg.selected_index]
+            if new_paye != (row["paye"] or ""):
+                props["Payé ?"] = new_paye
             new_content = content_field.value
             content_changed = (content_loaded["original"] is not None and
                               new_content != content_loaded["original"])
@@ -7775,6 +7827,10 @@ def main(page: ft.Page):
             content=ft.Column([
                 demande_field, deadline_field, telephone_field, email_field,
                 prix_field,
+                ft.Text("Etat", size=11, color=LIGHT_GREY),
+                etat_seg,
+                ft.Text("Payé ?", size=11, color=LIGHT_GREY),
+                paye_seg,
                 ft.Text(f"Créé le : {row['cree_le'] or '?'}", size=11,
                        color=LIGHT_GREY),
                 ft.Divider(height=1, color=GREY),
@@ -7825,7 +7881,9 @@ def main(page: ft.Page):
             ], spacing=0),
         ]
         # Deadline en rouge (attire l'œil), téléphone/e-mail en blanc
-        # (coordonnées à contacter, lisibilité), prix en gris (secondaire).
+        # (coordonnées à contacter, lisibilité), prix en gras + coloré
+        # (retour user : trop discret en gris, doit se voir au premier
+        # coup d'œil).
         info_bits = []
         if row["deadline"]:
             info_bits.append(ft.Text(row["deadline"], size=11, color=RED))
@@ -7834,8 +7892,8 @@ def main(page: ft.Page):
         if row["email"]:
             info_bits.append(ft.Text(row["email"], size=11, color=WHITE))
         if row["prix"] not in (None, ""):
-            info_bits.append(ft.Text(f"{row['prix']:g} €", size=11,
-                                     color=LIGHT_GREY))
+            info_bits.append(ft.Text(f"{row['prix']:g} €", size=12,
+                                     color=MINT, weight=ft.FontWeight.W_700))
         if info_bits:
             spans = []
             for i, bit in enumerate(info_bits):
