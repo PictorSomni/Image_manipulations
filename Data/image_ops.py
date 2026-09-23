@@ -121,9 +121,11 @@ def open_srgb(path) -> Image.Image:
     À utiliser en entrée de tout script qui peut tourner sur un scan/photo
     brut ; combiner avec ``_SRGB_ICC`` en ``icc_profile=`` à l'enregistrement
     pour que le fichier de sortie reste correctement tagué."""
-    source_image = ImageOps.exif_transpose(Image.open(path))
-    return convert_to_srgb(
-        source_image, source_image.info.get("icc_profile")).convert("RGB")
+    with Image.open(path) as raw_image:
+        source_image = ImageOps.exif_transpose(raw_image)
+        return convert_to_srgb(
+            source_image, source_image.info.get("icc_profile")
+        ).convert("RGB")
 
 
 # ================================================================ #

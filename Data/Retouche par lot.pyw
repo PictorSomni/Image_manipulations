@@ -1340,8 +1340,8 @@ def main(page: ft.Page):
             print(f"Image {i + 1} sur {total}")
             src_path = folder_path / name
             try:
-                raw = Image.open(src_path)
-                date_label = image_ops.get_date_taken(raw)
+                with Image.open(src_path) as raw:
+                    date_label = image_ops.get_date_taken(raw)
                 img = image_ops.open_srgb(src_path)
             except Exception:
                 continue
@@ -1362,7 +1362,14 @@ def main(page: ft.Page):
             # la source d'extension différente pour ne garder qu'une seule
             # version (la dernière validée) dans le dossier courant.
             if src_path != out_path and src_path.exists():
-                src_path.unlink()
+                for attempt in range(5):
+                    try:
+                        src_path.unlink()
+                        break
+                    except OSError:
+                        if attempt == 4:
+                            raise
+                        time.sleep(0.3 * (attempt + 1))
 
             done = i + 1
 
