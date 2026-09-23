@@ -97,6 +97,7 @@ _RECENT_FILE = os.path.join(_APP_DIR, ".recent_folders.json")
 _FAVORITES_FILE = os.path.join(_APP_DIR, ".favorites.json")
 _OPEN_TABS_FILE = os.path.join(_APP_DIR, ".open_tabs.json")
 _KANBAN_CACHE_FILE = os.path.join(_APP_DIR, ".kanban_cache.json")
+_KANBAN_SETTINGS_FILE = os.path.join(_APP_DIR, ".kanban_settings.json")
 
 
 # Persistance JSON partagée avec ai_tools.py (historique de conversation) :
@@ -7535,7 +7536,14 @@ def main(page: ft.Page):
     # premier appel réseau à chaque passage sur l'onglet — comme Notion,
     # qui affiche l'état connu avant de resynchroniser (retour user).
     kanban_state = {"loading": False, "search": "",
-                    "rows": _load_json(_KANBAN_CACHE_FILE, [])}
+                    "rows": _load_json(_KANBAN_CACHE_FILE, []),
+                    # Auto-synchronisation : re-télécharge tout le tableau
+                    # depuis Notion après chaque modification (retour user)
+                    # au lieu d'attendre un clic sur "Actualiser". Persisté
+                    # (fichier séparé, pas le cache lui-même) pour retenir
+                    # le choix d'une session à l'autre.
+                    "auto_sync": _load_json(
+                        _KANBAN_SETTINGS_FILE, {}).get("auto_sync", False)}
 
     # (propriété Notion, clé du dict `row`, options disponibles)
     KANBAN_EDITABLE_PROPS = [
@@ -7552,6 +7560,7 @@ def main(page: ft.Page):
             return
         row[state_key] = new_value
         _kanban_rebuild_columns()
+        _save_json(_KANBAN_CACHE_FILE, kanban_state["rows"])
         page.update()
 
         def _work():
@@ -7568,8 +7577,14 @@ def main(page: ft.Page):
                 if failed:
                     row[state_key] = old_value
                     _kanban_rebuild_columns()
+                    _save_json(_KANBAN_CACHE_FILE, kanban_state["rows"])
                     kanban_status.value = f"Échec de la mise à jour : {result}"
                     page.update()
+                elif kanban_state["auto_sync"]:
+                    # Switch "Auto-sync" (retour user) : re-télécharge tout
+                    # le tableau depuis Notion après chaque modification
+                    # réussie, sans clic sur "Actualiser".
+                    _kanban_refresh()
 
             _run_task(_apply)
 
@@ -7670,11 +7685,16 @@ def main(page: ft.Page):
         # (syntaxe Markdown Notion brute, ex. <br> pour un saut de ligne —
         # pas "nettoyé" pour l'affichage, pour un aller-retour sans risque
         # de casser un tableau/toggle/colonne imbriqué).
+        # Mis en cache dès la première ouverture (row["notes"], voir plus
+        # bas) : les ouvertures suivantes affichent la valeur en cache
+        # tout de suite, sans nouvel appel réseau ni délai (retour user).
+        cached_notes = row.get("notes")
         content_field = ft.TextField(
-            value="Chargement…", multiline=True, min_lines=8, max_lines=20,
+            value=cached_notes if cached_notes is not None else "Chargement…",
+            multiline=True, min_lines=8, max_lines=20,
             width=560, bgcolor=DARK, border=CONSTANTS.input_border(GREY),
-            color=WHITE, disabled=True)
-        content_loaded = {"original": None}
+            color=WHITE, disabled=cached_notes is None)
+        content_loaded = {"original": cached_notes}
 
         def _cancel(event):
             dlg.open = False
@@ -7735,6 +7755,14 @@ def main(page: ft.Page):
                                                + " / ".join(errors))
                         page.update()
                     else:
+                        if content_changed:
+                            # Reporté dans le cache directement (pas
+                            # besoin d'attendre le refresh, qui de toute
+                            # façon reporte cette même valeur — voir
+                            # _kanban_refresh).
+                            row["notes"] = new_content
+                            _save_json(_KANBAN_CACHE_FILE,
+                                      kanban_state["rows"])
                         _kanban_refresh()
 
                 _run_task(_apply)
@@ -7771,11 +7799,18 @@ def main(page: ft.Page):
                 content_loaded["original"] = plain
                 content_field.value = plain
                 content_field.disabled = False
+                # Mis en cache : les prochaines ouvertures de cette tâche
+                # afficheront cette valeur tout de suite (retour user).
+                row["notes"] = plain
+                _save_json(_KANBAN_CACHE_FILE, kanban_state["rows"])
                 page.update()
 
             _run_task(_apply)
 
-        threading.Thread(target=_load_content, daemon=True).start()
+        # Seulement si pas déjà en cache (retour user : ne plus attendre à
+        # chaque ouverture).
+        if cached_notes is None:
+            threading.Thread(target=_load_content, daemon=True).start()
 
     def _kanban_item_card(row):
         rows = [
@@ -7864,6 +7899,13 @@ def main(page: ft.Page):
                 "paye": r.get("Payé ?", ""),
                 "prevenu": r.get("Prévenu ?", ""),
                 "cree_le": r.get("Créé le", ""),
+                # Contenu de la page (Notes) : absent de cette requête
+                # (propriétés seulement) — None = "jamais chargé", distinct
+                # d'une chaîne vide ("chargé, page vide"). Rempli à la
+                # première ouverture des détails puis mis en cache (voir
+                # _kanban_open_details) et reporté ici lors des refresh
+                # suivants (voir _kanban_refresh).
+                "notes": None,
             })
         return rows
 
@@ -7997,6 +8039,18 @@ def main(page: ft.Page):
                               "limit": 100}})
                 error = raw if raw.startswith("Erreur") else None
                 rows = [] if error else _kanban_parse_rows(raw)
+                if not error:
+                    # Reporte les Notes déjà en cache (page_id -> texte) :
+                    # un refresh ne les récupère pas (pas une propriété),
+                    # sans ça chaque refresh effacerait le cache constitué
+                    # au fil des ouvertures de détails.
+                    cached_notes = {
+                        r["page_id"]: r["notes"]
+                        for r in kanban_state["rows"]
+                        if r.get("notes") is not None}
+                    for r in rows:
+                        if r["page_id"] in cached_notes:
+                            r["notes"] = cached_notes[r["page_id"]]
             except Exception as exc:
                 rows, error = [], str(exc)
 
@@ -8099,12 +8153,26 @@ def main(page: ft.Page):
         [kanban_search_field, kanban_search_clear_btn], spacing=4,
         expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
+    def _kanban_toggle_auto_sync(event):
+        kanban_state["auto_sync"] = event.control.value
+        _save_json(_KANBAN_SETTINGS_FILE,
+                  {"auto_sync": kanban_state["auto_sync"]})
+
+    kanban_auto_sync_switch = ft.Switch(
+        label="Auto-sync", value=kanban_state["auto_sync"],
+        active_color=SURFACE_ACCENT["kanban"],
+        tooltip="Resynchronise automatiquement tout le tableau après "
+                "chaque modification (Etat, badges…) — sans clic sur "
+                "\"Actualiser\"",
+        on_change=_kanban_toggle_auto_sync)
+
     kanban_surface = ft.Column([
         ft.Container(
             # Recherche d'abord (extensible), les 2 boutons tout à droite
             # (retour user — même agencement que la barre Liste).
             content=ft.Row([
                 kanban_search_wrap,
+                kanban_auto_sync_switch,
                 kanban_status,
                 ft.IconButton(ft.Icons.ADD,
                              icon_color=SURFACE_ACCENT["kanban"],
