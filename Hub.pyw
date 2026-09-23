@@ -7769,7 +7769,12 @@ def main(page: ft.Page):
         etat_names = [e for e, _c in KANBAN_ETATS]
         etat_index = (etat_names.index(row["etat"])
                      if row["etat"] in etat_names else 0)
-        etat_texts = [ft.Text(e, size=11) for e in etat_names]
+        # Libellé raccourci pour le segment (retour user) : la valeur
+        # Notion complète ("En cours / en attente") reste utilisée pour
+        # etat_names/etat_index/l'écriture — seul l'affichage change.
+        ETAT_SEG_LABELS = {"En cours / en attente": "En cours"}
+        etat_texts = [ft.Text(ETAT_SEG_LABELS.get(e, e), size=11)
+                     for e in etat_names]
 
         def _on_etat_seg_change(event):
             seg_touched["etat"] = True
