@@ -510,12 +510,18 @@ def mcp_get_all_tools():
                 exc_info=True)
             continue
         for tool in server_tools:
+            # `inputSchema` (camelCase, alias JSON) n'est pas forcément le
+            # nom d'attribut Python exposé selon la version du SDK mcp —
+            # même piège que `is_error`/`isError` plus haut. Repli sur le
+            # nom snake_case si besoin.
+            input_schema = getattr(
+                tool, "inputSchema", getattr(tool, "input_schema", None))
             tools.append({
                 "type": "function",
                 "function": {
                     "name": f"{_TOOL_PREFIX}{name}__{tool.name}",
                     "description": tool.description or "",
-                    "parameters": tool.inputSchema
+                    "parameters": input_schema
                     or {"type": "object", "properties": {}},
                 },
             })
