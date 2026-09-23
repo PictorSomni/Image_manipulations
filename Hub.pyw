@@ -7947,10 +7947,18 @@ def main(page: ft.Page):
             # Hauteur plafonnée à la fenêtre dispo (retour user : sur une
             # fenêtre courte, une hauteur fixe faisait déborder le dialogue
             # centré hors écran par le haut, cachant le champ Demande).
+            # Marge de 220 (pas juste 100) : le titre, les boutons et les
+            # espacements internes du dialogue ne sont pas comptés dans
+            # cette hauteur de contenu, sous peine de continuer à déborder.
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
-               width=600, height=min(680, (page.height or 900) - 100)),
+               width=600,
+               height=max(300, min(680, (page.height or 900) - 220))),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Enregistrer", on_click=_confirm)],
+            # Marge mini garantie avec le haut/bas de l'écran (retour
+            # user : "rajouter une marge au dessus") — évite que le
+            # dialogue vienne toucher le bord de la fenêtre.
+            inset_padding=ft.Padding(20, 40, 20, 40),
         )
         page.overlay.append(dlg)
         dlg.open = True
@@ -8193,9 +8201,11 @@ def main(page: ft.Page):
                 deadline_field, telephone_field, email_field, prix_field,
                 notes_field,
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
-               width=600, height=min(640, (page.height or 900) - 100)),
+               width=600,
+               height=max(300, min(640, (page.height or 900) - 220))),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Créer", on_click=_confirm)],
+            inset_padding=ft.Padding(20, 40, 20, 40),
         )
         page.overlay.append(dlg)
         dlg.open = True
