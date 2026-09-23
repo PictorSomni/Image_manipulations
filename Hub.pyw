@@ -7944,8 +7944,11 @@ def main(page: ft.Page):
                        color=LIGHT_GREY),
                 ft.Divider(height=1, color=GREY),
                 content_field,
+            # Hauteur plafonnée à la fenêtre dispo (retour user : sur une
+            # fenêtre courte, une hauteur fixe faisait déborder le dialogue
+            # centré hors écran par le haut, cachant le champ Demande).
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
-               width=600, height=680),
+               width=600, height=min(680, (page.height or 900) - 100)),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Enregistrer", on_click=_confirm)],
         )
@@ -8190,7 +8193,7 @@ def main(page: ft.Page):
                 deadline_field, telephone_field, email_field, prix_field,
                 notes_field,
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
-               width=600, height=640),
+               width=600, height=min(640, (page.height or 900) - 100)),
             actions=[ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Créer", on_click=_confirm)],
         )
