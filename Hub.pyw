@@ -7783,7 +7783,7 @@ def main(page: ft.Page):
         etat_seg = ft.CupertinoSlidingSegmentedButton(
             selected_index=etat_index, controls=etat_texts,
             thumb_color=KANBAN_ETAT_COLORS.get(row["etat"], MINT),
-            on_change=_on_etat_seg_change)
+            on_change=_on_etat_seg_change, width=560)
         _style_segments(etat_seg, etat_texts)
 
         paye_index = (KANBAN_PAYE_OPTIONS.index(row["paye"])
@@ -7803,7 +7803,7 @@ def main(page: ft.Page):
             selected_index=paye_index, controls=paye_texts,
             thumb_color=KANBAN_PAYE_COLORS.get(
                 KANBAN_PAYE_OPTIONS[paye_index], VIOLET),
-            on_change=_on_paye_seg_change)
+            on_change=_on_paye_seg_change, width=560)
         _style_segments(paye_seg, paye_texts)
 
         projet_index = (KANBAN_PROJET_OPTIONS.index(row["projet"])
@@ -7823,7 +7823,7 @@ def main(page: ft.Page):
             selected_index=projet_index, controls=projet_texts,
             thumb_color=KANBAN_PROJET_COLORS.get(
                 KANBAN_PROJET_OPTIONS[projet_index], VIOLET),
-            on_change=_on_projet_seg_change)
+            on_change=_on_projet_seg_change, width=560)
         _style_segments(projet_seg, projet_texts)
 
         # Contenu de la page (texte libre, sous-tâches, check-listes) : pas
