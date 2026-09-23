@@ -7932,6 +7932,10 @@ def main(page: ft.Page):
             title=ft.Text("Détails de la tâche", size=CONSTANTS.TEXT_SM,
                           color=WHITE),
             content=ft.Column([
+                # Espace avant le 1er champ : sans lui, le libellé flottant
+                # de demande_field (collé au bord haut de la zone
+                # défilante) se fait rogner (retour user, screenshots).
+                ft.Container(height=10),
                 demande_field, deadline_field, telephone_field, email_field,
                 prix_field,
                 ft.Text("Etat", size=11, color=LIGHT_GREY),
@@ -8196,6 +8200,7 @@ def main(page: ft.Page):
             title=ft.Text("Nouvelle tâche", size=CONSTANTS.TEXT_SM,
                           color=WHITE),
             content=ft.Column([
+                ft.Container(height=10),
                 title_field,
                 *prop_dropdowns.values(),
                 deadline_field, telephone_field, email_field, prix_field,
