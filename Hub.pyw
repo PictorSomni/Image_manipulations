@@ -7983,10 +7983,14 @@ def main(page: ft.Page):
                 ft.Text(row["demande"], size=CONSTANTS.TEXT_SM, color=WHITE,
                         weight=ft.FontWeight.W_600, max_lines=3,
                         overflow=ft.TextOverflow.ELLIPSIS, expand=True),
-                ft.IconButton(ft.Icons.OPEN_IN_FULL, icon_color=LIGHT_GREY,
-                             icon_size=14, tooltip="Détails / modifier",
-                             on_click=(lambda e, r=row:
-                                       _kanban_open_details(r))),
+                ft.IconButton(
+                    ft.Icons.OPEN_IN_FULL, icon_color=DARK, icon_size=14,
+                    tooltip="Détails / modifier",
+                    style=ft.ButtonStyle(
+                        bgcolor=WHITE, shape=ft.CircleBorder(),
+                        padding=4),
+                    on_click=(lambda e, r=row:
+                              _kanban_open_details(r))),
             ], spacing=0),
         ]
         # Deadline en rouge (attire l'œil), téléphone/e-mail en blanc
