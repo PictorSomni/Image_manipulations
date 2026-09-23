@@ -331,7 +331,10 @@ def main(page: ft.Page):
         ("À faire", BLUE), ("En cours / en attente", VIOLET),
         ("Terminé", GREEN), ("A commander", YELLOW), ("Commandé", ORANGE),
     ]
-    KANBAN_PROJET_OPTIONS = ["Faire projet", "Projet envoyé",
+    # "Pas de projet" en premier (retour user) : nouvel état par défaut
+    # côté Notion pour les tâches qui n'ont pas de volet projet — remplace
+    # le "(vide)" générique, affiché comme les autres valeurs.
+    KANBAN_PROJET_OPTIONS = ["Pas de projet", "Faire projet", "Projet envoyé",
                              "Projet validé", "Fichiers prêts"]
     KANBAN_PAYE_OPTIONS = ["Non payé", "Payé"]
     KANBAN_PREVENU_OPTIONS = ["Appeler si indisponible", "Prévenu"]
@@ -345,8 +348,9 @@ def main(page: ft.Page):
                       "ia": YELLOW, "actus": RED}
 
     # Couleur par valeur, comme dans Notion (cf. _kanban_prop_menu).
-    KANBAN_PROJET_COLORS = {"Faire projet": BLUE, "Projet envoyé": YELLOW,
-                            "Projet validé": VIOLET, "Fichiers prêts": VIOLET}
+    KANBAN_PROJET_COLORS = {"Pas de projet": GREY, "Faire projet": BLUE,
+                            "Projet envoyé": YELLOW, "Projet validé": VIOLET,
+                            "Fichiers prêts": VIOLET}
     KANBAN_PAYE_COLORS = {"Non payé": RED, "Payé": GREEN}
     KANBAN_PREVENU_COLORS = {"Appeler si indisponible": VIOLET,
                              "Prévenu": VIOLET}
@@ -7619,10 +7623,16 @@ def main(page: ft.Page):
                     row, notion_prop, state_key, o)))
             for opt in options
         ]
+        # Projet ? a désormais un état par défaut explicite "Pas de
+        # projet" côté Notion (retour user) : affiché tel quel plutôt que
+        # le "—" générique quand la valeur est encore vide (anciennes
+        # tâches créées avant ce défaut).
+        empty_label = "Pas de projet" if notion_prop == "Projet ?" else "—"
         return ft.PopupMenuButton(
             content=_kanban_chip(
-                f"{current or '—'}  ▾",
-                colors.get(current, VIOLET) if current else LIGHT_GREY),
+                f"{current or empty_label}  ▾",
+                colors.get(current, VIOLET) if current
+                else colors.get(empty_label, LIGHT_GREY)),
             items=items,
         )
 
@@ -8036,7 +8046,8 @@ def main(page: ft.Page):
             border=CONSTANTS.input_border(GREY), color=WHITE)
         # Payé ? à "Non payé" par défaut (retour user), comme Etat à
         # "À faire" — les autres restent vides tant que non pertinents.
-        DEFAULT_DROPDOWN_VALUES = {"Etat": "À faire", "Payé ?": "Non payé"}
+        DEFAULT_DROPDOWN_VALUES = {"Etat": "À faire", "Payé ?": "Non payé",
+                                  "Projet ?": "Pas de projet"}
         prop_dropdowns = {}
         for notion_prop, _state_key, options, _colors in KANBAN_EDITABLE_PROPS:
             prop_dropdowns[notion_prop] = ft.Dropdown(
