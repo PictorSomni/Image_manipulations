@@ -7679,13 +7679,22 @@ def main(page: ft.Page):
             width=560, bgcolor=DARK,
             border=CONSTANTS.input_border(GREY), color=WHITE)
 
-        # Etat + Payé ? directement dans l'overlay (retour user) : en
-        # CupertinoSlidingSegmentedButton plutôt qu'un dropdown, pour
-        # pouvoir changer le prix ET l'état en une seule sauvegarde, sans
-        # repasser par le menu déroulant de la tuile juste après.
+        # Etat + Payé ? + Projet ? directement dans l'overlay (retour
+        # user) : en CupertinoSlidingSegmentedButton plutôt qu'un
+        # dropdown, pour pouvoir changer le prix ET ces statuts en une
+        # seule sauvegarde, sans repasser par le menu déroulant de la
+        # tuile juste après.
         def _style_segments(btn, texts):
             for i, t in enumerate(texts):
                 t.color = DARK if i == btn.selected_index else WHITE
+
+        # Payé ?/Projet ? peuvent légitimement rester vides (jamais
+        # renseignés, cf. "(vide)" dans _kanban_prop_menu) — un segment
+        # est TOUJOURS sélectionné visuellement (pas d'état "vide"
+        # possible sur ce contrôle), donc on ne les envoie à Notion que si
+        # l'utilisateur y a vraiment touché (seg_touched), pour ne jamais
+        # écraser silencieusement un champ vide resté tel quel.
+        seg_touched = {"etat": False, "paye": False, "projet": False}
 
         etat_names = [e for e, _c in KANBAN_ETATS]
         etat_index = (etat_names.index(row["etat"])
@@ -7693,6 +7702,7 @@ def main(page: ft.Page):
         etat_texts = [ft.Text(e, size=11) for e in etat_names]
 
         def _on_etat_seg_change(event):
+            seg_touched["etat"] = True
             _style_segments(etat_seg, etat_texts)
             etat_seg.thumb_color = KANBAN_ETAT_COLORS.get(
                 etat_names[etat_seg.selected_index], MINT)
@@ -7711,6 +7721,7 @@ def main(page: ft.Page):
         paye_texts = [ft.Text(o, size=11) for o in KANBAN_PAYE_OPTIONS]
 
         def _on_paye_seg_change(event):
+            seg_touched["paye"] = True
             _style_segments(paye_seg, paye_texts)
             paye_seg.thumb_color = KANBAN_PAYE_COLORS.get(
                 KANBAN_PAYE_OPTIONS[paye_seg.selected_index], VIOLET)
@@ -7724,6 +7735,26 @@ def main(page: ft.Page):
                 KANBAN_PAYE_OPTIONS[paye_index], VIOLET),
             on_change=_on_paye_seg_change)
         _style_segments(paye_seg, paye_texts)
+
+        projet_index = (KANBAN_PROJET_OPTIONS.index(row["projet"])
+                       if row.get("projet") in KANBAN_PROJET_OPTIONS else 0)
+        projet_texts = [ft.Text(o, size=11) for o in KANBAN_PROJET_OPTIONS]
+
+        def _on_projet_seg_change(event):
+            seg_touched["projet"] = True
+            _style_segments(projet_seg, projet_texts)
+            projet_seg.thumb_color = KANBAN_PROJET_COLORS.get(
+                KANBAN_PROJET_OPTIONS[projet_seg.selected_index], VIOLET)
+            for t in projet_texts:
+                t.update()
+            projet_seg.update()
+
+        projet_seg = ft.CupertinoSlidingSegmentedButton(
+            selected_index=projet_index, controls=projet_texts,
+            thumb_color=KANBAN_PROJET_COLORS.get(
+                KANBAN_PROJET_OPTIONS[projet_index], VIOLET),
+            on_change=_on_projet_seg_change)
+        _style_segments(projet_seg, projet_texts)
 
         # Contenu de la page (texte libre, sous-tâches, check-listes) : pas
         # une propriété de la base, donc absent de notion-query-data-sources
@@ -7768,12 +7799,18 @@ def main(page: ft.Page):
                 new_prix = row["prix"]
             if new_prix != row["prix"]:
                 props["Prix"] = new_prix
-            new_etat = etat_names[etat_seg.selected_index]
-            if new_etat != row["etat"]:
-                props["Etat"] = new_etat
-            new_paye = KANBAN_PAYE_OPTIONS[paye_seg.selected_index]
-            if new_paye != (row["paye"] or ""):
-                props["Payé ?"] = new_paye
+            if seg_touched["etat"]:
+                new_etat = etat_names[etat_seg.selected_index]
+                if new_etat != row["etat"]:
+                    props["Etat"] = new_etat
+            if seg_touched["paye"]:
+                new_paye = KANBAN_PAYE_OPTIONS[paye_seg.selected_index]
+                if new_paye != (row["paye"] or ""):
+                    props["Payé ?"] = new_paye
+            if seg_touched["projet"]:
+                new_projet = KANBAN_PROJET_OPTIONS[projet_seg.selected_index]
+                if new_projet != (row["projet"] or ""):
+                    props["Projet ?"] = new_projet
             new_content = content_field.value
             content_changed = (content_loaded["original"] is not None and
                               new_content != content_loaded["original"])
@@ -7829,6 +7866,8 @@ def main(page: ft.Page):
                 prix_field,
                 ft.Text("Etat", size=11, color=LIGHT_GREY),
                 etat_seg,
+                ft.Text("Projet ?", size=11, color=LIGHT_GREY),
+                projet_seg,
                 ft.Text("Payé ?", size=11, color=LIGHT_GREY),
                 paye_seg,
                 ft.Text(f"Créé le : {row['cree_le'] or '?'}", size=11,
