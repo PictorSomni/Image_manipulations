@@ -7978,6 +7978,10 @@ def main(page: ft.Page):
             threading.Thread(target=_load_content, daemon=True).start()
 
     def _kanban_item_card(row):
+        # Couleur de fond de la tuile (cf. plus bas) calculée en amont :
+        # le bouton Détails reprend cette même teinte en pleine opacité
+        # (retour user : un fond blanc pur était trop flashy).
+        etat_color = KANBAN_ETAT_COLORS.get(row["etat"], GREY)
         rows = [
             ft.Row([
                 ft.Text(row["demande"], size=CONSTANTS.TEXT_SM, color=WHITE,
@@ -7987,7 +7991,7 @@ def main(page: ft.Page):
                     ft.Icons.OPEN_IN_FULL, icon_color=DARK, icon_size=14,
                     tooltip="Détails / modifier",
                     style=ft.ButtonStyle(
-                        bgcolor=WHITE, shape=ft.CircleBorder(),
+                        bgcolor=etat_color, shape=ft.CircleBorder(),
                         padding=4),
                     on_click=(lambda e, r=row:
                               _kanban_open_details(r))),
@@ -8027,7 +8031,6 @@ def main(page: ft.Page):
         # Fond de la tuile teinté selon l'Etat (retour user) — en plus de
         # la couleur de colonne, pour repérer le statut même une fois les
         # colonnes défilées hors champ horizontalement.
-        etat_color = KANBAN_ETAT_COLORS.get(row["etat"], GREY)
         card = ft.Container(
             content=ft.Column(rows, spacing=4, tight=True),
             bgcolor=ft.Colors.with_opacity(0.18, etat_color),
