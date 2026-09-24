@@ -8305,10 +8305,12 @@ def main(page: ft.Page):
         column_body = ft.Container(
             content=ft.Column([
                 ft.Container(
-                    content=ft.Text(etat, size=12, color=color,
+                    # Même style que les pastilles (_kanban_chip) :
+                    # fond quasi plein + texte noir (retour user).
+                    content=ft.Text(etat, size=14, color=ft.Colors.BLACK,
                                     weight=ft.FontWeight.W_700,
                                     text_align=ft.TextAlign.CENTER),
-                    bgcolor=ft.Colors.with_opacity(0.15, color),
+                    bgcolor=ft.Colors.with_opacity(0.85, color),
                     border_radius=6, padding=ft.Padding(8, 4, 8, 4),
                     # Aère sous la barre de recherche (retour user).
                     margin=ft.Margin(0, 12, 0, 0)),
