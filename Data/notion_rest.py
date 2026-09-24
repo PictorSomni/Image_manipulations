@@ -6,7 +6,8 @@ utilisés par le Kanban, et mêmes formes de retour (chaîne JSON, ou
 Avantage : marche sur n'importe quelle machine, quel que soit le compte
 Notion connecté (retour user : Mac du boulot sur le compte du collègue).
 
-Clé lue dans ~/.notion_token (ou ~/.notion) (hors du repo, jamais commitée). Absente ->
+Clé lue dans ~/.notion_token ou ~/.notion (hors du repo, jamais
+commitée). Absente ->
 TOKEN vide -> Hub retombe sur la connexion MCP/OAuth.
 """
 import json
