@@ -8293,7 +8293,9 @@ def main(page: ft.Page):
 
     def _kanban_col_width():
         n = len(KANBAN_ETATS)
-        avail = (page.width or 1200) - 32 - KANBAN_COL_SPACING * (n - 1)
+        # Marge 64 (pas 32) : sous Windows, la barre de défilement et le
+        # cadre de fenêtre rognaient la dernière colonne (retour user).
+        avail = (page.width or 1200) - 64 - KANBAN_COL_SPACING * (n - 1)
         return max(KANBAN_COL_MIN_WIDTH, avail / n)
 
     def _kanban_column(etat, color):
