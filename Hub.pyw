@@ -2716,7 +2716,7 @@ def main(page: ft.Page):
             page.update()
             return
         exts = (CONSTANTS.IMAGE_EXTS | CONSTANTS.HUB_VECTOR_EXTS
-                | CONSTANTS.RAW_EXTS)
+                | CONSTANTS.RAW_EXTS | CONSTANTS.VIDEO_EXTS)
         dirs, imgs, other = [], [], []
         mtimes = {}
         for e in entries:
@@ -3343,7 +3343,7 @@ def main(page: ft.Page):
             if rendered:
                 return image_ops.compensate_jpeg_bytes(rendered)
             return path
-        if ext in CONSTANTS.HUB_VECTOR_EXTS:
+        if ext in CONSTANTS.HUB_VECTOR_EXTS | CONSTANTS.VIDEO_EXTS:
             rendered = thumb_cache.get_or_generate(path, size_px=1600)
             if rendered:
                 return image_ops.compensate_jpeg_bytes(rendered)
@@ -3427,7 +3427,8 @@ def main(page: ft.Page):
         if path in viewer_rotated_bytes:
             return
         if os.path.splitext(path)[1].lower() in (
-                CONSTANTS.HUB_VECTOR_EXTS | CONSTANTS.RAW_EXTS):
+                CONSTANTS.HUB_VECTOR_EXTS | CONSTANTS.RAW_EXTS
+                | CONSTANTS.VIDEO_EXTS):
             return
 
         def _work():
@@ -3856,6 +3857,12 @@ def main(page: ft.Page):
                        _launch_editor_for_current("Augmentation IA.py")))
 
     def _open_viewer(start_path):
+        # Vidéo : lecteur système (lecture intégrée = flet-video + libmpv,
+        # pas justifié). Dans la visionneuse, elle apparaît en image fixe.
+        if (os.path.splitext(start_path)[1].lower()
+                in CONSTANTS.VIDEO_EXTS):
+            _open_file_default(start_path)
+            return
         if selected and start_path in selected:
             paths = [p for p in content["imgs"] if p in selected]
         elif start_path in content["imgs"]:

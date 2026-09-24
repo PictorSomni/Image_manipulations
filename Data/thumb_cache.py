@@ -222,6 +222,33 @@ def _render_raw(image_path: str):
         return img.rotate(rotate, expand=True) if rotate else img
 
 
+def _render_video(image_path: str):
+    """Image à ~10 % de la durée (évite le noir d'ouverture), avec un
+    triangle "lecture" pour distinguer la vidéo d'une photo."""
+    import cv2
+    from PIL import ImageDraw
+    cap = cv2.VideoCapture(image_path)
+    try:
+        count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        if count > 0:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(count * 0.1))
+        ok, frame = cap.read()
+    finally:
+        cap.release()
+    if not ok:
+        return None
+    img = _PILImage.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    w, h = img.size
+    r = min(w, h) // 8
+    cx, cy = w // 2, h // 2
+    draw = ImageDraw.Draw(img, "RGBA")
+    draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(0, 0, 0, 140))
+    draw.polygon([(cx - r * 0.35, cy - r * 0.5),
+                  (cx - r * 0.35, cy + r * 0.5),
+                  (cx + r * 0.55, cy)], fill=(255, 255, 255, 230))
+    return img
+
+
 def _generate_b64(
     image_path: str,
     size_px: int,
@@ -239,6 +266,10 @@ def _generate_b64(
                 return None
         elif ext in CONSTANTS.RAW_EXTS:
             img = _render_raw(image_path)
+        elif ext in CONSTANTS.VIDEO_EXTS:
+            img = _render_video(image_path)
+            if img is None:
+                return None
         else:
             img = _PILImage.open(image_path)
             icc_profile = img.info.get("icc_profile")

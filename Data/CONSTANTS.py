@@ -72,6 +72,11 @@ RAW_EXTS = frozenset({
     ".nef", ".cr2", ".cr3", ".arw", ".dng", ".raf", ".orf", ".rw2",
     ".pef", ".srw",
 })
+# Hub.pyw — vidéos : miniature = une image à 10 % de la durée (OpenCV,
+# cf. thumb_cache._render_video) ; ouverture = lecteur système.
+VIDEO_EXTS = frozenset({
+    ".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm", ".mts", ".3gp",
+})
 NOTEPAD_EXTS = frozenset({
     ".txt", ".md", ".log", ".ini", ".cfg", ".yaml", ".yml",
     ".rtf", ".py", ".pyw", ".toml", ".sh", ".bat", ".csv",
