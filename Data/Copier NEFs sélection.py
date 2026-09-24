@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Déplace dans ``RAW/SELECTION/`` les fichiers RAW correspondant aux photos
-de la sélection (ou JPG). Les autres RAW restent dans le dossier RAW.
+de la sélection (ou JPG), et les autres RAW dans ``RAW/AUTRES/``.
 
 Détection automatique des dossiers depuis le dossier de départ :
   - Nom "RAW"             → cherche SELECTION*/JPG dans le dossier parent.
@@ -44,6 +44,7 @@ RAW_EXTENSIONS = {
 }
 
 SELECTION_SUBFOLDER_NAME = "SELECTION"
+OTHERS_SUBFOLDER_NAME    = "AUTRES"
 COMMANDE_FILENAME        = "commande.txt"
 
 # Préfixe kiosk : ex. "2X_102x152_DSC1234" → groupe 1 = "DSC1234"
@@ -202,11 +203,22 @@ def run(start_folder: Path) -> None:
         print("[ok] Aucun RAW correspondant à la sélection.", flush=True)
         return
 
-    moved_count, errors = _move_raws(matching_files, raw_folder / SELECTION_SUBFOLDER_NAME)
+    # Liste des autres RAW établie AVANT le déplacement de la sélection.
+    matching_set = set(matching_files)
+    other_files = [
+        entry for entry in sorted(raw_folder.iterdir())
+        if entry.is_file() and entry.suffix.lower() in RAW_EXTENSIONS
+        and entry not in matching_set
+    ]
 
-    for error_line in errors:
-        print(f"[WARN] {error_line}", flush=True)
-    print(f"[ok] {moved_count} RAW(s) déplacés → {raw_folder.name}/{SELECTION_SUBFOLDER_NAME}/", flush=True)
+    for files, subfolder in ((matching_files, SELECTION_SUBFOLDER_NAME),
+                             (other_files, OTHERS_SUBFOLDER_NAME)):
+        if not files:
+            continue
+        moved_count, errors = _move_raws(files, raw_folder / subfolder)
+        for error_line in errors:
+            print(f"[WARN] {error_line}", flush=True)
+        print(f"[ok] {moved_count} RAW(s) déplacés → {raw_folder.name}/{subfolder}/", flush=True)
 
 
 # ── Résolution du dossier de départ ───────────────────────────────────
