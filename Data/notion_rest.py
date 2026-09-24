@@ -158,7 +158,7 @@ def _query(args):
             body["start_cursor"] = cursor
         res = _req("POST", f"/data_sources/{ds_id}/query", body)
         for pg in res["results"]:
-            # URL courte (id seul) : Hub en extrait page_id par le dernier segment
+            # URL courte (id seul) : Hub en extrait page_id (dernier segment)
             row = {"url": "https://www.notion.so/" + pg["id"].replace("-", "")}
             for name, p in pg["properties"].items():
                 key = f"date:{name}:start" if p["type"] == "date" else name
