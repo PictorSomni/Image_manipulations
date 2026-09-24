@@ -2091,7 +2091,7 @@ def main(page: ft.Page):
 
         _run_bg_action(f"Décompression de {len(zips)} archive(s)", _work)
 
-    def _copy_into(paths, dest_folder):
+    def _copy_into(paths, dest_folder, move=False):
         name = os.path.basename(dest_folder)
         os.makedirs(dest_folder, exist_ok=True)
         copied = 0
@@ -2104,27 +2104,28 @@ def main(page: ft.Page):
                 ORANGE)
             dest = _unique_dest(dest_folder, os.path.basename(src))
             try:
-                shutil.copy2(src, dest)
+                (shutil.move if move else shutil.copy2)(src, dest)
                 copied += 1
             except Exception as exc:
                 _log_to_terminal(f"[ERREUR] {os.path.basename(src)} : {exc}", RED)
         if copied:
+            verb = "déplacé(s)" if move else "copié(s)"
             _log_to_terminal(
-                f"[OK] {copied} fichier(s) copié(s) dans {name}/", BLUE)
+                f"[OK] {copied} fichier(s) {verb} dans {name}/", BLUE)
 
     def _do_copy_to_selection(paths):
         folder = state["folder"]
         if not folder:
             return
-        # Le reste du dossier (fichiers non sélectionnés) va dans AUTRES
-        # (retour user) — dossiers exclus, seulement les fichiers.
+        # Le reste du dossier (fichiers non sélectionnés) est DÉPLACÉ dans
+        # AUTRES (retour user) — dossiers exclus, seulement les fichiers.
         chosen = set(paths)
         others = [p for p in content["imgs"] + content["other"]
                   if p not in chosen]
         selection_folder = os.path.join(folder, "SELECTION")
         _copy_into(paths, selection_folder)
         if others:
-            _copy_into(others, os.path.join(folder, "AUTRES"))
+            _copy_into(others, os.path.join(folder, "AUTRES"), move=True)
         _navigate(selection_folder)
 
     def _reveal_in_explorer(paths):
