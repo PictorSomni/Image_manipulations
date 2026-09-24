@@ -66,6 +66,12 @@ IMAGE_EXTS = frozenset({
 # scripts (Redimensionner, Conversion JPG…) ouvrent leurs fichiers avec
 # PIL, qui ne sait pas lire ces formats.
 HUB_VECTOR_EXTS = frozenset({".svg", ".pdf"})
+# Hub.pyw — RAW d'appareil photo : miniature + plein écran via l'aperçu
+# JPEG embarqué (rawpy, cf. thumb_cache._render_raw), pas d'édition.
+RAW_EXTS = frozenset({
+    ".nef", ".cr2", ".cr3", ".arw", ".dng", ".raf", ".orf", ".rw2",
+    ".pef", ".srw",
+})
 NOTEPAD_EXTS = frozenset({
     ".txt", ".md", ".log", ".ini", ".cfg", ".yaml", ".yml",
     ".rtf", ".py", ".pyw", ".toml", ".sh", ".bat", ".csv",

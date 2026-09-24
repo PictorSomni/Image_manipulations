@@ -2715,7 +2715,8 @@ def main(page: ft.Page):
             _render_folder_tabs()
             page.update()
             return
-        exts = CONSTANTS.IMAGE_EXTS | CONSTANTS.HUB_VECTOR_EXTS
+        exts = (CONSTANTS.IMAGE_EXTS | CONSTANTS.HUB_VECTOR_EXTS
+                | CONSTANTS.RAW_EXTS)
         dirs, imgs, other = [], [], []
         mtimes = {}
         for e in entries:
@@ -3335,6 +3336,13 @@ def main(page: ft.Page):
             if rendered:
                 return image_ops.compensate_jpeg_bytes(rendered)
             return path
+        if ext in CONSTANTS.RAW_EXTS:
+            # Plus grand que les vectoriels : sert à trier/juger la netteté.
+            rendered = thumb_cache.get_or_generate(path, size_px=2560,
+                                                   quality=90)
+            if rendered:
+                return image_ops.compensate_jpeg_bytes(rendered)
+            return path
         if ext in CONSTANTS.HUB_VECTOR_EXTS:
             rendered = thumb_cache.get_or_generate(path, size_px=1600)
             if rendered:
@@ -3418,7 +3426,8 @@ def main(page: ft.Page):
         # aperçus plus saturés sur écran large gamut, P3/CMJN délavés).
         if path in viewer_rotated_bytes:
             return
-        if os.path.splitext(path)[1].lower() in CONSTANTS.HUB_VECTOR_EXTS:
+        if os.path.splitext(path)[1].lower() in (
+                CONSTANTS.HUB_VECTOR_EXTS | CONSTANTS.RAW_EXTS):
             return
 
         def _work():

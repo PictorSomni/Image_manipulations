@@ -198,6 +198,30 @@ def _open_db(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+def _render_raw(image_path: str):
+    """Aperçu JPEG embarqué d'un RAW (instantané, pleine taille chez la
+    plupart des boîtiers) ; dématriçage demi-taille si absent."""
+    import rawpy
+    with rawpy.imread(image_path) as raw:
+        try:
+            thumb = raw.extract_thumb()
+        except (rawpy.LibRawNoThumbnailError,
+                rawpy.LibRawUnsupportedThumbnailError):
+            return _PILImage.fromarray(raw.postprocess(half_size=True))
+        if thumb.format == rawpy.ThumbFormat.JPEG:
+            img = _PILImage.open(io.BytesIO(thumb.data))
+            img.load()
+        else:
+            img = _PILImage.fromarray(thumb.data)
+        # L'aperçu embarqué n'a souvent pas d'EXIF d'orientation : celle du
+        # RAW (flip LibRaw) s'applique, sauf si l'aperçu est déjà en
+        # portrait (certains boîtiers le pivotent eux-mêmes).
+        rotate = {3: 180, 5: 90, 6: 270}.get(raw.sizes.flip)
+        if rotate in (90, 270) and img.height > img.width:
+            rotate = None
+        return img.rotate(rotate, expand=True) if rotate else img
+
+
 def _generate_b64(
     image_path: str,
     size_px: int,
@@ -213,6 +237,8 @@ def _generate_b64(
             img = _render_vector(image_path, ext, size_px)
             if img is None:
                 return None
+        elif ext in CONSTANTS.RAW_EXTS:
+            img = _render_raw(image_path)
         else:
             img = _PILImage.open(image_path)
             icc_profile = img.info.get("icc_profile")

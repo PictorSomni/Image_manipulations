@@ -24,6 +24,10 @@ Wand>=0.6.11
 
 numpy>=1.24.0
 
+# Lecture des RAW d'appareil photo dans Hub (miniature + plein écran via
+# l'aperçu JPEG embarqué, cf. Data/thumb_cache.py:_render_raw)
+rawpy>=0.24.0
+
 # scikit-image : retiré. Le détourage instantané (flood fill, sans modèle IA)
 # est passé à cv2.floodFill en plage flottante, qui suit les dégradés de fond
 # — ce dont skimage.segmentation.flood est incapable par construction, cf.
