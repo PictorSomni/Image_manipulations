@@ -10314,7 +10314,7 @@ def main(page: ft.Page):
         ("Sélection", [
             ("Déplacer sélection → SELECTION", ft.Icons.FOLDER_COPY_OUTLINED, BLUE,
              _launch_copy_to_selection),
-            ("Copier NEFs → SELECTION", ft.Icons.IMAGE_SEARCH_OUTLINED, BLUE,
+            ("Déplacer RAW → SELECTION", ft.Icons.IMAGE_SEARCH_OUTLINED, BLUE,
              lambda e: _launch_tool("Copier NEFs sélection.py")),
             ("Copier selon score IA → SELECTION",
              ft.Icons.WORKSPACE_PREMIUM_OUTLINED, BLUE, _launch_copy_scored),
