@@ -9852,6 +9852,11 @@ def main(page: ft.Page):
             if featured:
                 env["COLLAGE_FEATURED_FILES"] = "|".join(
                     os.path.basename(p) for p in featured)
+            # Photos de l'aperçu passées explicitement (retour user : 9
+            # sélectionnées sur 15, le rendu final prenait tout le dossier
+            # — la sélection n'arrivait plus jusqu'à _launch_tool).
+            env["SELECTED_FILES"] = "|".join(
+                os.path.basename(p) for p in photo_paths)
             _launch_tool("Montage collage.py", extra_env=env)
 
         # Menus à gauche, aperçu à droite (retour user) — l'aperçu se
