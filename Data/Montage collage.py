@@ -440,9 +440,17 @@ def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
             tile = flat
         canvas.paste(tile, (round(x), round(y)))
         if psd_layers is not None:
+            # Calque = photo COMPLÈTE (non recadrée), centrée comme sur la
+            # planche, sous un masque de la taille de la case : on peut la
+            # recaler dans Affinity (retour user), comme en mosaïque.
+            full = (resized if fit_mode == "contain"
+                    else _cover_resize(source, box_w, box_h))
             left, top = round(x), round(y)
-            psd_layers.append((key, tile.convert("RGBA"), left, top, left,
-                               top, left + tile.width, top + tile.height))
+            psd_layers.append((
+                key, full.convert("RGBA"),
+                left + (box_w - full.width) // 2,
+                top + (box_h - full.height) // 2,
+                left, top, left + box_w, top + box_h))
     return canvas
 
 
