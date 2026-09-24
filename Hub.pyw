@@ -54,6 +54,7 @@ import image_ops
 import ai_ops
 import thumb_cache
 import mcp_client
+import notion_rest
 import credentials
 import mtp_devices
 import rss_feeds
@@ -7592,6 +7593,10 @@ def main(page: ft.Page):
     #  panneau se recharge à chaque fois qu'on revient dessus, plus un
     #  bouton "Actualiser" manuel.
     # ═════════════════════════════════════════════════════════════════════
+    # Clé API Notion (~/.notion_token) si présente : marche quel que soit
+    # le compte Notion de la machine (cf. Data/notion_rest.py) ; sinon MCP.
+    _notion_call = (notion_rest.call_tool if notion_rest.TOKEN
+                    else mcp_client.mcp_call_tool)
     kanban_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY)
     kanban_columns = {etat: ft.ListView(expand=True, spacing=8,
                                         padding=ft.Padding(6, 4, 6, 8))
@@ -7631,7 +7636,7 @@ def main(page: ft.Page):
             # Notion attend `null` (pas une chaîne vide) pour vider un
             # select/status — cf. "(vide)" dans _kanban_prop_menu.
             api_value = new_value if new_value else None
-            result = mcp_client.mcp_call_tool(
+            result = _notion_call(
                 "mcp__notion__notion-update-page",
                 {"page_id": row["page_id"], "command": "update_properties",
                  "properties": {notion_prop: api_value}})
@@ -7897,7 +7902,7 @@ def main(page: ft.Page):
             def _work():
                 errors = []
                 if props:
-                    result = mcp_client.mcp_call_tool(
+                    result = _notion_call(
                         "mcp__notion__notion-update-page",
                         {"page_id": row["page_id"],
                          "command": "update_properties",
@@ -7905,7 +7910,7 @@ def main(page: ft.Page):
                     if result.startswith("Erreur"):
                         errors.append(result)
                 if content_changed:
-                    result = mcp_client.mcp_call_tool(
+                    result = _notion_call(
                         "mcp__notion__notion-update-page",
                         {"page_id": row["page_id"],
                          "command": "replace_content",
@@ -7974,7 +7979,7 @@ def main(page: ft.Page):
         page.update()
 
         def _load_content():
-            raw = mcp_client.mcp_call_tool(
+            raw = _notion_call(
                 "mcp__notion__notion-fetch", {"id": row["page_id"]})
             body = None if raw.startswith("Erreur") else \
                 _kanban_extract_page_content(raw)
@@ -8183,7 +8188,7 @@ def main(page: ft.Page):
                 page_data = {"properties": properties}
                 if content:
                     page_data["content"] = content
-                result = mcp_client.mcp_call_tool(
+                result = _notion_call(
                     "mcp__notion__notion-create-pages",
                     {"parent": {"type": "data_source_id",
                                 "data_source_id": data_source_id},
@@ -8230,7 +8235,7 @@ def main(page: ft.Page):
 
         def _work():
             try:
-                raw = mcp_client.mcp_call_tool(
+                raw = _notion_call(
                     "mcp__notion__notion-query-data-sources",
                     {"data": {"mode": "rows",
                               "data_source_url": KANBAN_DATA_SOURCE,
