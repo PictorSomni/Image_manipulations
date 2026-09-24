@@ -6,7 +6,7 @@ utilisés par le Kanban, et mêmes formes de retour (chaîne JSON, ou
 Avantage : marche sur n'importe quelle machine, quel que soit le compte
 Notion connecté (retour user : Mac du boulot sur le compte du collègue).
 
-Clé lue dans ~/.notion_token (hors du repo, jamais commitée). Absente ->
+Clé lue dans ~/.notion_token (ou ~/.notion) (hors du repo, jamais commitée). Absente ->
 TOKEN vide -> Hub retombe sur la connexion MCP/OAuth.
 """
 import json
@@ -15,12 +15,15 @@ import ssl
 import urllib.error
 import urllib.request
 
-_TOKEN_FILE = os.path.expanduser("~/.notion_token")
-try:
-    with open(_TOKEN_FILE, encoding="utf-8") as f:
-        TOKEN = f.read().strip()
-except OSError:
-    TOKEN = ""
+# ".notion" accepté aussi : c'est le nom que Charles a donné au fichier.
+TOKEN = ""
+for _name in ("~/.notion_token", "~/.notion"):
+    try:
+        with open(os.path.expanduser(_name), encoding="utf-8-sig") as f:
+            TOKEN = f.read().strip()
+        break
+    except OSError:
+        pass
 
 _API = "https://api.notion.com/v1"
 _VERSION = "2025-09-03"  # data sources (collection://...) = cette version
