@@ -8306,11 +8306,17 @@ def main(page: ft.Page):
             content=ft.Column([
                 ft.Container(
                     content=ft.Text(etat, size=12, color=color,
-                                    weight=ft.FontWeight.W_700),
+                                    weight=ft.FontWeight.W_700,
+                                    text_align=ft.TextAlign.CENTER),
                     bgcolor=ft.Colors.with_opacity(0.15, color),
-                    border_radius=6, padding=ft.Padding(8, 4, 8, 4)),
+                    border_radius=6, padding=ft.Padding(8, 4, 8, 4),
+                    # Aère sous la barre de recherche (retour user).
+                    margin=ft.Margin(0, 12, 0, 0)),
                 kanban_columns[etat],
-            ], spacing=6, expand=True, tight=True),
+            ], spacing=6, expand=True, tight=True,
+               # En-têtes pleine largeur de colonne, donc alignés entre
+               # eux (retour user) — START les réduisait à leur texte.
+               horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
             width=_kanban_col_width(), padding=ft.Padding(4, 0, 4, 0))
         kanban_column_targets[etat] = column_body
         return ft.DragTarget(
