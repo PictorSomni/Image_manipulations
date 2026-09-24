@@ -9489,6 +9489,24 @@ def main(page: ft.Page):
         rotate_section = rotate_btn
         rotate_section.visible = False
 
+        # Format de sortie du mode grille (retour user) : PSD = un calque
+        # par photo, à la place du JPG (pas les deux).
+        grid_psd = {"value": False}
+
+        def _on_format_change(e):
+            grid_psd["value"] = format_btn.selected_index == 1
+            _style_segments(format_btn, format_texts)
+            for t in format_texts:
+                t.update()
+
+        format_texts = [ft.Text("JPG", size=CONSTANTS.TEXT_SM),
+                        ft.Text("PSD", size=CONSTANTS.TEXT_SM)]
+        format_btn = ft.CupertinoSlidingSegmentedButton(
+            selected_index=0, controls=format_texts,
+            thumb_color=PINK, on_change=_on_format_change)
+        _style_segments(format_btn, format_texts)
+        format_btn.visible = False
+
         size_slider = ft.Slider(
             min=0, max=100, divisions=20,
             value=CONSTANTS.COLLAGE_SIZE_VARIATION_DEFAULT,
@@ -9556,6 +9574,7 @@ def main(page: ft.Page):
             fit_section.visible = is_grid
             gap_section.visible = is_grid
             rotate_section.visible = is_grid
+            format_btn.visible = is_grid
             max_per_sheet_section.visible = is_grid
             margin_field.visible = not is_grid
             _style_segments(mode_btn, mode_texts)
@@ -9820,6 +9839,7 @@ def main(page: ft.Page):
                     "1" if grid_auto_rotate["value"] else "0",
                 "COLLAGE_GRID_MAX_PER_SHEET":
                     str(max_per_sheet_mode["value"] or 0),
+                "COLLAGE_GRID_PSD": "1" if grid_psd["value"] else "0",
                 "COLLAGE_SIZE_VARIATION": str(size_slider.value),
                 "COLLAGE_ROTATION_VARIATION": str(rotation_slider.value),
                 # Même tirage que l'aperçu affiché en dernier (si généré) :
@@ -9863,6 +9883,7 @@ def main(page: ft.Page):
                 gap_section,
                 rotate_section,
                 max_per_sheet_section,
+                format_btn,
             ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=320)
 

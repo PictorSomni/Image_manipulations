@@ -389,7 +389,7 @@ def _contain_resize(image, box_w, box_h):
 def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
                         fit_mode, load_source,
                         log=lambda msg: print(msg, flush=True),
-                        auto_rotate=True, slots=None):
+                        auto_rotate=True, slots=None, psd_layers=None):
     """Place chaque photo dans une grille auto-calculée (compute_grid_layout)
     sur fond blanc plein — prêt à imprimer directement, pas de calque PSD.
     `fit_mode` "cover" remplit chaque case (recadre, cf. fit_and_rotate) ;
@@ -407,6 +407,8 @@ def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
     orientation (portrait/paysage) ne correspond pas à celle de sa case —
     réduit le recadrage en "cover" et les bandes blanches en "contain".
     Désactivable pour respecter l'orientation d'origine des photos.
+    `psd_layers` : liste à remplir (format de write_psd_file) avec un
+    calque par case, pour la sortie PSD (retour user).
     Renvoie une image RGB."""
     cells = compute_grid_layout(slots or len(photo_keys), canvas_w, canvas_h,
                                 margin_px, gap_px)
@@ -437,6 +439,10 @@ def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
             flat.paste(tile, (0, 0), tile)
             tile = flat
         canvas.paste(tile, (round(x), round(y)))
+        if psd_layers is not None:
+            left, top = round(x), round(y)
+            psd_layers.append((key, tile.convert("RGBA"), left, top, left,
+                               top, left + tile.width, top + tile.height))
     return canvas
 
 
@@ -658,6 +664,7 @@ def main():
         # ou 9 par planche plutôt que toutes sur une seule) — 0/absent =
         # toutes sur une seule feuille (comportement historique).
         max_per_sheet = int(env_float("COLLAGE_GRID_MAX_PER_SHEET", 0)) or None
+        want_psd = os.environ.get("COLLAGE_GRID_PSD", "0").strip() == "1"
         # Même tirage que l'aperçu (retour user : le dé ne faisait rien en
         # mode grille, qui plaçait toujours les photos dans l'ordre des
         # fichiers) — répartition aléatoire des photos entre les cases/
@@ -672,11 +679,22 @@ def main():
               f"{len(photo_names)} photo(s) sur {len(sheets)} feuille(s), "
               f"mode={grid_fit}, rotation_auto={auto_rotate}", flush=True)
         for i, sheet_photos in enumerate(sheets, start=1):
+            # Fond blanc en calque du bas : les cases vides et marges
+            # restent blanches dans le PSD (sinon transparentes).
+            layers = ([("Fond", Image.new("RGBA", (canvas_w, canvas_h),
+                                          (255, 255, 255, 255)),
+                        0, 0, 0, 0, canvas_w, canvas_h)]
+                      if want_psd else None)
             canvas = render_grid_montage(
                 sheet_photos, canvas_w, canvas_h, margin_px, gap_px,
                 grid_fit, load_source, auto_rotate=auto_rotate,
-                slots=max_per_sheet)
+                slots=max_per_sheet, psd_layers=layers)
             suffix = "" if len(sheets) == 1 else f" {i}"
+            # PSD à la place du JPG ; JPG en secours si pytoshop absent.
+            if want_psd and write_psd_file(
+                    out_dir / f"Planche{suffix}.psd",
+                    canvas.convert("RGBA"), layers, canvas_w, canvas_h):
+                continue
             out_path = out_dir / f"Planche{suffix}.jpg"
             canvas.save(out_path, quality=92)
             print(f"[ok] Planche{suffix} → {out_path.name} "
