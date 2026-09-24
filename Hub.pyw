@@ -2124,7 +2124,8 @@ def main(page: ft.Page):
                   if p not in chosen]
         selection_folder = os.path.join(folder, "SELECTION")
         _copy_into(paths, selection_folder, move=True)
-        if others:
+        # Sans sélection, tout va dans SELECTION : pas de AUTRES.
+        if selected and others:
             _copy_into(others, os.path.join(folder, "AUTRES"), move=True)
         _navigate(selection_folder)
 
