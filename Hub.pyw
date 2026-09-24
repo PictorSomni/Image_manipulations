@@ -2117,13 +2117,13 @@ def main(page: ft.Page):
         folder = state["folder"]
         if not folder:
             return
-        # Le reste du dossier (fichiers non sélectionnés) est DÉPLACÉ dans
-        # AUTRES (retour user) — dossiers exclus, seulement les fichiers.
+        # Tout est DÉPLACÉ (retour user) : sélection -> SELECTION, reste
+        # des fichiers -> AUTRES. Dossiers exclus, seulement les fichiers.
         chosen = set(paths)
         others = [p for p in content["imgs"] + content["other"]
                   if p not in chosen]
         selection_folder = os.path.join(folder, "SELECTION")
-        _copy_into(paths, selection_folder)
+        _copy_into(paths, selection_folder, move=True)
         if others:
             _copy_into(others, os.path.join(folder, "AUTRES"), move=True)
         _navigate(selection_folder)
@@ -10306,7 +10306,7 @@ def main(page: ft.Page):
         # à désigner un dossier/fichier (icône de dossier, étoile favori),
         # jamais une action.
         ("Sélection", [
-            ("Copier sélection → SELECTION", ft.Icons.FOLDER_COPY_OUTLINED, BLUE,
+            ("Déplacer sélection → SELECTION", ft.Icons.FOLDER_COPY_OUTLINED, BLUE,
              _launch_copy_to_selection),
             ("Copier NEFs → SELECTION", ft.Icons.IMAGE_SEARCH_OUTLINED, BLUE,
              lambda e: _launch_tool("Copier NEFs sélection.py")),
