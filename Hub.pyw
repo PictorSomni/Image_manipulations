@@ -10995,6 +10995,13 @@ def main(page: ft.Page):
                     except Exception:
                         pass
 
+                    # Python <= 3.11 (Mac) : le shim distutils de
+                    # setuptools plante (AssertionError) et empêche de
+                    # compiler pytoshop — forcer le distutils de Python,
+                    # hérité par tous les pip lancés ici (retour user).
+                    if sys.version_info < (3, 12):
+                        os.environ.setdefault("SETUPTOOLS_USE_DISTUTILS",
+                                              "stdlib")
                     _log_to_terminal(
                         "🔌 Mise à jour de flet et flet-desktop…", YELLOW)
                     flet_upgrade_proc = subprocess.Popen(
@@ -11066,7 +11073,8 @@ def main(page: ft.Page):
                             for req in filter(None, reqs):
                                 if subprocess.run(
                                         [sys.executable, "-m", "pip",
-                                         "install", req, "--upgrade"],
+                                         "install", req, "--upgrade",
+                                         "--no-build-isolation"],
                                         capture_output=True,
                                         cwd=_APP_DIR).returncode:
                                     failed.append(req)
