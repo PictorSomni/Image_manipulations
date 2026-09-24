@@ -8401,6 +8401,8 @@ def main(page: ft.Page):
         ft.Row(
             [_kanban_column(etat, color) for etat, color in KANBAN_ETATS],
             expand=True, spacing=KANBAN_COL_SPACING,
+            # Centrées : marge gauche = marge droite (retour user).
+            alignment=ft.MainAxisAlignment.CENTER,
             vertical_alignment=ft.CrossAxisAlignment.STRETCH,
             scroll=ft.ScrollMode.AUTO),
     ], expand=True, spacing=0,
