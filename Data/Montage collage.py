@@ -772,6 +772,21 @@ def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h):
               ".psd non généré, aperçu PNG généré à la place.", flush=True)
         return False
 
+    class _SimpleMask(psd_layer_mod.LayerMask):
+        """pytoshop écrit TOUJOURS le bloc long (36 octets) qui annonce un
+        2e masque "real user mask", absent ici : Affinity affiche alors
+        "Missing mask data" (retour user). Bloc court standard (20
+        octets) : rectangle + couleur par défaut + flags + 2 de padding."""
+
+        def length(self, header):
+            return 20
+
+        def write(self, fd, header):
+            import struct
+            fd.write(struct.pack(">IiiiiBBxx", 20, self.top, self.left,
+                                 self.bottom, self.right,
+                                 255 if self.default_color else 0, 0))
+
     records = []
     for layer_name, full_img, full_left, full_top, mask_left, mask_top, \
             mask_right, mask_bottom in psd_layers:
@@ -803,7 +818,7 @@ def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h):
             channels=channels, top=full_top, left=full_left,
             bottom=full_top + arr.shape[0], right=full_left + arr.shape[1],
             name=layer_name, opacity=255)
-        record.mask = psd_layer_mod.LayerMask(
+        record.mask = _SimpleMask(
             top=mask_top, left=mask_left, bottom=mask_bottom,
             right=mask_right, default_color=False)
         records.append(record)
