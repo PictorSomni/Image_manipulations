@@ -11050,10 +11050,33 @@ def main(page: ft.Page):
                             except Exception:
                                 pass
                         else:
+                            # pip -r est tout-ou-rien : un seul paquet en
+                            # échec bloquait tous les autres (ex. pytoshop
+                            # jamais installé, retour user). Reprise un par
+                            # un pour installer tout ce qui peut l'être.
                             _log_to_terminal(
                                 f"pip a terminé avec le code "
-                                f"{pip_install_process.returncode}.",
-                                YELLOW)
+                                f"{pip_install_process.returncode} — "
+                                f"reprise paquet par paquet…", YELLOW)
+                            with open(requirements_file_path,
+                                      encoding="utf-8") as f:
+                                reqs = [ln.split("#", 1)[0].strip()
+                                        for ln in f]
+                            failed = []
+                            for req in filter(None, reqs):
+                                if subprocess.run(
+                                        [sys.executable, "-m", "pip",
+                                         "install", req, "--upgrade"],
+                                        capture_output=True,
+                                        cwd=_APP_DIR).returncode:
+                                    failed.append(req)
+                            if failed:
+                                _log_to_terminal(
+                                    "⚠ Échec d'installation : "
+                                    + ", ".join(failed), YELLOW)
+                            else:
+                                _log_to_terminal(
+                                    "[OK] Dépendances installées.", GREEN)
 
                 _log_to_terminal("🔄 Redémarrage du Hub…", BLUE)
                 hub_path = os.path.abspath(__file__)
