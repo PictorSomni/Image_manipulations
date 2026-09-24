@@ -7857,6 +7857,32 @@ def main(page: ft.Page):
             dlg.open = False
             page.update()
 
+        def _delete(event):
+            # Corbeille Notion (récupérable 30 jours) : pas de
+            # confirmation. Retrait local immédiat, remis si échec.
+            dlg.open = False
+            kanban_state["rows"].remove(row)
+            _kanban_rebuild_columns()
+            _save_json(_KANBAN_CACHE_FILE, kanban_state["rows"])
+            page.update()
+
+            def _work():
+                result = _notion_call("mcp__notion__notion-trash-page",
+                                      {"page_id": row["page_id"]})
+
+                async def _apply():
+                    if result.startswith("Erreur"):
+                        kanban_state["rows"].append(row)
+                        _kanban_rebuild_columns()
+                        _save_json(_KANBAN_CACHE_FILE, kanban_state["rows"])
+                        kanban_status.value = (
+                            f"Échec de la suppression : {result}")
+                        page.update()
+
+                _run_task(_apply)
+
+            threading.Thread(target=_work, daemon=True).start()
+
         def _confirm(event):
             props = {}
             new_demande = (demande_field.value or "").strip()
@@ -7967,7 +7993,9 @@ def main(page: ft.Page):
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
                width=600,
                height=max(300, min(680, (page.height or 900) - 220))),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
+            actions=[ft.TextButton("Supprimer", on_click=_delete,
+                                   style=ft.ButtonStyle(color=RED)),
+                     ft.TextButton("Annuler", on_click=_cancel),
                      ft.TextButton("Enregistrer", on_click=_confirm)],
             # Marge mini garantie avec le haut/bas de l'écran (retour
             # user : "rajouter une marge au dessus") — évite que le
