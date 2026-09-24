@@ -12,6 +12,9 @@ ses propres couleurs depuis CONSTANTS et les passe ici plutôt que ce
 module les importe en dur (les valeurs diffèrent d'un thème d'app à
 l'autre).
 """
+
+__version__ = "2.2.0"
+
 import asyncio
 
 import flet as ft

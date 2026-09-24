@@ -17,6 +17,9 @@ API publique :
   mcp_call_tool(qualified_name, arguments) -> str (résultat texte)
 """
 
+__version__ = "2.2.0"
+
+
 import asyncio
 import http.server
 import json

@@ -28,6 +28,9 @@ l'appelant. C'est le cas de IEnumPortableDeviceObjectIDs::Next, d'où
 _enum_next() qui passe par la vtable. Ne pas « deviner » une signature :
 l'introspecter (interface._methods_ -> .paramflags) avant de l'appeler.
 """
+
+__version__ = "2.2.0"
+
 import ctypes
 import datetime
 import os

@@ -10,6 +10,9 @@ elles se vérifient à l'œil, ces calculs non.
 Lancer :  python3 "Data/test_ui_changes.py"
 """
 
+__version__ = "2.2.0"
+
+
 import importlib
 import importlib.machinery
 import importlib.util

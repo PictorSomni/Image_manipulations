@@ -10,6 +10,9 @@ Clé lue dans ~/.notion_token ou ~/.notion (hors du repo, jamais
 commitée). Absente ->
 TOKEN vide -> Hub retombe sur la connexion MCP/OAuth.
 """
+
+__version__ = "2.2.0"
+
 import json
 import os
 import ssl

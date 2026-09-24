@@ -13,6 +13,9 @@ API publique :
   invalidate_stale(folder_path)
 """
 
+__version__ = "2.2.0"
+
+
 import os
 import sys
 import io

@@ -1,6 +1,9 @@
 """Vérifie que la géométrie recalculée après un quart de tour (boutons
 90° de Recadrage manuel.pyw) fait bien COUVRIR le canevas à zoom 1.00×
 — sinon l'image reste baladable à 1.00× (retour user)."""
+
+__version__ = "2.2.0"
+
 import math
 import os
 import sys

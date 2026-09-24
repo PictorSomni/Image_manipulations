@@ -8,6 +8,9 @@ visionneuse n'est jamais ouvert. Reprend fidèlement la logique de
 `Data/Augmentation IA.py` (feathering, edge-padding, tiling spandrel),
 dépouillée des callbacks Flet (`page.update()`, widgets).
 """
+
+__version__ = "2.2.0"
+
 import io
 import os
 import sys

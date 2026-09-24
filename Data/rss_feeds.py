@@ -10,6 +10,9 @@ API publique :
                    "source"}
 """
 
+__version__ = "2.2.0"
+
+
 import datetime
 import re
 import urllib.request
