@@ -8334,6 +8334,11 @@ def main(page: ft.Page):
         threading.Thread(target=_work, daemon=True).start()
 
     def _kanban_drop(e, new_etat):
+        # e.src None : la carte glissée a été reconstruite entre-temps (le
+        # changement précédent redessine les colonnes) — drop ignoré au
+        # lieu de planter (retour user : glisser trop vite).
+        if e.src is None:
+            return
         page_id = e.src.data
         row = next((r for r in kanban_state["rows"]
                     if r["page_id"] == page_id), None)
