@@ -433,7 +433,10 @@ def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
             tile.paste(resized, ((box_w - resized.width) // 2,
                                  (box_h - resized.height) // 2), resized)
         else:
-            tile = fit_and_rotate(source, box_w, box_h, 0.0)
+            # Fill-in = case TOUJOURS pleine, sans plafond de recadrage
+            # (retour user : en "Respecter", paysage dans case portrait
+            # laissait des bandes blanches) — Fit-in existe pour l'inverse.
+            tile = fit_and_rotate(source, box_w, box_h, 0.0, max_crop=None)
         if tile.mode == "RGBA":
             flat = Image.new("RGB", tile.size, (255, 255, 255))
             flat.paste(tile, (0, 0), tile)
@@ -444,7 +447,7 @@ def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
             # planche, sous un masque de la taille de la case : on peut la
             # recaler dans Affinity (retour user), comme en mosaïque.
             full = (resized if fit_mode == "contain"
-                    else _cover_resize(source, box_w, box_h))
+                    else _cover_resize(source, box_w, box_h, None))
             left, top = round(x), round(y)
             psd_layers.append((
                 key, full.convert("RGBA"),
@@ -454,7 +457,7 @@ def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
     return canvas
 
 
-def _cover_resize(image, box_w, box_h):
+def _cover_resize(image, box_w, box_h, max_crop=MAX_CROP_FRACTION):
     """Redimensionne `image` (RGBA) pour REMPLIR box_w x box_h (« cover » —
     l'excédent dépasse le cadre plutôt que de laisser une bande
     transparente), SANS recadrer — factorisé hors de fit_and_rotate pour
@@ -476,13 +479,16 @@ def _cover_resize(image, box_w, box_h):
     box_w, box_h = max(1, round(box_w)), max(1, round(box_h))
     cover_ratio = max(box_w / image.width, box_h / image.height)
     contain_ratio = min(box_w / image.width, box_h / image.height)
-    ratio = min(cover_ratio, contain_ratio / (1 - MAX_CROP_FRACTION))
+    # max_crop=None : remplissage pur, sans plafond (mode grille Fill-in).
+    ratio = (cover_ratio if max_crop is None
+             else min(cover_ratio, contain_ratio / (1 - max_crop)))
     new_size = (max(1, round(image.width * ratio)),
                 max(1, round(image.height * ratio)))
     return image.resize(new_size, Image.Resampling.LANCZOS)
 
 
-def fit_and_rotate(image, box_w, box_h, angle_deg):
+def fit_and_rotate(image, box_w, box_h, angle_deg,
+                   max_crop=MAX_CROP_FRACTION):
     """Redimensionne `image` pour REMPLIR box_w x box_h (cf. _cover_resize),
     recadre au centre puis pivote — expand=True agrandit le cadre pour ne
     rien couper aux coins. rotate() n'accepte pas LANCZOS (transform
@@ -490,7 +496,7 @@ def fit_and_rotate(image, box_w, box_h, angle_deg):
     pour le resize ; `crop()` remplit tout seul l'espace hors image
     source en transparent (cf. Pillow, testé)."""
     box_w, box_h = max(1, round(box_w)), max(1, round(box_h))
-    resized = _cover_resize(image, box_w, box_h)
+    resized = _cover_resize(image, box_w, box_h, max_crop)
     left = (resized.width - box_w) // 2
     top = (resized.height - box_h) // 2
     cropped = resized.crop((left, top, left + box_w, top + box_h))
