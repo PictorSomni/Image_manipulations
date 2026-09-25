@@ -6730,6 +6730,7 @@ def main(page: ft.Page):
                 on_press=_on_press, on_release=_on_release)
             listener.daemon = True
             listener.start()
+            _log_to_terminal("[souris] écoute des boutons démarrée")
         except Exception as hotkey_error:
             _log_to_terminal(
                 f"[ERREUR] Bouton micro physique ({ptt_name}) : "
@@ -12386,8 +12387,9 @@ def main(page: ft.Page):
     def _mouse_buttons_start():
         try:
             from pynput import mouse as _pynput_mouse
-        except Exception:
-            return  # pynput absent / pas d'écran : pas grave
+        except Exception as exc:
+            _log_to_terminal(f"[WARN] Boutons souris indisponibles : {exc}")
+            return
 
         def _fire(fn):
             if _window_focus["value"]:
@@ -12405,6 +12407,8 @@ def main(page: ft.Page):
                 if event_type == Quartz.kCGEventOtherMouseDown:
                     num = Quartz.CGEventGetIntegerValueField(
                         event, Quartz.kCGMouseEventButtonNumber)
+                    # Diagnostic (retour user : boutons inactifs sur Mac).
+                    _log_to_terminal(f"[souris] bouton {num}")
                     if num == 3:
                         _fire(_mouse_back)
                     elif num == 4:
@@ -12427,6 +12431,7 @@ def main(page: ft.Page):
             listener = _pynput_mouse.Listener(**kwargs)
             listener.daemon = True
             listener.start()
+            _log_to_terminal("[souris] écoute des boutons démarrée")
         except Exception as exc:
             _log_to_terminal(f"[WARN] Boutons souris : {exc}")
 
