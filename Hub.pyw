@@ -7788,13 +7788,53 @@ def main(page: ft.Page):
                  for line in text.split("\n")]
         return "\n".join(lines)
 
+    def _kanban_deadline_field(value, label="Deadline"):
+        """Champ Deadline : calendrier (DatePicker) plutôt que saisie
+        libre (retour user). Valeur texte AAAA-MM-JJ, lue comme avant."""
+        field = ft.TextField(
+            label=label, value=(value or "")[:10], width=560,
+            read_only=True, bgcolor=DARK,
+            border=CONSTANTS.input_border(GREY), color=WHITE)
+
+        def _picked(e):
+            v = e.control.value
+            if v is None:
+                return
+            # Datetime éventuellement en UTC : ramené en heure locale
+            # pour ne pas afficher la veille.
+            d = v.astimezone().date() if v.tzinfo else v.date()
+            field.value = d.isoformat()
+            field.update()
+
+        def _open(e):
+            try:
+                current = datetime.date.fromisoformat(field.value)
+            except ValueError:
+                current = datetime.date.today()
+            page.show_dialog(ft.DatePicker(
+                value=datetime.datetime.combine(current, datetime.time()),
+                first_date=datetime.datetime(2020, 1, 1),
+                last_date=datetime.datetime(2040, 12, 31),
+                on_change=_picked))
+
+        def _clear(e):
+            field.value = ""
+            field.update()
+
+        field.on_click = _open
+        field.suffix = ft.Row([
+            ft.IconButton(ft.Icons.CALENDAR_MONTH, on_click=_open,
+                          icon_color=MINT),
+            ft.IconButton(ft.Icons.CLOSE, on_click=_clear,
+                          icon_color=LIGHT_GREY),
+        ], tight=True, spacing=0)
+        return field
+
     def _kanban_open_details(row):
         demande_field = ft.TextField(
             label="Demande", value=row["demande"], width=560,
             bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
-        deadline_field = ft.TextField(
-            label="Deadline", value=row["deadline"], width=560,
-            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
+        deadline_field = _kanban_deadline_field(row["deadline"])
         telephone_field = ft.TextField(
             label="Téléphone", value=row["telephone"], width=560,
             bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
@@ -7965,7 +8005,7 @@ def main(page: ft.Page):
             if new_demande and new_demande != row["demande"]:
                 props["Demande"] = new_demande
             new_deadline = (deadline_field.value or "").strip()
-            if new_deadline != (row["deadline"] or ""):
+            if new_deadline != (row["deadline"] or "")[:10]:
                 props["Deadline"] = new_deadline or None
             new_tel = (telephone_field.value or "").strip()
             if new_tel != (row["telephone"] or ""):
@@ -8227,9 +8267,7 @@ def main(page: ft.Page):
         title_field = ft.TextField(
             label="Demande", autofocus=True, width=560, bgcolor=DARK,
             border=CONSTANTS.input_border(GREY), color=WHITE)
-        deadline_field = ft.TextField(
-            label="Deadline (AAAA-MM-JJ)", width=560, bgcolor=DARK,
-            border=CONSTANTS.input_border(GREY), color=WHITE)
+        deadline_field = _kanban_deadline_field("")
         telephone_field = ft.TextField(
             label="Téléphone", width=560, bgcolor=DARK,
             border=CONSTANTS.input_border(GREY), color=WHITE)
