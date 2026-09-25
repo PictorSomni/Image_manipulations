@@ -8687,7 +8687,7 @@ def main(page: ft.Page):
     ]
     AGENDA_MONTHS = ("janvier février mars avril mai juin juillet août "
                      "septembre octobre novembre décembre").split()
-    AGENDA_MAX_CHIPS = 4
+    AGENDA_MAX_CHIPS = 3
     agenda_status = ft.Text("", size=11, color=LIGHT_GREY)
     agenda_month_label = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE,
                                  weight=ft.FontWeight.W_600, width=160,
@@ -8709,7 +8709,7 @@ def main(page: ft.Page):
     agenda_state = {"loading": False, "events": [],
                     "month": datetime.date.today().replace(day=1)}
 
-    def _agenda_chip(ev):
+    def _agenda_chip(ev, expand=False):
         # Carte façon Notion : fond teinté de la couleur de la base, nom en
         # gras, heure + téléphone en dessous (retour user, capture Notion).
         start = ev["start"]
@@ -8752,8 +8752,30 @@ def main(page: ft.Page):
             bgcolor=ft.Colors.with_opacity(0.22, ev["color"]),
             border=ft.Border(left=ft.BorderSide(3, ev["color"])),
             border_radius=6, padding=ft.Padding(8, 6, 8, 6), ink=True,
-            tooltip=ev["source"],
+            tooltip=ev["source"], expand=expand,
             on_click=lambda e, ev=ev: _agenda_new_entry(ev=ev))
+
+    def _agenda_day_list(day, evs):
+        """Tous les rendez-vous d'un jour (clic sur "+n")."""
+        def _open(ev):
+            dlg.open = False
+            _agenda_new_entry(ev=ev)
+        dlg = ft.AlertDialog(
+            title=ft.Text(day.strftime("%d/%m/%Y"), size=CONSTANTS.TEXT_SM,
+                          color=WHITE),
+            content=ft.Column(
+                [ft.Container(_agenda_chip(ev), on_click=lambda e, ev=ev:
+                              _open(ev)) for ev in evs],
+                tight=True, spacing=6, width=420,
+                scroll=ft.ScrollMode.AUTO),
+            actions=[ft.TextButton("Nouveau", on_click=lambda e: (
+                         setattr(dlg, "open", False),
+                         _agenda_new_entry(day))),
+                     ft.TextButton("Fermer", on_click=lambda e: (
+                         setattr(dlg, "open", False), page.update()))])
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
 
     def _agenda_rebuild():
         first = agenda_state["month"]
@@ -8778,11 +8800,20 @@ def main(page: ft.Page):
                 evs = sorted(by_day.get(day.isoformat(), []),
                              key=lambda e: e["start"])
                 in_month = day.month == first.month
-                chips = [_agenda_chip(e) for e in evs[:AGENDA_MAX_CHIPS]]
+                # Cartes adaptatives (retour user) : elles se partagent la
+                # hauteur de la case (1 = pleine, 2 = moitié, 3 = tiers),
+                # au-delà un bouton "+n" ouvre la liste du jour.
+                chips = [_agenda_chip(e, expand=True)
+                         for e in evs[:AGENDA_MAX_CHIPS]]
                 if len(evs) > AGENDA_MAX_CHIPS:
-                    chips.append(ft.Text(
-                        f"+{len(evs) - AGENDA_MAX_CHIPS}", size=11,
-                        color=LIGHT_GREY))
+                    chips.append(ft.Container(
+                        ft.Text(f"+{len(evs) - AGENDA_MAX_CHIPS}", size=11,
+                                color=WHITE, weight=ft.FontWeight.W_600),
+                        bgcolor=ft.Colors.with_opacity(0.12, WHITE),
+                        border_radius=4, padding=ft.Padding(6, 2, 6, 2),
+                        alignment=ft.Alignment.CENTER, ink=True,
+                        on_click=lambda e, d=day, v=evs:
+                            _agenda_day_list(d, v)))
                 label = (str(day.day) if day.day != 1 or in_month
                          else f"1 {AGENDA_MONTHS[day.month - 1][:3]}.")
                 num = ft.Text(label, size=12,
@@ -8797,7 +8828,7 @@ def main(page: ft.Page):
                 cells.append(ft.Container(
                     content=ft.Column([
                         ft.Row([num], alignment=ft.MainAxisAlignment.END),
-                        *chips], spacing=4, tight=True,
+                        *chips], spacing=4, expand=True,
                         horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
                     expand=True, padding=6,
                     # Sans teinte en semaine, légère teinte le weekend.
