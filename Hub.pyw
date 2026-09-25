@@ -338,7 +338,10 @@ def main(page: ft.Page):
     KANBAN_PROJET_OPTIONS = ["Pas de projet", "Faire projet", "Projet envoyé",
                              "Projet validé", "Fichiers prêts"]
     KANBAN_PAYE_OPTIONS = ["Non payé", "Payé"]
-    KANBAN_PREVENU_OPTIONS = ["Appeler si indisponible", "Prévenu"]
+    # Propriété Notion renommée "Prévenir ?" (retour user), défaut
+    # "Viendra d'office". Couleurs = celles de Notion.
+    KANBAN_PREVENU_OPTIONS = ["Appeler quand prêt", "Appeler si indisponible",
+                              "Viendra d'office", "Prévenu"]
     KANBAN_ETAT_COLORS = dict(KANBAN_ETATS)
 
     # Une couleur "primaire" par onglet du rail (retour user, même principe
@@ -353,8 +356,10 @@ def main(page: ft.Page):
                             "Projet envoyé": YELLOW, "Projet validé": VIOLET,
                             "Fichiers prêts": VIOLET}
     KANBAN_PAYE_COLORS = {"Non payé": RED, "Payé": GREEN}
-    KANBAN_PREVENU_COLORS = {"Appeler si indisponible": VIOLET,
-                             "Prévenu": VIOLET}
+    KANBAN_PREVENU_COLORS = {"Appeler quand prêt": BLUE,
+                             "Appeler si indisponible": ORANGE,
+                             "Viendra d'office": PINK,
+                             "Prévenu": GREEN}
 
     # ─── Fenêtre ─────────────────────────────────────────────────────────
     page.title      = "Hub"
@@ -7650,7 +7655,7 @@ def main(page: ft.Page):
         ("Etat", "etat", [e for e, _c in KANBAN_ETATS], {}),
         ("Projet ?", "projet", KANBAN_PROJET_OPTIONS, KANBAN_PROJET_COLORS),
         ("Payé ?", "paye", KANBAN_PAYE_OPTIONS, KANBAN_PAYE_COLORS),
-        ("Prévenu ?", "prevenu", KANBAN_PREVENU_OPTIONS,
+        ("Prévenir ?", "prevenu", KANBAN_PREVENU_OPTIONS,
          KANBAN_PREVENU_COLORS),
     ]
 
@@ -7800,7 +7805,8 @@ def main(page: ft.Page):
         # possible sur ce contrôle), donc on ne les envoie à Notion que si
         # l'utilisateur y a vraiment touché (seg_touched), pour ne jamais
         # écraser silencieusement un champ vide resté tel quel.
-        seg_touched = {"etat": False, "paye": False, "projet": False}
+        seg_touched = {"etat": False, "paye": False, "projet": False,
+                       "prevenu": False}
 
         etat_names = [e for e, _c in KANBAN_ETATS]
         etat_index = (etat_names.index(row["etat"])
@@ -7866,6 +7872,28 @@ def main(page: ft.Page):
                 KANBAN_PROJET_OPTIONS[projet_index], VIOLET),
             on_change=_on_projet_seg_change, width=560)
         _style_segments(projet_seg, projet_texts)
+
+        prevenu_index = (
+            KANBAN_PREVENU_OPTIONS.index(row["prevenu"])
+            if row.get("prevenu") in KANBAN_PREVENU_OPTIONS
+            else KANBAN_PREVENU_OPTIONS.index("Viendra d'office"))
+        prevenu_texts = [ft.Text(o, size=11) for o in KANBAN_PREVENU_OPTIONS]
+
+        def _on_prevenu_seg_change(event):
+            seg_touched["prevenu"] = True
+            _style_segments(prevenu_seg, prevenu_texts)
+            prevenu_seg.thumb_color = KANBAN_PREVENU_COLORS.get(
+                KANBAN_PREVENU_OPTIONS[prevenu_seg.selected_index], VIOLET)
+            for t in prevenu_texts:
+                t.update()
+            prevenu_seg.update()
+
+        prevenu_seg = ft.CupertinoSlidingSegmentedButton(
+            selected_index=prevenu_index, controls=prevenu_texts,
+            thumb_color=KANBAN_PREVENU_COLORS.get(
+                KANBAN_PREVENU_OPTIONS[prevenu_index], VIOLET),
+            on_change=_on_prevenu_seg_change, width=560)
+        _style_segments(prevenu_seg, prevenu_texts)
 
         # Contenu de la page (texte libre, sous-tâches, check-listes) : pas
         # une propriété de la base, donc absent de notion-query-data-sources
@@ -7948,6 +7976,11 @@ def main(page: ft.Page):
                 new_projet = KANBAN_PROJET_OPTIONS[projet_seg.selected_index]
                 if new_projet != (row["projet"] or ""):
                     props["Projet ?"] = new_projet
+            if seg_touched["prevenu"]:
+                new_prevenu = KANBAN_PREVENU_OPTIONS[
+                    prevenu_seg.selected_index]
+                if new_prevenu != (row["prevenu"] or ""):
+                    props["Prévenir ?"] = new_prevenu
             new_content = content_field.value
             content_changed = (content_loaded["original"] is not None and
                               new_content != content_loaded["original"])
@@ -8011,6 +8044,8 @@ def main(page: ft.Page):
                 projet_seg,
                 ft.Text("Payé ?", size=11, color=LIGHT_GREY),
                 paye_seg,
+                ft.Text("Prévenir ?", size=11, color=LIGHT_GREY),
+                prevenu_seg,
                 ft.Text(f"Créé le : {row['cree_le'] or '?'}", size=11,
                        color=LIGHT_GREY),
                 ft.Divider(height=1, color=GREY),
@@ -8155,7 +8190,7 @@ def main(page: ft.Page):
                 "prix": r.get("Prix"),
                 "projet": r.get("Projet ?", ""),
                 "paye": r.get("Payé ?", ""),
-                "prevenu": r.get("Prévenu ?", ""),
+                "prevenu": r.get("Prévenir ?", ""),
                 "cree_le": r.get("Créé le", ""),
                 # Contenu de la page (Notes) : absent de cette requête
                 # (propriétés seulement) — None = "jamais chargé", distinct
@@ -8197,7 +8232,7 @@ def main(page: ft.Page):
             border=CONSTANTS.input_border(GREY), color=WHITE)
         # Mêmes boutons glissants que la fiche détaillée (retour user :
         # interfaces identiques). Défauts : À faire / Pas de projet /
-        # Non payé. Prévenu ? absent, comme dans la fiche détaillée.
+        # Non payé / Viendra d'office.
         ETAT_SEG_LABELS = {"En cours / en attente": "En cours"}
         seg_specs = [
             ("Etat", [e for e, _c in KANBAN_ETATS], KANBAN_ETAT_COLORS,
@@ -8205,6 +8240,8 @@ def main(page: ft.Page):
             ("Projet ?", KANBAN_PROJET_OPTIONS, KANBAN_PROJET_COLORS,
              "Pas de projet"),
             ("Payé ?", KANBAN_PAYE_OPTIONS, KANBAN_PAYE_COLORS, "Non payé"),
+            ("Prévenir ?", KANBAN_PREVENU_OPTIONS, KANBAN_PREVENU_COLORS,
+             "Viendra d'office"),
         ]
         prop_segs = {}
         seg_rows = []
