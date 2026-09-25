@@ -8714,6 +8714,12 @@ def main(page: ft.Page):
     # Ordre d'affichage imposé (l'API rend les status par groupe Notion).
     AGENDA_ORDER = ["Réservé", "En cours", "Terminé", "Prêt"]
     AGENDA_DONE = {"Terminé", "Prêt"}
+    # Repli si le schéma Notion n'est pas dispo (pas de ~/.notion sur la
+    # machine -> connexion MCP, sans options) : couleurs connues en dur.
+    AGENDA_ETAT_COLORS = {"Réservé": BLUE, "En cours": VIOLET,
+                          "Terminé": GREEN, "Prêt": GREEN,
+                          "Pas d'accompte": RED,
+                          "Réservé (accompte recu)": YELLOW, "Payé": GREEN}
     agenda_state = {"loading": False, "events": [],
                     "month": datetime.date.today().replace(day=1)}
 
@@ -8737,7 +8743,8 @@ def main(page: ft.Page):
         etat_color = next(
             (NOTION_COLORS.get(c, GREY)
              for info in agenda_schemas.get(ev["source"], {}).values()
-             for n, c in info["options"] if n == etat), GREY)
+             for n, c in info["options"] if n == etat),
+            AGENDA_ETAT_COLORS.get(etat, GREY))
         return ft.Container(
             content=ft.Column([
                 ft.Text(ev["nom"] or "(sans nom)", size=12, color=WHITE,
