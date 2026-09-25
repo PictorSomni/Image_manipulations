@@ -12696,12 +12696,17 @@ def main(page: ft.Page):
         # les envoie souvent comme raccourcis clavier (Cmd+[ / Cmd+], ou
         # Cmd+←/→) et non comme boutons (retour user). Hors champ de saisie
         # pour ne pas voler Cmd+← (début de ligne).
+        # Clavier AZERTY : la touche US « [ » / « ] » que le pilote simule
+        # arrive en « ^ » / « $ » (même touche physique).
+        if ctrl and state["surface"] == "files":
+            _log_to_terminal(f"[souris] Cmd+{event.key!r}")  # diagnostic
         if state["surface"] == "files" and not _focused_input["name"] and (
-                (ctrl and event.key in ("[", "]", "Arrow Left", "ArrowLeft",
-                                        "Arrow Right", "ArrowRight"))
+                (ctrl and event.key in ("[", "]", "^", "$", "Arrow Left",
+                                        "ArrowLeft", "Arrow Right",
+                                        "ArrowRight"))
                 or event.key in ("Browser Back", "Browser Forward")):
-            _log_to_terminal(f"[souris] touche {event.key}")
-            if event.key in ("[", "Arrow Left", "ArrowLeft", "Browser Back"):
+            if event.key in ("[", "^", "Arrow Left", "ArrowLeft",
+                             "Browser Back"):
                 _mouse_back()
             else:
                 _mouse_forward()
