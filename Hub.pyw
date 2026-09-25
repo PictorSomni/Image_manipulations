@@ -11937,7 +11937,7 @@ def main(page: ft.Page):
     # (retour user : demander à l'IA de générer une image juste après le
     # lancement, sans dossier ouvert, faisait clignoter l'interface et
     # perdre le message — un dossier toujours ouvert évite cet état).
-    async def _isdir_within(path, timeout=3.0):
+    async def _isdir_within(path, timeout=5.0):
         try:
             return await asyncio.wait_for(
                 asyncio.to_thread(os.path.isdir, path), timeout)
@@ -11957,7 +11957,7 @@ def main(page: ft.Page):
             saved_folders, saved_active = _startup_tabs, _startup_tabs_active
             # isdir() sur un partage injoignable (Pi éteint, hors réseau)
             # bloquait toute l'interface jusqu'au timeout de l'OS, parfois
-            # plus d'une minute (retour user) : vérif en thread, 3 s max
+            # plus d'une minute (retour user) : vérif en thread, 5 s max
             # par dossier, puis on passe au suivant.
             saved_folders = [p for p in saved_folders
                              if p and await _isdir_within(p)]
@@ -11977,15 +11977,12 @@ def main(page: ft.Page):
                               else 0)
                 _restore_tab(tabs[active_idx]["id"])
                 return
-            default_folder = None
-            for p in _load_recent():
-                if await _isdir_within(p):
-                    default_folder = p
-                    break
-            if not default_folder:
-                pictures = os.path.join(os.path.expanduser("~"), "Pictures")
-                default_folder = (pictures if os.path.isdir(pictures)
-                                  else os.path.expanduser("~"))
+            # Seul le dernier dossier est tenté : sinon dossier utilisateur
+            # (retour user), plutôt que 5 s d'attente par récent mort.
+            recent = _load_recent()[:1]
+            default_folder = (recent[0] if recent
+                              and await _isdir_within(recent[0])
+                              else os.path.expanduser("~"))
             _navigate(default_folder)
 
         _run_task(_initial_navigate)
