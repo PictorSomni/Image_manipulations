@@ -8706,6 +8706,7 @@ def main(page: ft.Page):
                        "Locations": {"Etat": "Pas d'accompte"}}
     # Ordre d'affichage imposé (l'API rend les status par groupe Notion).
     AGENDA_ORDER = ["Réservé", "En cours", "Terminé", "Prêt"]
+    AGENDA_DONE = {"Terminé", "Prêt"}
     agenda_state = {"loading": False, "events": [],
                     "month": datetime.date.today().replace(day=1)}
 
@@ -8753,6 +8754,11 @@ def main(page: ft.Page):
             border=ft.Border(left=ft.BorderSide(3, ev["color"])),
             border_radius=6, padding=ft.Padding(8, 6, 8, 6), ink=True,
             tooltip=ev["source"], expand=expand,
+            # Vue d'ensemble (retour user) : terminé ou passé = estompé,
+            # ce qui reste à faire ressort.
+            opacity=(0.4 if etat in AGENDA_DONE
+                     or ev["start"][:10] < datetime.date.today().isoformat()
+                     else 1),
             on_click=lambda e, ev=ev: _agenda_new_entry(ev=ev))
 
     def _agenda_day_list(day, evs):
