@@ -8692,7 +8692,7 @@ def main(page: ft.Page):
     agenda_month_label = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE,
                                  weight=ft.FontWeight.W_600, width=160,
                                  text_align=ft.TextAlign.CENTER)
-    agenda_grid = ft.Column(expand=True, spacing=2)
+    agenda_grid = ft.Column(expand=True, spacing=0)
     # Couleurs Notion -> palette Hub (options des select/multi_select).
     NOTION_COLORS = {"gray": GREY, "default": GREY, "purple": VIOLET,
                      "blue": BLUE, "green": GREEN, "red": RED,
@@ -8704,21 +8704,30 @@ def main(page: ft.Page):
                     "month": datetime.date.today().replace(day=1)}
 
     def _agenda_chip(ev):
+        # Carte façon Notion : fond teinté de la couleur de la base, nom en
+        # gras, heure + téléphone en dessous (retour user, capture Notion).
         start = ev["start"]
-        label = ev["nom"] or "(sans nom)"
+        sub = []
         if len(start) > 10:
             try:
-                label = datetime.datetime.fromisoformat(start).astimezone(
-                    ).strftime("%H:%M ") + label
+                sub.append(datetime.datetime.fromisoformat(
+                    start).astimezone().strftime("%H:%M"))
             except ValueError:
                 pass
+        if ev["tel"]:
+            sub.append(ev["tel"])
         return ft.Container(
-            content=ft.Text(label, size=12, color=ft.Colors.BLACK,
-                            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
-                            weight=ft.FontWeight.W_600),
-            bgcolor=ft.Colors.with_opacity(0.85, ev["color"]),
-            border_radius=4, padding=ft.Padding(6, 5, 6, 5), ink=True,
-            tooltip=f"{ev['source']} — {label}",
+            content=ft.Column([
+                ft.Text(ev["nom"] or "(sans nom)", size=12, color=WHITE,
+                        max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
+                        weight=ft.FontWeight.W_600),
+                ft.Text(" · ".join(sub), size=11, color=LIGHT_GREY,
+                        visible=bool(sub), max_lines=1),
+            ], spacing=2, tight=True),
+            bgcolor=ft.Colors.with_opacity(0.22, ev["color"]),
+            border=ft.Border(left=ft.BorderSide(3, ev["color"])),
+            border_radius=6, padding=ft.Padding(8, 6, 8, 6), ink=True,
+            tooltip=ev["source"],
             on_click=lambda e, ev=ev: _agenda_new_entry(ev=ev))
 
     def _agenda_rebuild():
@@ -8730,10 +8739,13 @@ def main(page: ft.Page):
             by_day.setdefault(ev["start"][:10], []).append(ev)
         today = datetime.date.today()
         day = first - datetime.timedelta(days=first.weekday())
+        line = ft.BorderSide(1, ft.Colors.with_opacity(0.12, WHITE))
         rows = [ft.Row([
             ft.Container(ft.Text(d, size=11, color=LIGHT_GREY),
-                         expand=True, alignment=ft.Alignment.CENTER)
-            for d in "Lun Mar Mer Jeu Ven Sam Dim".split()], spacing=2)]
+                         expand=True, alignment=ft.Alignment.CENTER,
+                         padding=ft.Padding(0, 4, 0, 4))
+            for d in "lun. mar. mer. jeu. ven. sam. dim.".split()],
+            spacing=0)]
         # 6 semaines max, on s'arrête après la dernière semaine du mois.
         while day.month == first.month or day < first:
             cells = []
@@ -8746,24 +8758,31 @@ def main(page: ft.Page):
                     chips.append(ft.Text(
                         f"+{len(evs) - AGENDA_MAX_CHIPS}", size=11,
                         color=LIGHT_GREY))
+                label = (str(day.day) if day.day != 1 or in_month
+                         else f"1 {AGENDA_MONTHS[day.month - 1][:4]}.")
+                num = ft.Text(label, size=12,
+                              color=(WHITE if day == today or in_month
+                                     else GREY),
+                              weight=ft.FontWeight.W_600)
+                if day == today:
+                    num = ft.Container(num, bgcolor=RED, width=26,
+                                       height=26, border_radius=13,
+                                       alignment=ft.Alignment.CENTER)
                 cells.append(ft.Container(
                     content=ft.Column([
-                        ft.Text(str(day.day), size=11,
-                                color=(ORANGE if day == today else
-                                       WHITE if in_month else GREY),
-                                weight=(ft.FontWeight.W_700
-                                        if day == today else None)),
-                        *chips], spacing=3, tight=True,
-                        # Pastilles sur toute la largeur de la case.
+                        ft.Row([num], alignment=ft.MainAxisAlignment.END),
+                        *chips], spacing=4, tight=True,
                         horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
-                    expand=True, padding=4, border_radius=4,
-                    bgcolor=BACKGROUND if in_month else DARK,
-                    border=(ft.Border.all(1, ORANGE) if day == today
-                            else None),
+                    expand=True, padding=6,
+                    # Sans teinte en semaine, légère teinte le weekend.
+                    bgcolor=(ft.Colors.with_opacity(0.04, WHITE)
+                             if day.weekday() >= 5 else None),
+                    border=ft.Border(right=line, bottom=line),
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE,
                     ink=True,
                     on_click=lambda e, d=day: _agenda_new_entry(d)))
                 day += datetime.timedelta(days=1)
-            rows.append(ft.Row(cells, expand=True, spacing=2,
+            rows.append(ft.Row(cells, expand=True, spacing=0,
                                vertical_alignment=(
                                    ft.CrossAxisAlignment.STRETCH)))
         agenda_grid.controls = rows
@@ -9132,7 +9151,8 @@ def main(page: ft.Page):
             ], spacing=8),
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
-        ft.Container(content=agenda_grid, expand=True, padding=6),
+        ft.Container(content=agenda_grid, expand=True,
+                     padding=ft.Padding(24, 6, 24, 12)),
     ], expand=True, spacing=0)
     _agenda_rebuild()
 
