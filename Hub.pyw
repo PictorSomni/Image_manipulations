@@ -101,6 +101,19 @@ _KANBAN_CACHE_FILE = os.path.join(_APP_DIR, ".kanban_cache.json")
 _KANBAN_SETTINGS_FILE = os.path.join(_APP_DIR, ".kanban_settings.json")
 
 
+def _is_hidden_entry(entry):
+    """Élément caché : nom en ".xxx" (Linux/macOS), attribut "caché"
+    Windows, ou drapeau UF_HIDDEN macOS (ex. ~/Library)."""
+    if entry.name.startswith("."):
+        return True
+    try:
+        st = entry.stat(follow_symlinks=False)
+    except OSError:
+        return False
+    return bool(getattr(st, "st_file_attributes", 0) & 0x2   # HIDDEN
+                or getattr(st, "st_flags", 0) & 0x8000)      # UF_HIDDEN
+
+
 # Persistance JSON partagée avec ai_tools.py (historique de conversation) :
 # lecture tolérante, écriture atomique, échec rapporté au terminal intégré
 # via le hook branché dans main(). Cf. CONSTANTS §13bis.
@@ -387,6 +400,10 @@ def main(page: ft.Page):
              "font_size": _DEFAULT_FONT_SIZE,   # taille de texte IA/Bloc-notes
              "sort": "date", "search": "", "only_selected": False,
              "last_selected": None, "thumb_fit": "contain",
+             # Masque les éléments cachés (retour user : dossier perso du
+             # Pi / macOS illisible avec tous les ".xxx"). Actif par
+             # défaut, comme le Finder et l'Explorateur.
+             "hide_hidden": True,
              # Tarif partagé avec Recadrage manuel.pyw et kiosk_flet.pyw
              # (propagé via TARIFF_TYPE au lancement) : un seul switch ici
              # au lieu d'un réglage dupliqué dans chaque outil.
@@ -2759,6 +2776,8 @@ def main(page: ft.Page):
         for e in entries:
             if CONSTANTS.is_os_junk(e.name, e.is_dir()):
                 continue
+            if state["hide_hidden"] and _is_hidden_entry(e):
+                continue
             try:
                 # entry.stat() vient du scandir déjà fait (gratuit sous
                 # Windows) — alimente le cache mtime lu par _sort_key.
@@ -2879,6 +2898,14 @@ def main(page: ft.Page):
         only_sel_icon.color = (
             DARK if state["only_selected"] else BLUE)
         _render()
+
+    def _toggle_hide_hidden(event):
+        state["hide_hidden"] = not state["hide_hidden"]
+        hidden_btn.style = ft.ButtonStyle(
+            bgcolor=BLUE if state["hide_hidden"] else GREY)
+        hidden_icon.color = DARK if state["hide_hidden"] else BLUE
+        if state["folder"]:
+            _navigate(state["folder"])
 
     def _toggle_tariff(event):
         state["tariff_mode"] = "PRINTS" if event.control.value else "STUDIOS"
@@ -4540,6 +4567,12 @@ def main(page: ft.Page):
     only_sel_icon = only_sel_btn.content
     only_sel_icon.color = BLUE
 
+    hidden_btn = _seg_btn(ft.Icons.VISIBILITY_OFF_OUTLINED,
+                          "Masquer les éléments cachés", _toggle_hide_hidden)
+    hidden_icon = hidden_btn.content
+    hidden_btn.style = ft.ButtonStyle(bgcolor=BLUE)
+    hidden_icon.color = DARK
+
     tariff_switch = ft.Switch(
         label=("Tarif Impression" if state["tariff_mode"] == "PRINTS"
                else "Tarif Studio"),
@@ -4758,6 +4791,7 @@ def main(page: ft.Page):
         _seg_btn(ft.Icons.EVENT, "Même date", _select_same_date,
                  color=VIOLET),
         only_sel_btn,
+        hidden_btn,
         ft.Container(expand=True),
         print_count_btn,
         print_count_menu,
