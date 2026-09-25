@@ -4536,7 +4536,8 @@ class PhotoCropper:
                 rows = []
                 subtotal_qty = 0
                 for name in sorted(os.listdir(sub_path)):
-                    match = re.match(r'^(\d+)X_', name, re.IGNORECASE)
+                    # Même motif tolérant que Hub.pyw::_update_commande_file
+                    match = re.match(r'^\W*(\d+)\s*[xX×хХ]_', name)
                     if not match:
                         continue
                     copies = int(match.group(1))
