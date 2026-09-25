@@ -2450,8 +2450,17 @@ def main(page: ft.Page):
                 rows = []
                 subtotal_qty = 0
                 for name in sorted(os.listdir(sub_path)):
-                    match = re.match(r'^(\d+)X_', name, re.IGNORECASE)
+                    # \W* : tolère un caractère invisible en tête de nom
+                    # (retour user : 13 impressions, commande à 11 — un
+                    # fichier NX_ ignoré sans rien dire).
+                    match = re.match(r'^\W*(\d+)\s*[xX×хХ]_', name)
                     if not match:
+                        if (not name.startswith(".") and
+                                os.path.splitext(name)[1].lower()
+                                in CONSTANTS.IMAGE_EXTS):
+                            _log_to_terminal(
+                                f"[WARN] {sub}/{name!r} ignoré "
+                                "(pas de préfixe NX_)", ORANGE)
                         continue
                     copies = int(match.group(1))
                     rows.append((copies, name[match.end():]))
