@@ -2145,11 +2145,23 @@ def main(page: ft.Page):
         others = [p for p in content["imgs"] + content["other"]
                   if p not in chosen]
         selection_folder = os.path.join(folder, "SELECTION")
-        _copy_into(paths, selection_folder, move=True)
         # Sans sélection, tout va dans SELECTION : pas de AUTRES.
-        if selected and others:
-            _copy_into(others, os.path.join(folder, "AUTRES"), move=True)
-        _navigate(selection_folder)
+        with_others = bool(selected and others)
+
+        # En arrière-plan comme coller/supprimer (retour user : l'UI
+        # gelait pendant le déplacement de gros lots RAW/vidéos).
+        def _work():
+            _copy_into(paths, selection_folder, move=True)
+            if with_others:
+                _copy_into(others, os.path.join(folder, "AUTRES"),
+                           move=True)
+
+            async def _go():
+                _navigate(selection_folder)
+
+            _run_task(_go)
+
+        _run_bg_action(f"Tri de {len(paths)} fichier(s)", _work)
 
     def _reveal_in_explorer(paths):
         target = paths[0] if paths else None
