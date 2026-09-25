@@ -38,8 +38,20 @@ def _mime(data):
     return "image/png"
 
 
-def _body(prompt, input_image_bytes=None):
-    body = {"model": MODEL, "prompt": prompt, "n": 1}
+def _size(aspect_ratio):
+    """Ratio du Hub ("3:4"…) -> une des 3 tailles Muse (~1K), sinon auto."""
+    try:
+        w, h = (float(x) for x in str(aspect_ratio).split(":"))
+    except ValueError:
+        return "auto"
+    if abs(w - h) < 1e-6:
+        return "1024x1024"
+    return "1024x1536" if h > w else "1536x1024"
+
+
+def _body(prompt, input_image_bytes=None, aspect_ratio=None):
+    body = {"model": MODEL, "prompt": prompt, "n": 1,
+            "size": _size(aspect_ratio)}
     if input_image_bytes:
         b64 = base64.b64encode(input_image_bytes).decode()
         body["images"] = [{"image_url":
@@ -57,9 +69,10 @@ def _image_from(resp):
     return None
 
 
-def generate_image(prompt, input_image_bytes=None, **_ignored):
-    # ponytail: ratio et résolution du Hub ignorés — valeurs de `size`
-    # non documentées ; à brancher quand la doc les liste.
+def generate_image(prompt, input_image_bytes=None, aspect_ratio=None,
+                   **_ignored):
+    # ponytail: résolution du Hub ignorée — Muse plafonne à ~1K
+    # (1024x1024, 1024x1536, 1536x1024).
     key = _key()
     if not key:
         return ("[Erreur] Clé Meta absente : mets-la dans ~/.meta "
@@ -67,7 +80,8 @@ def generate_image(prompt, input_image_bytes=None, **_ignored):
     path = "/images/edits" if input_image_bytes else "/images/generations"
     req = urllib.request.Request(
         _API + path, method="POST",
-        data=json.dumps(_body(prompt, input_image_bytes)).encode(),
+        data=json.dumps(_body(prompt, input_image_bytes,
+                             aspect_ratio)).encode(),
         headers={"Authorization": f"Bearer {key}",
                  "Content-Type": "application/json"})
     try:
@@ -85,4 +99,6 @@ if __name__ == "__main__":
     assert b["images"][0]["image_url"].startswith("data:image/jpeg;base64,")
     assert _image_from({"data": [{"b64_json": base64.b64encode(
         b"ok").decode()}]}) == b"ok"
+    assert _size("3:4") == "1024x1536" and _size("16:9") == "1536x1024"
+    assert _size("1:1") == "1024x1024" and _size(None) == "auto"
     print("ok")
