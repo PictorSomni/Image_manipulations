@@ -55,6 +55,7 @@ import ai_ops
 import thumb_cache
 import mcp_client
 import notion_rest
+import meta_image
 import credentials
 import mtp_devices
 import rss_feeds
@@ -5344,6 +5345,7 @@ def main(page: ft.Page):
             ft.dropdown.Option("gemini-3.1-flash-image", text="NB2"),
             ft.dropdown.Option("gemini-3.1-flash-lite-image",
                                text="NB2 Lite"),
+            ft.dropdown.Option("muse-image-1.0", text="Muse (Meta)"),
         ],
         tooltip="Modèle Nano Banana 2 utilisé pour générer/éditer des images",
         text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK,
@@ -5781,7 +5783,10 @@ def main(page: ft.Page):
         ai_status_text.value = "🎨 Génération d'image en cours…"
         _ai_refresh()
         try:
-            text, img_bytes = _gemini_generate_image(
+            gen = (meta_image.generate_image
+                   if ai_image_model_dropdown.value.startswith("muse")
+                   else _gemini_generate_image)
+            text, img_bytes = gen(
                 prompt_refined, input_image_bytes=src_bytes,
                 aspect_ratio=aspect,
                 resolution=ai_image_quality_dropdown.value or "1K",
