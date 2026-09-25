@@ -8892,7 +8892,40 @@ def main(page: ft.Page):
         date_field = _kanban_deadline_field(
             ev["start"][:10] if ev
             else (day or datetime.date.today()).isoformat(), label="Date")
-        heure_field = _field("Heure (ex. 14:30, vide = journée)", heure)
+        # TimePicker plutôt que saisie libre (retour user) : l'heure est
+        # toujours au format HH:MM, rien d'invalide n'arrive à Notion.
+        heure_field = _field("Heure (vide = journée)", heure)
+        heure_field.read_only = True
+
+        def _time_picked(e):
+            v = e.control.value
+            if v is None:
+                return
+            if isinstance(v, str):
+                v = datetime.time.fromisoformat(v[:5])
+            heure_field.value = v.strftime("%H:%M")
+            heure_field.update()
+
+        def _time_open(e):
+            try:
+                cur = datetime.time.fromisoformat(heure_field.value)
+            except ValueError:
+                cur = datetime.time(10, 0)
+            page.show_dialog(ft.TimePicker(
+                value=cur, hour_format=ft.TimePickerHourFormat.H24,
+                on_change=_time_picked))
+
+        def _time_clear(e):
+            heure_field.value = ""
+            heure_field.update()
+
+        heure_field.on_click = _time_open
+        heure_field.suffix = ft.Row([
+            ft.IconButton(ft.Icons.SCHEDULE, on_click=_time_open,
+                          icon_color=SURFACE_ACCENT["agenda"]),
+            ft.IconButton(ft.Icons.CLOSE, on_click=_time_clear,
+                          icon_color=LIGHT_GREY),
+        ], tight=True, spacing=0)
         tel_field = _field("Téléphone", ev["tel"] if ev else "")
         mail_field = _field("E-mail", ev["mail"] if ev else "")
         texts = [ft.Text(n, size=11) for n, *_ in AGENDA_SOURCES]
