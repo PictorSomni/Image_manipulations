@@ -1351,8 +1351,8 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
     #  Copier / Couper / Coller / Supprimer — presse-papiers interne à l'app
     #  (pas le presse-papiers système : simple, fiable, suffisant ici).
-    #  Suppression : pas de dialogue de confirmation (politique du projet),
-    #  _backup_file avant toute suppression/écrasement à la place.
+    #  Suppression : pas de dialogue de confirmation ni de sauvegarde
+    #  (retour user) — suppression définitive.
     # ═════════════════════════════════════════════════════════════════════
     def _do_copy(paths):
         clipboard["paths"] = list(paths)
@@ -1466,7 +1466,6 @@ def main(page: ft.Page):
                         dest = _unique_dest(folder, name)
                     elif resolved == "replace":
                         try:
-                            _backup_file(dest)
                             if os.path.isdir(dest):
                                 shutil.rmtree(dest)
                             else:
@@ -1917,7 +1916,8 @@ def main(page: ft.Page):
                 _log_to_terminal(f"[...] Suppression {i}/{total} : {name}",
                                  ORANGE)
                 try:
-                    _backup_file(p)
+                    # Plus de copie de sauvegarde avant suppression
+                    # (retour user : lente sur les gros lots, inutile).
                     if os.path.isdir(p):
                         progress_text = ft.Text(
                             "", size=CONSTANTS.TERMINAL_FONT_SIZE,
@@ -5893,8 +5893,6 @@ def main(page: ft.Page):
                 continue
             try:
                 os.makedirs(dest_dir, exist_ok=True)
-                if os.path.exists(dest):
-                    _backup_file(dest)
                 shutil.move(source, dest)
                 moves.append(f"✓ {filename} → {subfolder}/")
             except Exception as exc:
