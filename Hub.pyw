@@ -1010,7 +1010,10 @@ def main(page: ft.Page):
             # Clic = extraction, comme Dashboard.pyw:6080-6082 (retour user :
             # fonction absente de Hub jusqu'ici).
             _do_unzip([path])
-        elif ext in _NOTEPAD_EXTS:
+        elif ext in _NOTEPAD_EXTS or (
+                not ext and os.path.basename(path).startswith(".")):
+            # Fichiers de config sans extension (.bashrc, .zshrc…) : texte
+            # (splitext(".bashrc") donne une extension vide).
             _open_path_in_notes(path)
         else:
             _open_file_default(path)
