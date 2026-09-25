@@ -8701,7 +8701,8 @@ def main(page: ft.Page):
     AGENDA_BASE_PROPS = {"Nom", "Date", "Téléphone", "E-mail", "Email"}
     agenda_schemas = {}  # source -> notion_rest.schema()
     # Valeurs par défaut à la création (retour user).
-    AGENDA_DEFAULTS = {"Studio": {"État": "Réservé"}}
+    AGENDA_DEFAULTS = {"Studio": {"État": "Réservé"},
+                       "Borne": {"Etat": "Pas d'accompte"}}
     agenda_state = {"loading": False, "events": [],
                     "month": datetime.date.today().replace(day=1)}
 
