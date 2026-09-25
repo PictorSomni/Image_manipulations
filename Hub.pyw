@@ -3154,6 +3154,11 @@ def main(page: ft.Page):
         if state["surface"] == "ia":
             ai_chat_view.update()
 
+    # Format commun des boutons d'icône des barres d'outils (retour user).
+    SQUARE_BTN = dict(
+        style=ft.ButtonStyle(bgcolor=GREY, padding=0),
+        width=CONSTANTS.HUB_TOOLBAR_H, height=CONSTANTS.HUB_TOOLBAR_H)
+
     def _bar_icon_btn(icon, color, on_click, tooltip, **kwargs):
         # Bouton icône de la barre Fichiers : pastille grise, icône
         # colorée, hauteur commune. Ce style était recopié à l'identique
@@ -7007,9 +7012,11 @@ def main(page: ft.Page):
         tooltip="Cliquer pour dicter (Gemini)", on_click=_mic_toggle)
     ai_clear_button = ft.IconButton(
         ft.Icons.DELETE_OUTLINE, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
+        **SQUARE_BTN,
         tooltip="Effacer la conversation", on_click=_ai_clear_conversation)
     ai_speaker_button = ft.IconButton(
         icon=ft.Icons.VOLUME_UP if ai_tts_enabled["value"] else ft.Icons.VOLUME_OFF,
+        **SQUARE_BTN,
         icon_color=BLUE if ai_tts_enabled["value"] else LIGHT_GREY,
         icon_size=CONSTANTS.ICON_SM,
         tooltip=("Désactiver la lecture vocale" if ai_tts_enabled["value"]
@@ -7018,10 +7025,12 @@ def main(page: ft.Page):
         on_click=_toggle_tts)
     ai_copy_button = ft.IconButton(
         ft.Icons.COPY_ALL, icon_color=BLUE, icon_size=CONSTANTS.ICON_SM,
+        **SQUARE_BTN,
         tooltip="Copier la conversation IA",
         on_click=lambda e: _export_ai_conversation(to_notepad=False))
     ai_to_notepad_button = ft.IconButton(
         ft.Icons.SEND_TO_MOBILE, icon_color=VIOLET, icon_size=CONSTANTS.ICON_SM,
+        **SQUARE_BTN,
         tooltip="Transférer la conversation vers le bloc-notes",
         on_click=lambda e: _export_ai_conversation(to_notepad=True))
 
@@ -7393,8 +7402,8 @@ def main(page: ft.Page):
         prefix_icon=ft.Icons.ADD, expand=True)
     liste_quick_add_row = ft.Container(
         content=liste_quick_add_field, padding=ft.Padding(8, 0, 8, 6))
-    liste_add_btn = ft.Button("Ajouter", icon=ft.Icons.ADD,
-                              on_click=lambda e: _liste_edit(None))
+    liste_add_btn = _bar_icon_btn(ft.Icons.ADD, SURFACE_ACCENT["liste"],
+                                  lambda e: _liste_edit(None), "Ajouter")
 
     def _liste_toggle_done(index, value):
         if 0 <= index < len(liste_entries):
@@ -7559,6 +7568,7 @@ def main(page: ft.Page):
 
     liste_back_to_todo_btn = ft.IconButton(
         ft.Icons.CHECKLIST, icon_color=GREEN, icon_size=CONSTANTS.ICON_SM,
+        **SQUARE_BTN,
         tooltip="Revenir à la todo list", visible=False,
         on_click=_liste_back_to_todo)
 
@@ -7624,11 +7634,11 @@ def main(page: ft.Page):
                 liste_search_row,
                 liste_path_text,
                 liste_back_to_todo_btn,
-                ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED,
+                ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["liste"],
                              icon_size=CONSTANTS.ICON_SM, tooltip="Nouveau fichier .json",
                              on_click=_liste_new_file),
-                ft.IconButton(ft.Icons.REFRESH,
+                ft.IconButton(ft.Icons.REFRESH, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["liste"],
                              icon_size=CONSTANTS.ICON_SM,
                              tooltip="Recharger depuis le disque",
@@ -7739,7 +7749,7 @@ def main(page: ft.Page):
                 _surface_title("Actus", "actus"),
                 actus_status,
                 ft.Container(expand=True),
-                ft.IconButton(ft.Icons.REFRESH,
+                ft.IconButton(ft.Icons.REFRESH, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["actus"],
                              icon_size=CONSTANTS.ICON_SM,
                              tooltip="Actualiser les flux",
@@ -8689,12 +8699,12 @@ def main(page: ft.Page):
                 kanban_search_wrap,
                 kanban_auto_sync_switch,
                 kanban_status,
-                ft.IconButton(ft.Icons.ADD,
+                ft.IconButton(ft.Icons.ADD, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["kanban"],
                              icon_size=CONSTANTS.ICON_SM,
                              tooltip="Nouvelle tâche",
                              on_click=_kanban_new_task),
-                ft.IconButton(ft.Icons.REFRESH,
+                ft.IconButton(ft.Icons.REFRESH, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["kanban"],
                              icon_size=CONSTANTS.ICON_SM,
                              tooltip="Actualiser depuis Notion",
@@ -9319,9 +9329,7 @@ def main(page: ft.Page):
     def _agenda_btn(icon, tip, fn):
         return ft.IconButton(icon, icon_color=SURFACE_ACCENT["agenda"],
                              icon_size=CONSTANTS.ICON_SM, tooltip=tip,
-                             style=ft.ButtonStyle(bgcolor=GREY, padding=0),
-                             width=CONSTANTS.HUB_TOOLBAR_H,
-                             height=CONSTANTS.HUB_TOOLBAR_H, on_click=fn)
+                             on_click=fn, **SQUARE_BTN)
 
     agenda_surface = ft.Column([
         ft.Container(
