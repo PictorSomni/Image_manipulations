@@ -56,7 +56,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 import ai_ops
 import image_ops
-import meta_image
+import meta_ai
 from ai_tools import _gemini_generate_image
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -1321,7 +1321,7 @@ async def main(page: ft.Page) -> None:
             if gemini_model.startswith("muse"):
                 # Muse (~1K max) : taille choisie selon l'orientation de
                 # la zone, résultat redimensionné ensuite comme pour NB2.
-                return meta_image.generate_image(
+                return meta_ai.generate_image(
                     full_prompt, input_image_bytes=buf.getvalue(),
                     aspect_ratio=f"{crop.width}:{crop.height}")
             return _gemini_generate_image(

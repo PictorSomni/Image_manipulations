@@ -55,7 +55,7 @@ import ai_ops
 import thumb_cache
 import mcp_client
 import notion_rest
-import meta_image
+import meta_ai
 import credentials
 import mtp_devices
 import rss_feeds
@@ -5321,9 +5321,11 @@ def main(page: ft.Page):
         dense=True, expand=True, color=WHITE, bgcolor=DARK, shift_enter=True,
         on_focus=_ai_input_on_focus, on_blur=_ai_input_on_blur)
     ai_model_dropdown = ft.Dropdown(
-        value=CONSTANTS.AI_MODEL_TEXT,
+        value=(CONSTANTS.AI_MODEL_TEXT
+               if CONSTANTS.AI_MODEL_TEXT in CONSTANTS.AI_DROPDOWN_MODELS
+               else CONSTANTS.AI_DROPDOWN_MODELS[0]),
         options=[ft.dropdown.Option(m) for m in CONSTANTS.AI_DROPDOWN_MODELS
-                 if m.startswith(("gemini", "claude"))],
+                 if m.startswith(("gemini", "claude", "muse"))],
         text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK,
         border=CONSTANTS.input_border(GREY),
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=180)
@@ -5783,7 +5785,7 @@ def main(page: ft.Page):
         ai_status_text.value = "🎨 Génération d'image en cours…"
         _ai_refresh()
         try:
-            gen = (meta_image.generate_image
+            gen = (meta_ai.generate_image
                    if ai_image_model_dropdown.value.startswith("muse")
                    else _gemini_generate_image)
             text, img_bytes = gen(
@@ -6813,7 +6815,7 @@ def main(page: ft.Page):
                 _active_model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_TEXT
                 _history_limit = (
                     CONSTANTS.AI_HISTORY_LIMIT_CLOUD
-                    if _active_model.startswith(("gemini", "claude"))
+                    if _active_model.startswith(("gemini", "claude", "muse"))
                     else CONSTANTS.AI_HISTORY_LIMIT_LOCAL)
                 history = ai_conversation[-_history_limit:]
                 # Une troncature brute peut couper juste après un tour
@@ -6861,6 +6863,10 @@ def main(page: ft.Page):
                             temperature=CONSTANTS.AI_TEMPERATURE)
                     elif model.startswith("claude"):
                         stream_iter = _claude_chat_stream_with_tools(
+                            model, messages, tools=tools,
+                            temperature=CONSTANTS.AI_TEMPERATURE)
+                    elif model.startswith("muse"):
+                        stream_iter = meta_ai.chat_stream_with_tools(
                             model, messages, tools=tools,
                             temperature=CONSTANTS.AI_TEMPERATURE)
                     else:
