@@ -346,6 +346,11 @@ def main(page: ft.Page):
     # principale tout à droite.
     DLG_BTN_COLORS = {"primary": BLUE, "cancel": BLUE_DARK, "danger": RED}
 
+    def _surface_title(label):
+        # Même titre que les bandeaux Terminal / Bloc-notes (retour user).
+        return ft.Text(label, size=CONSTANTS.TEXT_LG, color=WHITE,
+                       weight=ft.FontWeight.W_500, no_wrap=True)
+
     def _dlg_btn(label, kind="primary", color=None, **kwargs):
         # Coins légèrement arrondis (pas en pilule), comme les pastilles.
         return ft.Button(label, bgcolor=color or DLG_BTN_COLORS[kind],
@@ -7040,7 +7045,7 @@ def main(page: ft.Page):
                 # Titre retiré (retour user : déjà le nom de l'onglet) —
                 # le Container vide garde l'espace flexible qui poussait
                 # les groupes de boutons vers la droite.
-                ft.Container(expand=True),
+                ft.Container(_surface_title("IA"), expand=True),
                 ai_model_dropdown,
                 _ai_header_separator(),
                 ai_image_model_dropdown,
@@ -7577,6 +7582,7 @@ def main(page: ft.Page):
             # droite (retour user — même agencement que Tâches, pour
             # réduire à 2 barres l'interface avant la liste elle-même).
             content=ft.Row([
+                _surface_title("Liste"),
                 liste_search_row,
                 liste_path_text,
                 liste_back_to_todo_btn,
@@ -7692,6 +7698,7 @@ def main(page: ft.Page):
             # Titre retiré (déjà le nom de l'onglet) — bouton Actualiser
             # tout à droite, cohérent avec Tâches/Liste (retour user).
             content=ft.Row([
+                _surface_title("Actus"),
                 actus_status,
                 ft.Container(expand=True),
                 ft.IconButton(ft.Icons.REFRESH,
@@ -8639,6 +8646,7 @@ def main(page: ft.Page):
             # Recherche d'abord (extensible), les 2 boutons tout à droite
             # (retour user — même agencement que la barre Liste).
             content=ft.Row([
+                _surface_title("Tâches"),
                 kanban_search_wrap,
                 kanban_auto_sync_switch,
                 kanban_status,
@@ -9276,6 +9284,7 @@ def main(page: ft.Page):
     agenda_surface = ft.Column([
         ft.Container(
             content=ft.Row([
+                _surface_title("Agenda"),
                 _agenda_btn(ft.Icons.CHEVRON_LEFT, "Mois précédent",
                             lambda e: _agenda_shift(-1)),
                 agenda_month_label,
@@ -9325,6 +9334,12 @@ def main(page: ft.Page):
         "kanban": kanban_surface,
         "agenda": agenda_surface,
     }
+    # Barre colorée en haut de chaque onglet, comme Terminal / Bloc-notes
+    # (retour user : même look partout).
+    surface_content = {
+        k: ft.Column([ft.Container(height=6, bgcolor=SURFACE_ACCENT[k]), v],
+                     expand=True, spacing=0)
+        for k, v in surface_content.items()}
     center = ft.Container(content=surface_content["files"], expand=True,
                           bgcolor=DARK)
 
@@ -12059,8 +12074,11 @@ def main(page: ft.Page):
             _sync_terminal_btn()
         _terminal_fullscreen["active"] = not _terminal_fullscreen["active"]
         is_full = _terminal_fullscreen["active"]
-        main_row.visible = not is_full
-        terminal_panel.expand = is_full
+        # Plein écran : le calque monte jusqu'en haut de la zone onglet.
+        panels_dock.top = 0 if is_full else None
+        panels_row.vertical_alignment = (
+            ft.CrossAxisAlignment.STRETCH if is_full
+            else ft.CrossAxisAlignment.END)
         terminal_panel.height = (
             None if is_full else _terminal_fullscreen["last_height"])
         terminal_fullscreen_btn.icon = (
@@ -12087,8 +12105,8 @@ def main(page: ft.Page):
             t.cancel()
         if not terminal_panel.visible and _terminal_fullscreen["active"]:
             _terminal_fullscreen["active"] = False
-            main_row.visible = True
-            terminal_panel.expand = False
+            panels_dock.top = None
+            panels_row.vertical_alignment = ft.CrossAxisAlignment.END
             terminal_panel.height = _terminal_fullscreen["last_height"]
             terminal_fullscreen_btn.icon = ft.Icons.FULLSCREEN
             terminal_fullscreen_btn.tooltip = "Terminal plein écran (Ctrl/Cmd+Maj+↑)"
@@ -12558,11 +12576,21 @@ def main(page: ft.Page):
     )
 
     main_row = ft.Row([left_rail, center], expand=True, spacing=0)
+    # Bloc-notes + Terminal en calque par-dessus l'onglet (retour user :
+    # ne plus écraser les onglets), côte à côte quand les deux sont
+    # ouverts. left=60 : le rail gauche reste entièrement visible.
+    notes_panel.expand = True
+    terminal_panel.expand = True
+    panels_row = ft.Row([notes_panel, terminal_panel], spacing=4,
+                        vertical_alignment=ft.CrossAxisAlignment.END)
+    panels_dock = ft.Container(content=panels_row, left=60, right=0,
+                               bottom=0)
     body = ft.Column([
         ft.Divider(height=1, color=GREY),
-        main_row,
-        notes_panel,
-        terminal_panel,
+        # main_row positionné plein cadre : contraintes fixes (un enfant
+        # non positionné d'un Stack reçoit des contraintes lâches).
+        ft.Stack([ft.Container(main_row, left=0, top=0, right=0, bottom=0),
+                  panels_dock], expand=True),
         statusbar,
     ], expand=True, spacing=0)
 
