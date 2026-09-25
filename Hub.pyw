@@ -8341,6 +8341,7 @@ def main(page: ft.Page):
         # ne se perd si l'appel MCP échoue en cours de route.
         notes_field = ft.TextField(
             label="Notes (contenu de la page)", multiline=True,
+            value=prefill.get("notes", ""),
             min_lines=4, max_lines=10, width=560, bgcolor=DARK,
             border=CONSTANTS.input_border(GREY), color=WHITE)
         # Mêmes boutons glissants que la fiche détaillée (retour user :
@@ -9185,26 +9186,28 @@ def main(page: ft.Page):
 
             threading.Thread(target=_work, daemon=True).start()
 
-        actions = [ft.TextButton("Annuler", on_click=_close),
-                   ft.TextButton("Enregistrer" if ev else "Créer",
-                                 on_click=_confirm)]
+        # Boutons à fond coloré, plus lisibles (retour user).
+        actions = [ft.Button("Annuler", on_click=_close, bgcolor=GREY,
+                             color=WHITE),
+                   ft.Button("Enregistrer" if ev else "Créer",
+                             on_click=_confirm, bgcolor=ORANGE, color=DARK)]
         def _to_task(e):
             _close()
             _kanban_new_task(prefill={
                 "demande": f"{ev['source']} {(nom_field.value or '').strip()}",
                 "prevenir": "Appeler quand prêt",
+                "notes": ("" if notes_field.disabled
+                          else (notes_field.value or "").strip()),
                 "telephone": (tel_field.value or "").strip(),
                 "email": (mail_field.value or "").strip()})
 
         if ev and ev["source"] in ("Studio", "Reportage"):
-            actions.insert(0, ft.TextButton("Créer une tâche",
-                                            on_click=_to_task))
+            actions.insert(0, ft.Button("Créer une tâche", on_click=_to_task,
+                                        bgcolor=MINT, color=DARK))
         if ev:
-            actions[:0] = [
-                ft.TextButton("Supprimer", on_click=_delete,
-                              style=ft.ButtonStyle(color=RED)),
-                ft.TextButton("Ouvrir dans Notion",
-                              on_click=lambda e: webbrowser.open(ev["url"]))]
+            actions.insert(0, ft.TextButton(
+                "Supprimer", on_click=_delete,
+                style=ft.ButtonStyle(color=RED)))
         dlg = ft.AlertDialog(
             title=ft.Text("Rendez-vous" if ev else "Nouveau rendez-vous",
                           size=CONSTANTS.TEXT_SM, color=WHITE),
