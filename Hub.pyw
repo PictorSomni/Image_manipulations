@@ -375,7 +375,7 @@ def main(page: ft.Page):
         # Coins légèrement arrondis (pas en pilule), comme les pastilles.
         return ft.Button(label, bgcolor=color or DLG_BTN_COLORS[kind],
                          color=DARK, style=ft.ButtonStyle(
-                             shape=ft.RoundedRectangleBorder(radius=6)),
+                             shape=ft.RoundedRectangleBorder(radius=CONSTANTS.BUTTON_RADIUS)),
                          **kwargs)
 
     # Base Notion "Tâches" (page "Travail") — cf. surface Kanban plus bas.
@@ -420,6 +420,16 @@ def main(page: ft.Page):
     # ─── Fenêtre ─────────────────────────────────────────────────────────
     page.title      = "Hub"
     page.theme_mode = ft.ThemeMode.DARK
+    # Même arrondi sur tous les boutons (retour user).
+    _btn_style = ft.ButtonStyle(shape=ft.RoundedRectangleBorder(
+        radius=CONSTANTS.BUTTON_RADIUS))
+    page.dark_theme = page.theme = ft.Theme(
+        button_theme=ft.ButtonTheme(style=_btn_style),
+        icon_button_theme=ft.IconButtonTheme(style=_btn_style),
+        outlined_button_theme=ft.OutlinedButtonTheme(style=_btn_style),
+        text_button_theme=ft.TextButtonTheme(style=_btn_style),
+        filled_button_theme=ft.FilledButtonTheme(style=_btn_style),
+        segmented_button_theme=ft.SegmentedButtonTheme(style=_btn_style))
     page.bgcolor    = BACKGROUND
     page.padding    = 0
     page.window.title_bar_hidden         = True
@@ -4670,7 +4680,7 @@ def main(page: ft.Page):
                     weight=ft.FontWeight.W_800),
         ], spacing=6, tight=True),
         style=ft.ButtonStyle(bgcolor=ORANGE, padding=ft.Padding(14, 10, 14, 10),
-                             shape=ft.RoundedRectangleBorder(radius=10)),
+                             shape=ft.RoundedRectangleBorder(radius=CONSTANTS.BUTTON_RADIUS)),
         height=CONSTANTS.HUB_STATUSBAR_TAP_HEIGHT, on_click=lambda e: _open_actions(e),
     )
 
@@ -8265,7 +8275,7 @@ def main(page: ft.Page):
                     ft.Icons.OPEN_IN_FULL, icon_color=DARK, icon_size=14,
                     tooltip="Détails / modifier",
                     style=ft.ButtonStyle(
-                        bgcolor=etat_color, shape=ft.CircleBorder(),
+                        bgcolor=etat_color,
                         padding=4),
                     on_click=(lambda e, r=row:
                               _kanban_open_details(r))),

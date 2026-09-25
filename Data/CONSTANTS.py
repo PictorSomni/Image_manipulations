@@ -133,6 +133,7 @@ TEXT_LG = 20   # titres de zone (Bloc-notes, Assistant IA, HUB, Actions)
 
 # Échelle d'icônes — 2 crans : standard, et tactile proéminent.
 ICON_SM = 20   # icône standard (barres d'outils, boutons, badges, listes)
+BUTTON_RADIUS = 6   # arrondi de tous les boutons (retour user)
 ICON_LG = 28   # icône tactile proéminente (vignettes, panneau Actions,
                # barre de titre, visionneuse plein écran)
 
