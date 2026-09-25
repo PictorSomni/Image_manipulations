@@ -11937,6 +11937,14 @@ def main(page: ft.Page):
     # (retour user : demander à l'IA de générer une image juste après le
     # lancement, sans dossier ouvert, faisait clignoter l'interface et
     # perdre le message — un dossier toujours ouvert évite cet état).
+    async def _isdir_within(path, timeout=3.0):
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(os.path.isdir, path), timeout)
+        except asyncio.TimeoutError:
+            _log_to_terminal(f"[WARN] Injoignable, ignoré : {path}")
+            return False
+
     if not state["folder"]:
         async def _initial_navigate():
             # Différé après le premier rendu : naviguer en synchrone ici
@@ -11947,8 +11955,12 @@ def main(page: ft.Page):
             # derrière.
             await asyncio.sleep(0.05)
             saved_folders, saved_active = _startup_tabs, _startup_tabs_active
+            # isdir() sur un partage injoignable (Pi éteint, hors réseau)
+            # bloquait toute l'interface jusqu'au timeout de l'OS, parfois
+            # plus d'une minute (retour user) : vérif en thread, 3 s max
+            # par dossier, puis on passe au suivant.
             saved_folders = [p for p in saved_folders
-                             if p and os.path.isdir(p)]
+                             if p and await _isdir_within(p)]
             if saved_folders:
                 # Le tout premier onglet (créé plus haut, vide) accueille
                 # le premier dossier sauvegardé ; les suivants sont
@@ -11965,8 +11977,11 @@ def main(page: ft.Page):
                               else 0)
                 _restore_tab(tabs[active_idx]["id"])
                 return
-            default_folder = next(
-                (p for p in _load_recent() if os.path.isdir(p)), None)
+            default_folder = None
+            for p in _load_recent():
+                if await _isdir_within(p):
+                    default_folder = p
+                    break
             if not default_folder:
                 pictures = os.path.join(os.path.expanduser("~"), "Pictures")
                 default_folder = (pictures if os.path.isdir(pictures)
