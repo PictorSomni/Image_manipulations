@@ -3010,7 +3010,8 @@ def main(page: ft.Page):
     def _mini_btn(icon, on_click):
         return ft.Container(
             content=ft.Icon(icon, size=CONSTANTS.ICON_SM, color=ICON_ACTION),
-            width=30, height=30, border_radius=6, bgcolor=GREY,
+            width=CONSTANTS.HUB_TOOLBAR_H, height=CONSTANTS.HUB_TOOLBAR_H,
+            border_radius=CONSTANTS.BUTTON_RADIUS, bgcolor=GREY,
             alignment=ft.Alignment.CENTER, ink=True, on_click=on_click)
 
     def _refresh_viewer_order(path):
@@ -3162,8 +3163,10 @@ def main(page: ft.Page):
         # toucher au prochain ajustement.
         return ft.IconButton(
             icon=icon, icon_color=color, icon_size=CONSTANTS.ICON_SM,
-            style=ft.ButtonStyle(bgcolor=GREY, padding=ft.Padding.all(10)),
-            height=CONSTANTS.HUB_TOOLBAR_H, on_click=on_click,
+            # Carré commun à tous les boutons d'icône (retour user).
+            style=ft.ButtonStyle(bgcolor=GREY, padding=0),
+            width=CONSTANTS.HUB_TOOLBAR_H, height=CONSTANTS.HUB_TOOLBAR_H,
+            on_click=on_click,
             tooltip=tooltip, **kwargs)
 
     def _seg_btn(icon, text, on_click, color=None):
@@ -3179,9 +3182,9 @@ def main(page: ft.Page):
         # explicite (ex. VIOLET) sert aux boutons non-toggle.
         return ft.TextButton(
             content=ft.Icon(icon, size=CONSTANTS.ICON_SM, color=color),
-            style=ft.ButtonStyle(bgcolor=GREY, color=WHITE,
-                                 padding=ft.Padding(12, 0, 12, 0)),
-            height=CONSTANTS.HUB_TOOLBAR_H, on_click=on_click,
+            style=ft.ButtonStyle(bgcolor=GREY, color=WHITE, padding=0),
+            width=CONSTANTS.HUB_TOOLBAR_H, height=CONSTANTS.HUB_TOOLBAR_H,
+            on_click=on_click,
             tooltip=text,
         )
 
@@ -4531,8 +4534,9 @@ def main(page: ft.Page):
         # voisins (parent/refresh/nouveau dossier), marge dispo en demi-écran.
         return ft.IconButton(
             icon=icon, icon_color=DARK, icon_size=CONSTANTS.ICON_LG,
-            style=ft.ButtonStyle(bgcolor=color, padding=ft.Padding.all(6)),
-            height=CONSTANTS.HUB_TOOLBAR_H, on_click=on_click,
+            style=ft.ButtonStyle(bgcolor=color, padding=0),
+            width=CONSTANTS.HUB_TOOLBAR_H, height=CONSTANTS.HUB_TOOLBAR_H,
+            on_click=on_click,
             tooltip=tooltip,
         )
 
@@ -9315,7 +9319,9 @@ def main(page: ft.Page):
     def _agenda_btn(icon, tip, fn):
         return ft.IconButton(icon, icon_color=SURFACE_ACCENT["agenda"],
                              icon_size=CONSTANTS.ICON_SM, tooltip=tip,
-                             on_click=fn)
+                             style=ft.ButtonStyle(bgcolor=GREY, padding=0),
+                             width=CONSTANTS.HUB_TOOLBAR_H,
+                             height=CONSTANTS.HUB_TOOLBAR_H, on_click=fn)
 
     agenda_surface = ft.Column([
         ft.Container(
