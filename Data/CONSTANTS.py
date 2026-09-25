@@ -129,12 +129,12 @@ ICON_ACTION  = COLOR_BLUE         # action primaire / fréquente (parcourir, raf
 
 # Échelle typographique — 2 crans : corps de texte, et titres de zone.
 TEXT_SM = 13   # corps : dialogues, listes, boutons, noms de fichiers
-TEXT_LG = 20   # titres de zone (Bloc-notes, Assistant IA, HUB, Actions)
+TEXT_LG = 21   # titres de zone (Bloc-notes, Assistant IA, HUB, Actions)
 
 # Échelle d'icônes — 2 crans : standard, et tactile proéminent.
-ICON_SM = 20   # icône standard (barres d'outils, boutons, badges, listes)
-BUTTON_RADIUS = 6   # arrondi de tous les boutons (retour user)
-ICON_LG = 28   # icône tactile proéminente (vignettes, panneau Actions,
+ICON_SM = 21   # icône standard (barres d'outils, boutons, badges, listes)
+BUTTON_RADIUS = 9   # arrondi de tous les boutons (retour user)
+ICON_LG = 32   # icône tactile proéminente (vignettes, panneau Actions,
                # barre de titre, visionneuse plein écran)
 
 # Cible tactile minimale, en px logiques : plus petit carré qu'un doigt
