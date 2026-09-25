@@ -56,6 +56,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 import ai_ops
 import image_ops
+import meta_image
 from ai_tools import _gemini_generate_image
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -382,6 +383,7 @@ async def main(page: ft.Page) -> None:
             ft.dropdown.Option("gemini-3.1-flash-image", text="NB2"),
             ft.dropdown.Option("gemini-3.1-flash-lite-image",
                                text="NB2 Lite"),
+            ft.dropdown.Option("muse-image-1.0", text="Muse (Meta)"),
         ],
         label="Modèle",
         text_size=11, dense=True, color=WHITE, bgcolor=GREY,
@@ -1316,6 +1318,12 @@ async def main(page: ft.Page) -> None:
         def _do_gemini():
             buf = io.BytesIO()
             crop.save(buf, format="JPEG", quality=95)
+            if gemini_model.startswith("muse"):
+                # Muse (~1K max) : taille choisie selon l'orientation de
+                # la zone, résultat redimensionné ensuite comme pour NB2.
+                return meta_image.generate_image(
+                    full_prompt, input_image_bytes=buf.getvalue(),
+                    aspect_ratio=f"{crop.width}:{crop.height}")
             return _gemini_generate_image(
                 full_prompt, input_image_bytes=buf.getvalue(),
                 resolution=quality, model=gemini_model)

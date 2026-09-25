@@ -44,9 +44,11 @@ def _size(aspect_ratio):
         w, h = (float(x) for x in str(aspect_ratio).split(":"))
     except ValueError:
         return "auto"
-    if abs(w - h) < 1e-6:
-        return "1024x1024"
-    return "1024x1536" if h > w else "1536x1024"
+    # Taille au ratio le plus proche (1, 2/3 ou 3/2) : le Hub/Augmentation
+    # IA redimensionnent ensuite, un écart de ratio déformerait l'image.
+    r = w / h
+    return min((abs(r - 1), "1024x1024"), (abs(r - 2 / 3), "1024x1536"),
+               (abs(r - 1.5), "1536x1024"))[1]
 
 
 def _body(prompt, input_image_bytes=None, aspect_ratio=None):
@@ -101,4 +103,5 @@ if __name__ == "__main__":
         b"ok").decode()}]}) == b"ok"
     assert _size("3:4") == "1024x1536" and _size("16:9") == "1536x1024"
     assert _size("1:1") == "1024x1024" and _size(None) == "auto"
+    assert _size("1100:1000") == "1024x1024"
     print("ok")
