@@ -7033,10 +7033,17 @@ def main(page: ft.Page):
         tooltip="Transférer la conversation vers le bloc-notes",
         on_click=lambda e: _export_ai_conversation(to_notepad=True))
 
+    ai_image_mode_label = ft.Text(
+        "REEL" if ai_send_original_images["value"] else "1024",
+        color=GREEN if ai_send_original_images["value"] else BLUE,
+        size=CONSTANTS.TEXT_SM - 3, weight=ft.FontWeight.BOLD)
+
     def _toggle_ai_image_size_mode(event=None):
         ai_send_original_images["value"] = not ai_send_original_images["value"]
         use_original = ai_send_original_images["value"]
         ai_image_size_button.icon_color = GREEN if use_original else BLUE
+        ai_image_mode_label.value = "REEL" if use_original else "1024"
+        ai_image_mode_label.color = GREEN if use_original else BLUE
         ai_image_size_button.tooltip = (
             "Mode images IA en taille réelle (fichier original) — "
             "affecte uniquement les nouveaux fichiers joints"
@@ -7057,9 +7064,14 @@ def main(page: ft.Page):
             "affecte uniquement les nouveaux fichiers joints"),
         on_click=_toggle_ai_image_size_mode)
 
-    # Icône seule, format carré commun (retour user) : vert = taille
-    # réelle, bleu = 1024 px ; le détail est dans l'infobulle.
-    ai_image_size_group = ai_image_size_button
+    # Bouton + mode (« REEL »/« 1024 ») dans une seule pastille, à la
+    # hauteur commune des boutons (retour user : l'icône seule n'était
+    # pas claire).
+    ai_image_size_group = ft.Container(
+        content=ft.Row([ai_image_size_button, ai_image_mode_label],
+                       spacing=0, tight=True),
+        bgcolor=GREY, border_radius=CONSTANTS.BUTTON_RADIUS,
+        height=CONSTANTS.HUB_TOOLBAR_H, padding=ft.Padding(0, 0, 10, 0))
 
     def _ai_header_separator():
         return ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
