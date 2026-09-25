@@ -8312,20 +8312,25 @@ def main(page: ft.Page):
             })
         return rows
 
-    def _kanban_new_task(event=None):
+    def _kanban_new_task(event=None, prefill=None):
         # Overlay complet dès la création (retour user : dans Notion, la
         # nouvelle page s'ouvre avec toutes les propriétés éditables tout
         # de suite — remplir en un seul passage plutôt que de créer avec
         # juste un titre puis rouvrir le détail pour compléter).
+        # prefill : tâche créée depuis un rendez-vous de l'Agenda.
+        prefill = prefill or {}
         title_field = ft.TextField(
             label="Demande", autofocus=True, width=560, bgcolor=DARK,
+            value=prefill.get("demande", ""),
             border=CONSTANTS.input_border(GREY), color=WHITE)
-        deadline_field = _kanban_deadline_field("")
+        deadline_field = _kanban_deadline_field(prefill.get("deadline", ""))
         telephone_field = ft.TextField(
             label="Téléphone", width=560, bgcolor=DARK,
+            value=prefill.get("telephone", ""),
             border=CONSTANTS.input_border(GREY), color=WHITE)
         email_field = ft.TextField(
             label="E-mail", width=560, bgcolor=DARK,
+            value=prefill.get("email", ""),
             border=CONSTANTS.input_border(GREY), color=WHITE)
         prix_field = ft.TextField(
             label="Prix", width=560, bgcolor=DARK,
@@ -8754,11 +8759,10 @@ def main(page: ft.Page):
             border=ft.Border(left=ft.BorderSide(3, ev["color"])),
             border_radius=6, padding=ft.Padding(8, 6, 8, 6), ink=True,
             tooltip=ev["source"], expand=expand,
-            # Vue d'ensemble (retour user) : terminé ou passé = estompé,
+            # Vue d'ensemble (retour user) : terminé = estompé,
             # ce qui reste à faire ressort.
-            opacity=(0.4 if etat in AGENDA_DONE
-                     or ev["start"][:10] < datetime.date.today().isoformat()
-                     else 1),
+            # Passés NON estompés : retouchés après coup (retour user).
+            opacity=0.4 if etat in AGENDA_DONE else 1,
             on_click=lambda e, ev=ev: _agenda_new_entry(ev=ev))
 
     def _agenda_day_list(day, evs):
@@ -9184,6 +9188,17 @@ def main(page: ft.Page):
         actions = [ft.TextButton("Annuler", on_click=_close),
                    ft.TextButton("Enregistrer" if ev else "Créer",
                                  on_click=_confirm)]
+        def _to_task(e):
+            _close()
+            _kanban_new_task(prefill={
+                "demande": f"{ev['source']} {(nom_field.value or '').strip()}",
+                "deadline": (date_field.value or "")[:10],
+                "telephone": (tel_field.value or "").strip(),
+                "email": (mail_field.value or "").strip()})
+
+        if ev and ev["source"] in ("Studio", "Reportage"):
+            actions.insert(0, ft.TextButton("Créer une tâche",
+                                            on_click=_to_task))
         if ev:
             actions[:0] = [
                 ft.TextButton("Supprimer", on_click=_delete,
