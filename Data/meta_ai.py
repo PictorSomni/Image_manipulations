@@ -4,8 +4,8 @@ generate_image : même retour que ai_tools._gemini_generate_image.
 chat_stream_with_tools : mêmes événements que
 ai_tools._claude_chat_stream_with_tools. API compatible OpenAI.
 
-Clé lue dans MODEL_API_KEY (environnement) ou ~/.meta (hors du repo,
-jamais commitée).
+Clé : variable MUSE_API_KEY (environnement ou .zshrc/.bashrc), ou
+~/.meta (hors du repo, jamais commitée).
 """
 
 __version__ = "2.3.0"
@@ -14,6 +14,7 @@ import base64
 import json
 import os
 import ssl
+import subprocess
 import urllib.error
 import urllib.request
 
@@ -22,14 +23,30 @@ MODEL = "muse-image-1.0"
 
 
 def _key():
-    key = os.environ.get("MODEL_API_KEY", "").strip()
-    if key:
-        return key
+    """MUSE_API_KEY (ou MODEL_API_KEY) dans l'environnement, sinon ~/.meta,
+    sinon exportée dans .zshrc/.bashrc (une app lancée hors terminal ne
+    les voit pas — même principe que la clé Gemini)."""
+    for name in ("MUSE_API_KEY", "MODEL_API_KEY"):
+        if os.environ.get(name, "").strip():
+            return os.environ[name].strip()
     try:
         with open(os.path.expanduser("~/.meta"), encoding="utf-8-sig") as f:
             return f.read().strip()
     except OSError:
-        return ""
+        pass
+    for shell in ("/bin/zsh", "/bin/bash"):
+        if os.name != "nt" and os.path.exists(shell):
+            try:
+                key = subprocess.run(
+                    [shell, "-li", "-c", "echo $MUSE_API_KEY"],
+                    capture_output=True, text=True, timeout=2
+                ).stdout.strip().splitlines()[-1:]
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if key and key[0].strip():
+                os.environ["MUSE_API_KEY"] = key[0].strip()
+                return key[0].strip()
+    return ""
 
 
 def _mime(data):
@@ -79,8 +96,8 @@ def generate_image(prompt, input_image_bytes=None, aspect_ratio=None,
     # (1024x1024, 1024x1536, 1536x1024).
     key = _key()
     if not key:
-        return ("[Erreur] Clé Meta absente : mets-la dans ~/.meta "
-                "(ou MODEL_API_KEY).", None)
+        return ("[Erreur] Clé Meta absente : définis MUSE_API_KEY "
+                "(ou ~/.meta).", None)
     path = "/images/edits" if input_image_bytes else "/images/generations"
     req = urllib.request.Request(
         _API + path, method="POST",
@@ -140,8 +157,8 @@ def chat_stream_with_tools(model, messages, tools=None, temperature=0.7):
     {"name", "arguments": dict}}]) — comme _claude_chat_stream_with_tools."""
     key = _key()
     if not key:
-        yield ("token", "[Erreur : clé Meta absente (~/.meta ou "
-                        "MODEL_API_KEY)]")
+        yield ("token", "[Erreur : clé Meta absente (MUSE_API_KEY "
+                        "ou ~/.meta)]")
         return
     body = {"model": model, "messages": _to_openai(messages),
             "temperature": temperature, "stream": True}
