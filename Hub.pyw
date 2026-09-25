@@ -353,6 +353,7 @@ def main(page: ft.Page):
         if isinstance(title, ft.Text):
             # Même taille de titre que les bandeaux et onglets.
             title.size = CONSTANTS.TEXT_LG
+            title.color = color
             title.weight = ft.FontWeight.W_500
         if title is not None:
             title = ft.Column([
@@ -364,9 +365,10 @@ def main(page: ft.Page):
         kwargs.setdefault("clip_behavior", ft.ClipBehavior.ANTI_ALIAS)
         return ft.AlertDialog(title=title, **kwargs)
 
-    def _surface_title(label):
-        # Même titre que les bandeaux Terminal / Bloc-notes (retour user).
-        return ft.Text(label, size=CONSTANTS.TEXT_LG, color=WHITE,
+    def _surface_title(label, key):
+        # Titre dans la couleur de la barre de l'onglet (retour user).
+        return ft.Text(label, size=CONSTANTS.TEXT_LG,
+                       color=SURFACE_ACCENT[key],
                        weight=ft.FontWeight.W_500, no_wrap=True)
 
     def _dlg_btn(label, kind="primary", color=None, **kwargs):
@@ -4996,7 +4998,7 @@ def main(page: ft.Page):
             hint_style=ft.TextStyle(color=LIGHT_GREY, italic=True),
         )
         notes_editor_content = notes_field
-    notes_title = ft.Text("Bloc-notes", size=CONSTANTS.TEXT_LG, color=WHITE,
+    notes_title = ft.Text("Bloc-notes", size=CONSTANTS.TEXT_LG, color=VIOLET,
                           weight=ft.FontWeight.W_500, expand=True, no_wrap=True)
     notes_preview = ft.Markdown(
         "", selectable=True, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
@@ -7063,7 +7065,7 @@ def main(page: ft.Page):
                 # Titre retiré (retour user : déjà le nom de l'onglet) —
                 # le Container vide garde l'espace flexible qui poussait
                 # les groupes de boutons vers la droite.
-                ft.Container(_surface_title("IA"), expand=True),
+                ft.Container(_surface_title("IA", "ia"), expand=True),
                 ai_model_dropdown,
                 _ai_header_separator(),
                 ai_image_model_dropdown,
@@ -7600,7 +7602,7 @@ def main(page: ft.Page):
             # droite (retour user — même agencement que Tâches, pour
             # réduire à 2 barres l'interface avant la liste elle-même).
             content=ft.Row([
-                _surface_title("Liste"),
+                _surface_title("Liste", "liste"),
                 liste_search_row,
                 liste_path_text,
                 liste_back_to_todo_btn,
@@ -7716,7 +7718,7 @@ def main(page: ft.Page):
             # Titre retiré (déjà le nom de l'onglet) — bouton Actualiser
             # tout à droite, cohérent avec Tâches/Liste (retour user).
             content=ft.Row([
-                _surface_title("Actus"),
+                _surface_title("Actus", "actus"),
                 actus_status,
                 ft.Container(expand=True),
                 ft.IconButton(ft.Icons.REFRESH,
@@ -8664,7 +8666,7 @@ def main(page: ft.Page):
             # Recherche d'abord (extensible), les 2 boutons tout à droite
             # (retour user — même agencement que la barre Liste).
             content=ft.Row([
-                _surface_title("Tâches"),
+                _surface_title("Tâches", "kanban"),
                 kanban_search_wrap,
                 kanban_auto_sync_switch,
                 kanban_status,
@@ -9302,7 +9304,7 @@ def main(page: ft.Page):
     agenda_surface = ft.Column([
         ft.Container(
             content=ft.Row([
-                _surface_title("Agenda"),
+                _surface_title("Agenda", "agenda"),
                 _agenda_btn(ft.Icons.CHEVRON_LEFT, "Mois précédent",
                             lambda e: _agenda_shift(-1)),
                 agenda_month_label,
@@ -11272,7 +11274,7 @@ def main(page: ft.Page):
             ft.Container(height=4, bgcolor=accent, border_radius=2),
             ft.Container(
                 content=ft.Text(label, size=CONSTANTS.TEXT_SM + 3,
-                                color=WHITE, weight=ft.FontWeight.W_500),
+                                color=accent, weight=ft.FontWeight.W_500),
                 padding=ft.Padding(2, 2, 0, 0)),
         ], spacing=4, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
@@ -11380,7 +11382,7 @@ def main(page: ft.Page):
                 content=ft.Row([
                     ft.Icon(ft.Icons.BOLT_OUTLINED, color=ORANGE,
                            size=CONSTANTS.ICON_SM),
-                    ft.Text("Actions", size=CONSTANTS.TEXT_LG, color=WHITE,
+                    ft.Text("Actions", size=CONSTANTS.TEXT_LG, color=ORANGE,
                            weight=ft.FontWeight.W_500, expand=True),
                     ft.IconButton(ft.Icons.CLOSE, icon_color=RED,
                                  icon_size=CONSTANTS.ICON_LG,
@@ -12058,7 +12060,8 @@ def main(page: ft.Page):
         on_pan_update=_on_terminal_resize,
     )
 
-    terminal_title = ft.Text("Terminal", size=CONSTANTS.TEXT_LG, color=WHITE,
+    terminal_title = ft.Text("Terminal", size=CONSTANTS.TEXT_LG,
+                           color=YELLOW_GREEN,
                              weight=ft.FontWeight.W_500, expand=True, no_wrap=True)
 
     terminal_panel = ft.Container(
