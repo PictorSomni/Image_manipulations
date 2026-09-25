@@ -11620,6 +11620,10 @@ def main(page: ft.Page):
         # Fermer ne répondait plus du tout).
         if event.type == ft.WindowEventType.CLOSE:
             os._exit(0)
+        elif event.type == ft.WindowEventType.FOCUS:
+            _window_focus["value"] = True
+        elif event.type == ft.WindowEventType.BLUR:
+            _window_focus["value"] = False
         elif event.type == ft.WindowEventType.RESIZED:
             _apply_titlebar_width()
             if viewer_overlay in page.overlay:
@@ -11631,6 +11635,76 @@ def main(page: ft.Page):
             page.update()
 
     page.window.on_event = _on_window_event
+    _window_focus = {"value": True}
+
+    # Boutons latéraux de souris (retour user) : précédent = dossier
+    # parent, suivant = redescendre dans le dossier qu'on vient de quitter.
+    # Flet n'expose pas ces boutons -> écoute globale pynput, filtrée sur
+    # le focus de la fenêtre Hub.
+    _forward_stack = []
+
+    def _mouse_back():
+        folder = state["folder"]
+        parent = os.path.dirname(folder) if folder else ""
+        if parent and parent != folder:
+            _forward_stack.append(folder)
+            _navigate(parent)
+
+    def _mouse_forward():
+        if not _forward_stack:
+            return
+        target = _forward_stack.pop()
+        if os.path.dirname(target) != state["folder"]:
+            _forward_stack.clear()  # on a navigué ailleurs entre-temps
+        elif os.path.isdir(target):
+            _navigate(target)
+
+    def _mouse_buttons_start():
+        try:
+            from pynput import mouse as _pynput_mouse
+        except Exception:
+            return  # pynput absent / pas d'écran : pas grave
+
+        def _fire(fn):
+            if _window_focus["value"]:
+                async def _go():
+                    fn()
+                _run_task(_go)
+
+        kwargs = {}
+        if sys.platform == "darwin":
+            # pynput range tous les boutons "autres" en `middle` sur mac :
+            # on lit le numéro du bouton dans l'événement Quartz brut.
+            import Quartz
+
+            def _intercept(event_type, event):
+                if event_type == Quartz.kCGEventOtherMouseDown:
+                    num = Quartz.CGEventGetIntegerValueField(
+                        event, Quartz.kCGMouseEventButtonNumber)
+                    if num == 3:
+                        _fire(_mouse_back)
+                    elif num == 4:
+                        _fire(_mouse_forward)
+                return event
+            kwargs["darwin_intercept"] = _intercept
+        else:
+            back = {getattr(_pynput_mouse.Button, n, None)
+                    for n in ("x1", "button8")} - {None}
+            fwd = {getattr(_pynput_mouse.Button, n, None)
+                   for n in ("x2", "button9")} - {None}
+
+            def _on_click(x, y, button, pressed, *_):
+                if pressed and button in back:
+                    _fire(_mouse_back)
+                elif pressed and button in fwd:
+                    _fire(_mouse_forward)
+            kwargs["on_click"] = _on_click
+        try:
+            listener = _pynput_mouse.Listener(**kwargs)
+            listener.daemon = True
+            listener.start()
+        except Exception as exc:
+            _log_to_terminal(f"[WARN] Boutons souris : {exc}")
 
     def _open_browser(event=None):
         webbrowser.open("https://www.google.com")
@@ -11997,6 +12071,7 @@ def main(page: ft.Page):
 
     _run_task(_focus_active_surface)
     _mic_hotkey_start()
+    _mouse_buttons_start()
 
     # Scan initial synchrone (rapide, cf. _get_removable_drives) puis
     # relais par le thread de fond toutes les 3 s (comme Dashboard.pyw) :
