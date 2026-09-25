@@ -78,8 +78,8 @@ SURFACES = [
     ("files", "Fichiers", ft.Icons.PHOTO_LIBRARY_OUTLINED),
     ("liste", "Liste",    ft.Icons.LIST_ALT_OUTLINED),
     ("kanban", "Tâches",  ft.Icons.VIEW_KANBAN_OUTLINED),
-    ("ia",    "IA",       ft.Icons.SMART_TOY_OUTLINED),
     ("agenda", "Agenda",  ft.Icons.CALENDAR_MONTH_OUTLINED),
+    ("ia",    "IA",       ft.Icons.SMART_TOY_OUTLINED),
     ("actus", "Actus",    ft.Icons.RSS_FEED_OUTLINED),
     # Bloc-notes retiré du rail (retour user) : accessible en bandeau
     # depuis la barre du bas (notes_panel), plus en surface plein écran —
@@ -8679,48 +8679,95 @@ def main(page: ft.Page):
     #  la fiche dans Notion pour la modifier.
     # ═════════════════════════════════════════════════════════════════════
     AGENDA_SOURCES = [
-        ("Studio", "ae971f83-22d1-4d53-8972-4c6302c6d371", BLUE),
-        ("Reportage", "42f7bb5c-84f2-416a-aad0-8aad7b1ea51a", VIOLET),
-        ("Borne", "23f887c8-202a-4e37-91e1-812a4a6c7472", GREEN),
+        # nom, data source, couleur, nom de la propriété e-mail
+        ("Studio", "ae971f83-22d1-4d53-8972-4c6302c6d371", BLUE, "E-mail"),
+        ("Reportage", "42f7bb5c-84f2-416a-aad0-8aad7b1ea51a", VIOLET,
+         "E-mail"),
+        ("Borne", "23f887c8-202a-4e37-91e1-812a4a6c7472", GREEN, "Email"),
     ]
+    AGENDA_MONTHS = ("janvier février mars avril mai juin juillet août "
+                     "septembre octobre novembre décembre").split()
+    AGENDA_MAX_CHIPS = 4
     agenda_status = ft.Text("", size=11, color=LIGHT_GREY)
-    agenda_list_view = ft.ListView(expand=True, spacing=6, padding=10)
-    agenda_state = {"loading": False}
+    agenda_month_label = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE,
+                                 weight=ft.FontWeight.W_600, width=160,
+                                 text_align=ft.TextAlign.CENTER)
+    agenda_grid = ft.Column(expand=True, spacing=2)
+    agenda_state = {"loading": False, "events": [],
+                    "month": datetime.date.today().replace(day=1)}
 
-    def _agenda_card(ev):
+    def _agenda_chip(ev):
         start = ev["start"]
-        when = start[:10]
-        try:
-            d = datetime.date.fromisoformat(when)
-            # Jour en français sans dépendre de la locale système.
-            when = ("lun mar mer jeu ven sam dim".split()[d.weekday()]
-                    + d.strftime(" %d/%m/%Y"))
-            if len(start) > 10:
-                when += " " + datetime.datetime.fromisoformat(
-                    start).astimezone().strftime("%H:%M")
-        except ValueError:
-            pass
-        infos = " · ".join(x for x in (ev["etat"], ev["tel"], ev["mail"])
-                           if x)
+        label = ev["nom"] or "(sans nom)"
+        if len(start) > 10:
+            try:
+                label = datetime.datetime.fromisoformat(start).astimezone(
+                    ).strftime("%H:%M ") + label
+            except ValueError:
+                pass
         return ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Container(
-                        content=ft.Text(ev["source"], size=11,
-                                        color=ft.Colors.BLACK,
-                                        weight=ft.FontWeight.W_600),
-                        bgcolor=ft.Colors.with_opacity(0.85, ev["color"]),
-                        border_radius=4, padding=ft.Padding(6, 2, 6, 2)),
-                    ft.Text(when, size=11, color=LIGHT_GREY),
-                ], spacing=8),
-                ft.Text(ev["nom"] or "(sans nom)", size=CONSTANTS.TEXT_SM,
-                        color=WHITE, weight=ft.FontWeight.W_600),
-                ft.Text(infos, size=11, color=LIGHT_GREY,
-                        visible=bool(infos)),
-            ], spacing=4, tight=True),
-            bgcolor=ft.Colors.with_opacity(0.18, ev["color"]),
-            border_radius=8, padding=10, ink=True,
-            on_click=lambda e, u=ev["url"]: webbrowser.open(u))
+            content=ft.Text(label, size=11, color=ft.Colors.BLACK,
+                            max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
+                            weight=ft.FontWeight.W_600),
+            bgcolor=ft.Colors.with_opacity(0.85, ev["color"]),
+            border_radius=4, padding=ft.Padding(4, 1, 4, 1), ink=True,
+            tooltip=f"{ev['source']} — {label}",
+            on_click=lambda e, ev=ev: _agenda_new_entry(ev=ev))
+
+    def _agenda_rebuild():
+        first = agenda_state["month"]
+        agenda_month_label.value = (f"{AGENDA_MONTHS[first.month - 1]} "
+                                    f"{first.year}").capitalize()
+        by_day = {}
+        for ev in agenda_state["events"]:
+            by_day.setdefault(ev["start"][:10], []).append(ev)
+        today = datetime.date.today()
+        day = first - datetime.timedelta(days=first.weekday())
+        rows = [ft.Row([
+            ft.Container(ft.Text(d, size=11, color=LIGHT_GREY),
+                         expand=True, alignment=ft.Alignment.CENTER)
+            for d in "Lun Mar Mer Jeu Ven Sam Dim".split()], spacing=2)]
+        # 6 semaines max, on s'arrête après la dernière semaine du mois.
+        while day.month == first.month or day < first:
+            cells = []
+            for _ in range(7):
+                evs = sorted(by_day.get(day.isoformat(), []),
+                             key=lambda e: e["start"])
+                in_month = day.month == first.month
+                chips = [_agenda_chip(e) for e in evs[:AGENDA_MAX_CHIPS]]
+                if len(evs) > AGENDA_MAX_CHIPS:
+                    chips.append(ft.Text(
+                        f"+{len(evs) - AGENDA_MAX_CHIPS}", size=11,
+                        color=LIGHT_GREY))
+                cells.append(ft.Container(
+                    content=ft.Column([
+                        ft.Text(str(day.day), size=11,
+                                color=(ORANGE if day == today else
+                                       WHITE if in_month else GREY),
+                                weight=(ft.FontWeight.W_700
+                                        if day == today else None)),
+                        *chips], spacing=2, tight=True),
+                    expand=True, padding=4, border_radius=4,
+                    bgcolor=BACKGROUND if in_month else DARK,
+                    border=(ft.Border.all(1, ORANGE) if day == today
+                            else None),
+                    ink=True,
+                    on_click=lambda e, d=day: _agenda_new_entry(d)))
+                day += datetime.timedelta(days=1)
+            rows.append(ft.Row(cells, expand=True, spacing=2,
+                               vertical_alignment=(
+                                   ft.CrossAxisAlignment.STRETCH)))
+        agenda_grid.controls = rows
+
+    def _agenda_shift(months):
+        m = agenda_state["month"]
+        if months == 0:
+            agenda_state["month"] = datetime.date.today().replace(day=1)
+        else:
+            y, mo = divmod(m.month - 1 + months, 12)
+            agenda_state["month"] = m.replace(year=m.year + y, month=mo + 1)
+        _agenda_rebuild()
+        page.update()
 
     def _agenda_refresh(event=None):
         if agenda_state["loading"]:
@@ -8731,7 +8778,7 @@ def main(page: ft.Page):
 
         def _work():
             events, errors = [], []
-            for name, ds_id, color in AGENDA_SOURCES:
+            for name, ds_id, color, mail_prop in AGENDA_SOURCES:
                 raw = _notion_call(
                     "mcp__notion__notion-query-data-sources",
                     {"data": {"mode": "rows",
@@ -8742,49 +8789,205 @@ def main(page: ft.Page):
                     continue
                 for r in json.loads(raw).get("results", []):
                     start = r.get("date:Date:start") or ""
-                    if not start:
-                        continue
-                    events.append({
-                        "source": name, "color": color, "start": start,
-                        "url": r.get("url", ""),
-                        "nom": " ".join((r.get("Nom") or "").split()),
-                        "etat": r.get("État") or r.get("Etat") or "",
-                        "tel": r.get("Téléphone", ""),
-                        "mail": r.get("E-mail") or r.get("Email") or ""})
-            # ponytail: à venir seulement (depuis aujourd'hui), les passés
-            # restent consultables dans Notion.
-            today = datetime.date.today().isoformat()
-            events = sorted((e for e in events if e["start"][:10] >= today),
-                            key=lambda e: e["start"])
+                    if start:
+                        events.append({
+                            "source": name, "color": color, "start": start,
+                            "url": r.get("url", ""),
+                            "page_id": r.get("url", "").rsplit("/", 1)[-1],
+                            "tel": r.get("Téléphone") or "",
+                            "mail": r.get(mail_prop) or "",
+                            "nom": " ".join((r.get("Nom") or "").split())})
 
             async def _apply():
                 agenda_state["loading"] = False
-                agenda_list_view.controls = [_agenda_card(e) for e in events]
+                agenda_state["events"] = events
                 agenda_status.value = (
                     " / ".join(errors) if errors else
-                    f"{len(events)} rendez-vous à venir — mis à jour à "
+                    f"Mis à jour à "
                     f"{datetime.datetime.now().strftime('%H:%M')}")
+                _agenda_rebuild()
                 page.update()
 
             _run_task(_apply)
 
         threading.Thread(target=_work, daemon=True).start()
 
+    def _agenda_new_entry(day=None, ev=None):
+        """Création (ev None) ou fiche d'un rendez-vous existant."""
+        def _field(label, value=""):
+            return ft.TextField(label=label, value=value, width=560,
+                                bgcolor=DARK,
+                                border=CONSTANTS.input_border(GREY),
+                                color=WHITE)
+        heure = ""
+        if ev and len(ev["start"]) > 10:
+            try:
+                heure = datetime.datetime.fromisoformat(
+                    ev["start"]).astimezone().strftime("%H:%M")
+            except ValueError:
+                pass
+        nom_field = _field("Nom", ev["nom"] if ev else "")
+        date_field = _kanban_deadline_field(
+            ev["start"][:10] if ev
+            else (day or datetime.date.today()).isoformat(), label="Date")
+        heure_field = _field("Heure (ex. 14:30, vide = journée)", heure)
+        tel_field = _field("Téléphone", ev["tel"] if ev else "")
+        mail_field = _field("E-mail", ev["mail"] if ev else "")
+        texts = [ft.Text(n, size=11) for n, *_ in AGENDA_SOURCES]
+
+        def _restyle():
+            for k, t in enumerate(texts):
+                t.color = DARK if k == seg.selected_index else WHITE
+            seg.thumb_color = AGENDA_SOURCES[seg.selected_index][2]
+
+        def _seg_change(e):
+            _restyle()
+            seg.update()
+
+        seg = ft.CupertinoSlidingSegmentedButton(
+            selected_index=next(
+                (i for i, src in enumerate(AGENDA_SOURCES)
+                 if ev and src[0] == ev["source"]), 0),
+            controls=texts, on_change=_seg_change, width=560,
+            # Une fiche existante ne change pas de base Notion.
+            disabled=ev is not None)
+        _restyle()
+
+        def _close(e=None):
+            dlg.open = False
+            page.update()
+
+        def _confirm(e):
+            nom = (nom_field.value or "").strip()
+            date_txt = (date_field.value or "").strip()
+            if not nom or not date_txt:
+                return
+            heure = (heure_field.value or "").strip().replace("h", ":")
+            start = date_txt
+            if heure:
+                try:
+                    hh, _, mm = heure.partition(":")
+                    start = datetime.datetime.combine(
+                        datetime.date.fromisoformat(date_txt),
+                        datetime.time(int(hh), int(mm or 0))
+                    ).astimezone().isoformat(timespec="minutes")
+                except ValueError:
+                    heure_field.error_text = "Format HH:MM"
+                    heure_field.update()
+                    return
+            name, ds_id, _color, mail_prop = AGENDA_SOURCES[
+                seg.selected_index]
+            props = {"Nom": nom, "Date": start,
+                     "Téléphone": (tel_field.value or "").strip(),
+                     mail_prop: (mail_field.value or "").strip()}
+            if not ev:  # création : pas de propriétés vides
+                props = {k: v for k, v in props.items() if v}
+            _close()
+            agenda_status.value = "Enregistrement…"
+            page.update()
+
+            def _work():
+                if ev:
+                    result = _notion_call(
+                        "mcp__notion__notion-update-page",
+                        {"page_id": ev["page_id"],
+                         "command": "update_properties",
+                         "properties": props})
+                else:
+                    result = _notion_call(
+                        "mcp__notion__notion-create-pages",
+                        {"parent": {"type": "data_source_id",
+                                    "data_source_id": ds_id},
+                         "pages": [{"properties": props}]})
+
+                async def _apply():
+                    if result.startswith("Erreur"):
+                        agenda_status.value = f"Échec ({name}) : {result}"
+                        page.update()
+                    else:
+                        _agenda_refresh()
+
+                _run_task(_apply)
+
+            threading.Thread(target=_work, daemon=True).start()
+
+        def _delete(e):
+            # Corbeille Notion (récupérable 30 jours), comme les tâches.
+            _close()
+            agenda_state["events"].remove(ev)
+            _agenda_rebuild()
+            page.update()
+
+            def _work():
+                result = _notion_call("mcp__notion__notion-trash-page",
+                                      {"page_id": ev["page_id"]})
+
+                async def _apply():
+                    if result.startswith("Erreur"):
+                        agenda_state["events"].append(ev)
+                        _agenda_rebuild()
+                        agenda_status.value = f"Échec suppression : {result}"
+                        page.update()
+
+                _run_task(_apply)
+
+            threading.Thread(target=_work, daemon=True).start()
+
+        actions = [ft.TextButton("Annuler", on_click=_close),
+                   ft.TextButton("Enregistrer" if ev else "Créer",
+                                 on_click=_confirm)]
+        if ev:
+            actions[:0] = [
+                ft.TextButton("Supprimer", on_click=_delete,
+                              style=ft.ButtonStyle(color=RED)),
+                ft.TextButton("Ouvrir dans Notion",
+                              on_click=lambda e: webbrowser.open(ev["url"]))]
+        dlg = ft.AlertDialog(
+            title=ft.Text("Rendez-vous" if ev else "Nouveau rendez-vous",
+                          size=CONSTANTS.TEXT_SM, color=WHITE),
+            content=ft.Column([
+                ft.Container(height=10), seg, nom_field, date_field,
+                heure_field, tel_field, mail_field,
+            ], tight=True, spacing=8, width=600, scroll=ft.ScrollMode.AUTO),
+            actions=actions,
+            inset_padding=ft.Padding(20, 40, 20, 40))
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
+    def _agenda_btn(icon, tip, fn):
+        return ft.IconButton(icon, icon_color=SURFACE_ACCENT["agenda"],
+                             icon_size=CONSTANTS.ICON_SM, tooltip=tip,
+                             on_click=fn)
+
     agenda_surface = ft.Column([
         ft.Container(
             content=ft.Row([
-                agenda_status,
+                _agenda_btn(ft.Icons.CHEVRON_LEFT, "Mois précédent",
+                            lambda e: _agenda_shift(-1)),
+                agenda_month_label,
+                _agenda_btn(ft.Icons.CHEVRON_RIGHT, "Mois suivant",
+                            lambda e: _agenda_shift(1)),
+                _agenda_btn(ft.Icons.TODAY, "Aujourd'hui",
+                            lambda e: _agenda_shift(0)),
                 ft.Container(expand=True),
-                ft.IconButton(ft.Icons.REFRESH,
-                             icon_color=SURFACE_ACCENT["agenda"],
-                             icon_size=CONSTANTS.ICON_SM,
-                             tooltip="Actualiser depuis Notion",
-                             on_click=_agenda_refresh),
+                *[ft.Container(
+                    content=ft.Text(n, size=11, color=ft.Colors.BLACK,
+                                    weight=ft.FontWeight.W_600),
+                    bgcolor=ft.Colors.with_opacity(0.85, c),
+                    border_radius=4, padding=ft.Padding(6, 2, 6, 2))
+                  for n, _d, c, _m in AGENDA_SOURCES],
+                agenda_status,
+                _agenda_btn(ft.Icons.ADD, "Nouveau rendez-vous",
+                            lambda e: _agenda_new_entry()),
+                _agenda_btn(ft.Icons.REFRESH, "Actualiser depuis Notion",
+                            _agenda_refresh),
             ], spacing=8),
             padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
-        ft.Container(content=agenda_list_view, expand=True),
+        ft.Container(content=agenda_grid, expand=True, padding=6),
     ], expand=True, spacing=0)
+    _agenda_rebuild()
 
     # ─── Surfaces encore à construire (placeholders structurés) ──────────
     def _placeholder(label):
@@ -8860,7 +9063,7 @@ def main(page: ft.Page):
         center.content = surface_content[key]
         if key == "actus" and not actus_list_view.controls:
             _actus_refresh()   # chargement paresseux : au premier passage
-        if key == "agenda" and not agenda_list_view.controls:
+        if key == "agenda" and not agenda_state["events"]:
             _agenda_refresh()
         # Kanban : plus de rechargement auto à chaque passage sur l'onglet
         # (retour user, coût des appels) — le cache local suffit à
