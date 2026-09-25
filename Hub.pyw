@@ -344,7 +344,7 @@ def main(page: ft.Page):
     # Boutons du bas des dialogues, un seul style partout (retour user :
     # cohérence entre onglets). Ordre : danger à gauche, annuler, action
     # principale tout à droite.
-    DLG_BTN_COLORS = {"primary": BLUE, "cancel": BLUE_LIGHT, "danger": RED}
+    DLG_BTN_COLORS = {"primary": BLUE, "cancel": BLUE_DARK, "danger": RED}
 
     def _dlg_btn(label, kind="primary", color=None, **kwargs):
         # Coins légèrement arrondis (pas en pilule), comme les pastilles.
