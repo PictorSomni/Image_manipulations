@@ -346,6 +346,24 @@ def main(page: ft.Page):
     # principale tout à droite.
     DLG_BTN_COLORS = {"primary": BLUE, "cancel": BLUE_DARK, "danger": RED}
 
+    def _dialog(title=None, bar_color=None, **kwargs):
+        """ft.AlertDialog avec barre colorée en haut (couleur de l'onglet
+        actif), comme les onglets et les bandeaux (retour user)."""
+        color = bar_color or SURFACE_ACCENT.get(state.get("surface"), BLUE)
+        if isinstance(title, ft.Text):
+            # Même taille de titre que les bandeaux et onglets.
+            title.size = CONSTANTS.TEXT_LG
+            title.weight = ft.FontWeight.W_500
+        if title is not None:
+            title = ft.Column([
+                ft.Container(height=6, bgcolor=color),
+                ft.Container(title, padding=ft.Padding(24, 16, 24, 0)),
+            ], spacing=0, tight=True,
+               horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
+            kwargs.setdefault("title_padding", 0)
+        kwargs.setdefault("clip_behavior", ft.ClipBehavior.ANTI_ALIAS)
+        return ft.AlertDialog(title=title, **kwargs)
+
     def _surface_title(label):
         # Même titre que les bandeaux Terminal / Bloc-notes (retour user).
         return ft.Text(label, size=CONSTANTS.TEXT_LG, color=WHITE,
@@ -1436,7 +1454,7 @@ def main(page: ft.Page):
                     choice_event.set()
                 return _handler
 
-            dlg = ft.AlertDialog(
+            dlg = _dialog(
                 modal=True,
                 title=ft.Text("Élément déjà présent", size=CONSTANTS.TEXT_SM,
                               color=WHITE),
@@ -1551,7 +1569,7 @@ def main(page: ft.Page):
             disabled=True)
         list_view = ft.ListView(height=360, spacing=2)
         import_btn = _dlg_btn("Importer", disabled=True)
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text(description, size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([
                 ft.Row([crumb_text, up_btn], spacing=4),
@@ -1782,7 +1800,7 @@ def main(page: ft.Page):
             f"Tout copier ({_format_size(total)}, {duration})",
             on_click=lambda e: (_close_mtp_dialog(ask_dlg),
                                 _start_mtp_copy(items))))
-        ask_dlg = ft.AlertDialog(
+        ask_dlg = _dialog(
             title=ft.Text("Copier depuis le téléphone",
                           size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Text(
@@ -2252,7 +2270,7 @@ def main(page: ft.Page):
             _navigate(parent)
 
         name_field.on_submit = _confirm
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Renommer", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=name_field,
             actions=[
@@ -2299,7 +2317,7 @@ def main(page: ft.Page):
             fn(v)
 
     _keypad_value_field.on_submit = _apply_keypad_dialog
-    _keypad_dialog = ft.AlertDialog(
+    _keypad_dialog = _dialog(
         title=ft.Text("Valeur", size=CONSTANTS.TEXT_SM, color=WHITE),
         content=ft.Column(
             [_keypad_value_field,
@@ -2423,7 +2441,7 @@ def main(page: ft.Page):
         _attach_keypad(count_field, is_int=True,
                        on_apply=lambda v: _confirm(None))
 
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             # Le nombre de fichiers est le garde-fou du mode « dossier
             # entier » : c'est là qu'on voit qu'on s'apprête à en toucher 47
             # et pas 1.
@@ -2580,7 +2598,7 @@ def main(page: ft.Page):
             exif_dlg.open = False
             page.update()
 
-        exif_dlg = ft.AlertDialog(
+        exif_dlg = _dialog(
             title=ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
             content=ft.Column(rows, spacing=2, scroll=ft.ScrollMode.AUTO,
                               width=400, height=400),
@@ -2621,7 +2639,7 @@ def main(page: ft.Page):
             dlg.open = False
             page.update()
 
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Ajouter un programme", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([label_field, exe_field], spacing=8, tight=True,
                               width=280),
@@ -3041,7 +3059,7 @@ def main(page: ft.Page):
             label="Noir & blanc", value=order_bw.get(path, False),
             active_color=VIOLET, on_change=_toggle_bw)
 
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM, color=WHITE, no_wrap=True),
             content=ft.Column(rows + [ft.Divider(height=1), bw_switch], spacing=10,
                               tight=True, scroll=ft.ScrollMode.AUTO,
@@ -5124,7 +5142,7 @@ def main(page: ft.Page):
             dlg.open = False
             page.update()
 
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Modifications non enregistrées", size=CONSTANTS.TEXT_SM,
                           color=WHITE),
             content=ft.Text(
@@ -5649,7 +5667,7 @@ def main(page: ft.Page):
             cred_event.set()
 
         password_field.on_submit = _confirm
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             modal=True,
             title=ft.Text(f"🔐 Identifiant requis : {service}", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([
@@ -5884,7 +5902,7 @@ def main(page: ft.Page):
                 page.update()
                 confirm_event.set()
 
-            dlg = ft.AlertDialog(
+            dlg = _dialog(
                 modal=True,
                 title=ft.Text("📂 Organiser les fichiers", size=CONSTANTS.TEXT_SM, color=WHITE),
                 content=ft.Column([
@@ -5974,7 +5992,7 @@ def main(page: ft.Page):
                     "ensuite (mot de passe/Touch ID/UAC).",
                     size=CONSTANTS.TEXT_SM, color=YELLOW))
 
-            dlg = ft.AlertDialog(
+            dlg = _dialog(
                 modal=True,
                 title=ft.Text(
                     "🔐 Exécuter en administrateur" if admin
@@ -6028,7 +6046,7 @@ def main(page: ft.Page):
             if len(paths) > 40:
                 rows.append(ft.Text(f"… et {len(paths) - 40} autres",
                                     size=CONSTANTS.TEXT_SM, color=LIGHT_GREY))
-            dlg = ft.AlertDialog(
+            dlg = _dialog(
                 modal=True,
                 title=ft.Text("🗑️ Supprimer des fichiers", size=CONSTANTS.TEXT_SM,
                               color=WHITE),
@@ -6169,7 +6187,7 @@ def main(page: ft.Page):
             page.update()
             q_event.set()
 
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             modal=True,
             title=ft.Text("❓ Question de l'IA", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([
@@ -7316,7 +7334,7 @@ def main(page: ft.Page):
             page.update()
             _liste_render()
 
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Ajouter une entrée" if is_new else "Modifier",
                          size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column(fields, spacing=10, tight=True,
@@ -7565,7 +7583,7 @@ def main(page: ft.Page):
             page.update()
             _liste_reload()
 
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Nouveau fichier JSON", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=name_field,
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
@@ -8159,7 +8177,7 @@ def main(page: ft.Page):
 
             threading.Thread(target=_work, daemon=True).start()
 
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Détails de la tâche", size=CONSTANTS.TEXT_SM,
                           color=WHITE),
             content=ft.Column([
@@ -8462,7 +8480,7 @@ def main(page: ft.Page):
 
             threading.Thread(target=_work, daemon=True).start()
 
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Nouvelle tâche", size=CONSTANTS.TEXT_SM,
                           color=WHITE),
             content=ft.Column([
@@ -8799,7 +8817,7 @@ def main(page: ft.Page):
         def _open(ev):
             dlg.open = False
             _agenda_new_entry(ev=ev)
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text(day.strftime("%d/%m/%Y"), size=CONSTANTS.TEXT_SM,
                           color=WHITE),
             content=ft.Column(
@@ -9239,7 +9257,7 @@ def main(page: ft.Page):
         if ev:
             actions.insert(0, _dlg_btn("Supprimer", "danger",
                                        on_click=_delete))
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Rendez-vous" if ev else "Nouveau rendez-vous",
                           size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([
@@ -9700,7 +9718,7 @@ def main(page: ft.Page):
                         extra_env={"SERIES_NAME": series})
 
         name_field.on_submit = _confirm
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Renommer séquence", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=name_field,
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
@@ -9738,7 +9756,7 @@ def main(page: ft.Page):
                 alignment=ft.Alignment.CENTER, ink=True, on_click=_pick(val))
             for label, val in CONSTANTS.TWO_IN_ONE_FORMATS
         ]
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Format 2 en 1", color=WHITE),
             content=ft.Column(buttons, spacing=6, tight=True),
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel)],
@@ -10080,7 +10098,7 @@ def main(page: ft.Page):
         for field in text_fields:
             _attach_keypad(field, is_int=True)
 
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text(title, size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column(
                 text_fields, spacing=8, tight=True,
@@ -10731,7 +10749,7 @@ def main(page: ft.Page):
             ], spacing=10, expand=True,
                horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=340)
 
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Montage collage", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Container(
                 width=700, height=580,
@@ -10971,7 +10989,7 @@ def main(page: ft.Page):
                     "1" if white_border_switch.value else "0",
             })
 
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Recadrage automatique — format", size=CONSTANTS.TEXT_SM,
                          color=WHITE),
             content=ft.Column([
@@ -11248,22 +11266,24 @@ def main(page: ft.Page):
         # de l'overlay et chaque catégorie se distingue de la suivante
         # (retour user). Même traitement que les sections de Retouche
         # par lot.
-        return ft.Container(
-            content=ft.Text(label.upper(), size=CONSTANTS.TEXT_SM,
-                            color=accent, weight=ft.FontWeight.W_700),
-            bgcolor=ft.Colors.with_opacity(0.15, accent),
-            border_radius=6,
-            padding=ft.Padding(10, 6, 10, 6),
-        )
+        # Barre colorée + titre, même look que les onglets et les
+        # bandeaux Terminal / Bloc-notes (retour user).
+        return ft.Column([
+            ft.Container(height=4, bgcolor=accent, border_radius=2),
+            ft.Container(
+                content=ft.Text(label, size=CONSTANTS.TEXT_SM + 3,
+                                color=WHITE, weight=ft.FontWeight.W_500),
+                padding=ft.Padding(2, 2, 0, 0)),
+        ], spacing=4, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
 
     def _category_block(header, body, accent):
         # Filet vertical à gauche dans la couleur d'accent : relie
         # visuellement l'en-tête et ses lignes, et sépare la catégorie
         # de la précédente.
         return ft.Container(
-            content=ft.Column([header, body], spacing=6),
-            border=ft.Border(left=ft.BorderSide(3, accent)),
-            padding=ft.Padding(left=8, top=0, right=0, bottom=0),
+            content=ft.Column([header, body], spacing=6,
+                              horizontal_alignment=(
+                                  ft.CrossAxisAlignment.STRETCH)),
         )
 
     def _icon_row(tools):
@@ -11355,12 +11375,13 @@ def main(page: ft.Page):
     # outside »), comme un vrai overlay/drawer.
     actions_panel = ft.Container(
         content=ft.Column([
+            ft.Container(height=6, bgcolor=ORANGE),
             ft.Container(
                 content=ft.Row([
                     ft.Icon(ft.Icons.BOLT_OUTLINED, color=ORANGE,
                            size=CONSTANTS.ICON_SM),
                     ft.Text("Actions", size=CONSTANTS.TEXT_LG, color=WHITE,
-                           weight=ft.FontWeight.W_700, expand=True),
+                           weight=ft.FontWeight.W_500, expand=True),
                     ft.IconButton(ft.Icons.CLOSE, icon_color=RED,
                                  icon_size=CONSTANTS.ICON_LG,
                                  on_click=lambda e: _close_actions(),
@@ -11709,7 +11730,7 @@ def main(page: ft.Page):
             _exec_terminal_command(command_text, sudo_password=pwd)
 
         pwd_field.on_submit = _confirm
-        dlg = ft.AlertDialog(
+        dlg = _dialog(
             title=ft.Text("Mot de passe requis (sudo)", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=pwd_field,
             actions=[
@@ -12581,7 +12602,9 @@ def main(page: ft.Page):
     # ouverts. left=60 : le rail gauche reste entièrement visible.
     notes_panel.expand = True
     terminal_panel.expand = True
-    panels_row = ft.Row([notes_panel, terminal_panel], spacing=4,
+    # Terminal à gauche, Bloc-notes à droite : même ordre que les
+    # boutons de la barre du bas (retour user).
+    panels_row = ft.Row([terminal_panel, notes_panel], spacing=4,
                         vertical_alignment=ft.CrossAxisAlignment.END)
     panels_dock = ft.Container(content=panels_row, left=60, right=0,
                                bottom=0)
