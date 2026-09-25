@@ -2493,6 +2493,14 @@ def main(page: ft.Page):
             _log_to_terminal(f"[ERREUR] commande.txt : {exc}", RED)
             return
         _log_to_terminal("[OK] commande.txt mis à jour", GREEN)
+        # Bloc-notes ouvert sur ce commande.txt : le recharger, sinon il
+        # garde l'ancienne version à l'écran — et l'autosave risquait de
+        # la réécrire par-dessus le recalcul (retour user : 11 affichés
+        # au lieu de 13, alors que le fichier sur disque était bon).
+        if (os.path.normcase(os.path.abspath(note_target.get("path") or ""))
+                == os.path.normcase(os.path.abspath(commande_path))):
+            _notes_load()
+            page.update()
 
     def _show_exif_dialog(paths):
         # Comme Dashboard.pyw:5258-5302 : résolution + tags EXIF lisibles
