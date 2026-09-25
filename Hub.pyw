@@ -9187,10 +9187,10 @@ def main(page: ft.Page):
             threading.Thread(target=_work, daemon=True).start()
 
         # Boutons à fond coloré, plus lisibles (retour user).
-        actions = [ft.Button("Annuler", on_click=_close, bgcolor=GREY,
-                             color=WHITE),
+        actions = [ft.Button("Annuler", on_click=_close, bgcolor=BLUE_LIGHT,
+                             color=DARK),
                    ft.Button("Enregistrer" if ev else "Créer",
-                             on_click=_confirm, bgcolor=ORANGE, color=DARK)]
+                             on_click=_confirm, bgcolor=BLUE, color=DARK)]
         def _to_task(e):
             _close()
             _kanban_new_task(prefill={
@@ -9205,9 +9205,8 @@ def main(page: ft.Page):
             actions.insert(0, ft.Button("Créer une tâche", on_click=_to_task,
                                         bgcolor=MINT, color=DARK))
         if ev:
-            actions.insert(0, ft.TextButton(
-                "Supprimer", on_click=_delete,
-                style=ft.ButtonStyle(color=RED)))
+            actions.insert(0, ft.Button("Supprimer", on_click=_delete,
+                                        bgcolor=RED, color=DARK))
         dlg = ft.AlertDialog(
             title=ft.Text("Rendez-vous" if ev else "Nouveau rendez-vous",
                           size=CONSTANTS.TEXT_SM, color=WHITE),
