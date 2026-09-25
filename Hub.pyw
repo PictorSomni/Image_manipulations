@@ -8802,7 +8802,9 @@ def main(page: ft.Page):
                     # Sans teinte en semaine, légère teinte le weekend.
                     bgcolor=(ft.Colors.with_opacity(0.04, WHITE)
                              if day.weekday() >= 5 else None),
-                    border=ft.Border(right=line, bottom=line),
+                    # Aujourd'hui : case entière cerclée de rouge.
+                    border=(ft.Border.all(2, RED) if day == today
+                            else ft.Border(right=line, bottom=line)),
                     clip_behavior=ft.ClipBehavior.HARD_EDGE,
                     ink=True,
                     on_click=lambda e, d=day: _agenda_new_entry(d)))
