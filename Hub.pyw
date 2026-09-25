@@ -12692,6 +12692,20 @@ def main(page: ft.Page):
             if state["surface"] == "liste" and liste_search["value"]:
                 _liste_clear_search()
                 return
+        # Précédent/Suivant de la souris : sur Mac, le pilote de la souris
+        # les envoie souvent comme raccourcis clavier (Cmd+[ / Cmd+], ou
+        # Cmd+←/→) et non comme boutons (retour user). Hors champ de saisie
+        # pour ne pas voler Cmd+← (début de ligne).
+        if state["surface"] == "files" and not _focused_input["name"] and (
+                (ctrl and event.key in ("[", "]", "Arrow Left", "ArrowLeft",
+                                        "Arrow Right", "ArrowRight"))
+                or event.key in ("Browser Back", "Browser Forward")):
+            _log_to_terminal(f"[souris] touche {event.key}")
+            if event.key in ("[", "Arrow Left", "ArrowLeft", "Browser Back"):
+                _mouse_back()
+            else:
+                _mouse_forward()
+            return
         if ctrl and event.shift and event.key in ("Arrow Up", "ArrowUp"):
             _toggle_terminal_fullscreen()
             return
