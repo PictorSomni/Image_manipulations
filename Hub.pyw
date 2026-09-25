@@ -8784,10 +8784,11 @@ def main(page: ft.Page):
                         f"+{len(evs) - AGENDA_MAX_CHIPS}", size=11,
                         color=LIGHT_GREY))
                 label = (str(day.day) if day.day != 1 or in_month
-                         else f"1 {AGENDA_MONTHS[day.month - 1][:4]}.")
+                         else f"1 {AGENDA_MONTHS[day.month - 1][:3]}.")
                 num = ft.Text(label, size=12,
                               color=(ft.Colors.BLACK if day == today
-                                     else WHITE if in_month else GREY),
+                                     else WHITE if in_month
+                                     else LIGHT_GREY),
                               weight=ft.FontWeight.W_600)
                 if day == today:
                     num = ft.Container(num, bgcolor=RED, width=26,
@@ -8800,7 +8801,7 @@ def main(page: ft.Page):
                         horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
                     expand=True, padding=6,
                     # Sans teinte en semaine, légère teinte le weekend.
-                    bgcolor=(ft.Colors.with_opacity(0.04, WHITE)
+                    bgcolor=(ft.Colors.with_opacity(0.06, WHITE)
                              if day.weekday() >= 5 else None),
                     # Aujourd'hui : case entière cerclée de rouge.
                     border=(ft.Border.all(2, RED) if day == today
