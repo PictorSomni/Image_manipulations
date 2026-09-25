@@ -341,6 +341,15 @@ def main(page: ft.Page):
     LIGHT_GREY = CONSTANTS.COLOR_LIGHT_GREY
     ICON_ACTION = CONSTANTS.ICON_ACTION
 
+    # Boutons du bas des dialogues, un seul style partout (retour user :
+    # cohérence entre onglets). Ordre : danger à gauche, annuler, action
+    # principale tout à droite.
+    DLG_BTN_COLORS = {"primary": BLUE, "cancel": BLUE_LIGHT, "danger": RED}
+
+    def _dlg_btn(label, kind="primary", color=None, **kwargs):
+        return ft.Button(label, bgcolor=color or DLG_BTN_COLORS[kind],
+                         color=DARK, **kwargs)
+
     # Base Notion "Tâches" (page "Travail") — cf. surface Kanban plus bas.
     KANBAN_DATA_SOURCE = "collection://34f4c64b-5c00-4415-99cb-76234faecef1"
     KANBAN_ETATS = [
@@ -365,7 +374,7 @@ def main(page: ft.Page):
     # principales de la surface correspondante.
     SURFACE_ACCENT = {"files": BLUE, "liste": PINK, "kanban": MINT,
                       "ia": YELLOW, "actus": RED,
-                      "agenda": ORANGE}
+                      "agenda": YELLOW_GREEN}
 
     # Couleur par valeur, comme dans Notion (cf. _kanban_prop_menu).
     KANBAN_PROJET_COLORS = {"Pas de projet": GREY, "Faire projet": BLUE,
@@ -1429,9 +1438,9 @@ def main(page: ft.Page):
                     apply_all_cb,
                 ], tight=True, width=420),
                 actions=[
-                    ft.TextButton("Ignorer", on_click=_pick("skip")),
-                    ft.TextButton("Garder les deux", on_click=_pick("both")),
-                    ft.Button("Remplacer", bgcolor=BLUE, color=WHITE,
+                    _dlg_btn("Ignorer", "cancel", on_click=_pick("skip")),
+                    _dlg_btn("Garder les deux", "cancel", on_click=_pick("both")),
+                    _dlg_btn("Remplacer", "primary",
                              on_click=_pick("replace")),
                 ],
                 actions_alignment=ft.MainAxisAlignment.END,
@@ -1533,7 +1542,7 @@ def main(page: ft.Page):
             icon_size=CONSTANTS.ICON_SM, tooltip="Dossier parent",
             disabled=True)
         list_view = ft.ListView(height=360, spacing=2)
-        import_btn = ft.TextButton("Importer", disabled=True)
+        import_btn = _dlg_btn("Importer", disabled=True)
         dlg = ft.AlertDialog(
             title=ft.Text(description, size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([
@@ -1542,7 +1551,7 @@ def main(page: ft.Page):
                 list_view,
             ], tight=True, width=520),
             actions=[
-                ft.TextButton("Annuler",
+                _dlg_btn("Annuler", "cancel",
                               on_click=lambda e: _close_mtp_dialog(dlg)),
                 import_btn,
             ],
@@ -1564,7 +1573,7 @@ def main(page: ft.Page):
 
         def _refresh_import_btn():
             import_btn.disabled = not picked
-            import_btn.text = (f"Copier ({len(picked)} dossier(s))" if picked
+            import_btn.content = (f"Copier ({len(picked)} dossier(s))" if picked
                                else "Copier")
 
         def _toggle(item, checkbox):
@@ -2239,8 +2248,8 @@ def main(page: ft.Page):
             title=ft.Text("Renommer", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=name_field,
             actions=[
-                ft.TextButton("Annuler", on_click=_cancel),
-                ft.TextButton("Renommer", on_click=_confirm),
+                _dlg_btn("Annuler", "cancel", on_click=_cancel),
+                _dlg_btn("Renommer", "primary", on_click=_confirm),
             ],
         )
         page.overlay.append(dlg)
@@ -2415,7 +2424,7 @@ def main(page: ft.Page):
                 "(0 = retirer le préfixe NX_)",
                 size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([count_field], spacing=12, tight=True),
-            actions=[ft.TextButton("Annuler", on_click=_cancel)],
+            actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel)],
         )
         page.overlay.append(dlg)
         dlg.open = True
@@ -2567,7 +2576,7 @@ def main(page: ft.Page):
             title=ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
             content=ft.Column(rows, spacing=2, scroll=ft.ScrollMode.AUTO,
                               width=400, height=400),
-            actions=[ft.TextButton("Fermer", on_click=_close_exif)],
+            actions=[_dlg_btn("Fermer", "cancel", on_click=_close_exif)],
             actions_alignment=ft.MainAxisAlignment.END,
         )
         page.overlay.append(exif_dlg)
@@ -2609,8 +2618,8 @@ def main(page: ft.Page):
             content=ft.Column([label_field, exe_field], spacing=8, tight=True,
                               width=280),
             actions=[
-                ft.TextButton("Ajouter", on_click=_confirm),
-                ft.TextButton("Annuler", on_click=_cancel),
+                _dlg_btn("Annuler", "cancel", on_click=_cancel),
+                _dlg_btn("Ajouter", "primary", on_click=_confirm),
             ],
         )
         page.overlay.append(dlg)
@@ -3029,7 +3038,7 @@ def main(page: ft.Page):
             content=ft.Column(rows + [ft.Divider(height=1), bw_switch], spacing=10,
                               tight=True, scroll=ft.ScrollMode.AUTO,
                               height=min(400, len(rows) * 48 + 70), width=250),
-            actions=[ft.TextButton("Fermer", on_click=_close)],
+            actions=[_dlg_btn("Fermer", "cancel", on_click=_close)],
         )
         page.overlay.append(dlg)
         dlg.open = True
@@ -5114,9 +5123,10 @@ def main(page: ft.Page):
                 f"Enregistrer les modifications de {current_name} avant "
                 f"de recharger le bloc-notes ?", size=CONSTANTS.TEXT_SM, color=WHITE),
             actions=[
-                ft.TextButton("Enregistrer", on_click=_do_home(False)),
-                ft.TextButton("Ne pas enregistrer", on_click=_do_home(True)),
-                ft.TextButton("Annuler", on_click=_cancel),
+                _dlg_btn("Annuler", "cancel", on_click=_cancel),
+                _dlg_btn("Ne pas enregistrer", "danger",
+                         on_click=_do_home(True)),
+                _dlg_btn("Enregistrer", "primary", on_click=_do_home(False)),
             ],
         )
         page.overlay.append(dlg)
@@ -5639,8 +5649,8 @@ def main(page: ft.Page):
                        size=CONSTANTS.TEXT_SM, color=WHITE),
                 password_field,
             ], tight=True, width=360),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.Button("Enregistrer", bgcolor=BLUE, color=WHITE,
+            actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
+                     _dlg_btn("Enregistrer", "primary",
                               on_click=_confirm)],
             actions_alignment=ft.MainAxisAlignment.END,
         )
@@ -5875,8 +5885,8 @@ def main(page: ft.Page):
                     ft.Column(rows, scroll=ft.ScrollMode.AUTO,
                              height=min(320, len(rows) * 24)),
                 ], tight=True, width=500),
-                actions=[ft.TextButton("Annuler", on_click=_cancel),
-                         ft.Button("Exécuter", bgcolor=BLUE, color=WHITE,
+                actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
+                         _dlg_btn("Exécuter", "primary",
                                   on_click=_confirm)],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
@@ -5963,8 +5973,8 @@ def main(page: ft.Page):
                     else "💻 Exécuter une commande",
                     size=CONSTANTS.TEXT_SM, color=WHITE),
                 content=ft.Column(dlg_content, tight=True, width=500),
-                actions=[ft.TextButton("Annuler", on_click=_cancel),
-                         ft.Button("Exécuter", bgcolor=BLUE, color=WHITE,
+                actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
+                         _dlg_btn("Exécuter", "primary",
                                   on_click=_confirm)],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
@@ -6021,8 +6031,8 @@ def main(page: ft.Page):
                     ft.Column(rows, scroll=ft.ScrollMode.AUTO,
                              height=min(320, len(rows) * 24)),
                 ], tight=True, width=500),
-                actions=[ft.TextButton("Annuler", on_click=_cancel),
-                         ft.Button("Supprimer", bgcolor=RED, color=WHITE,
+                actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
+                         _dlg_btn("Supprimer", "danger",
                                   on_click=_confirm)],
                 actions_alignment=ft.MainAxisAlignment.END,
             )
@@ -7303,8 +7313,8 @@ def main(page: ft.Page):
                          size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column(fields, spacing=10, tight=True,
                               scroll=ft.ScrollMode.AUTO),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Enregistrer", on_click=_confirm)],
+            actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
+                     _dlg_btn("Enregistrer", "primary", on_click=_confirm)],
         )
         page.overlay.append(dlg)
         dlg.open = True
@@ -7550,8 +7560,8 @@ def main(page: ft.Page):
         dlg = ft.AlertDialog(
             title=ft.Text("Nouveau fichier JSON", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=name_field,
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Créer", on_click=_confirm)],
+            actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
+                     _dlg_btn("Créer", "primary", on_click=_confirm)],
         )
         page.overlay.append(dlg)
         dlg.open = True
@@ -8170,10 +8180,9 @@ def main(page: ft.Page):
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
                width=600,
                height=max(300, min(680, (page.height or 900) - 220))),
-            actions=[ft.TextButton("Supprimer", on_click=_delete,
-                                   style=ft.ButtonStyle(color=RED)),
-                     ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Enregistrer", on_click=_confirm)],
+            actions=[_dlg_btn("Supprimer", "danger", on_click=_delete),
+                     _dlg_btn("Annuler", "cancel", on_click=_cancel),
+                     _dlg_btn("Enregistrer", "primary", on_click=_confirm)],
             # Marge mini garantie avec le haut/bas de l'écran (retour
             # user : "rajouter une marge au dessus") — évite que le
             # dialogue vienne toucher le bord de la fenêtre.
@@ -8456,8 +8465,8 @@ def main(page: ft.Page):
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
                width=600,
                height=max(300, min(640, (page.height or 900) - 220))),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Créer", on_click=_confirm)],
+            actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
+                     _dlg_btn("Créer", "primary", on_click=_confirm)],
             inset_padding=ft.Padding(20, 40, 20, 40),
         )
         page.overlay.append(dlg)
@@ -8787,10 +8796,10 @@ def main(page: ft.Page):
                               _open(ev)) for ev in evs],
                 tight=True, spacing=6, width=420,
                 scroll=ft.ScrollMode.AUTO),
-            actions=[ft.TextButton("Nouveau", on_click=lambda e: (
+            actions=[_dlg_btn("Nouveau", "primary", on_click=lambda e: (
                          setattr(dlg, "open", False),
                          _agenda_new_entry(day))),
-                     ft.TextButton("Fermer", on_click=lambda e: (
+                     _dlg_btn("Fermer", "cancel", on_click=lambda e: (
                          setattr(dlg, "open", False), page.update()))])
         page.overlay.append(dlg)
         dlg.open = True
@@ -9200,10 +9209,9 @@ def main(page: ft.Page):
             threading.Thread(target=_work, daemon=True).start()
 
         # Boutons à fond coloré, plus lisibles (retour user).
-        actions = [ft.Button("Annuler", on_click=_close, bgcolor=BLUE_LIGHT,
-                             color=DARK),
-                   ft.Button("Enregistrer" if ev else "Créer",
-                             on_click=_confirm, bgcolor=BLUE, color=DARK)]
+        actions = [_dlg_btn("Annuler", "cancel", on_click=_close),
+                   _dlg_btn("Enregistrer" if ev else "Créer",
+                            on_click=_confirm)]
         def _to_task(e):
             _close()
             _kanban_new_task(prefill={
@@ -9215,11 +9223,11 @@ def main(page: ft.Page):
                 "email": (mail_field.value or "").strip()})
 
         if ev and ev["source"] in ("Studio", "Reportage"):
-            actions.insert(0, ft.Button("Créer une tâche", on_click=_to_task,
-                                        bgcolor=MINT, color=DARK))
+            actions.insert(0, _dlg_btn("Créer une tâche", color=MINT,
+                                       on_click=_to_task))
         if ev:
-            actions.insert(0, ft.Button("Supprimer", on_click=_delete,
-                                        bgcolor=RED, color=DARK))
+            actions.insert(0, _dlg_btn("Supprimer", "danger",
+                                       on_click=_delete))
         dlg = ft.AlertDialog(
             title=ft.Text("Rendez-vous" if ev else "Nouveau rendez-vous",
                           size=CONSTANTS.TEXT_SM, color=WHITE),
@@ -9677,8 +9685,8 @@ def main(page: ft.Page):
         dlg = ft.AlertDialog(
             title=ft.Text("Renommer séquence", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=name_field,
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Lancer", on_click=_confirm)],
+            actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
+                     _dlg_btn("Lancer", "primary", on_click=_confirm)],
         )
         page.overlay.append(dlg)
         dlg.open = True
@@ -9715,7 +9723,7 @@ def main(page: ft.Page):
         dlg = ft.AlertDialog(
             title=ft.Text("Format 2 en 1", color=WHITE),
             content=ft.Column(buttons, spacing=6, tight=True),
-            actions=[ft.TextButton("Annuler", on_click=_cancel)],
+            actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel)],
             actions_alignment=ft.MainAxisAlignment.END,
         )
         page.overlay.append(dlg)
@@ -10059,8 +10067,8 @@ def main(page: ft.Page):
             content=ft.Column(
                 text_fields, spacing=8, tight=True,
                 horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Lancer", on_click=_confirm)],
+            actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
+                     _dlg_btn("Lancer", "primary", on_click=_confirm)],
         )
         page.overlay.append(dlg)
         dlg.open = True
@@ -10714,8 +10722,8 @@ def main(page: ft.Page):
                                spacing=10, expand=True,
                                vertical_alignment=ft.CrossAxisAlignment.START),
             ),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Lancer", on_click=_confirm)],
+            actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
+                     _dlg_btn("Lancer", "primary", on_click=_confirm)],
             actions_alignment=ft.MainAxisAlignment.END,
         )
         async def _show():
@@ -10960,8 +10968,8 @@ def main(page: ft.Page):
                 fitin_switch,
                 white_border_switch, scope_text,
             ], spacing=12, tight=True, width=380),
-            actions=[ft.TextButton("Annuler", on_click=_cancel),
-                     ft.TextButton("Lancer", on_click=_confirm)],
+            actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
+                     _dlg_btn("Lancer", "primary", on_click=_confirm)],
         )
         page.overlay.append(dlg)
         dlg.open = True
@@ -11687,8 +11695,8 @@ def main(page: ft.Page):
             title=ft.Text("Mot de passe requis (sudo)", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=pwd_field,
             actions=[
-                ft.TextButton("Exécuter", on_click=_confirm),
-                ft.TextButton("Annuler", on_click=_cancel),
+                _dlg_btn("Annuler", "cancel", on_click=_cancel),
+                _dlg_btn("Exécuter", "primary", on_click=_confirm),
             ],
         )
         page.overlay.append(dlg)
