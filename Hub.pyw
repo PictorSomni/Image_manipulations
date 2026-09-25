@@ -8195,18 +8195,46 @@ def main(page: ft.Page):
             label="Notes (contenu de la page)", multiline=True,
             min_lines=4, max_lines=10, width=560, bgcolor=DARK,
             border=CONSTANTS.input_border(GREY), color=WHITE)
-        # Payé ? à "Non payé" par défaut (retour user), comme Etat à
-        # "À faire" — les autres restent vides tant que non pertinents.
-        DEFAULT_DROPDOWN_VALUES = {"Etat": "À faire", "Payé ?": "Non payé",
-                                  "Projet ?": "Pas de projet"}
-        prop_dropdowns = {}
-        for notion_prop, _state_key, options, _colors in KANBAN_EDITABLE_PROPS:
-            prop_dropdowns[notion_prop] = ft.Dropdown(
-                label=notion_prop,
-                value=DEFAULT_DROPDOWN_VALUES.get(notion_prop),
-                options=[ft.dropdown.Option(o) for o in options],
-                width=560, bgcolor=DARK,
-                border=CONSTANTS.input_border(GREY), color=WHITE)
+        # Mêmes boutons glissants que la fiche détaillée (retour user :
+        # interfaces identiques). Défauts : À faire / Pas de projet /
+        # Non payé. Prévenu ? absent, comme dans la fiche détaillée.
+        ETAT_SEG_LABELS = {"En cours / en attente": "En cours"}
+        seg_specs = [
+            ("Etat", [e for e, _c in KANBAN_ETATS], KANBAN_ETAT_COLORS,
+             "À faire"),
+            ("Projet ?", KANBAN_PROJET_OPTIONS, KANBAN_PROJET_COLORS,
+             "Pas de projet"),
+            ("Payé ?", KANBAN_PAYE_OPTIONS, KANBAN_PAYE_COLORS, "Non payé"),
+        ]
+        prop_segs = {}
+        seg_rows = []
+
+        def _make_seg(options, colors, default):
+            texts = [ft.Text(ETAT_SEG_LABELS.get(o, o), size=11)
+                     for o in options]
+            index = options.index(default) if default in options else 0
+
+            def _restyle():
+                for k, t in enumerate(texts):
+                    t.color = DARK if k == seg.selected_index else WHITE
+                seg.thumb_color = colors.get(
+                    options[seg.selected_index], VIOLET)
+
+            def _on_change(event):
+                _restyle()
+                seg.update()
+
+            seg = ft.CupertinoSlidingSegmentedButton(
+                selected_index=index, controls=texts,
+                on_change=_on_change, width=560)
+            _restyle()
+            return seg
+
+        for notion_prop, options, colors, default in seg_specs:
+            seg = _make_seg(options, colors, default)
+            prop_segs[notion_prop] = (seg, options)
+            seg_rows += [ft.Text(notion_prop, size=11, color=LIGHT_GREY),
+                         seg]
 
         def _cancel(event):
             dlg.open = False
@@ -8217,10 +8245,8 @@ def main(page: ft.Page):
             if not title:
                 return
             properties = {"Demande": title}
-            for notion_prop, dd in prop_dropdowns.items():
-                if dd.value:
-                    properties[notion_prop] = dd.value
-            properties.setdefault("Etat", "À faire")
+            for notion_prop, (seg, options) in prop_segs.items():
+                properties[notion_prop] = options[seg.selected_index]
             deadline = (deadline_field.value or "").strip()
             if deadline:
                 properties["Deadline"] = deadline
@@ -8271,8 +8297,9 @@ def main(page: ft.Page):
             content=ft.Column([
                 ft.Container(height=10),
                 title_field,
-                *prop_dropdowns.values(),
                 deadline_field, telephone_field, email_field, prix_field,
+                *seg_rows,
+                ft.Divider(height=1, color=GREY),
                 notes_field,
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
                width=600,
