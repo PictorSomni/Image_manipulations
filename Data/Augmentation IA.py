@@ -14,7 +14,7 @@ Flux de travail :
        - clic simple (sans glisser) -> masque précis de l'objet sous le
          curseur, via SAM2 (ex. remplacer un objet)
   3. Décrivez la retouche dans le champ texte
-  4. Cliquez « Envoyer à Gemini »
+  4. Cliquez « Envoi à l'IA »
   5. La zone modifiée est réintégrée dans l'image à ses dimensions exactes
   6. Annulez (Ctrl+Z) ou Enregistrez / Enregistrez sous… (Ctrl+S)
 
@@ -512,12 +512,12 @@ async def main(page: ft.Page) -> None:
     )
 
     send_btn = ft.Button(
-        "Envoyer à Gemini",
+        "Envoi à l'IA",
         icon=ft.Icons.AUTO_FIX_HIGH,
         bgcolor=BLUE,
         color=DARK,
         disabled=True,
-        tooltip="Envoyer la sélection à Gemini pour modification",
+        tooltip="Envoyer la sélection à l'IA pour modification",
     )
     # Un appel Gemini peut durer une à deux minutes ; jusqu'ici le bouton se
     # désactivait et il n'existait aucune sortie avant le délai d'expiration
@@ -537,7 +537,7 @@ async def main(page: ft.Page) -> None:
         bgcolor=GREY,
         color=ORANGE,
         disabled=True,
-        tooltip="Revenir à l'état avant la dernière retouche Gemini",
+        tooltip="Revenir à l'état avant la dernière retouche IA",
     )
     save_btn = ft.Button(
         "Enregistrer",
