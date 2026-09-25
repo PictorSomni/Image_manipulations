@@ -2891,21 +2891,25 @@ def main(page: ft.Page):
             f"[OK] {len(selected)} fichier(s) du {ref_date.strftime('%d/%m/%Y')} "
             f"sélectionné(s) (+{added} ajouté(s))", BLUE)
 
-    def _toggle_only_selected(event):
-        state["only_selected"] = not state["only_selected"]
-        only_sel_btn.style = ft.ButtonStyle(
-            bgcolor=BLUE if state["only_selected"] else GREY)
-        only_sel_icon.color = (
-            DARK if state["only_selected"] else BLUE)
-        _render()
+    # Filtre d'affichage en un seul contrôle (retour user) : éléments
+    # cachés masqués / tout afficher / sélection uniquement.
+    VIEW_FILTERS = [("Masquer cachés", True, False),
+                    ("Tout afficher", False, False),
+                    ("Sélection", True, True)]
 
-    def _toggle_hide_hidden(event):
-        state["hide_hidden"] = not state["hide_hidden"]
-        hidden_btn.style = ft.ButtonStyle(
-            bgcolor=BLUE if state["hide_hidden"] else GREY)
-        hidden_icon.color = DARK if state["hide_hidden"] else BLUE
-        if state["folder"]:
+    def _on_view_filter_change(event):
+        _label, hide, only_sel = VIEW_FILTERS[view_filter.selected_index]
+        _style_view_filter()
+        hide_changed = hide != state["hide_hidden"]
+        state["hide_hidden"], state["only_selected"] = hide, only_sel
+        if hide_changed and state["folder"]:
             _navigate(state["folder"])
+        else:
+            _render()
+
+    def _style_view_filter():
+        for k, t in enumerate(view_filter_texts):
+            t.color = DARK if k == view_filter.selected_index else WHITE
 
     def _toggle_tariff(event):
         state["tariff_mode"] = "PRINTS" if event.control.value else "STUDIOS"
@@ -3104,7 +3108,7 @@ def main(page: ft.Page):
         # que les icônes sont sans ambiguïté une fois la barre connue.
         #
         # `color=None` (par défaut) : l'Icon hérite de ButtonStyle.color, ce
-        # qui permet à only_sel_btn (_toggle_only_selected) de recolorer tout
+        # qui permet à un bouton bascule de recolorer tout
         # le bouton (fond + icône) en une seule affectation selon l'état
         # actif/inactif — ne pas fixer `color` dans ce cas. Un `color`
         # explicite (ex. VIOLET) sert aux boutons non-toggle.
@@ -4558,20 +4562,16 @@ def main(page: ft.Page):
         ft.Icons.RECEIPT_LONG_OUTLINED,
         "Format + nombre directement sur chaque photo",
         _toggle_order_mode, color=ORANGE)
-    # Ref sur l'Icon interne, comme only_sel_btn : _toggle_order_mode
+    # Ref sur l'Icon interne : _toggle_order_mode
     # recolore l'icône et le fond séparément selon l'état actif.
     order_mode_icon = order_mode_btn.content
 
-    only_sel_btn = _seg_btn(ft.Icons.VISIBILITY_OUTLINED, "Afficher la sélection",
-                            _toggle_only_selected)
-    only_sel_icon = only_sel_btn.content
-    only_sel_icon.color = BLUE
-
-    hidden_btn = _seg_btn(ft.Icons.VISIBILITY_OFF_OUTLINED,
-                          "Masquer les éléments cachés", _toggle_hide_hidden)
-    hidden_icon = hidden_btn.content
-    hidden_btn.style = ft.ButtonStyle(bgcolor=BLUE)
-    hidden_icon.color = DARK
+    view_filter_texts = [ft.Text(label, size=CONSTANTS.TEXT_SM)
+                         for label, _h, _o in VIEW_FILTERS]
+    view_filter = ft.CupertinoSlidingSegmentedButton(
+        selected_index=0, controls=view_filter_texts, thumb_color=BLUE,
+        on_change=_on_view_filter_change)
+    _style_view_filter()
 
     tariff_switch = ft.Switch(
         label=("Tarif Impression" if state["tariff_mode"] == "PRINTS"
@@ -4619,7 +4619,7 @@ def main(page: ft.Page):
     # (bouton, sa couleur active) — `disabled=True` seul ne suffit pas à
     # griser visiblement une icône dont `icon_color` est fixé explicitement
     # (retour user : pas assez visible) ; on repasse aussi l'icône en
-    # LIGHT_GREY à la main, comme only_sel_btn le fait déjà pour son état.
+    # LIGHT_GREY à la main selon son état.
     # Rempli par _edit_icon_btn : une seule source de vérité pour la couleur
     # (avant, la couleur du call-site était ignorée et divergeait de celle
     # utilisée au dégrisage).
@@ -4790,8 +4790,7 @@ def main(page: ft.Page):
         _seg_btn(ft.Icons.FLIP, "Inverser", _invert, color=VIOLET),
         _seg_btn(ft.Icons.EVENT, "Même date", _select_same_date,
                  color=VIOLET),
-        only_sel_btn,
-        hidden_btn,
+        view_filter,
         ft.Container(expand=True),
         print_count_btn,
         print_count_menu,
