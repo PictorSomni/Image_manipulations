@@ -8683,7 +8683,7 @@ def main(page: ft.Page):
         ("Studio", "ae971f83-22d1-4d53-8972-4c6302c6d371", BLUE, "E-mail"),
         ("Reportage", "42f7bb5c-84f2-416a-aad0-8aad7b1ea51a", VIOLET,
          "E-mail"),
-        ("Borne", "23f887c8-202a-4e37-91e1-812a4a6c7472", GREEN, "Email"),
+        ("Locations", "23f887c8-202a-4e37-91e1-812a4a6c7472", GREEN, "Email"),
     ]
     AGENDA_MONTHS = ("janvier février mars avril mai juin juillet août "
                      "septembre octobre novembre décembre").split()
@@ -8702,7 +8702,7 @@ def main(page: ft.Page):
     agenda_schemas = {}  # source -> notion_rest.schema()
     # Valeurs par défaut à la création (retour user).
     AGENDA_DEFAULTS = {"Studio": {"État": "Réservé"},
-                       "Borne": {"Etat": "Pas d'accompte"}}
+                       "Locations": {"Etat": "Pas d'accompte"}}
     # Ordre d'affichage imposé (l'API rend les status par groupe Notion).
     AGENDA_ORDER = ["Réservé", "En cours", "Terminé", "Prêt"]
     agenda_state = {"loading": False, "events": [],
@@ -8722,6 +8722,9 @@ def main(page: ft.Page):
         if ev["tel"]:
             sub.append(ev["tel"])
         etat = ev["row"].get("État") or ev["row"].get("Etat") or ""
+        # Objets / châteaux loués (propriétés multi-sélection).
+        loue = ", ".join(n for v in ev["row"].values()
+                         if isinstance(v, list) for n in v)
         etat_color = next(
             (NOTION_COLORS.get(c, GREY)
              for info in agenda_schemas.get(ev["source"], {}).values()
@@ -8739,6 +8742,9 @@ def main(page: ft.Page):
                     bgcolor=ft.Colors.with_opacity(0.85, etat_color),
                     border_radius=4, padding=ft.Padding(5, 1, 5, 1),
                     visible=bool(etat)),
+                ft.Text(loue, size=11, color=WHITE, max_lines=2,
+                        overflow=ft.TextOverflow.ELLIPSIS,
+                        visible=bool(loue)),
                 ft.Text(" · ".join(sub), size=11, color=LIGHT_GREY,
                         visible=bool(sub), max_lines=1),
             ], spacing=2, tight=True),
@@ -8961,8 +8967,9 @@ def main(page: ft.Page):
                 cur = (row_vals.get(prop) if ev else
                        AGENDA_DEFAULTS.get(source_name, {}).get(prop))
                 if t in ("status", "select") and info["options"]:
+                    # Plus d'état vide (retour user) : toujours une option.
                     ctrl, get = _option_seg(info["options"], cur,
-                                            allow_empty=t == "select")
+                                            allow_empty=False)
                 elif t == "multi_select":
                     ctrl, get = _multi_chips(info["options"], cur)
                 elif t in ("rich_text", "number"):
