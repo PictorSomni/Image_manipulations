@@ -347,8 +347,11 @@ def main(page: ft.Page):
     DLG_BTN_COLORS = {"primary": BLUE, "cancel": BLUE_LIGHT, "danger": RED}
 
     def _dlg_btn(label, kind="primary", color=None, **kwargs):
+        # Coins légèrement arrondis (pas en pilule), comme les pastilles.
         return ft.Button(label, bgcolor=color or DLG_BTN_COLORS[kind],
-                         color=DARK, **kwargs)
+                         color=DARK, style=ft.ButtonStyle(
+                             shape=ft.RoundedRectangleBorder(radius=6)),
+                         **kwargs)
 
     # Base Notion "Tâches" (page "Travail") — cf. surface Kanban plus bas.
     KANBAN_DATA_SOURCE = "collection://34f4c64b-5c00-4415-99cb-76234faecef1"
