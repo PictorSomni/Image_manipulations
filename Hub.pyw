@@ -3955,9 +3955,17 @@ def main(page: ft.Page):
             start, end = _viewer_window_bounds(viewer_state["index"],
                                                len(paths))
             viewer_state["win_start"] = start
-            images_page_view.controls = _build_page_containers(
-                paths, start, end)
-            images_page_view.selected_index = viewer_state["index"] - start
+            # PageView neuf à chaque ouverture : l'ancien gardait côté
+            # client la page de la visionneuse précédente, donc rouvrir
+            # sur moins de photos -> RangeError "Only valid value is 0: 1"
+            # (retour user, Mac du magasin).
+            nonlocal images_page_view
+            images_page_view = ft.PageView(
+                controls=_build_page_containers(paths, start, end),
+                selected_index=viewer_state["index"] - start,
+                expand=True, horizontal=True,
+                on_change=_on_viewer_page_change)
+            viewer_image_wrap.content = images_page_view
         _close_drawers()
         _update_viewer()
         if viewer_overlay not in page.overlay:
