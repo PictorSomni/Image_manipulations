@@ -1262,7 +1262,7 @@ async def main(page: ft.Page) -> None:
         save_btn.disabled    = True
         progress_bar.value   = None
         progress_bar.visible = True
-        status_text.value    = "Envoi à Gemini… (0s)"
+        status_text.value    = "Envoi à l'IA… (0s)"
 
         sel = state["selection"]
         sel_w = sel[2] - sel[0]
@@ -1335,7 +1335,7 @@ async def main(page: ft.Page) -> None:
                 await asyncio.sleep(1)
                 _elapsed["s"] += 1
                 if state["working"]:
-                    status_text.value = f"Envoi à Gemini… ({_elapsed['s']}s)"
+                    status_text.value = f"Envoi à l'IA… ({_elapsed['s']}s)"
                     page.update()
 
         _timer_task = asyncio.create_task(_tick())
