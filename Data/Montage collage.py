@@ -43,7 +43,7 @@ Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
   (pour le .psd — sans pytoshop, seul l'aperçu PNG est produit).
 """
 
-__version__ = "2.3.0"
+__version__ = "2.3.5"
 
 #############################################################
 #                          IMPORTS                          #
