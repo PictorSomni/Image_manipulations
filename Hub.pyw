@@ -8700,6 +8700,8 @@ def main(page: ft.Page):
                      "pink": PINK}
     AGENDA_BASE_PROPS = {"Nom", "Date", "Téléphone", "E-mail", "Email"}
     agenda_schemas = {}  # source -> notion_rest.schema()
+    # Valeurs par défaut à la création (retour user).
+    AGENDA_DEFAULTS = {"Studio": {"État": "Réservé"}}
     agenda_state = {"loading": False, "events": [],
                     "month": datetime.date.today().replace(day=1)}
 
@@ -8827,8 +8829,10 @@ def main(page: ft.Page):
                             "mail": r.get(mail_prop) or "",
                             "nom": " ".join((r.get("Nom") or "").split())})
 
+            # Schémas relus à chaque actualisation : options modifiées
+            # dans Notion prises en compte sans relancer le Hub.
             for name, ds_id, _c, _m in AGENDA_SOURCES:
-                if name not in agenda_schemas and notion_rest.TOKEN:
+                if notion_rest.TOKEN:
                     try:
                         agenda_schemas[name] = notion_rest.schema(ds_id)
                     except Exception:
@@ -8934,7 +8938,9 @@ def main(page: ft.Page):
             for prop, info in agenda_schemas.get(source_name, {}).items():
                 if prop in AGENDA_BASE_PROPS:
                     continue
-                t, cur = info["type"], row_vals.get(prop)
+                t = info["type"]
+                cur = (row_vals.get(prop) if ev else
+                       AGENDA_DEFAULTS.get(source_name, {}).get(prop))
                 if t in ("status", "select") and info["options"]:
                     ctrl, get = _option_seg(info["options"], cur,
                                             allow_empty=t == "select")
