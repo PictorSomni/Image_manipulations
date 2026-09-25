@@ -79,6 +79,7 @@ SURFACES = [
     ("liste", "Liste",    ft.Icons.LIST_ALT_OUTLINED),
     ("kanban", "Tâches",  ft.Icons.VIEW_KANBAN_OUTLINED),
     ("ia",    "IA",       ft.Icons.SMART_TOY_OUTLINED),
+    ("agenda", "Agenda",  ft.Icons.CALENDAR_MONTH_OUTLINED),
     ("actus", "Actus",    ft.Icons.RSS_FEED_OUTLINED),
     # Bloc-notes retiré du rail (retour user) : accessible en bandeau
     # depuis la barre du bas (notes_panel), plus en surface plein écran —
@@ -362,7 +363,8 @@ def main(page: ft.Page):
     # bas) — sert à la fois au surlignage de l'onglet actif et aux actions
     # principales de la surface correspondante.
     SURFACE_ACCENT = {"files": BLUE, "liste": PINK, "kanban": MINT,
-                      "ia": YELLOW, "actus": RED}
+                      "ia": YELLOW, "actus": RED,
+                      "agenda": ORANGE}
 
     # Couleur par valeur, comme dans Notion (cf. _kanban_prop_menu).
     KANBAN_PROJET_COLORS = {"Pas de projet": GREY, "Faire projet": BLUE,
@@ -8671,6 +8673,119 @@ def main(page: ft.Page):
 
     page.on_resize = _on_page_resize
 
+    # ═════════════════════════════════════════════════════════════════════
+    #  Surface Agenda — les 3 bases Notion à date de rendez-vous réunies en
+    #  une liste chronologique (retour user). Lecture seule : un clic ouvre
+    #  la fiche dans Notion pour la modifier.
+    # ═════════════════════════════════════════════════════════════════════
+    AGENDA_SOURCES = [
+        ("Studio", "ae971f83-22d1-4d53-8972-4c6302c6d371", BLUE),
+        ("Reportage", "42f7bb5c-84f2-416a-aad0-8aad7b1ea51a", VIOLET),
+        ("Borne", "23f887c8-202a-4e37-91e1-812a4a6c7472", GREEN),
+    ]
+    agenda_status = ft.Text("", size=11, color=LIGHT_GREY)
+    agenda_list_view = ft.ListView(expand=True, spacing=6, padding=10)
+    agenda_state = {"loading": False}
+
+    def _agenda_card(ev):
+        start = ev["start"]
+        when = start[:10]
+        try:
+            d = datetime.date.fromisoformat(when)
+            # Jour en français sans dépendre de la locale système.
+            when = ("lun mar mer jeu ven sam dim".split()[d.weekday()]
+                    + d.strftime(" %d/%m/%Y"))
+            if len(start) > 10:
+                when += " " + datetime.datetime.fromisoformat(
+                    start).astimezone().strftime("%H:%M")
+        except ValueError:
+            pass
+        infos = " · ".join(x for x in (ev["etat"], ev["tel"], ev["mail"])
+                           if x)
+        return ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Container(
+                        content=ft.Text(ev["source"], size=11,
+                                        color=ft.Colors.BLACK,
+                                        weight=ft.FontWeight.W_600),
+                        bgcolor=ft.Colors.with_opacity(0.85, ev["color"]),
+                        border_radius=4, padding=ft.Padding(6, 2, 6, 2)),
+                    ft.Text(when, size=11, color=LIGHT_GREY),
+                ], spacing=8),
+                ft.Text(ev["nom"] or "(sans nom)", size=CONSTANTS.TEXT_SM,
+                        color=WHITE, weight=ft.FontWeight.W_600),
+                ft.Text(infos, size=11, color=LIGHT_GREY,
+                        visible=bool(infos)),
+            ], spacing=4, tight=True),
+            bgcolor=ft.Colors.with_opacity(0.18, ev["color"]),
+            border_radius=8, padding=10, ink=True,
+            on_click=lambda e, u=ev["url"]: webbrowser.open(u))
+
+    def _agenda_refresh(event=None):
+        if agenda_state["loading"]:
+            return
+        agenda_state["loading"] = True
+        agenda_status.value = "Chargement…"
+        page.update()
+
+        def _work():
+            events, errors = [], []
+            for name, ds_id, color in AGENDA_SOURCES:
+                raw = _notion_call(
+                    "mcp__notion__notion-query-data-sources",
+                    {"data": {"mode": "rows",
+                              "data_source_url": f"collection://{ds_id}",
+                              "limit": 100}})
+                if raw.startswith("Erreur"):
+                    errors.append(f"{name} : {raw}")
+                    continue
+                for r in json.loads(raw).get("results", []):
+                    start = r.get("date:Date:start") or ""
+                    if not start:
+                        continue
+                    events.append({
+                        "source": name, "color": color, "start": start,
+                        "url": r.get("url", ""),
+                        "nom": " ".join((r.get("Nom") or "").split()),
+                        "etat": r.get("État") or r.get("Etat") or "",
+                        "tel": r.get("Téléphone", ""),
+                        "mail": r.get("E-mail") or r.get("Email") or ""})
+            # ponytail: à venir seulement (depuis aujourd'hui), les passés
+            # restent consultables dans Notion.
+            today = datetime.date.today().isoformat()
+            events = sorted((e for e in events if e["start"][:10] >= today),
+                            key=lambda e: e["start"])
+
+            async def _apply():
+                agenda_state["loading"] = False
+                agenda_list_view.controls = [_agenda_card(e) for e in events]
+                agenda_status.value = (
+                    " / ".join(errors) if errors else
+                    f"{len(events)} rendez-vous à venir — mis à jour à "
+                    f"{datetime.datetime.now().strftime('%H:%M')}")
+                page.update()
+
+            _run_task(_apply)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    agenda_surface = ft.Column([
+        ft.Container(
+            content=ft.Row([
+                agenda_status,
+                ft.Container(expand=True),
+                ft.IconButton(ft.Icons.REFRESH,
+                             icon_color=SURFACE_ACCENT["agenda"],
+                             icon_size=CONSTANTS.ICON_SM,
+                             tooltip="Actualiser depuis Notion",
+                             on_click=_agenda_refresh),
+            ], spacing=8),
+            padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
+        ft.Divider(height=1, color=GREY),
+        ft.Container(content=agenda_list_view, expand=True),
+    ], expand=True, spacing=0)
+
     # ─── Surfaces encore à construire (placeholders structurés) ──────────
     def _placeholder(label):
         return ft.Container(
@@ -8684,6 +8799,7 @@ def main(page: ft.Page):
         "ia":    ia_surface,
         "actus": actus_surface,
         "kanban": kanban_surface,
+        "agenda": agenda_surface,
     }
     center = ft.Container(content=surface_content["files"], expand=True,
                           bgcolor=DARK)
@@ -8744,6 +8860,8 @@ def main(page: ft.Page):
         center.content = surface_content[key]
         if key == "actus" and not actus_list_view.controls:
             _actus_refresh()   # chargement paresseux : au premier passage
+        if key == "agenda" and not agenda_list_view.controls:
+            _agenda_refresh()
         # Kanban : plus de rechargement auto à chaque passage sur l'onglet
         # (retour user, coût des appels) — le cache local suffit à
         # l'affichage, l'actualisation se fait via le bouton dédié.
