@@ -62,6 +62,8 @@ def _read_prop(p):
         return _plain(v)
     if t in ("select", "status"):
         return v["name"] if v else ""
+    if t == "multi_select":
+        return [o["name"] for o in v or []]
     if t == "date":
         return v["start"] if v else ""
     if t in ("number", "phone_number", "email", "url", "created_time",
@@ -75,6 +77,8 @@ def _write_prop(ptype, value):
         return {ptype: _rich(value or "")}
     if ptype in ("select", "status"):
         return {ptype: {"name": value} if value else None}
+    if ptype == "multi_select":
+        return {"multi_select": [{"name": n} for n in value or []]}
     if ptype == "date":
         return {"date": {"start": value} if value else None}
     if ptype in ("phone_number", "email", "url"):
@@ -93,6 +97,19 @@ def _props_for(data_source_id, props):
                                    for n, p in ds["properties"].items()}
     types = _schema[data_source_id]
     return {name: _write_prop(types[name], v) for name, v in props.items()}
+
+
+def schema(data_source_id):
+    """{propriété: {"type", "options": [(nom, couleur Notion)]}} — pour
+    construire les formulaires (options de select/status/multi_select)."""
+    ds = _req("GET", f"/data_sources/{data_source_id}")
+    _schema[data_source_id] = {n: p["type"]
+                               for n, p in ds["properties"].items()}
+    return {n: {"type": p["type"],
+                "options": [(o["name"], o.get("color", "default"))
+                            for o in p.get(p["type"], {}).get("options", [])
+                            if isinstance(p.get(p["type"]), dict)]}
+            for n, p in ds["properties"].items()}
 
 
 def _parent_ds(page_id):
@@ -251,4 +268,8 @@ if __name__ == "__main__":
     assert blocks[3]["to_do"]["checked"] is True
     assert _write_prop("select", "") == {"select": None}
     assert _write_prop("number", "12.5") == {"number": 12.5}
+    assert _write_prop("multi_select", ["a"]) == {
+        "multi_select": [{"name": "a"}]}
+    assert _read_prop({"type": "multi_select",
+                       "multi_select": [{"name": "a"}]}) == ["a"]
     print("ok")

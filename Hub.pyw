@@ -8693,6 +8693,13 @@ def main(page: ft.Page):
                                  weight=ft.FontWeight.W_600, width=160,
                                  text_align=ft.TextAlign.CENTER)
     agenda_grid = ft.Column(expand=True, spacing=2)
+    # Couleurs Notion -> palette Hub (options des select/multi_select).
+    NOTION_COLORS = {"gray": GREY, "default": GREY, "purple": VIOLET,
+                     "blue": BLUE, "green": GREEN, "red": RED,
+                     "yellow": YELLOW, "orange": ORANGE, "brown": ORANGE,
+                     "pink": PINK}
+    AGENDA_BASE_PROPS = {"Nom", "Date", "Téléphone", "E-mail", "Email"}
+    agenda_schemas = {}  # source -> notion_rest.schema()
     agenda_state = {"loading": False, "events": [],
                     "month": datetime.date.today().replace(day=1)}
 
@@ -8706,11 +8713,11 @@ def main(page: ft.Page):
             except ValueError:
                 pass
         return ft.Container(
-            content=ft.Text(label, size=11, color=ft.Colors.BLACK,
+            content=ft.Text(label, size=12, color=ft.Colors.BLACK,
                             max_lines=1, overflow=ft.TextOverflow.ELLIPSIS,
                             weight=ft.FontWeight.W_600),
             bgcolor=ft.Colors.with_opacity(0.85, ev["color"]),
-            border_radius=4, padding=ft.Padding(4, 1, 4, 1), ink=True,
+            border_radius=4, padding=ft.Padding(6, 5, 6, 5), ink=True,
             tooltip=f"{ev['source']} — {label}",
             on_click=lambda e, ev=ev: _agenda_new_entry(ev=ev))
 
@@ -8746,7 +8753,9 @@ def main(page: ft.Page):
                                        WHITE if in_month else GREY),
                                 weight=(ft.FontWeight.W_700
                                         if day == today else None)),
-                        *chips], spacing=2, tight=True),
+                        *chips], spacing=3, tight=True,
+                        # Pastilles sur toute la largeur de la case.
+                        horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
                     expand=True, padding=4, border_radius=4,
                     bgcolor=BACKGROUND if in_month else DARK,
                     border=(ft.Border.all(1, ORANGE) if day == today
@@ -8793,10 +8802,18 @@ def main(page: ft.Page):
                         events.append({
                             "source": name, "color": color, "start": start,
                             "url": r.get("url", ""),
+                            "row": r,
                             "page_id": r.get("url", "").rsplit("/", 1)[-1],
                             "tel": r.get("Téléphone") or "",
                             "mail": r.get(mail_prop) or "",
                             "nom": " ".join((r.get("Nom") or "").split())})
+
+            for name, ds_id, _c, _m in AGENDA_SOURCES:
+                if name not in agenda_schemas and notion_rest.TOKEN:
+                    try:
+                        agenda_schemas[name] = notion_rest.schema(ds_id)
+                    except Exception:
+                        pass  # options indisponibles : champs de base
 
             async def _apply():
                 agenda_state["loading"] = False
@@ -8834,6 +8851,95 @@ def main(page: ft.Page):
         tel_field = _field("Téléphone", ev["tel"] if ev else "")
         mail_field = _field("E-mail", ev["mail"] if ev else "")
         texts = [ft.Text(n, size=11) for n, *_ in AGENDA_SOURCES]
+        # "Options" propres à chaque base (État, objets, remarques…),
+        # construites depuis le schéma Notion : getters prop -> valeur.
+        extras_col = ft.Column(spacing=8, tight=True)
+        extras = {}
+        row_vals = ev["row"] if ev else {}
+
+        def _option_seg(options, current, allow_empty):
+            names = (["—"] if allow_empty else []) + [n for n, _ in options]
+            colors = {n: NOTION_COLORS.get(c, GREY) for n, c in options}
+            seg_texts = [ft.Text(n, size=11) for n in names]
+
+            def _style():
+                for k, t in enumerate(seg_texts):
+                    t.color = DARK if k == sg.selected_index else WHITE
+                sg.thumb_color = colors.get(names[sg.selected_index], GREY)
+
+            def _chg(e):
+                _style()
+                sg.update()
+
+            sg = ft.CupertinoSlidingSegmentedButton(
+                selected_index=(names.index(current) if current in names
+                                else 0),
+                controls=seg_texts, on_change=_chg, width=560)
+            _style()
+            return sg, lambda: ("" if names[sg.selected_index] == "—"
+                                else names[sg.selected_index])
+
+        def _multi_chips(options, current):
+            chosen = set(current or [])
+            chips = []
+
+            def _chip(name, color):
+                c = ft.Container(
+                    content=ft.Text(name, size=11),
+                    border_radius=12, padding=ft.Padding(8, 4, 8, 4),
+                    ink=True)
+
+                def _style():
+                    on = name in chosen
+                    c.bgcolor = (ft.Colors.with_opacity(0.85, color) if on
+                                 else DARK)
+                    c.content.color = DARK if on else WHITE
+                    c.border = ft.Border.all(1, color)
+
+                def _toggle(e):
+                    chosen.symmetric_difference_update({name})
+                    _style()
+                    c.update()
+                c.on_click = _toggle
+                _style()
+                return c
+            chips = [_chip(n, NOTION_COLORS.get(col, GREY))
+                     for n, col in options]
+            return (ft.Row(chips, wrap=True, spacing=6, run_spacing=6,
+                           width=560),
+                    lambda: [n for n, _ in options if n in chosen])
+
+        def _build_extras(source_name):
+            extras.clear()
+            rows = []
+            for prop, info in agenda_schemas.get(source_name, {}).items():
+                if prop in AGENDA_BASE_PROPS:
+                    continue
+                t, cur = info["type"], row_vals.get(prop)
+                if t in ("status", "select") and info["options"]:
+                    ctrl, get = _option_seg(info["options"], cur,
+                                            allow_empty=t == "select")
+                elif t == "multi_select":
+                    ctrl, get = _multi_chips(info["options"], cur)
+                elif t in ("rich_text", "number"):
+                    ctrl = _field(prop, "" if cur in (None, "")
+                                  else f"{cur:g}" if t == "number"
+                                  else str(cur))
+                    get = (lambda c=ctrl: (c.value or "").strip())
+                    rows.append(ctrl)
+                    extras[prop] = get
+                    continue
+                else:
+                    continue
+                rows += [ft.Text(prop, size=11, color=LIGHT_GREY), ctrl]
+                extras[prop] = get
+            extras_col.controls = rows
+
+        notes_field = ft.TextField(
+            label="Notes", multiline=True, min_lines=4, width=560,
+            bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE,
+            value="Chargement…" if ev else "", disabled=bool(ev))
+        notes_orig = {"value": ""}
 
         def _restyle():
             for k, t in enumerate(texts):
@@ -8842,7 +8948,8 @@ def main(page: ft.Page):
 
         def _seg_change(e):
             _restyle()
-            seg.update()
+            _build_extras(AGENDA_SOURCES[seg.selected_index][0])
+            page.update()
 
         seg = ft.CupertinoSlidingSegmentedButton(
             selected_index=next(
@@ -8880,8 +8987,15 @@ def main(page: ft.Page):
             props = {"Nom": nom, "Date": start,
                      "Téléphone": (tel_field.value or "").strip(),
                      mail_prop: (mail_field.value or "").strip()}
+            for prop, get in extras.items():
+                v = get()
+                if prop in row_vals or v:
+                    props[prop] = v
             if not ev:  # création : pas de propriétés vides
                 props = {k: v for k, v in props.items() if v}
+            notes = (notes_field.value or "").strip()
+            notes_changed = (not notes_field.disabled
+                             and notes != notes_orig["value"])
             _close()
             agenda_status.value = "Enregistrement…"
             page.update()
@@ -8893,12 +9007,21 @@ def main(page: ft.Page):
                         {"page_id": ev["page_id"],
                          "command": "update_properties",
                          "properties": props})
+                    if notes_changed and not result.startswith("Erreur"):
+                        result = _notion_call(
+                            "mcp__notion__notion-update-page",
+                            {"page_id": ev["page_id"],
+                             "command": "replace_content",
+                             "new_str": _kanban_plain_to_notion(notes)})
                 else:
+                    page_data = {"properties": props}
+                    if notes:
+                        page_data["content"] = _kanban_plain_to_notion(notes)
                     result = _notion_call(
                         "mcp__notion__notion-create-pages",
                         {"parent": {"type": "data_source_id",
                                     "data_source_id": ds_id},
-                         "pages": [{"properties": props}]})
+                         "pages": [page_data]})
 
                 async def _apply():
                     if result.startswith("Erreur"):
@@ -8947,13 +9070,37 @@ def main(page: ft.Page):
                           size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([
                 ft.Container(height=10), seg, nom_field, date_field,
-                heure_field, tel_field, mail_field,
-            ], tight=True, spacing=8, width=600, scroll=ft.ScrollMode.AUTO),
+                heure_field, tel_field, mail_field, extras_col,
+                ft.Divider(height=1, color=GREY), notes_field,
+            ], tight=True, spacing=8, width=600, scroll=ft.ScrollMode.AUTO,
+               height=max(300, min(680, (page.height or 900) - 220))),
             actions=actions,
             inset_padding=ft.Padding(20, 40, 20, 40))
+        _build_extras(AGENDA_SOURCES[seg.selected_index][0])
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+
+        def _load_notes():
+            raw = _notion_call("mcp__notion__notion-fetch",
+                               {"id": ev["page_id"]})
+            failed = raw.startswith("Erreur")
+            body = "" if failed else _kanban_extract_page_content(raw)
+
+            async def _apply():
+                if failed:
+                    notes_field.value = f"(notes indisponibles : {raw})"
+                else:
+                    plain = _kanban_notion_to_plain(body or "").strip()
+                    notes_orig["value"] = plain
+                    notes_field.value = plain
+                    notes_field.disabled = False
+                page.update()
+
+            _run_task(_apply)
+
+        if ev:
+            threading.Thread(target=_load_notes, daemon=True).start()
 
     def _agenda_btn(icon, tip, fn):
         return ft.IconButton(icon, icon_color=SURFACE_ACCENT["agenda"],
