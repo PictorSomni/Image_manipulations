@@ -2,7 +2,7 @@
 90° de Recadrage manuel.pyw) fait bien COUVRIR le canevas à zoom 1.00×
 — sinon l'image reste baladable à 1.00× (retour user)."""
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 import math
 import os
