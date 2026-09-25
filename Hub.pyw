@@ -3277,9 +3277,8 @@ def main(page: ft.Page):
         on_focus=_focus_search("files_search"), on_blur=_blur_search,
     )
     search_close_btn = ft.IconButton(
-        ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
-        bgcolor=GREY, tooltip="Effacer la recherche", on_click=_clear_search,
-        style=ft.ButtonStyle(padding=ft.Padding.all(4)))
+        ft.Icons.CLOSE, **SQUARE_BTN, icon_size=CONSTANTS.ICON_SM,
+        icon_color=LIGHT_GREY, tooltip="Effacer la recherche", on_click=_clear_search)
     search_field_wrap = ft.Row(
         [search_field, search_close_btn], spacing=4, expand=True,
         vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -7034,17 +7033,10 @@ def main(page: ft.Page):
         tooltip="Transférer la conversation vers le bloc-notes",
         on_click=lambda e: _export_ai_conversation(to_notepad=True))
 
-    ai_image_mode_label = ft.Text(
-        "REEL" if ai_send_original_images["value"] else "1024",
-        color=GREEN if ai_send_original_images["value"] else BLUE,
-        size=CONSTANTS.TEXT_SM - 3, weight=ft.FontWeight.BOLD)
-
     def _toggle_ai_image_size_mode(event=None):
         ai_send_original_images["value"] = not ai_send_original_images["value"]
         use_original = ai_send_original_images["value"]
         ai_image_size_button.icon_color = GREEN if use_original else BLUE
-        ai_image_mode_label.value = "REEL" if use_original else "1024"
-        ai_image_mode_label.color = GREEN if use_original else BLUE
         ai_image_size_button.tooltip = (
             "Mode images IA en taille réelle (fichier original) — "
             "affecte uniquement les nouveaux fichiers joints"
@@ -7054,7 +7046,7 @@ def main(page: ft.Page):
         page.update()
 
     ai_image_size_button = ft.IconButton(
-        ft.Icons.IMAGE,
+        ft.Icons.IMAGE, **SQUARE_BTN,
         icon_color=GREEN if ai_send_original_images["value"] else BLUE,
         icon_size=CONSTANTS.ICON_SM,
         tooltip=(
@@ -7065,16 +7057,9 @@ def main(page: ft.Page):
             "affecte uniquement les nouveaux fichiers joints"),
         on_click=_toggle_ai_image_size_mode)
 
-    # Le bouton et son mode (« REEL »/« 1024 ») dans une seule pastille :
-    # séparés, le texte flottait dans la barre comme un élément autonome
-    # sans lien visible avec le bouton qu'il décrit.
-    ai_image_size_group = ft.Container(
-        content=ft.Row([ai_image_size_button, ai_image_mode_label],
-                       spacing=0, tight=True),
-        bgcolor=GREY, border_radius=6,
-        padding=ft.Padding(0, 0, 8, 0))
-    # Pas d'infobulle sur le conteneur : celle du bouton est déjà précise
-    # et suit l'état (réel / 1024), une seconde par-dessus la masquerait.
+    # Icône seule, format carré commun (retour user) : vert = taille
+    # réelle, bleu = 1024 px ; le détail est dans l'infobulle.
+    ai_image_size_group = ai_image_size_button
 
     def _ai_header_separator():
         return ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
@@ -7518,10 +7503,9 @@ def main(page: ft.Page):
         on_focus=_on_liste_search_focus, on_blur=_blur_search,
     )
     liste_search_close_btn = ft.IconButton(
-        ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
-        bgcolor=GREY, tooltip="Effacer la recherche",
-        on_click=_liste_clear_search,
-        style=ft.ButtonStyle(padding=ft.Padding.all(4)))
+        ft.Icons.CLOSE, **SQUARE_BTN, icon_size=CONSTANTS.ICON_SM,
+        icon_color=LIGHT_GREY, tooltip="Effacer la recherche",
+        on_click=_liste_clear_search)
     liste_search_row = ft.Row(
         [liste_search_field, liste_search_close_btn], spacing=4,
         expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
@@ -8669,10 +8653,9 @@ def main(page: ft.Page):
         color=WHITE, prefix_icon=ft.Icons.SEARCH,
         on_change=_kanban_search_change, on_submit=_kanban_search_clear)
     kanban_search_clear_btn = ft.IconButton(
-        ft.Icons.CLOSE, icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
-        bgcolor=GREY, tooltip="Effacer la recherche",
-        on_click=_kanban_search_clear,
-        style=ft.ButtonStyle(padding=ft.Padding.all(4)))
+        ft.Icons.CLOSE, **SQUARE_BTN, icon_size=CONSTANTS.ICON_SM,
+        icon_color=LIGHT_GREY, tooltip="Effacer la recherche",
+        on_click=_kanban_search_clear)
     kanban_search_wrap = ft.Row(
         [kanban_search_field, kanban_search_clear_btn], spacing=4,
         expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
