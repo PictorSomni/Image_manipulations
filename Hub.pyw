@@ -99,6 +99,7 @@ _RECENT_FILE = os.path.join(_APP_DIR, ".recent_folders.json")
 _FAVORITES_FILE = os.path.join(_APP_DIR, ".favorites.json")
 _OPEN_TABS_FILE = os.path.join(_APP_DIR, ".open_tabs.json")
 _KANBAN_CACHE_FILE = os.path.join(_APP_DIR, ".kanban_cache.json")
+_AGENDA_CACHE_FILE = os.path.join(_APP_DIR, ".agenda_cache.json")
 _KANBAN_SETTINGS_FILE = os.path.join(_APP_DIR, ".kanban_settings.json")
 
 
@@ -8909,6 +8910,9 @@ def main(page: ft.Page):
             async def _apply():
                 agenda_state["loading"] = False
                 agenda_state["events"] = events
+                if not errors:
+                    _save_json(_AGENDA_CACHE_FILE,
+                               {"events": events, "schemas": agenda_schemas})
                 agenda_status.value = (
                     " / ".join(errors) if errors else
                     f"Mis à jour à "
@@ -9168,6 +9172,8 @@ def main(page: ft.Page):
             # Corbeille Notion (récupérable 30 jours), comme les tâches.
             _close()
             agenda_state["events"].remove(ev)
+            _save_json(_AGENDA_CACHE_FILE, {"events": agenda_state["events"],
+                                            "schemas": agenda_schemas})
             _agenda_rebuild()
             page.update()
 
@@ -9277,6 +9283,13 @@ def main(page: ft.Page):
         ft.Container(content=agenda_grid, expand=True,
                      padding=ft.Padding(24, 6, 24, 12)),
     ], expand=True, spacing=0)
+    # Cache local comme les Tâches (retour user) : affiché tel quel, pas
+    # d'appel Notion tant qu'on ne modifie rien ou ne clique pas sur ⟳.
+    _agenda_cache = _load_json(_AGENDA_CACHE_FILE, {})
+    if isinstance(_agenda_cache, dict) and _agenda_cache.get("events"):
+        agenda_state["events"] = _agenda_cache["events"]
+        agenda_schemas.update(_agenda_cache.get("schemas") or {})
+        agenda_status.value = "Données en cache"
     _agenda_rebuild()
 
     # ─── Surfaces encore à construire (placeholders structurés) ──────────
