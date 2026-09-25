@@ -8354,7 +8354,7 @@ def main(page: ft.Page):
              "Pas de projet"),
             ("Payé ?", KANBAN_PAYE_OPTIONS, KANBAN_PAYE_COLORS, "Non payé"),
             ("Prévenir ?", KANBAN_PREVENU_OPTIONS, KANBAN_PREVENU_COLORS,
-             "Viendra d'office"),
+             prefill.get("prevenir", "Viendra d'office")),
         ]
         prop_segs = {}
         seg_rows = []
@@ -9192,7 +9192,7 @@ def main(page: ft.Page):
             _close()
             _kanban_new_task(prefill={
                 "demande": f"{ev['source']} {(nom_field.value or '').strip()}",
-                "deadline": (date_field.value or "")[:10],
+                "prevenir": "Appeler quand prêt",
                 "telephone": (tel_field.value or "").strip(),
                 "email": (mail_field.value or "").strip()})
 
