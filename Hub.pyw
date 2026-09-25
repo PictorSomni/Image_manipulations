@@ -8703,6 +8703,8 @@ def main(page: ft.Page):
     # Valeurs par défaut à la création (retour user).
     AGENDA_DEFAULTS = {"Studio": {"État": "Réservé"},
                        "Borne": {"Etat": "Pas d'accompte"}}
+    # Ordre d'affichage imposé (l'API rend les status par groupe Notion).
+    AGENDA_ORDER = ["Réservé", "En cours", "Terminé", "Prêt"]
     agenda_state = {"loading": False, "events": [],
                     "month": datetime.date.today().replace(day=1)}
 
@@ -8719,11 +8721,24 @@ def main(page: ft.Page):
                 pass
         if ev["tel"]:
             sub.append(ev["tel"])
+        etat = ev["row"].get("État") or ev["row"].get("Etat") or ""
+        etat_color = next(
+            (NOTION_COLORS.get(c, GREY)
+             for info in agenda_schemas.get(ev["source"], {}).values()
+             for n, c in info["options"] if n == etat), GREY)
         return ft.Container(
             content=ft.Column([
                 ft.Text(ev["nom"] or "(sans nom)", size=12, color=WHITE,
                         max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
                         weight=ft.FontWeight.W_600),
+                ft.Container(
+                    content=ft.Text(etat, size=10, color=DARK,
+                                    weight=ft.FontWeight.W_600,
+                                    max_lines=1,
+                                    overflow=ft.TextOverflow.ELLIPSIS),
+                    bgcolor=ft.Colors.with_opacity(0.85, etat_color),
+                    border_radius=4, padding=ft.Padding(5, 1, 5, 1),
+                    visible=bool(etat)),
                 ft.Text(" · ".join(sub), size=11, color=LIGHT_GREY,
                         visible=bool(sub), max_lines=1),
             ], spacing=2, tight=True),
@@ -8882,6 +8897,9 @@ def main(page: ft.Page):
         row_vals = ev["row"] if ev else {}
 
         def _option_seg(options, current, allow_empty):
+            options = sorted(options, key=lambda o: (
+                AGENDA_ORDER.index(o[0]) if o[0] in AGENDA_ORDER
+                else len(AGENDA_ORDER)))
             names = (["—"] if allow_empty else []) + [n for n, _ in options]
             colors = {n: NOTION_COLORS.get(c, GREY) for n, c in options}
             seg_texts = [ft.Text(n, size=11) for n in names]
