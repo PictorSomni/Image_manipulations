@@ -400,6 +400,9 @@ def main(page: ft.Page):
     # que Terminal=YELLOW_GREEN / Notes=VIOLET / Actions=ORANGE en barre du
     # bas) — sert à la fois au surlignage de l'onglet actif et aux actions
     # principales de la surface correspondante.
+    # Hauteur commune des barres de titre des onglets (retour user).
+    TOOLBAR_H = 60
+
     SURFACE_ACCENT = {"files": BLUE, "liste": PINK, "kanban": MINT,
                       "ia": YELLOW, "actus": RED,
                       "agenda": YELLOW_GREEN}
@@ -7077,8 +7080,9 @@ def main(page: ft.Page):
                 ai_to_notepad_button,
                 _ai_header_separator(),
                 ai_clear_button,
-            ], spacing=CONSTANTS.SPACE_SM),
-            padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
+            ], spacing=8),
+            height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
+            alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
         ft.Container(content=ai_chat_view, expand=True, padding=8),
         ai_progress_bar,
@@ -7616,9 +7620,9 @@ def main(page: ft.Page):
                              tooltip="Recharger depuis le disque",
                              on_click=_liste_reload),
                 liste_add_btn,
-            ], spacing=6),
-            padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
-        ft.Container(height=8),
+            ], spacing=8),
+            height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
+            alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
         ft.Container(height=8),
         liste_quick_add_row,
@@ -7727,7 +7731,8 @@ def main(page: ft.Page):
                              tooltip="Actualiser les flux",
                              on_click=_actus_refresh),
             ], spacing=8),
-            padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
+            height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
+            alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
         ft.Container(content=actus_list_view, expand=True),
     ], expand=True, spacing=0)
@@ -8681,7 +8686,8 @@ def main(page: ft.Page):
                              tooltip="Actualiser depuis Notion",
                              on_click=_kanban_refresh),
             ], spacing=8),
-            padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
+            height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
+            alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
         # Colonnes à largeur calculée (cf. _kanban_col_width) : se
         # répartissent toute la largeur en plein écran, gardent leur
@@ -9325,7 +9331,8 @@ def main(page: ft.Page):
                 _agenda_btn(ft.Icons.REFRESH, "Actualiser depuis Notion",
                             _agenda_refresh),
             ], spacing=8),
-            padding=ft.Padding(8, 8, 8, 0), bgcolor=BACKGROUND),
+            height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
+            alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
         ft.Container(content=agenda_grid, expand=True,
                      padding=ft.Padding(24, 6, 24, 12)),
