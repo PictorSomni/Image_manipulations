@@ -8786,8 +8786,8 @@ def main(page: ft.Page):
                 label = (str(day.day) if day.day != 1 or in_month
                          else f"1 {AGENDA_MONTHS[day.month - 1][:4]}.")
                 num = ft.Text(label, size=12,
-                              color=(WHITE if day == today or in_month
-                                     else GREY),
+                              color=(ft.Colors.BLACK if day == today
+                                     else WHITE if in_month else GREY),
                               weight=ft.FontWeight.W_600)
                 if day == today:
                     num = ft.Container(num, bgcolor=RED, width=26,
