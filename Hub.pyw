@@ -9252,12 +9252,15 @@ def main(page: ft.Page):
                     clip_behavior=ft.ClipBehavior.HARD_EDGE,
                     ink=True,
                     on_click=lambda e, d=day: _agenda_new_entry(d))
-                cells.append(ft.DragTarget(
-                    group="agenda_ev", content=cell, expand=True,
+                # DragTarget sans flex réel dans une Row : c'est le
+                # Container expand qui partage la largeur (sinon grille vide).
+                cells.append(ft.Container(ft.DragTarget(
+                    group="agenda_ev", content=cell,
                     on_will_accept=lambda e, c=cell: _agenda_hover(c, True),
                     on_leave=lambda e, c=cell: _agenda_hover(c, False),
                     on_accept=lambda e, c=cell, d=day: (
-                        _agenda_hover(c, False), _agenda_move(e, d))))
+                        _agenda_hover(c, False), _agenda_move(e, d))),
+                    expand=True))
                 day += datetime.timedelta(days=1)
             rows.append(ft.Row(cells, expand=True, spacing=0,
                                vertical_alignment=(
@@ -9690,7 +9693,10 @@ def main(page: ft.Page):
             height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
             alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
-        ft.Stack([ft.Container(content=agenda_grid, expand=True,
+        # Grille positionnée (bords à 0) : sinon le Stack lui donne des
+        # contraintes lâches et le calendrier disparaît (retour user).
+        ft.Stack([ft.Container(content=agenda_grid,
+                               left=0, top=0, right=0, bottom=0,
                                padding=ft.Padding(24, 6, 24, 12)),
                   agenda_sync_veil], expand=True),
     ], expand=True, spacing=0)
@@ -9800,11 +9806,9 @@ def main(page: ft.Page):
         # l'affichage, l'actualisation se fait via le bouton dédié.
         for k, tab in rail_tabs.items():
             is_active = k == key
-            accent = SURFACE_ACCENT.get(k, BLUE)
-            # Inactifs légèrement teintés de leur couleur (retour user).
-            tab["container"].bgcolor = (
-                accent if is_active else ft.Colors.with_opacity(0.12, accent))
-            tab["icon"].color = DARK if is_active else accent
+            tab["container"].bgcolor = (SURFACE_ACCENT.get(k, BLUE)
+                                        if is_active else None)
+            tab["icon"].color = DARK if is_active else WHITE
             tab["label"].color = DARK if is_active else WHITE
             tab["label"].weight = (ft.FontWeight.W_700 if is_active
                                    else ft.FontWeight.NORMAL)
@@ -9814,9 +9818,8 @@ def main(page: ft.Page):
 
     def _rail_tab(key, label, icon):
         is_active = key == "files"
-        accent = SURFACE_ACCENT.get(key, BLUE)
         icon_ctrl = ft.Icon(icon, size=CONSTANTS.ICON_SM,
-                            color=DARK if is_active else accent)
+                            color=DARK if is_active else WHITE)
         label_ctrl = ft.Text(label, size=CONSTANTS.TEXT_SM,
                              color=DARK if is_active else WHITE, no_wrap=True,
                              weight=ft.FontWeight.W_700 if is_active
@@ -9830,15 +9833,19 @@ def main(page: ft.Page):
                alignment=ft.MainAxisAlignment.CENTER),
             expand=True, alignment=ft.Alignment.CENTER,
             ink=True, on_click=lambda e, k=key: _select_surface(k),
-            bgcolor=(accent if is_active
-                     else ft.Colors.with_opacity(0.12, accent)),
+            bgcolor=SURFACE_ACCENT.get(key, BLUE) if is_active else None,
         )
         rail_tabs[key] = {"container": tab, "icon": icon_ctrl, "label": label_ctrl}
         return tab
 
     left_rail = ft.Container(
-        content=ft.Column([_rail_tab(*s) for s in SURFACES],
-                          spacing=0, expand=True),
+        # Séparateurs entre onglets pour bien les distinguer (retour user).
+        content=ft.Column(
+            [c for i, s_ in enumerate(SURFACES)
+             for c in ([ft.Divider(height=1, thickness=1,
+                                   color=ft.Colors.with_opacity(0.15, WHITE))]
+                       if i else []) + [_rail_tab(*s_)]],
+            spacing=0, expand=True),
         width=60, bgcolor=GREY,
     )
 
@@ -12249,7 +12256,7 @@ def main(page: ft.Page):
                     flet_upgrade_proc = subprocess.Popen(
                         [sys.executable, "-m", "pip", "install", "flet",
                          "flet-desktop", "--upgrade"],
-                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                         text=True, encoding="utf-8", errors="replace",
                         cwd=_APP_DIR)
                     for line in flet_upgrade_proc.stdout:
@@ -12277,7 +12284,7 @@ def main(page: ft.Page):
                             [sys.executable, "-m", "pip", "install", "-r",
                              requirements_file_path, "--upgrade"],
                             stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True,
+                            stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT, text=True,
                             encoding="utf-8", errors="replace",
                             cwd=_APP_DIR)
                         for line in pip_install_process.stdout:
