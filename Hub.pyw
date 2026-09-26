@@ -11673,7 +11673,8 @@ def main(page: ft.Page):
         bgcolor=DARK, expand=1,
     )
     actions_overlay = ft.Row([
-        ft.Container(expand=1, ink=False,
+        # Même flou que ui_helpers.busy_veil (retour user).
+        ft.Container(expand=1, ink=False, blur=14,
                     bgcolor=ft.Colors.with_opacity(0.35, "black"),
                     on_click=lambda e: _close_actions()),
         actions_panel,
