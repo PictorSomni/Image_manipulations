@@ -8372,7 +8372,7 @@ def main(page: ft.Page):
             })
         return rows
 
-    def _kanban_new_task(event=None, prefill=None):
+    def _kanban_new_task(event=None, prefill=None, quick=False):
         # Overlay complet dès la création (retour user : dans Notion, la
         # nouvelle page s'ouvre avec toutes les propriétés éditables tout
         # de suite — remplir en un seul passage plutôt que de créer avec
@@ -8502,19 +8502,24 @@ def main(page: ft.Page):
 
             threading.Thread(target=_work, daemon=True).start()
 
+        # quick : intitulé + état seulement (retour user), les autres
+        # propriétés gardent leurs valeurs par défaut.
+        title_field.on_submit = _confirm
+        fields = ([title_field, *seg_rows[:2]] if quick else [
+            title_field,
+            deadline_field, telephone_field, email_field, prix_field,
+            *seg_rows,
+            ft.Divider(height=1, color=GREY),
+            notes_field,
+        ])
         dlg = _dialog(
-            title=ft.Text("Nouvelle tâche", size=CONSTANTS.TEXT_SM,
-                          color=WHITE),
-            content=ft.Column([
-                ft.Container(height=10),
-                title_field,
-                deadline_field, telephone_field, email_field, prix_field,
-                *seg_rows,
-                ft.Divider(height=1, color=GREY),
-                notes_field,
-            ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
-               width=600,
-               height=max(300, min(640, (page.height or 900) - 220))),
+            title=ft.Text("Tâche rapide" if quick else "Nouvelle tâche",
+                          size=CONSTANTS.TEXT_SM, color=WHITE),
+            content=ft.Column(
+                [ft.Container(height=10), *fields],
+                tight=True, spacing=8, scroll=ft.ScrollMode.AUTO, width=600,
+                height=(None if quick else
+                        max(300, min(640, (page.height or 900) - 220)))),
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Créer", "primary", on_click=_confirm)],
             inset_padding=ft.Padding(20, 40, 20, 40),
@@ -8565,6 +8570,7 @@ def main(page: ft.Page):
                         f"{len(rows)} tâches — mis à jour à "
                         f"{datetime.datetime.now().strftime('%H:%M')}")
                     _kanban_rebuild_columns()
+                    _agenda_rebuild()
                 page.update()
 
             _run_task(_apply)
@@ -8689,6 +8695,12 @@ def main(page: ft.Page):
                 kanban_search_wrap,
                 kanban_auto_sync_switch,
                 kanban_status,
+                ft.IconButton(ft.Icons.PLAYLIST_ADD, **SQUARE_BTN,
+                             icon_color=SURFACE_ACCENT["kanban"],
+                             icon_size=CONSTANTS.ICON_SM,
+                             tooltip="Tâche rapide",
+                             on_click=lambda e: _kanban_new_task(
+                                 quick=True)),
                 ft.IconButton(ft.Icons.ADD, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["kanban"],
                              icon_size=CONSTANTS.ICON_SM,
@@ -8804,7 +8816,7 @@ def main(page: ft.Page):
             (NOTION_COLORS.get(c, GREY)
              for info in agenda_schemas.get(ev["source"], {}).values()
              for n, c in info["options"] if n == etat),
-            AGENDA_ETAT_COLORS.get(etat, GREY))
+            AGENDA_ETAT_COLORS.get(etat, KANBAN_ETAT_COLORS.get(etat, GREY)))
         return ft.Container(
             content=ft.Column([
                 ft.Text(ev["nom"] or "(sans nom)", size=12, color=WHITE,
@@ -8832,13 +8844,29 @@ def main(page: ft.Page):
             # ce qui reste à faire ressort.
             # Passés NON estompés : retouchés après coup (retour user).
             opacity=0.4 if etat in AGENDA_DONE else 1,
-            on_click=lambda e, ev=ev: _agenda_new_entry(ev=ev))
+            on_click=lambda e, ev=ev: _agenda_open(ev))
+
+    def _agenda_open(ev):
+        # Tâche (deadline) -> sa fiche Tâches ; sinon fiche rendez-vous.
+        if ev.get("task"):
+            _kanban_open_details(ev["task"])
+        else:
+            _agenda_new_entry(ev=ev)
+
+    def _agenda_task_events():
+        # 4e calendrier (retour user) : tâches du Kanban ayant une
+        # deadline, lues dans le cache Tâches (pas d'appel Notion).
+        return [{"source": "Tâches", "nom": r["demande"],
+                 "start": r["deadline"], "tel": r.get("telephone", ""),
+                 "color": SURFACE_ACCENT["kanban"],
+                 "row": {"État": r["etat"]}, "task": r}
+                for r in kanban_state["rows"] if r.get("deadline")]
 
     def _agenda_day_list(day, evs):
         """Tous les rendez-vous d'un jour (clic sur "+n")."""
         def _open(ev):
             dlg.open = False
-            _agenda_new_entry(ev=ev)
+            _agenda_open(ev)
         dlg = _dialog(
             title=ft.Text(day.strftime("%d/%m/%Y"), size=CONSTANTS.TEXT_SM,
                           color=WHITE),
@@ -8861,7 +8889,7 @@ def main(page: ft.Page):
         agenda_month_label.value = (f"{AGENDA_MONTHS[first.month - 1]} "
                                     f"{first.year}").capitalize()
         by_day = {}
-        for ev in agenda_state["events"]:
+        for ev in agenda_state["events"] + _agenda_task_events():
             by_day.setdefault(ev["start"][:10], []).append(ev)
         today = datetime.date.today()
         day = first - datetime.timedelta(days=first.weekday())
@@ -9338,7 +9366,8 @@ def main(page: ft.Page):
                                     weight=ft.FontWeight.W_600),
                     bgcolor=ft.Colors.with_opacity(0.85, c),
                     border_radius=4, padding=ft.Padding(6, 2, 6, 2))
-                  for n, _d, c, _m in AGENDA_SOURCES],
+                  for n, c in [(n, c) for n, _d, c, _m in AGENDA_SOURCES]
+                  + [("Tâches", SURFACE_ACCENT["kanban"])]],
                 agenda_status,
                 _agenda_btn(ft.Icons.ADD, "Nouveau rendez-vous",
                             lambda e: _agenda_new_entry()),
