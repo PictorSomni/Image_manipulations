@@ -367,7 +367,14 @@ def main(page: ft.Page):
                horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
             kwargs.setdefault("title_padding", 0)
         kwargs.setdefault("clip_behavior", ft.ClipBehavior.ANTI_ALIAS)
-        return ft.AlertDialog(title=title, **kwargs)
+        # Fermeture par clic extérieur / Échap : resynchronise le flou.
+        user_dismiss = kwargs.pop("on_dismiss", None)
+
+        def _on_dismiss(e):
+            if user_dismiss:
+                user_dismiss(e)
+            page.update()
+        return ft.AlertDialog(title=title, on_dismiss=_on_dismiss, **kwargs)
 
     def _surface_title(label, key):
         # Titre dans la couleur de la barre de l'onglet (retour user).
@@ -427,6 +434,25 @@ def main(page: ft.Page):
     # Même arrondi sur tous les boutons (retour user).
     _btn_style = ft.ButtonStyle(shape=ft.RoundedRectangleBorder(
         radius=CONSTANTS.BUTTON_RADIUS))
+    # Flou derrière tous les dialogues (retour user, même flou que
+    # ui_helpers.busy_veil) : AlertDialog n'a pas de flou de barrière, donc
+    # une couche floutée en fond d'overlay, synchronisée à chaque
+    # page.update() selon qu'un dialogue est ouvert.
+    _dialog_blur = ft.Container(blur=14, visible=False,
+                                left=0, top=0, right=0, bottom=0)
+    page.overlay.append(_dialog_blur)
+    _page_update = page.update
+
+    def _update_with_blur(*controls):
+        on = any(isinstance(o, ft.AlertDialog) and o.open
+                 for o in page.overlay)
+        if _dialog_blur.visible != on:
+            _dialog_blur.visible = on
+            if controls:
+                controls = (*controls, _dialog_blur)
+        _page_update(*controls)
+    object.__setattr__(page, "update", _update_with_blur)
+
     page.dark_theme = page.theme = ft.Theme(
         button_theme=ft.ButtonTheme(style=_btn_style),
         icon_button_theme=ft.IconButtonTheme(style=_btn_style),
