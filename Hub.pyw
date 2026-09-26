@@ -8254,6 +8254,8 @@ def main(page: ft.Page):
                width=600,
                height=max(300, min(680, (page.height or 900) - 220))),
             actions=[_dlg_btn("Supprimer", "danger", on_click=_delete),
+                     _dlg_btn("Ajouter à la Liste", color=SURFACE_ACCENT[
+                         "liste"], on_click=lambda e: _liste_add_task(row)),
                      _dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Enregistrer", "primary", on_click=_confirm)],
             # Marge mini garantie avec le haut/bas de l'écran (retour
@@ -8307,12 +8309,7 @@ def main(page: ft.Page):
                         padding=4),
                     on_click=(lambda e, r=row:
                               _kanban_open_details(r))),
-                ft.IconButton(
-                    ft.Icons.PLAYLIST_ADD, icon_color=DARK, icon_size=14,
-                    tooltip="Ajouter à la Liste du jour",
-                    style=ft.ButtonStyle(bgcolor=etat_color, padding=4),
-                    on_click=(lambda e, r=row: _liste_add_task(r))),
-            ], spacing=4),
+            ], spacing=0),
         ]
         # Deadline en rouge (attire l'œil), téléphone/e-mail en blanc
         # (coordonnées à contacter, lisibilité), prix en gras + coloré
