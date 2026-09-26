@@ -13,7 +13,7 @@ module les importe en dur (les valeurs diffèrent d'un thème d'app à
 l'autre).
 """
 
-__version__ = "2.3.6"
+__version__ = "2.3.7"
 
 import asyncio
 
