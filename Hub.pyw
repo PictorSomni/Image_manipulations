@@ -7918,6 +7918,7 @@ def main(page: ft.Page):
         row[state_key] = new_value
         _kanban_rebuild_columns()
         _save_json(_KANBAN_CACHE_FILE, kanban_state["rows"])
+        _kanban_busy(1)
         page.update()
 
         def _work():
@@ -7931,6 +7932,7 @@ def main(page: ft.Page):
             failed = result.startswith("Erreur")
 
             async def _apply():
+                _kanban_busy(-1)
                 if failed:
                     row[state_key] = old_value
                     _kanban_rebuild_columns()
@@ -7942,6 +7944,7 @@ def main(page: ft.Page):
                     # le tableau depuis Notion après chaque modification
                     # réussie, sans clic sur "Actualiser".
                     _kanban_refresh()
+                page.update()
 
             _run_task(_apply)
 
@@ -8703,10 +8706,29 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
+    # Voile par-dessus le tableau pendant une synchro Notion (retour
+    # user) : bloque le glisser-déposer et les clics, message clair.
+    kanban_sync_veil = ft.Container(
+        content=ft.Column([
+            ft.ProgressRing(color=SURFACE_ACCENT["kanban"]),
+            ft.Text("Synchronisation avec Notion…", size=CONSTANTS.TEXT_LG,
+                    color=WHITE, weight=ft.FontWeight.W_600)],
+            tight=True, spacing=16,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        alignment=ft.Alignment(0, 0), expand=True, visible=False,
+        left=0, top=0, right=0, bottom=0,
+        bgcolor=ft.Colors.with_opacity(0.7, DARK),
+        on_click=lambda e: None)
+
+    def _kanban_busy(delta):
+        kanban_state["busy"] = max(0, kanban_state.get("busy", 0) + delta)
+        kanban_sync_veil.visible = kanban_state["busy"] > 0
+
     def _kanban_refresh(event=None):
         if kanban_state["loading"]:
             return
         kanban_state["loading"] = True
+        _kanban_busy(1)
         kanban_status.value = "Chargement…"
         page.update()
 
@@ -8736,6 +8758,7 @@ def main(page: ft.Page):
 
             async def _apply():
                 kanban_state["loading"] = False
+                _kanban_busy(-1)
                 if error:
                     kanban_status.value = f"Erreur de chargement : {error}"
                 else:
@@ -8896,13 +8919,13 @@ def main(page: ft.Page):
         # atteindre les autres — chaque colonne garde ainsi son propre
         # défilement vertical (ListView expand=True), contrairement au
         # repli multi-lignes ResponsiveRow essayé avant (retour user).
-        ft.Row(
+        ft.Stack([ft.Row(
             [_kanban_column(etat, color) for etat, color in KANBAN_ETATS],
             expand=True, spacing=KANBAN_COL_SPACING,
             # Centrées : marge gauche = marge droite (retour user).
             alignment=ft.MainAxisAlignment.CENTER,
             vertical_alignment=ft.CrossAxisAlignment.STRETCH,
-            scroll=ft.ScrollMode.AUTO),
+            scroll=ft.ScrollMode.AUTO), kanban_sync_veil], expand=True),
     ], expand=True, spacing=0,
        # Sans ça, une Column ne force pas ses enfants à sa pleine largeur
        # (horizontal_alignment=START par défaut) : la Row des colonnes se
