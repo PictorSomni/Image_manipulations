@@ -640,6 +640,9 @@ def main(page: ft.Page):
         state["proxy_max_px"] = None  # force la reconstruction ci-dessous
         _rebuild_proxy()
         counter_text.value = f"{idx + 1} / {len(file_names)} — {name}"
+        # Le switch suit la photo : actif si elle a ses propres réglages
+        # (retour user : il fallait le rebasculer à chaque photo).
+        override_switch.value = bool(state["overrides"].get(name))
         page.update()
         # Nouvelle photo : chaque curseur peut avoir sa propre exception
         # (mode revue) — les resynchroniser tous depuis la valeur
@@ -1296,12 +1299,12 @@ def main(page: ft.Page):
         rien de nouveau à chercher à l'écran une fois le lot lancé.
         """
         if running:
-            batch_button.text = "Arrêter le traitement"
+            batch_button.content = "Arrêter le traitement"
             batch_button.icon = ft.Icons.STOP
             batch_button.bgcolor = RED
             batch_button.on_click = _stop_batch
         else:
-            batch_button.text = (
+            batch_button.content = (
                 f"Lancer le traitement complet ({len(file_names)} images)")
             batch_button.icon = ft.Icons.PLAY_ARROW
             batch_button.bgcolor = GREEN
@@ -1454,7 +1457,10 @@ def main(page: ft.Page):
     )
 
     def _open_batch_dialog(e):
-        page.overlay.append(dlg)
+        # Ajouté une seule fois : un 2e append du même dialogue
+        # désynchronise l'overlay (RangeError « 0..1: 2 », retour user).
+        if dlg not in page.overlay:
+            page.overlay.append(dlg)
         dlg.open = True
         page.update()
 
