@@ -8858,7 +8858,7 @@ def main(page: ft.Page):
         # deadline, lues dans le cache Tâches (pas d'appel Notion).
         return [{"source": "Tâches", "nom": r["demande"],
                  "start": r["deadline"], "tel": r.get("telephone", ""),
-                 "color": SURFACE_ACCENT["kanban"],
+                 "color": ORANGE,
                  "row": {"État": r["etat"]}, "task": r}
                 for r in kanban_state["rows"] if r.get("deadline")]
 
@@ -9367,7 +9367,7 @@ def main(page: ft.Page):
                     bgcolor=ft.Colors.with_opacity(0.85, c),
                     border_radius=4, padding=ft.Padding(6, 2, 6, 2))
                   for n, c in [(n, c) for n, _d, c, _m in AGENDA_SOURCES]
-                  + [("Tâches", SURFACE_ACCENT["kanban"])]],
+                  + [("Tâches", ORANGE)]],
                 agenda_status,
                 _agenda_btn(ft.Icons.ADD, "Nouveau rendez-vous",
                             lambda e: _agenda_new_entry()),
