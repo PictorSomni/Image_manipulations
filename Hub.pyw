@@ -438,7 +438,10 @@ def main(page: ft.Page):
     # ui_helpers.busy_veil) : AlertDialog n'a pas de flou de barrière, donc
     # une couche floutée en fond d'overlay, synchronisée à chaque
     # page.update() selon qu'un dialogue est ouvert.
+    # + voile 0.35 : avec la barrière des dialogues (noir 54 %) ≈ 0.7,
+    # même noirceur que busy_veil (retour user).
     _dialog_blur = ft.Container(blur=14, visible=False,
+                                bgcolor=ft.Colors.with_opacity(0.35, "black"),
                                 left=0, top=0, right=0, bottom=0)
     page.overlay.append(_dialog_blur)
     _page_update = page.update
@@ -11798,7 +11801,7 @@ def main(page: ft.Page):
     actions_overlay = ft.Stack([
         # Même flou que ui_helpers.busy_veil (retour user).
         ft.Container(ink=False, blur=14, left=0, top=0, right=0, bottom=0,
-                     bgcolor=ft.Colors.with_opacity(0.35, "black")),
+                     bgcolor=ft.Colors.with_opacity(0.7, "black")),
         # Clic à côté du panneau (marges comprises) = fermer (retour user).
         ft.Container(actions_panel, alignment=ft.Alignment(0, 0),
                      on_click=lambda e: _close_actions(), ink=False,
