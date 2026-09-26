@@ -20,6 +20,25 @@ import urllib.request
 
 _API = "https://api.meta.ai/v1"
 IMAGE_MODEL = "muse-image-1.0"
+# Au-delà, Meta coupe la connexion en plein envoi (WinError 10053 sur
+# un scan PTP en taille réelle) ; Muse sort de toute façon ~1K.
+_MAX_SIDE = 2048
+
+
+def _shrink(data):
+    """Réduit une image trop grande en JPEG ≤ _MAX_SIDE px."""
+    try:
+        from PIL import Image
+        import io
+        img = Image.open(io.BytesIO(data))
+        if max(img.size) <= _MAX_SIDE:
+            return data
+        img.thumbnail((_MAX_SIDE, _MAX_SIDE))
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, "JPEG", quality=92)
+        return buf.getvalue()
+    except Exception:
+        return data
 
 
 def _key():
@@ -74,6 +93,7 @@ def _body(prompt, input_image_bytes=None, aspect_ratio=None):
     body = {"model": IMAGE_MODEL, "prompt": prompt, "n": 1,
             "size": _size(aspect_ratio)}
     if input_image_bytes:
+        input_image_bytes = _shrink(input_image_bytes)
         b64 = base64.b64encode(input_image_bytes).decode()
         body["images"] = [{"image_url":
                            f"data:{_mime(input_image_bytes)};base64,{b64}"}]
@@ -144,9 +164,11 @@ def _to_openai(messages):
             continue
         if m.get("images"):
             parts = [{"type": "text", "text": content}] if content else []
+            imgs = [base64.b64encode(_shrink(base64.b64decode(b))).decode()
+                    for b in m["images"]]
             parts += [{"type": "image_url", "image_url": {
                 "url": f"data:{_mime(base64.b64decode(b[:24]))};base64,{b}"}}
-                for b in m["images"]]
+                for b in imgs]
             content = parts
         out.append({"role": role, "content": content})
     return out
@@ -210,6 +232,11 @@ def chat_stream_with_tools(model, messages, tools=None, temperature=0.7):
 if __name__ == "__main__":
     b = _body("x", b"\xff\xd8\xff\xe0")
     assert b["images"][0]["image_url"].startswith("data:image/jpeg;base64,")
+    from PIL import Image
+    import io
+    _buf = io.BytesIO()
+    Image.new("RGB", (5000, 3000)).save(_buf, "PNG")
+    assert max(Image.open(io.BytesIO(_shrink(_buf.getvalue()))).size) == 2048
     assert _image_from({"data": [{"b64_json": base64.b64encode(
         b"ok").decode()}]}) == b"ok"
     assert _size("3:4") == "1024x1536" and _size("16:9") == "1536x1024"
