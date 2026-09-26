@@ -7856,18 +7856,11 @@ def main(page: ft.Page):
             border_radius=4, padding=ft.Padding(6, 2, 6, 2))
 
     def _kanban_prop_menu(row, notion_prop, state_key, options, colors):
-        # Champ optionnel : "(vide)" laisse la propriété non renseignée
-        # jusqu'à ce qu'elle ait un sens (ex. Projet ? tant que les
-        # fichiers ne sont pas prêts) — toujours visible pour pouvoir
-        # être remplie, même si elle n'a encore aucune valeur.
-        # Couleur par valeur (comme dans Notion), via `colors` — valeur
-        # sans couleur définie -> VIOLET, cohérent avec l'existant.
+        # Plus d'option "(vide)" : chaque propriété a désormais un état par
+        # défaut côté Notion (retour user). Couleur par valeur (comme dans
+        # Notion), via `colors` — valeur sans couleur définie -> VIOLET.
         current = row.get(state_key, "")
-        items = [ft.PopupMenuItem(
-            content=ft.Text("(vide)", italic=True),
-            on_click=(lambda e: _kanban_change_property(
-                row, notion_prop, state_key, "")))]
-        items += [
+        items = [
             ft.PopupMenuItem(
                 content=ft.Text(opt, color=colors.get(opt, VIOLET)),
                 on_click=(lambda e, o=opt: _kanban_change_property(
