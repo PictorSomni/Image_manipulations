@@ -374,15 +374,11 @@ async def main(page: ft.Page) -> None:
         width=100,
     )
 
-    # Choix du modèle Nano Banana 2 : "full" pour la qualité/cohérence
-    # (par défaut, prioritaire pour la retouche photo d'impression), "Lite"
-    # pour aller plus vite quand la précision importe moins (retour user).
+    # Modèle de retouche : NB2 (Gemini) ou Muse (Meta).
     retouch_model_dropdown = ft.Dropdown(
         value="gemini-3.1-flash-image",
         options=[
             ft.dropdown.Option("gemini-3.1-flash-image", text="NB2"),
-            ft.dropdown.Option("gemini-3.1-flash-lite-image",
-                               text="NB2 Lite"),
             ft.dropdown.Option("muse-image-1.0", text="Muse (Meta)"),
         ],
         label="Modèle",
