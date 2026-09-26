@@ -33,6 +33,10 @@ from PIL import (Image, ImageCms, ImageDraw, ImageEnhance, ImageFilter,
                   ImageFont, ImageOps)
 from PIL.ExifTags import TAGS
 
+# Scans et panoramas de plus de ~179 Mpx (ex. 17000×11000, retour user)
+# levaient DecompressionBombError : fichiers locaux de confiance.
+Image.MAX_IMAGE_PIXELS = None
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import CONSTANTS
 
