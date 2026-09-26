@@ -79,13 +79,12 @@ WHITE      = CONSTANTS.COLOR_WHITE
 def input_border(color, focused_color=None):
     """OutlineInputBorder helper (border_color/focused_border_color
     are deprecated since Flet 1.0.0)."""
-    if focused_color is None:
-        return ft.OutlineInputBorder(side=ft.BorderSide(color=color))
+    # Trait plus épais au focus (retour user), comme CONSTANTS.input_border.
     return {
         ft.ControlState.DEFAULT: ft.OutlineInputBorder(
             side=ft.BorderSide(color=color)),
         ft.ControlState.FOCUSED: ft.OutlineInputBorder(
-            side=ft.BorderSide(color=focused_color)),
+            side=ft.BorderSide(2, focused_color or color)),
     }
 
 

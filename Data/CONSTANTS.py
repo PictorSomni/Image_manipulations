@@ -1316,4 +1316,9 @@ def input_border(color, width=1, radius=None):
     partout où un champ ne fixait qu'une couleur de bordure unie."""
     import flet as ft
     kwargs = {} if radius is None else {"border_radius": radius}
-    return ft.OutlineInputBorder(side=ft.BorderSide(width, color), **kwargs)
+    # Même couleur au focus (sinon bleu du thème), trait plus épais pour
+    # voir quel champ est actif (retour user).
+    return {ft.ControlState.DEFAULT: ft.OutlineInputBorder(
+                side=ft.BorderSide(width, color), **kwargs),
+            ft.ControlState.FOCUSED: ft.OutlineInputBorder(
+                side=ft.BorderSide(width + 1, color), **kwargs)}

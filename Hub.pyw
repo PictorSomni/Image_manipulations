@@ -11873,10 +11873,7 @@ def main(page: ft.Page):
 
     terminal_input = ft.TextField(
         hint_text="> Terminal", bgcolor=DARK,
-        # Map d'états : sinon Flet repasse au bleu du thème au focus.
-        border={ft.ControlState.DEFAULT: CONSTANTS.input_border(YELLOW_GREEN),
-                ft.ControlState.FOCUSED: CONSTANTS.input_border(
-                    YELLOW_GREEN, 2)},
+        border=CONSTANTS.input_border(YELLOW_GREEN),
         color=WHITE,
         text_size=CONSTANTS.TERMINAL_FONT_SIZE, expand=True,
         content_padding=ft.Padding(10, 8, 10, 8),
