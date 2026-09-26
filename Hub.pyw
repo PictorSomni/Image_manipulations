@@ -1332,19 +1332,13 @@ def main(page: ft.Page):
                     data = future.result()
                     if data:
                         thumb_mem[path] = data
-                        # Fit lu en direct (pas figé au lancement du chargement)
-                        # : sinon les vignettes remplies pendant que le dossier
-                        # charge ignorent le switch "Miniatures entières" tant
-                        # qu'on n'a pas rebasculé le switch pour forcer un
-                        # _render() (retour user).
-                        fit = (ft.BoxFit.CONTAIN if state["thumb_fit"] == "contain"
-                               else ft.BoxFit.COVER)
-                        holder.content = ft.Image(
-                            src=data, width=holder.width, height=holder.height,
-                            fit=fit, border_radius=ft.BorderRadius.all(6))
-                        if fit == ft.BoxFit.COVER:
-                            holder.bgcolor = None
-                        batch.append(holder)
+                        # Contrôles modifiés dans _safe_update (boucle
+                        # principale), jamais ici : muter l'arbre depuis ce
+                        # thread pendant qu'un page.update() le diffe côté
+                        # boucle désynchronisait le client -> RangeError
+                        # "Valid value range is empty: 0" à CHAQUE mise à
+                        # jour suivante, jusqu'au redémarrage (retour user).
+                        batch.append((holder, data))
                         now = time.monotonic()
                         if now - last_update >= 0.1 or done == total:
                             last_update = now
@@ -1366,9 +1360,22 @@ def main(page: ft.Page):
         # (retour user).
         if state["thumb_token"] != token:
             return
+        # Fit lu en direct (pas figé au lancement du chargement) : sinon
+        # les vignettes remplies pendant que le dossier charge ignorent le
+        # switch "Miniatures entières" (retour user).
+        fit = (ft.BoxFit.CONTAIN if state["thumb_fit"] == "contain"
+               else ft.BoxFit.COVER)
+        holders = []
+        for holder, data in controls:
+            holder.content = ft.Image(
+                src=data, width=holder.width, height=holder.height,
+                fit=fit, border_radius=ft.BorderRadius.all(6))
+            if fit == ft.BoxFit.COVER:
+                holder.bgcolor = None
+            holders.append(holder)
         try:
-            if controls:
-                page.update(*controls)
+            if holders:
+                page.update(*holders)
         except Exception:
             pass
 
@@ -3589,11 +3596,15 @@ def main(page: ft.Page):
                     and 0 <= idx < len(paths_now)
                     and paths_now[idx] == path
                     and path not in viewer_rotated_bytes):
-                ctrl.src = data
-                # Hors sujet vignettes de dossier : ne pas invalider sur
-                # thumb_token, juste réutiliser le token courant pour que
-                # le garde-fou de _safe_update n'annule jamais cet appel.
-                _run_task(_safe_update, [ctrl], state["thumb_token"])
+                # Modifié dans la boucle principale, pas dans ce thread
+                # (cf. _safe_update : désynchronisation du client).
+                async def _apply():
+                    ctrl.src = data
+                    try:
+                        page.update(ctrl)
+                    except Exception:
+                        pass
+                _run_task(_apply)
 
         threading.Thread(target=_work, daemon=True).start()
 
