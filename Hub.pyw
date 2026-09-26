@@ -7558,6 +7558,29 @@ def main(page: ft.Page):
 
     _LISTE_TODO_PATH = _liste_file["path"]
 
+    def _liste_add_task(row):
+        # Tâche du Kanban -> todo list du jour (retour user) : intitulé +
+        # colonne Kanban, toujours dans la todo list même si un autre
+        # .json est ouvert dans Liste.
+        text = f"{row['demande']} — {row['etat']}"
+        entry = {"tâche": text, _LISTE_DONE_COLUMN: "False"}
+        if _liste_file["path"] == _LISTE_TODO_PATH:
+            liste_entries.insert(0, entry)
+            _liste_save()
+            _liste_render()
+        else:
+            path = _LISTE_TODO_PATH
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+            except (OSError, ValueError):
+                data = []
+            _backup_file(path)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump([entry] + data, f, ensure_ascii=False, indent=2)
+        kanban_status.value = f"Ajouté à la Liste : {row['demande']}"
+        page.update()
+
     def _liste_back_to_todo(event=None):
         _liste_file["path"] = _LISTE_TODO_PATH
         liste_search_field.value = ""
@@ -8284,7 +8307,12 @@ def main(page: ft.Page):
                         padding=4),
                     on_click=(lambda e, r=row:
                               _kanban_open_details(r))),
-            ], spacing=0),
+                ft.IconButton(
+                    ft.Icons.PLAYLIST_ADD, icon_color=DARK, icon_size=14,
+                    tooltip="Ajouter à la Liste du jour",
+                    style=ft.ButtonStyle(bgcolor=etat_color, padding=4),
+                    on_click=(lambda e, r=row: _liste_add_task(r))),
+            ], spacing=4),
         ]
         # Deadline en rouge (attire l'œil), téléphone/e-mail en blanc
         # (coordonnées à contacter, lisibilité), prix en gras + coloré
@@ -8372,7 +8400,7 @@ def main(page: ft.Page):
             })
         return rows
 
-    def _kanban_new_task(event=None, prefill=None, quick=False):
+    def _kanban_new_task(event=None, prefill=None):
         # Overlay complet dès la création (retour user : dans Notion, la
         # nouvelle page s'ouvre avec toutes les propriétés éditables tout
         # de suite — remplir en un seul passage plutôt que de créer avec
@@ -8502,24 +8530,19 @@ def main(page: ft.Page):
 
             threading.Thread(target=_work, daemon=True).start()
 
-        # quick : intitulé + état seulement (retour user), les autres
-        # propriétés gardent leurs valeurs par défaut.
-        title_field.on_submit = _confirm
-        fields = ([title_field, *seg_rows[:2]] if quick else [
-            title_field,
-            deadline_field, telephone_field, email_field, prix_field,
-            *seg_rows,
-            ft.Divider(height=1, color=GREY),
-            notes_field,
-        ])
         dlg = _dialog(
-            title=ft.Text("Tâche rapide" if quick else "Nouvelle tâche",
-                          size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column(
-                [ft.Container(height=10), *fields],
-                tight=True, spacing=8, scroll=ft.ScrollMode.AUTO, width=600,
-                height=(None if quick else
-                        max(300, min(640, (page.height or 900) - 220)))),
+            title=ft.Text("Nouvelle tâche", size=CONSTANTS.TEXT_SM,
+                          color=WHITE),
+            content=ft.Column([
+                ft.Container(height=10),
+                title_field,
+                deadline_field, telephone_field, email_field, prix_field,
+                *seg_rows,
+                ft.Divider(height=1, color=GREY),
+                notes_field,
+            ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
+               width=600,
+               height=max(300, min(640, (page.height or 900) - 220))),
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Créer", "primary", on_click=_confirm)],
             inset_padding=ft.Padding(20, 40, 20, 40),
@@ -8695,12 +8718,6 @@ def main(page: ft.Page):
                 kanban_search_wrap,
                 kanban_auto_sync_switch,
                 kanban_status,
-                ft.IconButton(ft.Icons.PLAYLIST_ADD, **SQUARE_BTN,
-                             icon_color=SURFACE_ACCENT["kanban"],
-                             icon_size=CONSTANTS.ICON_SM,
-                             tooltip="Tâche rapide",
-                             on_click=lambda e: _kanban_new_task(
-                                 quick=True)),
                 ft.IconButton(ft.Icons.ADD, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["kanban"],
                              icon_size=CONSTANTS.ICON_SM,
