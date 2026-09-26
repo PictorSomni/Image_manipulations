@@ -7466,13 +7466,17 @@ def main(page: ft.Page):
                         decoration=ft.TextDecoration.LINE_THROUGH)
                     if done else None),
                 tooltip=f"Copier {col} : {value}", expand=True, ink=True,
+                # Marge intérieure portée par la cellule (pas la ligne) :
+                # le survol couvre toute la hauteur de la ligne (retour user).
+                padding=ft.Padding(10, 8, 6, 8), border_radius=6,
                 on_click=lambda e, t=value: _liste_copy(t)))
         row_controls = [*cells]
         if done_group is not None:
             row_controls.append(done_group)
         row_controls.append(
+            # BLUE : en GREY, l'icône disparaissait sur le fond GREY.
             ft.IconButton(ft.Icons.EDIT_OUTLINED, icon_size=CONSTANTS.ICON_SM,
-                         icon_color=GREY, on_click=lambda e, i=index: _liste_edit(i)))
+                         icon_color=BLUE, tooltip="Modifier", on_click=lambda e, i=index: _liste_edit(i)))
         row_controls.append(ft.VerticalDivider(width=1, color=GREY))
         row_controls.append(
             ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_size=CONSTANTS.ICON_SM,
@@ -7480,7 +7484,7 @@ def main(page: ft.Page):
         row_box = ft.Container(
             content=ft.Row(row_controls, spacing=8,
                            vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=ft.Padding(10, 8, 4, 8), bgcolor=GREY, border_radius=6)
+            padding=ft.Padding(0, 0, 4, 0), bgcolor=GREY, border_radius=6)
         # Glisser-déposer pour réordonner, avec un trait au-dessus de la
         # ligne survolée (retour user, même principe que les Tâches).
         return _liste_drop_target(
