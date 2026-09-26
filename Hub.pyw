@@ -7558,7 +7558,28 @@ def main(page: ft.Page):
 
     _LISTE_TODO_PATH = _liste_file["path"]
 
+    def _liste_todo_entries():
+        if _liste_file["path"] == _LISTE_TODO_PATH:
+            return liste_entries
+        try:
+            with open(_LISTE_TODO_PATH, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return []
+
+    def _liste_has_task(row):
+        # Même intitulé déjà présent (quelle que soit la colonne notée à
+        # l'époque) -> pas de doublon (retour user).
+        prefix = f"{row['demande']} — "
+        return any(str(e.get("tâche", "")).startswith(prefix)
+                   for e in _liste_todo_entries() if isinstance(e, dict))
+
     def _liste_add_task(row, btn=None):
+        if _liste_has_task(row):
+            if btn is not None:
+                btn.content, btn.disabled = "Déjà dans la Liste", True
+                page.update()
+            return
         # Tâche du Kanban -> todo list du jour (retour user) : intitulé +
         # colonne Kanban, toujours dans la todo list même si un autre
         # .json est ouvert dans Liste.
@@ -8259,9 +8280,12 @@ def main(page: ft.Page):
                width=600,
                height=max(300, min(680, (page.height or 900) - 220))),
             actions=[_dlg_btn("Supprimer", "danger", on_click=_delete),
-                     _dlg_btn("Ajouter à la Liste", color=SURFACE_ACCENT[
-                         "liste"], on_click=lambda e: _liste_add_task(
-                             row, e.control)),
+                     _dlg_btn("Déjà dans la Liste" if _liste_has_task(row)
+                              else "Ajouter à la Liste",
+                              color=SURFACE_ACCENT["liste"],
+                              disabled=_liste_has_task(row),
+                              on_click=lambda e: _liste_add_task(
+                                  row, e.control)),
                      _dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Enregistrer", "primary", on_click=_confirm)],
             # Marge mini garantie avec le haut/bas de l'écran (retour
