@@ -8921,8 +8921,10 @@ def main(page: ft.Page):
         while day.month == first.month or day < first:
             cells = []
             for _ in range(7):
+                # Rendez-vous d'abord, tâches ensuite (retour user) : les
+                # tâches ne masquent jamais un rendez-vous derrière le "+n".
                 evs = sorted(by_day.get(day.isoformat(), []),
-                             key=lambda e: e["start"])
+                             key=lambda e: (bool(e.get("task")), e["start"]))
                 in_month = day.month == first.month
                 # Cartes adaptatives (retour user) : elles se partagent la
                 # hauteur de la case (1 = pleine, 2 = moitié, 3 = tiers),
