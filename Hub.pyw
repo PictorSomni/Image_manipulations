@@ -8750,10 +8750,16 @@ def main(page: ft.Page):
     # user) : bloque le glisser-déposer et les clics, message clair.
     kanban_sync_veil = ui_helpers.busy_veil(
         "Synchronisation avec Notion…", SURFACE_ACCENT["kanban"])
+    # Même voile dans l'Agenda pendant une synchro Notion (retour user).
+    agenda_sync_veil = ui_helpers.busy_veil(
+        "Synchronisation avec Notion…", SURFACE_ACCENT["agenda"])
 
     def _kanban_busy(delta):
         kanban_state["busy"] = max(0, kanban_state.get("busy", 0) + delta)
-        ui_helpers.set_busy_veil(kanban_sync_veil, kanban_state["busy"] > 0)
+        # Les deux voiles suivent le même compteur : les tâches sont aussi
+        # dans l'Agenda.
+        for veil in (kanban_sync_veil, agenda_sync_veil):
+            ui_helpers.set_busy_veil(veil, kanban_state["busy"] > 0)
 
     def _kanban_refresh(event=None):
         if kanban_state["loading"]:
@@ -9113,7 +9119,64 @@ def main(page: ft.Page):
         dlg.open = True
         page.update()
 
+    agenda_drag = []  # événements glissables de la grille affichée
+
+    def _agenda_hover(cell, on):
+        if on:
+            cell.data = cell.bgcolor
+            cell.bgcolor = ft.Colors.with_opacity(0.18, SURFACE_ACCENT.get(
+                "agenda", BLUE))
+        else:
+            cell.bgcolor = cell.data if cell.data is not None else None
+        cell.update()
+
+    def _agenda_move(e, day):
+        if e.src is None or not 0 <= e.src.data < len(agenda_drag):
+            return
+        ev = agenda_drag[e.src.data]
+        new_start = day.isoformat() + ev["start"][10:]
+        if new_start == ev["start"]:
+            return
+        if ev.get("task"):
+            _kanban_change_property(ev["task"], "Deadline", "deadline",
+                                    new_start)
+            _agenda_rebuild()
+            page.update()
+            return
+        old_start = ev["start"]
+        ev["start"] = new_start
+        _save_json(_AGENDA_CACHE_FILE, {"events": agenda_state["events"],
+                                        "schemas": agenda_schemas})
+        _agenda_rebuild()
+        agenda_status.value = "Enregistrement…"
+        _kanban_busy(1)
+        page.update()
+
+        def _work():
+            result = _notion_call(
+                "mcp__notion__notion-update-page",
+                {"page_id": ev["page_id"], "command": "update_properties",
+                 "properties": {"Date": new_start}})
+
+            async def _apply():
+                _kanban_busy(-1)
+                if result.startswith("Erreur"):
+                    ev["start"] = old_start
+                    _save_json(_AGENDA_CACHE_FILE,
+                               {"events": agenda_state["events"],
+                                "schemas": agenda_schemas})
+                    _agenda_rebuild()
+                    agenda_status.value = f"Échec : {result}"
+                else:
+                    agenda_status.value = "Enregistré."
+                page.update()
+
+            _run_task(_apply)
+
+        threading.Thread(target=_work, daemon=True).start()
+
     def _agenda_rebuild():
+        agenda_drag.clear()
         first = agenda_state["month"]
         agenda_month_label.value = (f"{AGENDA_MONTHS[first.month - 1]} "
                                     f"{first.year}").capitalize()
@@ -9141,8 +9204,19 @@ def main(page: ft.Page):
                 # Cartes adaptatives (retour user) : elles se partagent la
                 # hauteur de la case (1 = pleine, 2 = moitié, 3 = tiers),
                 # au-delà un bouton "+n" ouvre la liste du jour.
-                chips = [_agenda_chip(e, expand=True)
-                         for e in evs[:AGENDA_MAX_CHIPS]]
+                # Glisser une carte sur un autre jour change sa date
+                # (retour user) ; l'heure éventuelle est conservée.
+                chips = []
+                for e in evs[:AGENDA_MAX_CHIPS]:
+                    agenda_drag.append(e)
+                    chip = _agenda_chip(e, expand=True)
+                    # Draggable n'a pas d'expand : le Container le porte.
+                    chips.append(ft.Container(ft.Draggable(
+                        group="agenda_ev", data=len(agenda_drag) - 1,
+                        content=chip,
+                        content_feedback=ft.Container(
+                            _agenda_chip(e), width=160, opacity=0.85)),
+                        expand=True))
                 if len(evs) > AGENDA_MAX_CHIPS:
                     chips.append(ft.Container(
                         ft.Text(f"+{len(evs) - AGENDA_MAX_CHIPS}", size=11,
@@ -9163,7 +9237,7 @@ def main(page: ft.Page):
                     num = ft.Container(num, bgcolor=RED, width=26,
                                        height=26, border_radius=13,
                                        alignment=ft.Alignment.CENTER)
-                cells.append(ft.Container(
+                cell = ft.Container(
                     content=ft.Column([
                         ft.Row([num], alignment=ft.MainAxisAlignment.END),
                         *chips], spacing=4, expand=True,
@@ -9177,7 +9251,13 @@ def main(page: ft.Page):
                             else ft.Border(right=line, bottom=line)),
                     clip_behavior=ft.ClipBehavior.HARD_EDGE,
                     ink=True,
-                    on_click=lambda e, d=day: _agenda_new_entry(d)))
+                    on_click=lambda e, d=day: _agenda_new_entry(d))
+                cells.append(ft.DragTarget(
+                    group="agenda_ev", content=cell, expand=True,
+                    on_will_accept=lambda e, c=cell: _agenda_hover(c, True),
+                    on_leave=lambda e, c=cell: _agenda_hover(c, False),
+                    on_accept=lambda e, c=cell, d=day: (
+                        _agenda_hover(c, False), _agenda_move(e, d))))
                 day += datetime.timedelta(days=1)
             rows.append(ft.Row(cells, expand=True, spacing=0,
                                vertical_alignment=(
@@ -9198,6 +9278,7 @@ def main(page: ft.Page):
         if agenda_state["loading"]:
             return
         agenda_state["loading"] = True
+        _kanban_busy(1)
         agenda_status.value = "Chargement…"
         page.update()
 
@@ -9235,6 +9316,7 @@ def main(page: ft.Page):
 
             async def _apply():
                 agenda_state["loading"] = False
+                _kanban_busy(-1)
                 agenda_state["events"] = events
                 if not errors:
                     _save_json(_AGENDA_CACHE_FILE,
@@ -9608,8 +9690,9 @@ def main(page: ft.Page):
             height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
             alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
-        ft.Container(content=agenda_grid, expand=True,
-                     padding=ft.Padding(24, 6, 24, 12)),
+        ft.Stack([ft.Container(content=agenda_grid, expand=True,
+                               padding=ft.Padding(24, 6, 24, 12)),
+                  agenda_sync_veil], expand=True),
     ], expand=True, spacing=0)
     # Cache local comme les Tâches (retour user) : affiché tel quel, pas
     # d'appel Notion tant qu'on ne modifie rien ou ne clique pas sur ⟳.
@@ -9717,9 +9800,11 @@ def main(page: ft.Page):
         # l'affichage, l'actualisation se fait via le bouton dédié.
         for k, tab in rail_tabs.items():
             is_active = k == key
-            tab["container"].bgcolor = (SURFACE_ACCENT.get(k, BLUE)
-                                        if is_active else None)
-            tab["icon"].color = DARK if is_active else WHITE
+            accent = SURFACE_ACCENT.get(k, BLUE)
+            # Inactifs légèrement teintés de leur couleur (retour user).
+            tab["container"].bgcolor = (
+                accent if is_active else ft.Colors.with_opacity(0.12, accent))
+            tab["icon"].color = DARK if is_active else accent
             tab["label"].color = DARK if is_active else WHITE
             tab["label"].weight = (ft.FontWeight.W_700 if is_active
                                    else ft.FontWeight.NORMAL)
@@ -9729,8 +9814,9 @@ def main(page: ft.Page):
 
     def _rail_tab(key, label, icon):
         is_active = key == "files"
+        accent = SURFACE_ACCENT.get(key, BLUE)
         icon_ctrl = ft.Icon(icon, size=CONSTANTS.ICON_SM,
-                            color=DARK if is_active else WHITE)
+                            color=DARK if is_active else accent)
         label_ctrl = ft.Text(label, size=CONSTANTS.TEXT_SM,
                              color=DARK if is_active else WHITE, no_wrap=True,
                              weight=ft.FontWeight.W_700 if is_active
@@ -9744,7 +9830,8 @@ def main(page: ft.Page):
                alignment=ft.MainAxisAlignment.CENTER),
             expand=True, alignment=ft.Alignment.CENTER,
             ink=True, on_click=lambda e, k=key: _select_surface(k),
-            bgcolor=BLUE if is_active else None,
+            bgcolor=(accent if is_active
+                     else ft.Colors.with_opacity(0.12, accent)),
         )
         rail_tabs[key] = {"container": tab, "icon": icon_ctrl, "label": label_ctrl}
         return tab
