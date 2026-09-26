@@ -200,6 +200,40 @@ def _save_prompt_history(history: list) -> None:
 async def main(page: ft.Page) -> None:
     page.title = f"Retouche IA par sélection  v{__version__}"
     page.theme_mode = ft.ThemeMode.DARK
+    # Même arrondi de boutons que le Hub (CONSTANTS.BUTTON_RADIUS).
+    _btn_style = ft.ButtonStyle(shape=ft.RoundedRectangleBorder(
+        radius=CONSTANTS.BUTTON_RADIUS))
+    page.dark_theme = page.theme = ft.Theme(
+        button_theme=ft.ButtonTheme(style=_btn_style),
+        icon_button_theme=ft.IconButtonTheme(style=_btn_style),
+        text_button_theme=ft.TextButtonTheme(style=_btn_style),
+        outlined_button_theme=ft.OutlinedButtonTheme(style=_btn_style),
+        filled_button_theme=ft.FilledButtonTheme(style=_btn_style))
+
+    def _seg(options, value, color=BLUE, on_change=None, **kwargs):
+        # Boutons glissants à la place des menus déroulants ;
+        # options = [(valeur, libellé)], valeur lue par _seg_value().
+        texts = [ft.Text(label, size=11) for _v, label in options]
+
+        def _restyle():
+            for i, t in enumerate(texts):
+                t.color = DARK if i == seg.selected_index else WHITE
+
+        def _changed(e):
+            _restyle()
+            seg.update()
+            if on_change:
+                on_change(e)
+
+        seg = ft.CupertinoSlidingSegmentedButton(
+            selected_index=[v for v, _l in options].index(value),
+            controls=texts, thumb_color=color, bgcolor=DARK,
+            on_change=_changed, data=[v for v, _l in options], **kwargs)
+        _restyle()
+        return seg
+
+    def _seg_value(seg):
+        return seg.data[seg.selected_index]
     page.bgcolor = BG_UI
     # Flet ajoute 10px de marge par défaut sur les 4 côtés de la page
     # (View.padding), non comptés par _LEFT_CHROME_W/_TITLEBAR_H plus bas
@@ -364,29 +398,13 @@ async def main(page: ft.Page) -> None:
     # Qualité Gemini pour la retouche : une petite zone (ex. 200 px) n'a
     # pas besoin de 4K (coût/temps), une grande zone en profite (retour
     # user : impression, la qualité prime dès que la zone est grande).
-    retouch_quality_dropdown = ft.Dropdown(
-        value="1K",
-        options=[ft.dropdown.Option(q) for q in ("1K", "2K", "4K")],
-        label="Qualité",
-        text_size=11, dense=True, color=WHITE, bgcolor=GREY,
-        border=input_border(LIGHT_GREY),
-        content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-        width=100,
-    )
+    retouch_quality_dropdown = _seg(
+        [(q, q) for q in ("1K", "2K", "4K")], "1K")
 
     # Modèle de retouche : NB2 (Gemini) ou Muse.
-    retouch_model_dropdown = ft.Dropdown(
-        value="gemini-3.1-flash-image",
-        options=[
-            ft.dropdown.Option("gemini-3.1-flash-image", text="NB2"),
-            ft.dropdown.Option("muse-image-1.0", text="Muse"),
-        ],
-        label="Modèle",
-        text_size=11, dense=True, color=WHITE, bgcolor=GREY,
-        border=input_border(LIGHT_GREY),
-        content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-        width=170,
-    )
+    retouch_model_dropdown = _seg(
+        [("gemini-3.1-flash-image", "NB2"), ("muse-image-1.0", "Muse")],
+        "gemini-3.1-flash-image", color=VIOLET)
 
     prompt_field = ft.TextField(
         label="Décrivez la retouche souhaitée",
@@ -940,7 +958,7 @@ async def main(page: ft.Page) -> None:
         state["sel_mode"]          = False
         inpaint_btn.text           = "Retouche IA"
         inpaint_btn.icon           = ft.Icons.AUTO_FIX_HIGH
-        inpaint_btn.bgcolor        = GREY
+        inpaint_btn.bgcolor        = VIOLET
         image_gesture.visible      = False
         preview_viewer.pan_enabled = True
         has_mask = state["selection_mask"] is not None
@@ -1279,7 +1297,7 @@ async def main(page: ft.Page) -> None:
         state["sel_mode"]          = False
         inpaint_btn.text           = "Retouche IA"
         inpaint_btn.icon           = ft.Icons.AUTO_FIX_HIGH
-        inpaint_btn.bgcolor        = GREY
+        inpaint_btn.bgcolor        = VIOLET
         image_gesture.visible      = False
         preview_viewer.pan_enabled = True
         _update_sel_canvas()
@@ -1307,8 +1325,8 @@ async def main(page: ft.Page) -> None:
         )
         _prompt_history_add(prompt_text)
 
-        quality = retouch_quality_dropdown.value or "1K"
-        gemini_model = (retouch_model_dropdown.value
+        quality = _seg_value(retouch_quality_dropdown)
+        gemini_model = (_seg_value(retouch_model_dropdown)
                         or "gemini-3.1-flash-image")
 
         def _do_gemini():
@@ -1478,7 +1496,7 @@ async def main(page: ft.Page) -> None:
         if not src:
             return None
         basename = os.path.basename(src)
-        if state["rembg_active"] and rembg_dropdown.value == "Transparent":
+        if state["rembg_active"] and _seg_value(rembg_dropdown) == "Transparent":
             basename = os.path.splitext(basename)[0] + ".png"
         return os.path.join(os.path.dirname(src), basename)
 
@@ -1898,15 +1916,8 @@ async def main(page: ft.Page) -> None:
     # sur-échantillonnée par le modèle d'upscale sélectionné ensuite —
     # 1K par défaut (le max coûte plus cher/lent pour un gain repris par
     # l'upscale local), à monter au cas par cas si besoin.
-    expand_quality_dropdown = ft.Dropdown(
-        value="1K",
-        options=[ft.dropdown.Option(q) for q in ("1K", "2K", "4K")],
-        label="Qualité",
-        text_size=11, dense=True, color=WHITE, bgcolor=GREY,
-        border=input_border(LIGHT_GREY),
-        content_padding=ft.Padding.symmetric(horizontal=8, vertical=4),
-        width=100,
-    )
+    expand_quality_dropdown = _seg(
+        [(q, q) for q in ("1K", "2K", "4K")], "1K")
 
     # Consigne optionnelle envoyée à Gemini pour l'extension — vide =
     # consigne générique auto-générée par `ai_ops.run_outpaint` (continuer
@@ -2143,8 +2154,8 @@ async def main(page: ft.Page) -> None:
     expand_btn = ft.Button(
         "Étendre l'image…",
         icon=ft.Icons.PHOTO_SIZE_SELECT_LARGE,
-        bgcolor=GREY,
-        color=WHITE,
+        bgcolor=BLUE,
+        color=DARK,
         disabled=True,
         tooltip="Étendre le canevas via Gemini (outpainting)",
     )
@@ -2180,7 +2191,7 @@ async def main(page: ft.Page) -> None:
                     img, (top, bot, left, right),
                     prompt=(expand_prompt_field.value.strip() or None),
                     upscale_model=(model_dropdown.value or None),
-                    resolution=(expand_quality_dropdown.value or "1K"),
+                    resolution=_seg_value(expand_quality_dropdown),
                 )
                 return (result, "")
             except RuntimeError as ex:
@@ -2246,7 +2257,7 @@ async def main(page: ft.Page) -> None:
 
     expand_dialog = ft.AlertDialog(
         modal=True,
-        title=ft.Text("Étendre l'image (Outpainting)"),
+        title=ft.Text("Étendre l'image"),
         content=ft.Column(
             [
                 ft.Text(
@@ -2291,20 +2302,9 @@ async def main(page: ft.Page) -> None:
 
     # ── Suppression de fond (rembg) ──────────────────────────────────────────
 
-    rembg_dropdown = ft.Dropdown(
-        options=[
-            ft.dropdown.Option("Blanc"),
-            ft.dropdown.Option("Gris"),
-            ft.dropdown.Option("Flou"),
-            ft.dropdown.Option("Transparent"),
-        ],
-        value="Blanc",
-        bgcolor=GREY,
-        color=WHITE,
-        border=input_border(LIGHT_GREY),
-        text_size=11,
-        dense=True,
-        expand=True,
+    rembg_dropdown = _seg(
+        [(o, o) for o in ("Blanc", "Gris", "Flou", "Transparent")], "Blanc",
+        on_change=lambda e: on_rembg_bg_change(e),
         disabled=not REMBG_AVAILABLE,
         tooltip="Type de fond après suppression" if REMBG_AVAILABLE else "pip install rembg onnxruntime",
     )
@@ -2466,7 +2466,7 @@ async def main(page: ft.Page) -> None:
         if _rembg_feather_pct[0] > 0:
             f = max(1, round(min(rgba.size) * _rembg_feather_pct[0] / 100))
             rgba = image_ops.feather_alpha(rgba, f)
-        mode = rembg_dropdown.value
+        mode = _seg_value(rembg_dropdown)
         if mode == "Transparent":
             state["work_img"] = rgba.copy()
             return
@@ -2641,7 +2641,6 @@ async def main(page: ft.Page) -> None:
                 _render_preview()
 
     rembg_apply_btn.on_click = on_rembg_toggle
-    rembg_dropdown.on_change = on_rembg_bg_change
 
     # ── Câblage des événements ───────────────────────────────────────────────
     send_btn.on_click      = on_send_gemini
@@ -2656,8 +2655,8 @@ async def main(page: ft.Page) -> None:
     inpaint_btn = ft.Button(
         "Retouche IA",
         icon=ft.Icons.AUTO_FIX_HIGH,
-        bgcolor=GREY,
-        color=WHITE,
+        bgcolor=VIOLET,
+        color=DARK,
         disabled=True,
         tooltip="Activer la sélection — glisser pour définir la zone à retoucher",
     )
@@ -2728,7 +2727,7 @@ async def main(page: ft.Page) -> None:
         else:
             inpaint_btn.text           = "Retouche IA"
             inpaint_btn.icon           = ft.Icons.AUTO_FIX_HIGH
-            inpaint_btn.bgcolor        = GREY
+            inpaint_btn.bgcolor        = VIOLET
             image_gesture.visible      = False
             preview_viewer.pan_enabled = True
             state["drag_start"]        = None
@@ -2773,7 +2772,7 @@ async def main(page: ft.Page) -> None:
 
     inpaint_dialog = ft.AlertDialog(
         modal=True,
-        title=ft.Text("Retouche IA (Gemini)"),
+        title=ft.Text("Retouche IA"),
         content=ft.Column(
             [sel_info, dilate_row, prompt_aids, prompt_field,
              ft.Row([retouch_quality_dropdown, retouch_model_dropdown],
