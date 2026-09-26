@@ -9832,6 +9832,7 @@ def main(page: ft.Page):
             ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4,
                alignment=ft.MainAxisAlignment.CENTER),
             expand=True, alignment=ft.Alignment.CENTER,
+            margin=4, border_radius=8,
             ink=True, on_click=lambda e, k=key: _select_surface(k),
             bgcolor=SURFACE_ACCENT.get(key, BLUE) if is_active else None,
         )
@@ -9842,8 +9843,9 @@ def main(page: ft.Page):
         # Séparateurs entre onglets pour bien les distinguer (retour user).
         content=ft.Column(
             [c for i, s_ in enumerate(SURFACES)
-             for c in ([ft.Divider(height=1, thickness=1,
-                                   color=ft.Colors.with_opacity(0.15, WHITE))]
+             for c in ([ft.Container(height=1, margin=ft.Margin.symmetric(
+                                         horizontal=16),
+                                     bgcolor=ft.Colors.with_opacity(0.2, WHITE))]
                        if i else []) + [_rail_tab(*s_)]],
             spacing=0, expand=True),
         width=60, bgcolor=GREY,
@@ -11773,10 +11775,6 @@ def main(page: ft.Page):
                            size=CONSTANTS.ICON_SM),
                     ft.Text("Actions", size=CONSTANTS.TEXT_LG, color=ORANGE,
                            weight=ft.FontWeight.W_500, expand=True),
-                    ft.IconButton(ft.Icons.CLOSE, icon_color=RED,
-                                 icon_size=CONSTANTS.ICON_LG,
-                                 on_click=lambda e: _close_actions(),
-                                 tooltip="Fermer"),
                 ], spacing=10),
                 padding=ft.Padding(20, 16, 20, 16), bgcolor=BACKGROUND,
             ),
@@ -11792,15 +11790,18 @@ def main(page: ft.Page):
         ], spacing=0, expand=True),
         bgcolor=DARK, width=760, border_radius=12,
         clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+        # Absorbe les clics dans le panneau (sinon ils fermeraient).
+        on_click=lambda e: None, ink=False,
     )
     # Panneau centré, en retrait du haut et du bas, sur fond flouté
     # (retour user : effet « overlay » comme les dialogues).
     actions_overlay = ft.Stack([
         # Même flou que ui_helpers.busy_veil (retour user).
         ft.Container(ink=False, blur=14, left=0, top=0, right=0, bottom=0,
-                     bgcolor=ft.Colors.with_opacity(0.35, "black"),
-                     on_click=lambda e: _close_actions()),
+                     bgcolor=ft.Colors.with_opacity(0.35, "black")),
+        # Clic à côté du panneau (marges comprises) = fermer (retour user).
         ft.Container(actions_panel, alignment=ft.Alignment(0, 0),
+                     on_click=lambda e: _close_actions(), ink=False,
                      left=0, top=0, right=0, bottom=0,
                      padding=ft.Padding(24, 60, 24, 60)),
     ], expand=True)
