@@ -374,12 +374,12 @@ async def main(page: ft.Page) -> None:
         width=100,
     )
 
-    # Modèle de retouche : NB2 (Gemini) ou Muse (Meta).
+    # Modèle de retouche : NB2 (Gemini) ou Muse.
     retouch_model_dropdown = ft.Dropdown(
         value="gemini-3.1-flash-image",
         options=[
             ft.dropdown.Option("gemini-3.1-flash-image", text="NB2"),
-            ft.dropdown.Option("muse-image-1.0", text="Muse (Meta)"),
+            ft.dropdown.Option("muse-image-1.0", text="Muse"),
         ],
         label="Modèle",
         text_size=11, dense=True, color=WHITE, bgcolor=GREY,
