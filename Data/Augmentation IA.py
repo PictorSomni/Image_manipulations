@@ -2330,22 +2330,16 @@ async def main(page: ft.Page) -> None:
     _pipette = image_ops.FloodPipette(CONSTANTS.RECADRAGE_FLOOD_TOLERANCE)
     _pipette_start: list = [None]   # (cx, cy) écran, capturé par _on_pan_down
 
-    _rembg_mode_label = ft.Text("Instantané", size=12, color=DARK)
-    rembg_precise_btn = ft.Button(
-        content=_rembg_mode_label,
-        bgcolor=GREEN,
-        style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=8, vertical=2)),
-        tooltip="Rapide (u2net) / Précis (birefnet) / Instantané (fond uni, sans IA)",
-    )
-
-    _rembg_model_label = ft.Text("Humain", size=12, color=DARK)
-    rembg_model_btn = ft.Button(
-        content=_rembg_model_label,
-        bgcolor=VIOLET if REMBG_AVAILABLE else GREY,
-        disabled=not REMBG_AVAILABLE,
-        style=ft.ButtonStyle(padding=ft.Padding.symmetric(horizontal=8, vertical=2)),
-        tooltip="Portrait / Généraliste",
-    )
+    # Boutons glissants (retour user) ; valeurs = indices de _rembg_mode.
+    rembg_precise_btn = _seg(
+        [(2, "Instantané"), (0, "Rapide"), (1, "Précis")], 2, color=GREEN,
+        on_change=lambda e: on_rembg_precise_toggle(e),
+        tooltip="Instantané : fond uni sans IA · Rapide : u2net · "
+                "Précis : birefnet")
+    rembg_model_btn = _seg(
+        [(True, "Humain"), (False, "Général")], True, color=VIOLET,
+        on_change=lambda e: on_rembg_model_toggle(e),
+        disabled=not REMBG_AVAILABLE)
 
     _pipette_tolerance_label = ft.Text(
         f"Tol. {_pipette.tolerance}", size=11, color=LIGHT_GREY)
@@ -2405,30 +2399,15 @@ async def main(page: ft.Page) -> None:
 
     def on_rembg_precise_toggle(e) -> None:
         _bg_pick_cancel()
-        _rembg_mode[0] = (_rembg_mode[0] + 1) % 3
-        if _rembg_mode[0] == 0:
-            _rembg_mode_label.value = "Rapide"
-            rembg_precise_btn.bgcolor = BLUE if REMBG_AVAILABLE else GREY
-        elif _rembg_mode[0] == 1:
-            _rembg_mode_label.value = "Précis"
-            rembg_precise_btn.bgcolor = VIOLET if REMBG_AVAILABLE else GREY
-        else:
-            _rembg_mode_label.value = "Instantané"
-            rembg_precise_btn.bgcolor = GREEN
-        rembg_precise_btn.update()
+        _rembg_mode[0] = _seg_value(rembg_precise_btn)
         pipette_sign_btn.visible = _rembg_mode[0] == 2
         pipette_sign_btn.update()
         rembg_apply_btn.disabled = not (REMBG_AVAILABLE or _rembg_mode[0] == 2)
         rembg_apply_btn.update()
 
     def on_rembg_model_toggle(e) -> None:
-        _rembg_human[0] = not _rembg_human[0]
-        _rembg_model_label.value = "Humain"   if _rembg_human[0] else "Général"
-        rembg_model_btn.bgcolor  = VIOLET     if _rembg_human[0] else ORANGE
-        rembg_model_btn.update()
+        _rembg_human[0] = _seg_value(rembg_model_btn)
 
-    rembg_precise_btn.on_click = on_rembg_precise_toggle
-    rembg_model_btn.on_click   = on_rembg_model_toggle
     pipette_sign_btn.on_click  = on_pipette_sign_toggle
 
     def on_rembg_erosion_change(e) -> None:
@@ -2825,7 +2804,8 @@ async def main(page: ft.Page) -> None:
             ft.Text("Suppression de fond", size=12, color=LIGHT_GREY),
             rembg_dropdown,
             rembg_apply_btn,
-            ft.Row([rembg_precise_btn, rembg_model_btn, pipette_sign_btn,
+            rembg_precise_btn,
+            ft.Row([rembg_model_btn, pipette_sign_btn,
                     _pipette_tolerance_label], spacing=6, wrap=True),
             ft.Row([
                 ft.Text("Ér.", size=11, color=LIGHT_GREY), rembg_erosion_slider,
