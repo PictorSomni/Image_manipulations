@@ -213,7 +213,7 @@ async def main(page: ft.Page) -> None:
     def _seg(options, value, color=BLUE, on_change=None, **kwargs):
         # Boutons glissants à la place des menus déroulants ;
         # options = [(valeur, libellé)], valeur lue par _seg_value().
-        texts = [ft.Text(label, size=11) for _v, label in options]
+        texts = [ft.Text(label, size=12) for _v, label in options]
 
         def _restyle():
             for i, t in enumerate(texts):
@@ -2332,12 +2332,12 @@ async def main(page: ft.Page) -> None:
 
     # Boutons glissants (retour user) ; valeurs = indices de _rembg_mode.
     rembg_precise_btn = _seg(
-        [(2, "Instantané"), (0, "Rapide"), (1, "Précis")], 2, color=GREEN,
+        [(0, "Rapide"), (1, "Précis"), (2, "Instantané")], 2, width=245,
         on_change=lambda e: on_rembg_precise_toggle(e),
-        tooltip="Instantané : fond uni sans IA · Rapide : u2net · "
-                "Précis : birefnet")
+        tooltip="Rapide : u2net · Précis : birefnet · "
+                "Instantané : fond uni sans IA")
     rembg_model_btn = _seg(
-        [(True, "Humain"), (False, "Général")], True, color=VIOLET,
+        [(True, "Humain"), (False, "Général")], True, width=130,
         on_change=lambda e: on_rembg_model_toggle(e),
         disabled=not REMBG_AVAILABLE)
 
