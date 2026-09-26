@@ -85,3 +85,4 @@ ai_conversations_debug.md
 
 # Réglages locaux de Claude Code (propres à la machine)
 .claude/settings.local.json
+.kanban_order.json

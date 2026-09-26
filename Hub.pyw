@@ -100,6 +100,9 @@ _RECENT_FILE = os.path.join(_APP_DIR, ".recent_folders.json")
 _FAVORITES_FILE = os.path.join(_APP_DIR, ".favorites.json")
 _OPEN_TABS_FILE = os.path.join(_APP_DIR, ".open_tabs.json")
 _KANBAN_CACHE_FILE = os.path.join(_APP_DIR, ".kanban_cache.json")
+# Ordre manuel des cartes (glisser-déposer) : l'API Notion n'expose pas
+# l'ordre manuel d'une vue, donc gardé localement (liste de page_id).
+_KANBAN_ORDER_FILE = os.path.join(_APP_DIR, ".kanban_order.json")
 _AGENDA_CACHE_FILE = os.path.join(_APP_DIR, ".agenda_cache.json")
 _KANBAN_SETTINGS_FILE = os.path.join(_APP_DIR, ".kanban_settings.json")
 
@@ -7474,10 +7477,48 @@ def main(page: ft.Page):
         row_controls.append(
             ft.IconButton(ft.Icons.DELETE_OUTLINE, icon_size=CONSTANTS.ICON_SM,
                          icon_color=RED, on_click=lambda e, i=index: _liste_delete(i)))
-        return ft.Container(
+        row_box = ft.Container(
             content=ft.Row(row_controls, spacing=8,
                            vertical_alignment=ft.CrossAxisAlignment.CENTER),
             padding=ft.Padding(10, 8, 4, 8), bgcolor=GREY, border_radius=6)
+        # Glisser-déposer pour réordonner, avec un trait au-dessus de la
+        # ligne survolée (retour user, même principe que les Tâches).
+        return _liste_drop_target(
+            ft.Column([ft.Container(), ft.Draggable(group="liste_row", data=index,
+                                          content=row_box)],
+                      spacing=2, tight=True), index)
+
+    def _liste_drop_target(column, before):
+        marker = ft.Container(height=3, border_radius=2, opacity=0,
+                              bgcolor=SURFACE_ACCENT["liste"])
+        column.controls[0] = marker
+
+        def _mark(on):
+            marker.opacity = 1 if on else 0
+            marker.update()
+
+        def _accept(e):
+            _mark(False)
+            if e.src is None:
+                return
+            _liste_move(e.src.data, before)
+
+        return ft.DragTarget(group="liste_row", content=column,
+                             on_will_accept=lambda e: _mark(True),
+                             on_leave=lambda e: _mark(False),
+                             on_accept=_accept)
+
+    def _liste_move(src, before):
+        """Déplace l'entrée `src` juste avant l'indice `before` (None = fin)."""
+        if not 0 <= src < len(liste_entries) or src == before:
+            return
+        entry = liste_entries.pop(src)
+        if before is None:
+            liste_entries.append(entry)
+        else:
+            liste_entries.insert(before - (before > src), entry)
+        _liste_save()
+        _liste_render()
 
     def _liste_header():
         # "Fait" et les icônes sont maintenant regroupées à droite dans
@@ -7569,6 +7610,9 @@ def main(page: ft.Page):
                 "Aucun résultat.", size=CONSTANTS.TEXT_SM, color=GREY))
         else:
             liste_list_view.controls.extend(_liste_row(i, e) for i, e in rows)
+            liste_list_view.controls.append(_liste_drop_target(
+                ft.Column([ft.Container(), ft.Container(height=40)], spacing=0,
+                          tight=True), None))
         liste_path_text.value = os.path.basename(_liste_file["path"])
         page.update()
 
@@ -7848,6 +7892,7 @@ def main(page: ft.Page):
     # premier appel réseau à chaque passage sur l'onglet — comme Notion,
     # qui affiche l'état connu avant de resynchroniser (retour user).
     kanban_state = {"loading": False, "search": "",
+                    "order": _load_json(_KANBAN_ORDER_FILE, []),
                     "rows": _load_json(_KANBAN_CACHE_FILE, []),
                     # Auto-synchronisation : re-télécharge tout le tableau
                     # depuis Notion après chaque modification (retour user)
@@ -8399,14 +8444,63 @@ def main(page: ft.Page):
             content=ft.Column(rows, spacing=4, tight=True),
             bgcolor=ft.Colors.with_opacity(0.18, etat_color),
             border_radius=8, padding=10)
-        return ft.Draggable(group="kanban_card", data=row["page_id"],
-                            content=card)
+        # Chaque carte est aussi une cible : un trait apparaît au-dessus
+        # pendant le survol pour montrer où la carte glissée sera posée
+        # (retour user, comme la démo Flet « Trolli »).
+        marker = _kanban_drop_marker(row["etat"])
+        return ft.DragTarget(
+            group="kanban_card",
+            content=ft.Column([marker, ft.Draggable(
+                group="kanban_card", data=row["page_id"], content=card)],
+                spacing=2, tight=True),
+            on_will_accept=lambda e, m=marker: _kanban_mark(m, True),
+            on_leave=lambda e, m=marker: _kanban_mark(m, False),
+            on_accept=lambda e, m=marker, pid=row["page_id"],
+            et=row["etat"]: (_kanban_mark(m, False),
+                             _kanban_drop(e, et, before=pid)))
+
+    def _kanban_drop_marker(etat):
+        return ft.Container(
+            height=3, border_radius=2, opacity=0,
+            bgcolor=KANBAN_ETAT_COLORS.get(etat, WHITE))
+
+    def _kanban_mark(marker, on):
+        marker.opacity = 1 if on else 0
+        marker.update()
+
+    def _kanban_ordered(rows):
+        """Ordre manuel ; les cartes jamais placées (nouvelles) en haut,
+        les plus récentes d'abord."""
+        order = kanban_state["order"]
+        known = set(order)
+        new = sorted((r for r in rows if r["page_id"] not in known),
+                     key=lambda r: r["cree_le"], reverse=True)
+        if new:
+            order[:0] = [r["page_id"] for r in new]
+            _save_json(_KANBAN_ORDER_FILE, order)
+        pos = {pid: i for i, pid in enumerate(order)}
+        return sorted(rows, key=lambda r: pos[r["page_id"]])
+
+    def _kanban_move(page_id, etat, before=None):
+        """Place `page_id` avant `before`, ou en fin de colonne `etat`."""
+        order = kanban_state["order"]
+        if page_id == before:
+            return
+        if page_id in order:
+            order.remove(page_id)
+        if before in order:
+            order.insert(order.index(before), page_id)
+        else:
+            etats = {r["page_id"]: r["etat"] for r in kanban_state["rows"]}
+            last = max((i for i, pid in enumerate(order)
+                        if etats.get(pid) == etat), default=len(order) - 1)
+            order.insert(last + 1, page_id)
+        _save_json(_KANBAN_ORDER_FILE, order)
 
     def _kanban_rebuild_columns():
         for etat, _color in KANBAN_ETATS:
             kanban_columns[etat].controls.clear()
-        rows_sorted = sorted(kanban_state["rows"],
-                             key=lambda r: r["cree_le"], reverse=True)
+        rows_sorted = _kanban_ordered(kanban_state["rows"])
         needle = kanban_state["search"].strip().lower()
         if needle:
             rows_sorted = [
@@ -8418,6 +8512,17 @@ def main(page: ft.Page):
             column = kanban_columns.get(row["etat"])
             if column is not None:
                 column.controls.append(_kanban_item_card(row))
+        # Cible de fin de colonne, avec son trait (dépôt tout en bas).
+        for etat, _color in KANBAN_ETATS:
+            marker = _kanban_drop_marker(etat)
+            kanban_columns[etat].controls.append(ft.DragTarget(
+                group="kanban_card",
+                content=ft.Container(marker, height=60,
+                                     alignment=ft.Alignment(0, -1)),
+                on_will_accept=lambda e, m=marker: _kanban_mark(m, True),
+                on_leave=lambda e, m=marker: _kanban_mark(m, False),
+                on_accept=lambda e, m=marker, t=etat: (
+                    _kanban_mark(m, False), _kanban_drop(e, t))))
 
     def _kanban_parse_rows(raw_json_str):
         data = json.loads(raw_json_str)
@@ -8647,7 +8752,7 @@ def main(page: ft.Page):
 
         threading.Thread(target=_work, daemon=True).start()
 
-    def _kanban_drop(e, new_etat):
+    def _kanban_drop(e, new_etat, before=None):
         # e.src None : la carte glissée a été reconstruite entre-temps (le
         # changement précédent redessine les colonnes) — drop ignoré au
         # lieu de planter (retour user : glisser trop vite).
@@ -8656,8 +8761,14 @@ def main(page: ft.Page):
         page_id = e.src.data
         row = next((r for r in kanban_state["rows"]
                     if r["page_id"] == page_id), None)
-        if row is not None:
+        if row is None:
+            return
+        _kanban_move(page_id, new_etat, before)
+        if row["etat"] != new_etat:
             _kanban_change_property(row, "Etat", "etat", new_etat)
+        else:
+            _kanban_rebuild_columns()
+            page.update()
 
     # Largeur de colonne calculée dynamiquement (voir _kanban_col_width) :
     # plein écran → les 5 colonnes se répartissent toute la largeur ; en
