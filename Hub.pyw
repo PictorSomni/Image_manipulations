@@ -2668,6 +2668,8 @@ def main(page: ft.Page):
             dlg.open = False
             page.update()
 
+        exe_field.on_submit = _confirm  # ENTER valide (retour user)
+
         dlg = _dialog(
             title=ft.Text("Ajouter un programme", size=CONSTANTS.TEXT_SM, color=WHITE),
             content=ft.Column([label_field, exe_field], spacing=8, tight=True,
@@ -7387,6 +7389,9 @@ def main(page: ft.Page):
             page.update()
             _liste_render()
 
+        # ENTER valide (retour user) ; le 1er champ n'est jamais multiligne.
+        fields[columns.index(text_columns[0])].on_submit = _confirm
+
         dlg = _dialog(
             title=ft.Text("Ajouter une entrée" if is_new else "Modifier",
                          size=CONSTANTS.TEXT_SM, color=WHITE),
@@ -7730,6 +7735,8 @@ def main(page: ft.Page):
             dlg.open = False
             page.update()
             _liste_reload()
+
+        name_field.on_submit = _confirm  # ENTER valide (retour user)
 
         dlg = _dialog(
             title=ft.Text("Nouveau fichier JSON", size=CONSTANTS.TEXT_SM, color=WHITE),
@@ -11248,6 +11255,10 @@ def main(page: ft.Page):
                 "FORCE_CROP_WHITE_BORDER":
                     "1" if white_border_switch.value else "0",
             })
+
+        # ENTER valide (retour user).
+        for _f in (width_field, height_field):
+            _f.on_submit = _confirm
 
         dlg = _dialog(
             title=ft.Text("Recadrage automatique — format", size=CONSTANTS.TEXT_SM,
