@@ -5342,20 +5342,6 @@ def main(page: ft.Page):
         text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK,
         border=CONSTANTS.input_border(GREY),
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=90)
-    # Modèle Nano Banana 2 pour generate_image/edit_image : "full" par
-    # défaut (qualité/cohérence), "Lite" en option pour aller plus vite.
-    ai_image_model_dropdown = ft.Dropdown(
-        value="gemini-3.1-flash-image",
-        options=[
-            ft.dropdown.Option("gemini-3.1-flash-image", text="NB2"),
-            ft.dropdown.Option("gemini-3.1-flash-lite-image",
-                               text="NB2 Lite"),
-            ft.dropdown.Option("muse-image-1.0", text="Muse (Meta)"),
-        ],
-        tooltip="Modèle Nano Banana 2 utilisé pour générer/éditer des images",
-        text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK,
-        border=CONSTANTS.input_border(GREY),
-        content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=150)
     ai_status_text = ft.Text("", color=LIGHT_GREY, size=CONSTANTS.TEXT_SM, italic=True, max_lines=1,
                              overflow=ft.TextOverflow.ELLIPSIS, expand=True)
     ai_progress_bar = ft.ProgressBar(value=None, visible=False, color=BLUE, height=2)
@@ -5788,14 +5774,17 @@ def main(page: ft.Page):
         ai_status_text.value = "🎨 Génération d'image en cours…"
         _ai_refresh()
         try:
-            gen = (meta_ai.generate_image
-                   if ai_image_model_dropdown.value.startswith("muse")
+            # Modèle image déduit du modèle de discussion (retour user :
+            # un seul menu) — Muse Spark -> Muse Image, sinon NB2.
+            use_muse = model.startswith("muse")
+            gen = (meta_ai.generate_image if use_muse
                    else _gemini_generate_image)
             text, img_bytes = gen(
                 prompt_refined, input_image_bytes=src_bytes,
                 aspect_ratio=aspect,
                 resolution=ai_image_quality_dropdown.value or "1K",
-                model=ai_image_model_dropdown.value)
+                model=(meta_ai.IMAGE_MODEL if use_muse
+                       else "gemini-3.1-flash-image"))
         except Exception as exc:
             text, img_bytes = f"[Erreur] {exc}", None
 
@@ -7105,7 +7094,6 @@ def main(page: ft.Page):
                 ft.Container(_surface_title("IA", "ia"), expand=True),
                 ai_model_dropdown,
                 _ai_header_separator(),
-                ai_image_model_dropdown,
                 ai_image_quality_dropdown,
                 ai_image_size_group,
                 _ai_header_separator(),

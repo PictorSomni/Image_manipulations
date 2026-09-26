@@ -19,7 +19,7 @@ import urllib.error
 import urllib.request
 
 _API = "https://api.meta.ai/v1"
-MODEL = "muse-image-1.0"
+IMAGE_MODEL = "muse-image-1.0"
 
 
 def _key():
@@ -71,7 +71,7 @@ def _size(aspect_ratio):
 
 
 def _body(prompt, input_image_bytes=None, aspect_ratio=None):
-    body = {"model": MODEL, "prompt": prompt, "n": 1,
+    body = {"model": IMAGE_MODEL, "prompt": prompt, "n": 1,
             "size": _size(aspect_ratio)}
     if input_image_bytes:
         b64 = base64.b64encode(input_image_bytes).decode()
