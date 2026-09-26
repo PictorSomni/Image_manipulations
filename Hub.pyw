@@ -1812,17 +1812,17 @@ def main(page: ft.Page):
         minutes = total / _MTP_BYTES_PER_SEC / 60
         duration = (f"{minutes:.0f} min" if minutes >= 1
                     else f"{total / _MTP_BYTES_PER_SEC:.0f} s")
-        actions = [ft.TextButton(
-            "Annuler", on_click=lambda e: _close_mtp_dialog(ask_dlg))]
+        actions = [_dlg_btn(
+            "Annuler", "cancel", on_click=lambda e: _close_mtp_dialog(ask_dlg))]
         if len(items) > _MTP_RECENT_COUNT:
             recent = items[:_MTP_RECENT_COUNT]
             recent_size = sum(i.size or 0 for i in recent)
-            actions.append(ft.TextButton(
+            actions.append(_dlg_btn(
                 f"Les {_MTP_RECENT_COUNT} plus récentes "
                 f"({_format_size(recent_size)})",
                 on_click=lambda e: (_close_mtp_dialog(ask_dlg),
                                     _start_mtp_copy(recent))))
-        actions.append(ft.TextButton(
+        actions.append(_dlg_btn(
             f"Tout copier ({_format_size(total)}, {duration})",
             on_click=lambda e: (_close_mtp_dialog(ask_dlg),
                                 _start_mtp_copy(items))))
@@ -5353,6 +5353,15 @@ def main(page: ft.Page):
         text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK,
         border=CONSTANTS.input_border(GREY),
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0), width=90)
+    # Qualité seulement pour NB2 (Gemini) : Muse est limité à ~1K
+    # (retour user).
+    ai_image_quality_dropdown.visible = not ai_model_dropdown.value.startswith("muse")
+
+    def _on_ai_model_select(e):
+        ai_image_quality_dropdown.visible = not ai_model_dropdown.value.startswith("muse")
+        ai_image_quality_dropdown.update()
+
+    ai_model_dropdown.on_select = _on_ai_model_select
     ai_status_text = ft.Text("", color=LIGHT_GREY, size=CONSTANTS.TEXT_SM, italic=True, max_lines=1,
                              overflow=ft.TextOverflow.ELLIPSIS, expand=True)
     ai_progress_bar = ft.ProgressBar(value=None, visible=False, color=BLUE, height=2)

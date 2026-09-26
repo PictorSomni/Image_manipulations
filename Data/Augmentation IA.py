@@ -234,6 +234,14 @@ async def main(page: ft.Page) -> None:
 
     def _seg_value(seg):
         return seg.data[seg.selected_index]
+
+    # Boutons d'overlay colorés comme dans le Hub (_dlg_btn).
+    _DLG_COLORS = {"primary": BLUE, "cancel": CONSTANTS.COLOR_BLUE_DARK,
+                   "danger": RED}
+
+    def _dlg_btn(label, kind="primary", **kwargs):
+        return ft.Button(label, bgcolor=_DLG_COLORS[kind], color=DARK,
+                         **kwargs)
     page.bgcolor = BG_UI
     # Flet ajoute 10px de marge par défaut sur les 4 côtés de la page
     # (View.padding), non comptés par _LEFT_CHROME_W/_TITLEBAR_H plus bas
@@ -402,9 +410,14 @@ async def main(page: ft.Page) -> None:
         [(q, q) for q in ("1K", "2K", "4K")], "1K")
 
     # Modèle de retouche : NB2 (Gemini) ou Muse.
+    # Qualité seulement pour NB2 : Muse est limité à ~1K (retour user).
     retouch_model_dropdown = _seg(
         [("gemini-3.1-flash-image", "NB2"), ("muse-image-1.0", "Muse")],
-        "gemini-3.1-flash-image", color=VIOLET)
+        "gemini-3.1-flash-image", color=VIOLET,
+        on_change=lambda e: (
+            setattr(retouch_quality_dropdown, "visible",
+                    _seg_value(retouch_model_dropdown) != "muse-image-1.0"),
+            retouch_quality_dropdown.update()))
 
     prompt_field = ft.TextField(
         label="Décrivez la retouche souhaitée",
@@ -2286,13 +2299,12 @@ async def main(page: ft.Page) -> None:
             tight=True,
         ),
         actions=[
-            ft.TextButton(
-                "Annuler",
+            _dlg_btn(
+                "Annuler", "cancel",
                 on_click=lambda e: (setattr(expand_dialog, "open", False), page.update()),
             ),
-            ft.TextButton(
+            _dlg_btn(
                 "Valider",
-                style=ft.ButtonStyle(color=BLUE),
                 on_click=lambda e: page.run_task(on_expand_gemini, e),
             ),
         ],
@@ -2754,7 +2766,7 @@ async def main(page: ft.Page) -> None:
         title=ft.Text("Retouche IA"),
         content=ft.Column(
             [sel_info, dilate_row, prompt_aids, prompt_field,
-             ft.Row([retouch_quality_dropdown, retouch_model_dropdown],
+             ft.Row([retouch_model_dropdown, retouch_quality_dropdown],
                     spacing=8),
              progress_bar],
             tight=True,
@@ -2762,13 +2774,12 @@ async def main(page: ft.Page) -> None:
             width=420,
         ),
         actions=[
-            ft.TextButton(
-                "Annuler",
-                style=ft.ButtonStyle(color=LIGHT_GREY),
+            _dlg_btn(
+                "Annuler", "cancel",
                 on_click=_cancel_inpaint_dialog,
             ),
-            ft.TextButton(
-                "Redessiner",
+            _dlg_btn(
+                "Redessiner", "cancel",
                 on_click=lambda e: _reopen_selection(),
             ),
             send_btn,
@@ -2870,13 +2881,12 @@ async def main(page: ft.Page) -> None:
             "Que souhaitez-vous faire ?"
         ),
         actions=[
-            ft.TextButton(
+            _dlg_btn(
                 "Enregistrer",
                 on_click=lambda e: page.run_task(_dialog_save),
             ),
-            ft.TextButton(
-                "Quitter sans enregistrer",
-                style=ft.ButtonStyle(color=RED),
+            _dlg_btn(
+                "Quitter sans enregistrer", "danger",
                 on_click=lambda e: page.run_task(_force_close),
             ),
         ],
