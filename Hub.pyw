@@ -9406,6 +9406,16 @@ def main(page: ft.Page):
         agenda_status.value = "Données en cache"
     _agenda_rebuild()
 
+    async def _hourly_sync():
+        # Tâches + Agenda rafraîchis depuis Notion toutes les heures
+        # (retour user), en plus du cache et du bouton Actualiser.
+        while True:
+            await asyncio.sleep(3600)
+            _kanban_refresh()
+            _agenda_refresh()
+
+    _run_task(_hourly_sync)
+
     # ─── Surfaces encore à construire (placeholders structurés) ──────────
     def _placeholder(label):
         return ft.Container(
