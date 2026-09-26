@@ -11873,7 +11873,8 @@ def main(page: ft.Page):
 
     terminal_input = ft.TextField(
         hint_text="> Terminal", bgcolor=DARK,
-        border=CONSTANTS.input_border(YELLOW_GREEN), color=WHITE,
+        border=CONSTANTS.input_border(YELLOW_GREEN),
+        focused_border_color=YELLOW_GREEN, color=WHITE,
         text_size=CONSTANTS.TERMINAL_FONT_SIZE, expand=True,
         content_padding=ft.Padding(10, 8, 10, 8),
         on_focus=_terminal_input_on_focus, on_blur=_terminal_input_on_blur)
