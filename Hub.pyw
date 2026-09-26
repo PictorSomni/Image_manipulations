@@ -8708,17 +8708,8 @@ def main(page: ft.Page):
 
     # Voile par-dessus le tableau pendant une synchro Notion (retour
     # user) : bloque le glisser-déposer et les clics, message clair.
-    kanban_sync_veil = ft.Container(
-        content=ft.Column([
-            ft.ProgressRing(color=SURFACE_ACCENT["kanban"]),
-            ft.Text("Synchronisation avec Notion…", size=CONSTANTS.TEXT_LG,
-                    color=WHITE, weight=ft.FontWeight.W_600)],
-            tight=True, spacing=16,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-        alignment=ft.Alignment(0, 0), expand=True, visible=False,
-        left=0, top=0, right=0, bottom=0,
-        bgcolor=ft.Colors.with_opacity(0.7, DARK),
-        on_click=lambda e: None)
+    kanban_sync_veil = ui_helpers.busy_veil(
+        "Synchronisation avec Notion…", SURFACE_ACCENT["kanban"])
 
     def _kanban_busy(delta):
         kanban_state["busy"] = max(0, kanban_state.get("busy", 0) + delta)

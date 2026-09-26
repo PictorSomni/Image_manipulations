@@ -250,3 +250,28 @@ def confirm_dialog(page, title, on_confirm, colors, message=None,
     dlg.open = True
     page.update()
     return dlg
+
+
+def busy_veil(message, accent, *, spinner=None, blur=8, opacity=0.85):
+    """Voile bloquant à poser en dernier dans un ft.Stack, par-dessus la
+    zone à geler pendant une opération (synchro, chargement…) : fond
+    flouté + assombri, animation, texte blanc et barre de progression
+    infinie. Absorbe clics et glisser-déposer tant qu'il est visible.
+
+    `spinner` : n'importe quel contrôle d'animation (ft.Image d'un GIF,
+    icône…) à la place de la roue par défaut. Afficher/masquer avec
+    `veil.visible = True/False` puis `update()`."""
+    return ft.Container(
+        content=ft.Column([
+            spinner or ft.ProgressRing(color=accent, width=48, height=48,
+                                       stroke_width=5),
+            ft.Text(message, size=18, color=ft.Colors.WHITE,
+                    weight=ft.FontWeight.W_600),
+            ft.ProgressBar(width=260, color=accent,
+                           bgcolor=ft.Colors.with_opacity(0.2, accent)),
+        ], tight=True, spacing=18,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+        alignment=ft.Alignment(0, 0), visible=False,
+        left=0, top=0, right=0, bottom=0, blur=blur,
+        bgcolor=ft.Colors.with_opacity(opacity, ft.Colors.BLACK),
+        on_click=lambda e: None)
