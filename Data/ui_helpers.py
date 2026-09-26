@@ -272,7 +272,7 @@ def busy_veil(message, accent, *, spinner=None, blur=14, opacity=0.7):
         ], tight=True, spacing=18,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         alignment=ft.Alignment(0, 0), opacity=0, ignore_interactions=True,
-        animate_opacity=ft.Animation(300, ft.AnimationCurve.EASE_IN_OUT),
+        animate_opacity=ft.Animation(500, ft.AnimationCurve.EASE_IN_OUT),
         left=0, top=0, right=0, bottom=0, blur=blur,
         bgcolor=ft.Colors.with_opacity(opacity, ft.Colors.BLACK),
         on_click=lambda e: None)
