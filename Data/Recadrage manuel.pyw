@@ -3606,10 +3606,26 @@ class PhotoCropper:
             anchor_img = (((old_canvas_dim + orig_dim * eff_scale_old) / 2
                           - old_offset) / eff_scale_old)
 
+        # L'autre axe garde la même zone de la photo : le canevas se
+        # réagrandit au changement de proportions, donc on zoome d'autant
+        # (retour user : sinon le cadrage regagnait de la place).
+        other_canvas_old = self.canvas_h if axis == 'w' else self.canvas_w
+        other_offset_old = self.offset_y if axis == 'w' else self.offset_x
+        other_extent_img = other_canvas_old / eff_scale_old
+
         self._refit_canvas()
 
+        other_canvas_new = self.canvas_h if axis == 'w' else self.canvas_w
+        if not self.is_fit_in and self.base_scale > 0:
+            self.scale = max(1.0, min(10.0, other_canvas_new
+                                      / (other_extent_img * self.base_scale)))
         new_canvas_dim = self.canvas_w if axis == 'w' else self.canvas_h
         eff_scale_new = self.base_scale * self.scale
+        other_offset_new = other_offset_old * eff_scale_new / eff_scale_old
+        if axis == 'w':
+            self.offset_y = other_offset_new
+        else:
+            self.offset_x = other_offset_new
         if side in ('right', 'bottom'):
             new_offset = ((orig_dim * eff_scale_new - new_canvas_dim) / 2
                          - anchor_img * eff_scale_new)
