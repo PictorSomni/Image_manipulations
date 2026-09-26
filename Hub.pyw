@@ -11696,16 +11696,20 @@ def main(page: ft.Page):
                 padding=20, expand=True,
             ),
         ], spacing=0, expand=True),
-        bgcolor=DARK, expand=1,
+        bgcolor=DARK, width=760, border_radius=12,
+        clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
     )
-    actions_overlay = ft.Row([
+    # Panneau centré, en retrait du haut et du bas, sur fond flouté
+    # (retour user : effet « overlay » comme les dialogues).
+    actions_overlay = ft.Stack([
         # Même flou que ui_helpers.busy_veil (retour user).
-        ft.Container(expand=1, ink=False, blur=14,
-                    bgcolor=ft.Colors.with_opacity(0.35, "black"),
-                    on_click=lambda e: _close_actions()),
-        actions_panel,
-    ], expand=True, spacing=0,
-       vertical_alignment=ft.CrossAxisAlignment.STRETCH)
+        ft.Container(ink=False, blur=14, left=0, top=0, right=0, bottom=0,
+                     bgcolor=ft.Colors.with_opacity(0.35, "black"),
+                     on_click=lambda e: _close_actions()),
+        ft.Container(actions_panel, alignment=ft.Alignment(0, 0),
+                     left=0, top=0, right=0, bottom=0,
+                     padding=ft.Padding(24, 60, 24, 60)),
+    ], expand=True)
 
     def _close_actions(event=None):
         if actions_overlay in page.overlay:
