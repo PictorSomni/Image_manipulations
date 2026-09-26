@@ -7558,7 +7558,7 @@ def main(page: ft.Page):
 
     _LISTE_TODO_PATH = _liste_file["path"]
 
-    def _liste_add_task(row):
+    def _liste_add_task(row, btn=None):
         # Tâche du Kanban -> todo list du jour (retour user) : intitulé +
         # colonne Kanban, toujours dans la todo list même si un autre
         # .json est ouvert dans Liste.
@@ -7579,6 +7579,11 @@ def main(page: ft.Page):
             with open(path, "w", encoding="utf-8") as f:
                 json.dump([entry] + data, f, ensure_ascii=False, indent=2)
         kanban_status.value = f"Ajouté à la Liste : {row['demande']}"
+        _log_to_terminal(f"Ajouté à la Liste : {text}", GREEN)
+        if btn is not None:
+            # Retour visuel dans la fiche (retour user).
+            btn.content = "Ajouté ✓"
+            btn.disabled = True
         page.update()
 
     def _liste_back_to_todo(event=None):
@@ -8255,7 +8260,8 @@ def main(page: ft.Page):
                height=max(300, min(680, (page.height or 900) - 220))),
             actions=[_dlg_btn("Supprimer", "danger", on_click=_delete),
                      _dlg_btn("Ajouter à la Liste", color=SURFACE_ACCENT[
-                         "liste"], on_click=lambda e: _liste_add_task(row)),
+                         "liste"], on_click=lambda e: _liste_add_task(
+                             row, e.control)),
                      _dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Enregistrer", "primary", on_click=_confirm)],
             # Marge mini garantie avec le haut/bas de l'écran (retour
