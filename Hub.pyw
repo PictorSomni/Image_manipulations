@@ -7351,8 +7351,10 @@ def main(page: ft.Page):
         fields = []
         for col in columns:
             if col == _LISTE_DONE_COLUMN:
+                # Masquée (retour user) : l'état « fait » se coche dans
+                # la ligne ; gardée pour conserver sa valeur à l'enregistrement.
                 fields.append(ft.Checkbox(
-                    label=col, value=_liste_is_done(current)))
+                    label=col, value=_liste_is_done(current), visible=False))
             else:
                 fields.append(ft.TextField(
                     label=col, value=current.get(col, ""),
