@@ -8713,7 +8713,7 @@ def main(page: ft.Page):
 
     def _kanban_busy(delta):
         kanban_state["busy"] = max(0, kanban_state.get("busy", 0) + delta)
-        kanban_sync_veil.visible = kanban_state["busy"] > 0
+        ui_helpers.set_busy_veil(kanban_sync_veil, kanban_state["busy"] > 0)
 
     def _kanban_refresh(event=None):
         if kanban_state["loading"]:
