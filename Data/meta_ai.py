@@ -62,6 +62,18 @@ def _key():
             if key and key[0].strip():
                 os.environ["MUSE_API_KEY"] = key[0].strip()
                 return key[0].strip()
+    # Le shell de connexion échoue hors terminal (Pi, retour user) :
+    # lecture directe de la ligne « export MUSE_API_KEY=… ».
+    import re
+    for rc in ("~/.zshrc", "~/.bashrc", "~/.zshenv", "~/.profile"):
+        try:
+            with open(os.path.expanduser(rc), encoding="utf-8") as f:
+                m = re.search(r"^\s*export\s+MUSE_API_KEY=[\"']?([^\"'\s]+)",
+                              f.read(), re.M)
+        except OSError:
+            continue
+        if m:
+            return m.group(1)
     return ""
 
 
