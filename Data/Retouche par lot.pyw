@@ -248,19 +248,10 @@ def _round_odd(value, minimum=3):
 
 
 def apply_photo_overrides(params, overrides, name):
-    """Réglages effectifs pour une photo donnée : ses exceptions propres
-    (mode revue, `override_switch` actif au moment du réglage) par-dessus
-    les réglages communs du lot — `overrides` a la forme
-    {photo: {section: {champ: valeur}}}, seuls les champs touchés
-    divergent, le reste continue de suivre le lot même si celui-ci change
-    ensuite. Pas de copie si la photo n'a aucune exception."""
-    per_photo = overrides.get(name)
-    if not per_photo:
-        return params
-    params = copy.deepcopy(params)
-    for section, fields in per_photo.items():
-        params[section].update(fields)
-    return params
+    """Réglages d'une photo : son jeu complet propre si le switch « cette
+    photo seulement » y est actif (préréglage, curseurs, virage…), sinon
+    le réglage global du lot (retour user)."""
+    return overrides.get(name) or params
 
 
 def run_pipeline(image, params, *, date_label=None, filename_stem=""):
@@ -465,10 +456,12 @@ def main(page: ft.Page):
         "live_lock": threading.Lock(),
         "live_running": False,
         "params": default_params(),
-        # Exceptions réglées photo par photo en mode revue
-        # (`override_switch`) : {nom_fichier: {section: {champ: valeur}}},
-        # même forme que "params". {} tant qu'aucune photo n'a d'exception.
+        # Jeux de réglages complets propres à une photo (`override_switch`) :
+        # {nom_fichier: params}. Pendant qu'une telle photo est affichée,
+        # state["params"] contient SES réglages (tous les contrôles écrivent
+        # dedans) et le réglage global est mis de côté dans "global".
         "overrides": {},
+        "global": None,
     }
 
     # Contrôles à resynchroniser quand le bouton Réinitialiser recharge
@@ -576,8 +569,7 @@ def main(page: ft.Page):
                 request_seen = state["live_req"]
             proxy = state["proxy"]
             name = file_names[state["index"]]
-            params_copy = apply_photo_overrides(
-                state["params"], state["overrides"], name)
+            params_copy = state["params"]
             date_label = state["date_label"]
             stem = Path(name).stem
             try:
@@ -623,6 +615,32 @@ def main(page: ft.Page):
             state["live_running"] = True
         threading.Thread(target=_live_preview_loop, daemon=True).start()
 
+    def _leave_photo():
+        """Range les réglages de la photo affichée et remet le global."""
+        if state["global"] is not None:
+            state["overrides"][file_names[state["index"]]] = copy.deepcopy(
+                state["params"])
+            _update_in_place(state["params"], state["global"])
+            state["global"] = None
+
+    def _enter_photo(name):
+        """Charge dans state["params"] les réglages propres de `name`
+        (copie du global au premier passage)."""
+        state["global"] = copy.deepcopy(state["params"])
+        _update_in_place(state["params"],
+                         state["overrides"].setdefault(
+                             name, copy.deepcopy(state["params"])))
+
+    def _on_override_switch(e):
+        name = file_names[state["index"]]
+        if override_switch.value:
+            _enter_photo(name)
+        else:
+            _leave_photo()
+            state["overrides"].pop(name, None)
+        _sync_controls_from_params()
+        live_preview_tick()
+
     def load_representative(idx):
         idx = max(0, min(idx, len(file_names) - 1))
         name = file_names[idx]
@@ -635,20 +653,17 @@ def main(page: ft.Page):
             counter_text.value = f"Erreur : {exc}"
             page.update()
             return
+        _leave_photo()
         state["index"] = idx
+        if name in state["overrides"]:
+            _enter_photo(name)
         state["source_image"] = img
         state["proxy_max_px"] = None  # force la reconstruction ci-dessous
         _rebuild_proxy()
         counter_text.value = f"{idx + 1} / {len(file_names)} — {name}"
-        # Le switch suit la photo : actif si elle a ses propres réglages
-        # (retour user : il fallait le rebasculer à chaque photo).
-        override_switch.value = bool(state["overrides"].get(name))
-        page.update()
-        # Nouvelle photo : chaque curseur peut avoir sa propre exception
-        # (mode revue) — les resynchroniser tous depuis la valeur
-        # effective de cette photo plutôt que celle du lot.
-        for column, label, dct, key in reset_registry["sliders"]:
-            column.data()
+        # Le switch suit la photo : actif si elle a ses propres réglages.
+        override_switch.value = name in state["overrides"]
+        _sync_controls_from_params()
         live_preview_tick()
 
     def _prev(e):
@@ -674,7 +689,8 @@ def main(page: ft.Page):
     # affichée, sans toucher au réglage commun du lot (retour user —
     # remplace le curseur dédié testé précédemment, trop étroit : un
     # seul champ ; ceci marche pour tous).
-    override_switch = ft.Switch(active_color=BLUE, value=False)
+    override_switch = ft.Switch(active_color=BLUE, value=False,
+                                on_change=lambda e: _on_override_switch(e))
 
     preview_column = ft.Column([
         preview_container,
@@ -895,12 +911,8 @@ def main(page: ft.Page):
         return None
 
     def _effective_value(dct, key, default):
-        """Valeur à afficher/utiliser pour la photo affichée : son
-        exception éventuelle pour ce champ, sinon le réglage du lot."""
-        name = file_names[state["index"]]
-        section = _section_name(dct)
-        return (state["overrides"].get(name, {}).get(section, {})
-               .get(key, default))
+        # state["params"] contient déjà les réglages de la photo affichée.
+        return default
 
     def _slider_row(label, dct, key, minv, maxv, *, divisions=None):
         """Slider cranté par pas entiers par défaut (un pas = une unité
@@ -970,13 +982,7 @@ def main(page: ft.Page):
             snapped = max(minv, min(maxv, round(new_value)))
             if snapped != reset_value:
                 _maybe_activate_section(dct)
-            if override_switch.value:
-                name = file_names[state["index"]]
-                section = _section_name(dct)
-                state["overrides"].setdefault(name, {}).setdefault(
-                    section, {})[key] = snapped
-            else:
-                dct[key] = snapped
+            dct[key] = snapped
             _display(snapped)
             if move_slider:
                 slider.value = snapped
@@ -1412,7 +1418,10 @@ def main(page: ft.Page):
     def _confirm_batch(e):
         dlg.open = False
         page.update()
-        params_snapshot = copy.deepcopy(state["params"])
+        if state["global"] is not None:
+            state["overrides"][file_names[state["index"]]] = copy.deepcopy(
+                state["params"])
+        params_snapshot = copy.deepcopy(state["global"] or state["params"])
         batch_stop.clear()
         _set_batch_running(True)
         progress_bar.visible = True
