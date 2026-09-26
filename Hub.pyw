@@ -7356,7 +7356,7 @@ def main(page: ft.Page):
             else:
                 fields.append(ft.TextField(
                     label=col, value=current.get(col, ""),
-                    autofocus=(col == text_columns[0]), width=320,
+                    autofocus=(col == text_columns[0]), width=520,
                     multiline=(col != text_columns[0]), min_lines=1,
                     max_lines=5, bgcolor=DARK,
                     border=CONSTANTS.input_border(GREY), color=WHITE))
@@ -7388,8 +7388,9 @@ def main(page: ft.Page):
         dlg = _dialog(
             title=ft.Text("Ajouter une entrée" if is_new else "Modifier",
                          size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column(fields, spacing=10, tight=True,
-                              scroll=ft.ScrollMode.AUTO),
+            # Sans scroll : une Column défilante prenait toute la
+            # hauteur de l'écran (retour user).
+            content=ft.Column(fields, spacing=10, tight=True),
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Enregistrer", "primary", on_click=_confirm)],
         )
