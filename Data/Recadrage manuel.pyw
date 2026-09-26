@@ -3553,6 +3553,10 @@ class PhotoCropper:
         mécanisme que le redimensionnement de fenêtre)."""
         if self.crop_mode != 'ratio' or self.current_format_label != _CUSTOM_KEY:
             return
+        # Image encore en chargement (très grand fichier, retour user) :
+        # on ignore le geste plutôt que de planter.
+        if not getattr(self, 'original_width', 0):
+            return
         axis = 'w' if side in ('left', 'right') else 'h'
         if self.canvas_is_portrait:
             width_field, height_field = self.custom_w_field, self.custom_h_field
