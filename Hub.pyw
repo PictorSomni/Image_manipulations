@@ -11722,6 +11722,29 @@ def main(page: ft.Page):
         with open(path, encoding="utf-8", errors="replace") as f:
             return f.read()
 
+    def _pdf_vers_idml(paths=()):
+        """PDF sélectionnés -> .idml à côté (Affinity : vrais blocs)."""
+        pdfs = [p for p in paths if p.lower().endswith(".pdf")]
+        if not pdfs:
+            _log_to_terminal("⚠ Sélectionne un PDF.", YELLOW)
+            return
+
+        def _work():
+            import pdf_vers_idml
+            for p in pdfs:
+                try:
+                    out = pdf_vers_idml.convert(p)
+                    msg, col = f"[OK] {os.path.basename(out)} créé.", GREEN
+                except Exception as exc:
+                    msg, col = f"[ERREUR] {os.path.basename(p)} : {exc}", RED
+                _log_to_terminal(msg, col)
+
+            async def _refresh():
+                _refresh_folder()
+            _run_task(_refresh)
+
+        threading.Thread(target=_work, daemon=True).start()
+
     def _nettoyer_texte(paths=()):
         """PDF/texte sélectionné (sinon presse-papiers) -> nettoyé ->
         presse-papiers, prêt à coller dans Affinity."""
@@ -11757,6 +11780,8 @@ def main(page: ft.Page):
                                     extra_env={"CONVERT_FORMAT": "png"})),
             ("Nettoyer texte", ft.Icons.TEXT_FORMAT, BLUE,
              lambda e: _run_action(_nettoyer_texte, list(selected))),
+            ("PDF vers IDML", ft.Icons.PICTURE_AS_PDF_OUTLINED, BLUE,
+             lambda e: _run_action(_pdf_vers_idml, list(selected))),
             ("Renommer séquence", ft.Icons.SORT_BY_ALPHA, BLUE,
              _launch_renommer_sequence),
             ("Renommer pages Affinity", ft.Icons.FORMAT_LIST_NUMBERED, BLUE,
