@@ -112,14 +112,14 @@ def group_paragraphs(lines, page_w):
     return paras
 
 
-ROLES = ((0.92, "Petit"), (1.12, "Texte"), (1.6, "Intertitre"),
+ROLES = ((1.12, "Texte"), (1.6, "Intertitre"),
          (2.5, "Titre"), (99, "Grand titre"))
 
 
 def size_roles(items):
     """[(taille, nb_caractères)] -> {taille: (rôle, taille_du_rôle)}.
     Texte = taille la plus présente ; les autres classées par rapport à
-    elle (retour user : 3-5 niveaux, pas une taille par bloc)."""
+    elle (retour user : 4 niveaux, pas une taille par bloc)."""
     weight = {}
     for sz, n in items:
         weight[sz] = weight.get(sz, 0) + n
@@ -292,7 +292,10 @@ def convert(pdf_path):
                 f'<ParagraphStyle Self="ParagraphStyle/{escape(n)}" '
                 f'Name="{escape(n)}" PointSize="{sz:g}" '
                 f'FontStyle="{escape(st)}" Tracking="0" LeftIndent="0" '
-                f'FirstLineIndent="0" SpaceBefore="0" SpaceAfter="0">'
+                f'FirstLineIndent="0" RightIndent="0" LastLineIndent="0" '
+                f'SpaceBefore="0" SpaceAfter="0" BaselineShift="0" '
+                f'KerningMethod="$ID/Metrics" HorizontalScale="100" '
+                f'VerticalScale="100">'
                 f'<Properties><AppliedFont type="string">{escape(fa)}'
                 f'</AppliedFont><Leading type="unit">{ld:g}</Leading>'
                 f'</Properties></ParagraphStyle>'
@@ -358,6 +361,6 @@ if __name__ == "__main__":
     assert ps[0]["leading"] == 9.0
     r = size_roles([(6.8, 90), (7.8, 200), (8.2, 150), (10.1, 40),
                     (11.2, 30), (15.5, 20), (24, 15)])
-    assert r[8.2] == ("Texte", 8.0) and r[6.8] == ("Petit", 7.0)
+    assert r[8.2] == ("Texte", 8.0) and r[6.8] == ("Texte", 8.0)
     assert r[11.2] == ("Intertitre", 10.0) and r[24][0] == "Grand titre"
     print("ok")
