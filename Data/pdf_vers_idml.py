@@ -195,7 +195,7 @@ class _Idml:
             + _frame("", x0, y0, max(x1, x0 + .01), max(y1, y0 + .01),
                      self.dy) + f'</{tag}>')
 
-    def image(self, data, ext, bbox, iw, ih):
+    def image(self, data, ext, bbox, iw, ih, wrap=False):
         """Image enregistrée dans <nom>_liens puis placée (liée)."""
         os.makedirs(self.links, exist_ok=True)
         n = len(os.listdir(self.links)) + 1
@@ -209,7 +209,13 @@ class _Idml:
             f'<Rectangle Self="i{i}" FillColor="Swatch/None" '
             f'StrokeWeight="0" ItemTransform="1 0 0 1 0 0">'
             + _frame("", x0, y0, x1, y1, self.dy,
-                     f'<Image Self="im{i}" ItemTransform="{sx} 0 0 {sy} '
+                     # Habillage : le texte contourne l'image comme dans
+                     # Word (retour user).
+                     ('<TextWrapPreference TextWrapMode='
+                      '"BoundingBoxTextWrap"><Properties><TextWrapOffset '
+                      'Top="6" Left="6" Bottom="6" Right="6"/>'
+                      '</Properties></TextWrapPreference>' if wrap else "")
+                     + f'<Image Self="im{i}" ItemTransform="{sx} 0 0 {sy} '
                      f'{x0} {y0 - self.dy}"><Properties><GraphicBounds '
                      f'Left="0" Top="0" Right="{iw}" Bottom="{ih}"/>'
                      f'</Properties><Link Self="l{i}" LinkResourceURI='
@@ -584,7 +590,11 @@ def convert_docx(path):
         if txbx:
             boxes.append((box, txbx))
         elif blip is not None:
-            pics.append((box, blip.get(_R + "embed")))
+            # wrapNone / derrière le texte : pas d'habillage.
+            wrap = any(anchor.find(_WP + t) is not None for t in (
+                "wrapSquare", "wrapTight", "wrapThrough",
+                "wrapTopAndBottom"))
+            pics.append((box, blip.get(_R + "embed"), wrap))
     for inline in d.element.body.iter(_WP + "inline"):
         blip = next(inline.iter(_A + "blip"), None)
         if blip is not None:
@@ -592,7 +602,7 @@ def convert_docx(path):
 
     out.styles(flow + [q for _, ps in boxes for q in ps])
 
-    def picture(rid, box=None, y=0):
+    def picture(rid, box=None, y=0, wrap=False):
         part = d.part.related_parts.get(rid)
         if part is None:
             return 0
@@ -608,11 +618,11 @@ def convert_docx(path):
                 iw, ih = Image.open(io.BytesIO(data)).size
         if box is None:  # table de montage, à droite de la page
             box = (w + 40, y, w + 240, y + 200 * ih / iw)
-        out.image(data, ext, box, iw, ih)
+        out.image(data, ext, box, iw, ih, wrap)
         return box[3] - box[1]
 
-    for box, rid in pics:
-        picture(rid, box)
+    for box, rid, wrap in pics:
+        picture(rid, box, wrap=wrap)
     if flow:
         out.text(margins, flow)
     for box, ps in boxes:
