@@ -100,6 +100,9 @@ _RECENT_FILE = os.path.join(_APP_DIR, ".recent_folders.json")
 _FAVORITES_FILE = os.path.join(_APP_DIR, ".favorites.json")
 _OPEN_TABS_FILE = os.path.join(_APP_DIR, ".open_tabs.json")
 _KANBAN_CACHE_FILE = os.path.join(_APP_DIR, ".kanban_cache.json")
+# Corbeille locale des tâches (retour user : historique Notion payant
+# au-delà de quelques jours) — jamais purgée automatiquement.
+_KANBAN_TRASH_FILE = os.path.join(_APP_DIR, ".kanban_trash.json")
 # Ordre manuel des cartes (glisser-déposer) : l'API Notion n'expose pas
 # l'ordre manuel d'une vue, donc gardé localement (liste de page_id).
 _KANBAN_ORDER_FILE = os.path.join(_APP_DIR, ".kanban_order.json")
@@ -8257,6 +8260,7 @@ def main(page: ft.Page):
             page.update()
 
             def _work():
+                _kanban_to_trash([row])
                 result = _notion_call("mcp__notion__notion-trash-page",
                                       {"page_id": row["page_id"]})
 
@@ -8764,6 +8768,121 @@ def main(page: ft.Page):
         for veil in (kanban_sync_veil, agenda_sync_veil):
             ui_helpers.set_busy_veil(veil, kanban_state["busy"] > 0)
 
+    def _kanban_to_trash(rows):
+        """Copie locale des tâches supprimées (thread de travail : va
+        chercher les Notes pas encore en cache)."""
+        if not rows:
+            return
+        trash = _load_json(_KANBAN_TRASH_FILE, [])
+        known = {t["row"]["page_id"] for t in trash}
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        for r in rows:
+            if r["page_id"] in known:
+                continue
+            r = dict(r)
+            if r.get("notes") is None:
+                raw = _notion_call("mcp__notion__notion-fetch",
+                                   {"id": r["page_id"]})
+                if not raw.startswith("Erreur"):
+                    r["notes"] = _kanban_notion_to_plain(
+                        _kanban_extract_page_content(raw) or "")
+            trash.insert(0, {"deleted_at": now, "row": r})
+        _save_json(_KANBAN_TRASH_FILE, trash)
+
+    def _kanban_restore(entry, dlg):
+        """Sortie de la corbeille Notion si encore possible (30 j), sinon
+        recréée à partir de la copie locale."""
+        row = entry["row"]
+        dlg.open = False
+        kanban_status.value = "Restauration…"
+        page.update()
+
+        def _work():
+            result = _notion_call("mcp__notion__notion-restore-page",
+                                  {"page_id": row["page_id"]})
+            if result.startswith("Erreur"):
+                props = {"Demande": row["demande"], "Etat": row["etat"],
+                         "Deadline": row.get("deadline"),
+                         "Téléphone": row.get("telephone"),
+                         "E-mail": row.get("email"), "Prix": row.get("prix"),
+                         "Projet ?": row.get("projet"),
+                         "Payé ?": row.get("paye"),
+                         "Prévenir ?": row.get("prevenu")}
+                page_data = {"properties": {k: v for k, v in props.items()
+                                            if v not in (None, "")}}
+                if row.get("notes"):
+                    page_data["content"] = _kanban_plain_to_notion(
+                        row["notes"])
+                result = _notion_call(
+                    "mcp__notion__notion-create-pages",
+                    {"parent": {"type": "data_source_id",
+                                "data_source_id":
+                                    KANBAN_DATA_SOURCE.split("://", 1)[-1]},
+                     "pages": [page_data]})
+            failed = result.startswith("Erreur")
+            if not failed:
+                _save_json(_KANBAN_TRASH_FILE, [
+                    t for t in _load_json(_KANBAN_TRASH_FILE, [])
+                    if t["row"]["page_id"] != row["page_id"]])
+
+            async def _apply():
+                if failed:
+                    kanban_status.value = f"Échec de la restauration : {result}"
+                    page.update()
+                else:
+                    _kanban_refresh()
+
+            _run_task(_apply)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    def _kanban_show_trash(e=None):
+        trash = _load_json(_KANBAN_TRASH_FILE, [])
+        items = ft.ListView(spacing=4, height=460, width=560)
+        dlg = None
+
+        def _fill(query=""):
+            q = query.lower().strip()
+            items.controls = [
+                ft.Container(
+                    ft.Row([
+                        ft.Column([
+                            ft.Text(t["row"]["demande"], color=WHITE,
+                                    size=CONSTANTS.TEXT_SM, no_wrap=False),
+                            ft.Text(f"Supprimée le {t['deleted_at']} — "
+                                    f"{t['row'].get('etat', '')}",
+                                    size=11, color=LIGHT_GREY),
+                        ], spacing=2, expand=True),
+                        _dlg_btn("Restaurer", color=SURFACE_ACCENT["kanban"],
+                                 on_click=lambda e, t=t: _kanban_restore(
+                                     t, dlg)),
+                    ]),
+                    padding=8, border_radius=8, bgcolor=BACKGROUND)
+                for t in trash
+                if not q or q in json.dumps(t, ensure_ascii=False).lower()]
+
+        def _on_search(e):
+            _fill(e.control.value or "")
+            items.update()
+
+        _fill()
+        dlg = _dialog(
+            title=ft.Text("Corbeille des tâches", size=CONSTANTS.TEXT_SM,
+                          color=WHITE),
+            content=ft.Column([
+                ft.TextField(hint_text="Rechercher…", on_change=_on_search,
+                             width=560,
+                             border=CONSTANTS.input_border(
+                                 SURFACE_ACCENT["kanban"]),
+                             color=WHITE, bgcolor=DARK, autofocus=True),
+                items], tight=True, spacing=8),
+            actions=[_dlg_btn("Fermer", "cancel",
+                              on_click=lambda e: (setattr(dlg, "open", False),
+                                                  page.update()))])
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
     def _sync_label(cache_file=None):
         """« Synchro 14:05 » (aujourd'hui) ou « Synchro 26/09 14:05 » ;
         au démarrage, date du fichier cache."""
@@ -8805,6 +8924,11 @@ def main(page: ft.Page):
                     for r in rows:
                         if r["page_id"] in cached_notes:
                             r["notes"] = cached_notes[r["page_id"]]
+                    # Supprimées dans Notion depuis la dernière synchro
+                    # (requête paginée complète : absence = suppression).
+                    ids = {r["page_id"] for r in rows}
+                    _kanban_to_trash([r for r in kanban_state["rows"]
+                                      if r["page_id"] not in ids])
             except Exception as exc:
                 rows, error = [], str(exc)
 
@@ -8950,6 +9074,11 @@ def main(page: ft.Page):
                 kanban_search_wrap,
                 kanban_auto_sync_switch,
                 kanban_status,
+                ft.IconButton(ft.Icons.DELETE_OUTLINE, **SQUARE_BTN,
+                             icon_color=SURFACE_ACCENT["kanban"],
+                             icon_size=CONSTANTS.ICON_SM,
+                             tooltip="Corbeille",
+                             on_click=_kanban_show_trash),
                 ft.IconButton(ft.Icons.ADD, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["kanban"],
                              icon_size=CONSTANTS.ICON_SM,

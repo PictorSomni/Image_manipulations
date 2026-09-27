@@ -231,6 +231,11 @@ def _trash(args):
     return {"ok": True}
 
 
+def _restore(args):
+    _req("PATCH", f"/pages/{args['page_id']}", {"in_trash": False})
+    return {"ok": True}
+
+
 def _fetch(args):
     body = _blocks_to_text(args["id"])
     return {"text": f"<page><content>\n{body}\n</content></page>"}
@@ -240,7 +245,8 @@ _TOOLS = {"notion-query-data-sources": _query,
           "notion-update-page": _update,
           "notion-create-pages": _create,
           "notion-fetch": _fetch,
-          "notion-trash-page": _trash}  # pas d'équivalent MCP
+          "notion-trash-page": _trash,  # pas d'équivalent MCP
+          "notion-restore-page": _restore}
 
 
 def call_tool(qualified_name, arguments):
