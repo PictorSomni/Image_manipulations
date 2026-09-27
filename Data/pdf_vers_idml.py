@@ -112,18 +112,27 @@ def group_paragraphs(lines, page_w):
     return paras
 
 
-def normalize_sizes(sizes, step=0.5, tol=0.7):
-    """Tailles proches regroupées (7,6/7,8/8,2 -> 8) : {taille: normalisée}.
-    ponytail: regroupement glouton trié, suffisant pour un flyer."""
-    out, group = {}, []
-    for sz in sorted(set(sizes)) + [None]:
-        if group and (sz is None or sz - group[0] > tol):
-            mean = sum(group) / len(group)
-            for g in group:
-                out[g] = round(mean / step) * step
-            group = []
-        if sz is not None:
-            group.append(sz)
+ROLES = ((0.92, "Petit"), (1.12, "Texte"), (1.6, "Intertitre"),
+         (2.5, "Titre"), (99, "Grand titre"))
+
+
+def size_roles(items):
+    """[(taille, nb_caractères)] -> {taille: (rôle, taille_du_rôle)}.
+    Texte = taille la plus présente ; les autres classées par rapport à
+    elle (retour user : 3-5 niveaux, pas une taille par bloc)."""
+    weight = {}
+    for sz, n in items:
+        weight[sz] = weight.get(sz, 0) + n
+    body = max(weight, key=weight.get)
+    role_of = {sz: next(r for lim, r in ROLES if sz / body < lim)
+               for sz in weight}
+    out = {}
+    for role in set(role_of.values()):
+        members = sorted(sz for sz in weight if role_of[sz] == role)
+        # Taille la plus présente du rôle, arrondie au demi-point.
+        rep = max(members, key=weight.get)
+        for sz in members:
+            out[sz] = (role, round(rep * 2) / 2)
     return out
 
 
@@ -212,15 +221,29 @@ def convert(pdf_path):
     # style de paragraphe par police + taille normalisée (retour user :
     # même interlignage partout, modifiable d'un coup dans Affinity).
     paras = group_paragraphs(_lines(page), w)
-    sizes = normalize_sizes([q["lines"][0]["size"] for q in paras])
+    roles = size_roles([(q["lines"][0]["size"], len(q["text"]))
+                        for q in paras])
+    # Police du style = la plus présente dans le rôle ; les autres blocs
+    # du rôle gardent la leur en local.
+    fonts = {}
+    for q in paras:
+        k = (roles[q["lines"][0]["size"]][0],
+             _font(q["lines"][0]["font"]))
+        fonts[k] = fonts.get(k, 0) + len(q["text"])
     pstyles = {}
+    for (role, font), n in sorted(fonts.items(), key=lambda kv: kv[1]):
+        size = next(v[1] for v in roles.values() if v[0] == role)
+        pstyles[role] = (*font, size, round(size * 1.25 * 2) / 2)
     for i, p in enumerate(paras):
         ln = p["lines"][0]
+        pname = roles[ln["size"]][0]
+        sfam, sstyle, size, lead = pstyles[pname]
         fam, style = _font(ln["font"])
-        size = sizes[ln["size"]]
-        lead = round(size * 1.25 * 2) / 2
-        pname = f"{fam} {style} {size:g}"
-        pstyles[pname] = (fam, style, size, lead)
+        local = "" if (fam, style) == (sfam, sstyle) else (
+            f'FontStyle="{escape(style)}" ')
+        local_font = "" if fam == sfam else (
+            f'<Properties><AppliedFont type="string">{escape(fam)}'
+            f'</AppliedFont></Properties>')
         x0, y0, x1, y1 = p["bbox"]
         pad = (x1 - x0) * 0.06 + 4
         x0, x1 = {"LeftAlign": (x0, x1 + 2 * pad),
@@ -233,8 +256,8 @@ def convert(pdf_path):
             f'<Story Self="{sid}"><ParagraphStyleRange AppliedParagraphStyle='
             f'"ParagraphStyle/{escape(pname)}" Justification='
             f'"{p["align"]}"><CharacterStyleRange AppliedCharacterStyle='
-            f'"CharacterStyle/$ID/[No character style]" '
-            f'FillColor="{color(ln["color"])}"><Content>'
+            f'"CharacterStyle/$ID/[No character style]" {local}'
+            f'FillColor="{color(ln["color"])}">{local_font}<Content>'
             f'{escape(p["text"])}</Content></CharacterStyleRange>'
             f'</ParagraphStyleRange></Story>')))
         items.append(
@@ -333,6 +356,8 @@ if __name__ == "__main__":
                            L(60, "Autre bloc", 40, 60)], 200)
     assert [p["text"] for p in ps] == ["Une ligne coupée ici.", "Autre bloc"]
     assert ps[0]["leading"] == 9.0
-    assert normalize_sizes([7.6, 7.8, 8.2, 11.2, 24]) == {
-        7.6: 8.0, 7.8: 8.0, 8.2: 8.0, 11.2: 11.0, 24: 24.0}
+    r = size_roles([(6.8, 90), (7.8, 200), (8.2, 150), (10.1, 40),
+                    (11.2, 30), (15.5, 20), (24, 15)])
+    assert r[8.2] == ("Texte", 8.0) and r[6.8] == ("Petit", 7.0)
+    assert r[11.2] == ("Intertitre", 10.0) and r[24][0] == "Grand titre"
     print("ok")
