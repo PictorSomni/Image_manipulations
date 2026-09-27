@@ -11567,6 +11567,20 @@ def main(page: ft.Page):
     # dans le volet "Périphériques" du menu Ouvrir, au même endroit que les
     # clés USB et les cartes SD, ce qui est là où on le cherche (retour
     # user 2026-08-07). Cf. _phone_row.
+    def _nettoyer_texte(e=None):
+        """Presse-papiers -> nettoyé -> presse-papiers (mises en page IA)."""
+        async def _run():
+            import nettoyer_texte
+            text = await ft.Clipboard().get() or ""
+            if not text:
+                _log_to_terminal("⚠ Presse-papiers vide.", YELLOW)
+                return
+            text, n = nettoyer_texte.clean(text)
+            await ft.Clipboard().set(text)
+            _log_to_terminal(f"[OK] Texte nettoyé : {n} correction(s), "
+                             "prêt à coller.", GREEN)
+        _run_task(_run)
+
     _ACTION_CATEGORIES = [
         ("Fichier", _fichier_icon_actions),
         ("Préparation", [
@@ -11576,6 +11590,7 @@ def main(page: ft.Page):
             ("Conversion PNG", ft.Icons.IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Conversion JPG.py",
                                     extra_env={"CONVERT_FORMAT": "png"})),
+            ("Nettoyer texte", ft.Icons.TEXT_FORMAT, BLUE, _nettoyer_texte),
             ("Renommer séquence", ft.Icons.SORT_BY_ALPHA, BLUE,
              _launch_renommer_sequence),
             ("Renommer pages Affinity", ft.Icons.FORMAT_LIST_NUMBERED, BLUE,
