@@ -9713,12 +9713,15 @@ def main(page: ft.Page):
     _agenda_rebuild()
 
     async def _hourly_sync():
-        # Tâches + Agenda rafraîchis depuis Notion toutes les heures
-        # (retour user), en plus du cache et du bouton Actualiser.
+        # Tâches toutes les heures, Agenda une fois par jour (retour user),
+        # en plus du cache et du bouton Actualiser.
+        hours = 0
         while True:
             await asyncio.sleep(3600)
+            hours += 1
             _kanban_refresh()
-            _agenda_refresh()
+            if hours % 24 == 0:
+                _agenda_refresh()
 
     _run_task(_hourly_sync)
 
