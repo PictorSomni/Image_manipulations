@@ -397,8 +397,8 @@ def convert(path):
 
 
 def _docx_from_doc(path):
-    """Ancien .doc -> .docx temporaire (textutil sur Mac, LibreOffice
-    ailleurs, Word via COM sous Windows)."""
+    """Ancien .doc -> .docx temporaire (textutil intégré à macOS,
+    LibreOffice ailleurs)."""
     import subprocess
     import tempfile
     tmp = tempfile.mkdtemp()
@@ -407,17 +407,16 @@ def _docx_from_doc(path):
     if sys.platform == "darwin":
         subprocess.run(["textutil", "-convert", "docx", "-output", out,
                         path], check=True, capture_output=True)
-    elif os.name == "nt":
-        import win32com.client
-        word = win32com.client.Dispatch("Word.Application")
-        try:
-            d = word.Documents.Open(os.path.abspath(path))
-            d.SaveAs2(out, FileFormat=16)
-            d.Close()
-        finally:
-            word.Quit()
     else:
-        subprocess.run(["soffice", "--headless", "--convert-to", "docx",
+        # Windows : LibreOffice (Word pas installé, retour user).
+        soffice = shutil.which("soffice") or next(
+            (p for p in (r"C:\Program Files\LibreOffice\program\soffice.exe",
+                         r"C:\Program Files (x86)\LibreOffice\program"
+                         r"\soffice.exe") if os.path.exists(p)), None)
+        if not soffice:
+            raise RuntimeError("ancien .doc : installe LibreOffice ou "
+                               "enregistre-le en .docx")
+        subprocess.run([soffice, "--headless", "--convert-to", "docx",
                         "--outdir", tmp, path], check=True,
                        capture_output=True)
     return out
