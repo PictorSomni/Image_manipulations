@@ -103,6 +103,7 @@ _KANBAN_CACHE_FILE = os.path.join(_APP_DIR, ".kanban_cache.json")
 # Corbeille locale des tâches (retour user : historique Notion payant
 # au-delà de quelques jours) — jamais purgée automatiquement.
 _KANBAN_TRASH_FILE = os.path.join(_APP_DIR, ".kanban_trash.json")
+_KANBAN_TRASH_DAYS = 365  # purge auto au-delà (retour user)
 # Ordre manuel des cartes (glisser-déposer) : l'API Notion n'expose pas
 # l'ordre manuel d'une vue, donc gardé localement (liste de page_id).
 _KANBAN_ORDER_FILE = os.path.join(_APP_DIR, ".kanban_order.json")
@@ -8849,7 +8850,11 @@ def main(page: ft.Page):
         threading.Thread(target=_work, daemon=True).start()
 
     def _kanban_show_trash(e=None):
-        trash = _load_json(_KANBAN_TRASH_FILE, [])
+        limit = (datetime.datetime.now() - datetime.timedelta(
+            days=_KANBAN_TRASH_DAYS)).strftime("%Y-%m-%d %H:%M")
+        trash = [t for t in _load_json(_KANBAN_TRASH_FILE, [])
+                 if t["deleted_at"] >= limit]
+        _save_json(_KANBAN_TRASH_FILE, trash)
         items = ft.ListView(spacing=4, height=460, width=560)
         dlg = None
 
@@ -8868,12 +8873,22 @@ def main(page: ft.Page):
                         _dlg_btn("Restaurer", color=SURFACE_ACCENT["kanban"],
                                  on_click=lambda e, t=t: _kanban_restore(
                                      t, dlg)),
+                        ft.IconButton(ft.Icons.DELETE_FOREVER_OUTLINED,
+                                      icon_color=RED,
+                                      tooltip="Supprimer définitivement",
+                                      on_click=lambda e, t=t: _forget(t)),
                     ]),
                     padding=8, border_radius=8, bgcolor=BACKGROUND,
                     on_click=lambda e, t=t: _kanban_open_details(
                         dict(t["row"]), trash=(t, dlg)))
                 for t in trash
                 if not q or q in json.dumps(t, ensure_ascii=False).lower()]
+
+        def _forget(t):
+            trash.remove(t)
+            _save_json(_KANBAN_TRASH_FILE, trash)
+            _fill(search.value or "")
+            items.update()
 
         def _on_search(e):
             _fill(e.control.value or "")
@@ -8884,7 +8899,8 @@ def main(page: ft.Page):
             title=ft.Text("Corbeille des tâches", size=CONSTANTS.TEXT_SM,
                           color=WHITE),
             content=ft.Column([
-                ft.TextField(hint_text="Rechercher…", on_change=_on_search,
+                search := ft.TextField(
+                             hint_text="Rechercher…", on_change=_on_search,
                              width=560,
                              border=CONSTANTS.input_border(
                                  SURFACE_ACCENT["kanban"]),
