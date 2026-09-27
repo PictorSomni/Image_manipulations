@@ -396,6 +396,65 @@ def convert(path):
     return result
 
 
+def _emf_bitmap(data):
+    """Bitmap embarquée dans un EMF (Word enveloppe souvent une simple
+    photo collée dans un EMF) -> PNG, sinon None.
+    ponytail: seul EMR_STRETCHDIBITS (81), le cas courant ; les EMF
+    vraiment vectoriels passent par LibreOffice (_emf_convert)."""
+    import io
+    import struct
+    from PIL import Image
+    best, pos = None, 0
+    while pos + 8 <= len(data):
+        rtype, size = struct.unpack_from("<II", data, pos)
+        if size < 8:
+            break
+        if rtype == 81 and size >= 80:
+            off_bmi, cb_bmi, off_bits, cb_bits = struct.unpack_from(
+                "<IIII", data, pos + 48)
+            if cb_bmi and cb_bits and (best is None or cb_bits > best[3]):
+                best = (pos + off_bmi, cb_bmi, pos + off_bits, cb_bits)
+        pos += size
+    if best is None:
+        return None
+    bmi = data[best[0]:best[0] + best[1]]
+    bits = data[best[2]:best[2] + best[3]]
+    head = b"BM" + struct.pack("<IHHI", 14 + len(bmi) + len(bits), 0, 0,
+                               14 + len(bmi))
+    buf = io.BytesIO()
+    Image.open(io.BytesIO(head + bmi + bits)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _emf_convert(data, ext):
+    """EMF/WMF (illisibles par Affinity) -> (données, extension)."""
+    png = None
+    try:
+        png = _emf_bitmap(data) if ext == "emf" else None
+    except Exception:
+        pass
+    if png:
+        return png, "png"
+    import subprocess
+    import tempfile
+    soffice = shutil.which("soffice") or next(
+        (p for p in ("/Applications/LibreOffice.app/Contents/MacOS/soffice",
+                     r"C:\Program Files\LibreOffice\program\soffice.exe")
+         if os.path.exists(p)), None)
+    if soffice:
+        tmp = tempfile.mkdtemp()
+        src = os.path.join(tmp, "image." + ext)
+        with open(src, "wb") as f:
+            f.write(data)
+        subprocess.run([soffice, "--headless", "--convert-to", "pdf",
+                        "--outdir", tmp, src], capture_output=True)
+        pdf = os.path.join(tmp, "image.pdf")
+        if os.path.exists(pdf):
+            with open(pdf, "rb") as f:
+                return f.read(), "pdf"
+    return data, ext
+
+
 def _docx_from_doc(path):
     """Ancien .doc -> .docx temporaire (textutil intégré à macOS,
     LibreOffice ailleurs)."""
@@ -541,10 +600,15 @@ def convert_docx(path):
             iw, ih = Image.open(io.BytesIO(part.blob)).size
         except Exception:
             return 0
-        ext = os.path.splitext(part.partname)[1][1:] or "png"
+        ext = (os.path.splitext(part.partname)[1][1:] or "png").lower()
+        data = part.blob
+        if ext in ("emf", "wmf"):
+            data, ext = _emf_convert(data, ext)
+            if ext == "png":
+                iw, ih = Image.open(io.BytesIO(data)).size
         if box is None:  # table de montage, à droite de la page
             box = (w + 40, y, w + 240, y + 200 * ih / iw)
-        out.image(part.blob, ext, box, iw, ih)
+        out.image(data, ext, box, iw, ih)
         return box[3] - box[1]
 
     for box, rid in pics:
@@ -580,6 +644,18 @@ if __name__ == "__main__":
                     (11.2, 30), (15.5, 20), (24, 15)])
     assert r[8.2] == ("Texte", 8.0) and r[6.8] == ("Texte", 8.0)
     assert r[11.2] == ("Intertitre", 10.0) and r[24][0] == "Grand titre"
+    import io
+    import struct
+    from PIL import Image
+    bmp = io.BytesIO()
+    Image.new("RGB", (3, 2), (200, 10, 10)).save(bmp, "BMP")
+    bmi, bits = bmp.getvalue()[14:54], bmp.getvalue()[54:]
+    rec = struct.pack("<II16s6iIIII", 81, 80 + len(bmi) + len(bits),
+                      b"\0" * 16, 0, 0, 0, 0, 3, 2, 80, len(bmi),
+                      80 + len(bmi), len(bits)) + b"\0" * 16 + bmi + bits
+    emf = struct.pack("<II", 1, 8) + rec
+    png = _emf_bitmap(emf)
+    assert Image.open(io.BytesIO(png)).getpixel((0, 0)) == (200, 10, 10)
     from xml.etree import ElementTree as ET
     anc = ET.fromstring(
         f'<a xmlns:wp="{_WP[1:-1]}"><wp:positionH relativeFrom="page">'
