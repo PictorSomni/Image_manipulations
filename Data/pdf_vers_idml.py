@@ -6,13 +6,15 @@ Le PDF ne contient pas de paragraphes : le regroupement est déduit
 (même police/taille/couleur, lignes proches). Texte passé par
 nettoyer_texte au passage.
 
-convert(pdf_path) -> chemin du .idml (à côté du PDF, + dossier _liens).
+convert(pdf_path) -> chemin du .idml, rangé comme Conversion JPG :
+<dossier>/idml/<nom>.idml + <nom>_liens/, PDF d'origine -> <dossier>/pdf/.
 """
 
 __version__ = "2.3.7"
 
 import os
 import re
+import shutil
 import sys
 import zipfile
 from xml.sax.saxutils import escape
@@ -161,7 +163,10 @@ def convert(pdf_path):
     page = doc[0]  # ponytail: 1re page seulement, multi-pages si besoin
     w, h = page.rect.width, page.rect.height
     dy = h / 2  # repère de planche IDML : origine au milieu en hauteur
-    base = os.path.splitext(pdf_path)[0]
+    folder = os.path.dirname(os.path.abspath(pdf_path))
+    name = os.path.splitext(os.path.basename(pdf_path))[0]
+    base = os.path.join(folder, "idml", name)
+    os.makedirs(os.path.dirname(base), exist_ok=True)
     links = base + "_liens"
     colors, items, stories = {}, [], []
 
@@ -327,6 +332,7 @@ def convert(pdf_path):
         + "".join(f'<idPkg:{k.split("/")[1][:-4].split("_")[0]} '
                   f'src="{k}"/>' for k in files)
         + '</Document>')
+    doc.close()
     out = base + ".idml"
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr(zipfile.ZipInfo("mimetype"),
@@ -341,6 +347,12 @@ def convert(pdf_path):
             '</container>'))
         for k, v in files.items():
             z.writestr(k, v)
+    pdf_dir = os.path.join(folder, "pdf")
+    if os.path.basename(folder) != "pdf":
+        os.makedirs(pdf_dir, exist_ok=True)
+        dest = os.path.join(pdf_dir, os.path.basename(pdf_path))
+        if not os.path.exists(dest):
+            shutil.move(pdf_path, dest)
     return out
 
 
