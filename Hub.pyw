@@ -8764,6 +8764,18 @@ def main(page: ft.Page):
         for veil in (kanban_sync_veil, agenda_sync_veil):
             ui_helpers.set_busy_veil(veil, kanban_state["busy"] > 0)
 
+    def _sync_label(cache_file=None):
+        """« Synchro 14:05 » (aujourd'hui) ou « Synchro 26/09 14:05 » ;
+        au démarrage, date du fichier cache."""
+        # ponytail: mtime du cache — une modif locale le réécrit aussi.
+        try:
+            t = (datetime.datetime.fromtimestamp(os.path.getmtime(cache_file))
+                 if cache_file else datetime.datetime.now())
+        except OSError:
+            return "Pas encore synchronisé"
+        fmt = "%H:%M" if t.date() == datetime.date.today() else "%d/%m %H:%M"
+        return f"Synchro {t.strftime(fmt)}"
+
     def _kanban_refresh(event=None):
         if kanban_state["loading"]:
             return
@@ -8805,8 +8817,7 @@ def main(page: ft.Page):
                     kanban_state["rows"] = rows
                     _save_json(_KANBAN_CACHE_FILE, rows)
                     kanban_status.value = (
-                        f"{len(rows)} tâches — mis à jour à "
-                        f"{datetime.datetime.now().strftime('%H:%M')}")
+                        f"{len(rows)} tâches — {_sync_label()}")
                     _kanban_rebuild_columns()
                     _agenda_rebuild()
                 page.update()
@@ -8977,7 +8988,8 @@ def main(page: ft.Page):
         # Affiche tout de suite le cache (rempli au run précédent) — plus
         # de rechargement auto (retour user), actualisation via le bouton.
         _kanban_rebuild_columns()
-        kanban_status.value = "Données en cache — Actualiser pour resynchroniser"
+        kanban_status.value = (f"{len(kanban_state['rows'])} tâches — "
+                               f"{_sync_label(_KANBAN_CACHE_FILE)}")
 
     # Recalcule la largeur des colonnes à chaque redimensionnement de la
     # fenêtre (mode plein écran / demi-écran...) — cf. _kanban_col_width.
@@ -9328,9 +9340,7 @@ def main(page: ft.Page):
                     _save_json(_AGENDA_CACHE_FILE,
                                {"events": events, "schemas": agenda_schemas})
                 agenda_status.value = (
-                    " / ".join(errors) if errors else
-                    f"Mis à jour à "
-                    f"{datetime.datetime.now().strftime('%H:%M')}")
+                    " / ".join(errors) if errors else _sync_label())
                 _agenda_rebuild()
                 page.update()
 
@@ -9709,7 +9719,7 @@ def main(page: ft.Page):
     if isinstance(_agenda_cache, dict) and _agenda_cache.get("events"):
         agenda_state["events"] = _agenda_cache["events"]
         agenda_schemas.update(_agenda_cache.get("schemas") or {})
-        agenda_status.value = "Données en cache"
+        agenda_status.value = _sync_label(_AGENDA_CACHE_FILE)
     _agenda_rebuild()
 
     async def _hourly_sync():
