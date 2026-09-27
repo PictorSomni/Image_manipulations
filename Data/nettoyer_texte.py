@@ -3,11 +3,12 @@ dans Affinity : espaces exotiques, caractères invisibles, lettres sosies
 (cyrillique/grec), ligatures, guillemets/tirets hétérogènes.
 
 clean(text) -> (texte_propre, nb_corrections). Utilisé par l'action
-« Nettoyer texte » du Hub (presse-papiers -> presse-papiers).
+« Nettoyer texte » du Hub (PDF sélectionné ou presse-papiers -> presse-papiers).
 """
 
 __version__ = "2.3.7"
 
+import difflib
 import re
 import unicodedata
 
@@ -51,8 +52,13 @@ def clean(text):
                   if m.group(0).startswith(" ") or m.group(1) in "»"
                   else m.group(0), text)
     text = re.sub(r"« ?", "« ", text)
-    changed = sum(a != b for a, b in zip(before, text)) + abs(
-        len(before) - len(text))
+    # Espace oubliée : « là? » -> « là ? » (pas « : », heures/URL).
+    text = re.sub(r"(?<=\w)([;!?])", " \\1", text)
+    text = re.sub(r"\n +", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip("\n ") + (
+        "\n" if before.endswith(("\n", "\r")) else "")
+    ops = difflib.SequenceMatcher(None, before, text, autojunk=False)
+    changed = sum(tag != "equal" for tag, *_ in ops.get_opcodes())
     return text, changed
 
 
@@ -63,5 +69,6 @@ if __name__ == "__main__":
         " Cafe - l’été\n".replace("Cafe", "Café"), repr(t)
     assert clean("Москва")[0] == "Москва"  # vrai cyrillique intact
     assert clean("Prix: 5€")[0] == "Prix: 5€"  # pas d'espace ajoutée
+    assert clean("bien là? Oui!")[0] == "bien là ? Oui !"
     assert n > 0 and clean("ok")[1] == 0
     print("ok")

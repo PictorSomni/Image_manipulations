@@ -11710,13 +11710,35 @@ def main(page: ft.Page):
     # dans le volet "Périphériques" du menu Ouvrir, au même endroit que les
     # clés USB et les cartes SD, ce qui est là où on le cherche (retour
     # user 2026-08-07). Cf. _phone_row.
-    def _nettoyer_texte(e=None):
-        """Presse-papiers -> nettoyé -> presse-papiers (mises en page IA)."""
+    def _pdf_text(path):
+        if path.lower().endswith(".pdf"):
+            try:
+                import fitz
+                with fitz.open(path) as doc:
+                    return "\n".join(p.get_text() for p in doc)
+            except ImportError:  # Pi : pas de PyMuPDF, poppler à la place
+                return subprocess.run(["pdftotext", path, "-"],
+                                      capture_output=True, text=True).stdout
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+
+    def _nettoyer_texte(paths=()):
+        """PDF/texte sélectionné (sinon presse-papiers) -> nettoyé ->
+        presse-papiers, prêt à coller dans Affinity."""
+        paths = [p for p in paths
+                 if p.lower().endswith((".pdf", ".txt", ".md"))]
+
         async def _run():
             import nettoyer_texte
-            text = await ft.Clipboard().get() or ""
+            try:
+                text = ("\n\n".join(_pdf_text(p) for p in paths) if paths
+                        else await ft.Clipboard().get() or "")
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] Lecture du texte : {exc}", RED)
+                return
             if not text:
-                _log_to_terminal("⚠ Presse-papiers vide.", YELLOW)
+                _log_to_terminal("⚠ Aucun texte : sélectionne un PDF ou "
+                                 "copie du texte.", YELLOW)
                 return
             text, n = nettoyer_texte.clean(text)
             await ft.Clipboard().set(text)
@@ -11733,7 +11755,8 @@ def main(page: ft.Page):
             ("Conversion PNG", ft.Icons.IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Conversion JPG.py",
                                     extra_env={"CONVERT_FORMAT": "png"})),
-            ("Nettoyer texte", ft.Icons.TEXT_FORMAT, BLUE, _nettoyer_texte),
+            ("Nettoyer texte", ft.Icons.TEXT_FORMAT, BLUE,
+             lambda e: _run_action(_nettoyer_texte, list(selected))),
             ("Renommer séquence", ft.Icons.SORT_BY_ALPHA, BLUE,
              _launch_renommer_sequence),
             ("Renommer pages Affinity", ft.Icons.FORMAT_LIST_NUMBERED, BLUE,
