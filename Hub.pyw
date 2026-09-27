@@ -11723,10 +11723,11 @@ def main(page: ft.Page):
             return f.read()
 
     def _pdf_vers_idml(paths=()):
-        """PDF sélectionnés -> .idml à côté (Affinity : vrais blocs)."""
-        pdfs = [p for p in paths if p.lower().endswith(".pdf")]
+        """PDF/Word sélectionnés -> idml/ (Affinity : vrais blocs)."""
+        pdfs = [p for p in paths
+                if p.lower().endswith((".pdf", ".docx", ".doc"))]
         if not pdfs:
-            _log_to_terminal("⚠ Sélectionne un PDF.", YELLOW)
+            _log_to_terminal("⚠ Sélectionne un PDF ou un Word.", YELLOW)
             return
 
         def _work():
@@ -11780,7 +11781,7 @@ def main(page: ft.Page):
                                     extra_env={"CONVERT_FORMAT": "png"})),
             ("Nettoyer texte", ft.Icons.TEXT_FORMAT, BLUE,
              lambda e: _run_action(_nettoyer_texte, list(selected))),
-            ("PDF vers IDML", ft.Icons.PICTURE_AS_PDF_OUTLINED, BLUE,
+            ("PDF ou Word vers IDML", ft.Icons.PICTURE_AS_PDF_OUTLINED, BLUE,
              lambda e: _run_action(_pdf_vers_idml, list(selected))),
             ("Renommer séquence", ft.Icons.SORT_BY_ALPHA, BLUE,
              _launch_renommer_sequence),

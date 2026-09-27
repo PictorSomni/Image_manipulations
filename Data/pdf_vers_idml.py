@@ -6,8 +6,9 @@ Le PDF ne contient pas de paragraphes : le regroupement est déduit
 (même police/taille/couleur, lignes proches). Texte passé par
 nettoyer_texte au passage.
 
-convert(pdf_path) -> chemin du .idml, rangé comme Conversion JPG :
-<dossier>/idml/<nom>.idml + <nom>_liens/, PDF d'origine -> <dossier>/pdf/.
+convert(path) -> chemin du .idml, rangé comme Conversion JPG :
+<dossier>/idml/<nom>.idml + <nom>_liens/, original -> <dossier>/pdf/
+(ou docx/, doc/). Word : cf. convert_docx.
 """
 
 __version__ = "2.3.7"
@@ -157,203 +158,405 @@ def _frame(self_id, x0, y0, x1, y1, dy, inner="", attrs=""):
             f'</PathGeometry></Properties>{inner}')
 
 
-def convert(pdf_path):
-    import pymupdf
-    doc = pymupdf.open(pdf_path)
-    page = doc[0]  # ponytail: 1re page seulement, multi-pages si besoin
-    w, h = page.rect.width, page.rect.height
-    dy = h / 2  # repère de planche IDML : origine au milieu en hauteur
-    folder = os.path.dirname(os.path.abspath(pdf_path))
-    name = os.path.splitext(os.path.basename(pdf_path))[0]
-    base = os.path.join(folder, "idml", name)
-    os.makedirs(os.path.dirname(base), exist_ok=True)
-    links = base + "_liens"
-    colors, items, stories = {}, [], []
+def _uri(path):
+    uri = "file:" + path.replace("\\", "/").replace(" ", "%20")
+    return uri if uri.startswith("file:/") else "file:///" + uri[5:]
 
-    def color(c):
+
+class _Idml:
+    """Accumule couleurs, blocs et textes, puis écrit le .idml."""
+
+    def __init__(self, w, h, base):
+        self.w, self.h, self.dy, self.base = w, h, h / 2, base
+        self.links = base + "_liens"
+        self.colors, self.items, self.stories = {}, [], []
+        self.pstyles, self.roles = {}, {}
+
+    def color(self, c):
         r, g, b = _rgb(c)
         cid = f"Color/R{r}G{g}B{b}"
-        colors[cid] = (r, g, b)
+        self.colors[cid] = (r, g, b)
         return cid
 
-    # Aplats et filets (rectangles englobants : coins arrondis perdus).
-    for i, d in enumerate(page.get_drawings()):
-        x0, y0, x1, y1 = d["rect"]
-        if d.get("fill") is not None:
-            attrs = f'FillColor="{color(d["fill"])}" StrokeWeight="0"'
-        elif d.get("color") is not None:
+    def shape(self, bbox, fill=None, stroke=None, width=1):
+        x0, y0, x1, y1 = bbox
+        if fill is not None:
+            attrs = f'FillColor="{self.color(fill)}" StrokeWeight="0"'
+        elif stroke is not None:
             attrs = (f'FillColor="Swatch/None" StrokeColor='
-                     f'"{color(d["color"])}" StrokeWeight='
-                     f'"{d.get("width") or 1}"')
+                     f'"{self.color(stroke)}" StrokeWeight="{width or 1}"')
         else:
-            continue
-        if x1 - x0 < 0.5 or y1 - y0 < 0.5:  # filet : ligne
-            items.append(f'<GraphicLine Self="d{i}" {attrs} '
-                         f'ItemTransform="1 0 0 1 0 0">'
-                         + _frame("", x0, y0, max(x1, x0 + .01),
-                                  max(y1, y0 + .01), dy) + '</GraphicLine>')
-        else:
-            items.append(f'<Rectangle Self="d{i}" {attrs} '
-                         f'ItemTransform="1 0 0 1 0 0">'
-                         + _frame("", x0, y0, x1, y1, dy) + '</Rectangle>')
+            return
+        n = len(self.items)
+        tag = ("GraphicLine" if x1 - x0 < 0.5 or y1 - y0 < 0.5
+               else "Rectangle")
+        self.items.append(
+            f'<{tag} Self="d{n}" {attrs} ItemTransform="1 0 0 1 0 0">'
+            + _frame("", x0, y0, max(x1, x0 + .01), max(y1, y0 + .01),
+                     self.dy) + f'</{tag}>')
 
-    # Images, extraites dans <nom>_liens (IDML = images liées).
-    for i, info in enumerate(page.get_image_info(xrefs=True)):
-        if not info.get("xref"):
-            continue
-        os.makedirs(links, exist_ok=True)
-        img = doc.extract_image(info["xref"])
-        path = os.path.join(links, f"image_{i + 1}.{img['ext']}")
+    def image(self, data, ext, bbox, iw, ih):
+        """Image enregistrée dans <nom>_liens puis placée (liée)."""
+        os.makedirs(self.links, exist_ok=True)
+        n = len(os.listdir(self.links)) + 1
+        path = os.path.join(self.links, f"image_{n}.{ext}")
         with open(path, "wb") as f:
-            f.write(img["image"])
-        x0, y0, x1, y1 = info["bbox"]
-        iw, ih = img["width"], img["height"]
+            f.write(data)
+        x0, y0, x1, y1 = bbox
         sx, sy = (x1 - x0) / iw, (y1 - y0) / ih
-        uri = "file:" + path.replace("\\", "/").replace(" ", "%20")
-        if not uri.startswith("file:/"):
-            uri = "file:///" + uri[5:]
-        items.append(
+        i = len(self.items)
+        self.items.append(
             f'<Rectangle Self="i{i}" FillColor="Swatch/None" '
             f'StrokeWeight="0" ItemTransform="1 0 0 1 0 0">'
-            + _frame("", x0, y0, x1, y1, dy,
+            + _frame("", x0, y0, x1, y1, self.dy,
                      f'<Image Self="im{i}" ItemTransform="{sx} 0 0 {sy} '
-                     f'{x0} {y0 - dy}"><Properties><GraphicBounds Left="0" '
-                     f'Top="0" Right="{iw}" Bottom="{ih}"/></Properties>'
-                     f'<Link Self="l{i}" LinkResourceURI="{escape(uri)}"/>'
-                     f'</Image>') + '</Rectangle>')
+                     f'{x0} {y0 - self.dy}"><Properties><GraphicBounds '
+                     f'Left="0" Top="0" Right="{iw}" Bottom="{ih}"/>'
+                     f'</Properties><Link Self="l{i}" LinkResourceURI='
+                     f'"{escape(_uri(path))}"/></Image>') + '</Rectangle>')
 
-    # Texte : un bloc par paragraphe, élargi pour ne pas déborder ; un
-    # style de paragraphe par police + taille normalisée (retour user :
-    # même interlignage partout, modifiable d'un coup dans Affinity).
-    paras = group_paragraphs(_lines(page), w)
-    roles = size_roles([(q["lines"][0]["size"], len(q["text"]))
-                        for q in paras])
-    # Police du style = la plus présente dans le rôle ; les autres blocs
-    # du rôle gardent la leur en local.
-    fonts = {}
-    for q in paras:
-        k = (roles[q["lines"][0]["size"]][0],
-             _font(q["lines"][0]["font"]))
-        fonts[k] = fonts.get(k, 0) + len(q["text"])
-    pstyles = {}
-    for (role, font), n in sorted(fonts.items(), key=lambda kv: kv[1]):
-        size = next(v[1] for v in roles.values() if v[0] == role)
-        pstyles[role] = (*font, size, round(size * 1.25 * 2) / 2)
-    for i, p in enumerate(paras):
-        ln = p["lines"][0]
-        pname = roles[ln["size"]][0]
-        sfam, sstyle, size, lead = pstyles[pname]
-        fam, style = _font(ln["font"])
+    def styles(self, paras):
+        """paras : dicts size/font(fam, style)/text -> 4 styles par rôle
+        (retour user : mêmes réglages partout, remis à 0)."""
+        self.roles = size_roles([(q["size"], len(q["text"]))
+                                 for q in paras])
+        fonts = {}
+        for q in paras:
+            k = (self.roles[q["size"]][0], q["font"])
+            fonts[k] = fonts.get(k, 0) + len(q["text"])
+        for (role, font), _n in sorted(fonts.items(), key=lambda kv: kv[1]):
+            size = next(v[1] for v in self.roles.values() if v[0] == role)
+            self.pstyles[role] = (*font, size, round(size * 1.25 * 2) / 2)
+
+    def _range(self, q):
+        role = self.roles[q["size"]][0]
+        sfam, sstyle = self.pstyles[role][:2]
+        fam, style = q["font"]
         local = "" if (fam, style) == (sfam, sstyle) else (
             f'FontStyle="{escape(style)}" ')
         local_font = "" if fam == sfam else (
             f'<Properties><AppliedFont type="string">{escape(fam)}'
             f'</AppliedFont></Properties>')
-        x0, y0, x1, y1 = p["bbox"]
-        pad = (x1 - x0) * 0.06 + 4
-        x0, x1 = {"LeftAlign": (x0, x1 + 2 * pad),
-                  "RightAlign": (x0 - 2 * pad, x1),
-                  "CenterAlign": (x0 - pad, x1 + pad)}[p["align"]]
-        # Le bloc garde de la marge si l'interlignage est plus large.
-        y1 += lead * len(p["lines"]) - (y1 - y0) + size
-        sid = f"u{i}"
-        stories.append((sid, (
-            f'<Story Self="{sid}"><ParagraphStyleRange AppliedParagraphStyle='
-            f'"ParagraphStyle/{escape(pname)}" Justification='
-            f'"{p["align"]}"><CharacterStyleRange AppliedCharacterStyle='
-            f'"CharacterStyle/$ID/[No character style]" {local}'
-            f'FillColor="{color(ln["color"])}">{local_font}<Content>'
-            f'{escape(p["text"])}</Content></CharacterStyleRange>'
-            f'</ParagraphStyleRange></Story>')))
-        items.append(
-            f'<TextFrame Self="t{i}" ParentStory="{sid}" '
+        return (f'<ParagraphStyleRange AppliedParagraphStyle='
+                f'"ParagraphStyle/{escape(role)}" Justification='
+                f'"{q["align"]}"><CharacterStyleRange AppliedCharacterStyle='
+                f'"CharacterStyle/$ID/[No character style]" {local}'
+                f'FillColor="{self.color(q["color"])}">{local_font}'
+                f'<Content>{escape(q["text"])}</Content>')
+
+    def text(self, bbox, paras):
+        """Un bloc de texte contenant un ou plusieurs paragraphes."""
+        sid = f"u{len(self.stories)}"
+        end = "</CharacterStyleRange></ParagraphStyleRange>"
+        body = ("<Br/>" + end).join(self._range(q) for q in paras) + end
+        self.stories.append((sid, f'<Story Self="{sid}">{body}</Story>'))
+        x0, y0, x1, y1 = bbox
+        self.items.append(
+            f'<TextFrame Self="t{sid}" ParentStory="{sid}" '
             f'ContentType="TextType" ItemTransform="1 0 0 1 0 0">'
-            + _frame("", x0, y0 - 1, x1, y1, dy,
+            + _frame("", x0, y0, x1, y1, self.dy,
                      '<TextFramePreference TextColumnCount="1" '
                      'FirstBaselineOffset="AscentOffset" '
                      'InsetSpacing="0 0 0 0"/>') + '</TextFrame>')
 
-    color_xml = "".join(
-        f'<Color Self="{cid}" Model="Process" Space="RGB" '
-        f'ColorValue="{r} {g} {b}" Name="R={r} G={g} B={b}"/>'
-        for cid, (r, g, b) in colors.items())
-    files = {
-        "Resources/Graphic.xml": _pkg("Graphic", (
-            '<Color Self="Color/Black" Model="Process" Space="CMYK" '
-            'ColorValue="0 0 0 100" Name="Black"/>'
-            '<Color Self="Color/Paper" Model="Process" Space="CMYK" '
-            'ColorValue="0 0 0 0" Name="Paper"/>' + color_xml +
-            '<Swatch Self="Swatch/None" Name="None"/>')),
-        "Resources/Fonts.xml": _pkg("Fonts", ""),
-        "Resources/Styles.xml": _pkg("Styles", (
-            '<RootCharacterStyleGroup Self="rcsg"><CharacterStyle '
-            'Self="CharacterStyle/$ID/[No character style]" '
-            'Name="$ID/[No character style]"/></RootCharacterStyleGroup>'
-            '<RootParagraphStyleGroup Self="rpsg"><ParagraphStyle '
-            'Self="ParagraphStyle/$ID/[No paragraph style]" '
-            'Name="$ID/[No paragraph style]"/><ParagraphStyle '
-            'Self="ParagraphStyle/$ID/NormalParagraphStyle" '
-            'Name="$ID/NormalParagraphStyle"/>' + "".join(
-                f'<ParagraphStyle Self="ParagraphStyle/{escape(n)}" '
-                f'Name="{escape(n)}" PointSize="{sz:g}" '
-                f'FontStyle="{escape(st)}" Tracking="0" LeftIndent="0" '
-                f'FirstLineIndent="0" RightIndent="0" LastLineIndent="0" '
-                f'SpaceBefore="0" SpaceAfter="0" BaselineShift="0" '
-                f'KerningMethod="$ID/Metrics" HorizontalScale="100" '
-                f'VerticalScale="100">'
-                f'<Properties><AppliedFont type="string">{escape(fa)}'
-                f'</AppliedFont><Leading type="unit">{ld:g}</Leading>'
-                f'</Properties></ParagraphStyle>'
-                for n, (fa, st, sz, ld) in sorted(pstyles.items()))
-            + '</RootParagraphStyleGroup>')),
-        "Resources/Preferences.xml": _pkg("Preferences", (
-            f'<DocumentPreference PageHeight="{h}" PageWidth="{w}" '
-            f'PagesPerDocument="1" FacingPages="false" '
-            f'DocumentBleedTopOffset="{BLEED}" '
-            f'DocumentBleedBottomOffset="{BLEED}" '
-            f'DocumentBleedInsideOrLeftOffset="{BLEED}" '
-            f'DocumentBleedOutsideOrRightOffset="{BLEED}" '
-            f'DocumentBleedUniformSize="true"/>')),
-        "Spreads/Spread_s1.xml": _pkg("Spread", (
-            f'<Spread Self="s1" PageCount="1" BindingLocation="0" '
-            f'ItemTransform="1 0 0 1 0 0"><Page Self="p1" Name="1" '
-            f'GeometricBounds="0 0 {h} {w}" '
-            f'ItemTransform="1 0 0 1 0 {-dy}"/>' + "".join(items)
-            + '</Spread>')),
-    }
-    for sid, xml in stories:
-        files[f"Stories/Story_{sid}.xml"] = _pkg("Story", xml)
-    design = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
-        '<?aid style="50" type="document" readerVersion="6.0" '
-        'featureSet="257" product="8.0(370)" ?>\n'
-        f'<Document {_NS} DOMVersion="8.0" Self="d" '
-        f'StoryList="{" ".join(s for s, _ in stories)}">'
-        + "".join(f'<idPkg:{k.split("/")[1][:-4].split("_")[0]} '
-                  f'src="{k}"/>' for k in files)
-        + '</Document>')
-    doc.close()
-    out = base + ".idml"
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr(zipfile.ZipInfo("mimetype"),
-                   "application/vnd.adobe.indesign-idml-package",
-                   compress_type=zipfile.ZIP_STORED)
-        z.writestr("designmap.xml", design)
-        z.writestr("META-INF/container.xml", (
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument'
-            ':xmlns:container"><rootfiles><rootfile full-path='
-            '"designmap.xml" media-type="text/xml"/></rootfiles>'
-            '</container>'))
-        for k, v in files.items():
-            z.writestr(k, v)
-    pdf_dir = os.path.join(folder, "pdf")
-    if os.path.basename(folder) != "pdf":
-        os.makedirs(pdf_dir, exist_ok=True)
-        dest = os.path.join(pdf_dir, os.path.basename(pdf_path))
+    def save(self):
+        w, h = self.w, self.h
+        color_xml = "".join(
+            f'<Color Self="{cid}" Model="Process" Space="RGB" '
+            f'ColorValue="{r} {g} {b}" Name="R={r} G={g} B={b}"/>'
+            for cid, (r, g, b) in self.colors.items())
+        files = {
+            "Resources/Graphic.xml": _pkg("Graphic", (
+                '<Color Self="Color/Black" Model="Process" Space="CMYK" '
+                'ColorValue="0 0 0 100" Name="Black"/>'
+                '<Color Self="Color/Paper" Model="Process" Space="CMYK" '
+                'ColorValue="0 0 0 0" Name="Paper"/>' + color_xml +
+                '<Swatch Self="Swatch/None" Name="None"/>')),
+            "Resources/Fonts.xml": _pkg("Fonts", ""),
+            "Resources/Styles.xml": _pkg("Styles", (
+                '<RootCharacterStyleGroup Self="rcsg"><CharacterStyle '
+                'Self="CharacterStyle/$ID/[No character style]" '
+                'Name="$ID/[No character style]"/>'
+                '</RootCharacterStyleGroup>'
+                '<RootParagraphStyleGroup Self="rpsg"><ParagraphStyle '
+                'Self="ParagraphStyle/$ID/[No paragraph style]" '
+                'Name="$ID/[No paragraph style]"/><ParagraphStyle '
+                'Self="ParagraphStyle/$ID/NormalParagraphStyle" '
+                'Name="$ID/NormalParagraphStyle"/>' + "".join(
+                    f'<ParagraphStyle Self="ParagraphStyle/{escape(n)}" '
+                    f'Name="{escape(n)}" PointSize="{sz:g}" '
+                    f'FontStyle="{escape(st)}" Tracking="0" LeftIndent="0" '
+                    f'FirstLineIndent="0" RightIndent="0" '
+                    f'LastLineIndent="0" SpaceBefore="0" SpaceAfter="0" '
+                    f'BaselineShift="0" KerningMethod="$ID/Metrics" '
+                    f'HorizontalScale="100" VerticalScale="100">'
+                    f'<Properties><AppliedFont type="string">{escape(fa)}'
+                    f'</AppliedFont><Leading type="unit">{ld:g}</Leading>'
+                    f'</Properties></ParagraphStyle>'
+                    for n, (fa, st, sz, ld) in sorted(self.pstyles.items()))
+                + '</RootParagraphStyleGroup>')),
+            "Resources/Preferences.xml": _pkg("Preferences", (
+                f'<DocumentPreference PageHeight="{h}" PageWidth="{w}" '
+                f'PagesPerDocument="1" FacingPages="false" '
+                f'DocumentBleedTopOffset="{BLEED}" '
+                f'DocumentBleedBottomOffset="{BLEED}" '
+                f'DocumentBleedInsideOrLeftOffset="{BLEED}" '
+                f'DocumentBleedOutsideOrRightOffset="{BLEED}" '
+                f'DocumentBleedUniformSize="true"/>')),
+            "Spreads/Spread_s1.xml": _pkg("Spread", (
+                f'<Spread Self="s1" PageCount="1" BindingLocation="0" '
+                f'ItemTransform="1 0 0 1 0 0"><Page Self="p1" Name="1" '
+                f'GeometricBounds="0 0 {h} {w}" '
+                f'ItemTransform="1 0 0 1 0 {-self.dy}"/>'
+                + "".join(self.items) + '</Spread>')),
+        }
+        for sid, xml in self.stories:
+            files[f"Stories/Story_{sid}.xml"] = _pkg("Story", xml)
+        design = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+            '<?aid style="50" type="document" readerVersion="6.0" '
+            'featureSet="257" product="8.0(370)" ?>\n'
+            f'<Document {_NS} DOMVersion="8.0" Self="d" '
+            f'StoryList="{" ".join(s for s, _ in self.stories)}">'
+            + "".join(f'<idPkg:{k.split("/")[1][:-4].split("_")[0]} '
+                      f'src="{k}"/>' for k in files)
+            + '</Document>')
+        out = self.base + ".idml"
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr(zipfile.ZipInfo("mimetype"),
+                       "application/vnd.adobe.indesign-idml-package",
+                       compress_type=zipfile.ZIP_STORED)
+            z.writestr("designmap.xml", design)
+            z.writestr("META-INF/container.xml", (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                '<container version="1.0" xmlns="urn:oasis:names:tc:'
+                'opendocument:xmlns:container"><rootfiles><rootfile '
+                'full-path="designmap.xml" media-type="text/xml"/>'
+                '</rootfiles></container>'))
+            for k, v in files.items():
+                z.writestr(k, v)
+        return out
+
+
+def _prepare(src, sub):
+    """-> (base de sortie dans idml/, fonction qui range src dans sub/)."""
+    folder = os.path.dirname(os.path.abspath(src))
+    name = os.path.splitext(os.path.basename(src))[0]
+    os.makedirs(os.path.join(folder, "idml"), exist_ok=True)
+
+    def tidy():
+        if os.path.basename(folder) == sub:
+            return
+        dest = os.path.join(folder, sub, os.path.basename(src))
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
         if not os.path.exists(dest):
-            shutil.move(pdf_path, dest)
+            shutil.move(src, dest)
+    return os.path.join(folder, "idml", name), tidy
+
+
+def convert(path):
+    """PDF ou Word -> .idml (cf. en-tête), selon l'extension."""
+    if path.lower().endswith((".docx", ".doc")):
+        return convert_docx(path)
+    import pymupdf
+    base, tidy = _prepare(path, "pdf")
+    doc = pymupdf.open(path)
+    page = doc[0]  # ponytail: 1re page seulement, multi-pages si besoin
+    w, h = page.rect.width, page.rect.height
+    out = _Idml(w, h, base)
+    # Aplats et filets (rectangles englobants : coins arrondis perdus).
+    for d in page.get_drawings():
+        out.shape(d["rect"], d.get("fill"), d.get("color"), d.get("width"))
+    for info in page.get_image_info(xrefs=True):
+        if info.get("xref"):
+            img = doc.extract_image(info["xref"])
+            out.image(img["image"], img["ext"], info["bbox"],
+                      img["width"], img["height"])
+    # Texte : un bloc par paragraphe, élargi pour ne pas déborder.
+    paras = group_paragraphs(_lines(page), w)
+    for q in paras:
+        ln = q["lines"][0]
+        q.update(size=ln["size"], font=_font(ln["font"]), color=ln["color"])
+    out.styles(paras)
+    for q in paras:
+        size, lead = out.pstyles[out.roles[q["size"]][0]][2:]
+        x0, y0, x1, y1 = q["bbox"]
+        pad = (x1 - x0) * 0.06 + 4
+        x0, x1 = {"LeftAlign": (x0, x1 + 2 * pad),
+                  "RightAlign": (x0 - 2 * pad, x1),
+                  "CenterAlign": (x0 - pad, x1 + pad)}[q["align"]]
+        # Le bloc garde de la marge si l'interlignage est plus large.
+        out.text((x0, y0 - 1, x1, y0 + lead * len(q["lines"]) + size), [q])
+    doc.close()
+    result = out.save()
+    tidy()
+    return result
+
+
+def _docx_from_doc(path):
+    """Ancien .doc -> .docx temporaire (textutil sur Mac, LibreOffice
+    ailleurs, Word via COM sous Windows)."""
+    import subprocess
+    import tempfile
+    tmp = tempfile.mkdtemp()
+    out = os.path.join(tmp, os.path.splitext(os.path.basename(path))[0]
+                       + ".docx")
+    if sys.platform == "darwin":
+        subprocess.run(["textutil", "-convert", "docx", "-output", out,
+                        path], check=True, capture_output=True)
+    elif os.name == "nt":
+        import win32com.client
+        word = win32com.client.Dispatch("Word.Application")
+        try:
+            d = word.Documents.Open(os.path.abspath(path))
+            d.SaveAs2(out, FileFormat=16)
+            d.Close()
+        finally:
+            word.Quit()
+    else:
+        subprocess.run(["soffice", "--headless", "--convert-to", "docx",
+                        "--outdir", tmp, path], check=True,
+                       capture_output=True)
     return out
+
+
+_WP = ("{http://schemas.openxmlformats.org/drawingml/2006/"
+       "wordprocessingDrawing}")
+_A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+_R = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+EMU = 12700  # EMU par point
+
+
+def _docx_para(p, default_size, default_font):
+    """Paragraphe python-docx -> dict size/font/color/align/text (ou None
+    si vide)."""
+    from docx.enum.text import WD_ALIGN_PARAGRAPH as A
+    text = nettoyer_texte.clean(p.text)[0].strip()
+    if not text:
+        return None
+    runs = [r for r in p.runs if r.text.strip()] or [None]
+    r = max(runs, key=lambda r: len(r.text) if r else 0)
+    f, sf = (r.font if r else None), p.style.font
+
+    def pick(attr, default):
+        for src in (f, sf):
+            v = getattr(src, attr, None) if src is not None else None
+            if v is not None:
+                return v
+        return default
+    size = pick("size", None)
+    bold, italic = pick("bold", False), pick("italic", False)
+    rgb = None
+    if f is not None and f.color is not None and f.color.type is not None:
+        rgb = f.color.rgb
+    return {"text": text,
+            "size": round(size.pt if size else default_size, 1),
+            "font": (pick("name", default_font),
+                     "Bold Italic" if bold and italic else "Bold" if bold
+                     else "Italic" if italic else "Regular"),
+            "color": tuple(c / 255 for c in rgb) if rgb else (0, 0, 0),
+            "align": {A.CENTER: "CenterAlign", A.RIGHT: "RightAlign",
+                      A.JUSTIFY: "LeftJustified"}.get(p.alignment,
+                                                       "LeftAlign")}
+
+
+def _anchor_box(anchor, w, h, margins):
+    """Position d'un objet flottant Word (wp:anchor) en points.
+    ponytail: relatif au paragraphe/ligne = approximé par la marge haute,
+    Word ne stocke pas la position réelle du paragraphe."""
+    ext = anchor.find(_WP + "extent")
+    cw, ch = int(ext.get("cx")) / EMU, int(ext.get("cy")) / EMU
+    left, top, right, bottom = margins
+    pos = []
+    for axis, size, full, lo, hi in (("H", cw, w, left, right),
+                                     ("V", ch, h, top, bottom)):
+        el = anchor.find(_WP + "position" + axis)
+        rel = el.get("relativeFrom") if el is not None else "margin"
+        start, span = ((0, full) if rel == "page" else (lo, hi - lo))
+        off = el.find(_WP + "posOffset") if el is not None else None
+        al = el.find(_WP + "align") if el is not None else None
+        if off is not None:
+            pos.append(start + int(off.text) / EMU)
+        elif al is not None and al.text in ("center",):
+            pos.append(start + (span - size) / 2)
+        elif al is not None and al.text in ("right", "bottom", "outside"):
+            pos.append(start + span - size)
+        else:
+            pos.append(start)
+    return (pos[0], pos[1], pos[0] + cw, pos[1] + ch)
+
+
+def convert_docx(path):
+    """Word -> .idml. Texte courant dans un bloc aux marges ; images et
+    zones de texte flottantes à leur position Word (faire-part,
+    remerciements : mise en page faite par le client dans Word) ; images
+    alignées sur le texte posées à droite de la page, sur la table de
+    montage (leur place dans le flux n'a pas d'équivalent fiable)."""
+    import io
+    import docx
+    from docx.text.paragraph import Paragraph
+    from PIL import Image
+    base, tidy = _prepare(path, "doc" if path.lower().endswith(".doc")
+                          else "docx")
+    src = _docx_from_doc(path) if path.lower().endswith(".doc") else path
+    d = docx.Document(src)
+    sec = d.sections[0]
+    w, h = sec.page_width.pt, sec.page_height.pt
+    margins = (sec.left_margin.pt, sec.top_margin.pt,
+               w - sec.right_margin.pt, h - sec.bottom_margin.pt)
+    normal = d.styles["Normal"].font
+    dsize = normal.size.pt if normal.size else 11
+    dfont = normal.name or "Calibri"
+    out = _Idml(w, h, base)
+
+    def para(p_el):
+        return _docx_para(Paragraph(p_el, d._body), dsize, dfont)
+
+    flow = [q for q in (_docx_para(p, dsize, dfont) for p in d.paragraphs)
+            if q]
+    boxes, pics, pasteboard = [], [], []
+    for anchor in d.element.body.iter(_WP + "anchor"):
+        box = _anchor_box(anchor, w, h, margins)
+        txbx = [q for q in (para(p) for p in anchor.iter(_W + "p")) if q]
+        blip = next(anchor.iter(_A + "blip"), None)
+        if txbx:
+            boxes.append((box, txbx))
+        elif blip is not None:
+            pics.append((box, blip.get(_R + "embed")))
+    for inline in d.element.body.iter(_WP + "inline"):
+        blip = next(inline.iter(_A + "blip"), None)
+        if blip is not None:
+            pasteboard.append(blip.get(_R + "embed"))
+
+    out.styles(flow + [q for _, ps in boxes for q in ps])
+
+    def picture(rid, box=None, y=0):
+        part = d.part.related_parts.get(rid)
+        if part is None:
+            return 0
+        try:
+            iw, ih = Image.open(io.BytesIO(part.blob)).size
+        except Exception:
+            return 0
+        ext = os.path.splitext(part.partname)[1][1:] or "png"
+        if box is None:  # table de montage, à droite de la page
+            box = (w + 40, y, w + 240, y + 200 * ih / iw)
+        out.image(part.blob, ext, box, iw, ih)
+        return box[3] - box[1]
+
+    for box, rid in pics:
+        picture(rid, box)
+    if flow:
+        out.text(margins, flow)
+    for box, ps in boxes:
+        out.text(box, ps)
+    y = 0
+    for rid in pasteboard:
+        y += picture(rid, y=y) + 20
+    result = out.save()
+    tidy()
+    return result
 
 
 if __name__ == "__main__":
@@ -375,4 +578,12 @@ if __name__ == "__main__":
                     (11.2, 30), (15.5, 20), (24, 15)])
     assert r[8.2] == ("Texte", 8.0) and r[6.8] == ("Texte", 8.0)
     assert r[11.2] == ("Intertitre", 10.0) and r[24][0] == "Grand titre"
+    from xml.etree import ElementTree as ET
+    anc = ET.fromstring(
+        f'<a xmlns:wp="{_WP[1:-1]}"><wp:positionH relativeFrom="page">'
+        '<wp:posOffset>1270000</wp:posOffset></wp:positionH>'
+        '<wp:positionV relativeFrom="margin"><wp:align>center</wp:align>'
+        '</wp:positionV><wp:extent cx="2540000" cy="1270000"/></a>')
+    assert _anchor_box(anc, 600, 800, (50, 60, 550, 740)) == (
+        100.0, 350.0, 300.0, 450.0)
     print("ok")
