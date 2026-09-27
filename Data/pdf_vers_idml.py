@@ -112,6 +112,21 @@ def group_paragraphs(lines, page_w):
     return paras
 
 
+def normalize_sizes(sizes, step=0.5, tol=0.7):
+    """Tailles proches regroupées (7,6/7,8/8,2 -> 8) : {taille: normalisée}.
+    ponytail: regroupement glouton trié, suffisant pour un flyer."""
+    out, group = {}, []
+    for sz in sorted(set(sizes)) + [None]:
+        if group and (sz is None or sz - group[0] > tol):
+            mean = sum(group) / len(group)
+            for g in group:
+                out[g] = round(mean / step) * step
+            group = []
+        if sz is not None:
+            group.append(sz)
+    return out
+
+
 # ── Écriture IDML ───────────────────────────────────────────────────────
 _NS = 'xmlns:idPkg="http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging"'
 
@@ -193,28 +208,33 @@ def convert(pdf_path):
                      f'<Link Self="l{i}" LinkResourceURI="{escape(uri)}"/>'
                      f'</Image>') + '</Rectangle>')
 
-    # Texte : un bloc par paragraphe, élargi pour ne pas déborder.
-    for i, p in enumerate(group_paragraphs(_lines(page), w)):
+    # Texte : un bloc par paragraphe, élargi pour ne pas déborder ; un
+    # style de paragraphe par police + taille normalisée (retour user :
+    # même interlignage partout, modifiable d'un coup dans Affinity).
+    paras = group_paragraphs(_lines(page), w)
+    sizes = normalize_sizes([q["lines"][0]["size"] for q in paras])
+    pstyles = {}
+    for i, p in enumerate(paras):
         ln = p["lines"][0]
         fam, style = _font(ln["font"])
+        size = sizes[ln["size"]]
+        lead = round(size * 1.25 * 2) / 2
+        pname = f"{fam} {style} {size:g}"
+        pstyles[pname] = (fam, style, size, lead)
         x0, y0, x1, y1 = p["bbox"]
         pad = (x1 - x0) * 0.06 + 4
         x0, x1 = {"LeftAlign": (x0, x1 + 2 * pad),
                   "RightAlign": (x0 - 2 * pad, x1),
                   "CenterAlign": (x0 - pad, x1 + pad)}[p["align"]]
-        # Interlignage Auto (120 %) partout (retour user : normalisé),
-        # le bloc garde de la marge si c'est plus large que l'original.
-        y1 += ln["size"] * 1.2 * len(p["lines"]) - (y1 - y0) + ln["size"]
+        # Le bloc garde de la marge si l'interlignage est plus large.
+        y1 += lead * len(p["lines"]) - (y1 - y0) + size
         sid = f"u{i}"
         stories.append((sid, (
             f'<Story Self="{sid}"><ParagraphStyleRange AppliedParagraphStyle='
-            f'"ParagraphStyle/$ID/NormalParagraphStyle" Justification='
+            f'"ParagraphStyle/{escape(pname)}" Justification='
             f'"{p["align"]}"><CharacterStyleRange AppliedCharacterStyle='
-            f'"CharacterStyle/$ID/[No character style]" PointSize='
-            f'"{ln["size"]}" FontStyle="{escape(style)}" Tracking="0" '
-            f'FillColor="{color(ln["color"])}"><Properties><AppliedFont '
-            f'type="string">{escape(fam)}</AppliedFont><Leading type="enum">'
-            f'Auto</Leading></Properties><Content>'
+            f'"CharacterStyle/$ID/[No character style]" '
+            f'FillColor="{color(ln["color"])}"><Content>'
             f'{escape(p["text"])}</Content></CharacterStyleRange>'
             f'</ParagraphStyleRange></Story>')))
         items.append(
@@ -245,7 +265,16 @@ def convert(pdf_path):
             'Self="ParagraphStyle/$ID/[No paragraph style]" '
             'Name="$ID/[No paragraph style]"/><ParagraphStyle '
             'Self="ParagraphStyle/$ID/NormalParagraphStyle" '
-            'Name="$ID/NormalParagraphStyle"/></RootParagraphStyleGroup>')),
+            'Name="$ID/NormalParagraphStyle"/>' + "".join(
+                f'<ParagraphStyle Self="ParagraphStyle/{escape(n)}" '
+                f'Name="{escape(n)}" PointSize="{sz:g}" '
+                f'FontStyle="{escape(st)}" Tracking="0" LeftIndent="0" '
+                f'FirstLineIndent="0" SpaceBefore="0" SpaceAfter="0">'
+                f'<Properties><AppliedFont type="string">{escape(fa)}'
+                f'</AppliedFont><Leading type="unit">{ld:g}</Leading>'
+                f'</Properties></ParagraphStyle>'
+                for n, (fa, st, sz, ld) in sorted(pstyles.items()))
+            + '</RootParagraphStyleGroup>')),
         "Resources/Preferences.xml": _pkg("Preferences", (
             f'<DocumentPreference PageHeight="{h}" PageWidth="{w}" '
             f'PagesPerDocument="1" FacingPages="false" '
@@ -304,4 +333,6 @@ if __name__ == "__main__":
                            L(60, "Autre bloc", 40, 60)], 200)
     assert [p["text"] for p in ps] == ["Une ligne coupée ici.", "Autre bloc"]
     assert ps[0]["leading"] == 9.0
+    assert normalize_sizes([7.6, 7.8, 8.2, 11.2, 24]) == {
+        7.6: 8.0, 7.8: 8.0, 8.2: 8.0, 11.2: 11.0, 24: 24.0}
     print("ok")
