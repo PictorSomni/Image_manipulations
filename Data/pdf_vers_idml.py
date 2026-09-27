@@ -202,7 +202,9 @@ def convert(pdf_path):
         x0, x1 = {"LeftAlign": (x0, x1 + 2 * pad),
                   "RightAlign": (x0 - 2 * pad, x1),
                   "CenterAlign": (x0 - pad, x1 + pad)}[p["align"]]
-        y1 += p["leading"]
+        # Interlignage Auto (120 %) partout (retour user : normalisé),
+        # le bloc garde de la marge si c'est plus large que l'original.
+        y1 += ln["size"] * 1.2 * len(p["lines"]) - (y1 - y0) + ln["size"]
         sid = f"u{i}"
         stories.append((sid, (
             f'<Story Self="{sid}"><ParagraphStyleRange AppliedParagraphStyle='
@@ -211,8 +213,8 @@ def convert(pdf_path):
             f'"CharacterStyle/$ID/[No character style]" PointSize='
             f'"{ln["size"]}" FontStyle="{escape(style)}" Tracking="0" '
             f'FillColor="{color(ln["color"])}"><Properties><AppliedFont '
-            f'type="string">{escape(fam)}</AppliedFont><Leading type="unit">'
-            f'{p["leading"]}</Leading></Properties><Content>'
+            f'type="string">{escape(fam)}</AppliedFont><Leading type="enum">'
+            f'Auto</Leading></Properties><Content>'
             f'{escape(p["text"])}</Content></CharacterStyleRange>'
             f'</ParagraphStyleRange></Story>')))
         items.append(
