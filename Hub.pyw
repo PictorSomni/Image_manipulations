@@ -408,7 +408,7 @@ def main(page: ft.Page):
     KANBAN_ETAT_COLORS = dict(KANBAN_ETATS)
 
     # Une couleur "primaire" par onglet du rail (retour user, même principe
-    # que Terminal=YELLOW_GREEN / Notes=VIOLET / Actions=ORANGE en barre du
+    # que Terminal=GREEN / Notes=VIOLET / Actions=ORANGE en barre du
     # bas) — sert à la fois au surlignage de l'onglet actif et aux actions
     # principales de la surface correspondante.
     # Hauteur commune des barres de titre des onglets (retour user).
@@ -11886,7 +11886,7 @@ def main(page: ft.Page):
 
     terminal_input = ft.TextField(
         hint_text="> Terminal", bgcolor=DARK,
-        border=CONSTANTS.input_border(YELLOW_GREEN),
+        border=CONSTANTS.input_border(GREEN),
         color=WHITE,
         text_size=CONSTANTS.TERMINAL_FONT_SIZE, expand=True,
         content_padding=ft.Padding(10, 8, 10, 8),
@@ -12467,13 +12467,13 @@ def main(page: ft.Page):
         terminal_panel.update()
 
     terminal_resize_handle = ft.GestureDetector(
-        content=ft.Container(height=6, bgcolor=YELLOW_GREEN),
+        content=ft.Container(height=6, bgcolor=GREEN),
         mouse_cursor=ft.MouseCursor.RESIZE_UP_DOWN,
         on_pan_update=_on_terminal_resize,
     )
 
     terminal_title = ft.Text("Terminal", size=CONSTANTS.TEXT_LG,
-                           color=YELLOW_GREEN,
+                           color=GREEN,
                              weight=ft.FontWeight.W_500, expand=True, no_wrap=True)
 
     terminal_panel = ft.Container(
@@ -12590,7 +12590,7 @@ def main(page: ft.Page):
     # Couleurs inversées quand le panneau associé est ouvert (retour
     # user) : plus visuel que le texte seul pour repérer sur quel bouton
     # appuyer. Même couleur que la poignée de redimensionnement du
-    # panneau (YELLOW_GREEN terminal / VIOLET notes) pour que les deux se
+    # panneau (GREEN terminal / VIOLET notes) pour que les deux se
     # répondent visuellement — distinct de l'ORANGE du bouton Actions
     # juste à côté (retour user).
     terminal_btn_icon = ft.Icon(ft.Icons.TERMINAL, size=CONSTANTS.ICON_SM,
@@ -12609,7 +12609,7 @@ def main(page: ft.Page):
         # effet) — il faut passer par style=ButtonStyle(bgcolor=...)
         # (retour user : les boutons restaient gris malgré l'affectation).
         terminal_toggle_btn.style = ft.ButtonStyle(
-            bgcolor=YELLOW_GREEN if active else None)
+            bgcolor=GREEN if active else None)
         terminal_btn_icon.color = DARK if active else WHITE
         terminal_btn_text.color = DARK if active else WHITE
         try:
