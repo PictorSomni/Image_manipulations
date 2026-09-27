@@ -8107,7 +8107,8 @@ def main(page: ft.Page):
         ], tight=True, spacing=0)
         return field
 
-    def _kanban_open_details(row):
+    def _kanban_open_details(row, trash=None):
+        """trash = (entrée, dialogue corbeille) : lecture seule + Restaurer."""
         demande_field = ft.TextField(
             label="Demande", value=row["demande"], width=560,
             bgcolor=DARK, border=CONSTANTS.input_border(GREY), color=WHITE)
@@ -8394,7 +8395,12 @@ def main(page: ft.Page):
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
                width=600,
                height=max(300, min(680, (page.height or 900) - 220))),
-            actions=[_dlg_btn("Supprimer", "danger", on_click=_delete),
+            actions=[_dlg_btn("Fermer", "cancel", on_click=_cancel),
+                     _dlg_btn("Restaurer", color=SURFACE_ACCENT["kanban"],
+                              on_click=lambda e: (
+                                  _cancel(e), _kanban_restore(*trash)))]
+            if trash else
+                    [_dlg_btn("Supprimer", "danger", on_click=_delete),
                      _dlg_btn("Déjà dans la Liste" if _liste_has_task(row)
                               else "Ajouter à la Liste",
                               color=SURFACE_ACCENT["liste"],
@@ -8408,6 +8414,12 @@ def main(page: ft.Page):
             # dialogue vienne toucher le bord de la fenêtre.
             inset_padding=ft.Padding(20, 40, 20, 40),
         )
+        if trash:
+            for c in dlg.content.controls:
+                if isinstance(c, ft.TextField):
+                    c.read_only = True
+                elif isinstance(c, ft.CupertinoSlidingSegmentedButton):
+                    c.disabled = True
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
@@ -8857,7 +8869,9 @@ def main(page: ft.Page):
                                  on_click=lambda e, t=t: _kanban_restore(
                                      t, dlg)),
                     ]),
-                    padding=8, border_radius=8, bgcolor=BACKGROUND)
+                    padding=8, border_radius=8, bgcolor=BACKGROUND,
+                    on_click=lambda e, t=t: _kanban_open_details(
+                        dict(t["row"]), trash=(t, dlg)))
                 for t in trash
                 if not q or q in json.dumps(t, ensure_ascii=False).lower()]
 
