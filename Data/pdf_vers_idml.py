@@ -342,7 +342,10 @@ def _prepare(src, sub):
     """-> (base de sortie dans idml/, fonction qui range src dans sub/)."""
     folder = os.path.dirname(os.path.abspath(src))
     name = os.path.splitext(os.path.basename(src))[0]
-    os.makedirs(os.path.join(folder, "idml"), exist_ok=True)
+    # Déjà rangé (dossier pdf/) : idml/ à côté de pdf/, pas dedans.
+    root = os.path.dirname(folder) if os.path.basename(folder) == sub \
+        else folder
+    os.makedirs(os.path.join(root, "idml"), exist_ok=True)
 
     def tidy():
         if os.path.basename(folder) == sub:
@@ -351,7 +354,7 @@ def _prepare(src, sub):
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         if not os.path.exists(dest):
             shutil.move(src, dest)
-    return os.path.join(folder, "idml", name), tidy
+    return os.path.join(root, "idml", name), tidy
 
 
 def convert(path):
