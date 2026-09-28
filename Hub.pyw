@@ -1217,7 +1217,12 @@ def main(page: ft.Page):
         # scrollable entier comme avant, cf. incident précédent) : n'absorbe
         # pas la molette/trackpad, contrairement au wrap sur tout
         # `files_body` qui interceptait aussi les ScrollEvent (retour user).
+        # key = chemin + date : sans clé, le client recyclait parfois les
+        # cartes du dossier précédent (vignettes fantômes jusqu'au
+        # redémarrage, retour user) ; la date force aussi une nouvelle
+        # carte après un recadrage/rotation sur place.
         return ft.GestureDetector(
+            key=f"{path}|{content.get('mtime', {}).get(path, 0)}",
             on_secondary_tap_up=lambda e, p=path: _on_ctx_menu(p, e),
             content=control)
 
