@@ -651,15 +651,19 @@ class PhotoCropper:
         self._usa_guide = ft.Container(
             border=ft.Border.all(2, ft.Colors.with_opacity(0.8, RED)),
             visible=False)
-        # Axe vertical au milieu pour centrer le visage (format USA).
-        self._usa_axis = ft.Container(
-            bgcolor=ft.Colors.with_opacity(0.8, RED), width=1, top=0,
-            visible=False)
+        # Axes du milieu en rouge, avec la grille, pour centrer un sujet.
+        axis_color = ft.Colors.with_opacity(0.8, RED)
+        self._grid_lines += [
+            ft.Container(bgcolor=axis_color, left=self.canvas_w / 2, top=0,
+                         width=1, height=self.canvas_h),
+            ft.Container(bgcolor=axis_color, left=0, top=self.canvas_h / 2,
+                         width=self.canvas_w, height=1),
+        ]
 
         # Stack : image + grille en overlay fixe
         self.image_stack = ft.Stack(
             controls=[self.image_container, *self._grid_lines,
-                      self._usa_guide, self._usa_axis],
+                      self._usa_guide],
             width=self.canvas_w,
             height=self.canvas_h,
         )
@@ -1185,16 +1189,16 @@ class PhotoCropper:
             self._grid_lines[2].width  = self.canvas_w
             self._grid_lines[3].top    = 2 * self.canvas_h / 3
             self._grid_lines[3].width  = self.canvas_w
+            self._grid_lines[4].left   = self.canvas_w / 2
+            self._grid_lines[4].height = self.canvas_h
+            self._grid_lines[5].top    = self.canvas_h / 2
+            self._grid_lines[5].width  = self.canvas_w
         if hasattr(self, '_usa_guide'):
             g = self._usa_guide
             g.visible = self.current_format_label == "USA"
             g.left = self.canvas_w * 103 / 600
             g.top = self.canvas_h * 44 / 600
             g.width = g.height = self.canvas_w * 385 / 600
-            a = self._usa_axis
-            a.visible = g.visible
-            a.left = self.canvas_w / 2
-            a.height = self.canvas_h
         self.page.update()
 
 
