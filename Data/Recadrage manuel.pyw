@@ -1510,7 +1510,7 @@ class PhotoCropper:
             self.border_switch_ID2.visible = False
             self.border_switch_ID4.visible = False
             self.id4_10x20_switch.visible = False
-            self.network_switch.visible = False
+            self.network_switch.visible = self.current_format_label == "USA"
             self.sharpen_switch.value = self.sharpen_switch.value
 
         self.page.title = f"Crop: {os.path.basename(path)} ({self.current_index + 1}/{len(self.image_paths)})"
@@ -3768,7 +3768,7 @@ class PhotoCropper:
             self.border_switch_ID2.value = False
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
-            self.network_switch.visible = False
+            self.network_switch.visible = self.current_format_label == "USA"
             self.id4_10x20_switch.visible = False
             self.border_switch_polaroid.visible = False
             self.border_switch_polaroid.value = False
@@ -3804,7 +3804,7 @@ class PhotoCropper:
         self.border_switch_ID2.visible = True if "ID" in self.current_format_label else False
         self.border_switch_ID4.visible = True if "ID" in self.current_format_label else False
         self.id4_10x20_switch.visible = True if "ID" in self.current_format_label and self.border_id4 else False
-        self.network_switch.visible = True if "ID" in self.current_format_label else False
+        self.network_switch.visible = "ID" in self.current_format_label or self.current_format_label == "USA"
 
 
 
@@ -4391,7 +4391,9 @@ class PhotoCropper:
                               (x, 2 * gap + output_image.height))
             output_image = sheet_image
             format_short_name = "USA_X2"
-            output_filename = (f"{copies_count_prefix}USA "
+            # Même nom que les identités (retour user : aimants 5x5,
+            # visas... traités comme des ID, réseau compris).
+            output_filename = (f"{copies_count_prefix}ID "
                                f"{job['index'] + 1:02}.jpg")
 
         elif (_crop_mode != 'none' and job["border_id2"]
@@ -4414,7 +4416,7 @@ class PhotoCropper:
             output_filename = (f"{copies_count_prefix}ID "
                                f"{job['index'] + 1:02}.jpg")
 
-        if (format_short_name in ("ID_X4", "ID_X4_10x20")
+        if (format_short_name in ("ID_X4", "ID_X4_10x20", "USA_X2")
                 and job["save_to_network"]):
             # ID_X4 et ID_X4_10x20 partagent explicitement le même
             # chemin réseau, centralisé dans CONSTANTS.TRAVAUX_EN_COURS
