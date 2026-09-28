@@ -202,6 +202,7 @@ DPI = 300   # Points par pouce (ne pas modifier sauf matériel spécifique)
 
 FORMATS = {
     "ID"     : (36,  46),
+    "USA"    : (50.8, 50.8),  # visa/passeport USA, 2x2 pouces
     "7x10"   : (76, 102),
     "9x13"   : (89,  127),
     "10x10"  : (102, 102),

@@ -646,9 +646,20 @@ class PhotoCropper:
 
 
 
+        # Zone tête du format USA (repris du gabarit ID_USA.psd : carré
+        # 385/600 centré, haut à 44/600) — cheveux en haut, menton en bas.
+        self._usa_guide = ft.Container(
+            border=ft.Border.all(2, ft.Colors.with_opacity(0.8, RED)),
+            visible=False)
+        # Axe vertical au milieu pour centrer le visage (format USA).
+        self._usa_axis = ft.Container(
+            bgcolor=ft.Colors.with_opacity(0.8, RED), width=1, top=0,
+            visible=False)
+
         # Stack : image + grille en overlay fixe
         self.image_stack = ft.Stack(
-            controls=[self.image_container, *self._grid_lines],
+            controls=[self.image_container, *self._grid_lines,
+                      self._usa_guide, self._usa_axis],
             width=self.canvas_w,
             height=self.canvas_h,
         )
@@ -1174,6 +1185,16 @@ class PhotoCropper:
             self._grid_lines[2].width  = self.canvas_w
             self._grid_lines[3].top    = 2 * self.canvas_h / 3
             self._grid_lines[3].width  = self.canvas_w
+        if hasattr(self, '_usa_guide'):
+            g = self._usa_guide
+            g.visible = self.current_format_label == "USA"
+            g.left = self.canvas_w * 103 / 600
+            g.top = self.canvas_h * 44 / 600
+            g.width = g.height = self.canvas_w * 385 / 600
+            a = self._usa_axis
+            a.visible = g.visible
+            a.left = self.canvas_w / 2
+            a.height = self.canvas_h
         self.page.update()
 
 
