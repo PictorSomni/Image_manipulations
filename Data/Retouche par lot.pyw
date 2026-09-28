@@ -119,6 +119,7 @@ def default_params():
             "saturation": C.RETOUCHE_LOT_COULEUR_SATURATION,
             "hue": C.RETOUCHE_LOT_COULEUR_HUE,
             "white_balance": C.RETOUCHE_LOT_COULEUR_WHITE_BALANCE,
+            "vibrance": C.RETOUCHE_LOT_COULEUR_VIBRANCE,
             "shadows": C.RETOUCHE_LOT_COULEUR_SHADOWS,
             "highlights": C.RETOUCHE_LOT_COULEUR_HIGHLIGHTS,
             "whites": C.RETOUCHE_LOT_COULEUR_WHITES,
@@ -290,7 +291,8 @@ def run_pipeline(image, params, *, date_label=None, filename_stem=""):
         result = image_ops.apply_adjustments(
             result, exposure=c["exposure"], contrast=c["contrast"],
             saturation=c["saturation"], hue=c["hue"],
-            white_balance=c["white_balance"])
+            white_balance=c["white_balance"],
+            vibrance=c.get("vibrance", 0))
         result = image_ops.apply_highlights(result, c["highlights"])
         result = image_ops.apply_shadows(result, c["shadows"])
         result = image_ops.apply_whites(result, c["whites"])
@@ -1065,8 +1067,9 @@ def main(page: ft.Page):
         _slider_row("Blancs", co, "whites", -100, 100),
         _slider_row("Noirs", co, "blacks", -100, 100),
         _slider_row("Saturation", co, "saturation", -100, 100),
-        _slider_row("Teinte", co, "hue", -100, 100),
+        _slider_row("Vibrance", co, "vibrance", -100, 100),
         _slider_row("Balance des blancs", co, "white_balance", -100, 100),
+        _slider_row("Teinte", co, "hue", -100, 100),
     ])
 
     # ── Virage ──────────────────────────────────────────────────────

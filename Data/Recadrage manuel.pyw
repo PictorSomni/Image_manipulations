@@ -888,6 +888,15 @@ class PhotoCropper:
             on_change_end=self.on_saturation_end,
         )
 
+        # Vibrance : saturation pondérée, épargne les couleurs déjà vives
+        self.vibrance = float(CONSTANTS.RECADRAGE_DEFAULT_VIBRANCE)
+        self.vibrance_slider = ft.Slider(
+            value=self.vibrance, min=-100, max=100, divisions=20, label=str(CONSTANTS.RECADRAGE_DEFAULT_VIBRANCE),
+            active_color=(GREEN if self.vibrance else WHITE),
+            on_change=self.on_vibrance_label,
+            on_change_end=self.on_vibrance_end,
+        )
+
         # Exposition (Exposure — similaire à Camera Raw, +20 = doublement de la luminosité)
         self.exposure = float(CONSTANTS.RECADRAGE_DEFAULT_EXPOSURE)
         self.exposure_slider = ft.Slider(
@@ -1956,7 +1965,7 @@ class PhotoCropper:
         return image_ops.apply_adjustments(
             input_image, exposure=self.exposure, contrast=self.contrast,
             saturation=self.saturation, hue=self.hue,
-            white_balance=self.white_balance,
+            white_balance=self.white_balance, vibrance=self.vibrance,
         )
 
 
@@ -3360,6 +3369,20 @@ class PhotoCropper:
 
 
 
+    def on_vibrance_label(self, e):
+        """Mise à jour du label du slider Vibrance pendant le glissement."""
+        self.vibrance = e.control.value
+        e.control.label = str(int(self.vibrance))
+        e.control.active_color = GREEN if self.vibrance else WHITE
+        e.control.update()
+        self._live_preview_tick()
+
+    def on_vibrance_end(self, e):
+        """Rendu complet au relâchement du slider Vibrance."""
+        self.vibrance = e.control.value
+        self._render_preview()
+        self.page.update()
+
     def on_hue_label(self, e):
         """Mise à jour du label du slider Teinte pendant le glissement."""
         self.hue = e.control.value
@@ -3463,6 +3486,11 @@ class PhotoCropper:
         self.blacks_slider.label = "0"
         self.blacks_slider.active_color = WHITE
         self.blacks_slider.update()
+        self.vibrance = 0.0
+        self.vibrance_slider.value = 0.0
+        self.vibrance_slider.label = "0"
+        self.vibrance_slider.active_color = WHITE
+        self.vibrance_slider.update()
         self.hue = 0.0
         self.hue_slider.value = 0.0
         self.hue_slider.label = "0"
@@ -3524,6 +3552,11 @@ class PhotoCropper:
         self.blacks_slider.label = "0"
         self.blacks_slider.active_color = WHITE
         self.blacks_slider.update()
+        self.vibrance = float(CONSTANTS.RECADRAGE_DEFAULT_VIBRANCE)
+        self.vibrance_slider.value = self.vibrance
+        self.vibrance_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_VIBRANCE)
+        self.vibrance_slider.active_color = GREEN if self.vibrance else WHITE
+        self.vibrance_slider.update()
         self.hue = float(CONSTANTS.RECADRAGE_DEFAULT_HUE)
         self.hue_slider.value = self.hue
         self.hue_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_HUE)
@@ -3825,6 +3858,7 @@ class PhotoCropper:
             "exposure": self.exposure,
             "hue": self.hue,
             "white_balance": self.white_balance,
+            "vibrance": self.vibrance,
             "rembg_active": self.rembg_btn.selected,
             "crop_mode": getattr(self, 'crop_mode', 'resolution'),
         }
@@ -4038,7 +4072,7 @@ class PhotoCropper:
             "white_border": self.white_border,
             "contrast": self.contrast, "saturation": self.saturation,
             "exposure": self.exposure, "hue": self.hue,
-            "white_balance": self.white_balance,
+            "white_balance": self.white_balance, "vibrance": self.vibrance,
             "shadows": self.shadows, "highlights": self.highlights,
             "whites": getattr(self, 'whites', 0.0),
             "blacks": getattr(self, 'blacks', 0.0),
@@ -4200,7 +4234,8 @@ class PhotoCropper:
         output_image = image_ops.apply_adjustments(
             output_image, exposure=job["exposure"],
             contrast=job["contrast"], saturation=job["saturation"],
-            hue=job["hue"], white_balance=job["white_balance"])
+            hue=job["hue"], white_balance=job["white_balance"],
+            vibrance=job.get("vibrance", 0))
         if job["shadows"] != 0:
             output_image = image_ops.apply_shadows(output_image,
                                                     job["shadows"])
@@ -4467,7 +4502,8 @@ class PhotoCropper:
                 contrast=snapshot.get("contrast", 0),
                 saturation=snapshot.get("saturation", 0),
                 hue=snapshot.get("hue", 0),
-                white_balance=snapshot.get("white_balance", 0))
+                white_balance=snapshot.get("white_balance", 0),
+                vibrance=snapshot.get("vibrance", 0))
             if snapshot.get("shadows", 0) != 0:
                 snapshot_output_image = image_ops.apply_shadows(
                     snapshot_output_image, snapshot["shadows"])
@@ -5188,10 +5224,12 @@ def main(page: ft.Page):
                                 ft.Text("COULEUR", size=10, color=GREEN, weight=ft.FontWeight.BOLD),
                                 ft.Text("Saturation", size=12, color=LIGHT_GREY),
                                 ft.GestureDetector(content=app.saturation_slider, on_double_tap=lambda e: app._reset_slider(app.saturation_slider, 'saturation', 0.0, '0')),
-                                ft.Text("Teinte  (−vert / +magenta)", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.hue_slider, on_double_tap=lambda e: app._reset_slider(app.hue_slider, 'hue', 0.0, '0')),
+                                ft.Text("Vibrance", size=12, color=LIGHT_GREY),
+                                ft.GestureDetector(content=app.vibrance_slider, on_double_tap=lambda e: app._reset_slider(app.vibrance_slider, 'vibrance', 0.0, '0')),
                                 ft.Text("Balance des blancs  (−froid / +chaud)", size=12, color=LIGHT_GREY),
                                 ft.GestureDetector(content=app.white_balance_slider, on_double_tap=lambda e: app._reset_slider(app.white_balance_slider, 'white_balance', 0.0, '0')),
+                                ft.Text("Teinte  (−vert / +magenta)", size=12, color=LIGHT_GREY),
+                                ft.GestureDetector(content=app.hue_slider, on_double_tap=lambda e: app._reset_slider(app.hue_slider, 'hue', 0.0, '0')),
                             ], spacing=4),
                             border=ft.Border(left=ft.BorderSide(2, GREEN)),
                             padding=ft.Padding.only(left=8),

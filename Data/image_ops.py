@@ -662,9 +662,10 @@ def compute_fit_in(image: Image.Image, target_w_px: int, target_h_px: int,
 
 def apply_adjustments(input_image: Image.Image, *, exposure: float = 0,
                        contrast: float = 0, saturation: float = 0,
-                       hue: float = 0, white_balance: float = 0
-                       ) -> Image.Image:
-    """Exposition → contraste → saturation → teinte → balance des blancs.
+                       hue: float = 0, white_balance: float = 0,
+                       vibrance: float = 0) -> Image.Image:
+    """Exposition → contraste → saturation → vibrance → teinte → balance
+    des blancs.
     Reprend `PhotoCropper._apply_adjustments`."""
     working_image = input_image.convert("RGB")
     if exposure != 0:
@@ -680,6 +681,8 @@ def apply_adjustments(input_image: Image.Image, *, exposure: float = 0,
     if saturation != 0:
         working_image = ImageEnhance.Color(working_image).enhance(
             max(0.0, 1.0 + saturation / 100.0))
+    if vibrance != 0:
+        working_image = apply_vibrance(working_image, vibrance)
     if hue != 0:
         working_image = apply_hue(working_image, hue)
     if white_balance != 0:
@@ -790,6 +793,21 @@ def apply_hue(input_image: Image.Image, value: float) -> Image.Image:
         blue_lookup[pixel_array[:, :, 2]],
     ], axis=2)
     return Image.fromarray(result_array, "RGB")
+
+
+def apply_vibrance(input_image: Image.Image, value: float) -> Image.Image:
+    """value : -100…+100. Comme la saturation, mais pondérée par
+    (1 - saturation du pixel) : les couleurs ternes bougent beaucoup, les
+    couleurs déjà vives presque pas."""
+    if value == 0:
+        return input_image
+    px = np.asarray(input_image.convert("RGB"), dtype=np.float32)
+    mx, mn = px.max(axis=2), px.min(axis=2)
+    sat = np.where(mx > 0, (mx - mn) / np.maximum(mx, 1), 0)
+    gray = (px @ np.array([0.299, 0.587, 0.114], np.float32))[..., None]
+    factor = 1 + value / 100.0 * (1 - sat)[..., None]
+    out = gray + (px - gray) * factor
+    return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
 
 
 def apply_white_balance(input_image: Image.Image, value: float) -> Image.Image:
