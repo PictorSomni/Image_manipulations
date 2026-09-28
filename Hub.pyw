@@ -9937,7 +9937,7 @@ def main(page: ft.Page):
     # ═════════════════════════════════════════════════════════════════════
     rail_tabs = {}
 
-    async def _focus_active_surface():
+    async def _focus_active_surface(terminal=False):
         # Le focus doit être là où on va vraisemblablement taper en premier,
         # sans clic préalable : dernière ligne du Bloc-notes, champ de l'IA,
         # ou Terminal s'il est déployé (prioritaire sur tout, quel que soit
@@ -9953,7 +9953,8 @@ def main(page: ft.Page):
         # d'un focus qui "marche parfois, parfois pas".
         try:
             await asyncio.sleep(0.08)
-            if terminal_panel.visible:
+            # Terminal seulement quand on l'appelle soi-même (retour user).
+            if terminal and terminal_panel.visible:
                 await terminal_input.focus()
                 return
             if notes_panel.visible:
@@ -12783,7 +12784,7 @@ def main(page: ft.Page):
             terminal_fullscreen_btn.icon = ft.Icons.FULLSCREEN
             terminal_fullscreen_btn.tooltip = "Terminal plein écran (Ctrl/Cmd+Maj+↑)"
         page.update()
-        _run_task(_focus_active_surface)
+        _run_task(_focus_active_surface, True)
 
     # Curseur de taille unique dans la statusbar (retour user) : pilote la
     # taille des vignettes en Fichiers, et la taille du texte en IA —
