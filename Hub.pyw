@@ -3979,7 +3979,10 @@ def main(page: ft.Page):
         if not (near_left or near_right):
             return
         new_start, new_end = _viewer_window_bounds(idx, total)
-        if new_start == start:
+        # Comparer aussi la fin : ouvert sur la 1re photo, la fenêtre
+        # commence à 0 et ne fait que s'allonger — ne tester que le début
+        # bloquait la navigation à la 26e photo (retour user).
+        if (new_start, new_end) == (start, end):
             return
         viewer_state["win_start"] = new_start
         images_page_view.controls = _build_page_containers(
