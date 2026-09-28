@@ -4379,6 +4379,21 @@ class PhotoCropper:
                                or f"{copies_count_prefix}ID "
                                   f"{job['index'] + 1:02}.jpg")
 
+        elif _crop_mode != 'none' and job["format_label"] == "USA":
+            # Visa USA : toujours 2 photos 2x2 po l'une sous l'autre sur un
+            # 10x15, espacements égaux (usage habituel, retour user).
+            sheet_w, sheet_h = mm_to_pixels(102), mm_to_pixels(152)
+            sheet_image = Image.new("RGB", (sheet_w, sheet_h), "white")
+            gap = (sheet_h - 2 * output_image.height) // 3
+            x = (sheet_w - output_image.width) // 2
+            sheet_image.paste(output_image, (x, gap))
+            sheet_image.paste(output_image,
+                              (x, 2 * gap + output_image.height))
+            output_image = sheet_image
+            format_short_name = "USA_X2"
+            output_filename = (f"{copies_count_prefix}USA "
+                               f"{job['index'] + 1:02}.jpg")
+
         elif (_crop_mode != 'none' and job["border_id2"]
                 and "ID" in job["format_label"]):
             SHEET_WIDTH_PX = mm_to_pixels(102)
