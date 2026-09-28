@@ -3768,9 +3768,13 @@ class PhotoCropper:
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
         else:
-            self.border_switch_ID2.visible = self.current_format_label == "USA"
-            self.border_switch_ID2.value = False
-            self.border_id2 = False
+            # USA : X2 et réseau cochés d'office (visa), à décocher pour
+            # les aimants & co (retour user).
+            is_usa = self.current_format_label == "USA"
+            self.border_switch_ID2.visible = is_usa
+            self.border_switch_ID2.value = self.border_id2 = is_usa
+            if is_usa:
+                self.save_to_network = self.network_switch.value = True
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = self.current_format_label == "USA"
