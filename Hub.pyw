@@ -1217,12 +1217,13 @@ def main(page: ft.Page):
         # scrollable entier comme avant, cf. incident précédent) : n'absorbe
         # pas la molette/trackpad, contrairement au wrap sur tout
         # `files_body` qui interceptait aussi les ScrollEvent (retour user).
-        # key = chemin + date : sans clé, le client recyclait parfois les
+        # key unique par rendu : sans clé, le client recyclait parfois les
         # cartes du dossier précédent (vignettes fantômes jusqu'au
-        # redémarrage, retour user) ; la date force aussi une nouvelle
-        # carte après un recadrage/rotation sur place.
+        # redémarrage, retour user). Jamais la même clé d'un rendu à
+        # l'autre : Flet « gèle » les contrôles appariés par clé, et toute
+        # modif ultérieure (sélection...) plantait (« Frozen controls »).
         return ft.GestureDetector(
-            key=f"{path}|{content.get('mtime', {}).get(path, 0)}",
+            key=f"{state['render_gen']}|{path}",
             on_secondary_tap_up=lambda e, p=path: _on_ctx_menu(p, e),
             content=control)
 
@@ -1249,6 +1250,7 @@ def main(page: ft.Page):
         # .controls : Flet ne détecte pas toujours un remplacement wholesale
         # de la liste pour le diff de rendu (idiome Dashboard/SidePanel).
         dirs, imgs, other = _visible_entries()
+        state["render_gen"] = state.get("render_gen", 0) + 1
         files_list.controls.clear()
         files_grid.controls.clear()
         card_icon_refs.clear()
