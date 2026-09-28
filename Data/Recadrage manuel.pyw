@@ -4934,6 +4934,11 @@ def main(page: ft.Page):
         if event.key == "Tab":
             app._scroll_rotates = not app._scroll_rotates
             app._update_shift_badge()
+            # Tab fait aussi avancer le focus de Flutter de bouton en
+            # interrupteur : Entrée activait ensuite ce contrôle EN PLUS de
+            # valider (photos sautées, options changées, retour user). On
+            # renvoie le focus sur un champ invisible qui ignore Entrée.
+            page.run_task(key_sink.focus)
         elif event.key == "Enter":
             app.validate_and_next(event)
         elif event.key in ("Backspace", "Delete"):
@@ -4959,6 +4964,11 @@ def main(page: ft.Page):
         elif event.key == "0" and not event.meta and not event.ctrl:
             app.reset_zoom(event)
     page.on_keyboard_event = on_key
+    key_sink = ft.TextField(width=1, height=1, border=ft.InputBorder.NONE,
+                            on_change=lambda e: setattr(
+                                e.control, "value", ""))
+    page.overlay.append(ft.Container(
+        content=key_sink, left=0, top=0, width=1, height=1, opacity=0))
 
     # ── Champs de format personnalisé ────────────────────────────────
     def _on_custom_dim_change(e):
