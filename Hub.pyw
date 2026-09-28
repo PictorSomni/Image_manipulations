@@ -2245,8 +2245,10 @@ def main(page: ft.Page):
         others = [p for p in content["imgs"] + content["other"]
                   if p not in chosen]
         selection_folder = os.path.join(folder, "SELECTION")
-        # Sans sélection, tout va dans SELECTION : pas de AUTRES.
-        with_others = bool(selected and others)
+        # Sans sélection, tout va dans SELECTION : pas de AUTRES. Pas
+        # `selected` ici : _close_actions l'a déjà vidé (AUTRES jamais créé,
+        # retour user).
+        with_others = bool(others) and paths != content["imgs"]
 
         # En arrière-plan comme coller/supprimer (retour user : l'UI
         # gelait pendant le déplacement de gros lots RAW/vidéos).
