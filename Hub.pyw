@@ -2911,7 +2911,20 @@ def main(page: ft.Page):
         _update_sel_count()
         _render()
         _render_folder_tabs()
-        _run_task(_focus_active_surface)
+        _run_task(_focus_files_grid)
+
+    async def _focus_files_grid():
+        # Après une navigation, le clavier va à la grille, pas au Terminal
+        # ni au Bloc-notes : Ctrl+V doit coller tout de suite dans le
+        # dossier ouvert (retour user). Flet n'a pas de blur() : on retire
+        # le focus des champs en le donnant à un bouton de la barre.
+        await asyncio.sleep(0.08)
+        _kb_suspend["count"] = 0
+        _focused_input["name"] = None
+        try:
+            await parent_folder_btn.focus()
+        except Exception:
+            pass
 
     def _on_files_path_submit(event):
         raw = (files_path.value or "").strip().strip('"').strip("'")
