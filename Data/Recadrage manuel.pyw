@@ -1511,7 +1511,7 @@ class PhotoCropper:
             self.network_switch.value = self.save_to_network
             self.sharpen_switch.value = True
         else:
-            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.visible = self.current_format_label == "USA"
             self.border_switch_ID4.visible = False
             self.id4_10x20_switch.visible = False
             self.network_switch.visible = self.current_format_label == "USA"
@@ -3768,8 +3768,9 @@ class PhotoCropper:
             self.border_switch_polaroid.value = False
             self.border_polaroid = False
         else:
-            self.border_switch_ID2.visible = False
+            self.border_switch_ID2.visible = self.current_format_label == "USA"
             self.border_switch_ID2.value = False
+            self.border_id2 = False
             self.border_switch_ID4.visible = False
             self.border_switch_ID4.value = False
             self.network_switch.visible = self.current_format_label == "USA"
@@ -3805,7 +3806,7 @@ class PhotoCropper:
             self.load_image(preserve_orientation=True)
 
         self.border_switch_polaroid.visible = True if "10x10" in self.current_format_label else False
-        self.border_switch_ID2.visible = True if "ID" in self.current_format_label else False
+        self.border_switch_ID2.visible = "ID" in self.current_format_label or self.current_format_label == "USA"
         self.border_switch_ID4.visible = True if "ID" in self.current_format_label else False
         self.id4_10x20_switch.visible = True if "ID" in self.current_format_label and self.border_id4 else False
         self.network_switch.visible = "ID" in self.current_format_label or self.current_format_label == "USA"
@@ -4383,9 +4384,16 @@ class PhotoCropper:
                                or f"{copies_count_prefix}ID "
                                   f"{job['index'] + 1:02}.jpg")
 
+        elif (_crop_mode != 'none' and job["format_label"] == "USA"
+                and not job["border_id2"]):
+            # USA seul (aimants 5x5...) : une photo par fichier, nommée
+            # comme les identités.
+            output_filename = (f"{copies_count_prefix}ID "
+                               f"{job['index'] + 1:02}.jpg")
+
         elif _crop_mode != 'none' and job["format_label"] == "USA":
-            # Visa USA : toujours 2 photos 2x2 po l'une sous l'autre sur un
-            # 10x15, espacements égaux (usage habituel, retour user).
+            # Visa USA (switch X2) : 2 photos 2x2 po l'une sous l'autre sur
+            # un 10x15, espacements égaux.
             sheet_w, sheet_h = mm_to_pixels(102), mm_to_pixels(152)
             sheet_image = Image.new("RGB", (sheet_w, sheet_h), "white")
             gap = (sheet_h - 2 * output_image.height) // 3
@@ -4420,7 +4428,7 @@ class PhotoCropper:
             output_filename = (f"{copies_count_prefix}ID "
                                f"{job['index'] + 1:02}.jpg")
 
-        if (format_short_name in ("ID_X4", "ID_X4_10x20", "USA_X2")
+        if (format_short_name in ("ID_X4", "ID_X4_10x20", "USA_X2", "USA")
                 and job["save_to_network"]):
             # ID_X4 et ID_X4_10x20 partagent explicitement le même
             # chemin réseau, centralisé dans CONSTANTS.TRAVAUX_EN_COURS
