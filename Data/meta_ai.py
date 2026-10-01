@@ -189,8 +189,12 @@ def chat_stream_with_tools(model, messages, tools=None, temperature=0.7):
         yield ("token", "[Erreur : clé Meta absente (MUSE_API_KEY "
                         "ou ~/.meta)]")
         return
+    # Pas de température : Meta recommande la valeur par défaut pour Muse
+    # (paramètre gardé pour la signature commune). Effort de réflexion
+    # laissé en auto : il s'adapte vraiment (342 jetons pour « bonjour »,
+    # 5562 pour un problème, mesuré le 2026-10-01).
     body = {"model": model, "messages": _to_openai(messages),
-            "temperature": temperature, "stream": True}
+            "stream": True}
     if tools:
         body["tools"] = tools  # format Ollama = format OpenAI
     req = urllib.request.Request(
