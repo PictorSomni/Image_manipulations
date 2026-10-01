@@ -11752,18 +11752,6 @@ def main(page: ft.Page):
     # dans le volet "Périphériques" du menu Ouvrir, au même endroit que les
     # clés USB et les cartes SD, ce qui est là où on le cherche (retour
     # user 2026-08-07). Cf. _phone_row.
-    def _pdf_text(path):
-        if path.lower().endswith(".pdf"):
-            try:
-                import fitz
-                with fitz.open(path) as doc:
-                    return "\n".join(p.get_text() for p in doc)
-            except ImportError:  # Pi : pas de PyMuPDF, poppler à la place
-                return subprocess.run(["pdftotext", path, "-"],
-                                      capture_output=True, text=True).stdout
-        with open(path, encoding="utf-8", errors="replace") as f:
-            return f.read()
-
     def _pdf_vers_idml(paths=()):
         """PDF/Word sélectionnés -> idml/ (Affinity : vrais blocs)."""
         pdfs = [p for p in paths
@@ -11788,30 +11776,6 @@ def main(page: ft.Page):
 
         threading.Thread(target=_work, daemon=True).start()
 
-    def _nettoyer_texte(paths=()):
-        """PDF/texte sélectionné (sinon presse-papiers) -> nettoyé ->
-        presse-papiers, prêt à coller dans Affinity."""
-        paths = [p for p in paths
-                 if p.lower().endswith((".pdf", ".txt", ".md"))]
-
-        async def _run():
-            import nettoyer_texte
-            try:
-                text = ("\n\n".join(_pdf_text(p) for p in paths) if paths
-                        else await ft.Clipboard().get() or "")
-            except Exception as exc:
-                _log_to_terminal(f"[ERREUR] Lecture du texte : {exc}", RED)
-                return
-            if not text:
-                _log_to_terminal("⚠ Aucun texte : sélectionne un PDF ou "
-                                 "copie du texte.", YELLOW)
-                return
-            text, n = nettoyer_texte.clean(text)
-            await ft.Clipboard().set(text)
-            _log_to_terminal(f"[OK] Texte nettoyé : {n} correction(s), "
-                             "prêt à coller.", GREEN)
-        _run_task(_run)
-
     _ACTION_CATEGORIES = [
         ("Fichier", _fichier_icon_actions),
         ("Préparation", [
@@ -11821,8 +11785,6 @@ def main(page: ft.Page):
             ("Conversion PNG", ft.Icons.IMAGE_OUTLINED, BLUE,
              lambda e: _launch_tool("Conversion JPG.py",
                                     extra_env={"CONVERT_FORMAT": "png"})),
-            ("Nettoyer texte", ft.Icons.TEXT_FORMAT, BLUE,
-             lambda e: _run_action(_nettoyer_texte, list(selected))),
             ("PDF ou Word vers IDML", ft.Icons.PICTURE_AS_PDF_OUTLINED, BLUE,
              lambda e: _run_action(_pdf_vers_idml, list(selected))),
             ("Renommer séquence", ft.Icons.SORT_BY_ALPHA, BLUE,
