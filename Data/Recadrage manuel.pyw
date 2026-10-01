@@ -4976,7 +4976,7 @@ def main(page: ft.Page):
         elif event.key == "0" and not event.meta and not event.ctrl:
             app.reset_zoom(event)
     page.on_keyboard_event = on_key
-    key_sink = ft.TextField(width=1, height=1, border=ft.InputBorder.NONE,
+    key_sink = ft.TextField(width=1, height=1, border=ft.NoInputBorder(),
                             on_change=lambda e: setattr(
                                 e.control, "value", ""))
     page.overlay.append(ft.Container(
