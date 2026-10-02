@@ -503,11 +503,20 @@ def _ai_save_history(conversation, file_path, history_compaction=None):
     ou à un changement de machine.
     """
     try:
-        serializable = [
-            {"role": msg["role"], "content": msg["content"]}
-            for msg in conversation
-            if msg.get("role") in ("user", "assistant")
-        ]
+        # tool_calls gardés (code Python, commandes… générés par l'IA),
+        # pour pouvoir les relire après coup (retour user). Ignorés au
+        # rechargement : seul le texte revient dans le chat.
+        serializable = []
+        for msg in conversation:
+            if msg.get("role") not in ("user", "assistant"):
+                continue
+            entry = {"role": msg["role"], "content": msg["content"]}
+            if msg.get("tool_calls"):
+                entry["tool_calls"] = [
+                    {"name": tc.get("function", {}).get("name", ""),
+                     "arguments": tc.get("function", {}).get("arguments")}
+                    for tc in msg["tool_calls"]]
+            serializable.append(entry)
         payload = {
             "messages": serializable,
             "history_compaction": history_compaction or {"summary": "", "summarized_count": 0},

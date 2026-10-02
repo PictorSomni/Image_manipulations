@@ -6490,9 +6490,11 @@ def main(page: ft.Page):
             saved = _load_json(_ai_history_file, None)
             old = (saved.get("messages", []) if isinstance(saved, dict)
                    else saved or [])
-            ours = sum(m.get("role") in ("user", "assistant")
-                       for m in ai_conversation)
-            if len(old) > ours:
+            # Seuls les messages avec texte comptent : les appels d'outils
+            # ne reviennent pas au rechargement.
+            ours = sum(bool(m.get("content")) and m.get("role") in (
+                "user", "assistant") for m in ai_conversation)
+            if sum(bool(m.get("content")) for m in old) > ours:
                 stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
                 shutil.copy2(_ai_history_file, _ai_history_file.replace(
                     ".json", f".{stamp}.json"))
