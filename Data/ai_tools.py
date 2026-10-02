@@ -53,7 +53,7 @@ Dictée — STT (push-to-talk) :
   _gemini_transcribe_audio(wav_bytes, ...)   — transcrit un WAV via Gemini, retourne le texte
 """
 
-__version__ = "2.3.19"
+__version__ = "2.3.20"
 
 
 import ast as _ast
@@ -70,6 +70,7 @@ import urllib.parse
 import html.parser
 
 import CONSTANTS
+import mail_reader
 
 # Erreurs "best-effort" (fallback silencieux volontaire) — voir chaque site
 # d'appel pour le contexte. Un sous-ensemble seulement est loggé ici : ceux
@@ -1479,6 +1480,7 @@ def build_tool_list(folder_path, mcp_tools=None, extra_tools=None):
         _EDIT_TOOLS + _READ_LINES_TOOLS + _SEARCH_TOOLS + _GIT_TOOLS
         + _TASK_TOOLS + _PDF_TOOLS + _SUBAGENT_TOOLS + _SCHEDULE_TOOLS
         + _HTTP_TOOLS + _SPREADSHEET_TOOLS + _PYAUTOGUI_TOOLS + _SSH_TOOLS
+        + (mail_reader.TOOLS if mail_reader.available() else [])
         + list(extra_tools or [])
     )
     return (
@@ -1515,6 +1517,14 @@ def dispatch_folder_tool(fn_name, fn_args, folder_path, ui):
       ui.paint()               — repaint (try/except géré côté app)
       ui.credential(host, user)— demande/récupère un mot de passe (SSH), ou None
     """
+    if fn_name == "read_mails":
+        ui.set_status("📧 Lecture des mails…")
+        try:
+            return mail_reader.read_mails(
+                fn_args.get("days", 3), fn_args.get("limit", 20),
+                fn_args.get("query", ""))
+        except Exception as exc:
+            return f"Erreur lecture mails : {exc}"
     if fn_name == "move_file":
         _mv_src = fn_args.get("source", "").strip()
         _mv_dst = fn_args.get("destination", "").strip()
