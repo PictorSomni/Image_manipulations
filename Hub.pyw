@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.16"
+__version__ = "2.3.17"
 
 import asyncio
 import base64
@@ -5457,6 +5457,11 @@ def main(page: ft.Page):
     _ai_refresh_targets = [ai_chat_view, ai_status_text, ai_progress_bar]
 
     async def _ai_update_and_scroll():
+        # Onglet IA démonté (autre onglet actif) : patcher/scroller ses
+        # contrôles faisait redémarrer le client Flet (retour user, réponse
+        # Muse arrivée sur un autre onglet). Rattrapé au retour sur l'IA.
+        if state["surface"] != "ia":
+            return
         try:
             page.update(*_ai_refresh_targets)
             await asyncio.sleep(0)
@@ -10052,6 +10057,8 @@ def main(page: ft.Page):
                                    else ft.FontWeight.NORMAL)
         _configure_size_control()
         page.update()
+        if key == "ia":
+            _run_task(_ai_update_and_scroll)
         _run_task(_focus_active_surface)
 
     def _rail_tab(key, label, icon):
