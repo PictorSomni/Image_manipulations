@@ -2930,6 +2930,11 @@ def main(page: ft.Page):
         await asyncio.sleep(0.08)
         _kb_suspend["count"] = 0
         _focused_input["name"] = None
+        if state["surface"] != "files":
+            # Navigation lancée par l'IA depuis l'onglet IA : donner le
+            # focus à un bouton masqué peut faire tomber le client Flet
+            # (redémarrage pendant un travail de Muse, retour user).
+            return
         try:
             await parent_folder_btn.focus()
         except Exception:
@@ -6853,6 +6858,7 @@ def main(page: ft.Page):
         if images_b64:
             user_message["images"] = images_b64
         ai_conversation.append(user_message)
+        _ai_save_history_now()  # survit à un redémarrage de Flet
 
         display_text = text
         if images_paths:
@@ -6979,6 +6985,7 @@ def main(page: ft.Page):
                         elif streamed:
                             _ai_add_bubble("assistant", streamed)
                         ai_conversation.append({"role": "assistant", "content": streamed})
+                        _ai_save_history_now()  # survit à un redémarrage de Flet
                         if streamed:
                             preview = streamed if len(streamed) <= 120 else streamed[:117] + "…"
                             _log_to_terminal(f"🤖 {preview}", GREEN)
@@ -7031,6 +7038,7 @@ def main(page: ft.Page):
                             _ai_last_screenshot["b64"] = None
                         messages.append(tool_msg)
                         ai_conversation.append(dict(tool_msg))
+                        _ai_save_history_now()  # survit à un redémarrage de Flet
                 else:
                     _ai_add_bubble("assistant", "⚠️ Trop de tours d'outils, arrêt.")
             except Exception as exc:
