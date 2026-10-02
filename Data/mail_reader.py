@@ -9,7 +9,7 @@ BODY.PEEK : rien n'est marqué comme lu, la boîte partagée reste intacte.
 Aucun envoi, suppression ni déplacement possible depuis ce module.
 """
 
-__version__ = "2.3.22"
+__version__ = "2.3.23"
 
 import datetime
 import email
@@ -61,9 +61,17 @@ def _body_text(msg, max_chars):
     return " ".join(text.split())[:max_chars]
 
 
-def read_mails(days=3, limit=20, query="", max_chars=600):
-    """Mails reçus ces `days` derniers jours (boîte de réception), du plus
-    récent au plus ancien, en texte pour l'IA."""
+def is_bulk(msg):
+    """Newsletter/pub : en-têtes posés par les outils d'envoi en masse."""
+    return bool(msg["List-Unsubscribe"] or msg["List-Id"]
+                or (msg["Precedence"] or "").lower() in ("bulk", "list"))
+
+
+def read_mails(days=3, limit=20, query="", max_chars=600, skip_ads=True):
+    """Mails reçus ces `days` derniers jours (boîte de réception), lus ou
+    non (boîte partagée : le collègue a pu les ouvrir), du plus récent au
+    plus ancien, en texte pour l'IA. Pubs/newsletters écartées sauf
+    skip_ads=False."""
     creds = _credentials()
     if not creds:
         return "Accès mail non configuré sur cette machine."
@@ -81,12 +89,17 @@ def read_mails(days=3, limit=20, query="", max_chars=600):
         imap.select("INBOX", readonly=True)  # EXAMINE : lecture seule
         imap._encoding = "utf-8"
         _, data = imap.search(None, *criteria)
-        ids = data[0].split()[-limit:][::-1]
-        out = []
+        ids = data[0].split()[::-1]
+        out, ads = [], 0
         for num in ids:
+            if len(out) >= limit:
+                break
             # BODY.PEEK : ne pose pas le drapeau \\Seen.
             _, parts = imap.fetch(num, "(BODY.PEEK[])")
             msg = email.message_from_bytes(parts[0][1])
+            if skip_ads and is_bulk(msg):
+                ads += 1
+                continue
             date = email.utils.parsedate_to_datetime(msg["Date"]) \
                 if msg["Date"] else None
             out.append(
@@ -100,7 +113,8 @@ def read_mails(days=3, limit=20, query="", max_chars=600):
             imap.logout()
         except Exception:
             pass
-    return "\n".join(out) or "Aucun mail sur la période."
+    note = f"\n({ads} pub(s)/newsletter(s) écartée(s))" if ads else ""
+    return ("\n".join(out) or "Aucun mail sur la période.") + note
 
 
 TOOLS = [{
@@ -110,8 +124,9 @@ TOOLS = [{
         "description": (
             "Lit (lecture seule) les mails récents de la boîte du studio "
             "(info@studiocleuze.be) : date, expéditeur, objet, début du "
-            "texte. Ne marque rien comme lu. Impossible d'envoyer, "
-            "répondre ou supprimer."),
+            "texte. Lus ou non (boîte partagée). Pubs/newsletters "
+            "écartées par défaut. Ne marque rien comme lu. Impossible "
+            "d'envoyer, répondre ou supprimer."),
         "parameters": {
             "type": "object",
             "properties": {
@@ -121,6 +136,8 @@ TOOLS = [{
                           "description": "Nombre max de mails (1-50, défaut 20)"},
                 "query": {"type": "string",
                           "description": "Mot à chercher (optionnel)"},
+                "include_ads": {"type": "boolean",
+                                "description": "Inclure pubs/newsletters (défaut non)"},
             },
         },
     },

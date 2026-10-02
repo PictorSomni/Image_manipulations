@@ -9,7 +9,7 @@ visionneuse n'est jamais ouvert. Reprend fidèlement la logique de
 dépouillée des callbacks Flet (`page.update()`, widgets).
 """
 
-__version__ = "2.3.22"
+__version__ = "2.3.23"
 
 import io
 import os
