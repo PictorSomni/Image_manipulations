@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.21"
+__version__ = "2.3.22"
 
 import asyncio
 import base64
@@ -55,7 +55,6 @@ import ai_ops
 import thumb_cache
 import mcp_client
 import notion_rest
-import mail_reader
 import meta_ai
 import credentials
 import mtp_devices
@@ -6428,7 +6427,23 @@ def main(page: ft.Page):
                if downgraded else "")
         return f"Bloc-notes mis à jour ({action}).{note}"
 
+    _STUDIO_TOOLS = [{
+        "type": "function",
+        "function": {
+            "name": "read_studio",
+            "description": (
+                "Tâches À faire du Kanban « Tâches » et rendez-vous de "
+                "l'agenda du studio (Studio/Reportages/Locations) des "
+                "prochains jours. Pour un briefing ou savoir ce qui traîne."),
+            "parameters": {"type": "object", "properties": {
+                "days": {"type": "integer",
+                         "description": "Jours d'agenda à venir (défaut 2)"}}},
+        },
+    }]
+
     _AI_FALLBACK_TOOLS = {
+        "read_studio": lambda args: _studio_summary(
+            int(args.get("days") or 2)),
         "list_folder_contents": lambda args: _folder_list_contents(
             (args.get("path") or "").strip() or state["folder"] or ""),
         "read_file_content": lambda args: _folder_read_file(
@@ -6965,7 +6980,8 @@ def main(page: ft.Page):
                     if not ai_streaming["value"]:
                         break
                     tools = build_tool_list(folder, mcp_tools,
-                                           extra_tools=_IMAGE_ITERATE_TOOLS)
+                                           extra_tools=_IMAGE_ITERATE_TOOLS
+                                           + _STUDIO_TOOLS)
                     streamed = ""
                     tool_calls = []
                     thinking_ctrl = None
@@ -9963,44 +9979,33 @@ def main(page: ft.Page):
             if hours % 24 == 0:
                 _agenda_refresh()
 
-    def _daily_briefing():
-        """Rappel de ce qui traîne (retour user) : tâches À faire en cache
-        et rendez-vous des 2 prochains jours, résumés par l'IA. À la
-        demande seulement (bouton Briefing) : pas d'affichage auto, le
-        collègue/les clients pourraient le voir (retour user)."""
+    def _studio_summary(days=2):
+        """Tâches À faire (cache Kanban) + rendez-vous des `days` prochains
+        jours (cache Agenda), en texte — outil read_studio de l'IA."""
         today = datetime.date.today().isoformat()
         todo = [r for r in kanban_state["rows"] if r.get("etat") == "À faire"]
         horizon = (datetime.date.today()
-                   + datetime.timedelta(days=2)).isoformat()
+                   + datetime.timedelta(days=days)).isoformat()
         rdv = sorted((ev for ev in agenda_state["events"]
                       if today <= ev["start"][:10] <= horizon),
                      key=lambda ev: ev["start"])
-        lines = [f"Briefing du {today}."]
-        lines += ["", "Tâches À faire :"] if todo else []
-        lines += [f"- {r['demande']} (créée {r.get('cree_le') or '?'}"
+        lines = ["Tâches À faire (les anciennes sont peut-être déjà faites, "
+                 "personne ne retire les cartes terminées) :"]
+        lines += [f"- {r['demande']} (créée {(r.get('cree_le') or '?')[:10]}"
                   + (f", deadline {r['deadline']}" if r.get("deadline")
-                     else "") + ")" for r in todo]
-        lines += ["", "Rendez-vous :"] if rdv else []
+                     else "") + ")" for r in todo] or ["- aucune"]
+        lines += ["", "Rendez-vous :"]
         lines += [f"- {ev['start'][:16].replace('T', ' ')} "
                   f"{ev['nom'] or '(sans nom)'} ({ev['source']})"
-                  for ev in rdv]
+                  for ev in rdv] or ["- aucun"]
+        return "\n".join(lines)
+
+    def _daily_briefing():
+        # À la demande seulement (bouton) : pas d'affichage auto, le
+        # collègue/les clients pourraient le voir (retour user). Muse va
+        # chercher elle-même ce qu'il lui faut (read_studio, read_mails).
         _select_surface("ia")
-
-        def _work():
-            # IMAP hors de la boucle Flet (quelques secondes).
-            if mail_reader.available():
-                try:
-                    lines.extend(["", "Mails des 2 derniers jours :",
-                                  mail_reader.read_mails(
-                                      days=2, limit=30, max_chars=300)])
-                except Exception as exc:
-                    lines.extend(["", f"Mails indisponibles : {exc}"])
-            _run_task(_send_async)
-
-        async def _send_async():
-            _send_ai_message("\n".join(lines))
-
-        threading.Thread(target=_work, daemon=True).start()
+        _send_ai_message("Briefing du jour ?")
 
     # Sans clé Notion, la synchro passerait par MCP et ouvrirait le
     # navigateur toutes les heures sur les machines non connectées
