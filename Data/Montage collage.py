@@ -43,7 +43,7 @@ Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
   (pour le .psd — sans pytoshop, seul l'aperçu PNG est produit).
 """
 
-__version__ = "2.3.11"
+__version__ = "2.3.12"
 
 #############################################################
 #                          IMPORTS                          #
@@ -611,7 +611,7 @@ def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
 #                           MAIN                            #
 #############################################################
 
-def pack_stickers(sizes, roll_w, gap_px, center=True):
+def pack_stickers(sizes, roll_w, gap_px):
     """Range des autocollants (w, h) en rangées sur un rouleau de largeur
     roll_w, hauteur libre. Renvoie ([(index, x, y, rotated)], hauteur).
     Pivote de 90° ce qui ne passe qu'en travers ; ignore (et signale via
@@ -637,7 +637,7 @@ def pack_stickers(sizes, roll_w, gap_px, center=True):
     # user : mieux trop de bord que trop peu).
     used = max((x + (sizes[i][1] if r else sizes[i][0])
                 for i, x, _, r in placed), default=0) + gap_px
-    dx = max(0, (roll_w - used) // 2) if center else 0
+    dx = max(0, (roll_w - used) // 2)
     placed = [(i, x + dx, y_, r) for i, x, y_, r in placed]
     return placed, y + row_h + gap_px
 
@@ -664,7 +664,7 @@ def add_bleed(img, bleed_px):
 
 
 def render_stickers(paths, roll_w, dpi, gap_px, bleed_px, load_image,
-                    scale=1.0, center=True):
+                    scale=1.0):
     """Planche autocollants : taille réelle (pixels + ppp du fichier) *
     scale, NX_ exemplaires, rangés par pack_stickers. load_image(path,
     size) renvoie une image RGBA à cette taille. Renvoie (canvas, calques
@@ -679,7 +679,7 @@ def render_stickers(paths, roll_w, dpi, gap_px, bleed_px, load_image,
         items += [(path, size)] * sticker_count(Path(path).name)
     placed, roll_h = pack_stickers(
         [(w + 2 * bleed_px, h + 2 * bleed_px) for _, (w, h) in items],
-        roll_w, gap_px, center)
+        roll_w, gap_px)
     skipped = sorted({Path(items[i][0]).name for i in
                       set(range(len(items))) - {p[0] for p in placed}})
     canvas = Image.new("RGBA", (roll_w, max(1, roll_h)))
@@ -774,8 +774,7 @@ def main():
 
         canvas, layers, skipped = render_stickers(
             [PATH / n for n in photo_names], canvas_w, dpi, gap_px,
-            bleed_px, load_sized,
-            center=os.environ.get("COLLAGE_STICKERS_CENTER", "1") != "0")
+            bleed_px, load_sized)
         for name in skipped:
             print(f"[WARN] {name} plus large que le rouleau, ignoré.",
                   flush=True)
