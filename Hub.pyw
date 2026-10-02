@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.23"
+__version__ = "2.3.24"
 
 import asyncio
 import base64
@@ -6434,7 +6434,10 @@ def main(page: ft.Page):
             "description": (
                 "Tâches À faire du Kanban « Tâches » et rendez-vous de "
                 "l'agenda du studio (Studio/Reportages/Locations) des "
-                "prochains jours. Pour un briefing ou savoir ce qui traîne."),
+                "prochains jours. Pour un briefing ou savoir ce qui traîne. "
+                "À utiliser EN PRIORITÉ (copie locale, instantanée) avant "
+                "les outils Notion MCP, réservés aux modifications ou à ce "
+                "que read_studio ne donne pas."),
             "parameters": {"type": "object", "properties": {
                 "days": {"type": "integer",
                          "description": "Jours d'agenda à venir (défaut 2)"}}},
