@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.24"
+__version__ = "2.3.25"
 
 import asyncio
 import base64
@@ -10013,7 +10013,15 @@ def main(page: ft.Page):
     # Sans clé Notion, la synchro passerait par MCP et ouvrirait le
     # navigateur toutes les heures sur les machines non connectées
     # volontairement (retour user).
+    async def _startup_sync():
+        # Tâches + Agenda à jour dès le démarrage (retour user), après
+        # l'affichage du cache.
+        await asyncio.sleep(2)
+        _kanban_refresh()
+        _agenda_refresh()
+
     if notion_rest.TOKEN:
+        _run_task(_startup_sync)
         _run_task(_hourly_sync)
 
     # ─── Surfaces encore à construire (placeholders structurés) ──────────

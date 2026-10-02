@@ -8,10 +8,10 @@ Utilisation :
   3. Lancez-le (python "Changer version.py").
 """
 
-__version__ = "2.3.24"
+__version__ = "2.3.25"
 
 # ← MODIFIEZ ICI
-NEW_VERSION = "2.3.24"
+NEW_VERSION = "2.3.25"
 
 #############################################################
 #                          IMPORTS                          #
