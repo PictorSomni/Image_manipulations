@@ -43,7 +43,7 @@ Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
   (pour le .psd — sans pytoshop, seul l'aperçu PNG est produit).
 """
 
-__version__ = "2.3.15"
+__version__ = "2.3.16"
 
 #############################################################
 #                          IMPORTS                          #
@@ -711,7 +711,10 @@ def main():
         "COLLAGE_ROTATION_VARIATION", CONSTANTS.COLLAGE_ROTATION_VARIATION_DEFAULT)))
     safe_margin_cm = env_float(
         "COLLAGE_SAFE_MARGIN_CM", CONSTANTS.COLLAGE_SAFE_MARGIN_CM_DEFAULT)
+    # int comme dans l'aperçu : Random("123") != Random(123) (retour user :
+    # PSD final différent de l'aperçu en mosaïque).
     seed = os.environ.get("COLLAGE_SEED") or None
+    seed = int(seed) if seed and seed.lstrip("-").isdigit() else seed
 
     center_file = os.environ.get("COLLAGE_CENTER_FILE", "").strip() or None
     if center_file and center_file not in photo_names:
@@ -785,7 +788,7 @@ def main():
         # fichiers) — répartition aléatoire des photos entre les cases/
         # feuilles, reproductible via COLLAGE_SEED comme en mode mosaïque.
         ordered_names = list(photo_names)
-        random.Random(int(seed) if seed else None).shuffle(ordered_names)
+        random.Random(seed).shuffle(ordered_names)
         sheets = ([ordered_names[i:i + max_per_sheet]
                   for i in range(0, len(ordered_names), max_per_sheet)]
                  if max_per_sheet else [ordered_names])

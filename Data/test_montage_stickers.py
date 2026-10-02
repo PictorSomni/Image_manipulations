@@ -1,6 +1,6 @@
 """Self-check du rangement Autocollants (Montage collage.py)."""
 
-__version__ = "2.3.15"
+__version__ = "2.3.16"
 
 import importlib.util
 from pathlib import Path
