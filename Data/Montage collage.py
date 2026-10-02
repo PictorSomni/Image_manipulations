@@ -43,7 +43,7 @@ Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
   (pour le .psd — sans pytoshop, seul l'aperçu PNG est produit).
 """
 
-__version__ = "2.3.9"
+__version__ = "2.3.10"
 
 #############################################################
 #                          IMPORTS                          #
@@ -54,7 +54,7 @@ import random
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
@@ -633,6 +633,12 @@ def pack_stickers(sizes, roll_w, gap_px):
         placed.append((i, x, y, rotated))
         x += w + gap_px
         row_h = max(row_h, h)
+    # Bloc centré horizontalement si plus étroit que le rouleau (retour
+    # user : mieux trop de bord que trop peu).
+    used = max((x + (sizes[i][1] if r else sizes[i][0])
+                for i, x, _, r in placed), default=0) + gap_px
+    dx = max(0, (roll_w - used) // 2)
+    placed = [(i, x + dx, y_, r) for i, x, y_, r in placed]
     return placed, y + row_h + gap_px
 
 
@@ -640,6 +646,64 @@ def sticker_count(name):
     """Préfixe NX_ (ex. 12X_logo.png) = nombre d'exemplaires, 1 sinon."""
     head, sep, _ = name.partition("X_")
     return int(head) if sep and head.isdigit() and int(head) > 0 else 1
+
+
+def add_bleed(img, bleed_px):
+    """Bord perdu : prolonge les couleurs du bord de bleed_px tout autour
+    de la forme (transparence comprise). Renvoie l'image agrandie de
+    2*bleed_px, sans l'original (calque séparé dessous)."""
+    w, h = img.size
+    out = Image.new("RGBA", (w + 2 * bleed_px, h + 2 * bleed_px))
+    out.paste(img, (bleed_px, bleed_px))
+    # Transparent = noir, sinon le MaxFilter étale le blanc des fonds.
+    out = Image.composite(out, Image.new("RGBA", out.size), out.getchannel("A"))
+    # ponytail: MaxFilter(3) itéré, O(bleed) passes ; ok jusqu'à ~60px
+    for _ in range(bleed_px):
+        out = out.filter(ImageFilter.MaxFilter(3))
+    return out
+
+
+def render_stickers(paths, roll_w, dpi, gap_px, bleed_px, load_image,
+                    scale=1.0):
+    """Planche autocollants : taille réelle (pixels + ppp du fichier) *
+    scale, NX_ exemplaires, rangés par pack_stickers. load_image(path,
+    size) renvoie une image RGBA à cette taille. Renvoie (canvas, calques
+    PSD, noms ignorés)."""
+    items = []
+    for path in paths:
+        with Image.open(path) as im:
+            w, h = im.size
+            src_dpi = float(im.info.get("dpi", (dpi,))[0] or dpi)
+        f = dpi / (src_dpi if src_dpi >= 10 else dpi) * scale
+        size = (max(1, round(w * f)), max(1, round(h * f)))
+        items += [(path, size)] * sticker_count(Path(path).name)
+    placed, roll_h = pack_stickers(
+        [(w + 2 * bleed_px, h + 2 * bleed_px) for _, (w, h) in items],
+        roll_w, gap_px)
+    skipped = sorted({Path(items[i][0]).name for i in
+                      set(range(len(items))) - {p[0] for p in placed}})
+    canvas = Image.new("RGBA", (roll_w, max(1, roll_h)))
+    layers, cache = [], {}
+    for n, (i, x, y, rotated) in enumerate(placed, start=1):
+        path, size = items[i]
+        if path not in cache:
+            img = load_image(path, size)
+            cache[path] = (img, add_bleed(img, bleed_px) if bleed_px
+                           else None)
+        img, bleed = cache[path]
+        if rotated:
+            img = img.rotate(90, expand=True)
+            bleed = bleed.rotate(90, expand=True) if bleed else None
+        name = Path(path).name
+        if bleed:
+            canvas.alpha_composite(bleed, (x, y))
+            layers.append((f"{n} {name} bord perdu", bleed, x, y, x, y,
+                           x + bleed.width, y + bleed.height))
+        x, y = x + bleed_px, y + bleed_px
+        canvas.alpha_composite(img, (x, y))
+        layers.append((f"{n} {name}", img, x, y, x, y,
+                       x + img.width, y + img.height))
+    return canvas, layers, skipped
 
 
 def main():
@@ -696,33 +760,27 @@ def main():
         # (pixels + ppp du fichier), NX_ exemplaires, collés sur un
         # rouleau de largeur fixe et hauteur variable, fond transparent.
         gap_px = round(env_float("COLLAGE_GRID_GAP_CM", 0) / 2.54 * dpi)
-        items = []
-        for name in photo_names:
-            img = load_source(name)
-            src_dpi = Image.open(PATH / name).info.get("dpi", (dpi,))[0]
-            scale = dpi / (float(src_dpi) or dpi)
-            if abs(scale - 1) > 1e-3:
-                img = img.resize((max(1, round(img.width * scale)),
-                                  max(1, round(img.height * scale))),
-                                 Image.LANCZOS)
-            items += [(name, img)] * sticker_count(name)
-        placed, roll_h = pack_stickers(
-            [im.size for _, im in items], canvas_w, gap_px)
-        for i in set(range(len(items))) - {p[0] for p in placed}:
-            print(f"[WARN] {items[i][0]} plus large que le rouleau, ignoré.",
+        bleed_px = round(env_float("COLLAGE_BLEED_CM", 0) / 2.54 * dpi)
+
+        def load_sized(path, size):
+            # open_srgb renvoie du RGB : on remet l'alpha d'origine.
+            img = image_ops.open_srgb(path).convert("RGBA")
+            with Image.open(path) as raw:
+                raw = ImageOps.exif_transpose(raw)
+                if "A" in raw.getbands() or "transparency" in raw.info:
+                    img.putalpha(raw.convert("RGBA").getchannel("A"))
+            return (img if img.size == size
+                    else img.resize(size, Image.LANCZOS))
+
+        canvas, layers, skipped = render_stickers(
+            [PATH / n for n in photo_names], canvas_w, dpi, gap_px,
+            bleed_px, load_sized)
+        for name in skipped:
+            print(f"[WARN] {name} plus large que le rouleau, ignoré.",
                   flush=True)
-        canvas = Image.new("RGBA", (canvas_w, max(1, roll_h)))
-        layers = []
-        for n, (i, x, y, rotated) in enumerate(placed, start=1):
-            name, img = items[i]
-            if rotated:
-                img = img.rotate(90, expand=True)
-            canvas.alpha_composite(img, (x, y))
-            layers.append((f"{n} {name}", img, x, y, x, y,
-                           x + img.width, y + img.height))
         print(f"[INFO] Rouleau {canvas_w}x{canvas.height}px "
               f"({width_cm:g}x{canvas.height / dpi * 2.54:.1f}cm), "
-              f"{len(placed)} autocollant(s)", flush=True)
+              f"{len(layers) // (2 if bleed_px else 1)} autocollant(s)", flush=True)
         if not write_psd_file(out_dir / "Autocollants.psd", canvas, layers,
                               canvas_w, canvas.height):
             canvas.save(out_dir / "Autocollants.png", dpi=(dpi, dpi))

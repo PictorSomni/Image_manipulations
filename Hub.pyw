@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.9"
+__version__ = "2.3.10"
 
 import asyncio
 import base64
@@ -10911,8 +10911,34 @@ def main(page: ft.Page):
             selected_index=1, controls=gap_texts,
             thumb_color=ORANGE, on_change=_on_gap_change)
         _style_segments(gap_btn, gap_texts)
-        gap_section = gap_btn
-        gap_section.visible = False
+        gap_section = ft.Column([
+            ft.Text("Écart entre les images", size=CONSTANTS.TEXT_SM,
+                    color=LIGHT_GREY),
+            gap_btn], spacing=4,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            visible=False)
+
+        # Autocollants : bord perdu autour de chaque image (retour user).
+        bleed_mode = {"value": 0}
+
+        def _on_bleed_change(e):
+            bleed_mode["value"] = _GAP_CHOICES_MM[bleed_btn.selected_index]
+            _style_segments(bleed_btn, bleed_texts)
+            for t in bleed_texts:
+                t.update()
+            _do_preview()
+
+        bleed_texts = [ft.Text(f"{mm} mm", size=CONSTANTS.TEXT_SM)
+                       for mm in _GAP_CHOICES_MM]
+        bleed_btn = ft.CupertinoSlidingSegmentedButton(
+            selected_index=0, controls=bleed_texts,
+            thumb_color=ORANGE, on_change=_on_bleed_change)
+        _style_segments(bleed_btn, bleed_texts)
+        bleed_section = ft.Column([
+            ft.Text("Bord perdu", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
+            bleed_btn], spacing=4,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            visible=False)
 
         # Mode grille : nb max de photos par feuille (retour user), au-delà
         # les photos débordent sur une/des feuille(s) suivante(s) — même
@@ -11047,6 +11073,7 @@ def main(page: ft.Page):
             rotation_section.visible = not (is_grid or is_stickers)
             fit_section.visible = is_grid
             gap_section.visible = is_grid or is_stickers
+            bleed_section.visible = is_stickers
             rotate_section.visible = is_grid
             format_btn.visible = is_grid
             max_per_sheet_section.visible = is_grid
@@ -11227,16 +11254,28 @@ def main(page: ft.Page):
             montage_mod = _load_montage_module()
             n_sheets = 1
             if mode["value"] == "stickers":
-                # ponytail: pas d'aperçu (tailles réelles = pleine résolution)
-                async def _no_preview():
-                    preview_progress.visible = False
-                    preview_image.visible = False
-                    preview_status.value = (
-                        f"Rouleau {width_cm:g} cm, hauteur variable")
-                    page.update()
-                _run_task(_no_preview)
-                return
-            if mode["value"] == "grid":
+                # Aperçu à l'échelle : tailles réelles * scale, vignettes.
+                roll_w = round(width_cm / 2.54 * dpi)
+                scale = min(1.0, 1024 / max(roll_w, 1))
+
+                def load_sized(path, size):
+                    img = load_thumb(path)
+                    if img is None:
+                        return PILImage.new("RGBA", size, (128, 128, 128, 255))
+                    return img.resize(size)
+
+                canvas, _, _ = montage_mod.render_stickers(
+                    photo_paths, max(1, round(roll_w * scale)), dpi,
+                    round(gap_mode["value"] / 10 / 2.54 * dpi * scale),
+                    round(bleed_mode["value"] / 10 / 2.54 * dpi * scale),
+                    load_sized, scale=scale)
+                canvas_w = roll_w
+                canvas_h = round(canvas.height / scale)
+                # Fond blanc : l'aperçu est encodé en JPEG.
+                bg = PILImage.new("RGBA", canvas.size, (255, 255, 255, 255))
+                bg.alpha_composite(canvas)
+                canvas = bg
+            elif mode["value"] == "grid":
                 # Un seul écart, identique bord/entre-photos (retour user).
                 gap_px = round(gap_mode["value"] / 10 / 2.54 * dpi * scale)
                 max_per_sheet = max_per_sheet_mode["value"]
@@ -11327,6 +11366,7 @@ def main(page: ft.Page):
                 "COLLAGE_MODE": mode["value"],
                 "COLLAGE_GRID_FIT": grid_fit["value"],
                 "COLLAGE_GRID_GAP_CM": str(grid_margin_cm),
+                "COLLAGE_BLEED_CM": str(bleed_mode["value"] / 10),
                 "COLLAGE_GRID_AUTOROTATE":
                     "1" if grid_auto_rotate["value"] else "0",
                 "COLLAGE_GRID_MAX_PER_SHEET":
@@ -11378,6 +11418,7 @@ def main(page: ft.Page):
                 rotation_section,
                 fit_section,
                 gap_section,
+                bleed_section,
                 rotate_section,
                 max_per_sheet_section,
                 format_btn,
