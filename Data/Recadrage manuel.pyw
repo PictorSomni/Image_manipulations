@@ -119,8 +119,7 @@ STATUS_ERROR_SECONDS = 8  # …et d'une erreur, à lire sans se presser
 # secondes (STATUS_INFO_SECONDS/STATUS_ERROR_SECONDS), sans persister
 # nulle part sinon (retour user : besoin de relire un diagnostic après
 # coup, pas juste pendant qu'il clignote à l'écran).
-_TERMINAL_LOG_PATH = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), ".hub_terminal.log")
+_TERMINAL_LOG_PATH = CONSTANTS.state_file(".hub_terminal.log")
 ID_X4_10x20_PHOTOS_BOTTOM = CONSTANTS.ID_X4_10x20_PHOTOS_BOTTOM  # True = photos moitié basse, False = photos moitié haute
 _IS_MAC = platform.system() == "Darwin"   # Raccourcis clavier spécifiques macOS
 CANVAS_CHROME_WIDTH = 160  # Sliders latéraux + espacements autour du canevas

@@ -144,8 +144,8 @@ def image_to_b64(img: Image.Image, fmt: str = "JPEG", quality: int = 92) -> str:
 
 # ── Prompts fréquents + historique (fichiers locaux, non versionnés) ─────
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
-_PROMPT_PRESETS_FILE = os.path.join(_APP_DIR, ".ai_prompt_presets.json")
-_PROMPT_HISTORY_FILE = os.path.join(_APP_DIR, ".ai_prompt_history.json")
+_PROMPT_PRESETS_FILE = CONSTANTS.state_file(".ai_prompt_presets.json")
+_PROMPT_HISTORY_FILE = CONSTANTS.state_file(".ai_prompt_history.json")
 _PROMPT_HISTORY_MAX = 20
 _DEFAULT_PROMPT_PRESETS = [
     "Supprime cet objet et reconstruis l'arrière-plan",

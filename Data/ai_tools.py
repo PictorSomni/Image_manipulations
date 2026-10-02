@@ -77,7 +77,7 @@ import CONSTANTS
 # pas les dizaines de fallbacks cosmétiques (DPI, audio, dates...).
 _logger = logging.getLogger("ai_tools")
 if not _logger.handlers:
-    _log_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".ai_tools_errors.log")
+    _log_path = CONSTANTS.state_file(".ai_tools_errors.log")
     _handler = logging.FileHandler(_log_path, encoding="utf-8")
     _handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
     _logger.addHandler(_handler)
@@ -6215,7 +6215,7 @@ _GIT_TOOLS = [
 # ─── Outil gestion de tâches (TodoWrite) ─────────────────────────────────────
 # ==============================================================================
 
-_TASKS_FILE = _os.path.join(_DATA_DIR, ".tasks.json")
+_TASKS_FILE = CONSTANTS.state_file(".tasks.json")
 _STATUS_ICON = {"todo": "⬜", "in_progress": "🔄", "done": "✅"}
 
 

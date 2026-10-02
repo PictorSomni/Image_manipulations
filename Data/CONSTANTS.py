@@ -1215,6 +1215,29 @@ def is_icloud_placeholder(path, stat_result=None):
 save_error_hook = {"fn": None}
 
 
+# Tous les logs et JSON d'état de l'app réunis dans un seul dossier
+# (retour user : fini de fouiller la racine et Data/). Les anciens
+# fichiers y sont déplacés au premier accès.
+_REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+LOGS_DIR = os.path.join(_REPO_DIR, "Logs")
+
+
+def state_file(name):
+    """Chemin de ``name`` dans Logs/ (migré depuis la racine ou Data/)."""
+    os.makedirs(LOGS_DIR, exist_ok=True)
+    new = os.path.join(LOGS_DIR, name)
+    if not os.path.exists(new):
+        for old_dir in (_REPO_DIR, os.path.dirname(os.path.abspath(__file__))):
+            old = os.path.join(old_dir, name)
+            if os.path.isfile(old):
+                try:
+                    os.replace(old, new)
+                except OSError:
+                    return old
+                break
+    return new
+
+
 def load_json(path, default):
     """Lit un JSON, renvoie ``default`` si le fichier manque ou est illisible."""
     try:

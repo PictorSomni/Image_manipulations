@@ -87,3 +87,4 @@ ai_conversations_debug.md
 .claude/settings.local.json
 .kanban_order.json
 .kanban_trash.json
+Logs/

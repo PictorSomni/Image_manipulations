@@ -41,7 +41,7 @@ _TOOL_PREFIX = "mcp__"
 # tourne en .pyw, sans console).
 _logger = logging.getLogger("mcp_client")
 if not _logger.handlers:
-    _log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".mcp_errors.log")
+    _log_path = CONSTANTS.state_file(".mcp_errors.log")
     # RotatingFileHandler (pas FileHandler brut) : les loggers SDK en DEBUG
     # ci-dessous (mcp/httpx2/httpcore2...) sont verbeux et ce fichier n'avait
     # jusqu'ici aucune limite — il a fini par geler Hub le temps de charger

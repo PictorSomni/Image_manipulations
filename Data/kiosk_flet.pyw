@@ -990,9 +990,7 @@ def main(page: ft.Page) -> None:
         #  clé = chemin absolu de l'original) — la copie SELECTION/commande.txt
         #  reste par ailleurs le flux d'impression physique inchangé.
         try:
-            order_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                ".order.json")
+            order_path = KIOSK_CONSTANT.state_file(".order.json")
             try:
                 with open(order_path, "r", encoding="utf-8") as f:
                     shared_order = json.load(f)

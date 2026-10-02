@@ -96,19 +96,19 @@ STRIP_HEIGHT = CONSTANTS.WDA_HEIGHT
 # Mêmes fichiers que Dashboard.pyw (racine du repo) : dossiers récents et
 # favoris partagés, pas de nouvel emplacement vide pour l'utilisateur.
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
-_RECENT_FILE = os.path.join(_APP_DIR, ".recent_folders.json")
-_FAVORITES_FILE = os.path.join(_APP_DIR, ".favorites.json")
-_OPEN_TABS_FILE = os.path.join(_APP_DIR, ".open_tabs.json")
-_KANBAN_CACHE_FILE = os.path.join(_APP_DIR, ".kanban_cache.json")
+_RECENT_FILE = CONSTANTS.state_file(".recent_folders.json")
+_FAVORITES_FILE = CONSTANTS.state_file(".favorites.json")
+_OPEN_TABS_FILE = CONSTANTS.state_file(".open_tabs.json")
+_KANBAN_CACHE_FILE = CONSTANTS.state_file(".kanban_cache.json")
 # Corbeille locale des tâches (retour user : historique Notion payant
 # au-delà de quelques jours) — jamais purgée automatiquement.
-_KANBAN_TRASH_FILE = os.path.join(_APP_DIR, ".kanban_trash.json")
+_KANBAN_TRASH_FILE = CONSTANTS.state_file(".kanban_trash.json")
 _KANBAN_TRASH_DAYS = 365  # purge auto au-delà (retour user)
 # Ordre manuel des cartes (glisser-déposer) : l'API Notion n'expose pas
 # l'ordre manuel d'une vue, donc gardé localement (liste de page_id).
-_KANBAN_ORDER_FILE = os.path.join(_APP_DIR, ".kanban_order.json")
-_AGENDA_CACHE_FILE = os.path.join(_APP_DIR, ".agenda_cache.json")
-_KANBAN_SETTINGS_FILE = os.path.join(_APP_DIR, ".kanban_settings.json")
+_KANBAN_ORDER_FILE = CONSTANTS.state_file(".kanban_order.json")
+_AGENDA_CACHE_FILE = CONSTANTS.state_file(".agenda_cache.json")
+_KANBAN_SETTINGS_FILE = CONSTANTS.state_file(".kanban_settings.json")
 
 
 def _is_hidden_entry(entry):
@@ -204,7 +204,7 @@ def _save_open_with_programs(programs):
     return _save_json(_OPEN_WITH_FILE, programs)
 
 
-_ORDER_FILE = os.path.join(_APP_DIR, ".order.json")
+_ORDER_FILE = CONSTANTS.state_file(".order.json")
 
 
 def _load_order():
@@ -224,7 +224,7 @@ def _save_order(order):
 
 # Même fichier que Dashboard.pyw:310 (recadrage_auto_config_path) : le
 # dernier format utilisé pour "Recadrage automatique" est partagé.
-_CROP_AUTO_FILE = os.path.join(_APP_DIR, ".recadrage_auto_config.json")
+_CROP_AUTO_FILE = CONSTANTS.state_file(".recadrage_auto_config.json")
 
 
 def _load_crop_auto_config():
@@ -235,7 +235,7 @@ def _save_crop_auto_config(config):
     return _save_json(_CROP_AUTO_FILE, config)
 
 
-_ORDER_BW_FILE = os.path.join(_APP_DIR, ".order_bw.json")
+_ORDER_BW_FILE = CONSTANTS.state_file(".order_bw.json")
 
 
 def _load_order_bw():
@@ -5395,7 +5395,7 @@ def main(page: ft.Page):
     ai_send_original_images = {"value": CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL}
     ai_tts_enabled = {"value": CONSTANTS.AI_VOICE_TTS_ENABLED}
     ai_tts_stop_event = {"event": None}
-    _ai_history_file = os.path.join(_APP_DIR, ".ai_conversation_hub.json")
+    _ai_history_file = CONSTANTS.state_file(".ai_conversation_hub.json")
 
     ai_chat_view = ft.ListView(expand=True, spacing=4, auto_scroll=True)
     ai_attach_row = ft.Row([], spacing=6, wrap=True, visible=False)
@@ -6134,7 +6134,11 @@ def main(page: ft.Page):
             confirm_event.wait(timeout=300)
             if not confirm_result["value"]:
                 return "Commande annulée par l'utilisateur."
-        return _run_terminal_command(cmd, cwd=cwd, admin=admin)
+        result = _run_terminal_command(cmd, cwd=cwd, admin=admin)
+        # Commande + sortie gardées dans le log (retour user : impossible de
+        # retrouver après coup ce que l'IA avait lancé).
+        _append_terminal_log(f"[IA] $ {cmd}\n{result}")
+        return result
 
     # Copie de Dashboard.pyw:3881-3961 : CONSTANTS.AI_DELETE_CONFIRM (True
     # par défaut) doit toujours faire confirmer une suppression déclenchée
@@ -7347,7 +7351,7 @@ def main(page: ft.Page):
     #  tool_ui plus haut) recharge cette surface après chaque appel d'outil,
     #  comme le pubsub "refresh" de SidePanel.
     # ═════════════════════════════════════════════════════════════════════
-    _liste_file = {"path": os.path.join(_APP_DIR, ".liste.json")}
+    _liste_file = {"path": CONSTANTS.state_file(".liste.json")}
     liste_entries = []
     # tâche/fait par défaut (retour user : usage principal = todo list du
     # jour) — une colonne "fait" est rendue en case à cocher (_liste_row),
@@ -12214,12 +12218,9 @@ def main(page: ft.Page):
             except Exception:
                 pass
 
-    _terminal_log_path = os.path.join(_APP_DIR, "Data", ".hub_terminal.log")
+    _terminal_log_path = CONSTANTS.state_file(".hub_terminal.log")
 
-    def _log_to_terminal(message, color=None, clear=False):
-        message = (message or "").strip()
-        if not message:
-            return
+    def _append_terminal_log(message):
         # Persisté en plus de l'affichage (retour user) : le panneau se vide
         # au bout de HUB_TERMINAL_MAX_LINES lignes et se ferme tout seul —
         # sans ce fichier, la trace d'un bug survenu avant qu'on la lise est
@@ -12240,6 +12241,12 @@ def main(page: ft.Page):
                 f.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} {message}\n")
         except Exception:
             pass
+
+    def _log_to_terminal(message, color=None, clear=False):
+        message = (message or "").strip()
+        if not message:
+            return
+        _append_terminal_log(message)
 
         async def _do():
             if clear:
@@ -12487,8 +12494,7 @@ def main(page: ft.Page):
 
                 requirements_file_path = os.path.join(
                     _APP_DIR, "requirements.txt")
-                pip_cache_file_path = os.path.join(
-                    _APP_DIR, ".pip_cache.json")
+                pip_cache_file_path = CONSTANTS.state_file(".pip_cache.json")
                 if not os.path.isfile(requirements_file_path):
                     _log_to_terminal(
                         "⚠ requirements.txt introuvable, installation "
@@ -13471,7 +13477,7 @@ def _install_crash_logger():
     # trace en cas de plantage (crash de l'event loop Flet, thread IA...) —
     # on la persiste donc dans un fichier pour pouvoir la relire après coup.
     import traceback as _tb
-    log_path = os.path.join(_APP_DIR, "Data", ".hub_crash.log")
+    log_path = CONSTANTS.state_file(".hub_crash.log")
 
     def _log_exc(exc_type, exc_value, exc_tb):
         with open(log_path, "a", encoding="utf-8") as f:
