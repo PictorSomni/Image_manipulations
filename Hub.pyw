@@ -1038,10 +1038,21 @@ def main(page: ft.Page):
     # pas le Bloc-notes brut — cf. _liste_open_path plus bas.
     _NOTEPAD_EXTS = CONSTANTS.NOTEPAD_EXTS | {".markdown"}
 
+    def _json_is_list(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return isinstance(json.load(f), list)
+        except Exception:
+            return True  # JSON invalide : Liste affiche l'erreur précise
+
     def _open_file(path):
         ext = os.path.splitext(path)[1].lower()
-        if ext == ".json":
+        if ext == ".json" and _json_is_list(path):
             _liste_open_path(path)
+        elif ext == ".json":
+            # Pas une liste (historique IA, réglages…) : Bloc-notes, avec
+            # coloration JSON, plutôt qu'une erreur dans Liste (retour user).
+            _open_path_in_notes(path)
         elif ext == ".zip":
             # Clic = extraction, comme Dashboard.pyw:6080-6082 (retour user :
             # fonction absente de Hub jusqu'ici).
