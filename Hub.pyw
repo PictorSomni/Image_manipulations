@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.17"
+__version__ = "2.3.18"
 
 import asyncio
 import base64
@@ -100,6 +100,7 @@ _RECENT_FILE = CONSTANTS.state_file(".recent_folders.json")
 _FAVORITES_FILE = CONSTANTS.state_file(".favorites.json")
 _OPEN_TABS_FILE = CONSTANTS.state_file(".open_tabs.json")
 _KANBAN_CACHE_FILE = CONSTANTS.state_file(".kanban_cache.json")
+_BRIEFING_FILE = CONSTANTS.state_file(".briefing.json")
 # Corbeille locale des tâches (retour user : historique Notion payant
 # au-delà de quelques jours) — jamais purgée automatiquement.
 _KANBAN_TRASH_FILE = CONSTANTS.state_file(".kanban_trash.json")
@@ -7225,6 +7226,9 @@ def main(page: ft.Page):
                 ai_speaker_button,
                 ai_copy_button,
                 ai_to_notepad_button,
+                ft.IconButton(ft.Icons.WB_SUNNY_OUTLINED, icon_color=YELLOW,
+                              tooltip="Briefing",
+                              on_click=lambda e: _daily_briefing(True)),
                 _ai_header_separator(),
                 ai_clear_button,
             ], spacing=8),
@@ -9959,7 +9963,48 @@ def main(page: ft.Page):
             if hours % 24 == 0:
                 _agenda_refresh()
 
-    _run_task(_hourly_sync)
+    def _daily_briefing(force=False):
+        """Rappel de ce qui traîne (retour user) : tâches À faire en cache
+        et rendez-vous des 2 prochains jours, résumés par l'IA. Une fois
+        par jour au démarrage, ou à la demande (bouton Briefing)."""
+        today = datetime.date.today().isoformat()
+        if not force and _load_json(_BRIEFING_FILE, {}).get("date") == today:
+            return
+        todo = [r for r in kanban_state["rows"] if r.get("etat") == "À faire"]
+        horizon = (datetime.date.today()
+                   + datetime.timedelta(days=2)).isoformat()
+        rdv = sorted((ev for ev in agenda_state["events"]
+                      if today <= ev["start"][:10] <= horizon),
+                     key=lambda ev: ev["start"])
+        if not (todo or rdv):
+            return
+        lines = [f"Briefing du {today}. Résume-moi en quelques lignes ce qui "
+                 "traîne ou est urgent, le plus ancien/pressé d'abord. "
+                 "Attention : les vieilles tâches sont peut-être déjà "
+                 "faites (personne ne retire les cartes terminées).",
+                 "", "Tâches À faire :"]
+        lines += [f"- {r['demande']} (créée {r.get('cree_le') or '?'}"
+                  + (f", deadline {r['deadline']}" if r.get("deadline")
+                     else "") + ")" for r in todo]
+        lines += ["", "Rendez-vous :"] if rdv else []
+        lines += [f"- {ev['start'][:16].replace('T', ' ')} "
+                  f"{ev['nom'] or '(sans nom)'} ({ev['source']})"
+                  for ev in rdv]
+        _save_json(_BRIEFING_FILE, {"date": today})
+        _select_surface("ia")
+        _send_ai_message("\n".join(lines))
+
+    async def _startup_briefing():
+        await asyncio.sleep(3)  # laisse l'interface finir de s'afficher
+        _daily_briefing()
+
+    _run_task(_startup_briefing)
+
+    # Sans clé Notion, la synchro passerait par MCP et ouvrirait le
+    # navigateur toutes les heures sur les machines non connectées
+    # volontairement (retour user).
+    if notion_rest.TOKEN:
+        _run_task(_hourly_sync)
 
     # ─── Surfaces encore à construire (placeholders structurés) ──────────
     def _placeholder(label):
