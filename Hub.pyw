@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.18"
+__version__ = "2.3.19"
 
 import asyncio
 import base64
@@ -100,7 +100,6 @@ _RECENT_FILE = CONSTANTS.state_file(".recent_folders.json")
 _FAVORITES_FILE = CONSTANTS.state_file(".favorites.json")
 _OPEN_TABS_FILE = CONSTANTS.state_file(".open_tabs.json")
 _KANBAN_CACHE_FILE = CONSTANTS.state_file(".kanban_cache.json")
-_BRIEFING_FILE = CONSTANTS.state_file(".briefing.json")
 # Corbeille locale des tâches (retour user : historique Notion payant
 # au-delà de quelques jours) — jamais purgée automatiquement.
 _KANBAN_TRASH_FILE = CONSTANTS.state_file(".kanban_trash.json")
@@ -7228,7 +7227,7 @@ def main(page: ft.Page):
                 ai_to_notepad_button,
                 ft.IconButton(ft.Icons.WB_SUNNY_OUTLINED, icon_color=YELLOW,
                               tooltip="Briefing",
-                              on_click=lambda e: _daily_briefing(True)),
+                              on_click=lambda e: _daily_briefing()),
                 _ai_header_separator(),
                 ai_clear_button,
             ], spacing=8),
@@ -9963,13 +9962,12 @@ def main(page: ft.Page):
             if hours % 24 == 0:
                 _agenda_refresh()
 
-    def _daily_briefing(force=False):
+    def _daily_briefing():
         """Rappel de ce qui traîne (retour user) : tâches À faire en cache
-        et rendez-vous des 2 prochains jours, résumés par l'IA. Une fois
-        par jour au démarrage, ou à la demande (bouton Briefing)."""
+        et rendez-vous des 2 prochains jours, résumés par l'IA. À la
+        demande seulement (bouton Briefing) : pas d'affichage auto, le
+        collègue/les clients pourraient le voir (retour user)."""
         today = datetime.date.today().isoformat()
-        if not force and _load_json(_BRIEFING_FILE, {}).get("date") == today:
-            return
         todo = [r for r in kanban_state["rows"] if r.get("etat") == "À faire"]
         horizon = (datetime.date.today()
                    + datetime.timedelta(days=2)).isoformat()
@@ -9990,15 +9988,9 @@ def main(page: ft.Page):
         lines += [f"- {ev['start'][:16].replace('T', ' ')} "
                   f"{ev['nom'] or '(sans nom)'} ({ev['source']})"
                   for ev in rdv]
-        _save_json(_BRIEFING_FILE, {"date": today})
         _select_surface("ia")
         _send_ai_message("\n".join(lines))
 
-    async def _startup_briefing():
-        await asyncio.sleep(3)  # laisse l'interface finir de s'afficher
-        _daily_briefing()
-
-    _run_task(_startup_briefing)
 
     # Sans clé Notion, la synchro passerait par MCP et ouvrirait le
     # navigateur toutes les heures sur les machines non connectées

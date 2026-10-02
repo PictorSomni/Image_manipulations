@@ -8,7 +8,7 @@ test_ui_changes.py le fait pour Retouche par lot.pyw).
 Lancer :  python3 "Data/test_montage_collage.py"
 """
 
-__version__ = "2.3.18"
+__version__ = "2.3.19"
 
 
 import importlib.machinery
