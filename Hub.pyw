@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.12"
+__version__ = "2.3.13"
 
 import asyncio
 import base64
@@ -11079,6 +11079,9 @@ def main(page: ft.Page):
             max_per_sheet_section.visible = is_grid
             margin_field.visible = not (is_grid or is_stickers)
             height_field.visible = not is_stickers
+            orientation_btn.disabled = is_stickers
+            manual_switch.label = ("Impression sur rouleau" if is_stickers
+                                   else "Saisie manuelle")
             if is_stickers and not manual_switch.value:
                 manual_switch.value = True
                 _on_manual_change(None)
