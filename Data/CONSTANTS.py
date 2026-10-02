@@ -9,6 +9,7 @@ toucher aux scripts eux-mêmes.
 
 import json
 import os
+import shutil
 
 # ==============================================================================
 # TABLE DES MATIÈRES
@@ -1233,7 +1234,12 @@ def state_file(name):
                 try:
                     os.replace(old, new)
                 except OSError:
-                    return old
+                    # Fichier verrouillé (Windows, autre instance ouverte) :
+                    # copie, et Logs/ sert quand même de nouvel emplacement.
+                    try:
+                        shutil.copy2(old, new)
+                    except OSError:
+                        pass
                 break
     return new
 
