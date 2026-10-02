@@ -43,7 +43,7 @@ Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
   (pour le .psd — sans pytoshop, seul l'aperçu PNG est produit).
 """
 
-__version__ = "2.3.13"
+__version__ = "2.3.14"
 
 #############################################################
 #                          IMPORTS                          #
@@ -888,6 +888,16 @@ def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h):
                                  self.bottom, self.right,
                                  255 if self.default_color else 0, 0))
 
+    class _NoMask(psd_layer_mod.LayerMask):
+        """Aucun masque : pytoshop écrirait sinon un bloc masque vide,
+        qu'Affinity/psd-tools affichent quand même comme masque."""
+
+        def length(self, header):
+            return 0
+
+        def write(self, fd, header):
+            fd.write(b"\0\0\0\0")
+
     records = []
     for layer_name, full_img, full_left, full_top, mask_left, mask_top, \
             mask_right, mask_bottom in psd_layers:
@@ -910,15 +920,23 @@ def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h):
         # repère absolu (canevas) que top/left/bottom/right du calque —
         # vérifié avec psd-tools avant intégration (pytoshop ne documente
         # pas ce point).
+        record = psd_layer_mod.LayerRecord(
+            channels=channels, top=full_top, left=full_left,
+            bottom=full_top + arr.shape[0], right=full_left + arr.shape[1],
+            name=layer_name, opacity=255)
+        # Masque seulement si la photo déborde du cadre visible (mosaïque,
+        # grille Fill-in) — sinon inutile (retour user).
+        if (mask_left <= full_left and mask_top <= full_top
+                and full_left + arr.shape[1] <= mask_right
+                and full_top + arr.shape[0] <= mask_bottom):
+            record.mask = _NoMask()
+            records.append(record)
+            continue
         mask_h = max(1, mask_bottom - mask_top)
         mask_w = max(1, mask_right - mask_left)
         channels[int(ChannelId.user_layer_mask)] = psd_layer_mod.ChannelImageData(
             image=np.full((mask_h, mask_w), 255, dtype=np.uint8),
             compression=Compression.raw)
-        record = psd_layer_mod.LayerRecord(
-            channels=channels, top=full_top, left=full_left,
-            bottom=full_top + arr.shape[0], right=full_left + arr.shape[1],
-            name=layer_name, opacity=255)
         record.mask = _SimpleMask(
             top=mask_top, left=mask_left, bottom=mask_bottom,
             right=mask_right, default_color=False)

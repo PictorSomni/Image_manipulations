@@ -20,7 +20,7 @@ Variables d'environnement :
 Dépendances : flet >= 0.84
 """
 
-__version__ = "2.3.13"
+__version__ = "2.3.14"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  IMPORTS
