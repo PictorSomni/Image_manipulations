@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.10"
+__version__ = "2.3.11"
 
 import asyncio
 import base64
@@ -10934,9 +10934,12 @@ def main(page: ft.Page):
             selected_index=0, controls=bleed_texts,
             thumb_color=ORANGE, on_change=_on_bleed_change)
         _style_segments(bleed_btn, bleed_texts)
+        center_switch = ft.Switch(
+            label="Centrer", value=True, active_color=ORANGE,
+            on_change=lambda e: _do_preview())
         bleed_section = ft.Column([
             ft.Text("Bord perdu", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
-            bleed_btn], spacing=4,
+            bleed_btn, center_switch], spacing=4,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             visible=False)
 
@@ -11268,7 +11271,7 @@ def main(page: ft.Page):
                     photo_paths, max(1, round(roll_w * scale)), dpi,
                     round(gap_mode["value"] / 10 / 2.54 * dpi * scale),
                     round(bleed_mode["value"] / 10 / 2.54 * dpi * scale),
-                    load_sized, scale=scale)
+                    load_sized, scale=scale, center=center_switch.value)
                 canvas_w = roll_w
                 canvas_h = round(canvas.height / scale)
                 # Fond blanc : l'aperçu est encodé en JPEG.
@@ -11367,6 +11370,7 @@ def main(page: ft.Page):
                 "COLLAGE_GRID_FIT": grid_fit["value"],
                 "COLLAGE_GRID_GAP_CM": str(grid_margin_cm),
                 "COLLAGE_BLEED_CM": str(bleed_mode["value"] / 10),
+                "COLLAGE_STICKERS_CENTER": "1" if center_switch.value else "0",
                 "COLLAGE_GRID_AUTOROTATE":
                     "1" if grid_auto_rotate["value"] else "0",
                 "COLLAGE_GRID_MAX_PER_SHEET":
