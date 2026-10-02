@@ -9,14 +9,16 @@ BODY.PEEK : rien n'est marqué comme lu, la boîte partagée reste intacte.
 Aucun envoi, suppression ni déplacement possible depuis ce module.
 """
 
-__version__ = "2.3.20"
+__version__ = "2.3.21"
 
 import datetime
 import email
 import email.header
 import email.utils
+import html
 import imaplib
 import os
+import re
 
 _HOST = "ex2.mail.ovh.net"
 
@@ -42,13 +44,20 @@ def _decode(value):
 
 
 def _body_text(msg, max_chars):
-    part = next((p for p in msg.walk()
-                 if p.get_content_type() == "text/plain"
-                 and not p.get_filename()), None)
+    """Texte brut (ou HTML débalisé à défaut), sans les URL qui noient
+    les newsletters."""
+    parts = [p for p in msg.walk() if not p.get_filename()
+             and p.get_content_type() in ("text/plain", "text/html")]
+    part = next((p for p in parts if p.get_content_type() == "text/plain"),
+                parts[0] if parts else None)
     if part is None:
         return ""
     raw = part.get_payload(decode=True) or b""
     text = raw.decode(part.get_content_charset() or "utf-8", "replace")
+    if part.get_content_type() == "text/html":
+        text = html.unescape(re.sub(r"(?s)<(style|script).*?</\1>|<[^>]+>",
+                                    " ", text))
+    text = re.sub(r"https?://\S+", "", text)
     return " ".join(text.split())[:max_chars]
 
 

@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.20"
+__version__ = "2.3.21"
 
 import asyncio
 import base64
@@ -55,6 +55,7 @@ import ai_ops
 import thumb_cache
 import mcp_client
 import notion_rest
+import mail_reader
 import meta_ai
 import credentials
 import mtp_devices
@@ -9974,13 +9975,8 @@ def main(page: ft.Page):
         rdv = sorted((ev for ev in agenda_state["events"]
                       if today <= ev["start"][:10] <= horizon),
                      key=lambda ev: ev["start"])
-        if not (todo or rdv):
-            return
-        lines = [f"Briefing du {today}. Résume-moi en quelques lignes ce qui "
-                 "traîne ou est urgent, le plus ancien/pressé d'abord. "
-                 "Attention : les vieilles tâches sont peut-être déjà "
-                 "faites (personne ne retire les cartes terminées).",
-                 "", "Tâches À faire :"]
+        lines = [f"Briefing du {today}."]
+        lines += ["", "Tâches À faire :"] if todo else []
         lines += [f"- {r['demande']} (créée {r.get('cree_le') or '?'}"
                   + (f", deadline {r['deadline']}" if r.get("deadline")
                      else "") + ")" for r in todo]
@@ -9989,8 +9985,22 @@ def main(page: ft.Page):
                   f"{ev['nom'] or '(sans nom)'} ({ev['source']})"
                   for ev in rdv]
         _select_surface("ia")
-        _send_ai_message("\n".join(lines))
 
+        def _work():
+            # IMAP hors de la boucle Flet (quelques secondes).
+            if mail_reader.available():
+                try:
+                    lines.extend(["", "Mails des 2 derniers jours :",
+                                  mail_reader.read_mails(
+                                      days=2, limit=30, max_chars=300)])
+                except Exception as exc:
+                    lines.extend(["", f"Mails indisponibles : {exc}"])
+            _run_task(_send_async)
+
+        async def _send_async():
+            _send_ai_message("\n".join(lines))
+
+        threading.Thread(target=_work, daemon=True).start()
 
     # Sans clé Notion, la synchro passerait par MCP et ouvrirait le
     # navigateur toutes les heures sur les machines non connectées
