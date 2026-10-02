@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.8"
+__version__ = "2.3.9"
 
 import asyncio
 import base64
@@ -11038,17 +11038,23 @@ def main(page: ft.Page):
         grid_fit = {"value": CONSTANTS.COLLAGE_GRID_FIT_DEFAULT}
 
         def _on_mode_change(e):
-            mode["value"] = "grid" if mode_btn.selected_index == 1 else "scrapbook"
+            mode["value"] = ("scrapbook", "grid", "stickers")[
+                mode_btn.selected_index]
             is_grid = mode["value"] == "grid"
-            featured_section.visible = not is_grid
-            size_section.visible = not is_grid
-            rotation_section.visible = not is_grid
+            is_stickers = mode["value"] == "stickers"
+            featured_section.visible = not (is_grid or is_stickers)
+            size_section.visible = not (is_grid or is_stickers)
+            rotation_section.visible = not (is_grid or is_stickers)
             fit_section.visible = is_grid
-            gap_section.visible = is_grid
+            gap_section.visible = is_grid or is_stickers
             rotate_section.visible = is_grid
             format_btn.visible = is_grid
             max_per_sheet_section.visible = is_grid
-            margin_field.visible = not is_grid
+            margin_field.visible = not (is_grid or is_stickers)
+            height_field.visible = not is_stickers
+            if is_stickers and not manual_switch.value:
+                manual_switch.value = True
+                _on_manual_change(None)
             _style_segments(mode_btn, mode_texts)
             for t in mode_texts:
                 t.update()
@@ -11059,7 +11065,8 @@ def main(page: ft.Page):
         # bouton plein basculant de texte — plus lisible, et cohérent avec
         # les autres bascules du dialogue (orientation, fit, écart).
         mode_texts = [ft.Text("Mosaïque", size=CONSTANTS.TEXT_SM),
-                     ft.Text("Grille", size=CONSTANTS.TEXT_SM)]
+                     ft.Text("Grille", size=CONSTANTS.TEXT_SM),
+                     ft.Text("Autocollants", size=CONSTANTS.TEXT_SM)]
         mode_btn = ft.CupertinoSlidingSegmentedButton(
             selected_index=0, controls=mode_texts,
             thumb_color=VIOLET, on_change=_on_mode_change)
@@ -11186,7 +11193,9 @@ def main(page: ft.Page):
             # dans la bonne orientation (ex. saisie manuelle déjà en
             # paysage + bouton Paysage sélectionné).
             is_paysage = orientation["value"] == "paysage"
-            if is_paysage and width_cm < height_cm:
+            if mode["value"] == "stickers":
+                pass
+            elif is_paysage and width_cm < height_cm:
                 width_cm, height_cm = height_cm, width_cm
             elif not is_paysage and width_cm > height_cm:
                 width_cm, height_cm = height_cm, width_cm
@@ -11217,6 +11226,16 @@ def main(page: ft.Page):
 
             montage_mod = _load_montage_module()
             n_sheets = 1
+            if mode["value"] == "stickers":
+                # ponytail: pas d'aperçu (tailles réelles = pleine résolution)
+                async def _no_preview():
+                    preview_progress.visible = False
+                    preview_image.visible = False
+                    preview_status.value = (
+                        f"Rouleau {width_cm:g} cm, hauteur variable")
+                    page.update()
+                _run_task(_no_preview)
+                return
             if mode["value"] == "grid":
                 # Un seul écart, identique bord/entre-photos (retour user).
                 gap_px = round(gap_mode["value"] / 10 / 2.54 * dpi * scale)
@@ -11303,7 +11322,8 @@ def main(page: ft.Page):
                 "COLLAGE_HEIGHT_CM": str(height_cm),
                 "COLLAGE_DPI": str(dpi),
                 "COLLAGE_SAFE_MARGIN_CM": str(
-                    grid_margin_cm if mode["value"] == "grid" else margin_cm),
+                    grid_margin_cm if mode["value"] != "scrapbook"
+                    else margin_cm),
                 "COLLAGE_MODE": mode["value"],
                 "COLLAGE_GRID_FIT": grid_fit["value"],
                 "COLLAGE_GRID_GAP_CM": str(grid_margin_cm),

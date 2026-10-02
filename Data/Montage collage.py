@@ -43,7 +43,7 @@ Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
   (pour le .psd — sans pytoshop, seul l'aperçu PNG est produit).
 """
 
-__version__ = "2.3.8"
+__version__ = "2.3.9"
 
 #############################################################
 #                          IMPORTS                          #
@@ -611,6 +611,37 @@ def render_montage(photo_keys, canvas_w, canvas_h, size_variation,
 #                           MAIN                            #
 #############################################################
 
+def pack_stickers(sizes, roll_w, gap_px):
+    """Range des autocollants (w, h) en rangées sur un rouleau de largeur
+    roll_w, hauteur libre. Renvoie ([(index, x, y, rotated)], hauteur).
+    Pivote de 90° ce qui ne passe qu'en travers ; ignore (et signale via
+    l'index absent) ce qui ne passe d'aucune façon."""
+    # ponytail: rangées simples (shelf), skyline/maxrects si trop de perte
+    order = sorted(range(len(sizes)),
+                   key=lambda i: -(sizes[i][1] if sizes[i][0] + 2 * gap_px
+                                   <= roll_w else sizes[i][0]))
+    placed, x, y, row_h = [], gap_px, gap_px, 0
+    for i in order:
+        w, h = sizes[i]
+        rotated = w + 2 * gap_px > roll_w and h + 2 * gap_px <= roll_w
+        if rotated:
+            w, h = h, w
+        if w + 2 * gap_px > roll_w:
+            continue
+        if x + w + gap_px > roll_w:
+            x, y, row_h = gap_px, y + row_h + gap_px, 0
+        placed.append((i, x, y, rotated))
+        x += w + gap_px
+        row_h = max(row_h, h)
+    return placed, y + row_h + gap_px
+
+
+def sticker_count(name):
+    """Préfixe NX_ (ex. 12X_logo.png) = nombre d'exemplaires, 1 sinon."""
+    head, sep, _ = name.partition("X_")
+    return int(head) if sep and head.isdigit() and int(head) > 0 else 1
+
+
 def main():
     extensions = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp")
     selected_files_str = os.environ.get("SELECTED_FILES", "")
@@ -659,6 +690,44 @@ def main():
 
     def load_source(name):
         return image_ops.open_srgb(PATH / name).convert("RGBA")
+
+    if os.environ.get("COLLAGE_MODE", "").strip().lower() == "stickers":
+        # Autocollants (retour user) : chaque fichier à sa taille réelle
+        # (pixels + ppp du fichier), NX_ exemplaires, collés sur un
+        # rouleau de largeur fixe et hauteur variable, fond transparent.
+        gap_px = round(env_float("COLLAGE_GRID_GAP_CM", 0) / 2.54 * dpi)
+        items = []
+        for name in photo_names:
+            img = load_source(name)
+            src_dpi = Image.open(PATH / name).info.get("dpi", (dpi,))[0]
+            scale = dpi / (float(src_dpi) or dpi)
+            if abs(scale - 1) > 1e-3:
+                img = img.resize((max(1, round(img.width * scale)),
+                                  max(1, round(img.height * scale))),
+                                 Image.LANCZOS)
+            items += [(name, img)] * sticker_count(name)
+        placed, roll_h = pack_stickers(
+            [im.size for _, im in items], canvas_w, gap_px)
+        for i in set(range(len(items))) - {p[0] for p in placed}:
+            print(f"[WARN] {items[i][0]} plus large que le rouleau, ignoré.",
+                  flush=True)
+        canvas = Image.new("RGBA", (canvas_w, max(1, roll_h)))
+        layers = []
+        for n, (i, x, y, rotated) in enumerate(placed, start=1):
+            name, img = items[i]
+            if rotated:
+                img = img.rotate(90, expand=True)
+            canvas.alpha_composite(img, (x, y))
+            layers.append((f"{n} {name}", img, x, y, x, y,
+                           x + img.width, y + img.height))
+        print(f"[INFO] Rouleau {canvas_w}x{canvas.height}px "
+              f"({width_cm:g}x{canvas.height / dpi * 2.54:.1f}cm), "
+              f"{len(placed)} autocollant(s)", flush=True)
+        if not write_psd_file(out_dir / "Autocollants.psd", canvas, layers,
+                              canvas_w, canvas.height):
+            canvas.save(out_dir / "Autocollants.png", dpi=(dpi, dpi))
+        print("[ok] Terminé.", flush=True)
+        return
 
     grid_mode = os.environ.get(
         "COLLAGE_MODE", "").strip().lower() == "grid"
