@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.29"
+__version__ = "2.3.30"
 
 import asyncio
 import base64
@@ -4287,6 +4287,9 @@ def main(page: ft.Page):
 
     def _eject_drive(path):
         # Même logique que Dashboard.pyw:7376 (_eject_drive).
+        # Terminal vidé d'abord (retour user) : après une copie, le message
+        # d'éjection se perdait derrière le défilement des fichiers copiés.
+        _clear_terminal()
         _log_to_terminal(f"[...] Éjection en cours : {path}", VIOLET)
 
         def _run():
