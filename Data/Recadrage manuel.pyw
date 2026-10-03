@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.3.32"
+__version__ = "2.3.33"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -1445,12 +1445,22 @@ class PhotoCropper:
             self.icc_profile = decoded["icc"]
             self.source_exif = decoded["exif"]
             source_image = decoded["img"]
-            self.current_pil_image = source_image
-            self._rembg_original = None
-            self.rembg_btn.selected = False
-            self._pipette_cancel()
-            self._pipette.reset()
-            self._sync_pipette_sign_btn()
+            # Même image rechargée (changement/ajout de format, orientation)
+            # : garder le détourage déjà calculé, il peut être long à
+            # refaire (retour user).
+            keep_cutout = (path == getattr(self, "_loaded_path", None)
+                           and self.rembg_btn.selected
+                           and self._rembg_original is not None)
+            self._loaded_path = path
+            if keep_cutout:
+                self._pipette_cancel()
+            else:
+                self.current_pil_image = source_image
+                self._rembg_original = None
+                self.rembg_btn.selected = False
+                self._pipette_cancel()
+                self._pipette.reset()
+                self._sync_pipette_sign_btn()
             self.original_width, self.original_height = source_image.size
         except Exception as e:
             self._set_status(f"Erreur lors du chargement: {os.path.basename(path)} - {str(e)}")
