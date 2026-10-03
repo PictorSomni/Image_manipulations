@@ -9,7 +9,7 @@ BODY.PEEK : rien n'est marqué comme lu, la boîte partagée reste intacte.
 Aucun envoi, suppression ni déplacement possible depuis ce module.
 """
 
-__version__ = "2.3.27"
+__version__ = "2.3.28"
 
 import datetime
 import email
@@ -85,45 +85,57 @@ def read_mails(days=3, limit=20, query="", max_chars=600, skip_ads=True,
     limit = max(1, min(int(limit or 20), 50))
     since = (datetime.date.today() - datetime.timedelta(days=days)
              ).strftime("%d-%b-%Y")
-    criteria = ["SINCE", since]
-    if sender:
-        criteria += ["FROM", '"' + sender.replace('"', "") + '"']
-    if query:
-        criteria += ["TEXT", '"' + query.replace('"', "") + '"']
     imap = imaplib.IMAP4_SSL(host, 993, timeout=30)
+    found, ads = [], 0
     try:
         imap.login(user, password)
-        imap.select("INBOX", readonly=True)  # EXAMINE : lecture seule
         imap._encoding = "utf-8"
-        _, data = imap.search(None, *criteria)
-        ids = data[0].split()[::-1]
-        out, ads = [], 0
-        for num in ids:
-            if len(out) >= limit:
-                break
-            # BODY.PEEK : ne pose pas le drapeau \\Seen.
-            _, parts = imap.fetch(num, "(BODY.PEEK[])")
-            msg = email.message_from_bytes(parts[0][1])
-            if skip_ads and is_bulk(msg):
-                ads += 1
-                continue
-            date = email.utils.parsedate_to_datetime(msg["Date"]) \
-                if msg["Date"] else None
-            files = [_decode(p.get_filename()) for p in msg.walk()
-                     if p.get_filename()]
-            out.append(
-                f"- {date:%Y-%m-%d %H:%M} | De : {_decode(msg['From'])}\n"
-                f"  Objet : {_decode(msg['Subject'])}\n"
-                + (f"  Pièces jointes : {', '.join(files)}\n" if files
-                   else "") +
-                f"  {_body_text(msg, max_chars)}" if date else
-                f"- De : {_decode(msg['From'])} | "
-                f"Objet : {_decode(msg['Subject'])}")
+        # Reçus + envoyés (retour user : suivi complet d'un échange).
+        folders = [("INBOX", "Reçu", "FROM")]
+        sent = next((ln.decode().rsplit(' "/" ', 1)[-1]
+                     for ln in imap.list()[1] if b"\\Sent" in ln), None)
+        if sent:
+            folders.append((sent, "Envoyé", "TO"))
+        for folder, label, who in folders:
+            criteria = ["SINCE", since]
+            if sender:
+                criteria += [who, '"' + sender.replace('"', "") + '"']
+            if query:
+                criteria += ["TEXT", '"' + query.replace('"', "") + '"']
+            imap.select(folder, readonly=True)  # EXAMINE : lecture seule
+            _, data = imap.search(None, *criteria)
+            kept = 0
+            for num in data[0].split()[::-1]:
+                if kept >= limit:
+                    break
+                # BODY.PEEK : ne pose pas le drapeau \\Seen.
+                _, parts = imap.fetch(num, "(BODY.PEEK[])")
+                msg = email.message_from_bytes(parts[0][1])
+                if skip_ads and is_bulk(msg):
+                    ads += 1
+                    continue
+                kept += 1
+                try:
+                    date = email.utils.parsedate_to_datetime(msg["Date"])
+                except (TypeError, ValueError):
+                    date = None
+                files = [_decode(p.get_filename()) for p in msg.walk()
+                         if p.get_filename()]
+                stamp = f"{date:%Y-%m-%d %H:%M}" if date else "?"
+                found.append((stamp,
+                    f"- {stamp} | {label} | De : {_decode(msg['From'])}"
+                    f" | À : {_decode(msg['To'])}\n"
+                    f"  Objet : {_decode(msg['Subject'])}\n"
+                    + (f"  Pièces jointes : {', '.join(files)}\n" if files
+                       else "")
+                    + f"  {_body_text(msg, max_chars)}"))
     finally:
         try:
             imap.logout()
         except Exception:
             pass
+    found.sort(key=lambda f: f[0], reverse=True)
+    out = [text for _, text in found[:limit]]
     note = f"\n({ads} pub(s)/newsletter(s) écartée(s))" if ads else ""
     return ("\n".join(out) or "Aucun mail sur la période.") + note
 
@@ -133,7 +145,7 @@ TOOLS = [{
     "function": {
         "name": "read_mails",
         "description": (
-            "Lit (lecture seule) les mails récents de la boîte du studio "
+            "Lit (lecture seule) les mails reçus ET envoyés de la boîte du studio "
             "(info@studiocleuze.be) : date, expéditeur, objet, début du "
             "texte. Lus ou non (boîte partagée). Pubs/newsletters "
             "écartées par défaut. Ne marque rien comme lu. Impossible "
