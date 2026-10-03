@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.31"
+__version__ = "2.3.32"
 
 import asyncio
 import base64
@@ -3585,6 +3585,10 @@ def main(page: ft.Page):
             if rendered:
                 return image_ops.compensate_jpeg_bytes(rendered)
             return path
+        # Fichier absent (renommé/réécrit entre-temps) : Flet retombait sur
+        # assets/<nom> -> PathNotFoundException côté client (retour user).
+        if not os.path.isfile(path):
+            return _BLANK_GIF
         return path
 
     def _update_overlay_bar():
