@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.30"
+__version__ = "2.3.31"
 
 import asyncio
 import base64
@@ -1432,6 +1432,11 @@ def main(page: ft.Page):
             if fit == ft.BoxFit.COVER:
                 holder.bgcolor = None
             holders.append(holder)
+        # Onglet Fichiers démonté (dossier chargé depuis Tâches) : patcher
+        # ces vignettes hors arbre faisait planter le client (RangeError,
+        # retour user). Le contenu est déjà posé, il partira au remontage.
+        if state["surface"] != "files":
+            return
         try:
             if holders:
                 page.update(*holders)
