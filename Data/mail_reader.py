@@ -9,7 +9,7 @@ BODY.PEEK : rien n'est marqué comme lu, la boîte partagée reste intacte.
 Aucun envoi, suppression ni déplacement possible depuis ce module.
 """
 
-__version__ = "2.3.26"
+__version__ = "2.3.27"
 
 import datetime
 import email
@@ -67,7 +67,8 @@ def is_bulk(msg):
                 or (msg["Precedence"] or "").lower() in ("bulk", "list"))
 
 
-def read_mails(days=3, limit=20, query="", max_chars=600, skip_ads=True):
+def read_mails(days=3, limit=20, query="", max_chars=600, skip_ads=True,
+               sender="", full=False):
     """Mails reçus ces `days` derniers jours (boîte de réception), lus ou
     non (boîte partagée : le collègue a pu les ouvrir), du plus récent au
     plus ancien, en texte pour l'IA. Pubs/newsletters écartées sauf
@@ -76,11 +77,17 @@ def read_mails(days=3, limit=20, query="", max_chars=600, skip_ads=True):
     if not creds:
         return "Accès mail non configuré sur cette machine."
     user, password, host = creds
-    days = max(1, min(int(days or 3), 30))
+    # Recherche ciblée (expéditeur/mot) : on remonte loin et on lit tout
+    # (retour user : demandes d'une cliente incomplètes).
+    days = max(1, min(int(days or 3), 365))
+    if full:
+        max_chars = 20_000
     limit = max(1, min(int(limit or 20), 50))
     since = (datetime.date.today() - datetime.timedelta(days=days)
              ).strftime("%d-%b-%Y")
     criteria = ["SINCE", since]
+    if sender:
+        criteria += ["FROM", '"' + sender.replace('"', "") + '"']
     if query:
         criteria += ["TEXT", '"' + query.replace('"', "") + '"']
     imap = imaplib.IMAP4_SSL(host, 993, timeout=30)
@@ -102,9 +109,13 @@ def read_mails(days=3, limit=20, query="", max_chars=600, skip_ads=True):
                 continue
             date = email.utils.parsedate_to_datetime(msg["Date"]) \
                 if msg["Date"] else None
+            files = [_decode(p.get_filename()) for p in msg.walk()
+                     if p.get_filename()]
             out.append(
                 f"- {date:%Y-%m-%d %H:%M} | De : {_decode(msg['From'])}\n"
                 f"  Objet : {_decode(msg['Subject'])}\n"
+                + (f"  Pièces jointes : {', '.join(files)}\n" if files
+                   else "") +
                 f"  {_body_text(msg, max_chars)}" if date else
                 f"- De : {_decode(msg['From'])} | "
                 f"Objet : {_decode(msg['Subject'])}")
@@ -131,7 +142,11 @@ TOOLS = [{
             "type": "object",
             "properties": {
                 "days": {"type": "integer",
-                         "description": "Nombre de jours en arrière (1-30, défaut 3)"},
+                         "description": "Nombre de jours en arrière (1-365, défaut 3)"},
+                "sender": {"type": "string",
+                           "description": "Filtrer par expéditeur (nom ou adresse, optionnel)"},
+                "full": {"type": "boolean",
+                         "description": "Texte complet des mails au lieu d'un extrait — à utiliser pour lister des demandes/détails"},
                 "limit": {"type": "integer",
                           "description": "Nombre max de mails (1-50, défaut 20)"},
                 "query": {"type": "string",

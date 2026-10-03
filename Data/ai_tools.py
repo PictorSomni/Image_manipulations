@@ -53,7 +53,7 @@ Dictée — STT (push-to-talk) :
   _gemini_transcribe_audio(wav_bytes, ...)   — transcrit un WAV via Gemini, retourne le texte
 """
 
-__version__ = "2.3.26"
+__version__ = "2.3.27"
 
 
 import ast as _ast
@@ -1523,7 +1523,9 @@ def dispatch_folder_tool(fn_name, fn_args, folder_path, ui):
             return mail_reader.read_mails(
                 fn_args.get("days", 3), fn_args.get("limit", 20),
                 fn_args.get("query", ""),
-                skip_ads=not fn_args.get("include_ads", False))
+                skip_ads=not fn_args.get("include_ads", False),
+                sender=fn_args.get("sender", ""),
+                full=bool(fn_args.get("full", False)))
         except Exception as exc:
             return f"Erreur lecture mails : {exc}"
     if fn_name == "move_file":
