@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.28"
+__version__ = "2.3.29"
 
 import asyncio
 import base64
@@ -435,6 +435,11 @@ def main(page: ft.Page):
     # ─── Fenêtre ─────────────────────────────────────────────────────────
     page.title      = "Hub"
     page.theme_mode = ft.ThemeMode.DARK
+    # Français de Belgique imposé (retour user : sur un Mac en anglais US,
+    # le calendrier commençait le dimanche).
+    page.locale_configuration = ft.LocaleConfiguration(
+        supported_locales=[ft.Locale("fr", "BE")],
+        current_locale=ft.Locale("fr", "BE"))
     # Même arrondi sur tous les boutons (retour user).
     _btn_style = ft.ButtonStyle(shape=ft.RoundedRectangleBorder(
         radius=CONSTANTS.BUTTON_RADIUS))
@@ -8183,6 +8188,7 @@ def main(page: ft.Page):
                 value=datetime.datetime.combine(current, datetime.time()),
                 first_date=datetime.datetime(2020, 1, 1),
                 last_date=datetime.datetime(2040, 12, 31),
+                locale=ft.Locale("fr", "BE"),
                 on_change=_picked))
 
         def _clear(e):
