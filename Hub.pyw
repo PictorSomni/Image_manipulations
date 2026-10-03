@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.25"
+__version__ = "2.3.26"
 
 import asyncio
 import base64
@@ -407,7 +407,7 @@ def main(page: ft.Page):
     KANBAN_PAYE_OPTIONS = ["Non payé", "Payé"]
     # Propriété Notion renommée "Prévenir ?" (retour user), défaut
     # "Viendra d'office". Couleurs = celles de Notion.
-    KANBAN_PREVENU_OPTIONS = ["Appeler quand prêt", "Appeler si indisponible",
+    KANBAN_PREVENU_OPTIONS = ["Appeler quand prêt", "Pas de messagerie",
                               "Viendra d'office", "Prévenu"]
     KANBAN_ETAT_COLORS = dict(KANBAN_ETATS)
 
@@ -428,7 +428,7 @@ def main(page: ft.Page):
                             "Fichiers prêts": VIOLET}
     KANBAN_PAYE_COLORS = {"Non payé": RED, "Payé": GREEN}
     KANBAN_PREVENU_COLORS = {"Appeler quand prêt": BLUE,
-                             "Appeler si indisponible": ORANGE,
+                             "Pas de messagerie": ORANGE,
                              "Viendra d'office": PINK,
                              "Prévenu": GREEN}
 
