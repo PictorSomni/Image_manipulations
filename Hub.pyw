@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.34"
+__version__ = "2.3.35"
 
 import asyncio
 import base64
@@ -4693,6 +4693,11 @@ def main(page: ft.Page):
         ft.Icons.AUTO_AWESOME, YELLOW,
         lambda e: _launch_tool("Augmentation IA.py"),
         "Augmentation IA")
+
+    montage_collage_btn = _toolbar_icon_btn(
+        ft.Icons.GRID_VIEW_OUTLINED, VIOLET,
+        lambda e: _launch_montage_collage(e),
+        "Montage collage")
     # Toujours actifs, avec ou sans sélection : sans fichier sélectionné,
     # les outils lancés par _launch_tool traitent tout le dossier (retour
     # user) — cf. Data/skills.md:21 (SELECTED_FILES absent = tout le
@@ -5023,12 +5028,17 @@ def main(page: ft.Page):
          lambda e: _launch_tool("Retouche par lot.pyw")),
         (ft.Icons.AUTO_AWESOME, YELLOW, "Augmentation IA",
          lambda e: _launch_tool("Augmentation IA.py")),
+        (ft.Icons.GRID_VIEW_OUTLINED, VIOLET, "Montage collage",
+         lambda e: _launch_montage_collage(e)),
     ]
     launcher_row = ft.Row([
         recadrage_manuel_btn, recadrage_auto_btn, two_en_un_btn,
         ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
                     height=CONSTANTS.HUB_TOOLBAR_H),
         retouche_par_lot_btn, augmentation_ia_btn,
+        ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
+                    height=CONSTANTS.HUB_TOOLBAR_H),
+        montage_collage_btn,
     ], spacing=8)
     launcher_menu = ft.PopupMenuButton(
         icon=ft.Icons.MORE_HORIZ, icon_color=WHITE,
