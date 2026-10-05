@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.36"
+__version__ = "2.3.37"
 
 import asyncio
 import base64

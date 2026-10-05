@@ -43,7 +43,7 @@ Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
   (pour le .psd — sans pytoshop, seul l'aperçu PNG est produit).
 """
 
-__version__ = "2.3.36"
+__version__ = "2.3.37"
 
 #############################################################
 #                          IMPORTS                          #
@@ -759,7 +759,7 @@ def main():
               f"({width_cm:g}x{canvas.height / dpi * 2.54:.1f}cm), "
               f"{len(layers)} autocollant(s)", flush=True)
         if not write_psd_file(out_dir / "Autocollants.psd", canvas, layers,
-                              canvas_w, canvas.height):
+                              canvas_w, canvas.height, dpi):
             canvas.save(out_dir / "Autocollants.png", dpi=(dpi, dpi))
         print("[ok] Terminé.", flush=True)
         return
@@ -811,7 +811,8 @@ def main():
             # PSD à la place du JPG ; JPG en secours si pytoshop absent.
             if want_psd and write_psd_file(
                     out_dir / f"Planche{suffix}.psd",
-                    canvas.convert("RGBA"), layers, canvas_w, canvas_h):
+                    canvas.convert("RGBA"), layers, canvas_w, canvas_h,
+                    dpi):
                 continue
             out_path = out_dir / f"Planche{suffix}.jpg"
             canvas.save(out_path, quality=92)
@@ -843,7 +844,7 @@ def main():
     # apercu.png prend alors le relais pour que l'outil ne reste jamais
     # sans rien produire.
     if not write_psd_file(out_dir / "Montage.psd", canvas, psd_layers,
-                          canvas_w, canvas_h):
+                          canvas_w, canvas_h, dpi):
         preview_path = out_dir / "apercu.png"
         canvas.save(preview_path)
         print(f"[ok] Aperçu → {preview_path.name} ({canvas_w}x{canvas_h}px)",
@@ -852,7 +853,7 @@ def main():
     print("[ok] Terminé.", flush=True)
 
 
-def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h):
+def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h, dpi=300):
     """Écrit un .psd avec un calque par photo — chaque calque contient la
     photo COMPLÈTE (non recadrée, cf. render_montage), sous un masque
     rectangulaire qui ne montre que sa portion actuellement visible :
@@ -868,6 +869,8 @@ def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h):
     try:
         import numpy as np
         import pytoshop
+        import pytoshop.image_resources
+        import struct
         from pytoshop import layers as psd_layer_mod
         from pytoshop.enums import ChannelId, ColorMode, Compression
         from pytoshop.image_data import ImageData
@@ -949,6 +952,12 @@ def write_psd_file(psd_path, canvas, psd_layers, canvas_w, canvas_h):
                                 width=canvas_w, color_mode=ColorMode.rgb)
     psd.layer_and_mask_info.layer_info = psd_layer_mod.LayerInfo(
         layer_records=records)
+    # ResolutionInfo (0x03ED) : sans lui Affinity ouvre en 72 ppp.
+    fixed = round(dpi * 65536)
+    psd.image_resources = pytoshop.image_resources.ImageResources(blocks=[
+        pytoshop.image_resources.GenericImageResourceBlock(
+            resource_id=0x03ED,
+            data=struct.pack(">IHHIHH", fixed, 1, 1, fixed, 1, 1))])
     comp = np.array(canvas)
     psd.image_data = ImageData(
         channels=np.stack([comp[..., i] for i in range(4)], axis=0),
