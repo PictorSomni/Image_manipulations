@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.33"
+__version__ = "2.3.34"
 
 import asyncio
 import base64
@@ -6459,9 +6459,39 @@ def main(page: ft.Page):
                 "days": {"type": "integer",
                          "description": "Jours d'agenda à venir (défaut 2)"}}},
         },
+    }, {
+        "type": "function",
+        "function": {
+            "name": "add_task",
+            "description": (
+                "Ajoute une tâche au Kanban « Tâches » : ouvre la fiche "
+                "Nouvelle tâche pré-remplie, l'utilisateur valide. À "
+                "utiliser AU LIEU des outils Notion MCP pour créer une "
+                "tâche. Pour une tâche issue d'un mail, lire d'abord le mail "
+                "avec read_mails."),
+            "parameters": {"type": "object", "properties": {
+                "demande": {"type": "string",
+                            "description": "Titre court : client + objet"},
+                "notes": {"type": "string"},
+                "telephone": {"type": "string"},
+                "email": {"type": "string"},
+                "deadline": {"type": "string",
+                             "description": "AAAA-MM-JJ"}},
+                "required": ["demande"]},
+        },
     }]
 
+    def _ai_add_task(args):
+        prefill = {k: str(args.get(k) or "") for k in
+                   ("demande", "notes", "telephone", "email", "deadline")}
+
+        async def _open():
+            _kanban_new_task(prefill=prefill)
+        _run_task(_open)
+        return "Fiche Nouvelle tâche ouverte, en attente de validation."
+
     _AI_FALLBACK_TOOLS = {
+        "add_task": _ai_add_task,
         "read_studio": lambda args: _studio_summary(
             int(args.get("days") or 2)),
         "list_folder_contents": lambda args: _folder_list_contents(
