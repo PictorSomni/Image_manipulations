@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.35"
+__version__ = "2.3.36"
 
 import asyncio
 import base64
@@ -4695,7 +4695,7 @@ def main(page: ft.Page):
         "Augmentation IA")
 
     montage_collage_btn = _toolbar_icon_btn(
-        ft.Icons.GRID_VIEW_OUTLINED, VIOLET,
+        ft.Icons.GRID_VIEW_OUTLINED, PINK,
         lambda e: _launch_montage_collage(e),
         "Montage collage")
     # Toujours actifs, avec ou sans sélection : sans fichier sélectionné,
@@ -5028,7 +5028,7 @@ def main(page: ft.Page):
          lambda e: _launch_tool("Retouche par lot.pyw")),
         (ft.Icons.AUTO_AWESOME, YELLOW, "Augmentation IA",
          lambda e: _launch_tool("Augmentation IA.py")),
-        (ft.Icons.GRID_VIEW_OUTLINED, VIOLET, "Montage collage",
+        (ft.Icons.GRID_VIEW_OUTLINED, PINK, "Montage collage",
          lambda e: _launch_montage_collage(e)),
     ]
     launcher_row = ft.Row([
