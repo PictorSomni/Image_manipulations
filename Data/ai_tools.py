@@ -53,7 +53,7 @@ Dictée — STT (push-to-talk) :
   _gemini_transcribe_audio(wav_bytes, ...)   — transcrit un WAV via Gemini, retourne le texte
 """
 
-__version__ = "2.3.40"
+__version__ = "2.3.41"
 
 
 import ast as _ast
@@ -2460,7 +2460,7 @@ def _analyze_images_batched(
                 ]
                 _parts_ab.append(_gtypes_ab.Part(text=prompt))
                 _contents_ab = [_gtypes_ab.Content(role="user", parts=_parts_ab)]
-                _config_ab = _gtypes_ab.GenerateContentConfig(temperature=0.2)
+                _config_ab = _gtypes_ab.GenerateContentConfig()
                 with _cf_ab.ThreadPoolExecutor(max_workers=1) as _ex_ab:
                     _fut_ab = _ex_ab.submit(
                         _client_ab.models.generate_content,
@@ -2631,7 +2631,6 @@ def _score_images_batched(
                 _parts_sc.append(_gtypes_sc.Part(text=prompt))
                 _contents_sc = [_gtypes_sc.Content(role="user", parts=_parts_sc)]
                 _config_sc = _gtypes_sc.GenerateContentConfig(
-                    temperature=0.2,
                     response_mime_type="application/json",
                     response_schema=_schema_sc,
                 )
@@ -4099,7 +4098,7 @@ def _summarize_turns(model, turns, previous_summary=""):
             response = client.models.generate_content(
                 model=model,
                 contents=[_gtypes.Content(role="user", parts=[_gtypes.Part(text=prompt)])],
-                config=_gtypes.GenerateContentConfig(temperature=0.3),
+                config=_gtypes.GenerateContentConfig(),
             )
             summary = (response.text or "").strip()
             if summary:
@@ -4223,9 +4222,9 @@ def _gemini_chat_stream_with_tools(model, messages, tools=None, temperature=0.7)
     # valeurs) — on ne les fixe donc sur la requête que si pas de cache.
     _cached_content_name = _get_gemini_cached_content(client, model, system_instr, tools_sans_web)
 
+    # Pas de temperature/top_p/top_k : dépréciés côté Gemini, erreur 400
+    # sur les prochains modèles (mail AI Studio du 07/10/2026).
     config_kwargs: dict = {}
-    if not model.startswith("gemini-3.5"):
-        config_kwargs["temperature"] = temperature
     if _cached_content_name:
         config_kwargs["cached_content"] = _cached_content_name
     else:

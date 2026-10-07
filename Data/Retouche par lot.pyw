@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.40"
+__version__ = "2.3.41"
 
 #############################################################
 #                          IMPORTS                          #
