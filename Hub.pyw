@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.39"
+__version__ = "2.3.40"
 
 import asyncio
 import base64
@@ -10629,8 +10629,10 @@ def main(page: ft.Page):
             # sélection ça prend plusieurs secondes, l'interface se figeait
             # sans le moindre retour (retour user). D'où le thread + les
             # logs de progression dans _images_to_pdf.
-            if len(imgs) > 1:
-                # Plusieurs images : un seul PDF plutôt que N dialogues.
+            if imgs:
+                # Toujours un PDF, même pour une image seule (retour user :
+                # le dialogue Photos ne servait qu'aux 2/4 par page, couvert
+                # désormais par Montage collage). Chemin neuf à chaque appel.
                 try:
                     pdfs = [_images_to_pdf(imgs)] + pdfs
                     imgs = []
@@ -10638,24 +10640,6 @@ def main(page: ft.Page):
                     _log_to_terminal(
                         f"[ATTENTION] Fusion PDF impossible ({exc}) — "
                         "impression image par image", ORANGE)
-            elif len(imgs) == 1:
-                # Une seule image : Windows Photos identifie le verbe
-                # « print » par chemin de fichier, donc relancer
-                # l'impression du même fichier source ne rouvre pas de
-                # fenêtre la 2e fois (retour user). Une copie temporaire à
-                # chemin neuf contourne ce blocage tout en gardant le
-                # dialogue Photos natif (pas de bascule en PDF).
-                try:
-                    ext = os.path.splitext(imgs[0])[1]
-                    fd, tmp_path = tempfile.mkstemp(
-                        prefix="Hub_impression_", suffix=ext)
-                    os.close(fd)
-                    shutil.copy2(imgs[0], tmp_path)
-                    imgs = [tmp_path]
-                except Exception as exc:
-                    _log_to_terminal(
-                        f"[ATTENTION] Copie temporaire impossible ({exc}) "
-                        "— impression du fichier original", ORANGE)
             try:
                 system = platform.system()
                 if system == "Darwin":
