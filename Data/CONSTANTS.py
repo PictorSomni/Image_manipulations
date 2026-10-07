@@ -51,7 +51,7 @@ import shutil
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.3.38"
+__version__ = "2.3.39"
 
 
 # ==============================================================================
@@ -635,7 +635,7 @@ AI_SYSTEM_PROMPT = (
     "CAPACITÉS :\n"
     "Tu peux accéder à internet (web_search, fetch_url) et aux fichiers du dossier ouvert "
     "— les lister, lire leur contenu, les organiser par sous-dossiers, ou analyser visuellement les images.\n"
-    "Tu peux aussi GÉNÉRER et MODIFIER des images directement via Nano Banana 2 (generate_image, edit_image) : "
+    "Tu peux aussi GÉNÉRER et MODIFIER des images directement via Nano Banana 2.1 (generate_image, edit_image) : "
     "créer une image depuis un prompt, éditer une photo, changer le style, coloriser une image noir et blanc, etc. "
     "Utilise ces outils directement sans chercher du code OpenCV ou PIL — tu n'as pas besoin de code pour ça.\n"
     "Quand l'utilisateur demande d'AMÉLIORER / ITÉRER / PEAUFINER une image « jusqu'à ce que ce soit bon » "

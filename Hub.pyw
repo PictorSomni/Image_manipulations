@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.38"
+__version__ = "2.3.39"
 
 import asyncio
 import base64
@@ -5915,7 +5915,7 @@ def main(page: ft.Page):
                 aspect_ratio=aspect,
                 resolution=ai_image_quality_dropdown.value or "1K",
                 model=(meta_ai.IMAGE_MODEL if use_muse
-                       else "gemini-3.1-flash-image"))
+                       else "gemini-nano-banana-2.1"))
         except Exception as exc:
             text, img_bytes = f"[Erreur] {exc}", None
 

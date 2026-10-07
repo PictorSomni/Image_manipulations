@@ -53,7 +53,7 @@ Dictée — STT (push-to-talk) :
   _gemini_transcribe_audio(wav_bytes, ...)   — transcrit un WAV via Gemini, retourne le texte
 """
 
-__version__ = "2.3.38"
+__version__ = "2.3.39"
 
 
 import ast as _ast
@@ -1172,8 +1172,8 @@ def _folder_tool_definitions(folder_path):
             "function": {
                 "name": "generate_image",
                 "description": (
-                    "Génère une image à partir d'un prompt texte avec Nano Banana 2 "
-                    "(gemini-3.1-flash-image). "
+                    "Génère une image à partir d'un prompt texte avec Nano Banana 2.1 "
+                    "(gemini-nano-banana-2.1). "
                     "L'image est sauvegardée dans le dossier ouvert et affichée dans le chat. "
                     "Utilise cet outil quand l'utilisateur demande de créer, dessiner ou générer une image."
                 ),
@@ -1409,7 +1409,7 @@ def _folder_tool_definitions(folder_path):
                     "name": "edit_image",
                     "description": (
                         "Modifie une image existante du dossier ouvert avec un prompt texte "
-                        "via Nano Banana 2 (gemini-3.1-flash-image). "
+                        "via Nano Banana 2.1 (gemini-nano-banana-2.1). "
                         "Idéal pour : changer le style, ajouter/supprimer des éléments, "
                         "changer les couleurs, transformer une photo en illustration. "
                         "L'image modifiée est sauvegardée dans le dossier ouvert."
@@ -4370,7 +4370,7 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1",
                             resolution="1K", model=None):
     """
     Génère ou modifie une image avec Nano Banana 2.
-    Utilise gemini-3.1-flash-image avec bascule automatique (fallback) vers
+    Utilise gemini-nano-banana-2.1 avec bascule automatique (fallback) vers
     gemini-3.1-flash-lite-image si surchargé ou indisponible.
 
     - prompt            : description textuelle de l'image souhaitée
@@ -4382,7 +4382,7 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1",
                           (`ImageConfig.image_size` — sans ce paramètre structuré,
                           Gemini génère silencieusement en 1K quel que soit le
                           canevas envoyé)
-    - model             : modèle Nano Banana 2 à essayer en premier (choix
+    - model             : modèle Nano Banana 2.1 à essayer en premier (choix
                           explicite, ex. depuis un dropdown UI). None =
                           ordre par défaut (full puis Lite en repli).
 
@@ -4409,6 +4409,7 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1",
     import re as _re_gi
 
     _default_models = [
+        "gemini-nano-banana-2.1",
         "gemini-3.1-flash-image",
         "gemini-3.1-flash-lite-image",
     ]

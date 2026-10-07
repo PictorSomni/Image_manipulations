@@ -3,7 +3,7 @@
 Retouche IA par sélection — v1.0
 ==================================
 
-Sélectionnez une zone d'une image et envoyez-la à Gemini (Nano Banana 2 /
+Sélectionnez une zone d'une image et envoyez-la à Gemini (Nano Banana 2.1 /
 gemini-3.1-flash-image-preview) pour la modifier, puis réintégrez le résultat
 dans l'image originale à taille exacte.
 
@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.3.38"
+__version__ = "2.3.39"
 
 import flet as ft
 import flet.canvas as cv
@@ -411,8 +411,8 @@ async def main(page: ft.Page) -> None:
     # Modèle de retouche : NB2 (Gemini) ou Muse.
     # Qualité seulement pour NB2 : Muse est limité à ~1K (retour user).
     retouch_model_dropdown = _seg(
-        [("gemini-3.1-flash-image", "NB2"), ("muse-image-1.0", "Muse")],
-        "gemini-3.1-flash-image", color=VIOLET,
+        [("gemini-nano-banana-2.1", "NB2.1"), ("muse-image-1.0", "Muse")],
+        "gemini-nano-banana-2.1", color=VIOLET,
         on_change=lambda e: (
             setattr(retouch_quality_dropdown, "visible",
                     _seg_value(retouch_model_dropdown) != "muse-image-1.0"),
@@ -1339,7 +1339,7 @@ async def main(page: ft.Page) -> None:
 
         quality = _seg_value(retouch_quality_dropdown)
         gemini_model = (_seg_value(retouch_model_dropdown)
-                        or "gemini-3.1-flash-image")
+                        or "gemini-nano-banana-2.1")
 
         def _do_gemini():
             buf = io.BytesIO()
