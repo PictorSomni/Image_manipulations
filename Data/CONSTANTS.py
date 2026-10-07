@@ -51,7 +51,7 @@ import shutil
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.3.41"
+__version__ = "2.3.42"
 
 
 # ==============================================================================
@@ -621,10 +621,10 @@ AI_FOLDER_SELECT_IMAGE_SIZE  = 1024  # Résolution max (px) envoyée à l'IA
 AI_FOLDER_SELECT_QUALITY     = 85    # Qualité JPEG des images envoyées à l'IA (assez fin pour juger netteté / dos vs visages / écharpes)
 
 # Modèles affichés dans le dropdown de sélection rapide du Hub
-# Le premier est le modèle par défaut (Muse, retour user).
+# Le premier est le modèle par défaut (Gemini, moins cher, retour user).
 AI_DROPDOWN_MODELS = [
-    "muse-spark-1.3",   # Meta, clé dans ~/.meta
     "gemini-3.8-flash",
+    "muse-spark-1.3",   # Meta, clé dans ~/.meta
 ]
 
 

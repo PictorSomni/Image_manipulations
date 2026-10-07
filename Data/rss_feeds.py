@@ -10,7 +10,7 @@ API publique :
                    "source"}
 """
 
-__version__ = "2.3.41"
+__version__ = "2.3.42"
 
 
 import datetime
