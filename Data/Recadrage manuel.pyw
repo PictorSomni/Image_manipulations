@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.3.37"
+__version__ = "2.3.38"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -4048,8 +4048,12 @@ class PhotoCropper:
         # une coroutine jamais awaited (RuntimeWarning, inoffensif mais
         # bruyant dans les logs). On ne tente run_task que si une boucle
         # est effectivement rattachée.
-        loop = getattr(getattr(getattr(self.page, "session", None),
-                              "connection", None), "loop", None)
+        # page.session lève RuntimeError (pas AttributeError) quand la
+        # fenêtre est déjà fermée : getattr(..., None) ne suffit pas.
+        try:
+            loop = self.page.session.connection.loop
+        except Exception:
+            loop = None
         if loop is not None:
             try:
                 self.page.run_task(_apply)
