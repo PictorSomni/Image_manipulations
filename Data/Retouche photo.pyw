@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Retouche photo.pyw — aperçu live sur une image représentative, puis
 application de la même pipeline (débruitage, réglages couleur, virage,
@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.4.3"
+__version__ = "2.4.4"
 
 #############################################################
 #                          IMPORTS                          #
@@ -2008,9 +2008,8 @@ def main(page: ft.Page):
             on_click=lambda e, k=_key: _show_pane(k))
     rail = ft.Container(
         content=ft.Column([
-            rail_buttons["settings"], rail_buttons["presets"],
-            ft.Divider(height=1, color=GREY),
-            rail_buttons["ia"],
+            rail_buttons["settings"], rail_buttons["ia"],
+            rail_buttons["presets"],
         ], spacing=CONSTANTS.SPACE_SM,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         width=_RAIL_W, bgcolor=DARK,

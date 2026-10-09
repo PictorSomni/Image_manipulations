@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Retouche IA par sélection — onglet « IA » de Retouche photo.pyw
 ================================================================
@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.4.3"
+__version__ = "2.4.4"
 
 import flet as ft
 import flet.canvas as cv
@@ -2799,53 +2799,83 @@ async def main(page: ft.Page) -> None:
     page.overlay.append(inpaint_dialog)
 
     # ── Mise en page ─────────────────────────────────────────────────────────
+    _PANEL_W = 316
+    def _zone(title, color, controls):
+        # Zone à liseré coloré + titre, comme les sections de Retouche
+        # photo ; boutons étirés sur toute la largeur.
+        return ft.Container(
+            content=ft.Column(
+                [ft.Text(title.upper(), size=CONSTANTS.TEXT_SM - 2,
+                         color=color, weight=ft.FontWeight.W_600)]
+                + controls,
+                spacing=8,
+                horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+            border=ft.Border(left=ft.BorderSide(3, color)),
+            padding=ft.Padding(CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS,
+                               0, CONSTANTS.SPACE_XS))
+
+    rembg_erosion_slider.width = None
+    rembg_erosion_slider.expand = True
+    rembg_feather_slider.width = None
+    rembg_feather_slider.expand = True
+    for _row_btn in (topaz_wonder_btn, topaz_wonder_x2_btn,
+                     topaz_wonder_x4_btn, model_dropdown):
+        _row_btn.expand = True
+    topaz_wonder_btn.expand = 2
+
     left_panel = ft.Column(
         [
-            ft.Text("Modèle IA local", size=12, color=LIGHT_GREY),
-            ft.Row(
-                [model_dropdown, refresh_models_btn, run_model_btn],
-                spacing=4,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-            ),
-            ft.Row(
-                [topaz_wonder_btn, topaz_wonder_x2_btn, topaz_wonder_x4_btn],
-                spacing=4,
-            ),
-            topaz_face_recovery_btn,
-            enhance_progress_bar,
-            enhance_status,
-            ft.Divider(color=GREY),
-            inpaint_btn,
-            expand_btn,
-            expand_progress,
-            feather_row,
-            expand_feather_row,
-            undo_btn,
-            ft.Divider(color=GREY),
-            ft.Text("Suppression de fond", size=12, color=LIGHT_GREY),
-            rembg_dropdown,
-            rembg_apply_btn,
-            rembg_precise_btn,
-            ft.Row([rembg_model_btn, pipette_sign_btn,
-                    _pipette_tolerance_label], spacing=6, wrap=True),
-            ft.Row([
-                ft.Text("Ér.", size=11, color=LIGHT_GREY), rembg_erosion_slider,
-                ft.Text("Ad.", size=11, color=LIGHT_GREY), rembg_feather_slider,
-            ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            rembg_progress,
-            rembg_status,
-            ft.Divider(color=GREY),
+            _zone("Amélioration", YELLOW, [
+                ft.Row(
+                    [model_dropdown, refresh_models_btn, run_model_btn],
+                    spacing=4,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                ),
+                ft.Row(
+                    [topaz_wonder_btn, topaz_wonder_x2_btn,
+                     topaz_wonder_x4_btn],
+                    spacing=4,
+                ),
+                topaz_face_recovery_btn,
+                enhance_progress_bar,
+                enhance_status,
+            ]),
+            _zone("Retouche", VIOLET, [
+                inpaint_btn,
+                expand_btn,
+                expand_progress,
+                feather_row,
+                expand_feather_row,
+                undo_btn,
+            ]),
+            _zone("Suppression de fond", BLUE, [
+                rembg_dropdown,
+                rembg_apply_btn,
+                rembg_precise_btn,
+                ft.Row([rembg_model_btn, pipette_sign_btn,
+                        _pipette_tolerance_label], spacing=6, wrap=True),
+                ft.Row([
+                    ft.Text("Ér.", size=11, color=LIGHT_GREY),
+                    rembg_erosion_slider,
+                    ft.Text("Ad.", size=11, color=LIGHT_GREY),
+                    rembg_feather_slider,
+                ], spacing=2,
+                    vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                rembg_progress,
+                rembg_status,
+            ]),
+            ft.Divider(height=1, color=GREY),
             save_btn,
             ignore_btn,
-            ft.Container(expand=True),
             # Au-dessus du statut : c'est là que défile le compteur
             # « Envoi à Gemini… (12s) », donc là qu'on cherche la sortie.
             cancel_gemini_btn,
             status_text,
         ],
-        width=290,
-        spacing=8,
+        width=_PANEL_W,
+        spacing=CONSTANTS.SPACE_MD,
         scroll=ft.ScrollMode.AUTO,
+        horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     )
 
     center_panel = ft.Column(
@@ -2944,18 +2974,18 @@ async def main(page: ft.Page) -> None:
                 *([] if embedded else [title_bar]),
                 ft.Row(
                     [
+                        # Colonne d'outils à droite, comme les réglages
+                        # de Retouche photo (retour user).
+                        center_panel,
+                        ft.Container(width=12),
                         ft.Container(
                             content=left_panel,
-                            padding=ft.Padding(12, 14, 12, 14),
+                            padding=CONSTANTS.SPACE_MD,
                             bgcolor=DARK,
-                            border_radius=10,
-                            border=ft.Border.all(1, GREY),
                         ),
-                        ft.Container(width=12),
-                        center_panel,
                     ],
                     expand=True,
-                    vertical_alignment=ft.CrossAxisAlignment.START,
+                    vertical_alignment=ft.CrossAxisAlignment.STRETCH,
                 ),
             ],
             expand=True,
@@ -3003,7 +3033,7 @@ async def main(page: ft.Page) -> None:
     # sélection (rubber band) par rapport à l'image sous-jacente (retour
     # user). Si les largeurs de left_panel/padding/séparateur changent,
     # cette constante doit suivre.
-    _LEFT_CHROME_W = 290 + 24 + 12
+    _LEFT_CHROME_W = _PANEL_W + 2 * CONSTANTS.SPACE_MD + 12
 
     def _on_page_resize(e=None) -> None:
         w = int(getattr(e, "width",  None) or page.width  or 1200)
