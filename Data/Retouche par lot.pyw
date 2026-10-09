@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.51"
+__version__ = "2.3.52"
 
 #############################################################
 #                          IMPORTS                          #
@@ -256,7 +256,8 @@ def apply_photo_overrides(params, overrides, name):
     return overrides.get(name) or params
 
 
-def run_pipeline(image, params, *, date_label=None, filename_stem=""):
+def run_pipeline(image, params, *, date_label=None, filename_stem="",
+                 ref_size=None):
     """Applique les étapes activées, dans l'ordre : débruiter → couleur →
     virage → LUT → netteté → grain pellicule → copyright. Pure PIL/image_ops,
     aucun appel Flet — appelée identique sur le proxy réduit (aperçu) et
@@ -357,12 +358,14 @@ def run_pipeline(image, params, *, date_label=None, filename_stem=""):
         a = g["grain1"]
         result = image_ops.add_film_grain(
             result, a["amount"], a["size"], a["color_ratio"],
-            a["shadow_boost"], a["floor"], a["chroma_shift"])
+            a["shadow_boost"], a["floor"], a["chroma_shift"],
+            ref_size=ref_size)
     if g["grain2"]["enabled"]:
         a = g["grain2"]
         result = image_ops.add_film_grain(
             result, a["amount"], a["size"], a["color_ratio"],
-            a["shadow_boost"], a["floor"], a["chroma_shift"])
+            a["shadow_boost"], a["floor"], a["chroma_shift"],
+            ref_size=ref_size)
 
     cp = params["copyright"]
     if cp["enabled"]:
@@ -667,9 +670,10 @@ def main(page: ft.Page):
             date_label = state["date_label"]
             stem = Path(name).stem
             try:
-                result = run_pipeline(proxy, params_copy,
-                                      date_label=date_label,
-                                      filename_stem=stem)
+                result = run_pipeline(
+                    proxy, params_copy, date_label=date_label,
+                    filename_stem=stem,
+                    ref_size=state["source_image"].size)
                 buf = io.BytesIO()
                 image_ops.to_display_profile(result).save(
                     buf, format="JPEG", quality=92)

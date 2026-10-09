@@ -15,7 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 
-__version__ = "2.3.51"
+__version__ = "2.3.52"
 
 import colorsys
 import functools
@@ -1733,6 +1733,7 @@ def add_film_grain(
     shadow_boost: float,
     floor: float,
     chroma_shift: float = 0.0,
+    ref_size=None,
 ) -> Image.Image:
     """Applique un grain argentique simulé à une image PIL RGB. Reprise
     fidèle de Grain pellicule.py.
@@ -1740,13 +1741,27 @@ def add_film_grain(
     chroma_shift > 0 : grain indépendant par canal R/G/B avec décalage
     spatial, simulant le désalignement physique des couches d'émulsion
     argentique.
+
+    ref_size (largeur, hauteur du plein format) : aperçu sur proxy. La
+    grille de grain est celle du plein format, agrandie à ≤ 2× le proxy
+    puis moyennée (INTER_AREA) à sa taille — le grain affiché est celui
+    du fichier final réduit, pas un grain plus gros/plus fort propre au
+    proxy (retour user : aperçu pour l'impression).
     """
     img = np.array(pil_img, dtype=np.float32) / 255.0
-    h, w = img.shape[:2]
+    out_h, out_w = img.shape[:2]
+    h, w = out_h, out_w
+    ref_w, ref_h = ref_size or (out_w, out_h)
+    if ref_w > out_w:
+        f = min(1.0, 2.0 * out_w / ref_w)
+        w, h = max(1, round(ref_w * f)), max(1, round(ref_h * f))
+    else:
+        f = 1.0
 
-    size_px = max(1.0, size / 100.0 * min(h, w))
-    grain_h = max(1, round(h / size_px))
-    grain_w = max(1, round(w / size_px))
+    size_px_ref = max(1.0, size / 100.0 * min(ref_h, ref_w))
+    size_px = size_px_ref * f
+    grain_h = max(1, round(ref_h / size_px_ref))
+    grain_w = max(1, round(ref_w / size_px_ref))
 
     rng = np.random.default_rng()
     grain_mono = rng.normal(0.0, amount, (grain_h, grain_w, 1)).astype(np.float32)
@@ -1773,6 +1788,9 @@ def add_film_grain(
         grain_color = rng.normal(0.0, amount, (grain_h, grain_w, 3)).astype(np.float32)
         grain_small = np.repeat(grain_mono, 3, axis=2) * (1.0 - color_ratio) + grain_color * color_ratio
         grain = cv2.resize(grain_small, (w, h), interpolation=cv2.INTER_CUBIC)
+    if (w, h) != (out_w, out_h):
+        grain = cv2.resize(grain, (out_w, out_h),
+                           interpolation=cv2.INTER_AREA)
 
     luma = (0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2])
     # Parabole centrée sur les mi-tons avec plancher : peak à luma=0.5 (×1.0),
