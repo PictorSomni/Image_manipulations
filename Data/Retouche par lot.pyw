@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.53"
+__version__ = "2.3.54"
 
 #############################################################
 #                          IMPORTS                          #
@@ -573,8 +573,11 @@ def main(page: ft.Page):
         pan_enabled=True, scale_enabled=True, constrained=True,
         width=state["preview_w"], height=state["preview_h"],
         clip_behavior=ft.ClipBehavior.HARD_EDGE)
+    # Voile de chargement (le même que la synchro Notion de l'Agenda) posé
+    # sur l'original pendant le calcul des réglages d'une photo.
+    load_veil = ui_helpers.busy_veil("Application des réglages…", BLUE)
     preview_container = ft.Container(
-        content=preview_viewer,
+        content=ft.Stack([preview_viewer, load_veil]),
         width=state["preview_w"] + 16, height=state["preview_h"] + 16,
         bgcolor=DARK, border_radius=8, padding=8,
         alignment=ft.Alignment.CENTER)
@@ -688,10 +691,20 @@ def main(page: ft.Page):
                 src = None
                 hist_src = None
 
+                async def _unveil():
+                    ui_helpers.set_busy_veil(load_veil, False)
+                    load_veil.update()
+                page.run_task(_unveil)
+
             if src:
-                async def _apply(src=src, hist_src=hist_src):
+                async def _apply(src=src, hist_src=hist_src, proxy=proxy):
+                    if proxy is not state["proxy"]:
+                        return  # rendu d'une photo précédente
                     image_display.src = src
                     image_display.update()
+                    if load_veil.opacity:
+                        ui_helpers.set_busy_veil(load_veil, False)
+                        load_veil.update()
                     if hist_src:
                         histogram_image.src = hist_src
                         histogram_image.update()
@@ -757,6 +770,11 @@ def main(page: ft.Page):
         state["source_image"] = img
         state["proxy_max_px"] = None  # force la reconstruction ci-dessous
         _rebuild_proxy()
+        # Original tout de suite, voilé jusqu'au premier rendu.
+        image_display.src = original_display.src
+        ui_helpers.set_busy_veil(load_veil, True)
+        image_display.update()
+        load_veil.update()
         counter_text.value = f"{idx + 1} / {len(file_names)} — {name}"
         # Le switch suit la photo : actif si elle a ses propres réglages.
         override_switch.value = name in state["overrides"]
