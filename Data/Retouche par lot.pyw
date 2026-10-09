@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.56"
+__version__ = "2.3.57"
 
 #############################################################
 #                          IMPORTS                          #
@@ -700,12 +700,15 @@ def main(page: ft.Page):
                 page.run_task(_unveil)
 
             if src:
-                async def _apply(src=src, hist_src=hist_src, proxy=proxy):
+                async def _apply(src=src, hist_src=hist_src, proxy=proxy,
+                                 req=request_seen):
                     if proxy is not state["proxy"]:
                         return  # rendu d'une photo précédente
                     image_display.src = src
                     image_display.update()
-                    if load_veil.opacity and not state.get("batch"):
+                    state["rendered_req"] = req
+                    if (load_veil.opacity and not state.get("batch")
+                            and req >= state["live_req"]):
                         ui_helpers.set_busy_veil(load_veil, False)
                         load_veil.update()
                     if hist_src:
@@ -719,9 +722,28 @@ def main(page: ft.Page):
                     return
             time.sleep(0.03)
 
+    def _veil_if_slow(req):
+        """Voile si le rendu de `req` n'est pas affiché après 300 ms —
+        évite le clignotement sur les rendus rapides ; jamais pendant le
+        glisser d'un curseur (l'image doit rester lisible)."""
+        if (state.get("rendered_req", 0) >= req or state.get("dragging")
+                or state.get("batch")):
+            return
+
+        async def _show():
+            if state.get("rendered_req", 0) < req:
+                ui_helpers.set_busy_veil(load_veil, True)
+                load_veil.update()
+        try:
+            page.run_task(_show)
+        except RuntimeError:
+            pass
+
     def live_preview_tick():
         with state["live_lock"]:
             state["live_req"] += 1
+            threading.Timer(0.3, _veil_if_slow,
+                            (state["live_req"],)).start()
             if state["live_running"]:
                 return
             state["live_running"] = True
@@ -1161,6 +1183,14 @@ def main(page: ft.Page):
             _write(e.control.value, move_slider=False)
             live_preview_tick()
 
+        def _drag_start(e):
+            state["dragging"] = True
+
+        def _drag_end(e):
+            # Relâché : dernier rendu, voilé s'il tarde.
+            state["dragging"] = False
+            live_preview_tick()
+
         def _open_editor(e):
             def _apply(v):
                 _write(v)
@@ -1171,6 +1201,8 @@ def main(page: ft.Page):
         # graduations que le thème ne masque pas ; _write arrondit déjà.
         slider = ft.Slider(min=minv, max=maxv, value=value, expand=True,
                           on_change=_handle,
+                          on_change_start=_drag_start,
+                          on_change_end=_drag_end,
                           active_color=(TRACK if is_default else accent["c"]),
                           inactive_color=TRACK,
                           padding=ft.Padding.symmetric(horizontal=8))
