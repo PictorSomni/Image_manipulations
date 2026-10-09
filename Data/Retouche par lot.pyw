@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.49"
+__version__ = "2.3.50"
 
 #############################################################
 #                          IMPORTS                          #
@@ -496,6 +496,14 @@ def main(page: ft.Page):
     image_display = ft.Image(src=_BLANK_SRC, gapless_playback=True,
                              fit=ft.BoxFit.CONTAIN,
                              width=state["preview_w"], height=state["preview_h"])
+    # Avant / Après : l'original (proxy brut, encodé une fois par photo)
+    # est posé par-dessus le rendu tant que le bouton est maintenu — rien
+    # n'est recalculé ni à l'appui ni au relâchement.
+    original_display = ft.Image(src=_BLANK_SRC, gapless_playback=True,
+                                fit=ft.BoxFit.CONTAIN, visible=False,
+                                width=state["preview_w"],
+                                height=state["preview_h"])
+
     # Pipette (Blanc / Peau) : un tap sur l'aperçu prend la zone cliquée
     # comme référence. Coordonnées locales = espace non zoomé de l'image.
     pick = {"mode": None}
@@ -553,7 +561,7 @@ def main(page: ft.Page):
             state["proxy"], pick["mode"], (fx - r, fy - r, fx + r, fy + r)))
 
     preview_tap = ft.GestureDetector(
-        content=ft.Stack([image_display, sel_rect]),
+        content=ft.Stack([image_display, original_display, sel_rect]),
         on_tap_up=_on_preview_tap, on_pan_down=_on_preview_pan_down,
         on_pan_update=_on_preview_pan_update,
         on_pan_end=_on_preview_pan_end)
@@ -611,6 +619,10 @@ def main(page: ft.Page):
         else:
             state["proxy"] = img.copy()
         state["proxy_max_px"] = target
+        buf = io.BytesIO()
+        state["proxy"].convert("RGB").save(buf, format="JPEG", quality=92)
+        original_display.src = ("data:image/jpeg;base64,"
+                                + base64.b64encode(buf.getvalue()).decode())
         return True
 
     def _apply_preview_size(e=None):
@@ -629,6 +641,7 @@ def main(page: ft.Page):
         w = left_w - CONSTANTS.SPACE_LG
         state["preview_w"], state["preview_h"] = w, h
         image_display.width, image_display.height = w, h
+        original_display.width, original_display.height = w, h
         preview_viewer.width, preview_viewer.height = w, h
         preview_container.width, preview_container.height = left_w, h + 16
         state["hist_w"] = right_w - 2 * CONSTANTS.SPACE_MD
@@ -653,14 +666,11 @@ def main(page: ft.Page):
             date_label = state["date_label"]
             stem = Path(name).stem
             try:
-                if state.get("show_original"):
-                    result = proxy.convert("RGB")
-                else:
-                    result = run_pipeline(proxy, params_copy,
-                                          date_label=date_label,
-                                          filename_stem=stem)
+                result = run_pipeline(proxy, params_copy,
+                                      date_label=date_label,
+                                      filename_stem=stem)
                 buf = io.BytesIO()
-                result.save(buf, format="JPEG", quality=85)
+                result.save(buf, format="JPEG", quality=92)
                 src = ("data:image/jpeg;base64,"
                       + base64.b64encode(buf.getvalue()).decode())
                 hist_img = render_histogram(result, state["hist_w"])
@@ -800,17 +810,23 @@ def main(page: ft.Page):
                 c.update()
             page.run_task(_show)
 
-    state["show_original"] = False
 
-    def _toggle_compare(e):
-        state["show_original"] = not state["show_original"]
-        compare_btn.icon_color = BLUE if state["show_original"] else WHITE
-        compare_btn.update()
-        live_preview_tick()
+    def _show_original(show):
+        def handler(e):
+            original_display.visible = show
+            compare_icon.color = BLUE if show else WHITE
+            original_display.update()
+            compare_icon.update()
+        return handler
 
-    compare_btn = ft.IconButton(
-        ft.Icons.COMPARE, icon_color=WHITE, on_click=_toggle_compare,
-        tooltip="Avant / Après")
+    compare_icon = ft.Icon(ft.Icons.COMPARE, color=WHITE,
+                           size=CONSTANTS.ICON_SM)
+    compare_btn = ft.GestureDetector(
+        content=ft.Container(compare_icon, padding=CONSTANTS.SPACE_SM,
+                             tooltip="Avant / Après"),
+        mouse_cursor=ft.MouseCursor.CLICK,
+        on_tap_down=_show_original(True), on_tap_up=_show_original(False),
+        on_tap_cancel=_show_original(False))
 
     # Mode revue photo par photo : tant qu'il est actif, tout réglage
     # modifié ne s'applique qu'à la photo affichée (retour user).
