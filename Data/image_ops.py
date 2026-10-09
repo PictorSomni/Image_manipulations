@@ -15,7 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 
-__version__ = "2.3.43"
+__version__ = "2.3.44"
 
 import colorsys
 import functools
@@ -763,6 +763,137 @@ def apply_blacks(input_image: Image.Image, value: float) -> Image.Image:
         0, 255).astype(np.uint8)
     image_array = np.array(input_image.convert("RGB"), dtype=np.uint8)
     return Image.fromarray(lookup_table[image_array], "RGB")
+
+
+def tone_curve_lut(highlights=0, shadows=0, whites=0, blacks=0):
+    """LUT 256 équivalente à apply_highlights → apply_shadows →
+    apply_whites → apply_blacks enchaînés : un seul passage sur l'image
+    au lieu de quatre (même rendu, à l'arrondi uint8 près identique)."""
+    x = np.arange(256, dtype=np.float32)
+    lut = np.arange(256, dtype=np.uint8)
+    curves = []
+    if highlights:
+        n = (x - 64.0) / 192.0
+        w = np.where((n >= 0.0) & (n <= 1.0), np.sin(np.pi * n), 0.0)
+        curves.append(x + highlights / 100.0 * 60 * w)
+    if shadows:
+        n = x / 192.0
+        w = np.where(n <= 1.0, np.sin(np.pi * n), 0.0)
+        curves.append(x + shadows / 100.0 * 60 * w)
+    if whites:
+        curves.append(x + whites / 100.0 * 80 * (x / 255.0) ** 2)
+    if blacks:
+        curves.append(x + blacks / 100.0 * 80 * ((255.0 - x) / 255.0) ** 2)
+    for c in curves:
+        lut = np.clip(c, 0, 255).astype(np.uint8)[lut]
+    return lut
+
+
+def apply_tone_curve(input_image, highlights=0, shadows=0, whites=0,
+                     blacks=0):
+    if not (highlights or shadows or whites or blacks):
+        return input_image
+    lut = tone_curve_lut(highlights, shadows, whites, blacks).tolist()
+    return input_image.convert("RGB").point(lut * 3)
+
+
+_SRGB_TO_LINEAR = np.where(
+    np.arange(256) / 255.0 <= 0.04045, np.arange(256) / 255.0 / 12.92,
+    ((np.arange(256) / 255.0 + 0.055) / 1.055) ** 2.4).astype(np.float32)
+
+
+# Encodage sRGB tabulé (4096 niveaux linéaires) : bien plus rapide
+# qu'un np.power par pixel, sans écart visible en 8 bits.
+_lin = np.arange(4096, dtype=np.float64) / 4095.0
+_LINEAR_TO_SRGB = (np.where(_lin <= 0.0031308, _lin * 12.92,
+                            1.055 * _lin ** (1 / 2.4) - 0.055)
+                   * 255.0 + 0.5).astype(np.uint8)
+del _lin
+
+
+def _guided_fast(p, sigma, eps):
+    """Filtre guidé rapide (He & Sun 2015) d'un plan float32, coefficients
+    calculés sur une version sous-échantillonnée — repris de LightCraft
+    (crates/pipeline/src/local.rs)."""
+    h, w = p.shape
+    s = int(min(16, max(1, sigma // 3)))
+    lo = (cv2.resize(p, (max(1, w // s), max(1, h // s)),
+                     interpolation=cv2.INTER_AREA) if s > 1 else p)
+    sg = sigma / s
+
+    def blur(a):
+        return cv2.GaussianBlur(a, (0, 0), sg)
+    mean = blur(lo)
+    var = np.maximum(blur(lo * lo) - mean * mean, 0)
+    a = var / (var + eps)
+    b = mean - a * mean
+    ma, mb = blur(a), blur(b)
+    if s > 1:
+        ma = cv2.resize(ma, (w, h), interpolation=cv2.INTER_LINEAR)
+        mb = cv2.resize(mb, (w, h), interpolation=cv2.INTER_LINEAR)
+    return ma * p + mb
+
+
+def _smooth(e0, e1, x):
+    t = np.clip((x - e0) / (e1 - e0), 0.0, 1.0)
+    return t * t * (3 - 2 * t)
+
+
+def apply_local_tone(input_image, highlights=0, shadows=0):
+    """Hautes lumières / ombres locales, à la LightCraft : le poids de
+    chaque pixel dépend d'une luminance de base lissée qui respecte les
+    contours (filtre guidé sur la log-luminance, ~1,5 % du grand côté),
+    pas de sa propre valeur — un ciel brûlé se récupère sans halo gris
+    autour des silhouettes. Valeurs -100…+100, ±1,7 IL au maximum."""
+    if not (highlights or shadows):
+        return input_image
+    rgb = np.asarray(input_image.convert("RGB"))
+    lin = _SRGB_TO_LINEAR[rgb]
+    y = lin @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    log_l = np.log2(np.maximum(y, 1e-7) / 0.18).astype(np.float32)
+    sigma = max(1.0, 0.015 * max(rgb.shape[:2]))
+    base = _guided_fast(log_l, sigma, 0.35)
+    ws = 1.0 - _smooth(-4.8, 0.3, base)
+    wh = _smooth(-1.0, 2.8, base)
+    delta = (shadows / 100.0 * 1.7 * ws * np.sqrt(ws)
+             + highlights / 100.0 * 1.7 * wh)
+    lin *= np.exp2(delta)[..., None]
+    np.clip(lin, 0.0, 1.0, out=lin)
+    return Image.fromarray(
+        _LINEAR_TO_SRGB[(lin * 4095.0 + 0.5).astype(np.uint16)], "RGB")
+
+
+def auto_tone(input_image):
+    """Réglages automatiques (exposition, contraste, hautes lumières,
+    ombres, blancs, noirs) d'après les percentiles de luminance — repris
+    de LightCraft (crates/pipeline/src/auto.rs), ramenés aux échelles
+    -100…+100 de Retouche par lot."""
+    img = input_image.convert("RGB")
+    img.thumbnail((512, 512))
+    lin = _SRGB_TO_LINEAR[np.asarray(img)]
+    y = lin @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    ev = np.sort(np.log2(np.maximum(y, 1e-6) / 0.18).ravel())
+
+    def pct(q):
+        return float(ev[int((len(ev) - 1) * q)])
+    exposure = float(np.clip(-pct(0.5) * 0.85 - 0.1, -4.0, 4.0))
+    p01, p05 = pct(0.01) + exposure, pct(0.05) + exposure
+    p95, p995 = pct(0.95) + exposure, pct(0.995) + exposure
+    highlights = -min((p995 - 2.2) * 38.0, 90.0) if p995 > 2.2 else 0.0
+    shadows = min((-4.0 - p05) * 22.0, 70.0) if p05 < -4.0 else 0.0
+    contrast = float(np.clip((6.5 - (p95 - p05)) * 6.0, -20.0, 30.0))
+    whites = (min((1.8 - p995) * 25.0, 40.0) if p995 < 1.8
+              else -min(max(p995 - 3.5, 0.0) * 10.0, 30.0))
+    blacks = (-min((p01 + 5.0) * 10.0, 35.0) if p01 > -5.0
+              else min(max(-7.0 - p01, 0.0) * 8.0, 20.0))
+    # ponytail: 1 IL ≈ 40 crans du curseur Exposition (décalage L* LAB,
+    # cf. apply_adjustments) — calibrage à l'œil, à affiner si besoin.
+    return {
+        "exposure": round(float(np.clip(exposure * 40, -100, 100))),
+        "contrast": round(contrast), "highlights": round(highlights),
+        "shadows": round(shadows), "whites": round(whites),
+        "blacks": round(blacks), "vibrance": 12,
+    }
 
 
 def apply_hue(input_image: Image.Image, value: float) -> Image.Image:

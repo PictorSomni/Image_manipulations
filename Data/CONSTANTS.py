@@ -51,7 +51,7 @@ import shutil
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.3.43"
+__version__ = "2.3.44"
 
 
 # ==============================================================================
@@ -1106,6 +1106,9 @@ RETOUCHE_LOT_COULEUR_HIGHLIGHTS    = 0
 RETOUCHE_LOT_COULEUR_SHADOWS       = 0
 RETOUCHE_LOT_COULEUR_WHITES        = 0
 RETOUCHE_LOT_COULEUR_BLACKS        = 0
+# Hautes lumières / Ombres locales (filtre guidé, à la LightCraft) : pas de
+# halo autour des contours. False = ancienne courbe globale.
+RETOUCHE_LOT_LOCAL_TONE = True
 
 RETOUCHE_LOT_VIRAGE_ENABLED = False
 RETOUCHE_LOT_VIRAGE_MODE    = 'colorize'

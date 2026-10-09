@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.43"
+__version__ = "2.3.44"
 
 #############################################################
 #                          IMPORTS                          #
@@ -293,10 +293,15 @@ def run_pipeline(image, params, *, date_label=None, filename_stem=""):
             saturation=c["saturation"], hue=c["hue"],
             white_balance=c["white_balance"],
             vibrance=c.get("vibrance", 0))
-        result = image_ops.apply_highlights(result, c["highlights"])
-        result = image_ops.apply_shadows(result, c["shadows"])
-        result = image_ops.apply_whites(result, c["whites"])
-        result = image_ops.apply_blacks(result, c["blacks"])
+        # Une seule courbe pour les 4 réglages de tons (un passage au lieu
+        # de quatre) ; hautes lumières / ombres en local si activé.
+        local = CONSTANTS.RETOUCHE_LOT_LOCAL_TONE
+        if local:
+            result = image_ops.apply_local_tone(
+                result, c["highlights"], c["shadows"])
+        result = image_ops.apply_tone_curve(
+            result, 0 if local else c["highlights"],
+            0 if local else c["shadows"], c["whites"], c["blacks"])
 
     v = params["virage"]
     if v["enabled"]:
@@ -481,6 +486,7 @@ def main(page: ft.Page):
     # Taille de départ raisonnable ; recalculée d'après la résolution de
     # la fenêtre dans _apply_preview_size (page.on_resize).
     state["preview_w"], state["preview_h"] = 760, 560
+    state["hist_w"] = 360
     image_display = ft.Image(src=_BLANK_SRC, gapless_playback=True,
                              fit=ft.BoxFit.CONTAIN,
                              width=state["preview_w"], height=state["preview_h"])
@@ -495,11 +501,14 @@ def main(page: ft.Page):
         bgcolor=DARK, border_radius=8, padding=8,
         alignment=ft.Alignment.CENTER)
     histogram_image = ft.Image(src=_BLANK_SRC, gapless_playback=True,
-                               fit=ft.BoxFit.FILL,
-                               width=state["preview_w"], height=_HISTOGRAM_HEIGHT)
+                               fit=ft.BoxFit.FILL, border_radius=6,
+                               width=state["hist_w"], height=_HISTOGRAM_HEIGHT)
     counter_text = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
 
     _ROW_SPACING = CONSTANTS.SPACE_LG
+    _RAIL_W = 52
+    _FILMSTRIP_H = 96
+    _BAR_H = 44
 
     def _proxy_max_px():
         """Résolution cible du proxy d'aperçu, calée sur la taille réelle du
@@ -544,17 +553,19 @@ def main(page: ft.Page):
         moins l'espacement du Row, page.padding étant à 0)."""
         page_w = int(getattr(e, "width", None) or page.width or 1400)
         page_h = int(getattr(e, "height", None) or page.height or 900)
-        right_w = max(320, int(page_w * 0.40))
+        # Disposition LightCraft : la photo prend toute la place à gauche,
+        # colonne de réglages à largeur fixe à droite, rail d'icônes au bord.
+        right_w = max(340, min(460, int(page_w * 0.28)))
         controls_container.width = right_w
-        left_w = max(480, page_w - right_w - _ROW_SPACING)
-        h = max(360, int(page_h * 0.60))
-        w = left_w - CONSTANTS.SPACE_LG  # padding intérieur (8x2) de
-                                          # preview_container
+        left_w = max(420, page_w - right_w - _RAIL_W - 2 * _ROW_SPACING)
+        h = max(300, page_h - _FILMSTRIP_H - _BAR_H - 4 * CONSTANTS.SPACE_MD)
+        w = left_w - CONSTANTS.SPACE_LG
         state["preview_w"], state["preview_h"] = w, h
         image_display.width, image_display.height = w, h
         preview_viewer.width, preview_viewer.height = w, h
         preview_container.width, preview_container.height = left_w, h + 16
-        histogram_image.width = w
+        state["hist_w"] = right_w - 2 * CONSTANTS.SPACE_MD
+        histogram_image.width = state["hist_w"]
         controls_container.update()
         preview_container.update()
         histogram_image.update()
@@ -585,7 +596,7 @@ def main(page: ft.Page):
                 result.save(buf, format="JPEG", quality=85)
                 src = ("data:image/jpeg;base64,"
                       + base64.b64encode(buf.getvalue()).decode())
-                hist_img = render_histogram(result, state["preview_w"])
+                hist_img = render_histogram(result, state["hist_w"])
                 hbuf = io.BytesIO()
                 hist_img.save(hbuf, format="PNG")
                 hist_src = ("data:image/png;base64,"
@@ -640,6 +651,7 @@ def main(page: ft.Page):
         else:
             _leave_photo()
             state["overrides"].pop(name, None)
+        _refresh_filmstrip()
         _sync_controls_from_params()
         live_preview_tick()
 
@@ -665,6 +677,7 @@ def main(page: ft.Page):
         counter_text.value = f"{idx + 1} / {len(file_names)} — {name}"
         # Le switch suit la photo : actif si elle a ses propres réglages.
         override_switch.value = name in state["overrides"]
+        _refresh_filmstrip()
         _sync_controls_from_params()
         live_preview_tick()
 
@@ -673,6 +686,52 @@ def main(page: ft.Page):
 
     def _next(e):
         load_representative(state["index"] + 1)
+
+    # ── Bande de miniatures (filmstrip, à la LightCraft) ──────────────
+    # Remplace les flèches ‹ › : un clic choisit la photo de l'aperçu.
+    # Pastille = photo avec ses propres réglages.
+    thumb_cells = []
+    for _i, _name in enumerate(file_names):
+        _img = ft.Image(src=_BLANK_SRC, fit=ft.BoxFit.COVER,
+                        width=_FILMSTRIP_H - 12, height=_FILMSTRIP_H - 12,
+                        border_radius=4, gapless_playback=True)
+        _badge = ft.Container(
+            content=ft.Icon(ft.Icons.EDIT, size=12, color=DARK),
+            bgcolor=BLUE, border_radius=10, padding=3,
+            right=3, top=3, visible=False)
+        _cell = ft.Container(
+            content=ft.Stack([_img, _badge]), padding=2, border_radius=6,
+            border=ft.Border.all(2, ft.Colors.TRANSPARENT),
+            tooltip=_name,
+            on_click=lambda e, i=_i: load_representative(i))
+        thumb_cells.append((_cell, _img, _badge))
+    filmstrip = ft.Row([c for c, _im, _b in thumb_cells],
+                       scroll=ft.ScrollMode.AUTO, spacing=CONSTANTS.SPACE_SM,
+                       height=_FILMSTRIP_H)
+
+    def _refresh_filmstrip():
+        for i, (cell, _im, badge) in enumerate(thumb_cells):
+            cell.border = ft.Border.all(
+                2, BLUE if i == state["index"] else ft.Colors.TRANSPARENT)
+            badge.visible = file_names[i] in state["overrides"]
+        filmstrip.update()
+
+    def _load_thumbs():
+        for (cell, img_ctrl, _b), name in zip(thumb_cells, file_names):
+            try:
+                with Image.open(folder_path / name) as im:
+                    im.draft("RGB", (200, 200))
+                    im = im.convert("RGB")
+                    im.thumbnail((200, 200))
+                    buf = io.BytesIO()
+                    im.save(buf, format="JPEG", quality=80)
+            except Exception:
+                continue
+            img_ctrl.src = buf.getvalue()
+
+            async def _show(c=img_ctrl):
+                c.update()
+            page.run_task(_show)
 
     state["show_original"] = False
 
@@ -684,34 +743,27 @@ def main(page: ft.Page):
 
     compare_btn = ft.IconButton(
         ft.Icons.COMPARE, icon_color=WHITE, on_click=_toggle_compare,
-        tooltip="Avant / Après (comparer avec l'original)")
+        tooltip="Avant / Après")
 
     # Mode revue photo par photo : tant qu'il est actif, tout réglage
-    # modifié (n'importe quel curseur) ne s'applique qu'à la photo
-    # affichée, sans toucher au réglage commun du lot (retour user —
-    # remplace le curseur dédié testé précédemment, trop étroit : un
-    # seul champ ; ceci marche pour tous).
+    # modifié ne s'applique qu'à la photo affichée (retour user).
     override_switch = ft.Switch(active_color=BLUE, value=False,
                                 on_change=lambda e: _on_override_switch(e))
 
-    preview_column = ft.Column([
-        preview_container,
-        histogram_image,
-        ft.Row([
-            ft.IconButton(ft.Icons.CHEVRON_LEFT, on_click=_prev,
-                         icon_color=WHITE),
-            counter_text,
-            ft.IconButton(ft.Icons.CHEVRON_RIGHT, on_click=_next,
-                         icon_color=WHITE),
-            compare_btn,
-        ], alignment=ft.MainAxisAlignment.CENTER,
-           spacing=CONSTANTS.SPACE_XS),
-        ft.Row([override_switch,
-               ft.Text("Réglages valables pour cette photo seulement",
-                      size=CONSTANTS.TEXT_SM, color=WHITE)],
-              alignment=ft.MainAxisAlignment.CENTER,
-              spacing=CONSTANTS.SPACE_XS),
-    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+    bottom_bar = ft.Row([
+        compare_btn,
+        ft.Container(width=CONSTANTS.SPACE_MD),
+        override_switch,
+        ft.Text("Cette photo seulement", size=CONSTANTS.TEXT_SM,
+                color=WHITE),
+        ft.Container(expand=True),
+        counter_text,
+    ], height=_BAR_H, spacing=CONSTANTS.SPACE_XS,
+       vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+    preview_column = ft.Column(
+        [preview_container, filmstrip, bottom_bar],
+        spacing=CONSTANTS.SPACE_SM, expand=True)
 
     # ── Saisie précise d'une valeur de curseur (retour user : taper un
     # chiffre plutôt que tâtonner à la souris/au doigt) — un seul dialogue
@@ -852,7 +904,8 @@ def main(page: ft.Page):
             _recolor_sliders(ctrl, color)
             striped.append(ft.Container(
                 content=ctrl,
-                bgcolor=(GREY if i % 2 else None),
+                bgcolor=(GREY if i % 2 and not isinstance(ctrl, ft.Text)
+                         else None),
                 border_radius=4,
                 padding=ft.Padding(CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS,
                                    CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS)))
@@ -1056,16 +1109,24 @@ def main(page: ft.Page):
 
     # ── Réglages couleur ────────────────────────────────────────────
     co = state["params"]["couleur"]
+    def _subtitle(text):
+        # Sous-titre discret dans une section (Lumière / Couleur, à la
+        # LightCraft) plutôt qu'une section de plus.
+        return ft.Text(text.upper(), size=CONSTANTS.TEXT_SM - 2,
+                       color=LIGHT_GREY, weight=ft.FontWeight.W_600)
+
     section_couleur = _make_section(
-        "Réglages couleur", ORANGE, ft.Icons.PALETTE, co, [
-        _slider_row("Corriger la dominante (photos anciennes)",
-                   co, "auto_cast", 0, 125),
+        "Lumière et couleur", ORANGE, ft.Icons.TUNE, co, [
+        _subtitle("Lumière"),
         _slider_row("Exposition", co, "exposure", -100, 100),
         _slider_row("Contraste", co, "contrast", -100, 100),
         _slider_row("Hautes lumières", co, "highlights", -100, 100),
         _slider_row("Ombres", co, "shadows", -100, 100),
         _slider_row("Blancs", co, "whites", -100, 100),
         _slider_row("Noirs", co, "blacks", -100, 100),
+        _subtitle("Couleur"),
+        _slider_row("Corriger la dominante (photos anciennes)",
+                   co, "auto_cast", 0, 125),
         _slider_row("Saturation", co, "saturation", -100, 100),
         _slider_row("Vibrance", co, "vibrance", -100, 100),
         _slider_row("Balance des blancs", co, "white_balance", -100, 100),
@@ -1650,42 +1711,133 @@ def main(page: ft.Page):
     ], spacing=CONSTANTS.SPACE_MD,
        vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # ── Mise en page ────────────────────────────────────────────────
-    # Zone délimitée (fond sombre + bordure), comme le panneau gauche
-    # d'Augmentation IA.pyw (retour user : l'ancien fond plat ne
-    # distinguait pas cette colonne du reste de la fenêtre). Les réglages
-    # défilent seuls (sous-Column scrollable) ; le bouton de lancement
-    # reste fixe en bas de la colonne, toujours visible sans défiler.
+    # ── Boutons rapides (Auto / N&B / Réinitialiser, à la LightCraft) ──
+    def _on_auto(e):
+        if state["proxy"] is None:
+            return
+        co.update(image_ops.auto_tone(state["proxy"]))
+        co["enabled"] = True
+        _sync_controls_from_params()
+        live_preview_tick()
+
+    def _on_bw(e):
+        co["saturation"] = 0 if co["saturation"] <= -100 else -100
+        co["enabled"] = True
+        _sync_controls_from_params()
+        live_preview_tick()
+
+    def _on_reset(e):
+        _update_in_place(state["params"], default_params())
+        _sync_controls_from_params()
+        live_preview_tick()
+
+    def _quick_btn(label, handler):
+        return ft.OutlinedButton(
+            label, on_click=handler, height=32,
+            style=ft.ButtonStyle(
+                color=WHITE, side=ft.BorderSide(1, GREY),
+                padding=ft.Padding(CONSTANTS.SPACE_MD, 0,
+                                   CONSTANTS.SPACE_MD, 0)))
+
+    quick_row = ft.Row([
+        _quick_btn("Auto", _on_auto), _quick_btn("N&B", _on_bw),
+        ft.Container(expand=True), _quick_btn("Réinitialiser", _on_reset),
+    ], spacing=CONSTANTS.SPACE_SM)
+
+    # ── Groupes repliables (sous-menus imbriqués, en-tête discret) ──────
+    def _group(title, members, opened=True):
+        body = ft.Column(members, spacing=CONSTANTS.SPACE_SM,
+                         visible=opened)
+        chevron = ft.Icon(ft.Icons.EXPAND_MORE if opened
+                          else ft.Icons.CHEVRON_RIGHT,
+                          size=CONSTANTS.ICON_SM, color=LIGHT_GREY)
+
+        def _toggle(e):
+            body.visible = not body.visible
+            chevron.icon = (ft.Icons.EXPAND_MORE if body.visible
+                            else ft.Icons.CHEVRON_RIGHT)
+            body.update()
+            chevron.update()
+        head = ft.Container(
+            content=ft.Row([chevron, ft.Text(
+                title, size=CONSTANTS.TEXT_SM, color=WHITE,
+                weight=ft.FontWeight.W_600)], spacing=CONSTANTS.SPACE_XS),
+            on_click=_toggle,
+            padding=ft.Padding(0, CONSTANTS.SPACE_SM, 0, CONSTANTS.SPACE_XS))
+        return ft.Column([ft.Divider(height=1, color=GREY), head, body],
+                         spacing=CONSTANTS.SPACE_XS)
+
+    settings_pane = ft.Column([
+        _group("Base", [section_couleur]),
+        _group("Couleur créative", [section_virage, section_lut]),
+        _group("Détail", [section_nettete, section_denoise]),
+        _group("Effets pellicule",
+               [section_grain1, section_grain2, section_halation,
+                section_bloom, section_ca, section_desat], opened=False),
+        _group("Sortie", [section_copyright], opened=False),
+    ], spacing=CONSTANTS.SPACE_XS, scroll=ft.ScrollMode.AUTO, expand=True)
+
+    presets_pane = ft.Column([
+        ft.Text("Préréglages", size=CONSTANTS.TEXT_SM, color=WHITE,
+                weight=ft.FontWeight.W_600),
+        preset_row, preset_status,
+        ft.Divider(height=1, color=GREY),
+        load_params_button, load_params_status,
+    ], spacing=CONSTANTS.SPACE_MD, expand=True, visible=False)
+
+    # ── Rail d'icônes : interfaces spécialisées de la colonne droite ──
+    panes = {"settings": settings_pane, "presets": presets_pane}
+    rail_buttons = {}
+
+    def _show_pane(key):
+        for k, pane in panes.items():
+            pane.visible = k == key
+            rail_buttons[k].icon_color = BLUE if k == key else LIGHT_GREY
+        page.update()
+
+    for _key, _icon, _tip in (
+            ("settings", ft.Icons.TUNE, "Réglages"),
+            ("presets", ft.Icons.BOOKMARKS_OUTLINED, "Préréglages")):
+        rail_buttons[_key] = ft.IconButton(
+            _icon, tooltip=_tip, icon_size=CONSTANTS.ICON_SM,
+            icon_color=BLUE if _key == "settings" else LIGHT_GREY,
+            on_click=lambda e, k=_key: _show_pane(k))
+    rail = ft.Container(
+        content=ft.Column(list(rail_buttons.values()),
+                          spacing=CONSTANTS.SPACE_SM),
+        width=_RAIL_W, bgcolor=DARK,
+        padding=ft.Padding(0, CONSTANTS.SPACE_MD, 0, 0),
+        border=ft.Border(left=ft.BorderSide(1, GREY)))
+
+    # Colonne droite : histogramme en haut, boutons rapides, panneau du
+    # rail ; progression et lancement du lot fixes en bas.
     controls_container = ft.Container(
-        content=ft.Column(
-            [
-                ft.Column(
-                    [section_denoise, section_couleur, section_virage,
-                     section_lut, section_nettete,
-                     section_ca, section_desat, section_halation,
-                     section_bloom, section_grain1, section_grain2,
-                     section_copyright,
-                     ft.Divider(color=GREY),
-                     preset_row, preset_status,
-                     ft.Divider(color=GREY),
-                     load_params_button, load_params_status],
-                    spacing=CONSTANTS.SPACE_SM, scroll=ft.ScrollMode.AUTO,
-                    expand=True),
-                ft.Divider(color=GREY),
-                ft.Row([progress_bar, progress_text],
-                      spacing=CONSTANTS.SPACE_MD),
-                batch_button,
-            ], spacing=CONSTANTS.SPACE_MD, expand=True),
-        padding=CONSTANTS.SPACE_MD, bgcolor=DARK, border=ft.Border.all(1, GREY),
-        border_radius=10)
+        content=ft.Column([
+            histogram_image,
+            quick_row,
+            ft.Column([settings_pane, presets_pane], expand=True),
+            ft.Divider(height=1, color=GREY),
+            ft.Row([progress_bar, progress_text],
+                   spacing=CONSTANTS.SPACE_MD),
+            batch_button,
+        ], spacing=CONSTANTS.SPACE_MD, expand=True),
+        padding=CONSTANTS.SPACE_MD, bgcolor=DARK)
+
+    def _on_key(e):
+        if e.key == "Arrow Left":
+            _prev(e)
+        elif e.key == "Arrow Right":
+            _next(e)
+    page.on_keyboard_event = _on_key
 
     page.add(
         ft.Row([
+            ft.Container(content=preview_column, expand=True,
+                         padding=ft.Padding(CONSTANTS.SPACE_MD,
+                                            CONSTANTS.SPACE_MD, 0,
+                                            CONSTANTS.SPACE_SM)),
             controls_container,
-            ft.Column(
-                [preview_column],
-                expand=True, alignment=ft.MainAxisAlignment.CENTER,
-                horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+            rail,
         ], expand=True, spacing=_ROW_SPACING,
            vertical_alignment=ft.CrossAxisAlignment.STRETCH)
     )
@@ -1706,6 +1858,7 @@ def main(page: ft.Page):
         await asyncio.sleep(0.2)
         _apply_preview_size()
         load_representative(0)
+        threading.Thread(target=_load_thumbs, daemon=True).start()
 
     page.run_task(_startup)
 
