@@ -15,7 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 
-__version__ = "2.3.50"
+__version__ = "2.3.51"
 
 import colorsys
 import functools
@@ -1007,6 +1007,37 @@ def auto_white_balance(input_image, mode="white", box=None):
            np.log(mean[2] * b / (mean[1] * g) / target_bg) ** 2)
     i, j = np.unravel_index(np.argmin(err), err.shape)
     return int(grid[i]), int(grid[j])
+
+
+_DISPLAY_TRANSFORM = []
+
+
+def to_display_profile(img):
+    """sRGB → profil ICC de l'écran, pour l'aperçu seulement : Flutter
+    n'applique aucune gestion des couleurs, un écran à gamut large
+    (Eizo calibré…) affichait l'aperçu sursaturé face au fichier ouvert
+    dans un visualiseur qui, lui, gère l'ICC (retour user).
+
+    ponytail: profil de l'écran principal lu une fois (Windows ; ailleurs
+    Pillow renvoie None → inchangé). Relancer l'app après changement
+    d'écran ou de calibration.
+    """
+    if not _DISPLAY_TRANSFORM:
+        transform = None
+        try:
+            display = ImageCms.get_display_profile()
+            if display is not None:
+                transform = ImageCms.buildTransform(
+                    _SRGB_PROFILE, display, "RGB", "RGB",
+                    renderingIntent=ImageCms.Intent.RELATIVE_COLORIMETRIC,
+                    flags=ImageCms.Flags.BLACKPOINTCOMPENSATION)
+        except Exception:
+            transform = None
+        _DISPLAY_TRANSFORM.append(transform)
+    transform = _DISPLAY_TRANSFORM[0]
+    if transform is None:
+        return img
+    return ImageCms.applyTransform(img.convert("RGB"), transform)
 
 
 def apply_white_balance(input_image: Image.Image, value: float) -> Image.Image:

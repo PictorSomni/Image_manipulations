@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.50"
+__version__ = "2.3.51"
 
 #############################################################
 #                          IMPORTS                          #
@@ -620,7 +620,8 @@ def main(page: ft.Page):
             state["proxy"] = img.copy()
         state["proxy_max_px"] = target
         buf = io.BytesIO()
-        state["proxy"].convert("RGB").save(buf, format="JPEG", quality=92)
+        image_ops.to_display_profile(state["proxy"]).save(
+            buf, format="JPEG", quality=92)
         original_display.src = ("data:image/jpeg;base64,"
                                 + base64.b64encode(buf.getvalue()).decode())
         return True
@@ -670,7 +671,8 @@ def main(page: ft.Page):
                                       date_label=date_label,
                                       filename_stem=stem)
                 buf = io.BytesIO()
-                result.save(buf, format="JPEG", quality=92)
+                image_ops.to_display_profile(result).save(
+                    buf, format="JPEG", quality=92)
                 src = ("data:image/jpeg;base64,"
                       + base64.b64encode(buf.getvalue()).decode())
                 hist_img = render_histogram(result, state["hist_w"])
