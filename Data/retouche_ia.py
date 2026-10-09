@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.4.5"
+__version__ = "2.4.6"
 
 import flet as ft
 import flet.canvas as cv
@@ -2833,6 +2833,7 @@ async def main(page: ft.Page) -> None:
         [
             _zone("Amélioration", YELLOW, [
                 run_model_btn,
+                ft.Divider(height=1, color=GREY),
                 ft.Row(
                     [topaz_wonder_btn, topaz_wonder_x2_btn,
                      topaz_wonder_x4_btn],
