@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.52"
+__version__ = "2.3.53"
 
 import asyncio
 import base64
@@ -2050,11 +2050,7 @@ def main(page: ft.Page):
                         progress_text = ft.Text(
                             "", size=CONSTANTS.TERMINAL_FONT_SIZE,
                             color=BLUE, font_family="monospace")
-                        terminal_output.controls.append(progress_text)
-                        try:
-                            page.update()
-                        except Exception:
-                            pass
+                        _terminal_add(progress_text)
                         _rmtree_with_progress(p, progress_text)
                     else:
                         os.remove(p)
@@ -2107,11 +2103,7 @@ def main(page: ft.Page):
             total = len(paths)
             progress_text = ft.Text("", size=CONSTANTS.TERMINAL_FONT_SIZE,
                                     color=BLUE, font_family="monospace")
-            terminal_output.controls.append(progress_text)
-            try:
-                page.update()
-            except Exception:
-                pass
+            _terminal_add(progress_text)
 
             rotated_n = 0
             last_update = 0
@@ -11879,11 +11871,7 @@ def main(page: ft.Page):
 
             progress_text = ft.Text("", size=CONSTANTS.TERMINAL_FONT_SIZE,
                                     color=BLUE, font_family="monospace")
-            terminal_output.controls.append(progress_text)
-            try:
-                page.update()
-            except Exception:
-                pass
+            _terminal_add(progress_text)
 
             copied = 0
             errors = []
@@ -12422,6 +12410,21 @@ def main(page: ft.Page):
             with open(_terminal_log_path, "a", encoding="utf-8") as f:
                 f.write(f"{datetime.datetime.now().isoformat(timespec='seconds')} {message}\n")
         except Exception:
+            pass
+
+    def _terminal_add(ctrl):
+        """Ajoute une ligne (ex. progression) au terminal depuis un thread
+        de travail : passe par la boucle Flet comme _log_to_terminal —
+        un append direct depuis le thread se croisait avec ses pop/clear
+        (RangeError « 0..2: 4 » en supprimant un dossier, retour user)."""
+        async def _do():
+            terminal_output.controls.append(ctrl)
+            if len(terminal_output.controls) > CONSTANTS.HUB_TERMINAL_MAX_LINES:
+                terminal_output.controls.pop(0)
+            page.update()
+        try:
+            _run_task(_do)
+        except RuntimeError:
             pass
 
     def _log_to_terminal(message, color=None, clear=False):
