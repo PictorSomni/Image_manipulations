@@ -5,7 +5,7 @@ image_ops.py — Traitement d'image pur (recadrage, couleur, planches).
 Aucune dépendance à Flet ni à un état de session : chaque fonction reçoit
 ses paramètres explicitement et retourne une nouvelle `PIL.Image.Image`.
 Module partagé par `Hub.pyw` (tiroirs de la visionneuse), par
-`Data/Recadrage manuel.pyw`, et par `Data/Retouche par lot.pyw` (débruitage,
+`Data/Recadrage manuel.pyw`, et par `Data/Retouche photo.pyw` (débruitage,
 virage, copyright, netteté, grain pellicule — les anciens scripts autonomes
 correspondants ont été retirés, remplacés par cet outil unique) — qui
 l'importent au lieu de dupliquer leur propre logique de traitement.
@@ -15,7 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 
-__version__ = "2.3.57"
+__version__ = "2.4.0"
 
 import colorsys
 import functools
@@ -1346,7 +1346,7 @@ def run_rembg(image: Image.Image, *, precise: bool = False,
               ) -> Image.Image:
     """Supprime le fond via rembg (import paresseux — dépendance lourde,
     ~450 Mo au premier usage en mode précis). Factorise la logique
-    dupliquée entre `Recadrage manuel.pyw` et `Augmentation IA.py`.
+    dupliquée entre `Recadrage manuel.pyw` et `retouche_ia.py`.
 
     `session_cache` : dict mutable fourni par l'appelant pour mettre en
     cache la session onnx par mode et éviter de recharger le modèle à
@@ -1473,7 +1473,7 @@ def build_print_sheet(cropped_image: Image.Image, layout: str, dpi: int = DPI,
 #   RETOUCHE (Débruiter, Virage, Grain pellicule, Copyright, Netteté)
 # ================================================================ #
 # Extractions fidèles des scripts autonomes du même nom : mêmes formules,
-# mêmes noms, partagées avec Data/Retouche par lot.pyw (aperçu live).
+# mêmes noms, partagées avec Data/Retouche photo.pyw (aperçu live).
 
 
 def apply_denoise(image: Image.Image, *, h: float = 4, h_color: float = 4,
@@ -1559,7 +1559,7 @@ _LUTS_DIR = Path(__file__).resolve().parent / "LUTs"
 
 def list_cube_luts() -> list[str]:
     """Noms de fichiers .cube présents dans Data/LUTs, triés — la liste
-    proposée par Retouche par lot.pyw suit donc le contenu du dossier sans
+    proposée par Retouche photo.pyw suit donc le contenu du dossier sans
     rien à déclarer ailleurs (retour user : LUTs déposés à la volée)."""
     if not _LUTS_DIR.is_dir():
         return []
@@ -1960,7 +1960,7 @@ def preview_max_px(widget_px, floor_px, ceiling_px,
     grossier qu'avant ce calcul) et `ceiling_px` (au-delà, l'aperçu live
     devient plus lent que le geste qu'il accompagne).
 
-    Partagé par `Recadrage manuel.pyw` et `Retouche par lot.pyw`, qui
+    Partagé par `Recadrage manuel.pyw` et `Retouche photo.pyw`, qui
     passent leurs propres bornes — le grain pellicule du second demande un
     proxy plus généreux que le cadrage du premier.
     """

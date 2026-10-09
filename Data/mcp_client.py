@@ -17,7 +17,7 @@ API publique :
   mcp_call_tool(qualified_name, arguments) -> str (résultat texte)
 """
 
-__version__ = "2.3.57"
+__version__ = "2.4.0"
 
 
 import asyncio

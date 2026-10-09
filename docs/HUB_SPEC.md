@@ -157,7 +157,7 @@ Un seul composant, ouvert de partout. Contient :
 Quand on **redresse** une image (rotation fine), la zone recadrée doit **toujours
 rester dans l'image d'origine** — **pas de coins vides**, c'est pour l'impression.
 Le cadre est donc contraint à la surface valide après rotation. **Alternative /
-complément** : intégrer l'**outpainting Gemini** (comme dans `Augmentation IA.py`)
+complément** : intégrer l'**outpainting Gemini** (comme dans `retouche_ia.py`)
 pour **remplir les bords manquants**, et la **retouche** avec (cf. §6). → *à trancher.*
 
 ### Décision structurante — copie vs original  ⚠️

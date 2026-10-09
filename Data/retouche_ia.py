@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Retouche IA par sélection — v1.0
-==================================
+Retouche IA par sélection — onglet « IA » de Retouche photo.pyw
+================================================================
 
 Sélectionnez une zone d'une image et envoyez-la à Gemini (Nano Banana 2.1 /
 gemini-3.1-flash-image-preview) pour la modifier, puis réintégrez le résultat
@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.3.57"
+__version__ = "2.4.0"
 
 import flet as ft
 import flet.canvas as cv
@@ -197,6 +197,9 @@ def _save_prompt_history(history: list) -> None:
 ###############################################################
 
 async def main(page: ft.Page) -> None:
+    # Intégré comme onglet « IA » de Retouche photo.pyw (page = proxy
+    # _TabPage) : pas de barre de titre propre, pas de maximisation.
+    embedded = getattr(page, "embedded", False)
     page.title = f"Retouche IA par sélection  v{__version__}"
     page.theme_mode = ft.ThemeMode.DARK
     # Même arrondi de boutons que le Hub (CONSTANTS.BUTTON_RADIUS).
@@ -2930,7 +2933,7 @@ async def main(page: ft.Page) -> None:
     page.add(
         ft.Column(
             [
-                title_bar,
+                *([] if embedded else [title_bar]),
                 ft.Row(
                     [
                         ft.Container(
@@ -2982,7 +2985,7 @@ async def main(page: ft.Page) -> None:
 
     # ── Resize ───────────────────────────────────────────────────────────────
 
-    _TITLEBAR_H = 32
+    _TITLEBAR_H = 0 if embedded else 32
     # left_panel (width=290) + son padding gauche/droite (12+12) + le
     # séparateur ft.Container(width=12) entre les deux colonnes = 326, PAS
     # 340 comme avant. Cet écart de 14px faisait sous-dimensionner
@@ -3019,15 +3022,16 @@ async def main(page: ft.Page) -> None:
         decode_task = None
         if all_images:
             decode_task = asyncio.create_task(
-                asyncio.to_thread(_decode_image, all_images[0]))
-        pre_w = page.window.width or 0
-        page.window.maximized = True
-        page.update()
-        for _ in range(40):
-            await asyncio.sleep(0.1)
-            if (page.window.width or 0) != pre_w:
-                break
-        await asyncio.sleep(0.5)
+                asyncio.to_thread(_decode_image, all_images[_start]))
+        if not embedded:
+            pre_w = page.window.width or 0
+            page.window.maximized = True
+            page.update()
+            for _ in range(40):
+                await asyncio.sleep(0.1)
+                if (page.window.width or 0) != pre_w:
+                    break
+            await asyncio.sleep(0.5)
         _on_page_resize()
         if all_images:
             pre_decoded = None
@@ -3035,29 +3039,21 @@ async def main(page: ft.Page) -> None:
                 pre_decoded = await decode_task
             except Exception:
                 pass   # _load_image retentera le décodage et affichera l'erreur
-            await _load_image(0, pre_decoded=pre_decoded)
+            await _load_image(_start, pre_decoded=pre_decoded)
         else:
             status_text.value = f"Aucune image dans : {source_folder}"
             page.update()
 
+    # Photo affichée dans l'onglet Réglages de Retouche photo : ouverte
+    # au démarrage puis à chaque retour sur l'onglet IA.
+    names = [os.path.basename(p) for p in all_images]
+    start_name = getattr(page, "start_file", None)
+    _start = names.index(start_name) if start_name in names else 0
+
+    if embedded:
+        def _show_file(name):
+            if name in names and names.index(name) != state["index"]:
+                page.run_task(_load_image, names.index(name))
+        page.show_file = _show_file
+
     page.run_task(_startup)
-
-
-###############################################################
-#                       POINT D'ENTRÉE                        #
-###############################################################
-
-if __name__ == "__main__":
-    if sys.platform == "win32":
-        from asyncio.proactor_events import _ProactorBasePipeTransport
-        _orig_ccl = _ProactorBasePipeTransport._call_connection_lost
-
-        def _patched_ccl(self, exc):
-            try:
-                _orig_ccl(self, exc)
-            except (ConnectionResetError, OSError):
-                pass
-
-        _ProactorBasePipeTransport._call_connection_lost = _patched_ccl
-
-    ft.run(main)

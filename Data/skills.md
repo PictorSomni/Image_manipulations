@@ -33,6 +33,6 @@ Scripts avec paramètres (env vars en plus) :
 - 2 en 1.py — TWO_IN_ONE_WIDTH=<mm> TWO_IN_ONE_HEIGHT=<mm> (défaut 76×102 mm ; la largeur est doublée pour poser 2 tirages côte à côte).
 - Recadrage automatique.py — FORCE_CROP_SIZE="LxH" (mm) OU FORCE_CROP_WIDTH/FORCE_CROP_HEIGHT ; FORCE_CROP_FIT=1 (fit, bords blancs) ou 0 (crop) ; FORCE_CROP_SCOPE="selected"|"folder" ; FORCE_CROP_WHITE_BORDER=1/0.
 
-GUI à interaction (NE PAS tenter de piloter en headless — les lancer ouvre une fenêtre que Charles utilise lui-même) : Séparer RAW et JPG.py, Fichiers identiques.py, Fichiers manquants.py, Augmentation IA.py, Transfert vers TEMP.py.
+GUI à interaction (NE PAS tenter de piloter en headless — les lancer ouvre une fenêtre que Charles utilise lui-même) : Séparer RAW et JPG.py, Fichiers identiques.py, Fichiers manquants.py, retouche_ia.py, Transfert vers TEMP.py.
 
 Après lancement d'un script, vérifier son code de sortie et son stdout/stderr pour confirmer le succès avant d'annoncer à Charles que c'est fait.

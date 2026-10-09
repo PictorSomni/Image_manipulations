@@ -12,7 +12,7 @@ Remplace la version Qt6 originale (main.py) avec :
 Dépendances : flet, Pillow (PIL)
 """
 
-__version__ = "2.3.57"
+__version__ = "2.4.0"
 
 import flet as ft
 import os
@@ -1210,7 +1210,7 @@ def main(page: ft.Page) -> None:
     # `os._exit(0)` tuait le process Python avant que la commande de
     # fermeture asynchrone atteigne la fenêtre Flutter, qui restait alors
     # affichée indéfiniment (retour user) — même correctif que la fermeture
-    # d'Augmentation IA.py : `await page.window.destroy()`.
+    # d'retouche_ia.py : `await page.window.destroy()`.
     async def _do_exit() -> None:
         _cleanup_temp_dir()
         page.window.visible = False

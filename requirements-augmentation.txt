@@ -3,7 +3,7 @@
 #
 # IMPORTANT : ce fichier installe Pillow 9.5.0, incompatible avec Pillow>=12
 # requis par le reste de l'application. Installer dans un environnement virtuel
-# séparé, ou accepter la rétrogradation de Pillow si Augmentation IA.py est la
+# séparé, ou accepter la rétrogradation de Pillow si retouche_ia.py est la
 # priorité sur cette machine.
 #
 # Installation :

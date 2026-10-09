@@ -240,7 +240,7 @@ chmod +x install.sh run.sh
 
 ### Dépendances optionnelles — Augmentation IA
 
-Les fonctionnalités d'inpainting, super-résolution et synthèse par patches (`Augmentation IA.py`) nécessitent des paquets lourds (~5–10 GB) qui ne sont **pas** installés par défaut car ils entrent en conflit avec la version de Pillow utilisée par le reste de l'application (voir note dans `requirements.txt`).
+Les fonctionnalités d'inpainting, super-résolution et synthèse par patches (`retouche_ia.py`) nécessitent des paquets lourds (~5–10 GB) qui ne sont **pas** installés par défaut car ils entrent en conflit avec la version de Pillow utilisée par le reste de l'application (voir note dans `requirements.txt`).
 
 Pour les installer manuellement dans un environnement isolé :
 

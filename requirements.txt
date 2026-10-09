@@ -136,7 +136,7 @@ comtypes; sys_platform == "win32"
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# OPTIONNEL — AUGMENTATION IA  (Augmentation IA.py)
+# OPTIONNEL — AUGMENTATION IA  (retouche_ia.py)
 # ──────────────────────────────────────────────────────────────────────────────
 # Ces paquets sont volumineux (~5–10 GB) et en conflit avec Pillow>=12.
 # Ils ne sont PAS installés par défaut.

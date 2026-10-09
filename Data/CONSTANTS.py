@@ -51,7 +51,7 @@ import shutil
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.3.57"
+__version__ = "2.4.0"
 
 
 # ==============================================================================
@@ -947,7 +947,7 @@ SIZES = STUDIOS   # Alias conservé pour compatibilité ascendante
 # 12. DÉBRUITAGE & GRAIN PELLICULE
 # ==============================================================================
 
-# ── 12.1  Débruitage (Retouche par lot.pyw) ───────────────────────────────────
+# ── 12.1  Débruitage (Retouche photo.pyw) ───────────────────────────────────
 # Algorithme Non-Local Means (OpenCV fastNlMeansDenoisingColored).
 # h          : force sur la luminance  (3-5 = léger, 8-12 = moyen, 15-25 = fort)
 # h_color    : force sur la couleur    (idem, généralement h_color ≤ h)
@@ -960,7 +960,7 @@ DENOISE_TEMPLATE_WINDOW = 7     # Fenêtre de comparaison (px, impair)
 DENOISE_SEARCH_WINDOW   = 21    # Fenêtre de recherche   (px, impair)
 
 
-# ── 12.2  Grain pellicule (Retouche par lot.pyw) ──────────────────────────────
+# ── 12.2  Grain pellicule (Retouche photo.pyw) ──────────────────────────────
 # Simulation de grain argentique avec pondération par luminance.
 # amount            : intensité du grain  (0.0 = aucun, 0.05 = fin ISO 100, 0.15 = ISO 800, 0.30 = ISO 3200)
 # size              : taille du grain en % de la plus petite dimension (0.1 = fin, 0.3 = moyen, 0.6 = gros)
@@ -988,7 +988,7 @@ GRAIN2_CHROMA_SHIFT = 0.25  # Couche 2 — décalage inter-canal
 GRAIN2_FLOOR        = 0.3  # Grain résiduel dans les zones sombres
 
 
-# ── 12.3  Halation & Bloom (Retouche par lot.pyw) ─────────────────────────────
+# ── 12.3  Halation & Bloom (Retouche photo.pyw) ─────────────────────────────
 # Halation : halo rougeâtre autour des hautes lumières, reproduisant la lumière
 #            qui rebondit sur la base du film et expose l'émulsion une seconde fois.
 # threshold  : luminance minimale pour qualifier un pixel de haute lumière
@@ -1013,7 +1013,7 @@ BLOOM_ENABLED    = False
 BLOOM_RADIUS     = 16
 BLOOM_INTENSITY  = 0.64
 
-# ── 12.4  Désaturation des extrêmes + boost mi-tons (Retouche par lot.pyw) ────
+# ── 12.4  Désaturation des extrêmes + boost mi-tons (Retouche photo.pyw) ────
 # Les films argentiques perdent de la saturation dans les ombres très sombres
 # et dans les hautes lumières très claires (compression des couleurs aux extrêmes).
 # shadow_threshold    : luma en dessous duquel l'effet s'applique (0.0–1.0)
@@ -1031,7 +1031,7 @@ DESAT_HIGHLIGHT_INTENSITY = 1.0  # désaturation dans les blancs
 DESAT_MIDTONE_BOOST       = 0.1  # boost de saturation en mi-tons (0 = aucun, 0.3 = prononcé)
 
 
-# ── 12.6  Aberrations chromatiques optiques (Retouche par lot.pyw) ───────────
+# ── 12.6  Aberrations chromatiques optiques (Retouche photo.pyw) ───────────
 # Simule le désalignement focal des canaux R/G/B d'une vieille optique :
 # le canal R est légèrement agrandi (zoom radial vers l'extérieur) et le canal B
 # légèrement rétréci, G restant la référence. L'effet produit des franges colorées
@@ -1043,7 +1043,7 @@ CA_STRENGTH    = 0.05  # % de la diagonale de l'image
 CA_AXIAL_RATIO = 0.64  # part de la composante axiale (0 = purement radial, 1 = égal au radial)
 
 
-# ── 12.7  Virage / teinte (Retouche par lot.pyw) ──────────────────────────────
+# ── 12.7  Virage / teinte (Retouche photo.pyw) ──────────────────────────────
 # Vieilles photos scannées : le jaunissement d'origine varie d'un scan à
 # l'autre — colorize_hsl/colorize_multiply (image_ops.py) repartent d'un
 # noir et blanc pur puis colorisent chaque préréglage selon l'un des deux
@@ -1062,7 +1062,7 @@ CA_AXIAL_RATIO = 0.64  # part de la composante axiale (0 = purement radial, 1 = 
 #                déjà proche du blanc). Champs : hue, sat, light (% 0-100) —
 #                mêmes chiffres que le sélecteur HSL d'Affinity/Photoshop.
 #
-# Une option de menu déroulant est générée dans Retouche par lot.pyw pour
+# Une option de menu déroulant est générée dans Retouche photo.pyw pour
 # chaque entrée : ajouter/modifier un préréglage ici suffit, rien à changer
 # côté interface.
 # Repères de teinte : ~30-50° = sépia/jauni (brun-jaune), ~90-110° = vert,
@@ -1084,7 +1084,7 @@ VIRAGE_PRESETS = {
 VIRAGE_DEFAULT_PRESET = "SEPIA"
 
 
-# ── 12.8  Retouche par lot — réglages complémentaires (Retouche par lot.pyw) ──
+# ── 12.8  Retouche par lot — réglages complémentaires (Retouche photo.pyw) ──
 # États "activé" par section et valeurs sans équivalent partagé ailleurs
 # (couleur, netteté, virage manuel, copyright) — les autres champs de
 # l'outil réutilisent les constantes 12.1-12.7 ci-dessus. Réécrites
@@ -1122,7 +1122,7 @@ RETOUCHE_LOT_VIRAGE_SAT     = 0
 RETOUCHE_LOT_VIRAGE_LIGHT   = 0
 
 # LUT 3D (.cube, Adobe/DaVinci Resolve) — fichiers dans Data/LUTs, listés
-# à la volée par Retouche par lot.pyw (rien à déclarer ici par LUT).
+# à la volée par Retouche photo.pyw (rien à déclarer ici par LUT).
 # NAME = nom de fichier retenu ("" = aucun), INTENSITY = mélange 0-100 %
 # avec l'image d'origine.
 RETOUCHE_LOT_LUT_ENABLED   = False
@@ -1289,7 +1289,7 @@ def save_json(path, data):
 
 
 # ==============================================================================
-# 14. FLET — bandeau "Copier l'erreur" (Retouche par lot.pyw, Comparaison.pyw,
+# 14. FLET — bandeau "Copier l'erreur" (Retouche photo.pyw, Comparaison.pyw,
 #     kiosk_flet.pyw, Recadrage manuel.pyw, Hub.pyw)
 # ==============================================================================
 def attach_error_copy_snackbar(page, ignore=(), on_restart=None):
@@ -1300,7 +1300,7 @@ def attach_error_copy_snackbar(page, ignore=(), on_restart=None):
     ``ignore`` : sous-chaînes de messages à avaler silencieusement, pour les
     erreurs Flutter bénignes et auto-résolues (ex. la race de décodage
     "Codec failed..." lors de mises à jour rapides d'un ft.Image en
-    base64 pendant le chargement — cf. Retouche par lot.pyw).
+    base64 pendant le chargement — cf. Retouche photo.pyw).
 
     ``on_restart`` : callback optionnel appelé sans argument. Quand fourni,
     un bouton "Redémarrer" apparaît à côté de "Copier" — utile sur une

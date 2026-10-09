@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.3.57"
+__version__ = "2.4.0"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -836,7 +836,7 @@ class PhotoCropper:
         # Ajoute ou retire de la sélection selon `pipette_sign_btn` (pas
         # le bouton de la souris — le clic droit ne se déclenche pas du
         # tout ici, cf. `on_pan_down`).
-        # État interactif (partagé avec Augmentation IA.py, cf. image_ops.FloodPipette)
+        # État interactif (partagé avec retouche_ia.py, cf. image_ops.FloodPipette)
         self._pipette = image_ops.FloodPipette(CONSTANTS.RECADRAGE_FLOOD_TOLERANCE)
         self._pipette_start = None   # coordonnées écran (repère gesture_detector), propres à cette app
         self._rembg_tolerance_label = ft.Text(
@@ -2130,7 +2130,7 @@ class PhotoCropper:
 
         Calée sur la taille d'affichage réelle de l'image plutôt que sur la
         constante PREVIEW_MAX_PIXELS seule (cf. image_ops.preview_max_px,
-        partagée avec Retouche par lot.pyw).
+        partagée avec Retouche photo.pyw).
 
         ponytail: le zoom (self.scale) n'entre pas dans le calcul — à 4×, on
         regarde toujours un aperçu rendu pour le 1×. Le prendre en compte
@@ -2712,7 +2712,7 @@ class PhotoCropper:
         """Bascule entre Résolution / Ratio.
 
         "Aucun" (pas de recadrage) a existé ici mais a été retiré : ce
-        besoin est désormais couvert par Retouche par lot.pyw. `crop_mode`
+        besoin est désormais couvert par Retouche photo.pyw. `crop_mode`
         garde néanmoins la valeur "none" en interne (cf. `load_image`,
         `export`) pour rester compatible avec d'anciens réglages
         sauvegardés qui l'utilisaient encore.
@@ -5209,7 +5209,7 @@ def main(page: ft.Page):
     #
     # Rendre toute la colonne défilante aurait déplacé le problème : les
     # boutons auraient pu sortir de vue vers le haut. On sépare donc, comme
-    # dans Retouche par lot.pyw, ce qui peut défiler de ce qui doit rester
+    # dans Retouche photo.pyw, ce qui peut défiler de ce qui doit rester
     # visible en permanence.
     right_scroll_body = ft.Column([
         ft.CupertinoSlidingSegmentedButton(

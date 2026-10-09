@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Retouche par lot.pyw — aperçu live sur une image représentative, puis
+Retouche photo.pyw — aperçu live sur une image représentative, puis
 application de la même pipeline (débruitage, réglages couleur, virage,
 LUT 3D, netteté, grain pellicule, copyright) en pleine résolution sur tout
 le dossier/sélection.
@@ -15,10 +15,13 @@ Variables d'environnement :
   FOLDER_PATH     — dossier source (défaut : répertoire du script).
   SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
 
+Onglet « IA » : retouche_ia.py (ex-Augmentation IA), dont main() reçoit
+un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
+
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.57"
+__version__ = "2.4.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -34,6 +37,7 @@ import shutil
 import sys
 import threading
 import time
+import types
 from decimal import Decimal
 from pathlib import Path
 
@@ -432,7 +436,7 @@ def render_histogram(pil_image, width, height=_HISTOGRAM_HEIGHT):
 def main(page: ft.Page):
     CONSTANTS.attach_error_copy_snackbar(
         page, ignore=("Codec failed to produce an image",))
-    page.title = "Retouche par lot"
+    page.title = "Retouche photo"
     page.theme_mode = ft.ThemeMode.DARK
     # Rail plus fin (retour user) — global : Flet ne permet pas de varier
     # l'épaisseur par curseur ni selon sa valeur, seule la couleur l'est.
@@ -441,7 +445,16 @@ def main(page: ft.Page):
         thumb_color=WHITE,
         overlay_color=ft.Colors.with_opacity(0.08, WHITE),
         active_tick_mark_color=ft.Colors.TRANSPARENT,
-        inactive_tick_mark_color=ft.Colors.TRANSPARENT))
+        inactive_tick_mark_color=ft.Colors.TRANSPARENT),
+        # Arrondi des boutons du Hub — repris de l'onglet IA, dont le
+        # propre thème est ignoré une fois intégré (cf. _TabPage).
+        **{k: cls(style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(
+            radius=CONSTANTS.BUTTON_RADIUS)))
+           for k, cls in (("button_theme", ft.ButtonTheme),
+                          ("icon_button_theme", ft.IconButtonTheme),
+                          ("text_button_theme", ft.TextButtonTheme),
+                          ("outlined_button_theme", ft.OutlinedButtonTheme),
+                          ("filled_button_theme", ft.FilledButtonTheme))})
     page.bgcolor = BG
     page.padding = 0
     page.run_task(page.window.to_front)
@@ -1958,21 +1971,37 @@ def main(page: ft.Page):
     rail_buttons = {}
 
     def _show_pane(key):
-        for k, pane in panes.items():
-            pane.visible = k == key
-            rail_buttons[k].icon_color = BLUE if k == key else LIGHT_GREY
+        is_ia = key == "ia"
+        if is_ia:
+            _open_ia_tab()
+        else:
+            for k, pane in panes.items():
+                pane.visible = k == key
+        retouche_view.visible = not is_ia
+        ia_view.visible = is_ia
+        state["tab"] = key
+        for k, btn in rail_buttons.items():
+            btn.icon_color = BLUE if k == key else LIGHT_GREY
         page.update()
+        if not is_ia and ia_page.built:
+            # Retour depuis l'IA : la photo a pu y être modifiée.
+            load_representative(state["index"])
 
     for _key, _icon, _tip in (
             ("settings", ft.Icons.TUNE, "Réglages"),
-            ("presets", ft.Icons.BOOKMARKS_OUTLINED, "Préréglages")):
+            ("presets", ft.Icons.BOOKMARKS_OUTLINED, "Préréglages"),
+            ("ia", ft.Icons.AUTO_AWESOME, "IA")):
         rail_buttons[_key] = ft.IconButton(
             _icon, tooltip=_tip, icon_size=CONSTANTS.ICON_SM,
             icon_color=BLUE if _key == "settings" else LIGHT_GREY,
             on_click=lambda e, k=_key: _show_pane(k))
     rail = ft.Container(
-        content=ft.Column(list(rail_buttons.values()),
-                          spacing=CONSTANTS.SPACE_SM),
+        content=ft.Column([
+            rail_buttons["settings"], rail_buttons["presets"],
+            ft.Divider(height=1, color=GREY),
+            rail_buttons["ia"],
+        ], spacing=CONSTANTS.SPACE_SM,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         width=_RAIL_W, bgcolor=DARK,
         padding=ft.Padding(0, CONSTANTS.SPACE_MD, 0, 0),
         border=ft.Border(left=ft.BorderSide(1, GREY)))
@@ -1992,22 +2021,50 @@ def main(page: ft.Page):
         padding=CONSTANTS.SPACE_MD, bgcolor=DARK)
 
     def _on_key(e):
+        if state.get("tab") == "ia":
+            handler = ia_page.on_keyboard_event
+            if handler:
+                handler(e)
+            return
         if e.key == "Arrow Left":
             _prev(e)
         elif e.key == "Arrow Right":
             _next(e)
     page.on_keyboard_event = _on_key
 
+    retouche_view = ft.Row([
+        ft.Container(content=preview_column, expand=True,
+                     padding=ft.Padding(CONSTANTS.SPACE_MD,
+                                        CONSTANTS.SPACE_MD, 0,
+                                        CONSTANTS.SPACE_SM)),
+        controls_container,
+    ], expand=True, spacing=_ROW_SPACING,
+       vertical_alignment=ft.CrossAxisAlignment.STRETCH)
+    ia_view = ft.Container(expand=True, visible=False)
+    ia_page = _TabPage(page, ia_view, width_offset=_RAIL_W)
+
+    def _open_ia_tab():
+        name = file_names[state["index"]]
+        if not ia_page.built:
+            ia_page.built = True
+            ia_page.start_file = name
+            import retouche_ia  # lourd : importé à la 1re ouverture
+            page.run_task(retouche_ia.main, ia_page)
+        elif ia_page.show_file:
+            ia_page.show_file(name)
+
+    _retouche_resize = page.on_resize
+
+    def _on_resize(e):
+        _retouche_resize(e)
+        if ia_page.built and ia_page.on_resized:
+            ia_page.on_resized(ia_page.resize_event(e))
+    page.on_resize = _on_resize
+
     page.add(
-        ft.Row([
-            ft.Container(content=preview_column, expand=True,
-                         padding=ft.Padding(CONSTANTS.SPACE_MD,
-                                            CONSTANTS.SPACE_MD, 0,
-                                            CONSTANTS.SPACE_SM)),
-            controls_container,
-            rail,
-        ], expand=True, spacing=_ROW_SPACING,
-           vertical_alignment=ft.CrossAxisAlignment.STRETCH)
+        ft.Row([retouche_view, ia_view, rail], expand=True,
+               spacing=_ROW_SPACING,
+               vertical_alignment=ft.CrossAxisAlignment.STRETCH)
     )
 
     async def _startup():
@@ -2015,7 +2072,7 @@ def main(page: ft.Page):
         # Flutter : lire page.width tout de suite après renvoie encore la
         # taille de fenêtre par défaut (~800px), ce qui sous-dimensionnait
         # l'aperçu (retour user). On attend que la largeur bouge (comme
-        # Augmentation IA.py) avant le premier calcul.
+        # retouche_ia.py) avant le premier calcul.
         pre_w = page.window.width or 0
         page.window.maximized = True
         page.update()
@@ -2027,9 +2084,89 @@ def main(page: ft.Page):
         _apply_preview_size()
         load_representative(0)
         threading.Thread(target=_load_thumbs, daemon=True).start()
+        if os.environ.get("START_TAB") == "ia":
+            _show_pane("ia")
 
     page.run_task(_startup)
 
 
+#############################################################
+#                ONGLET IA (retouche_ia.py)                  #
+#############################################################
+class _WindowProxy:
+    """Fenêtre vue par l'onglet IA : lectures transmises, réglages
+    (maximisation, barre de titre…) et fermeture ignorés — la fenêtre
+    appartient à Retouche photo."""
+
+    def __init__(self, window):
+        object.__setattr__(self, "_window", window)
+
+    def __getattr__(self, name):
+        return getattr(self._window, name)
+
+    def __setattr__(self, name, value):
+        pass
+
+    async def close(self):
+        pass
+
+    async def destroy(self):
+        pass
+
+
+class _TabPage:
+    """Page vue par un outil intégré en onglet : page.add() remplit le
+    conteneur de l'onglet, thème/titre/gestionnaires sont gardés ici
+    (l'hôte relaie clavier et redimensionnement), le reste est transmis
+    à la vraie page."""
+
+    def __init__(self, page, container, width_offset=0):
+        d = self.__dict__
+        d.update(_page=page, _container=container, embedded=True,
+                 built=False, start_file=None, show_file=None,
+                 on_keyboard_event=None, on_resized=None, on_resize=None,
+                 _width_offset=width_offset,
+                 window=_WindowProxy(page.window))
+
+    def __getattr__(self, name):
+        return getattr(self._page, name)
+
+    def __setattr__(self, name, value):
+        self.__dict__[name] = value
+
+    def add(self, *controls):
+        self._container.content = (controls[0] if len(controls) == 1
+                                   else ft.Column(list(controls),
+                                                  expand=True))
+        self._page.update()
+
+    @property
+    def width(self):
+        return (self._page.width or 0) - self._width_offset
+
+    @property
+    def height(self):
+        return self._page.height
+
+    def resize_event(self, e):
+        return types.SimpleNamespace(
+            width=(getattr(e, "width", None) or self._page.width or 0)
+            - self._width_offset,
+            height=getattr(e, "height", None) or self._page.height)
+
+
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        # Bruit asyncio Windows à la fermeture (repris de l'ex-Augmentation
+        # IA).
+        from asyncio.proactor_events import _ProactorBasePipeTransport
+        _orig_ccl = _ProactorBasePipeTransport._call_connection_lost
+
+        def _patched_ccl(self, exc):
+            try:
+                _orig_ccl(self, exc)
+            except (ConnectionResetError, OSError):
+                pass
+
+        _ProactorBasePipeTransport._call_connection_lost = _patched_ccl
     ft.run(main)

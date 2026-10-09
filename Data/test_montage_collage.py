@@ -3,12 +3,12 @@
 test_montage_collage.py — auto-contrôle de compute_layout / fit_and_rotate /
 render_montage ("Montage collage.py", nom de fichier avec espace donc non
 importable via `import` classique — chargé dynamiquement, comme
-test_ui_changes.py le fait pour Retouche par lot.pyw).
+test_ui_changes.py le fait pour Retouche photo.pyw).
 
 Lancer :  python3 "Data/test_montage_collage.py"
 """
 
-__version__ = "2.3.57"
+__version__ = "2.4.0"
 
 
 import importlib.machinery

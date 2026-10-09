@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.57"
+__version__ = "2.4.0"
 
 import asyncio
 import base64
@@ -2372,12 +2372,12 @@ def main(page: ft.Page):
 
     # ── Pavé numérique tactile en overlay (retour user : "plus lisible et
     # plus pratique" qu'un pavé intégré dans le dialogue, comme dans
-    # Retouche par lot.pyw) — un seul dialogue partagé par tous les champs
+    # Retouche photo.pyw) — un seul dialogue partagé par tous les champs
     # numériques du Hub plutôt qu'un pavé par dialogue.
     _keypad_state = {"fn": None, "refocus_field": None}
     # Fermer le popup redonne le focus au champ qui l'a ouvert, ce qui
     # redéclenche aussitôt son on_focus et rouvrirait le popup (retour
-    # user, même bug que Retouche par lot.pyw) — on ignore ce refocus
+    # user, même bug que Retouche photo.pyw) — on ignore ce refocus
     # fantôme juste après validation.
     _keypad_suppress_focus = {"id": None}
     _keypad_value_field = ft.TextField(
@@ -4062,22 +4062,23 @@ def main(page: ft.Page):
 
     # ═════════════════════════════════════════════════════════════════════
     #  Édition — Recadrage manuel.pyw (retouche + recadrage, tous les outils)
-    #  et Augmentation IA.py (inpainting / extension / upscale) lancés comme
+    #  et retouche_ia.py (inpainting / extension / upscale) lancés comme
     #  outils externes dédiés plutôt que des tiroirs dupliquant leur UI dans
     #  Hub : les tiroirs ne couvraient jamais correctement tout l'écran
     #  (retour user + captures), et ces deux apps ont déjà tous les outils.
     #  `_launch_tool` est défini plus loin dans main() : référence différée
     #  via closure, même principe que `create_order_btn` plus haut.
     # ═════════════════════════════════════════════════════════════════════
-    def _launch_editor_for_current(script_name):
+    def _launch_editor_for_current(script_name, start_tab=None):
         def _run(event=None):
             if not viewer_state["paths"]:
                 return
             path = viewer_state["paths"][viewer_state["index"]]
-            _launch_tool(script_name, extra_env={
-                "FOLDER_PATH": os.path.dirname(path),
-                "SELECTED_FILES": os.path.basename(path),
-            })
+            env = {"FOLDER_PATH": os.path.dirname(path),
+                   "SELECTED_FILES": os.path.basename(path)}
+            if start_tab:
+                env["START_TAB"] = start_tab
+            _launch_tool(script_name, extra_env=env)
         return _run
 
     def _close_drawers():
@@ -4090,11 +4091,12 @@ def main(page: ft.Page):
                        "Retoucher / recadrer (Recadrage manuel.pyw)",
                        _launch_editor_for_current("Recadrage manuel.pyw")))
     viewer_bottom_bar.content.controls.insert(
-        -1, _viewer_btn(ft.Icons.TUNE, "Retouche par lot (aperçu live)",
-                       _launch_editor_for_current("Retouche par lot.pyw")))
+        -1, _viewer_btn(ft.Icons.TUNE, "Retouche photo",
+                       _launch_editor_for_current("Retouche photo.pyw")))
     viewer_bottom_bar.content.controls.insert(
-        -1, _viewer_btn(ft.Icons.AUTO_AWESOME, "Augmentation IA",
-                       _launch_editor_for_current("Augmentation IA.py")))
+        -1, _viewer_btn(ft.Icons.AUTO_AWESOME, "Retouche IA",
+                       _launch_editor_for_current("Retouche photo.pyw",
+                                                  start_tab="ia")))
 
     def _open_viewer(start_path):
         # Vidéo : lecteur système (lecture intégrée = flet-video + libmpv,
@@ -4676,15 +4678,10 @@ def main(page: ft.Page):
         lambda e: _launch_two_in_one(e),
         "2 en 1")
 
-    retouche_par_lot_btn = _toolbar_icon_btn(
+    retouche_photo_btn = _toolbar_icon_btn(
         ft.Icons.TUNE, YELLOW,
-        lambda e: _launch_tool("Retouche par lot.pyw"),
-        "Retouche par lot (aperçu live)")
-
-    augmentation_ia_btn = _toolbar_icon_btn(
-        ft.Icons.AUTO_AWESOME, YELLOW,
-        lambda e: _launch_tool("Augmentation IA.py"),
-        "Augmentation IA")
+        lambda e: _launch_tool("Retouche photo.pyw"),
+        "Retouche photo")
 
     montage_collage_btn = _toolbar_icon_btn(
         ft.Icons.GRID_VIEW_OUTLINED, PINK,
@@ -5016,10 +5013,8 @@ def main(page: ft.Page):
          lambda e: _launch_recadrage_auto(e)),
         (ft.CupertinoIcons.SQUARE_SPLIT_2X1, RED, "2 en 1",
          lambda e: _launch_two_in_one(e)),
-        (ft.Icons.TUNE, YELLOW, "Retouche par lot (aperçu live)",
-         lambda e: _launch_tool("Retouche par lot.pyw")),
-        (ft.Icons.AUTO_AWESOME, YELLOW, "Augmentation IA",
-         lambda e: _launch_tool("Augmentation IA.py")),
+        (ft.Icons.TUNE, YELLOW, "Retouche photo",
+         lambda e: _launch_tool("Retouche photo.pyw")),
         (ft.Icons.GRID_VIEW_OUTLINED, PINK, "Montage collage",
          lambda e: _launch_montage_collage(e)),
     ]
@@ -5027,7 +5022,7 @@ def main(page: ft.Page):
         recadrage_manuel_btn, recadrage_auto_btn, two_en_un_btn,
         ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
                     height=CONSTANTS.HUB_TOOLBAR_H),
-        retouche_par_lot_btn, augmentation_ia_btn,
+        retouche_photo_btn,
         ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
                     height=CONSTANTS.HUB_TOOLBAR_H),
         montage_collage_btn,
@@ -10256,7 +10251,7 @@ def main(page: ft.Page):
 
     # Scripts en .py (pas .pyw) qui ouvrent quand même leur propre fenêtre
     # Flet — l'extension seule ne suffit pas à détecter une vraie appli GUI.
-    _GUI_TOOLS_PY_EXT = {"Augmentation IA.py"}
+    _GUI_TOOLS_PY_EXT = set()
 
     def _launch_tool(script_name, is_local=False, extra_env=None):
         app_path = os.path.join(_APP_DIR, "Data", script_name)
@@ -12033,10 +12028,8 @@ def main(page: ft.Page):
              two_en_un_btn.on_click),
         ]),
         ("Retouche", [
-            ("Retouche par lot", ft.Icons.TUNE, YELLOW,
-             lambda e: _launch_tool("Retouche par lot.pyw")),
-            ("Augmentation IA", ft.Icons.AUTO_AWESOME, YELLOW,
-             lambda e: _launch_tool("Augmentation IA.py")),
+            ("Retouche photo", ft.Icons.TUNE, YELLOW,
+             lambda e: _launch_tool("Retouche photo.pyw")),
             ("Nettoyer métadonnées", ft.Icons.CLEANING_SERVICES_OUTLINED, YELLOW,
              lambda e: _launch_tool("Nettoyer metadonnées.py")),
         ]),

@@ -5,11 +5,11 @@ ai_ops.py — Retouche générative, extension de cadre et amélioration IA.
 Sépare les opérations à dépendances lourdes (torch/spandrel, google-genai)
 d'`image_ops.py` : import paresseux, aucun coût si le tiroir IA de la
 visionneuse n'est jamais ouvert. Reprend fidèlement la logique de
-`Data/Augmentation IA.py` (feathering, edge-padding, tiling spandrel),
+`Data/retouche_ia.py` (feathering, edge-padding, tiling spandrel),
 dépouillée des callbacks Flet (`page.update()`, widgets).
 """
 
-__version__ = "2.3.57"
+__version__ = "2.4.0"
 
 import io
 import os
@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw, ImageFilter
 _MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 
 # Cache des modèles spandrel chargés (par nom de fichier), vit tant que le
-# process Python vit — même pattern que Augmentation IA.py.
+# process Python vit — même pattern que retouche_ia.py.
 _loaded_model_cache = {}
 
 
@@ -51,7 +51,7 @@ def run_inpaint(image: Image.Image, rect: tuple[int, int, int, int],
                  resolution: str = "1K", timeout: float = 120.0) -> Image.Image:
     """Retouche générative Gemini sur la zone `rect` (x1, y1, x2, y2) de
     `image`, réintégrée avec un fondu de bords (feathering). Reprend
-    `Augmentation IA.py::on_send_gemini` + `_composite_retouch`.
+    `retouche_ia.py::on_send_gemini` + `_composite_retouch`.
 
     `resolution` ("1K"/"2K"/"4K") : une petite zone retouchée n'a pas
     besoin de la même qualité qu'une pleine image (coût/temps Gemini) —
@@ -92,7 +92,7 @@ def run_outpaint(image: Image.Image, margins_px: tuple[int, int, int, int],
                   resolution: str = "4K", progress_cb=None, timeout: float = 300.0
                   ) -> tuple[Image.Image, Image.Image]:
     """Extension de cadre (outpainting) via Gemini. `margins_px` =
-    (haut, bas, gauche, droite). Reprend `Augmentation IA.py::_do_expand` :
+    (haut, bas, gauche, droite). Reprend `retouche_ia.py::_do_expand` :
     edge-padding (répétition du pixel de bord) + remplissage Gemini.
 
     Priorité qualité impression : Gemini plafonne sa sortie (~4K) quel que
@@ -247,7 +247,7 @@ def composite_outpaint(gemini_canvas: Image.Image, img_rgb: Image.Image,
     `gemini_canvas` (marge générée par `run_outpaint`) avec un fondu de
     raccord réglable. Opération légère (paste + flou gaussien, aucun appel
     réseau) — rappelable à volonté depuis un slider, comme
-    `Augmentation IA.py::_composite_retouch` pour la retouche.
+    `retouche_ia.py::_composite_retouch` pour la retouche.
 
     Le fondu est ancré sur le VRAI bord de la photo (jonction photo/marge
     générée), inséré uniquement sur le(s) côté(s) effectivement étendu(s)
@@ -298,7 +298,7 @@ def run_upscale(image: Image.Image, model_name: str,
                  progress_cb=None) -> Image.Image:
     """Amélioration/upscale via un modèle local `.pth`/`.safetensors`
     (spandrel), tuilé avec overlap-add pondéré. Reprend
-    `Augmentation IA.py::on_run_model::_do_run`.
+    `retouche_ia.py::on_run_model::_do_run`.
 
     `progress_cb(value, label)` : `value` dans [0, 1] ou None (indéterminé).
     """
