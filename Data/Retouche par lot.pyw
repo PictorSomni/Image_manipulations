@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.47"
+__version__ = "2.3.48"
 
 #############################################################
 #                          IMPORTS                          #
@@ -496,8 +496,29 @@ def main(page: ft.Page):
     image_display = ft.Image(src=_BLANK_SRC, gapless_playback=True,
                              fit=ft.BoxFit.CONTAIN,
                              width=state["preview_w"], height=state["preview_h"])
+    # Pipette (Blanc / Peau) : un tap sur l'aperçu prend la zone cliquée
+    # comme référence. Coordonnées locales = espace non zoomé de l'image.
+    pick = {"mode": None}
+
+    def _on_preview_tap(e):
+        mode = pick["mode"]
+        proxy = state["proxy"]
+        if mode is None or proxy is None or e.local_position is None:
+            return
+        w, h = image_display.width, image_display.height
+        scale = min(w / proxy.width, h / proxy.height)
+        ox = (w - proxy.width * scale) / 2
+        oy = (h - proxy.height * scale) / 2
+        fx = (e.local_position.x - ox) / (proxy.width * scale)
+        fy = (e.local_position.y - oy) / (proxy.height * scale)
+        if not (0 <= fx <= 1 and 0 <= fy <= 1):
+            return
+        _apply_wb(image_ops.auto_white_balance(proxy, mode, (fx, fy)))
+
+    preview_tap = ft.GestureDetector(content=image_display,
+                                     on_tap_down=_on_preview_tap)
     preview_viewer = ft.InteractiveViewer(
-        content=image_display, min_scale=1.0, max_scale=6.0,
+        content=preview_tap, min_scale=1.0, max_scale=6.0,
         pan_enabled=True, scale_enabled=True, constrained=True,
         width=state["preview_w"], height=state["preview_h"],
         clip_behavior=ft.ClipBehavior.HARD_EDGE)
@@ -1720,17 +1741,32 @@ def main(page: ft.Page):
         _sync_controls_from_params()
         live_preview_tick()
 
+    def _apply_wb(found):
+        if found is None:
+            return
+        co["white_balance"], co["hue"] = found
+        co["enabled"] = True
+        _sync_controls_from_params()
+        live_preview_tick()
+
     def _on_auto_wb(mode):
+        """1er clic : réglage auto + pipette armée (bouton en bleu, curseur
+        en croix) ; un tap sur l'aperçu affine depuis la zone cliquée.
+        Re-clic sur le bouton : pipette désarmée."""
         def handler(e):
             if state["proxy"] is None:
                 return
-            found = image_ops.auto_white_balance(state["proxy"], mode)
-            if found is None:
-                return
-            co["white_balance"], co["hue"] = found
-            co["enabled"] = True
-            _sync_controls_from_params()
-            live_preview_tick()
+            pick["mode"] = None if pick["mode"] == mode else mode
+            for m, btn in wb_buttons.items():
+                armed = pick["mode"] == m
+                btn.style.color = BLUE if armed else WHITE
+                btn.style.side = ft.BorderSide(1, BLUE if armed else GREY)
+                btn.update()
+            preview_tap.mouse_cursor = (ft.MouseCursor.PRECISE
+                                        if pick["mode"] else None)
+            preview_tap.update()
+            if pick["mode"]:
+                _apply_wb(image_ops.auto_white_balance(state["proxy"], mode))
         return handler
 
     def _on_reset(e):
@@ -1746,10 +1782,12 @@ def main(page: ft.Page):
                 padding=ft.Padding(CONSTANTS.SPACE_MD, 0,
                                    CONSTANTS.SPACE_MD, 0)))
 
+    wb_buttons = {"white": _quick_btn("Blanc", _on_auto_wb("white")),
+                  "skin": _quick_btn("Peau", _on_auto_wb("skin"))}
+
     quick_row = ft.Row([
         _quick_btn("Auto", _on_auto), _quick_btn("N&B", _on_bw),
-        _quick_btn("Blanc", _on_auto_wb("white")),
-        _quick_btn("Peau", _on_auto_wb("skin")),
+        wb_buttons["white"], wb_buttons["skin"],
         ft.Container(expand=True), _quick_btn("Réinitialiser", _on_reset),
     ], spacing=CONSTANTS.SPACE_SM)
 

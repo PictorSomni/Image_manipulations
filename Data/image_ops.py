@@ -15,7 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 
-__version__ = "2.3.47"
+__version__ = "2.3.48"
 
 import colorsys
 import functools
@@ -961,10 +961,11 @@ def _wb_hue_gains(wb, hue):
 _SKIN_RG, _SKIN_BG = 224 / 172, 140 / 172
 
 
-def auto_white_balance(input_image, mode="white"):
+def auto_white_balance(input_image, mode="white", point=None):
     """(white_balance, hue) qui neutralise les blancs (`mode="white"`) ou
     ramène la peau vers un teint moyen (`mode="skin"`). None si aucune
-    zone de référence trouvée.
+    zone de référence trouvée. `point` (x, y en 0..1) : la référence est
+    la petite zone cliquée sur l'aperçu au lieu de la détection auto.
 
     ponytail: référence = 5 % des pixels clairs non brûlés, ou masque
     YCbCr de peau classique ; un cadre sans blanc/peau donne un résultat
@@ -974,7 +975,16 @@ def auto_white_balance(input_image, mode="white"):
     small = input_image.convert("RGB").copy()
     small.thumbnail((400, 400))
     px = np.asarray(small, dtype=np.float32).reshape(-1, 3)
-    if mode == "skin":
+    if point is not None:
+        w, h = small.size
+        yy, xx = np.mgrid[0:h, 0:w]
+        r = max(2, round(0.015 * max(w, h)))
+        # Pipette carrée : moyenne d'un carré centré sur le clic.
+        mask = ((np.abs(xx - point[0] * w) <= r) &
+                (np.abs(yy - point[1] * h) <= r)).reshape(-1)
+        target_rg, target_bg = ((_SKIN_RG, _SKIN_BG) if mode == "skin"
+                                else (1.0, 1.0))
+    elif mode == "skin":
         ycc = np.asarray(small.convert("YCbCr"),
                          dtype=np.float32).reshape(-1, 3)
         mask = ((ycc[:, 1] > 77) & (ycc[:, 1] < 127) &
@@ -988,7 +998,7 @@ def auto_white_balance(input_image, mode="white"):
             return None
         mask = ok & (lum >= np.percentile(lum[ok], 95))
         target_rg = target_bg = 1.0
-    if mask.sum() < 50:
+    if mask.sum() < (5 if point is not None else 50):
         return None
     mean = px[mask].mean(axis=0) + 1e-3
     grid = np.arange(-100, 101, dtype=np.float32)
