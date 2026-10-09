@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.54"
+__version__ = "2.3.55"
 
 #############################################################
 #                          IMPORTS                          #
@@ -576,6 +576,7 @@ def main(page: ft.Page):
     # Voile de chargement (le même que la synchro Notion de l'Agenda) posé
     # sur l'original pendant le calcul des réglages d'une photo.
     load_veil = ui_helpers.busy_veil("Application des réglages…", BLUE)
+    veil_text = load_veil.content.controls[1]
     preview_container = ft.Container(
         content=ft.Stack([preview_viewer, load_veil]),
         width=state["preview_w"] + 16, height=state["preview_h"] + 16,
@@ -692,6 +693,8 @@ def main(page: ft.Page):
                 hist_src = None
 
                 async def _unveil():
+                    if state.get("batch"):
+                        return
                     ui_helpers.set_busy_veil(load_veil, False)
                     load_veil.update()
                 page.run_task(_unveil)
@@ -702,7 +705,7 @@ def main(page: ft.Page):
                         return  # rendu d'une photo précédente
                     image_display.src = src
                     image_display.update()
-                    if load_veil.opacity:
+                    if load_veil.opacity and not state.get("batch"):
                         ui_helpers.set_busy_veil(load_veil, False)
                         load_veil.update()
                     if hist_src:
@@ -1456,6 +1459,11 @@ def main(page: ft.Page):
         Un seul contrôle, au même endroit, toujours à portée du pouce :
         rien de nouveau à chercher à l'écran une fois le lot lancé.
         """
+        # Voile de chargement sur l'aperçu pendant tout le lot.
+        state["batch"] = running
+        veil_text.value = ("Traitement en cours…" if running
+                           else "Application des réglages…")
+        ui_helpers.set_busy_veil(load_veil, running)
         if running:
             batch_button.content = "Arrêter"
             batch_button.icon = ft.Icons.STOP
@@ -1479,6 +1487,7 @@ def main(page: ft.Page):
     def _update_progress(done, total):
         progress_bar.value = done / total
         progress_text.value = f"{done} / {total}"
+        veil_text.value = f"Traitement {done} / {total}…"
 
     def batch_worker(params_snapshot):
         # Enregistre en place, dans le dossier source — plus de sous-dossier
@@ -1537,6 +1546,7 @@ def main(page: ft.Page):
                 _update_progress(done, total)
                 progress_bar.update()
                 progress_text.update()
+                veil_text.update()
             page.run_task(_tick)
 
         stopped = batch_stop.is_set()
@@ -1578,6 +1588,7 @@ def main(page: ft.Page):
         progress_bar.visible = True
         progress_bar.value = 0
         progress_text.value = f"0 / {len(file_names)}"
+        veil_text.value = f"Traitement 0 / {len(file_names)}…"
         page.update()
         threading.Thread(target=batch_worker, args=(params_snapshot,),
                          daemon=True).start()

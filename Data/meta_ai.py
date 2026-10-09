@@ -8,7 +8,7 @@ Clé : variable MUSE_API_KEY (environnement ou .zshrc/.bashrc), ou
 ~/.meta (hors du repo, jamais commitée).
 """
 
-__version__ = "2.3.54"
+__version__ = "2.3.55"
 
 import base64
 import json
