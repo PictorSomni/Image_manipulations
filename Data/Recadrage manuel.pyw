@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.4.6"
+__version__ = "2.4.7"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -810,7 +810,7 @@ class PhotoCropper:
             active_color=ORANGE,
             on_change=self.on_rembg_erosion_change,
             on_change_end=self.on_rembg_erosion_end,
-            width=90,
+            expand=True,
         )
 
         # Adoucissement (flou) du bord du masque — lisse un contour en
@@ -826,7 +826,7 @@ class PhotoCropper:
             active_color=BLUE,
             on_change=self.on_rembg_feather_change,
             on_change_end=self.on_rembg_feather_end,
-            width=90,
+            expand=True,
         )
 
         # Mode Instantané (pipette) : clic-glissé sur le fond dans le
@@ -1093,10 +1093,9 @@ class PhotoCropper:
             available_width = min(max(usable_width, 320), MAX_CANVAS_SIZE)
         else:
             available_width = 800
-        # 410 (au lieu de 380) : le bloc Opérations a grandi de 30px (160
-        # au lieu de 130) pour que les sliders de Fond IA restent visibles
-        # sur les écrans HDPI (retour user) — le canevas rétrécit d'autant.
-        available_height = min(self.page.window.height - 410, MAX_CANVAS_SIZE) if self.page.window.height else 600
+        # 230 : barre d'outils fine au-dessus du canevas (l'ancien bloc
+        # Opérations de ~200px est passé dans la colonne gauche).
+        available_height = min(self.page.window.height - 230, MAX_CANVAS_SIZE) if self.page.window.height else 600
 
 
 
@@ -5423,6 +5422,74 @@ def main(page: ft.Page):
                         ft.Divider(height=10),
                         ft.Button("Tout à 0", on_click=app.reset_adjustments, bgcolor=BG, color=WHITE, width=LEFT_COL_WIDTH - 20),
                         ft.Button("Réglages par défaut", on_click=app.reset_to_defaults, bgcolor=DARK, color=LIGHT_GREY, width=LEFT_COL_WIDTH - 20),
+                        ft.Divider(height=10),
+
+
+                        # ── Sortie (ex-bloc Opérations) ───────────────────
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Text("SORTIE", size=10, color=YELLOW, weight=ft.FontWeight.BOLD),
+                                ft.Row([
+                                    ft.Text("Exemplaires", size=12, color=LIGHT_GREY, expand=True),
+                                    app.copies_minus_btn,
+                                    app.copies_text,
+                                    app.copies_plus_btn,
+                                ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                ft.Row([
+                                    ft.Text("Formats multiples", size=12, color=LIGHT_GREY, expand=True),
+                                    ft.IconButton(
+                                        icon=ft.Icons.CLEAR,
+                                        icon_color=RED,
+                                        tooltip="Vider la liste",
+                                        on_click=app.clear_extra_formats,
+                                        icon_size=20,
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.Icons.ADD_CIRCLE_OUTLINE,
+                                        icon_color=BLUE,
+                                        tooltip="Ajouter le format courant à la liste",
+                                        on_click=app.add_extra_format,
+                                        icon_size=20,
+                                    ),
+                                ], spacing=0, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                ft.Row([app.extra_formats_display],
+                                       scroll=ft.ScrollMode.AUTO),
+                                app.bw_switch,
+                                app.fit_in_switch,
+                                app.white_border_switch,
+                            ], spacing=4),
+                            border=ft.Border(left=ft.BorderSide(2, YELLOW)),
+                            padding=ft.Padding.only(left=8),
+                            width=LEFT_COL_WIDTH - 20,
+                        ),
+                        ft.Divider(height=10),
+
+
+                        # ── Fond IA ───────────────────────────────────────
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Text("FOND IA", size=10, color=VIOLET, weight=ft.FontWeight.BOLD),
+                                ft.Row([
+                                    app.rembg_btn, app.rembg_bg_btn, app.rembg_model_btn,
+                                ], spacing=6, wrap=True),
+                                ft.Row([
+                                    app.rembg_precise_btn, app.pipette_sign_btn,
+                                    app._rembg_tolerance_label,
+                                ], spacing=6, wrap=True,
+                                    vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                ft.Row([
+                                    ft.Text("Ér.", size=11, color=LIGHT_GREY),
+                                    app.rembg_erosion_slider,
+                                ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                ft.Row([
+                                    ft.Text("Ad.", size=11, color=LIGHT_GREY),
+                                    app.rembg_feather_slider,
+                                ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                            ], spacing=4),
+                            border=ft.Border(left=ft.BorderSide(2, VIOLET)),
+                            padding=ft.Padding.only(left=8),
+                            width=LEFT_COL_WIDTH - 20,
+                        ),
                     ], spacing=4, scroll=ft.ScrollMode.AUTO),
                     width=LEFT_COL_WIDTH,
                     bgcolor=DARK,
@@ -5436,111 +5503,38 @@ def main(page: ft.Page):
                 # ── Panneau du dessus : Opérations ──────────────────────
                     content=ft.Column(
                         [
+                            # Barre d'outils de cadrage au-dessus du canevas
+                            # (l'ancien bloc « Opérations » est réparti :
+                            # Sortie et Fond IA dans la colonne gauche).
                             ft.Container(
-                                content=ft.Column([
-                                    ft.Text("Opérations", size=16, weight=ft.FontWeight.BOLD, color=WHITE, text_align=ft.TextAlign.CENTER),
-                                    ft.Divider(height=4),
-                                    ft.Row([
-                                        ft.Column([
-                                            ft.Row([
-                                                ft.Column([
-                                                    ft.Text("Exemplaires", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
-                                                    ft.Row([
-                                                        app.copies_minus_btn,
-                                                        app.copies_text,
-                                                        app.copies_plus_btn,
-                                                    ], alignment=ft.MainAxisAlignment.CENTER, spacing=0),
-                                                ], spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=150),
-                                                ft.Container(width=1, height=70, bgcolor=LIGHT_GREY),
-                                                ft.Column([
-                                                    ft.Text("Formats multiples", size=14, weight=ft.FontWeight.W_500, text_align=ft.TextAlign.CENTER),
-                                                    ft.Row([
-                                                        ft.IconButton(
-                                                            icon=ft.Icons.CLEAR,
-                                                            icon_color=RED,
-                                                            tooltip="Vider la liste",
-                                                            on_click=app.clear_extra_formats,
-                                                            icon_size=24,
-                                                        ),
-                                                        ft.IconButton(
-                                                            icon=ft.Icons.ADD_CIRCLE_OUTLINE,
-                                                            icon_color=BLUE,
-                                                            tooltip="Ajouter le format courant à la liste",
-                                                            on_click=app.add_extra_format,
-                                                            icon_size=24,
-                                                        ),
-                                                        ft.Row([
-                                                            app.extra_formats_display,
-                                                        ], scroll=ft.ScrollMode.AUTO, width=210, height=32, alignment=ft.MainAxisAlignment.START),
-                                                    ], alignment=ft.MainAxisAlignment.START, spacing=8),
-                                                ], spacing=4, horizontal_alignment=ft.CrossAxisAlignment.CENTER, width=330),
-                                            ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16),
-                                            ft.Container(width=520, height=1, bgcolor=LIGHT_GREY),
-                                            ft.Row([
-                                                app.bw_switch,
-                                                app.fit_in_switch,
-                                                app.white_border_switch,
-                                            ], alignment=ft.MainAxisAlignment.CENTER, spacing=16),
-                                        ], spacing=6, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                                        ft.VerticalDivider(width=1, color=LIGHT_GREY),
-                                        ft.Column([
-                                            ft.Text("Fond IA", size=12, color=LIGHT_GREY, text_align=ft.TextAlign.CENTER),
-                                            ft.Row([
-                                                app.rembg_btn, app.rembg_bg_btn, app.rembg_model_btn,
-                                            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                                            ft.Row([
-                                                app.rembg_precise_btn, app.pipette_sign_btn,
-                                                app._rembg_tolerance_label,
-                                            ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                                            ft.Row([
-                                                ft.Text("Ér.", size=11, color=LIGHT_GREY),
-                                                app.rembg_erosion_slider,
-                                                ft.Text("Ad.", size=11, color=LIGHT_GREY),
-                                                app.rembg_feather_slider,
-                                            ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                                        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, alignment=ft.MainAxisAlignment.CENTER, spacing=2),
-                                        ft.VerticalDivider(width=1, color=LIGHT_GREY),
-                                        ft.Column([
-                                            ft.Row([
-                                                ft.IconButton(
-                                                    icon=ft.Icons.ROTATE_LEFT,
-                                                    icon_color=BLUE,
-                                                    tooltip="Rotation 90° (antihoraire)",
-                                                    on_click=lambda e: app.rotate_90(e, -90.0),
-                                                    icon_size=20,
-                                                ),
-                                                ft.IconButton(
-                                                    icon=ft.Icons.ROTATE_RIGHT,
-                                                    icon_color=BLUE,
-                                                    tooltip="Rotation 90° (horaire)",
-                                                    on_click=lambda e: app.rotate_90(e, 90.0),
-                                                    icon_size=20,
-                                                ),
-                                            ], spacing=0, alignment=ft.MainAxisAlignment.START),
-                                            ft.Button(
-                                                content=ft.Row([
-                                                    ft.Icon(ft.Icons.SWAP_HORIZ, size=16, color=BLUE),
-                                                    ft.Text("Orientation", size=14, color=BLUE),
-                                                ], spacing=4, tight=True),
-                                                bgcolor=BG,
-                                                on_click=app.toggle_orientation,
-                                                style=ft.ButtonStyle(
-                                                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
-                                                    shape=ft.RoundedRectangleBorder(radius=6),
-                                                ),
-                                                height=30,
-                                            ),
-                                            app.grid_switch,
-                                        ], horizontal_alignment=ft.CrossAxisAlignment.START, alignment=ft.MainAxisAlignment.CENTER, spacing=4),
-                                    ], vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=16, alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO, height=160),
-                                    ft.Divider(height=1, color=GREY),
+                                content=ft.Row([
+                                    ft.IconButton(
+                                        icon=ft.Icons.ROTATE_LEFT,
+                                        icon_color=BLUE,
+                                        tooltip="Rotation 90° (antihoraire)",
+                                        on_click=lambda e: app.rotate_90(e, -90.0),
+                                        icon_size=20,
+                                    ),
+                                    ft.IconButton(
+                                        icon=ft.Icons.ROTATE_RIGHT,
+                                        icon_color=BLUE,
+                                        tooltip="Rotation 90° (horaire)",
+                                        on_click=lambda e: app.rotate_90(e, 90.0),
+                                        icon_size=20,
+                                    ),
+                                    ft.TextButton(
+                                        "Orientation",
+                                        icon=ft.Icons.SWAP_HORIZ,
+                                        on_click=app.toggle_orientation,
+                                        style=ft.ButtonStyle(color=BLUE),
+                                    ),
+                                    app.grid_switch,
+                                    ft.Container(expand=True),
                                     app._status_row,
-                                ], alignment=ft.MainAxisAlignment.START, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                                padding=ft.Padding.only(top=6, bottom=6, left=12, right=12),
-                                alignment=ft.Alignment(0, -1),
+                                ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+                                padding=ft.Padding.symmetric(horizontal=12, vertical=2),
                                 bgcolor=DARK,
                                 border_radius=8,
-                                width=1200,
                                 border=ft.Border.all(1, GREY),
                             ),
 
