@@ -11,7 +11,7 @@ commitée). Absente ->
 TOKEN vide -> Hub retombe sur la connexion MCP/OAuth.
 """
 
-__version__ = "2.3.42"
+__version__ = "2.3.43"
 
 import json
 import os
@@ -184,6 +184,7 @@ def _query(args):
         for pg in res["results"]:
             # URL courte (id seul) : Hub en extrait page_id (dernier segment)
             row = {"url": "https://www.notion.so/" + pg["id"].replace("-", "")}
+            row["last_edited"] = pg.get("last_edited_time", "")
             for name, p in pg["properties"].items():
                 key = f"date:{name}:start" if p["type"] == "date" else name
                 row[key] = _read_prop(p)

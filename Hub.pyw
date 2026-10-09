@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.3.42"
+__version__ = "2.3.43"
 
 import asyncio
 import base64
@@ -8753,6 +8753,7 @@ def main(page: ft.Page):
                 "paye": r.get("Payé ?", ""),
                 "prevenu": r.get("Prévenir ?", ""),
                 "cree_le": r.get("Créé le", ""),
+                "edited": r.get("last_edited", ""),
                 # Contenu de la page (Notes) : absent de cette requête
                 # (propriétés seulement) — None = "jamais chargé", distinct
                 # d'une chaîne vide ("chargé, page vide"). Rempli à la
@@ -9095,13 +9096,17 @@ def main(page: ft.Page):
                     # un refresh ne les récupère pas (pas une propriété),
                     # sans ça chaque refresh effacerait le cache constitué
                     # au fil des ouvertures de détails.
+                    # Page modifiée ailleurs (autre machine) : notes en
+                    # cache périmées, rechargées à l'ouverture (retour user).
                     cached_notes = {
-                        r["page_id"]: r["notes"]
+                        r["page_id"]: (r["notes"], r.get("edited", ""))
                         for r in kanban_state["rows"]
                         if r.get("notes") is not None}
                     for r in rows:
-                        if r["page_id"] in cached_notes:
-                            r["notes"] = cached_notes[r["page_id"]]
+                        notes, edited = cached_notes.get(
+                            r["page_id"], (None, None))
+                        if notes is not None and edited == r["edited"]:
+                            r["notes"] = notes
                     # Supprimées dans Notion depuis la dernière synchro
                     # (requête paginée complète : absence = suppression).
                     ids = {r["page_id"] for r in rows}
