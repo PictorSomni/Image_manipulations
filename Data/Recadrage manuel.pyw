@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.4.7"
+__version__ = "2.4.8"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -780,21 +780,35 @@ class PhotoCropper:
         self.rembg_human_seg = CONSTANTS.RECADRAGE_REMBG_HUMAN_SEG
         self.rembg_mode = CONSTANTS.RECADRAGE_REMBG_MODE  # 0=rapide(u2net) 1=précis(birefnet) 2=instantané(flood)
         def _seg(labels, index, on_change, width, tooltip=None, visible=True):
-            return ft.CupertinoSlidingSegmentedButton(
-                selected_index=index,
-                controls=[ft.Text(t, size=12) for t in labels],
-                on_change=on_change,
+            # Même style que Retouche photo (onglet IA) : curseur bleu sur
+            # fond sombre, libellé sélectionné en sombre.
+            texts = [ft.Text(t, size=12) for t in labels]
+
+            def _restyle():
+                for i, t in enumerate(texts):
+                    t.color = DARK if i == seg.selected_index else WHITE
+
+            def _changed(e):
+                _restyle()
+                seg.update()
+                on_change(e)
+
+            seg = ft.CupertinoSlidingSegmentedButton(
+                selected_index=index, controls=texts, on_change=_changed,
+                thumb_color=BLUE, bgcolor=DARK,
                 padding=ft.Padding.symmetric(horizontal=2, vertical=2),
                 width=width, tooltip=tooltip, visible=visible,
             )
+            _restyle()
+            return seg
         self.rembg_bg_btn = _seg(["Blanc", "Gris", "Flou"], self.rembg_bg_mode,
-                                 self.on_rembg_bg_change, 165, "Fond de remplacement")
+                                 self.on_rembg_bg_change, None, "Fond de remplacement")
         self.rembg_model_btn = _seg(["Humain", "Général"],
                                     0 if self.rembg_human_seg else 1,
                                     self.on_rembg_model_change, 130,
                                     "Portrait / Généraliste" if REMBG_AVAILABLE else "")
         self.rembg_precise_btn = _seg(["Rapide", "Précis", "Instantané"], self.rembg_mode,
-                                      self.on_rembg_precise_change, 245,
+                                      self.on_rembg_precise_change, None,
                                       "Rapide (u2net) / Précis (birefnet) / Instantané (fond uni, sans IA)")
 
 
@@ -841,24 +855,19 @@ class PhotoCropper:
         self._pipette_start = None   # coordonnées écran (repère gesture_detector), propres à cette app
         self._rembg_tolerance_label = ft.Text(
             f"Tol. {self._pipette.tolerance}", size=11, color=LIGHT_GREY)
-        self.pipette_sign_btn = _seg(
-            ["+ Ajout", "− Retrait"], 0, self.on_pipette_sign_change, 130,
-            "Pipette : ajoute / retire de la sélection (clic droit = bascule)",
-            visible=self.rembg_mode == 2)
-        self.rembg_btn = ft.IconButton(
+        self.pipette_sign_btn = ft.IconButton(
+            icon=ft.Icons.ADD_CIRCLE_OUTLINE, icon_color=GREEN,
+            tooltip="Pipette : ajoute à la sélection (cliquer pour passer en retrait)",
+            on_click=self.on_pipette_sign_toggle,
+            visible=self.rembg_mode == 2, icon_size=18,
+            style=ft.ButtonStyle(padding=ft.Padding.all(2)))
+        self.rembg_btn = _ToggleButton(
+            "Supprimer le fond",
             icon=ft.Icons.AUTO_FIX_HIGH,
-            selected_icon=ft.Icons.AUTO_FIX_HIGH,
-            selected=False,
-            icon_color=LIGHT_GREY,
-            selected_icon_color=VIOLET,
+            data=False, bgcolor=GREY, color=WHITE,
             tooltip="Supprimer le fond par IA (rembg)" if REMBG_AVAILABLE else "pip install rembg onnxruntime",
             on_click=self.on_rembg,
-            # Cible tactile : le padding de 4 px donnait un bouton bien plus
-            # petit que le doigt, alors que c'est le geste d'ouverture d'une
-            # photo d'identité.
-            width=CONSTANTS.TOUCH_TARGET,
             height=CONSTANTS.TOUCH_TARGET,
-            style=ft.ButtonStyle(padding=ft.Padding.all(4)),
         )
 
 
@@ -2816,17 +2825,18 @@ class PhotoCropper:
         self._pipette.toggle_sign()
         self._sync_pipette_sign_btn()
 
-    def on_pipette_sign_change(self, e):
-        self._pipette.sign = 1 if int(e.control.selected_index) == 0 else -1
-        self.pipette_sign_btn.thumb_color = GREEN if self._pipette.sign == 1 else RED
-        self.pipette_sign_btn.update()
-
     def _sync_pipette_sign_btn(self) -> None:
         """Aligne le sélecteur sur `self._pipette.sign` (après bascule/reset)."""
 
-        self.pipette_sign_btn.selected_index = 0 if self._pipette.sign == 1 else 1
-        self.pipette_sign_btn.thumb_color = GREEN if self._pipette.sign == 1 else RED
-        self.pipette_sign_btn.update()
+        adding = self._pipette.sign == 1
+        btn = self.pipette_sign_btn
+        btn.icon = (ft.Icons.ADD_CIRCLE_OUTLINE if adding
+                    else ft.Icons.REMOVE_CIRCLE_OUTLINE)
+        btn.icon_color = GREEN if adding else RED
+        btn.tooltip = ("Pipette : ajoute à la sélection (cliquer pour passer en retrait)"
+                       if adding else
+                       "Pipette : retire de la sélection (cliquer pour repasser en ajout)")
+        btn.update()
 
 
 
@@ -4915,6 +4925,21 @@ class PhotoCropper:
 #############################################################
 #                           MAIN                            #
 #############################################################
+class _ToggleButton(ft.Button):
+    """Bouton plein à état (comme « Supprimer le fond » de Retouche
+    photo) : `selected` le colore en violet quand le fond est retiré."""
+
+    @property
+    def selected(self):
+        return self.data is True
+
+    @selected.setter
+    def selected(self, value):
+        self.data = bool(value)
+        self.bgcolor = VIOLET if value else GREY
+        self.color = DARK if value else WHITE
+
+
 def _srow(app, label, slider, attr, accent, gradient=None):
     """Ligne de curseur façon Retouche photo : libellé à gauche, valeur
     à droite, piste fine neutre (accent si modifiée), dégradé optionnel."""
@@ -5469,11 +5494,11 @@ def main(page: ft.Page):
                         ft.Container(
                             content=ft.Column([
                                 ft.Text("FOND IA", size=10, color=VIOLET, weight=ft.FontWeight.BOLD),
+                                app.rembg_bg_btn,
+                                app.rembg_btn,
+                                app.rembg_precise_btn,
                                 ft.Row([
-                                    app.rembg_btn, app.rembg_bg_btn, app.rembg_model_btn,
-                                ], spacing=6, wrap=True),
-                                ft.Row([
-                                    app.rembg_precise_btn, app.pipette_sign_btn,
+                                    app.rembg_model_btn, app.pipette_sign_btn,
                                     app._rembg_tolerance_label,
                                 ], spacing=6, wrap=True,
                                     vertical_alignment=ft.CrossAxisAlignment.CENTER),
@@ -5485,7 +5510,7 @@ def main(page: ft.Page):
                                     ft.Text("Ad.", size=11, color=LIGHT_GREY),
                                     app.rembg_feather_slider,
                                 ], spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                            ], spacing=4),
+                            ], spacing=8, horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
                             border=ft.Border(left=ft.BorderSide(2, VIOLET)),
                             padding=ft.Padding.only(left=8),
                             width=LEFT_COL_WIDTH - 20,
