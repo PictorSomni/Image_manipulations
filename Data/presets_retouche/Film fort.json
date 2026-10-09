@@ -8,12 +8,13 @@
   },
   "couleur": {
     "enabled": true,
-    "auto_cast": 15,
-    "exposure": 5,
+    "auto_cast": 0,
+    "exposure": 21,
     "contrast": 10,
-    "saturation": 0,
+    "saturation": -42,
     "hue": 0,
     "white_balance": 0,
+    "vibrance": 64,
     "shadows": 0,
     "highlights": -10,
     "whites": -20,
@@ -30,10 +31,10 @@
   "lut": {
     "enabled": true,
     "name": "M31 - Rec.709.cube",
-    "intensity": 5
+    "intensity": 32
   },
   "nettete": {
-    "enabled": true,
+    "enabled": false,
     "radius1": 4,
     "percent1": 42,
     "radius2": 2,
@@ -43,14 +44,14 @@
     "enabled": true,
     "ca": {
       "enabled": true,
-      "strength": 0.05,
+      "strength": 0.1,
       "axial_ratio": 0.64
     },
     "desat": {
       "enabled": true,
-      "shadow_threshold": 0.2,
+      "shadow_threshold": 0.3,
       "shadow_intensity": 1.0,
-      "highlight_threshold": 0.8,
+      "highlight_threshold": 0.7,
       "highlight_intensity": 1.0,
       "midtone_boost": 0.1
     },
@@ -68,8 +69,8 @@
     },
     "grain1": {
       "enabled": true,
-      "amount": 0.02,
-      "size": 0.06,
+      "amount": 0.03,
+      "size": 0.1,
       "color_ratio": 0.15,
       "shadow_boost": 1.5,
       "floor": 0.3,
@@ -77,8 +78,8 @@
     },
     "grain2": {
       "enabled": true,
-      "amount": 0.01,
-      "size": 0.18,
+      "amount": 0.015,
+      "size": 0.21,
       "color_ratio": 0.25,
       "shadow_boost": 3.0,
       "floor": 0.3,

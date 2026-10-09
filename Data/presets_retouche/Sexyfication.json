@@ -8,11 +8,13 @@
   },
   "couleur": {
     "enabled": true,
+    "auto_cast": 0,
     "exposure": 0,
     "contrast": 0,
-    "saturation": 7,
+    "saturation": -15,
     "hue": 0,
     "white_balance": 0,
+    "vibrance": 15,
     "shadows": 10,
     "highlights": -10,
     "whites": 0,
@@ -42,7 +44,7 @@
     "enabled": true,
     "ca": {
       "enabled": true,
-      "strength": 0.05,
+      "strength": 0.035,
       "axial_ratio": 0.64
     },
     "desat": {
@@ -57,17 +59,17 @@
       "enabled": true,
       "threshold": 0.72,
       "radius": 5,
-      "intensity": 0.5,
+      "intensity": 0.42,
       "red_shift": 0.42
     },
     "bloom": {
       "enabled": true,
       "radius": 16,
-      "intensity": 0.64
+      "intensity": 0.42
     },
     "grain1": {
       "enabled": true,
-      "amount": 0.01,
+      "amount": 0.009,
       "size": 0.05,
       "color_ratio": 0.15,
       "shadow_boost": 1.5,
