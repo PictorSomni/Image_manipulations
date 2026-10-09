@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.4.4"
+__version__ = "2.4.5"
 
 import flet as ft
 import flet.canvas as cv
@@ -914,6 +914,10 @@ async def main(page: ft.Page) -> None:
         prev_btn.disabled   = (index == 0)
         next_btn.disabled   = (index >= len(all_images) - 1)
         await _load_image_path(all_images[index], pre_decoded=pre_decoded)
+        # Onglet intégré : l'hôte suit la photo courante (miniatures).
+        on_shown = getattr(page, "on_file_shown", None)
+        if on_shown:
+            on_shown(os.path.basename(all_images[index]))
 
     # ── Rubber band ──────────────────────────────────────────────────────────
 
@@ -1611,11 +1615,13 @@ async def main(page: ft.Page) -> None:
         expand=True,
         disabled=not ESRGAN_AVAILABLE,
     )
-    run_model_btn = ft.IconButton(
-        icon=ft.Icons.PLAY_ARROW,
-        icon_color=DARK,
+    # Un seul modèle local utilisé : bouton direct plutôt que liste
+    # (model_dropdown reste hors écran, il porte le nom du fichier).
+    run_model_btn = ft.FilledButton(
+        "DeJPG",
+        icon=ft.Icons.AUTO_FIX_NORMAL,
         bgcolor=BLUE if ESRGAN_AVAILABLE else GREY,
-        tooltip="Lancer le modèle sélectionné sur l'image",
+        color=DARK,
         disabled=not ESRGAN_AVAILABLE or not _list_pth_models(),
     )
     refresh_models_btn = ft.IconButton(
@@ -2819,18 +2825,14 @@ async def main(page: ft.Page) -> None:
     rembg_feather_slider.width = None
     rembg_feather_slider.expand = True
     for _row_btn in (topaz_wonder_btn, topaz_wonder_x2_btn,
-                     topaz_wonder_x4_btn, model_dropdown):
+                     topaz_wonder_x4_btn):
         _row_btn.expand = True
     topaz_wonder_btn.expand = 2
 
     left_panel = ft.Column(
         [
             _zone("Amélioration", YELLOW, [
-                ft.Row(
-                    [model_dropdown, refresh_models_btn, run_model_btn],
-                    spacing=4,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                ),
+                run_model_btn,
                 ft.Row(
                     [topaz_wonder_btn, topaz_wonder_x2_btn,
                      topaz_wonder_x4_btn],
@@ -2866,7 +2868,6 @@ async def main(page: ft.Page) -> None:
             ]),
             ft.Divider(height=1, color=GREY),
             save_btn,
-            ignore_btn,
             # Au-dessus du statut : c'est là que défile le compteur
             # « Envoi à Gemini… (12s) », donc là qu'on cherche la sortie.
             cancel_gemini_btn,

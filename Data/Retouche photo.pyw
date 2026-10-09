@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.4.4"
+__version__ = "2.4.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -844,11 +844,22 @@ def main(page: ft.Page):
             content=ft.Stack([_img, _badge]), padding=2, border_radius=6,
             border=ft.Border.all(2, ft.Colors.TRANSPARENT),
             tooltip=_name,
-            on_click=lambda e, i=_i: load_representative(i))
+            on_click=lambda e, i=_i: _on_thumb(i))
         thumb_cells.append((_cell, _img, _badge))
     filmstrip = ft.Row([c for c, _im, _b in thumb_cells],
                        scroll=ft.ScrollMode.AUTO, spacing=CONSTANTS.SPACE_SM,
                        height=_FILMSTRIP_H)
+
+    def _on_thumb(i):
+        if state.get("tab") == "ia":
+            # Onglet IA : la miniature y charge la photo, l'aperçu des
+            # réglages sera rechargé au retour.
+            state["index"] = i
+            _refresh_filmstrip()
+            if ia_page.show_file:
+                ia_page.show_file(file_names[i])
+        else:
+            load_representative(i)
 
     def _refresh_filmstrip():
         for i, (cell, _im, badge) in enumerate(thumb_cells):
@@ -1988,8 +1999,15 @@ def main(page: ft.Page):
         else:
             for k, pane in panes.items():
                 pane.visible = k == key
+        # Une seule bande de miniatures, déplacée vers l'onglet affiché.
+        if is_ia and filmstrip in preview_column.controls:
+            preview_column.controls.remove(filmstrip)
+            ia_strip.content = filmstrip
+        elif not is_ia and filmstrip not in preview_column.controls:
+            ia_strip.content = None
+            preview_column.controls.insert(1, filmstrip)
         retouche_view.visible = not is_ia
-        ia_view.visible = is_ia
+        ia_tab.visible = is_ia
         state["tab"] = key
         for k, btn in rail_buttons.items():
             btn.icon_color = BLUE if k == key else LIGHT_GREY
@@ -2050,8 +2068,19 @@ def main(page: ft.Page):
         controls_container,
     ], expand=True, spacing=_ROW_SPACING,
        vertical_alignment=ft.CrossAxisAlignment.STRETCH)
-    ia_view = ft.Container(expand=True, visible=False)
-    ia_page = _TabPage(page, ia_view, width_offset=_RAIL_W)
+    ia_view = ft.Container(expand=True)
+    ia_strip = ft.Container(padding=ft.Padding(CONSTANTS.SPACE_MD, 0, 0,
+                                               CONSTANTS.SPACE_SM))
+    ia_tab = ft.Column([ia_view, ia_strip], expand=True, visible=False,
+                       spacing=CONSTANTS.SPACE_SM)
+    ia_page = _TabPage(page, ia_view, width_offset=_RAIL_W,
+                       height_offset=_FILMSTRIP_H + 2 * CONSTANTS.SPACE_SM)
+
+    def _ia_file_shown(name):
+        if name in file_names and file_names.index(name) != state["index"]:
+            state["index"] = file_names.index(name)
+            _refresh_filmstrip()
+    ia_page.on_file_shown = _ia_file_shown
 
     def _open_ia_tab():
         name = file_names[state["index"]]
@@ -2072,7 +2101,7 @@ def main(page: ft.Page):
     page.on_resize = _on_resize
 
     page.add(
-        ft.Row([retouche_view, ia_view, rail], expand=True,
+        ft.Row([retouche_view, ia_tab, rail], expand=True,
                spacing=_ROW_SPACING,
                vertical_alignment=ft.CrossAxisAlignment.STRETCH)
     )
@@ -2130,12 +2159,13 @@ class _TabPage:
     (l'hôte relaie clavier et redimensionnement), le reste est transmis
     à la vraie page."""
 
-    def __init__(self, page, container, width_offset=0):
+    def __init__(self, page, container, width_offset=0, height_offset=0):
         d = self.__dict__
         d.update(_page=page, _container=container, embedded=True,
                  built=False, start_file=None, show_file=None,
                  on_keyboard_event=None, on_resized=None, on_resize=None,
                  _width_offset=width_offset,
+                 _height_offset=height_offset, on_file_shown=None,
                  window=_WindowProxy(page.window))
 
     def __getattr__(self, name):
@@ -2156,13 +2186,14 @@ class _TabPage:
 
     @property
     def height(self):
-        return self._page.height
+        return (self._page.height or 0) - self._height_offset
 
     def resize_event(self, e):
         return types.SimpleNamespace(
             width=(getattr(e, "width", None) or self._page.width or 0)
             - self._width_offset,
-            height=getattr(e, "height", None) or self._page.height)
+            height=(getattr(e, "height", None) or self._page.height or 0)
+            - self._height_offset)
 
 
 if __name__ == "__main__":
