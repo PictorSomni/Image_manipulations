@@ -15,7 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 
-__version__ = "2.3.46"
+__version__ = "2.3.47"
 
 import colorsys
 import functools
@@ -939,6 +939,65 @@ def apply_vibrance(input_image: Image.Image, value: float) -> Image.Image:
     factor = 1 + value / 100.0 * (1 - sat)[..., None]
     out = gray + (px - gray) * factor
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8), "RGB")
+
+
+def _wb_hue_gains(wb, hue):
+    """Gains RVB de apply_white_balance + apply_hue (curseurs -100..100),
+    vectorisés sur des grilles de valeurs — clipping ignoré."""
+    s = np.abs(wb) / 100.0 * 0.20
+    warm = wb > 0
+    r = np.where(warm, 1 + s, 1 - s)
+    g = np.where(warm, 1 + 0.2 * s, 1.0)
+    b = np.where(warm, 1 - s, 1 + s)
+    h = np.abs(hue) / 180.0 * 0.30
+    mag = hue > 0
+    r = r * np.where(mag, 1 + h, 1 - h)
+    g = g * np.where(mag, 1 - h, 1 + h)
+    b = b * np.where(mag, 1 + 0.7 * h, 1 - 0.7 * h)
+    return r, g, b
+
+
+# Peau moyenne de référence (sRGB ~ 224, 172, 140) : rapports R/G et B/G.
+_SKIN_RG, _SKIN_BG = 224 / 172, 140 / 172
+
+
+def auto_white_balance(input_image, mode="white"):
+    """(white_balance, hue) qui neutralise les blancs (`mode="white"`) ou
+    ramène la peau vers un teint moyen (`mode="skin"`). None si aucune
+    zone de référence trouvée.
+
+    ponytail: référence = 5 % des pixels clairs non brûlés, ou masque
+    YCbCr de peau classique ; un cadre sans blanc/peau donne un résultat
+    approximatif — une pipette cliquée sur l'aperçu serait l'étape
+    suivante.
+    """
+    small = input_image.convert("RGB").copy()
+    small.thumbnail((400, 400))
+    px = np.asarray(small, dtype=np.float32).reshape(-1, 3)
+    if mode == "skin":
+        ycc = np.asarray(small.convert("YCbCr"),
+                         dtype=np.float32).reshape(-1, 3)
+        mask = ((ycc[:, 1] > 77) & (ycc[:, 1] < 127) &
+                (ycc[:, 2] > 133) & (ycc[:, 2] < 173) &
+                (ycc[:, 0] > 60) & (ycc[:, 0] < 240))
+        target_rg, target_bg = _SKIN_RG, _SKIN_BG
+    else:
+        lum = px.mean(axis=1)
+        ok = px.max(axis=1) < 250
+        if not ok.any():
+            return None
+        mask = ok & (lum >= np.percentile(lum[ok], 95))
+        target_rg = target_bg = 1.0
+    if mask.sum() < 50:
+        return None
+    mean = px[mask].mean(axis=0) + 1e-3
+    grid = np.arange(-100, 101, dtype=np.float32)
+    wb, hue = np.meshgrid(grid, grid, indexing="ij")
+    r, g, b = _wb_hue_gains(wb, hue)
+    err = (np.log(mean[0] * r / (mean[1] * g) / target_rg) ** 2 +
+           np.log(mean[2] * b / (mean[1] * g) / target_bg) ** 2)
+    i, j = np.unravel_index(np.argmin(err), err.shape)
+    return int(grid[i]), int(grid[j])
 
 
 def apply_white_balance(input_image: Image.Image, value: float) -> Image.Image:

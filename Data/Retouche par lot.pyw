@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.46"
+__version__ = "2.3.47"
 
 #############################################################
 #                          IMPORTS                          #
@@ -1720,6 +1720,19 @@ def main(page: ft.Page):
         _sync_controls_from_params()
         live_preview_tick()
 
+    def _on_auto_wb(mode):
+        def handler(e):
+            if state["proxy"] is None:
+                return
+            found = image_ops.auto_white_balance(state["proxy"], mode)
+            if found is None:
+                return
+            co["white_balance"], co["hue"] = found
+            co["enabled"] = True
+            _sync_controls_from_params()
+            live_preview_tick()
+        return handler
+
     def _on_reset(e):
         _update_in_place(state["params"], default_params())
         _sync_controls_from_params()
@@ -1735,6 +1748,8 @@ def main(page: ft.Page):
 
     quick_row = ft.Row([
         _quick_btn("Auto", _on_auto), _quick_btn("N&B", _on_bw),
+        _quick_btn("Blanc", _on_auto_wb("white")),
+        _quick_btn("Peau", _on_auto_wb("skin")),
         ft.Container(expand=True), _quick_btn("Réinitialiser", _on_reset),
     ], spacing=CONSTANTS.SPACE_SM)
 
