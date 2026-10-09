@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.55"
+__version__ = "2.3.56"
 
 #############################################################
 #                          IMPORTS                          #
@@ -1453,6 +1453,14 @@ def main(page: ft.Page):
     # étape — inutile tant que le temps par image reste raisonnable.
     batch_stop = threading.Event()
 
+    def _veil_until_render():
+        """Voile sur l'aperçu actuel jusqu'au prochain rendu (chargement
+        d'un préréglage ou de réglages) ; _apply du rendu le retire."""
+        veil_text.value = "Application des réglages…"
+        ui_helpers.set_busy_veil(load_veil, True)
+        load_veil.update()
+        live_preview_tick()
+
     def _set_batch_running(running):
         """Le bouton du lot devient son propre bouton d'arrêt.
 
@@ -1712,7 +1720,7 @@ def main(page: ft.Page):
         load_params_status.value = f"Réglages chargés depuis {files[0].name}."
         load_params_status.color = GREEN
         load_params_status.update()
-        live_preview_tick()
+        _veil_until_render()
 
     load_params_button = ft.FilledButton(
         "Charger des réglages…", icon=ft.Icons.FOLDER_OPEN_OUTLINED,
@@ -1759,7 +1767,7 @@ def main(page: ft.Page):
         preset_status.value = f"Préréglage « {name} » appliqué."
         preset_status.color = GREEN
         preset_status.update()
-        live_preview_tick()
+        _veil_until_render()
 
     _render_presets()
 
