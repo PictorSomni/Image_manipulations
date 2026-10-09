@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.4.1"
+__version__ = "2.4.2"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -1426,6 +1426,7 @@ class PhotoCropper:
                 self.current_format_label = format_from_filename
                 if hasattr(self, 'format_radio_group'):
                     self.format_radio_group.value = format_from_filename
+                    getattr(self, "sync_format_visibility", lambda: None)()
         elif copies_only_match:
             self.copies_count = int(copies_only_match.group(1))
         else:
@@ -1649,6 +1650,7 @@ class PhotoCropper:
             self.current_format_label = folder_format
             if hasattr(self, 'format_radio_group'):
                 self.format_radio_group.value = folder_format
+                getattr(self, "sync_format_visibility", lambda: None)()
 
         self.load_image(preserve_orientation=False)
 
@@ -3766,6 +3768,7 @@ class PhotoCropper:
             self.custom_panel.visible = True
         self.current_format = FORMATS[e.control.value]
         self.custom_format = self.current_format
+        getattr(self, "sync_format_visibility", lambda: None)()
         try:
             self.current_format_label = e.control.value
         except Exception:
@@ -5167,14 +5170,40 @@ def main(page: ft.Page):
         _sync_custom_unit_for_crop_mode()
         page.update()
 
+    format_radios = [ft.Radio(value=fmt, label=fmt, fill_color=BLUE)
+                     for fmt in FORMATS.keys()]
     app.format_radio_group = ft.RadioGroup(
-        content=ft.Column(
-            [ft.Radio(value=fmt, label=fmt, fill_color=BLUE) for fmt in FORMATS.keys()],
-            scroll=ft.ScrollMode.AUTO,
-        ),
+        content=ft.Column(format_radios, scroll=ft.ScrollMode.AUTO),
         value="ID",
         on_change=app.change_ratio,
     )
+    show_all_formats = {"on": False}
+
+    def _sync_format_visibility():
+        """Formats rares masqués sauf « tout afficher » — le format
+        sélectionné (ex. lu dans le nom de fichier) reste toujours
+        visible."""
+        for radio in format_radios:
+            radio.visible = (show_all_formats["on"]
+                             or radio.value not in
+                             CONSTANTS.RECADRAGE_HIDDEN_FORMATS
+                             or radio.value == app.format_radio_group.value)
+    app.sync_format_visibility = _sync_format_visibility
+    _sync_format_visibility()
+
+    def _toggle_all_formats(e):
+        show_all_formats["on"] = not show_all_formats["on"]
+        show_all_btn.icon = (ft.Icons.VISIBILITY_OFF_OUTLINED
+                             if show_all_formats["on"]
+                             else ft.Icons.VISIBILITY_OUTLINED)
+        show_all_btn.icon_color = BLUE if show_all_formats["on"] else LIGHT_GREY
+        _sync_format_visibility()
+        page.update()
+
+    show_all_btn = ft.IconButton(
+        ft.Icons.VISIBILITY_OUTLINED, icon_color=LIGHT_GREY,
+        icon_size=CONSTANTS.ICON_SM, tooltip="Tous les formats",
+        on_click=_toggle_all_formats)
 
     app.custom_dims_zone = ft.Column([
         ft.Container(content=app.custom_fields_row, margin=ft.Margin.only(top=8)),
@@ -5201,7 +5230,11 @@ def main(page: ft.Page):
     app.format_list_container = ft.Container(
         # ── Panneau droite : Choix des dimensions des photos ──────────────────────
         content=ft.Column([
-            ft.Text("Formats Photos", size=16, weight=ft.FontWeight.BOLD, color=WHITE),
+            ft.Row([
+                ft.Text("Formats Photos", size=16,
+                        weight=ft.FontWeight.BOLD, color=WHITE),
+                show_all_btn,
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Divider(height=4),
             app.format_radio_group,
         ], scroll=ft.ScrollMode.AUTO),
