@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.48"
+__version__ = "2.3.49"
 
 #############################################################
 #                          IMPORTS                          #
@@ -500,23 +500,63 @@ def main(page: ft.Page):
     # comme référence. Coordonnées locales = espace non zoomé de l'image.
     pick = {"mode": None}
 
-    def _on_preview_tap(e):
-        mode = pick["mode"]
+    def _to_image_frac(x, y):
+        """Position locale sur l'aperçu → fraction (0..1) de l'image,
+        bornée (rendu CONTAIN : marges de part et d'autre)."""
         proxy = state["proxy"]
-        if mode is None or proxy is None or e.local_position is None:
-            return
         w, h = image_display.width, image_display.height
         scale = min(w / proxy.width, h / proxy.height)
-        ox = (w - proxy.width * scale) / 2
-        oy = (h - proxy.height * scale) / 2
-        fx = (e.local_position.x - ox) / (proxy.width * scale)
-        fy = (e.local_position.y - oy) / (proxy.height * scale)
-        if not (0 <= fx <= 1 and 0 <= fy <= 1):
-            return
-        _apply_wb(image_ops.auto_white_balance(proxy, mode, (fx, fy)))
+        fx = (x - (w - proxy.width * scale) / 2) / (proxy.width * scale)
+        fy = (y - (h - proxy.height * scale) / 2) / (proxy.height * scale)
+        return min(1, max(0, fx)), min(1, max(0, fy))
 
-    preview_tap = ft.GestureDetector(content=image_display,
-                                     on_tap_down=_on_preview_tap)
+    sel_rect = ft.Container(
+        border=ft.Border.all(1, BLUE), visible=False,
+        bgcolor=ft.Colors.with_opacity(0.15, BLUE))
+
+    def _armed():
+        return pick["mode"] is not None and state["proxy"] is not None
+
+    def _on_preview_pan_down(e):
+        if _armed():
+            pick["start"] = (e.local_position.x, e.local_position.y)
+
+    def _on_preview_pan_update(e):
+        if not _armed() or not pick.get("start"):
+            return
+        (x0, y0), x1, y1 = (pick["start"], e.local_position.x,
+                            e.local_position.y)
+        sel_rect.left, sel_rect.top = min(x0, x1), min(y0, y1)
+        sel_rect.width, sel_rect.height = abs(x1 - x0), abs(y1 - y0)
+        sel_rect.visible = True
+        sel_rect.update()
+
+    def _on_preview_pan_end(e):
+        if not _armed() or not sel_rect.visible:
+            return
+        x0, y0 = _to_image_frac(sel_rect.left, sel_rect.top)
+        x1, y1 = _to_image_frac(sel_rect.left + sel_rect.width,
+                                sel_rect.top + sel_rect.height)
+        sel_rect.visible = False
+        sel_rect.update()
+        pick["start"] = None
+        _apply_wb(image_ops.auto_white_balance(
+            state["proxy"], pick["mode"], (x0, y0, x1, y1)))
+
+    def _on_preview_tap(e):
+        # Simple clic : petit carré (~3 % du grand côté) autour du point.
+        if not _armed():
+            return
+        fx, fy = _to_image_frac(e.local_position.x, e.local_position.y)
+        r = 0.015
+        _apply_wb(image_ops.auto_white_balance(
+            state["proxy"], pick["mode"], (fx - r, fy - r, fx + r, fy + r)))
+
+    preview_tap = ft.GestureDetector(
+        content=ft.Stack([image_display, sel_rect]),
+        on_tap_up=_on_preview_tap, on_pan_down=_on_preview_pan_down,
+        on_pan_update=_on_preview_pan_update,
+        on_pan_end=_on_preview_pan_end)
     preview_viewer = ft.InteractiveViewer(
         content=preview_tap, min_scale=1.0, max_scale=6.0,
         pan_enabled=True, scale_enabled=True, constrained=True,
@@ -1764,7 +1804,11 @@ def main(page: ft.Page):
                 btn.update()
             preview_tap.mouse_cursor = (ft.MouseCursor.PRECISE
                                         if pick["mode"] else None)
+            # Pipette armée : le glisser trace la zone au lieu de
+            # déplacer l'aperçu zoomé.
+            preview_viewer.pan_enabled = pick["mode"] is None
             preview_tap.update()
+            preview_viewer.update()
             if pick["mode"]:
                 _apply_wb(image_ops.auto_white_balance(state["proxy"], mode))
         return handler
