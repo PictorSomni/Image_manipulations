@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.45"
+__version__ = "2.3.46"
 
 #############################################################
 #                          IMPORTS                          #
@@ -34,6 +34,7 @@ import shutil
 import sys
 import threading
 import time
+from decimal import Decimal
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -432,7 +433,12 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.DARK
     # Rail plus fin (retour user) — global : Flet ne permet pas de varier
     # l'épaisseur par curseur ni selon sa valeur, seule la couleur l'est.
-    page.theme = ft.Theme(slider_theme=ft.SliderTheme(track_height=2))
+    page.theme = ft.Theme(slider_theme=ft.SliderTheme(
+        track_height=2, year_2023=True,
+        thumb_color=WHITE,
+        overlay_color=ft.Colors.with_opacity(0.08, WHITE),
+        active_tick_mark_color=ft.Colors.TRANSPARENT,
+        inactive_tick_mark_color=ft.Colors.TRANSPARENT))
     page.bgcolor = BG
     page.padding = 0
     page.run_task(page.window.to_front)
@@ -904,8 +910,6 @@ def main(page: ft.Page):
             _recolor_sliders(ctrl, color)
             striped.append(ft.Container(
                 content=ctrl,
-                bgcolor=(GREY if i % 2 and not isinstance(ctrl, ft.Text)
-                         else None),
                 border_radius=4,
                 padding=ft.Padding(CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS,
                                    CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS)))
@@ -969,11 +973,13 @@ def main(page: ft.Page):
         # state["params"] contient déjà les réglages de la photo affichée.
         return default
 
-    def _slider_row(label, dct, key, minv, maxv, *, divisions=None,
-                    gradient=None):
+    TRACK = ft.Colors.with_opacity(0.22, WHITE)
+
+    def _slider_row(label, dct, key, minv, maxv, *,
+                    gradient=None, step=1, reset=None):
         """Slider cranté par pas entiers par défaut (un pas = une unité
         affichée) plutôt que des valeurs flottantes continues (retour
-        user) — passer `divisions` explicitement pour un pas plus fin.
+        user) — `step` pour un pas plus fin (flottants).
         Double-clic/double-tap : revient à 0 (ou au minimum si 0 est hors
         plage, ex. rayons de netteté qui commencent à 1). Auto-enregistré
         dans `reset_registry` pour le bouton Réinitialiser. Pas de
@@ -994,21 +1000,21 @@ def main(page: ft.Page):
         qui écrivent dans les paramètres sans passer par l'UI.
         """
         value = dct[key]
-        span = round(maxv - minv)
-        if divisions is None:
-            # Un cran par unité tant que ça reste lisible ; au-delà, on
-            # élargit le pas (1, 2, 5, 10…) pour garder ≤ ~40 graduations
-            # visibles sur le rail (Flutter masque des traits trop serrés).
-            step = next(s for s in (1, 2, 5, 10, 20, 50, 100)
-                        if span / s <= 40)
-            divisions = max(1, span // step)
-        reset_value = max(0, minv)
+        decimals = max(0, -Decimal(str(step)).as_tuple().exponent)
+
+        def _snap(v):
+            return round(round(v / step) * step, decimals)
+
+        def _fmt(v):
+            return f"{v:.{decimals}f}"
+        reset_value = max(0, minv) if reset is None else reset
         # Libellé à gauche (tronqué si trop long), valeur à droite sur la
         # MÊME ligne (retour user : une ligne dédiée à "Label : valeur"
         # gâchait de la hauteur sur 10 curseurs). La valeur passe en blanc
         # dès qu'elle s'écarte du défaut — repère de "ce que j'ai touché"
         # en balayant la colonne.
-        label_text = ft.Text(label, size=CONSTANTS.TEXT_SM, color=WHITE,
+        label_text = ft.Text(label, size=CONSTANTS.TEXT_SM,
+                             color=LIGHT_GREY,
                              expand=True, max_lines=1,
                              overflow=ft.TextOverflow.ELLIPSIS,
                              tooltip=label)
@@ -1017,17 +1023,17 @@ def main(page: ft.Page):
         # qu'elle bouge — repère fort de « ce que j'ai touché », propre à
         # chaque section (retour user).
         accent = {"c": WHITE}
-        is_default = round(value) == reset_value
-        value_text = ft.Text(str(round(value)), size=CONSTANTS.TEXT_SM + 4,
-                             weight=ft.FontWeight.W_700,
+        is_default = _snap(value) == reset_value
+        value_text = ft.Text(_fmt(_snap(value)), size=CONSTANTS.TEXT_SM,
+                             weight=ft.FontWeight.W_500,
                              color=(WHITE if is_default else accent["c"]))
 
         def _display(snapped):
-            value_text.value = str(snapped)
+            value_text.value = _fmt(snapped)
             active = snapped != reset_value
             value_text.color = accent["c"] if active else WHITE
             if not gradient:
-                slider.active_color = accent["c"] if active else WHITE
+                slider.active_color = accent["c"] if active else TRACK
             value_text.update()
             slider.update()
 
@@ -1036,7 +1042,7 @@ def main(page: ft.Page):
             réglages écrivent tous ici. En mode revue photo par photo,
             écrit une exception pour la photo affichée plutôt que le
             réglage du lot."""
-            snapped = max(minv, min(maxv, round(new_value)))
+            snapped = _snap(max(minv, min(maxv, new_value)))
             if snapped != reset_value:
                 _maybe_activate_section(dct)
             dct[key] = snapped
@@ -1057,10 +1063,13 @@ def main(page: ft.Page):
                 live_preview_tick()
             _open_value_dialog(float(value_text.value), _apply)
 
+        # ponytail: pas de `divisions` — Flutter dessine alors des
+        # graduations que le thème ne masque pas ; _write arrondit déjà.
         slider = ft.Slider(min=minv, max=maxv, value=value, expand=True,
-                          divisions=divisions, on_change=_handle,
-                          active_color=(WHITE if is_default else accent["c"]),
-                          inactive_color=GREY)
+                          on_change=_handle,
+                          active_color=(TRACK if is_default else accent["c"]),
+                          inactive_color=TRACK,
+                          padding=ft.Padding.symmetric(horizontal=8))
 
         def _reset(e):
             _write(reset_value)
@@ -1073,11 +1082,11 @@ def main(page: ft.Page):
             slider.active_color = ft.Colors.TRANSPARENT
             slider.inactive_color = ft.Colors.TRANSPARENT
             slider.thumb_color = WHITE
-            slider.padding = ft.Padding.symmetric(horizontal=12)
+
             track = ft.Stack([
                 ft.Container(
                     height=4, border_radius=2,
-                    margin=ft.Margin.symmetric(horizontal=12),
+                    margin=ft.Margin.symmetric(horizontal=8),
                     gradient=ft.LinearGradient(colors=gradient)),
                 slider,
             ], alignment=ft.Alignment.CENTER, expand=True)
@@ -1105,9 +1114,10 @@ def main(page: ft.Page):
 
         def _set_accent(c):
             accent["c"] = c
-            if round(slider.value) != reset_value:
+            if _snap(slider.value) != reset_value:
                 value_text.color = c
-                slider.active_color = c
+                if not gradient:
+                    slider.active_color = c
         column.set_accent = _set_accent
         reset_registry["sliders"].append((column, label, dct, key))
         return column
@@ -1249,92 +1259,48 @@ def main(page: ft.Page):
     # enterrait plutôt que de les rendre directement accessibles) ───────
     ga = state["params"]["grain"]
 
-    def _num_field(sub, key, label):
-        # expand=True dans une Row, pas dans la Column du corps de section
-        # directement : un TextField ne s'étire pas tout seul comme un
-        # Slider (retour user, champs Grain restés étroits).
-        default = sub[key]
-        field = ft.TextField(
-            label=label, value=str(sub[key]), bgcolor=DARK,
-            border=CONSTANTS.input_border(GREY), color=WHITE, expand=True,
-            keyboard_type=ft.KeyboardType.NUMBER)
-
-        def _sync_accent():
-            """Même mécanique que _slider_row : active la section dès que
-            ce champ s'écarte de son défaut — Grain/Bloom/Halation/etc.
-            n'ont que des TextField, pas de curseur."""
-            try:
-                active = float(field.value) != default
-            except ValueError:
-                active = False
-            if active:
-                _maybe_activate_section(sub)
-
-        def _handle(e):
-            try:
-                sub[key] = float(field.value)
-            except ValueError:
-                return
-            _sync_accent()
-            live_preview_tick()
-        field.on_blur = _handle
-        field.on_submit = _handle
-
-        def _open_editor(e):
-            if _suppress_field_focus["id"] == id(field):
-                # Refocus fantôme causé par la fermeture du dialogue
-                # précédent (voir _value_dialog_apply) — pas un vrai tap.
-                _suppress_field_focus["id"] = None
-                return
-            def _apply(v):
-                sub[key] = v
-                field.value = (str(int(v)) if float(v).is_integer()
-                              else str(v))
-                field.update()
-                _sync_accent()
-                live_preview_tick()
-            _open_value_dialog(sub[key], _apply, refocus_field=field)
-        # Tap → pavé numérique tactile (mêmes catégories que les sliders,
-        # retour user), sans retirer la saisie clavier existante.
-        field.on_focus = _open_editor
-        field.data = _sync_accent
-        reset_registry["fields"].append((field, sub, key))
-        return ft.Row([field])
-
     def _grain_section(label, color, icon, sub, field_specs):
-        fields = [_num_field(sub, key, flabel) for key, flabel in field_specs]
-        return _make_section(label, color, icon, sub, fields)
+        # Curseurs plutôt que champs texte (retour user) ; double-tap
+        # ramène au défaut d'origine du paramètre.
+        rows = [_slider_row(flabel, sub, key, lo, hi, step=st,
+                            reset=sub[key])
+                for key, flabel, lo, hi, st in field_specs]
+        return _make_section(label, color, icon, sub, rows)
 
+    _grain_specs = [
+        ("amount", "Intensité", 0, 0.1, 0.001),
+        ("size", "Taille", 0, 0.5, 0.01),
+        ("color_ratio", "Part couleur", 0, 1, 0.01),
+        ("shadow_boost", "Concentration mi-tons", 0, 5, 0.1),
+        ("chroma_shift", "Décalage inter-canal", 0, 1, 0.01)]
     section_ca = _grain_section(
         "Aberrations chromatiques", MINT, ft.Icons.BLUR_LINEAR, ga["ca"], [
-            ("strength", "Intensité"), ("axial_ratio", "Ratio axial")])
+            ("strength", "Intensité", 0, 0.2, 0.005),
+            ("axial_ratio", "Ratio axial", 0, 1, 0.01)])
     section_desat = _grain_section(
         "Désaturation des extrêmes", BLUE_LIGHT, ft.Icons.CONTRAST,
         ga["desat"], [
-            ("shadow_threshold", "Seuil ombres"),
-            ("shadow_intensity", "Intensité ombres"),
-            ("highlight_threshold", "Seuil HL"),
-            ("highlight_intensity", "Intensité HL"),
-            ("midtone_boost", "Boost mi-tons")])
+            ("shadow_threshold", "Seuil ombres", 0, 1, 0.01),
+            ("shadow_intensity", "Intensité ombres", 0, 1, 0.01),
+            ("highlight_threshold", "Seuil HL", 0, 1, 0.01),
+            ("highlight_intensity", "Intensité HL", 0, 1, 0.01),
+            ("midtone_boost", "Boost mi-tons", 0, 0.5, 0.01)])
     section_halation = _grain_section(
         "Halation", BLUE, ft.Icons.FLARE, ga["halation"], [
-            ("threshold", "Seuil"), ("radius", "Rayon"),
-            ("intensity", "Intensité"), ("red_shift", "Décalage rouge")])
+            ("threshold", "Seuil", 0, 1, 0.01),
+            ("radius", "Rayon", 0, 20, 0.5),
+            ("intensity", "Intensité", 0, 1, 0.01),
+            ("red_shift", "Décalage rouge", 0, 1, 0.01)])
     section_bloom = _grain_section(
         "Bloom (Soft Light)", BLUE_DARK, ft.Icons.WB_SUNNY, ga["bloom"], [
-            ("radius", "Rayon"), ("intensity", "Intensité")])
+            ("radius", "Rayon", 0, 50, 1),
+            ("intensity", "Intensité", 0, 1, 0.01)])
     section_grain1 = _grain_section(
-        "Grain — Couche 1", VIOLET, ft.Icons.GRAIN, ga["grain1"], [
-            ("amount", "Intensité"), ("size", "Taille"),
-            ("color_ratio", "Part couleur"),
-            ("shadow_boost", "Concentration mi-tons"),
-            ("chroma_shift", "Décalage inter-canal")])
+        "Grain — Couche 1", VIOLET, ft.Icons.GRAIN, ga["grain1"],
+        _grain_specs)
     section_grain2 = _grain_section(
-        "Grain — Couche 2", PINK, ft.Icons.GRAIN, ga["grain2"], [
-            ("amount", "Intensité"), ("size", "Taille"),
-            ("color_ratio", "Part couleur"),
-            ("shadow_boost", "Concentration mi-tons"),
-            ("chroma_shift", "Décalage inter-canal")])
+        "Grain — Couche 2", PINK, ft.Icons.GRAIN, ga["grain2"],
+        _grain_specs)
 
     # ── Copyright ───────────────────────────────────────────────────
     cp = state["params"]["copyright"]
@@ -1390,13 +1356,12 @@ def main(page: ft.Page):
         rien de nouveau à chercher à l'écran une fois le lot lancé.
         """
         if running:
-            batch_button.content = "Arrêter le traitement"
+            batch_button.content = "Arrêter"
             batch_button.icon = ft.Icons.STOP
             batch_button.bgcolor = RED
             batch_button.on_click = _stop_batch
         else:
-            batch_button.content = (
-                f"Lancer le traitement complet ({len(file_names)} images)")
+            batch_button.content = f"Traiter {len(file_names)} images"
             batch_button.icon = ft.Icons.PLAY_ARROW
             batch_button.bgcolor = GREEN
             batch_button.on_click = _open_batch_dialog
@@ -1559,10 +1524,12 @@ def main(page: ft.Page):
         page.update()
 
     batch_button = ft.FilledButton(
-        f"Lancer le traitement complet ({len(file_names)} images)",
+        f"Traiter {len(file_names)} images",
         icon=ft.Icons.PLAY_ARROW, bgcolor=GREEN, color=DARK,
         height=CONSTANTS.TOUCH_TARGET,  # action principale : cible au doigt
-        on_click=_open_batch_dialog)
+        expand=True, on_click=_open_batch_dialog,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(
+            radius=CONSTANTS.BUTTON_RADIUS)))
 
     # « Enregistrer comme réglages par défaut » a été retiré : les
     # préréglages nommés couvrent cet usage sans réécrire CONSTANTS.py.
@@ -1635,10 +1602,12 @@ def main(page: ft.Page):
         load_params_status.update()
         live_preview_tick()
 
-    load_params_button = ft.OutlinedButton(
-        "Charger des réglages…",
-        icon=ft.Icons.FOLDER_OPEN_OUTLINED, on_click=_open_load_params_picker,
-        style=ft.ButtonStyle(color=VIOLET, side=ft.BorderSide(1, VIOLET)))
+    load_params_button = ft.FilledButton(
+        "Charger des réglages…", icon=ft.Icons.FOLDER_OPEN_OUTLINED,
+        on_click=_open_load_params_picker, bgcolor=GREY, color=WHITE,
+        height=CONSTANTS.TOUCH_TARGET, expand=True,
+        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(
+            radius=CONSTANTS.BUTTON_RADIUS)))
 
     # ── Préréglages nommés ─────────────────────────────────────────────
     # Seule voie pour retrouver des réglages : un choix dans une liste, un
@@ -1647,13 +1616,26 @@ def main(page: ft.Page):
     # dans PRESETS_DIR.
     preset_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREEN)
 
-    def _preset_options():
-        return [ft.dropdown.Option(n) for n in list_presets()]
+    selected_preset = {"name": None}
+    preset_list = ft.ListView(expand=True, spacing=2)
 
-    def _on_preset_select(e):
-        name = preset_dd.value
-        if not name:
-            return
+    def _render_presets():
+        preset_list.controls = [
+            ft.Container(
+                content=ft.Text(n, size=CONSTANTS.TEXT_SM, color=WHITE,
+                                max_lines=1,
+                                overflow=ft.TextOverflow.ELLIPSIS),
+                bgcolor=(GREY if n == selected_preset["name"] else None),
+                border_radius=6, ink=True,
+                padding=ft.Padding(CONSTANTS.SPACE_MD, CONSTANTS.SPACE_SM,
+                                   CONSTANTS.SPACE_MD, CONSTANTS.SPACE_SM),
+                on_click=lambda e, n=n: _on_preset_select(n))
+            for n in list_presets()]
+
+    def _on_preset_select(name):
+        selected_preset["name"] = name
+        _render_presets()
+        preset_list.update()
         try:
             _update_in_place(state["params"], load_preset(name))
         except Exception as exc:
@@ -1667,12 +1649,7 @@ def main(page: ft.Page):
         preset_status.update()
         live_preview_tick()
 
-    preset_dd = ft.Dropdown(
-        label="Préréglage", options=_preset_options(), expand=True,
-        hint_text=("Aucun préréglage enregistré" if not list_presets()
-                  else None),
-        bgcolor=DARK, border=CONSTANTS.input_border(VIOLET), color=WHITE,
-        on_select=_on_preset_select)
+    _render_presets()
 
     preset_name_field = ft.TextField(
         label="Nom du préréglage", autofocus=True,
@@ -1689,8 +1666,8 @@ def main(page: ft.Page):
             page.update()
             return
         preset_save_dlg.open = False
-        preset_dd.options = _preset_options()
-        preset_dd.value = saved
+        selected_preset["name"] = saved
+        _render_presets()
         preset_status.value = f"Préréglage « {saved} » enregistré."
         preset_status.color = GREEN
         page.update()
@@ -1711,26 +1688,22 @@ def main(page: ft.Page):
         # Prérempli avec la sélection courante : réenregistrer un
         # préréglage après retouche est le cas le plus fréquent, et ça
         # évite de retaper un nom au clavier.
-        preset_name_field.value = preset_dd.value or ""
+        preset_name_field.value = selected_preset["name"] or ""
         if preset_save_dlg not in page.overlay:
             page.overlay.append(preset_save_dlg)
         preset_save_dlg.open = True
         page.update()
 
-    # ponytail: nommer un préréglage demande un clavier. Sur une borne
-    # tactile sans clavier, la LECTURE de la liste suffit — c'est
-    # l'opération quotidienne ; la création se fait au poste équipé.
-    preset_row = ft.Row([
-        preset_dd,
-        ft.IconButton(ft.Icons.SAVE_OUTLINED, icon_color=VIOLET,
-                     icon_size=CONSTANTS.ICON_SM,
-                     tooltip="Enregistrer les réglages actuels comme "
-                             "préréglage",
-                     width=CONSTANTS.TOUCH_TARGET,
-                     height=CONSTANTS.TOUCH_TARGET,
-                     on_click=_open_save_preset_dialog),
-    ], spacing=CONSTANTS.SPACE_MD,
-       vertical_alignment=ft.CrossAxisAlignment.CENTER)
+    def _rect_btn(label, icon, color, handler):
+        return ft.FilledButton(
+            label, icon=icon, on_click=handler, bgcolor=color, color=DARK,
+            height=CONSTANTS.TOUCH_TARGET, expand=True,
+            style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(
+                radius=CONSTANTS.BUTTON_RADIUS)))
+
+    save_preset_button = _rect_btn(
+        "Enregistrer le préréglage", ft.Icons.SAVE_OUTLINED, VIOLET,
+        _open_save_preset_dialog)
 
     # ── Boutons rapides (Auto / N&B / Réinitialiser, à la LightCraft) ──
     def _on_auto(e):
@@ -1766,27 +1739,13 @@ def main(page: ft.Page):
     ], spacing=CONSTANTS.SPACE_SM)
 
     # ── Groupes repliables (sous-menus imbriqués, en-tête discret) ──────
-    def _group(title, members, opened=True):
-        body = ft.Column(members, spacing=CONSTANTS.SPACE_SM,
-                         visible=opened)
-        chevron = ft.Icon(ft.Icons.EXPAND_MORE if opened
-                          else ft.Icons.CHEVRON_RIGHT,
-                          size=CONSTANTS.ICON_SM, color=LIGHT_GREY)
-
-        def _toggle(e):
-            body.visible = not body.visible
-            chevron.icon = (ft.Icons.EXPAND_MORE if body.visible
-                            else ft.Icons.CHEVRON_RIGHT)
-            body.update()
-            chevron.update()
-        head = ft.Container(
-            content=ft.Row([chevron, ft.Text(
-                title, size=CONSTANTS.TEXT_SM, color=WHITE,
-                weight=ft.FontWeight.W_600)], spacing=CONSTANTS.SPACE_XS),
-            on_click=_toggle,
-            padding=ft.Padding(0, CONSTANTS.SPACE_SM, 0, CONSTANTS.SPACE_XS))
-        return ft.Column([ft.Divider(height=1, color=GREY), head, body],
-                         spacing=CONSTANTS.SPACE_XS)
+    def _group(title, members):
+        head = ft.Text(title.upper(), size=CONSTANTS.TEXT_SM - 2,
+                       color=LIGHT_GREY, weight=ft.FontWeight.W_600)
+        return ft.Column(
+            [ft.Container(head, padding=ft.Padding(
+                0, CONSTANTS.SPACE_MD, 0, CONSTANTS.SPACE_XS))] + members,
+            spacing=CONSTANTS.SPACE_SM)
 
     settings_pane = ft.Column([
         _group("Base", [section_couleur]),
@@ -1794,16 +1753,16 @@ def main(page: ft.Page):
         _group("Détail", [section_nettete, section_denoise]),
         _group("Effets pellicule",
                [section_grain1, section_grain2, section_halation,
-                section_bloom, section_ca, section_desat], opened=False),
-        _group("Sortie", [section_copyright], opened=False),
+                section_bloom, section_ca, section_desat]),
+        _group("Sortie", [section_copyright]),
     ], spacing=CONSTANTS.SPACE_XS, scroll=ft.ScrollMode.AUTO, expand=True)
 
     presets_pane = ft.Column([
         ft.Text("Préréglages", size=CONSTANTS.TEXT_SM, color=WHITE,
                 weight=ft.FontWeight.W_600),
-        preset_row, preset_status,
-        ft.Divider(height=1, color=GREY),
-        load_params_button, load_params_status,
+        preset_list, preset_status, load_params_status,
+        ft.Row([save_preset_button]),
+        ft.Row([load_params_button]),
     ], spacing=CONSTANTS.SPACE_MD, expand=True, visible=False)
 
     # ── Rail d'icônes : interfaces spécialisées de la colonne droite ──
@@ -1840,7 +1799,7 @@ def main(page: ft.Page):
             ft.Divider(height=1, color=GREY),
             ft.Row([progress_bar, progress_text],
                    spacing=CONSTANTS.SPACE_MD),
-            batch_button,
+            ft.Row([batch_button]),
         ], spacing=CONSTANTS.SPACE_MD, expand=True),
         padding=CONSTANTS.SPACE_MD, bgcolor=DARK)
 
