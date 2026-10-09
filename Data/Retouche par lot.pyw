@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.3.44"
+__version__ = "2.3.45"
 
 #############################################################
 #                          IMPORTS                          #
@@ -969,7 +969,8 @@ def main(page: ft.Page):
         # state["params"] contient déjà les réglages de la photo affichée.
         return default
 
-    def _slider_row(label, dct, key, minv, maxv, *, divisions=None):
+    def _slider_row(label, dct, key, minv, maxv, *, divisions=None,
+                    gradient=None):
         """Slider cranté par pas entiers par défaut (un pas = une unité
         affichée) plutôt que des valeurs flottantes continues (retour
         user) — passer `divisions` explicitement pour un pas plus fin.
@@ -1025,7 +1026,8 @@ def main(page: ft.Page):
             value_text.value = str(snapped)
             active = snapped != reset_value
             value_text.color = accent["c"] if active else WHITE
-            slider.active_color = accent["c"] if active else WHITE
+            if not gradient:
+                slider.active_color = accent["c"] if active else WHITE
             value_text.update()
             slider.update()
 
@@ -1064,7 +1066,22 @@ def main(page: ft.Page):
             _write(reset_value)
             live_preview_tick()
 
-        slider_area = ft.GestureDetector(content=slider,
+        track = slider
+        if gradient:
+            # Rail en dégradé façon LightCraft : bande peinte sous un
+            # curseur aux pistes transparentes, mêmes marges latérales.
+            slider.active_color = ft.Colors.TRANSPARENT
+            slider.inactive_color = ft.Colors.TRANSPARENT
+            slider.thumb_color = WHITE
+            slider.padding = ft.Padding.symmetric(horizontal=12)
+            track = ft.Stack([
+                ft.Container(
+                    height=4, border_radius=2,
+                    margin=ft.Margin.symmetric(horizontal=12),
+                    gradient=ft.LinearGradient(colors=gradient)),
+                slider,
+            ], alignment=ft.Alignment.CENTER, expand=True)
+        slider_area = ft.GestureDetector(content=track,
                                         on_double_tap=_reset, expand=True)
 
         def _refresh():
@@ -1127,10 +1144,14 @@ def main(page: ft.Page):
         _subtitle("Couleur"),
         _slider_row("Corriger la dominante (photos anciennes)",
                    co, "auto_cast", 0, 125),
-        _slider_row("Saturation", co, "saturation", -100, 100),
-        _slider_row("Vibrance", co, "vibrance", -100, 100),
-        _slider_row("Balance des blancs", co, "white_balance", -100, 100),
-        _slider_row("Teinte", co, "hue", -100, 100),
+        _slider_row("Saturation", co, "saturation", -100, 100,
+                   gradient=CONSTANTS.RETOUCHE_LOT_GRADIENT_SAT),
+        _slider_row("Vibrance", co, "vibrance", -100, 100,
+                   gradient=CONSTANTS.RETOUCHE_LOT_GRADIENT_VIB),
+        _slider_row("Balance des blancs", co, "white_balance", -100, 100,
+                   gradient=CONSTANTS.RETOUCHE_LOT_GRADIENT_WB),
+        _slider_row("Teinte", co, "hue", -100, 100,
+                   gradient=CONSTANTS.RETOUCHE_LOT_GRADIENT_HUE),
     ])
 
     # ── Virage ──────────────────────────────────────────────────────

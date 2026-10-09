@@ -51,7 +51,7 @@ import shutil
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.3.44"
+__version__ = "2.3.45"
 
 
 # ==============================================================================
@@ -1109,6 +1109,11 @@ RETOUCHE_LOT_COULEUR_BLACKS        = 0
 # Hautes lumières / Ombres locales (filtre guidé, à la LightCraft) : pas de
 # halo autour des contours. False = ancienne courbe globale.
 RETOUCHE_LOT_LOCAL_TONE = True
+# Dégradés des rails de curseurs (gauche → droite), façon LightCraft.
+RETOUCHE_LOT_GRADIENT_SAT = ["#808080", "#E0453A"]
+RETOUCHE_LOT_GRADIENT_VIB = ["#808080", "#D9A33A", "#E0453A"]
+RETOUCHE_LOT_GRADIENT_WB = ["#3A7BE0", "#D8D8D8", "#E0A23A"]
+RETOUCHE_LOT_GRADIENT_HUE = ["#3AC06A", "#D8D8D8", "#C03AB0"]
 
 RETOUCHE_LOT_VIRAGE_ENABLED = False
 RETOUCHE_LOT_VIRAGE_MODE    = 'colorize'
