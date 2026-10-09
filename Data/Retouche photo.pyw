@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 #############################################################
 #                          IMPORTS                          #
@@ -790,6 +790,10 @@ def main(page: ft.Page):
         live_preview_tick()
 
     def load_representative(idx):
+        # Voile si décodage + premier rendu dépassent 300 ms (le rendu
+        # demandé en fin de fonction sera le n° live_req + 1).
+        threading.Timer(0.3, _veil_if_slow,
+                        (state["live_req"] + 1,)).start()
         idx = max(0, min(idx, len(file_names) - 1))
         name = file_names[idx]
         path = folder_path / name
@@ -808,11 +812,9 @@ def main(page: ft.Page):
         state["source_image"] = img
         state["proxy_max_px"] = None  # force la reconstruction ci-dessous
         _rebuild_proxy()
-        # Original tout de suite, voilé jusqu'au premier rendu.
+        # Original tout de suite, en attendant le rendu.
         image_display.src = original_display.src
-        ui_helpers.set_busy_veil(load_veil, True)
         image_display.update()
-        load_veil.update()
         counter_text.value = f"{idx + 1} / {len(file_names)} — {name}"
         # Le switch suit la photo : actif si elle a ses propres réglages.
         override_switch.value = name in state["overrides"]

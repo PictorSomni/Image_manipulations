@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 import flet as ft
 import flet.canvas as cv
@@ -56,6 +56,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import CONSTANTS
 import ai_ops
 import image_ops
+import ui_helpers
 import meta_ai
 from ai_tools import _gemini_generate_image
 
@@ -853,6 +854,10 @@ async def main(page: ft.Page) -> None:
         return img
 
     async def _load_image_path(path: str, pre_decoded=None) -> None:
+        async with ui_helpers.slow_veil(page, load_veil):
+            await _load_image_path_inner(path, pre_decoded)
+
+    async def _load_image_path_inner(path, pre_decoded) -> None:
         try:
             img = (pre_decoded if pre_decoded is not None
                    else await asyncio.to_thread(_decode_image, path))
@@ -2686,6 +2691,9 @@ async def main(page: ft.Page) -> None:
     image_gesture.visible               = False
 
     _vw, _vh = state["view_size"]
+    # Voile de chargement (> 300 ms) sur l'aperçu, cf. _load_image_path.
+    load_veil = ui_helpers.busy_veil("Chargement de l'image…", BLUE)
+
     inner_container = ft.Container(
         content=ft.Stack([preview_img, sel_canvas, image_gesture, busy_ring_wrap]),
         width=_vw,
@@ -2844,7 +2852,7 @@ async def main(page: ft.Page) -> None:
         [
             ft.Container(
                 content=ft.Stack(
-                    [preview_placeholder, preview_viewer],
+                    [preview_placeholder, preview_viewer, load_veil],
                     expand=True,
                 ),
                 expand=True,

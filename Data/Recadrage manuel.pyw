@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -1006,10 +1006,13 @@ class PhotoCropper:
         self._crop_outline = ft.Container(
             border=ft.Border.all(3, BLUE), border_radius=2, visible=False,
         )
+        # Voile de chargement d'image (> 300 ms), cf. load_image.
+        self.load_veil = ui_helpers.busy_veil("Chargement de l'image…", BLUE)
         self.canvas_stack = ft.Stack(
             controls=[self._crop_outline, self.canvas_container,
                      self._edge_handle_r, self._edge_handle_l,
-                     self._edge_handle_b, self._edge_handle_t],
+                     self._edge_handle_b, self._edge_handle_t,
+                     self.load_veil],
             width=self.canvas_w, height=self.canvas_h,
             clip_behavior=ft.ClipBehavior.NONE,
         )
@@ -1347,6 +1350,14 @@ class PhotoCropper:
         self.page.update()
 
     def load_image(self, preserve_orientation=True):
+        """Voile si le chargement dépasse 300 ms ; cf. _load_image."""
+        veil = getattr(self, "load_veil", None)
+        if veil is None:
+            return self._load_image(preserve_orientation)
+        with ui_helpers.slow_veil(self.page, veil):
+            return self._load_image(preserve_orientation)
+
+    def _load_image(self, preserve_orientation=True):
         """
         Charge l'image courante (image_paths[current_index]) et prépare
         l'affichage.

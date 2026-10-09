@@ -10,7 +10,7 @@ elles se vérifient à l'œil, ces calculs non.
 Lancer :  python3 "Data/test_ui_changes.py"
 """
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 
 import importlib
@@ -367,6 +367,37 @@ def test_photo_overrides(mod):
     print("  exceptions par photo (revue avant export) : OK")
 
 
+def test_slow_veil():
+    """Voile : absent sous 300 ms, présent au-delà, retiré à la fin."""
+    import asyncio
+    import time as _time
+    import ui_helpers
+
+    class _Veil:
+        opacity, ignore_interactions = 0, True
+
+        def update(self):
+            pass
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        page = type("P", (), {"run_task": lambda self, fn:
+                              loop.create_task(fn())})()
+        fast, slow = _Veil(), _Veil()
+        async with ui_helpers.slow_veil(page, fast):
+            await asyncio.sleep(0.05)
+        await asyncio.sleep(0.4)
+        assert fast.opacity == 0, "pas de voile sur un chargement rapide"
+        seen = []
+        async with ui_helpers.slow_veil(page, slow):
+            await asyncio.sleep(0.45)
+            seen.append(slow.opacity)
+        await asyncio.sleep(0.05)
+        assert seen == [1] and slow.opacity == 0
+    asyncio.run(run())
+    print("  voile de chargement > 300 ms : OK")
+
+
 if __name__ == "__main__":
     print("Vérifications :")
     test_preview_max_px()
@@ -379,5 +410,6 @@ if __name__ == "__main__":
     test_params_roundtrip_shape(retouche)
     test_auto_color_cast_removes_dominant_and_is_dosable()
     test_photo_overrides(retouche)
+    test_slow_veil()
     test_save_json_is_atomic(_load_hub())
     print("Tout est passé.")

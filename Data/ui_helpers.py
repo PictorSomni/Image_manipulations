@@ -13,7 +13,7 @@ module les importe en dur (les valeurs diffèrent d'un thème d'app à
 l'autre).
 """
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 import asyncio
 
@@ -282,3 +282,56 @@ def set_busy_veil(veil, on):
     """Fondu du voile ; transparent, il laisse passer les clics."""
     veil.opacity = 1 if on else 0
     veil.ignore_interactions = not on
+
+
+class slow_veil:
+    """Voile affiché seulement si l'opération dure plus de `delay` s
+    (chargement d'image…) — pas de clignotement sur les chargements
+    rapides. `with` (code synchrone, thread) ou `async with`.
+
+        with ui_helpers.slow_veil(page, veil):
+            img = Image.open(path)
+    """
+
+    def __init__(self, page, veil, delay=0.3):
+        self.page, self.veil, self.delay = page, veil, delay
+        self.active = False
+
+    async def _show_later(self):
+        await asyncio.sleep(self.delay)
+        if self.active:
+            set_busy_veil(self.veil, True)
+            self._safe_update()
+
+    def _safe_update(self):
+        try:
+            self.veil.update()
+        except Exception:
+            pass  # voile pas (ou plus) monté : rien à afficher
+
+    async def _hide(self):
+        if self.veil.opacity:
+            set_busy_veil(self.veil, False)
+            self._safe_update()
+
+    def _run(self, coro_fn):
+        try:
+            self.page.run_task(coro_fn)
+        except RuntimeError:
+            pass  # session fermée
+
+    def __enter__(self):
+        self.active = True
+        self._run(self._show_later)
+        return self
+
+    def __exit__(self, *exc):
+        self.active = False
+        self._run(self._hide)
+        return False
+
+    async def __aenter__(self):
+        return self.__enter__()
+
+    async def __aexit__(self, *exc):
+        return self.__exit__(*exc)

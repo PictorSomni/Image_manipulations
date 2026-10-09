@@ -12,7 +12,7 @@ Remplace la version Qt6 originale (main.py) avec :
 Dépendances : flet, Pillow (PIL)
 """
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 import flet as ft
 import os
@@ -20,10 +20,12 @@ import sys
 import io
 import json
 import base64
+import contextlib
 import threading
 import shutil
 import subprocess
 import thumb_cache
+import ui_helpers
 
 # ── Import des constantes spécifiques au kiosk ───────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -309,12 +311,18 @@ def main(page: ft.Page) -> None:
             load_filename = images_list[load_index]
             is_nb = nb_state.get((current_size["value"], load_filename), False)
             load_file_path = os.path.join(current_folder["path"], load_filename)
-            b64 = thumb_cache.get_or_generate(
-                load_file_path,
-                size_px=KIOSK_CONSTANT.PREVIEW_NB_SIZE,
-                quality=80,
-                grayscale=is_nb,
-            )
+            # Voile (> 300 ms) seulement pour l'image affichée, pas pour
+            # les voisines préchargées.
+            veil = (ui_helpers.slow_veil(page, preview_load_veil)
+                    if load_index == state["index"]
+                    else contextlib.nullcontext())
+            with veil:
+                b64 = thumb_cache.get_or_generate(
+                    load_file_path,
+                    size_px=KIOSK_CONSTANT.PREVIEW_NB_SIZE,
+                    quality=80,
+                    grayscale=is_nb,
+                )
             if load_index in page_image_controls:
                 page_image_controls[load_index].src = b64 if b64 else b""
             pages_loaded.add(load_index)
@@ -535,6 +543,8 @@ def main(page: ft.Page) -> None:
             padding=ft.Padding(8, 6, 8, 6),
         )
 
+        preview_load_veil = ui_helpers.busy_veil(
+            "Chargement de l'image…", C_BLUE)
         preview_overlay = ft.Container(
             content=ft.Stack([
                 ft.Column([
@@ -560,6 +570,7 @@ def main(page: ft.Page) -> None:
                     # PageView des images (swipe horizontal)
                     images_page_view,
                 ], spacing=0, expand=True),
+                preview_load_veil,
                 # Barre inférieure flottante
                 ft.Container(
                     content=ft.Row(

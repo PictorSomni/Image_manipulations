@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.4.0"
+__version__ = "2.4.1"
 
 import asyncio
 import base64
@@ -3546,6 +3546,12 @@ def main(page: ft.Page):
             parts.append(f"{size_mo:.1f} Mo")
         return "  •  ".join(parts)
 
+    def _resolve_viewer_src_veiled(path):
+        """Image affichée (pas les voisines préchargées) : voile si le
+        rendu (RAW, PDF, vectoriel…) dépasse 300 ms."""
+        with ui_helpers.slow_veil(page, viewer_load_veil):
+            return _resolve_viewer_src(path)
+
     def _resolve_viewer_src(path):
         # Flutter ne sait pas afficher un .svg/.pdf par chemin (Image.file
         # ne rend que les formats raster) — on passe par thumb_cache pour
@@ -3616,7 +3622,7 @@ def main(page: ft.Page):
             pages_loaded.discard(idx)
             _load_image_for_index(idx)
         else:
-            viewer_img.src = _resolve_viewer_src(path)
+            viewer_img.src = _resolve_viewer_src_veiled(path)
         _update_pdf_page_ui(path)
         page.update()
 
@@ -3698,7 +3704,9 @@ def main(page: ft.Page):
         ctrl = page_image_controls.get(idx)
         if not (0 <= idx < len(paths)) or ctrl is None or idx in pages_loaded:
             return
-        ctrl.src = _resolve_viewer_src(paths[idx])
+        ctrl.src = (_resolve_viewer_src_veiled(paths[idx])
+                    if idx == viewer_state["index"]
+                    else _resolve_viewer_src(paths[idx]))
         pages_loaded.add(idx)
         _start_viewer_color_fix(idx, paths[idx], ctrl)
         try:
@@ -3743,7 +3751,8 @@ def main(page: ft.Page):
             pages_loaded.discard(idx)
             _load_pages_around(idx)
         else:
-            viewer_img.src = _resolve_viewer_src(viewer_state["paths"][idx])
+            viewer_img.src = _resolve_viewer_src_veiled(
+                viewer_state["paths"][idx])
         # Après le chargement : un contrôle réutilisé (fenêtre glissante)
         # peut garder un zoom d'une visite précédente, à remettre à 1.0
         # en changeant de photo.
@@ -4047,9 +4056,10 @@ def main(page: ft.Page):
     viewer_bottom_bar_wrap = ft.Container(content=viewer_bottom_bar,
                                           bottom=16, left=0, right=0,
                                           alignment=ft.Alignment.CENTER)
+    viewer_load_veil = ui_helpers.busy_veil("Chargement de l'image…", BLUE)
     viewer_overlay = ft.Stack([
-        viewer_image_wrap, viewer_top_bar_wrap, viewer_close_wrap,
-        viewer_bottom_bar_wrap,
+        viewer_image_wrap, viewer_load_veil, viewer_top_bar_wrap,
+        viewer_close_wrap, viewer_bottom_bar_wrap,
     ], expand=True)
 
     def _set_drawer_space(width):
