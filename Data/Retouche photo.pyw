@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.4.2"
+__version__ = "2.4.3"
 
 #############################################################
 #                          IMPORTS                          #
@@ -1007,13 +1007,14 @@ def main(page: ft.Page):
         de ses valeurs (curseur ou champ) s'écarte de son défaut (retour
         user : sinon le réglage ne se voit pas tant qu'on ne pense pas à
         cocher l'interrupteur à part)."""
-        name = _dct_to_section.get(id(dct))
-        section = sections.get(name)
-        if section is not None and not section["switch"].value:
-            dct["enabled"] = True
-            section["switch"].value = True
-            section["switch"].update()
-            _refresh_header(name)
+        names = [n for n, sec in sections.items() if sec["param"] is dct]
+        for name in names or [_dct_to_section.get(id(dct))]:
+            section = sections.get(name)
+            if section is not None and not section["switch"].value:
+                dct["enabled"] = True
+                section["switch"].value = True
+                section["switch"].update()
+                _refresh_header(name)
 
     def _toggle_section(name):
         def handler(e):
@@ -1059,7 +1060,13 @@ def main(page: ft.Page):
 
         def _on_switch(e):
             param["enabled"] = switch.value
-            _refresh_header(name)
+            # Lumière et Couleur partagent le même dict de paramètres :
+            # leurs interrupteurs restent synchronisés.
+            for other, sec in sections.items():
+                if sec["param"] is param:
+                    sec["switch"].value = switch.value
+                    sec["switch"].update()
+                    _refresh_header(other)
             live_preview_tick()
         switch.on_change = _on_switch
         reset_registry["switches"].append((switch, param))
@@ -1091,6 +1098,7 @@ def main(page: ft.Page):
                               CONSTANTS.SPACE_LG, CONSTANTS.SPACE_MD),
             bgcolor=BG, border_radius=6)
         sections[name] = {"body": body, "switch": switch, "color": color,
+                          "param": param,
                           "chevron": chevron, "head_icon": head_icon,
                           "title": title, "header": header}
         # Filet d'accent vertical (couleur de section) le long de
@@ -1293,16 +1301,17 @@ def main(page: ft.Page):
         return ft.Text(text.upper(), size=CONSTANTS.TEXT_SM - 2,
                        color=LIGHT_GREY, weight=ft.FontWeight.W_600)
 
-    section_couleur = _make_section(
-        "Lumière et couleur", ORANGE, ft.Icons.TUNE, co, [
-        _subtitle("Lumière"),
+    section_lumiere = _make_section(
+        "Lumière", ORANGE, ft.Icons.LIGHT_MODE, co, [
         _slider_row("Exposition", co, "exposure", -100, 100),
         _slider_row("Contraste", co, "contrast", -100, 100),
         _slider_row("Hautes lumières", co, "highlights", -100, 100),
         _slider_row("Ombres", co, "shadows", -100, 100),
         _slider_row("Blancs", co, "whites", -100, 100),
         _slider_row("Noirs", co, "blacks", -100, 100),
-        _subtitle("Couleur"),
+    ])
+    section_couleur = _make_section(
+        "Couleur", GREEN, ft.Icons.PALETTE, co, [
         _slider_row("Corriger la dominante (photos anciennes)",
                    co, "auto_cast", 0, 125),
         _slider_row("Saturation", co, "saturation", -100, 100,
@@ -1951,7 +1960,7 @@ def main(page: ft.Page):
             spacing=CONSTANTS.SPACE_SM)
 
     settings_pane = ft.Column([
-        _group("Base", [section_couleur]),
+        _group("Base", [section_lumiere, section_couleur]),
         _group("Couleur créative", [section_virage, section_lut]),
         _group("Détail", [section_nettete, section_denoise]),
         _group("Effets pellicule",

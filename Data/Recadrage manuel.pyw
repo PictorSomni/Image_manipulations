@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.4.2"
+__version__ = "2.4.3"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -2643,6 +2643,12 @@ class PhotoCropper:
 
 
 
+    def _sync_slider_rows(self):
+        """Resynchronise valeur affichée et couleur de piste des curseurs
+        du panneau gauche après une remise à zéro."""
+        for sync in getattr(self, "_slider_rows", []):
+            sync()
+
     def _reset_slider(self, slider, attr, default_val, label_str):
         """Remet un slider de réglage à sa valeur par défaut et redéclenche le rendu."""
 
@@ -2651,6 +2657,7 @@ class PhotoCropper:
         slider.label = label_str
         slider.active_color = WHITE
         slider.update()
+        self._sync_slider_rows()
         self._render_preview()
         self.page.update()
         self._set_status("Slider réinitialisé")
@@ -3554,6 +3561,7 @@ class PhotoCropper:
         self.is_sharpen = False
         self.sharpen_switch.value = False
         self.sharpen_switch.update()
+        self._sync_slider_rows()
         self._render_preview()
         self.page.update()
         self._set_status("Tous les réglages remis à 0")
@@ -3614,6 +3622,7 @@ class PhotoCropper:
         self.white_balance_slider.label = str(CONSTANTS.RECADRAGE_DEFAULT_WHITE_BALANCE)
         self.white_balance_slider.active_color = GREEN if self.white_balance else WHITE
         self.white_balance_slider.update()
+        self._sync_slider_rows()
         self._render_preview()
         self.page.update()
         self._set_status("Réglages par défaut restaurés")
@@ -4907,6 +4916,54 @@ class PhotoCropper:
 #############################################################
 #                           MAIN                            #
 #############################################################
+def _srow(app, label, slider, attr, accent, gradient=None):
+    """Ligne de curseur façon Retouche photo : libellé à gauche, valeur
+    à droite, piste fine neutre (accent si modifiée), dégradé optionnel."""
+    track_col = ft.Colors.with_opacity(0.22, WHITE)
+    value = ft.Text(size=12, color=WHITE, weight=ft.FontWeight.W_500)
+    slider.divisions = None
+    slider.thumb_color = WHITE
+    slider.padding = ft.Padding.symmetric(horizontal=8)
+
+    def sync():
+        v = slider.value or 0
+        value.value = str(int(round(v)))
+        if gradient:
+            slider.active_color = ft.Colors.TRANSPARENT
+            slider.inactive_color = ft.Colors.TRANSPARENT
+        else:
+            slider.active_color = accent if v else track_col
+            slider.inactive_color = track_col
+
+    orig = slider.on_change
+
+    def on_change(e):
+        orig(e)
+        sync()
+        value.update()
+        slider.update()
+
+    slider.on_change = on_change
+    sync()
+    app._slider_rows = getattr(app, "_slider_rows", []) + [
+        lambda: (sync(), value.update())]
+    track = slider
+    if gradient:
+        track = ft.Stack([
+            ft.Container(height=4, border_radius=2,
+                         margin=ft.Margin.symmetric(horizontal=8),
+                         gradient=ft.LinearGradient(colors=gradient)),
+            slider], alignment=ft.Alignment.CENTER)
+    return ft.Column([
+        ft.Row([ft.Text(label, size=12, color=LIGHT_GREY), value],
+               alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        ft.GestureDetector(
+            content=track,
+            on_double_tap=lambda e: app._reset_slider(
+                slider, attr, 0.0, "0")),
+    ], spacing=0)
+
+
 def main(page: ft.Page):
     """
     Point d'entrée de l'application Flet.
@@ -4943,6 +5000,11 @@ def main(page: ft.Page):
         page, ignore=("Codec failed to produce an image",))
     page.title = "Recadrage Photo"
     page.theme_mode = ft.ThemeMode.DARK
+    page.theme = ft.Theme(slider_theme=ft.SliderTheme(
+        track_height=2, year_2023=True, thumb_color=WHITE,
+        overlay_color=ft.Colors.with_opacity(0.08, WHITE),
+        active_tick_mark_color=ft.Colors.TRANSPARENT,
+        inactive_tick_mark_color=ft.Colors.TRANSPARENT))
     page.window.maximized = True
     page.bgcolor = GREY
     page.run_task(page.window.to_front)
@@ -5320,18 +5382,12 @@ def main(page: ft.Page):
                         ft.Container(
                             content=ft.Column([
                                 ft.Text("LUMINOSITÉ", size=10, color=ORANGE, weight=ft.FontWeight.BOLD),
-                                ft.Text("Exposition", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.exposure_slider, on_double_tap=lambda e: app._reset_slider(app.exposure_slider, 'exposure', 0.0, '0')),
-                                ft.Text("Contraste", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.contrast_slider, on_double_tap=lambda e: app._reset_slider(app.contrast_slider, 'contrast', 0.0, '0')),
-                                ft.Text("Hautes lumières", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.highlights_slider, on_double_tap=lambda e: app._reset_slider(app.highlights_slider, 'highlights', 0.0, '0')),
-                                ft.Text("Ombres", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.shadows_slider, on_double_tap=lambda e: app._reset_slider(app.shadows_slider, 'shadows', 0.0, '0')),
-                                ft.Text("Blancs  (point blanc)", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.whites_slider, on_double_tap=lambda e: app._reset_slider(app.whites_slider, 'whites', 0.0, '0')),
-                                ft.Text("Noirs  (point noir)", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.blacks_slider, on_double_tap=lambda e: app._reset_slider(app.blacks_slider, 'blacks', 0.0, '0')),
+                                _srow(app, "Exposition", app.exposure_slider, "exposure", ORANGE),
+                                _srow(app, "Contraste", app.contrast_slider, "contrast", ORANGE),
+                                _srow(app, "Hautes lumières", app.highlights_slider, "highlights", ORANGE),
+                                _srow(app, "Ombres", app.shadows_slider, "shadows", ORANGE),
+                                _srow(app, "Blancs", app.whites_slider, "whites", ORANGE),
+                                _srow(app, "Noirs", app.blacks_slider, "blacks", ORANGE),
                             ], spacing=4),
                             border=ft.Border(left=ft.BorderSide(2, ORANGE)),
                             padding=ft.Padding.only(left=8),
@@ -5343,14 +5399,10 @@ def main(page: ft.Page):
                         ft.Container(
                             content=ft.Column([
                                 ft.Text("COULEUR", size=10, color=GREEN, weight=ft.FontWeight.BOLD),
-                                ft.Text("Saturation", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.saturation_slider, on_double_tap=lambda e: app._reset_slider(app.saturation_slider, 'saturation', 0.0, '0')),
-                                ft.Text("Vibrance", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.vibrance_slider, on_double_tap=lambda e: app._reset_slider(app.vibrance_slider, 'vibrance', 0.0, '0')),
-                                ft.Text("Balance des blancs  (−froid / +chaud)", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.white_balance_slider, on_double_tap=lambda e: app._reset_slider(app.white_balance_slider, 'white_balance', 0.0, '0')),
-                                ft.Text("Teinte  (−vert / +magenta)", size=12, color=LIGHT_GREY),
-                                ft.GestureDetector(content=app.hue_slider, on_double_tap=lambda e: app._reset_slider(app.hue_slider, 'hue', 0.0, '0')),
+                                _srow(app, "Saturation", app.saturation_slider, "saturation", GREEN, CONSTANTS.RETOUCHE_LOT_GRADIENT_SAT),
+                                _srow(app, "Vibrance", app.vibrance_slider, "vibrance", GREEN, CONSTANTS.RETOUCHE_LOT_GRADIENT_VIB),
+                                _srow(app, "Balance des blancs", app.white_balance_slider, "white_balance", GREEN, CONSTANTS.RETOUCHE_LOT_GRADIENT_WB),
+                                _srow(app, "Teinte", app.hue_slider, "hue", GREEN, CONSTANTS.RETOUCHE_LOT_GRADIENT_HUE),
                             ], spacing=4),
                             border=ft.Border(left=ft.BorderSide(2, GREEN)),
                             padding=ft.Padding.only(left=8),
