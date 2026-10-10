@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.9.1"
+__version__ = "2.9.2"
 
 #############################################################
 #                          IMPORTS                          #
@@ -264,8 +264,17 @@ def apply_photo_overrides(params, overrides, name):
 def _apply_light_color(result, c):
     """Réglages Lumière + Couleur (hors dominante) — section Base et
     masques locaux."""
+    exposure = c["exposure"]
+    if c.get("exposure_stops") and exposure:
+        # Exposition « IL » : gain en lumière linéaire, ±3 IL à ±100 —
+        # va jusqu'au noir / blanc, contrairement au décalage LAB.
+        lin = (np.asarray(result, np.float32) / 255) ** 2.2
+        lin *= 2 ** (exposure * 3 / 100)
+        result = Image.fromarray((np.clip(lin, 0, 1) ** (1 / 2.2)
+                                  * 255 + 0.5).astype(np.uint8))
+        exposure = 0
     result = image_ops.apply_adjustments(
-        result, exposure=c["exposure"], contrast=c["contrast"],
+        result, exposure=exposure, contrast=c["contrast"],
         saturation=c["saturation"], hue=c["hue"],
         white_balance=c["white_balance"],
         vibrance=c.get("vibrance", 0))
@@ -2226,6 +2235,7 @@ def main(page: ft.Page):
             mask_edit.update(copy.deepcopy(masks[i]))
             masks[i] = mask_edit
             invert_switch.value = mask_edit["invert"]
+            stops_switch.value = bool(mask_edit.get("exposure_stops"))
             feather_row.visible = mask_edit["type"] == "radial"
             linked = bool(mask_edit.get("link")) and i > 0
             link_switch.value = linked
@@ -2323,6 +2333,10 @@ def main(page: ft.Page):
         _select_mask(mask_ui["sel"])
         live_preview_tick()
 
+    def _on_stops(e):
+        mask_edit["exposure_stops"] = stops_switch.value
+        live_preview_tick()
+
     def _on_invert(e):
         mask_edit["invert"] = invert_switch.value
         live_preview_tick()
@@ -2330,6 +2344,8 @@ def main(page: ft.Page):
     mask_list = ft.Column(spacing=CONSTANTS.SPACE_XS)
     invert_switch = ft.Switch(label="Inverser", active_color=VIOLET,
                               on_change=_on_invert)
+    stops_switch = ft.Switch(label="Exposition IL", active_color=ORANGE,
+                             on_change=_on_stops)
     link_switch = ft.Switch(label="Lier au précédent", active_color=VIOLET,
                             on_change=_on_link)
     feather_row = _slider_row("Contour", mask_edit, "feather", 1, 100,
@@ -2368,7 +2384,7 @@ def main(page: ft.Page):
             padding=ft.Padding(CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS, 0,
                                CONSTANTS.SPACE_XS))
 
-    light_zone = _mask_zone("Lumière", ORANGE, light_rows)
+    light_zone = _mask_zone("Lumière", ORANGE, [stops_switch] + light_rows)
     color_zone = _mask_zone("Couleur", GREEN, color_rows)
     mask_editor = ft.Column([
         _mask_zone("Masque", VIOLET,
