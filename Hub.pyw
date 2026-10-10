@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.6.2"
+__version__ = "2.6.3"
 
 import asyncio
 import base64
@@ -11938,6 +11938,7 @@ def main(page: ft.Page):
          zipper_btn.on_click),
         ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
          ajouter_ia_btn.on_click),
+        None,
         ("Pivoter 90° gauche", ft.Icons.ROTATE_LEFT, GREEN,
          lambda e: _run_action(_do_rotate, list(selected), 90)),
         ("Pivoter 90° droite", ft.Icons.ROTATE_RIGHT, GREEN,
@@ -11948,9 +11949,11 @@ def main(page: ft.Page):
     # Sur la même rangée d'icônes que le reste, à la fin (retour user) —
     # plus de ListTile séparée pour Fichier.
     _fichier_icon_actions += [
+        None,
         ("Imprimer", ft.Icons.PRINT_OUTLINED, ORANGE, _launch_print),
         ("Nombre d'impressions", ft.Icons.NUMBERS, ORANGE,
          lambda e: _run_action(_set_print_count, list(selected))),
+        None,
         ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
          supprimer_btn.on_click),
     ]
@@ -12110,16 +12113,24 @@ def main(page: ft.Page):
                                   ft.CrossAxisAlignment.STRETCH)),
         )
 
+    _icon_btns = {}
+
     def _icon_row(tools):
         # Rangée d'icônes seules (sans texte) pour les actions fichier
         # les plus fréquentes — évite une longue liste de ListTile pour
         # ce qui est déjà reconnaissable à l'icône (retour user).
-        return ft.Row(
-            [ft.IconButton(t[1], icon_color=t[2],
-                          icon_size=CONSTANTS.ICON_LG, tooltip=t[0],
-                          on_click=t[3]) for t in tools],
-            spacing=0, wrap=True,
-        )
+        # None = séparateur vertical.
+        row = []
+        for t in tools:
+            if t is None:
+                row.append(ft.Container(
+                    ft.VerticalDivider(color=LIGHT_GREY), height=32))
+                continue
+            _icon_btns[t[0]] = ft.IconButton(
+                t[1], icon_color=t[2], icon_size=CONSTANTS.ICON_LG,
+                tooltip=t[0], on_click=t[3])
+            row.append(_icon_btns[t[0]])
+        return ft.Row(row, spacing=0, wrap=True)
 
     # Une couleur par catégorie, fixée ici plutôt que déduite de la 1re
     # action : deux catégories voisines partageaient souvent la couleur
@@ -12237,6 +12248,8 @@ def main(page: ft.Page):
                      padding=ft.Padding(24, 60, 24, 60)),
     ], expand=True)
 
+    _new_tab_btn = _icon_btns["Ouvrir dans un nouvel onglet"]
+
     def _close_actions(event=None):
         if actions_overlay in page.overlay:
             page.overlay.remove(actions_overlay)
@@ -12276,6 +12289,9 @@ def main(page: ft.Page):
 
     def _open_actions(event):
         _rebuild_open_with_category()   # reflète un programme ajouté entre-temps
+        # Nouvel onglet : seulement si un dossier est explicitement sélectionné.
+        _new_tab_btn.visible = (len(selected) == 1
+                                and os.path.isdir(list(selected)[0]))
         if actions_overlay not in page.overlay:
             page.overlay.append(actions_overlay)
         page.update()
