@@ -13,7 +13,7 @@ module les importe en dur (les valeurs diffèrent d'un thème d'app à
 l'autre).
 """
 
-__version__ = "2.6.1"
+__version__ = "2.6.2"
 
 import asyncio
 
@@ -293,7 +293,7 @@ class slow_veil:
             img = Image.open(path)
     """
 
-    def __init__(self, page, veil, delay=0.3):
+    def __init__(self, page, veil, delay=0.5):
         self.page, self.veil, self.delay = page, veil, delay
         self.active = False
 

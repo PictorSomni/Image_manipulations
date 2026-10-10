@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.6.1"
+__version__ = "2.6.2"
 
 #############################################################
 #                          IMPORTS                          #
