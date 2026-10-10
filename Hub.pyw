@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Hub — Application unifiée (remplace à terme Dashboard + SidePanel).
 
@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.6.0"
+__version__ = "2.6.1"
 
 import asyncio
 import base64
@@ -4079,15 +4079,13 @@ def main(page: ft.Page):
     #  `_launch_tool` est défini plus loin dans main() : référence différée
     #  via closure, même principe que `create_order_btn` plus haut.
     # ═════════════════════════════════════════════════════════════════════
-    def _launch_editor_for_current(script_name, start_tab=None):
+    def _launch_editor_for_current(script_name):
         def _run(event=None):
             if not viewer_state["paths"]:
                 return
             path = viewer_state["paths"][viewer_state["index"]]
             env = {"FOLDER_PATH": os.path.dirname(path),
                    "SELECTED_FILES": os.path.basename(path)}
-            if start_tab:
-                env["START_TAB"] = start_tab
             _launch_tool(script_name, extra_env=env)
         return _run
 
@@ -4103,10 +4101,6 @@ def main(page: ft.Page):
     viewer_bottom_bar.content.controls.insert(
         -1, _viewer_btn(ft.Icons.TUNE, "Retouche photo",
                        _launch_editor_for_current("Retouche photo.pyw")))
-    viewer_bottom_bar.content.controls.insert(
-        -1, _viewer_btn(ft.Icons.AUTO_AWESOME, "Retouche IA",
-                       _launch_editor_for_current("Retouche photo.pyw",
-                                                  start_tab="ia")))
 
     def _open_viewer(start_path):
         # Vidéo : lecteur système (lecture intégrée = flet-video + libmpv,
