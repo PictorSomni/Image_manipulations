@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.8.7"
+__version__ = "2.8.8"
 
 import asyncio
 import base64
@@ -4734,7 +4734,7 @@ def main(page: ft.Page):
         ft.Icons.NUMBERS,
         "Changer le nombre de tirages (préfixe NX_) de la sélection",
         lambda e: _run_action(_set_print_count, list(selected)),
-        color=ORANGE)
+        color=YELLOW)
 
     # Recalcule commande.txt (dossier ouvert) après avoir changé le nombre
     # d'impressions de plusieurs photos, sans rouvrir Recadrage manuel.pyw
@@ -4959,13 +4959,13 @@ def main(page: ft.Page):
     # dupliquées là-bas peuvent se replier, tout le reste de cette ligne
     # (sélection, affichage, commande) reste TOUJOURS visible, sans repli.
     print_count_menu = ft.PopupMenuButton(
-        icon=ft.Icons.MORE_HORIZ, icon_color=ORANGE,
+        icon=ft.Icons.MORE_HORIZ, icon_color=YELLOW,
         icon_size=CONSTANTS.ICON_SM,
         tooltip="Changer le nombre de tirages de la sélection",
         items=[
             ft.PopupMenuItem(
                 content=ft.Row([
-                    ft.Icon(ft.Icons.NUMBERS, color=ORANGE,
+                    ft.Icon(ft.Icons.NUMBERS, color=YELLOW,
                            size=CONSTANTS.ICON_SM),
                     ft.Text("Nombre de tirages", size=CONSTANTS.TEXT_SM,
                            color=WHITE),
@@ -11951,8 +11951,9 @@ def main(page: ft.Page):
     # plus de ListTile séparée pour Fichier.
     _fichier_icon_actions += [
         None,
-        ("Imprimer", ft.Icons.PRINT_OUTLINED, ORANGE, _launch_print),
-        ("Nombre d'impressions", ft.Icons.NUMBERS, ORANGE,
+        # Couleurs distinctes de Zipper (orange) juste à côté (retour user).
+        ("Imprimer", ft.Icons.PRINT_OUTLINED, MINT, _launch_print),
+        ("Nombre d'impressions", ft.Icons.NUMBERS, YELLOW,
          lambda e: _run_action(_set_print_count, list(selected))),
         None,
         # Zipper et IA juste avant la corbeille, comme dans la barre
@@ -13458,7 +13459,7 @@ def main(page: ft.Page):
         (ft.Icons.BLUETOOTH, "Recevoir un fichier via Bluetooth", BLUE,
          _launch_bluetooth),
         (ft.Icons.PRINT_OUTLINED, "Imprimer la sélection (ou le dossier)",
-         ORANGE, _launch_print),
+         MINT, _launch_print),
         (ft.Icons.PUBLIC, "Ouvrir le navigateur web", BLUE, _open_browser),
         (ft.Icons.OPEN_IN_NEW, "Ouvrir l'explorateur", GREEN,
          _open_in_file_explorer),
