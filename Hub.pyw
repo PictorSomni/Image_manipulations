@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.8.1"
+__version__ = "2.8.2"
 
 import asyncio
 import base64
@@ -12724,11 +12724,15 @@ def main(page: ft.Page):
                     if sys.version_info < (3, 12):
                         os.environ.setdefault("SETUPTOOLS_USE_DISTUTILS",
                                               "stdlib")
+                    # pip mis à jour avec flet : plus d'avis « new
+                    # release of pip » dans le terminal (retour user).
+                    os.environ["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
                     _log_to_terminal(
-                        "🔌 Mise à jour de flet et flet-desktop…", YELLOW)
+                        "🔌 Mise à jour de pip, flet et flet-desktop…",
+                        YELLOW)
                     flet_upgrade_proc = subprocess.Popen(
-                        [sys.executable, "-m", "pip", "install", "flet",
-                         "flet-desktop", "--upgrade"],
+                        [sys.executable, "-m", "pip", "install", "pip",
+                         "flet", "flet-desktop", "--upgrade"],
                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                         text=True, encoding="utf-8", errors="replace",
                         cwd=_APP_DIR)
@@ -12739,7 +12743,8 @@ def main(page: ft.Page):
                     flet_upgrade_proc.wait()
                     if flet_upgrade_proc.returncode == 0:
                         _log_to_terminal(
-                            "[OK] flet et flet-desktop mis à jour.", GREEN)
+                            "[OK] pip, flet et flet-desktop mis à jour.",
+                            GREEN)
                     else:
                         _log_to_terminal(
                             f"⚠ flet-desktop : pip a terminé avec le code "
@@ -13389,12 +13394,29 @@ def main(page: ft.Page):
         current = credentials.load_secrets()
         fields = {
             key: ft.TextField(
-                label=label, hint_text=hint or None,
+                hint_text=hint or None, data=label,
+                hint_style=ft.TextStyle(
+                    color=ft.Colors.with_opacity(0.35, WHITE)),
                 value=current.get(key, ""), password=hidden,
+                on_change=lambda e: _mark(e.control),
                 can_reveal_password=hidden, width=420, bgcolor=DARK,
                 border=CONSTANTS.input_border(GREY), color=WHITE,
                 text_size=CONSTANTS.TEXT_SM)
             for key, label, hidden, hint in credentials.SECRETS}
+
+        def _mark(field, update=True):
+            # Pastille verte = champ rempli (retour user).
+            filled = bool((field.value or "").strip())
+            field.prefix_icon = ft.Icon(
+                ft.Icons.CHECK_CIRCLE if filled
+                else ft.Icons.RADIO_BUTTON_UNCHECKED,
+                color=GREEN if filled else GREY, size=CONSTANTS.ICON_SM)
+            field.border = CONSTANTS.input_border(GREEN if filled else GREY)
+            if update:
+                field.update()
+
+        for f in fields.values():
+            _mark(f, update=False)
 
         def _save(e):
             credentials.save_secrets(
@@ -13415,8 +13437,13 @@ def main(page: ft.Page):
 
         dlg = _dialog(
             title=ft.Text("Identifiants"),
-            content=ft.Column(list(fields.values()), tight=True,
-                              spacing=CONSTANTS.SPACE_SM),
+            # Libellé au-dessus (pas en label flottant) : l'exemple
+            # reste visible dans le champ vide (retour user).
+            content=ft.Column(
+                [ft.Column([ft.Text(f.data, size=CONSTANTS.TEXT_SM,
+                                    color=LIGHT_GREY), f], spacing=4)
+                 for f in fields.values()],
+                tight=True, spacing=CONSTANTS.SPACE_SM),
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Enregistrer", "primary", on_click=_save)])
         page.overlay.append(dlg)
