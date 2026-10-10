@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.8.5"
+__version__ = "2.8.6"
 
 import flet as ft
 import flet.canvas as cv
@@ -2925,6 +2925,9 @@ async def main(page: ft.Page) -> None:
                 ),
                 expand=True,
                 border_radius=8,
+                # Même fond que l'aperçu des Réglages : le bouton Avant /
+                # Après y tombe dans le cadre foncé (retour user).
+                bgcolor=DARK,
                 clip_behavior=ft.ClipBehavior.HARD_EDGE,
             ),
         ],
