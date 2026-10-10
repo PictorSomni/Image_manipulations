@@ -386,16 +386,16 @@ def test_slow_veil():
         fast, slow = _Veil(), _Veil()
         async with ui_helpers.slow_veil(page, fast):
             await asyncio.sleep(0.05)
-        await asyncio.sleep(0.4)
+        await asyncio.sleep(0.6)
         assert fast.opacity == 0, "pas de voile sur un chargement rapide"
         seen = []
         async with ui_helpers.slow_veil(page, slow):
-            await asyncio.sleep(0.45)
+            await asyncio.sleep(0.65)
             seen.append(slow.opacity)
         await asyncio.sleep(0.05)
         assert seen == [1] and slow.opacity == 0
     asyncio.run(run())
-    print("  voile de chargement > 300 ms : OK")
+    print("  voile de chargement > 500 ms : OK")
 
 
 def test_upright():
