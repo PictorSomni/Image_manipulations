@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.8.9"
+__version__ = "2.9.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -776,6 +776,7 @@ def main(page: ft.Page):
                     if load_veil.opacity and not state.get("batch"):
                         ui_helpers.set_busy_veil(load_veil, False)
                         load_veil.update()
+                    _refresh_filmstrip()
                     if hist_src:
                         histogram_image.src = hist_src
                         histogram_image.update()

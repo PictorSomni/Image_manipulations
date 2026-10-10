@@ -5,7 +5,7 @@ chacune devient horizontale ou verticale selon son orientation dominante
 de 0 à 100 %. Enregistré dans le fichier, original copié dans ORIGINAUX/.
 """
 
-__version__ = "2.8.9"
+__version__ = "2.9.0"
 
 import asyncio
 import base64
@@ -58,6 +58,7 @@ class RedresserTab:
         self.params = np.zeros(4)
         self.matrix = np.eye(3)  # proxy source → proxy sortie
         self.drag = None
+        self.moving = None       # (ligne, extrémité) en déplacement
         self.disp = (800, 600)   # taille d'affichage de l'aperçu
 
         self.image = ft.Image(src=_BLANK, gapless_playback=True,
@@ -187,9 +188,11 @@ class RedresserTab:
         x, y = image_ops._project(np.linalg.inv(self.matrix), [pt])[0]
         return x / w, y / h
 
-    def _draw_lines(self, extra=None):
+    def _draw_lines(self, extra=None, skip=None):
         shapes = []
-        for line in self.lines:
+        for i, line in enumerate(self.lines):
+            if i == skip:
+                continue
             a = self._to_disp(*line[0])
             b = self._to_disp(*line[1])
             color = (YELLOW if image_ops.line_is_horizontal(line)
@@ -214,16 +217,32 @@ class RedresserTab:
     def _pan_start(self, e):
         p = (e.local_position.x, e.local_position.y)
         self.drag = [p, p]
+        self.moving = None
+        if self.proxy is None:
+            return
+        # Près d'une extrémité : on la déplace au lieu de tracer.
+        best = 20
+        for i, line in enumerate(self.lines):
+            for j in (0, 1):
+                d = np.hypot(*np.subtract(self._to_disp(*line[j]), p))
+                if d < best:
+                    best, self.moving = d, (i, j)
+        if self.moving:
+            i, j = self.moving
+            ends = [self._to_disp(*pt) for pt in self.lines[i]]
+            self.drag = ends if j else ends[::-1]  # drag[1] = point mobile
 
     def _pan_update(self, e):
         if self.drag is None:
             return
         self.drag[1] = (e.local_position.x, e.local_position.y)
-        self._draw_lines(self.drag)
+        self._draw_lines(self.drag,
+                         skip=self.moving[0] if self.moving else None)
         self.canvas.update()
 
     def _pan_end(self, e):
         drag, self.drag = self.drag, None
+        moving, self.moving = self.moving, None
         if drag is None or self.proxy is None:
             return
         (x0, y0), (x1, y1) = drag
@@ -231,7 +250,11 @@ class RedresserTab:
             self._draw_lines()
             self.canvas.update()
             return
-        self.lines.append((self._from_disp(x0, y0), self._from_disp(x1, y1)))
+        line = (self._from_disp(x0, y0), self._from_disp(x1, y1))
+        if moving:
+            self.lines[moving[0]] = line
+        else:
+            self.lines.append(line)
         self._solve()
 
     def _solve(self):
