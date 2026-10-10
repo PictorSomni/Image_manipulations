@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.9.3"
+__version__ = "2.10.0"
 
 import flet as ft
 import flet.canvas as cv
@@ -582,7 +582,7 @@ async def main(page: ft.Page) -> None:
                 ft.ControlState.DISABLED: LIGHT_GREY,
             },
         ),
-        disabled=True,
+        disabled=True, visible=not embedded,
         tooltip="Enregistrer dans le sous-dossier Retouche/",
     )
     open_btn = ft.Button(
@@ -857,9 +857,24 @@ async def main(page: ft.Page) -> None:
         async with ui_helpers.slow_veil(page, load_veil):
             await _load_image_path_inner(path, pre_decoded)
 
+    def _stage() -> None:
+        """Onglet intégré : la retouche part dans la réserve de l'hôte,
+        écrite sur disque seulement à « Valider »."""
+        if embedded and state["modified"] and state["work_img"] is not None:
+            page.on_staged(os.path.basename(state["source_path"]),
+                           state["work_img"].copy())
+            state["modified"] = False
+
+    if embedded:
+        page.stage_current = _stage
+
     async def _load_image_path_inner(path, pre_decoded) -> None:
         try:
-            img = (pre_decoded if pre_decoded is not None
+            _stage()
+            staged = (page.staged.get(os.path.basename(path))
+                      if embedded else None)
+            img = (staged.copy() if staged is not None
+                   else pre_decoded if pre_decoded is not None
                    else await asyncio.to_thread(_decode_image, path))
             state["source_path"]     = path
             state["orig_img"]        = img.copy()
@@ -3049,7 +3064,7 @@ async def main(page: ft.Page) -> None:
                 on_undo(None)
                 page.update()
         elif mod and event.key == "S":
-            if not save_btn.disabled:
+            if not save_btn.disabled and not embedded:
                 page.run_task(on_save, None)
         elif event.key == "Escape":
             # Priorité à l'abandon d'un envoi en cours : c'est le geste le

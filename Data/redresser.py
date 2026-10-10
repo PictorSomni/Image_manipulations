@@ -5,13 +5,12 @@ chacune devient horizontale ou verticale selon son orientation dominante
 de 0 à 100 %. Enregistré dans le fichier, original copié dans ORIGINAUX/.
 """
 
-__version__ = "2.9.3"
+__version__ = "2.10.0"
 
 import asyncio
 import base64
 import io
 import os
-import shutil
 
 import flet as ft
 import flet.canvas as cv
@@ -47,7 +46,7 @@ def _decode(path):
 
 class RedresserTab:
     """`view` à poser dans l'hôte ; `show(path)` charge une photo,
-    `on_saved(name)` est appelé après enregistrement."""
+    `on_saved(name, image)` reçoit la photo redressée (en mémoire)."""
 
     def __init__(self, page, on_saved):
         self.page = page
@@ -79,7 +78,7 @@ class RedresserTab:
         self.strength_val = ft.Text("100 %", size=12, color=WHITE,
                                     weight=ft.FontWeight.W_500)
         self.count = ft.Text("", size=12, color=LIGHT_GREY)
-        self.save_btn = self._btn("Enregistrer", ft.Icons.SAVE_OUTLINED,
+        self.save_btn = self._btn("Appliquer", ft.Icons.CHECK,
                                   VIOLET, self._save)
         self.status = ft.Text("", size=12, color=LIGHT_GREY)
 
@@ -180,7 +179,9 @@ class RedresserTab:
         for c in (self.stack, self.image, self.canvas, self.gesture.content):
             c.width, c.height = self.disp
 
-    async def show(self, path):
+    async def show(self, path, img=None):
+        """`img` : version en attente (IA / redressement précédent) à
+        reprendre au lieu du fichier."""
         self.path = path
         self.lines = []
         self.params = np.zeros(4)
@@ -188,7 +189,10 @@ class RedresserTab:
         self.strength_val.value = "100 %"
         self.status.value = ""
         async with ui_helpers.slow_veil(self.page, self.veil):
-            img = await asyncio.to_thread(_decode, path)
+            if img is None:
+                img = await asyncio.to_thread(_decode, path)
+            self.full = img
+            img = img.copy()
             img.thumbnail((_PROXY, _PROXY), Image.LANCZOS)
             self.proxy = img
             self._fit()
@@ -310,41 +314,26 @@ class RedresserTab:
     async def _save(self, e):
         if not self.lines or self.path is None:
             return
-        path = self.path
         s = self.strength.value / 100
         self.veil.visible = True
         self.page.update()
         try:
-            await asyncio.to_thread(self._write, path, s)
-            self.status.value = f"[OK] {os.path.basename(path)} redressée"
+            out = await asyncio.to_thread(self._straighten, self.full, s)
         except Exception as ex:
             self.status.value = f"[ERREUR] {ex}"
+            return
+        finally:
             self.veil.visible = False
             self.page.update()
-            return
-        self.veil.visible = False
-        self.on_saved(os.path.basename(path))
-        status = self.status.value
-        await self.show(path)
-        self.status.value = status
+        name = os.path.basename(self.path)
+        self.on_saved(name, out)
+        await self.show(self.path, out)
+        self.status.value = f"[OK] {name} redressée"
         self.page.update()
 
-    def _write(self, path, strength):
-        full = _decode(path)
+    def _straighten(self, full, strength):
         w, h = full.size
         # Lignes en fractions : même géométrie quelle que soit la taille.
         params = image_ops.upright_params(self.lines, w, h)
-        out = image_ops.apply_upright(full, self.lines, strength,
-                                      params=params)
-        backup_dir = os.path.join(os.path.dirname(path), "ORIGINAUX")
-        backup = os.path.join(backup_dir, os.path.basename(path))
-        if not os.path.exists(backup):
-            os.makedirs(backup_dir, exist_ok=True)
-            shutil.copy2(path, backup)
-        ext = os.path.splitext(path)[1].lower()
-        fmt = {".png": "PNG", ".tif": "TIFF", ".tiff": "TIFF"}.get(ext,
-                                                                   "JPEG")
-        extra = ({"quality": 100, "subsampling": 0} if fmt == "JPEG"
-                 else {})
-        out.save(path, format=fmt, dpi=(CONSTANTS.DPI, CONSTANTS.DPI),
-                 icc_profile=image_ops._SRGB_ICC, **extra)
+        return image_ops.apply_upright(full, self.lines, strength,
+                                       params=params)

@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.9.3"
+__version__ = "2.10.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -537,6 +537,11 @@ def main(page: ft.Page):
         "cur": None,
         "base": None,
         "checked": set(),
+        # Résultats IA / Redresser en attente (nom → image pleine taille),
+        # écrits sur disque seulement à « Valider ».
+        # ponytail: tout en RAM, à revoir si on retouche des centaines
+        # de photos IA dans une même session.
+        "staged": {},
     }
 
     # Contrôles à resynchroniser quand le bouton Réinitialiser recharge
@@ -862,8 +867,9 @@ def main(page: ft.Page):
         return state["overrides"].get(name) or state["base"]
 
     def _is_edited(name):
-        return state["base"] is not None and \
-            _photo_params(name) != state["base"]
+        return name in state["staged"] or (
+            state["base"] is not None
+            and _photo_params(name) != state["base"])
 
     def _apply_to(names):
         """Déploie les réglages de la photo affichée sur `names`."""
@@ -894,7 +900,7 @@ def main(page: ft.Page):
         try:
             raw = Image.open(path)
             state["date_label"] = image_ops.get_date_taken(raw)
-            img = image_ops.open_srgb(path)
+            img = state["staged"].get(name) or image_ops.open_srgb(path)
         except Exception as exc:
             counter_text.value = f"Erreur : {exc}"
             page.update()
@@ -955,8 +961,7 @@ def main(page: ft.Page):
             state["index"] = i
             _refresh_filmstrip()
             if state["tab"] == "redresser":
-                page.run_task(redresser_tab.show,
-                              str(folder_path / file_names[i]))
+                _show_redresser(i)
             elif ia_page.show_file:
                 ia_page.show_file(file_names[i])
         else:
@@ -1633,7 +1638,7 @@ def main(page: ft.Page):
 
     def _batch_label():
         n = sum(_is_edited(n) for n in file_names)
-        return f"Traiter {n} image{'s' if n > 1 else ''}"
+        return f"Valider {n} image{'s' if n > 1 else ''}"
 
     def _set_batch_running(running):
         """Le bouton du lot devient son propre bouton d'arrêt.
@@ -1694,7 +1699,8 @@ def main(page: ft.Page):
             try:
                 with Image.open(src_path) as raw:
                     date_label = image_ops.get_date_taken(raw)
-                img = image_ops.open_srgb(src_path)
+                img = (state["staged"].get(name)
+                       or image_ops.open_srgb(src_path))
             except Exception:
                 continue
             dest = originaux_folder / name
@@ -1709,6 +1715,7 @@ def main(page: ft.Page):
             result.save(str(out_path), format="JPEG",
                        subsampling=0, quality=100,
                        icc_profile=image_ops._SRGB_ICC)
+            state["staged"].pop(name, None)
             # L'original est déjà en sécurité dans ORIGINAUX/ : on retire
             # la source d'extension différente pour ne garder qu'une seule
             # version (la dernière validée) dans le dossier courant.
@@ -1810,6 +1817,7 @@ def main(page: ft.Page):
     )
 
     def _open_batch_dialog(e):
+        _stage_ia()
         n = sum(_is_edited(n) for n in file_names)
         if not n:
             return
@@ -1823,7 +1831,7 @@ def main(page: ft.Page):
         page.update()
 
     batch_button = ft.FilledButton(
-        "Traiter 0 image",
+        "Valider 0 image",
         icon=ft.Icons.PLAY_ARROW, bgcolor=GREEN, color=DARK,
         height=CONSTANTS.TOUCH_TARGET,  # action principale : cible au doigt
         expand=True, on_click=_open_batch_dialog,
@@ -2424,11 +2432,11 @@ def main(page: ft.Page):
 
     def _show_pane(key):
         was_embedded = state.get("tab") in embedded_tabs
+        _stage_ia()
         if key == "ia":
             _open_ia_tab()
         elif key == "redresser":
-            page.run_task(redresser_tab.show,
-                          str(folder_path / file_names[state["index"]]))
+            _show_redresser(state["index"])
         else:
             for k, pane in panes.items():
                 pane.visible = k == key
@@ -2524,13 +2532,27 @@ def main(page: ft.Page):
     ia_page = _TabPage(page, ia_view, width_offset=_RAIL_W,
                        height_offset=_FILMSTRIP_H + 2 * CONSTANTS.SPACE_SM)
 
-    def _on_straightened(name):
-        # Fichier réécrit : miniatures à jour, l'IA rechargera la photo.
-        state["ia_stale"] = True
-        threading.Thread(target=_load_thumbs, daemon=True).start()
+    def _on_staged(name, img):
+        """IA / Redresser : nouveau résultat en attente de « Valider »."""
+        state["staged"][name] = img.convert("RGB")
+        if name != file_names[state["index"]] or state["tab"] != "ia":
+            state["ia_stale"] = True
+        _refresh_filmstrip()
+
+    def _stage_ia():
+        if ia_page.stage_current:
+            ia_page.stage_current()
+
+    def _show_redresser(i):
+        name = file_names[i]
+        page.run_task(redresser_tab.show, str(folder_path / name),
+                      state["staged"].get(name))
+
+    ia_page.staged = state["staged"]
+    ia_page.on_staged = _on_staged
 
     import redresser
-    redresser_tab = redresser.RedresserTab(page, _on_straightened)
+    redresser_tab = redresser.RedresserTab(page, _on_staged)
     red_strip = ft.Container(padding=ft.Padding(CONSTANTS.SPACE_MD, 0, 0,
                                                 CONSTANTS.SPACE_SM))
     red_tab = ft.Column([redresser_tab.view, red_strip], expand=True,
@@ -2638,6 +2660,7 @@ class _TabPage:
                  on_keyboard_event=None, on_resized=None, on_resize=None,
                  _width_offset=width_offset,
                  _height_offset=height_offset, on_file_shown=None,
+                 staged={}, on_staged=None, stage_current=None,
                  window=_WindowProxy(page.window))
 
     def __getattr__(self, name):
