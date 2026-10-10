@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.6.3"
+__version__ = "2.6.4"
 
 import asyncio
 import base64
@@ -11916,13 +11916,14 @@ def main(page: ft.Page):
     # seules (sans texte), Imprimer/Nombre d'impressions déplacés juste
     # avant Supprimer dans la liste texte ci-dessous (retour user).
     _fichier_icon_actions = [
-        ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_DARK,
-         renommer_btn.on_click),
         # JAUNE comme les autres icônes/actions liées aux dossiers (icône
         # de dossier, "Créer un dossier") — n'agit que sur un seul dossier
         # sélectionné (garde dans _open_folder_new_tab).
         ("Ouvrir dans un nouvel onglet", ft.Icons.TAB_OUTLINED, YELLOW,
          lambda e: _open_folder_new_tab(list(selected))),
+        None,
+        ("Renommer", ft.Icons.DRIVE_FILE_RENAME_OUTLINE, BLUE_DARK,
+         renommer_btn.on_click),
         ("Copier", ft.Icons.CONTENT_COPY, BLUE, copier_btn.on_click),
         # Ces entrées déclenchent EXACTEMENT le même handler que les
         # boutons de la barre d'outils (couper/coller/zipper) : elles
@@ -12125,6 +12126,8 @@ def main(page: ft.Page):
             if t is None:
                 row.append(ft.Container(
                     ft.VerticalDivider(color=LIGHT_GREY), height=32))
+                if row[0] is not row[-1] and len(row) == 2:
+                    _icon_btns["sep_after_first"] = row[-1]
                 continue
             _icon_btns[t[0]] = ft.IconButton(
                 t[1], icon_color=t[2], icon_size=CONSTANTS.ICON_LG,
@@ -12290,8 +12293,8 @@ def main(page: ft.Page):
     def _open_actions(event):
         _rebuild_open_with_category()   # reflète un programme ajouté entre-temps
         # Nouvel onglet : seulement si un dossier est explicitement sélectionné.
-        _new_tab_btn.visible = (len(selected) == 1
-                                and os.path.isdir(list(selected)[0]))
+        _new_tab_btn.visible = _icon_btns["sep_after_first"].visible = (
+            len(selected) == 1 and os.path.isdir(selected[0]))
         if actions_overlay not in page.overlay:
             page.overlay.append(actions_overlay)
         page.update()

@@ -10,7 +10,7 @@ et un service DBus/Secret Service (gnome-keyring), sinon keyring
 échoue avec "No recommended backend was available".
 """
 
-__version__ = "2.6.3"
+__version__ = "2.6.4"
 
 import keyring
 
