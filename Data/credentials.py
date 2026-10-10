@@ -10,7 +10,7 @@ et un service DBus/Secret Service (gnome-keyring), sinon keyring
 échoue avec "No recommended backend was available".
 """
 
-__version__ = "2.8.2"
+__version__ = "2.8.3"
 
 import json
 import os
@@ -108,6 +108,43 @@ def get_secret(name):
     """Valeur saisie dans Hub, ou "" (l'appelant garde ses anciens
     emplacements en repli : variables d'environnement, ~/.notion…)."""
     return (load_secrets().get(name) or "").strip()
+
+
+def _read_lines(path):
+    try:
+        with open(os.path.expanduser(path), encoding="utf-8-sig") as f:
+            return [ln.strip() for ln in f if ln.strip()]
+    except OSError:
+        return []
+
+
+def existing_secrets():
+    """Identifiants déjà présents ailleurs (anciens fichiers cachés,
+    variables d'environnement) — pré-remplissent la fenêtre Identifiants,
+    qui les reprend à l'enregistrement."""
+    found = {}
+    for name, var in _ENV.items():
+        if os.environ.get(var, "").strip():
+            found[name] = os.environ[var].strip()
+    notion = _read_lines("~/.notion_token") or _read_lines("~/.notion")
+    if notion:
+        found["notion"] = notion[0]
+    meta = _read_lines("~/.meta")
+    if meta:
+        found.setdefault("muse", meta[0])
+    mail = _read_lines("~/.mail")
+    for key, value in zip(("mail_user", "mail_password", "mail_host"), mail):
+        found[key] = value
+    try:
+        import ai_tools
+        found.setdefault("gemini", ai_tools._get_gemini_api_key() or "")
+        found.setdefault("anthropic",
+                         ai_tools._get_anthropic_api_key() or "")
+        import meta_ai
+        found.setdefault("muse", meta_ai._key() or "")
+    except Exception:
+        pass
+    return {k: v for k, v in found.items() if v}
 
 
 def save_secrets(values):

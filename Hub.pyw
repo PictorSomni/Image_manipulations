@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.8.2"
+__version__ = "2.8.3"
 
 import asyncio
 import base64
@@ -13391,7 +13391,8 @@ def main(page: ft.Page):
         """Clés et identifiants (IA, Notion, Topaz, mail) saisis ici,
         enregistrés pour l'utilisateur (credentials.save_secrets) — rien à
         déposer à la main sur une nouvelle machine."""
-        current = credentials.load_secrets()
+        current = {**credentials.existing_secrets(),
+                   **credentials.load_secrets()}
         fields = {
             key: ft.TextField(
                 hint_text=hint or None, data=label,
