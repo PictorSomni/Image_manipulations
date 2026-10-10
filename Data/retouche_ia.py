@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.8.3"
+__version__ = "2.8.4"
 
 import flet as ft
 import flet.canvas as cv
@@ -2881,11 +2881,46 @@ async def main(page: ft.Page) -> None:
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     )
 
+    # Avant / Après : maintenir pour voir l'original (comme dans
+    # Retouche photo, retour user).
+    _orig_b64 = {"src": None, "b64": None}
+
+    def _show_original(show):
+        def handler(e):
+            if state["orig_img"] is None or state["work_img"] is None:
+                return
+            compare_icon.color = BLUE if show else WHITE
+            if show:
+                if _orig_b64["src"] is not state["orig_img"]:
+                    flat, _ = _flatten_reduced(state["orig_img"])
+                    _orig_b64.update(
+                        src=state["orig_img"], b64=image_to_b64(
+                            image_ops.compensate_for_display(flat)))
+                preview_img.src = f"data:image/jpeg;base64,{_orig_b64['b64']}"
+                page.update()
+            else:
+                _render_preview()
+                page.update()
+        return handler
+
+    compare_icon = ft.Icon(ft.Icons.COMPARE, color=WHITE,
+                           size=CONSTANTS.ICON_SM)
+    compare_btn = ft.GestureDetector(
+        content=ft.Container(
+            compare_icon, padding=CONSTANTS.SPACE_SM, border_radius=8,
+            bgcolor=ft.Colors.with_opacity(0.6, DARK),
+            tooltip="Avant / Après"),
+        mouse_cursor=ft.MouseCursor.CLICK,
+        on_tap_down=_show_original(True), on_tap_up=_show_original(False),
+        on_tap_cancel=_show_original(False),
+        left=CONSTANTS.SPACE_SM, bottom=CONSTANTS.SPACE_SM)
+
     center_panel = ft.Column(
         [
             ft.Container(
                 content=ft.Stack(
-                    [preview_placeholder, preview_viewer, load_veil],
+                    [preview_placeholder, preview_viewer, compare_btn,
+                     load_veil],
                     expand=True,
                 ),
                 expand=True,
