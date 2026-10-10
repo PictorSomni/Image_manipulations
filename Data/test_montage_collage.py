@@ -8,7 +8,7 @@ test_ui_changes.py le fait pour Retouche photo.pyw).
 Lancer :  python3 "Data/test_montage_collage.py"
 """
 
-__version__ = "2.7.0"
+__version__ = "2.7.1"
 
 
 import importlib.machinery

@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.7.0"
+__version__ = "2.7.1"
 
 import asyncio
 import base64
@@ -10412,7 +10412,6 @@ def main(page: ft.Page):
                     _close_viewer()
                 page.update()
             running_proc["proc"] = None
-            terminal_stop_button.visible = False
             if running_proc["stopped"]:
                 _log_to_terminal(f"[ARRÊTÉ] {script_name} interrompu", ORANGE)
                 # Comme une erreur : panneau laissé épinglé, l'utilisateur
@@ -10430,13 +10429,17 @@ def main(page: ft.Page):
                 _terminal_autohide["pinned"] = prev_pinned
                 _show_terminal_and_schedule_hide(
                     CONSTANTS.HUB_TERMINAL_TOOL_CLOSE_DELAY)
-            _run_task(_tool_refresh, nav_target["path"] or folder,
-                          sel_target["names"], origin_tab_id)
-            action_progress_bar.visible = False
-            try:
+            # Tout dans la boucle Flet, après le rafraîchissement : un
+            # page.update() depuis ce thread pendant que _tool_refresh
+            # reconstruit la liste donnait « RangeError … empty: 0 »
+            # (retour user, Renommer séquence).
+            async def _finish(path=nav_target["path"] or folder,
+                              names=sel_target["names"]):
+                await _tool_refresh(path, names, origin_tab_id)
+                action_progress_bar.visible = False
+                terminal_stop_button.visible = False
                 page.update()
-            except Exception:
-                pass
+            _run_task(_finish)
 
         threading.Thread(target=_run, daemon=True).start()
 

@@ -13,7 +13,7 @@ API publique :
   invalidate_stale(folder_path)
 """
 
-__version__ = "2.7.0"
+__version__ = "2.7.1"
 
 
 import os
