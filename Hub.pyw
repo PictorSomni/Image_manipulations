@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.8.6"
+__version__ = "2.8.7"
 
 import asyncio
 import base64
@@ -11939,10 +11939,6 @@ def main(page: ft.Page):
         ("Coller", ft.Icons.CONTENT_PASTE, HOVER_YELLOW, coller_btn.on_click),
         ("Dupliquer", ft.Icons.FILE_COPY_OUTLINED, VIOLET_LIGHT,
          dupliquer_btn.on_click),
-        ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE,
-         zipper_btn.on_click),
-        ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
-         ajouter_ia_btn.on_click),
         None,
         ("Pivoter 90° gauche", ft.Icons.ROTATE_LEFT, GREEN,
          lambda e: _run_action(_do_rotate, list(selected), 90)),
@@ -11959,6 +11955,12 @@ def main(page: ft.Page):
         ("Nombre d'impressions", ft.Icons.NUMBERS, ORANGE,
          lambda e: _run_action(_set_print_count, list(selected))),
         None,
+        # Zipper et IA juste avant la corbeille, comme dans la barre
+        # d'outils de Hub (retour user).
+        ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE,
+         zipper_btn.on_click),
+        ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
+         ajouter_ia_btn.on_click),
         ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
          supprimer_btn.on_click),
     ]
