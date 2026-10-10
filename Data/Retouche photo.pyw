@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.6.4"
+__version__ = "2.6.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -1765,6 +1765,10 @@ def main(page: ft.Page):
         for switch, dct in reset_registry["switches"]:
             switch.value = dct["enabled"]
             switch.update()
+            # Lumière et Couleur partagent le même dict : les deux.
+            for name, sec in sections.items():
+                if sec["param"] is dct:
+                    _refresh_header(name)
             _refresh_header(_dct_to_section.get(id(dct)))
         for column, label, dct, key in reset_registry["sliders"]:
             column.data()  # cf. _slider_row : rafraîchit depuis dct[key]
