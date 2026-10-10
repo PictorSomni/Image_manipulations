@@ -7,7 +7,15 @@ set -e
 REPO=https://github.com/PictorSomni/Image_manipulations.git
 DIR="${HUB_DIR:-$HOME/Image_manipulations}"
 
-if [ "$(uname)" = "Darwin" ]; then
+missing() {
+    ! command -v python3 >/dev/null || ! command -v git >/dev/null \
+        || ! python3 -c "import venv, ensurepip" 2>/dev/null \
+        || { ! command -v magick >/dev/null && ! command -v convert >/dev/null; }
+}
+
+if ! missing; then
+    :
+elif [ "$(uname)" = "Darwin" ]; then
     if ! command -v brew >/dev/null; then
         /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
         eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || /usr/local/bin/brew shellenv)"
