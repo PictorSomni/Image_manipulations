@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.10.0"
+__version__ = "2.10.1"
 
 import flet as ft
 import flet.canvas as cv
@@ -2344,7 +2344,7 @@ async def main(page: ft.Page) -> None:
     # ── Suppression de fond (rembg) ──────────────────────────────────────────
 
     rembg_dropdown = _seg(
-        [(o, o) for o in ("Blanc", "Gris", "Flou", "Transparent")], "Blanc",
+        [(o, o) for o in ("Blanc", "Gris", "Flou")], "Blanc",
         on_change=lambda e: on_rembg_bg_change(e),
         disabled=not REMBG_AVAILABLE,
         tooltip="Type de fond après suppression" if REMBG_AVAILABLE else "pip install rembg onnxruntime",

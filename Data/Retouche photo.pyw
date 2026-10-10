@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.0"
+__version__ = "2.10.1"
 
 #############################################################
 #                          IMPORTS                          #
@@ -2621,6 +2621,24 @@ def main(page: ft.Page):
             _show_pane(os.environ["START_TAB"])
 
     page.run_task(_startup)
+
+    # Fermeture avec des retouches non validées : confirmation.
+    def _on_window_event(e):
+        if e.type != ft.WindowEventType.CLOSE:
+            return
+        _stage_ia()
+        _store_photo()
+        if state.get("batch") or not any(map(_is_edited, file_names)):
+            page.run_task(page.window.destroy)
+            return
+        ui_helpers.confirm_dialog(
+            page, "Quitter sans valider ?",
+            lambda: page.run_task(page.window.destroy),
+            {"white": WHITE}, confirm_label="Quitter", confirm_color=RED,
+            message="Les retouches en attente seront perdues.")
+
+    page.window.prevent_close = True
+    page.window.on_event = _on_window_event
 
 
 #############################################################
