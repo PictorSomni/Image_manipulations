@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.9.2"
+__version__ = "2.9.3"
 
 #############################################################
 #                          IMPORTS                          #
@@ -641,7 +641,8 @@ def main(page: ft.Page):
         on_pan_update=_on_preview_pan_update,
         on_pan_end=_on_preview_pan_end)
     preview_viewer = ft.InteractiveViewer(
-        content=preview_tap, min_scale=1.0, max_scale=6.0,
+        content=ft.Container(preview_tap, alignment=ft.Alignment.CENTER),
+        min_scale=1.0, max_scale=6.0,
         pan_enabled=True, scale_enabled=True, constrained=True,
         width=state["preview_w"], height=state["preview_h"],
         clip_behavior=ft.ClipBehavior.HARD_EDGE)
@@ -698,12 +699,25 @@ def main(page: ft.Page):
         else:
             state["proxy"] = img.copy()
         state["proxy_max_px"] = target
+        _fit_stage()
         buf = io.BytesIO()
         image_ops.to_display_profile(state["proxy"]).save(
             buf, format="JPEG", quality=92)
         original_display.src = ("data:image/jpeg;base64,"
                                 + base64.b64encode(buf.getvalue()).decode())
         return True
+
+    def _fit_stage():
+        """Image, original et poignées au format exact de la photo,
+        centrés par Flutter : aucune marge à deviner côté Python (sur
+        Mac, la marge calculée ne collait pas → masques décalés)."""
+        w, h = state["preview_w"], state["preview_h"]
+        proxy = state["proxy"]
+        if proxy is not None:
+            k = min(w / proxy.width, h / proxy.height)
+            w, h = proxy.width * k, proxy.height * k
+        for c in (image_display, original_display, mask_canvas):
+            c.width, c.height = w, h
 
     def _apply_preview_size(e=None):
         """Colonne outils (gauche) = 40 % de la largeur de fenêtre en
@@ -720,10 +734,8 @@ def main(page: ft.Page):
         h = max(300, page_h - _FILMSTRIP_H - _BAR_H - 4 * CONSTANTS.SPACE_MD)
         w = left_w - CONSTANTS.SPACE_LG
         state["preview_w"], state["preview_h"] = w, h
-        image_display.width, image_display.height = w, h
-        original_display.width, original_display.height = w, h
         preview_viewer.width, preview_viewer.height = w, h
-        mask_canvas.width, mask_canvas.height = w, h
+        _fit_stage()
         preview_container.width, preview_container.height = left_w, h + 16
         state["hist_w"] = right_w - 2 * CONSTANTS.SPACE_MD
         histogram_image.width = state["hist_w"]
@@ -895,7 +907,7 @@ def main(page: ft.Page):
         _rebuild_proxy()
         # Original tout de suite, en attendant le rendu.
         image_display.src = original_display.src
-        image_display.update()
+        preview_viewer.update()
         counter_text.value = f"{idx + 1} / {len(file_names)} — {name}"
         _refresh_filmstrip()
         _sync_controls_from_params()
