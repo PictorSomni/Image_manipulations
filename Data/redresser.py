@@ -5,7 +5,7 @@ chacune devient horizontale ou verticale selon son orientation dominante
 de 0 à 100 %. Enregistré dans le fichier, original copié dans ORIGINAUX/.
 """
 
-__version__ = "2.9.0"
+__version__ = "2.9.1"
 
 import asyncio
 import base64
@@ -114,7 +114,8 @@ class RedresserTab:
                 content=ft.Stack([ft.Container(self.stack,
                                                alignment=ft.Alignment.CENTER,
                                                expand=True),
-                                  self.veil], expand=True),
+                                  self._compare_btn(), self.veil],
+                                 expand=True),
                 expand=True, bgcolor="#1e1e1e", border_radius=8,
                 margin=ft.Margin(CONSTANTS.SPACE_MD, CONSTANTS.SPACE_MD, 0,
                                  0)),
@@ -122,6 +123,40 @@ class RedresserTab:
         ], expand=True, spacing=CONSTANTS.SPACE_LG,
             vertical_alignment=ft.CrossAxisAlignment.STRETCH)
         self._refresh_controls()
+
+    def _compare_btn(self):
+        self.compare_icon = ft.Icon(ft.Icons.COMPARE, color=WHITE,
+                                    size=CONSTANTS.ICON_SM)
+        return ft.GestureDetector(
+            content=ft.Container(
+                self.compare_icon, padding=CONSTANTS.SPACE_SM,
+                border_radius=8, bgcolor=ft.Colors.with_opacity(0.6, DARK),
+                tooltip="Avant / Après"),
+            mouse_cursor=ft.MouseCursor.CLICK,
+            on_tap_down=lambda e: self._show_original(True),
+            on_tap_up=lambda e: self._show_original(False),
+            on_tap_cancel=lambda e: self._show_original(False),
+            left=CONSTANTS.SPACE_SM, bottom=CONSTANTS.SPACE_SM)
+
+    def _show_original(self, show):
+        if self.proxy is None:
+            return
+        self.compare_icon.color = VIOLET if show else WHITE
+        if show:
+            self.after_src = self.image.src
+            self.image.src = self._encode(self.proxy)
+        else:
+            self.image.src = getattr(self, "after_src", self.image.src)
+        self.canvas.visible = not show
+        self.page.update()
+
+    def _encode(self, img):
+        buf = io.BytesIO()
+        image_ops.to_display_profile(
+            img.resize(self.disp, Image.LANCZOS)).save(buf, "JPEG",
+                                                       quality=90)
+        return ("data:image/jpeg;base64,"
+                + base64.b64encode(buf.getvalue()).decode())
 
     def _btn(self, label, icon, bg, handler, color=DARK):
         return ft.FilledButton(
@@ -168,11 +203,7 @@ class RedresserTab:
         self.matrix = image_ops.upright_homography(self.params, w, h, s)
         out = image_ops.apply_upright(self.proxy, self.lines, s,
                                       params=self.params)
-        out = out.resize(self.disp, Image.LANCZOS)
-        buf = io.BytesIO()
-        image_ops.to_display_profile(out).save(buf, "JPEG", quality=90)
-        self.image.src = ("data:image/jpeg;base64,"
-                          + base64.b64encode(buf.getvalue()).decode())
+        self.image.src = self._encode(out)
         self._draw_lines()
         self._refresh_controls()
         self.page.update()
