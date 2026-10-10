@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.8.0"
+__version__ = "2.8.1"
 
 import asyncio
 import base64
@@ -13389,11 +13389,12 @@ def main(page: ft.Page):
         current = credentials.load_secrets()
         fields = {
             key: ft.TextField(
-                label=label, value=current.get(key, ""), password=hidden,
+                label=label, hint_text=hint or None,
+                value=current.get(key, ""), password=hidden,
                 can_reveal_password=hidden, width=420, bgcolor=DARK,
                 border=CONSTANTS.input_border(GREY), color=WHITE,
                 text_size=CONSTANTS.TEXT_SM)
-            for key, label, hidden in credentials.SECRETS}
+            for key, label, hidden, hint in credentials.SECRETS}
 
         def _save(e):
             credentials.save_secrets(

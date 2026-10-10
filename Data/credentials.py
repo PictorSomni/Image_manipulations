@@ -10,7 +10,7 @@ et un service DBus/Secret Service (gnome-keyring), sinon keyring
 échoue avec "No recommended backend was available".
 """
 
-__version__ = "2.8.0"
+__version__ = "2.8.1"
 
 import json
 import os
@@ -73,15 +73,15 @@ def delete_credential(service, username):
 # ponytail: en clair comme les anciens ~/.notion / ~/.meta ; chiffrer si
 # la machine est partagée entre plusieurs comptes.
 SECRETS = [
-    # (clé, libellé, masqué)
-    ("gemini", "Clé Gemini", True),
-    ("anthropic", "Clé Claude", True),
-    ("muse", "Clé Muse", True),
-    ("notion", "Jeton Notion", True),
-    ("topaz", "Clé Topaz", True),
-    ("mail_user", "Adresse mail", False),
-    ("mail_password", "Mot de passe mail", True),
-    ("mail_host", "Serveur mail", False),
+    # (clé, libellé, masqué, exemple affiché dans le champ vide)
+    ("gemini", "Clé Gemini", True, "AIza…"),
+    ("anthropic", "Clé Claude", True, "sk-ant-…"),
+    ("muse", "Clé Muse", True, ""),
+    ("notion", "Jeton Notion", True, "ntn_…"),
+    ("topaz", "Clé Topaz", True, ""),
+    ("mail_user", "Adresse mail", False, "info@studiocleuze.be"),
+    ("mail_password", "Mot de passe mail", True, ""),
+    ("mail_host", "Serveur mail", False, "ex2.mail.ovh.net"),
 ]
 
 
