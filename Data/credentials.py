@@ -1,4 +1,4 @@
-"""
+﻿"""
 Stockage de mots de passe/identifiants dans le coffre natif de l'OS :
 Windows Credential Manager, macOS Keychain, Secret Service sur Linux
 (GNOME Keyring / KWallet). Le secret n'est jamais écrit en clair sur
@@ -10,7 +10,11 @@ et un service DBus/Secret Service (gnome-keyring), sinon keyring
 échoue avec "No recommended backend was available".
 """
 
-__version__ = "2.7.1"
+__version__ = "2.8.0"
+
+import json
+import os
+import sys
 
 import keyring
 
@@ -60,6 +64,76 @@ def delete_credential(service, username):
             keyring.delete_password(key, name)
         except keyring.errors.PasswordDeleteError:
             pass
+
+
+# ── Identifiants saisis dans Hub (fenêtre « Identifiants ») ─────────
+# Fichier JSON par utilisateur, lisible par lui seul : le trousseau OS
+# bloque sur certaines sessions (KWallet verrouillé sur le Pi) et ne se
+# configure pas sans aide sur une nouvelle machine.
+# ponytail: en clair comme les anciens ~/.notion / ~/.meta ; chiffrer si
+# la machine est partagée entre plusieurs comptes.
+SECRETS = [
+    # (clé, libellé, masqué)
+    ("gemini", "Clé Gemini", True),
+    ("anthropic", "Clé Claude", True),
+    ("muse", "Clé Muse", True),
+    ("notion", "Jeton Notion", True),
+    ("topaz", "Clé Topaz", True),
+    ("mail_user", "Adresse mail", False),
+    ("mail_password", "Mot de passe mail", True),
+    ("mail_host", "Serveur mail", False),
+]
+
+
+def _secrets_path():
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or os.path.expanduser("~")
+    elif sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    else:
+        base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser(
+            "~/.config")
+    return os.path.join(base, "ImageManipulations", "secrets.json")
+
+
+def load_secrets():
+    try:
+        with open(_secrets_path(), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def get_secret(name):
+    """Valeur saisie dans Hub, ou "" (l'appelant garde ses anciens
+    emplacements en repli : variables d'environnement, ~/.notion…)."""
+    return (load_secrets().get(name) or "").strip()
+
+
+def save_secrets(values):
+    path = _secrets_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    data = {k: v.strip() for k, v in values.items() if v and v.strip()}
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    if os.name != "nt":
+        os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+_ENV = {"gemini": "GEMINI_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
+        "muse": "MUSE_API_KEY"}
+
+
+def export_env():
+    """Copie les clés saisies dans l'environnement : les outils lancés
+    par Hub (sous-processus) et le code qui lit l'environnement les
+    voient sans autre configuration."""
+    for name, var in _ENV.items():
+        value = get_secret(name)
+        if value:
+            os.environ[var] = value
 
 
 def _selftest():

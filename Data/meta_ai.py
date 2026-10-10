@@ -1,4 +1,4 @@
-"""Meta Model API (Muse Image, Muse Spark) pour le Hub et Augmentation IA.
+﻿"""Meta Model API (Muse Image, Muse Spark) pour le Hub et Augmentation IA.
 
 generate_image : même retour que ai_tools._gemini_generate_image.
 chat_stream_with_tools : mêmes événements que
@@ -8,7 +8,7 @@ Clé : variable MUSE_API_KEY (environnement ou .zshrc/.bashrc), ou
 ~/.meta (hors du repo, jamais commitée).
 """
 
-__version__ = "2.7.1"
+__version__ = "2.8.0"
 
 import base64
 import json
@@ -42,6 +42,9 @@ def _key():
     """MUSE_API_KEY (ou MODEL_API_KEY) dans l'environnement, sinon ~/.meta,
     sinon exportée dans .zshrc/.bashrc (une app lancée hors terminal ne
     les voit pas — même principe que la clé Gemini)."""
+    import credentials
+    if credentials.get_secret("muse"):
+        return credentials.get_secret("muse")
     for name in ("MUSE_API_KEY", "MODEL_API_KEY"):
         if os.environ.get(name, "").strip():
             return os.environ[name].strip()

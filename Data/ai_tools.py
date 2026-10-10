@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 Utilitaires IA partagés entre Hub.pyw et les scripts de Data/.
 
@@ -53,7 +53,7 @@ Dictée — STT (push-to-talk) :
   _gemini_transcribe_audio(wav_bytes, ...)   — transcrit un WAV via Gemini, retourne le texte
 """
 
-__version__ = "2.7.1"
+__version__ = "2.8.0"
 
 
 import ast as _ast
@@ -177,7 +177,12 @@ def _get_gemini_api_key():
     import re
     import subprocess
     
-    key = ""
+    import credentials
+    # 0. Saisie dans Hub (fenêtre Identifiants)
+    key = credentials.get_secret("gemini")
+    if key:
+        _GEMINI_API_KEY_CACHE = key
+        return key
     # 1. Directement dans l'environnement
     key = os.environ.get("GEMINI_API_KEY", "").strip()
     if key:
@@ -5589,7 +5594,9 @@ def _get_anthropic_api_key():
     import re
     import subprocess
 
-    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    import credentials
+    key = (credentials.get_secret("anthropic")
+           or os.environ.get("ANTHROPIC_API_KEY", "").strip())
     if key:
         return key
 

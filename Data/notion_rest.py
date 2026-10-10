@@ -1,4 +1,4 @@
-"""Accès Notion par clé API (intégration interne) pour le panneau Tâches.
+﻿"""Accès Notion par clé API (intégration interne) pour le panneau Tâches.
 
 Même interface que mcp_client.mcp_call_tool pour les 4 outils Notion
 utilisés par le Kanban, et mêmes formes de retour (chaîne JSON, ou
@@ -11,7 +11,7 @@ commitée). Absente ->
 TOKEN vide -> Hub retombe sur la connexion MCP/OAuth.
 """
 
-__version__ = "2.7.1"
+__version__ = "2.8.0"
 
 import json
 import os
@@ -20,8 +20,10 @@ import urllib.error
 import urllib.request
 
 # ".notion" accepté aussi : c'est le nom que Charles a donné au fichier.
-TOKEN = ""
-for _name in ("~/.notion_token", "~/.notion"):
+import credentials
+
+TOKEN = credentials.get_secret("notion")
+for _name in () if TOKEN else ("~/.notion_token", "~/.notion"):
     try:
         with open(os.path.expanduser(_name), encoding="utf-8-sig") as f:
             TOKEN = f.read().strip()

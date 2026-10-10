@@ -202,69 +202,41 @@ L'IA peut voir l'écran et interagir avec n'importe quelle application comme un 
 
 ## Installation
 
-### Prérequis
+Une seule commande installe tout (Python, Git, ImageMagick, Hub et ses dépendances), crée un raccourci et lance Hub.
 
-- **Python 3.12+** — https://www.python.org/downloads/
-- **ImageMagick** — requis pour la conversion d'images (Wand)
+**Windows** — dans PowerShell :
 
-### Windows
-
-1. Installer Python 3.12+ (cocher "Add Python to PATH").
-2. Ouvrir le dossier du projet.
-3. Double-cliquer sur `install.bat`.
-4. Lancer avec `run.bat`.
-
-### macOS / Linux
-
-1. Installer Python 3.12+.
-2. Ouvrir un terminal à la racine du projet.
-3. Rendre les scripts exécutables (une seule fois) :
-
-```bash
-chmod +x install.sh run.sh
+```powershell
+irm https://raw.githubusercontent.com/PictorSomni/Image_manipulations/main/setup.ps1 | iex
 ```
 
-4. Lancer l'installation :
+**macOS / Linux** — dans un terminal :
 
 ```bash
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/PictorSomni/Image_manipulations/main/setup.sh | bash
 ```
 
-5. Lancer Hub :
+Hub est installé dans le dossier personnel (`Image_manipulations`). Relancer la même commande met à jour une installation existante.
 
-```bash
-./run.sh
-```
+### Identifiants
 
-### Ce que font les scripts d'installation
+Au premier lancement, la fenêtre **Identifiants** s'ouvre : clés Gemini, Claude, Muse, Topaz, jeton Notion et compte mail. Elle reste accessible ensuite via l'icône clé de la barre de titre. Chaque champ est facultatif : la fonction correspondante reste simplement inactive tant qu'il est vide.
 
-- Installent les dépendances Python (`requirements.txt`).
-- Vérifient la présence d'ImageMagick et proposent l'installation si absent.
-- Installent Ollama (IA locale) et téléchargent un modèle de base (`llama3.2:3b`).
+Les identifiants sont enregistrés pour l'utilisateur seul :
+- Windows : `%APPDATA%\ImageManipulations\secrets.json`
+- macOS : `~/Library/Application Support/ImageManipulations/secrets.json`
+- Linux : `~/.config/ImageManipulations/secrets.json`
+
+### Installation manuelle
+
+Depuis une copie du dépôt : `install.bat` (Windows) ou `./install.sh` (macOS/Linux, crée un environnement `.venv`), puis `run.bat` / `./run.sh`.
 
 ### Dépendances optionnelles — onglet IA de Retouche photo
 
-Les fonctionnalités d'inpainting, super-résolution et synthèse par patches (`retouche_ia.py`) nécessitent des paquets lourds (~5–10 GB) qui ne sont **pas** installés par défaut car ils entrent en conflit avec la version de Pillow utilisée par le reste de l'application (voir note dans `requirements.txt`).
-
-Pour les installer manuellement dans un environnement isolé :
+Inpainting et super-résolution locaux (`requirements-augmentation.txt`, ~5–10 GB, non installés par défaut) :
 
 ```bash
 pip install -r requirements-augmentation.txt
-```
-
-> **Note :** IOPaint requiert `Pillow<10.0.0`, incompatible avec `Pillow>=10.0.0` requis par le reste de l'application. Cette fonctionnalité sera revue prochainement.
-
-Pour SAM2 (segmentation interactive) :
-
-```bash
-pip install git+https://github.com/facebookresearch/sam2.git
-```
-
-Puis télécharger les modèles IOPaint :
-
-```bash
-iopaint download --model lama    # ~100 MB
-iopaint download --model mat     # ~400 MB
 ```
 
 ---
@@ -312,13 +284,9 @@ Relancer simplement le script d'installation (`install.bat` ou `./install.sh`).
 - macOS : `brew install imagemagick`
 - Windows : https://imagemagick.org/script/download.php#windows (choisir `...-Q16-HDRI-x64-dll.exe`)
 
-### Clé API Gemini
+### Fonction IA, Notion ou mail inactive
 
-Définir la variable d'environnement `GEMINI_API_KEY` dans `.zshrc`, `.bashrc` ou un fichier `.env` à la racine du projet.
-
-### Ollama non détecté
-
-Installer depuis https://ollama.com/download puis relancer l'installation.
+Vérifier la clé correspondante dans **Identifiants** (icône clé de la barre de titre).
 
 ### Problème GPU / ONNX
 

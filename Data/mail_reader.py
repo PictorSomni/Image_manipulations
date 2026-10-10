@@ -1,4 +1,4 @@
-"""Lecture seule de la boîte mail du studio pour l'IA (retour user).
+﻿"""Lecture seule de la boîte mail du studio pour l'IA (retour user).
 
 Identifiants dans ~/.mail (hors du repo, jamais commités) :
     ligne 1 : adresse   ligne 2 : mot de passe   ligne 3 (option) : serveur
@@ -9,7 +9,7 @@ BODY.PEEK : rien n'est marqué comme lu, la boîte partagée reste intacte.
 Aucun envoi, suppression ni déplacement possible depuis ce module.
 """
 
-__version__ = "2.7.1"
+__version__ = "2.8.0"
 
 import datetime
 import email
@@ -24,6 +24,11 @@ _HOST = "ex2.mail.ovh.net"
 
 
 def _credentials():
+    import credentials
+    user = credentials.get_secret("mail_user")
+    password = credentials.get_secret("mail_password")
+    if user and password:
+        return user, password, credentials.get_secret("mail_host") or _HOST
     try:
         with open(os.path.expanduser("~/.mail"), encoding="utf-8-sig") as f:
             lines = [ln.strip() for ln in f.read().splitlines() if ln.strip()]

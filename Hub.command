@@ -3,7 +3,8 @@
 # micro), contrairement à Python Launcher qui ne peut pas demander la
 # permission Microphone à un sous-process — d'où la dictée muette.
 cd "$(dirname "$0")"
-python3 Hub.pyw
+PY=python3; [ -x .venv/bin/python ] && PY=.venv/bin/python
+"$PY" Hub.pyw
 # Ferme cette fenêtre Terminal (identifiée par son tty, pas les autres
 # fenêtres ouvertes) une fois Hub.pyw quitté — sans ça la fenêtre reste
 # ouverte avec "[Process completed]" (retour user).

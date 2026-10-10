@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.7.1"
+__version__ = "2.8.0"
 
 import flet as ft
 import flet.canvas as cv
@@ -1781,7 +1781,8 @@ async def main(page: ft.Page) -> None:
     # nom de modèle une fois ce circuit validé à l'usage.
 
     def _topaz_api_key() -> str | None:
-        return credentials.get_credential("topaz", "api-key")
+        return (credentials.get_secret("topaz")
+                or credentials.get_credential("topaz", "api-key"))
 
     topaz_wonder_btn = ft.Button(
         "Wonder",
@@ -1821,8 +1822,8 @@ async def main(page: ft.Page) -> None:
             return
         api_key = _topaz_api_key()
         if not api_key:
-            enhance_status.value = ("[ERREUR] Clé API Topaz introuvable — "
-                                     "python credentials.py set topaz api-key")
+            enhance_status.value = ("[ERREUR] Clé Topaz manquante : "
+                                     "Hub › Identifiants")
             page.update()
             return
 

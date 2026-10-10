@@ -6,7 +6,7 @@ clean(text) -> (texte_propre, nb_corrections). Utilisé par l'action
 « Nettoyer texte » du Hub (PDF sélectionné ou presse-papiers -> presse-papiers).
 """
 
-__version__ = "2.7.1"
+__version__ = "2.8.0"
 
 import difflib
 import re

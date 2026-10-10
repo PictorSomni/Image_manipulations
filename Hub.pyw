@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.7.1"
+__version__ = "2.8.0"
 
 import asyncio
 import base64
@@ -313,6 +313,7 @@ def _lower_thread_priority():
 
 
 def main(page: ft.Page):
+    credentials.export_env()
     CONSTANTS.attach_error_copy_snackbar(page)
 
     def _run_task(fn, *args):
@@ -13381,7 +13382,48 @@ def main(page: ft.Page):
     # sous CONSTANTS.HUB_TITLEBAR_NARROW_WIDTH plutôt que de déborder hors
     # de la fenêtre (retour user : invisibles en demi-écran sur écran
     # High-DPI avec zoom Windows — la Row de la barre de titre ne wrap pas).
+    def _open_identifiants(event=None):
+        """Clés et identifiants (IA, Notion, Topaz, mail) saisis ici,
+        enregistrés pour l'utilisateur (credentials.save_secrets) — rien à
+        déposer à la main sur une nouvelle machine."""
+        current = credentials.load_secrets()
+        fields = {
+            key: ft.TextField(
+                label=label, value=current.get(key, ""), password=hidden,
+                can_reveal_password=hidden, width=420, bgcolor=DARK,
+                border=CONSTANTS.input_border(GREY), color=WHITE,
+                text_size=CONSTANTS.TEXT_SM)
+            for key, label, hidden in credentials.SECRETS}
+
+        def _save(e):
+            credentials.save_secrets(
+                {k: f.value or "" for k, f in fields.items()})
+            credentials.export_env()
+            import ai_tools as _ai
+            _ai._GEMINI_API_KEY_CACHE = None
+            notion_rest.TOKEN = (credentials.get_secret("notion")
+                                 or notion_rest.TOKEN)
+            dlg.open = False
+            page.update()
+            _log_to_terminal("[OK] Identifiants enregistrés", GREEN,
+                             clear=True)
+
+        def _cancel(e):
+            dlg.open = False
+            page.update()
+
+        dlg = _dialog(
+            title=ft.Text("Identifiants"),
+            content=ft.Column(list(fields.values()), tight=True,
+                              spacing=CONSTANTS.SPACE_SM),
+            actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
+                     _dlg_btn("Enregistrer", "primary", on_click=_save)])
+        page.overlay.append(dlg)
+        dlg.open = True
+        page.update()
+
     _TITLEBAR_ACCESSORY_TOOLS = [
+        (ft.Icons.KEY_OUTLINED, "Identifiants", YELLOW, _open_identifiants),
         (ft.Icons.BLUETOOTH, "Recevoir un fichier via Bluetooth", BLUE,
          _launch_bluetooth),
         (ft.Icons.PRINT_OUTLINED, "Imprimer la sélection (ou le dossier)",
@@ -13407,7 +13449,7 @@ def main(page: ft.Page):
         content=ft.PopupMenuButton(
             icon=ft.Icons.MORE_HORIZ, icon_color=ORANGE,
             icon_size=CONSTANTS.ICON_LG,
-            tooltip="Autres actions (Bluetooth, impression, "
+            tooltip="Autres actions (identifiants, Bluetooth, impression, "
                     "navigateur, explorateur, terminal SSH)",
             items=[
                 ft.PopupMenuItem(
@@ -13659,6 +13701,12 @@ def main(page: ft.Page):
     # premier clic après le lancement de Hub.
     drives_state["list"] = _get_removable_drives()
     threading.Thread(target=_poll_removable_drives, daemon=True).start()
+
+    # Nouvelle machine (aucun identifiant nulle part) : la fenêtre
+    # Identifiants s'ouvre d'elle-même au premier lancement.
+    import ai_tools as _ai
+    if not credentials.load_secrets() and not _ai._get_gemini_api_key():
+        _open_identifiants()
 
     if CONSTANTS.MAXIMIZED:
         async def _delayed_maximize():
