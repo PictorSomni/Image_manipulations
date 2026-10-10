@@ -5,7 +5,7 @@ chacune devient horizontale ou verticale selon son orientation dominante
 de 0 à 100 %. Enregistré dans le fichier, original copié dans ORIGINAUX/.
 """
 
-__version__ = "2.8.8"
+__version__ = "2.8.9"
 
 import asyncio
 import base64

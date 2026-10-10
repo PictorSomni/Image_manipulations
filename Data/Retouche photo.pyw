@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.8.8"
+__version__ = "2.8.9"
 
 #############################################################
 #                          IMPORTS                          #
@@ -317,14 +317,30 @@ def run_pipeline(image, params, *, date_label=None, filename_stem="",
         result = _apply_light_color(result, c)
 
     # Masques locaux : mêmes réglages Lumière/Couleur, fondus selon le
-    # masque (radial ou linéaire) par-dessus le résultat courant.
+    # masque (radial ou linéaire) par-dessus le résultat courant. Un
+    # masque « lié » ajoute sa forme au précédent (union, puis inversion
+    # et réglages du premier du groupe).
+    groups = []
     for m in params.get("masques", []):
-        if not m.get("enabled", True) or not any(
-                m.get(k) for k in image_ops.MASK_ADJ_KEYS):
+        if m.get("link") and groups:
+            groups[-1].append(m)
+        else:
+            groups.append([m])
+    for lead, *linked in groups:
+        if not lead.get("enabled", True) or not any(
+                lead.get(k) for k in image_ops.MASK_ADJ_KEYS):
             continue
-        adjusted = np.asarray(_apply_light_color(result, m), np.float32)
+        alpha = None
+        for m in [lead] + linked:
+            if m.get("enabled", True):
+                a = image_ops.mask_array({**m, "invert": False},
+                                         *result.size)
+                alpha = a if alpha is None else np.maximum(alpha, a)
+        if lead.get("invert"):
+            alpha = 1 - alpha
+        alpha = alpha[..., None]
+        adjusted = np.asarray(_apply_light_color(result, lead), np.float32)
         base = np.asarray(result, np.float32)
-        alpha = image_ops.mask_array(m, *result.size)[..., None]
         result = Image.fromarray(np.clip(
             base + (adjusted - base) * alpha, 0, 255).astype(np.uint8))
 
@@ -755,8 +771,9 @@ def main(page: ft.Page):
                     image_display.src = src
                     image_display.update()
                     state["rendered_req"] = req
-                    if (load_veil.opacity and not state.get("batch")
-                            and req >= state["live_req"]):
+                    # Image à jour sous les yeux : le voile tombe même si
+                    # un rendu plus récent est encore en file.
+                    if load_veil.opacity and not state.get("batch"):
                         ui_helpers.set_busy_veil(load_veil, False)
                         load_veil.update()
                     if hist_src:
@@ -790,8 +807,11 @@ def main(page: ft.Page):
     def live_preview_tick():
         with state["live_lock"]:
             state["live_req"] += 1
-            threading.Timer(0.3, _veil_if_slow,
-                            (state["live_req"],)).start()
+            # Pas de minuterie pendant un glissement : elle se
+            # déclencherait après le relâchement et voilerait pour rien.
+            if not state.get("dragging"):
+                threading.Timer(0.3, _veil_if_slow,
+                                (state["live_req"],)).start()
             if state["live_running"]:
                 return
             state["live_running"] = True
@@ -2206,6 +2226,11 @@ def main(page: ft.Page):
             masks[i] = mask_edit
             invert_switch.value = mask_edit["invert"]
             feather_row.visible = mask_edit["type"] == "radial"
+            linked = bool(mask_edit.get("link")) and i > 0
+            link_switch.value = linked
+            link_switch.visible = i > 0
+            invert_switch.visible = not linked
+            light_zone.visible = color_zone.visible = not linked
             for col in mask_rows:
                 col.data()
         mask_editor.visible = i is not None
@@ -2272,7 +2297,9 @@ def main(page: ft.Page):
                 ], spacing=CONSTANTS.SPACE_XS),
                 bgcolor=GREY if i == mask_ui["sel"] else None,
                 border_radius=6,
-                padding=ft.Padding(CONSTANTS.SPACE_SM, 0, 0, 0),
+                padding=ft.Padding(CONSTANTS.SPACE_SM
+                                   + (CONSTANTS.SPACE_LG if i and m.get("link")
+                                      else 0), 0, 0, 0),
                 on_click=lambda e, i=i: _select_mask(i)))
         mask_list.controls = rows
 
@@ -2290,6 +2317,11 @@ def main(page: ft.Page):
             mask_list.update()
             _draw_masks()
 
+    def _on_link(e):
+        mask_edit["link"] = link_switch.value
+        _select_mask(mask_ui["sel"])
+        live_preview_tick()
+
     def _on_invert(e):
         mask_edit["invert"] = invert_switch.value
         live_preview_tick()
@@ -2297,6 +2329,8 @@ def main(page: ft.Page):
     mask_list = ft.Column(spacing=CONSTANTS.SPACE_XS)
     invert_switch = ft.Switch(label="Inverser", active_color=VIOLET,
                               on_change=_on_invert)
+    link_switch = ft.Switch(label="Lier au précédent", active_color=VIOLET,
+                            on_change=_on_link)
     feather_row = _slider_row("Contour", mask_edit, "feather", 1, 100,
                               reset=50)
     mask_rows = [feather_row]
@@ -2333,10 +2367,13 @@ def main(page: ft.Page):
             padding=ft.Padding(CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS, 0,
                                CONSTANTS.SPACE_XS))
 
+    light_zone = _mask_zone("Lumière", ORANGE, light_rows)
+    color_zone = _mask_zone("Couleur", GREEN, color_rows)
     mask_editor = ft.Column([
-        _mask_zone("Masque", VIOLET, [invert_switch, feather_row]),
-        _mask_zone("Lumière", ORANGE, light_rows),
-        _mask_zone("Couleur", GREEN, color_rows),
+        _mask_zone("Masque", VIOLET,
+                   [link_switch, invert_switch, feather_row]),
+        light_zone,
+        color_zone,
     ], spacing=CONSTANTS.SPACE_MD, visible=False)
 
     masks_pane = ft.Column([
