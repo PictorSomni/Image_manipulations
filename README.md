@@ -1,34 +1,29 @@
 # Hub Image Manipulation
 
-Application de gestion et manipulation d'images avec interface graphique.  
+Poste de travail photo tout-en-un : trier, préparer, retoucher, recadrer, imprimer et livrer des photos en série, avec un assistant IA intégré.
 Compatible **Windows**, **macOS** et **Linux**.
 
-![Hub](screenshots/hub01.jpg)
-![Recadrage manuel](screenshots/hub02.jpg)
-![Retouche IA](screenshots/hub03.jpg)
+![Hub — Fichiers](screenshots/Hub_001.jpg)
+![Hub — Agenda](screenshots/Hub_002.jpg)
+![Retouche photo](<screenshots/Retouche Photo.jpg>)
+![Recadrage manuel](<screenshots/Recadrage manuel.jpg>)
 
 ---
 
-## Résumé utilisateur
+## Vue d'ensemble
 
-Hub est un poste de travail tout-en-un pour trier, préparer, retoucher et exporter des photos en série, sans quitter la même interface.
+Hub est organisé autour d'un **rail de surfaces** à gauche, d'une **barre de titre** (dossier, Bluetooth, impression, navigateur, terminal) et d'une **barre du bas** (Terminal, **Actions**, Notes, tarif d'impression, taille des vignettes).
 
-### Ce que vous pouvez faire au quotidien
+| Surface | Rôle |
+|---|---|
+| Fichiers | Explorateur photo : onglets de dossiers, vignettes ou liste, recherche, tri, sélection, visionneuse plein écran, téléphones (MTP) et périphériques amovibles |
+| Liste | Éditeur de fichiers `.json` (mots-clés, fiches produit…) |
+| Tâches | Kanban des tâches de l'atelier, synchronisé avec Notion |
+| Agenda | Calendrier mensuel des rendez-vous Studio, Reportages et Locations (Notion), avec cache local |
+| IA | Assistant conversationnel (Gemini, Muse, modèles locaux) capable d'agir sur les fichiers |
+| Actus | Lecteur de flux RSS/Atom |
 
-- **Parcourir et trier vos dossiers** : navigation, recherche, tri A→Z / Z→A / date, pagination, favoris, périphériques amovibles.
-- **Sélectionner vos images** : sélection multiple, inversion, filtrage, copier/couper/coller, copie dans un dossier SELECTION, suppression, renommage.
-- **Ouvrir les images en plein écran** : navigation au clavier (flèches), rotation et sélection depuis la visionneuse.
-- **Lancer les outils de production en un clic** : recadrage, redimensionnement, conversion JPG, 2-en-1, PDF, noir et blanc, netteté, métadonnées, tri RAW/JPG, impression, etc.
-- **Basculer entre 4 surfaces intégrées** : Fichiers (explorateur), Liste (éditeur de fichiers `.json` — mots-clés, fiches produit…), IA (assistant conversationnel) et Notes (bloc-notes avec coloration syntaxique).
-- **Utiliser des apps connexes lancées en un clic** : Comparaison (deux dossiers côte à côte), Kiosk (flux d'impression).
-- **Déléguer à l'IA** : l'assistant peut gérer vos fichiers, analyser vos images, naviguer dans vos dossiers, sélectionner des photos selon des critères visuels, générer et modifier des images, écrire du code — tout depuis le chat.
-
-### Points forts
-
-- **Pensé pour le volume** : traitement par lots, automatisations, scripts spécialisés photo.
-- **IA autonome** : l'assistant peut naviguer, sélectionner, créer, déplacer et supprimer des fichiers sans sortir de l'interface.
-- **Multi-plateforme** : Windows, macOS et Linux.
-- **Local-first** : vos images restent sur votre machine. Possibilité d'utiliser des modèles locaux via Ollama (Gemma, etc.).
+Le **Bloc-notes** s'ouvre en bandeau depuis la barre du bas, et le **terminal intégré** affiche la progression de chaque outil (avec bouton d'arrêt).
 
 ---
 
@@ -38,61 +33,68 @@ Hub est un poste de travail tout-en-un pour trier, préparer, retoucher et expor
 
 | Fonctionnalité | Description |
 |---|---|
-| Navigation | Parcourir les dossiers, accéder aux favoris, aux volumes montés et aux périphériques amovibles |
-| Recherche | Recherche en temps réel par nom de fichier dans la prévisualisation |
-| Tri | A→Z, Z→A, par date (croissant/décroissant) |
-| Sélection | Multiple, inversion, tout sélectionner, filtrer sur la sélection, sélectionner par date |
-| Copier/Coller | Copier ou couper une sélection, coller dans un autre dossier |
-| Copie SELECTION | Copier la sélection dans un sous-dossier `SELECTION` en un clic |
-| Dossiers | Créer, renommer, supprimer |
-| ZIP | Double-cliquer sur un .zip pour extraire ; compresser depuis l'IA |
-| Renommage en séquence | Script de renommage numérique en séquence |
+| Onglets | Plusieurs dossiers ouverts en onglets, restaurés au lancement |
+| Navigation | Favoris, volumes montés, clés USB, cartes SD, boutons précédent/suivant de la souris |
+| Téléphones | Parcourir et importer les photos d'un téléphone Android (MTP, Windows), avec « Tout copier » |
+| Recherche | Filtrage en temps réel par nom de fichier |
+| Tri | A→Z, Z→A, par date |
+| Sélection | Multiple, inversion, tout sélectionner, filtrer sur la sélection, sélection par date |
+| Copier / Couper / Coller | Presse-papiers interne entre dossiers et onglets |
+| Dupliquer, Zipper, Renommer | Sur la sélection ; double-clic sur un `.zip` pour l'extraire |
+| Rotation | 90° gauche/droite et 180°, sans perte de qualité visible |
+| Impression | Impression directe et compteur d'exemplaires par image |
+| Visionneuse | Plein écran, navigation au clavier, zoom, rotation, sélection, accès direct à Recadrage manuel et Retouche photo |
 
-### Outils de production
+### Panneau Actions
 
-| Outil | Description |
+Clic droit ou bouton **Actions** : toutes les opérations regroupées par étape du flux de travail.
+
+| Catégorie | Outils |
 |---|---|
-| Recadrage manuel | Recadrage interactif avec formats photo professionnels (mm ou pixels personnalisables), suppression de fond par IA (rembg), planches ID |
-| Recadrage automatique | Recadrage automatique (mode fit ou crop) vers un format cible |
-| Redimensionner | Redimensionnement en lot (dimension max, qualité JPEG) |
-| Redimensionner + filigrane | Redimensionnement avec incrustation de filigrane |
-| Conversion JPG | Conversion de formats divers (PNG, TIFF, BMP…) vers JPG |
-| Images en PDF | Assembler une sélection d'images en un seul PDF |
-| 2-en-1 | Composer deux tirages identiques sur une feuille (ex. 2 × 10x15 sur 15x20) |
-| Noir et blanc | Conversion N&B en lot |
-| Netteté | Amélioration de la netteté en lot |
-| Débruitage | Réduction du bruit par algorithme Non-Local Means (OpenCV NLM), configurable en intensité |
-| Grain pellicule | Simulation de grain argentique sur deux passes indépendantes, avec pondération par luminance, halation, aberrations chromatiques, bloom, désaturation des extrêmes et courbes tonales. Intensité, taille (en % de l'image) et part chromatique réglables par passe. |
-| Augmentation IA | Retouche interactive (sélection au clic ou au lasso d'une zone, modification par Gemini), suppression de fond et outpainting (extension du cadre par Gemini) |
-| Métadonnées | Nettoyage ou copie des métadonnées EXIF |
-| Tri RAW/JPG | Séparer automatiquement les fichiers RAW et JPG |
-| Copier NEFs de la sélection | Copier les RAW correspondant aux JPG sélectionnés |
-| Impression | Fichiers d'impression avec compteur de copies par image |
-| Transfert vers TEMP | Copier/déplacer la sélection vers le dossier TEMP réseau (avec confirmation) |
-| Copyright | Ajouter un copyright en filigrane |
-| Remerciements | Génération de tirages de remerciements personnalisés |
-| Nettoyer anciens fichiers | Supprimer les fichiers plus vieux que N jours |
-| Fichiers identiques / manquants | Comparer deux dossiers |
+| Fichier | Ouvrir dans un nouvel onglet, renommer, copier, couper, coller, dupliquer, zipper, ajouter à l'IA, rotations, imprimer, nombre d'impressions, supprimer |
+| Préparation | Conversion JPG / PNG, PDF ou Word vers IDML, Renommer séquence, Renommer pages Affinity, Séparer RAW et JPG, Transfert vers TEMP, Rassembler sous-dossiers vers TEMP |
+| Sélection | Déplacer la sélection ou les RAW vers SELECTION, copie selon score IA, Fichiers identiques, Comparaison |
+| Kiosque | Interface de commande et d'impression pour bornes |
+| Recadrage | Recadrage manuel, Recadrage automatique, 2 en 1 |
+| Retouche | Retouche photo, Nettoyer métadonnées |
+| Montage | Montage collage |
+| Export & livrables | Redimensionner, Redimensionner + filigrane, Images en PDF, Livret (imposition piqûre à cheval), Remerciements |
+| Maintenance | Nettoyer les anciens fichiers, Synchroniser avec un autre dossier |
+| Ouvrir avec | Programmes externes configurables |
+
+### Retouche photo
+
+Développement par lot, façon Lightroom, avec une bande de miniatures et un rail d'onglets.
+
+- **Réglages** : Lumière, Couleur, Virage, LUT, Netteté, Débruitage, effets pellicule (deux couches de grain, halation, bloom, aberrations chromatiques, désaturation des extrêmes), copyright. Boutons Auto, N&B, Blanc, Peau.
+- **Réglages par image** : chaque photo garde ses propres réglages ; on les déploie sur **toutes** les images ou sur une **sélection** (cases à cocher sur les miniatures). Seules les photos retouchées sont traitées.
+- **Masques** : masques locaux radiaux et linéaires (Lumière + Couleur), inversables, avec contour progressif.
+- **Redresser** : on trace des lignes sur la photo, elles deviennent horizontales ou verticales (rotation + perspective), avec une force de 0 à 100 %.
+- **IA** : amélioration (DeJPG), retouche par zone, suppression de fond.
+- **Préréglages** : enregistrer et rappeler des réglages complets, masques compris.
+- Enregistrement sur place, originaux conservés dans `ORIGINAUX/`.
+
+### Recadrage manuel
+
+Recadrage interactif aux formats photo professionnels (mm ou pixels, ratios libres) : rotation fine, zoom, grille, orientation, réglages de lumière et couleur, netteté, sortie (exemplaires, formats multiples, N&B, fit-in, bord blanc) et **fond IA** (suppression de fond blanc, gris ou flou, avec pipette d'ajout/retrait).
 
 ### Apps connexes
 
 | App | Description |
 |---|---|
-| Comparaison | Visualiser deux dossiers côte à côte pour valider une sélection |
-| Kiosk gauche / droite | Flux d'impression pour bornes photo (HotFolder → réseau) |
-| Kiosk Flet | Interface Kiosk complète avec gestion des tarifs et commandes |
+| Comparaison | Deux dossiers côte à côte pour valider une sélection |
+| Kiosque | Commandes et impression en boutique, avec tarifs |
 
 ### Assistant IA
 
-L'IA (Gemini par défaut, ou modèles Ollama locaux) est intégrée directement dans Hub, dans sa propre surface (rail de gauche).
+L'IA (Gemini par défaut, Muse, ou modèles Ollama locaux) est intégrée directement dans Hub, dans sa propre surface (rail de gauche).
 
 #### Capacités générales
 - Chat texte et analyse d'images jointes
 - Lecture de fichiers (`.txt`, `.md`, `.py`, `.json`, `.pdf`, `.docx`, `.csv`…)
-- Recherche web (DuckDuckGo ou Google natif pour Gemini)
-- Lecture d'URLs
-- Mémoire persistante entre sessions (`memory.md`, `user.md`, `skills.md`)
-- **Fallback automatique** : modèle choisi → Gemini 3.5 Flash (quota/indispo) → Gemma local (hors-ligne)
+- Recherche web (`web_search`) et lecture d'URLs (`fetch_url`)
+- Mémoire persistante entre sessions (`memory.md`, `user.md`, `skills.md`, outil `update_memory_file`)
+- Questions de clarification (`ask_clarifying_question`)
 
 #### Outils fichiers (autonomes)
 | Outil IA | Description |
@@ -111,6 +113,8 @@ L'IA (Gemini par défaut, ou modèles Ollama locaux) est intégrée directement 
 | `analyze_images` | Analyser visuellement les images du dossier (chercher des critères) |
 | `generate_image` | Générer une image depuis un prompt texte (Gemini image generation) |
 | `edit_image` | Modifier une image existante via prompt texte |
+| `iterate_image` | Améliorer une image en plusieurs passes (critique puis régénération) jusqu'à atteindre l'objectif |
+| `score_photos` | Noter les photos d'un dossier pour aider au tri |
 | `generate_music` | Générer un morceau de musique via Lyria 3 (30 s ou ~2 min) — sauvegardé en MP3 dans le dossier ouvert |
 | `edit_file` | Remplacement chirurgical `old_string → new_string` dans un fichier (sans réécrire le fichier entier) |
 | `read_file_lines` | Lire une plage de lignes précise d'un fichier (`start_line`, `end_line`). Indispensable pour les grands fichiers : utiliser `search_in_files` pour trouver les numéros de ligne, puis `read_file_lines` pour lire uniquement la section pertinente |
@@ -124,6 +128,7 @@ L'IA (Gemini par défaut, ou modèles Ollama locaux) est intégrée directement 
 | `http_request` | Requêtes HTTP GET/POST/PUT/DELETE/PATCH avec headers et body personnalisés |
 | `read_spreadsheet` | Lecture structurée de fichiers CSV, `.xlsx`, `.xls` et `.ods` |
 | `run_terminal_command` | Exécuter des commandes shell (confirmation avant exécution en mode admin) |
+| `ssh_command` | Exécuter une commande sur une machine distante via SSH |
 
 #### Outils interface
 | Outil IA | Description |
@@ -154,10 +159,9 @@ L'IA peut voir l'écran et interagir avec n'importe quelle application comme un 
 #### Modèles disponibles
 | Modèle | Type | Vision |
 |---|---|---|
-| Gemini 3.5 Flash | Cloud Google | Oui |
-| Gemini 3.1 Flash Lite | Cloud Google | Oui |
-| Claude Sonnet 4.6 | Cloud Anthropic | Oui |
-| Gemma 4 · E4B (~9.6 GB) | Local Ollama | Oui |
+| Gemini 3.8 Flash | Cloud Google | Oui |
+| Muse Spark 1.3 | Cloud Meta (clé dans `~/.meta`) | Oui |
+| Modèles Ollama | Local | Selon le modèle |
 
 ---
 
@@ -192,7 +196,7 @@ L'IA peut voir l'écran et interagir avec n'importe quelle application comme un 
 | Flèche gauche / droite | Image précédente / suivante |
 | Échap | Fermer la visionneuse |
 
-> Rotation, sélection et navigation entre outils (Recadrage, Augmentation IA…) restent disponibles via les boutons de la visionneuse.
+> Rotation, sélection, impression et accès à Recadrage manuel / Retouche photo restent disponibles via les boutons de la visionneuse.
 
 ---
 
@@ -238,7 +242,7 @@ chmod +x install.sh run.sh
 - Vérifient la présence d'ImageMagick et proposent l'installation si absent.
 - Installent Ollama (IA locale) et téléchargent un modèle de base (`llama3.2:3b`).
 
-### Dépendances optionnelles — Augmentation IA
+### Dépendances optionnelles — onglet IA de Retouche photo
 
 Les fonctionnalités d'inpainting, super-résolution et synthèse par patches (`retouche_ia.py`) nécessitent des paquets lourds (~5–10 GB) qui ne sont **pas** installés par défaut car ils entrent en conflit avec la version de Pillow utilisée par le reste de l'application (voir note dans `requirements.txt`).
 
@@ -270,7 +274,7 @@ iopaint download --model mat     # ~400 MB
 1. Ouvrir Hub.
 2. Choisir un dossier avec `Ouvrir` (ou depuis les favoris).
 3. Sélectionner les images à traiter.
-4. Lancer l'outil voulu depuis la barre d'outils ou le panneau Actions.
+4. Lancer l'outil voulu depuis la barre d'outils ou le panneau **Actions** (clic droit).
 5. Suivre les logs dans le terminal intégré.
 
 ### Utiliser l'IA
