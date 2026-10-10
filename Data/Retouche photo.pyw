@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.6.5"
+__version__ = "2.7.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -256,9 +256,8 @@ def _round_odd(value, minimum=3):
 
 
 def apply_photo_overrides(params, overrides, name):
-    """Réglages d'une photo : son jeu complet propre si le switch « cette
-    photo seulement » y est actif (préréglage, curseurs, virage…), sinon
-    le réglage global du lot (retour user)."""
+    """Réglages d'une photo : son jeu propre s'il existe, sinon `params`
+    (réglages de départ)."""
     return overrides.get(name) or params
 
 
@@ -505,12 +504,14 @@ def main(page: ft.Page):
         "live_lock": threading.Lock(),
         "live_running": False,
         "params": default_params(),
-        # Jeux de réglages complets propres à une photo (`override_switch`) :
-        # {nom_fichier: params}. Pendant qu'une telle photo est affichée,
-        # state["params"] contient SES réglages (tous les contrôles écrivent
-        # dedans) et le réglage global est mis de côté dans "global".
+        # Chaque photo a ses propres réglages (retour user) :
+        # {nom_fichier: params}. state["params"] contient ceux de la photo
+        # affichée ("cur"), rangés dans "overrides" quand on la quitte ;
+        # une photo jamais réglée part de "base".
         "overrides": {},
-        "global": None,
+        "cur": None,
+        "base": None,
+        "checked": set(),
     }
 
     # Contrôles à resynchroniser quand le bouton Réinitialiser recharge
@@ -796,32 +797,49 @@ def main(page: ft.Page):
             state["live_running"] = True
         threading.Thread(target=_live_preview_loop, daemon=True).start()
 
-    def _leave_photo():
-        """Range les réglages de la photo affichée et remet le global."""
-        if state["global"] is not None:
-            state["overrides"][file_names[state["index"]]] = copy.deepcopy(
+    def _store_photo():
+        """Range les réglages de la photo affichée dans overrides."""
+        if state["cur"] is not None:
+            state["overrides"][state["cur"]] = copy.deepcopy(
                 state["params"])
-            _update_in_place(state["params"], state["global"])
-            state["global"] = None
+
+    def _leave_photo():
+        _store_photo()
+        state["cur"] = None
 
     def _enter_photo(name):
-        """Charge dans state["params"] les réglages propres de `name`
-        (copie du global au premier passage)."""
-        state["global"] = copy.deepcopy(state["params"])
-        _update_in_place(state["params"],
-                         state["overrides"].setdefault(
-                             name, copy.deepcopy(state["params"])))
+        if state["base"] is None:
+            state["base"] = copy.deepcopy(state["params"])
+        _update_in_place(state["params"], copy.deepcopy(
+            state["overrides"].get(name) or state["base"]))
+        state["cur"] = name
 
-    def _on_override_switch(e):
-        name = file_names[state["index"]]
-        if override_switch.value:
-            _enter_photo(name)
-        else:
-            _leave_photo()
-            state["overrides"].pop(name, None)
+    def _photo_params(name):
+        if name == state["cur"]:
+            return state["params"]
+        return state["overrides"].get(name) or state["base"]
+
+    def _is_edited(name):
+        return state["base"] is not None and \
+            _photo_params(name) != state["base"]
+
+    def _apply_to(names):
+        """Déploie les réglages de la photo affichée sur `names`."""
+        for n in names:
+            if n != state["cur"]:
+                state["overrides"][n] = copy.deepcopy(state["params"])
         _refresh_filmstrip()
-        _sync_controls_from_params()
-        live_preview_tick()
+
+    def _apply_to_checked(e):
+        _apply_to(state["checked"])
+
+    def _apply_to_all(e):
+        _apply_to(file_names)
+
+    def _on_check(name, value):
+        (state["checked"].add if value else state["checked"].discard)(name)
+        apply_sel_btn.disabled = not state["checked"]
+        apply_sel_btn.update()
 
     def load_representative(idx):
         # Voile si décodage + premier rendu dépassent 300 ms (le rendu
@@ -841,8 +859,7 @@ def main(page: ft.Page):
             return
         _leave_photo()
         state["index"] = idx
-        if name in state["overrides"]:
-            _enter_photo(name)
+        _enter_photo(name)
         state["source_image"] = img
         state["proxy_max_px"] = None  # force la reconstruction ci-dessous
         _rebuild_proxy()
@@ -850,8 +867,6 @@ def main(page: ft.Page):
         image_display.src = original_display.src
         image_display.update()
         counter_text.value = f"{idx + 1} / {len(file_names)} — {name}"
-        # Le switch suit la photo : actif si elle a ses propres réglages.
-        override_switch.value = name in state["overrides"]
         _refresh_filmstrip()
         _sync_controls_from_params()
         live_preview_tick()
@@ -874,8 +889,14 @@ def main(page: ft.Page):
             content=ft.Icon(ft.Icons.EDIT, size=12, color=DARK),
             bgcolor=BLUE, border_radius=10, padding=3,
             right=3, top=3, visible=False)
+        _check = ft.Checkbox(
+            value=False, left=0, top=0, active_color=BLUE,
+            check_color=DARK, fill_color={
+                ft.ControlState.SELECTED: BLUE,
+                ft.ControlState.DEFAULT: ft.Colors.with_opacity(0.5, DARK)},
+            on_change=lambda e, n=_name: _on_check(n, e.control.value))
         _cell = ft.Container(
-            content=ft.Stack([_img, _badge]), padding=2, border_radius=6,
+            content=ft.Stack([_img, _badge, _check]), padding=2, border_radius=6,
             border=ft.Border.all(2, ft.Colors.TRANSPARENT),
             tooltip=_name,
             on_click=lambda e, i=_i: _on_thumb(i))
@@ -888,6 +909,7 @@ def main(page: ft.Page):
         if state.get("tab") in ("ia", "redresser"):
             # Onglets IA/Redresser : la miniature y charge la photo,
             # l'aperçu des réglages sera rechargé au retour.
+            _leave_photo()
             state["index"] = i
             _refresh_filmstrip()
             if state["tab"] == "redresser":
@@ -902,8 +924,11 @@ def main(page: ft.Page):
         for i, (cell, _im, badge) in enumerate(thumb_cells):
             cell.border = ft.Border.all(
                 2, BLUE if i == state["index"] else ft.Colors.TRANSPARENT)
-            badge.visible = file_names[i] in state["overrides"]
+            badge.visible = _is_edited(file_names[i])
         filmstrip.update()
+        if not state.get("batch"):
+            batch_button.content = _batch_label()
+            batch_button.update()
 
     def _load_thumbs():
         for (cell, img_ctrl, _b), name in zip(thumb_cells, file_names):
@@ -940,17 +965,18 @@ def main(page: ft.Page):
         on_tap_down=_show_original(True), on_tap_up=_show_original(False),
         on_tap_cancel=_show_original(False))
 
-    # Mode revue photo par photo : tant qu'il est actif, tout réglage
-    # modifié ne s'applique qu'à la photo affichée (retour user).
-    override_switch = ft.Switch(active_color=BLUE, value=False,
-                                on_change=lambda e: _on_override_switch(e))
+    apply_sel_btn = ft.TextButton(
+        "Appliquer à la sélection", icon=ft.Icons.CHECKLIST,
+        disabled=True, on_click=_apply_to_checked)
+    apply_all_btn = ft.TextButton(
+        "Appliquer à toutes", icon=ft.Icons.DONE_ALL,
+        on_click=_apply_to_all)
 
     bottom_bar = ft.Row([
         compare_btn,
         ft.Container(width=CONSTANTS.SPACE_MD),
-        override_switch,
-        ft.Text("Cette photo seulement", size=CONSTANTS.TEXT_SM,
-                color=WHITE),
+        apply_sel_btn,
+        apply_all_btn,
         ft.Container(expand=True),
         counter_text,
     ], height=_BAR_H, spacing=CONSTANTS.SPACE_XS,
@@ -1182,12 +1208,6 @@ def main(page: ft.Page):
         dans `reset_registry` pour le bouton Réinitialiser. Pas de
         boutons ↺/−/+ à côté du curseur (retour user : inutiles, le
         double-tap suffit et ils alourdissaient chaque ligne).
-
-        Revue photo par photo (`override_switch`, retour user) : tant
-        qu'il est actif, ce curseur n'écrit plus dans `dct[key]` (réglage
-        du lot) mais dans state["overrides"][photo affichée][section][key]
-        — le reste du lot n'est pas affecté, et l'affichage suit toujours
-        la photo en cours (`column.data`, ci-dessous).
 
         `column.data` porte une fonction de rafraîchissement : elle relit
         la valeur effective de la photo affichée et remet curseur,
@@ -1565,6 +1585,10 @@ def main(page: ft.Page):
         load_veil.update()
         live_preview_tick()
 
+    def _batch_label():
+        n = sum(_is_edited(n) for n in file_names)
+        return f"Traiter {n} image{'s' if n > 1 else ''}"
+
     def _set_batch_running(running):
         """Le bouton du lot devient son propre bouton d'arrêt.
 
@@ -1582,7 +1606,7 @@ def main(page: ft.Page):
             batch_button.bgcolor = RED
             batch_button.on_click = _stop_batch
         else:
-            batch_button.content = f"Traiter {len(file_names)} images"
+            batch_button.content = _batch_label()
             batch_button.icon = ft.Icons.PLAY_ARROW
             batch_button.bgcolor = GREEN
             batch_button.on_click = _open_batch_dialog
@@ -1613,9 +1637,10 @@ def main(page: ft.Page):
         with open(folder_path / "retouche_params.json", "w",
                   encoding="utf-8") as f:
             json.dump(params_snapshot, f, indent=2, ensure_ascii=False)
-        total = len(file_names)
+        todo = [n for n in file_names if _is_edited(n)]
+        total = len(todo)
         done = 0
-        for i, name in enumerate(file_names):
+        for i, name in enumerate(todo):
             if batch_stop.is_set():
                 break
             print(f"Image {i + 1} sur {total}")
@@ -1631,8 +1656,7 @@ def main(page: ft.Page):
                 originaux_folder.mkdir(exist_ok=True)
                 shutil.copy2(src_path, dest)
             stem = Path(name).stem
-            file_params = apply_photo_overrides(
-                params_snapshot, state["overrides"], name)
+            file_params = state["overrides"][name]
             result = run_pipeline(img, file_params,
                                   date_label=date_label, filename_stem=stem)
             out_path = folder_path / f"{stem}.jpg"
@@ -1691,16 +1715,18 @@ def main(page: ft.Page):
     def _confirm_batch(e):
         dlg.open = False
         page.update()
-        if state["global"] is not None:
-            state["overrides"][file_names[state["index"]]] = copy.deepcopy(
-                state["params"])
-        params_snapshot = copy.deepcopy(state["global"] or state["params"])
+        _store_photo()
+        for n in file_names:
+            if _is_edited(n):
+                state["overrides"][n] = copy.deepcopy(_photo_params(n))
+        params_snapshot = copy.deepcopy(state["params"])
+        n_todo = sum(_is_edited(n) for n in file_names)
         batch_stop.clear()
         _set_batch_running(True)
         progress_bar.visible = True
         progress_bar.value = 0
-        progress_text.value = f"0 / {len(file_names)}"
-        veil_text.value = f"Traitement 0 / {len(file_names)}…"
+        progress_text.value = f"0 / {n_todo}"
+        veil_text.value = f"Traitement 0 / {n_todo}…"
         page.update()
         threading.Thread(target=batch_worker, args=(params_snapshot,),
                          daemon=True).start()
@@ -1713,10 +1739,8 @@ def main(page: ft.Page):
     # image source CMJN (ex. FOGRA29, usage B2B) en ressort en RVB, profil
     # colorimétrique perdu — on prévient AVANT le lancement plutôt qu'après
     # coup (retour user, cas réel avec un client B2B).
-    _dlg_content = [ft.Text(
-        f"{len(file_names)} image(s) seront traitées avec les réglages "
-        "actuels, sur place (originaux conservés dans ORIGINAUX/).",
-        size=CONSTANTS.TEXT_SM, color=WHITE)]
+    dlg_text = ft.Text("", size=CONSTANTS.TEXT_SM, color=WHITE)
+    _dlg_content = [dlg_text]
     _cmyk_count = 0
     for _name in file_names:
         try:
@@ -1740,6 +1764,11 @@ def main(page: ft.Page):
     )
 
     def _open_batch_dialog(e):
+        n = sum(_is_edited(n) for n in file_names)
+        if not n:
+            return
+        dlg_text.value = (f"{n} image(s) retouchée(s) seront enregistrées "
+                          "sur place (originaux conservés dans ORIGINAUX/).")
         # Ajouté une seule fois : un 2e append du même dialogue
         # désynchronise l'overlay (RangeError « 0..1: 2 », retour user).
         if dlg not in page.overlay:
@@ -1748,7 +1777,7 @@ def main(page: ft.Page):
         page.update()
 
     batch_button = ft.FilledButton(
-        f"Traiter {len(file_names)} images",
+        "Traiter 0 image",
         icon=ft.Icons.PLAY_ARROW, bgcolor=GREEN, color=DARK,
         height=CONSTANTS.TOUCH_TARGET,  # action principale : cible au doigt
         expand=True, on_click=_open_batch_dialog,
