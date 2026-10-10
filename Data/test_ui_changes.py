@@ -10,7 +10,7 @@ elles se vérifient à l'œil, ces calculs non.
 Lancer :  python3 "Data/test_ui_changes.py"
 """
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 
 
 import importlib
@@ -415,6 +415,29 @@ def test_upright():
     print("  redressement guidé : OK")
 
 
+def test_masks(mod):
+    """Masques : radial plein au centre / nul dehors, linéaire en
+    dégradé, inversion, et effet appliqué seulement dans la zone."""
+    import image_ops
+    from PIL import Image
+    r = image_ops.new_mask("radial")
+    a = image_ops.mask_array(r, 200, 100)
+    assert a[50, 100] > 0.99 and a[0, 0] == 0
+    r["invert"] = True
+    assert image_ops.mask_array(r, 200, 100)[50, 100] < 0.01
+    lin = image_ops.new_mask("linear")
+    b = image_ops.mask_array(lin, 100, 200)
+    assert b[10, 50] == 1 and b[190, 50] == 0 and 0 < b[85, 50] < 1
+    params = mod.default_params()
+    m = image_ops.new_mask("radial")
+    m["exposure"] = -80
+    params["masques"] = [m]
+    img = Image.new("RGB", (200, 200), (150, 150, 150))
+    out = np.asarray(mod.run_pipeline(img, params))
+    assert out[100, 100, 0] < 140 and abs(int(out[2, 2, 0]) - 150) <= 2
+    print("  masques radial / linéaire : OK")
+
+
 if __name__ == "__main__":
     print("Vérifications :")
     test_preview_max_px()
@@ -429,5 +452,6 @@ if __name__ == "__main__":
     test_photo_overrides(retouche)
     test_slow_veil()
     test_upright()
+    test_masks(retouche)
     test_save_json_is_atomic(_load_hub())
     print("Tout est passé.")

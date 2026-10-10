@@ -15,7 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 
 import colorsys
 import functools
@@ -2083,3 +2083,46 @@ def apply_upright(img, lines, strength=1.0, params=None):
                               flags=cv2.INTER_LANCZOS4,
                               borderMode=cv2.BORDER_REPLICATE)
     return Image.fromarray(arr)
+
+
+# ── Masques locaux (onglet Masques de Retouche photo) ───────────────────
+# Géométrie en fractions de la largeur / hauteur de l'image.
+MASK_ADJ_KEYS = ("exposure", "contrast", "highlights", "shadows", "whites",
+                 "blacks", "saturation", "vibrance", "white_balance", "hue")
+
+
+def new_mask(kind):
+    m = {"type": kind, "enabled": True, "invert": False, "feather": 50}
+    m.update({k: 0 for k in MASK_ADJ_KEYS})
+    if kind == "radial":
+        m.update(cx=0.5, cy=0.5, rx=0.25, ry=0.25)
+    else:
+        m.update(x0=0.5, y0=0.25, x1=0.5, y1=0.6)
+    return m
+
+
+def mask_array(m, w, h):
+    """Masque float32 (h, w) dans [0, 1] : 1 = effet complet. Calculé
+    à 1024 px au plus puis agrandi (masque lisse : rien ne se perd, et
+    pas de grilles de 100 Mo sur un plein format)."""
+    k = min(1.0, 1024 / max(w, h))
+    if k < 1:
+        small = mask_array(m, max(1, round(w * k)), max(1, round(h * k)))
+        return cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+    ys, xs = np.mgrid[0:h, 0:w].astype(np.float32)
+    xs = (xs + 0.5) / w
+    ys = (ys + 0.5) / h
+    if m["type"] == "radial":
+        d = np.hypot((xs - m["cx"]) / max(m["rx"], 1e-3),
+                     (ys - m["cy"]) / max(m["ry"], 1e-3))
+        f = max(m.get("feather", 50), 1) / 100
+        t = np.clip((1 - d) / f, 0, 1)
+    else:
+        # Effet plein du côté de (x0, y0), nul au-delà de (x1, y1) ;
+        # distances en pixels pour rester perpendiculaires à l'écran.
+        vx, vy = (m["x1"] - m["x0"]) * w, (m["y1"] - m["y0"]) * h
+        n2 = vx * vx + vy * vy or 1.0
+        t = 1 - np.clip(((xs - m["x0"]) * w * vx
+                         + (ys - m["y0"]) * h * vy) / n2, 0, 1)
+    t = t * t * (3 - 2 * t)  # smoothstep : transition douce
+    return 1 - t if m.get("invert") else t

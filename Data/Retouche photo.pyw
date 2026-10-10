@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.5.0"
+__version__ = "2.6.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -46,6 +46,7 @@ import CONSTANTS
 import image_ops
 import ui_helpers
 import flet as ft
+import flet.canvas as cv
 import numpy as np
 from PIL import Image, ImageDraw
 
@@ -179,6 +180,7 @@ def default_params():
             "mode": C.RETOUCHE_LOT_COPYRIGHT_MODE,
             "custom_text": C.RETOUCHE_LOT_COPYRIGHT_CUSTOM_TEXT,
         },
+        "masques": [],
     }
 
 
@@ -260,6 +262,25 @@ def apply_photo_overrides(params, overrides, name):
     return overrides.get(name) or params
 
 
+def _apply_light_color(result, c):
+    """Réglages Lumière + Couleur (hors dominante) — section Base et
+    masques locaux."""
+    result = image_ops.apply_adjustments(
+        result, exposure=c["exposure"], contrast=c["contrast"],
+        saturation=c["saturation"], hue=c["hue"],
+        white_balance=c["white_balance"],
+        vibrance=c.get("vibrance", 0))
+    # Une seule courbe pour les 4 réglages de tons (un passage au lieu
+    # de quatre) ; hautes lumières / ombres en local si activé.
+    local = CONSTANTS.RETOUCHE_LOT_LOCAL_TONE
+    if local:
+        result = image_ops.apply_local_tone(
+            result, c["highlights"], c["shadows"])
+    return image_ops.apply_tone_curve(
+        result, 0 if local else c["highlights"],
+        0 if local else c["shadows"], c["whites"], c["blacks"])
+
+
 def run_pipeline(image, params, *, date_label=None, filename_stem="",
                  ref_size=None):
     """Applique les étapes activées, dans l'ordre : débruiter → couleur →
@@ -294,20 +315,19 @@ def run_pipeline(image, params, *, date_label=None, filename_stem="",
             # déjà rééquilibrée plutôt que de composer avec le virage.
             result = image_ops.apply_auto_color_cast(
                 result, strength=c["auto_cast"])
-        result = image_ops.apply_adjustments(
-            result, exposure=c["exposure"], contrast=c["contrast"],
-            saturation=c["saturation"], hue=c["hue"],
-            white_balance=c["white_balance"],
-            vibrance=c.get("vibrance", 0))
-        # Une seule courbe pour les 4 réglages de tons (un passage au lieu
-        # de quatre) ; hautes lumières / ombres en local si activé.
-        local = CONSTANTS.RETOUCHE_LOT_LOCAL_TONE
-        if local:
-            result = image_ops.apply_local_tone(
-                result, c["highlights"], c["shadows"])
-        result = image_ops.apply_tone_curve(
-            result, 0 if local else c["highlights"],
-            0 if local else c["shadows"], c["whites"], c["blacks"])
+        result = _apply_light_color(result, c)
+
+    # Masques locaux : mêmes réglages Lumière/Couleur, fondus selon le
+    # masque (radial ou linéaire) par-dessus le résultat courant.
+    for m in params.get("masques", []):
+        if not m.get("enabled", True) or not any(
+                m.get(k) for k in image_ops.MASK_ADJ_KEYS):
+            continue
+        adjusted = np.asarray(_apply_light_color(result, m), np.float32)
+        base = np.asarray(result, np.float32)
+        alpha = image_ops.mask_array(m, *result.size)[..., None]
+        result = Image.fromarray(np.clip(
+            base + (adjusted - base) * alpha, 0, 255).astype(np.uint8))
 
     v = params["virage"]
     if v["enabled"]:
@@ -538,14 +558,23 @@ def main(page: ft.Page):
         border=ft.Border.all(1, BLUE), visible=False,
         bgcolor=ft.Colors.with_opacity(0.15, BLUE))
 
+    # Poignées des masques (onglet Masques), au-dessus de l'aperçu.
+    mask_canvas = cv.Canvas(shapes=[], visible=False)
+
     def _armed():
         return pick["mode"] is not None and state["proxy"] is not None
 
     def _on_preview_pan_down(e):
+        if state.get("tab") == "masks":
+            _mask_pan_down(e)
+            return
         if _armed():
             pick["start"] = (e.local_position.x, e.local_position.y)
 
     def _on_preview_pan_update(e):
+        if state.get("tab") == "masks":
+            _mask_pan_update(e)
+            return
         if not _armed() or not pick.get("start"):
             return
         (x0, y0), x1, y1 = (pick["start"], e.local_position.x,
@@ -556,6 +585,9 @@ def main(page: ft.Page):
         sel_rect.update()
 
     def _on_preview_pan_end(e):
+        if state.get("tab") == "masks":
+            _mask_pan_end(e)
+            return
         if not _armed() or not sel_rect.visible:
             return
         x0, y0 = _to_image_frac(sel_rect.left, sel_rect.top)
@@ -577,7 +609,8 @@ def main(page: ft.Page):
             state["proxy"], pick["mode"], (fx - r, fy - r, fx + r, fy + r)))
 
     preview_tap = ft.GestureDetector(
-        content=ft.Stack([image_display, original_display, sel_rect]),
+        content=ft.Stack([image_display, original_display, sel_rect,
+                          mask_canvas]),
         on_tap_up=_on_preview_tap, on_pan_down=_on_preview_pan_down,
         on_pan_update=_on_preview_pan_update,
         on_pan_end=_on_preview_pan_end)
@@ -664,6 +697,7 @@ def main(page: ft.Page):
         image_display.width, image_display.height = w, h
         original_display.width, original_display.height = w, h
         preview_viewer.width, preview_viewer.height = w, h
+        mask_canvas.width, mask_canvas.height = w, h
         preview_container.width, preview_container.height = left_w, h + 16
         state["hist_w"] = right_w - 2 * CONSTANTS.SPACE_MD
         histogram_image.width = state["hist_w"]
@@ -1739,6 +1773,8 @@ def main(page: ft.Page):
             field.update()
             field.data()
 
+        if state.get("tab") == "masks":
+            _masks_resync()
         virage_preset_dd.value = vi["preset"]
         # "Auto" si le mode courant correspond à celui du préréglage (cas
         # le plus fréquent après un chargement), sinon le mode explicite
@@ -1780,6 +1816,7 @@ def main(page: ft.Page):
         try:
             with open(files[0].path, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
+            loaded.setdefault("masques", [])
             _update_in_place(state["params"], loaded)
         except Exception as exc:
             load_params_status.value = f"Erreur : {exc}"
@@ -1827,7 +1864,9 @@ def main(page: ft.Page):
         _render_presets()
         preset_list.update()
         try:
-            _update_in_place(state["params"], load_preset(name))
+            loaded = load_preset(name)
+            loaded.setdefault("masques", [])
+            _update_in_place(state["params"], loaded)
         except Exception as exc:
             preset_status.value = f"Erreur : {exc}"
             preset_status.color = RED
@@ -1991,8 +2030,293 @@ def main(page: ft.Page):
         ft.Row([load_params_button]),
     ], spacing=CONSTANTS.SPACE_MD, expand=True, visible=False)
 
+    # ── Masques locaux (radial / linéaire) ───────────────────────────
+    # Le masque sélectionné EST `mask_edit` (même objet dans la liste) :
+    # curseurs et poignées écrivent directement dedans ; changer de
+    # sélection y recopie le masque choisi et rend une copie au précédent.
+    mask_edit = image_ops.new_mask("radial")
+    mask_ui = {"sel": None, "drag": None}
+
+    def _masks():
+        return state["params"].setdefault("masques", [])
+
+    def _frac_to_disp(fx, fy):
+        proxy = state["proxy"]
+        w, h = image_display.width, image_display.height
+        scale = min(w / proxy.width, h / proxy.height)
+        return (fx * proxy.width * scale + (w - proxy.width * scale) / 2,
+                fy * proxy.height * scale + (h - proxy.height * scale) / 2)
+
+    def _disp_to_frac(x, y):
+        proxy = state["proxy"]
+        w, h = image_display.width, image_display.height
+        scale = min(w / proxy.width, h / proxy.height)
+        return ((x - (w - proxy.width * scale) / 2) / (proxy.width * scale),
+                (y - (h - proxy.height * scale) / 2) / (proxy.height * scale))
+
+    def _mask_handles(m):
+        """Poignées (nom, x, y) en pixels d'affichage."""
+        if m["type"] == "radial":
+            return [("c", *_frac_to_disp(m["cx"], m["cy"])),
+                    ("rx", *_frac_to_disp(m["cx"] + m["rx"], m["cy"])),
+                    ("ry", *_frac_to_disp(m["cx"], m["cy"] + m["ry"]))]
+        p0 = _frac_to_disp(m["x0"], m["y0"])
+        p1 = _frac_to_disp(m["x1"], m["y1"])
+        return [("p0", *p0), ("p1", *p1),
+                ("mid", (p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2)]
+
+    def _draw_masks():
+        shapes = []
+        if state["proxy"] is not None:
+            for i, m in enumerate(_masks()):
+                hs = _mask_handles(m)
+                if i != mask_ui["sel"]:
+                    shapes.append(cv.Circle(hs[0][1], hs[0][2], 6, paint=ft.Paint(
+                        color=WHITE, style=ft.PaintingStyle.STROKE,
+                        stroke_width=2)))
+                    continue
+                line = ft.Paint(color=WHITE, style=ft.PaintingStyle.STROKE,
+                                stroke_width=1.5)
+                if m["type"] == "radial":
+                    (_n, cx, cy), (_a, ex, _b), (_c, _d, ey) = hs
+                    rx, ry = abs(ex - cx), abs(ey - cy)
+                    shapes.append(cv.Oval(cx - rx, cy - ry, 2 * rx, 2 * ry,
+                                          paint=line))
+                    k = 1 - max(m["feather"], 1) / 100
+                    shapes.append(cv.Oval(cx - rx * k, cy - ry * k,
+                                          2 * rx * k, 2 * ry * k,
+                                          paint=ft.Paint(
+                                              color=ft.Colors.with_opacity(
+                                                  0.5, WHITE),
+                                              style=ft.PaintingStyle.STROKE,
+                                              stroke_width=1)))
+                else:
+                    (_n, x0, y0), (_m, x1, y1), _mid = hs
+                    dx, dy = x1 - x0, y1 - y0
+                    n = (dx * dx + dy * dy) ** 0.5 or 1
+                    px, py = -dy / n * 2000, dx / n * 2000
+                    for x, y in ((x0, y0), (x1, y1)):
+                        shapes.append(cv.Line(x - px, y - py, x + px, y + py,
+                                              paint=line))
+                    shapes.append(cv.Line(x0, y0, x1, y1, paint=ft.Paint(
+                        color=ft.Colors.with_opacity(0.5, WHITE),
+                        stroke_width=1)))
+                for name, x, y in hs:
+                    shapes.append(cv.Circle(x, y, 7, paint=ft.Paint(
+                        color=VIOLET if name in ("c", "mid") else WHITE)))
+        mask_canvas.shapes = shapes
+        mask_canvas.update()
+
+    def _mask_pan_down(e):
+        if state["proxy"] is None:
+            return
+        x, y = e.local_position.x, e.local_position.y
+        best = None
+        for i, m in enumerate(_masks()):
+            for name, hx, hy in _mask_handles(m):
+                d = ((hx - x) ** 2 + (hy - y) ** 2) ** 0.5
+                if d < 24 and (best is None or d < best[0]):
+                    best = (d, i, name)
+        if best is None:
+            mask_ui["drag"] = None
+            return
+        _select_mask(best[1])
+        mask_ui["drag"] = (best[2], _disp_to_frac(x, y),
+                           {k: mask_edit.get(k) for k in
+                            ("cx", "cy", "x0", "y0", "x1", "y1")})
+        state["dragging"] = True
+
+    def _mask_pan_update(e):
+        if not mask_ui["drag"]:
+            return
+        name, (sx, sy), start = mask_ui["drag"]
+        fx, fy = _disp_to_frac(e.local_position.x, e.local_position.y)
+        dx, dy = fx - sx, fy - sy
+        m = mask_edit
+        if name == "c":
+            m["cx"], m["cy"] = start["cx"] + dx, start["cy"] + dy
+        elif name == "rx":
+            m["rx"] = max(0.01, abs(fx - m["cx"]))
+        elif name == "ry":
+            m["ry"] = max(0.01, abs(fy - m["cy"]))
+        elif name == "p0":
+            m["x0"], m["y0"] = fx, fy
+        elif name == "p1":
+            m["x1"], m["y1"] = fx, fy
+        else:
+            for k in ("x0", "x1"):
+                m[k] = start[k] + dx
+            for k in ("y0", "y1"):
+                m[k] = start[k] + dy
+        _draw_masks()
+        live_preview_tick()
+
+    def _mask_pan_end(e):
+        if mask_ui["drag"]:
+            mask_ui["drag"] = None
+            state["dragging"] = False
+            live_preview_tick()
+
+    def _select_mask(i):
+        masks = _masks()
+        old = mask_ui["sel"]
+        if old is not None and old < len(masks) and masks[old] is mask_edit:
+            masks[old] = copy.deepcopy(mask_edit)
+        mask_ui["sel"] = i
+        if i is not None:
+            mask_edit.clear()
+            mask_edit.update(copy.deepcopy(masks[i]))
+            masks[i] = mask_edit
+            invert_switch.value = mask_edit["invert"]
+            feather_row.visible = mask_edit["type"] == "radial"
+            for col in mask_rows:
+                col.data()
+        mask_editor.visible = i is not None
+        _render_mask_list()
+        page.update()
+        _draw_masks()
+
+    def _add_mask(kind):
+        def handler(e):
+            if state["proxy"] is None:
+                return
+            _masks().append(image_ops.new_mask(kind))
+            _select_mask(len(_masks()) - 1)
+            live_preview_tick()
+        return handler
+
+    def _toggle_mask(i):
+        def handler(e):
+            m = _masks()[i]
+            m["enabled"] = not m.get("enabled", True)
+            _render_mask_list()
+            mask_list.update()
+            live_preview_tick()
+        return handler
+
+    def _delete_mask(i):
+        def handler(e):
+            masks = _masks()
+            if mask_ui["sel"] == i:
+                mask_ui["sel"] = None
+            masks.pop(i)
+            sel = mask_ui["sel"]
+            if sel is not None and sel > i:
+                mask_ui["sel"] = sel - 1
+            _select_mask(mask_ui["sel"])
+            live_preview_tick()
+        return handler
+
+    def _render_mask_list():
+        rows = []
+        counts = {"radial": 0, "linear": 0}
+        for i, m in enumerate(_masks()):
+            counts[m["type"]] += 1
+            label = ("Radial " if m["type"] == "radial" else "Linéaire ") \
+                + str(counts[m["type"]])
+            on = m.get("enabled", True)
+            rows.append(ft.Container(
+                content=ft.Row([
+                    ft.Icon(ft.Icons.RADIO_BUTTON_UNCHECKED
+                            if m["type"] == "radial" else ft.Icons.GRADIENT,
+                            size=CONSTANTS.ICON_SM,
+                            color=WHITE if on else LIGHT_GREY),
+                    ft.Text(label, expand=True, size=CONSTANTS.TEXT_SM,
+                            color=WHITE if on else LIGHT_GREY),
+                    ft.IconButton(
+                        ft.Icons.VISIBILITY if on
+                        else ft.Icons.VISIBILITY_OFF,
+                        icon_size=CONSTANTS.ICON_SM, icon_color=LIGHT_GREY,
+                        on_click=_toggle_mask(i)),
+                    ft.IconButton(ft.Icons.DELETE_OUTLINE,
+                                  icon_size=CONSTANTS.ICON_SM,
+                                  icon_color=LIGHT_GREY,
+                                  on_click=_delete_mask(i)),
+                ], spacing=CONSTANTS.SPACE_XS),
+                bgcolor=GREY if i == mask_ui["sel"] else None,
+                border_radius=6,
+                padding=ft.Padding(CONSTANTS.SPACE_SM, 0, 0, 0),
+                on_click=lambda e, i=i: _select_mask(i)))
+        mask_list.controls = rows
+
+    def _masks_resync():
+        """Paramètres remplacés (préréglage, photo, Réinitialiser) : la
+        sélection pointe vers un ancien masque → resélection."""
+        masks = _masks()
+        sel = mask_ui["sel"]
+        if sel is not None and (sel >= len(masks)
+                                or masks[sel] is not mask_edit):
+            mask_ui["sel"] = None
+            _select_mask(sel if sel < len(masks) else None)
+        else:
+            _render_mask_list()
+            mask_list.update()
+            _draw_masks()
+
+    def _on_invert(e):
+        mask_edit["invert"] = invert_switch.value
+        live_preview_tick()
+
+    mask_list = ft.Column(spacing=CONSTANTS.SPACE_XS)
+    invert_switch = ft.Switch(label="Inverser", active_color=VIOLET,
+                              on_change=_on_invert)
+    feather_row = _slider_row("Contour", mask_edit, "feather", 1, 100,
+                              reset=50)
+    mask_rows = [feather_row]
+    light_rows = [_slider_row(lbl, mask_edit, key, -100, 100)
+                  for lbl, key in (("Exposition", "exposure"),
+                                   ("Contraste", "contrast"),
+                                   ("Hautes lumières", "highlights"),
+                                   ("Ombres", "shadows"),
+                                   ("Blancs", "whites"),
+                                   ("Noirs", "blacks"))]
+    color_rows = [
+        _slider_row("Saturation", mask_edit, "saturation", -100, 100,
+                    gradient=CONSTANTS.RETOUCHE_LOT_GRADIENT_SAT),
+        _slider_row("Vibrance", mask_edit, "vibrance", -100, 100,
+                    gradient=CONSTANTS.RETOUCHE_LOT_GRADIENT_VIB),
+        _slider_row("Balance des blancs", mask_edit, "white_balance",
+                    -100, 100, gradient=CONSTANTS.RETOUCHE_LOT_GRADIENT_WB),
+        _slider_row("Teinte", mask_edit, "hue", -100, 100,
+                    gradient=CONSTANTS.RETOUCHE_LOT_GRADIENT_HUE)]
+    mask_rows += light_rows + color_rows
+    for col in light_rows:
+        _recolor_sliders(col, ORANGE)
+    for col in color_rows:
+        _recolor_sliders(col, GREEN)
+    _recolor_sliders(feather_row, VIOLET)
+
+    def _mask_zone(title, color, controls):
+        return ft.Container(
+            content=ft.Column(
+                [ft.Text(title.upper(), size=CONSTANTS.TEXT_SM - 2,
+                         color=color, weight=ft.FontWeight.W_600)]
+                + controls, spacing=CONSTANTS.SPACE_XS),
+            border=ft.Border(left=ft.BorderSide(3, color)),
+            padding=ft.Padding(CONSTANTS.SPACE_SM, CONSTANTS.SPACE_XS, 0,
+                               CONSTANTS.SPACE_XS))
+
+    mask_editor = ft.Column([
+        _mask_zone("Masque", VIOLET, [invert_switch, feather_row]),
+        _mask_zone("Lumière", ORANGE, light_rows),
+        _mask_zone("Couleur", GREEN, color_rows),
+    ], spacing=CONSTANTS.SPACE_MD, visible=False)
+
+    masks_pane = ft.Column([
+        ft.Row([
+            _rect_btn("Radial", ft.Icons.RADIO_BUTTON_UNCHECKED, VIOLET,
+                      _add_mask("radial")),
+            _rect_btn("Linéaire", ft.Icons.GRADIENT, BLUE,
+                      _add_mask("linear")),
+        ]),
+        mask_list,
+        mask_editor,
+    ], spacing=CONSTANTS.SPACE_MD, expand=True, visible=False,
+        scroll=ft.ScrollMode.AUTO)
+
     # ── Rail d'icônes : interfaces spécialisées de la colonne droite ──
-    panes = {"settings": settings_pane, "presets": presets_pane}
+    panes = {"settings": settings_pane, "masks": masks_pane,
+             "presets": presets_pane}
     rail_buttons = {}
 
     def _show_pane(key):
@@ -2005,6 +2329,8 @@ def main(page: ft.Page):
         else:
             for k, pane in panes.items():
                 pane.visible = k == key
+        mask_canvas.visible = key == "masks"
+        preview_viewer.pan_enabled = key != "masks"
         # Une seule bande de miniatures, déplacée vers l'onglet affiché.
         for slot in embedded_strips.values():
             slot.content = None
@@ -2021,6 +2347,8 @@ def main(page: ft.Page):
         for k, btn in rail_buttons.items():
             btn.icon_color = BLUE if k == key else LIGHT_GREY
         page.update()
+        if key == "masks":
+            _masks_resync()
         if was_embedded and key not in embedded_tabs:
             # Retour depuis l'IA ou Redresser : la photo a pu changer.
             load_representative(state["index"])
@@ -2028,6 +2356,7 @@ def main(page: ft.Page):
     for _key, _icon, _tip in (
             ("settings", ft.Icons.TUNE, "Réglages"),
             ("presets", ft.Icons.BOOKMARKS_OUTLINED, "Préréglages"),
+            ("masks", ft.Icons.GRADIENT, "Masques"),
             ("redresser", ft.Icons.STRAIGHTEN, "Redresser"),
             ("ia", ft.Icons.AUTO_AWESOME, "IA")):
         rail_buttons[_key] = ft.IconButton(
@@ -2036,7 +2365,8 @@ def main(page: ft.Page):
             on_click=lambda e, k=_key: _show_pane(k))
     rail = ft.Container(
         content=ft.Column([
-            rail_buttons["settings"], rail_buttons["redresser"],
+            rail_buttons["settings"], rail_buttons["masks"],
+            rail_buttons["redresser"],
             rail_buttons["ia"], rail_buttons["presets"],
         ], spacing=CONSTANTS.SPACE_SM,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -2050,7 +2380,8 @@ def main(page: ft.Page):
         content=ft.Column([
             histogram_image,
             quick_row,
-            ft.Column([settings_pane, presets_pane], expand=True),
+            ft.Column([settings_pane, masks_pane, presets_pane],
+                      expand=True),
             ft.Divider(height=1, color=GREY),
             ft.Row([progress_bar, progress_text],
                    spacing=CONSTANTS.SPACE_MD),
@@ -2161,7 +2492,7 @@ def main(page: ft.Page):
         _resize_redresser()
         load_representative(0)
         threading.Thread(target=_load_thumbs, daemon=True).start()
-        if os.environ.get("START_TAB") in ("ia", "redresser"):
+        if os.environ.get("START_TAB") in rail_buttons:
             _show_pane(os.environ["START_TAB"])
 
     page.run_task(_startup)
