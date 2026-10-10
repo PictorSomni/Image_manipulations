@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.8.4"
+__version__ = "2.8.5"
 
 #############################################################
 #                          IMPORTS                          #
@@ -958,12 +958,18 @@ def main(page: ft.Page):
 
     compare_icon = ft.Icon(ft.Icons.COMPARE, color=WHITE,
                            size=CONSTANTS.ICON_SM)
+    # Sur l'aperçu, en bas à gauche : même place que dans l'onglet IA
+    # (retour user).
     compare_btn = ft.GestureDetector(
-        content=ft.Container(compare_icon, padding=CONSTANTS.SPACE_SM,
-                             tooltip="Avant / Après"),
+        content=ft.Container(
+            compare_icon, padding=CONSTANTS.SPACE_SM, border_radius=8,
+            bgcolor=ft.Colors.with_opacity(0.6, DARK),
+            tooltip="Avant / Après"),
         mouse_cursor=ft.MouseCursor.CLICK,
         on_tap_down=_show_original(True), on_tap_up=_show_original(False),
-        on_tap_cancel=_show_original(False))
+        on_tap_cancel=_show_original(False),
+        left=CONSTANTS.SPACE_SM, bottom=CONSTANTS.SPACE_SM)
+    preview_container.content.controls.insert(1, compare_btn)
 
     apply_sel_btn = ft.TextButton(
         "Appliquer à la sélection", icon=ft.Icons.CHECKLIST,
@@ -973,8 +979,6 @@ def main(page: ft.Page):
         on_click=_apply_to_all)
 
     bottom_bar = ft.Row([
-        compare_btn,
-        ft.Container(width=CONSTANTS.SPACE_MD),
         apply_sel_btn,
         apply_all_btn,
         ft.Container(expand=True),
