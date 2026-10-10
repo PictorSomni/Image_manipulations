@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 image_ops.py — Traitement d'image pur (recadrage, couleur, planches).
 
@@ -15,7 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 
-__version__ = "2.4.8"
+__version__ = "2.5.0"
 
 import colorsys
 import functools
@@ -1968,3 +1968,118 @@ def preview_max_px(widget_px, floor_px, ceiling_px,
         supersampling = CONSTANTS.PREVIEW_SUPERSAMPLING
     wanted = max(0, widget_px or 0) * supersampling
     return int(max(floor_px, min(wanted, ceiling_px)))
+
+
+# ── Redressement guidé (onglet Redresser de Retouche photo) ─────────────
+# Lignes tracées par l'utilisateur, en fractions (0..1) de la largeur et
+# de la hauteur : ((x0, y0), (x1, y1)). Plus horizontale que verticale →
+# doit devenir horizontale, sinon verticale (comme Guided Upright).
+
+def _upright_matrix(params, w, h):
+    """Homographie pixel → pixel : rotation + cisaillement + perspective
+    autour du centre, en coordonnées normalisées (indépendantes de la
+    taille). Le cisaillement redresse des verticales penchées toutes du
+    même côté quand les horizontales sont déjà droites."""
+    theta, p1, p2, shear = params
+    f = max(w, h)
+    t = np.array([[1 / f, 0, -w / 2 / f], [0, 1 / f, -h / 2 / f],
+                  [0, 0, 1]])
+    c, s = np.cos(theta), np.sin(theta)
+    rot = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+    persp = np.array([[1, shear, 0], [0, 1, 0], [p1, p2, 1]])
+    return np.linalg.inv(t) @ persp @ rot @ t
+
+
+def _project(m, pts):
+    pts = np.asarray(pts, dtype=float)
+    hom = np.c_[pts, np.ones(len(pts))] @ m.T
+    return hom[:, :2] / hom[:, 2:3]
+
+
+def line_is_horizontal(line):
+    (x0, y0), (x1, y1) = line
+    return abs(x1 - x0) >= abs(y1 - y0)
+
+
+def upright_params(lines, w, h):
+    """Rotation + perspective qui rendent chaque ligne horizontale ou
+    verticale (moindres carrés, Gauss-Newton amorti). Une ligne seule
+    donne une rotation pure : la perspective est légèrement pénalisée."""
+    if not lines:
+        return np.zeros(4)
+    segs = [(np.array([[x0 * w, y0 * h], [x1 * w, y1 * h]]),
+             line_is_horizontal(((x0, y0), (x1, y1))))
+            for (x0, y0), (x1, y1) in lines]
+
+    def residuals(p):
+        m = _upright_matrix(p, w, h)
+        out = []
+        for seg, horiz in segs:
+            a, b = _project(m, seg)
+            d = b - a
+            n = np.hypot(*d) or 1.0
+            out.append((d[1] if horiz else d[0]) / n)
+        # ponytail: pénalité fixe ; à exposer si des cas réels l'exigent.
+        out += [0.01 * p[1], 0.01 * p[2], 0.01 * p[3]]
+        return np.array(out)
+
+    p = np.zeros(4)
+    lam = 1e-3
+    for _ in range(50):
+        r = residuals(p)
+        jac = np.empty((len(r), 4))
+        for i in range(4):
+            dp = np.zeros(4)
+            dp[i] = 1e-6
+            jac[:, i] = (residuals(p + dp) - r) / 1e-6
+        step = np.linalg.solve(jac.T @ jac + lam * np.eye(4), -jac.T @ r)
+        if np.sum(residuals(p + step) ** 2) < np.sum(r ** 2):
+            p, lam = p + step, lam * 0.3
+            if np.abs(step).max() < 1e-9:
+                break
+        else:
+            lam *= 10
+    return p
+
+
+def upright_homography(params, w, h, strength=1.0):
+    """Homographie finale (source w×h → sortie w×h) : correction à
+    `strength` (0..1) puis recadrage centré au même ratio, sans bords
+    vides, remis à la taille d'origine."""
+    m = _upright_matrix(np.asarray(params) * strength, w, h)
+    quad = _project(m, [(0, 0), (w, 0), (w, h), (0, h)])
+    cx, cy = _project(m, [(w / 2, h / 2)])[0]
+
+    def inside(k):
+        rect = [(cx - k * w / 2, cy - k * h / 2), (cx + k * w / 2, cy - k * h / 2),
+                (cx + k * w / 2, cy + k * h / 2), (cx - k * w / 2, cy + k * h / 2)]
+        for px, py in rect:
+            signs = []
+            for i in range(4):
+                (ax, ay), (bx, by) = quad[i], quad[(i + 1) % 4]
+                signs.append((bx - ax) * (py - ay) - (by - ay) * (px - ax))
+            if not (all(s >= 0 for s in signs) or all(s <= 0 for s in signs)):
+                return False
+        return True
+
+    lo, hi = 0.05, 3.0
+    for _ in range(40):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if inside(mid) else (lo, mid)
+    k = lo
+    crop = np.array([[1 / k, 0, -(cx - k * w / 2) / k],
+                     [0, 1 / k, -(cy - k * h / 2) / k], [0, 0, 1]])
+    return crop @ m
+
+
+def apply_upright(img, lines, strength=1.0, params=None):
+    """Image PIL redressée (même taille). `params` évite de refaire
+    l'optimisation quand seule la force change."""
+    w, h = img.size
+    if params is None:
+        params = upright_params(lines, w, h)
+    m = upright_homography(params, w, h, strength)
+    arr = cv2.warpPerspective(np.asarray(img), m, (w, h),
+                              flags=cv2.INTER_LANCZOS4,
+                              borderMode=cv2.BORDER_REPLICATE)
+    return Image.fromarray(arr)

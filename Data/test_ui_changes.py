@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 test_ui_changes.py — auto-contrôle des logiques ajoutées côté interface.
 
@@ -10,7 +10,7 @@ elles se vérifient à l'œil, ces calculs non.
 Lancer :  python3 "Data/test_ui_changes.py"
 """
 
-__version__ = "2.4.8"
+__version__ = "2.5.0"
 
 
 import importlib
@@ -398,6 +398,23 @@ def test_slow_veil():
     print("  voile de chargement > 300 ms : OK")
 
 
+def test_upright():
+    """Redresser : lignes rendues verticales/horizontales, force 0 = rien."""
+    import image_ops
+    w, h = 1000, 1500
+    lines = [((0.2, 0.1), (0.26, 0.9)), ((0.8, 0.1), (0.74, 0.9)),
+             ((0.1, 0.5), (0.9, 0.52))]
+    p = image_ops.upright_params(lines, w, h)
+    m = image_ops.upright_homography(p, w, h)
+    for line in lines:
+        a, b = image_ops._project(m, [(x * w, y * h) for x, y in line])
+        d = b - a
+        off = d[1] if image_ops.line_is_horizontal(line) else d[0]
+        assert abs(off) / np.hypot(*d) < 0.01, (line, d)
+    assert np.allclose(image_ops.upright_homography(p, w, h, 0), np.eye(3))
+    print("  redressement guidé : OK")
+
+
 if __name__ == "__main__":
     print("Vérifications :")
     test_preview_max_px()
@@ -411,5 +428,6 @@ if __name__ == "__main__":
     test_auto_color_cast_removes_dominant_and_is_dosable()
     test_photo_overrides(retouche)
     test_slow_veil()
+    test_upright()
     test_save_json_is_atomic(_load_hub())
     print("Tout est passé.")

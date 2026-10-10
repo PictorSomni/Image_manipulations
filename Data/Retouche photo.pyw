@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.4.8"
+__version__ = "2.5.0"
 
 #############################################################
 #                          IMPORTS                          #
@@ -851,12 +851,15 @@ def main(page: ft.Page):
                        height=_FILMSTRIP_H)
 
     def _on_thumb(i):
-        if state.get("tab") == "ia":
-            # Onglet IA : la miniature y charge la photo, l'aperçu des
-            # réglages sera rechargé au retour.
+        if state.get("tab") in ("ia", "redresser"):
+            # Onglets IA/Redresser : la miniature y charge la photo,
+            # l'aperçu des réglages sera rechargé au retour.
             state["index"] = i
             _refresh_filmstrip()
-            if ia_page.show_file:
+            if state["tab"] == "redresser":
+                page.run_task(redresser_tab.show,
+                              str(folder_path / file_names[i]))
+            elif ia_page.show_file:
                 ia_page.show_file(file_names[i])
         else:
             load_representative(i)
@@ -1993,32 +1996,39 @@ def main(page: ft.Page):
     rail_buttons = {}
 
     def _show_pane(key):
-        is_ia = key == "ia"
-        if is_ia:
+        was_embedded = state.get("tab") in embedded_tabs
+        if key == "ia":
             _open_ia_tab()
+        elif key == "redresser":
+            page.run_task(redresser_tab.show,
+                          str(folder_path / file_names[state["index"]]))
         else:
             for k, pane in panes.items():
                 pane.visible = k == key
         # Une seule bande de miniatures, déplacée vers l'onglet affiché.
-        if is_ia and filmstrip in preview_column.controls:
+        for slot in embedded_strips.values():
+            slot.content = None
+        if filmstrip in preview_column.controls:
             preview_column.controls.remove(filmstrip)
-            ia_strip.content = filmstrip
-        elif not is_ia and filmstrip not in preview_column.controls:
-            ia_strip.content = None
+        if key in embedded_tabs:
+            embedded_strips[key].content = filmstrip
+        else:
             preview_column.controls.insert(1, filmstrip)
-        retouche_view.visible = not is_ia
-        ia_tab.visible = is_ia
+        retouche_view.visible = key not in embedded_tabs
+        for k, tab in embedded_tabs.items():
+            tab.visible = k == key
         state["tab"] = key
         for k, btn in rail_buttons.items():
             btn.icon_color = BLUE if k == key else LIGHT_GREY
         page.update()
-        if not is_ia and ia_page.built:
-            # Retour depuis l'IA : la photo a pu y être modifiée.
+        if was_embedded and key not in embedded_tabs:
+            # Retour depuis l'IA ou Redresser : la photo a pu changer.
             load_representative(state["index"])
 
     for _key, _icon, _tip in (
             ("settings", ft.Icons.TUNE, "Réglages"),
             ("presets", ft.Icons.BOOKMARKS_OUTLINED, "Préréglages"),
+            ("redresser", ft.Icons.STRAIGHTEN, "Redresser"),
             ("ia", ft.Icons.AUTO_AWESOME, "IA")):
         rail_buttons[_key] = ft.IconButton(
             _icon, tooltip=_tip, icon_size=CONSTANTS.ICON_SM,
@@ -2026,8 +2036,8 @@ def main(page: ft.Page):
             on_click=lambda e, k=_key: _show_pane(k))
     rail = ft.Container(
         content=ft.Column([
-            rail_buttons["settings"], rail_buttons["ia"],
-            rail_buttons["presets"],
+            rail_buttons["settings"], rail_buttons["redresser"],
+            rail_buttons["ia"], rail_buttons["presets"],
         ], spacing=CONSTANTS.SPACE_SM,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER),
         width=_RAIL_W, bgcolor=DARK,
@@ -2049,6 +2059,10 @@ def main(page: ft.Page):
         padding=CONSTANTS.SPACE_MD, bgcolor=DARK)
 
     def _on_key(e):
+        if state.get("tab") == "redresser":
+            if (e.ctrl or e.meta) and e.key == "Z":
+                redresser_tab._undo(e)
+            return
         if state.get("tab") == "ia":
             handler = ia_page.on_keyboard_event
             if handler:
@@ -2076,6 +2090,28 @@ def main(page: ft.Page):
     ia_page = _TabPage(page, ia_view, width_offset=_RAIL_W,
                        height_offset=_FILMSTRIP_H + 2 * CONSTANTS.SPACE_SM)
 
+    def _on_straightened(name):
+        # Fichier réécrit : miniatures à jour, l'IA rechargera la photo.
+        state["ia_stale"] = True
+        threading.Thread(target=_load_thumbs, daemon=True).start()
+
+    import redresser
+    redresser_tab = redresser.RedresserTab(page, _on_straightened)
+    red_strip = ft.Container(padding=ft.Padding(CONSTANTS.SPACE_MD, 0, 0,
+                                                CONSTANTS.SPACE_SM))
+    red_tab = ft.Column([redresser_tab.view, red_strip], expand=True,
+                        visible=False, spacing=CONSTANTS.SPACE_SM)
+    embedded_tabs = {"ia": ia_tab, "redresser": red_tab}
+    embedded_strips = {"ia": ia_strip, "redresser": red_strip}
+
+    def _resize_redresser(e=None):
+        pw = int(getattr(e, "width", None) or page.width or 1400)
+        ph = int(getattr(e, "height", None) or page.height or 900)
+        redresser_tab.resize(
+            pw - _RAIL_W - redresser.PANEL_W - 2 * _ROW_SPACING
+            - CONSTANTS.SPACE_LG - CONSTANTS.SPACE_MD,
+            ph - _FILMSTRIP_H - 4 * CONSTANTS.SPACE_SM - CONSTANTS.SPACE_MD)
+
     def _ia_file_shown(name):
         if name in file_names and file_names.index(name) != state["index"]:
             state["index"] = file_names.index(name)
@@ -2090,7 +2126,7 @@ def main(page: ft.Page):
             import retouche_ia  # lourd : importé à la 1re ouverture
             page.run_task(retouche_ia.main, ia_page)
         elif ia_page.show_file:
-            ia_page.show_file(name)
+            ia_page.show_file(name, force=state.pop("ia_stale", False))
 
     _retouche_resize = page.on_resize
 
@@ -2098,10 +2134,11 @@ def main(page: ft.Page):
         _retouche_resize(e)
         if ia_page.built and ia_page.on_resized:
             ia_page.on_resized(ia_page.resize_event(e))
+        _resize_redresser(e)
     page.on_resize = _on_resize
 
     page.add(
-        ft.Row([retouche_view, ia_tab, rail], expand=True,
+        ft.Row([retouche_view, ia_tab, red_tab, rail], expand=True,
                spacing=_ROW_SPACING,
                vertical_alignment=ft.CrossAxisAlignment.STRETCH)
     )
@@ -2121,10 +2158,11 @@ def main(page: ft.Page):
                 break
         await asyncio.sleep(0.2)
         _apply_preview_size()
+        _resize_redresser()
         load_representative(0)
         threading.Thread(target=_load_thumbs, daemon=True).start()
-        if os.environ.get("START_TAB") == "ia":
-            _show_pane("ia")
+        if os.environ.get("START_TAB") in ("ia", "redresser"):
+            _show_pane(os.environ["START_TAB"])
 
     page.run_task(_startup)
 

@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.4.8"
+__version__ = "2.5.0"
 
 import flet as ft
 import flet.canvas as cv
@@ -3091,8 +3091,8 @@ async def main(page: ft.Page) -> None:
     _start = names.index(start_name) if start_name in names else 0
 
     if embedded:
-        def _show_file(name):
-            if name in names and names.index(name) != state["index"]:
+        def _show_file(name, force=False):
+            if name in names and (force or names.index(name) != state["index"]):
                 page.run_task(_load_image, names.index(name))
         page.show_file = _show_file
 
