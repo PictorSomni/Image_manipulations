@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.7"
+__version__ = "2.10.8"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -3118,8 +3118,11 @@ class PhotoCropper:
                 result = _rembg_remove(self.current_pil_image.convert("RGB"), session=sess)
             return result.convert("RGBA")
 
+        veil_text = self.load_veil.content.controls[1]
+        veil_text.value = "Détourage en cours…"
         try:
-            result = await asyncio.to_thread(_do_rembg)
+            async with ui_helpers.slow_veil(self.page, self.load_veil):
+                result = await asyncio.to_thread(_do_rembg)
             self._rembg_original = self.current_pil_image
             self.current_pil_image = result
             self.rembg_btn.selected = True
@@ -3127,6 +3130,7 @@ class PhotoCropper:
         except Exception as ex:
             self._set_status(f"[ERREUR] rembg : {ex}")
         finally:
+            veil_text.value = "Chargement de l'image…"
             self.rembg_btn.disabled = False
             self._render_preview()
             self.page.update()
