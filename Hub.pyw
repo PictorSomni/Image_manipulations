@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.2"
+__version__ = "2.10.3"
 
 import asyncio
 import base64
@@ -3058,7 +3058,14 @@ def main(page: ft.Page):
         hide_changed = hide != state["hide_hidden"]
         state["hide_hidden"], state["only_selected"] = hide, only_sel
         if hide_changed and state["folder"]:
+            # Le rescan vide la sélection : on la remet telle quelle
+            # (retour user : sélection d'une cliente perdue en changeant
+            # de filtre).
+            keep = list(selected)
             _navigate(state["folder"])
+            _select_update(keep)
+            _update_sel_count()
+            _render()
         else:
             _render()
 
