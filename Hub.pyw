@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.1"
+__version__ = "2.10.2"
 
 import asyncio
 import base64
@@ -10640,6 +10640,22 @@ def main(page: ft.Page):
                     _log_to_terminal(
                         f"[ATTENTION] Fusion PDF impossible ({exc}) — "
                         "impression image par image", ORANGE)
+            if len(pdfs) > 1:
+                # Plusieurs PDF : un seul document, une seule impression.
+                try:
+                    from pypdf import PdfWriter
+                    writer = PdfWriter()
+                    for p in pdfs:
+                        writer.append(p)
+                    fd, merged = tempfile.mkstemp(
+                        prefix="Hub_impression_", suffix=".pdf")
+                    os.close(fd)
+                    writer.write(merged)
+                    pdfs = [merged]
+                except Exception as exc:
+                    _log_to_terminal(
+                        f"[ATTENTION] Fusion des PDF impossible ({exc}) — "
+                        "un fichier à la fois", ORANGE)
             try:
                 system = platform.system()
                 if system == "Darwin":

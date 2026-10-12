@@ -11,7 +11,7 @@ commitée). Absente ->
 TOKEN vide -> Hub retombe sur la connexion MCP/OAuth.
 """
 
-__version__ = "2.10.1"
+__version__ = "2.10.2"
 
 import json
 import os
