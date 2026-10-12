@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.8"
+__version__ = "2.10.9"
 
 import asyncio
 import base64
@@ -10479,7 +10479,7 @@ def main(page: ft.Page):
             border=CONSTANTS.input_border(GREY),
             color=WHITE)
         continue_switch = ft.Switch(
-            label=f"Continuer après le n° {last:03}", value=True,
+            label=f"Continuer après le n° {last:03}", value=False,
             active_color=BLUE, visible=bool(series))
         # Garde anti double-déclenchement : ENTER (on_submit) et le bouton
         # "Lancer" appellent tous deux _confirm. Sans ce verrou, un second
