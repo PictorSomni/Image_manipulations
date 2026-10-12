@@ -10,17 +10,19 @@ actuelle du script, réservé pour usage futur).
 Variables d'environnement :
   FOLDER_PATH     — dossier source (défaut : répertoire du script).
   SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
-  SERIES_NAME     — préfixe de série (optionnel, non utilisé actuellement).
+  SERIES_NAME     — préfixe de série (optionnel).
+  SERIES_CONTINUE — non vide : garde la série existante, numérote la suite.
 
 Dépendances : modules standard (os, pathlib)
 """
 
-__version__ = "2.10.3"
+__version__ = "2.10.4"
 
 #############################################################
 #                          IMPORTS                          #
 #############################################################
 import os
+import re
 from pathlib import Path
 import CONSTANTS
 
@@ -53,6 +55,16 @@ if selected_files_list:
 else:
     FOLDER = all_files
 
+# Continuer une série existante : les fichiers déjà nommés
+# « SERIES_NAME_NNN » restent en place, les autres suivent le dernier n°.
+start = 1
+if SERIES_NAME and os.environ.get("SERIES_CONTINUE"):
+    pattern = re.compile(re.escape(SERIES_NAME) + r"_(\d{3,})$")
+    nums = [int(m.group(1)) for f in all_files
+            if (m := pattern.match(Path(f).stem))]
+    start = max(nums, default=0) + 1
+    FOLDER = [f for f in FOLDER if not pattern.match(Path(f).stem)]
+
 #############################################################
 #                           MAIN                            #
 #############################################################
@@ -69,8 +81,8 @@ for index, file in enumerate(FOLDER):
 
 # Phase 2 : noms finaux
 for index, (temp, ext) in enumerate(temp_map):
-    new_index = index + 1
-    print(f"{new_index} / {len(temp_map)}")
+    new_index = index + start
+    print(f"{index + 1} / {len(temp_map)}")
     if SERIES_NAME:
         new_name = f"{SERIES_NAME}_{new_index:03}{ext}"
     else:

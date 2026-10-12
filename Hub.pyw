@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.3"
+__version__ = "2.10.4"
 
 import asyncio
 import base64
@@ -10451,12 +10451,36 @@ def main(page: ft.Page):
 
         threading.Thread(target=_run, daemon=True).start()
 
+    def _detect_series(folder):
+        """Série déjà présente (« Nom_001.jpg »…) : (nom, dernier n°) de la
+        plus fréquente, ou (None, 0)."""
+        counts, last = {}, {}
+        try:
+            names = os.listdir(folder)
+        except OSError:
+            return None, 0
+        for n in names:
+            m = re.match(r"^(.+)_(\d{3,})$", os.path.splitext(n)[0])
+            if m:
+                k, i = m.group(1), int(m.group(2))
+                counts[k] = counts.get(k, 0) + 1
+                last[k] = max(last.get(k, 0), i)
+        if not counts:
+            return None, 0
+        best = max(counts, key=counts.get)
+        return best, last[best]
+
     def _launch_renommer_sequence(event=None):
+        series, last = _detect_series(state["folder"] or "")
         name_field = ft.TextField(
             label="Nom de la série", hint_text="Ex: Mariage_Martin",
+            value=series or "",
             autofocus=True, width=280, bgcolor=DARK,
             border=CONSTANTS.input_border(GREY),
             color=WHITE)
+        continue_switch = ft.Switch(
+            label=f"Continuer après le n° {last:03}", value=True,
+            active_color=BLUE, visible=bool(series))
         # Garde anti double-déclenchement : ENTER (on_submit) et le bouton
         # "Lancer" appellent tous deux _confirm. Sans ce verrou, un second
         # appel relit `selected` — déjà vidé par le _launch_tool du premier
@@ -10477,12 +10501,15 @@ def main(page: ft.Page):
             dlg.open = False
             page.update()
             _launch_tool("Renommer séquence.py",
-                        extra_env={"SERIES_NAME": series})
+                        extra_env={"SERIES_NAME": series,
+                                   "SERIES_CONTINUE": "1" if (
+                                       continue_switch.visible
+                                       and continue_switch.value) else ""})
 
         name_field.on_submit = _confirm
         dlg = _dialog(
             title=ft.Text("Renommer séquence", size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=name_field,
+            content=ft.Column([name_field, continue_switch], tight=True),
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Lancer", "primary", on_click=_confirm)],
         )
