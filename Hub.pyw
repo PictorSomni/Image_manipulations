@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.6"
+__version__ = "2.10.7"
 
 import asyncio
 import base64
@@ -12855,13 +12855,22 @@ def main(page: ft.Page):
                                 reqs = [ln.split("#", 1)[0].strip()
                                         for ln in f]
                             failed = []
+                            # Python installé « pour tous » (Program
+                            # Files) : écriture refusée sans droits admin,
+                            # pip conseille alors --user. Hors venv
+                            # seulement (--user y est interdit).
+                            in_venv = sys.prefix != sys.base_prefix
                             for req in filter(None, reqs):
+                                cmd = [sys.executable, "-m", "pip",
+                                       "install", req,
+                                       "--no-build-isolation"]
                                 if subprocess.run(
-                                        [sys.executable, "-m", "pip",
-                                         "install", req,
-                                         "--no-build-isolation"],
-                                        capture_output=True,
-                                        cwd=_APP_DIR).returncode:
+                                        cmd, capture_output=True,
+                                        cwd=_APP_DIR).returncode and (
+                                        in_venv or subprocess.run(
+                                            cmd + ["--user"],
+                                            capture_output=True,
+                                            cwd=_APP_DIR).returncode):
                                     failed.append(req)
                             if failed:
                                 _log_to_terminal(
