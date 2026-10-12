@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.4"
+__version__ = "2.10.5"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -4502,7 +4502,27 @@ class PhotoCropper:
             jpeg_save_options["exif"] = _exif_bytes
 
         saved_file_path = None
-        if not job["extra_formats"]:
+        if _crop_mode == 'ratio' and not job["extra_formats"]:
+            # Mode Ratio : comme Retouche photo, l'original part dans
+            # ORIGINAUX/ (une seule fois) et la version recadrée le
+            # remplace dans le dossier courant.
+            src = job["source_path"]
+            folder = os.path.dirname(src)
+            backup_dir = os.path.join(folder, "ORIGINAUX")
+            backup = os.path.join(backup_dir, os.path.basename(src))
+            os.makedirs(backup_dir, exist_ok=True)
+            moved = not os.path.exists(backup)
+            if moved:
+                shutil.move(src, backup)
+            elif os.path.exists(src):
+                os.remove(src)
+            # Pour « précédent » : remettre la source telle qu'avant.
+            job["restore"] = (backup, src, moved)
+            saved_file_path = os.path.join(
+                folder, os.path.splitext(os.path.basename(src))[0] + ".jpg")
+            output_image.save(saved_file_path, **jpeg_save_options)
+            job["saved"].append(saved_file_path)
+        elif not job["extra_formats"]:
             os.makedirs(output_directory, exist_ok=True)
             saved_file_path = unique_path(
                 os.path.join(output_directory, output_filename))
@@ -4854,6 +4874,12 @@ class PhotoCropper:
             with contextlib.suppress(OSError):
                 os.remove(path)
                 dirs_to_check.add(os.path.dirname(path))
+        restore = last_job.get("restore") if last_job else None
+        if restore:
+            backup, src, moved = restore
+            with contextlib.suppress(OSError):
+                (shutil.move if moved else shutil.copy2)(backup, src)
+                dirs_to_check.add(os.path.dirname(backup))
         for d in dirs_to_check:
             with contextlib.suppress(OSError):
                 if not os.listdir(d):
