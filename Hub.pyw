@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.5"
+__version__ = "2.10.6"
 
 import asyncio
 import base64
@@ -12812,8 +12812,13 @@ def main(page: ft.Page):
                             "📦 Nouvelles dépendances détectées, "
                             "installation en cours…", YELLOW)
                         pip_install_process = subprocess.Popen(
+                            # Pas de --upgrade : sous Windows, pip ne peut pas
+                            # remplacer numpy/cv2 déjà chargés par le Hub
+                            # (« Accès refusé », retour user). Seul ce qui
+                            # manque ou ne satisfait pas la version minimale
+                            # est installé.
                             [sys.executable, "-m", "pip", "install", "-r",
-                             requirements_file_path, "--upgrade"],
+                             requirements_file_path],
                             stdout=subprocess.PIPE,
                             stdin=subprocess.DEVNULL, stderr=subprocess.STDOUT, text=True,
                             encoding="utf-8", errors="replace",
@@ -12853,7 +12858,7 @@ def main(page: ft.Page):
                             for req in filter(None, reqs):
                                 if subprocess.run(
                                         [sys.executable, "-m", "pip",
-                                         "install", req, "--upgrade",
+                                         "install", req,
                                          "--no-build-isolation"],
                                         capture_output=True,
                                         cwd=_APP_DIR).returncode:
