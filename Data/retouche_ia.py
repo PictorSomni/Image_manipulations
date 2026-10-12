@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.10.9"
+__version__ = "2.10.10"
 
 import flet as ft
 import flet.canvas as cv
@@ -42,6 +42,7 @@ import os
 import io
 import base64
 import asyncio
+import contextlib
 import importlib.util
 import json
 import threading
@@ -1394,9 +1395,10 @@ async def main(page: ft.Page) -> None:
         _timer_task = asyncio.create_task(_tick())
 
         try:
-            text_resp, image_bytes = await _gemini_wait(
-                asyncio.to_thread(_do_gemini),
-                CONSTANTS.AI_GEMINI_IMAGE_TIMEOUT)
+            async with _veiled("Retouche IA en cours…"):
+                text_resp, image_bytes = await _gemini_wait(
+                    asyncio.to_thread(_do_gemini),
+                    CONSTANTS.AI_GEMINI_IMAGE_TIMEOUT)
 
             if image_bytes is None:
                 status_text.value = f"[Gemini] {text_resp or 'Aucune image reçue.'}"
@@ -1767,7 +1769,8 @@ async def main(page: ft.Page) -> None:
             return out
 
         try:
-            result = await asyncio.to_thread(_do_run)
+            async with _veiled("Traitement en cours…"):
+                result = await asyncio.to_thread(_do_run)
             state["undo_img"]  = state["work_img"]
             state["work_img"]  = result
             state["modified"]  = True
@@ -1889,7 +1892,8 @@ async def main(page: ft.Page) -> None:
             return Image.open(io.BytesIO(img_resp.content)).convert("RGB")
 
         try:
-            result = await asyncio.to_thread(_do_run)
+            async with _veiled("Traitement en cours…"):
+                result = await asyncio.to_thread(_do_run)
             state["undo_img"]  = state["work_img"]
             state["work_img"]  = result
             state["modified"]  = True
@@ -2252,9 +2256,10 @@ async def main(page: ft.Page) -> None:
         _timer_task = asyncio.create_task(_tick())
 
         try:
-            result, text_resp = await _gemini_wait(
-                asyncio.to_thread(_do_expand),
-                CONSTANTS.AI_GEMINI_EXPAND_TIMEOUT)
+            async with _veiled("Extension en cours…"):
+                result, text_resp = await _gemini_wait(
+                    asyncio.to_thread(_do_expand),
+                    CONSTANTS.AI_GEMINI_EXPAND_TIMEOUT)
             if result is None:
                 status_text.value = f"[Gemini] {text_resp or 'Aucune image reçue.'}"
                 return
@@ -2639,7 +2644,8 @@ async def main(page: ft.Page) -> None:
             return _rembg.remove(base.convert("RGB"), session=_rembg_sessions[model])
 
         try:
-            rgba = await asyncio.to_thread(_do_rembg)
+            async with _veiled("Détourage en cours…"):
+                rgba = await asyncio.to_thread(_do_rembg)
             state["rembg_before"] = base
             state["rembg_rgba"]   = rgba
             state["rembg_active"] = True
@@ -2715,6 +2721,17 @@ async def main(page: ft.Page) -> None:
     _vw, _vh = state["view_size"]
     # Voile de chargement (> 300 ms) sur l'aperçu, cf. _load_image_path.
     load_veil = ui_helpers.busy_veil("Chargement de l'image…", BLUE)
+
+    @contextlib.asynccontextmanager
+    async def _veiled(message):
+        """Voile sur l'aperçu pendant un traitement long (IA, DeJPG,
+        détourage), texte adapté puis remis à « Chargement »."""
+        load_veil.content.controls[1].value = message
+        try:
+            async with ui_helpers.slow_veil(page, load_veil):
+                yield
+        finally:
+            load_veil.content.controls[1].value = "Chargement de l'image…"
 
     inner_container = ft.Container(
         content=ft.Stack([preview_img, sel_canvas, image_gesture, busy_ring_wrap]),
