@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.12"
+__version__ = "2.10.13"
 
 import asyncio
 import base64
@@ -37,6 +37,7 @@ import sys
 import shutil
 import tempfile
 import threading
+import zlib
 import webbrowser
 import zipfile
 from types import SimpleNamespace
@@ -7624,6 +7625,22 @@ def main(page: ft.Page):
             _liste_save()
             _liste_render()
 
+    _LISTE_CATEGORY_COLORS = [
+        CONSTANTS.COLOR_BLUE, CONSTANTS.COLOR_VIOLET, CONSTANTS.COLOR_GREEN,
+        CONSTANTS.COLOR_YELLOW_GREEN, CONSTANTS.COLOR_MINT,
+        CONSTANTS.COLOR_YELLOW, CONSTANTS.COLOR_ORANGE, CONSTANTS.COLOR_RED,
+        CONSTANTS.COLOR_PINK, CONSTANTS.COLOR_BLUE_DARK]
+
+    def _liste_row_color(entry):
+        # Teinte par catégorie, stable d'une machine/session à l'autre
+        # (crc32, pas hash() qui change à chaque lancement).
+        category = str(entry.get("catégorie", "")).strip()
+        if not category:
+            return GREY
+        color = _LISTE_CATEGORY_COLORS[
+            zlib.crc32(category.encode()) % len(_LISTE_CATEGORY_COLORS)]
+        return ft.Colors.with_opacity(0.25, color)
+
     def _liste_row(index, entry):
         columns = _liste_columns()
         done = _liste_is_done(entry)
@@ -7675,7 +7692,8 @@ def main(page: ft.Page):
         row_box = ft.Container(
             content=ft.Row(row_controls, spacing=8,
                            vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=ft.Padding(0, 0, 4, 0), bgcolor=GREY, border_radius=6)
+            padding=ft.Padding(0, 0, 4, 0), bgcolor=_liste_row_color(entry),
+            border_radius=6)
         # Glisser-déposer pour réordonner, avec un trait au-dessus de la
         # ligne survolée (retour user, même principe que les Tâches).
         return _liste_drop_target(
