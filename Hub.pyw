@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.13"
+__version__ = "2.10.14"
 
 import asyncio
 import base64
@@ -37,7 +37,6 @@ import sys
 import shutil
 import tempfile
 import threading
-import zlib
 import webbrowser
 import zipfile
 from types import SimpleNamespace
@@ -7632,13 +7631,16 @@ def main(page: ft.Page):
         CONSTANTS.COLOR_PINK, CONSTANTS.COLOR_BLUE_DARK]
 
     def _liste_row_color(entry):
-        # Teinte par catégorie, stable d'une machine/session à l'autre
-        # (crc32, pas hash() qui change à chaque lancement).
+        # Couleur par ordre d'apparition de la catégorie : distinctes
+        # jusqu'à len(_LISTE_CATEGORY_COLORS) catégories (retour user).
         category = str(entry.get("catégorie", "")).strip()
         if not category:
             return GREY
+        categories = list(dict.fromkeys(
+            str(e.get("catégorie", "")).strip() for e in liste_entries
+            if str(e.get("catégorie", "")).strip()))
         color = _LISTE_CATEGORY_COLORS[
-            zlib.crc32(category.encode()) % len(_LISTE_CATEGORY_COLORS)]
+            categories.index(category) % len(_LISTE_CATEGORY_COLORS)]
         return ft.Colors.with_opacity(0.25, color)
 
     def _liste_row(index, entry):
