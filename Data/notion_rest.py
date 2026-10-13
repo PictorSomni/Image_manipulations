@@ -11,7 +11,7 @@ commitée). Absente ->
 TOKEN vide -> Hub retombe sur la connexion MCP/OAuth.
 """
 
-__version__ = "2.10.11"
+__version__ = "2.10.12"
 
 import json
 import os
@@ -282,3 +282,49 @@ if __name__ == "__main__":
     assert _read_prop({"type": "multi_select",
                        "multi_select": [{"name": "a"}]}) == ["a"]
     print("ok")
+
+
+# ── Liste de prix partagée (onglet Liste du Hub) ───────────────────────
+# ponytail: JSON brut dans un bloc code d'une page "Liste de prix" sous
+# Travail ; dernier qui écrit gagne, verrou si édition simultanée un jour.
+_PRIX_TITLE = "Liste de prix"
+_TRAVAIL_PAGE = "a2d7c10b-4087-4c47-b08a-2aaf19e89ef5"
+
+
+def _prix_block(seed_rows):
+    """ID du bloc code JSON, page créée (avec seed_rows) si absente."""
+    r = _req("POST", "/search", {"query": _PRIX_TITLE,
+                                 "filter": {"property": "object",
+                                            "value": "page"}})
+    for pg in r["results"]:
+        title = "".join(_plain(p["title"]) for p in
+                        pg["properties"].values() if p["type"] == "title")
+        if title == _PRIX_TITLE and not pg.get("in_trash"):
+            kids = _req("GET", f"/blocks/{pg['id']}/children")["results"]
+            for b in kids:
+                if b["type"] == "code":
+                    return b["id"]
+            _append(pg["id"], [_code(seed_rows)])
+            return _prix_block(seed_rows)
+    _req("POST", "/pages", {
+        "parent": {"page_id": _TRAVAIL_PAGE},
+        "properties": {"title": {"title": _rich(_PRIX_TITLE)}},
+        "children": [_code(seed_rows)]})
+    return _prix_block(seed_rows)
+
+
+def _code(rows):
+    text = json.dumps(rows, ensure_ascii=False, indent=2)
+    # Notion limite chaque segment de texte à 2000 caractères.
+    rich = [{"type": "text", "text": {"content": text[i:i + 2000]}}
+            for i in range(0, len(text), 2000)]
+    return {"type": "code", "code": {"language": "json", "rich_text": rich}}
+
+
+def prix_get(seed_rows):
+    block = _req("GET", f"/blocks/{_prix_block(seed_rows)}")
+    return json.loads(_plain(block["code"]["rich_text"]))
+
+
+def prix_put(rows):
+    _req("PATCH", f"/blocks/{_prix_block(rows)}", _code(rows))

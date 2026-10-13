@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.11"
+__version__ = "2.10.12"
 
 import asyncio
 import base64
@@ -7496,6 +7496,10 @@ def main(page: ft.Page):
             _backup_file(path)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(liste_entries, f, ensure_ascii=False, indent=2)
+            if path == _PRIX_PATH:
+                threading.Thread(target=_prix_push, daemon=True,
+                                 args=([dict(e) for e in liste_entries],)
+                                 ).start()
         except Exception as exc:
             # Sans ce log, un échec d'écriture (disque plein, clé USB
             # débranchée...) perdait les modifs de la Liste sans aucun
@@ -7868,16 +7872,37 @@ def main(page: ft.Page):
         liste_search["value"] = ""
         _liste_reload()
 
-    def _liste_open_prix(event=None):
-        # Copie locale éditable (Logs/), amorcée depuis Data/prix.json.
-        path = CONSTANTS.state_file(".prix.json")
-        if not os.path.exists(path):
-            shutil.copyfile(os.path.join(os.path.dirname(
-                os.path.abspath(__file__)), "Data", "prix.json"), path)
-        _liste_file["path"] = path
+    _PRIX_PATH = CONSTANTS.state_file(".prix.json")
+
+    def _prix_seed():
+        seed = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "Data", "prix.json")
+        with open(seed, encoding="utf-8") as f:
+            return json.load(f)
+
+    async def _liste_open_prix(event=None):
+        # Source partagée : page Notion "Liste de prix" ; Logs/.prix.json
+        # n'est que le cache local (hors ligne, sans token).
+        try:
+            rows = await asyncio.to_thread(notion_rest.prix_get, _prix_seed())
+            with open(_PRIX_PATH, "w", encoding="utf-8") as f:
+                json.dump(rows, f, ensure_ascii=False, indent=2)
+        except Exception as exc:
+            _log_to_terminal(f"[ERREUR] Liste de prix Notion : {exc}", RED)
+            if not os.path.exists(_PRIX_PATH):
+                shutil.copyfile(os.path.join(os.path.dirname(
+                    os.path.abspath(__file__)), "Data", "prix.json"),
+                    _PRIX_PATH)
+        _liste_file["path"] = _PRIX_PATH
         liste_search_field.value = ""
         liste_search["value"] = ""
         _liste_reload()
+
+    def _prix_push(rows):
+        try:
+            notion_rest.prix_put(rows)
+        except Exception as exc:
+            _log_to_terminal(f"[ERREUR] Liste de prix Notion : {exc}", RED)
 
     liste_back_to_todo_btn = ft.IconButton(
         ft.Icons.CHECKLIST, icon_color=GREEN, icon_size=CONSTANTS.ICON_SM,
