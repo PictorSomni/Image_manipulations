@@ -1,0 +1,102 @@
+[
+  {
+    "catégorie": "Impressions studio",
+    "article": "10x15",
+    "prix": "3€"
+  },
+  {
+    "catégorie": "Impressions studio",
+    "article": "13x18",
+    "prix": "4€"
+  },
+  {
+    "catégorie": "Impressions studio",
+    "article": "15x20",
+    "prix": "6€"
+  },
+  {
+    "catégorie": "Impressions studio",
+    "article": "20x30",
+    "prix": "8€"
+  },
+  {
+    "catégorie": "Impressions studio",
+    "article": "30x40",
+    "prix": "15€"
+  },
+  {
+    "catégorie": "Impressions studio",
+    "article": "40x60",
+    "prix": "28€"
+  },
+  {
+    "catégorie": "Impressions studio",
+    "article": "50x70",
+    "prix": "35€"
+  },
+  {
+    "catégorie": "Impressions studio",
+    "article": "60x90",
+    "prix": "40€"
+  },
+  {
+    "catégorie": "Cartes de visite RV",
+    "article": "100 ex.",
+    "prix": "38€ + MEP"
+  },
+  {
+    "catégorie": "Cartes de visite RV",
+    "article": "200 ex.",
+    "prix": "45€ + MEP"
+  },
+  {
+    "catégorie": "Cartes de visite RV",
+    "article": "500 ex.",
+    "prix": "60€ + MEP"
+  },
+  {
+    "catégorie": "Cartes de visite RV",
+    "article": "1000 ex.",
+    "prix": "80€ + MEP"
+  },
+  {
+    "catégorie": "Marque-pages 50x148mm RV",
+    "article": "100 ex.",
+    "prix": "62€"
+  },
+  {
+    "catégorie": "Marque-pages 50x148mm RV",
+    "article": "200 ex.",
+    "prix": "79€"
+  },
+  {
+    "catégorie": "Flyers A6 RV",
+    "article": "100 ex.",
+    "prix": "52€"
+  },
+  {
+    "catégorie": "Flyers A6 RV",
+    "article": "200 ex.",
+    "prix": "74€"
+  },
+  {
+    "catégorie": "Flyers A6 RV",
+    "article": "500 ex.",
+    "prix": "115€"
+  },
+  {
+    "catégorie": "Flyers A5 RV",
+    "article": "100 ex.",
+    "prix": "55€"
+  },
+  {
+    "catégorie": "Flyers A5 RV",
+    "article": "200 ex.",
+    "prix": "75€"
+  },
+  {
+    "catégorie": "Flyers A5 RV",
+    "article": "500 ex.",
+    "prix": "120€"
+  }
+]

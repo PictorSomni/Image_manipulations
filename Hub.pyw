@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.10"
+__version__ = "2.10.11"
 
 import asyncio
 import base64
@@ -7868,6 +7868,17 @@ def main(page: ft.Page):
         liste_search["value"] = ""
         _liste_reload()
 
+    def _liste_open_prix(event=None):
+        # Copie locale éditable (Logs/), amorcée depuis Data/prix.json.
+        path = CONSTANTS.state_file(".prix.json")
+        if not os.path.exists(path):
+            shutil.copyfile(os.path.join(os.path.dirname(
+                os.path.abspath(__file__)), "Data", "prix.json"), path)
+        _liste_file["path"] = path
+        liste_search_field.value = ""
+        liste_search["value"] = ""
+        _liste_reload()
+
     liste_back_to_todo_btn = ft.IconButton(
         ft.Icons.CHECKLIST, icon_color=GREEN, icon_size=CONSTANTS.ICON_SM,
         **SQUARE_BTN,
@@ -7938,6 +7949,10 @@ def main(page: ft.Page):
                 liste_search_row,
                 liste_path_text,
                 liste_back_to_todo_btn,
+                ft.IconButton(ft.Icons.EURO, **SQUARE_BTN,
+                             icon_color=SURFACE_ACCENT["liste"],
+                             icon_size=CONSTANTS.ICON_SM, tooltip="Liste de prix",
+                             on_click=_liste_open_prix),
                 ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["liste"],
                              icon_size=CONSTANTS.ICON_SM, tooltip="Nouveau fichier .json",
