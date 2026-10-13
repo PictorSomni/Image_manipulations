@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.14"
+__version__ = "2.10.15"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -5563,6 +5563,10 @@ def main(page: ft.Page):
                             # Sortie et Fond IA dans la colonne gauche).
                             ft.Container(
                                 content=ft.Row([
+                                    # Deux côtés expand=1 : le groupe reste
+                                    # centré quelle que soit la largeur du
+                                    # statut à droite (retour user).
+                                    ft.Container(expand=1),
                                     ft.IconButton(
                                         icon=ft.Icons.ROTATE_LEFT,
                                         icon_color=BLUE,
@@ -5584,8 +5588,9 @@ def main(page: ft.Page):
                                         style=ft.ButtonStyle(color=BLUE),
                                     ),
                                     app.grid_switch,
-                                    ft.Container(expand=True),
-                                    app._status_row,
+                                    ft.Container(
+                                        app._status_row, expand=1,
+                                        alignment=ft.Alignment(1, 0)),
                                 ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
                                 padding=ft.Padding.symmetric(horizontal=12, vertical=2),
                                 bgcolor=DARK,
