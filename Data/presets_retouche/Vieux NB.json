@@ -1,0 +1,95 @@
+{
+  "denoise": {
+    "enabled": false,
+    "h": 0,
+    "h_color": 0,
+    "template_window": 7,
+    "search_window": 21
+  },
+  "couleur": {
+    "enabled": true,
+    "auto_cast": 0,
+    "exposure": 20,
+    "contrast": 0,
+    "saturation": 7,
+    "hue": 0,
+    "white_balance": 0,
+    "vibrance": 0,
+    "shadows": 0,
+    "highlights": 0,
+    "whites": -3,
+    "blacks": 13
+  },
+  "virage": {
+    "enabled": true,
+    "preset": "N&B ANCIEN",
+    "mode": "colorize",
+    "hue": 150,
+    "sat": 3,
+    "light": 50
+  },
+  "lut": {
+    "enabled": false,
+    "name": "M31 - Rec.709.cube",
+    "intensity": 0
+  },
+  "nettete": {
+    "enabled": false,
+    "radius1": 1,
+    "percent1": 0,
+    "radius2": 1,
+    "percent2": 0
+  },
+  "grain": {
+    "enabled": false,
+    "ca": {
+      "enabled": false,
+      "strength": 0.05,
+      "axial_ratio": 0.64
+    },
+    "desat": {
+      "enabled": true,
+      "shadow_threshold": 0.2,
+      "shadow_intensity": 1.0,
+      "highlight_threshold": 0.5,
+      "highlight_intensity": 1.0,
+      "midtone_boost": 0.1
+    },
+    "halation": {
+      "enabled": true,
+      "threshold": 0.72,
+      "radius": 5,
+      "intensity": 0.5,
+      "red_shift": 0.0
+    },
+    "bloom": {
+      "enabled": true,
+      "radius": 16,
+      "intensity": 0.64
+    },
+    "grain1": {
+      "enabled": true,
+      "amount": 0.015,
+      "size": 0.06,
+      "color_ratio": 0.15,
+      "shadow_boost": 1.5,
+      "floor": 0.3,
+      "chroma_shift": 0.15
+    },
+    "grain2": {
+      "enabled": true,
+      "amount": 0.01,
+      "size": 0.18,
+      "color_ratio": 0.25,
+      "shadow_boost": 3.0,
+      "floor": 0.3,
+      "chroma_shift": 0.25
+    }
+  },
+  "copyright": {
+    "enabled": false,
+    "mode": "date",
+    "custom_text": ""
+  },
+  "masques": []
+}

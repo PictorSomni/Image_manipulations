@@ -1,0 +1,15 @@
+[Unit]
+Description=API Taches (remplace Notion pour le panneau Kanban de Hub)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pictorsomni
+WorkingDirectory=/home/pictorsomni/Documents/GitHub/Image_manipulations/Data
+ExecStart=/usr/bin/python3 "/home/pictorsomni/Documents/GitHub/Image_manipulations/Data/taches_server.py"
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
