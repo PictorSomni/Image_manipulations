@@ -109,6 +109,8 @@ _KANBAN_TRASH_DAYS = 365  # purge auto au-delà (retour user)
 _KANBAN_ORDER_FILE = CONSTANTS.state_file(".kanban_order.json")
 _AGENDA_CACHE_FILE = CONSTANTS.state_file(".agenda_cache.json")
 _KANBAN_SETTINGS_FILE = CONSTANTS.state_file(".kanban_settings.json")
+_FORBIDDEN_IMAGE_PREFIXES = ("DSC", "IMG", "NZ6")
+_FORBIDDEN_IMAGE_SUFFIXES = (".ini", ".db", ".json", ".txt", ".xml", ".html", ".htm", ".zip", ".md", ".pdf")
 
 
 def _is_hidden_entry(entry):
@@ -10516,7 +10518,7 @@ def main(page: ft.Page):
         plus fréquente, ou (None, 0)."""
         counts, last = {}, {}
         try:
-            names = os.listdir(folder)
+            names = [file for file in os.listdir(folder) if not any(prefix in file.upper() for prefix in _FORBIDDEN_IMAGE_PREFIXES) and not file.endswith(any(_FORBIDDEN_IMAGE_SUFFIXES))]
         except OSError:
             return None, 0
         for n in names:
@@ -13404,7 +13406,8 @@ def main(page: ft.Page):
         # jamais si la session n'a pas encore démarré (retour user).
         # Le mot de passe SSH reste demandé normalement par le terminal
         # ouvert ; jamais saisi/mémorisé ici.
-        ssh_cmd = 'ssh pictorsomni@pictorsomni -t "tmux new -A -s claude"'
+        # ssh_cmd = 'ssh pictorsomni@pictorsomni -t "tmux new -A -s claude"'
+        ssh_cmd = 'ssh pictorsomni@pictorsomni'
         try:
             system = platform.system()
             if system == "Windows":
