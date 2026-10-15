@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.15"
+__version__ = "2.10.16"
 
 import asyncio
 import base64
@@ -10518,7 +10518,12 @@ def main(page: ft.Page):
         plus fréquente, ou (None, 0)."""
         counts, last = {}, {}
         try:
-            names = [file for file in os.listdir(folder) if not any(prefix in file.upper() for prefix in _FORBIDDEN_IMAGE_PREFIXES) and not file.endswith(any(_FORBIDDEN_IMAGE_SUFFIXES))]
+            names = [
+                f for f in os.listdir(folder)
+                if os.path.isfile(os.path.join(folder, f))
+                and not f.upper().startswith(_FORBIDDEN_IMAGE_PREFIXES)
+                and not f.lower().endswith(_FORBIDDEN_IMAGE_SUFFIXES)
+            ]
         except OSError:
             return None, 0
         for n in names:
@@ -10540,16 +10545,18 @@ def main(page: ft.Page):
             autofocus=True, width=280, bgcolor=DARK,
             border=CONSTANTS.input_border(GREY),
             color=WHITE)
-        continue_switch = ft.Switch(
-            label=f"Continuer après le n° {last:03}", value=False,
-            active_color=BLUE, visible=bool(series))
-        # Garde anti double-déclenchement : ENTER (on_submit) et le bouton
-        # "Lancer" appellent tous deux _confirm. Sans ce verrou, un second
-        # appel relit `selected` — déjà vidé par le _launch_tool du premier
-        # appel (_close_actions) — et le script associé traite alors TOUT
-        # le dossier au lieu des seuls fichiers sélectionnés (retour user :
-        # renommage complet et destructif d'un dossier au lieu de 3 photos).
-        fired = {"done": False}
+        continue_field = ft.TextField(
+            label="Continuer après le n°",
+            hint_text=f"Vide = repartir à 001 (dernier : {last:03})",
+            value=f"{last:03}" if series else "",
+            width=280, bgcolor=DARK,
+            border=CONSTANTS.input_border(GREY),
+            color=WHITE,
+            read_only=True,            # évite le clavier système, le pavé s'en charge
+            visible=bool(series))
+        _attach_keypad(continue_field, is_int=True)   # pas d'on_apply : valider le pavé ne lance pas le dialogue
+
+        fired = {"done": False}   # garde anti double-déclenchement (voir commentaire d'origine)
 
         def _cancel(e):
             dlg.open = False
@@ -10559,19 +10566,19 @@ def main(page: ft.Page):
             if fired["done"]:
                 return
             fired["done"] = True
-            series = (name_field.value or "").strip()
+            chosen = (name_field.value or "").strip()
+            raw = (continue_field.value or "").strip() if continue_field.visible else ""
+            after = int(raw) if raw.isdigit() else None
             dlg.open = False
             page.update()
             _launch_tool("Renommer séquence.py",
-                        extra_env={"SERIES_NAME": series,
-                                   "SERIES_CONTINUE": "1" if (
-                                       continue_switch.visible
-                                       and continue_switch.value) else ""})
+                         extra_env={"SERIES_NAME": chosen,
+                                    "SERIES_CONTINUE": "" if after is None else str(after)})
 
         name_field.on_submit = _confirm
         dlg = _dialog(
             title=ft.Text("Renommer séquence", size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([name_field, continue_switch], tight=True),
+            content=ft.Column([name_field, continue_field], tight=True),
             actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Lancer", "primary", on_click=_confirm)],
         )
