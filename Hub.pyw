@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.17"
 
 import asyncio
 import base64
@@ -12079,6 +12079,8 @@ def main(page: ft.Page):
         # d'outils de Hub (retour user).
         ("Zipper", ft.Icons.FOLDER_ZIP_OUTLINED, ORANGE,
          zipper_btn.on_click),
+        ("Partager le lien", ft.Icons.LINK, BLUE,
+         lambda e: _run_action(_share_link, list(selected))),
         ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
          ajouter_ia_btn.on_click),
         ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
@@ -12088,6 +12090,70 @@ def main(page: ft.Page):
     # dans le volet "Périphériques" du menu Ouvrir, au même endroit que les
     # clés USB et les cartes SD, ce qui est là où on le cherche (retour
     # user 2026-08-07). Cf. _phone_row.
+    def _share_link(paths=()):
+        """Lien fichiers.studiocleuze.be (Pi, Cloudflare Tunnel), nom
+        nettoyé pour une URL. Déjà dans un dossier "partage" : renommé
+        sur place. Ailleurs : envoyé par SFTP (Tailscale) dans
+        ~/partage du Pi — même code sur Mac et Windows."""
+        import unicodedata
+        files = [p for p in paths if os.path.isfile(p)]
+        if not files:
+            _log_to_terminal("⚠ Sélectionne un fichier.", YELLOW)
+            return
+
+        def _clean(p):
+            name = unicodedata.normalize("NFKD", os.path.basename(p))
+            name = "".join(c for c in name if not unicodedata.combining(c))
+            return re.sub(r"['’`\"]", "", name).replace(" ", "_")
+
+        def _work():
+            pi = next(s for s in CONSTANTS.SSH_SERVERS
+                      if s["host"] == "pictorsomni")
+            links, sftp, client = [], None, None
+            try:
+                for p in files:
+                    name = _clean(p)
+                    if os.path.basename(os.path.dirname(p)) == "partage":
+                        target = os.path.join(os.path.dirname(p), name)
+                        if target != p:
+                            if os.path.exists(target):
+                                _log_to_terminal(
+                                    f"[ERREUR] {name} existe déjà.", RED)
+                                continue
+                            os.rename(p, target)
+                    else:
+                        if sftp is None:
+                            import paramiko
+                            pwd = _ai_get_credential(pi["host"],
+                                                     pi["username"])
+                            if pwd is None:
+                                return
+                            client = paramiko.SSHClient()
+                            client.set_missing_host_key_policy(
+                                paramiko.AutoAddPolicy())
+                            client.connect(pi["host"],
+                                           username=pi["username"],
+                                           password=pwd, timeout=15)
+                            sftp = client.open_sftp()
+                        _log_to_terminal(f"Envoi de {name}…", BLUE)
+                        sftp.put(p, f"partage/{name}")
+                    links.append(f"https://fichiers.studiocleuze.be/{name}")
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] Partage : {exc}", RED)
+            finally:
+                if client is not None:
+                    client.close()
+            if links:
+                _liste_copy("\n".join(links))
+                for link in links:
+                    _log_to_terminal(f"[OK] Lien copié : {link}", GREEN)
+
+            async def _refresh():
+                _refresh_folder()
+            _run_task(_refresh)
+
+        threading.Thread(target=_work, daemon=True).start()
+
     def _pdf_vers_idml(paths=()):
         """PDF/Word sélectionnés -> idml/ (Affinity : vrais blocs)."""
         pdfs = [p for p in paths

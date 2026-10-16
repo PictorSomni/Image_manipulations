@@ -13,7 +13,7 @@ module les importe en dur (les valeurs diffèrent d'un thème d'app à
 l'autre).
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.17"
 
 import asyncio
 
@@ -86,11 +86,19 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
             page.update()
         return _on_click
 
-    def _backspace(event):
-        fld = active["field"]
-        fresh[id(active["field"])] = False
-        fld.value = (fld.value or "")[:-1]
-        page.update()
+    def _backspace_for(fld):
+        def _on_click(event):
+            active["field"] = fld
+            fresh[id(fld)] = False
+            fld.value = (fld.value or "")[:-1]
+            page.update()
+        return _on_click
+
+    # Retour user : backspace collé à droite du champ, pas dans le pavé.
+    for f in field_list:
+        f.suffix = ft.IconButton(
+            ft.Icons.BACKSPACE_OUTLINED, icon_color=colors["red"],
+            icon_size=20, on_click=_backspace_for(f))
 
     def _validate(event):
         fld = active["field"]
@@ -111,17 +119,9 @@ def numeric_keypad(page, fields, colors, on_confirm=None,
             style=ft.ButtonStyle(bgcolor=colors["dark"],
                                  color=colors["white"]))
 
-    last_row = [
-        ft.IconButton(
-            ft.Icons.BACKSPACE_OUTLINED, icon_color=colors["red"],
-            icon_size=24,
-            style=ft.ButtonStyle(bgcolor=colors["grey"],
-                                 padding=ft.Padding.all(16)),
-            on_click=_backspace),
-    ]
-    if allow_decimal:
-        last_row.append(_key_btn("."))
-    last_row.append(_key_btn("0"))
+    last_row = [_key_btn(".") if allow_decimal
+                else ft.Container(width=56, height=56),
+                _key_btn("0")]
     last_row.append(ft.IconButton(
         ft.Icons.CHECK_CIRCLE_OUTLINE, icon_color=colors["green"],
         icon_size=24,
