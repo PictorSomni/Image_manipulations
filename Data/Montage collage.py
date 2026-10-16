@@ -43,7 +43,7 @@ Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
   (pour le .psd — sans pytoshop, seul l'aperçu PNG est produit).
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.17"
 
 #############################################################
 #                          IMPORTS                          #
@@ -789,9 +789,16 @@ def main():
         # feuilles, reproductible via COLLAGE_SEED comme en mode mosaïque.
         ordered_names = list(photo_names)
         random.Random(seed).shuffle(ordered_names)
-        sheets = ([ordered_names[i:i + max_per_sheet]
-                  for i in range(0, len(ordered_names), max_per_sheet)]
-                 if max_per_sheet else [ordered_names])
+        # Répéter (retour user : flyer recto/verso, 2× le recto sur une A4
+        # puis 2× le verso) : une feuille par image, remplie de copies.
+        repeat = os.environ.get("COLLAGE_GRID_REPEAT", "0").strip() == "1"
+        if repeat and max_per_sheet:
+            sheets = [[n] * max_per_sheet for n in photo_names]
+        elif max_per_sheet:
+            sheets = [ordered_names[i:i + max_per_sheet]
+                      for i in range(0, len(ordered_names), max_per_sheet)]
+        else:
+            sheets = [ordered_names]
         print(f"[INFO] Grille {canvas_w}x{canvas_h}px "
               f"({width_cm:g}x{height_cm:g}cm @ {dpi:g}ppp), "
               f"{len(photo_names)} photo(s) sur {len(sheets)} feuille(s), "

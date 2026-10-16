@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.17"
+__version__ = "2.10.18"
 
 import asyncio
 import base64
@@ -11193,7 +11193,13 @@ def main(page: ft.Page):
             selected_index=3, controls=max_per_sheet_texts,
             thumb_color=BLUE, on_change=_on_max_per_sheet_change)
         _style_segments(max_per_sheet_btn, max_per_sheet_texts)
-        max_per_sheet_section = max_per_sheet_btn
+        # Une feuille par image, remplie de copies (ex. flyer recto/verso).
+        repeat_switch = ft.Switch(
+            label="Répéter chaque image", value=False,
+            active_color=BLUE, on_change=lambda e: _do_preview())
+        max_per_sheet_section = ft.Column(
+            [max_per_sheet_btn, repeat_switch], spacing=6,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         max_per_sheet_section.visible = False
 
         # Mode grille : pivote une photo de 90° quand son orientation ne
@@ -11521,7 +11527,10 @@ def main(page: ft.Page):
                 random.Random(preview_seed["value"]).shuffle(ordered_paths)
                 sheet_photos = (ordered_paths[:max_per_sheet] if max_per_sheet
                                 else ordered_paths)
-                if max_per_sheet:
+                if max_per_sheet and repeat_switch.value:
+                    sheet_photos = [sorted(photo_paths)[0]] * max_per_sheet
+                    n_sheets = len(photo_paths)
+                elif max_per_sheet:
                     n_sheets = math.ceil(len(photo_paths) / max_per_sheet)
                 canvas = montage_mod.render_grid_montage(
                     sheet_photos, prev_w, prev_h, gap_px, gap_px,
@@ -11607,6 +11616,7 @@ def main(page: ft.Page):
                 "COLLAGE_GRID_MAX_PER_SHEET":
                     str(max_per_sheet_mode["value"] or 0),
                 "COLLAGE_GRID_PSD": "1" if grid_psd["value"] else "0",
+                "COLLAGE_GRID_REPEAT": "1" if repeat_switch.value else "0",
                 "COLLAGE_SIZE_VARIATION": str(size_slider.value),
                 "COLLAGE_ROTATION_VARIATION": str(rotation_slider.value),
                 # Même tirage que l'aperçu affiché en dernier (si généré) :
