@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.19"
+__version__ = "2.10.20"
 
 import asyncio
 import base64
@@ -13499,13 +13499,18 @@ def main(page: ft.Page):
         _log_to_terminal(
             "🤖 Mode Claude activé — tape ton message."
             if claude_mode["active"] else "Mode Claude désactivé.", VIOLET)
-        if not _strip_state["active"]:
-            _toggle_strip()
+        # Terminal épinglé tant que le mode est actif — jamais
+        # _toggle_strip, qui le masque (passe en bandeau).
+        _terminal_autohide["pinned"] = claude_mode["active"]
+        _show_terminal_and_schedule_hide()
         page.update()
+        if claude_mode["active"]:
+            _run_task(terminal_input.focus)
 
     def _ask_claude(message):
         import shlex
         _log_to_terminal(f"› {message}", VIOLET)
+        _busy_start()
 
         def _work():
             pi = next(s for s in CONSTANTS.SSH_SERVERS
@@ -13533,6 +13538,7 @@ def main(page: ft.Page):
             finally:
                 if client is not None:
                     client.close()
+                _busy_end()
 
         threading.Thread(target=_work, daemon=True).start()
 
