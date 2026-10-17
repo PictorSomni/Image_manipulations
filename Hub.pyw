@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.18"
+__version__ = "2.10.19"
 
 import asyncio
 import base64
@@ -13067,6 +13067,12 @@ def main(page: ft.Page):
         _history_add("terminal", command_text)
         terminal_input.value = ""
         page.update()
+        if claude_mode["active"]:
+            if command_text.lower() == "/exit":
+                _toggle_claude_mode()
+            else:
+                _ask_claude(command_text)
+            return
         if (platform.system() != "Windows"
                 and command_text.split(None, 1)[0] == "sudo"):
             _prompt_sudo_password(command_text)
@@ -13480,56 +13486,55 @@ def main(page: ft.Page):
         if not _strip_state["active"]:
             _toggle_strip()
 
-    def _launch_ssh_terminal(event=None):
-        # Rejoint la session tmux "claude" sur le Pi hub — c'est là que
-        # tourne cette conversation même. Un vrai terminal, sans passer
-        # par la dictée (retour user : OpenWhispr avale des mots).
-        # `tmux new -A -s claude` plutôt que `attach` : rattache la
-        # session si elle existe déjà, sinon en crée une — ne plante
-        # jamais si la session n'a pas encore démarré (retour user).
-        # Le mot de passe SSH reste demandé normalement par le terminal
-        # ouvert ; jamais saisi/mémorisé ici.
-        # ssh_cmd = 'ssh pictorsomni@pictorsomni -t "tmux new -A -s claude"'
-        ssh_cmd = 'ssh pictorsomni@pictorsomni'
-        try:
-            system = platform.system()
-            if system == "Windows":
-                if shutil.which("wt"):
-                    subprocess.Popen([
-                        "wt", "ssh", "pictorsomni@pictorsomni", "-t",
-                        "tmux new -A -s claude"])
-                else:
-                    subprocess.Popen(f"start cmd /k {ssh_cmd}", shell=True)
-            elif system == "Darwin":
-                # Les guillemets internes de ssh_cmd (autour de la commande
-                # tmux) doivent être échappés pour AppleScript, sinon
-                # `do script "..."` se referme au premier " rencontré et le
-                # reste atterrit comme identifiant hors chaîne — syntax
-                # error -2740 (retour user).
-                escaped_cmd = ssh_cmd.replace("\\", "\\\\").replace(
-                    '"', '\\"')
-                script = ('tell application "Terminal" to do script '
-                         f'"{escaped_cmd}"')
-                subprocess.Popen(["osascript", "-e", script])
-            else:
-                for term in ("x-terminal-emulator", "gnome-terminal",
-                            "konsole", "xfce4-terminal", "xterm"):
-                    if not shutil.which(term):
-                        continue
-                    if term == "gnome-terminal":
-                        subprocess.Popen([term, "--", "bash", "-c", ssh_cmd])
-                    else:
-                        subprocess.Popen([term, "-e", ssh_cmd])
-                    break
-                else:
-                    _log_to_terminal("[ERREUR] Aucun terminal trouvé", RED)
-                    return
-        except Exception as exc:
-            _log_to_terminal(
-                f"[ERREUR] Ouverture du terminal SSH : {exc}", RED)
-            return
+    # Mode Claude (retour user) : le champ du terminal du Hub parle à
+    # Claude Code sur le Pi via SSH (`claude -p --continue`), réponse
+    # affichée dans le terminal. "/exit" pour revenir aux commandes shell.
+    # ponytail: une connexion SSH par message, client persistant si lent.
+    claude_mode = {"active": False}
+
+    def _toggle_claude_mode(event=None):
+        claude_mode["active"] = not claude_mode["active"]
+        terminal_input.hint_text = ("Message à Claude (/exit pour quitter)"
+                                    if claude_mode["active"] else None)
+        _log_to_terminal(
+            "🤖 Mode Claude activé — tape ton message."
+            if claude_mode["active"] else "Mode Claude désactivé.", VIOLET)
         if not _strip_state["active"]:
             _toggle_strip()
+        page.update()
+
+    def _ask_claude(message):
+        import shlex
+        _log_to_terminal(f"› {message}", VIOLET)
+
+        def _work():
+            pi = next(s for s in CONSTANTS.SSH_SERVERS
+                      if s["host"] == "pictorsomni")
+            pwd = _ai_get_credential(pi["host"], pi["username"])
+            if pwd is None:
+                return
+            client = None
+            try:
+                import paramiko
+                client = paramiko.SSHClient()
+                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                client.connect(pi["host"], username=pi["username"],
+                               password=pwd, timeout=15)
+                _stdin, stdout, stderr = client.exec_command(
+                    "cd ~ && ~/.local/bin/claude -p --continue "
+                    + shlex.quote(message))
+                for line in stdout:
+                    _log_to_terminal(line.rstrip("\n"), WHITE)
+                err = stderr.read().decode("utf-8", errors="replace").strip()
+                if err:
+                    _log_to_terminal(err, RED)
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] Claude : {exc}", RED)
+            finally:
+                if client is not None:
+                    client.close()
+
+        threading.Thread(target=_work, daemon=True).start()
 
     def _open_in_file_explorer(event=None):
         # Comme Dashboard.pyw:4721-4736 (open_in_file_explorer) : ouvre le
@@ -13673,8 +13678,8 @@ def main(page: ft.Page):
         (ft.Icons.PUBLIC, "Ouvrir le navigateur web", BLUE, _open_browser),
         (ft.Icons.OPEN_IN_NEW, "Ouvrir l'explorateur", GREEN,
          _open_in_file_explorer),
-        (ft.Icons.TERMINAL, "Terminal SSH vers le Pi (session Claude)",
-         VIOLET, _launch_ssh_terminal),
+        (ft.Icons.TERMINAL, "Parler à Claude (Pi)",
+         VIOLET, _toggle_claude_mode),
     ]
     accessory_row = ft.Container(
         content=ft.Row([
