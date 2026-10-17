@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.21"
+__version__ = "2.10.22"
 
 import asyncio
 import base64
@@ -13502,6 +13502,7 @@ subprocess.run(["tmux", "send-keys", "-t", "claude", "-l", sys.argv[1]])
 time.sleep(0.3)
 subprocess.run(["tmux", "send-keys", "-t", "claude", "Enter"])
 deadline = time.time() + 900
+started = False
 while time.time() < deadline:
     with open(path, encoding="utf-8") as f:
         f.seek(pos)
@@ -13513,7 +13514,13 @@ while time.time() < deadline:
             m = json.loads(line).get("message") or {}
         except ValueError:
             continue
-        if m.get("role") != "assistant":
+        # Un message envoyé pendant que Claude travaille encore est mis
+        # en file : on attend qu'il soit pris en compte, sinon la fin du
+        # tour PRÉCÉDENT était affichée à la place de la vraie réponse.
+        if (m.get("role") == "user" and isinstance(m.get("content"), str)
+                and sys.argv[1][:40] in m["content"]):
+            started = True
+        if not started or m.get("role") != "assistant":
             continue
         for b in m.get("content") or []:
             if b.get("type") == "text":
