@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.20"
+__version__ = "2.10.21"
 
 import asyncio
 import base64
@@ -13486,11 +13486,43 @@ def main(page: ft.Page):
         if not _strip_state["active"]:
             _toggle_strip()
 
-    # Mode Claude (retour user) : le champ du terminal du Hub parle à
-    # Claude Code sur le Pi via SSH (`claude -p --continue`), réponse
-    # affichée dans le terminal. "/exit" pour revenir aux commandes shell.
+    # Mode Claude (retour user) : le champ du terminal du Hub écrit dans
+    # LA session Claude Code interactive du Pi (tmux "claude", même
+    # conversation que /remote-control, contexte gardé), puis suit son
+    # journal .jsonl et affiche les réponses texte jusqu'à la fin du tour.
+    # "/exit" pour revenir aux commandes shell.
     # ponytail: une connexion SSH par message, client persistant si lent.
     claude_mode = {"active": False}
+    _CLAUDE_RELAY = r"""
+import glob, json, os, subprocess, sys, time
+files = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
+path = max(files, key=os.path.getmtime)
+pos = os.path.getsize(path)
+subprocess.run(["tmux", "send-keys", "-t", "claude", "-l", sys.argv[1]])
+time.sleep(0.3)
+subprocess.run(["tmux", "send-keys", "-t", "claude", "Enter"])
+deadline = time.time() + 900
+while time.time() < deadline:
+    with open(path, encoding="utf-8") as f:
+        f.seek(pos)
+        chunk = f.read()
+    end = chunk.rfind("\n") + 1
+    pos += len(chunk[:end].encode("utf-8"))
+    for line in chunk[:end].splitlines():
+        try:
+            m = json.loads(line).get("message") or {}
+        except ValueError:
+            continue
+        if m.get("role") != "assistant":
+            continue
+        for b in m.get("content") or []:
+            if b.get("type") == "text":
+                print(b["text"], flush=True)
+        if m.get("stop_reason") == "end_turn":
+            sys.exit(0)
+    time.sleep(0.5)
+print("[délai dépassé]")
+"""
 
     def _toggle_claude_mode(event=None):
         claude_mode["active"] = not claude_mode["active"]
@@ -13525,9 +13557,10 @@ def main(page: ft.Page):
                 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                 client.connect(pi["host"], username=pi["username"],
                                password=pwd, timeout=15)
-                _stdin, stdout, stderr = client.exec_command(
-                    "cd ~ && ~/.local/bin/claude -p --continue "
-                    + shlex.quote(message))
+                stdin, stdout, stderr = client.exec_command(
+                    "python3 - " + shlex.quote(message))
+                stdin.write(_CLAUDE_RELAY)
+                stdin.channel.shutdown_write()
                 for line in stdout:
                     _log_to_terminal(line.rstrip("\n"), WHITE)
                 err = stderr.read().decode("utf-8", errors="replace").strip()
