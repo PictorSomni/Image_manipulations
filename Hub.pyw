@@ -13717,7 +13717,7 @@ print("[délai dépassé]")
         (ft.Icons.PUBLIC, "Ouvrir le navigateur web", BLUE, _open_browser),
         (ft.Icons.OPEN_IN_NEW, "Ouvrir l'explorateur", GREEN,
          _open_in_file_explorer),
-        (ft.Icons.TERMINAL, "Parler à Claude (Pi)",
+        (ft.Icons.TERMINAL, "Parler à Claude",
          VIOLET, _toggle_claude_mode),
     ]
     accessory_row = ft.Container(
