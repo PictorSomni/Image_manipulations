@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.36"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -1096,15 +1096,20 @@ class PhotoCropper:
         `canvas_container` et `image_stack`.
         """
 
-        if self.page.window.width:
+        # Onglet de Retouche photo : page.width/height du proxy déduisent
+        # déjà le rail de l'hôte.
+        embedded = getattr(self.page, "embedded", False)
+        win_w = self.page.width if embedded else self.page.window.width
+        win_h = self.page.height if embedded else self.page.window.height
+        if win_w:
             right_panel_width = RIGHT_COL_WIDTH + 24  # colonne droite + séparateur/marges
-            usable_width = self.page.window.width - right_panel_width - CANVAS_CHROME_WIDTH - LEFT_COL_WIDTH - 40
+            usable_width = win_w - right_panel_width - CANVAS_CHROME_WIDTH - LEFT_COL_WIDTH - 40
             available_width = min(max(usable_width, 320), MAX_CANVAS_SIZE)
         else:
             available_width = 800
         # 230 : barre d'outils fine au-dessus du canevas (l'ancien bloc
         # Opérations de ~200px est passé dans la colonne gauche).
-        available_height = min(self.page.window.height - 230, MAX_CANVAS_SIZE) if self.page.window.height else 600
+        available_height = min(win_h - 230, MAX_CANVAS_SIZE) if win_h else 600
 
 
 
@@ -4916,6 +4921,9 @@ class PhotoCropper:
 
         if getattr(self, '_closing', False):
             return
+        if getattr(self.page, "embedded", False):
+            # Onglet de Retouche photo : la fenêtre appartient à l'hôte.
+            return
         self._closing = True
 
         # Fenêtre masquée EN PREMIER : l'interface vide restait affichée
@@ -5059,9 +5067,11 @@ def main(page: ft.Page):
         overlay_color=ft.Colors.with_opacity(0.08, WHITE),
         active_tick_mark_color=ft.Colors.TRANSPARENT,
         inactive_tick_mark_color=ft.Colors.TRANSPARENT))
-    page.window.maximized = True
-    page.bgcolor = GREY
-    page.run_task(page.window.to_front)
+    embedded = getattr(page, "embedded", False)
+    if not embedded:
+        page.window.maximized = True
+        page.bgcolor = GREY
+        page.run_task(page.window.to_front)
 
     app = PhotoCropper(page)
 
@@ -5387,10 +5397,14 @@ def main(page: ft.Page):
         ft.Container(
             content=ft.Column([
                 app.border_switch_polaroid,
-                app.border_switch_ID2,
-                app.border_switch_ID4,
-                app.id4_10x20_switch,
-                app.network_switch,
+                # Onglet de Retouche photo : ni ID x2/x4 ni réseau
+                # (retour user).
+                *([] if embedded else [
+                    app.border_switch_ID2,
+                    app.border_switch_ID4,
+                    app.id4_10x20_switch,
+                    app.network_switch,
+                ]),
             ], spacing=0),
             padding=ft.Padding.only(bottom=8),
         ),

@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.36"
 
 #############################################################
 #                          IMPORTS                          #
@@ -37,6 +37,8 @@ import shutil
 import sys
 import threading
 import time
+import importlib.machinery
+import importlib.util
 import types
 from decimal import Decimal
 from pathlib import Path
@@ -2437,6 +2439,8 @@ def main(page: ft.Page):
             _open_ia_tab()
         elif key == "redresser":
             _show_redresser(state["index"])
+        elif key == "recadrage":
+            _open_crop_tab()
         else:
             for k, pane in panes.items():
                 pane.visible = k == key
@@ -2469,6 +2473,7 @@ def main(page: ft.Page):
             ("presets", ft.Icons.BOOKMARKS_OUTLINED, "Préréglages"),
             ("masks", ft.Icons.GRADIENT, "Masques"),
             ("redresser", ft.Icons.STRAIGHTEN, "Redresser"),
+            ("recadrage", ft.Icons.CROP, "Recadrage"),
             ("ia", ft.Icons.AUTO_AWESOME, "IA")):
         rail_buttons[_key] = ft.IconButton(
             _icon, tooltip=_tip, icon_size=CONSTANTS.ICON_SM,
@@ -2477,7 +2482,7 @@ def main(page: ft.Page):
     rail = ft.Container(
         content=ft.Column([
             rail_buttons["settings"], rail_buttons["masks"],
-            rail_buttons["redresser"],
+            rail_buttons["redresser"], rail_buttons["recadrage"],
             rail_buttons["ia"], rail_buttons["presets"],
         ], spacing=CONSTANTS.SPACE_SM,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER),
@@ -2501,6 +2506,10 @@ def main(page: ft.Page):
         padding=CONSTANTS.SPACE_MD, bgcolor=DARK)
 
     def _on_key(e):
+        if state.get("tab") == "recadrage":
+            if crop_page.on_keyboard_event:
+                crop_page.on_keyboard_event(e)
+            return
         if state.get("tab") == "redresser":
             if (e.ctrl or e.meta) and e.key == "Z":
                 redresser_tab._undo(e)
@@ -2557,8 +2566,33 @@ def main(page: ft.Page):
                                                 CONSTANTS.SPACE_SM))
     red_tab = ft.Column([redresser_tab.view, red_strip], expand=True,
                         visible=False, spacing=CONSTANTS.SPACE_SM)
-    embedded_tabs = {"ia": ia_tab, "redresser": red_tab}
-    embedded_strips = {"ia": ia_strip, "redresser": red_strip}
+    # Recadrage : Recadrage manuel.pyw tel quel (sa propre navigation,
+    # ses exports) ; pas de bande de miniatures.
+    crop_view = ft.Container(expand=True)
+    crop_strip = ft.Container(visible=False)
+    crop_tab = ft.Column([crop_view, crop_strip], expand=True,
+                         visible=False)
+    crop_page = _TabPage(page, crop_view, width_offset=_RAIL_W)
+
+    def _open_crop_tab():
+        if crop_page.built:
+            return
+        crop_page.built = True
+        path = str(Path(__file__).with_name("Recadrage manuel.pyw"))
+        loader = importlib.machinery.SourceFileLoader("recadrage_manuel",
+                                                      path)
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        module = importlib.util.module_from_spec(spec)
+        loader.exec_module(module)
+
+        async def _boot():
+            module.main(crop_page)  # crée des tâches : boucle requise
+        page.run_task(_boot)
+
+    embedded_tabs = {"ia": ia_tab, "redresser": red_tab,
+                     "recadrage": crop_tab}
+    embedded_strips = {"ia": ia_strip, "redresser": red_strip,
+                       "recadrage": crop_strip}
 
     def _resize_redresser(e=None):
         pw = int(getattr(e, "width", None) or page.width or 1400)
@@ -2591,10 +2625,12 @@ def main(page: ft.Page):
         if ia_page.built and ia_page.on_resized:
             ia_page.on_resized(ia_page.resize_event(e))
         _resize_redresser(e)
+        if crop_page.built and crop_page.on_resize:
+            crop_page.on_resize(crop_page.resize_event(e))
     page.on_resize = _on_resize
 
     page.add(
-        ft.Row([retouche_view, ia_tab, red_tab, rail], expand=True,
+        ft.Row([retouche_view, ia_tab, red_tab, crop_tab, rail], expand=True,
                spacing=_ROW_SPACING,
                vertical_alignment=ft.CrossAxisAlignment.STRETCH)
     )
