@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.39"
+__version__ = "2.10.40"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -127,6 +127,9 @@ CANVAS_CHROME_WIDTH = 160  # Sliders latéraux + espacements autour du canevas
 # Formats d'impression (largeur_mm, hauteur_mm) - en portrait
 FORMATS = CONSTANTS.FORMATS
 _CUSTOM_KEY = "Personnalisé"
+# Onglet de Retouche photo : recadrage libre aux dimensions d'origine
+# (ratio de l'image, aucun rééchantillonnage) — retour user.
+_REAL_KEY = "Taille réelle"
 
 # ===================== COULEURS ===================== #
 DARK         = CONSTANTS.COLOR_DARK
@@ -1799,7 +1802,8 @@ class PhotoCropper:
         format_dimensions = snapshot["dims"]
         is_portrait = snapshot["is_portrait"]
         fmt_w_mm, fmt_h_mm = format_dimensions
-        if snapshot.get("crop_mode", "resolution") == "ratio":
+        if (snapshot.get("crop_mode", "resolution") == "ratio"
+                or snapshot.get("label") == _REAL_KEY):
             _fw = fmt_w_mm if is_portrait else fmt_h_mm
             _fh = fmt_h_mm if is_portrait else fmt_w_mm
             if snapshot.get("label") == _CUSTOM_KEY:
@@ -3770,6 +3774,13 @@ class PhotoCropper:
             Événement du RadioGroup ; `e.control.value` = clé du dict FORMATS.
         """
 
+        if e.control.value == _REAL_KEY:
+            self.current_format_label = _REAL_KEY
+            self.current_format = self._real_dims()
+            self.update_canvas_size()
+            if self.image_paths:
+                self.load_image(preserve_orientation=True)
+            return
         if e.control.value == _CUSTOM_KEY:
             self.current_format_label = _CUSTOM_KEY
             # Lire les champs si déjà initialisés
@@ -4918,10 +4929,23 @@ class PhotoCropper:
         snap = self._snapshot_current()
         return tuple(snap[k] for k in self._EMBED_KEYS)
 
+    def _real_dims(self):
+        """(petit côté, grand côté) en pixels de la photo courante :
+        l'orientation auto de load_image fait le reste."""
+        try:
+            with Image.open(self.image_paths[self.current_index]) as im:
+                w, h = im.size
+        except Exception:
+            return (100, 150)
+        return (min(w, h), max(w, h))
+
     def embedded_show(self, path):
         self.image_paths = [path]
         self.current_index = 0
         self.batch_mode = True
+        if self.current_format_label == _REAL_KEY:
+            self.current_format = self._real_dims()
+            self.update_canvas_size()
         self.load_image(preserve_orientation=False)
         self._embed_base = self._embed_key()
 
@@ -4934,6 +4958,9 @@ class PhotoCropper:
         if key == getattr(self, "_embed_base", None):
             return None
         self._embed_base = key
+        if (self.current_format_label == _REAL_KEY and self.scale <= 1.0
+                and not self.rotation):
+            return None  # image entière, intacte : rien à valider
         return self._compute_crop_from_snapshot(self._snapshot_current())
 
     async def close_window(self, e=None):
@@ -5119,6 +5146,24 @@ def main(page: ft.Page):
         for btn in (app.validate_button, app.previous_button,
                     app.ignore_button):
             btn.visible = False
+        # Format choisi conservé partout (photos, retour dans l'onglet,
+        # prochaines sessions) jusqu'à ce qu'on le change (retour user).
+        _embed_state_file = CONSTANTS.state_file(".recadrage_onglet.json")
+
+        def _embed_save():
+            CONSTANTS.save_json(_embed_state_file, {
+                "label": app.format_radio_group.value,
+                "custom": bool(app.custom_mode_switch.value),
+                "w": app.custom_w_field.value, "h": app.custom_h_field.value,
+                "unit": app.custom_unit,
+                "ratio": getattr(app, "crop_mode", "") == "ratio"})
+
+        _orig_change_ratio = app.change_ratio
+
+        def _change_ratio_saved(e=None):
+            _orig_change_ratio(e)
+            _embed_save()
+        app.change_ratio = _change_ratio_saved
 
 
 
@@ -5196,6 +5241,8 @@ def main(page: ft.Page):
                 app.update_canvas_size()
                 if app.image_paths:
                     app.load_image(preserve_orientation=True)
+                if embedded:
+                    _embed_save()
         except ValueError:
             pass
 
@@ -5342,7 +5389,9 @@ def main(page: ft.Page):
         page.update()
 
     format_radios = [ft.Radio(value=fmt, label=fmt, fill_color=BLUE)
-                     for fmt in FORMATS.keys()]
+                     for fmt in ([_REAL_KEY] if embedded else [])
+                     + list(FORMATS.keys())]
+    format_radios_values = [r.value for r in format_radios]
     app.format_radio_group = ft.RadioGroup(
         content=ft.Column(format_radios, scroll=ft.ScrollMode.AUTO),
         value="ID",
@@ -5426,8 +5475,7 @@ def main(page: ft.Page):
     # boutons auraient pu sortir de vue vers le haut. On sépare donc, comme
     # dans Retouche photo.pyw, ce qui peut défiler de ce qui doit rester
     # visible en permanence.
-    right_scroll_body = ft.Column([
-        ft.CupertinoSlidingSegmentedButton(
+    crop_mode_seg = ft.CupertinoSlidingSegmentedButton(
             selected_index=0,
             controls=[
                 ft.Text("Résolution", size=12),
@@ -5435,8 +5483,12 @@ def main(page: ft.Page):
             ],
             on_change=_on_crop_mode_change_and_sync,
             padding=ft.Padding.symmetric(horizontal=4, vertical=4),
-            width=RIGHT_COL_WIDTH,
-        ),
+            # Intégré : toute la largeur de la colonne commune.
+            width=(page.panel_w - 2 * CONSTANTS.SPACE_MD if embedded
+                   else RIGHT_COL_WIDTH),
+        )
+    right_scroll_body = ft.Column([
+        crop_mode_seg,
         app.format_list_container,
         app.custom_panel,
         ft.Container(
@@ -5787,6 +5839,25 @@ def main(page: ft.Page):
             pass
     
     if embedded:
+        saved = CONSTANTS.load_json(
+            CONSTANTS.state_file(".recadrage_onglet.json"), {}) or {}
+        if saved.get("ratio"):
+            crop_mode_seg.selected_index = 1
+            app.crop_mode = "ratio"
+        if saved.get("w"):
+            app.custom_w_field.value = saved["w"]
+            app.custom_h_field.value = saved.get("h") or saved["w"]
+        if saved.get("unit") in ("mm", "px"):
+            app.custom_unit = app.unit_dropdown.value = saved["unit"]
+        label = saved.get("label")
+        if saved.get("custom"):
+            app.custom_mode_switch.value = True
+            _apply_custom_mode(True)
+        elif label in format_radios_values:
+            app.format_radio_group.value = label
+            app.change_ratio(type("Evt", (), {"control": type(
+                "Ctl", (), {"value": label})()})())
+        _sync_custom_unit_for_crop_mode()
         return app
     asyncio.create_task(delayed_start())
 
