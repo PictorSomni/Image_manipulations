@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.34"
+__version__ = "2.10.35"
 
 import asyncio
 import base64
@@ -131,7 +131,47 @@ def _is_hidden_entry(entry):
 # lecture tolérante, écriture atomique, échec rapporté au terminal intégré
 # via le hook branché dans main(). Cf. CONSTANTS §13bis.
 _load_json = CONSTANTS.load_json
-_save_json = CONSTANTS.save_json
+
+# Copie sur le Pi (hub_sync) des caches Tâches/Agenda + corbeille et ordre
+# des cartes (retour user : secours si Notion tombe, et corbeille/ordre
+# identiques sur toutes les machines). Notion reste la source des cartes.
+# ponytail: récupéré une fois au démarrage, dernier qui écrit gagne.
+_HUB_SYNCED = {_KANBAN_CACHE_FILE: "kanban", _KANBAN_TRASH_FILE: "corbeille",
+               _KANBAN_ORDER_FILE: "kanban_ordre",
+               _AGENDA_CACHE_FILE: "agenda"}
+
+
+def _save_json(path, data):
+    CONSTANTS.save_json(path, data)
+    name = _HUB_SYNCED.get(path)
+    if name and hub_sync.available():
+        def _push():
+            try:
+                hub_sync.put(name, data)
+            except Exception:
+                pass  # Notion reste la source, prochaine écriture rattrape
+        threading.Thread(target=_push, daemon=True).start()
+
+
+def _hub_sync_pull_all():
+    if not hub_sync.available():
+        return
+
+    def _pull(item):
+        path, name = item
+        try:
+            data = hub_sync.get(name, timeout=3)
+        except Exception:
+            return
+        if data is None:
+            local = _load_json(path, None)
+            if local is not None:
+                _save_json(path, local)  # 1re fois : amorce le Pi
+        elif data != _load_json(path, None):
+            CONSTANTS.save_json(path, data)
+
+    with concurrent.futures.ThreadPoolExecutor(len(_HUB_SYNCED)) as pool:
+        list(pool.map(_pull, _HUB_SYNCED.items()))
 _save_error_hook = CONSTANTS.save_error_hook
 
 
@@ -8607,6 +8647,7 @@ def main(page: ft.Page):
     # Cache local (.kanban_cache.json) : évite un tableau vide le temps du
     # premier appel réseau à chaque passage sur l'onglet — comme Notion,
     # qui affiche l'état connu avant de resynchroniser (retour user).
+    _hub_sync_pull_all()
     kanban_state = {"loading": False, "search": "",
                     "order": _load_json(_KANBAN_ORDER_FILE, []),
                     "rows": _load_json(_KANBAN_CACHE_FILE, []),

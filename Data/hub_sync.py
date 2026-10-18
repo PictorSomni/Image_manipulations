@@ -13,7 +13,7 @@ Les erreurs réseau remontent en exception ; c'est à l'appelant de garder
 sa copie locale.
 """
 
-__version__ = "2.10.34"
+__version__ = "2.10.35"
 
 
 import json
@@ -44,16 +44,16 @@ def available():
     return bool(_key())
 
 
-def _req(method, name, body=None):
+def _req(method, name, body=None, timeout=8):
     req = urllib.request.Request(
         URL + name + ".json", data=body, method=method,
         headers={"X-Hub-Key": _key(), "Content-Type": "application/json"})
-    return urllib.request.urlopen(req, timeout=8)
+    return urllib.request.urlopen(req, timeout=timeout)
 
 
-def get(name):
+def get(name, timeout=8):
     try:
-        with _req("GET", name) as resp:
+        with _req("GET", name, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
