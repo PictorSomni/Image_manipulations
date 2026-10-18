@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.39"
+__version__ = "2.10.41"
 
 #############################################################
 #                          IMPORTS                          #
@@ -2466,7 +2466,9 @@ def main(page: ft.Page):
             slot.content = None
         if key in embedded_tabs:
             embedded_strips[key].content = filmstrip
-            embedded_footers[key].content = ft.Row([batch_button])
+            embedded_footers[key].content = ft.Column(
+                [ft.Divider(height=1, color=GREY), ft.Row([batch_button])],
+                spacing=CONSTANTS.SPACE_MD)
         else:
             preview_column.controls.insert(1, filmstrip)
             batch_row.controls = [batch_button]
@@ -2513,9 +2515,10 @@ def main(page: ft.Page):
             quick_row,
             ft.Column([settings_pane, masks_pane, presets_pane],
                       expand=True),
-            ft.Divider(height=1, color=GREY),
             ft.Row([progress_bar, progress_text],
                    spacing=CONSTANTS.SPACE_MD),
+            # Pied identique dans tous les onglets : séparateur + Valider.
+            ft.Divider(height=1, color=GREY),
             batch_row,
         ], spacing=CONSTANTS.SPACE_MD, expand=True),
         padding=CONSTANTS.SPACE_MD, bgcolor=DARK)

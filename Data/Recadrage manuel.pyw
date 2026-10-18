@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.40"
+__version__ = "2.10.41"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -5527,7 +5527,7 @@ def main(page: ft.Page):
     if embedded:
         # Même colonne droite que les autres onglets de Retouche photo
         # (largeur, fond, « Valider » de l'hôte en bas) — retour user.
-        controls.controls[2:] = [page.footer]
+        controls.controls[1:] = [page.footer]  # séparateur fourni
         controls.width = None
         controls.expand = True
         page.side.content = controls  # pleine hauteur, cf. hôte

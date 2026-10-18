@@ -5,7 +5,7 @@ chacune devient horizontale ou verticale selon son orientation dominante
 de 0 à 100 %. Enregistré dans le fichier, original copié dans ORIGINAUX/.
 """
 
-__version__ = "2.10.39"
+__version__ = "2.10.41"
 
 import asyncio
 import base64
@@ -104,7 +104,6 @@ class RedresserTab:
             content=ft.Column([
                 zone,
                 ft.Container(expand=True),
-                ft.Divider(height=1, color=GREY),
                 ft.Row([self.save_btn]),
                 self.status,
                 self.footer,
