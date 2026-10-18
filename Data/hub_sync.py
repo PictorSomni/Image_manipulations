@@ -3,8 +3,8 @@
 Listes partagées entre machines via le Pi (service hub-sync derrière le
 Tailscale Funnel) — remplace Notion pour la Liste de prix et la todo list.
 
-Clé : Identifiants du Hub (repli : ~/.hub_sync, une ligne). Sans clé, tout est local (available()
-renvoie False).
+Clé : Identifiants du Hub (repli : ~/.hub_sync, une ligne). Sans clé,
+tout est local (available() renvoie False).
 
 API :
   get(name) -> list | None   (None : absent sur le Pi)
