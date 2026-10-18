@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.37"
+__version__ = "2.10.38"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -1105,12 +1105,16 @@ class PhotoCropper:
             right_panel_width = RIGHT_COL_WIDTH + 24  # colonne droite + séparateur/marges
             left_w = 0 if embedded else LEFT_COL_WIDTH
             usable_width = win_w - right_panel_width - CANVAS_CHROME_WIDTH - left_w - 40
-            available_width = min(max(usable_width, 320), MAX_CANVAS_SIZE)
+            available_width = max(usable_width, 320)
         else:
             available_width = 800
         # 230 : barre d'outils fine au-dessus du canevas (l'ancien bloc
         # Opérations de ~200px est passé dans la colonne gauche).
-        available_height = min(win_h - 230, MAX_CANVAS_SIZE) if win_h else 600
+        # Intégré : ni colonne gauche ni boutons, l'aperçu prend la place.
+        max_canvas = 2400 if embedded else MAX_CANVAS_SIZE
+        available_width = min(available_width, max_canvas)
+        available_height = (min(win_h - (90 if embedded else 230),
+                                max_canvas) if win_h else 600)
 
 
 
@@ -4903,6 +4907,34 @@ class PhotoCropper:
 
 
 
+    # ── Onglet Recadrage de Retouche photo ───────────────────────────
+    # L'hôte choisit la photo (miniatures) et récupère le recadrage en
+    # mémoire pour son propre « Valider » — pas d'export ici.
+    _EMBED_KEYS = ("label", "dims", "is_portrait", "scale", "offset_x",
+                   "offset_y", "rotation", "rembg_active", "crop_mode")
+
+    def _embed_key(self):
+        snap = self._snapshot_current()
+        return tuple(snap[k] for k in self._EMBED_KEYS)
+
+    def embedded_show(self, path):
+        self.image_paths = [path]
+        self.current_index = 0
+        self.batch_mode = True
+        self.load_image(preserve_orientation=False)
+        self._embed_base = self._embed_key()
+
+    def embedded_crop(self):
+        """Image recadrée si le cadrage a changé depuis embedded_show,
+        sinon None."""
+        if not self.image_paths or not hasattr(self, "original_width"):
+            return None
+        key = self._embed_key()
+        if key == getattr(self, "_embed_base", None):
+            return None
+        self._embed_base = key
+        return self._compute_crop_from_snapshot(self._snapshot_current())
+
     async def close_window(self, e=None):
         """
         Ferme la fenêtre de l'application en toute sécurité.
@@ -5075,6 +5107,17 @@ def main(page: ft.Page):
         page.run_task(page.window.to_front)
 
     app = PhotoCropper(page)
+    if embedded:
+        # Réglages faits dans Retouche photo : aperçu brut, sans les
+        # valeurs par défaut de Recadrage (exposition/saturation…).
+        for attr in ("contrast", "saturation", "exposure", "shadows",
+                     "highlights", "whites", "blacks", "vibrance", "hue",
+                     "white_balance"):
+            setattr(app, attr, 0.0)
+        app.is_sharpen = False
+        for btn in (app.validate_button, app.previous_button,
+                    app.ignore_button):
+            btn.visible = False
 
 
 
@@ -5727,6 +5770,8 @@ def main(page: ft.Page):
         except Exception:
             pass
     
+    if embedded:
+        return app
     asyncio.create_task(delayed_start())
 
 # Utilisation de la syntaxe recommandée pour éviter le DeprecationWarning

@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.36"
+__version__ = "2.10.38"
 
 #############################################################
 #                          IMPORTS                          #
@@ -956,7 +956,8 @@ def main(page: ft.Page):
                        height=_FILMSTRIP_H)
 
     def _on_thumb(i):
-        if state.get("tab") in ("ia", "redresser"):
+        if state.get("tab") in ("ia", "redresser", "recadrage"):
+            _stage_ia()
             # Onglets IA/Redresser : la miniature y charge la photo,
             # l'aperçu des réglages sera rechargé au retour.
             _leave_photo()
@@ -964,6 +965,8 @@ def main(page: ft.Page):
             _refresh_filmstrip()
             if state["tab"] == "redresser":
                 _show_redresser(i)
+            elif state["tab"] == "recadrage":
+                _show_crop(i)
             elif ia_page.show_file:
                 ia_page.show_file(file_names[i])
         else:
@@ -1840,6 +1843,8 @@ def main(page: ft.Page):
         style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(
             radius=CONSTANTS.BUTTON_RADIUS)))
 
+    batch_row = ft.Row([batch_button])
+
     # « Enregistrer comme réglages par défaut » a été retiré : les
     # préréglages nommés couvrent cet usage sans réécrire CONSTANTS.py.
 
@@ -2451,10 +2456,19 @@ def main(page: ft.Page):
             slot.content = None
         if filmstrip in preview_column.controls:
             preview_column.controls.remove(filmstrip)
+        # Même « Valider » dans tous les onglets (retour user) : déplacé
+        # avec la bande de miniatures.
+        batch_row.controls = []
         if key in embedded_tabs:
-            embedded_strips[key].content = filmstrip
+            embedded_strips[key].content = ft.Row(
+                [ft.Container(filmstrip, expand=True),
+                 ft.Container(batch_button, width=240,
+                              padding=ft.Padding(0, 0, CONSTANTS.SPACE_MD,
+                                                 0))],
+                vertical_alignment=ft.CrossAxisAlignment.CENTER)
         else:
             preview_column.controls.insert(1, filmstrip)
+            batch_row.controls = [batch_button]
         retouche_view.visible = key not in embedded_tabs
         for k, tab in embedded_tabs.items():
             tab.visible = k == key
@@ -2501,7 +2515,7 @@ def main(page: ft.Page):
             ft.Divider(height=1, color=GREY),
             ft.Row([progress_bar, progress_text],
                    spacing=CONSTANTS.SPACE_MD),
-            ft.Row([batch_button]),
+            batch_row,
         ], spacing=CONSTANTS.SPACE_MD, expand=True),
         padding=CONSTANTS.SPACE_MD, bgcolor=DARK)
 
@@ -2551,6 +2565,11 @@ def main(page: ft.Page):
     def _stage_ia():
         if ia_page.stage_current:
             ia_page.stage_current()
+        app = getattr(crop_page, "app", None)
+        if app and state.get("tab") == "recadrage":
+            img = app.embedded_crop()
+            if img is not None:
+                _on_staged(os.path.basename(app.image_paths[0]), img)
 
     def _show_redresser(i):
         name = file_names[i]
@@ -2569,13 +2588,21 @@ def main(page: ft.Page):
     # Recadrage : Recadrage manuel.pyw tel quel (sa propre navigation,
     # ses exports) ; pas de bande de miniatures.
     crop_view = ft.Container(expand=True)
-    crop_strip = ft.Container(visible=False)
+    crop_strip = ft.Container(padding=ft.Padding(CONSTANTS.SPACE_MD, 0, 0,
+                                                 CONSTANTS.SPACE_SM))
     crop_tab = ft.Column([crop_view, crop_strip], expand=True,
-                         visible=False)
-    crop_page = _TabPage(page, crop_view, width_offset=_RAIL_W)
+                         visible=False, spacing=CONSTANTS.SPACE_SM)
+    crop_page = _TabPage(page, crop_view, width_offset=_RAIL_W,
+                         height_offset=_FILMSTRIP_H + 2 * CONSTANTS.SPACE_SM)
+
+    def _show_crop(i):
+        app = getattr(crop_page, "app", None)
+        if app:
+            app.embedded_show(str(folder_path / file_names[i]))
 
     def _open_crop_tab():
         if crop_page.built:
+            _show_crop(state["index"])
             return
         crop_page.built = True
         path = str(Path(__file__).with_name("Recadrage manuel.pyw"))
@@ -2586,7 +2613,8 @@ def main(page: ft.Page):
         loader.exec_module(module)
 
         async def _boot():
-            module.main(crop_page)  # crée des tâches : boucle requise
+            crop_page.app = module.main(crop_page)
+            _show_crop(state["index"])
         page.run_task(_boot)
 
     embedded_tabs = {"ia": ia_tab, "redresser": red_tab,
