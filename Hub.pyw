@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.24"
+__version__ = "2.10.25"
 
 import asyncio
 import base64
@@ -8088,6 +8088,9 @@ def main(page: ft.Page):
                     + item["date"].astimezone().strftime("%H:%M")
                     if item["date"] else "")
         color = ACTUS_CAT_COLORS.get(item["category"], GREY)
+        body_text = ft.Text(
+            item.get("full") or item["summary"] or "Pas de résumé.",
+            size=CONSTANTS.TEXT_SM + 2, color=LIGHT_GREY, selectable=True)
         controls = []
         if item["image"]:
             controls.append(ft.Container(
@@ -8099,9 +8102,7 @@ def main(page: ft.Page):
                     color=color, weight=ft.FontWeight.W_500),
             ft.Text(item["title"], size=CONSTANTS.TEXT_LG + 4, color=WHITE,
                     weight=ft.FontWeight.W_600, selectable=True),
-            ft.Text(item["summary"] or "Pas de résumé.",
-                    size=CONSTANTS.TEXT_SM + 2, color=LIGHT_GREY,
-                    selectable=True),
+            body_text,
         ]
         if item["link"]:
             controls.append(ft.Row([_dlg_btn(
@@ -8109,6 +8110,29 @@ def main(page: ft.Page):
                 on_click=lambda e, u=item["link"]: webbrowser.open(u))]))
         actus_reader.controls = controls
         _actus_render()
+        # Texte complet de la page (retour user : résumés RSS trop courts
+        # ou absents, ex. TLDR, et lecture sans pubs/pisteurs), chargé en
+        # fond et gardé sur l'item ; résumé RSS affiché en attendant et en
+        # repli (site qui bloque, podcast).
+        if "full" in item or item["category"] == "Podcasts":
+            return
+        status = ft.Text("Chargement de l'article…", size=11,
+                         color=LIGHT_GREY, italic=True)
+        actus_reader.controls.insert(controls.index(body_text), status)
+        page.update()
+
+        def _work():
+            item["full"] = rss_feeds.fetch_article_text(item["link"])
+
+            async def _apply():
+                if status in actus_reader.controls:
+                    actus_reader.controls.remove(status)
+                if actus_state["selected"] is item:
+                    body_text.value = item["full"] or body_text.value
+                page.update()
+            _run_task(_apply)
+
+        threading.Thread(target=_work, daemon=True).start()
 
     def _actus_row(item):
         is_read = item["link"] in actus_read

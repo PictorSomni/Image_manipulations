@@ -10,7 +10,7 @@ API publique :
                    "source", "category", "image" (url ou "")}
 """
 
-__version__ = "2.10.17"
+__version__ = "2.10.18"
 
 
 import datetime
@@ -182,3 +182,23 @@ def fetch_all_feeds():
     items = [item for group in results for item in group]
     items.sort(key=lambda it: it["date"] or _MIN_DATE, reverse=True)
     return items
+
+
+_BROWSER_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/130.0 Safari/537.36")
+
+
+def fetch_article_text(url):
+    """Texte principal de la page de l'article (trafilatura), "" si
+    échec — site qui bloque (DPReview, OpenAI : 403) ou module absent.
+    UA navigateur complet : PetaPixel refuse un UA court."""
+    try:
+        import trafilatura
+        req = urllib.request.Request(url, headers={
+            "User-Agent": _BROWSER_UA, "Accept": "text/html",
+            "Accept-Language": "fr,en"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            text = trafilatura.extract(resp.read()) or ""
+        return text.replace("\n", "\n\n")  # paragraphes aérés
+    except Exception:
+        return ""

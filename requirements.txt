@@ -128,6 +128,9 @@ keyring>=25.0.0
 # Utilisé par l'outil IA ssh_command (Data/ai_tools.py).
 paramiko>=3.4.0
 
+# Texte complet des articles dans la page Actus (Data/rss_feeds.py).
+trafilatura>=2.0
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # WINDOWS UNIQUEMENT
