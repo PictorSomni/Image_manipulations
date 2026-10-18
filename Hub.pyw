@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.25"
+__version__ = "2.10.26"
 
 import asyncio
 import base64
@@ -8033,7 +8033,8 @@ def main(page: ft.Page):
     actus_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY)
     actus_list_view = ft.ListView(expand=True, spacing=2,
                                   padding=ft.Padding(8, 4, 8, 8))
-    actus_state = {"loading": False, "items": [], "filter": None,
+    actus_state = {"loading": False, "items": [], "fetched": False,
+                   "filter": None,
                    "unread_only": False, "selected": None}
 
     # Couleur par catégorie (retour user : la couleur par source rendait
@@ -8050,6 +8051,33 @@ def main(page: ft.Page):
             return []
 
     actus_read = _actus_load_read()   # liste ordonnée de liens lus
+
+    # Cache des articles (retour user) : la liste et les textes complets
+    # déjà chargés s'affichent dès l'ouverture, les flux se rafraîchissent
+    # ensuite en fond.
+    _ACTUS_CACHE_FILE = CONSTANTS.state_file(".actus_cache.json")
+
+    def _actus_save_cache():
+        data = [{**it, "date": it["date"].isoformat() if it["date"]
+                 else None} for it in actus_state["items"]]
+        try:
+            with open(_ACTUS_CACHE_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+        except (OSError, TypeError):
+            pass
+
+    def _actus_load_cache():
+        try:
+            with open(_ACTUS_CACHE_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            for it in data:
+                it["date"] = (datetime.datetime.fromisoformat(it["date"])
+                              if it["date"] else None)
+            return data
+        except (OSError, ValueError, KeyError, TypeError):
+            return []
+
+    actus_state["items"] = _actus_load_cache()
 
     def _actus_mark_read(link):
         if not link or link in actus_read:
@@ -8088,9 +8116,11 @@ def main(page: ft.Page):
                     + item["date"].astimezone().strftime("%H:%M")
                     if item["date"] else "")
         color = ACTUS_CAT_COLORS.get(item["category"], GREY)
-        body_text = ft.Text(
+        body_text = ft.Markdown(
             item.get("full") or item["summary"] or "Pas de résumé.",
-            size=CONSTANTS.TEXT_SM + 2, color=LIGHT_GREY, selectable=True)
+            selectable=True, soft_line_break=True,
+            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+            on_tap_link=lambda e: webbrowser.open(e.data))
         controls = []
         if item["image"]:
             controls.append(ft.Container(
@@ -8123,6 +8153,7 @@ def main(page: ft.Page):
 
         def _work():
             item["full"] = rss_feeds.fetch_article_text(item["link"])
+            _actus_save_cache()
 
             async def _apply():
                 if status in actus_reader.controls:
@@ -8248,7 +8279,14 @@ def main(page: ft.Page):
                 if error:
                     actus_status.value = f"Erreur : {error}"
                 else:
+                    # Garde les textes complets déjà chargés.
+                    full = {it["link"]: it["full"]
+                            for it in actus_state["items"] if "full" in it}
+                    for it in items:
+                        if it["link"] in full:
+                            it["full"] = full[it["link"]]
                     actus_state["items"] = items
+                    _actus_save_cache()
                     actus_status.value = (
                         f"{datetime.datetime.now().strftime('%H:%M')}")
                     if items and actus_state["selected"] is None:
@@ -10384,8 +10422,13 @@ def main(page: ft.Page):
                 _busy["pinned_by_busy"] = True
         state["surface"] = key
         center.content = surface_content[key]
-        if key == "actus" and not actus_state["items"]:
-            _actus_refresh()   # chargement paresseux : au premier passage
+        if key == "actus" and not actus_state["fetched"]:
+            # Premier passage : cache affiché tout de suite, flux
+            # rafraîchis en fond.
+            actus_state["fetched"] = True
+            if actus_state["items"]:
+                _actus_show(actus_state["items"][0])
+            _actus_refresh()
         if key == "agenda" and not agenda_state["events"]:
             _agenda_refresh()
         # Kanban : plus de rechargement auto à chaque passage sur l'onglet
