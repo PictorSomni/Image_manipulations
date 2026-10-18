@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.36"
+__version__ = "2.10.37"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -1103,7 +1103,8 @@ class PhotoCropper:
         win_h = self.page.height if embedded else self.page.window.height
         if win_w:
             right_panel_width = RIGHT_COL_WIDTH + 24  # colonne droite + séparateur/marges
-            usable_width = win_w - right_panel_width - CANVAS_CHROME_WIDTH - LEFT_COL_WIDTH - 40
+            left_w = 0 if embedded else LEFT_COL_WIDTH
+            usable_width = win_w - right_panel_width - CANVAS_CHROME_WIDTH - left_w - 40
             available_width = min(max(usable_width, 320), MAX_CANVAS_SIZE)
         else:
             available_width = 800
@@ -5561,6 +5562,9 @@ def main(page: ft.Page):
                         ),
                     ], spacing=4, scroll=ft.ScrollMode.AUTO),
                     width=LEFT_COL_WIDTH,
+                    # Onglet de Retouche photo : réglages déjà dans l'hôte
+                    # (retour user).
+                    visible=not embedded,
                     bgcolor=DARK,
                     padding=ft.Padding.symmetric(horizontal=10, vertical=12),
                     border=ft.Border.all(1, GREY),
