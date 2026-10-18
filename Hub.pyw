@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.32"
+__version__ = "2.10.33"
 
 import asyncio
 import base64
@@ -59,6 +59,7 @@ import meta_ai
 import credentials
 import mtp_devices
 import rss_feeds
+import hub_sync
 from ai_tools import (
     _backup_file, _folder_create_file, _folder_list_contents, _folder_read_file,
     _folder_delete_files, _web_search, _fetch_url_content, _run_terminal_command,
@@ -7467,7 +7468,87 @@ def main(page: ft.Page):
 
     _liste_load_error = {"msg": None}
 
-    def _liste_load():
+    # ── Synchro via le Pi (hub_sync) : todo list + prix ─────────────────
+    # Fichier local = copie de travail (hors ligne OK). Push raté -> nom
+    # noté "en attente", repoussé au prochain chargement au lieu d'être
+    # écrasé par la version du Pi. ponytail: dernier qui écrit gagne.
+    _SYNC_DIRTY_FILE = CONSTANTS.state_file(".hub_sync_dirty.json")
+    _sync_lock = threading.Lock()
+
+    def _sync_name(path):
+        return {_LISTE_TODO_PATH: "liste", _PRIX_PATH: "prix"}.get(path)
+
+    def _sync_dirty(name, flag=None):
+        with _sync_lock:
+            try:
+                with open(_SYNC_DIRTY_FILE, encoding="utf-8") as f:
+                    dirty = set(json.load(f))
+            except (OSError, ValueError):
+                dirty = set()
+            if flag is None:
+                return name in dirty
+            (dirty.add if flag else dirty.discard)(name)
+            try:
+                with open(_SYNC_DIRTY_FILE, "w", encoding="utf-8") as f:
+                    json.dump(sorted(dirty), f)
+            except OSError:
+                pass
+
+    def _sync_read_local(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
+
+    def _sync_push(path):
+        name = _sync_name(path)
+        if not name or not hub_sync.available():
+            return
+        rows = _sync_read_local(path)
+        if rows is None:
+            return
+        try:
+            hub_sync.put(name, rows)
+            _sync_dirty(name, False)
+        except Exception as exc:
+            _sync_dirty(name, True)
+            _log_to_terminal(f"[Synchro] {name} pas envoyée au Pi : {exc}",
+                             ORANGE)
+
+    def _sync_push_bg(path):
+        threading.Thread(target=_sync_push, args=(path,),
+                         daemon=True).start()
+
+    def _sync_pull(path):
+        name = _sync_name(path)
+        if not name or not hub_sync.available():
+            return
+        if _sync_dirty(name):
+            _sync_push(path)
+            return
+        try:
+            rows = hub_sync.get(name)
+        except Exception as exc:
+            _log_to_terminal(f"[Synchro] Pi injoignable, copie locale : "
+                             f"{exc}", ORANGE)
+            return
+        if rows is None:
+            _sync_push(path)  # 1re fois : la copie locale amorce le Pi
+            return
+        if rows == _sync_read_local(path):
+            return
+        _backup_file(path)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(rows, f, ensure_ascii=False, indent=2)
+        if _liste_file["path"] == path:
+            _liste_load(pull=False)
+            _liste_render()
+
+    def _liste_load(pull=True):
+        if pull and _sync_name(_liste_file["path"]):
+            threading.Thread(target=_sync_pull, daemon=True,
+                             args=(_liste_file["path"],)).start()
         # Erreur explicite plutôt qu'un "Liste vide" muet en cas de JSON
         # invalide ou de mauvais format (retour user : un fichier .json
         # cliqué dans Fichiers pouvait sembler vide sans qu'on sache si
@@ -7503,10 +7584,7 @@ def main(page: ft.Page):
             _backup_file(path)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(liste_entries, f, ensure_ascii=False, indent=2)
-            if path == _PRIX_PATH:
-                threading.Thread(target=_prix_push, daemon=True,
-                                 args=([dict(e) for e in liste_entries],)
-                                 ).start()
+            _sync_push_bg(path)
         except Exception as exc:
             # Sans ce log, un échec d'écriture (disque plein, clé USB
             # débranchée...) perdait les modifs de la Liste sans aucun
@@ -8084,6 +8162,7 @@ def main(page: ft.Page):
             _backup_file(path)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump([entry] + data, f, ensure_ascii=False, indent=2)
+            _sync_push_bg(path)
         kanban_status.value = f"Ajouté à la Liste : {row['demande']}"
         _log_to_terminal(f"Ajouté à la Liste : {text}", GREEN)
         if btn is not None:
@@ -8100,35 +8179,15 @@ def main(page: ft.Page):
 
     _PRIX_PATH = CONSTANTS.state_file(".prix.json")
 
-    def _prix_seed():
-        seed = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "Data", "prix.json")
-        with open(seed, encoding="utf-8") as f:
-            return json.load(f)
-
-    async def _liste_open_prix(event=None):
-        # Source partagée : page Notion "Liste de prix" ; Logs/.prix.json
-        # n'est que le cache local (hors ligne, sans token).
-        try:
-            rows = await asyncio.to_thread(notion_rest.prix_get, _prix_seed())
-            with open(_PRIX_PATH, "w", encoding="utf-8") as f:
-                json.dump(rows, f, ensure_ascii=False, indent=2)
-        except Exception as exc:
-            _log_to_terminal(f"[ERREUR] Liste de prix Notion : {exc}", RED)
-            if not os.path.exists(_PRIX_PATH):
-                shutil.copyfile(os.path.join(os.path.dirname(
-                    os.path.abspath(__file__)), "Data", "prix.json"),
-                    _PRIX_PATH)
+    def _liste_open_prix(event=None):
+        # Partagée via le Pi (hub_sync, synchro dans _liste_load).
+        if not os.path.exists(_PRIX_PATH):
+            shutil.copyfile(os.path.join(os.path.dirname(
+                os.path.abspath(__file__)), "Data", "prix.json"), _PRIX_PATH)
         _liste_file["path"] = _PRIX_PATH
         liste_search_field.value = ""
         liste_search["value"] = ""
         _liste_reload()
-
-    def _prix_push(rows):
-        try:
-            notion_rest.prix_put(rows)
-        except Exception as exc:
-            _log_to_terminal(f"[ERREUR] Liste de prix Notion : {exc}", RED)
 
     # Un seul des deux visible à la fois (retour user) : € sur la todo
     # list, « Revenir à la todo list » ailleurs (cf. _liste_render).
