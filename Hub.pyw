@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.30"
+__version__ = "2.10.31"
 
 import asyncio
 import base64
@@ -7568,6 +7568,10 @@ def main(page: ft.Page):
                 return
             if dd.value != _NEW_CATEGORY:
                 dd.data = dd.value
+                dd.error_text = None
+                if dd is liste_quick_cat_field:
+                    _liste_last_cat_save(dd.value)
+                page.update()
                 return
             dd.value = dd.data or None
 
@@ -7575,8 +7579,11 @@ def main(page: ft.Page):
                 name = name[:1].upper() + name[1:]
                 if name:
                     dd.data = name
+                    dd.error_text = None
                     _set_options()
                     dd.value = name
+                    if dd is liste_quick_cat_field:
+                        _liste_last_cat_save(name)
                 page.update()
             ui_helpers.text_prompt_dialog(
                 page, "Nouvelle catégorie", _named, _KEYPAD_COLORS,
@@ -7585,6 +7592,27 @@ def main(page: ft.Page):
         dd.refresh = _set_options
         _set_options()
         return dd
+
+    # Dernière catégorie choisie, par fichier de liste (retour user :
+    # catégorie obligatoire, la dernière reste sélectionnée d'une
+    # session à l'autre jusqu'à ce qu'on en change).
+    _LISTE_LAST_CAT_FILE = CONSTANTS.state_file(".liste_last_cat.json")
+
+    def _liste_last_cat_all():
+        try:
+            with open(_LISTE_LAST_CAT_FILE, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    def _liste_last_cat_save(category):
+        data = _liste_last_cat_all()
+        data[os.path.basename(_liste_file["path"])] = category
+        try:
+            with open(_LISTE_LAST_CAT_FILE, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False)
+        except OSError:
+            pass
 
     def _liste_category_value(dd):
         shown = dd.value if dd.value != _NEW_CATEGORY else ""
@@ -7630,6 +7658,12 @@ def main(page: ft.Page):
             page.update()
 
         def _confirm(event):
+            for f in fields:
+                if (isinstance(f, ft.Dropdown)
+                        and not _liste_category_value(f)):
+                    f.error_text = "Requise"
+                    page.update()
+                    return
             first_field = fields[columns.index(text_columns[0])]
             first = (first_field.value or "").strip()
             if not first:
@@ -7697,12 +7731,15 @@ def main(page: ft.Page):
         if _LISTE_DONE_COLUMN in columns:
             entry[_LISTE_DONE_COLUMN] = "False"
         category = _liste_category_value(liste_quick_cat_field)
-        if category:
-            # Catégorie en premier ; ne pas laisser le "" par défaut de
-            # `entry` l'écraser (retour user : 2e tâche hors catégorie).
-            entry = {_LISTE_GROUP_COLUMN: category,
-                     **{k: v for k, v in entry.items()
-                        if k != _LISTE_GROUP_COLUMN}}
+        if not category:
+            liste_quick_cat_field.error_text = "Requise"
+            page.update()
+            return
+        # Catégorie en premier ; ne pas laisser le "" par défaut de
+        # `entry` l'écraser (retour user : 2e tâche hors catégorie).
+        entry = {_LISTE_GROUP_COLUMN: category,
+                 **{k: v for k, v in entry.items()
+                    if k != _LISTE_GROUP_COLUMN}}
         _liste_group_insert(entry)
         _liste_save()
         for f in fields.values():
@@ -7959,6 +7996,12 @@ def main(page: ft.Page):
         liste_back_to_todo_btn.visible = (
             _liste_file["path"] != _LISTE_TODO_PATH)
         liste_prix_btn.visible = _liste_file["path"] != _PRIX_PATH
+        known = _liste_categories()
+        if liste_quick_cat_field.data not in known:
+            last = _liste_last_cat_all().get(
+                os.path.basename(_liste_file["path"]), "")
+            liste_quick_cat_field.data = (
+                last if last in known else (known[0] if known else ""))
         liste_quick_cat_field.refresh()
         liste_list_view.controls.clear()
         query = liste_search["value"]
