@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.26"
+__version__ = "2.10.27"
 
 import asyncio
 import base64
@@ -7445,6 +7445,11 @@ def main(page: ft.Page):
     # chargée (fiches PrestaShop, mots-clés...).
     _LISTE_DEFAULT_COLUMNS = ["tâche", "fait"]
     _LISTE_DONE_COLUMN = "fait"
+    # Arborescence (retour user, liste de prix, todo) : la colonne
+    # "catégorie" devient un titre de groupe au-dessus de ses lignes au
+    # lieu d'être répétée sur chacune. Le fichier reste plat (synchro
+    # Notion).
+    _LISTE_GROUP_COLUMN = "catégorie"
 
     def _liste_is_done(entry):
         return str(entry.get(_LISTE_DONE_COLUMN, "")).strip().lower() in (
@@ -7530,13 +7535,56 @@ def main(page: ft.Page):
             page, "Supprimer cette entrée ?", _on_confirm, _KEYPAD_COLORS,
             confirm_label="Supprimer")
 
+    def _liste_categories():
+        return list(dict.fromkeys(
+            e.get(_LISTE_GROUP_COLUMN, "").strip() for e in liste_entries
+            if e.get(_LISTE_GROUP_COLUMN, "").strip()))
+
+    def _liste_category_dropdown(value="", width=200, **kwargs):
+        """Catégorie : choisir une existante ou en taper une nouvelle
+        (retour user). Lire la valeur avec _liste_category_value()."""
+        dd = ft.Dropdown(
+            label="Catégorie", value=value or None, editable=True,
+            enable_filter=True, width=width, bgcolor=DARK, color=WHITE,
+            text_size=CONSTANTS.TEXT_SM, border_color=GREY,
+            options=[ft.DropdownOption(c) for c in _liste_categories()],
+            **kwargs)
+        dd.data = value or ""
+
+        def _typed(e):
+            dd.data = e.data or ""
+
+        def _picked(e):
+            dd.data = dd.value or ""
+        dd.on_text_change = _typed
+        dd.on_select = _picked
+        return dd
+
+    def _liste_category_value(dd):
+        category = (dd.data or "").strip()
+        return category[:1].upper() + category[1:]   # retour user
+
+    def _liste_group_insert(entry):
+        """Nouvelle entrée en tête de son groupe, sinon tout en haut."""
+        category = entry.get(_LISTE_GROUP_COLUMN, "").strip()
+        position = next(
+            (i for i, e in enumerate(liste_entries) if category
+             and e.get(_LISTE_GROUP_COLUMN, "").strip() == category), 0)
+        liste_entries.insert(position, entry)
+
     def _liste_edit(index=None):
         is_new = index is None
         columns = _liste_columns()
         current = liste_entries[index] if not is_new else {}
-        text_columns = [c for c in columns if c != _LISTE_DONE_COLUMN]
+        text_columns = [c for c in columns
+                        if c not in (_LISTE_DONE_COLUMN, _LISTE_GROUP_COLUMN)]
         fields = []
         for col in columns:
+            if col == _LISTE_GROUP_COLUMN:
+                fields.append(_liste_category_dropdown(
+                    current.get(col, "") or liste_quick_cat_field.data,
+                    width=520))
+                continue
             if col == _LISTE_DONE_COLUMN:
                 # Masquée (retour user) : l'état « fait » se coche dans
                 # la ligne ; gardée pour conserver sa valeur à l'enregistrement.
@@ -7564,9 +7612,11 @@ def main(page: ft.Page):
             entry = {}
             for col, f in zip(columns, fields):
                 entry[col] = (str(f.value) if isinstance(f, ft.Checkbox)
+                             else _liste_category_value(f)
+                             if isinstance(f, ft.Dropdown)
                              else (f.value or "").strip())
             if is_new:
-                liste_entries.insert(0, entry)
+                _liste_group_insert(entry)
             else:
                 liste_entries[index] = entry
             _liste_save()
@@ -7593,7 +7643,8 @@ def main(page: ft.Page):
                  fields[columns.index(text_columns[0])])
 
     def _liste_is_todo_shaped():
-        return set(_liste_columns()) <= set(_LISTE_DEFAULT_COLUMNS)
+        return set(_liste_columns()) <= {*_LISTE_DEFAULT_COLUMNS,
+                                         _LISTE_GROUP_COLUMN}
 
     def _liste_quick_add(event=None):
         text = (liste_quick_add_field.value or "").strip()
@@ -7601,10 +7652,16 @@ def main(page: ft.Page):
             return
         columns = _liste_columns()
         entry = {c: "" for c in columns}
-        entry[next(c for c in columns if c != _LISTE_DONE_COLUMN)] = text
+        entry[next(c for c in columns
+                   if c not in (_LISTE_DONE_COLUMN, _LISTE_GROUP_COLUMN))] = text
         if _LISTE_DONE_COLUMN in columns:
             entry[_LISTE_DONE_COLUMN] = "False"
-        liste_entries.insert(0, entry)
+        # Catégorie (retour user) : la tâche va en tête de son groupe, ou
+        # tout en haut si la catégorie est nouvelle / vide.
+        category = _liste_category_value(liste_quick_cat_field)
+        if category:
+            entry = {_LISTE_GROUP_COLUMN: category, **entry}
+        _liste_group_insert(entry)
         _liste_save()
         liste_quick_add_field.value = ""
         _liste_render()
@@ -7615,8 +7672,11 @@ def main(page: ft.Page):
         color=WHITE, text_size=CONSTANTS.TEXT_SM,
         content_padding=ft.Padding(8, 2, 8, 2),
         prefix_icon=ft.Icons.ADD, expand=True)
+    liste_quick_cat_field = _liste_category_dropdown()
     liste_quick_add_row = ft.Container(
-        content=liste_quick_add_field, padding=ft.Padding(8, 0, 8, 6))
+        content=ft.Row([liste_quick_cat_field, liste_quick_add_field],
+                       spacing=6),
+        padding=ft.Padding(8, 0, 8, 6))
     liste_add_btn = _bar_icon_btn(ft.Icons.ADD, SURFACE_ACCENT["liste"],
                                   lambda e: _liste_edit(None), "Ajouter")
 
@@ -7631,6 +7691,23 @@ def main(page: ft.Page):
         CONSTANTS.COLOR_YELLOW_GREEN, CONSTANTS.COLOR_MINT,
         CONSTANTS.COLOR_YELLOW, CONSTANTS.COLOR_ORANGE, CONSTANTS.COLOR_RED,
         CONSTANTS.COLOR_PINK, CONSTANTS.COLOR_BLUE_DARK]
+
+
+    def _liste_group_title(category, entry):
+        def _pick(e):
+            # Clic sur un titre : la prochaine tâche ira dans ce groupe.
+            liste_quick_cat_field.value = category
+            liste_quick_cat_field.data = category
+            page.update()
+        return ft.Container(
+            ft.Text(category.upper(),
+                    size=CONSTANTS.TEXT_SM + 2, color=WHITE,
+                    weight=ft.FontWeight.W_600,
+                    text_align=ft.TextAlign.CENTER),
+            alignment=ft.Alignment(0, 0),
+            bgcolor=_liste_row_color(entry), border_radius=6, ink=True,
+            on_click=_pick if _liste_is_todo_shaped() else None,
+            padding=ft.Padding(10, 8, 10, 8), margin=ft.Margin(0, 10, 0, 2))
 
     def _liste_row_color(entry):
         # Couleur par ordre d'apparition de la catégorie : distinctes
@@ -7651,6 +7728,8 @@ def main(page: ft.Page):
         cells = []
         done_group = None
         for col in columns:
+            if col == _LISTE_GROUP_COLUMN:
+                continue   # affichée en titre de groupe (_liste_render)
             if col == _LISTE_DONE_COLUMN:
                 # "Fait" + case à cocher (agrandie) groupés tout à droite,
                 # avant le séparateur qui précède le bouton supprimer
@@ -7741,7 +7820,8 @@ def main(page: ft.Page):
         # "Fait" et les icônes sont maintenant regroupées à droite dans
         # chaque ligne (cf. _liste_row) — plus besoin d'un en-tête dédié
         # pour cette colonne.
-        columns = [c for c in _liste_columns() if c != _LISTE_DONE_COLUMN]
+        columns = [c for c in _liste_columns()
+                   if c not in (_LISTE_DONE_COLUMN, _LISTE_GROUP_COLUMN)]
         return ft.Row([
             *[ft.Container(
                 content=ft.Text(col.upper(), size=CONSTANTS.TEXT_SM, color=WHITE,
@@ -7810,6 +7890,9 @@ def main(page: ft.Page):
         liste_header_row.visible = bool(liste_entries)
         liste_back_to_todo_btn.visible = (
             _liste_file["path"] != _LISTE_TODO_PATH)
+        liste_prix_btn.visible = _liste_file["path"] != _PRIX_PATH
+        liste_quick_cat_field.options = [
+            ft.DropdownOption(c) for c in _liste_categories()]
         liste_list_view.controls.clear()
         query = liste_search["value"]
         rows = ([(i, e) for i, e in enumerate(liste_entries)
@@ -7826,7 +7909,14 @@ def main(page: ft.Page):
             liste_list_view.controls.append(ft.Text(
                 "Aucun résultat.", size=CONSTANTS.TEXT_SM, color=GREY))
         else:
-            liste_list_view.controls.extend(_liste_row(i, e) for i, e in rows)
+            last_group = None
+            for i, e in rows:
+                group = str(e.get(_LISTE_GROUP_COLUMN, "")).strip()
+                if group and group != last_group:
+                    liste_list_view.controls.append(
+                        _liste_group_title(group, e))
+                last_group = group
+                liste_list_view.controls.append(_liste_row(i, e))
             liste_list_view.controls.append(_liste_drop_target(
                 ft.Column([ft.Container(), ft.Container(height=40)], spacing=0,
                           tight=True), None))
@@ -7926,6 +8016,13 @@ def main(page: ft.Page):
         except Exception as exc:
             _log_to_terminal(f"[ERREUR] Liste de prix Notion : {exc}", RED)
 
+    # Un seul des deux visible à la fois (retour user) : € sur la todo
+    # list, « Revenir à la todo list » ailleurs (cf. _liste_render).
+    liste_prix_btn = ft.IconButton(
+        ft.Icons.EURO, **SQUARE_BTN, icon_color=SURFACE_ACCENT["liste"],
+        icon_size=CONSTANTS.ICON_SM, tooltip="Liste de prix",
+        on_click=_liste_open_prix)
+
     liste_back_to_todo_btn = ft.IconButton(
         ft.Icons.CHECKLIST, icon_color=GREEN, icon_size=CONSTANTS.ICON_SM,
         **SQUARE_BTN,
@@ -7996,10 +8093,7 @@ def main(page: ft.Page):
                 liste_search_row,
                 liste_path_text,
                 liste_back_to_todo_btn,
-                ft.IconButton(ft.Icons.EURO, **SQUARE_BTN,
-                             icon_color=SURFACE_ACCENT["liste"],
-                             icon_size=CONSTANTS.ICON_SM, tooltip="Liste de prix",
-                             on_click=_liste_open_prix),
+                liste_prix_btn,
                 ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["liste"],
                              icon_size=CONSTANTS.ICON_SM, tooltip="Nouveau fichier .json",
