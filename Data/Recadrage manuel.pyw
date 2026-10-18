@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.41"
+__version__ = "2.10.42"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -5729,6 +5729,12 @@ def main(page: ft.Page):
                                 ], alignment=ft.MainAxisAlignment.CENTER, vertical_alignment=ft.CrossAxisAlignment.CENTER, spacing=30),
                                 expand=True,
                                 alignment=ft.Alignment(0, 0),
+                                # Intégré : même cadre foncé que les autres
+                                # onglets de Retouche photo (retour user).
+                                bgcolor=DARK if embedded else None,
+                                border_radius=8 if embedded else None,
+                                margin=(ft.Margin(0, 8, 0, 0) if embedded
+                                        else None),
                             ),
                         ],
                         spacing=0,

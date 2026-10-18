@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.10.39"
+__version__ = "2.10.42"
 
 import flet as ft
 import flet.canvas as cv
@@ -2737,7 +2737,7 @@ async def main(page: ft.Page) -> None:
         content=ft.Stack([preview_img, sel_canvas, image_gesture, busy_ring_wrap]),
         width=_vw,
         height=_vh,
-        bgcolor="#1e1e1e",
+        bgcolor=DARK,  # même fond que les autres onglets (retour user)
     )
 
     preview_viewer = ft.InteractiveViewer(

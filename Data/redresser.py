@@ -5,7 +5,7 @@ chacune devient horizontale ou verticale selon son orientation dominante
 de 0 à 100 %. Enregistré dans le fichier, original copié dans ORIGINAUX/.
 """
 
-__version__ = "2.10.41"
+__version__ = "2.10.42"
 
 import asyncio
 import base64
@@ -117,7 +117,7 @@ class RedresserTab:
                                                expand=True),
                                   self._compare_btn(), self.veil],
                                  expand=True),
-                expand=True, bgcolor="#1e1e1e", border_radius=8,
+                expand=True, bgcolor=DARK, border_radius=8,
                 margin=ft.Margin(CONSTANTS.SPACE_MD, CONSTANTS.SPACE_MD, 0,
                                  0)),
             panel,
