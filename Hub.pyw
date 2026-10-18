@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.22"
+__version__ = "2.10.23"
 
 import asyncio
 import base64
@@ -13503,6 +13503,7 @@ time.sleep(0.3)
 subprocess.run(["tmux", "send-keys", "-t", "claude", "Enter"])
 deadline = time.time() + 900
 started = False
+done_at = None
 while time.time() < deadline:
     with open(path, encoding="utf-8") as f:
         f.seek(pos)
@@ -13522,11 +13523,20 @@ while time.time() < deadline:
             started = True
         if not started or m.get("role") != "assistant":
             continue
+        has_text = False
         for b in m.get("content") or []:
             if b.get("type") == "text":
                 print(b["text"], flush=True)
+                has_text = True
+        # La réflexion est journalisée sur sa propre ligne, déjà marquée
+        # end_turn, AVANT la ligne du texte : on ne s'arrête que sur une
+        # ligne end_turn avec du texte (ou 5 s après une sans texte).
         if m.get("stop_reason") == "end_turn":
-            sys.exit(0)
+            if has_text:
+                sys.exit(0)
+            done_at = done_at or time.time()
+    if done_at and time.time() - done_at > 5:
+        sys.exit(0)
     time.sleep(0.5)
 print("[délai dépassé]")
 """
