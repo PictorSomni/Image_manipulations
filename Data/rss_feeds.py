@@ -7,10 +7,10 @@ du Hub.
 API publique :
   fetch_all_feeds() -> list[dict] triée par date décroissante
     chaque item : {"title", "link", "date" (datetime|None), "summary",
-                   "source"}
+                   "source", "category", "image" (url ou "")}
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.17"
 
 
 import datetime
@@ -22,23 +22,38 @@ from email.utils import parsedate_to_datetime
 
 _MIN_DATE = datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
 
-# Un flux à ajouter = une ligne ici. Même liste que dashboard-perso (retour
-# user : "Les Numériques" retiré, trop généraliste grand public).
+# Un flux à ajouter = une ligne ici : (url, nom, catégorie). Les
+# catégories deviennent les filtres de la page Actus, dans cet ordre.
+# Retirés (retour user) : "Les Numériques" (trop grand public), Hacker
+# News.
+CATEGORIES = ["IA", "Photo", "Tech", "Apple", "Podcasts"]
 FEEDS = [
-    ("https://tldr.tech/api/rss/ai", "TLDR AI"),
-    ("https://tldr.tech/api/rss/tech", "TLDR Tech"),
-    ("https://news.ycombinator.com/rss", "Hacker News"),
-    ("https://simonwillison.net/atom/everything/", "Simon Willison"),
-    ("https://blog.google/innovation-and-ai/technology/ai/rss/", "Google AI Blog"),       
+    ("https://tldr.tech/api/rss/ai", "TLDR AI", "IA"),
+    ("https://simonwillison.net/atom/everything/", "Simon Willison", "IA"),
+    ("https://blog.google/innovation-and-ai/technology/ai/rss/",
+     "Google AI", "IA"),
+    ("https://openai.com/news/rss.xml", "OpenAI", "IA"),
+    ("https://the-decoder.com/feed/", "The Decoder", "IA"),
+    ("https://www.bensbites.com/feed", "Ben's Bites", "IA"),
+    ("https://petapixel.com/feed/", "PetaPixel", "Photo"),
+    ("https://fstoppers.com/rss.xml", "Fstoppers", "Photo"),
+    ("https://www.dpreview.com/feeds/news.xml", "DPReview", "Photo"),
+    ("https://www.phototrend.fr/feed/", "Phototrend", "Photo"),
+    ("https://tldr.tech/api/rss/tech", "TLDR Tech", "Tech"),
+    ("https://next.ink/feed/", "Next", "Tech"),
+    ("https://www.numerama.com/feed/", "Numerama", "Tech"),
+    ("https://www.frandroid.com/feed", "Frandroid", "Tech"),
+    ("https://www.01net.com/actualites/feed/", "01net", "Tech"),
+    ("https://feeds.macrumors.com/MacRumors-All", "MacRumors", "Apple"),
+    ("https://9to5mac.com/feed/", "9to5Mac", "Apple"),
     # Podcasts : pas de transcript complet disponible sur ces flux,
     # seulement les notes d'épisode écrites (retour user, déjà vérifié).
     ("https://feeds.acast.com/public/shows/64d7fb0db4d0da0010a2f09d",
-     "Comptoir IA (podcast)"),
+     "Comptoir IA", "Podcasts"),
     ("https://feeds.acast.com/public/shows/"
-     "43160adc-fadd-4764-b93f-aa1ca93f22bf", "Underscore_ (podcast)"),
-    ("https://feeds.simplecast.com/MdgHX7eu",
-     "Tech&Co, la quotidienne (podcast)"),
-    ("https://feeds.simplecast.com/yRFCMe21", "Culture IA (podcast)"),
+     "43160adc-fadd-4764-b93f-aa1ca93f22bf", "Underscore_", "Podcasts"),
+    ("https://feeds.simplecast.com/MdgHX7eu", "Tech&Co", "Podcasts"),
+    ("https://feeds.simplecast.com/yRFCMe21", "Culture IA", "Podcasts"),
 ]
 
 # Un podcast quotidien peut publier des milliers d'épisodes archivés dans
@@ -79,11 +94,32 @@ def _local_tag(elem):
     return elem.tag.rsplit("}", 1)[-1]
 
 
+_IMG_RE = re.compile(r"""<img[^>]+src=["']([^"']+)""", re.I)
+
+
+def _find_image(el, html):
+    """Vignette : media:content/thumbnail, enclosure image, itunes:image,
+    sinon première <img> du résumé HTML. "" si aucune."""
+    for child in el.iter():
+        tag = _local_tag(child)
+        url = child.get("url") or child.get("href") or ""
+        if (tag in ("content", "thumbnail", "image") and url
+                and child.get("medium", "image") == "image"
+                and not url.lower().endswith((".mp3", ".m4a", ".mp4"))):
+            return url
+        if (tag == "enclosure" and url
+                and (child.get("type") or "").startswith("image")):
+            return url
+    match = _IMG_RE.search(html or "")
+    return match.group(1) if match else ""
+
+
 def _fetch_one(entry):
-    url, source = entry
+    url, source, category = entry
     try:
+        # UA navigateur : certains sites refusent un UA inconnu.
         req = urllib.request.Request(
-            url, headers={"User-Agent": "Hub-Actus/0.1"})
+            url, headers={"User-Agent": "Mozilla/5.0 (Hub-Actus)"})
         with urllib.request.urlopen(req, timeout=10) as resp:
             xml_bytes = resp.read()
         root = ET.fromstring(xml_bytes)
@@ -94,7 +130,13 @@ def _fetch_one(entry):
 
     root_tag = _local_tag(root)
 
-    # RSS 2.0 (ex. TLDR, Hacker News) : <rss><channel><item>...
+    def _item(title, link, date, summary_html, el):
+        return {"title": title, "link": link, "date": date,
+                "summary": _strip_html(summary_html), "source": source,
+                "category": category,
+                "image": _find_image(el, summary_html)}
+
+    # RSS 2.0 (ex. TLDR) : <rss><channel><item>...
     if root_tag == "rss":
         channel = root.find("channel")
         if channel is None:
@@ -104,13 +146,8 @@ def _fetch_one(entry):
             title = _strip_html(item.findtext("title") or "")
             link = (item.findtext("link") or "").strip()
             date = _parse_date(item.findtext("pubDate"))
-            # Hacker News ne met qu'un lien "Comments" en description,
-            # pas un vrai résumé — inutile à afficher.
-            summary = _strip_html(item.findtext("description") or "")
-            if summary.lower() == "comments":
-                summary = ""
-            items.append({"title": title, "link": link, "date": date,
-                          "summary": summary, "source": source})
+            items.append(_item(title, link, date,
+                               item.findtext("description") or "", item))
         return items
 
     # Atom : <feed><entry>...
@@ -130,11 +167,10 @@ def _fetch_one(entry):
                 if links:
                     href = links[0].get("href", "")
             date = _parse_date(entry_el.findtext("a:updated", "", ns))
-            summary = _strip_html(entry_el.findtext("a:summary", "", ns)
-                                  or "")
-            items.append({"title": title, "link": href.strip(),
-                          "date": date, "summary": summary,
-                          "source": source})
+            summary = (entry_el.findtext("a:summary", "", ns)
+                       or entry_el.findtext("a:content", "", ns) or "")
+            items.append(_item(title, href.strip(), date, summary,
+                               entry_el))
         return items
 
     return []
