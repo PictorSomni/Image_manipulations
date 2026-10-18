@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.31"
+__version__ = "2.10.32"
 
 import asyncio
 import base64
@@ -7997,7 +7997,11 @@ def main(page: ft.Page):
             _liste_file["path"] != _LISTE_TODO_PATH)
         liste_prix_btn.visible = _liste_file["path"] != _PRIX_PATH
         known = _liste_categories()
-        if liste_quick_cat_field.data not in known:
+        # Changement de liste : reprendre la catégorie mémorisée de CETTE
+        # liste (retour user : un prix ajouté dans "Noël" des tâches).
+        switched = liste_quick.get("path") != _liste_file["path"]
+        liste_quick["path"] = _liste_file["path"]
+        if switched or liste_quick_cat_field.data not in known:
             last = _liste_last_cat_all().get(
                 os.path.basename(_liste_file["path"]), "")
             liste_quick_cat_field.data = (
