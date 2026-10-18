@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.28"
+__version__ = "2.10.29"
 
 import asyncio
 import base64
@@ -7743,7 +7743,7 @@ def main(page: ft.Page):
             page.update()
         return ft.Container(
             ft.Text(category.upper(),
-                    size=CONSTANTS.TEXT_SM + 2, color=WHITE,
+                    size=CONSTANTS.TEXT_SM + 5, color=WHITE,
                     weight=ft.FontWeight.W_600,
                     text_align=ft.TextAlign.CENTER),
             alignment=ft.Alignment(0, 0),
@@ -7779,8 +7779,9 @@ def main(page: ft.Page):
                 # "Fait" + case à cocher (agrandie) groupés tout à droite,
                 # avant le séparateur qui précède le bouton supprimer
                 # (retour user).
+                # Libellé « Fait » retiré (retour user : gris sur gris,
+                # illisible) — la case suffit.
                 done_group = ft.Row([
-                    ft.Text("Fait", size=CONSTANTS.TEXT_SM, color=GREY),
                     ft.Checkbox(
                         value=done, active_color=GREEN, scale=1.3,
                         on_change=lambda e, i=index: _liste_toggle_done(
@@ -7794,7 +7795,7 @@ def main(page: ft.Page):
                     width=1, height=24, bgcolor=LIGHT_GREY, opacity=0.4))
             cells.append(ft.Container(
                 content=ft.Text(
-                    value or "—", size=CONSTANTS.TEXT_SM,
+                    value or "—", size=CONSTANTS.TEXT_SM + 2,
                     # LIGHT_GREY et non GREY : la ligne barrait le texte,
                     # mais GREY sur le fond GREY de la ligne le rendait
                     # invisible — ne restait visible que le trait (retour
