@@ -10,7 +10,7 @@ et un service DBus/Secret Service (gnome-keyring), sinon keyring
 échoue avec "No recommended backend was available".
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.34"
 
 import json
 import os
@@ -79,6 +79,7 @@ SECRETS = [
     ("muse", "Clé Muse", True, ""),
     ("notion", "Jeton Notion", True, "ntn_…"),
     ("topaz", "Clé Topaz", True, ""),
+    ("hub_sync", "Clé synchro Pi", True, ""),
     ("mail_user", "Adresse mail", False, "login@mail.com"),
     ("mail_password", "Mot de passe mail", True, ""),
     ("mail_host", "Serveur mail", False, "ex2.mail.ovh.net"),

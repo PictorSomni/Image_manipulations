@@ -3,7 +3,7 @@
 Listes partagées entre machines via le Pi (service hub-sync derrière le
 Tailscale Funnel) — remplace Notion pour la Liste de prix et la todo list.
 
-Clé : ~/.hub_sync (une ligne). Sans clé, tout est local (available()
+Clé : Identifiants du Hub (repli : ~/.hub_sync, une ligne). Sans clé, tout est local (available()
 renvoie False).
 
 API :
@@ -13,7 +13,7 @@ Les erreurs réseau remontent en exception ; c'est à l'appelant de garder
 sa copie locale.
 """
 
-__version__ = "2.10.33"
+__version__ = "2.10.34"
 
 
 import json
@@ -26,6 +26,13 @@ _KEY_FILE = os.path.expanduser("~/.hub_sync")
 
 
 def _key():
+    try:
+        import credentials
+        key = credentials.get_secret("hub_sync")
+        if key:
+            return key
+    except Exception:
+        pass
     try:
         with open(_KEY_FILE, encoding="utf-8") as f:
             return f.read().strip()
