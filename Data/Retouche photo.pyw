@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.38"
+__version__ = "2.10.39"
 
 #############################################################
 #                          IMPORTS                          #
@@ -670,6 +670,9 @@ def main(page: ft.Page):
     _ROW_SPACING = CONSTANTS.SPACE_LG
     _RAIL_W = 52
     _FILMSTRIP_H = 96
+    # Colonne droite commune à tous les onglets (retour user) : même
+    # largeur, même fond, « Valider » épinglé en bas.
+    _PANEL_W = 380
     _BAR_H = 44
 
     def _proxy_max_px():
@@ -735,7 +738,7 @@ def main(page: ft.Page):
         page_h = int(getattr(e, "height", None) or page.height or 900)
         # Disposition LightCraft : la photo prend toute la place à gauche,
         # colonne de réglages à largeur fixe à droite, rail d'icônes au bord.
-        right_w = max(340, min(460, int(page_w * 0.28)))
+        right_w = _PANEL_W
         controls_container.width = right_w
         left_w = max(420, page_w - right_w - _RAIL_W - 2 * _ROW_SPACING)
         h = max(300, page_h - _FILMSTRIP_H - _BAR_H - 4 * CONSTANTS.SPACE_MD)
@@ -2459,13 +2462,11 @@ def main(page: ft.Page):
         # Même « Valider » dans tous les onglets (retour user) : déplacé
         # avec la bande de miniatures.
         batch_row.controls = []
+        for slot in embedded_footers.values():
+            slot.content = None
         if key in embedded_tabs:
-            embedded_strips[key].content = ft.Row(
-                [ft.Container(filmstrip, expand=True),
-                 ft.Container(batch_button, width=240,
-                              padding=ft.Padding(0, 0, CONSTANTS.SPACE_MD,
-                                                 0))],
-                vertical_alignment=ft.CrossAxisAlignment.CENTER)
+            embedded_strips[key].content = filmstrip
+            embedded_footers[key].content = ft.Row([batch_button])
         else:
             preview_column.controls.insert(1, filmstrip)
             batch_row.controls = [batch_button]
@@ -2550,8 +2551,20 @@ def main(page: ft.Page):
     ia_view = ft.Container(expand=True)
     ia_strip = ft.Container(padding=ft.Padding(CONSTANTS.SPACE_MD, 0, 0,
                                                CONSTANTS.SPACE_SM))
-    ia_tab = ft.Column([ia_view, ia_strip], expand=True, visible=False,
-                       spacing=CONSTANTS.SPACE_SM)
+    def _side():
+        return ft.Container(width=_PANEL_W, padding=CONSTANTS.SPACE_MD,
+                            bgcolor=DARK)
+
+    def _embedded_tab(view, strip, side):
+        """Onglet intégré : outil + miniatures à gauche, colonne droite
+        commune pleine hauteur (comme Réglages)."""
+        return ft.Row([ft.Column([view, strip], expand=True,
+                                 spacing=CONSTANTS.SPACE_SM), side],
+                      expand=True, visible=False, spacing=_ROW_SPACING,
+                      vertical_alignment=ft.CrossAxisAlignment.STRETCH)
+
+    ia_side = _side()
+    ia_tab = _embedded_tab(ia_view, ia_strip, ia_side)
     ia_page = _TabPage(page, ia_view, width_offset=_RAIL_W,
                        height_offset=_FILMSTRIP_H + 2 * CONSTANTS.SPACE_SM)
 
@@ -2583,17 +2596,21 @@ def main(page: ft.Page):
     redresser_tab = redresser.RedresserTab(page, _on_staged)
     red_strip = ft.Container(padding=ft.Padding(CONSTANTS.SPACE_MD, 0, 0,
                                                 CONSTANTS.SPACE_SM))
-    red_tab = ft.Column([redresser_tab.view, red_strip], expand=True,
-                        visible=False, spacing=CONSTANTS.SPACE_SM)
+    red_side = redresser_tab.view.controls.pop()  # sa colonne droite
+    red_tab = _embedded_tab(redresser_tab.view, red_strip, red_side)
     # Recadrage : Recadrage manuel.pyw tel quel (sa propre navigation,
     # ses exports) ; pas de bande de miniatures.
     crop_view = ft.Container(expand=True)
     crop_strip = ft.Container(padding=ft.Padding(CONSTANTS.SPACE_MD, 0, 0,
                                                  CONSTANTS.SPACE_SM))
-    crop_tab = ft.Column([crop_view, crop_strip], expand=True,
-                         visible=False, spacing=CONSTANTS.SPACE_SM)
+    crop_side = _side()
+    crop_tab = _embedded_tab(crop_view, crop_strip, crop_side)
     crop_page = _TabPage(page, crop_view, width_offset=_RAIL_W,
                          height_offset=_FILMSTRIP_H + 2 * CONSTANTS.SPACE_SM)
+    crop_page.panel_w = ia_page.panel_w = _PANEL_W
+    crop_page.footer = ft.Container()
+    crop_page.side, ia_page.side = crop_side, ia_side
+    ia_page.footer = ft.Container()
 
     def _show_crop(i):
         app = getattr(crop_page, "app", None)
@@ -2621,12 +2638,16 @@ def main(page: ft.Page):
                      "recadrage": crop_tab}
     embedded_strips = {"ia": ia_strip, "redresser": red_strip,
                        "recadrage": crop_strip}
+    redresser_tab.panel.width = _PANEL_W
+    embedded_footers = {"ia": ia_page.footer,
+                        "redresser": redresser_tab.footer,
+                        "recadrage": crop_page.footer}
 
     def _resize_redresser(e=None):
         pw = int(getattr(e, "width", None) or page.width or 1400)
         ph = int(getattr(e, "height", None) or page.height or 900)
         redresser_tab.resize(
-            pw - _RAIL_W - redresser.PANEL_W - 2 * _ROW_SPACING
+            pw - _RAIL_W - _PANEL_W - 3 * _ROW_SPACING
             - CONSTANTS.SPACE_LG - CONSTANTS.SPACE_MD,
             ph - _FILMSTRIP_H - 4 * CONSTANTS.SPACE_SM - CONSTANTS.SPACE_MD)
 

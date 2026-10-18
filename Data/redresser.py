@@ -5,7 +5,7 @@ chacune devient horizontale ou verticale selon son orientation dominante
 de 0 à 100 %. Enregistré dans le fichier, original copié dans ORIGINAUX/.
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.39"
 
 import asyncio
 import base64
@@ -81,6 +81,7 @@ class RedresserTab:
         self.save_btn = self._btn("Appliquer", ft.Icons.CHECK,
                                   VIOLET, self._save)
         self.status = ft.Text("", size=12, color=LIGHT_GREY)
+        self.footer = ft.Container()  # « Valider » de Retouche photo
 
         zone = ft.Container(
             content=ft.Column([
@@ -106,8 +107,10 @@ class RedresserTab:
                 ft.Divider(height=1, color=GREY),
                 ft.Row([self.save_btn]),
                 self.status,
+                self.footer,
             ], spacing=CONSTANTS.SPACE_MD),
             width=PANEL_W, padding=CONSTANTS.SPACE_MD, bgcolor=DARK)
+        self.panel = panel
         self.view = ft.Row([
             ft.Container(
                 content=ft.Stack([ft.Container(self.stack,

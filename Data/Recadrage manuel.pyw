@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.38"
+__version__ = "2.10.39"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -1102,7 +1102,8 @@ class PhotoCropper:
         win_w = self.page.width if embedded else self.page.window.width
         win_h = self.page.height if embedded else self.page.window.height
         if win_w:
-            right_panel_width = RIGHT_COL_WIDTH + 24  # colonne droite + séparateur/marges
+            right_panel_width = (getattr(self.page, "panel_w", 0) + 1
+                                 if embedded else RIGHT_COL_WIDTH + 24)  # colonne droite + séparateur/marges
             left_w = 0 if embedded else LEFT_COL_WIDTH
             usable_width = win_w - right_panel_width - CANVAS_CHROME_WIDTH - left_w - 40
             available_width = max(usable_width, 320)
@@ -5471,6 +5472,13 @@ def main(page: ft.Page):
         app.ignore_button,
     ], width=RIGHT_COL_WIDTH)
     app.right_col = controls
+    if embedded:
+        # Même colonne droite que les autres onglets de Retouche photo
+        # (largeur, fond, « Valider » de l'hôte en bas) — retour user.
+        controls.controls[2:] = [page.footer]
+        controls.width = None
+        controls.expand = True
+        page.side.content = controls  # pleine hauteur, cf. hôte
 
     page.add(
         ft.Stack([
@@ -5677,8 +5685,8 @@ def main(page: ft.Page):
                     ),
                     expand=True,
                 ),
-                ft.VerticalDivider(width=1),
-                controls
+                *([] if embedded else [ft.VerticalDivider(width=1),
+                                       controls]),
             ], expand=True),
         ], expand=True)
     )
@@ -5703,6 +5711,14 @@ def main(page: ft.Page):
           côté.
         """
         page_h = int(getattr(e, "height", None) or page.height or 900)
+        if embedded:
+            # Liste des formats : tout l'espace sous le sélecteur et au-
+            # dessus de Taille manuelle + Valider (retour user).
+            app.format_list_container.height = max(
+                CONSTANTS.RECADRAGE_FORMAT_LIST_MIN_HEIGHT, page_h - 360)
+            with contextlib.suppress(Exception):
+                app.format_list_container.update()
+            return
         app.right_col.height = max(320, page_h - 24)  # marge du page.padding
         free = page_h - RIGHT_COL_FIXED_HEIGHT
         app.format_list_container.height = max(

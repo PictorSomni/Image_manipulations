@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.39"
 
 import flet as ft
 import flet.canvas as cv
@@ -2838,7 +2838,10 @@ async def main(page: ft.Page) -> None:
     page.overlay.append(inpaint_dialog)
 
     # ── Mise en page ─────────────────────────────────────────────────────────
-    _PANEL_W = 316
+    # Intégré : même colonne droite que les autres onglets de Retouche
+    # photo (page.panel_w = largeur totale, padding compris).
+    _PANEL_W = (page.panel_w - 2 * CONSTANTS.SPACE_MD if embedded
+                else 316)
     def _zone(title, color, controls):
         # Zone à liseré coloré + titre, comme les sections de Retouche
         # photo ; boutons étirés sur toute la largeur.
@@ -2910,6 +2913,7 @@ async def main(page: ft.Page) -> None:
         width=_PANEL_W,
         spacing=CONSTANTS.SPACE_MD,
         scroll=ft.ScrollMode.AUTO,
+        expand=embedded,  # défile au-dessus du « Valider » épinglé
         horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
     )
 
@@ -3041,6 +3045,10 @@ async def main(page: ft.Page) -> None:
         )
     )
 
+    if embedded:
+        page.side.content = ft.Column(
+            [left_panel, page.footer], spacing=CONSTANTS.SPACE_MD,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
     page.add(
         ft.Column(
             [
@@ -3050,12 +3058,13 @@ async def main(page: ft.Page) -> None:
                         # Colonne d'outils à droite, comme les réglages
                         # de Retouche photo (retour user).
                         center_panel,
-                        ft.Container(width=12),
-                        ft.Container(
-                            content=left_panel,
-                            padding=CONSTANTS.SPACE_MD,
-                            bgcolor=DARK,
-                        ),
+                        # Intégré : la colonne va dans page.side, pleine
+                        # hauteur à côté des miniatures de l'hôte.
+                        *([] if embedded else [
+                            ft.Container(width=12),
+                            ft.Container(content=left_panel,
+                                         padding=CONSTANTS.SPACE_MD,
+                                         bgcolor=DARK)]),
                     ],
                     expand=True,
                     vertical_alignment=ft.CrossAxisAlignment.STRETCH,
