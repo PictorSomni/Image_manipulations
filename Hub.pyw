@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.27"
+__version__ = "2.10.28"
 
 import asyncio
 import base64
@@ -7540,24 +7540,44 @@ def main(page: ft.Page):
             e.get(_LISTE_GROUP_COLUMN, "").strip() for e in liste_entries
             if e.get(_LISTE_GROUP_COLUMN, "").strip()))
 
+    _NEW_CATEGORY = "＋ Nouvelle catégorie…"
+
     def _liste_category_dropdown(value="", width=200, **kwargs):
-        """Catégorie : choisir une existante ou en taper une nouvelle
-        (retour user). Lire la valeur avec _liste_category_value()."""
+        """Catégorie : une existante, ou "＋ Nouvelle catégorie…" qui
+        demande le nom (retour user : la saisie libre dans la liste
+        déroulante ne marchait pas). Valeur : _liste_category_value()."""
         dd = ft.Dropdown(
-            label="Catégorie", value=value or None, editable=True,
-            enable_filter=True, width=width, bgcolor=DARK, color=WHITE,
-            text_size=CONSTANTS.TEXT_SM, border_color=GREY,
-            options=[ft.DropdownOption(c) for c in _liste_categories()],
-            **kwargs)
+            label="Catégorie", value=value or None, width=width,
+            bgcolor=DARK, color=WHITE, text_size=CONSTANTS.TEXT_SM,
+            border_color=GREY, **kwargs)
         dd.data = value or ""
 
-        def _typed(e):
-            dd.data = e.data or ""
+        def _set_options():
+            names = _liste_categories()
+            if dd.data and dd.data not in names:
+                names.append(dd.data)
+            dd.options = ([ft.DropdownOption(c) for c in names]
+                          + [ft.DropdownOption(_NEW_CATEGORY)])
 
         def _picked(e):
-            dd.data = dd.value or ""
-        dd.on_text_change = _typed
+            if dd.value != _NEW_CATEGORY:
+                dd.data = dd.value or ""
+                return
+            dd.value = dd.data or None
+
+            def _named(name):
+                name = name[:1].upper() + name[1:]
+                if name:
+                    dd.data = name
+                    _set_options()
+                    dd.value = name
+                page.update()
+            ui_helpers.text_prompt_dialog(
+                page, "Nouvelle catégorie", _named, _KEYPAD_COLORS,
+                label="Nom")
         dd.on_select = _picked
+        dd.refresh = _set_options
+        _set_options()
         return dd
 
     def _liste_category_value(dd):
@@ -7646,39 +7666,61 @@ def main(page: ft.Page):
         return set(_liste_columns()) <= {*_LISTE_DEFAULT_COLUMNS,
                                          _LISTE_GROUP_COLUMN}
 
+    # Barre d'ajout unique pour toutes les listes (retour user : la todo
+    # avait une barre, la liste de prix un bouton « + ») : un champ par
+    # colonne texte, catégorie en tête si la liste en a. ENTRÉE ajoute.
+    # Reconstruite seulement quand les colonnes changent (sinon le texte
+    # en cours de saisie serait perdu à chaque rendu).
+    liste_quick = {"columns": None, "fields": {}}
+    liste_quick_cat_field = _liste_category_dropdown()
+
+    def _liste_text_columns():
+        return [c for c in _liste_columns()
+                if c not in (_LISTE_DONE_COLUMN, _LISTE_GROUP_COLUMN)]
+
     def _liste_quick_add(event=None):
-        text = (liste_quick_add_field.value or "").strip()
-        if not text:
+        fields = liste_quick["fields"]
+        values = {c: (f.value or "").strip() for c, f in fields.items()}
+        first = next(iter(fields), None)
+        if first is None or not values[first]:
             return
         columns = _liste_columns()
         entry = {c: "" for c in columns}
-        entry[next(c for c in columns
-                   if c not in (_LISTE_DONE_COLUMN, _LISTE_GROUP_COLUMN))] = text
+        entry.update(values)
         if _LISTE_DONE_COLUMN in columns:
             entry[_LISTE_DONE_COLUMN] = "False"
-        # Catégorie (retour user) : la tâche va en tête de son groupe, ou
-        # tout en haut si la catégorie est nouvelle / vide.
         category = _liste_category_value(liste_quick_cat_field)
         if category:
             entry = {_LISTE_GROUP_COLUMN: category, **entry}
         _liste_group_insert(entry)
         _liste_save()
-        liste_quick_add_field.value = ""
+        for f in fields.values():
+            f.value = ""
         _liste_render()
+        _run_task(fields[first].focus)
 
-    liste_quick_add_field = ft.TextField(
-        hint_text="Nouvelle tâche…", on_submit=_liste_quick_add,
-        height=45, bgcolor=DARK, border=CONSTANTS.input_border(BLUE),
-        color=WHITE, text_size=CONSTANTS.TEXT_SM,
-        content_padding=ft.Padding(8, 2, 8, 2),
-        prefix_icon=ft.Icons.ADD, expand=True)
-    liste_quick_cat_field = _liste_category_dropdown()
-    liste_quick_add_row = ft.Container(
-        content=ft.Row([liste_quick_cat_field, liste_quick_add_field],
-                       spacing=6),
-        padding=ft.Padding(8, 0, 8, 6))
-    liste_add_btn = _bar_icon_btn(ft.Icons.ADD, SURFACE_ACCENT["liste"],
-                                  lambda e: _liste_edit(None), "Ajouter")
+    def _liste_quick_build():
+        text_columns = _liste_text_columns()
+        if liste_quick["columns"] == text_columns:
+            return
+        liste_quick["columns"] = text_columns
+        is_todo = _liste_is_todo_shaped()
+        liste_quick["fields"] = {
+            col: ft.TextField(
+                hint_text=("Nouvelle tâche…" if is_todo and i == 0
+                           else col.capitalize()),
+                on_submit=_liste_quick_add, height=45, bgcolor=DARK,
+                border=CONSTANTS.input_border(BLUE if i == 0 else GREY),
+                color=WHITE, text_size=CONSTANTS.TEXT_SM,
+                content_padding=ft.Padding(8, 2, 8, 2),
+                prefix_icon=ft.Icons.ADD if i == 0 else None,
+                expand=2 if i == 0 else 1)
+            for i, col in enumerate(text_columns)}
+        liste_quick_add_row.content = ft.Row(
+            [liste_quick_cat_field, *liste_quick["fields"].values()],
+            spacing=6)
+
+    liste_quick_add_row = ft.Container(padding=ft.Padding(8, 0, 8, 6))
 
     def _liste_toggle_done(index, value):
         if 0 <= index < len(liste_entries):
@@ -7696,8 +7738,8 @@ def main(page: ft.Page):
     def _liste_group_title(category, entry):
         def _pick(e):
             # Clic sur un titre : la prochaine tâche ira dans ce groupe.
-            liste_quick_cat_field.value = category
             liste_quick_cat_field.data = category
+            liste_quick_cat_field.value = category
             page.update()
         return ft.Container(
             ft.Text(category.upper(),
@@ -7725,6 +7767,9 @@ def main(page: ft.Page):
     def _liste_row(index, entry):
         columns = _liste_columns()
         done = _liste_is_done(entry)
+        # Hors todo : colonnes centrées et séparées par un trait (retour
+        # user : article et prix se confondaient).
+        centered = not _liste_is_todo_shaped()
         cells = []
         done_group = None
         for col in columns:
@@ -7744,6 +7789,9 @@ def main(page: ft.Page):
                    vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 continue
             value = entry.get(col, "")
+            if cells and centered:
+                cells.append(ft.Container(
+                    width=1, height=24, bgcolor=LIGHT_GREY, opacity=0.4))
             cells.append(ft.Container(
                 content=ft.Text(
                     value or "—", size=CONSTANTS.TEXT_SM,
@@ -7752,11 +7800,14 @@ def main(page: ft.Page):
                     # invisible — ne restait visible que le trait (retour
                     # user : "je vois juste des tirets").
                     color=LIGHT_GREY if done else WHITE, max_lines=2,
+                    text_align=(ft.TextAlign.CENTER if centered
+                                else ft.TextAlign.LEFT),
                     overflow=ft.TextOverflow.ELLIPSIS,
                     style=ft.TextStyle(
                         decoration=ft.TextDecoration.LINE_THROUGH)
                     if done else None),
                 tooltip=f"Copier {col} : {value}", expand=True, ink=True,
+                alignment=ft.Alignment(0, 0) if centered else None,
                 # Marge intérieure portée par la cellule (pas la ligne) :
                 # le survol couvre toute la hauteur de la ligne (retour user).
                 padding=ft.Padding(10, 8, 6, 8), border_radius=6,
@@ -7822,12 +7873,19 @@ def main(page: ft.Page):
         # pour cette colonne.
         columns = [c for c in _liste_columns()
                    if c not in (_LISTE_DONE_COLUMN, _LISTE_GROUP_COLUMN)]
-        return ft.Row([
-            *[ft.Container(
-                content=ft.Text(col.upper(), size=CONSTANTS.TEXT_SM, color=WHITE,
-                                weight=ft.FontWeight.W_600),
-                expand=True) for col in columns],
-        ], spacing=8)
+        centered = not _liste_is_todo_shaped()
+        cells = []
+        for col in columns:
+            if cells and centered:
+                cells.append(ft.Container(width=1))
+            cells.append(ft.Container(
+                content=ft.Text(col.upper(), size=CONSTANTS.TEXT_SM,
+                                color=WHITE, weight=ft.FontWeight.W_600),
+                alignment=ft.Alignment(0, 0) if centered else None,
+                expand=True))
+        # Même largeur que les icônes Modifier | Supprimer des lignes.
+        cells.append(ft.Container(width=105))
+        return ft.Row(cells, spacing=8)
 
     liste_header_row = ft.Container(content=_liste_header(),
                                     padding=ft.Padding(10, 0, 10, 4))
@@ -7883,16 +7941,13 @@ def main(page: ft.Page):
         expand=True, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
     def _liste_render():
-        is_todo_shaped = _liste_is_todo_shaped()
-        liste_quick_add_row.visible = is_todo_shaped
-        liste_add_btn.visible = not is_todo_shaped
+        _liste_quick_build()
         liste_header_row.content = _liste_header()
         liste_header_row.visible = bool(liste_entries)
         liste_back_to_todo_btn.visible = (
             _liste_file["path"] != _LISTE_TODO_PATH)
         liste_prix_btn.visible = _liste_file["path"] != _PRIX_PATH
-        liste_quick_cat_field.options = [
-            ft.DropdownOption(c) for c in _liste_categories()]
+        liste_quick_cat_field.refresh()
         liste_list_view.controls.clear()
         query = liste_search["value"]
         rows = ([(i, e) for i, e in enumerate(liste_entries)
@@ -8103,7 +8158,6 @@ def main(page: ft.Page):
                              icon_size=CONSTANTS.ICON_SM,
                              tooltip="Recharger depuis le disque",
                              on_click=_liste_reload),
-                liste_add_btn,
             ], spacing=8),
             height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
             alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
