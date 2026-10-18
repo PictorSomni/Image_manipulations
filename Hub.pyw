@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.29"
+__version__ = "2.10.30"
 
 import asyncio
 import base64
@@ -7558,10 +7558,16 @@ def main(page: ft.Page):
                 names.append(dd.data)
             dd.options = ([ft.DropdownOption(c) for c in names]
                           + [ft.DropdownOption(_NEW_CATEGORY)])
+            dd.value = dd.data or None
 
         def _picked(e):
+            # Un on_select vide arrive quand les options sont remplacées
+            # après un ajout (retour user : la 2e tâche perdait la
+            # catégorie encore affichée) — ignoré.
+            if not dd.value:
+                return
             if dd.value != _NEW_CATEGORY:
-                dd.data = dd.value or ""
+                dd.data = dd.value
                 return
             dd.value = dd.data or None
 
@@ -7581,7 +7587,8 @@ def main(page: ft.Page):
         return dd
 
     def _liste_category_value(dd):
-        category = (dd.data or "").strip()
+        shown = dd.value if dd.value != _NEW_CATEGORY else ""
+        category = (dd.data or shown or "").strip()
         return category[:1].upper() + category[1:]   # retour user
 
     def _liste_group_insert(entry):
@@ -7691,7 +7698,11 @@ def main(page: ft.Page):
             entry[_LISTE_DONE_COLUMN] = "False"
         category = _liste_category_value(liste_quick_cat_field)
         if category:
-            entry = {_LISTE_GROUP_COLUMN: category, **entry}
+            # Catégorie en premier ; ne pas laisser le "" par défaut de
+            # `entry` l'écraser (retour user : 2e tâche hors catégorie).
+            entry = {_LISTE_GROUP_COLUMN: category,
+                     **{k: v for k, v in entry.items()
+                        if k != _LISTE_GROUP_COLUMN}}
         _liste_group_insert(entry)
         _liste_save()
         for f in fields.values():
