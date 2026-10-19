@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.10.42"
+__version__ = "2.10.43"
 
 import flet as ft
 import flet.canvas as cv
@@ -719,6 +719,7 @@ async def main(page: ft.Page) -> None:
         img = state["work_img"] or state["orig_img"]
         if img is None:
             return
+        _stage()   # onglet intégré : « Valider N » à jour sans changer d'onglet
         _compute_render_info()
         info = state["render_info"]
         if info is None:
@@ -1464,6 +1465,7 @@ async def main(page: ft.Page) -> None:
             return
         state["work_img"] = state["undo_img"]
         state["undo_img"] = None
+        state["modified"] = True
         state["retouch_fit"]  = None   # cache obsolète après annulation
         state["retouch_mask"] = None
         state["expand_gemini_canvas"] = None   # idem pour l'extension

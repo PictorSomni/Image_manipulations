@@ -9,7 +9,7 @@ visionneuse n'est jamais ouvert. Reprend fidèlement la logique de
 dépouillée des callbacks Flet (`page.update()`, widgets).
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.43"
 
 import io
 import os
@@ -291,7 +291,37 @@ def composite_outpaint(gemini_canvas: Image.Image, img_rgb: Image.Image,
 
     result = gemini_canvas.copy()
     result.paste(img_rgb, (left, top), mask)
-    return result
+    return _bridge_seams(result, margins_px, iw, ih)
+
+
+def _bridge_seams(img: Image.Image, margins_px, iw: int, ih: int) -> Image.Image:
+    """Gemini trace souvent une fine couture sombre pile à la jonction
+    photo/marge ; le fondu, ancré côté photo, la laisse visible à 100 %
+    (retour user : ligne noire quel que soit le slider). Interpolation
+    linéaire sur une bande de ±k px centrée sur chaque jonction.
+    ponytail: interpolation simple, texture lissée sur 2k px."""
+    import numpy as np
+    top, bot, left, right = margins_px
+    arr = np.asarray(img).astype(np.float32)
+    k = max(2, round(max(iw, ih) * 0.002))
+
+    def _bridge(a, j):           # a : vue (lignes, colonnes, 3), jonction ligne j
+        y0, y1 = j - k - 1, j + k
+        if y0 < 0 or y1 >= a.shape[0]:
+            return
+        t = np.linspace(0, 1, y1 - y0 + 1, dtype=np.float32)[1:-1, None, None]
+        a[y0 + 1:y1] = a[y0] * (1 - t) + a[y1] * t
+
+    if top:
+        _bridge(arr, top)
+    if bot:
+        _bridge(arr, top + ih)
+    cols = arr.transpose(1, 0, 2)
+    if left:
+        _bridge(cols, left)
+    if right:
+        _bridge(cols, left + iw)
+    return Image.fromarray(arr.clip(0, 255).astype(np.uint8))
 
 
 def run_upscale(image: Image.Image, model_name: str,
