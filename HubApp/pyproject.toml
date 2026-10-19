@@ -1,0 +1,32 @@
+[project]
+name = "hub"
+version = "2.10.48"
+requires-python = ">=3.10"
+dependencies = [
+    "flet==1.0.4",
+    "flet-code-editor",
+    "flet-terminal",
+    "Pillow>=12.1.0",
+    "numpy",
+    "pypdf",
+    "PyMuPDF",
+    "paramiko",
+    "pynput",
+    "mcp",
+    "keyring",
+    "google-genai",
+    "anthropic",
+    "trafilatura",
+    "sounddevice",
+    "python-docx",
+    "openpyxl",
+    "xlrd",
+    "odfpy",
+    "pyobjc-framework-Quartz; sys_platform == 'darwin'",
+    "pywin32; sys_platform == 'win32'",
+    "comtypes; sys_platform == 'win32'",
+]
+
+[tool.flet]
+product = "Hub"
+org = "be.studiocleuze"
