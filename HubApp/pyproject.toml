@@ -8,6 +8,8 @@ dependencies = [
     "flet-terminal",
     "Pillow>=12.1.0",
     "numpy",
+    "opencv-python",
+    "rawpy",
     "pypdf",
     "PyMuPDF",
     "paramiko",
