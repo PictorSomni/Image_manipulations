@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.45"
+__version__ = "2.10.46"
 
 #############################################################
 #                          IMPORTS                          #
@@ -1428,17 +1428,17 @@ def main(page: ft.Page):
         return ft.Text(text.upper(), size=CONSTANTS.TEXT_SM - 2,
                        color=LIGHT_GREY, weight=ft.FontWeight.W_600)
 
-    section_lumiere = _make_section(
-        "Lumière", ORANGE, ft.Icons.LIGHT_MODE, co, [
+    # Un seul tiroir (retour user : réglages liés, ouverts ensemble).
+    section_couleur = _make_section(
+        "Lumière et couleur", ORANGE, ft.Icons.TUNE, co, [
+        _subtitle("Lumière"),
         _slider_row("Exposition", co, "exposure", -100, 100),
         _slider_row("Contraste", co, "contrast", -100, 100),
         _slider_row("Hautes lumières", co, "highlights", -100, 100),
         _slider_row("Ombres", co, "shadows", -100, 100),
         _slider_row("Blancs", co, "whites", -100, 100),
         _slider_row("Noirs", co, "blacks", -100, 100),
-    ])
-    section_couleur = _make_section(
-        "Couleur", GREEN, ft.Icons.PALETTE, co, [
+        _subtitle("Couleur"),
         _slider_row("Corriger la dominante (photos anciennes)",
                    co, "auto_cast", 0, 125),
         _slider_row("Saturation", co, "saturation", -100, 100,
@@ -2113,7 +2113,7 @@ def main(page: ft.Page):
             spacing=CONSTANTS.SPACE_SM)
 
     settings_pane = ft.Column([
-        _group("Base", [section_lumiere, section_couleur]),
+        _group("Base", [section_couleur]),
         _group("Couleur créative", [section_virage, section_lut]),
         _group("Détail", [section_nettete, section_denoise]),
         _group("Effets pellicule",
