@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.35"
+__version__ = "2.10.47"
 
 import asyncio
 import base64
@@ -14035,6 +14035,14 @@ while time.time() < deadline:
             if b.get("type") == "text":
                 print(b["text"], flush=True)
                 has_text = True
+            # Réflexions et actions aussi (retour user : tout voir depuis Hub).
+            elif b.get("type") == "thinking" and b.get("thinking"):
+                print("💭 " + b["thinking"].strip(), flush=True)
+            elif b.get("type") == "tool_use":
+                i = b.get("input") or {}
+                what = (i.get("description") or i.get("command")
+                        or i.get("file_path") or i.get("pattern") or "")
+                print(f"🔧 {b.get('name')} : {str(what)[:200]}", flush=True)
         # La réflexion est journalisée sur sa propre ligne, déjà marquée
         # end_turn, AVANT la ligne du texte : on ne s'arrête que sur une
         # ligne end_turn avec du texte (ou 5 s après une sans texte).
