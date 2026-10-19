@@ -7,7 +7,7 @@ cd "$(dirname "$0")"
 export PATH=/opt/homebrew/bin:$PATH
 V=~/.hub_build_venv
 [ -x $V/bin/flet ] || { /opt/homebrew/bin/python3.14 -m venv $V && $V/bin/pip -q install "flet[all]==1.0.4"; }
-$V/bin/flet build macos --arch arm64 --yes -v || true          # génère build/flutter (échoue à xcodebuild)
+$V/bin/flet build macos --arch arm64 --no-compile-packages --yes -v || true          # génère build/flutter (échoue à xcodebuild)
 F=build/flutter
 export PATH=$(ls -d ~/flutter/*/bin | tail -1):$PATH
 sed -i "" -E "s/MACOSX_DEPLOYMENT_TARGET = 1[01][.0-9]*;/MACOSX_DEPLOYMENT_TARGET = 12.0;/g" $F/macos/Runner.xcodeproj/project.pbxproj
