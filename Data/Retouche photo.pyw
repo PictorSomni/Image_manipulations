@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.41"
+__version__ = "2.10.45"
 
 #############################################################
 #                          IMPORTS                          #
@@ -1719,6 +1719,9 @@ def main(page: ft.Page):
             file_params = state["overrides"][name]
             result = run_pipeline(img, file_params,
                                   date_label=date_label, filename_stem=stem)
+            fmt = state.get("crop_fmt", {}).pop(name, None)
+            if fmt and not stem.startswith(fmt + "_"):
+                stem = f"{fmt}_{stem}"
             out_path = folder_path / f"{stem}.jpg"
             result.save(str(out_path), format="JPEG",
                        subsampling=0, quality=100,
@@ -2585,7 +2588,9 @@ def main(page: ft.Page):
         if app and state.get("tab") == "recadrage":
             img = app.embedded_crop()
             if img is not None:
-                _on_staged(os.path.basename(app.image_paths[0]), img)
+                name = os.path.basename(app.image_paths[0])
+                state.setdefault("crop_fmt", {})[name] = app.embedded_format
+                _on_staged(name, img)
 
     def _show_redresser(i):
         name = file_names[i]

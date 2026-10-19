@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.42"
+__version__ = "2.10.45"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -4961,6 +4961,11 @@ class PhotoCropper:
         if (self.current_format_label == _REAL_KEY and self.scale <= 1.0
                 and not self.rotation):
             return None  # image entière, intacte : rien à valider
+        # Préfixe du fichier validé (« 13x18_ »), comme Recadrage manuel.
+        short = (self.current_format_label or "").split(" ")[0]
+        self.embedded_format = (
+            short if getattr(self, "crop_mode", "resolution") == "resolution"
+            and re.match(r"^\d+(?:[.,]\d+)?x\d", short) else None)
         return self._compute_crop_from_snapshot(self._snapshot_current())
 
     async def close_window(self, e=None):
