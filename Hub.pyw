@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.52"
+__version__ = "2.10.53"
 
 import asyncio
 import base64
@@ -28,6 +28,11 @@ import io
 import json
 import math
 import os
+if os.environ.get("HUB_APP"):
+    # Hub compilé : ne pas léguer PYTHONHOME/PYTHONPATH du Python embarqué
+    # aux outils lancés avec le Python de la machine ("bad magic number").
+    for _v in ("PYTHONHOME", "PYTHONPATH"):
+        os.environ.pop(_v, None)
 import random
 import re
 import time
