@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.53"
+__version__ = "2.10.54"
 
 import asyncio
 import base64
@@ -10899,6 +10899,10 @@ def main(page: ft.Page):
                         os.path.basename(p) for p in picked)
             if extra_env:
                 env.update(extra_env)
+            # Hub compilé : FLET_* (FLET_DART_BRIDGE_PORT…) ferait croire
+            # à l'outil qu'il est embarqué → "No module named dart_bridge".
+            for k in [k for k in env if k.startswith("FLET_")]:
+                del env[k]
             try:
                 proc = subprocess.Popen(
                     [sys.executable, "-u", app_path], env=env,
