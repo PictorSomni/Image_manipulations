@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.45"
+__version__ = "2.10.46"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -5399,9 +5399,11 @@ def main(page: ft.Page):
     format_radios_values = [r.value for r in format_radios]
     app.format_radio_group = ft.RadioGroup(
         content=ft.Column(format_radios, scroll=ft.ScrollMode.AUTO),
-        value="ID",
+        value=_REAL_KEY if embedded else "ID",
         on_change=app.change_ratio,
     )
+    if embedded:  # Retouche photo : Taille réelle par défaut
+        app.current_format_label = _REAL_KEY
     show_all_formats = {"on": False}
 
     def _sync_format_visibility():
