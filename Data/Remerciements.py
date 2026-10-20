@@ -18,7 +18,7 @@ Variables d'environnement :
 Dépendances : Pillow (PIL), re
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.17"
 
 #############################################################
 #                          IMPORTS                          #
@@ -60,7 +60,7 @@ selected_files_set = set(selected_files_str.split("|")) if selected_files_str el
 
 # Déterminer le dossier de travail (cwd si lancé depuis Hub, sinon PATH)
 EXTENSION = (".jpg", ".jpeg", ".png")
-all_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png"]
+all_files = [file.name for file in sorted(PATH.iterdir()) if file.is_file() and file.suffix.lower() in EXTENSION and file.name != "watermark.png" and not file.name.startswith(".")]  # ._* = métadonnées macOS (partage SMB)
 FOLDER = [f for f in all_files if f in selected_files_set] if selected_files_set else all_files
 WATERMARK = str(DATA_PATH / "watermark.png")
 REQUIRED = ["recto", "verso", "duo", "_1", "_2"]
