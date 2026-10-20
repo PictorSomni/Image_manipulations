@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.46"
+__version__ = "2.10.47"
 
 #############################################################
 #                          IMPORTS                          #
@@ -2623,7 +2623,18 @@ def main(page: ft.Page):
     def _show_crop(i):
         app = getattr(crop_page, "app", None)
         if app:
-            app.embedded_show(str(folder_path / file_names[i]))
+            name = file_names[i]
+            path = str(folder_path / name)
+            staged = state["staged"].get(name)
+            if staged is not None:
+                # Repartir du résultat IA / Redresser en attente : copie
+                # (TIFF, sans perte) sous le même nom dans un dossier temp.
+                import tempfile
+                tmp = os.path.join(tempfile.gettempdir(), "retouche_crop")
+                os.makedirs(tmp, exist_ok=True)
+                path = os.path.join(tmp, name)
+                staged.save(path, format="TIFF")
+            app.embedded_show(path)
 
     def _open_crop_tab():
         if crop_page.built:
