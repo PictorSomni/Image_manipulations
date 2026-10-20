@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.51"
+__version__ = "2.10.52"
 
 import asyncio
 import base64
@@ -14124,7 +14124,12 @@ print("[délai dépassé]")
             cmd = ("tmux new -A -s claude" if socket.gethostname()
                    .startswith("pictorsomni")
                    else "ssh -t pi tmux new -A -s claude")
-            os.write(shell_term["fd"], (cmd + "\r").encode())
+            # Toggle : 2e clic = Ctrl-b d (détache tmux, ferme le ssh).
+            # ponytail: état mémorisé, désynchro si détaché à la main
+            # (un clic de plus suffit).
+            on = shell_term["claude"] = not shell_term.get("claude")
+            os.write(shell_term["fd"], (cmd + "\r").encode() if on
+                     else b"\x02d")
             _terminal_autohide["pinned"] = True
             _show_terminal_and_schedule_hide()
             page.update()
