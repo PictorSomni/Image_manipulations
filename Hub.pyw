@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.50"
+__version__ = "2.10.51"
 
 import asyncio
 import base64
@@ -13741,6 +13741,7 @@ def main(page: ft.Page):
                   for c in col
                   if getattr(c, "content", None) is not terminal_input]
         shell_term["term"] = term
+        shell_term["fd"] = fd
 
     _install_shell_terminal()
 
@@ -14116,71 +14117,18 @@ while time.time() < deadline:
 print("[délai dépassé]")
 """
 
-    def _open_claude_terminal():
-        """Hub compilé (HubApp) : vrai terminal (flet-terminal) branché en
-        SSH sur la session tmux "claude" du Pi — couleurs, curseur, saisie
-        directe. Fermer le dialogue détache tmux, la session continue."""
-        from flet_terminal import Terminal, BUILTIN_THEMES
-        term = Terminal(theme=BUILTIN_THEMES.get("Dracula"), font_size=13,
-                        expand=True)
-        conn = {"client": None, "chan": None}
-
-        def _close(e=None):
-            dlg.open = False
-            page.update()
-            if conn["client"] is not None:
-                conn["client"].close()
-
-        dlg = ft.AlertDialog(
-            content=ft.Container(term, width=page.width * 0.92,
-                                 height=page.height * 0.85, bgcolor=DARK),
-            content_padding=0, on_dismiss=_close,
-            actions=[ft.TextButton("Fermer", on_click=_close)])
-        page.overlay.append(dlg)
-        dlg.open = True
-        page.update()
-
-        def _on_resize(e):
-            d = json.loads(e.data)
-            if conn["chan"] is not None:
-                conn["chan"].resize_pty(width=d["cols"], height=d["rows"])
-        term.on_resize = _on_resize
-        term.set_on_bytes(lambda data: conn["chan"] and conn["chan"].send(data))
-
-        def _work():
-            pi = next(s for s in CONSTANTS.SSH_SERVERS
-                      if s["host"] == "pictorsomni")
-            pwd = _ai_get_credential(pi["host"], pi["username"])
-            if pwd is None:
-                return
-            try:
-                import paramiko
-                client = paramiko.SSHClient()
-                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                client.connect(pi["host"], username=pi["username"],
-                               password=pwd, timeout=15)
-                conn["client"] = client
-                chan = client.get_transport().open_session()
-                chan.get_pty(term="xterm-256color", width=120, height=40)
-                chan.exec_command("tmux new -A -s claude")
-                conn["chan"] = chan
-                while True:
-                    data = chan.recv(65536)
-                    if not data:
-                        break
-                    term.send_bytes(data)
-            except Exception as exc:
-                term.write(f"\r\n[ERREUR] {exc}\r\n")
-
-        threading.Thread(target=_work, daemon=True).start()
-
     def _toggle_claude_mode(event=None):
-        if os.environ.get("HUB_APP"):
-            try:
-                import flet_terminal  # noqa: F401 — seulement dans HubApp
-                return _open_claude_terminal()
-            except ImportError:
-                pass
+        if shell_term.get("fd") is not None:
+            # Hub compilé : on tape juste la commande dans le vrai shell.
+            import socket
+            cmd = ("tmux new -A -s claude" if socket.gethostname()
+                   .startswith("pictorsomni")
+                   else "ssh -t pi tmux new -A -s claude")
+            os.write(shell_term["fd"], (cmd + "\r").encode())
+            _terminal_autohide["pinned"] = True
+            _show_terminal_and_schedule_hide()
+            page.update()
+            return
         claude_mode["active"] = not claude_mode["active"]
         terminal_input.hint_text = ("Message à Claude (/exit pour quitter)"
                                     if claude_mode["active"] else None)
