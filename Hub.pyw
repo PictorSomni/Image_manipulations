@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.49"
+__version__ = "2.10.50"
 
 import asyncio
 import base64
@@ -13152,6 +13152,8 @@ def main(page: ft.Page):
         except RuntimeError:
             pass
 
+    shell_term = {"term": None}   # vrai terminal (Hub compilé, cf. plus bas)
+
     def _log_to_terminal(message, color=None, clear=False):
         message = (message or "").strip()
         if not message:
@@ -13171,6 +13173,11 @@ def main(page: ft.Page):
                         selectable=True))
             if len(terminal_output.controls) > CONSTANTS.HUB_TERMINAL_MAX_LINES:
                 terminal_output.controls.pop(0)
+            if shell_term["term"] is not None:
+                c = (color or WHITE).lstrip("#")
+                rgb = ";".join(str(int(c[i:i + 2], 16)) for i in (0, 2, 4))
+                shell_term["term"].write(
+                    f"\r\x1b[2K\x1b[38;2;{rgb}m{message}\x1b[0m\r\n")
             _show_terminal_and_schedule_hide()
             page.update()
 
@@ -13683,6 +13690,59 @@ def main(page: ft.Page):
         ], spacing=0, expand=True),
         bgcolor=DARK, height=CONSTANTS.HUB_TERMINAL_HEIGHT, visible=False,
     )
+
+    def _install_shell_terminal():
+        """Hub compilé (HubApp), macOS/Linux : vrai shell (pty) à la place
+        de la liste de sortie + champ de saisie. Les messages de Hub y
+        sont écrits en couleur (_log_to_terminal). ponytail: Windows garde
+        l'ancien terminal (pas de pty), ConPTY si besoin un jour."""
+        if not os.environ.get("HUB_APP") or os.name != "posix":
+            return
+        try:
+            from flet_terminal import Terminal, BUILTIN_THEMES
+        except ImportError:
+            return
+        import fcntl
+        import pty
+        import struct
+        import termios
+        term = Terminal(theme=BUILTIN_THEMES.get("Dracula"),
+                        font_size=CONSTANTS.TERMINAL_FONT_SIZE, expand=True)
+        pid, fd = pty.fork()
+        if pid == 0:
+            shell = os.environ.get("SHELL", "/bin/bash")
+            os.execvp(shell, [shell, "-l"])
+        term.set_on_bytes(lambda data: os.write(fd, data))
+
+        def _resize(e):
+            d = json.loads(e.data)
+            fcntl.ioctl(fd, termios.TIOCSWINSZ,
+                        struct.pack("HHHH", d["rows"], d["cols"], 0, 0))
+        term.on_resize = _resize
+
+        def _reader():
+            while True:
+                try:
+                    data = os.read(fd, 65536)
+                except OSError:
+                    break
+                if not data:
+                    break
+                term.send_bytes(data)
+        threading.Thread(target=_reader, daemon=True).start()
+        # Pas d'événement focus : souris sur le terminal = frappe pour lui,
+        # raccourcis globaux du Hub suspendus.
+        box = ft.Container(term, expand=True, padding=4,
+                           on_hover=lambda e: (_suspend_kb if e.data in
+                                               (True, "true")
+                                               else _resume_kb)())
+        col = terminal_panel.content.controls
+        col[:] = [box if getattr(c, "content", None) is terminal_output else c
+                  for c in col
+                  if getattr(c, "content", None) is not terminal_input]
+        shell_term["term"] = term
+
+    _install_shell_terminal()
 
     def _toggle_terminal_fullscreen():
         # Bascule tout l'écran vers le terminal (cache la Row explorateur)
