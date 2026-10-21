@@ -27,6 +27,7 @@ dependencies = [
     "pyobjc-framework-Quartz; sys_platform == 'darwin'",
     "pywin32; sys_platform == 'win32'",
     "comtypes; sys_platform == 'win32'",
+    "pywinpty; sys_platform == 'win32'",
 ]
 
 [tool.flet]

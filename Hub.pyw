@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.55"
+__version__ = "2.10.56"
 
 import asyncio
 import base64
@@ -13701,39 +13701,65 @@ def main(page: ft.Page):
     )
 
     def _install_shell_terminal():
-        """Hub compilé (HubApp), macOS/Linux : vrai shell (pty) à la place
-        de la liste de sortie + champ de saisie. Les messages de Hub y
-        sont écrits en couleur (_log_to_terminal). ponytail: Windows garde
-        l'ancien terminal (pas de pty), ConPTY si besoin un jour."""
-        if not os.environ.get("HUB_APP") or os.name != "posix":
+        """Hub compilé (HubApp) : vrai shell à la place de la liste de
+        sortie + champ de saisie — pty sur macOS/Linux, ConPTY (pywinpty)
+        sur Windows. Les messages de Hub y sont écrits en couleur
+        (_log_to_terminal)."""
+        if not os.environ.get("HUB_APP"):
             return
         try:
             from flet_terminal import Terminal, BUILTIN_THEMES
         except ImportError:
             return
-        import fcntl
-        import pty
-        import struct
-        import termios
         term = Terminal(theme=BUILTIN_THEMES.get("Dracula"),
                         font_size=CONSTANTS.TERMINAL_FONT_SIZE, expand=True)
-        pid, fd = pty.fork()
-        if pid == 0:
-            shell = os.environ.get("SHELL", "/bin/bash")
-            os.execvp(shell, [shell, "-l"])
-        term.set_on_bytes(lambda data: os.write(fd, data))
+        if os.name == "nt":
+            try:
+                from winpty import PtyProcess
+            except ImportError:
+                return
+            proc = PtyProcess.spawn("powershell.exe -NoLogo",
+                                    dimensions=(24, 100))
+
+            def write(data):
+                proc.write(data.decode("utf-8", "replace"))
+
+            def read():
+                return proc.read(65536).encode("utf-8")
+
+            def resize(rows, cols):
+                proc.setwinsize(rows, cols)
+        else:
+            import fcntl
+            import pty
+            import struct
+            import termios
+            pid, fd = pty.fork()
+            if pid == 0:
+                shell = os.environ.get("SHELL", "/bin/bash")
+                os.execvp(shell, [shell, "-l"])
+
+            def write(data):
+                os.write(fd, data)
+
+            def read():
+                return os.read(fd, 65536)
+
+            def resize(rows, cols):
+                fcntl.ioctl(fd, termios.TIOCSWINSZ,
+                            struct.pack("HHHH", rows, cols, 0, 0))
+        term.set_on_bytes(write)
 
         def _resize(e):
             d = json.loads(e.data)
-            fcntl.ioctl(fd, termios.TIOCSWINSZ,
-                        struct.pack("HHHH", d["rows"], d["cols"], 0, 0))
+            resize(d["rows"], d["cols"])
         term.on_resize = _resize
 
         def _reader():
             while True:
                 try:
-                    data = os.read(fd, 65536)
-                except OSError:
+                    data = read()
+                except (OSError, EOFError):
                     break
                 if not data:
                     break
@@ -13750,7 +13776,7 @@ def main(page: ft.Page):
                   for c in col
                   if getattr(c, "content", None) is not terminal_input]
         shell_term["term"] = term
-        shell_term["fd"] = fd
+        shell_term["write"] = write
 
     _install_shell_terminal()
 
@@ -14127,7 +14153,7 @@ print("[délai dépassé]")
 """
 
     def _toggle_claude_mode(event=None):
-        if shell_term.get("fd") is not None:
+        if shell_term.get("write") is not None:
             # Hub compilé : on tape juste la commande dans le vrai shell.
             import socket
             cmd = ("tmux new -A -s claude" if socket.gethostname()
@@ -14137,7 +14163,7 @@ print("[délai dépassé]")
             # ponytail: état mémorisé, désynchro si détaché à la main
             # (un clic de plus suffit).
             on = shell_term["claude"] = not shell_term.get("claude")
-            os.write(shell_term["fd"], (cmd + "\r").encode() if on
+            shell_term["write"]((cmd + "\r").encode() if on
                      else b"\x02d")
             _terminal_autohide["pinned"] = True
             _show_terminal_and_schedule_hide()
