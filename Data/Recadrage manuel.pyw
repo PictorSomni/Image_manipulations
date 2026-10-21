@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.46"
+__version__ = "2.10.47"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -91,6 +91,7 @@ import re
 import threading
 import time
 import traceback
+import types
 import datetime
 from PIL import Image, ImageOps, ImageFilter, ImageEnhance, ImageCms, ImageDraw
 import asyncio
@@ -1001,7 +1002,8 @@ class PhotoCropper:
                         border_radius=6,
                     ),
                     mouse_cursor=cursor,
-                    on_pan_update=lambda e, s=side: self._on_resize_edge(e, s),
+                    on_pan_update=lambda e, s=side: self._edge_drag(e, s),
+                    on_pan_end=lambda e, s=side: self._edge_drag(None, s),
                 ),
                 width=bar_w, height=bar_h, left=0, top=0, visible=False,
             )
@@ -3658,6 +3660,24 @@ class PhotoCropper:
     # ================================================================ #
     #                  FORMAT & ORIENTATION                           #
     # ================================================================ #
+    def _edge_drag(self, e, side):
+        """Cumule les glissés de bord et ne recale qu'au plus toutes les
+        120 ms, plus au relâchement (e=None) — chaque recalage refait la
+        géométrie du canevas, trop lent à chaque pixel (retour user).
+        ponytail: limitation simple, aperçu sans recalage si encore lent."""
+        acc = self.__dict__.setdefault("_edge_acc", {"dx": 0.0, "dy": 0.0,
+                                                     "t": 0.0})
+        if e is not None:
+            acc["dx"] += e.local_delta.x
+            acc["dy"] += e.local_delta.y
+            if time.monotonic() - acc["t"] < 0.12:
+                return
+        if not (acc["dx"] or acc["dy"]):
+            return
+        delta = ft.Offset(acc["dx"], acc["dy"])
+        acc.update(dx=0.0, dy=0.0, t=time.monotonic())
+        self._on_resize_edge(types.SimpleNamespace(local_delta=delta), side)
+
     def _on_resize_edge(self, e, side):
         """Glisser un bord (`side` = 'left'/'right'/'top'/'bottom') du
         canevas en mode Ratio + Personnalisé : ajuste Largeur/Hauteur (%)
