@@ -1202,8 +1202,10 @@ class PhotoCropper:
             self._edge_handle_t.top  = margin - gap - self._EDGE_THICK
 
         # Redimensionner les sliders verticaux
-        self.rotation_slider.resize(int(self.canvas_h))
-        self.zoom_slider.resize(int(self.canvas_h))
+        # Au moins 300 px : canevas très plat (tranche de livre) sinon
+        # sliders inutilisables (retour user).
+        self.rotation_slider.resize(int(max(self.canvas_h, 300)))
+        self.zoom_slider.resize(int(max(self.canvas_h, 300)))
 
 
 
@@ -3685,14 +3687,14 @@ class PhotoCropper:
             # recalage) ; agrandir ne se voit qu'au relâchement.
             sign = -1 if side in ("left", "top") else 1
             if side in ("left", "right"):
-                cut = max(0.0, min(self.canvas_w - 20, -sign * acc["dx"]))
+                cut = max(0.0, min(self.canvas_w - 4, -sign * acc["dx"]))
                 self.canvas_container.width = self.canvas_w - cut
                 if side == "left":
                     m = self._edge_base("left")
                     self.canvas_container.left = m + cut
                     self.image_container.left = (self._edge_img0[0] - cut)
             else:
-                cut = max(0.0, min(self.canvas_h - 20, -sign * acc["dy"]))
+                cut = max(0.0, min(self.canvas_h - 4, -sign * acc["dy"]))
                 self.canvas_container.height = self.canvas_h - cut
                 if side == "top":
                     m = self._edge_base("top")
@@ -3748,7 +3750,7 @@ class PhotoCropper:
         # (droite/bas), où glisser vers l'extérieur (delta positif) agrandit.
         sign = -1 if side in ('left', 'top') else 1
         delta_px = sign * raw_delta
-        new_pct = max(5.0, min(100.0, current_pct + delta_px / canvas_dim * current_pct))
+        new_pct = max(0.5, min(100.0, current_pct + delta_px / canvas_dim * current_pct))
         if new_pct == current_pct:
             return
         field.value = f"{new_pct:.1f}"
