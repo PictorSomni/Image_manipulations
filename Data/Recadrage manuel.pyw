@@ -3670,6 +3670,10 @@ class PhotoCropper:
         handle = {"right": self._edge_handle_r, "left": self._edge_handle_l,
                   "bottom": self._edge_handle_b,
                   "top": self._edge_handle_t}[side]
+        if e is not None and not (acc["dx"] or acc["dy"]):
+            # Début du glissé : positions de référence.
+            self._edge_img0 = (self.image_container.left or 0,
+                               self.image_container.top or 0)
         if e is not None:
             dx = e.local_delta.x if side in ("left", "right") else 0.0
             dy = e.local_delta.y if side in ("top", "bottom") else 0.0
@@ -3677,13 +3681,37 @@ class PhotoCropper:
             acc["dy"] += dy
             handle.left = (handle.left or 0) + dx
             handle.top = (handle.top or 0) + dy
-            handle.update()
+            # Aperçu : le canevas rétrécit bêtement avec le bord (pas de
+            # recalage) ; agrandir ne se voit qu'au relâchement.
+            sign = -1 if side in ("left", "top") else 1
+            if side in ("left", "right"):
+                cut = max(0.0, min(self.canvas_w - 20, -sign * acc["dx"]))
+                self.canvas_container.width = self.canvas_w - cut
+                if side == "left":
+                    m = self._edge_base("left")
+                    self.canvas_container.left = m + cut
+                    self.image_container.left = (self._edge_img0[0] - cut)
+            else:
+                cut = max(0.0, min(self.canvas_h - 20, -sign * acc["dy"]))
+                self.canvas_container.height = self.canvas_h - cut
+                if side == "top":
+                    m = self._edge_base("top")
+                    self.canvas_container.top = m + cut
+                    self.image_container.top = (self._edge_img0[1] - cut)
+            self.canvas_stack.update()
             return
         if not (acc["dx"] or acc["dy"]):
             return
         delta = ft.Offset(acc["dx"], acc["dy"])
         acc.update(dx=0.0, dy=0.0)
         self._on_resize_edge(types.SimpleNamespace(local_delta=delta), side)
+        if (self.canvas_container.width != self.canvas_w
+                or self.canvas_container.height != self.canvas_h):
+            self._refit_canvas()  # bord au maximum : annule l'aperçu
+
+    def _edge_base(self, side):
+        """Marge réservée autour du canevas (cf. update_canvas_size)."""
+        return self._OUTLINE_GAP + self._EDGE_THICK
 
     def _on_resize_edge(self, e, side):
         """Glisser un bord (`side` = 'left'/'right'/'top'/'bottom') du
