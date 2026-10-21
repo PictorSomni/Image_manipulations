@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.56"
+__version__ = "2.10.57"
 
 import asyncio
 import base64
@@ -13722,16 +13722,7 @@ def main(page: ft.Page):
                                     dimensions=(24, 100))
 
             def write(data):
-                # DEBUG temporaire : saisie muette sous Windows
-                with open(os.path.expanduser("~/hub_term.log"), "a") as f:
-                    f.write(repr(data)[:80] + "\n")
-                try:
-                    proc.write(data.decode("utf-8", "replace")
-                               if isinstance(data, bytes) else data)
-                except Exception as exc:
-                    with open(os.path.expanduser("~/hub_term.log"),
-                              "a") as f:
-                        f.write(f"ERR {exc!r}\n")
+                proc.write(data.decode("utf-8", "replace"))
 
             def read():
                 return proc.read(65536).encode("utf-8")
@@ -14479,21 +14470,46 @@ print("[délai dépassé]")
     def _dialog_open():
         return any(getattr(o, "open", False) for o in page.overlay)
 
+    _US_VK = {"-": 0xBD, "=": 0xBB, ",": 0xBC, ".": 0xBE, "/": 0xBF,
+              ";": 0xBA, "'": 0xDE, "[": 0xDB, "]": 0xDD, "\\": 0xDC,
+              "`": 0xC0, " ": 0x20}
+
+    def _win_key_char(event):
+        """Libellé US Flutter → caractère selon la disposition de la
+        fenêtre active (ToUnicodeEx ; celle du thread Python est US). "" pour une touche morte ou non textuelle.
+        ponytail: état des touches mortes tenu par Windows par thread."""
+        import ctypes
+        k = event.key
+        vk = (_US_VK.get(k) or (ord(k) if len(k) == 1 and k.isalnum()
+                                and k.isascii() else None))
+        if vk is None:
+            return ""
+        u = ctypes.windll.user32
+        st = (ctypes.c_ubyte * 256)()
+        if event.shift:
+            st[0x10] = 0x80
+        if event.ctrl and event.alt:
+            st[0x11] = st[0x12] = 0x80
+        st[0x14] = u.GetKeyState(0x14) & 1  # Verr. Maj
+        buf = ctypes.create_unicode_buffer(8)
+        n = u.ToUnicodeEx(vk, u.MapVirtualKeyW(vk, 0), st, buf, 8, 0,
+                          u.GetKeyboardLayout(u.GetWindowThreadProcessId(
+                              u.GetForegroundWindow(), None)))
+        return buf.value[:n] if n > 0 else ""
+
     def _on_global_key(event):
         ctrl = event.ctrl or event.meta
         # Windows : xterm.dart ne reçoit pas le texte tapé (seules les
         # touches spéciales passent) → on relaie les caractères au shell
-        # quand la souris est sur le terminal.
-        # ponytail: libellé de touche Flutter, AltGr/accents morts limités.
-        if (os.name == "nt" and shell_term.get("hover") and not event.ctrl
-                and not event.alt):
-            k = event.key
-            with open(os.path.expanduser("~/hub_term.log"), "a") as f:
-                f.write(f"KEY {k!r} shift={event.shift}\n")
-            ch = " " if k == "Space" else k if len(k) == 1 else None
+        # quand la souris est sur le terminal. Flutter donne le libellé
+        # US de la touche physique : on retraduit avec la disposition
+        # Windows active (AZERTY, AltGr, accents morts).
+        if (os.name == "nt" and shell_term.get("hover")
+                and (not (event.ctrl or event.alt)
+                     or (event.ctrl and event.alt))):  # Ctrl+Alt = AltGr
+            ch = _win_key_char(event)
             if ch:
-                shell_term["write"]((ch if event.shift
-                                     else ch.lower()).encode())
+                shell_term["write"](ch.encode())
                 return
         # Échap efface la recherche active de la surface courante, QUE le
         # champ ait le focus ou non : l'usage normal est de chercher un
