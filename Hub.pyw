@@ -13722,7 +13722,16 @@ def main(page: ft.Page):
                                     dimensions=(24, 100))
 
             def write(data):
-                proc.write(data.decode("utf-8", "replace"))
+                # DEBUG temporaire : saisie muette sous Windows
+                with open(os.path.expanduser("~/hub_term.log"), "a") as f:
+                    f.write(repr(data)[:80] + "\n")
+                try:
+                    proc.write(data.decode("utf-8", "replace")
+                               if isinstance(data, bytes) else data)
+                except Exception as exc:
+                    with open(os.path.expanduser("~/hub_term.log"),
+                              "a") as f:
+                        f.write(f"ERR {exc!r}\n")
 
             def read():
                 return proc.read(65536).encode("utf-8")
