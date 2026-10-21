@@ -1107,7 +1107,9 @@ class PhotoCropper:
         win_w = self.page.width if embedded else self.page.window.width
         win_h = self.page.height if embedded else self.page.window.height
         if win_w:
-            right_panel_width = (getattr(self.page, "panel_w", 0) + 1
+            # Intégré : + marges/espacements de l'onglet hôte (retour user :
+            # slider de zoom coupé à droite).
+            right_panel_width = (getattr(self.page, "panel_w", 0) + 60
                                  if embedded else RIGHT_COL_WIDTH + 24)  # colonne droite + séparateur/marges
             left_w = 0 if embedded else LEFT_COL_WIDTH
             usable_width = win_w - right_panel_width - CANVAS_CHROME_WIDTH - left_w - 40
