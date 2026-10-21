@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.47"
+__version__ = "2.10.48"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -1109,7 +1109,7 @@ class PhotoCropper:
         if win_w:
             # Intégré : + marges/espacements de l'onglet hôte (retour user :
             # slider de zoom coupé à droite).
-            right_panel_width = (getattr(self.page, "panel_w", 0) + 60
+            right_panel_width = (getattr(self.page, "panel_w", 0) + 100
                                  if embedded else RIGHT_COL_WIDTH + 24)  # colonne droite + séparateur/marges
             left_w = 0 if embedded else LEFT_COL_WIDTH
             usable_width = win_w - right_panel_width - CANVAS_CHROME_WIDTH - left_w - 40
@@ -3663,21 +3663,26 @@ class PhotoCropper:
     #                  FORMAT & ORIENTATION                           #
     # ================================================================ #
     def _edge_drag(self, e, side):
-        """Cumule les glissés de bord et ne recale qu'au plus toutes les
-        120 ms, plus au relâchement (e=None) — chaque recalage refait la
-        géométrie du canevas, trop lent à chaque pixel (retour user).
-        ponytail: limitation simple, aperçu sans recalage si encore lent."""
-        acc = self.__dict__.setdefault("_edge_acc", {"dx": 0.0, "dy": 0.0,
-                                                     "t": 0.0})
+        """Glisser un bord : seule la poignée suit la souris ; le canevas
+        n'est recalculé qu'au relâchement (e=None) — recaler à chaque
+        mouvement était trop lent (retour user)."""
+        acc = self.__dict__.setdefault("_edge_acc", {"dx": 0.0, "dy": 0.0})
+        handle = {"right": self._edge_handle_r, "left": self._edge_handle_l,
+                  "bottom": self._edge_handle_b,
+                  "top": self._edge_handle_t}[side]
         if e is not None:
-            acc["dx"] += e.local_delta.x
-            acc["dy"] += e.local_delta.y
-            if time.monotonic() - acc["t"] < 0.12:
-                return
+            dx = e.local_delta.x if side in ("left", "right") else 0.0
+            dy = e.local_delta.y if side in ("top", "bottom") else 0.0
+            acc["dx"] += dx
+            acc["dy"] += dy
+            handle.left = (handle.left or 0) + dx
+            handle.top = (handle.top or 0) + dy
+            handle.update()
+            return
         if not (acc["dx"] or acc["dy"]):
             return
         delta = ft.Offset(acc["dx"], acc["dy"])
-        acc.update(dx=0.0, dy=0.0, t=time.monotonic())
+        acc.update(dx=0.0, dy=0.0)
         self._on_resize_edge(types.SimpleNamespace(local_delta=delta), side)
 
     def _on_resize_edge(self, e, side):
