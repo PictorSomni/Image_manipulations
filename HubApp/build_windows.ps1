@@ -17,7 +17,8 @@ Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue
 $src = "$repo\HubApp\build\windows"
 $dst = "$env:LOCALAPPDATA\Programs\Hub"
 Remove-Item -Recurse -Force $dst -ErrorAction SilentlyContinue
-Copy-Item -Recurse $src $dst
+New-Item -ItemType Directory -Force $dst | Out-Null
+Copy-Item -Recurse -Force "$src\*" $dst  # le contenu, même si $dst a survécu
 $ws = New-Object -ComObject WScript.Shell
 foreach ($d in @([Environment]::GetFolderPath("Programs"), [Environment]::GetFolderPath("Desktop"))) {
   $s = $ws.CreateShortcut("$d\Hub.lnk"); $s.TargetPath = "$dst\hub.exe"; $s.WorkingDirectory = $dst; $s.Save()
