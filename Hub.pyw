@@ -13776,10 +13776,11 @@ def main(page: ft.Page):
         threading.Thread(target=_reader, daemon=True).start()
         # Pas d'événement focus : souris sur le terminal = frappe pour lui,
         # raccourcis globaux du Hub suspendus.
+        def _term_hover(e):
+            shell_term["hover"] = e.data in (True, "true")
+            (_suspend_kb if shell_term["hover"] else _resume_kb)()
         box = ft.Container(term, expand=True, padding=4,
-                           on_hover=lambda e: (_suspend_kb if e.data in
-                                               (True, "true")
-                                               else _resume_kb)())
+                           on_hover=_term_hover)
         col = terminal_panel.content.controls
         col[:] = [box if getattr(c, "content", None) is terminal_output else c
                   for c in col
@@ -14480,6 +14481,20 @@ print("[délai dépassé]")
 
     def _on_global_key(event):
         ctrl = event.ctrl or event.meta
+        # Windows : xterm.dart ne reçoit pas le texte tapé (seules les
+        # touches spéciales passent) → on relaie les caractères au shell
+        # quand la souris est sur le terminal.
+        # ponytail: libellé de touche Flutter, AltGr/accents morts limités.
+        if (os.name == "nt" and shell_term.get("hover") and not event.ctrl
+                and not event.alt):
+            k = event.key
+            with open(os.path.expanduser("~/hub_term.log"), "a") as f:
+                f.write(f"KEY {k!r} shift={event.shift}\n")
+            ch = " " if k == "Space" else k if len(k) == 1 else None
+            if ch:
+                shell_term["write"]((ch if event.shift
+                                     else ch.lower()).encode())
+                return
         # Échap efface la recherche active de la surface courante, QUE le
         # champ ait le focus ou non : l'usage normal est de chercher un
         # fichier puis de cliquer dessus pour le sélectionner, ce qui fait
