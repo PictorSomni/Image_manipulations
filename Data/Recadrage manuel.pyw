@@ -1202,10 +1202,10 @@ class PhotoCropper:
             self._edge_handle_t.top  = margin - gap - self._EDGE_THICK
 
         # Redimensionner les sliders verticaux
-        # Au moins 300 px : canevas très plat (tranche de livre) sinon
-        # sliders inutilisables (retour user).
-        self.rotation_slider.resize(int(max(self.canvas_h, 300)))
-        self.zoom_slider.resize(int(max(self.canvas_h, 300)))
+        # Hauteur fixe = zone disponible, quel que soit le format (retour
+        # user : canevas plat → sliders minuscules).
+        self.rotation_slider.resize(int(available_height * 0.8))
+        self.zoom_slider.resize(int(available_height * 0.8))
 
 
 
