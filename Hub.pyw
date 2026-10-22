@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.74"
+__version__ = "2.10.75"
 
 import asyncio
 import base64
@@ -12819,16 +12819,29 @@ def main(page: ft.Page):
         # ils n'écrasent plus ce qui est en cours dans le terminal.
         def _split(c):
             # Poignée glissable : largeur de la colonne des messages.
+            width_file = CONSTANTS.state_file(".terminal_msg_width.json")
             c.expand = None
-            c.width = 420
+            try:
+                with open(width_file, encoding="utf-8") as f:
+                    c.width = int(json.load(f))
+            except (OSError, ValueError, TypeError):
+                c.width = 420
 
             def _drag(e):
                 c.width = max(150, min(1400, c.width - e.local_delta.x))
                 c.update()
+
+            def _drag_end(e):
+                try:
+                    with open(width_file, "w", encoding="utf-8") as f:
+                        json.dump(int(c.width), f)
+                except OSError:
+                    pass
             handle = ft.GestureDetector(
                 ft.Container(ft.VerticalDivider(width=1), width=9),
                 mouse_cursor=ft.MouseCursor.RESIZE_LEFT_RIGHT,
-                on_horizontal_drag_update=_drag)
+                on_horizontal_drag_update=_drag,
+                on_horizontal_drag_end=_drag_end)
             return ft.Row([box, handle, c], expand=True, spacing=0,
                           vertical_alignment=ft.CrossAxisAlignment.STRETCH)
         box.expand = 3
