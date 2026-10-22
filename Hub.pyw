@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.61"
+__version__ = "2.10.62"
 
 import asyncio
 import base64
@@ -7347,14 +7347,9 @@ def main(page: ft.Page):
         width=70)
 
     ai_aspect_dropdown = ft.Dropdown(
-        # Formats d'impression (retour user), en portrait ↕ et paysage ↔ ;
-        # la valeur est le ratio en mm.
-        value="Auto", options=[ft.dropdown.Option("Auto")] + [
-            ft.dropdown.Option(f"{w}:{h}" if o == "↕" else f"{h}:{w}",
-                               f"{name} {o}" if w != h else name)
-            for name, (w, h) in CONSTANTS.FORMATS.items()
-            if name not in CONSTANTS.RECADRAGE_HIDDEN_FORMATS
-            for o in (("↕", "↔") if w != h else ("↕",))],
+        value="Auto", options=[ft.dropdown.Option(v, t) for v, t in (
+            ("Auto", "Auto"), ("1:1", "Carré"), ("2:3", "Portrait"),
+            ("3:2", "Paysage"))],
         tooltip="Format (Auto = celui de la photo jointe, sinon carré)",
         text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK,
         border=CONSTANTS.input_border(GREY),
