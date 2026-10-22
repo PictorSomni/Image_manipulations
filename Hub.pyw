@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.73"
+__version__ = "2.10.74"
 
 import asyncio
 import base64
@@ -12818,9 +12818,18 @@ def main(page: ft.Page):
         # Messages des actions à droite, séparés du shell / de Claude :
         # ils n'écrasent plus ce qui est en cours dans le terminal.
         def _split(c):
-            c.expand = 2
-            return ft.Row([box, ft.VerticalDivider(width=1), c],
-                          expand=True, spacing=4,
+            # Poignée glissable : largeur de la colonne des messages.
+            c.expand = None
+            c.width = 420
+
+            def _drag(e):
+                c.width = max(150, min(1400, c.width - e.local_delta.x))
+                c.update()
+            handle = ft.GestureDetector(
+                ft.Container(ft.VerticalDivider(width=1), width=9),
+                mouse_cursor=ft.MouseCursor.RESIZE_LEFT_RIGHT,
+                on_horizontal_drag_update=_drag)
+            return ft.Row([box, handle, c], expand=True, spacing=0,
                           vertical_alignment=ft.CrossAxisAlignment.STRETCH)
         box.expand = 3
         col[:] = [_split(c) if getattr(c, "content", None) is terminal_output
