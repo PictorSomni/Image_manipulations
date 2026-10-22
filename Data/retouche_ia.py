@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.10.43"
+__version__ = "2.10.44"
 
 import flet as ft
 import flet.canvas as cv
@@ -2636,6 +2636,10 @@ async def main(page: ft.Page) -> None:
         base = state["work_img"].copy()
 
         def _do_rembg():
+            try:  # DLL CUDA/cuDNN des paquets pip nvidia-* (sinon repli CPU)
+                import onnxruntime; onnxruntime.preload_dlls()
+            except Exception:
+                pass
             import rembg as _rembg
             if _rembg_mode[0] == 1:
                 model = "birefnet-portrait" if _rembg_human[0] else "birefnet-general"

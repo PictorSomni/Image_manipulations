@@ -15,7 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 
-__version__ = "2.10.45"
+__version__ = "2.10.46"
 
 import colorsys
 import functools
@@ -1330,6 +1330,10 @@ def run_rembg(image: Image.Image, *, precise: bool = False,
     cache la session onnx par mode et éviter de recharger le modèle à
     chaque appel (ex. `{}` conservé entre deux retouches successives).
     """
+    try:  # DLL CUDA/cuDNN des paquets pip nvidia-* (sinon repli CPU)
+        import onnxruntime; onnxruntime.preload_dlls()
+    except Exception:
+        pass
     from rembg import remove as _rembg_remove, new_session as _rembg_new_session
 
     mode_key = ("precise" if precise else "fast", "human" if human else "general")

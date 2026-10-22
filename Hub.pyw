@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.66"
+__version__ = "2.10.67"
 
 import asyncio
 import base64
@@ -13301,7 +13301,7 @@ def main(page: ft.Page):
         except RuntimeError:
             pass
 
-    shell_term = {"term": None, "buf": bytearray()}   # vrai terminal (Hub compilé, cf. plus bas)
+    shell_term = {"term": None, "log": []}   # vrai terminal (Hub compilé, cf. plus bas)
 
     def _log_to_terminal(message, color=None, clear=False):
         message = (message or "").strip()
@@ -13327,7 +13327,8 @@ def main(page: ft.Page):
                 rgb = ";".join(str(int(c[i:i + 2], 16)) for i in (0, 2, 4))
                 shell_term["term"].write(
                     f"\r\x1b[2K\x1b[38;2;{rgb}m{message}\x1b[0m\r\n")
-                shell_term["buf"] += f"{message}\n".encode()
+                shell_term["log"].append(message)
+                del shell_term["log"][:-CONSTANTS.HUB_TERMINAL_MAX_LINES]
             _show_terminal_and_schedule_hide()
             page.update()
 
@@ -13344,9 +13345,10 @@ def main(page: ft.Page):
 
     def _export_terminal(to_notepad=False, event=None):
         if shell_term["term"] is not None:
-            raw = shell_term["buf"].decode("utf-8", "replace")
-            raw = re.sub(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b[=>()][0-9A-B]?", "", raw)
-            text = re.sub(r"[^\n]*\r(?!\n)", "", raw).replace("\r", "").strip()
+            # Messages de Hub et des outils (pas la sortie du shell : la
+            # sélection + Ctrl+Maj+C sert pour ça).
+            text = re.sub(r"\x1b\[[0-9;]*m|\[[0-9;]*m", "",
+                          "\n".join(shell_term["log"])).strip()
         else:
             text = "\n".join(c.value for c in terminal_output.controls
                              if isinstance(c, ft.Text) and c.value)
@@ -13910,10 +13912,6 @@ def main(page: ft.Page):
                 if not data:
                     break
                 term.send_bytes(data)
-                # ponytail: tampon brut (sans rendu xterm), 200 Ko max
-                buf = shell_term["buf"]
-                buf += data
-                del buf[:-200_000]
         threading.Thread(target=_reader, daemon=True).start()
         # Pas d'événement focus : souris sur le terminal = frappe pour lui,
         # raccourcis globaux du Hub suspendus.
