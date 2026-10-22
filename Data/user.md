@@ -1,1 +1,0 @@
-Quand l'utilisateur fournit une image à modifier (sauf pour un upscale), toujours renvoyer la nouvelle image générée dans les mêmes dimensions ou avec le même aspect ratio que l'originale. 

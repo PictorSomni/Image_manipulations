@@ -26,17 +26,11 @@ Outils dossier (partagés) :
 Helpers système (partagés) :
   _WEB_TOOLS                                 — liste des 2 définitions d'outils web (web_search + fetch_url)
   _TERMINAL_TOOLS                            — définition de l'outil run_terminal_command
-  _MEMORY_TOOLS                              — définition de l'outil update_memory_file
   _run_terminal_command(command, cwd, timeout, admin)
                                              — exécute une commande shell et retourne la sortie
                                                (admin=True → élévation via _run_elevated)
   _run_elevated(command, cwd, timeout)       — exécute une commande avec élévation de
                                                privilèges (UAC / osascript / pkexec selon l'OS)
-  _update_memory_file(target, action, content, old_text)
-                                             — met à jour memory.md / user.md / skills.md (retourne JSON)
-  _read_memory_file(target)                  — lit un fichier mémoire brut (str)
-  _build_system_content(base_prompt, folder_path, today_date_str)
-                                             — assemble le message système complet (system.md + mémoire + date + dossier)
   _get_gemini_cached_content(client, model, system_instr, raw_tools)
                                              — réutilise/crée un cache de contexte Gemini (cachedContent)
   _compact_history_summary(ai_conversation, history_limit, state)
@@ -53,7 +47,7 @@ Dictée — STT (push-to-talk) :
   _gemini_transcribe_audio(wav_bytes, ...)   — transcrit un WAV via Gemini, retourne le texte
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.17"
 
 
 import ast as _ast
@@ -1489,7 +1483,7 @@ def build_tool_list(folder_path, mcp_tools=None, extra_tools=None):
         + list(extra_tools or [])
     )
     return (
-        _WEB_TOOLS + _TERMINAL_TOOLS + _MEMORY_TOOLS + _SCREENSHOT_TOOLS
+        _WEB_TOOLS + _TERMINAL_TOOLS + _SCREENSHOT_TOOLS
         + _NOTEPAD_TOOLS + _UI_TOOLS + new_tools + list(mcp_tools or [])
         + _folder_tool_definitions(folder_path)
     )
@@ -3160,223 +3154,6 @@ _WEB_TOOLS = [
 ]
 
 
-# ─── Système de mémoire persistante ─────────────────────────────────────────
-
-_DATA_DIR = _os.path.dirname(_os.path.abspath(__file__))
-
-_MEMORY_CHAR_LIMITS = {
-    "memory": 2200,
-    "user":   1375,
-    "skills": 3000,
-}
-
-_MEMORY_FILE_NAMES = {
-    "memory": "memory.md",
-    "user":   "user.md",
-    "skills": "skills.md",
-}
-
-
-def _memory_file_path(target):
-    return _os.path.join(_DATA_DIR, _MEMORY_FILE_NAMES[target])
-
-
-def _read_memory_file(target):
-    """Lit un fichier mémoire, retourne le contenu brut (chaîne vide si absent)."""
-    try:
-        with open(_memory_file_path(target), encoding="utf-8") as file_handle:
-            return file_handle.read()
-    except (FileNotFoundError, OSError):
-        return ""
-
-
-def _update_memory_file(target, action, content="", old_text=""):
-    """
-    Met à jour un fichier mémoire persistant (memory.md, user.md, skills.md).
-
-    Actions :
-        add     — ajoute une nouvelle entrée (séparée par §)
-        replace — remplace l'entrée contenant old_text par content
-        remove  — supprime l'entrée contenant old_text
-
-    Retourne une chaîne JSON avec success, message et usage.
-    """
-    if target not in _MEMORY_CHAR_LIMITS:
-        return json.dumps({
-            "success": False,
-            "error": f"Cible invalide : {target!r}. Utilise 'memory', 'user' ou 'skills'.",
-        })
-
-    file_path = _memory_file_path(target)
-    char_limit = _MEMORY_CHAR_LIMITS[target]
-
-    try:
-        with open(file_path, encoding="utf-8") as file_handle:
-            raw_content = file_handle.read()
-    except FileNotFoundError:
-        raw_content = ""
-    except OSError as error:
-        return json.dumps({"success": False, "error": str(error)})
-
-    # Séparer les lignes de commentaires HTML du corps
-    all_lines = raw_content.splitlines()
-    comment_lines = [line for line in all_lines if line.startswith("<!--")]
-    header = ("\n".join(comment_lines) + "\n") if comment_lines else ""
-    body_lines = [line for line in all_lines if not line.startswith("<!--")]
-    body = "\n".join(body_lines).strip()
-    entries = [entry.strip() for entry in body.split("§") if entry.strip()]
-
-    if action == "add":
-        if not content.strip():
-            return json.dumps({"success": False, "error": "content est vide."})
-        new_entry = content.strip()
-        if new_entry in entries:
-            return json.dumps({"success": True, "note": "Entrée déjà présente, aucun doublon ajouté."})
-        candidate_entries = entries + [new_entry]
-        candidate_body = " §\n".join(candidate_entries)
-        candidate_full = header + candidate_body
-        if len(candidate_full) > char_limit:
-            _entry_sep = " §\n"
-            current_usage = f"{len(header + _entry_sep.join(entries))}/{char_limit}"
-            return json.dumps({
-                "success": False,
-                "error": (
-                    f"Mémoire à {current_usage} chars. "
-                    f"Ajouter cette entrée ({len(new_entry)} chars) dépasserait la limite. "
-                    "Consolide ou supprime des entrées existantes d'abord."
-                ),
-                "current_entries": entries,
-                "usage": current_usage,
-            })
-        entries = candidate_entries
-
-    elif action == "replace":
-        if not old_text.strip():
-            return json.dumps({"success": False, "error": "old_text est requis pour 'replace'."})
-        matching_indices = [index for index, entry in enumerate(entries) if old_text.strip() in entry]
-        if not matching_indices:
-            return json.dumps({
-                "success": False,
-                "error": f"Aucune entrée ne contient : {old_text!r}",
-                "current_entries": entries,
-            })
-        if len(matching_indices) > 1:
-            return json.dumps({
-                "success": False,
-                "error": f"old_text ambigu : {len(matching_indices)} entrées correspondent. Précise davantage.",
-                "matches": [entries[index] for index in matching_indices],
-            })
-        entries[matching_indices[0]] = content.strip()
-        candidate_body = " §\n".join(entries)
-        candidate_full = header + candidate_body
-        if len(candidate_full) > char_limit:
-            return json.dumps({
-                "success": False,
-                "error": f"Contenu trop long après remplacement ({len(candidate_full)}/{char_limit} chars).",
-            })
-
-    elif action == "remove":
-        if not old_text.strip():
-            return json.dumps({"success": False, "error": "old_text est requis pour 'remove'."})
-        matching_indices = [index for index, entry in enumerate(entries) if old_text.strip() in entry]
-        if not matching_indices:
-            return json.dumps({
-                "success": False,
-                "error": f"Aucune entrée ne contient : {old_text!r}",
-                "current_entries": entries,
-            })
-        if len(matching_indices) > 1:
-            return json.dumps({
-                "success": False,
-                "error": f"old_text ambigu : {len(matching_indices)} entrées correspondent.",
-                "matches": [entries[index] for index in matching_indices],
-            })
-        entries.pop(matching_indices[0])
-
-    else:
-        return json.dumps({
-            "success": False,
-            "error": f"Action invalide : {action!r}. Utilise 'add', 'replace' ou 'remove'.",
-        })
-
-    new_body = " §\n".join(entries)
-    new_full = header + new_body
-    try:
-        with open(file_path, "w", encoding="utf-8") as file_handle:
-            file_handle.write(new_full)
-    except OSError as error:
-        return json.dumps({"success": False, "error": str(error)})
-
-    usage = f"{len(new_full)}/{char_limit}"
-    return json.dumps({
-        "success": True,
-        "action": action,
-        "target": target,
-        "entries_count": len(entries),
-        "usage": usage,
-    })
-
-
-# ─── Outil mémoire persistante ────────────────────────────────────────────────
-
-_MEMORY_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "update_memory_file",
-            "description": (
-                "Met à jour ta mémoire persistante entre les sessions. "
-                "Utilise cet outil proactivement quand tu apprends quelque chose d'important sur "
-                "l'utilisateur, son environnement, ses préférences ou une procédure utile.\n"
-                "Cibles :\n"
-                "  - 'memory' : tes notes personnelles (environnement, conventions, leçons apprises) — 2 200 chars max\n"
-                "  - 'user'   : profil utilisateur (préférences, habitudes, style de communication) — 1 375 chars max\n"
-                "  - 'skills' : procédures et techniques apprises (étapes, commandes, workflows) — 3 000 chars max\n"
-                "Actions :\n"
-                "  - 'add'     : ajoute une nouvelle entrée\n"
-                "  - 'replace' : remplace l'entrée contenant old_text par content\n"
-                "  - 'remove'  : supprime l'entrée contenant old_text\n"
-                "IMPORTANT — le fichier est une liste d'entrées séparées par '§' (visibles telles quelles "
-                "dans les sections MÉMOIRE/PROFIL UTILISATEUR/SKILLS injectées plus haut dans ce prompt) : "
-                "'replace'/'remove' ciblent UNE SEULE entrée à la fois. old_text doit être un extrait exact "
-                "et unique tiré d'UNE SEULE entrée existante — jamais un texte qui couvre plusieurs entrées "
-                "ou le fichier entier. Pour corriger plusieurs entrées, appelle cet outil séparément pour "
-                "chacune. Si l'appel retourne success:false (old_text introuvable ou ambigu), NE PRÉTENDS "
-                "JAMAIS que la mise à jour a réussi : indique l'échec à Charles et corrige old_text à partir "
-                "de current_entries/matches renvoyés, ou réessaie avec un extrait plus court et plus précis."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "target": {
-                        "type": "string",
-                        "enum": ["memory", "user", "skills"],
-                        "description": "Fichier cible : 'memory', 'user' ou 'skills'",
-                    },
-                    "action": {
-                        "type": "string",
-                        "enum": ["add", "replace", "remove"],
-                        "description": "Action à effectuer",
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Contenu de la nouvelle entrée (requis pour 'add' et 'replace')",
-                    },
-                    "old_text": {
-                        "type": "string",
-                        "description": (
-                            "Sous-chaîne unique identifiant l'entrée à remplacer ou supprimer "
-                            "(requis pour 'replace' et 'remove')"
-                        ),
-                    },
-                },
-                "required": ["target", "action"],
-            },
-        },
-    },
-]
-
-
 # ─── Outils bloc-notes ───────────────────────────────────────────────────────
 
 _SCREENSHOT_TOOLS = [
@@ -3617,122 +3394,6 @@ _UI_TOOLS = [
         },
     },
 ]
-
-
-def _build_system_content(folder_path=None, today_date_str=None):
-    """
-    Assemble le contenu complet du message système envoyé à l'IA.
-
-    Lit system.md (obligatoire), puis injecte memory.md, user.md, skills.md.
-    Ajoute la date du jour et le contexte du dossier ouvert.
-
-    Args:
-        folder_path     : chemin absolu du dossier ouvert, ou None.
-        today_date_str  : date du jour pré-formatée (ex. "25 mai 2026"), ou None.
-
-    Returns:
-        Chaîne complète prête à être passée comme message système.
-
-    Raises:
-        FileNotFoundError : si system.md est absent.
-        OSError           : si system.md ne peut pas être lu.
-    """
-    # ── Prompt système de base ────────────────────────────────────────────────
-    system_md_path = _os.path.join(_DATA_DIR, "system.md")
-    if not _os.path.exists(system_md_path):
-        raise FileNotFoundError(
-            f"Fichier system.md introuvable : {system_md_path}\n"
-            "L'IA ne peut pas démarrer sans ce fichier."
-        )
-    try:
-        with open(system_md_path, encoding="utf-8") as file_handle:
-            system_content = file_handle.read().strip()
-    except OSError as exc:
-        raise OSError(
-            f"Impossible de lire system.md : {exc}\n"
-            "L'IA ne peut pas démarrer sans ce fichier."
-        ) from exc
-
-    # ── Fichiers mémoire persistante ──────────────────────────────────────────
-    _memory_label_map = {
-        "memory": "MÉMOIRE (notes personnelles)",
-        "user":   "PROFIL UTILISATEUR",
-        "skills": "SKILLS (procédures apprises)",
-    }
-
-    for target in ("memory", "user", "skills"):
-        raw = _read_memory_file(target)
-        all_lines = raw.splitlines()
-        body_lines = [line for line in all_lines if not line.startswith("<!--")]
-        body = "\n".join(body_lines).strip()
-        entries = [entry.strip() for entry in body.split("§") if entry.strip()]
-        if not entries:
-            continue
-        char_limit = _MEMORY_CHAR_LIMITS[target]
-        char_count = len(raw)
-        pct = int(char_count * 100 / char_limit)
-        label = _memory_label_map[target]
-        separator = "═" * 46
-        content_str = " §\n".join(entries)
-        system_content += f"\n\n{separator}\n{label} [{pct}% — {char_count}/{char_limit} chars]\n{separator}\n{content_str}"
-
-    # ── Date du jour ──────────────────────────────────────────────────────────
-    if today_date_str:
-        system_content += f"\n\nDate du jour : {today_date_str}."
-
-    # ── Contexte du dossier ouvert ────────────────────────────────────────────
-    if folder_path and _os.path.isdir(folder_path):
-        folder_name = _os.path.basename(folder_path)
-        system_content += (
-            f"\n\nDOSSIER OUVERT : « {folder_name} » (`{folder_path}`).\n"
-            "Outils disponibles pour ce dossier : list_folder_contents, "
-            "read_file_content, create_file, edit_file, delete_files, move_file, "
-            "copy_file, create_folder, organize_files, search_in_files, find_files, "
-            "analyze_images, generate_image, edit_image, read_exif, "
-            "zip_files, unzip_file.\n"
-            "Utilise-les quand l'utilisateur te demande d'explorer, résumer, "
-            "organiser ou analyser visuellement le contenu de ce dossier. "
-            "Pour toute question sur ce que contiennent les images "
-            "(couleurs, personnes, lieux, objets…), utilise analyze_images. "
-            "Pour générer une nouvelle image depuis un prompt texte, utilise generate_image. "
-            "Pour modifier une image existante du dossier, utilise edit_image. "
-            "RÈGLES ABSOLUES :\n"
-            "- Pour lister le contenu du dossier, utilise TOUJOURS "
-            "list_folder_contents — JAMAIS ls, find ou toute autre commande shell via run_terminal_command.\n"
-            "- Pour modifier un fichier texte existant, utilise TOUJOURS edit_file "
-            "(lit → remplace old_string par new_string) — "
-            "JAMAIS créer une copie .txt ou un nouveau fichier à la place de l'original. "
-            "Si tu dois réécrire entièrement le fichier, utilise create_file sur le même chemin.\n"
-            "- Pour créer un nouveau fichier (script, note, liste, config…), utilise TOUJOURS create_file — "
-            "JAMAIS run_terminal_command avec une redirection (>, tee, etc.).\n"
-            "- Pour chercher du texte dans des fichiers, utilise search_in_files (grep) — "
-            "JAMAIS run_terminal_command avec grep ou rg.\n"
-            "Le paramètre 'content' de create_file doit contenir UNIQUEMENT le texte final du fichier, "
-            "recopié mot pour mot depuis les résultats des outils — "
-            "sans aucun raisonnement, auto-correction, note entre parenthèses ou placeholder."
-        )
-    system_content += (
-        "\n\nOutil terminal disponible : run_terminal_command. "
-        "Utilise-le pour exécuter des commandes shell si l'utilisateur le demande "
-        "(installation de paquets, conversion de fichiers, scripts, etc.). "
-        "NE PAS l'utiliser pour lister des fichiers ou créer des fichiers texte : "
-        "utilise list_folder_contents et create_file pour ça. "
-        "NE PAS l'utiliser pour ssh/scp/sftp : utilise ssh_command, qui gère "
-        "le mot de passe via overlay. "
-        "Une confirmation sera toujours demandée avant exécution.\n\n"
-        "IMPORTANT — ssh_command cible une machine DISTANTE (serveur SSH), "
-        "un système de fichiers totalement séparé du DOSSIER OUVERT en local. "
-        "Ne jamais utiliser les chemins du dossier ouvert dans une commande "
-        "ssh_command, et ne jamais utiliser list_folder_contents/read_file_content/"
-        "etc. pour explorer le serveur distant — tout passe par le paramètre "
-        "'command' de ssh_command (ex: 'ls', 'cat fichier'). "
-        "Serveurs SSH connus (nom → host) : "
-        + (", ".join(f"{s['name']} → {s['host']}" for s in CONSTANTS.SSH_SERVERS)
-           or "aucun enregistré") + "."
-    )
-    return system_content
-
-
 # ─── Intégration Google Gemini ───────────────────────────────────────────────
 
 def _format_gemini_error(exc, *, prefix="Erreur Gemini"):

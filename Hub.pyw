@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.69"
+__version__ = "2.10.70"
 
 import asyncio
 import base64
@@ -73,7 +73,7 @@ from ai_tools import (
     _md_dark, _copy_scored_photos,
     _format_ai_conversation,
     _ai_save_history, _MicRecorder, _gemini_transcribe_audio,
-    _update_memory_file, _iterate_image_loop, _IMAGE_ITERATE_TOOLS,
+    _iterate_image_loop, _IMAGE_ITERATE_TOOLS,
     _gemini_generate_image, _gemini_generate_music, _gemini_refine_image_prompt,
     _score_images_batched, _analyze_images_batched, _take_screenshot,
     _gemini_tts, _gemini_tts_stream, _gemini_live_tts_stream, _voice_play_audio,
@@ -6564,9 +6564,6 @@ def main(page: ft.Page):
         "fetch_url": lambda args: _fetch_url_content(
             args.get("url", ""), max_chars=CONSTANTS.AI_URL_MAX_CHARS),
         "run_terminal_command": _ai_tool_run_terminal_command,
-        "update_memory_file": lambda args: _update_memory_file(
-            args.get("target", ""), args.get("action", ""),
-            args.get("content", ""), args.get("old_text", "")),
         "read_notepad": _ai_tool_read_notepad,
         "write_notepad": _ai_tool_write_notepad,
         "navigate_to_folder": _ai_tool_navigate_folder,
