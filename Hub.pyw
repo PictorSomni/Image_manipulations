@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.65"
+__version__ = "2.10.66"
 
 import asyncio
 import base64
@@ -14654,6 +14654,22 @@ print("[délai dépassé]")
         # quand la souris est sur le terminal. Flutter donne le libellé
         # US de la touche physique : on retraduit avec la disposition
         # Windows active (AZERTY, AltGr, accents morts).
+        # Ctrl+Maj+C / Ctrl+Maj+V : copier la sélection / coller (Ctrl+C
+        # reste l'interruption du shell).
+        if (shell_term.get("hover") and event.ctrl and event.shift
+                and event.key in ("C", "V")):
+            term = shell_term["term"]
+            if event.key == "V":
+                term.paste()
+                return
+
+            async def _copy_sel():
+                text = await term.get_selection_async()
+                if text:
+                    await ft.Clipboard().set(text)
+                    await term.clear_selection_async()
+            _run_task(_copy_sel)
+            return
         if (os.name == "nt" and shell_term.get("hover")
                 and (not (event.ctrl or event.alt)
                      or (event.ctrl and event.alt))):  # Ctrl+Alt = AltGr
