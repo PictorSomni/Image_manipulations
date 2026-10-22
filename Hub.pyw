@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.67"
+__version__ = "2.10.68"
 
 import asyncio
 import base64
@@ -13301,7 +13301,7 @@ def main(page: ft.Page):
         except RuntimeError:
             pass
 
-    shell_term = {"term": None, "log": []}   # vrai terminal (Hub compilé, cf. plus bas)
+    shell_term = {"term": None}   # vrai terminal (Hub compilé, cf. plus bas)
 
     def _log_to_terminal(message, color=None, clear=False):
         message = (message or "").strip()
@@ -13310,7 +13310,11 @@ def main(page: ft.Page):
         _append_terminal_log(message)
 
         async def _do():
-            if clear:
+            if clear and shell_term["term"] is not None:
+                # Hub compilé : on garde l'historique, simple séparateur.
+                if terminal_output.controls:
+                    terminal_output.controls.append(ft.Divider(height=8))
+            elif clear:
                 # Chaque nouvelle action repart d'un terminal vide (retour
                 # user) : l'historique complet reste de toute façon dans
                 # _terminal_log_path ci-dessus, pas besoin de le garder
@@ -13322,13 +13326,6 @@ def main(page: ft.Page):
                         selectable=True))
             if len(terminal_output.controls) > CONSTANTS.HUB_TERMINAL_MAX_LINES:
                 terminal_output.controls.pop(0)
-            if shell_term["term"] is not None:
-                c = (color or WHITE).lstrip("#")
-                rgb = ";".join(str(int(c[i:i + 2], 16)) for i in (0, 2, 4))
-                shell_term["term"].write(
-                    f"\r\x1b[2K\x1b[38;2;{rgb}m{message}\x1b[0m\r\n")
-                shell_term["log"].append(message)
-                del shell_term["log"][:-CONSTANTS.HUB_TERMINAL_MAX_LINES]
             _show_terminal_and_schedule_hide()
             page.update()
 
@@ -13344,14 +13341,9 @@ def main(page: ft.Page):
     _save_error_hook["fn"] = lambda msg: _log_to_terminal(msg, RED)
 
     def _export_terminal(to_notepad=False, event=None):
-        if shell_term["term"] is not None:
-            # Messages de Hub et des outils (pas la sortie du shell : la
-            # sélection + Ctrl+Maj+C sert pour ça).
-            text = re.sub(r"\x1b\[[0-9;]*m|\[[0-9;]*m", "",
-                          "\n".join(shell_term["log"])).strip()
-        else:
-            text = "\n".join(c.value for c in terminal_output.controls
-                             if isinstance(c, ft.Text) and c.value)
+        text = re.sub(r"\x1b\[[0-9;]*m|\[[0-9;]*m", "", "\n".join(
+            c.value for c in terminal_output.controls
+            if isinstance(c, ft.Text) and c.value))
         if not text:
             return
 
@@ -13921,8 +13913,16 @@ def main(page: ft.Page):
         box = ft.Container(term, expand=True, padding=4,
                            on_hover=_term_hover)
         col = terminal_panel.content.controls
-        col[:] = [box if getattr(c, "content", None) is terminal_output else c
-                  for c in col
+        # Messages des actions à droite, séparés du shell / de Claude :
+        # ils n'écrasent plus ce qui est en cours dans le terminal.
+        def _split(c):
+            c.expand = 2
+            return ft.Row([box, ft.VerticalDivider(width=1), c],
+                          expand=True, spacing=4,
+                          vertical_alignment=ft.CrossAxisAlignment.STRETCH)
+        box.expand = 3
+        col[:] = [_split(c) if getattr(c, "content", None) is terminal_output
+                  else c for c in col
                   if getattr(c, "content", None) is not terminal_input]
         shell_term["term"] = term
         shell_term["write"] = write
