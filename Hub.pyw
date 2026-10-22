@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.62"
+__version__ = "2.10.63"
 
 import asyncio
 import base64
@@ -12895,6 +12895,8 @@ def main(page: ft.Page):
              lambda e: _launch_tool("Retouche photo.pyw")),
             ("Nettoyer métadonnées", ft.Icons.CLEANING_SERVICES_OUTLINED, YELLOW,
              lambda e: _launch_tool("Nettoyer metadonnées.py")),
+            ("Nettoyer noms Topaz", ft.Icons.DRIVE_FILE_RENAME_OUTLINE,
+             YELLOW, lambda e: _launch_tool("Nettoyer noms Topaz.py")),
         ]),
         ("Montage", [
             ("Montage collage", ft.Icons.GRID_VIEW_OUTLINED, VIOLET,
