@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.57"
+__version__ = "2.10.58"
 
 import asyncio
 import base64
@@ -5482,7 +5482,7 @@ def main(page: ft.Page):
         _history_idx["ai"] = None
 
     ai_input_field = ft.TextField(
-        hint_text="Posez votre question… (Entrée pour envoyer)",
+        hint_text="Décris l'image à générer ou la retouche… (Entrée pour envoyer)",
         border=CONSTANTS.input_border(BLUE),
         text_style=ft.TextStyle(font_family="monospace", size=CONSTANTS.TERMINAL_FONT_SIZE),
         dense=True, expand=True, color=WHITE, bgcolor=DARK, shift_enter=True,
@@ -7346,12 +7346,12 @@ def main(page: ft.Page):
                 ai_image_quality_dropdown,
                 ai_image_size_group,
                 _ai_header_separator(),
+                # Voix/copie/bloc-notes/briefing masqués : l'onglet sert
+                # aux images, la conversation passe par Claude (terminal)
+                # et le briefing est fait par Claude le matin (retour user).
                 ai_speaker_button,
                 ai_copy_button,
                 ai_to_notepad_button,
-                ft.IconButton(ft.Icons.WB_SUNNY_OUTLINED, icon_color=YELLOW,
-                              tooltip="Briefing",
-                              on_click=lambda e: _daily_briefing()),
                 _ai_header_separator(),
                 ai_clear_button,
             ], spacing=8),
@@ -7367,6 +7367,9 @@ def main(page: ft.Page):
             padding=ft.Padding(8, 4, 8, 4)),
         ft.Container(content=ai_status_text, padding=ft.Padding(8, 0, 8, 6)),
     ], expand=True, spacing=0)
+    for _b in (ai_speaker_button, ai_copy_button, ai_to_notepad_button,
+               ai_vasy_button, ai_mic_button):
+        _b.visible = False  # ponytail: masqués, pas supprimés (code lié)
     _ai_load_history()
 
     # ═════════════════════════════════════════════════════════════════════
@@ -10633,13 +10636,6 @@ def main(page: ft.Page):
                   f"{ev['nom'] or '(sans nom)'} ({ev['source']})"
                   for ev in rdv] or ["- aucun"]
         return "\n".join(lines)
-
-    def _daily_briefing():
-        # À la demande seulement (bouton) : pas d'affichage auto, le
-        # collègue/les clients pourraient le voir (retour user). Muse va
-        # chercher elle-même ce qu'il lui faut (read_studio, read_mails).
-        _select_surface("ia")
-        _send_ai_message("Briefing du jour ?")
 
     # Sans clé Notion, la synchro passerait par MCP et ouvrirait le
     # navigateur toutes les heures sur les machines non connectées
