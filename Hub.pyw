@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.76"
+__version__ = "2.10.77"
 
 import asyncio
 import base64
@@ -12101,6 +12101,8 @@ def main(page: ft.Page):
         # _busy_start hors onglet IA) reste toujours prioritaire.
         if state["surface"] == "ia" and not _terminal_autohide["pinned"]:
             return
+        if not terminal_panel.visible and shell_term.get("nudge"):
+            shell_term["nudge"]()
         terminal_panel.visible = True
         _sync_terminal_btn()
         t = _terminal_autohide["task"]
@@ -12789,15 +12791,21 @@ def main(page: ft.Page):
             # taille différente puis la vraie force tmux/Claude à tout
             # redessiner (sinon caractères invisibles jusqu'à relance).
             shell_term["size"] = (d["rows"], d["cols"])
-            resize(d["rows"], max(2, d["cols"] - 1))
             resize(d["rows"], d["cols"])
         term.on_resize = _resize
 
-        def _remount(e):
-            rows, cols = shell_term.get("size", (24, 100))
-            resize(rows, max(2, cols - 1))
-            resize(rows, cols)
-        term.on_mount = _remount
+        def _nudge(e=None):
+            # Après le remontage du widget (délai), taille -1 puis vraie
+            # taille, espacées : tmux/Claude redessinent tout l'écran.
+            def _run():
+                time.sleep(0.6)
+                rows, cols = shell_term.get("size", (24, 100))
+                resize(rows, max(2, cols - 1))
+                time.sleep(0.3)
+                resize(rows, cols)
+            threading.Thread(target=_run, daemon=True).start()
+        term.on_mount = _nudge
+        shell_term["nudge"] = _nudge
 
         def _reader():
             while True:
@@ -12871,6 +12879,8 @@ def main(page: ft.Page):
         # défiler dans la bande compacte façon snackbar (retour user :
         # ce bouton plein écran rend inutile un panneau compact plus haut).
         if not terminal_panel.visible:
+            if shell_term.get("nudge"):
+                shell_term["nudge"]()
             terminal_panel.visible = True
             _sync_terminal_btn()
         _terminal_fullscreen["active"] = not _terminal_fullscreen["active"]
@@ -12899,6 +12909,8 @@ def main(page: ft.Page):
 
     def _toggle_terminal(event):
         terminal_panel.visible = not terminal_panel.visible
+        if terminal_panel.visible and shell_term.get("nudge"):
+            shell_term["nudge"]()
         _sync_terminal_btn()
         _terminal_autohide["pinned"] = terminal_panel.visible
         t = _terminal_autohide["task"]
