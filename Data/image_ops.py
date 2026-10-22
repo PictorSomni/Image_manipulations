@@ -15,7 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 
-__version__ = "2.10.46"
+__version__ = "2.10.47"
 
 import colorsys
 import functools
@@ -1331,7 +1331,9 @@ def run_rembg(image: Image.Image, *, precise: bool = False,
     chaque appel (ex. `{}` conservé entre deux retouches successives).
     """
     try:  # DLL CUDA/cuDNN des paquets pip nvidia-* (sinon repli CPU)
-        import onnxruntime; onnxruntime.preload_dlls()
+        import contextlib, io, onnxruntime
+{i}    with contextlib.redirect_stdout(io.StringIO()):  # avertissement torch cu12/cu13 bénin
+{i}        onnxruntime.preload_dlls()
     except Exception:
         pass
     from rembg import remove as _rembg_remove, new_session as _rembg_new_session
