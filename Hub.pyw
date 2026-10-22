@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.68"
+__version__ = "2.10.69"
 
 import asyncio
 import base64
@@ -70,7 +70,7 @@ from ai_tools import (
     _folder_delete_files, _web_search, _fetch_url_content, _run_terminal_command,
     build_tool_list, dispatch_folder_tool, DISPATCH_UNHANDLED,
     _gemini_chat_stream_with_tools, _claude_chat_stream_with_tools,
-    _build_system_content, _md_dark, _copy_scored_photos,
+    _md_dark, _copy_scored_photos,
     _format_ai_conversation,
     _ai_save_history, _MicRecorder, _gemini_transcribe_audio,
     _update_memory_file, _iterate_image_loop, _IMAGE_ITERATE_TOOLS,
@@ -6886,7 +6886,7 @@ def main(page: ft.Page):
                         # _send_ai_message elle-même juste après, donc le
                         # terminal reste ouvert en continu (retour user).
                         _busy_end()
-                        _send_ai_message(combined)
+                        _ai_generate(combined)
                     else:
                         ai_input_field.value = combined
                         try:
@@ -6972,256 +6972,6 @@ def main(page: ft.Page):
             return
         _mic_state["hotkey_listener"] = listener
 
-    def _send_ai_message(text):
-        if ai_streaming["value"] or (not text.strip() and not ai_pending_images
-                                     and not ai_pending_files):
-            return
-        ai_streaming["value"] = True
-        ai_send_button.disabled = True
-        ai_vasy_button.disabled = True
-        ai_stop_button.visible = True
-        ai_status_text.value = "⏳ En cours…"
-        ai_progress_bar.visible = True
-        _busy_start()
-        # Ne doit jamais empêcher l'envoi (ex: onglet IA pas affiché) —
-        # ai_streaming est déjà passé à True ci-dessus, un plantage ici
-        # bloquerait tout définitivement (le garde en tête de fonction
-        # empêche tout nouvel essai tant que la valeur reste bloquée).
-        try:
-            page.update()
-        except Exception:
-            pass
-
-        images_b64 = [e["b64"] for e in ai_pending_images]
-        images_paths = [e["path"] for e in ai_pending_images]
-        files_to_inject = list(ai_pending_files)
-        if images_b64:
-            ai_last_attached_images["b64"] = images_b64
-        ai_pending_images.clear()
-        ai_pending_files.clear()
-        _ai_refresh_attach_row()
-
-        content = text
-        if images_paths:
-            # Le modèle ne voit sinon QUE les octets (user_message["images"])
-            # sans aucun nom de fichier : pour éditer l'image jointe via
-            # edit_image, il doit connaître le nom réel du fichier dans le
-            # dossier ouvert, sinon il en invente un plausible qui ne
-            # correspond à rien sur disque (retour user, cf. incident chat
-            # gris → armure Anubis générée sans rapport avec la photo).
-            names = ", ".join(os.path.basename(p) for p in images_paths)
-            note = f"[Image(s) jointe(s) à ce message : {names}]"
-            content = f"{content}\n\n{note}" if content else note
-        user_message = {"role": "user", "content": content}
-        if images_b64:
-            user_message["images"] = images_b64
-        ai_conversation.append(user_message)
-        _ai_save_history_now()  # survit à un redémarrage de Flet
-
-        display_text = text
-        if images_paths:
-            display_text = (display_text + "\n" if display_text else "") + \
-                f"🖼️ {len(images_paths)} image(s) jointe(s)"
-        if files_to_inject:
-            display_text = (display_text + "\n" if display_text else "") + \
-                "  ".join(f"📄 {os.path.basename(p)}" for p in files_to_inject)
-        _ai_add_bubble("user", display_text)
-
-        def _run():
-            try:
-                if files_to_inject:
-                    blocks = []
-                    for file_path in files_to_inject:
-                        try:
-                            with open(file_path, "r", encoding="utf-8",
-                                     errors="replace") as f:
-                                content = f.read(CONSTANTS.AI_FILE_MAX_CHARS)
-                            blocks.append(
-                                f"--- Document : {os.path.basename(file_path)} ---\n"
-                                f"{content}\n--- Fin ---")
-                        except Exception as exc:
-                            blocks.append(
-                                f"--- Document : {os.path.basename(file_path)} --- "
-                                f"[Erreur lecture : {exc}]")
-                    ai_conversation[-1]["content"] = (
-                        ai_conversation[-1]["content"] + "\n\n" + "\n\n".join(blocks)
-                    ).strip()
-                folder = state["folder"]
-                today = datetime.date.today().strftime("%d %B %Y")
-                system_content = _build_system_content(folder, today)
-                if folder:
-                    system_content += f"\n\nDOSSIER ACTUELLEMENT OUVERT : {folder}"
-                _active_model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_TEXT
-                _history_limit = (
-                    CONSTANTS.AI_HISTORY_LIMIT_CLOUD
-                    if _active_model.startswith(("gemini", "claude", "muse"))
-                    else CONSTANTS.AI_HISTORY_LIMIT_LOCAL)
-                history = ai_conversation[-_history_limit:]
-                # Une troncature brute peut couper juste après un tour
-                # assistant(tool_calls), laissant une réponse d'outil
-                # orpheline en tête, OU couper juste avant ce tour, laissant
-                # le function_call lui-même en tête sans le tour "user" qui
-                # le précédait : Gemini exige qu'un tour function_call soit
-                # immédiatement précédé d'un tour user ou function_response,
-                # sinon 400 INVALID_ARGUMENT (cf. nettoyage MCP Notion,
-                # plusieurs paires d'appels d'outils dépassant la fenêtre).
-                while history and (
-                    history[0].get("role") == "tool"
-                    or (history[0].get("role") == "assistant"
-                        and history[0].get("tool_calls"))
-                ):
-                    history = history[1:]
-                messages = [{"role": "system", "content": system_content}, *history]
-
-                model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_TEXT
-                mcp_tools = mcp_client.mcp_get_all_tools()
-                tool_ui = SimpleNamespace(
-                    set_status=lambda t: setattr(ai_status_text, "value", t),
-                    bubble=lambda t: _ai_add_bubble("assistant", t),
-                    event=lambda t: None,
-                    refresh=lambda: _run_task(_ai_navigate_async, folder),
-                    paint=_ai_tool_paint,
-                    credential=_ai_get_credential,
-                )
-
-                for _round in range(CONSTANTS.AI_MAX_TOOL_ROUNDS):
-                    if not ai_streaming["value"]:
-                        break
-                    tools = build_tool_list(folder, mcp_tools,
-                                           extra_tools=_IMAGE_ITERATE_TOOLS
-                                           + _STUDIO_TOOLS)
-                    streamed = ""
-                    tool_calls = []
-                    thinking_ctrl = None
-                    thinking = ""
-                    token_count = 0
-                    response_ctrl = None
-
-                    if model.startswith("gemini"):
-                        stream_iter = _gemini_chat_stream_with_tools(
-                            model, messages, tools=tools,
-                            temperature=CONSTANTS.AI_TEMPERATURE)
-                    elif model.startswith("claude"):
-                        stream_iter = _claude_chat_stream_with_tools(
-                            model, messages, tools=tools,
-                            temperature=CONSTANTS.AI_TEMPERATURE)
-                    elif model.startswith("muse"):
-                        stream_iter = meta_ai.chat_stream_with_tools(
-                            model, messages, tools=tools,
-                            temperature=CONSTANTS.AI_TEMPERATURE)
-                    else:
-                        _ai_add_bubble(
-                            "assistant",
-                            f"Modèle « {model} » non géré dans le Hub pour l'instant.")
-                        break
-
-                    for evt, data in stream_iter:
-                        if not ai_streaming["value"]:
-                            break
-                        if evt == "tool_calls":
-                            tool_calls.extend(data)
-                        elif evt == "thinking":
-                            thinking += data
-                            if thinking_ctrl is None:
-                                thinking_ctrl = _ai_add_bubble("think", data)
-                            else:
-                                thinking_ctrl.value = f"💭 {thinking}"
-                                _ai_refresh()
-                        else:
-                            streamed += data
-                            token_count += 1
-                            if response_ctrl is None:
-                                if streamed.strip():
-                                    response_ctrl = _ai_add_bubble("assistant", streamed)
-                            elif token_count % 5 == 0:
-                                response_ctrl.value = _md_dark(streamed)
-                                _ai_refresh()
-
-                    if not tool_calls:
-                        if response_ctrl is not None:
-                            response_ctrl.value = _md_dark(streamed)
-                            _ai_refresh()
-                        elif streamed:
-                            _ai_add_bubble("assistant", streamed)
-                        ai_conversation.append({"role": "assistant", "content": streamed})
-                        _ai_save_history_now()  # survit à un redémarrage de Flet
-                        if streamed:
-                            preview = streamed if len(streamed) <= 120 else streamed[:117] + "…"
-                            _log_to_terminal(f"🤖 {preview}", GREEN)
-                        if streamed and ai_tts_enabled["value"]:
-                            # Incrémenté ICI (thread appelant), pas dans
-                            # _speak_bubble : le thread TTS spawné juste
-                            # après peut démarrer après le _busy_end() du
-                            # finally ci-dessous (ordonnancement non
-                            # garanti) — sans ce compte pris tout de suite,
-                            # le terminal se refermerait puis se rouvrirait
-                            # (retour user : voulu en continu).
-                            _busy_start()
-                            threading.Thread(target=_speak_bubble,
-                                             args=(streamed,), daemon=True).start()
-                        break
-
-                    if response_ctrl is not None and streamed:
-                        response_ctrl.value = _md_dark(streamed)
-                        _ai_refresh()
-
-                    messages.append(
-                        {"role": "assistant", "content": "", "tool_calls": tool_calls})
-                    ai_conversation.append(
-                        {"role": "assistant", "content": "", "tool_calls": tool_calls})
-                    for tc in tool_calls:
-                        fn = tc.get("function", {})
-                        fn_name = fn.get("name", "")
-                        fn_args = fn.get("arguments") or {}
-                        ai_status_text.value = f"🔧 {fn_name}…"
-                        _ai_refresh()
-                        # Bulle persistante pour les outils du fallback Hub —
-                        # dispatch_folder_tool émet déjà la sienne via
-                        # ui.bubble() pour ses propres branches (cf. commentaire
-                        # _AI_TOOL_BUBBLES plus haut), pas de doublon possible.
-                        bubble_fn = _AI_TOOL_BUBBLES.get(fn_name)
-                        if bubble_fn is not None:
-                            try:
-                                _ai_add_bubble("assistant", bubble_fn(fn_args))
-                            except Exception:
-                                pass
-                        result = _ai_run_tool(fn_name, fn_args, tool_ui)
-                        tool_msg = {"role": "tool", "tool_name": fn_name,
-                                   "name": fn_name, "content": result}
-                        # take_screenshot : joindre l'image au tour d'outil
-                        # pour que le modèle la « voie » réellement (le champ
-                        # "images" est lu pour n'importe quel rôle par
-                        # _ollama_messages_to_gemini, pas seulement "user").
-                        if fn_name == "take_screenshot" and _ai_last_screenshot["b64"]:
-                            tool_msg["images"] = [_ai_last_screenshot["b64"]]
-                            _ai_last_screenshot["b64"] = None
-                        messages.append(tool_msg)
-                        ai_conversation.append(dict(tool_msg))
-                        _ai_save_history_now()  # survit à un redémarrage de Flet
-                else:
-                    _ai_add_bubble("assistant", "⚠️ Trop de tours d'outils, arrêt.")
-            except Exception as exc:
-                _ai_add_bubble("assistant", f"[Erreur] {exc}")
-                _log_to_terminal(f"[Erreur] {exc}", RED)
-            finally:
-                ai_streaming["value"] = False
-                ai_send_button.disabled = False
-                ai_vasy_button.disabled = False
-                ai_stop_button.visible = False
-                ai_status_text.value = ""
-                ai_progress_bar.visible = False
-                _ai_save_history_now()
-                _ai_refresh()
-                # Referme l'étape "réponse en cours" démarrée dans
-                # _send_ai_message — si une lecture TTS vient d'être
-                # lancée juste au-dessus, son propre _busy_start (pris
-                # avant même ce finally) maintient le compteur > 0, donc
-                # le terminal reste ouvert sans interruption jusqu'à la
-                # fin de l'audio.
-                _busy_end()
-
-        threading.Thread(target=_run, daemon=True).start()
-
     def _ai_submit(event=None):
         if _mic_state["active"]:
             # Envoyer pendant un enregistrement en cours (clic sur Envoyer
@@ -7247,8 +6997,7 @@ def main(page: ft.Page):
     def _ai_vasy(event=None):
         if ai_streaming["value"]:
             return
-        _history_add("ai", "vas-y")
-        _send_ai_message("vas-y")
+        return  # ponytail: plus de conversation, bouton masqué
 
     ai_vasy_button = ft.IconButton(
         ft.Icons.PLAY_CIRCLE_FILL, icon_color=GREEN,

@@ -51,7 +51,7 @@ import shutil
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.10.46"
+__version__ = "2.10.47"
 
 
 # ==============================================================================
@@ -639,26 +639,6 @@ AI_DROPDOWN_MODELS = [
 
 
 # ── 10.2  Prompts système ─────────────────────────────────────────────────────
-
-AI_SYSTEM_PROMPT = (
-    f"On se tutoie. Tu parles à {AI_USER_NAME}.\n\n"
-    "CAPACITÉS :\n"
-    "Tu peux accéder à internet (web_search, fetch_url) et aux fichiers du dossier ouvert "
-    "— les lister, lire leur contenu, les organiser par sous-dossiers, ou analyser visuellement les images.\n"
-    "Tu peux aussi GÉNÉRER et MODIFIER des images directement via Nano Banana 2.1 (generate_image, edit_image) : "
-    "créer une image depuis un prompt, éditer une photo, changer le style, coloriser une image noir et blanc, etc. "
-    "Utilise ces outils directement sans chercher du code OpenCV ou PIL — tu n'as pas besoin de code pour ça.\n"
-    "Quand l'utilisateur demande d'AMÉLIORER / ITÉRER / PEAUFINER une image « jusqu'à ce que ce soit bon » "
-    "(plusieurs passes), utilise iterate_image (objectif précis) : chaque passe critique le rendu puis le régénère, "
-    "avec arrêt anticipé dès que l'objectif est atteint. Pour une seule retouche, edit_image suffit.\n\n"
-    "RÈGLES :\n"
-    "- Pas de disclaimers ni de mises en garde inutiles (pas de 'consulte un professionnel', 'je ne suis pas médecin', etc.).\n"
-    "- Si tu ne connais pas la réponse, fais une recherche web plutôt que d'inventer.\n"
-    "- Cite toujours tes sources avec les URLs complètes quand tu fais une recherche web.\n"
-    "- Quand tu organises des fichiers, explique ta logique clairement.\n\n"
-    "Reste naturel et engageant, n'hésite pas à utiliser des émoticônes ou de l'humour quand c'est pertinent."
-)
-
 
 # ── 10.3  Voix — TTS (synthèse vocale Gemini) ────────────────────────────────
 
