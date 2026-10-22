@@ -51,7 +51,7 @@ import shutil
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.10.44"
+__version__ = "2.10.45"
 
 
 # ==============================================================================
@@ -633,7 +633,6 @@ AI_FOLDER_SELECT_QUALITY     = 85    # Qualité JPEG des images envoyées à l'I
 # Modèles affichés dans le dropdown de sélection rapide du Hub
 # Le premier est le modèle par défaut (Gemini, moins cher, retour user).
 AI_DROPDOWN_MODELS = [
-    "gemini-3.5-flash-lite",
     "gemini-3.8-flash",
     "muse-spark-1.3",   # Meta, clé dans ~/.meta
 ]
