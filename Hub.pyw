@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.75"
+__version__ = "2.10.76"
 
 import asyncio
 import base64
@@ -12785,8 +12785,19 @@ def main(page: ft.Page):
 
         def _resize(e):
             d = json.loads(e.data)
+            # Terminal réaffiché = widget xterm neuf, écran vide : une
+            # taille différente puis la vraie force tmux/Claude à tout
+            # redessiner (sinon caractères invisibles jusqu'à relance).
+            shell_term["size"] = (d["rows"], d["cols"])
+            resize(d["rows"], max(2, d["cols"] - 1))
             resize(d["rows"], d["cols"])
         term.on_resize = _resize
+
+        def _remount(e):
+            rows, cols = shell_term.get("size", (24, 100))
+            resize(rows, max(2, cols - 1))
+            resize(rows, cols)
+        term.on_mount = _remount
 
         def _reader():
             while True:
