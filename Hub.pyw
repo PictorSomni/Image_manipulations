@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.70"
+__version__ = "2.10.71"
 
 import asyncio
 import base64
@@ -66,17 +66,10 @@ import mtp_devices
 import rss_feeds
 import hub_sync
 from ai_tools import (
-    _backup_file, _folder_create_file, _folder_list_contents, _folder_read_file,
-    _folder_delete_files, _web_search, _fetch_url_content, _run_terminal_command,
-    build_tool_list, dispatch_folder_tool, DISPATCH_UNHANDLED,
-    _gemini_chat_stream_with_tools, _claude_chat_stream_with_tools,
-    _md_dark, _copy_scored_photos,
-    _format_ai_conversation,
-    _ai_save_history, _MicRecorder, _gemini_transcribe_audio,
-    _iterate_image_loop, _IMAGE_ITERATE_TOOLS,
-    _gemini_generate_image, _gemini_generate_music, _gemini_refine_image_prompt,
-    _score_images_batched, _analyze_images_batched, _take_screenshot,
-    _gemini_tts, _gemini_tts_stream, _gemini_live_tts_stream, _voice_play_audio,
+    _backup_file, _folder_create_file, _md_dark, _copy_scored_photos,
+    _format_ai_conversation, _MicRecorder, _gemini_transcribe_audio,
+    _gemini_generate_image, _gemini_refine_image_prompt, _gemini_tts_stream,
+    _gemini_live_tts_stream,
 )
 
 
@@ -2334,30 +2327,6 @@ def main(page: ft.Page):
 
         _run_bg_action(f"Tri de {len(paths)} fichier(s)", _work)
 
-    def _reveal_in_explorer(paths):
-        target = paths[0] if paths else None
-        if not target or not os.path.exists(target):
-            return
-        folder = target if os.path.isdir(target) else os.path.dirname(target)
-        try:
-            system = platform.system()
-            if system == "Windows":
-                if os.path.isfile(target):
-                    subprocess.Popen(["explorer", "/select,", target])
-                else:
-                    subprocess.Popen(["explorer", folder])
-            elif system == "Darwin":
-                if os.path.isfile(target):
-                    subprocess.Popen(["open", "-R", target])
-                else:
-                    subprocess.Popen(["open", folder])
-            else:
-                subprocess.Popen(["xdg-open", folder])
-        except Exception as exc:
-            _log_to_terminal(f"[ERREUR] Ouverture : {exc}", RED)
-            return
-        if not _strip_state["active"]:
-            _toggle_strip()
 
     def _rename_item(paths):
         path = paths[0] if paths else None
@@ -2703,45 +2672,6 @@ def main(page: ft.Page):
             _notes_load()
             page.update()
 
-    def _show_exif_dialog(paths):
-        # Comme Dashboard.pyw:5258-5302 : résolution + tags EXIF lisibles
-        # d'une image, dans un dialogue scrollable et sélectionnable.
-        path = paths[0]
-        rows = []
-        try:
-            from PIL.ExifTags import TAGS
-            with PILImage.open(path) as img:
-                width, height = img.size
-                raw = img.getexif()
-            rows.append(ft.Text(f"Résolution : {width} × {height} px",
-                                size=CONSTANTS.TEXT_SM, color=BLUE, selectable=True))
-            if raw:
-                for tag_id, value in raw.items():
-                    if isinstance(value, bytes):
-                        continue
-                    tag_name = TAGS.get(tag_id, f"Tag {tag_id}")
-                    rows.append(ft.Text(f"{tag_name} : {value}", size=CONSTANTS.TEXT_SM,
-                                        color=WHITE, selectable=True))
-            else:
-                rows.append(ft.Text("Aucune donnée EXIF.", size=CONSTANTS.TEXT_SM,
-                                    color=LIGHT_GREY))
-        except Exception as exc:
-            rows.append(ft.Text(f"Erreur : {exc}", size=CONSTANTS.TEXT_SM, color=RED))
-
-        def _close_exif(event=None):
-            exif_dlg.open = False
-            page.update()
-
-        exif_dlg = _dialog(
-            title=ft.Text(os.path.basename(path), size=CONSTANTS.TEXT_SM, color=LIGHT_GREY),
-            content=ft.Column(rows, spacing=2, scroll=ft.ScrollMode.AUTO,
-                              width=400, height=400),
-            actions=[_dlg_btn("Fermer", "cancel", on_click=_close_exif)],
-            actions_alignment=ft.MainAxisAlignment.END,
-        )
-        page.overlay.append(exif_dlg)
-        exif_dlg.open = True
-        page.update()
 
     def _add_open_with_program(event=None):
         label_field = ft.TextField(hint_text="Nom (ex. Photoshop)", autofocus=True,
@@ -3429,8 +3359,6 @@ def main(page: ft.Page):
         [search_field, search_close_btn], spacing=4, expand=True,
         vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    _SORT_LABELS = {"name_asc": "Nom (A→Z)", "name_desc": "Nom (Z→A)",
-                    "date": "Date (récent d'abord)"}
     _SORT_SHORT = {"name_asc": "Nom ↑", "name_desc": "Nom ↓", "date": "Date ↓"}
 
     def _set_sort(mode):
@@ -5466,7 +5394,6 @@ def main(page: ft.Page):
     # rien sur disque : sans ce repli, edit_image tombait silencieusement
     # en génération pure (aucune image source), produisant un résultat sans
     # rapport avec la photo jointe (retour user).
-    ai_last_attached_images = {"b64": []}
     ai_send_original_images = {"value": CONSTANTS.AI_IMAGE_ATTACH_DEFAULT_ORIGINAL}
     ai_tts_enabled = {"value": CONSTANTS.AI_VOICE_TTS_ENABLED}
     ai_tts_stop_event = {"event": None}
@@ -5767,64 +5694,8 @@ def main(page: ft.Page):
     def _ai_stop(event=None):
         ai_streaming["value"] = False
 
-    def _ai_tool_paint():
-        # ui.paint() est le repaint GLOBAL du contrat dispatch_folder_tool
-        # (ai_tools.py) : appelé après une opération fichier, il doit
-        # repeindre la grille de fichiers, pas seulement le chat. Il reste
-        # donc sur un page.update() complet — contrairement à _ai_refresh,
-        # ciblé parce qu'il tourne plusieurs fois par seconde en streaming.
-        # Une fois par appel d'outil : le coût est sans importance ici.
-        async def _repaint():
-            try:
-                page.update()
-            except Exception:
-                pass
-        try:
-            _run_task(_repaint)
-        except Exception:
-            pass
 
-    def _ai_add_image_bubble(image_path):
-        try:
-            thumb = thumb_cache.get_or_generate(image_path)
-        except Exception:
-            thumb = None
-        if not thumb:
-            try:
-                with open(image_path, "rb") as f:
-                    thumb = f.read()
-            except Exception:
-                thumb = None
-        content = (ft.Image(src=thumb, width=320, fit=ft.BoxFit.CONTAIN,
-                            border_radius=ft.BorderRadius.all(6))
-                  if thumb else
-                  ft.Text(f"[Image introuvable : {image_path}]", color=RED))
-        bubble = ft.Container(
-            content=content, bgcolor=GREY, padding=6,
-            border_radius=ft.BorderRadius(top_left=13, top_right=13,
-                                          bottom_left=4, bottom_right=13),
-            expand=8)
-        _ai_append_bubble_row(
-            ft.Row([bubble, ft.Container(expand=2)],
-                  alignment=ft.MainAxisAlignment.START))
-        _ai_refresh()
 
-    def _ai_add_screenshot_bubble(b64_str):
-        try:
-            img_bytes = base64.b64decode(b64_str)
-        except Exception:
-            return
-        bubble = ft.Container(
-            content=ft.Image(src=img_bytes, width=320, fit=ft.BoxFit.CONTAIN,
-                             border_radius=ft.BorderRadius.all(6)),
-            bgcolor=GREY, border=ft.Border.all(1, LIGHT_GREY), padding=6,
-            border_radius=ft.BorderRadius(top_left=13, top_right=13,
-                                          bottom_left=4, bottom_right=13),
-            expand=8)
-        _ai_append_bubble_row(
-            ft.Row([bubble, ft.Container(expand=2)],
-                  alignment=ft.MainAxisAlignment.START))
-        _ai_refresh()
 
     def _ai_get_credential(service, username, timeout=300):
         # Coffre natif de l'OS (Data/credentials.py, keyring) — jamais en
@@ -5889,267 +5760,9 @@ def main(page: ft.Page):
         cred_event.wait(timeout=timeout)
         return cred_result["value"]
 
-    def _ai_tool_generate_image(fn_name, args):
-        prompt = args.get("prompt", "")
-        aspect = args.get("aspect_ratio", "1:1")
-        src_name = ""
-        if fn_name == "generate_image":
-            out_filename = (args.get("filename", "").strip()
-                           or f"generated_{datetime.datetime.now():%Y%m%d_%H%M%S}.png")
-            src_bytes = None
-            label = prompt[:60] + ("…" if len(prompt) > 60 else "")
-            _ai_add_bubble("assistant", f"🎨 Génération : {label}")
-        else:
-            src_name = args.get("source_filename", "").strip()
-            out_filename = (args.get("output_filename", "").strip()
-                           or f"edited_{datetime.datetime.now():%Y%m%d_%H%M%S}.png")
-            src_bytes = None
-            folder = state["folder"]
-            if src_name and folder:
-                src_path = os.path.join(folder, os.path.basename(src_name))
-                if os.path.isfile(src_path):
-                    with open(src_path, "rb") as f:
-                        src_bytes = f.read()
-            if src_bytes is None and ai_last_attached_images["b64"]:
-                # Le nom donné par le modèle ne correspond à aucun fichier du
-                # dossier ouvert — cas typique d'une image collée/uploadée
-                # directement dans le chat (jamais présente sur disque sous
-                # ce nom, le modèle invente alors un nom plausible du style
-                # "input_file_1.png"). On retombe sur la dernière image
-                # réellement jointe à la conversation plutôt que de générer
-                # sans aucune image source (retour user : sans ça, edit_image
-                # produisait silencieusement un résultat sans rapport avec
-                # la photo jointe).
-                try:
-                    src_bytes = base64.b64decode(ai_last_attached_images["b64"][-1])
-                    # Consommée : évite qu'un futur edit_image sur un nom de
-                    # fichier différent (mais introuvable, ex. faute de
-                    # frappe) ne retombe silencieusement sur cette même
-                    # image, périmée, plusieurs tours plus tard.
-                    ai_last_attached_images["b64"] = []
-                except Exception:
-                    src_bytes = None
-            if src_bytes is None:
-                return (
-                    f"[Erreur] Fichier source introuvable : "
-                    f"{src_name or '(non fourni)'}. Vérifie le nom exact "
-                    "via list_folder_contents, ou demande à l'utilisateur de "
-                    "joindre l'image dans le chat.")
-            _ai_add_bubble("assistant", f"🎨 Édition : {src_name} → {out_filename}")
 
-        prompt_refined = prompt
-        model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_TEXT
-        if model.startswith(("gemini", "claude")) and prompt.strip():
-            try:
-                prompt_refined = _gemini_refine_image_prompt(
-                    intent_prompt=prompt, user_request=prompt, mode=fn_name,
-                    source_filename=src_name, model=CONSTANTS.AI_IMAGE_REFINER_MODEL)
-            except Exception:
-                prompt_refined = prompt
-            if prompt_refined != prompt and CONSTANTS.AI_SHOW_REFINED_IMAGE_PROMPT:
-                _ai_add_bubble("assistant",
-                              f"🧪 Prompt image affiné automatiquement :\n\n{prompt_refined}")
 
-        ai_status_text.value = "🎨 Génération d'image en cours…"
-        _ai_refresh()
-        try:
-            # Modèle image déduit du modèle de discussion (retour user :
-            # un seul menu) — Muse Spark -> Muse Image, sinon NB2.
-            use_muse = model.startswith("muse")
-            gen = (meta_ai.generate_image if use_muse
-                   else _gemini_generate_image)
-            text, img_bytes = gen(
-                prompt_refined, input_image_bytes=src_bytes,
-                aspect_ratio=aspect,
-                resolution=ai_image_quality_dropdown.value or "1K",
-                model=(meta_ai.IMAGE_MODEL if use_muse
-                       else "gemini-nano-banana-2.1"))
-        except Exception as exc:
-            text, img_bytes = f"[Erreur] {exc}", None
 
-        if img_bytes:
-            dest_folder = state["folder"] or os.path.join(_APP_DIR, "Generated")
-            os.makedirs(dest_folder, exist_ok=True)
-            save_path = os.path.join(dest_folder, out_filename)
-            # Plusieurs tentatives (retour user, crash total de Hub) : sur
-            # un dossier synchronisé (OneDrive...), un verrou transitoire
-            # pendant la synchronisation côté serveur peut lever
-            # PermissionError l'espace d'un instant — le fichier finissait
-            # par être écrit correctement (présent après redémarrage), ce
-            # n'était donc pas une vraie erreur d'accès mais une course.
-            write_error = None
-            for attempt in range(5):
-                try:
-                    with open(save_path, "wb") as f:
-                        f.write(img_bytes)
-                    write_error = None
-                    break
-                except OSError as exc:
-                    write_error = exc
-                    time.sleep(0.5 * (attempt + 1))
-            if write_error is not None:
-                _log_to_terminal(
-                    f"[ERREUR] Écriture impossible ({save_path}) : "
-                    f"{write_error}", RED)
-                return f"[Erreur] Écriture impossible : {write_error}"
-            _ai_add_image_bubble(save_path)
-            if state["folder"]:
-                _run_task(_ai_navigate_async, state["folder"])
-            result = f"Image sauvegardée : {save_path}"
-            if text:
-                result += f"\n\nRéponse du service : {text}"
-            return result
-        result = "[Erreur] Aucune image n'a été générée/sauvegardée."
-        if text:
-            result += f"\n\nRéponse texte du service (sans image) :\n{text}"
-        return result
-
-    def _ai_tool_iterate_image(fn_name, args):
-        src_name = args.get("source_filename", "").strip()
-        goal = args.get("goal", "").strip()
-        passes = args.get("passes") or CONSTANTS.AI_IMAGE_ITERATE_MAX_PASSES
-        try:
-            passes = max(1, int(passes))
-        except (TypeError, ValueError):
-            passes = CONSTANTS.AI_IMAGE_ITERATE_MAX_PASSES
-        folder = state["folder"]
-        if not src_name or not folder:
-            return "[Erreur] iterate_image nécessite un dossier ouvert et un fichier source."
-        src_path = os.path.join(folder, os.path.basename(src_name))
-        if not os.path.isfile(src_path):
-            return f"[Erreur] Fichier introuvable : {src_name}"
-        _ai_add_bubble("assistant",
-                      f"🔁 Itération image : {src_name} (max {passes} passes)\n"
-                      f"Objectif : {goal}")
-        ai_status_text.value = "🔁 Itération d'image en cours…"
-        _ai_refresh()
-        try:
-            res = _iterate_image_loop(src_path, goal, passes,
-                                      refiner_model=CONSTANTS.AI_IMAGE_REFINER_MODEL)
-        except Exception as exc:
-            res = {"final_path": None, "passes": [], "error": str(exc)}
-        for p in res.get("passes", []):
-            if p.get("ok"):
-                _ai_add_bubble("assistant", f"✅ Passe {p['pass']} : objectif atteint.")
-            else:
-                _ai_add_bubble("assistant",
-                              f"🔍 Passe {p['pass']} — à corriger :\n{p.get('critique', '')}")
-                if p.get("path") and os.path.isfile(p["path"]):
-                    _ai_add_image_bubble(p["path"])
-        final = res.get("final_path")
-        if final and os.path.isfile(final):
-            _run_task(_ai_navigate_async, folder)
-            result = (f"Itération terminée ({len(res.get('passes', []))} passe(s)). "
-                     f"Image finale : {final}")
-        else:
-            result = "[Erreur] Itération image : aucune image produite."
-        if res.get("error"):
-            result += f"\n{res['error']}"
-        return result
-
-    def _ai_tool_generate_music(fn_name, args):
-        prompt = args.get("prompt", "")
-        model = args.get("model", "lyria-3-clip-preview")
-        filename = (args.get("filename", "").strip()
-                   or f"music_{datetime.datetime.now():%Y%m%d_%H%M%S}.mp3")
-        label = prompt[:60] + ("…" if len(prompt) > 60 else "")
-        _ai_add_bubble("assistant", f"🎵 Génération musique : {label}")
-        ai_status_text.value = "🎵 Génération musicale en cours…"
-        _ai_refresh()
-        try:
-            audio_bytes, lyrics, err = _gemini_generate_music(prompt, model=model)
-        except Exception as exc:
-            audio_bytes, lyrics, err = None, None, str(exc)
-        if audio_bytes:
-            dest = state["folder"] or os.path.join(_APP_DIR, "Generated")
-            os.makedirs(dest, exist_ok=True)
-            save_path = os.path.join(dest, filename)
-            with open(save_path, "wb") as f:
-                f.write(audio_bytes)
-            if state["folder"]:
-                _run_task(_ai_navigate_async, state["folder"])
-            result = f"Musique sauvegardée : {save_path}"
-            if lyrics:
-                result += f"\n\nParoles / Structure :\n{lyrics}"
-            return result
-        return f"[Erreur] Génération musicale échouée : {err}"
-
-    def _ai_tool_organize_files(fn_name, args):
-        actions = args.get("actions", [])
-        folder = state["folder"]
-        if not actions:
-            return "Aucune action à exécuter."
-        if not folder:
-            return "Aucun dossier ouvert."
-        confirmed = True
-        if CONSTANTS.AI_ORGANIZE_CONFIRM:
-            confirm_event = threading.Event()
-            confirm_result = {"value": False}
-            rows = [ft.Text(f"• {a.get('filename', '?')}  →  "
-                            f"{a.get('destination_subfolder', '?')}/",
-                            size=CONSTANTS.TEXT_SM, color=WHITE) for a in actions[:40]]
-            if len(actions) > 40:
-                rows.append(ft.Text(f"… et {len(actions) - 40} autres",
-                                    size=CONSTANTS.TEXT_SM, color=LIGHT_GREY))
-
-            def _confirm(e=None):
-                confirm_result["value"] = True
-                dlg.open = False
-                page.update()
-                confirm_event.set()
-
-            def _cancel(e=None):
-                dlg.open = False
-                page.update()
-                confirm_event.set()
-
-            dlg = _dialog(
-                modal=True,
-                title=ft.Text("📂 Organiser les fichiers", size=CONSTANTS.TEXT_SM, color=WHITE),
-                content=ft.Column([
-                    ft.Text(args.get("summary") or "Organisation proposée par l'IA :",
-                           size=CONSTANTS.TEXT_SM, color=WHITE),
-                    ft.Column(rows, scroll=ft.ScrollMode.AUTO,
-                             height=min(320, len(rows) * 24)),
-                ], tight=True, width=500),
-                actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
-                         _dlg_btn("Exécuter", "primary",
-                                  on_click=_confirm)],
-                actions_alignment=ft.MainAxisAlignment.END,
-            )
-
-            async def _open_dlg():
-                page.overlay.append(dlg)
-                dlg.open = True
-                page.update()
-            _run_task(_open_dlg)
-            confirm_event.wait(timeout=300)
-            confirmed = confirm_result["value"]
-        if not confirmed:
-            return "Organisation annulée par l'utilisateur."
-        moves, errors = [], []
-        for action in actions:
-            filename = os.path.basename(action.get("filename", ""))
-            subfolder = action.get("destination_subfolder", "").strip("/\\")
-            if not filename or not subfolder:
-                continue
-            source = os.path.join(folder, filename)
-            dest_dir = os.path.join(folder, subfolder)
-            dest = os.path.join(dest_dir, filename)
-            if not os.path.isfile(source):
-                errors.append(f"Introuvable : {filename}")
-                continue
-            try:
-                os.makedirs(dest_dir, exist_ok=True)
-                shutil.move(source, dest)
-                moves.append(f"✓ {filename} → {subfolder}/")
-            except Exception as exc:
-                errors.append(f"✗ {filename} : {exc}")
-        _run_task(_ai_navigate_async, folder)
-        lines = [f"{len(moves)} fichier(s) déplacé(s)."] + moves
-        if errors:
-            lines += ["Erreurs :"] + errors
-        return "\n".join(lines)
 
     # Copie de Dashboard.pyw:3665-3744 : confirmation avant toute commande
     # (si CONSTANTS.AI_TERMINAL_CONFIRM) et systématiquement si `admin`
@@ -6158,417 +5771,30 @@ def main(page: ft.Page):
     # utilisateur. Même pattern threading.Event() que _ai_tool_organize_files
     # juste au-dessus (dialogue ouvert sur le thread UI, attente bloquante
     # sur le thread worker qui exécute l'outil).
-    def _ai_tool_run_terminal_command(args):
-        cmd = args.get("command", "")
-        desc = args.get("description") or cmd
-        admin = bool(args.get("admin", False))
-        cwd = state["folder"] or None
-        if CONSTANTS.AI_TERMINAL_CONFIRM or admin:
-            confirm_event = threading.Event()
-            confirm_result = {"value": False}
-
-            def _confirm(e=None):
-                confirm_result["value"] = True
-                dlg.open = False
-                page.update()
-                confirm_event.set()
-
-            def _cancel(e=None):
-                dlg.open = False
-                page.update()
-                confirm_event.set()
-
-            dlg_content = [
-                ft.Text(desc, size=CONSTANTS.TEXT_SM, color=WHITE),
-                ft.Container(height=8),
-                ft.Container(
-                    ft.Text(cmd, size=CONSTANTS.TEXT_SM, font_family="monospace",
-                           color=YELLOW),
-                    bgcolor=DARK, padding=10, border_radius=6),
-            ]
-            if admin:
-                dlg_content.append(ft.Container(height=8))
-                dlg_content.append(ft.Text(
-                    "🔐 Une invite d'administrateur du système s'affichera "
-                    "ensuite (mot de passe/Touch ID/UAC).",
-                    size=CONSTANTS.TEXT_SM, color=YELLOW))
-
-            dlg = _dialog(
-                modal=True,
-                title=ft.Text(
-                    "🔐 Exécuter en administrateur" if admin
-                    else "💻 Exécuter une commande",
-                    size=CONSTANTS.TEXT_SM, color=WHITE),
-                content=ft.Column(dlg_content, tight=True, width=500),
-                actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
-                         _dlg_btn("Exécuter", "primary",
-                                  on_click=_confirm)],
-                actions_alignment=ft.MainAxisAlignment.END,
-            )
-
-            async def _open_dlg():
-                page.overlay.append(dlg)
-                dlg.open = True
-                page.update()
-            _run_task(_open_dlg)
-            confirm_event.wait(timeout=300)
-            if not confirm_result["value"]:
-                return "Commande annulée par l'utilisateur."
-        result = _run_terminal_command(cmd, cwd=cwd, admin=admin)
-        # Commande + sortie gardées dans le log (retour user : impossible de
-        # retrouver après coup ce que l'IA avait lancé).
-        _append_terminal_log(f"[IA] $ {cmd}\n{result}")
-        return result
 
     # Copie de Dashboard.pyw:3881-3961 : CONSTANTS.AI_DELETE_CONFIRM (True
     # par défaut) doit toujours faire confirmer une suppression déclenchée
     # par l'IA - sans ça (lambda direct vers _folder_delete_files) l'IA
     # pouvait supprimer des fichiers sans validation utilisateur, même
     # défaut de configuration que run_terminal_command/admin plus haut.
-    def _ai_tool_delete_files(args):
-        paths = args.get("paths", [])
-        summary = args.get("summary", "")
-        if not paths:
-            return "Aucun fichier à supprimer."
-        confirmed = True
-        if CONSTANTS.AI_DELETE_CONFIRM:
-            del_event = threading.Event()
-            del_result = {"confirmed": False}
-
-            def _confirm(e=None):
-                del_result["confirmed"] = True
-                dlg.open = False
-                page.update()
-                del_event.set()
-
-            def _cancel(e=None):
-                dlg.open = False
-                page.update()
-                del_event.set()
-
-            rows = [ft.Text(f"• {p}", size=CONSTANTS.TEXT_SM, color=WHITE)
-                   for p in paths[:40]]
-            if len(paths) > 40:
-                rows.append(ft.Text(f"… et {len(paths) - 40} autres",
-                                    size=CONSTANTS.TEXT_SM, color=LIGHT_GREY))
-            dlg = _dialog(
-                modal=True,
-                title=ft.Text("🗑️ Supprimer des fichiers", size=CONSTANTS.TEXT_SM,
-                              color=WHITE),
-                content=ft.Column([
-                    ft.Text(summary or "Fichiers à supprimer :",
-                           size=CONSTANTS.TEXT_SM, color=WHITE),
-                    ft.Container(height=6),
-                    ft.Column(rows, scroll=ft.ScrollMode.AUTO,
-                             height=min(320, len(rows) * 24)),
-                ], tight=True, width=500),
-                actions=[_dlg_btn("Annuler", "cancel", on_click=_cancel),
-                         _dlg_btn("Supprimer", "danger",
-                                  on_click=_confirm)],
-                actions_alignment=ft.MainAxisAlignment.END,
-            )
-
-            async def _open_dlg():
-                page.overlay.append(dlg)
-                dlg.open = True
-                page.update()
-            _run_task(_open_dlg)
-            del_event.wait(timeout=300)
-            confirmed = del_result["confirmed"]
-        if not confirmed:
-            return "Suppression annulée."
-        result = _folder_delete_files(state["folder"], paths)
-        _run_task(_ai_navigate_async, state["folder"])
-        return result
 
     # Copie de Dashboard.pyw:3139-3202 : `analyze_images` est annoncé à l'IA
     # via le schéma partagé (Data/ai_tools.py:1289) mais n'avait aucun
     # handler côté Hub -> l'IA pouvait l'appeler et recevait juste
     # « Outil indisponible ». Même structure que _ai_tool_score_photos
     # juste en dessous (bulle de progression par lot).
-    def _ai_tool_analyze_images(fn_name, args):
-        folder = state["folder"]
-        if not folder:
-            return "Aucun dossier ouvert."
-        filenames = args.get("filenames") or []
-        question = args.get("question", "")
-        if filenames:
-            candidates = [os.path.basename(n) for n in filenames
-                         if os.path.isfile(os.path.join(folder, os.path.basename(n)))]
-        else:
-            candidates = sorted(
-                e.name for e in os.scandir(folder)
-                if e.is_file() and os.path.splitext(e.name)[1].lower()
-                in CONSTANTS.IMAGE_EXTS)
-        if not candidates:
-            return "Aucune image trouvée."
-        total = len(candidates)
-        model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_VISION
-        batch_n = (CONSTANTS.AI_GEMINI_FOLDER_BATCH_SIZE if model.startswith("gemini")
-                  else CONSTANTS.AI_FOLDER_SELECT_BATCH_SIZE)
-        batches = (total + batch_n - 1) // batch_n
-        progress_ctrl = _ai_add_bubble("assistant",
-                                       f"📸 Analyse de {total} image(s) — lot 1/{batches}…")
 
-        def _on_progress(batch_num, total_batches):
-            ai_status_text.value = f"📸 Analyse lot {batch_num}/{total_batches}…"
-            progress_ctrl.value = _md_dark(f"📸 Analyse — lot {batch_num}/{total_batches}…")
-            _ai_refresh()
 
-        results = _analyze_images_batched(
-            CONSTANTS.AI_OLLAMA_URL, model, folder, candidates, question,
-            batch_size=batch_n, image_exts=CONSTANTS.IMAGE_EXTS,
-            max_size=CONSTANTS.AI_FOLDER_SELECT_IMAGE_SIZE,
-            quality=CONSTANTS.AI_FOLDER_SELECT_QUALITY,
-            on_progress=_on_progress,
-            is_running=lambda: ai_streaming["value"])
-        progress_ctrl.value = _md_dark(f"📸 {total} image(s) analysée(s).")
-        _ai_refresh()
-        return "\n\n".join(results) or "Aucun résultat."
 
-    def _ai_tool_score_photos(fn_name, args):
-        folder = state["folder"]
-        if not folder:
-            return "Aucun dossier ouvert."
-        filenames = args.get("filenames") or []
-        if filenames:
-            candidates = [os.path.basename(n) for n in filenames
-                         if os.path.isfile(os.path.join(folder, os.path.basename(n)))]
-        else:
-            candidates = sorted(
-                e.name for e in os.scandir(folder)
-                if e.is_file() and os.path.splitext(e.name)[1].lower()
-                in CONSTANTS.IMAGE_EXTS)
-        if not candidates:
-            return "Aucune image trouvée."
-        total = len(candidates)
-        model = ai_model_dropdown.value or CONSTANTS.AI_MODEL_VISION
-        batch_n = (CONSTANTS.AI_GEMINI_FOLDER_BATCH_SIZE if model.startswith("gemini")
-                  else CONSTANTS.AI_FOLDER_SELECT_BATCH_SIZE)
-        batches = (total + batch_n - 1) // batch_n
-        progress_ctrl = _ai_add_bubble("assistant",
-                                       f"🏆 Score de {total} image(s) — lot 1/{batches}…")
 
-        def _on_progress(batch_num, total_batches):
-            ai_status_text.value = f"🏆 Score lot {batch_num}/{total_batches}…"
-            progress_ctrl.value = _md_dark(f"🏆 Score — lot {batch_num}/{total_batches}…")
-            _ai_refresh()
 
-        summary = _score_images_batched(
-            CONSTANTS.AI_OLLAMA_URL, model, folder, candidates,
-            contexte=args.get("contexte", ""),
-            criteres_additionnels=args.get("criteres_additionnels") or [],
-            batch_size=batch_n, image_exts=CONSTANTS.IMAGE_EXTS,
-            max_size=CONSTANTS.AI_FOLDER_SELECT_IMAGE_SIZE,
-            quality=CONSTANTS.AI_FOLDER_SELECT_QUALITY,
-            on_progress=_on_progress,
-            is_running=lambda: ai_streaming["value"])
-        progress_ctrl.value = _md_dark(f"🏆 {summary}")
-        _ai_refresh()
-        return summary
 
-    def _ai_tool_ask_clarifying(fn_name, args):
-        question = args.get("question", "")
-        options = (args.get("options") or [])[:5]
-        q_event = threading.Event()
-        q_result = {"value": None}
 
-        def _choice(opt):
-            def _handler(e=None):
-                q_result["value"] = opt
-                dlg.open = False
-                page.update()
-                q_event.set()
-            return _handler
 
-        other_field = ft.TextField(label="Autre réponse…", width=380,
-                                   bgcolor=DARK,
-                                   border=CONSTANTS.input_border(GREY),
-                                   color=WHITE)
 
-        def _other(e=None):
-            q_result["value"] = (other_field.value or "").strip() or "(pas de réponse précisée)"
-            dlg.open = False
-            page.update()
-            q_event.set()
 
-        dlg = _dialog(
-            modal=True,
-            title=ft.Text("❓ Question de l'IA", size=CONSTANTS.TEXT_SM, color=WHITE),
-            content=ft.Column([
-                ft.Text(question, size=CONSTANTS.TEXT_SM, color=WHITE),
-                ft.Container(height=8),
-                *[ft.Button(opt, bgcolor=BLUE, color=WHITE, on_click=_choice(opt))
-                  for opt in options],
-                ft.Container(height=8),
-                ft.Row([other_field, ft.TextButton("Envoyer", on_click=_other)]),
-            ], tight=True, width=440),
-        )
 
-        async def _open_dlg():
-            page.overlay.append(dlg)
-            dlg.open = True
-            page.update()
-            try:
-                await page.window.to_front()
-            except Exception:
-                pass
-        _run_task(_open_dlg)
-        q_event.wait(timeout=600)
-        return q_result["value"] or "(l'utilisateur n'a pas répondu à temps)"
 
-    _ai_last_screenshot = {"b64": None}
-
-    def _ai_tool_take_screenshot(fn_name, args):
-        region = args.get("region") or None
-        ai_status_text.value = "📸 Capture d'écran…"
-        # Le statut est posé AVANT la bulle : _ai_add_bubble se termine
-        # déjà par _ai_refresh(), inutile d'en rajouter un.
-        _ai_add_bubble("assistant", "📸 Capture d'écran")
-        capture = _take_screenshot(region=region)
-        if not capture:
-            _ai_last_screenshot["b64"] = None
-            return "Échec de la capture d'écran."
-        _ai_last_screenshot["b64"] = capture["b64"]
-        _ai_add_screenshot_bubble(capture["b64"])
-        return capture["text"]
-
-    _AI_SPECIAL_TOOLS = {
-        "generate_image": _ai_tool_generate_image,
-        "edit_image": _ai_tool_generate_image,
-        "iterate_image": _ai_tool_iterate_image,
-        "generate_music": _ai_tool_generate_music,
-        "organize_files": _ai_tool_organize_files,
-        "score_photos": _ai_tool_score_photos,
-        "analyze_images": _ai_tool_analyze_images,
-        "ask_clarifying_question": _ai_tool_ask_clarifying,
-        "take_screenshot": _ai_tool_take_screenshot,
-    }
-
-    def _ai_tool_navigate_folder(args):
-        path = (args.get("path") or "").strip()
-        if not path or not os.path.isdir(path):
-            return f"Dossier introuvable : {path}"
-        _run_task(_ai_navigate_async, path)
-        return f"Navigation vers {path} effectuée."
-
-    def _ai_tool_select_files(args):
-        folder = state["folder"]
-        if not folder:
-            return "Aucun dossier ouvert."
-        filenames = args.get("filenames") or []
-        mode = args.get("mode", "replace")
-        paths = [os.path.join(folder, name) for name in filenames
-                 if os.path.exists(os.path.join(folder, name))]
-
-        async def _apply():
-            if mode == "replace":
-                selected.clear()
-                _select_update(paths)
-            elif mode == "add":
-                _select_update(paths)
-            elif mode == "remove":
-                for p in paths:
-                    _select_discard(p)
-            _update_sel_count()
-            _render()
-        _run_task(_apply)
-        return f"Sélection mise à jour ({mode}) : {len(paths)} fichier(s)."
-
-    def _ai_tool_read_notepad(args):
-        return notes_field.value or "(vide)"
-
-    def _ai_tool_write_notepad(args):
-        content = args.get("content", "")
-        action = args.get("action", "append")
-        current = notes_field.value or ""
-        downgraded = False
-        if action == "replace" and current.strip():
-            action = "append"
-            downgraded = True
-        if action == "replace":
-            new_value = content
-        elif action == "prepend":
-            new_value = f"{content}\n\n{current}" if current else content
-        else:
-            new_value = f"{current}\n\n{content}" if current else content
-
-        async def _apply():
-            notes_field.value = new_value
-            page.update()
-            _notes_save()
-        _run_task(_apply)
-        note = (" (replace rétrogradé en append : bloc-notes non vide)"
-               if downgraded else "")
-        return f"Bloc-notes mis à jour ({action}).{note}"
-
-    _STUDIO_TOOLS = [{
-        "type": "function",
-        "function": {
-            "name": "read_studio",
-            "description": (
-                "Tâches À faire du Kanban « Tâches » et rendez-vous de "
-                "l'agenda du studio (Studio/Reportages/Locations) des "
-                "prochains jours. Pour un briefing ou savoir ce qui traîne. "
-                "À utiliser EN PRIORITÉ (copie locale, instantanée) avant "
-                "les outils Notion MCP, réservés aux modifications ou à ce "
-                "que read_studio ne donne pas."),
-            "parameters": {"type": "object", "properties": {
-                "days": {"type": "integer",
-                         "description": "Jours d'agenda à venir (défaut 2)"}}},
-        },
-    }, {
-        "type": "function",
-        "function": {
-            "name": "add_task",
-            "description": (
-                "Ajoute une tâche au Kanban « Tâches » : ouvre la fiche "
-                "Nouvelle tâche pré-remplie, l'utilisateur valide. À "
-                "utiliser AU LIEU des outils Notion MCP pour créer une "
-                "tâche. Pour une tâche issue d'un mail, lire d'abord le mail "
-                "avec read_mails."),
-            "parameters": {"type": "object", "properties": {
-                "demande": {"type": "string",
-                            "description": "Titre court : client + objet"},
-                "notes": {"type": "string"},
-                "telephone": {"type": "string"},
-                "email": {"type": "string"},
-                "deadline": {"type": "string",
-                             "description": "AAAA-MM-JJ"}},
-                "required": ["demande"]},
-        },
-    }]
-
-    def _ai_add_task(args):
-        prefill = {k: str(args.get(k) or "") for k in
-                   ("demande", "notes", "telephone", "email", "deadline")}
-
-        async def _open():
-            _kanban_new_task(prefill=prefill)
-        _run_task(_open)
-        return "Fiche Nouvelle tâche ouverte, en attente de validation."
-
-    _AI_FALLBACK_TOOLS = {
-        "add_task": _ai_add_task,
-        "read_studio": lambda args: _studio_summary(
-            int(args.get("days") or 2)),
-        "list_folder_contents": lambda args: _folder_list_contents(
-            (args.get("path") or "").strip() or state["folder"] or ""),
-        "read_file_content": lambda args: _folder_read_file(
-            state["folder"], args.get("filename", ""),
-            document_exts=CONSTANTS.AI_DOCUMENT_EXTS),
-        "create_file": lambda args: _folder_create_file(
-            state["folder"], args.get("filename", ""), args.get("content", "")),
-        "delete_files": _ai_tool_delete_files,
-        "web_search": lambda args: _web_search(args.get("query", "")),
-        "fetch_url": lambda args: _fetch_url_content(
-            args.get("url", ""), max_chars=CONSTANTS.AI_URL_MAX_CHARS),
-        "run_terminal_command": _ai_tool_run_terminal_command,
-        "read_notepad": _ai_tool_read_notepad,
-        "write_notepad": _ai_tool_write_notepad,
-        "navigate_to_folder": _ai_tool_navigate_folder,
-        "select_files_in_ui": _ai_tool_select_files,
-    }
 
     # Résumés emoji des outils du fallback (dispatch_folder_tool en émet déjà
     # via ui.bubble() pour ses branches "pures" — move_file, copy_file,
@@ -6576,62 +5802,8 @@ def main(page: ft.Page):
     # mais PAS pour ceux ci-dessous, gérés localement par app comme dans
     # Dashboard.pyw (l.3007-3033) : sans ça, l'appel disparaît une fois le
     # texte de statut effacé, aucune trace dans l'historique du chat.
-    _AI_TOOL_BUBBLES = {
-        "list_folder_contents": lambda a: "📂 Lecture du dossier",
-        "read_file_content": lambda a: f"📄 Lecture : {a.get('filename', '')}",
-        "create_file": lambda a: f"📝 Création de fichier : {a.get('filename', '')}",
-        "delete_files": lambda a: "🗑️ Suppression",
-        "web_search": lambda a: f"🔍 Recherche : {a.get('query', '')}",
-        "fetch_url": lambda a: f"🌐 Lecture : {a.get('url', '')}",
-        "run_terminal_command": lambda a: f"💻 Commande : {a.get('command', '')}",
-    }
 
-    def _ai_run_tool(fn_name, fn_args, ui):
-        if fn_name.startswith("mcp__"):
-            ai_status_text.value = f"🔌 {fn_name}…"
-            # Idem : le refresh est déjà fait en fin de _ai_add_bubble.
-            _ai_add_bubble("assistant", f"🔌 Outil MCP : {fn_name}")
-            try:
-                return mcp_client.mcp_call_tool(fn_name, fn_args)
-            except Exception as exc:
-                return f"[Erreur] {fn_name} : {exc}"
-        special = _AI_SPECIAL_TOOLS.get(fn_name)
-        if special is not None:
-            try:
-                return special(fn_name, fn_args)
-            except Exception as exc:
-                return f"[Erreur] {fn_name} : {exc}"
-        result = dispatch_folder_tool(fn_name, fn_args, state["folder"], ui)
-        if result is not DISPATCH_UNHANDLED:
-            return result
-        handler = _AI_FALLBACK_TOOLS.get(fn_name)
-        if handler is not None:
-            try:
-                return handler(fn_args)
-            except Exception as exc:
-                return f"[Erreur] {fn_name} : {exc}"
-        return f"Outil « {fn_name} » indisponible dans le Hub pour l'instant."
 
-    def _ai_save_history_now():
-        try:
-            # Après un redémarrage de Flet, l'ancienne session peut avoir
-            # écrit une conversation plus longue que celle-ci : on la met de
-            # côté au lieu de l'écraser (historique perdu, retour user).
-            saved = _load_json(_ai_history_file, None)
-            old = (saved.get("messages", []) if isinstance(saved, dict)
-                   else saved or [])
-            # Seuls les messages avec texte comptent : les appels d'outils
-            # ne reviennent pas au rechargement.
-            ours = sum(bool(m.get("content")) and m.get("role") in (
-                "user", "assistant") for m in ai_conversation)
-            if sum(bool(m.get("content")) for m in old) > ours:
-                stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-                shutil.copy2(_ai_history_file, _ai_history_file.replace(
-                    ".json", f".{stamp}.json"))
-            _ai_save_history(ai_conversation, _ai_history_file)
-        except Exception as exc:
-            _log_to_terminal(
-                f"[ERREUR] Sauvegarde historique IA : {exc}", RED)
 
     def _ai_load_history():
         saved = _load_json(_ai_history_file, None)
@@ -10503,26 +9675,6 @@ def main(page: ft.Page):
             if hours % 24 == 0:
                 _agenda_refresh()
 
-    def _studio_summary(days=2):
-        """Tâches À faire (cache Kanban) + rendez-vous des `days` prochains
-        jours (cache Agenda), en texte — outil read_studio de l'IA."""
-        today = datetime.date.today().isoformat()
-        todo = [r for r in kanban_state["rows"] if r.get("etat") == "À faire"]
-        horizon = (datetime.date.today()
-                   + datetime.timedelta(days=days)).isoformat()
-        rdv = sorted((ev for ev in agenda_state["events"]
-                      if today <= ev["start"][:10] <= horizon),
-                     key=lambda ev: ev["start"])
-        lines = ["Tâches À faire (les anciennes sont peut-être déjà faites, "
-                 "personne ne retire les cartes terminées) :"]
-        lines += [f"- {r['demande']} (créée {(r.get('cree_le') or '?')[:10]}"
-                  + (f", deadline {r['deadline']}" if r.get("deadline")
-                     else "") + ")" for r in todo] or ["- aucune"]
-        lines += ["", "Rendez-vous :"]
-        lines += [f"- {ev['start'][:16].replace('T', ' ')} "
-                  f"{ev['nom'] or '(sans nom)'} ({ev['source']})"
-                  for ev in rdv] or ["- aucun"]
-        return "\n".join(lines)
 
     # Sans clé Notion, la synchro passerait par MCP et ouvrirait le
     # navigateur toutes les heures sur les machines non connectées
@@ -10539,11 +9691,6 @@ def main(page: ft.Page):
         _run_task(_hourly_sync)
 
     # ─── Surfaces encore à construire (placeholders structurés) ──────────
-    def _placeholder(label):
-        return ft.Container(
-            content=ft.Text(f"{label} — à venir", size=CONSTANTS.TEXT_SM,
-                            color=GREY),
-            alignment=ft.Alignment.CENTER, expand=True)
 
     surface_content = {
         "files": files_surface,
