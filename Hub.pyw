@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.60"
+__version__ = "2.10.61"
 
 import asyncio
 import base64
@@ -7347,14 +7347,19 @@ def main(page: ft.Page):
         width=70)
 
     ai_aspect_dropdown = ft.Dropdown(
-        value="Auto", options=[ft.dropdown.Option(r) for r in (
-            "Auto", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4",
-            "9:16", "16:9")],
-        tooltip="Proportions (Auto = celles de la photo jointe, sinon 1:1)",
+        # Formats d'impression (retour user), en portrait ↕ et paysage ↔ ;
+        # la valeur est le ratio en mm.
+        value="Auto", options=[ft.dropdown.Option("Auto")] + [
+            ft.dropdown.Option(f"{w}:{h}" if o == "↕" else f"{h}:{w}",
+                               f"{name} {o}" if w != h else name)
+            for name, (w, h) in CONSTANTS.FORMATS.items()
+            if name not in CONSTANTS.RECADRAGE_HIDDEN_FORMATS
+            for o in (("↕", "↔") if w != h else ("↕",))],
+        tooltip="Format (Auto = celui de la photo jointe, sinon carré)",
         text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK,
         border=CONSTANTS.input_border(GREY),
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0),
-        width=90)
+        width=120)
 
     def _ai_gal_toggle(path, tile):
         if path in ai_gal_selected:
