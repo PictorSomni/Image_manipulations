@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.58"
+__version__ = "2.10.59"
 
 import asyncio
 import base64
@@ -7235,7 +7235,9 @@ def main(page: ft.Page):
         _history_add("ai", text)
         ai_input_field.value = ""
         page.update()
-        _send_ai_message(text)
+        if not text:
+            return
+        _ai_generate(text)  # galerie : plus de conversation (retour user)
 
     ai_input_field.on_submit = _ai_submit
     ai_send_button = ft.IconButton(ft.Icons.SEND, icon_color=BLUE,
@@ -7329,6 +7331,109 @@ def main(page: ft.Page):
         return ft.Container(ft.VerticalDivider(color=LIGHT_GREY),
                             height=CONSTANTS.HUB_TOOLBAR_H)
 
+    # ─── Galerie IA : N images par demande, sélection → Retouche photo ───
+    # Remplace le fil de discussion (retour user : la conversation passe
+    # par Claude, l'onglet ne sert plus qu'à générer/retoucher des images).
+    ai_gallery = ft.GridView(expand=True, max_extent=280, spacing=8,
+                             run_spacing=8, child_aspect_ratio=1.0)
+    ai_gal_selected = set()
+    ai_count_dropdown = ft.Dropdown(
+        value="1", options=[ft.dropdown.Option(str(n), f"×{n}")
+                            for n in (1, 2, 3, 4)],
+        tooltip="Nombre d'images par demande",
+        text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK,
+        border=CONSTANTS.input_border(GREY),
+        content_padding=ft.Padding.symmetric(horizontal=6, vertical=0),
+        width=70)
+
+    def _ai_gal_toggle(path, tile):
+        if path in ai_gal_selected:
+            ai_gal_selected.discard(path)
+        else:
+            ai_gal_selected.add(path)
+        tile.border = ft.Border.all(3, BLUE if path in ai_gal_selected
+                                    else DARK)
+        ai_retouch_button.disabled = not ai_gal_selected
+        page.update(tile, ai_retouch_button)
+
+    def _ai_gal_add(path):
+        tile = ft.Container(
+            ft.Image(src=path, fit=ft.BoxFit.CONTAIN),
+            border=ft.Border.all(3, DARK), border_radius=6, bgcolor=DARK,
+            tooltip=os.path.basename(path))
+        tile.on_click = lambda e, p=path, t=tile: _ai_gal_toggle(p, t)
+        ai_gallery.controls.insert(0, tile)
+        if state["surface"] == "ia":
+            page.update(ai_gallery)
+
+    def _ai_generate(prompt):
+        """Lance N générations (ou retouches de la 1re image jointe) en
+        parallèle ; chaque résultat arrive dans la galerie."""
+        n = int(ai_count_dropdown.value or 1)
+        src_path = ai_pending_images[0]["path"] if ai_pending_images else None
+        src_bytes = None
+        aspect = "1:1"
+        if src_path:
+            with open(src_path, "rb") as f:
+                src_bytes = f.read()
+            with PILImage.open(io.BytesIO(src_bytes)) as im:
+                aspect = f"{im.width}:{im.height}"  # ramené au plus proche
+        use_muse = (ai_model_dropdown.value or "").startswith("muse")
+        gen = meta_ai.generate_image if use_muse else _gemini_generate_image
+        model = (meta_ai.IMAGE_MODEL if use_muse
+                 else "gemini-nano-banana-2.1")
+        dest = state["folder"] or os.path.join(_APP_DIR, "Generated")
+        os.makedirs(dest, exist_ok=True)
+        stamp = f"{datetime.datetime.now():%Y%m%d_%H%M%S}"
+        kind = "edited" if src_bytes else "generated"
+        pending = {"n": n}
+
+        def _one(i):
+            try:
+                text, img = gen(prompt, input_image_bytes=src_bytes,
+                                aspect_ratio=aspect,
+                                resolution=ai_image_quality_dropdown.value
+                                or "1K", model=model)
+            except Exception as exc:
+                text, img = str(exc), None
+            if img:
+                path = os.path.join(dest, f"{kind}_{stamp}_{i + 1}.png")
+                with open(path, "wb") as f:
+                    f.write(img)
+                _ai_gal_add(path)
+            else:
+                _log_to_terminal(f"[ERREUR] Image {i + 1} : {text}", RED)
+            pending["n"] -= 1
+            if pending["n"] == 0:
+                ai_progress_bar.visible = False
+                ai_status_text.value = ""
+                page.update(ai_progress_bar, ai_status_text)
+                if state["folder"]:
+                    _run_task(_ai_navigate_async, state["folder"])
+
+        ai_progress_bar.visible = True
+        ai_status_text.value = (f"🎨 {n} image(s) en cours"
+                                + (f" depuis {os.path.basename(src_path)}"
+                                   if src_path else "") + "…")
+        page.update(ai_progress_bar, ai_status_text)
+        for i in range(n):
+            threading.Thread(target=_one, args=(i,), daemon=True).start()
+
+    def _ai_open_retouch(event=None):
+        if not ai_gal_selected:
+            return
+        folders = {os.path.dirname(p) for p in ai_gal_selected}
+        folder = folders.pop()  # ponytail: même dossier (1 génération)
+        _launch_tool("Retouche photo.pyw", extra_env={
+            "FOLDER_PATH": folder,
+            "SELECTED_FILES": "|".join(os.path.basename(p)
+                                       for p in ai_gal_selected
+                                       if os.path.dirname(p) == folder)})
+
+    ai_retouch_button = ft.Button(
+        "Retouche photo", icon=ft.Icons.TUNE, disabled=True,
+        on_click=_ai_open_retouch, height=CONSTANTS.HUB_TOOLBAR_H)
+
     ia_surface = ft.Column([
         ft.Container(
             # Trois groupes séparés, dans l'ordre d'usage : ce qu'on règle
@@ -7345,6 +7450,8 @@ def main(page: ft.Page):
                 _ai_header_separator(),
                 ai_image_quality_dropdown,
                 ai_image_size_group,
+                ai_count_dropdown,
+                ai_retouch_button,
                 _ai_header_separator(),
                 # Voix/copie/bloc-notes/briefing masqués : l'onglet sert
                 # aux images, la conversation passe par Claude (terminal)
@@ -7358,7 +7465,7 @@ def main(page: ft.Page):
             height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
             alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
-        ft.Container(content=ai_chat_view, expand=True, padding=8),
+        ft.Container(content=ai_gallery, expand=True, padding=8),
         ai_progress_bar,
         ft.Container(content=ai_attach_row, padding=ft.Padding(8, 4, 8, 0)),
         ft.Container(
@@ -10846,7 +10953,8 @@ def main(page: ft.Page):
         # "dossier" reçoit FOLDER_PATH="" et retombe sur le dossier courant
         # du process — il tourne "pour de vrai" sur le mauvais dossier
         # (silencieusement, 0 fichier trouvé) au lieu d'échouer clairement.
-        if not is_local and not folder:
+        if not is_local and not folder and not (
+                extra_env or {}).get("FOLDER_PATH"):
             _log_to_terminal(
                 "[ERREUR] Veuillez sélectionner un dossier avant de lancer "
                 "cette application", RED)
