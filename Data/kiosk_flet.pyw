@@ -12,7 +12,7 @@ Remplace la version Qt6 originale (main.py) avec :
 Dépendances : flet, Pillow (PIL)
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.17"
 
 import flet as ft
 import os
@@ -117,6 +117,7 @@ def main(page: ft.Page) -> None:
 
     def _get_unit_price(format_name: str, total_count: int) -> float:
         """Prix unitaire selon le tarif actif ; PRINTS utilise des tranches dégressives."""
+        format_name = KIOSK_CONSTANT.PRICE_ALIASES.get(format_name, format_name)
         if active_tariff["value"] == "STUDIOS":
             return STUDIOS_TARIFF.get(format_name, 0.0)
         tiers = PRINTS_TARIFF.get(format_name)

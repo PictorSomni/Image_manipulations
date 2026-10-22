@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.63"
+__version__ = "2.10.64"
 
 import asyncio
 import base64
@@ -2595,6 +2595,7 @@ def main(page: ft.Page):
         kiosk_flet.pyw::_get_unit_price (CONSTANTS.STUDIOS / CONSTANTS.PRINTS),
         piloté par state["tariff_mode"]. `None` si le format (nom du
         sous-dossier) n'est pas tarifé."""
+        format_name = CONSTANTS.PRICE_ALIASES.get(format_name, format_name)
         if state["tariff_mode"] == "STUDIOS":
             return CONSTANTS.STUDIOS.get(format_name)
         tiers = CONSTANTS.PRINTS.get(format_name)

@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.48"
+__version__ = "2.10.49"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -4757,6 +4757,7 @@ class PhotoCropper:
         logique de tranches dégressives que kiosk_flet.pyw::_get_unit_price
         (CONSTANTS.STUDIOS / CONSTANTS.PRINTS). `None` si `format_name` ne
         correspond à aucun format tarifé (Ratio, Retouche, ID_X2…)."""
+        format_name = CONSTANTS.PRICE_ALIASES.get(format_name, format_name)
         if self.tariff_mode == "STUDIOS":
             price = CONSTANTS.STUDIOS.get(format_name)
             return None if price is None else price

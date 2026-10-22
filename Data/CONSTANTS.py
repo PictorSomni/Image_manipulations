@@ -51,7 +51,7 @@ import shutil
 # 1. VERSION
 # ==============================================================================
 
-__version__ = "2.10.45"
+__version__ = "2.10.46"
 
 
 # ==============================================================================
@@ -949,6 +949,11 @@ PRINTS = {
 # Frais d'amorce par commande (mode PRINTS uniquement) — partagé entre le
 # mode commande de Hub.pyw et kiosk_flet.pyw (anciennement dupliqué).
 ORDER_SETUP_FEE = 1.50
+
+# Formats carrés : même prix que le format tarifé de même largeur.
+PRICE_ALIASES = {"10x10": "10x15", "13x13": "13x18", "15x15": "15x20",
+                 "20x20": "20x30", "30x30": "30x40", "40x40": "40x60",
+                 "50x50": "50x70"}
 
 SIZES = STUDIOS   # Alias conservé pour compatibilité ascendante
 
