@@ -34,7 +34,7 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.10.44"
+__version__ = "2.10.45"
 
 import flet as ft
 import flet.canvas as cv
@@ -2637,7 +2637,9 @@ async def main(page: ft.Page) -> None:
 
         def _do_rembg():
             try:  # DLL CUDA/cuDNN des paquets pip nvidia-* (sinon repli CPU)
-                import onnxruntime; onnxruntime.preload_dlls()
+                import contextlib, io, onnxruntime
+                with contextlib.redirect_stdout(io.StringIO()):  # avertissement torch cu12/cu13 bénin
+                    onnxruntime.preload_dlls()
             except Exception:
                 pass
             import rembg as _rembg

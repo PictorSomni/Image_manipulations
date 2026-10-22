@@ -44,7 +44,7 @@ Tab                 : basculer le mode de défilement de la souris entre zoom et
 0                   : réinitialiser le zoom à 1×
 """
 
-__version__ = "2.10.50"
+__version__ = "2.10.51"
 
 # ==============================================================================
 # TABLE DES MATIÈRES — Recadrage manuel.pyw
@@ -3123,7 +3123,9 @@ class PhotoCropper:
 
         def _do_rembg():
             try:  # DLL CUDA/cuDNN des paquets pip nvidia-* (sinon repli CPU)
-                import onnxruntime; onnxruntime.preload_dlls()
+                import contextlib, io, onnxruntime
+                with contextlib.redirect_stdout(io.StringIO()):  # avertissement torch cu12/cu13 bénin
+                    onnxruntime.preload_dlls()
             except Exception:
                 pass
             from rembg import remove as _rembg_remove, new_session as _rembg_new_session

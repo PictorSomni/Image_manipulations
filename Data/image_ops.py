@@ -1332,8 +1332,8 @@ def run_rembg(image: Image.Image, *, precise: bool = False,
     """
     try:  # DLL CUDA/cuDNN des paquets pip nvidia-* (sinon repli CPU)
         import contextlib, io, onnxruntime
-{i}    with contextlib.redirect_stdout(io.StringIO()):  # avertissement torch cu12/cu13 bénin
-{i}        onnxruntime.preload_dlls()
+        with contextlib.redirect_stdout(io.StringIO()):  # avertissement torch cu12/cu13 bénin
+            onnxruntime.preload_dlls()
     except Exception:
         pass
     from rembg import remove as _rembg_remove, new_session as _rembg_new_session
