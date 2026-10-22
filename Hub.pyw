@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.59"
+__version__ = "2.10.60"
 
 import asyncio
 import base64
@@ -7346,6 +7346,16 @@ def main(page: ft.Page):
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0),
         width=70)
 
+    ai_aspect_dropdown = ft.Dropdown(
+        value="Auto", options=[ft.dropdown.Option(r) for r in (
+            "Auto", "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4",
+            "9:16", "16:9")],
+        tooltip="Proportions (Auto = celles de la photo jointe, sinon 1:1)",
+        text_size=CONSTANTS.TEXT_SM, dense=True, color=WHITE, bgcolor=DARK,
+        border=CONSTANTS.input_border(GREY),
+        content_padding=ft.Padding.symmetric(horizontal=6, vertical=0),
+        width=90)
+
     def _ai_gal_toggle(path, tile):
         if path in ai_gal_selected:
             ai_gal_selected.discard(path)
@@ -7378,6 +7388,8 @@ def main(page: ft.Page):
                 src_bytes = f.read()
             with PILImage.open(io.BytesIO(src_bytes)) as im:
                 aspect = f"{im.width}:{im.height}"  # ramené au plus proche
+        if ai_aspect_dropdown.value != "Auto":
+            aspect = ai_aspect_dropdown.value
         use_muse = (ai_model_dropdown.value or "").startswith("muse")
         gen = meta_ai.generate_image if use_muse else _gemini_generate_image
         model = (meta_ai.IMAGE_MODEL if use_muse
@@ -7411,13 +7423,33 @@ def main(page: ft.Page):
                 if state["folder"]:
                     _run_task(_ai_navigate_async, state["folder"])
 
+        def _start():
+            nonlocal prompt
+            # Affinage du texte (retour user : sa demande brute est
+            # rarement assez précise) — une fois pour les N images.
+            if not use_muse:
+                ai_status_text.value = "✍️ Affinage de la demande…"
+                page.update(ai_status_text)
+                try:
+                    prompt = _gemini_refine_image_prompt(
+                        intent_prompt=prompt, user_request=prompt,
+                        mode="edit_image" if src_bytes else "generate_image",
+                        source_filename=os.path.basename(src_path or ""),
+                        model=CONSTANTS.AI_IMAGE_REFINER_MODEL)
+                except Exception:
+                    pass
+                _log_to_terminal(f"✍️ Demande affinée : {prompt}", BLUE)
+            ai_status_text.value = (f"🎨 {n} image(s) en cours"
+                                    + (f" depuis {os.path.basename(src_path)}"
+                                       if src_path else "") + "…")
+            page.update(ai_status_text)
+            for i in range(n):
+                threading.Thread(target=_one, args=(i,),
+                                 daemon=True).start()
+
         ai_progress_bar.visible = True
-        ai_status_text.value = (f"🎨 {n} image(s) en cours"
-                                + (f" depuis {os.path.basename(src_path)}"
-                                   if src_path else "") + "…")
-        page.update(ai_progress_bar, ai_status_text)
-        for i in range(n):
-            threading.Thread(target=_one, args=(i,), daemon=True).start()
+        page.update(ai_progress_bar)
+        threading.Thread(target=_start, daemon=True).start()
 
     def _ai_open_retouch(event=None):
         if not ai_gal_selected:
@@ -7450,6 +7482,7 @@ def main(page: ft.Page):
                 _ai_header_separator(),
                 ai_image_quality_dropdown,
                 ai_image_size_group,
+                ai_aspect_dropdown,
                 ai_count_dropdown,
                 ai_retouch_button,
                 _ai_header_separator(),
