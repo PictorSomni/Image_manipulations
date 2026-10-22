@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.71"
+__version__ = "2.10.72"
 
 import asyncio
 import base64
@@ -12803,8 +12803,17 @@ def main(page: ft.Page):
         def _term_hover(e):
             shell_term["hover"] = e.data in (True, "true")
             (_suspend_kb if shell_term["hover"] else _resume_kb)()
-        box = ft.Container(term, expand=True, padding=4,
-                           on_hover=_term_hover)
+        # Molette en mode Claude : xterm.dart ne transmet pas la molette à
+        # tmux → on envoie nous-mêmes les séquences souris SGR (64/65 =
+        # molette haut/bas), tmux (mouse on) passe en défilement.
+        def _term_scroll(e):
+            if not shell_term.get("claude"):
+                return
+            code = 64 if e.scroll_delta.y < 0 else 65
+            write(f"\x1b[<{code};10;5M".encode() * 3)
+        box = ft.Container(
+            ft.GestureDetector(term, on_scroll=_term_scroll, expand=True),
+            expand=True, padding=4, on_hover=_term_hover)
         col = terminal_panel.content.controls
         # Messages des actions à droite, séparés du shell / de Claude :
         # ils n'écrasent plus ce qui est en cours dans le terminal.
