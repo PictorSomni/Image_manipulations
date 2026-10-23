@@ -5,7 +5,7 @@ chacune devient horizontale ou verticale selon son orientation dominante
 de 0 à 100 %. Enregistré dans le fichier, original copié dans ORIGINAUX/.
 """
 
-__version__ = "2.10.43"
+__version__ = "2.10.44"
 
 import asyncio
 import base64
@@ -112,7 +112,6 @@ class RedresserTab:
             content=ft.Column([
                 zone,
                 ft.Container(expand=True),
-                ft.Row([self.save_btn]),
                 self.status,
                 self.footer,
             ], spacing=CONSTANTS.SPACE_MD),
@@ -342,6 +341,14 @@ class RedresserTab:
         await self.show(self.path, out)
         self.status.value = f"[OK] {name} redressée"
         self.page.update()
+
+    def pending(self):
+        """Résultat pleine taille à mettre en attente (appliqué d'office
+        en quittant l'onglet / la photo, ou à « Valider »), ou None."""
+        s = self.strength.value / 100
+        if not self.lines or not s or self.full is None:
+            return None
+        return self._straighten(self.full, s)
 
     def _straighten(self, full, strength):
         w, h = full.size

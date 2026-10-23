@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.47"
+__version__ = "2.10.48"
 
 #############################################################
 #                          IMPORTS                          #
@@ -2584,6 +2584,12 @@ def main(page: ft.Page):
     def _stage_ia():
         if ia_page.stage_current:
             ia_page.stage_current()
+        if state.get("tab") == "redresser":
+            # Plus de bouton « Appliquer » (retour user) : appliqué d'office.
+            img = redresser_tab.pending()
+            if img is not None:
+                _on_staged(os.path.basename(redresser_tab.path), img)
+                redresser_tab.lines = []
         app = getattr(crop_page, "app", None)
         if app and state.get("tab") == "recadrage":
             img = app.embedded_crop()
