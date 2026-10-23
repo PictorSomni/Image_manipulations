@@ -15,7 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 
-__version__ = "2.10.47"
+__version__ = "2.10.48"
 
 import colorsys
 import functools
@@ -2026,12 +2026,19 @@ def upright_params(lines, w, h):
     return p
 
 
-def upright_homography(params, w, h, strength=1.0):
+def upright_homography(params, w, h, strength=1.0, whole=False):
     """Homographie finale (source w×h → sortie w×h) : correction à
     `strength` (0..1) puis recadrage centré au même ratio, sans bords
-    vides, remis à la taille d'origine."""
+    vides, remis à la taille d'origine. `whole` : toute l'image
+    redressée est gardée (bords vides), à recadrer ensuite."""
     m = _upright_matrix(np.asarray(params) * strength, w, h)
     quad = _project(m, [(0, 0), (w, 0), (w, h), (0, h)])
+    if whole:
+        (x0, y0), (x1, y1) = np.min(quad, 0), np.max(quad, 0)
+        k = min(w / (x1 - x0), h / (y1 - y0))
+        fit = np.array([[k, 0, (w - (x1 - x0) * k) / 2 - x0 * k],
+                        [0, k, (h - (y1 - y0) * k) / 2 - y0 * k], [0, 0, 1]])
+        return fit @ m
     cx, cy = _project(m, [(w / 2, h / 2)])[0]
 
     def inside(k):
@@ -2056,16 +2063,17 @@ def upright_homography(params, w, h, strength=1.0):
     return crop @ m
 
 
-def apply_upright(img, lines, strength=1.0, params=None):
+def apply_upright(img, lines, strength=1.0, params=None, whole=False):
     """Image PIL redressée (même taille). `params` évite de refaire
     l'optimisation quand seule la force change."""
     w, h = img.size
     if params is None:
         params = upright_params(lines, w, h)
-    m = upright_homography(params, w, h, strength)
+    m = upright_homography(params, w, h, strength, whole)
     arr = cv2.warpPerspective(np.asarray(img), m, (w, h),
                               flags=cv2.INTER_LANCZOS4,
-                              borderMode=cv2.BORDER_REPLICATE)
+                              borderMode=(cv2.BORDER_CONSTANT if whole
+                                          else cv2.BORDER_REPLICATE))
     return Image.fromarray(arr)
 
 

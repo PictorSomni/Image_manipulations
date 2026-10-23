@@ -5,7 +5,7 @@ chacune devient horizontale ou verticale selon son orientation dominante
 de 0 à 100 %. Enregistré dans le fichier, original copié dans ORIGINAUX/.
 """
 
-__version__ = "2.10.42"
+__version__ = "2.10.43"
 
 import asyncio
 import base64
@@ -78,6 +78,13 @@ class RedresserTab:
         self.strength_val = ft.Text("100 %", size=12, color=WHITE,
                                     weight=ft.FontWeight.W_500)
         self.count = ft.Text("", size=12, color=LIGHT_GREY)
+        # Image entière : rien n'est perdu, on recadre ensuite (onglet
+        # Recadrage) — utile pour les photos de photos très déformées.
+        self.whole = ft.Switch(label="Image entière", value=False,
+                               active_color=VIOLET,
+                               label_text_style=ft.TextStyle(
+                                   size=12, color=LIGHT_GREY),
+                               on_change=lambda e: self._render())
         self.save_btn = self._btn("Appliquer", ft.Icons.CHECK,
                                   VIOLET, self._save)
         self.status = ft.Text("", size=12, color=LIGHT_GREY)
@@ -92,6 +99,7 @@ class RedresserTab:
                         self.strength_val],
                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Row([self.strength]),
+                self.whole,
                 self._btn("Annuler la dernière ligne", ft.Icons.UNDO, GREY,
                           self._undo, color=WHITE),
                 self._btn("Effacer les lignes", ft.Icons.CLEAR_ALL, GREY,
@@ -206,9 +214,11 @@ class RedresserTab:
             return
         w, h = self.proxy.size
         s = self.strength.value / 100
-        self.matrix = image_ops.upright_homography(self.params, w, h, s)
+        self.matrix = image_ops.upright_homography(self.params, w, h, s,
+                                                   self.whole.value)
         out = image_ops.apply_upright(self.proxy, self.lines, s,
-                                      params=self.params)
+                                      params=self.params,
+                                      whole=self.whole.value)
         self.image.src = self._encode(out)
         self._draw_lines()
         self._refresh_controls()
@@ -338,4 +348,5 @@ class RedresserTab:
         # Lignes en fractions : même géométrie quelle que soit la taille.
         params = image_ops.upright_params(self.lines, w, h)
         return image_ops.apply_upright(full, self.lines, strength,
-                                       params=params)
+                                       params=params,
+                                       whole=self.whole.value)
