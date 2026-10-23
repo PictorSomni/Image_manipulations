@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.77"
+__version__ = "2.10.78"
 
 import asyncio
 import base64
@@ -6558,6 +6558,9 @@ def main(page: ft.Page):
     # lieu d'être répétée sur chacune. Le fichier reste plat (synchro
     # Notion).
     _LISTE_GROUP_COLUMN = "catégorie"
+    # 2e colonne libre (retour user : devis = destinataire + détails),
+    # rendue en Markdown (listes à puces, - [ ] sous-tâches).
+    _LISTE_DETAILS_COLUMN = "détails"
 
     def _liste_is_done(entry):
         return str(entry.get(_LISTE_DONE_COLUMN, "")).strip().lower() in (
@@ -6816,6 +6819,9 @@ def main(page: ft.Page):
         is_new = index is None
         columns = _liste_columns()
         current = liste_entries[index] if not is_new else {}
+        if (_liste_is_todo_shaped()
+                and _LISTE_DETAILS_COLUMN not in columns):
+            columns = [*columns, _LISTE_DETAILS_COLUMN]
         text_columns = [c for c in columns
                         if c not in (_LISTE_DONE_COLUMN, _LISTE_GROUP_COLUMN)]
         fields = []
@@ -6830,6 +6836,12 @@ def main(page: ft.Page):
                 # la ligne ; gardée pour conserver sa valeur à l'enregistrement.
                 fields.append(ft.Checkbox(
                     label=col, value=_liste_is_done(current), visible=False))
+            elif col == _LISTE_DETAILS_COLUMN:
+                fields.append(ft.TextField(
+                    label="détails  (- puce,  - [ ] sous-tâche,  **gras**)",
+                    value=current.get(col, ""), width=520, multiline=True,
+                    min_lines=5, max_lines=14, bgcolor=DARK,
+                    border=CONSTANTS.input_border(GREY), color=WHITE))
             else:
                 fields.append(ft.TextField(
                     label=col, value=current.get(col, ""),
@@ -6890,7 +6902,8 @@ def main(page: ft.Page):
 
     def _liste_is_todo_shaped():
         return set(_liste_columns()) <= {*_LISTE_DEFAULT_COLUMNS,
-                                         _LISTE_GROUP_COLUMN}
+                                         _LISTE_GROUP_COLUMN,
+                                         _LISTE_DETAILS_COLUMN}
 
     # Barre d'ajout unique pour toutes les listes (retour user : la todo
     # avait une barre, la liste de prix un bouton « + ») : un champ par
@@ -6902,7 +6915,8 @@ def main(page: ft.Page):
 
     def _liste_text_columns():
         return [c for c in _liste_columns()
-                if c not in (_LISTE_DONE_COLUMN, _LISTE_GROUP_COLUMN)]
+                if c not in (_LISTE_DONE_COLUMN, _LISTE_GROUP_COLUMN,
+                             _LISTE_DETAILS_COLUMN)]
 
     def _liste_quick_add(event=None):
         fields = liste_quick["fields"]
@@ -7023,6 +7037,14 @@ def main(page: ft.Page):
                    vertical_alignment=ft.CrossAxisAlignment.CENTER)
                 continue
             value = entry.get(col, "")
+            if col == _LISTE_DETAILS_COLUMN:
+                cells.append(ft.Container(
+                    content=ft.Markdown(
+                        value, selectable=True, soft_line_break=True,
+                        extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                        opacity=0.5 if done else 1) if value else None,
+                    expand=2, padding=ft.Padding(10, 8, 6, 8)))
+                continue
             if cells and centered:
                 cells.append(ft.Container(
                     width=1, height=24, bgcolor=LIGHT_GREY, opacity=0.4))
