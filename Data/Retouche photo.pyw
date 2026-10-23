@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.48"
+__version__ = "2.10.49"
 
 #############################################################
 #                          IMPORTS                          #
@@ -1778,6 +1778,10 @@ def main(page: ft.Page):
 
     def _confirm_batch(e):
         dlg.open = False
+        # Voile de chargement visible quel que soit l'onglet (retour
+        # user) : retour sur l'aperçu principal, qui le porte.
+        if state.get("tab") in embedded_tabs:
+            _show_pane("settings")
         page.update()
         _store_photo()
         for n in file_names:
@@ -2588,8 +2592,12 @@ def main(page: ft.Page):
             # Plus de bouton « Appliquer » (retour user) : appliqué d'office.
             img = redresser_tab.pending()
             if img is not None:
-                _on_staged(os.path.basename(redresser_tab.path), img)
-                redresser_tab.lines = []
+                name = os.path.basename(redresser_tab.path)
+                _on_staged(name, img)
+                # Identité du résultat : au retour, Redresser reprend ses
+                # lignes au lieu de repartir de ce résultat.
+                redresser_tab.cache[redresser_tab.path]["out"] = (
+                    state["staged"][name])
         app = getattr(crop_page, "app", None)
         if app and state.get("tab") == "recadrage":
             img = app.embedded_crop()

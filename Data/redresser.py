@@ -5,7 +5,7 @@ chacune devient horizontale ou verticale selon son orientation dominante
 de 0 à 100 %. Enregistré dans le fichier, original copié dans ORIGINAUX/.
 """
 
-__version__ = "2.10.44"
+__version__ = "2.10.45"
 
 import asyncio
 import base64
@@ -52,6 +52,8 @@ class RedresserTab:
         self.page = page
         self.on_saved = on_saved
         self.path = None
+        self.cache = {}  # chemin → base, lignes, force, option, résultat
+        self.dirty = False
         self.proxy = None
         self.lines = []          # fractions ((x0, y0), (x1, y1))
         self.params = np.zeros(4)
@@ -74,7 +76,7 @@ class RedresserTab:
         self.strength = ft.Slider(
             min=0, max=100, value=100, expand=True,
             active_color=VIOLET, on_change=self._on_strength,
-            on_change_end=lambda e: self._render())
+            on_change_end=lambda e: self._changed())
         self.strength_val = ft.Text("100 %", size=12, color=WHITE,
                                     weight=ft.FontWeight.W_500)
         self.count = ft.Text("", size=12, color=LIGHT_GREY)
@@ -84,7 +86,7 @@ class RedresserTab:
                                active_color=VIOLET,
                                label_text_style=ft.TextStyle(
                                    size=12, color=LIGHT_GREY),
-                               on_change=lambda e: self._render())
+                               on_change=lambda e: self._changed())
         self.save_btn = self._btn("Appliquer", ft.Icons.CHECK,
                                   VIOLET, self._save)
         self.status = ft.Text("", size=12, color=LIGHT_GREY)
@@ -190,12 +192,24 @@ class RedresserTab:
 
     async def show(self, path, img=None):
         """`img` : version en attente (IA / redressement précédent) à
-        reprendre au lieu du fichier."""
+        reprendre au lieu du fichier. Si `img` est notre propre résultat
+        (self.cache), on reprend la base + lignes/force/option (retour
+        user : même visuel en revenant sur l'onglet)."""
         self.path = path
-        self.lines = []
+        self.dirty = False
+        c = self.cache.get(path)
+        if c is not None and img is not None and img is c.get("out"):
+            self.lines = list(c["lines"])
+            self.strength.value = c["strength"]
+            self.whole.value = c["whole"]
+            img = c["base"]
+        else:
+            self.cache.pop(path, None)
+            self.lines = []
+            self.strength.value = 100
+            self.whole.value = False
         self.params = np.zeros(4)
-        self.strength.value = 100
-        self.strength_val.value = "100 %"
+        self.strength_val.value = f"{int(self.strength.value)} %"
         self.status.value = ""
         async with ui_helpers.slow_veil(self.page, self.veil):
             if img is None:
@@ -205,7 +219,10 @@ class RedresserTab:
             img.thumbnail((_PROXY, _PROXY), Image.LANCZOS)
             self.proxy = img
             self._fit()
-            self._render()
+            if self.lines:
+                self._solve(dirty=False)
+            else:
+                self._render()
 
     # ── Rendu ────────────────────────────────────────────────────────
     def _render(self):
@@ -303,9 +320,14 @@ class RedresserTab:
             self.lines.append(line)
         self._solve()
 
-    def _solve(self):
+    def _solve(self, dirty=True):
         w, h = self.proxy.size
         self.params = image_ops.upright_params(self.lines, w, h)
+        self.dirty = self.dirty or dirty
+        self._render()
+
+    def _changed(self):
+        self.dirty = True
         self._render()
 
     def _undo(self, e):
@@ -346,9 +368,15 @@ class RedresserTab:
         """Résultat pleine taille à mettre en attente (appliqué d'office
         en quittant l'onglet / la photo, ou à « Valider »), ou None."""
         s = self.strength.value / 100
-        if not self.lines or not s or self.full is None:
+        if not self.dirty or self.full is None:
             return None
-        return self._straighten(self.full, s)
+        self.dirty = False
+        out = (self._straighten(self.full, s) if self.lines and s
+               else self.full.copy())
+        self.cache[self.path] = {"base": self.full, "lines": list(self.lines),
+                                 "strength": self.strength.value,
+                                 "whole": self.whole.value, "out": out}
+        return out
 
     def _straighten(self, full, strength):
         w, h = full.size
