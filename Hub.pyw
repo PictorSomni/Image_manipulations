@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.78"
+__version__ = "2.10.79"
 
 import asyncio
 import base64
@@ -11813,6 +11813,8 @@ def main(page: ft.Page):
              lambda e: _launch_tool("Nettoyer metadonnées.py")),
             ("Nettoyer noms Topaz", ft.Icons.DRIVE_FILE_RENAME_OUTLINE,
              YELLOW, lambda e: _launch_tool("Nettoyer noms Topaz.py")),
+            ("Envoyer à Claude", ft.Icons.SEND_OUTLINED, YELLOW,
+             lambda e: _send_to_claude()),
         ]),
         ("Montage", [
             ("Montage collage", ft.Icons.GRID_VIEW_OUTLINED, VIOLET,
@@ -13269,6 +13271,55 @@ while time.time() < deadline:
     time.sleep(0.5)
 print("[délai dépassé]")
 """
+
+    def _send_to_claude(event=None):
+        """Copie les fichiers sélectionnés dans ~/hub_inbox du Pi (scp, ou
+        copie locale sur le Pi) et tape leurs chemins dans la conversation
+        Claude (sans Entrée : on ajoute son message). Retour user."""
+        import shutil
+        import socket
+        _close_actions()
+        files = [p for p in selected if os.path.isfile(p)]
+        if not files:
+            _log_to_terminal("[ERREUR] Sélectionne d'abord un ou des "
+                             "fichiers", RED)
+            return
+        inbox = "/home/pictorsomni/hub_inbox"
+        local = socket.gethostname().startswith("pictorsomni")
+
+        def _run():
+            _log_to_terminal(f"▶ Envoi de {len(files)} fichier(s) à "
+                             "Claude…", BLUE, clear=True)
+            try:
+                if local:
+                    os.makedirs(inbox, exist_ok=True)
+                    for f in files:
+                        shutil.copy2(f, inbox)
+                else:
+                    flags = (subprocess.CREATE_NO_WINDOW
+                             if os.name == "nt" else 0)
+                    subprocess.run(["ssh", "pi", "mkdir", "-p", inbox],
+                                   check=True, timeout=30,
+                                   creationflags=flags)
+                    subprocess.run(["scp", "-q", *files, f"pi:{inbox}/"],
+                                   check=True, timeout=600,
+                                   creationflags=flags)
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] Envoi à Claude : {exc}", RED)
+                return
+            paths = " ".join(f'"{inbox}/{os.path.basename(f)}"'
+                             for f in files)
+            if shell_term.get("claude") and shell_term.get("write"):
+                shell_term["write"]((paths + " ").encode())
+                _log_to_terminal("[OK] Chemins tapés dans la conversation "
+                                 "— ajoute ton message", GREEN)
+            else:
+                async def _clip():
+                    await ft.Clipboard().set(paths)
+                _run_task(_clip)
+                _log_to_terminal(f"[OK] Sur le Pi : {paths} (copié dans "
+                                 "le presse-papiers)", GREEN)
+        threading.Thread(target=_run, daemon=True).start()
 
     def _toggle_claude_mode(event=None):
         if shell_term.get("write") is not None:
