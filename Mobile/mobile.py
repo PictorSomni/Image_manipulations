@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.93"
+__version__ = "2.10.94"
 
 import base64
 import datetime
@@ -581,8 +581,9 @@ def main(page: ft.Page):
             except Exception as exc:
                 status.value = f"Actus : {exc}"
             render()
+        # Pas de render() ici : appelé depuis render() (_news_view), un
+        # rendu imbriqué mélangeait les onglets (actu affichée dans Tâches).
         threading.Thread(target=_run, daemon=True).start()
-        render()
 
     def _news_card(it):
         when = it.get("date")
@@ -665,9 +666,17 @@ def main(page: ft.Page):
         return [chips, *[_news_card(it) for it in shown]]
 
     # ── Rendu / chargement ───────────────────────────────────────────
+    render_lock = threading.RLock()
+
     def render():
+        # Rendus concurrents (fils de chargement + clics) : un à la fois,
+        # sinon la liste se remplit avec le contenu de deux onglets.
+        with render_lock:
+            _render()
+
+    def _render():
         search_bar.visible = state["tab"] == 0
-        body.controls.clear()
+        body.controls = []
         if state["tab"] == 0:
             q = _fold(search.value).strip()
             if q:
