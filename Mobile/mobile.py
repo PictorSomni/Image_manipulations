@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.101"
+__version__ = "2.10.102"
 
 import base64
 import datetime
@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
 import flet as ft  # noqa: E402
 import CONSTANTS  # noqa: E402
 import hub_sync  # noqa: E402
+import meta_ai  # noqa: E402
 from ai_tools import (  # noqa: E402
     _gemini_generate_image, _gemini_refine_image_prompt)
 from PIL import Image  # noqa: E402
@@ -229,6 +230,7 @@ def main(page: ft.Page):
     page.padding = 0
     state = {"open": {"À faire"}, "tasks": [], "tab": 0, "images": [],
              "shown": 60, "source": None, "format": "1:1", "count": 1,
+             "refine": True, "model": "gemini",
              "busy": False, "news": None, "news_cat": None,
              "picked": set()}
 
@@ -434,6 +436,24 @@ def main(page: ft.Page):
                           min_lines=3, max_lines=8, border_radius=10)
     ia_status = ft.Text("", size=13, color=GREY)
     picker = ft.FilePicker()
+    prompts_file = CONSTANTS.state_file(".ai_prompts.json")  # = Hub
+
+    def _prompts():
+        try:
+            with open(prompts_file, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+
+    def _prompts_save(paths, asked, refined):
+        data = _prompts()
+        for p in paths:
+            data[os.path.normcase(p)] = {"asked": asked, "refined": refined}
+        try:
+            with open(prompts_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=1)
+        except OSError:
+            pass
     page.services.append(picker)
 
     async def _pick(e):
@@ -458,36 +478,42 @@ def main(page: ft.Page):
         n, aspect = state["count"], state["format"]
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         kind = "edited" if src_bytes else "generated"
+        muse = state["model"] == "muse"
+        if muse:
+            kind = "muse_" + kind
+        gen = meta_ai.generate_image if muse else _gemini_generate_image
         os.makedirs(IA_DIR, exist_ok=True)
 
         def _run():
-            ia_status.value = "✍️ Affinage de la demande…"
-            page.update()
-            try:
-                refined = _gemini_refine_image_prompt(
-                    intent_prompt=text, user_request=text,
-                    mode="edit_image" if src_bytes else "generate_image",
-                    source_filename=os.path.basename(src or ""),
-                    model=CONSTANTS.AI_IMAGE_REFINER_MODEL)
-            except Exception:
-                refined = text
+            refined = text
+            if state["refine"] and not muse:
+                ia_status.value = "✍️ Affinage de la demande…"
+                page.update()
+                try:
+                    refined = _gemini_refine_image_prompt(
+                        intent_prompt=text, user_request=text,
+                        mode="edit_image" if src_bytes else "generate_image",
+                        source_filename=os.path.basename(src or ""),
+                        model=CONSTANTS.AI_IMAGE_REFINER_MODEL) or text
+                except Exception:
+                    pass
             ia_status.value = f"🎨 {n} image(s) en cours…"
             page.update()
-            left = {"n": n, "err": []}
+            left = {"n": n, "err": [], "out": []}
             done = threading.Event()
 
             def _one(i):
                 try:
-                    msg, img = _gemini_generate_image(
+                    msg, img = gen(
                         refined, input_image_bytes=src_bytes,
                         aspect_ratio=aspect, resolution="1K")
                 except Exception as exc:
                     msg, img = str(exc), None
                 if img:
-                    with open(os.path.join(
-                            IA_DIR, f"{kind}_{stamp}_{i + 1}.png"),
-                            "wb") as f:
+                    out = os.path.join(IA_DIR, f"{kind}_{stamp}_{i + 1}.png")
+                    with open(out, "wb") as f:
                         f.write(img)
+                    left["out"].append(out)
                 else:
                     left["err"].append(msg)
                 left["n"] -= 1
@@ -496,6 +522,7 @@ def main(page: ft.Page):
             for i in range(n):
                 threading.Thread(target=_one, args=(i,), daemon=True).start()
             done.wait()
+            _prompts_save(left["out"], text, refined)
             state["busy"] = False
             ia_status.value = ("Erreur : " + left["err"][0][:200]
                                if left["err"] else "")
@@ -526,8 +553,13 @@ def main(page: ft.Page):
                 ft.IconButton(ft.Icons.CLOSE, on_click=lambda e: (
                     state.update(source=None), render()))]
         return [prompt, src_row,
+                _seg([("gemini", "Gemini"), ("muse", "Muse")], "model"),
                 _seg(FORMATS, "format"),
                 _seg([(n, f"×{n}") for n in (1, 2, 3, 4)], "count", int),
+                ft.Switch(label="Affiner", value=state["refine"],
+                          disabled=state["model"] == "muse",
+                          on_change=lambda e: state.update(
+                              refine=e.control.value)),
                 ft.FilledButton("Générer", icon=ft.Icons.AUTO_AWESOME,
                                 on_click=_generate, disabled=state["busy"],
                                 height=48),
@@ -562,14 +594,32 @@ def main(page: ft.Page):
             viewer.open = False
             render()
             page.run_task(body.scroll_to, 0, None, None, 300)
+        info = _prompts().get(os.path.normcase(path))
+
+        def _again(e):
+            prompt.value = info["asked"]
+            viewer.open = False
+            render()
+            page.run_task(body.scroll_to, 0, None, None, 300)
+        texts = []
+        if info:
+            texts.append(ft.Text("Demande : " + info["asked"], size=13,
+                                 selectable=True))
+            if info["refined"] != info["asked"]:
+                texts.append(ft.Text("Affiné : " + info["refined"], size=12,
+                                     color=GREY, selectable=True))
         viewer.content = ft.Container(ft.Column([
             ft.InteractiveViewer(
                 ft.Image(src=thumb(path, 1600), fit=ft.BoxFit.CONTAIN),
                 min_scale=1, max_scale=6, expand=True),
             ft.Text(os.path.relpath(path, HOME), size=12, color=GREY),
+            *texts,
             ft.Row([
                 ft.FilledButton("Modifier avec l'IA",
                                 icon=ft.Icons.AUTO_AWESOME, on_click=_use),
+                *([ft.OutlinedButton("Reprendre la demande",
+                                     icon=ft.Icons.HISTORY, on_click=_again)]
+                  if info else []),
                 ft.OutlinedButton("Supprimer", icon=ft.Icons.DELETE_OUTLINE,
                                   style=ft.ButtonStyle(color=RED),
                                   on_click=lambda e: _trash([path]))],
