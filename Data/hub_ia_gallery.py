@@ -410,17 +410,17 @@ def build(ui):
         claude_status.value = "✓ Copié"
         page.update()
 
-    def _claude_send(event, proofread=False, instruction=None):
+    def _claude_send(event):
         text = (claude_input.value or "").strip()
         if text:
             claude_input.value = ""
-            _claude_ask(text, proofread=proofread, instruction=instruction)
-
-    def _claude_proofread(event):
-        _claude_send(event, proofread=True)
+            mode = claude_presets[claude_mode["i"]][2]
+            _claude_ask(text, proofread=mode == "proof",
+                        instruction=None if mode in ("free", "proof")
+                        else mode)
 
     claude_input = ft.TextField(
-        hint_text="Écris à Claude, ou colle un texte à relire…",
+        hint_text="Écris à Claude…",
         border=CONSTANTS.input_border(GREEN), multiline=True,
         max_lines=6, shift_enter=True, on_submit=_claude_send,
         text_style=ft.TextStyle(size=CONSTANTS.TERMINAL_FONT_SIZE + 2),
@@ -429,32 +429,59 @@ def build(ui):
     claude_copy = ft.IconButton(ft.Icons.COPY, icon_color=BLUE,
                                 disabled=True, tooltip="Copier la réponse",
                                 on_click=_claude_copy)
+    # Mode choisi d'abord (bouton allumé), puis texte + Entrée.
     claude_presets = [
-        ("Relire", ft.Icons.SPELLCHECK, None),
+        ("Question libre", ft.Icons.CHAT_OUTLINED, "free",
+         "Écris à Claude…"),
+        ("Relire", ft.Icons.SPELLCHECK, "proof", "Texte à relire…"),
         ("Reformuler", ft.Icons.AUTO_FIX_HIGH,
          "Reformule ce texte en français clair et professionnel, même "
-         "sens, même tutoiement ou vouvoiement."),
+         "sens, même tutoiement ou vouvoiement.", "Texte à reformuler…"),
         ("Résumer", ft.Icons.SHORT_TEXT,
-         "Résume ce texte en quelques points clés, en français."),
+         "Résume ce texte en quelques points clés, en français.",
+         "Texte à résumer…"),
         ("Répondre au mail", ft.Icons.REPLY,
          "Rédige une réponse courte et cordiale à ce mail, au nom du "
-         "Studio Cleuze, en français."),
+         "Studio Cleuze, en français.", "Mail auquel répondre…"),
         ("Post réseaux", ft.Icons.CAMPAIGN,
          "Écris un post Facebook/Instagram court et chaleureux pour le "
-         "Studio Cleuze à partir de ce texte, avec 3 à 5 hashtags."),
+         "Studio Cleuze à partir de ce texte, avec 3 à 5 hashtags.",
+         "Sujet ou texte du post…"),
         ("En anglais", ft.Icons.TRANSLATE,
-         "Traduis ce texte en anglais."),
+         "Traduis ce texte en anglais.", "Texte à traduire en anglais…"),
         ("En néerlandais", ft.Icons.TRANSLATE,
-         "Traduis ce texte en néerlandais (Belgique)."),
+         "Traduis ce texte en néerlandais (Belgique).",
+         "Texte à traduire en néerlandais…"),
     ]
-    claude_side = ft.Column([
+    claude_mode = {"i": 0}
+
+    def _mode_style(selected):
+        return ft.ButtonStyle(
+            bgcolor=(ft.Colors.with_opacity(0.3, GREEN) if selected
+                     else GREY),
+            color=WHITE, alignment=ft.Alignment(-1, 0),
+            shape=ft.RoundedRectangleBorder(
+                radius=CONSTANTS.BUTTON_RADIUS))
+
+    async def _claude_pick(index):
+        claude_mode["i"] = index
+        for k, b in enumerate(claude_mode_buttons):
+            b.style = _mode_style(k == index)
+        claude_input.hint_text = claude_presets[index][3]
+        page.update()
+        try:
+            await claude_input.focus()
+        except Exception:
+            pass
+
+    claude_mode_buttons = [
         _side_btn(label, icon, GREEN,
-                  (_claude_proofread if instr is None else
-                   lambda e, instr=instr: _claude_send(
-                       e, instruction=instr)),
-                  disabled=False)
-        for label, icon, instr in claude_presets],
-        spacing=6, scroll=ft.ScrollMode.AUTO)
+                  lambda e, k=k: _claude_pick(k), disabled=False)
+        for k, (label, icon, _m, _h) in enumerate(claude_presets)]
+    for _k, _b in enumerate(claude_mode_buttons):
+        _b.style = _mode_style(_k == 0)
+    claude_side = ft.Column(claude_mode_buttons, spacing=6,
+                            scroll=ft.ScrollMode.AUTO)
     image_side = ft.Column([ai_retouch_button, ai_reuse_button,
                             ai_copy_folder_button, ai_prompt_button,
                             ai_delete_button], spacing=6)
