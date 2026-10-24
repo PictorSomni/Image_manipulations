@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.3"
+__version__ = "2.10.4"
 
 import base64
 import datetime
@@ -17,6 +17,7 @@ import io
 import os
 import sys
 import threading
+import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "Data"))
@@ -84,6 +85,12 @@ def thumb(path, size=360):
     return _thumbs[key]
 
 
+def _fold(text):
+    """Minuscules sans accents, pour la recherche."""
+    text = unicodedata.normalize("NFD", str(text or "").lower())
+    return "".join(c for c in text if not unicodedata.combining(c))
+
+
 def _query(ds):
     return notion_rest._query(
         {"data": {"data_source_url": f"collection://{ds}"}})["results"]
@@ -141,6 +148,11 @@ def main(page: ft.Page):
              "busy": False}
 
     status = ft.Text("", size=12, color=GREY)
+    search = ft.TextField(
+        hint_text="Rechercher une carte", prefix_icon=ft.Icons.SEARCH,
+        border_radius=24, dense=True, on_change=lambda e: render(),
+        content_padding=ft.Padding(12, 8, 12, 8))
+    search_bar = ft.Container(search, padding=ft.Padding(12, 8, 12, 0))
     body = ft.ListView(expand=True, spacing=8,
                        padding=ft.Padding(12, 8, 12, 24))
 
@@ -155,7 +167,7 @@ def main(page: ft.Page):
                                      "command": "update_properties",
                                      "properties": {"Etat": etat}})
                 row["Etat"] = etat
-                state["open"].add(etat)
+                state["open"] = {etat}
                 status.value = f"Déplacé vers « {etat} »"
             except Exception as exc:
                 status.value = f"Erreur Notion : {exc}"
@@ -194,9 +206,13 @@ def main(page: ft.Page):
         sheet.open = True
         page.update()
 
-    def _task_card(row):
+    def _task_card(row, etat=False):
         deadline = row.get("date:Deadline:start") or ""
         sub = []
+        if etat:
+            name = row.get("Etat") or "À faire"
+            sub.append(ft.Text(name, size=13,
+                               color=dict(ETATS).get(name, GREY)))
         if deadline:
             sub.append(ft.Text(f"⏰ {day_label(deadline)}", size=13,
                                color="#E5C07B"))
@@ -211,7 +227,10 @@ def main(page: ft.Page):
     def _etat_sections():
         """Une liste repliable par état, dans l'ordre manuel de Hub."""
         def _toggle(e):
-            state["open"] ^= {e.control.data}
+            # Un seul tiroir ouvert à la fois (retour user).
+            etat = e.control.data
+            state["open"] = set() if etat in state["open"] else {etat}
+            render()
         out = []
         for etat, color in ETATS:
             rows = [r for r in state["tasks"]
@@ -393,9 +412,18 @@ def main(page: ft.Page):
 
     # ── Rendu / chargement ───────────────────────────────────────────
     def render():
+        search_bar.visible = state["tab"] == 0
         body.controls.clear()
         if state["tab"] == 0:
-            body.controls += _etat_sections()
+            q = _fold(search.value).strip()
+            if q:
+                rows = [r for r in state["tasks"] if q in _fold(" ".join(
+                    str(r.get(k) or "") for k in (
+                        "Demande", "Téléphone", "E-mail", "Etat")))]
+                body.controls += [_task_card(r, etat=True) for r in rows] \
+                    or [ft.Text("Aucune carte", color=GREY)]
+            else:
+                body.controls += _etat_sections()
         elif state["tab"] == 2:
             body.controls += _ia_view()
         elif state["tab"] == 3:
@@ -450,7 +478,8 @@ def main(page: ft.Page):
             ft.NavigationBarDestination(icon=ft.Icons.PHOTO_LIBRARY_OUTLINED,
                                         label="Galerie")],
         on_change=_tab, bgcolor=CARD)
-    page.add(ft.SafeArea(body, expand=True))
+    page.add(ft.SafeArea(ft.Column([search_bar, body], spacing=0,
+                                   expand=True), expand=True))
     refresh()
 
 
