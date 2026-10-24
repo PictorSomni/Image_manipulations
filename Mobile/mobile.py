@@ -412,6 +412,9 @@ def main(page: ft.Page):
         return out
 
     # ── Briefing ─────────────────────────────────────────────────────
+    async def _open_link(e):
+        await ft.UrlLauncher().launch_url(e.data)
+
     def _briefing_view():
         try:
             with open(BRIEFING, encoding="utf-8") as f:
@@ -424,7 +427,7 @@ def main(page: ft.Page):
                 ft.Container(ft.Markdown(
                     text, selectable=True,
                     extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
-                    on_tap_link=lambda e: page.launch_url(e.data)),
+                    on_tap_link=_open_link),
                     bgcolor=CARD, border_radius=10, padding=14)]
 
     # ── Rendu / chargement ───────────────────────────────────────────
