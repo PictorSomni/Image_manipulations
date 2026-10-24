@@ -464,7 +464,7 @@ def build(ui):
             shape=ft.RoundedRectangleBorder(
                 radius=CONSTANTS.BUTTON_RADIUS))
 
-    async def _claude_pick(index):
+    def _claude_pick(index):
         claude_mode["i"] = index
         for k, b in enumerate(claude_mode_buttons):
             b.style = _mode_style(k == index)
@@ -472,10 +472,7 @@ def build(ui):
         claude_input.disabled = claude_send_button.disabled = False
         claude_send_button.icon_color = GREEN
         page.update()
-        try:
-            await claude_input.focus()
-        except Exception:
-            pass
+        page.run_task(claude_input.focus)
 
     claude_send_button = ft.IconButton(
         ft.Icons.SEND, icon_color=GREY, disabled=True,
@@ -511,7 +508,7 @@ def build(ui):
     ]
     image_mode = {"i": None}
 
-    async def _image_pick(index):
+    def _image_pick(index):
         image_mode["i"] = index
         for k, b in enumerate(image_mode_buttons):
             b.style = _mode_style(k == index, BLUE)
@@ -519,10 +516,7 @@ def build(ui):
         ai_input_field.disabled = ai_send_button.disabled = False
         ai_send_button.icon_color = BLUE
         page.update()
-        try:
-            await ai_input_field.focus()
-        except Exception:
-            pass
+        page.run_task(ai_input_field.focus)
 
     def _image_submit(event=None):
         if image_mode["i"] is None:
