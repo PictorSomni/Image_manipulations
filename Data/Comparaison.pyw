@@ -20,7 +20,6 @@ Variables d'environnement :
 Dépendances : flet >= 0.84
 """
 
-__version__ = "2.10.126"
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  IMPORTS
@@ -279,7 +278,7 @@ def main(page: ft.Page):
         ft.Container(
             content=ft.Row([
                 ft.Icon(ft.Icons.COMPARE, color=VIOLET, size=18),
-                ft.Text(f"Comparaison  v{__version__}",
+                ft.Text(f"Comparaison  v{CONSTANTS.APP_VERSION}",
                         size=14, color=WHITE, weight=ft.FontWeight.W_500),
                 ft.Container(expand=True),
                 ft.IconButton(icon=ft.Icons.REMOVE, icon_size=16,

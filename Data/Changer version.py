@@ -1,64 +1,23 @@
 # -*- coding: utf-8 -*-
 """
-Met à jour __version__ dans Hub.pyw et tous les scripts de Data/.
+Incrémente la version de l'application (fichier VERSION à la racine).
 
 Utilisation :
-  1. Modifiez NEW_VERSION ci-dessous.
-  2. Enregistrez le fichier.
-  3. Lancez-le (python "Changer version.py").
+  python "Changer version.py"          → 2.10.127 devient 2.10.128
+  python "Changer version.py" 2.11.0   → version imposée
 """
 
-__version__ = "2.10.126"
-
-# ← MODIFIEZ ICI
-NEW_VERSION = "2.10.126"
-
-#############################################################
-#                          IMPORTS                          #
-#############################################################
-import re
+import sys
 from pathlib import Path
 
-#############################################################
-#                           MAIN                            #
-#############################################################
-ROOT = Path(__file__).parent.parent
+VERSION_FILE = Path(__file__).resolve().parent.parent / "VERSION"
 
-targets = [ROOT / "Hub.pyw", ROOT / "CONSTANTS.py"] + sorted((ROOT / "Data").glob("*.py")) + sorted((ROOT / "Data").glob("*.pyw")) + sorted((ROOT / "Mobile").glob("*.py"))
-
-pattern = re.compile(r'^(__version__\s*=\s*")[^"]*(")', re.MULTILINE)
-
-updated = 0
-skipped = 0
-
-print(f"Version cible : {NEW_VERSION}\n")
-
-for path in targets:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except Exception as e:
-        print(f"  [ERREUR lecture] {path.name} : {e}")
-        continue
-
-    match = pattern.search(text)
-    if not match:
-        print(f"  [IGNORÉ] {path.name}  — pas de __version__")
-        skipped += 1
-        continue
-
-    current = match.group(0).split('"')[1]
-    if current == NEW_VERSION:
-        print(f"  [OK]      {path.name}  ({current})")
-        skipped += 1
-        continue
-
-    new_text = pattern.sub(rf'\g<1>{NEW_VERSION}\g<2>', text)
-    try:
-        path.write_text(new_text, encoding="utf-8")
-        print(f"  [MIS À JOUR] {path.name}  {current} → {NEW_VERSION}")
-        updated += 1
-    except Exception as e:
-        print(f"  [ERREUR écriture] {path.name} : {e}")
-
-print(f"\n{'=' * 40}")
-print(f"{updated} fichier(s) mis à jour, {skipped} inchangé(s).")
+current = VERSION_FILE.read_text(encoding="utf-8").strip()
+if len(sys.argv) > 1:
+    new = sys.argv[1].strip()
+else:
+    parts = current.split(".")
+    parts[-1] = str(int(parts[-1]) + 1)
+    new = ".".join(parts)
+VERSION_FILE.write_text(new + "\n", encoding="utf-8")
+print(f"Version : {current} → {new}")

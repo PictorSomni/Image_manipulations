@@ -50,8 +50,16 @@ import shutil
 # ==============================================================================
 # 1. VERSION
 # ==============================================================================
+# Un seul fichier VERSION à la racine du dépôt (retour user : 50 fichiers
+# modifiés à chaque mise à jour noyaient l'historique). Bump : Data/Changer
+# version.py.
+try:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "..", "VERSION"), encoding="utf-8") as _f:
+        APP_VERSION = _f.read().strip()
+except OSError:
+    APP_VERSION = "?"
 
-__version__ = "2.10.126"
 
 
 # ==============================================================================

@@ -15,7 +15,6 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.126"
 
 import asyncio
 import base64
@@ -13765,7 +13764,7 @@ print("[délai dépassé]")
                 ft.Container(
                     content=ft.Row([
                         ft.Icon(ft.Icons.HUB_OUTLINED, color=ORANGE, size=CONSTANTS.ICON_SM),
-                        ft.Text(f"HUB  {__version__}", size=CONSTANTS.TEXT_LG,
+                        ft.Text(f"HUB  {CONSTANTS.APP_VERSION}", size=CONSTANTS.TEXT_LG,
                                 color=WHITE, weight=ft.FontWeight.W_500),
                     ], spacing=6),
                     padding=ft.Padding(16, 0, 0, 0),

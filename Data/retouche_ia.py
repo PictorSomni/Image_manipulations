@@ -34,7 +34,6 @@ Variables d'environnement reconnues :
   SELECTED_FILES  — noms de fichiers séparés par « | »
 """
 
-__version__ = "2.10.126"
 
 import flet as ft
 import flet.canvas as cv
@@ -202,7 +201,7 @@ async def main(page: ft.Page) -> None:
     # Intégré comme onglet « IA » de Retouche photo.pyw (page = proxy
     # _TabPage) : pas de barre de titre propre, pas de maximisation.
     embedded = getattr(page, "embedded", False)
-    page.title = f"Retouche IA par sélection  v{__version__}"
+    page.title = f"Retouche IA par sélection  v{CONSTANTS.APP_VERSION}"
     page.theme_mode = ft.ThemeMode.DARK
     # Même arrondi de boutons que le Hub (CONSTANTS.BUTTON_RADIUS).
     _btn_style = ft.ButtonStyle(shape=ft.RoundedRectangleBorder(
@@ -3031,7 +3030,7 @@ async def main(page: ft.Page) -> None:
             [
                 ft.Container(
                     ft.Text(
-                        f"Retouche IA par sélection  v{__version__}",
+                        f"Retouche IA par sélection  v{CONSTANTS.APP_VERSION}",
                         size=13,
                         color=LIGHT_GREY,
                         expand=True,
