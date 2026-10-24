@@ -10,7 +10,7 @@ elles se vérifient à l'œil, ces calculs non.
 Lancer :  python3 "Data/test_ui_changes.py"
 """
 
-__version__ = "2.10.123"
+__version__ = "2.10.124"
 
 
 import importlib

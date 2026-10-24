@@ -10,7 +10,7 @@ Variables d'environnement :
   SELECTED_FILES  — liste de noms séparés par ``|`` (filtre optionnel).
 """
 
-__version__ = "2.10.123"
+__version__ = "2.10.124"
 
 import os
 import re

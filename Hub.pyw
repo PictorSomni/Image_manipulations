@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.123"
+__version__ = "2.10.124"
 
 import asyncio
 import base64
@@ -7172,6 +7172,10 @@ def main(page: ft.Page):
                 continue
             value = entry.get(col, "")
             if col == _LISTE_DETAILS_COLUMN:
+                if not str(value).strip():
+                    # Pas de détails : la tâche prend toute la largeur
+                    # (retour user : texte tronqué pour une colonne vide).
+                    continue
                 cells.append(ft.Container(
                     content=ft.Markdown(
                         value, selectable=True, soft_line_break=True,
@@ -7262,7 +7266,9 @@ def main(page: ft.Page):
         # chaque ligne (cf. _liste_row) — plus besoin d'un en-tête dédié
         # pour cette colonne.
         columns = [c for c in _liste_columns()
-                   if c not in (_LISTE_DONE_COLUMN, _LISTE_GROUP_COLUMN)]
+                   if c not in (_LISTE_DONE_COLUMN, _LISTE_GROUP_COLUMN)
+                   and (c != _LISTE_DETAILS_COLUMN or any(
+                       str(e.get(c, "")).strip() for e in liste_entries))]
         centered = not _liste_is_todo_shaped()
         cells = []
         for col in columns:
@@ -7272,7 +7278,7 @@ def main(page: ft.Page):
                 content=ft.Text(col.upper(), size=CONSTANTS.TEXT_SM,
                                 color=WHITE, weight=ft.FontWeight.W_600),
                 alignment=ft.Alignment(0, 0) if centered else None,
-                expand=True))
+                expand=2 if col == _LISTE_DETAILS_COLUMN else True))
         # Même largeur que les icônes Modifier | Supprimer des lignes.
         cells.append(ft.Container(width=105))
         return ft.Row(cells, spacing=8)
