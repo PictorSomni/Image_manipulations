@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.99"
+__version__ = "2.10.100"
 
 import asyncio
 import base64
@@ -6454,15 +6454,12 @@ def main(page: ft.Page):
                 ai_retouch_button,
                 ai_reuse_button,
                 ai_delete_button,
-                _ai_header_separator(),
-                # Voix/copie/bloc-notes/briefing masqués : l'onglet sert
-                # aux images, la conversation passe par Claude (terminal)
-                # et le briefing est fait par Claude le matin (retour user).
+                # Voix/copie/bloc-notes masqués ; effacement de la
+                # conversation et ses séparateurs retirés (retour user :
+                # l'onglet ne sert plus qu'aux images).
                 ai_speaker_button,
                 ai_copy_button,
                 ai_to_notepad_button,
-                _ai_header_separator(),
-                ai_clear_button,
             ], spacing=8),
             height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
             alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
