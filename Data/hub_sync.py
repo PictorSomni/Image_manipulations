@@ -135,3 +135,17 @@ def sync_put(name, base, mine, tries=4):
             if exc.code != 412:
                 raise
     raise RuntimeError(f"{name} : trop de modifications simultanées")
+
+
+def ask_claude(prompt, timeout=320):
+    """Réponse de Claude sur le Pi (POST /claude, sans aucun outil)."""
+    req = urllib.request.Request(
+        URL + "claude", method="POST",
+        data=json.dumps({"prompt": prompt}).encode(),
+        headers={"X-Hub-Key": _key(),
+                 "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.load(resp)
+    if data.get("error"):
+        raise RuntimeError(data["error"])
+    return data["text"]

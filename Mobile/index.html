@@ -779,17 +779,6 @@ function viewHome() {
   const b = S.briefing;
   if (b && b.text) out.push(glass(`Briefing · ${dayLabel(localIso(
     new Date(b.at * 1000)))} ${hm(b.at)}`, null, null, md(b.text)));
-  // Rendez-vous d'aujourd'hui et de demain
-  const soon = S.agenda.filter(([st, src]) => src !== "Tâche" &&
-    ["Aujourd'hui", "Demain"].includes(dayLabel(st)));
-  out.push(glass("Rendez-vous", "Agenda ›", () => tab("agenda"),
-    ...(soon.length ? soon.map(([st, src, color, row]) => h("div",
-      {class: "slot", onclick: () => eventDetails(st, src, color, row)},
-      h("div", {class: "hr"}, st.length > 10 ? st.slice(11, 16) : "—"),
-      h("div", {class: "tx"}, row.Nom || "—", h("div", {class: "muted"},
-        dayLabel(st) === "Demain" ? `Demain · ${src}` : src)),
-      h("i", {class: "bar2", style: {background: color}}))) :
-      [h("div", {class: "muted"}, "Rien aujourd'hui ni demain")])));
   // Échéances proches
   const limit = localIso(new Date(now.getTime() + 864e5));
   const due = S.tasks.filter(r => r.Etat !== "Terminé" &&
