@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.105"
+__version__ = "2.10.106"
 
 import base64
 import datetime
@@ -240,7 +240,7 @@ def main(page: ft.Page):
     page.padding = 0
     state = {"open": {"À faire"}, "tasks": [], "tab": 0, "images": [],
              "shown": 60, "source": None, "format": "1:1", "count": 1,
-             "refine": True, "model": "gemini", "quality": "1K",
+             "refine": True, "list_kind": "liste", "model": "gemini", "quality": "1K",
              "busy": False, "news": None, "news_cat": None,
              "picked": set()}
 
@@ -700,6 +700,105 @@ def main(page: ft.Page):
                 state.update(shown=state["shown"] + 60), render())))
         return out
 
+    # ── Listes (todo + prix, mêmes données que Hub via hub_sync) ─────
+    LIST_COLORS = [BLUE, VIOLET, GREEN, C.COLOR_YELLOW_GREEN, C.COLOR_MINT,
+                   YELLOW, ORANGE, RED, PINK, C.COLOR_BLUE_DARK]
+    new_item = ft.TextField(hint_text="Nouvelle tâche", dense=True,
+                            border_radius=C.BUTTON_RADIUS, expand=True)
+    new_cat = ft.Dropdown(dense=True, width=150,
+                          border_radius=C.BUTTON_RADIUS)
+
+    def _list_load():
+        try:
+            for name in ("liste", "prix"):
+                state[name] = hub_sync.get(name) or []
+        except Exception as exc:
+            status.value = f"Listes injoignables : {exc}"
+        render()
+
+    def _list_save(name):
+        try:
+            hub_sync.put(name, state[name])
+        except Exception as exc:
+            status.value = f"Pas enregistré : {exc}"
+        render()
+
+    def _list_add(e):
+        text = (new_item.value or "").strip()
+        if not text or not new_cat.value:
+            return
+        state["list_cat"] = new_cat.value
+        state["liste"].append({"catégorie": new_cat.value, "tâche": text,
+                               "fait": "False"})
+        new_item.value = ""
+        _list_save("liste")
+
+    def _list_toggle(row, value):
+        row["fait"] = str(value)
+        _list_save("liste")
+
+    def _list_delete(row):
+        state["liste"].remove(row)
+        _list_save("liste")
+
+    def _list_view():
+        name = state["list_kind"]
+        rows = state.get(name)
+        out = [ft.SegmentedButton(
+            segments=[ft.Segment(value="liste", label=ft.Text("À faire")),
+                      ft.Segment(value="prix", label=ft.Text("Prix"))],
+            selected=[name], on_change=lambda e: (state.update(
+                list_kind=next(iter(e.control.selected))), render()))]
+        if rows is None:
+            threading.Thread(target=_list_load, daemon=True).start()
+            state[name] = []
+            return out + [ft.ProgressRing()]
+        cats = list(dict.fromkeys(
+            str(r.get("catégorie", "")).strip() for r in rows))
+        if name == "liste":
+            new_cat.options = [ft.DropdownOption(c) for c in cats if c]
+            if new_cat.value not in cats:
+                new_cat.value = state.get("list_cat") if state.get(
+                    "list_cat") in cats else None
+            new_item.on_submit = _list_add
+            out.append(ft.Row([new_item, new_cat, ft.IconButton(
+                ft.Icons.ADD, on_click=_list_add)]))
+        for i, cat in enumerate(cats):
+            color = LIST_COLORS[i % len(LIST_COLORS)]
+            out.append(ft.Container(
+                ft.Text((cat or "Sans catégorie").upper(),
+                        weight=ft.FontWeight.W_600,
+                        text_align=ft.TextAlign.CENTER),
+                alignment=ft.Alignment(0, 0), border_radius=6,
+                bgcolor=ft.Colors.with_opacity(0.25, color),
+                padding=ft.Padding(10, 8, 10, 8)))
+            for r in rows:
+                if str(r.get("catégorie", "")).strip() != cat:
+                    continue
+                if name == "liste":
+                    done = str(r.get("fait")).lower() in ("true", "1")
+                    content = ft.Row([
+                        ft.Checkbox(value=done, on_change=lambda e, r=r:
+                                    _list_toggle(r, e.control.value)),
+                        ft.Text(r.get("tâche", ""), expand=True,
+                                color=GREY if done else None,
+                                style=ft.TextStyle(
+                                    decoration=ft.TextDecoration.LINE_THROUGH)
+                                if done else None),
+                        ft.IconButton(ft.Icons.DELETE_OUTLINE,
+                                      icon_color=RED,
+                                      on_click=lambda e, r=r:
+                                      _list_delete(r))])
+                else:
+                    content = ft.Row([
+                        ft.Text(r.get("article", ""), expand=True),
+                        ft.Text(str(r.get("prix", "")),
+                                weight=ft.FontWeight.W_600)])
+                out.append(ft.Container(content, bgcolor=CARD,
+                                        border_radius=8,
+                                        padding=ft.Padding(8, 4, 12, 4)))
+        return out
+
     # ── Briefing ─────────────────────────────────────────────────────
     async def _open_link(e):
         await ft.UrlLauncher().launch_url(e.data)
@@ -838,6 +937,8 @@ def main(page: ft.Page):
                     or [ft.Text("Aucune carte", color=GREY)]
             else:
                 body.controls += _etat_sections()
+        elif state["tab"] == 5:
+            body.controls += _list_view()
         elif state["tab"] == 4:
             body.controls += _news_view()
         elif state["tab"] == 3:
@@ -863,6 +964,8 @@ def main(page: ft.Page):
     def refresh(e=None):
         """Bouton = rechargement forcé ; sinon cache (< 1 h)."""
         force = e is not None
+        if force:
+            state["liste"] = state["prix"] = None
         status.value = "Chargement…"
         page.update()
 
@@ -882,6 +985,8 @@ def main(page: ft.Page):
 
     def _tab(e):
         state["tab"] = e.control.selected_index
+        if state["tab"] == 5:  # relu à chaque visite : Hub a pu écrire
+            state["liste"] = state["prix"] = None
         render()
 
     page.appbar = ft.AppBar(
@@ -898,7 +1003,9 @@ def main(page: ft.Page):
             ft.NavigationBarDestination(icon=ft.Icons.WB_SUNNY_OUTLINED,
                                         label="Briefing"),
             ft.NavigationBarDestination(icon=ft.Icons.RSS_FEED_OUTLINED,
-                                        label="Actus")],
+                                        label="Actus"),
+            ft.NavigationBarDestination(icon=ft.Icons.CHECKLIST,
+                                        label="Listes")],
         on_change=_tab, bgcolor=CARD)
     page.add(ft.SafeArea(ft.Column([search_bar, body], spacing=0,
                                    expand=True), expand=True))

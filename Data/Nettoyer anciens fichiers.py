@@ -14,7 +14,7 @@ Chemins :
 Dépendances : modules standard (os, platform, pathlib, datetime)
 """
 
-__version__ = "2.10.105"
+__version__ = "2.10.106"
 
 #############################################################
 #                          IMPORTS                          #
