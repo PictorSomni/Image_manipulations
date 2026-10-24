@@ -3218,7 +3218,7 @@ def main(page: ft.Page):
         for ctrl, offset in ai_text_refs:
             if isinstance(ctrl, ft.Markdown):
                 ctrl.md_style_sheet = ft.MarkdownStyleSheet(
-                    p_text_style=ft.TextStyle(size=size))
+                    p_text_style=ft.TextStyle(size=size + offset))
             else:
                 ctrl.size = size + offset
         if state["surface"] == "ia":

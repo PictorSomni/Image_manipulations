@@ -219,11 +219,7 @@ def build(ui):
 
     def _ai_generate(prompt):
         """Lance N générations (ou retouches de la 1re image jointe) en
-        parallèle ; chaque résultat arrive dans la galerie. Modèle
-        « Claude » : question texte à Claude sur le Pi."""
-        if (ai_model_dropdown.value or "") == "claude":
-            _claude_ask(prompt)
-            return
+        parallèle ; chaque résultat arrive dans la galerie."""
         n = int(ai_count_dropdown.value or 1)
         src_path = ai_pending_images[0]["path"] if ai_pending_images else None
         src_bytes = None
@@ -333,7 +329,7 @@ def build(ui):
         tooltip="Supprimer (corbeille)", on_click=_ai_gal_delete)
 
     # ── Claude (sur le Pi, via hub_sync) : réponses texte et relecture.
-    # Même champ de saisie que les images : le menu modèle choisit.
+    # Sous-fenêtre à droite, avec son propre champ de saisie.
     claude_md = ft.Markdown(
         "", selectable=True,
         extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED)
@@ -342,9 +338,9 @@ def build(ui):
     claude_last = {"text": "", "source": ""}
     # Taille réglée par le curseur de la barre d'état (_apply_font_size).
     claude_md.md_style_sheet = ft.MarkdownStyleSheet(
-        p_text_style=ft.TextStyle(size=state["font_size"]))
-    claude_diff.size = state["font_size"] + 2
-    ui.ai_text_refs.extend([(claude_md, 0), (claude_diff, 2)])
+        p_text_style=ft.TextStyle(size=state["font_size"] + 3))
+    claude_diff.size = state["font_size"] + 3
+    ui.ai_text_refs.extend([(claude_md, 3), (claude_diff, 3)])
 
     def _diff_spans(old, new):
         """Texte corrigé, mots changés surlignés."""
@@ -360,6 +356,9 @@ def build(ui):
                     if tag != "equal" else None))
         return spans
 
+    claude_progress = ft.ProgressBar(color=GREEN, visible=False)
+    claude_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREY)
+
     def _claude_ask(text, proofread=False):
         prompt = text if not proofread else (
             "Corrige uniquement l'orthographe, la grammaire, la "
@@ -372,8 +371,8 @@ def build(ui):
         claude_md.value = ""
         claude_diff.visible = False
         claude_copy.disabled = True
-        ai_progress_bar.visible = True
-        ai_status_text.value = ("Relecture…" if proofread
+        claude_progress.visible = True
+        claude_status.value = ("Relecture…" if proofread
                                 else "Claude réfléchit…")
         page.update()
 
@@ -391,29 +390,39 @@ def build(ui):
                 else:
                     claude_md.value = answer
                 claude_copy.disabled = False
-                ai_status_text.value = ""
+                claude_status.value = ""
             except Exception as exc:
-                ai_status_text.value = f"Claude : {exc}"
-            ai_progress_bar.visible = False
+                claude_status.value = f"Claude : {exc}"
+            claude_progress.visible = False
             _run_task(page.update)
         threading.Thread(target=_work, daemon=True).start()
 
     async def _claude_copy(event):
         await ft.Clipboard().set(claude_last["text"])
-        ai_status_text.value = "✓ Copié"
+        claude_status.value = "✓ Copié"
         page.update()
 
-    def _claude_proofread(event):
-        text = (ai_input_field.value or "").strip()
+    def _claude_send(event, proofread=False):
+        text = (claude_input.value or "").strip()
         if text:
-            ai_input_field.value = ""
-            _claude_ask(text, proofread=True)
+            claude_input.value = ""
+            _claude_ask(text, proofread=proofread)
+
+    def _claude_proofread(event):
+        _claude_send(event, proofread=True)
+
+    claude_input = ft.TextField(
+        hint_text="Écris à Claude, ou colle un texte à relire…",
+        border=CONSTANTS.input_border(GREEN), multiline=True,
+        max_lines=6, shift_enter=True, on_submit=_claude_send,
+        text_style=ft.TextStyle(size=CONSTANTS.TERMINAL_FONT_SIZE + 2),
+        dense=True, expand=True, color=WHITE, bgcolor=DARK)
 
     claude_copy = ft.IconButton(ft.Icons.COPY, icon_color=BLUE,
                                 disabled=True, tooltip="Copier la réponse",
                                 on_click=_claude_copy)
     claude_proof_button = ft.IconButton(
-        ft.Icons.SPELLCHECK, icon_color=GREEN, visible=False,
+        ft.Icons.SPELLCHECK, icon_color=GREEN,
         tooltip="Relire le texte du champ (orthographe)",
         on_click=_claude_proofread)
     def _pane_header(icon, title, color, *trailing):
@@ -430,27 +439,16 @@ def build(ui):
             _pane_header(ft.Icons.AUTO_AWESOME, "Claude", GREEN,
                          claude_copy),
             ft.Column([claude_md, claude_diff], scroll=ft.ScrollMode.AUTO,
-                      expand=True)], expand=True, spacing=8),
+                      expand=True),
+            ft.Row([claude_input, claude_proof_button,
+                    ft.IconButton(ft.Icons.SEND, icon_color=GREEN,
+                                  tooltip="Envoyer à Claude",
+                                  on_click=_claude_send)], spacing=4),
+            claude_progress, claude_status],
+            expand=True, spacing=8),
         expand=True, padding=ft.Padding(14, 6, 14, 10), bgcolor=DARK,
         border_radius=CONSTANTS.BUTTON_RADIUS, margin=8)
 
-    def _is_claude():
-        return (ai_model_dropdown.value or "") == "claude"
-
-    def _on_model(event):
-        claude = _is_claude()
-        if not claude:
-            ai_image_quality_dropdown.visible = \
-                not ai_model_dropdown.value.startswith("muse")
-        claude_proof_button.visible = claude
-        ai_input_field.hint_text = (
-            "Écris à Claude, ou colle un texte à relire…" if claude else
-            "Décris l'image à générer ou la retouche… (Entrée pour envoyer)")
-        page.update()
-
-    ai_model_dropdown.options.append(ft.dropdown.Option(
-        "claude", "Claude"))
-    ai_model_dropdown.on_select = _on_model
     gallery_box = ft.Container(
         ft.Column([_pane_header(ft.Icons.IMAGE, "Images", BLUE),
                    ft.Container(ai_gallery, expand=True)],
@@ -492,16 +490,24 @@ def build(ui):
             height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
             alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
-        ft.Row([gallery_box, claude_view], expand=True, spacing=0,
-               vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-        ai_progress_bar,
-        ft.Container(content=ai_attach_row, padding=ft.Padding(8, 4, 8, 0)),
-        ft.Container(
-            content=ft.Row([ai_input_field, ai_vasy_button, ai_mic_button,
-                            claude_proof_button, ai_send_button,
-                            ai_stop_button], spacing=4),
-            padding=ft.Padding(8, 4, 8, 4)),
-        ft.Container(content=ai_status_text, padding=ft.Padding(8, 0, 8, 6)),
+        ft.Row([
+            ft.Column([
+                gallery_box,
+                ai_progress_bar,
+                ft.Container(content=ai_attach_row,
+                             padding=ft.Padding(8, 4, 8, 0)),
+                ft.Container(
+                    content=ft.Row([ai_input_field, ai_vasy_button,
+                                    ai_mic_button, ai_send_button,
+                                    ai_stop_button], spacing=4),
+                    padding=ft.Padding(8, 4, 8, 4)),
+                ft.Container(content=ai_status_text,
+                             padding=ft.Padding(8, 0, 8, 6)),
+            ], expand=True, spacing=0),
+            ft.VerticalDivider(width=24, thickness=2, color=GREY),
+            claude_view,
+        ], expand=True, spacing=0,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH),
     ], expand=True, spacing=0)
     for _b in (ai_speaker_button, ai_copy_button, ai_to_notepad_button,
                ai_vasy_button, ai_mic_button):
