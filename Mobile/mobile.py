@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.115"
+__version__ = "2.10.116"
 
 import asyncio
 import base64
@@ -875,6 +875,10 @@ def _app(page: ft.Page):
             list_sheet.open = False
             _list_save(name)
 
+        def _cancel(e):
+            list_sheet.open = False
+            page.update()
+
         def _del(e):
             rows.remove(row)
             list_sheet.open = False
@@ -888,6 +892,7 @@ def _app(page: ft.Page):
             ft.Row([
                 ft.FilledButton("Enregistrer", icon=ft.Icons.CHECK,
                                 on_click=_ok),
+                ft.TextButton("Annuler", on_click=_cancel),
                 *([ft.OutlinedButton("Supprimer",
                                      icon=ft.Icons.DELETE_OUTLINE,
                                      style=ft.ButtonStyle(color=RED),
@@ -899,7 +904,7 @@ def _app(page: ft.Page):
         page.update()
 
     list_sheet = ft.BottomSheet(ft.Container(), bgcolor=CARD,
-                                scrollable=True)
+                                scrollable=True, show_drag_handle=True)
     page.overlay.append(list_sheet)
 
     def _list_view():

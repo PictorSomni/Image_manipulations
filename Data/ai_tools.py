@@ -47,7 +47,7 @@ Dictée — STT (push-to-talk) :
   _gemini_transcribe_audio(wav_bytes, ...)   — transcrit un WAV via Gemini, retourne le texte
 """
 
-__version__ = "2.10.115"
+__version__ = "2.10.116"
 
 
 import ast as _ast
