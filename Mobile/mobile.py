@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.86"
+__version__ = "2.10.87"
 
 import base64
 import datetime
@@ -75,7 +75,7 @@ def list_images():
 
 
 def thumb(path, size=360):
-    """Vignette JPEG (bytes), en cache par (chemin, date)."""
+    """Vignette JPEG (data URI), en cache par (chemin, date)."""
     key = (path, os.path.getmtime(path), size)
     if key not in _thumbs:
         with Image.open(path) as im:
@@ -83,7 +83,10 @@ def thumb(path, size=360):
             im.thumbnail((size, size))
             buf = io.BytesIO()
             im.save(buf, "JPEG", quality=80)
-        _thumbs[key] = buf.getvalue()
+        # Data URI : des bytes bruts ne s'affichent pas en web (galerie
+        # vide sur iPhone).
+        _thumbs[key] = ("data:image/jpeg;base64,"
+                        + base64.b64encode(buf.getvalue()).decode())
     return _thumbs[key]
 
 
