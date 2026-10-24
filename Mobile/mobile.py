@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.106"
+__version__ = "2.10.107"
 
 import base64
 import datetime
@@ -984,7 +984,7 @@ def main(page: ft.Page):
         threading.Thread(target=_run, daemon=True).start()
 
     def _tab(e):
-        state["tab"] = e.control.selected_index
+        state["tab"] = NAV[e.control.selected_index][0]
         if state["tab"] == 5:  # relu à chaque visite : Hub a pu écrire
             state["liste"] = state["prix"] = None
         render()
@@ -992,20 +992,17 @@ def main(page: ft.Page):
     page.appbar = ft.AppBar(
         title=ft.Text("Hub"), bgcolor=BG,
         actions=[ft.IconButton(ft.Icons.REFRESH, on_click=refresh)])
+    # Ordre d'affichage (retour user) → identifiant interne de l'onglet.
+    NAV = [(0, ft.Icons.VIEW_KANBAN_OUTLINED, "Tâches"),
+           (1, ft.Icons.CALENDAR_MONTH_OUTLINED, "Agenda"),
+           (5, ft.Icons.CHECKLIST, "Listes"),
+           (2, ft.Icons.AUTO_AWESOME_OUTLINED, "IA"),
+           (4, ft.Icons.RSS_FEED_OUTLINED, "Actus"),
+           (3, ft.Icons.WB_SUNNY_OUTLINED, "Briefing")]
     page.navigation_bar = ft.NavigationBar(
         destinations=[
-            ft.NavigationBarDestination(icon=ft.Icons.VIEW_KANBAN_OUTLINED,
-                                        label="Tâches"),
-            ft.NavigationBarDestination(icon=ft.Icons.CALENDAR_MONTH_OUTLINED,
-                                        label="Agenda"),
-            ft.NavigationBarDestination(icon=ft.Icons.AUTO_AWESOME_OUTLINED,
-                                        label="IA"),
-            ft.NavigationBarDestination(icon=ft.Icons.WB_SUNNY_OUTLINED,
-                                        label="Briefing"),
-            ft.NavigationBarDestination(icon=ft.Icons.RSS_FEED_OUTLINED,
-                                        label="Actus"),
-            ft.NavigationBarDestination(icon=ft.Icons.CHECKLIST,
-                                        label="Listes")],
+            ft.NavigationBarDestination(icon=icon, label=label)
+            for _, icon, label in NAV],
         on_change=_tab, bgcolor=CARD)
     page.add(ft.SafeArea(ft.Column([search_bar, body], spacing=0,
                                    expand=True), expand=True))
