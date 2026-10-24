@@ -13,7 +13,7 @@ Les erreurs réseau remontent en exception ; c'est à l'appelant de garder
 sa copie locale.
 """
 
-__version__ = "2.10.87"
+__version__ = "2.10.88"
 
 
 import json

@@ -9,12 +9,13 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.87"
+__version__ = "2.10.88"
 
 import base64
 import datetime
 import io
 import os
+import subprocess
 import sys
 import threading
 import unicodedata
@@ -162,7 +163,8 @@ def main(page: ft.Page):
     page.padding = 0
     state = {"open": {"À faire"}, "tasks": [], "tab": 0, "images": [],
              "shown": 60, "source": None, "format": "1:1", "count": 1,
-             "busy": False, "news": None, "news_cat": None}
+             "busy": False, "news": None, "news_cat": None,
+             "picked": set()}
 
     status = ft.Text("", size=12, color=GREY)
     search = ft.TextField(
@@ -387,20 +389,57 @@ def main(page: ft.Page):
                 *_gallery_view()]
 
     # ── Galerie ──────────────────────────────────────────────────────
+    # Tap = plein écran ; appui long = sélection multiple → Supprimer.
+    # Les fichiers vont dans la corbeille du Pi (gio trash), jamais rm.
+    viewer = ft.BottomSheet(ft.Container(), bgcolor="#000000",
+                            fullscreen=True, scrollable=True,
+                            show_drag_handle=True)
+    page.overlay.append(viewer)
+
+    def _trash(paths):
+        for p in paths:
+            try:
+                subprocess.run(["gio", "trash", p], check=True,
+                               capture_output=True, timeout=10)
+            except Exception as exc:
+                status.value = f"Suppression impossible : {exc}"
+        state["picked"].clear()
+        state["images"] = list_images()
+        viewer.open = False
+        render()
+
     def _open_image(path):
         def _use(e):
             state["source"] = path
-            sheet.open = False
+            viewer.open = False
             render()
             page.run_task(body.scroll_to, 0, None, None, 300)
-        sheet.content = ft.Container(ft.Column([
-            ft.Image(src=thumb(path, 1400), fit=ft.BoxFit.CONTAIN),
+        viewer.content = ft.Container(ft.Column([
+            ft.InteractiveViewer(
+                ft.Image(src=thumb(path, 1600), fit=ft.BoxFit.CONTAIN),
+                min_scale=1, max_scale=6, expand=True),
             ft.Text(os.path.relpath(path, HOME), size=12, color=GREY),
-            ft.FilledButton("Modifier avec l'IA", icon=ft.Icons.AUTO_AWESOME,
-                            on_click=_use),
-        ], tight=True, spacing=10, scroll=ft.ScrollMode.AUTO), padding=16)
-        sheet.open = True
+            ft.Row([
+                ft.FilledButton("Modifier avec l'IA",
+                                icon=ft.Icons.AUTO_AWESOME, on_click=_use),
+                ft.OutlinedButton("Supprimer", icon=ft.Icons.DELETE_OUTLINE,
+                                  style=ft.ButtonStyle(color="#E06C75"),
+                                  on_click=lambda e: _trash([path]))],
+                wrap=True),
+        ], spacing=10, expand=True), padding=12, expand=True)
+        viewer.open = True
         page.update()
+
+    def _tile_tap(p):
+        if state["picked"]:
+            state["picked"] ^= {p}
+            render()
+        else:
+            _open_image(p)
+
+    def _tile_long(p):
+        state["picked"] ^= {p}
+        render()
 
     def _grid(paths):
         # Tuiles à taille fixe (3 par ligne sur iPhone) : avec
@@ -413,19 +452,41 @@ def main(page: ft.Page):
                 data = thumb(p)
             except Exception:
                 continue
-            tiles.append(ft.Container(
-                ft.Image(src=data, fit=ft.BoxFit.COVER, width=side,
-                         height=side),
-                width=side, height=side, border_radius=6,
-                clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                on_click=lambda e, p=p: _open_image(p)))
+            picked = p in state["picked"]
+            tiles.append(ft.GestureDetector(
+                ft.Container(
+                    ft.Stack([
+                        ft.Image(src=data, fit=ft.BoxFit.COVER, width=side,
+                                 height=side,
+                                 opacity=0.55 if picked else 1),
+                        ft.Icon(ft.Icons.CHECK_CIRCLE, color="#5B9BD5",
+                                right=4, top=4, visible=picked)]),
+                    width=side, height=side, border_radius=6,
+                    clip_behavior=ft.ClipBehavior.HARD_EDGE),
+                on_tap=lambda e, p=p: _tile_tap(p),
+                on_long_press_start=lambda e, p=p: _tile_long(p)))
         return ft.Row(tiles, wrap=True, spacing=4, run_spacing=4)
 
     def _gallery_view():
         imgs = state["images"]
-        out = [ft.Text(f"Galerie · {len(imgs)} images", size=14,
-                       color=GREY, weight=ft.FontWeight.BOLD),
-               _grid(imgs[:state["shown"]])]
+        n = len(state["picked"])
+        if n:
+            head = ft.Row([
+                ft.Text(f"{n} sélectionnée(s)", expand=True),
+                ft.TextButton("Tout", on_click=lambda e: (
+                    state["picked"].update(imgs[:state["shown"]]),
+                    render())),
+                ft.TextButton("Annuler", on_click=lambda e: (
+                    state["picked"].clear(), render())),
+                ft.FilledButton("Supprimer", icon=ft.Icons.DELETE_OUTLINE,
+                                bgcolor="#E06C75",
+                                on_click=lambda e: _trash(
+                                    list(state["picked"])))])
+        else:
+            head = ft.Text(f"Galerie · {len(imgs)} images  ·  appui long "
+                           "pour sélectionner", size=14, color=GREY,
+                           weight=ft.FontWeight.BOLD)
+        out = [head, _grid(imgs[:state["shown"]])]
         if len(imgs) > state["shown"]:
             out.append(ft.TextButton("Plus", on_click=lambda e: (
                 state.update(shown=state["shown"] + 60), render())))
