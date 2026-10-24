@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.81"
+__version__ = "2.10.82"
 
 #############################################################
 #                          IMPORTS                          #
@@ -819,11 +819,23 @@ def main(page: ft.Page):
                 # dicts pendant le rendu (« dictionary changed size »).
                 params_copy = copy.deepcopy(state["params"])
                 t0 = time.perf_counter()
+                # Glissement en cours : aperçu à demi-résolution (~4× plus
+                # rapide), la pleine qualité revient au relâchement.
+                src_img, cache_name = proxy, "base_cache"
+                if state.get("dragging"):
+                    half = state.get("half")
+                    if not half or half[0] is not proxy:
+                        half = (proxy, proxy.resize(
+                            (max(1, proxy.width // 2),
+                             max(1, proxy.height // 2)),
+                            Image.Resampling.BILINEAR))
+                        state["half"] = half
+                    src_img, cache_name = half[1], "half_cache"
                 result = run_pipeline(
-                    proxy, params_copy, date_label=date_label,
+                    src_img, params_copy, date_label=date_label,
                     filename_stem=stem,
                     ref_size=state["source_image"].size,
-                    cache=state.setdefault("base_cache", {}))
+                    cache=state.setdefault(cache_name, {}))
                 took = time.perf_counter() - t0
                 if took > 2:
                     print(f"[aperçu] rendu lent : {took:.1f} s "
@@ -904,11 +916,8 @@ def main(page: ft.Page):
     def live_preview_tick():
         with state["live_lock"]:
             state["live_req"] += 1
-            # Pas de minuterie pendant un glissement : elle se
-            # déclencherait après le relâchement et voilerait pour rien.
-            if not state.get("dragging"):
-                threading.Timer(0.3, _veil_if_slow,
-                                (state["live_req"],)).start()
+            # Plus de voile sur un réglage (retour user : il cachait la
+            # modification en cours) — seulement au chargement d'une photo.
             if state["live_running"]:
                 return
             state["live_running"] = True
