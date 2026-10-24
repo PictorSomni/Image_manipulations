@@ -9,9 +9,12 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.110"
+__version__ = "2.10.111"
 
+import asyncio
 import base64
+import hashlib
+import hmac
 import datetime
 import io
 import json
@@ -223,7 +226,63 @@ def day_label(iso):
 assert day_label(datetime.date.today().isoformat()) == "Aujourd'hui"
 
 
-def main(page: ft.Page):
+# Accès public (Tailscale Funnel) → mot de passe, retenu par l'appareil.
+# Le mot de passe vit uniquement sur le Pi (~/.hub_mobile_pass).
+PASS_FILE = os.path.join(HOME, ".hub_mobile_pass")
+_FAILS = {"n": 0}
+
+
+def _token():
+    try:
+        with open(PASS_FILE, encoding="utf-8") as f:
+            secret = f.read().strip()
+    except OSError:
+        return None, None
+    return secret, hashlib.sha256(
+        ("hub-mobile:" + secret).encode()).hexdigest()
+
+
+async def main(page: ft.Page):
+    secret, token = _token()
+    prefs = ft.SharedPreferences()
+    if not secret:
+        page.add(ft.Text("Mot de passe absent sur le Pi"))
+        return
+    try:
+        saved = await prefs.get("hub_token")
+    except Exception:
+        saved = None
+    if saved and hmac.compare_digest(str(saved), token):
+        _app(page)
+        return
+    page.title = "Hub"
+    page.bgcolor = C.COLOR_BACKGROUND
+    page.theme_mode = ft.ThemeMode.DARK
+    field = ft.TextField(label="Mot de passe", password=True,
+                         can_reveal_password=True, autofocus=True,
+                         border_radius=C.BUTTON_RADIUS, width=280)
+
+    async def _login(e):
+        if hmac.compare_digest((field.value or "").strip(), secret):
+            _FAILS["n"] = 0
+            await prefs.set("hub_token", token)
+            page.controls.clear()
+            _app(page)
+            return
+        _FAILS["n"] += 1
+        await asyncio.sleep(min(2 * _FAILS["n"], 30))  # anti force brute
+        field.error_text = "Mot de passe incorrect"
+        field.value = ""
+        page.update()
+    field.on_submit = _login
+    page.add(ft.SafeArea(ft.Container(ft.Column([
+        ft.Text("Hub", size=28, weight=ft.FontWeight.BOLD), field,
+        ft.FilledButton("Entrer", on_click=_login, width=280)],
+        horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=16),
+        alignment=ft.Alignment(0, 0), padding=40), expand=True))
+
+
+def _app(page: ft.Page):
     page.title = "Hub"
     page.bgcolor = C.COLOR_BACKGROUND
     page.theme_mode = ft.ThemeMode.DARK
