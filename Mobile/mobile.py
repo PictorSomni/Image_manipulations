@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.88"
+__version__ = "2.10.89"
 
 import base64
 import datetime
@@ -47,11 +47,8 @@ MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
 
 HOME = os.path.expanduser("~")
 IA_DIR = os.path.join(HOME, "IA")
-# Galerie : dossiers d'images du Pi (pas les sites web / modules en dev).
-GALLERY_ROOTS = [IA_DIR, os.path.join(HOME, "Pictures"),
-                 os.path.join(HOME, "partage"),
-                 os.path.join(HOME, "hub_inbox"),
-                 os.path.join(HOME, "Documents", "Studio C"),
+# Galerie : images IA seulement (retour user : pas les projets clients).
+GALLERY_ROOTS = [IA_DIR,
                  os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "..", "Generated")]
 BRIEFING = os.path.join(HOME, "briefing.md")  # écrit par Claude le matin
@@ -389,7 +386,8 @@ def main(page: ft.Page):
                 *_gallery_view()]
 
     # ── Galerie ──────────────────────────────────────────────────────
-    # Tap = plein écran ; appui long = sélection multiple → Supprimer.
+    # Images IA (GALLERY_ROOTS). Tap = plein écran ; appui long =
+    # sélection multiple → Supprimer.
     # Les fichiers vont dans la corbeille du Pi (gio trash), jamais rm.
     viewer = ft.BottomSheet(ft.Container(), bgcolor="#000000",
                             fullscreen=True, scrollable=True,
