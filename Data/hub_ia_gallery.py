@@ -514,7 +514,7 @@ def build(ui):
 
     claude_view = _pane(
         _bar(ft.Icon(ft.Icons.AUTO_AWESOME, color=GREEN, size=18),
-             ft.Text("Claude", size=CONSTANTS.TEXT_SM + 1, color=GREEN,
+             ft.Text("Texte", size=CONSTANTS.TEXT_SM + 3, color=GREEN,
                      weight=ft.FontWeight.W_700, expand=True),
              claude_copy),
         claude_side,
@@ -543,7 +543,10 @@ def build(ui):
     ai_model_dropdown.visible = False
 
     image_view = _pane(
-        _bar(model_seg, ft.Container(expand=True),
+        _bar(ft.Icon(ft.Icons.IMAGE_OUTLINED, color=BLUE, size=18),
+             ft.Text("Image", size=CONSTANTS.TEXT_SM + 3, color=BLUE,
+                     weight=ft.FontWeight.W_700),
+             ft.Container(width=8), model_seg, ft.Container(expand=True),
              ai_image_quality_dropdown, ai_image_size_group,
              ai_aspect_dropdown, ai_count_dropdown, ai_refine_switch),
         image_side,
