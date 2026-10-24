@@ -406,6 +406,7 @@ def build(ui):
     def _claude_proofread(event):
         text = (ai_input_field.value or "").strip()
         if text:
+            ai_input_field.value = ""
             _claude_ask(text, proofread=True)
 
     claude_copy = ft.IconButton(ft.Icons.COPY, icon_color=BLUE,
