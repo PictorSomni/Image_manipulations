@@ -20,7 +20,7 @@ le script s'arrête AVANT de toucher au moindre fichier.
 Dépendances : modules standard (os, re, pathlib)
 """
 
-__version__ = "2.10.122"
+__version__ = "2.10.123"
 
 #############################################################
 #                          IMPORTS                          #

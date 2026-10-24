@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.122"
+__version__ = "2.10.123"
 
 import asyncio
 import base64
@@ -6693,7 +6693,7 @@ def main(page: ft.Page):
     # Notion).
     _LISTE_GROUP_COLUMN = "catégorie"
     # 2e colonne libre (retour user : devis = destinataire + détails),
-    # rendue en Markdown (listes à puces, - [ ] sous-tâches).
+    # rendue en Markdown (listes à puces, gras, italique).
     _LISTE_DETAILS_COLUMN = "détails"
 
     def _liste_is_done(entry):
@@ -6972,7 +6972,7 @@ def main(page: ft.Page):
                     label=col, value=_liste_is_done(current), visible=False))
             elif col == _LISTE_DETAILS_COLUMN:
                 fields.append(ft.TextField(
-                    label="détails  (- puce,  - [ ] sous-tâche,  **gras**)",
+                    label="détails  (- puce,  **gras**,  *italique*)",
                     value=current.get(col, ""), width=520, multiline=True,
                     min_lines=5, max_lines=14, bgcolor=DARK,
                     border=CONSTANTS.input_border(GREY), color=WHITE))
