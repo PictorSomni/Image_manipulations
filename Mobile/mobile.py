@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.92"
+__version__ = "2.10.93"
 
 import base64
 import datetime
@@ -601,8 +601,43 @@ def main(page: ft.Page):
                                 error_content=ft.Container()))
         return ft.Container(ft.Row(row, spacing=10), bgcolor=CARD,
                             border_radius=10, padding=12,
-                            on_click=lambda e, u=it.get("link"):
-                            page.run_task(_launch, u))
+                            on_click=lambda e, it=it: _read(it))
+
+    def _read(it):
+        """Lecteur plein écran (comme la colonne de droite de Hub) : résumé
+        RSS tout de suite, article complet chargé en fond."""
+        md = ft.Markdown(
+            it.get("full") or it.get("summary") or "", selectable=True,
+            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+            on_tap_link=_open_link)
+        loading = ft.Text("Chargement de l'article…", size=12, color=GREY,
+                          italic=True,
+                          visible="full" not in it
+                          and it.get("category") != "Podcasts")
+        when = it.get("date")
+        viewer.content = ft.Container(ft.Column([
+            ft.Text(it.get("title") or "", size=20,
+                    weight=ft.FontWeight.BOLD),
+            ft.Text(" · ".join(x for x in (
+                it.get("source"), when and when.astimezone().strftime(
+                    "%d/%m %H:%M")) if x), size=12,
+                color=CAT_COLORS.get(it.get("category"), GREY)),
+            loading, md,
+            ft.OutlinedButton("Ouvrir dans Safari", icon=ft.Icons.OPEN_IN_NEW,
+                              on_click=lambda e: page.run_task(
+                                  _launch, it.get("link"))),
+        ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True),
+            padding=16, expand=True)
+        viewer.open = True
+        page.update()
+        if loading.visible:
+            def _work():
+                it["full"] = rss_feeds.fetch_article_text(it["link"])
+                if it["full"]:
+                    md.value = it["full"]
+                loading.visible = False
+                page.update()
+            threading.Thread(target=_work, daemon=True).start()
 
     async def _launch(url):
         if url:

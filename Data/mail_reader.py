@@ -9,7 +9,7 @@ BODY.PEEK : rien n'est marqué comme lu, la boîte partagée reste intacte.
 Aucun envoi, suppression ni déplacement possible depuis ce module.
 """
 
-__version__ = "2.10.92"
+__version__ = "2.10.93"
 
 import datetime
 import email
