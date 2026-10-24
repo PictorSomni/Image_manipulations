@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.109"
+__version__ = "2.10.110"
 
 import base64
 import datetime
@@ -720,6 +720,23 @@ def main(page: ft.Page):
             status.value = f"Pas enregistré : {exc}"
         render()
 
+    def _last_cats(name=None, value=None):
+        """Dernière catégorie choisie par liste, gardée entre sessions."""
+        path = os.path.join(HOME, ".hub_mobile_lastcat.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            data = {}
+        if name:
+            data[name] = value
+            try:
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False)
+            except OSError:
+                pass
+        return data
+
     def _list_toggle(row, value):
         row["fait"] = str(value)
         _list_save("liste")
@@ -736,13 +753,15 @@ def main(page: ft.Page):
         cats = list(dict.fromkeys(
             str(r.get("catégorie", "")).strip() for r in rows
             if str(r.get("catégorie", "")).strip()))
+        last = _last_cats().get(name)
         cur = (row or {}).get("catégorie") or (
-            state.get("list_cat_" + name) if state.get(
-                "list_cat_" + name) in cats else None)
+            last if last in cats else
+            (str(rows[-1].get("catégorie", "")).strip() or None)
+            if rows else None)
         new_cat = ft.TextField(label="Nouvelle catégorie", visible=False,
                                border_radius=C.BUTTON_RADIUS)
         cat = ft.Dropdown(
-            label="Catégorie", value=cur, expand=True,
+            label="Catégorie", value=cur, width=150,
             border_radius=C.BUTTON_RADIUS,
             options=[ft.DropdownOption(c) for c in cats + [NEW_CAT]])
 
@@ -770,7 +789,7 @@ def main(page: ft.Page):
                 if name == "liste":
                     target["fait"] = "False"
                 rows.append(target)
-            state["list_cat_" + name] = category
+            _last_cats(name, category)
             list_sheet.open = False
             _list_save(name)
 
@@ -779,7 +798,11 @@ def main(page: ft.Page):
             list_sheet.open = False
             _list_save(name)
         list_sheet.content = ft.Container(ft.Column([
-            ft.Row([cat]), new_cat, *fields.values(),
+            # Catégorie à gauche puis le texte, comme dans Hub.
+            ft.Row([cat, ft.Container(list(fields.values())[0],
+                                      expand=True)],
+                   vertical_alignment=ft.CrossAxisAlignment.START),
+            new_cat, *list(fields.values())[1:],
             ft.Row([
                 ft.FilledButton("Enregistrer", icon=ft.Icons.CHECK,
                                 on_click=_ok),
