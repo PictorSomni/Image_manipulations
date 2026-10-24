@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.107"
+__version__ = "2.10.108"
 
 import base64
 import datetime
@@ -997,8 +997,8 @@ def main(page: ft.Page):
            (1, ft.Icons.CALENDAR_MONTH_OUTLINED, "Agenda"),
            (5, ft.Icons.CHECKLIST, "Listes"),
            (2, ft.Icons.AUTO_AWESOME_OUTLINED, "IA"),
-           (4, ft.Icons.RSS_FEED_OUTLINED, "Actus"),
-           (3, ft.Icons.WB_SUNNY_OUTLINED, "Briefing")]
+           (3, ft.Icons.WB_SUNNY_OUTLINED, "Briefing"),
+           (4, ft.Icons.RSS_FEED_OUTLINED, "Actus")]
     page.navigation_bar = ft.NavigationBar(
         destinations=[
             ft.NavigationBarDestination(icon=icon, label=label)
