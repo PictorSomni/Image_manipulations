@@ -34,11 +34,9 @@ def build(ui):
     WHITE = ui.WHITE
     YELLOW = ui.YELLOW
     _ai_attach_image = ui._ai_attach_image
-    _ai_header_separator = ui._ai_header_separator
     _ai_load_history = ui._ai_load_history
     _ai_navigate_async = ui._ai_navigate_async
     _run_task = ui._run_task
-    _surface_title = ui._surface_title
     ai_attach_row = ui.ai_attach_row
     ai_copy_button = ui.ai_copy_button
     ai_image_quality_dropdown = ui.ai_image_quality_dropdown
@@ -456,8 +454,24 @@ def build(ui):
         expand=True, padding=ft.Padding(14, 6, 14, 10), bgcolor=DARK,
         border_radius=CONSTANTS.BUTTON_RADIUS, margin=8)
 
-    ia_surface = ft.Column([
-        ft.Container(
+    # Gemini | Muse : le menu reste la source de vérité, masqué.
+    _seg_models = [m for m in CONSTANTS.AI_DROPDOWN_MODELS
+                   if m.startswith(("gemini", "muse"))]
+    _seg_texts = [ft.Text(m.split("-")[0].capitalize(), size=12)
+                  for m in _seg_models]
+
+    def _on_model_seg(event):
+        ai_model_dropdown.value = _seg_models[model_seg.selected_index]
+        ai_model_dropdown.on_select(event)
+
+    model_seg = ft.CupertinoSlidingSegmentedButton(
+        selected_index=(_seg_models.index(ai_model_dropdown.value)
+                        if ai_model_dropdown.value in _seg_models else 0),
+        controls=_seg_texts, thumb_color=BLUE, width=180,
+        on_change=_on_model_seg)
+    ai_model_dropdown.visible = False
+
+    image_bar = ft.Container(
             # Trois groupes séparés, dans l'ordre d'usage : ce qu'on règle
             # (modèle, qualité, taille d'image) — ce qu'on fait de la
             # réponse (voix, copie, bloc-notes) — et l'effacement, isolé
@@ -467,9 +481,8 @@ def build(ui):
                 # Titre retiré (retour user : déjà le nom de l'onglet) —
                 # le Container vide garde l'espace flexible qui poussait
                 # les groupes de boutons vers la droite.
-                ft.Container(_surface_title("IA", "ia"), expand=True),
-                ai_model_dropdown,
-                _ai_header_separator(),
+                model_seg,
+                ft.Container(expand=True),
                 ai_image_quality_dropdown,
                 ai_image_size_group,
                 ai_aspect_dropdown,
@@ -486,12 +499,14 @@ def build(ui):
                 ai_speaker_button,
                 ai_copy_button,
                 ai_to_notepad_button,
-            ], spacing=8),
+            ], spacing=8, scroll=ft.ScrollMode.AUTO),
             height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
-            alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
-        ft.Divider(height=1, color=GREY),
+            alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND)
+
+    ia_surface = ft.Column([
         ft.Row([
             ft.Column([
+                image_bar,
                 gallery_box,
                 ai_progress_bar,
                 ft.Container(content=ai_attach_row,
