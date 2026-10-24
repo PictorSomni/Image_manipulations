@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.95"
+__version__ = "2.10.96"
 
 import base64
 import datetime
@@ -37,6 +37,17 @@ KANBAN_DS = "34f4c64b-5c00-4415-99cb-76234faecef1"
 ETATS = [("À faire", "#5B9BD5"), ("En cours / en attente", "#B388FF"),
          ("A commander", "#E5C07B"), ("Commandé", "#E59866"),
          ("Terminé", "#98C379")]
+GREY_FLAG = "#9AA0A6"
+# Badges des cartes, mêmes valeurs et couleurs que Hub (défaut en 1er).
+FLAGS = [
+    ("Payé ?", {"Non payé": "#E06C75", "Payé": "#98C379"}),
+    ("Prévenir ?", {"Viendra d'office": "#E91E63",
+                    "Appeler quand prêt": "#5B9BD5",
+                    "Pas de messagerie": "#E59866", "Prévenu": "#98C379"}),
+    ("Projet ?", {"Pas de projet": GREY_FLAG, "Faire projet": "#5B9BD5",
+                  "Projet envoyé": "#E5C07B", "Projet validé": "#B388FF",
+                  "Fichiers prêts": "#B388FF"}),
+]
 AGENDA = [("Studio", "ae971f83-22d1-4d53-8972-4c6302c6d371", "#5B9BD5"),
           ("Reportage", "42f7bb5c-84f2-416a-aad0-8aad7b1ea51a", "#B388FF"),
           ("Location", "23f887c8-202a-4e37-91e1-812a4a6c7472", "#98C379")]
@@ -229,6 +240,21 @@ def main(page: ft.Page):
                        padding=ft.Padding(12, 8, 12, 24))
 
     # ── Tâches ───────────────────────────────────────────────────────
+    def _set_prop(row, prop, value):
+        row[prop] = value
+        _details(row)
+        render()
+
+        def _run():
+            try:
+                notion_rest._update({"page_id": _page_id(row),
+                                     "command": "update_properties",
+                                     "properties": {prop: value}})
+            except Exception as exc:
+                status.value = f"Erreur Notion : {exc}"
+                render()
+        threading.Thread(target=_run, daemon=True).start()
+
     def _set_etat(row, etat):
         sheet.open = False
         page.update()
@@ -253,8 +279,7 @@ def main(page: ft.Page):
         info = []
         for label, key in (("Deadline", "date:Deadline:start"),
                            ("Téléphone", "Téléphone"), ("E-mail", "E-mail"),
-                           ("Prix", "Prix"), ("Projet", "Projet ?"),
-                           ("Payé", "Payé ?"), ("Créé le", "Créé le")):
+                           ("Prix", "Prix"), ("Créé le", "Créé le")):
             value = row.get(key)
             if value not in (None, "", []):
                 info.append(ft.Text(f"{label} : {value}", size=15))
@@ -267,6 +292,18 @@ def main(page: ft.Page):
             e, on_click=lambda ev, e=e: _set_etat(row, e),
             style=ft.ButtonStyle(color=c)) for e, c in ETATS
             if e != (row.get("Etat") or "À faire")]
+        flag_rows = []
+        for prop, colors in FLAGS:
+            cur = row.get(prop) or next(iter(colors))
+            flag_rows += [ft.Text(prop, size=12, color=GREY), ft.Row([
+                ft.Container(
+                    ft.Text(v, size=13, color="#000000" if v == cur else c),
+                    bgcolor=c if v == cur else None,
+                    border=ft.Border.all(1, c), border_radius=14,
+                    padding=ft.Padding(10, 4, 10, 4),
+                    on_click=lambda e, p=prop, v=v: _set_prop(row, p, v))
+                for v, c in colors.items()], wrap=True, spacing=6,
+                run_spacing=6)]
         # Notes = contenu de la page Notion, chargé à la 1re ouverture.
         notes = ft.Markdown(
             row.get("_notes") or "", selectable=True,
@@ -291,7 +328,7 @@ def main(page: ft.Page):
         sheet.content = ft.Container(ft.Column([
             ft.Text(row.get("Demande") or "(sans titre)", size=18,
                     weight=ft.FontWeight.BOLD),
-            *info, notes_box, ft.Row(actions),
+            *info, *flag_rows, notes_box, ft.Row(actions),
             ft.Text("Déplacer vers", size=12, color=GREY),
             ft.Row(etats, wrap=True, spacing=8, run_spacing=8),
         ], tight=True, spacing=10, scroll=ft.ScrollMode.AUTO),
@@ -299,21 +336,35 @@ def main(page: ft.Page):
         sheet.open = True
         page.update()
 
+    def _badge(text, color):
+        return ft.Container(
+            ft.Text(text, size=12, color=color, weight=ft.FontWeight.W_500),
+            border=ft.Border.all(1, color), border_radius=12,
+            padding=ft.Padding(8, 2, 8, 2))
+
     def _task_card(row, etat=False):
+        """Comme dans Hub : titre, infos clés et badges Payé / Prévenir /
+        Projet (« Pas de projet » masqué)."""
         deadline = row.get("date:Deadline:start") or ""
-        sub = []
+        badges = []
         if etat:
             name = row.get("Etat") or "À faire"
-            sub.append(ft.Text(name, size=13,
-                               color=dict(ETATS).get(name, GREY)))
-        if deadline:
-            sub.append(ft.Text(f"⏰ {day_label(deadline)}", size=13,
-                               color="#E5C07B"))
-        if row.get("Téléphone"):
-            sub.append(ft.Text(row["Téléphone"], size=13, color=GREY))
+            badges.append(_badge(name, dict(ETATS).get(name, GREY)))
+        for prop, colors in FLAGS:
+            value = row.get(prop) or next(iter(colors))
+            if value != "Pas de projet":
+                badges.append(_badge(value, colors.get(value, GREY)))
+        info = [x for x in (
+            deadline and f"⏰ {day_label(deadline)}",
+            row.get("Prix") not in (None, "") and f"{row['Prix']} €",
+            row.get("Téléphone")) if x]
         return ft.Container(
-            ft.Column([ft.Text(row.get("Demande") or "(sans titre)",
-                               size=16), *sub], spacing=4, tight=True),
+            ft.Column([
+                ft.Text(row.get("Demande") or "(sans titre)", size=16),
+                *([ft.Text("  ·  ".join(info), size=13, color=GREY)]
+                  if info else []),
+                ft.Row(badges, wrap=True, spacing=6, run_spacing=6),
+            ], spacing=6, tight=True),
             bgcolor=CARD, border_radius=10, padding=14, ink=True,
             on_click=lambda e: _details(row))
 
