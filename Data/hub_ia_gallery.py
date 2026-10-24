@@ -416,14 +416,21 @@ def build(ui):
         ft.Icons.SPELLCHECK, icon_color=GREEN, visible=False,
         tooltip="Relire le texte du champ (orthographe)",
         on_click=_claude_proofread)
+    def _pane_header(icon, title, color, *trailing):
+        return ft.Column([
+            ft.Row([ft.Icon(icon, color=color, size=18),
+                    ft.Text(title, size=CONSTANTS.TEXT_SM + 1, color=color,
+                            weight=ft.FontWeight.W_700, expand=True),
+                    *trailing], spacing=8, height=36),
+            ft.Divider(height=1, color=color)], spacing=4)
+
     # Panneau Claude à côté de la galerie, toujours affiché.
     claude_view = ft.Container(
         ft.Column([
-            ft.Row([ft.Text("CLAUDE", size=CONSTANTS.TEXT_SM, color=GREY,
-                            weight=ft.FontWeight.W_600, expand=True),
-                    claude_copy]),
+            _pane_header(ft.Icons.AUTO_AWESOME, "Claude", GREEN,
+                         claude_copy),
             ft.Column([claude_md, claude_diff], scroll=ft.ScrollMode.AUTO,
-                      expand=True)], expand=True, spacing=4),
+                      expand=True)], expand=True, spacing=8),
         expand=True, padding=ft.Padding(14, 6, 14, 10), bgcolor=DARK,
         border_radius=CONSTANTS.BUTTON_RADIUS, margin=8)
 
@@ -444,7 +451,12 @@ def build(ui):
     ai_model_dropdown.options.append(ft.dropdown.Option(
         "claude", "Claude"))
     ai_model_dropdown.on_select = _on_model
-    gallery_box = ft.Container(content=ai_gallery, expand=True, padding=8)
+    gallery_box = ft.Container(
+        ft.Column([_pane_header(ft.Icons.IMAGE, "Images", BLUE),
+                   ft.Container(ai_gallery, expand=True)],
+                  expand=True, spacing=8),
+        expand=True, padding=ft.Padding(14, 6, 14, 10), bgcolor=DARK,
+        border_radius=CONSTANTS.BUTTON_RADIUS, margin=8)
 
     ia_surface = ft.Column([
         ft.Container(
