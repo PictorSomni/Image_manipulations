@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.121"
+__version__ = "2.10.122"
 
 import asyncio
 import base64
@@ -530,7 +530,56 @@ def _app(page: ft.Page):
                       expand=True)]),
             bgcolor=CARD, border_radius=10, padding=12,
             on_click=(lambda e: _details(row)) if source == "Tâche"
-            else None)
+            else (lambda e: _event_details(start, source, color, row)))
+
+    def _event_details(start, source, color, row):
+        """Fiche d'un rendez-vous : infos + notes de la page Notion."""
+        title = row.get("Nom") or "—"
+        info = [ft.Text(f"{day_label(start)} "
+                        f"{start[11:16] if len(start) > 10 else ''}",
+                        size=15, color=color)]
+        for label, key in (("État", "État"), ("État", "Etat"),
+                           ("Objets", "Objets"), ("Téléphone", "Téléphone"),
+                           ("E-mail", "Email")):
+            v = row.get(key)
+            if v not in (None, "", []):
+                info.append(ft.Text(f"{label} : " + (
+                    ", ".join(v) if isinstance(v, list) else str(v)),
+                    size=15))
+        actions = []
+        if row.get("Téléphone"):
+            tel = "".join(c for c in row["Téléphone"]
+                          if c.isdigit() or c == "+")
+            actions.append(ft.FilledButton(
+                "Appeler", icon=ft.Icons.PHONE, url=f"tel:{tel}"))
+        notes = ft.Markdown(
+            "Chargement des notes…", selectable=True,
+            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+            on_tap_link=_open_link)
+        notes_box = ft.Container(
+            ft.Column([ft.Text("Notes", size=12, color=GREY), notes],
+                      spacing=4, tight=True),
+            bgcolor=BG, border_radius=8, padding=10)
+
+        def _load_notes():
+            if "_notes" not in row:
+                try:
+                    text = notion_rest._blocks_to_text(_page_id(row))
+                except Exception:
+                    text = ""
+                row["_notes"] = text.replace("<empty-block/>", "").strip()
+            notes.value = row["_notes"] or "_Pas de notes_"
+            page.update()
+        threading.Thread(target=_load_notes, daemon=True).start()
+        sheet.content = ft.Container(ft.Column([
+            ft.Text(title, size=18, weight=ft.FontWeight.BOLD),
+            ft.Text(source, size=12, color=GREY),
+            *info, notes_box, ft.Row(actions)],
+            tight=True, spacing=10, scroll=ft.ScrollMode.AUTO,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+            padding=20)
+        sheet.open = True
+        page.update()
 
     # ── IA ───────────────────────────────────────────────────────────
     prompt = ft.TextField(hint_text="Décris l'image…", multiline=True,
