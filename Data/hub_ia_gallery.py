@@ -220,7 +220,8 @@ def build(ui):
 
     def _ai_gal_add(path):
         check = ft.Checkbox(
-            value=False, fill_color=ft.Colors.with_opacity(0.6, DARK),
+            value=False, active_color=BLUE,
+            scale=CONSTANTS.HUB_TILE_CHECKBOX_SCALE,
             on_change=lambda e, p=path: _ai_gal_toggle(
                 p, e.control.value))
         ai_gal_checks[path] = check
