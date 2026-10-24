@@ -6722,6 +6722,14 @@ def main(page: ft.Page):
         except (OSError, ValueError):
             return None
 
+    # Base = dernière version lue/écrite sur le Pi : permet de fusionner
+    # (hub_sync.sync_put) au lieu d'écraser une édition faite ailleurs.
+    def _sync_base(name, rows=None):
+        path = CONSTANTS.state_file(f".hub_sync_base_{name}.json")
+        if rows is None:
+            return _sync_read_local(path)
+        CONSTANTS.save_json(path, rows)
+
     def _sync_push(path):
         name = _sync_name(path)
         if not name or not hub_sync.available():
@@ -6730,8 +6738,17 @@ def main(page: ft.Page):
         if rows is None:
             return
         try:
-            hub_sync.put(name, rows)
+            base = _sync_base(name)
+            merged = (hub_sync.sync_put(name, base, rows) if base is not None
+                      else (hub_sync.put(name, rows) or rows))
+            _sync_base(name, merged)
             _sync_dirty(name, False)
+            if merged != rows:
+                # Ajouts d'un autre appareil intégrés : copie locale à jour.
+                CONSTANTS.save_json(path, merged)
+                if _liste_file["path"] == path:
+                    _liste_load(pull=False)
+                    _liste_render()
         except Exception as exc:
             _sync_dirty(name, True)
             _log_to_terminal(f"[Synchro] {name} pas envoyée au Pi : {exc}",
@@ -6757,6 +6774,7 @@ def main(page: ft.Page):
         if rows is None:
             _sync_push(path)  # 1re fois : la copie locale amorce le Pi
             return
+        _sync_base(name, rows)
         if rows == _sync_read_local(path):
             return
         _backup_file(path)

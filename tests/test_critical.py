@@ -18,6 +18,7 @@ DATA = Path(__file__).resolve().parent.parent / "Data"
 sys.path.insert(0, str(DATA))
 
 import CONSTANTS  # noqa: E402
+import hub_sync  # noqa: E402
 import imposition  # noqa: E402
 
 
@@ -77,6 +78,43 @@ class TestImposition(unittest.TestCase):
     def test_pas_multiple_de_4(self):
         with self.assertRaises(ValueError):
             imposition.saddle_stitch(6)
+
+
+class TestFusionListes(unittest.TestCase):
+    """hub_sync.merge3 : deux appareils modifient la même liste."""
+    A, B, C = {"t": "a"}, {"t": "b"}, {"t": "c"}
+
+    def test_ajouts_des_deux_cotes(self):
+        base = [self.A]
+        mine = [self.A, {"t": "moi"}]
+        theirs = [self.A, {"t": "autre"}]
+        merged = hub_sync.merge3(base, mine, theirs)
+        self.assertIn({"t": "moi"}, merged)
+        self.assertIn({"t": "autre"}, merged)
+
+    def test_modif_garde_sa_place(self):
+        base = [self.A, self.B, self.C]
+        mine = [self.A, {"t": "b", "fait": "True"}, self.C]
+        theirs = [self.A, self.B, self.C, {"t": "d"}]
+        self.assertEqual(hub_sync.merge3(base, mine, theirs),
+                         [self.A, {"t": "b", "fait": "True"}, self.C,
+                          {"t": "d"}])
+
+    def test_suppression_appliquee(self):
+        base = [self.A, self.B]
+        theirs = [self.A, self.B, self.C]
+        self.assertEqual(hub_sync.merge3(base, [self.A], theirs),
+                         [self.A, self.C])
+
+    def test_reordonner_sans_conflit(self):
+        base = [self.A, self.B, self.C]
+        mine = [self.C, self.A, self.B]
+        self.assertEqual(hub_sync.merge3(base, mine, base), mine)
+
+    def test_doublons(self):
+        base = [self.A, self.A]
+        self.assertEqual(hub_sync.merge3(base, [self.A], base + [self.B]),
+                         [self.A, self.B])
 
 
 class TestLut(unittest.TestCase):
