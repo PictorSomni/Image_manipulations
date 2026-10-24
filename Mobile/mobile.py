@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.94"
+__version__ = "2.10.95"
 
 import base64
 import datetime
@@ -267,10 +267,31 @@ def main(page: ft.Page):
             e, on_click=lambda ev, e=e: _set_etat(row, e),
             style=ft.ButtonStyle(color=c)) for e, c in ETATS
             if e != (row.get("Etat") or "À faire")]
+        # Notes = contenu de la page Notion, chargé à la 1re ouverture.
+        notes = ft.Markdown(
+            row.get("_notes") or "", selectable=True,
+            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+            on_tap_link=_open_link)
+        notes_box = ft.Container(
+            ft.Column([ft.Text("Notes", size=12, color=GREY), notes],
+                      spacing=4, tight=True),
+            bgcolor=BG, border_radius=8, padding=10,
+            visible=bool(row.get("_notes")))
+        if "_notes" not in row:
+            def _load_notes():
+                try:
+                    text = notion_rest._blocks_to_text(_page_id(row))
+                except Exception:
+                    text = ""
+                row["_notes"] = text.replace("<empty-block/>", "").strip()
+                notes.value = row["_notes"]
+                notes_box.visible = bool(row["_notes"])
+                page.update()
+            threading.Thread(target=_load_notes, daemon=True).start()
         sheet.content = ft.Container(ft.Column([
             ft.Text(row.get("Demande") or "(sans titre)", size=18,
                     weight=ft.FontWeight.BOLD),
-            *info, ft.Row(actions),
+            *info, notes_box, ft.Row(actions),
             ft.Text("Déplacer vers", size=12, color=GREY),
             ft.Row(etats, wrap=True, spacing=8, run_spacing=8),
         ], tight=True, spacing=10, scroll=ft.ScrollMode.AUTO),
