@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.2"
+__version__ = "2.10.3"
 
 import base64
 import datetime
@@ -136,7 +136,7 @@ def main(page: ft.Page):
     page.bgcolor = BG
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
-    state = {"etat": "À faire", "tasks": [], "tab": 0, "images": [],
+    state = {"open": {"À faire"}, "tasks": [], "tab": 0, "images": [],
              "shown": 60, "source": None, "format": "1:1", "count": 1,
              "busy": False}
 
@@ -155,6 +155,8 @@ def main(page: ft.Page):
                                      "command": "update_properties",
                                      "properties": {"Etat": etat}})
                 row["Etat"] = etat
+                state["open"].add(etat)
+                status.value = f"Déplacé vers « {etat} »"
             except Exception as exc:
                 status.value = f"Erreur Notion : {exc}"
             render()
@@ -206,19 +208,24 @@ def main(page: ft.Page):
             bgcolor=CARD, border_radius=10, padding=14, ink=True,
             on_click=lambda e: _details(row))
 
-    def _etat_chips():
-        def _pick(e):
-            state["etat"] = e.control.data
-            render()
-        counts = {}
-        for r in state["tasks"]:
-            k = r.get("Etat") or "À faire"
-            counts[k] = counts.get(k, 0) + 1
-        return ft.Row([ft.Chip(
-            label=ft.Text(f"{e} ({counts.get(e, 0)})"), data=e,
-            selected=state["etat"] == e, selected_color=c + "55",
-            on_select=_pick) for e, c in ETATS],
-            scroll=ft.ScrollMode.AUTO, spacing=6)
+    def _etat_sections():
+        """Une liste repliable par état, dans l'ordre manuel de Hub."""
+        def _toggle(e):
+            state["open"] ^= {e.control.data}
+        out = []
+        for etat, color in ETATS:
+            rows = [r for r in state["tasks"]
+                    if (r.get("Etat") or "À faire") == etat]
+            out.append(ft.ExpansionTile(
+                title=ft.Text(f"{etat}  ({len(rows)})", color=color,
+                              weight=ft.FontWeight.BOLD),
+                data=etat, expanded=etat in state["open"],
+                on_change=_toggle, maintain_state=True,
+                controls_padding=ft.Padding(0, 0, 0, 8),
+                controls=[ft.Column([_task_card(r) for r in rows],
+                                    spacing=8)] if rows else
+                [ft.Text("Rien ici", color=GREY)]))
+        return out
 
     # ── Agenda ───────────────────────────────────────────────────────
     def _event_card(start, source, color, row):
@@ -388,11 +395,7 @@ def main(page: ft.Page):
     def render():
         body.controls.clear()
         if state["tab"] == 0:
-            body.controls.append(_etat_chips())
-            rows = [r for r in state["tasks"]
-                    if (r.get("Etat") or "À faire") == state["etat"]]
-            body.controls += [_task_card(r) for r in rows] or [
-                ft.Text("Rien ici", color=GREY)]
+            body.controls += _etat_sections()
         elif state["tab"] == 2:
             body.controls += _ia_view()
         elif state["tab"] == 3:
