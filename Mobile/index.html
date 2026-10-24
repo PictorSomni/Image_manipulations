@@ -95,6 +95,16 @@ textarea { resize: vertical; }
   padding-top: calc(8px + env(safe-area-inset-top)); }
 #sheet .handle { width: 40px; height: 5px; border-radius: 3px;
   background: var(--grey); margin: 0 auto 12px; }
+#sheet .grip { position: sticky; top: -8px; z-index: 1; cursor: grab;
+  touch-action: none; padding: 8px 0 4px; margin: -8px -20px 0;
+  background: inherit; }
+#sheet .close { position: absolute; right: 12px; top: 0; font-size: 18px;
+  padding: 4px 10px; background: none; color: var(--grey); }
+@media (min-width: 700px) {
+  #sheet { left: 50%; right: auto; width: 640px; transform:
+    translateX(-50%); }
+  #sheet.full { top: 4%; bottom: 4%; border-radius: 14px; }
+}
 #sheet h2 { font-size: 18px; margin: 0 0 8px; }
 #sheet > * + * { margin-top: 10px; }
 .row { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
@@ -243,20 +253,33 @@ function seg(options, value, onPick, small) {
 // ── Feuille du bas ───────────────────────────────────────────────────
 function openSheet(kids, full) {
   sheet.className = full ? "full" : "";
-  sheet.replaceChildren(h("div", {class: "handle", onclick: closeSheet}),
-    ...kids);
+  const grip = h("div", {class: "grip"}, h("div", {class: "handle"}),
+    h("button", {class: "close", title: "Fermer", onclick: closeSheet},
+      "✕"));
+  sheet.replaceChildren(grip, ...kids);
+  sheet.style.translate = "";
   sheet.style.display = veil.style.display = "block";
   sheet.scrollTop = 0;
+  // Glisser la poignée vers le bas (doigt ou souris) pour fermer.
+  let y0 = null;
+  grip.addEventListener("pointerdown", e => {
+    if (e.target.closest(".close")) return;
+    y0 = e.clientY; grip.setPointerCapture(e.pointerId); });
+  grip.addEventListener("pointermove", e => {
+    if (y0 != null) sheet.style.translate =
+      `0 ${Math.max(0, e.clientY - y0)}px`; });
+  const end = e => {
+    if (y0 == null) return;
+    const dy = e.clientY - y0; y0 = null;
+    if (dy > 80) closeSheet(); else sheet.style.translate = "";
+  };
+  grip.addEventListener("pointerup", end);
+  grip.addEventListener("pointercancel", end);
 }
 function closeSheet() { sheet.style.display = veil.style.display = "none"; }
 veil.onclick = closeSheet;
-let touchY = null;
-sheet.addEventListener("touchstart", e => {
-  touchY = sheet.scrollTop <= 0 ? e.touches[0].clientY : null; });
-sheet.addEventListener("touchend", e => {
-  if (touchY != null && e.changedTouches[0].clientY - touchY > 90)
-    closeSheet();
-  touchY = null; });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeSheet(); });
 
 // ── Rendu ────────────────────────────────────────────────────────────
 function render() {
