@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
 Hub mobile : Tâches + Agenda pour iPhone / iPad, en web app servie par le
-Pi (Tailscale, http://pictorsomni:8550 → « Ajouter à l'écran d'accueil »).
+Pi (Tailscale, http://100.124.227.50:8550 : le nom court ne résout pas
+sur iOS → « Ajouter à l'écran d'accueil »).
 
 Mêmes données que Hub : Notion (Data/notion_rest.py) pour les cartes et
 l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
