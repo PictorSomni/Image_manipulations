@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.98"
+__version__ = "2.10.99"
 
 import asyncio
 import base64
@@ -6275,6 +6275,11 @@ def main(page: ft.Page):
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0),
         width=120)
 
+    def _ai_gal_sync_buttons():
+        for b in (ai_retouch_button, ai_reuse_button, ai_delete_button):
+            b.disabled = not ai_gal_selected
+        page.update(ai_retouch_button, ai_reuse_button, ai_delete_button)
+
     def _ai_gal_toggle(path, tile):
         if path in ai_gal_selected:
             ai_gal_selected.discard(path)
@@ -6282,14 +6287,51 @@ def main(page: ft.Page):
             ai_gal_selected.add(path)
         tile.border = ft.Border.all(3, BLUE if path in ai_gal_selected
                                     else DARK)
-        ai_retouch_button.disabled = not ai_gal_selected
-        page.update(tile, ai_retouch_button)
+        page.update(tile)
+        _ai_gal_sync_buttons()
+
+    def _ai_gal_reuse(event=None):
+        """Images sélectionnées → jointes à la prochaine demande IA (comme
+        « Modifier avec l'IA » de l'app mobile)."""
+        ai_pending_images.clear()
+        for p in sorted(ai_gal_selected):
+            _ai_attach_image(p)
+        _ai_gal_clear_selection()
+
+    def _ai_gal_delete(event=None):
+        """Corbeille du système (send2trash), sinon dossier « _Supprimés »
+        à côté de l'image — jamais d'effacement définitif."""
+        for p in list(ai_gal_selected):
+            try:
+                try:
+                    from send2trash import send2trash
+                    send2trash(p)
+                except ImportError:
+                    bin_dir = os.path.join(os.path.dirname(p), "_Supprimés")
+                    os.makedirs(bin_dir, exist_ok=True)
+                    shutil.move(p, os.path.join(bin_dir,
+                                                os.path.basename(p)))
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] Suppression {p} : {exc}", RED)
+                continue
+            ai_gallery.controls = [t for t in ai_gallery.controls
+                                   if t.data != p]
+        ai_gal_selected.clear()
+        page.update(ai_gallery)
+        _ai_gal_sync_buttons()
+
+    def _ai_gal_clear_selection():
+        ai_gal_selected.clear()
+        for t in ai_gallery.controls:
+            t.border = ft.Border.all(3, DARK)
+        page.update(ai_gallery)
+        _ai_gal_sync_buttons()
 
     def _ai_gal_add(path):
         tile = ft.Container(
             ft.Image(src=path, fit=ft.BoxFit.CONTAIN),
             border=ft.Border.all(3, DARK), border_radius=6, bgcolor=DARK,
-            tooltip=os.path.basename(path))
+            tooltip=os.path.basename(path), data=path)
         tile.on_click = lambda e, p=path, t=tile: _ai_gal_toggle(p, t)
         ai_gallery.controls.insert(0, tile)
         if state["surface"] == "ia":
@@ -6384,6 +6426,12 @@ def main(page: ft.Page):
     ai_retouch_button = ft.Button(
         "Retouche photo", icon=ft.Icons.TUNE, disabled=True,
         on_click=_ai_open_retouch, height=CONSTANTS.HUB_TOOLBAR_H)
+    ai_reuse_button = ft.IconButton(
+        ft.Icons.AUTO_AWESOME, disabled=True, icon_color=YELLOW,
+        tooltip="Réutiliser dans l'IA", on_click=_ai_gal_reuse)
+    ai_delete_button = ft.IconButton(
+        ft.Icons.DELETE_OUTLINE, disabled=True, icon_color=RED,
+        tooltip="Supprimer (corbeille)", on_click=_ai_gal_delete)
 
     ia_surface = ft.Column([
         ft.Container(
@@ -6404,6 +6452,8 @@ def main(page: ft.Page):
                 ai_aspect_dropdown,
                 ai_count_dropdown,
                 ai_retouch_button,
+                ai_reuse_button,
+                ai_delete_button,
                 _ai_header_separator(),
                 # Voix/copie/bloc-notes/briefing masqués : l'onglet sert
                 # aux images, la conversation passe par Claude (terminal)

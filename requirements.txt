@@ -131,6 +131,9 @@ paramiko>=3.4.0
 # Texte complet des articles dans la page Actus (Data/rss_feeds.py).
 trafilatura>=2.0
 
+# Galerie IA : suppression vers la corbeille du système
+send2trash>=1.8.0
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # WINDOWS UNIQUEMENT
