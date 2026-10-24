@@ -29,7 +29,7 @@ _enum_next() qui passe par la vtable. Ne pas « deviner » une signature :
 l'introspecter (interface._methods_ -> .paramflags) avant de l'appeler.
 """
 
-__version__ = "2.10.83"
+__version__ = "2.10.84"
 
 import ctypes
 import datetime

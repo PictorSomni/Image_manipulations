@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.83"
+__version__ = "2.10.84"
 
 import base64
 import datetime
@@ -28,6 +28,7 @@ from ai_tools import (  # noqa: E402
     _gemini_generate_image, _gemini_refine_image_prompt)
 from PIL import Image  # noqa: E402
 import notion_rest  # noqa: E402
+import rss_feeds  # noqa: E402
 
 KANBAN_DS = "34f4c64b-5c00-4415-99cb-76234faecef1"
 ETATS = [("À faire", "#5B9BD5"), ("En cours / en attente", "#B388FF"),
@@ -146,7 +147,7 @@ def main(page: ft.Page):
     page.padding = 0
     state = {"open": {"À faire"}, "tasks": [], "tab": 0, "images": [],
              "shown": 60, "source": None, "format": "1:1", "count": 1,
-             "busy": False}
+             "busy": False, "news": None, "news_cat": None}
 
     status = ft.Text("", size=12, color=GREY)
     search = ft.TextField(
@@ -430,6 +431,67 @@ def main(page: ft.Page):
                     on_tap_link=_open_link),
                     bgcolor=CARD, border_radius=10, padding=14)]
 
+    # ── Actus (mêmes flux que l'onglet Actus de Hub) ─────────────────
+    CAT_COLORS = dict(zip(rss_feeds.CATEGORIES, ["#B388FF", "#5B9BD5",
+                                                 "#98C379", GREY, "#E59866"]))
+
+    def _load_news(e=None):
+        state["news"] = []
+
+        def _run():
+            try:
+                state["news"] = rss_feeds.fetch_all_feeds()
+            except Exception as exc:
+                status.value = f"Actus : {exc}"
+            render()
+        threading.Thread(target=_run, daemon=True).start()
+        render()
+
+    def _news_card(it):
+        when = it.get("date")
+        meta = " · ".join(x for x in (
+            it.get("source"), when and when.astimezone().strftime(
+                "%d/%m %H:%M")) if x)
+        row = [ft.Column([
+            ft.Text(it.get("title") or "", size=15,
+                    weight=ft.FontWeight.W_500, max_lines=3),
+            ft.Text(meta, size=12,
+                    color=CAT_COLORS.get(it.get("category"), GREY)),
+        ], spacing=4, tight=True, expand=True)]
+        if it.get("image"):
+            row.append(ft.Image(src=it["image"], width=72, height=72,
+                                fit=ft.BoxFit.COVER, border_radius=8,
+                                error_content=ft.Container()))
+        return ft.Container(ft.Row(row, spacing=10), bgcolor=CARD,
+                            border_radius=10, padding=12,
+                            on_click=lambda e, u=it.get("link"):
+                            page.run_task(_launch, u))
+
+    async def _launch(url):
+        if url:
+            await ft.UrlLauncher().launch_url(url)
+
+    def _news_view():
+        if state["news"] is None:
+            _load_news()
+        items = state["news"] or []
+        if not items:
+            return [ft.ProgressRing(), ft.Text("Chargement des flux…",
+                                               color=GREY)]
+
+        def _pick(e):
+            c = e.control.data
+            state["news_cat"] = None if state["news_cat"] == c else c
+            render()
+        chips = ft.Row([ft.Chip(
+            label=ft.Text(c), data=c, selected=state["news_cat"] == c,
+            selected_color=CAT_COLORS[c] + "55", on_select=_pick)
+            for c in rss_feeds.CATEGORIES], scroll=ft.ScrollMode.AUTO,
+            spacing=6)
+        shown = [it for it in items if state["news_cat"] in
+                 (None, it.get("category"))][:80]
+        return [chips, *[_news_card(it) for it in shown]]
+
     # ── Rendu / chargement ───────────────────────────────────────────
     def render():
         search_bar.visible = state["tab"] == 0
@@ -444,6 +506,8 @@ def main(page: ft.Page):
                     or [ft.Text("Aucune carte", color=GREY)]
             else:
                 body.controls += _etat_sections()
+        elif state["tab"] == 5:
+            body.controls += _news_view()
         elif state["tab"] == 4:
             body.controls += _briefing_view()
         elif state["tab"] == 2:
@@ -475,6 +539,8 @@ def main(page: ft.Page):
                 state["tasks"] = load_tasks()
                 state["agenda"] = load_agenda()
                 state["images"] = list_images()
+                if state["tab"] == 5:
+                    state["news"] = rss_feeds.fetch_all_feeds()
                 status.value = ("Mis à jour à "
                                 + datetime.datetime.now().strftime("%H:%M"))
             except Exception as exc:
@@ -500,7 +566,9 @@ def main(page: ft.Page):
             ft.NavigationBarDestination(icon=ft.Icons.PHOTO_LIBRARY_OUTLINED,
                                         label="Galerie"),
             ft.NavigationBarDestination(icon=ft.Icons.WB_SUNNY_OUTLINED,
-                                        label="Briefing")],
+                                        label="Briefing"),
+            ft.NavigationBarDestination(icon=ft.Icons.RSS_FEED_OUTLINED,
+                                        label="Actus")],
         on_change=_tab, bgcolor=CARD)
     page.add(ft.SafeArea(ft.Column([search_bar, body], spacing=0,
                                    expand=True), expand=True))
