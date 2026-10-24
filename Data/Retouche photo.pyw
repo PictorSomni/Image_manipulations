@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.80"
+__version__ = "2.10.81"
 
 #############################################################
 #                          IMPORTS                          #
@@ -309,6 +309,19 @@ def run_pipeline(image, params, *, date_label=None, filename_stem="",
     `cache` (dict, aperçu seulement) : garde le résultat débruitage +
     couleur tant qu'ils ne changent pas — régler un masque ne refait plus
     le débruitage à chaque geste (~10 s par retouche, retour user)."""
+    if cache is not None:
+        # Masques sans aucun réglage (on place / déplace / dimensionne) :
+        # l'image finale est identique → rendu précédent, sans calcul
+        # (retour user : 10 s d'attente à chaque geste sur un masque vide).
+        masks = params.get("masques", [])
+        active = any(m.get("enabled", True) and any(
+            m.get(k) for k in image_ops.MASK_ADJ_KEYS) for m in masks)
+        full_key = (id(image), date_label, filename_stem, ref_size,
+                    repr({k: v for k, v in params.items()
+                          if k != "masques"}),
+                    repr(masks) if active else "")
+        if cache.get("full_key") == full_key:
+            return cache["full"].copy()
     key = (id(image), repr(params["denoise"]), repr(params["couleur"]))
     if cache is not None and cache.get("key") == key:
         result = cache["result"].copy()
@@ -316,9 +329,12 @@ def run_pipeline(image, params, *, date_label=None, filename_stem="",
         result = _pipeline_base(image, params)
         if cache is not None:
             cache["key"], cache["result"] = key, result.copy()
-    return _pipeline_rest(result, params, date_label=date_label,
-                          filename_stem=filename_stem, ref_size=ref_size,
-                          image=image)
+    result = _pipeline_rest(result, params, date_label=date_label,
+                            filename_stem=filename_stem, ref_size=ref_size,
+                            image=image)
+    if cache is not None:
+        cache["full_key"], cache["full"] = full_key, result.copy()
+    return result
 
 
 def _pipeline_base(image, params):

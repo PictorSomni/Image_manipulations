@@ -15,7 +15,7 @@ Toutes les fonctions ci-dessous sont des extractions fidèles de
 noms, `self.xxx` remplacés par des paramètres explicites.
 """
 
-__version__ = "2.10.80"
+__version__ = "2.10.81"
 
 import colorsys
 import functools
@@ -1600,6 +1600,15 @@ def apply_cube_lut(pil_img: Image.Image, lut_name: str,
     except (OSError, ValueError):
         return pil_img
 
+    amount = np.clip(intensity, 0.0, 100.0) / 100.0
+    if np.all(domain_min == 0) and np.all(domain_max == 1):
+        # Même trilinéaire, en C (Pillow) : ~20× plus rapide que numpy,
+        # l'aperçu ne patine plus avec un LUT actif (retour user).
+        src = pil_img.convert("RGB")
+        mapped = src.filter(ImageFilter.Color3DLUT(
+            size, table.reshape(-1, 3).tolist()))
+        return Image.blend(src, mapped, float(amount))
+
     rgb = np.asarray(pil_img.convert("RGB"), dtype=np.float32) / 255.0
     span = np.maximum(domain_max - domain_min, 1e-6)
     coord = np.clip((rgb - domain_min) / span, 0.0, 1.0) * (size - 1)
@@ -1621,7 +1630,6 @@ def apply_cube_lut(pil_img: Image.Image, lut_name: str,
     c1 = c01 * (1 - fg) + c11 * fg
     mapped = c0 * (1 - fb) + c1 * fb
 
-    amount = np.clip(intensity, 0.0, 100.0) / 100.0
     blended = rgb * (1 - amount) + mapped * amount
     return Image.fromarray((np.clip(blended, 0.0, 1.0) * 255).astype(np.uint8))
 
@@ -1709,6 +1717,44 @@ def add_desaturate_extremes(
     return Image.fromarray((np.clip(result, 0.0, 1.0) * 255).astype(np.uint8))
 
 
+_GRAIN_CACHE = {}
+
+
+def _make_grain(amount, color_ratio, chroma_shift, size_px, grain_h, grain_w,
+                w, h, out_w, out_h):
+    """Champ de grain (out_h, out_w, 3) — cf. add_film_grain."""
+    rng = np.random.default_rng()
+    grain_mono = rng.normal(0.0, amount, (grain_h, grain_w, 1)).astype(np.float32)
+
+    if chroma_shift > 0.0:
+        # Couches d'émulsion indépendantes : grain distinct par canal,
+        # chacun agrandi séparément
+        gr = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
+        gg = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
+        gb = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
+        # Décalage diagonal opposé entre R et B (G = référence)
+        shift = round(chroma_shift * size_px)
+        if shift > 0:
+            gr = np.roll(gr, shift=( shift,  shift), axis=(0, 1))
+            gb = np.roll(gb, shift=(-shift, -shift), axis=(0, 1))
+        mono_full = cv2.resize(grain_mono[:, :, 0], (w, h), interpolation=cv2.INTER_CUBIC)
+        mono_w = 1.0 - color_ratio
+        grain = np.stack([
+            mono_full * mono_w + gr * color_ratio,
+            mono_full * mono_w + gg * color_ratio,
+            mono_full * mono_w + gb * color_ratio,
+        ], axis=-1)
+    else:
+        grain_color = rng.normal(0.0, amount, (grain_h, grain_w, 3)).astype(np.float32)
+        grain_small = np.repeat(grain_mono, 3, axis=2) * (1.0 - color_ratio) + grain_color * color_ratio
+        grain = cv2.resize(grain_small, (w, h), interpolation=cv2.INTER_CUBIC)
+    if (w, h) != (out_w, out_h):
+        grain = cv2.resize(grain, (out_w, out_h),
+                           interpolation=cv2.INTER_AREA)
+
+    return grain
+
+
 def add_film_grain(
     pil_img: Image.Image,
     amount: float,
@@ -1747,35 +1793,20 @@ def add_film_grain(
     grain_h = max(1, round(ref_h / size_px_ref))
     grain_w = max(1, round(ref_w / size_px_ref))
 
-    rng = np.random.default_rng()
-    grain_mono = rng.normal(0.0, amount, (grain_h, grain_w, 1)).astype(np.float32)
+    # Grille de grain gardée tant que réglages et tailles ne bougent pas :
+    # l'aperçu ne la régénère plus à chaque geste (retour user : lent), et
+    # le grain ne scintille plus d'un rendu à l'autre.
+    cache_key = (amount, size, color_ratio, chroma_shift, out_w, out_h,
+                 ref_w, ref_h)
+    grain = _GRAIN_CACHE.get(cache_key)
+    if grain is None:
+        grain = _make_grain(amount, color_ratio, chroma_shift, size_px,
+                            grain_h, grain_w, w, h, out_w, out_h)
+        if len(_GRAIN_CACHE) > 8:
+            _GRAIN_CACHE.clear()
+        _GRAIN_CACHE[cache_key] = grain
 
-    if chroma_shift > 0.0:
-        # Couches d'émulsion indépendantes : grain distinct par canal,
-        # chacun agrandi séparément
-        gr = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
-        gg = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
-        gb = cv2.resize(rng.normal(0.0, amount, (grain_h, grain_w)).astype(np.float32), (w, h), interpolation=cv2.INTER_CUBIC)
-        # Décalage diagonal opposé entre R et B (G = référence)
-        shift = round(chroma_shift * size_px)
-        if shift > 0:
-            gr = np.roll(gr, shift=( shift,  shift), axis=(0, 1))
-            gb = np.roll(gb, shift=(-shift, -shift), axis=(0, 1))
-        mono_full = cv2.resize(grain_mono[:, :, 0], (w, h), interpolation=cv2.INTER_CUBIC)
-        mono_w = 1.0 - color_ratio
-        grain = np.stack([
-            mono_full * mono_w + gr * color_ratio,
-            mono_full * mono_w + gg * color_ratio,
-            mono_full * mono_w + gb * color_ratio,
-        ], axis=-1)
-    else:
-        grain_color = rng.normal(0.0, amount, (grain_h, grain_w, 3)).astype(np.float32)
-        grain_small = np.repeat(grain_mono, 3, axis=2) * (1.0 - color_ratio) + grain_color * color_ratio
-        grain = cv2.resize(grain_small, (w, h), interpolation=cv2.INTER_CUBIC)
-    if (w, h) != (out_w, out_h):
-        grain = cv2.resize(grain, (out_w, out_h),
-                           interpolation=cv2.INTER_AREA)
-
+    luma = (0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2])
     luma = (0.299 * img[:, :, 0] + 0.587 * img[:, :, 1] + 0.114 * img[:, :, 2])
     # Parabole centrée sur les mi-tons avec plancher : peak à luma=0.5 (×1.0),
     # ombres/hautes lumières à floor — grain présent partout mais atténué
