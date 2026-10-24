@@ -6182,10 +6182,6 @@ def main(page: ft.Page):
     ai_mic_button = ft.IconButton(
         ft.Icons.MIC_NONE, icon_color=GREY,
         tooltip="Cliquer pour dicter (Gemini)", on_click=_mic_toggle)
-    ai_clear_button = ft.IconButton(
-        ft.Icons.DELETE_OUTLINE, icon_color=RED, icon_size=CONSTANTS.ICON_SM,
-        **SQUARE_BTN,
-        tooltip="Effacer la conversation", on_click=_ai_clear_conversation)
     ai_speaker_button = ft.IconButton(
         icon=ft.Icons.VOLUME_UP if ai_tts_enabled["value"] else ft.Icons.VOLUME_OFF,
         **SQUARE_BTN,
