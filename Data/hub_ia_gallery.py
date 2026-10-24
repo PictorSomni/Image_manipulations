@@ -420,7 +420,8 @@ def build(ui):
                         else mode)
 
     claude_input = ft.TextField(
-        hint_text="Écris à Claude…",
+        hint_text="Choisis un mode à gauche",
+        disabled=True,
         border=CONSTANTS.input_border(GREEN), multiline=True,
         max_lines=6, shift_enter=True, on_submit=_claude_send,
         text_style=ft.TextStyle(size=CONSTANTS.TERMINAL_FONT_SIZE + 2),
@@ -453,7 +454,7 @@ def build(ui):
          "Traduis ce texte en néerlandais (Belgique).",
          "Texte à traduire en néerlandais…"),
     ]
-    claude_mode = {"i": 0}
+    claude_mode = {"i": None}
 
     def _mode_style(selected):
         return ft.ButtonStyle(
@@ -468,18 +469,22 @@ def build(ui):
         for k, b in enumerate(claude_mode_buttons):
             b.style = _mode_style(k == index)
         claude_input.hint_text = claude_presets[index][3]
+        claude_input.disabled = claude_send_button.disabled = False
         page.update()
         try:
             await claude_input.focus()
         except Exception:
             pass
 
+    claude_send_button = ft.IconButton(
+        ft.Icons.SEND, icon_color=GREEN, disabled=True,
+        tooltip="Envoyer à Claude", on_click=_claude_send)
     claude_mode_buttons = [
         _side_btn(label, icon, GREEN,
                   lambda e, k=k: _claude_pick(k), disabled=False)
         for k, (label, icon, _m, _h) in enumerate(claude_presets)]
     for _k, _b in enumerate(claude_mode_buttons):
-        _b.style = _mode_style(_k == 0)
+        _b.style = _mode_style(False)
     claude_side = ft.Column(claude_mode_buttons, spacing=6,
                             scroll=ft.ScrollMode.AUTO)
     image_side = ft.Column([ai_retouch_button, ai_reuse_button,
@@ -517,9 +522,7 @@ def build(ui):
                   expand=True),
         claude_progress,
         ft.Row([claude_input,
-                ft.IconButton(ft.Icons.SEND, icon_color=GREEN,
-                              tooltip="Envoyer à Claude",
-                              on_click=_claude_send)], spacing=4),
+                claude_send_button], spacing=4),
         claude_status)
 
     # Gemini | Muse : le menu reste la source de vérité, masqué.
