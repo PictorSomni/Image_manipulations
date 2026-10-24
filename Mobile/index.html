@@ -84,6 +84,33 @@ textarea { resize: vertical; }
 .md a { color: var(--blue); }
 .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
 .box { background: var(--dark); border-radius: 8px; padding: 10px; }
+/* Accueil : cartes « verre » */
+.glass { background: linear-gradient(160deg, #ffffff0d, #ffffff04);
+  border: 1px solid #ffffff1a; border-radius: 16px; padding: 14px; }
+.glass h3 { margin: 0 0 10px; font-size: 11px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--grey); font-weight: 600;
+  display: flex; }
+.glass h3 span { flex: 1; }
+.glass h3 a { color: var(--blue); text-transform: none;
+  letter-spacing: 0; cursor: pointer; }
+.hello { font-size: 24px; font-weight: 600; }
+.wx { display: flex; align-items: center; gap: 14px; }
+.wx .ico { font-size: 44px; line-height: 1; }
+.wx .deg { font-size: 32px; font-weight: 300; }
+.slot { display: flex; align-items: center; gap: 10px; padding: 9px 10px;
+  border-radius: 10px; background: #00000026; cursor: pointer; }
+.slot + .slot { margin-top: 6px; }
+.slot .hr { width: 44px; color: var(--grey); font-variant-numeric:
+  tabular-nums; font-size: 14px; }
+.slot .tx { flex: 1; min-width: 0; }
+.slot .bar2 { width: 3px; align-self: stretch; border-radius: 2px; }
+.thumbs { display: flex; gap: 10px; align-items: center; }
+.thumbs img { width: 56px; height: 56px; border-radius: 10px;
+  object-fit: cover; flex: none; }
+.clip { max-height: 260px; overflow: hidden; position: relative; }
+.clip::after { content: ""; position: absolute; left: 0; right: 0;
+  bottom: 0; height: 50px; background: linear-gradient(transparent,
+  var(--bg)); }
 /* Feuille du bas */
 #veil { position: fixed; inset: 0; background: #0008; display: none;
   z-index: 10; }
@@ -177,7 +204,7 @@ const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin",
   "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 const TABS = [["tasks", "▦", "Tâches"], ["agenda", "▤", "Agenda"],
   ["lists", "☑", "Listes"], ["ia", "✦", "IA"],
-  ["briefing", "☀", "Briefing"], ["news", "◉", "Actus"]];
+  ["home", "⌂", "Accueil"], ["news", "◉", "Actus"]];
 
 const S = {tab: "tasks", open: "À faire", q: "", tasks: [], agenda: [],
   status: "", lists: null, base: {}, listKind: "liste", lastcat: {},
@@ -185,6 +212,9 @@ const S = {tab: "tasks", open: "À faire", q: "", tasks: [], agenda: [],
   model: "gemini", format: "1:1", quality: "1K", count: 1, refine: true,
   busy: false, iaStatus: "", briefing: null, news: null, newsCat: null};
 try { S.tab = localStorage.getItem("tab") || S.tab; } catch (e) {}
+if (!TABS.some(t => t[0] === S.tab)) S.tab = "home";  // ancien « briefing »
+const localIso = d => `${d.getFullYear()}-${String(d.getMonth() + 1)
+  .padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const main = $("#main"), sheet = $("#sheet"), veil = $("#veil");
@@ -296,7 +326,7 @@ function tab(id) {
   try { localStorage.setItem("tab", id); } catch (e) {}
   if (id === "lists") loadLists();
   if (id === "ia" && !S.images) loadImages();
-  if (id === "briefing") loadBriefing();
+  if (id === "home") loadHome();
   if (id === "news" && !S.news) loadNews();
   main.scrollTop = 0;
   render();
@@ -708,20 +738,97 @@ function openImage(it) {
     true);
 }
 
-// ── Briefing ─────────────────────────────────────────────────────────
-async function loadBriefing() {
-  try { S.briefing = await api("/api/briefing"); } catch (e) {}
+// ── Accueil : la journée sur un écran ─────────────────────────────────
+async function loadHome() {
+  const jobs = [api("/api/briefing").then(d => S.briefing = d),
+    api("/api/weather").then(d => S.weather = d)];
+  if (!S.lists) jobs.push(loadLists());
+  if (!S.news) jobs.push(loadNews());
+  await Promise.allSettled(jobs);
   render();
 }
-function viewBriefing() {
+
+function glass(title, link, onLink, ...kids) {
+  return h("div", {class: "glass"}, h("h3", {}, h("span", {}, title),
+    link ? h("a", {onclick: onLink}, link) : null), ...kids);
+}
+
+function viewHome() {
+  const now = new Date();
+  const todayIso = localIso(now);
+  const hour = now.getHours();
+  const date =
+    `${JOURS[now.getDay()]} ${now.getDate()} ${MOIS[now.getMonth()]}`;
+  const out = [h("div", {}, h("div", {class: "hello"},
+    hour < 12 ? "Bonjour Charles" : hour < 18 ? "Bon après-midi" :
+    "Bonsoir"), h("div", {class: "muted"},
+    date[0].toUpperCase() + date.slice(1)))];
+  const w = S.weather;
+  if (w) out.push(glass("Météo · Leuze", null, null, h("div",
+    {class: "wx"}, h("div", {class: "ico"}, w.icon),
+    h("div", {style: {flex: 1}}, h("div", {class: "deg"},
+      `${w.max}°`, h("span", {class: "muted"}, ` / ${w.min}°`)),
+      h("div", {}, w.label)),
+    h("div", {class: "muted", style: {textAlign: "right"}},
+      `☔ ${w.rain ?? "–"} %`, h("br"), `💨 ${w.wind} km/h`))));
+  // Rendez-vous d'aujourd'hui et de demain
+  const soon = S.agenda.filter(([st, src]) => src !== "Tâche" &&
+    ["Aujourd'hui", "Demain"].includes(dayLabel(st)));
+  out.push(glass("Rendez-vous", "Agenda ›", () => tab("agenda"),
+    ...(soon.length ? soon.map(([st, src, color, row]) => h("div",
+      {class: "slot", onclick: () => eventDetails(st, src, color, row)},
+      h("div", {class: "hr"}, st.length > 10 ? st.slice(11, 16) : "—"),
+      h("div", {class: "tx"}, row.Nom || "—", h("div", {class: "muted"},
+        dayLabel(st) === "Demain" ? `Demain · ${src}` : src)),
+      h("i", {class: "bar2", style: {background: color}}))) :
+      [h("div", {class: "muted"}, "Rien aujourd'hui ni demain")])));
+  // Tâches : échéance dépassée, aujourd'hui ou demain
+  const limit = localIso(new Date(now.getTime() + 864e5));
+  const due = S.tasks.filter(r => r.Etat !== "Terminé" &&
+    r["date:Deadline:start"] && r["date:Deadline:start"].slice(0, 10) <=
+    limit).sort((a, b) => a["date:Deadline:start"] <
+    b["date:Deadline:start"] ? -1 : 1);
+  const todo = S.tasks.filter(r => (r.Etat || "À faire") === "À faire");
+  out.push(glass(`Tâches · ${todo.length} à faire`, "Tâches ›",
+    () => tab("tasks"), ...(due.length ? due.map(r => {
+      const dl = r["date:Deadline:start"];
+      const late = dl.slice(0, 10) < todayIso;
+      return h("div", {class: "slot", onclick: () => taskDetails(r)},
+        h("div", {class: "hr", style: late ? {color: C.red} : null},
+          late ? "retard" : dayLabel(dl) === "Demain" ? "dem." : "auj."),
+        h("div", {class: "tx"}, r.Demande || "(sans titre)"),
+        h("i", {class: "bar2", style: {background:
+          etatColor(r.Etat || "À faire")}}));
+    }) : [h("div", {class: "muted"}, "Aucune échéance proche")])));
+  // Liste « À faire » non faite
+  if (S.lists) {
+    const left = S.lists.liste.filter(r => !isDone(r));
+    out.push(glass(`À faire · ${left.length}`, "Listes ›", () => {
+      S.listKind = "liste"; tab("lists"); },
+      ...left.slice(0, 6).map(r => h("div", {class: "slot",
+        onclick: () => listEdit("liste", r)},
+        h("div", {class: "tx"}, r["tâche"] || ""),
+        h("div", {class: "muted"}, catOf(r)))),
+      left.length > 6 ? h("div", {class: "muted",
+        style: {marginTop: "6px"}}, `+ ${left.length - 6} autres`) :
+        null));
+  }
+  // Briefing du matin (replié, ouvert en entier au tap)
   const b = S.briefing;
-  if (!b) return [h("div", {class: "bar"})];
-  if (!b.text) return [h("div", {class: "muted"}, "Pas encore de briefing")];
-  const d = new Date(b.at * 1000);
-  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1)
-    .padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return [h("div", {class: "muted"}, `${dayLabel(iso)} à ${hm(b.at)}`),
-    h("div", {class: "card", style: {cursor: "auto"}}, md(b.text))];
+  if (b && b.text) out.push(glass(`Briefing · ${hm(b.at)}`, "Lire ›",
+    () => openSheet([md(b.text)]),
+    h("div", {class: "clip", onclick: () => openSheet([md(b.text)])},
+      md(b.text))));
+  // Actus
+  if (S.news) out.push(glass("Actus", "Toutes ›", () => tab("news"),
+    ...S.news.items.slice(0, 3).map(it => h("div", {class: "slot",
+      onclick: () => readArticle(it)}, h("div", {class: "thumbs"},
+        it.image ? h("img", {src: it.image, alt: "",
+          onerror: e => e.target.remove()}) : null,
+        h("div", {class: "tx"}, it.title || "",
+          h("div", {style: {fontSize: "12px",
+            color: newsColor(it.category)}}, newsMeta(it))))))));
+  return out;
 }
 
 // ── Actus ────────────────────────────────────────────────────────────
@@ -776,7 +883,7 @@ function readArticle(it) {
 }
 
 const VIEWS = {tasks: viewTasks, agenda: viewAgenda, lists: viewLists,
-  ia: viewIa, briefing: viewBriefing, news: viewNews};
+  ia: viewIa, home: viewHome, news: viewNews};
 
 // ── Chargement ───────────────────────────────────────────────────────
 async function refresh(force) {
@@ -790,7 +897,7 @@ async function refresh(force) {
   if (force) {
     if (S.tab === "lists") loadLists();
     if (S.tab === "ia") loadImages();
-    if (S.tab === "briefing") loadBriefing();
+    if (S.tab === "home") loadHome();
     if (S.tab === "news") loadNews(true);
   }
   render();

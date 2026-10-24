@@ -24,6 +24,7 @@ import threading
 import time
 import unicodedata
 import urllib.parse
+import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -332,6 +333,49 @@ def _generate(job, text, src, model, aspect, quality, count, refine):
                status=("Erreur : " + err[0][:200]) if err else "")
 
 
+# ── Météo du jour (Open-Meteo, sans clé) : relue une fois par jour ─────
+# Magasin : Leuze (5310 Éghezée).
+WEATHER_AT = (50.54635, 4.9063)
+WEATHER_CACHE = os.path.join(HOME, ".hub_mobile_weather.json")
+# Codes WMO → (emoji, libellé)
+WMO = {0: ("☀️", "Ensoleillé"), 1: ("🌤️", "Plutôt ensoleillé"),
+       2: ("⛅", "Partiellement nuageux"), 3: ("☁️", "Couvert"),
+       45: ("🌫️", "Brouillard"), 48: ("🌫️", "Brouillard givrant"),
+       51: ("🌦️", "Bruine"), 53: ("🌦️", "Bruine"), 55: ("🌦️", "Bruine"),
+       61: ("🌧️", "Pluie faible"), 63: ("🌧️", "Pluie"),
+       65: ("🌧️", "Forte pluie"), 66: ("🌧️", "Pluie verglaçante"),
+       67: ("🌧️", "Pluie verglaçante"), 71: ("🌨️", "Neige faible"),
+       73: ("🌨️", "Neige"), 75: ("❄️", "Forte neige"),
+       77: ("🌨️", "Grésil"), 80: ("🌦️", "Averses"),
+       81: ("🌦️", "Averses"), 82: ("⛈️", "Fortes averses"),
+       85: ("🌨️", "Averses de neige"), 86: ("🌨️", "Averses de neige"),
+       95: ("⛈️", "Orage"), 96: ("⛈️", "Orage et grêle"),
+       99: ("⛈️", "Orage et grêle")}
+
+
+def load_weather():
+    today = datetime.date.today().isoformat()
+    cached = _read_json(WEATHER_CACHE, {})
+    if cached.get("date") == today:
+        return cached
+    lat, lon = WEATHER_AT
+    url = ("https://api.open-meteo.com/v1/forecast?"
+           f"latitude={lat}&longitude={lon}&timezone=Europe%2FBrussels"
+           "&forecast_days=1&daily=weather_code,temperature_2m_max,"
+           "temperature_2m_min,precipitation_probability_max,"
+           "wind_speed_10m_max")
+    with urllib.request.urlopen(url, timeout=10) as r:
+        d = json.load(r)["daily"]
+    icon, label = WMO.get(d["weather_code"][0], ("🌡️", ""))
+    data = {"date": today, "icon": icon, "label": label,
+            "max": round(d["temperature_2m_max"][0]),
+            "min": round(d["temperature_2m_min"][0]),
+            "rain": d["precipitation_probability_max"][0],
+            "wind": round(d["wind_speed_10m_max"][0])}
+    _write_json(WEATHER_CACHE, data)
+    return data
+
+
 # ── Mot de passe (accès public via Funnel) ────────────────────────────
 PASS_FILE = os.path.join(HOME, ".hub_mobile_pass")
 LOGIN_LOG = os.path.join(HOME, ".hub_mobile_login.log")
@@ -500,6 +544,8 @@ class Handler(BaseHTTPRequestHandler):
                               headers={"Cache-Control": "max-age=86400"})
         if path == "/api/job":
             return self._json(_JOBS.get(q.get("id"), {"done": True}))
+        if path == "/api/weather":
+            return self._json(load_weather())
         if path == "/api/briefing":
             try:
                 with open(BRIEFING, encoding="utf-8") as f:
