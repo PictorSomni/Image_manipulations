@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.50"
+__version__ = "2.10.51"
 
 #############################################################
 #                          IMPORTS                          #
@@ -768,6 +768,12 @@ def main(page: ft.Page):
             name = file_names[state["index"]]
             date_label = state["date_label"]
             stem = Path(name).stem
+            if proxy is None or state["source_image"] is None:
+                # Photo pas encore chargée : rien à rendre, le chargement
+                # redemandera un aperçu.
+                with state["live_lock"]:
+                    state["live_running"] = False
+                return
             try:
                 # Copie : curseurs et poignées de masque écrivent dans ces
                 # dicts pendant le rendu (« dictionary changed size »).
