@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.97"
+__version__ = "2.10.98"
 
 import base64
 import datetime
@@ -387,11 +387,23 @@ def main(page: ft.Page):
             rows = [r for r in state["tasks"]
                     if (r.get("Etat") or "À faire") == etat]
             out.append(ft.ExpansionTile(
-                title=ft.Text(f"{etat}  ({len(rows)})", color=color,
-                              weight=ft.FontWeight.BOLD),
+                # En-tête comme les colonnes de Hub : bandeau quasi plein,
+                # texte noir (le fond du tiroir ouvert reste neutre).
+                title=ft.Container(ft.Row([
+                    ft.Text(f"{etat}  ({len(rows)})", color=ft.Colors.BLACK,
+                            weight=ft.FontWeight.W_700, expand=True),
+                    ft.Icon(ft.Icons.EXPAND_LESS if etat in state["open"]
+                            else ft.Icons.EXPAND_MORE,
+                            color=ft.Colors.BLACK)]),
+                    bgcolor=ft.Colors.with_opacity(0.85, color),
+                    border_radius=6, padding=ft.Padding(12, 8, 8, 8)),
+                trailing=ft.Container(width=0),
+                tile_padding=ft.Padding(0, 0, 0, 0),
+                shape=ft.RoundedRectangleBorder(radius=6),
+                collapsed_shape=ft.RoundedRectangleBorder(radius=6),
                 data=etat, expanded=etat in state["open"],
                 on_change=_toggle, maintain_state=True,
-                controls_padding=ft.Padding(0, 0, 0, 8),
+                controls_padding=ft.Padding(0, 8, 0, 8),
                 controls=[ft.Column(
                     [_task_card(r) for r in rows], spacing=8,
                     horizontal_alignment=ft.CrossAxisAlignment.STRETCH)]
