@@ -488,7 +488,7 @@ def build(ui):
     # Images : même principe, le mode d'abord. Les modes « préréglés »
     # travaillent sur l'image jointe ; le texte tapé précise la demande.
     image_presets = [
-        ("Créer", ft.Icons.BRUSH, None, False, "Décris l'image à créer…"),
+        ("Générer", ft.Icons.BRUSH, None, False, "Décris l'image à générer…"),
         ("Modifier", ft.Icons.EDIT, None, True,
          "Décris la modification de l'image jointe…"),
         ("Restaurer", ft.Icons.HEALING,
