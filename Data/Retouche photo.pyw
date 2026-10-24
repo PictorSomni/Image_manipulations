@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.51"
+__version__ = "2.10.52"
 
 #############################################################
 #                          IMPORTS                          #
@@ -292,7 +292,7 @@ def _apply_light_color(result, c):
 
 
 def run_pipeline(image, params, *, date_label=None, filename_stem="",
-                 ref_size=None):
+                 ref_size=None, cache=None):
     """Applique les étapes activées, dans l'ordre : débruiter → couleur →
     virage → LUT → netteté → grain pellicule → copyright. Pure PIL/image_ops,
     aucun appel Flet — appelée identique sur le proxy réduit (aperçu) et
@@ -304,7 +304,25 @@ def run_pipeline(image, params, *, date_label=None, filename_stem="",
     image de RETOUCHE_LOT_REFERENCE_PX (côté le plus petit) puis mis à
     l'échelle vers la résolution réelle de `image` — sans ça, un même
     réglage de netteté paraît beaucoup plus fort sur le proxy d'aperçu
-    (petit) que sur l'export plein format (retour user)."""
+    (petit) que sur l'export plein format (retour user).
+
+    `cache` (dict, aperçu seulement) : garde le résultat débruitage +
+    couleur tant qu'ils ne changent pas — régler un masque ne refait plus
+    le débruitage à chaque geste (~10 s par retouche, retour user)."""
+    key = (id(image), repr(params["denoise"]), repr(params["couleur"]))
+    if cache is not None and cache.get("key") == key:
+        result = cache["result"].copy()
+    else:
+        result = _pipeline_base(image, params)
+        if cache is not None:
+            cache["key"], cache["result"] = key, result.copy()
+    return _pipeline_rest(result, params, date_label=date_label,
+                          filename_stem=filename_stem, ref_size=ref_size,
+                          image=image)
+
+
+def _pipeline_base(image, params):
+    """Débruitage puis Lumière/Couleur globales."""
     result = image.copy()
 
     d = params["denoise"]
@@ -326,7 +344,13 @@ def run_pipeline(image, params, *, date_label=None, filename_stem="",
             result = image_ops.apply_auto_color_cast(
                 result, strength=c["auto_cast"])
         result = _apply_light_color(result, c)
+    return result
 
+
+def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
+                   image):
+    """Masques locaux puis virage, LUT, netteté, grain, copyright."""
+    c = params["couleur"]
     # Masques locaux : mêmes réglages Lumière/Couleur, fondus selon le
     # masque (radial ou linéaire) par-dessus le résultat courant. Un
     # masque « lié » ajoute sa forme au précédent (union, puis inversion
@@ -778,10 +802,16 @@ def main(page: ft.Page):
                 # Copie : curseurs et poignées de masque écrivent dans ces
                 # dicts pendant le rendu (« dictionary changed size »).
                 params_copy = copy.deepcopy(state["params"])
+                t0 = time.perf_counter()
                 result = run_pipeline(
                     proxy, params_copy, date_label=date_label,
                     filename_stem=stem,
-                    ref_size=state["source_image"].size)
+                    ref_size=state["source_image"].size,
+                    cache=state.setdefault("base_cache", {}))
+                took = time.perf_counter() - t0
+                if took > 2:
+                    print(f"[aperçu] rendu lent : {took:.1f} s "
+                          f"({proxy.width}x{proxy.height})")
                 buf = io.BytesIO()
                 image_ops.to_display_profile(result).save(
                     buf, format="JPEG", quality=92)
