@@ -10,7 +10,7 @@ API publique :
                    "source", "category", "image" (url ou "")}
 """
 
-__version__ = "2.10.108"
+__version__ = "2.10.109"
 
 
 import datetime

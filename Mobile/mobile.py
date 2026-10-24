@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.108"
+__version__ = "2.10.109"
 
 import base64
 import datetime
@@ -703,10 +703,7 @@ def main(page: ft.Page):
     # ── Listes (todo + prix, mêmes données que Hub via hub_sync) ─────
     LIST_COLORS = [BLUE, VIOLET, GREEN, C.COLOR_YELLOW_GREEN, C.COLOR_MINT,
                    YELLOW, ORANGE, RED, PINK, C.COLOR_BLUE_DARK]
-    new_item = ft.TextField(hint_text="Nouvelle tâche", dense=True,
-                            border_radius=C.BUTTON_RADIUS, expand=True)
-    new_cat = ft.Dropdown(dense=True, width=150,
-                          border_radius=C.BUTTON_RADIUS)
+    NEW_CAT = "＋ Nouvelle catégorie…"
 
     def _list_load():
         try:
@@ -723,23 +720,82 @@ def main(page: ft.Page):
             status.value = f"Pas enregistré : {exc}"
         render()
 
-    def _list_add(e):
-        text = (new_item.value or "").strip()
-        if not text or not new_cat.value:
-            return
-        state["list_cat"] = new_cat.value
-        state["liste"].append({"catégorie": new_cat.value, "tâche": text,
-                               "fait": "False"})
-        new_item.value = ""
-        _list_save("liste")
-
     def _list_toggle(row, value):
         row["fait"] = str(value)
         _list_save("liste")
 
-    def _list_delete(row):
-        state["liste"].remove(row)
-        _list_save("liste")
+    def _list_edit(name, row=None):
+        """Fiche d'ajout / d'édition : toutes les colonnes de la liste,
+        catégorie obligatoire (existante ou nouvelle)."""
+        rows = state[name]
+        cols = []
+        for r in rows:
+            cols += [k for k in r if k not in cols]
+        cols = [c for c in cols if c not in ("catégorie", "fait")] or (
+            ["tâche"] if name == "liste" else ["article", "prix"])
+        cats = list(dict.fromkeys(
+            str(r.get("catégorie", "")).strip() for r in rows
+            if str(r.get("catégorie", "")).strip()))
+        cur = (row or {}).get("catégorie") or (
+            state.get("list_cat_" + name) if state.get(
+                "list_cat_" + name) in cats else None)
+        new_cat = ft.TextField(label="Nouvelle catégorie", visible=False,
+                               border_radius=C.BUTTON_RADIUS)
+        cat = ft.Dropdown(
+            label="Catégorie", value=cur, expand=True,
+            border_radius=C.BUTTON_RADIUS,
+            options=[ft.DropdownOption(c) for c in cats + [NEW_CAT]])
+
+        def _cat_changed(e):
+            new_cat.visible = cat.value == NEW_CAT
+            page.update()
+        cat.on_select = _cat_changed
+        fields = {c: ft.TextField(
+            label=c.capitalize(), value=str((row or {}).get(c, "") or ""),
+            multiline=True, min_lines=1, max_lines=6,
+            border_radius=C.BUTTON_RADIUS) for c in cols}
+
+        def _ok(e):
+            category = (new_cat.value or "").strip() \
+                if cat.value == NEW_CAT else cat.value
+            if not category:
+                cat.error_text = "Obligatoire"
+                page.update()
+                return
+            target = row if row is not None else {}
+            target["catégorie"] = category
+            for c, f in fields.items():
+                target[c] = f.value or ""
+            if row is None:
+                if name == "liste":
+                    target["fait"] = "False"
+                rows.append(target)
+            state["list_cat_" + name] = category
+            list_sheet.open = False
+            _list_save(name)
+
+        def _del(e):
+            rows.remove(row)
+            list_sheet.open = False
+            _list_save(name)
+        list_sheet.content = ft.Container(ft.Column([
+            ft.Row([cat]), new_cat, *fields.values(),
+            ft.Row([
+                ft.FilledButton("Enregistrer", icon=ft.Icons.CHECK,
+                                on_click=_ok),
+                *([ft.OutlinedButton("Supprimer",
+                                     icon=ft.Icons.DELETE_OUTLINE,
+                                     style=ft.ButtonStyle(color=RED),
+                                     on_click=_del)] if row else [])])],
+            tight=True, spacing=12, scroll=ft.ScrollMode.AUTO,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
+            padding=20)
+        list_sheet.open = True
+        page.update()
+
+    list_sheet = ft.BottomSheet(ft.Container(), bgcolor=CARD,
+                                scrollable=True)
+    page.overlay.append(list_sheet)
 
     def _list_view():
         name = state["list_kind"]
@@ -755,14 +811,9 @@ def main(page: ft.Page):
             return out + [ft.ProgressRing()]
         cats = list(dict.fromkeys(
             str(r.get("catégorie", "")).strip() for r in rows))
-        if name == "liste":
-            new_cat.options = [ft.DropdownOption(c) for c in cats if c]
-            if new_cat.value not in cats:
-                new_cat.value = state.get("list_cat") if state.get(
-                    "list_cat") in cats else None
-            new_item.on_submit = _list_add
-            out.append(ft.Row([new_item, new_cat, ft.IconButton(
-                ft.Icons.ADD, on_click=_list_add)]))
+        out.append(ft.FilledButton(
+            "Ajouter", icon=ft.Icons.ADD,
+            on_click=lambda e: _list_edit(name)))
         for i, cat in enumerate(cats):
             color = LIST_COLORS[i % len(LIST_COLORS)]
             out.append(ft.Container(
@@ -784,18 +835,16 @@ def main(page: ft.Page):
                                 color=GREY if done else None,
                                 style=ft.TextStyle(
                                     decoration=ft.TextDecoration.LINE_THROUGH)
-                                if done else None),
-                        ft.IconButton(ft.Icons.DELETE_OUTLINE,
-                                      icon_color=RED,
-                                      on_click=lambda e, r=r:
-                                      _list_delete(r))])
+                                if done else None)])
                 else:
                     content = ft.Row([
                         ft.Text(r.get("article", ""), expand=True),
                         ft.Text(str(r.get("prix", "")),
                                 weight=ft.FontWeight.W_600)])
                 out.append(ft.Container(content, bgcolor=CARD,
-                                        border_radius=8,
+                                        border_radius=8, ink=True,
+                                        on_click=lambda e, r=r:
+                                        _list_edit(name, r),
                                         padding=ft.Padding(8, 4, 12, 4)))
         return out
 
