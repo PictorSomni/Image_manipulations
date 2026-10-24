@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.119"
+__version__ = "2.10.120"
 
 import asyncio
 import base64
@@ -7334,9 +7334,16 @@ def main(page: ft.Page):
         _liste_quick_build()
         liste_header_row.content = _liste_header()
         liste_header_row.visible = bool(liste_entries)
-        liste_back_to_todo_btn.visible = (
-            _liste_file["path"] != _LISTE_TODO_PATH)
-        liste_prix_btn.visible = _liste_file["path"] != _PRIX_PATH
+        # Autre .json ouvert : ni todo ni tarifs → bouton retour.
+        other = _liste_file["path"] not in (_LISTE_TODO_PATH, _PRIX_PATH)
+        liste_back_to_todo_btn.visible = other
+        liste_mode_seg.selected_index = (
+            1 if _liste_file["path"] == _PRIX_PATH else 0)
+        for i, t in enumerate(liste_mode_texts):
+            t.color = (DARK if i == liste_mode_seg.selected_index
+                       and not other else WHITE)
+        liste_mode_seg.thumb_color = (SURFACE_ACCENT["liste"] if not other
+                                      else GREY)
         known = _liste_categories()
         # Changement de liste : reprendre la catégorie mémorisée de CETTE
         # liste (retour user : un prix ajouté dans "Noël" des tâches).
@@ -7452,12 +7459,16 @@ def main(page: ft.Page):
         liste_search["value"] = ""
         _liste_reload()
 
-    # Un seul des deux visible à la fois (retour user) : € sur la todo
-    # list, « Revenir à la todo list » ailleurs (cf. _liste_render).
-    liste_prix_btn = ft.IconButton(
-        ft.Icons.EURO, **SQUARE_BTN, icon_color=SURFACE_ACCENT["liste"],
-        icon_size=CONSTANTS.ICON_SM, tooltip="Liste de prix",
-        on_click=_liste_open_prix)
+    # Todo ↔ Tarifs en sélecteur glissant, comme l'app mobile (retour
+    # user) ; « Revenir à la todo list » reste pour les autres .json.
+    liste_mode_texts = [ft.Text("À faire", size=CONSTANTS.TEXT_SM),
+                        ft.Text("Tarifs", size=CONSTANTS.TEXT_SM)]
+    liste_mode_seg = ft.CupertinoSlidingSegmentedButton(
+        selected_index=0, controls=liste_mode_texts, bgcolor=DARK,
+        thumb_color=SURFACE_ACCENT["liste"], padding=ft.Padding(4, 6, 4, 6),
+        on_change=lambda e: (_liste_open_prix() if
+                             liste_mode_seg.selected_index == 1
+                             else _liste_back_to_todo()))
 
     liste_back_to_todo_btn = ft.IconButton(
         ft.Icons.CHECKLIST, icon_color=GREEN, icon_size=CONSTANTS.ICON_SM,
@@ -7529,7 +7540,7 @@ def main(page: ft.Page):
                 liste_search_row,
                 liste_path_text,
                 liste_back_to_todo_btn,
-                liste_prix_btn,
+                liste_mode_seg,
                 ft.IconButton(ft.Icons.NOTE_ADD_OUTLINED, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["liste"],
                              icon_size=CONSTANTS.ICON_SM, tooltip="Nouveau fichier .json",
