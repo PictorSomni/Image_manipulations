@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.113"
+__version__ = "2.10.114"
 
 import asyncio
 import base64
@@ -265,27 +265,39 @@ async def main(page: ft.Page):
                          autocorrect=False,
                          border_radius=C.BUTTON_RADIUS, width=280)
 
+    def _log(msg):
+        with open(os.path.join(HOME, ".hub_mobile_login.log"), "a",
+                  encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now():%H:%M:%S} {msg}\n")
+
     async def _login(e):
+        _log(f"clic, valeur={len(field.value or '')} car.")
         # iOS met souvent une majuscule initiale : comparaison sans casse.
         typed = (field.value or "").strip().lower()
-        print(f"[login] essai ({len(typed)} car.)", flush=True)
         if hmac.compare_digest(typed, secret.lower()):
             _FAILS["n"] = 0
+            _log("accepté")
             try:
                 await prefs.set("hub_token", token)
             except Exception as exc:
-                print("[login] mémorisation impossible :", exc, flush=True)
+                _log(f"mémorisation impossible : {exc}")
             page.controls.clear()
-            _app(page)
+            try:
+                _app(page)
+            except Exception:
+                import traceback
+                _log(traceback.format_exc())
             return
         _FAILS["n"] += 1
         await asyncio.sleep(min(2 * _FAILS["n"], 30))  # anti force brute
-        field.error_text = "Mot de passe incorrect"
+        _log(f"refusé ({len(typed)} car., attendu {len(secret)})")
+        error.value = "Mot de passe incorrect"
         field.value = ""
         page.update()
+    error = ft.Text("", color=C.COLOR_RED)
     field.on_submit = _login
     page.add(ft.SafeArea(ft.Container(ft.Column([
-        ft.Text("Hub", size=28, weight=ft.FontWeight.BOLD), field,
+        ft.Text("Hub", size=28, weight=ft.FontWeight.BOLD), field, error,
         ft.FilledButton("Entrer", on_click=_login, width=280)],
         horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=16),
         alignment=ft.Alignment(0, 0), padding=40), expand=True))
