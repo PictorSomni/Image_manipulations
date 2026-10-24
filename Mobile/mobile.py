@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.120"
+__version__ = "2.10.121"
 
 import asyncio
 import base64
@@ -226,15 +226,18 @@ def day_label(iso):
 assert day_label(datetime.date.today().isoformat()) == "Aujourd'hui"
 
 
-def seg(options, value, on_pick):
+def seg(options, value, on_pick, colors=None, size=None):
     """Choix exclusif façon Hub : CupertinoSlidingSegmentedButton,
-    fond sombre, curseur bleu, libellé choisi en noir."""
+    fond sombre, curseur bleu (ou couleur de l'option), libellé choisi
+    en noir."""
     keys = [str(v) for v, _ in options]
     idx = keys.index(str(value)) if str(value) in keys else 0
     return ft.CupertinoSlidingSegmentedButton(
-        selected_index=idx, bgcolor=BG, thumb_color=BLUE,
+        selected_index=idx, bgcolor=BG,
+        thumb_color=colors[idx] if colors else BLUE,
         padding=ft.Padding(4, 6, 4, 6),
-        controls=[ft.Text(t, color=BG if i == idx else None,
+        controls=[ft.Text(t, color=BG if i == idx else None, size=size,
+                          text_align=ft.TextAlign.CENTER, max_lines=2,
                           weight=ft.FontWeight.W_600 if i == idx else None)
                   for i, (_, t) in enumerate(options)],
         on_change=lambda e: on_pick(
@@ -401,22 +404,18 @@ def _app(page: ft.Page):
             tel = "".join(c for c in row["Téléphone"] if c.isdigit() or c == "+")
             actions.append(ft.FilledButton(
                 "Appeler", icon=ft.Icons.PHONE, url=f"tel:{tel}"))
-        etats = [ft.OutlinedButton(
-            e, on_click=lambda ev, e=e: _set_etat(row, e),
-            style=ft.ButtonStyle(color=c)) for e, c in ETATS
-            if e != (row.get("Etat") or "À faire")]
+        # Même sélecteur glissant que Hub (retour user).
+        etat_seg = seg([(e, e) for e, _ in ETATS],
+                       row.get("Etat") or "À faire",
+                       lambda v: _set_etat(row, v),
+                       colors=[c for _, c in ETATS], size=11)
         flag_rows = []
         for prop, colors in FLAGS:
             cur = row.get(prop) or next(iter(colors))
-            flag_rows += [ft.Text(prop, size=12, color=GREY), ft.Row([
-                ft.Container(
-                    ft.Text(v, size=13, color="#000000" if v == cur else c),
-                    bgcolor=c if v == cur else None,
-                    border=ft.Border.all(1, c), border_radius=14,
-                    padding=ft.Padding(10, 4, 10, 4),
-                    on_click=lambda e, p=prop, v=v: _set_prop(row, p, v))
-                for v, c in colors.items()], wrap=True, spacing=6,
-                run_spacing=6)]
+            flag_rows += [ft.Text(prop, size=12, color=GREY), seg(
+                [(v, v) for v in colors], cur,
+                lambda v, p=prop: _set_prop(row, p, v),
+                colors=list(colors.values()), size=11)]
         # Notes = contenu de la page Notion, chargé à la 1re ouverture.
         notes = ft.Markdown(
             row.get("_notes") or "", selectable=True,
@@ -442,8 +441,7 @@ def _app(page: ft.Page):
             ft.Text(row.get("Demande") or "(sans titre)", size=18,
                     weight=ft.FontWeight.BOLD),
             *info, *flag_rows, notes_box, ft.Row(actions),
-            ft.Text("Déplacer vers", size=12, color=GREY),
-            ft.Row(etats, wrap=True, spacing=8, run_spacing=8),
+            ft.Text("État", size=12, color=GREY), etat_seg,
         ], tight=True, spacing=10, scroll=ft.ScrollMode.AUTO,
             horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
             padding=20)
