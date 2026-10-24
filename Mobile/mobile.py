@@ -223,8 +223,11 @@ def _notes(page_id):
 
 
 def _set_props(page_id, props):
+    # Clés aplaties de la lecture (« date:Deadline:start ») → propriété.
+    notion = {k.split(":")[1] if k.startswith("date:") else k: v
+              for k, v in props.items()}
     notion_rest._update({"page_id": page_id, "command": "update_properties",
-                         "properties": props})
+                         "properties": notion})
     for row in _DATA["tasks"] or []:
         if _page_id(row) == page_id:
             row.update(props)

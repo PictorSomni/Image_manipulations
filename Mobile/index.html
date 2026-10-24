@@ -385,16 +385,31 @@ function callBtn(row) {
 }
 
 function taskDetails(row) {
-  const info = [["Deadline", "date:Deadline:start"],
-    ["Téléphone", "Téléphone"], ["E-mail", "E-mail"], ["Prix", "Prix"],
-    ["Créé le", "Créé le"]].filter(([, k]) => row[k] != null &&
-      row[k] !== "" && !(Array.isArray(row[k]) && !row[k].length))
-    .map(([l, k]) => h("div", {}, `${l} : ${row[k]}`));
+  // Champs toujours présents, même vides, pour compléter ou corriger.
+  const field = (label, key, type) => {
+    const inp = h("input", {type, value: (row[key] ?? "") === null ? "" :
+      String(row[key] ?? "").slice(0, type === "date" ? 10 : undefined),
+      inputmode: type === "number" ? "decimal" : null});
+    inp.onchange = () => {
+      const v = inp.value.trim();
+      if (v !== String(row[key] ?? "")) setProps(row, {[key]: v});
+    };
+    return [h("div", {class: "label"}, label), inp];
+  };
+  const title = h("textarea", {rows: 1, style: {fontSize: "18px",
+    fontWeight: 700}}, row.Demande || "");
+  title.onchange = () => setProps(row, {Demande: title.value.trim()});
+  const info = [...field("Deadline", "date:Deadline:start", "date"),
+    ...field("Téléphone", "Téléphone", "tel"),
+    ...field("E-mail", "E-mail", "email"),
+    ...field("Prix", "Prix", "number"),
+    row["Créé le"] ? h("div", {class: "muted"},
+      "Créé le : " + row["Créé le"]) : null];
   const flags = FLAGS.flatMap(([prop, opts]) => [
     h("div", {class: "label"}, prop),
     seg(opts.map(([v, c]) => [v, v, c]), row[prop] || opts[0][0],
       v => { setProps(row, {[prop]: v}); taskDetails(row); }, true)]);
-  openSheet([h("h2", {}, row.Demande || "(sans titre)"), ...info,
+  openSheet([title, ...info,
     ...flags, notesBox(row), h("div", {class: "row"}, callBtn(row)),
     h("div", {class: "label"}, "État"),
     seg(ETATS.map(([e, c]) => [e, e, c]), row.Etat || "À faire", e => {
