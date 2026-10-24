@@ -491,9 +491,6 @@ def build(ui):
         ("Créer", ft.Icons.BRUSH, None, False, "Décris l'image à créer…"),
         ("Modifier", ft.Icons.EDIT, None, True,
          "Décris la modification de l'image jointe…"),
-        ("Fond blanc", ft.Icons.WALLPAPER,
-         "Remplace l'arrière-plan par un fond studio blanc uni, sans "
-         "modifier le sujet.", True, "Précisions éventuelles…"),
         ("Restaurer", ft.Icons.HEALING,
          "Restaure cette photo ancienne : retire rayures, taches et "
          "poussières, corrige la décoloration, garde les visages fidèles "
