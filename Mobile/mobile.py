@@ -34,7 +34,8 @@ import CONSTANTS  # noqa: E402
 import hub_sync  # noqa: E402
 import meta_ai  # noqa: E402
 from ai_tools import (  # noqa: E402
-    _gemini_generate_image, _gemini_refine_image_prompt)
+    _gemini_generate_image, _gemini_interactions_create,
+    _gemini_refine_image_prompt)
 from PIL import Image  # noqa: E402
 import notion_rest  # noqa: E402
 import rss_feeds  # noqa: E402
@@ -376,6 +377,36 @@ def load_weather():
     return data
 
 
+# ── Anecdotes du jour tirées des Actus (Gemini, une fois par jour) ─────
+DIGEST_CACHE = os.path.join(HOME, ".hub_mobile_digest.json")
+DIGEST_PROMPT = (
+    "Voici les titres et résumés d'actus du jour (IA, photo, tech, Apple, "
+    "podcasts). Choisis les 4 plus intéressantes pour un photographe "
+    "passionné de tech et raconte chacune comme une anecdote vivante, en "
+    "français, tutoiement, 2 phrases maximum, sans jargon inutile. "
+    "Format Markdown strict : une puce par anecdote, qui commence par un "
+    "emoji puis un court titre en gras, et finit par la source entre "
+    "parenthèses. Rien d'autre.\n\n{items}")
+
+
+def load_digest():
+    today = datetime.date.today().isoformat()
+    cached = _read_json(DIGEST_CACHE, {})
+    if cached.get("date") == today:
+        return cached
+    items = load_news()[:40]
+    lines = "\n".join(
+        f"- [{it.get('source')}] {it.get('title')} : "
+        f"{(it.get('summary') or '')[:300]}" for it in items)
+    text, _ = _gemini_interactions_create(
+        DIGEST_PROMPT.format(items=lines),
+        model=CONSTANTS.AI_IMAGE_REFINER_MODEL)
+    data = {"date": today, "text": (text or "").strip()}
+    if data["text"]:
+        _write_json(DIGEST_CACHE, data)
+    return data
+
+
 # ── Mot de passe (accès public via Funnel) ────────────────────────────
 PASS_FILE = os.path.join(HOME, ".hub_mobile_pass")
 LOGIN_LOG = os.path.join(HOME, ".hub_mobile_login.log")
@@ -544,6 +575,8 @@ class Handler(BaseHTTPRequestHandler):
                               headers={"Cache-Control": "max-age=86400"})
         if path == "/api/job":
             return self._json(_JOBS.get(q.get("id"), {"done": True}))
+        if path == "/api/digest":
+            return self._json(load_digest())
         if path == "/api/weather":
             return self._json(load_weather())
         if path == "/api/briefing":

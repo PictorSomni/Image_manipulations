@@ -104,6 +104,12 @@ textarea { resize: vertical; }
   tabular-nums; font-size: 14px; }
 .slot .tx { flex: 1; min-width: 0; }
 .slot .bar2 { width: 3px; align-self: stretch; border-radius: 2px; }
+.slot input[type=checkbox] { width: 20px; height: 20px; margin: 0;
+  flex: none; accent-color: var(--blue); }
+.slot.done .tx { color: var(--grey); text-decoration: line-through; }
+.chipbtn { flex: none; font-size: 11px; font-weight: 600; color: #000;
+  border-radius: 6px; padding: 4px 8px; }
+.digest li { margin-bottom: 8px; } .digest ul { padding-left: 18px; }
 .thumbs { display: flex; gap: 10px; align-items: center; }
 .thumbs img { width: 56px; height: 56px; border-radius: 10px;
   object-fit: cover; flex: none; }
@@ -202,17 +208,15 @@ const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi",
   "vendredi", "samedi"];
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin",
   "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-const TABS = [["tasks", "▦", "Tâches"], ["agenda", "▤", "Agenda"],
-  ["lists", "☑", "Listes"], ["ia", "✦", "IA"],
-  ["home", "⌂", "Accueil"], ["news", "◉", "Actus"]];
+const TABS = [["home", "⌂", "Accueil"], ["tasks", "▦", "Tâches"],
+  ["agenda", "▤", "Agenda"], ["lists", "☑", "Listes"], ["ia", "✦", "IA"],
+  ["news", "◉", "Actus"]];
 
-const S = {tab: "tasks", open: "À faire", q: "", tasks: [], agenda: [],
+const S = {tab: "home", open: "À faire", q: "", tasks: [], agenda: [],
   status: "", lists: null, base: {}, listKind: "liste", lastcat: {},
   images: null, shown: 60, picked: new Set(), source: null, prompt: "",
   model: "gemini", format: "1:1", quality: "1K", count: 1, refine: true,
   busy: false, iaStatus: "", briefing: null, news: null, newsCat: null};
-try { S.tab = localStorage.getItem("tab") || S.tab; } catch (e) {}
-if (!TABS.some(t => t[0] === S.tab)) S.tab = "home";  // ancien « briefing »
 const localIso = d => `${d.getFullYear()}-${String(d.getMonth() + 1)
   .padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -323,7 +327,6 @@ function render() {
 }
 function tab(id) {
   S.tab = id;
-  try { localStorage.setItem("tab", id); } catch (e) {}
   if (id === "lists") loadLists();
   if (id === "ia" && !S.images) loadImages();
   if (id === "home") loadHome();
@@ -744,6 +747,7 @@ async function loadHome() {
     api("/api/weather").then(d => S.weather = d)];
   if (!S.lists) jobs.push(loadLists());
   if (!S.news) jobs.push(loadNews());
+  if (!S.digest) jobs.push(api("/api/digest").then(d => S.digest = d));
   await Promise.allSettled(jobs);
   render();
 }
@@ -771,6 +775,10 @@ function viewHome() {
       h("div", {}, w.label)),
     h("div", {class: "muted", style: {textAlign: "right"}},
       `☔ ${w.rain ?? "–"} %`, h("br"), `💨 ${w.wind} km/h`))));
+  // Briefing complet
+  const b = S.briefing;
+  if (b && b.text) out.push(glass(`Briefing · ${dayLabel(localIso(
+    new Date(b.at * 1000)))} ${hm(b.at)}`, null, null, md(b.text)));
   // Rendez-vous d'aujourd'hui et de demain
   const soon = S.agenda.filter(([st, src]) => src !== "Tâche" &&
     ["Aujourd'hui", "Demain"].includes(dayLabel(st)));
@@ -782,15 +790,14 @@ function viewHome() {
         dayLabel(st) === "Demain" ? `Demain · ${src}` : src)),
       h("i", {class: "bar2", style: {background: color}}))) :
       [h("div", {class: "muted"}, "Rien aujourd'hui ni demain")])));
-  // Tâches : échéance dépassée, aujourd'hui ou demain
+  // Échéances proches
   const limit = localIso(new Date(now.getTime() + 864e5));
   const due = S.tasks.filter(r => r.Etat !== "Terminé" &&
     r["date:Deadline:start"] && r["date:Deadline:start"].slice(0, 10) <=
     limit).sort((a, b) => a["date:Deadline:start"] <
     b["date:Deadline:start"] ? -1 : 1);
-  const todo = S.tasks.filter(r => (r.Etat || "À faire") === "À faire");
-  out.push(glass(`Tâches · ${todo.length} à faire`, "Tâches ›",
-    () => tab("tasks"), ...(due.length ? due.map(r => {
+  if (due.length) out.push(glass("Échéances", null, null,
+    ...due.map(r => {
       const dl = r["date:Deadline:start"];
       const late = dl.slice(0, 10) < todayIso;
       return h("div", {class: "slot", onclick: () => taskDetails(r)},
@@ -799,27 +806,54 @@ function viewHome() {
         h("div", {class: "tx"}, r.Demande || "(sans titre)"),
         h("i", {class: "bar2", style: {background:
           etatColor(r.Etat || "À faire")}}));
-    }) : [h("div", {class: "muted"}, "Aucune échéance proche")])));
-  // Liste « À faire » non faite
-  if (S.lists) {
-    const left = S.lists.liste.filter(r => !isDone(r));
-    out.push(glass(`À faire · ${left.length}`, "Listes ›", () => {
-      S.listKind = "liste"; tab("lists"); },
-      ...left.slice(0, 6).map(r => h("div", {class: "slot",
-        onclick: () => listEdit("liste", r)},
-        h("div", {class: "tx"}, r["tâche"] || ""),
-        h("div", {class: "muted"}, catOf(r)))),
-      left.length > 6 ? h("div", {class: "muted",
-        style: {marginTop: "6px"}}, `+ ${left.length - 6} autres`) :
+    })));
+  // Tâches par état (À faire, En cours…) : tap = fiche, pastille = état
+  // suivant en un geste.
+  const next = e => ETATS[Math.min(ETATS.findIndex(x => x[0] === e) + 1,
+    ETATS.length - 1)][0];
+  for (const [etat, color] of ETATS.slice(0, 2)) {
+    const rows = S.tasks.filter(r => (r.Etat || "À faire") === etat);
+    out.push(glass(`${etat} · ${rows.length}`, "Tâches ›", () => {
+      S.open = etat; tab("tasks"); },
+      ...rows.slice(0, 6).map(r => h("div", {class: "slot",
+        onclick: () => taskDetails(r)},
+        h("i", {class: "bar2", style: {background: color}}),
+        h("div", {class: "tx"}, r.Demande || "(sans titre)",
+          r["Téléphone"] ? h("div", {class: "muted"}, r["Téléphone"]) :
+            null),
+        h("button", {class: "chipbtn", style: {background:
+          etatColor(next(etat))}, onclick: e => {
+            e.stopPropagation();
+            S.status = `« ${r.Demande} » → ${next(etat)}`;
+            setProps(r, {Etat: next(etat)});
+          }}, "→ " + next(etat).split(" /")[0]))),
+      rows.length > 6 ? h("div", {class: "muted",
+        style: {marginTop: "6px"}}, `+ ${rows.length - 6} autres`) :
         null));
   }
-  // Briefing du matin (replié, ouvert en entier au tap)
-  const b = S.briefing;
-  if (b && b.text) out.push(glass(`Briefing · ${hm(b.at)}`, "Lire ›",
-    () => openSheet([md(b.text)]),
-    h("div", {class: "clip", onclick: () => openSheet([md(b.text)])},
-      md(b.text))));
-  // Actus
+  // Liste « À faire » : cocher directement
+  if (S.lists) {
+    const left = S.lists.liste.filter(r => !isDone(r));
+    out.push(glass(`Liste à faire · ${left.length}`, "Listes ›", () => {
+      S.listKind = "liste"; tab("lists"); },
+      ...left.slice(0, 8).map(r => h("div", {class: "slot",
+        onclick: () => listEdit("liste", r)},
+        h("input", {type: "checkbox", onclick: e => e.stopPropagation(),
+          onchange: e => { r.fait = e.target.checked ? "True" : "False";
+            saveList("liste"); }}),
+        h("div", {class: "tx"}, r["tâche"] || ""),
+        h("div", {class: "muted"}, catOf(r)))),
+      left.length > 8 ? h("div", {class: "muted",
+        style: {marginTop: "6px"}}, `+ ${left.length - 8} autres`) :
+        null,
+      h("button", {class: "btn txt", style: {padding: "8px 0 0"},
+        onclick: () => listEdit("liste")}, "＋ Ajouter")));
+  }
+  // Anecdotes du jour tirées des actus
+  if (S.digest && S.digest.text) out.push(glass("Le saviez-tu ?",
+    "Actus ›", () => tab("news"),
+    h("div", {class: "digest"}, md(S.digest.text))));
+  // Dernières actus
   if (S.news) out.push(glass("Actus", "Toutes ›", () => tab("news"),
     ...S.news.items.slice(0, 3).map(it => h("div", {class: "slot",
       onclick: () => readArticle(it)}, h("div", {class: "thumbs"},
