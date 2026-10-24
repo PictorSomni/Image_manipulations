@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.111"
+__version__ = "2.10.112"
 
 import asyncio
 import base64
@@ -245,6 +245,7 @@ def _token():
 async def main(page: ft.Page):
     secret, token = _token()
     prefs = ft.SharedPreferences()
+    page.services.append(prefs)  # service non enregistré = appels muets
     if not secret:
         page.add(ft.Text("Mot de passe absent sur le Pi"))
         return
@@ -265,7 +266,10 @@ async def main(page: ft.Page):
     async def _login(e):
         if hmac.compare_digest((field.value or "").strip(), secret):
             _FAILS["n"] = 0
-            await prefs.set("hub_token", token)
+            try:
+                await prefs.set("hub_token", token)
+            except Exception as exc:
+                print("[login] mémorisation impossible :", exc, flush=True)
             page.controls.clear()
             _app(page)
             return
