@@ -9,9 +9,11 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.1"
+__version__ = "2.10.2"
 
+import base64
 import datetime
+import io
 import os
 import sys
 import threading
@@ -19,7 +21,11 @@ import threading
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "Data"))
 import flet as ft  # noqa: E402
+import CONSTANTS  # noqa: E402
 import hub_sync  # noqa: E402
+from ai_tools import (  # noqa: E402
+    _gemini_generate_image, _gemini_refine_image_prompt)
+from PIL import Image  # noqa: E402
 import notion_rest  # noqa: E402
 
 KANBAN_DS = "34f4c64b-5c00-4415-99cb-76234faecef1"
@@ -34,6 +40,48 @@ JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi",
          "dimanche"]
 MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
         "août", "septembre", "octobre", "novembre", "décembre"]
+
+
+HOME = os.path.expanduser("~")
+IA_DIR = os.path.join(HOME, "IA")
+# Galerie : dossiers d'images du Pi (pas les sites web / modules en dev).
+GALLERY_ROOTS = [IA_DIR, os.path.join(HOME, "Pictures"),
+                 os.path.join(HOME, "partage"),
+                 os.path.join(HOME, "hub_inbox"),
+                 os.path.join(HOME, "Documents", "Studio C"),
+                 os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "..", "Generated")]
+IMG_EXT = (".png", ".jpg", ".jpeg", ".webp")
+FORMATS = [("1:1", "Carré"), ("2:3", "Portrait"), ("3:2", "Paysage")]
+_thumbs = {}
+
+
+def list_images():
+    """Toutes les images des GALLERY_ROOTS, les plus récentes d'abord."""
+    found = {}
+    for root in GALLERY_ROOTS:
+        for d, _dirs, files in os.walk(root):
+            for f in files:
+                if f.lower().endswith(IMG_EXT):
+                    path = os.path.realpath(os.path.join(d, f))
+                    try:
+                        found[path] = os.path.getmtime(path)
+                    except OSError:
+                        pass
+    return sorted(found, key=found.get, reverse=True)
+
+
+def thumb(path, size=360):
+    """Vignette JPEG (bytes), en cache par (chemin, date)."""
+    key = (path, os.path.getmtime(path), size)
+    if key not in _thumbs:
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            im.thumbnail((size, size))
+            buf = io.BytesIO()
+            im.save(buf, "JPEG", quality=80)
+        _thumbs[key] = buf.getvalue()
+    return _thumbs[key]
 
 
 def _query(ds):
@@ -88,7 +136,9 @@ def main(page: ft.Page):
     page.bgcolor = BG
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 0
-    state = {"etat": "À faire", "tasks": [], "tab": 0}
+    state = {"etat": "À faire", "tasks": [], "tab": 0, "images": [],
+             "shown": 60, "source": None, "format": "1:1", "count": 1,
+             "busy": False}
 
     status = ft.Text("", size=12, color=GREY)
     body = ft.ListView(expand=True, spacing=8,
@@ -185,6 +235,155 @@ def main(page: ft.Page):
                       expand=True)]),
             bgcolor=CARD, border_radius=10, padding=12)
 
+    # ── IA ───────────────────────────────────────────────────────────
+    prompt = ft.TextField(hint_text="Décris l'image…", multiline=True,
+                          min_lines=3, max_lines=8, border_radius=10)
+    ia_status = ft.Text("", size=13, color=GREY)
+    picker = ft.FilePicker()
+    page.services.append(picker)
+
+    async def _pick(e):
+        files = await picker.pick_files(file_type=ft.FilePickerFileType.IMAGE,
+                                        with_data=True)
+        if files and files[0].bytes:
+            os.makedirs(IA_DIR, exist_ok=True)
+            path = os.path.join(IA_DIR, "source_" + datetime.datetime.now()
+                                .strftime("%Y%m%d_%H%M%S_") + files[0].name)
+            with open(path, "wb") as f:
+                f.write(files[0].bytes)
+            state["source"] = path
+            render()
+
+    def _generate(e):
+        text = (prompt.value or "").strip()
+        if not text or state["busy"]:
+            return
+        state["busy"] = True
+        src = state["source"]
+        src_bytes = open(src, "rb").read() if src else None
+        n, aspect = state["count"], state["format"]
+        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        kind = "edited" if src_bytes else "generated"
+        os.makedirs(IA_DIR, exist_ok=True)
+
+        def _run():
+            ia_status.value = "✍️ Affinage de la demande…"
+            page.update()
+            try:
+                refined = _gemini_refine_image_prompt(
+                    intent_prompt=text, user_request=text,
+                    mode="edit_image" if src_bytes else "generate_image",
+                    source_filename=os.path.basename(src or ""),
+                    model=CONSTANTS.AI_IMAGE_REFINER_MODEL)
+            except Exception:
+                refined = text
+            ia_status.value = f"🎨 {n} image(s) en cours…"
+            page.update()
+            left = {"n": n, "err": []}
+            done = threading.Event()
+
+            def _one(i):
+                try:
+                    msg, img = _gemini_generate_image(
+                        refined, input_image_bytes=src_bytes,
+                        aspect_ratio=aspect, resolution="1K")
+                except Exception as exc:
+                    msg, img = str(exc), None
+                if img:
+                    with open(os.path.join(
+                            IA_DIR, f"{kind}_{stamp}_{i + 1}.png"),
+                            "wb") as f:
+                        f.write(img)
+                else:
+                    left["err"].append(msg)
+                left["n"] -= 1
+                if left["n"] == 0:
+                    done.set()
+            for i in range(n):
+                threading.Thread(target=_one, args=(i,), daemon=True).start()
+            done.wait()
+            state["busy"] = False
+            ia_status.value = ("Erreur : " + left["err"][0][:200]
+                               if left["err"] else "")
+            state["images"] = list_images()
+            render()
+        threading.Thread(target=_run, daemon=True).start()
+        render()
+
+    def _ia_view():
+        def _seg(options, key, cast=str):
+            def _on(e):
+                state[key] = cast(next(iter(e.control.selected)))
+                render()
+            return ft.SegmentedButton(
+                segments=[ft.Segment(value=str(v), label=ft.Text(t))
+                          for v, t in options],
+                selected=[str(state[key])], on_change=_on)
+        src = state["source"]
+        src_row = ft.Row([
+            ft.OutlinedButton("Photo source", icon=ft.Icons.ADD_PHOTO_ALTERNATE,
+                              on_click=_pick)])
+        if src:
+            src_row.controls = [
+                ft.Image(src=thumb(src, 200), width=72, height=72,
+                         fit=ft.BoxFit.COVER, border_radius=8),
+                ft.Text(os.path.basename(src), size=12, color=GREY,
+                        expand=True),
+                ft.IconButton(ft.Icons.CLOSE, on_click=lambda e: (
+                    state.update(source=None), render()))]
+        recent = [p for p in state["images"]
+                  if os.path.dirname(p) == os.path.realpath(IA_DIR)][:8]
+        return [prompt, src_row,
+                _seg(FORMATS, "format"),
+                _seg([(n, f"×{n}") for n in (1, 2, 3, 4)], "count", int),
+                ft.FilledButton("Générer", icon=ft.Icons.AUTO_AWESOME,
+                                on_click=_generate, disabled=state["busy"],
+                                height=48),
+                ft.ProgressBar(visible=state["busy"]), ia_status,
+                *([ft.Text("Récentes", size=14, color=GREY,
+                           weight=ft.FontWeight.BOLD),
+                   _grid(recent)] if recent else [])]
+
+    # ── Galerie ──────────────────────────────────────────────────────
+    def _open_image(path):
+        def _use(e):
+            state["source"] = path
+            state["tab"] = 2
+            page.navigation_bar.selected_index = 2
+            sheet.open = False
+            render()
+        sheet.content = ft.Container(ft.Column([
+            ft.Image(src=thumb(path, 1400), fit=ft.BoxFit.CONTAIN),
+            ft.Text(os.path.relpath(path, HOME), size=12, color=GREY),
+            ft.FilledButton("Modifier avec l'IA", icon=ft.Icons.AUTO_AWESOME,
+                            on_click=_use),
+        ], tight=True, spacing=10, scroll=ft.ScrollMode.AUTO), padding=16)
+        sheet.open = True
+        page.update()
+
+    def _grid(paths):
+        tiles = []
+        for p in paths:
+            try:
+                data = thumb(p)
+            except Exception:
+                continue
+            tiles.append(ft.Container(
+                ft.Image(src=data, fit=ft.BoxFit.COVER),
+                border_radius=6, clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                on_click=lambda e, p=p: _open_image(p),
+                col={"xs": 4, "md": 3, "lg": 2}, aspect_ratio=1))
+        return ft.ResponsiveRow(tiles, spacing=4, run_spacing=4)
+
+    def _gallery_view():
+        imgs = state["images"]
+        out = [ft.Text(f"{len(imgs)} images", size=12, color=GREY),
+               _grid(imgs[:state["shown"]])]
+        if len(imgs) > state["shown"]:
+            out.append(ft.TextButton("Plus", on_click=lambda e: (
+                state.update(shown=state["shown"] + 60), render())))
+        return out
+
     # ── Rendu / chargement ───────────────────────────────────────────
     def render():
         body.controls.clear()
@@ -194,6 +393,10 @@ def main(page: ft.Page):
                     if (r.get("Etat") or "À faire") == state["etat"]]
             body.controls += [_task_card(r) for r in rows] or [
                 ft.Text("Rien ici", color=GREY)]
+        elif state["tab"] == 2:
+            body.controls += _ia_view()
+        elif state["tab"] == 3:
+            body.controls += _gallery_view()
         else:
             last = None
             for start, source, color, row in state.get("agenda", []):
@@ -218,6 +421,7 @@ def main(page: ft.Page):
             try:
                 state["tasks"] = load_tasks()
                 state["agenda"] = load_agenda()
+                state["images"] = list_images()
                 status.value = ("Mis à jour à "
                                 + datetime.datetime.now().strftime("%H:%M"))
             except Exception as exc:
@@ -237,7 +441,11 @@ def main(page: ft.Page):
             ft.NavigationBarDestination(icon=ft.Icons.VIEW_KANBAN_OUTLINED,
                                         label="Tâches"),
             ft.NavigationBarDestination(icon=ft.Icons.CALENDAR_MONTH_OUTLINED,
-                                        label="Agenda")],
+                                        label="Agenda"),
+            ft.NavigationBarDestination(icon=ft.Icons.AUTO_AWESOME_OUTLINED,
+                                        label="IA"),
+            ft.NavigationBarDestination(icon=ft.Icons.PHOTO_LIBRARY_OUTLINED,
+                                        label="Galerie")],
         on_change=_tab, bgcolor=CARD)
     page.add(ft.SafeArea(body, expand=True))
     refresh()
@@ -245,4 +453,6 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     ft.run(main, view=ft.AppView.WEB_BROWSER, host="0.0.0.0",
+           assets_dir=os.path.join(os.path.dirname(
+               os.path.abspath(__file__)), "assets"),
            port=int(os.environ.get("HUB_MOBILE_PORT", 8550)))
