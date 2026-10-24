@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.84"
+__version__ = "2.10.85"
 
 import base64
 import datetime
@@ -116,6 +116,18 @@ def load_tasks():
     old = sorted((r for r in rows if _page_id(r) in pos),
                  key=lambda r: pos[_page_id(r)])
     return new + old
+
+
+_NEWS = {"items": None, "at": 0}
+
+
+def load_news(max_age=900):
+    """Flux Actus partagés entre sessions, rechargés après 15 min."""
+    import time
+    if _NEWS["items"] is None or time.time() - _NEWS["at"] > max_age:
+        _NEWS["items"] = rss_feeds.fetch_all_feeds()
+        _NEWS["at"] = time.time()
+    return _NEWS["items"]
 
 
 def load_agenda(days=60):
@@ -243,8 +255,10 @@ def main(page: ft.Page):
                 data=etat, expanded=etat in state["open"],
                 on_change=_toggle, maintain_state=True,
                 controls_padding=ft.Padding(0, 0, 0, 8),
-                controls=[ft.Column([_task_card(r) for r in rows],
-                                    spacing=8)] if rows else
+                controls=[ft.Column(
+                    [_task_card(r) for r in rows], spacing=8,
+                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH)]
+                if rows else
                 [ft.Text("Rien ici", color=GREY)]))
         return out
 
@@ -359,8 +373,6 @@ def main(page: ft.Page):
                         expand=True),
                 ft.IconButton(ft.Icons.CLOSE, on_click=lambda e: (
                     state.update(source=None), render()))]
-        recent = [p for p in state["images"]
-                  if os.path.dirname(p) == os.path.realpath(IA_DIR)][:8]
         return [prompt, src_row,
                 _seg(FORMATS, "format"),
                 _seg([(n, f"×{n}") for n in (1, 2, 3, 4)], "count", int),
@@ -368,18 +380,16 @@ def main(page: ft.Page):
                                 on_click=_generate, disabled=state["busy"],
                                 height=48),
                 ft.ProgressBar(visible=state["busy"]), ia_status,
-                *([ft.Text("Récentes", size=14, color=GREY,
-                           weight=ft.FontWeight.BOLD),
-                   _grid(recent)] if recent else [])]
+                ft.Divider(height=16),
+                *_gallery_view()]
 
     # ── Galerie ──────────────────────────────────────────────────────
     def _open_image(path):
         def _use(e):
             state["source"] = path
-            state["tab"] = 2
-            page.navigation_bar.selected_index = 2
             sheet.open = False
             render()
+            page.run_task(body.scroll_to, 0, None, None, 300)
         sheet.content = ft.Container(ft.Column([
             ft.Image(src=thumb(path, 1400), fit=ft.BoxFit.CONTAIN),
             ft.Text(os.path.relpath(path, HOME), size=12, color=GREY),
@@ -405,7 +415,8 @@ def main(page: ft.Page):
 
     def _gallery_view():
         imgs = state["images"]
-        out = [ft.Text(f"{len(imgs)} images", size=12, color=GREY),
+        out = [ft.Text(f"Galerie · {len(imgs)} images", size=14,
+                       color=GREY, weight=ft.FontWeight.BOLD),
                _grid(imgs[:state["shown"]])]
         if len(imgs) > state["shown"]:
             out.append(ft.TextButton("Plus", on_click=lambda e: (
@@ -440,7 +451,7 @@ def main(page: ft.Page):
 
         def _run():
             try:
-                state["news"] = rss_feeds.fetch_all_feeds()
+                state["news"] = load_news()
             except Exception as exc:
                 status.value = f"Actus : {exc}"
             render()
@@ -506,14 +517,12 @@ def main(page: ft.Page):
                     or [ft.Text("Aucune carte", color=GREY)]
             else:
                 body.controls += _etat_sections()
-        elif state["tab"] == 5:
-            body.controls += _news_view()
         elif state["tab"] == 4:
+            body.controls += _news_view()
+        elif state["tab"] == 3:
             body.controls += _briefing_view()
         elif state["tab"] == 2:
             body.controls += _ia_view()
-        elif state["tab"] == 3:
-            body.controls += _gallery_view()
         else:
             last = None
             for start, source, color, row in state.get("agenda", []):
@@ -539,8 +548,8 @@ def main(page: ft.Page):
                 state["tasks"] = load_tasks()
                 state["agenda"] = load_agenda()
                 state["images"] = list_images()
-                if state["tab"] == 5:
-                    state["news"] = rss_feeds.fetch_all_feeds()
+                if state["tab"] == 4:
+                    state["news"] = load_news(max_age=0)
                 status.value = ("Mis à jour à "
                                 + datetime.datetime.now().strftime("%H:%M"))
             except Exception as exc:
@@ -563,8 +572,6 @@ def main(page: ft.Page):
                                         label="Agenda"),
             ft.NavigationBarDestination(icon=ft.Icons.AUTO_AWESOME_OUTLINED,
                                         label="IA"),
-            ft.NavigationBarDestination(icon=ft.Icons.PHOTO_LIBRARY_OUTLINED,
-                                        label="Galerie"),
             ft.NavigationBarDestination(icon=ft.Icons.WB_SUNNY_OUTLINED,
                                         label="Briefing"),
             ft.NavigationBarDestination(icon=ft.Icons.RSS_FEED_OUTLINED,
@@ -576,6 +583,7 @@ def main(page: ft.Page):
 
 
 if __name__ == "__main__":
+    threading.Thread(target=load_news, daemon=True).start()
     ft.run(main, view=ft.AppView.WEB_BROWSER, host="0.0.0.0",
            assets_dir=os.path.join(os.path.dirname(
                os.path.abspath(__file__)), "assets"),

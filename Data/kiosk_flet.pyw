@@ -12,7 +12,7 @@ Remplace la version Qt6 originale (main.py) avec :
 Dépendances : flet, Pillow (PIL)
 """
 
-__version__ = "2.10.84"
+__version__ = "2.10.85"
 
 import flet as ft
 import os
