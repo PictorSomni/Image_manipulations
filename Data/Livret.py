@@ -41,6 +41,7 @@ from pathlib import Path
 from PIL import Image, ImageFile, ImageOps
 import image_ops
 import CONSTANTS
+import imposition
 
 #############################################################
 #                           PATH                            #
@@ -149,10 +150,8 @@ print(f"{n} pages -> {sheets} feuille(s) recto-verso")
 # feuille — algorithme standard des logiciels de "booklet printing"
 # (ex. psbook), garanti de retomber juste car n est un multiple de 4.
 output_pages = []
-for s in range(sheets):
-    front_left, front_right = n - 2 * s, 2 * s + 1
-    back_left, back_right = 2 * s + 2, n - 2 * s - 1
-
+for (front_left, front_right), (back_left, back_right) in \
+        imposition.saddle_stitch(n):
     front = Image.new("RGB", (cell_w * 2, cell_h), "white")
     front.paste(pages[front_left - 1], (0, 0))
     front.paste(pages[front_right - 1], (cell_w, 0))

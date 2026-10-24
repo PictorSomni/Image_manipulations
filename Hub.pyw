@@ -140,15 +140,16 @@ _HUB_SYNCED = {_KANBAN_CACHE_FILE: "kanban", _KANBAN_TRASH_FILE: "corbeille",
 
 
 def _save_json(path, data):
-    CONSTANTS.save_json(path, data)
+    ok = CONSTANTS.save_json(path, data)
     name = _HUB_SYNCED.get(path)
-    if name and hub_sync.available():
+    if ok and name and hub_sync.available():
         def _push():
             try:
                 hub_sync.put(name, data)
             except Exception:
                 pass  # Notion reste la source, prochaine écriture rattrape
         threading.Thread(target=_push, daemon=True).start()
+    return ok
 
 
 def _hub_sync_pull_all():
@@ -2564,21 +2565,8 @@ def main(page: ft.Page):
         kiosk_flet.pyw::_get_unit_price (CONSTANTS.STUDIOS / CONSTANTS.PRINTS),
         piloté par state["tariff_mode"]. `None` si le format (nom du
         sous-dossier) n'est pas tarifé."""
-        format_name = CONSTANTS.PRICE_ALIASES.get(format_name, format_name)
-        if state["tariff_mode"] == "STUDIOS":
-            return CONSTANTS.STUDIOS.get(format_name)
-        tiers = CONSTANTS.PRINTS.get(format_name)
-        if tiers is None:
-            return None
-        if total_count <= 10:
-            return tiers[0]
-        if total_count <= 50:
-            return tiers[1]
-        if total_count <= 100:
-            return tiers[2]
-        if total_count <= 200:
-            return tiers[3]
-        return tiers[4]
+        return CONSTANTS.unit_price(format_name, total_count,
+                                    state["tariff_mode"])
 
     def _update_commande_file(event=None):
         """(Re)génère commande.txt à la racine du dossier ouvert à partir
@@ -6576,18 +6564,8 @@ def main(page: ft.Page):
     _ORDER_SETUP_FEE = CONSTANTS.ORDER_SETUP_FEE
 
     def _order_unit_price(fmt, total_count):
-        tiers = _ORDER_TARIFF.get(fmt)
-        if not tiers:
-            return 0.0
-        if total_count <= 10:
-            return tiers[0]
-        if total_count <= 50:
-            return tiers[1]
-        if total_count <= 100:
-            return tiers[2]
-        if total_count <= 200:
-            return tiers[3]
-        return tiers[4]
+        # Carrés inclus (PRICE_ALIASES), absents de l'ancienne copie.
+        return CONSTANTS.unit_price(fmt, total_count) or 0.0
 
     def _order_lines():
         """Aplati order[path]={format:n} en lignes (path, format, count)."""

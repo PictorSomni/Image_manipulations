@@ -116,17 +116,8 @@ def main(page: ft.Page) -> None:
 
     def _get_unit_price(format_name: str, total_count: int) -> float:
         """Prix unitaire selon le tarif actif ; PRINTS utilise des tranches dégressives."""
-        format_name = KIOSK_CONSTANT.PRICE_ALIASES.get(format_name, format_name)
-        if active_tariff["value"] == "STUDIOS":
-            return STUDIOS_TARIFF.get(format_name, 0.0)
-        tiers = PRINTS_TARIFF.get(format_name)
-        if tiers is None:
-            return 0.0
-        if total_count <= 10:  return tiers[0]
-        if total_count <= 50:  return tiers[1]
-        if total_count <= 100: return tiers[2]
-        if total_count <= 200: return tiers[3]
-        return tiers[4]
+        return KIOSK_CONSTANT.unit_price(
+            format_name, total_count, active_tariff["value"]) or 0.0
 
     # ── État global ───────────────────────────────────────────────────────
     current_folder = {"path": ""}

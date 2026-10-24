@@ -4762,18 +4762,8 @@ class PhotoCropper:
         logique de tranches dégressives que kiosk_flet.pyw::_get_unit_price
         (CONSTANTS.STUDIOS / CONSTANTS.PRINTS). `None` si `format_name` ne
         correspond à aucun format tarifé (Ratio, Retouche, ID_X2…)."""
-        format_name = CONSTANTS.PRICE_ALIASES.get(format_name, format_name)
-        if self.tariff_mode == "STUDIOS":
-            price = CONSTANTS.STUDIOS.get(format_name)
-            return None if price is None else price
-        tiers = CONSTANTS.PRINTS.get(format_name)
-        if tiers is None:
-            return None
-        if total_count <= 10:  return tiers[0]
-        if total_count <= 50:  return tiers[1]
-        if total_count <= 100: return tiers[2]
-        if total_count <= 200: return tiers[3]
-        return tiers[4]
+        return CONSTANTS.unit_price(format_name, total_count,
+                                    self.tariff_mode)
 
     def _write_commande_file(self, source_folder):
         """(Re)génère commande.txt à la racine du dossier traité : le

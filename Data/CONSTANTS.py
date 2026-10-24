@@ -945,6 +945,26 @@ PRICE_ALIASES = {"10x10": "10x15", "13x13": "13x18", "15x15": "15x20",
 
 SIZES = STUDIOS   # Alias conservé pour compatibilité ascendante
 
+# Paliers de quantité du tarif PRINTS (<=10 | <=50 | <=100 | <=200 | >200).
+PRINT_TIERS = (10, 50, 100, 200)
+
+
+def unit_price(format_name, total_count, mode="PRINTS"):
+    """Prix unitaire d'un format (carrés via PRICE_ALIASES) : fixe en
+    STUDIOS, dégressif selon la quantité totale en PRINTS. `None` si le
+    format n'est pas tarifé. Seule implémentation (Hub, kiosque,
+    Recadrage manuel)."""
+    format_name = PRICE_ALIASES.get(format_name, format_name)
+    if mode == "STUDIOS":
+        return STUDIOS.get(format_name)
+    tiers = PRINTS.get(format_name)
+    if tiers is None:
+        return None
+    for i, limit in enumerate(PRINT_TIERS):
+        if total_count <= limit:
+            return tiers[i]
+    return tiers[-1]
+
 
 # ==============================================================================
 # 12. DÉBRUITAGE & GRAIN PELLICULE
