@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.102"
+__version__ = "2.10.103"
 
 import asyncio
 import base64
@@ -6315,11 +6315,13 @@ def main(page: ft.Page):
     def _ai_gal_sync_buttons():
         for b in (ai_retouch_button, ai_reuse_button, ai_delete_button):
             b.disabled = not ai_gal_selected
+        ai_copy_folder_button.disabled = not (ai_gal_selected
+                                              and state["folder"])
         ai_prompt_button.disabled = not (
             len(ai_gal_selected) == 1 and os.path.normcase(
                 next(iter(ai_gal_selected))) in ai_prompts)
         page.update(ai_retouch_button, ai_reuse_button, ai_delete_button,
-                    ai_prompt_button)
+                    ai_prompt_button, ai_copy_folder_button)
 
     def _ai_gal_toggle(path, tile):
         if path in ai_gal_selected:
@@ -6361,6 +6363,20 @@ def main(page: ft.Page):
         page.update(ai_gallery)
         _ai_gal_sync_buttons()
 
+    def _ai_gal_copy(event=None):
+        folder = state["folder"]
+        if not folder:
+            return
+        for p in sorted(ai_gal_selected):
+            try:
+                shutil.copy2(p, os.path.join(folder, os.path.basename(p)))
+            except OSError as exc:
+                _log_to_terminal(f"[ERREUR] Copie {p} : {exc}", RED)
+        _log_to_terminal(f"📋 {len(ai_gal_selected)} image(s) copiée(s) "
+                         f"dans {folder}", GREEN)
+        _ai_gal_clear_selection()
+        _run_task(_ai_navigate_async, folder)
+
     def _ai_gal_clear_selection():
         ai_gal_selected.clear()
         for t in ai_gallery.controls:
@@ -6377,6 +6393,17 @@ def main(page: ft.Page):
         ai_gallery.controls.insert(0, tile)
         if state["surface"] == "ia":
             page.update(ai_gallery)
+
+    _AI_DIR = os.path.join(os.path.expanduser("~"), "IA")
+    try:
+        _ai_old = sorted(
+            (os.path.join(_AI_DIR, f) for f in os.listdir(_AI_DIR)
+             if f.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))),
+            key=os.path.getmtime)[-60:]
+    except OSError:
+        _ai_old = []
+    for _p in _ai_old:
+        _ai_gal_add(_p)
 
     def _ai_generate(prompt):
         """Lance N générations (ou retouches de la 1re image jointe) en
@@ -6396,7 +6423,9 @@ def main(page: ft.Page):
         gen = meta_ai.generate_image if use_muse else _gemini_generate_image
         model = (meta_ai.IMAGE_MODEL if use_muse
                  else "gemini-nano-banana-2.1")
-        dest = state["folder"] or os.path.join(_APP_DIR, "Generated")
+        # Dossier IA à part (comme l'app mobile) : les ratés ne polluent
+        # plus le dossier ouvert ; « Copier dans le dossier » au besoin.
+        dest = _AI_DIR
         os.makedirs(dest, exist_ok=True)
         stamp = f"{datetime.datetime.now():%Y%m%d_%H%M%S}"
         kind = "edited" if src_bytes else "generated"
@@ -6424,8 +6453,6 @@ def main(page: ft.Page):
                 ai_progress_bar.visible = False
                 ai_status_text.value = ""
                 page.update(ai_progress_bar, ai_status_text)
-                if state["folder"]:
-                    _run_task(_ai_navigate_async, state["folder"])
 
         def _start():
             nonlocal prompt
@@ -6472,6 +6499,9 @@ def main(page: ft.Page):
     ai_reuse_button = ft.IconButton(
         ft.Icons.SMART_TOY_OUTLINED, disabled=True, icon_color=VIOLET,
         tooltip="Ajouter à l'IA", on_click=_ai_gal_reuse)
+    ai_copy_folder_button = ft.IconButton(
+        ft.Icons.DRIVE_FILE_MOVE_OUTLINE, disabled=True, icon_color=GREEN,
+        tooltip="Copier dans le dossier ouvert", on_click=_ai_gal_copy)
     ai_prompt_button = ft.IconButton(
         ft.Icons.HISTORY, disabled=True, icon_color=BLUE,
         tooltip="Reprendre la demande de cette image",
@@ -6507,6 +6537,7 @@ def main(page: ft.Page):
                 ai_refine_switch,
                 ai_retouch_button,
                 ai_reuse_button,
+                ai_copy_folder_button,
                 ai_prompt_button,
                 ai_delete_button,
                 # Voix/copie/bloc-notes masqués ; effacement de la
