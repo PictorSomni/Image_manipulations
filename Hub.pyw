@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.117"
+__version__ = "2.10.118"
 
 import asyncio
 import base64
@@ -76,9 +76,10 @@ from ai_tools import (
 # ── Surfaces déclarées une fois : clé, libellé, icône ────────────────────
 SURFACES = [
     ("files", "Fichiers", ft.Icons.PHOTO_LIBRARY_OUTLINED),
-    ("liste", "Liste",    ft.Icons.LIST_ALT_OUTLINED),
+    # Même ordre que l'app mobile (retour user), Fichiers en tête.
     ("kanban", "Tâches",  ft.Icons.VIEW_KANBAN_OUTLINED),
     ("agenda", "Agenda",  ft.Icons.CALENDAR_MONTH_OUTLINED),
+    ("liste", "Liste",    ft.Icons.LIST_ALT_OUTLINED),
     ("ia",    "IA",       ft.Icons.SMART_TOY_OUTLINED),
     ("actus", "Actus",    ft.Icons.RSS_FEED_OUTLINED),
     # Bloc-notes retiré du rail (retour user) : accessible en bandeau
