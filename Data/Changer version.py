@@ -8,10 +8,10 @@ Utilisation :
   3. Lancez-le (python "Changer version.py").
 """
 
-__version__ = "2.10.16"
+__version__ = "2.10.80"
 
 # ← MODIFIEZ ICI
-NEW_VERSION = "2.10.16"
+NEW_VERSION = "2.10.80"
 
 #############################################################
 #                          IMPORTS                          #
@@ -24,7 +24,7 @@ from pathlib import Path
 #############################################################
 ROOT = Path(__file__).parent.parent
 
-targets = [ROOT / "Hub.pyw", ROOT / "CONSTANTS.py"] + sorted((ROOT / "Data").glob("*.py")) + sorted((ROOT / "Data").glob("*.pyw"))
+targets = [ROOT / "Hub.pyw", ROOT / "CONSTANTS.py"] + sorted((ROOT / "Data").glob("*.py")) + sorted((ROOT / "Data").glob("*.pyw")) + sorted((ROOT / "Mobile").glob("*.py"))
 
 pattern = re.compile(r'^(__version__\s*=\s*")[^"]*(")', re.MULTILINE)
 
