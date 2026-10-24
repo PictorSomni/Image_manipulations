@@ -11,7 +11,7 @@ convert(path) -> chemin du .idml, rangé comme Conversion JPG :
 (ou docx/, doc/). Word : cf. convert_docx.
 """
 
-__version__ = "2.10.114"
+__version__ = "2.10.115"
 
 import os
 import re

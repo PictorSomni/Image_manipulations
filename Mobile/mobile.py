@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.114"
+__version__ = "2.10.115"
 
 import asyncio
 import base64
@@ -273,8 +273,10 @@ async def main(page: ft.Page):
     async def _login(e):
         _log(f"clic, valeur={len(field.value or '')} car.")
         # iOS met souvent une majuscule initiale : comparaison sans casse.
-        typed = (field.value or "").strip().lower()
-        if hmac.compare_digest(typed, secret.lower()):
+        # + caractères ambigus confondus (0/o, 1/l/i).
+        amb = str.maketrans("oli", "011")
+        typed = (field.value or "").strip().lower().translate(amb)
+        if hmac.compare_digest(typed, secret.lower().translate(amb)):
             _FAILS["n"] = 0
             _log("accepté")
             try:
