@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.104"
+__version__ = "2.10.105"
 
 import base64
 import datetime
@@ -249,7 +249,9 @@ def main(page: ft.Page):
         hint_text="Rechercher une carte", prefix_icon=ft.Icons.SEARCH,
         border_radius=C.BUTTON_RADIUS, dense=True, on_change=lambda e: render(),
         content_padding=ft.Padding(12, 8, 12, 8))
-    search_bar = ft.Container(search, padding=ft.Padding(12, 8, 12, 0))
+    search.expand = True
+    search_bar = ft.Container(ft.Row([search]),
+                              padding=ft.Padding(12, 8, 12, 0))
     body = ft.ListView(expand=True, spacing=8,
                        padding=ft.Padding(12, 8, 12, 24))
 
@@ -345,7 +347,8 @@ def main(page: ft.Page):
             *info, *flag_rows, notes_box, ft.Row(actions),
             ft.Text("Déplacer vers", size=12, color=GREY),
             ft.Row(etats, wrap=True, spacing=8, run_spacing=8),
-        ], tight=True, spacing=10, scroll=ft.ScrollMode.AUTO),
+        ], tight=True, spacing=10, scroll=ft.ScrollMode.AUTO,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
             padding=20)
         sheet.open = True
         page.update()
@@ -398,29 +401,22 @@ def main(page: ft.Page):
         for etat, color in ETATS:
             rows = [r for r in state["tasks"]
                     if (r.get("Etat") or "À faire") == etat]
-            out.append(ft.ExpansionTile(
-                # En-tête comme les colonnes de Hub : bandeau quasi plein,
-                # texte noir (le fond du tiroir ouvert reste neutre).
-                title=ft.Container(ft.Row([
+            # En-tête comme les colonnes de Hub : bandeau plein, texte
+            # noir. Pas d'ExpansionTile : il réserve une marge à droite.
+            is_open = etat in state["open"]
+            out.append(ft.Container(
+                ft.Row([
                     ft.Text(f"{etat}  ({len(rows)})", color=ft.Colors.BLACK,
                             weight=ft.FontWeight.W_700, expand=True),
-                    ft.Icon(ft.Icons.EXPAND_LESS if etat in state["open"]
+                    ft.Icon(ft.Icons.EXPAND_LESS if is_open
                             else ft.Icons.EXPAND_MORE,
                             color=ft.Colors.BLACK)]),
-                    bgcolor=ft.Colors.with_opacity(0.85, color),
-                    border_radius=6, padding=ft.Padding(12, 8, 8, 8)),
-                trailing=ft.Container(width=0),
-                tile_padding=ft.Padding(0, 0, 0, 0),
-                shape=ft.RoundedRectangleBorder(radius=6),
-                collapsed_shape=ft.RoundedRectangleBorder(radius=6),
-                data=etat, expanded=etat in state["open"],
-                on_change=_toggle, maintain_state=True,
-                controls_padding=ft.Padding(0, 8, 0, 8),
-                controls=[ft.Column(
-                    [_task_card(r) for r in rows], spacing=8,
-                    horizontal_alignment=ft.CrossAxisAlignment.STRETCH)]
-                if rows else
-                [ft.Text("Rien ici", color=GREY)]))
+                bgcolor=ft.Colors.with_opacity(0.85, color),
+                border_radius=6, padding=ft.Padding(12, 12, 8, 12),
+                data=etat, on_click=_toggle, ink=True))
+            if is_open:
+                out.extend([_task_card(r) for r in rows] if rows else
+                           [ft.Text("Rien ici", color=GREY)])
         return out
 
     # ── Agenda ───────────────────────────────────────────────────────
