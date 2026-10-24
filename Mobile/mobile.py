@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.90"
+__version__ = "2.10.91"
 
 import base64
 import datetime
@@ -151,11 +151,32 @@ def load_data(force=False):
     return _DATA["tasks"], _DATA["agenda"], _DATA["at"]
 
 
-def load_news(max_age=900):
-    """Flux Actus partagés entre sessions, rechargés après 15 min."""
+NEWS_CACHE = os.path.join(HOME, ".hub_mobile_news.json")
+
+
+def load_news(max_age=DATA_TTL):
+    """Flux Actus partagés entre sessions, gardés 1 h (et sur disque)."""
+    if _NEWS["items"] is None:
+        try:
+            with open(NEWS_CACHE, encoding="utf-8") as f:
+                saved = json.load(f)
+            for it in saved["items"]:
+                it["date"] = (datetime.datetime.fromisoformat(it["date"])
+                              if it.get("date") else None)
+            _NEWS.update(saved)
+        except (OSError, ValueError, KeyError):
+            pass
     if _NEWS["items"] is None or time.time() - _NEWS["at"] > max_age:
         _NEWS["items"] = rss_feeds.fetch_all_feeds()
         _NEWS["at"] = time.time()
+        try:
+            with open(NEWS_CACHE, "w", encoding="utf-8") as f:
+                json.dump({"at": _NEWS["at"], "items": [
+                    {**it, "date": it["date"].isoformat()
+                     if it.get("date") else None}
+                    for it in _NEWS["items"]]}, f, ensure_ascii=False)
+        except OSError:
+            pass
     return _NEWS["items"]
 
 
