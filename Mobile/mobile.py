@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.116"
+__version__ = "2.10.117"
 
 import asyncio
 import base64
@@ -1158,13 +1158,19 @@ def _app(page: ft.Page):
            (2, ft.Icons.AUTO_AWESOME_OUTLINED, "IA"),
            (3, ft.Icons.WB_SUNNY_OUTLINED, "Briefing"),
            (4, ft.Icons.RSS_FEED_OUTLINED, "Actus")]
-    page.navigation_bar = ft.NavigationBar(
+    nav = ft.NavigationBar(
         destinations=[
             ft.NavigationBarDestination(icon=icon, label=label)
             for _, icon, label in NAV],
         on_change=_tab, bgcolor=CARD)
-    page.add(ft.SafeArea(ft.Column([search_bar, body], spacing=0,
-                                   expand=True), expand=True))
+    # Barre d'onglets dans la page (pas page.navigation_bar) pour la
+    # décoller des coins arrondis de l'iPhone (retour user).
+    page.bgcolor = CARD
+    page.add(ft.SafeArea(ft.Column([
+        ft.Container(ft.Column([search_bar, body], spacing=0, expand=True),
+                     bgcolor=C.COLOR_BACKGROUND, expand=True),
+        ft.Container(nav, padding=ft.Padding(18, 0, 18, 14))],
+        spacing=0, expand=True), expand=True))
     refresh()
 
     def _hourly():
