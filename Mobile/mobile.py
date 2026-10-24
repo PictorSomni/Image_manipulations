@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.118"
+__version__ = "2.10.119"
 
 import asyncio
 import base64
@@ -224,6 +224,21 @@ def day_label(iso):
 
 
 assert day_label(datetime.date.today().isoformat()) == "Aujourd'hui"
+
+
+def seg(options, value, on_pick):
+    """Choix exclusif façon Hub : CupertinoSlidingSegmentedButton,
+    fond sombre, curseur bleu, libellé choisi en noir."""
+    keys = [str(v) for v, _ in options]
+    idx = keys.index(str(value)) if str(value) in keys else 0
+    return ft.CupertinoSlidingSegmentedButton(
+        selected_index=idx, bgcolor=BG, thumb_color=BLUE,
+        padding=ft.Padding(4, 6, 4, 6),
+        controls=[ft.Text(t, color=BG if i == idx else None,
+                          weight=ft.FontWeight.W_600 if i == idx else None)
+                  for i, (_, t) in enumerate(options)],
+        on_change=lambda e: on_pick(
+            options[int(e.control.selected_index)][0]))
 
 
 # Accès public (Tailscale Funnel) → mot de passe, retenu par l'appareil.
@@ -623,13 +638,10 @@ def _app(page: ft.Page):
 
     def _ia_view():
         def _seg(options, key, cast=str):
-            def _on(e):
-                state[key] = cast(next(iter(e.control.selected)))
+            def _on(v):
+                state[key] = cast(v)
                 render()
-            return ft.SegmentedButton(
-                segments=[ft.Segment(value=str(v), label=ft.Text(t))
-                          for v, t in options],
-                selected=[str(state[key])], on_change=_on)
+            return seg(options, state[key], _on)
         src = state["source"]
         src_row = ft.Row([
             ft.OutlinedButton("Photo source", icon=ft.Icons.ADD_PHOTO_ALTERNATE,
@@ -910,11 +922,8 @@ def _app(page: ft.Page):
     def _list_view():
         name = state["list_kind"]
         rows = state.get(name)
-        out = [ft.SegmentedButton(
-            segments=[ft.Segment(value="liste", label=ft.Text("À faire")),
-                      ft.Segment(value="prix", label=ft.Text("Prix"))],
-            selected=[name], on_change=lambda e: (state.update(
-                list_kind=next(iter(e.control.selected))), render()))]
+        out = [seg([("liste", "À faire"), ("prix", "Prix")], name,
+                   lambda v: (state.update(list_kind=v), render()))]
         if rows is None:
             threading.Thread(target=_list_load, daemon=True).start()
             state[name] = []
