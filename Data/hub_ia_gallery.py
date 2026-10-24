@@ -456,9 +456,9 @@ def build(ui):
     ]
     claude_mode = {"i": None}
 
-    def _mode_style(selected):
+    def _mode_style(selected, color=GREEN):
         return ft.ButtonStyle(
-            bgcolor=(ft.Colors.with_opacity(0.3, GREEN) if selected
+            bgcolor=(ft.Colors.with_opacity(0.3, color) if selected
                      else GREY),
             color=WHITE, alignment=ft.Alignment(-1, 0),
             shape=ft.RoundedRectangleBorder(
@@ -470,6 +470,7 @@ def build(ui):
             b.style = _mode_style(k == index)
         claude_input.hint_text = claude_presets[index][3]
         claude_input.disabled = claude_send_button.disabled = False
+        claude_send_button.icon_color = GREEN
         page.update()
         try:
             await claude_input.focus()
@@ -477,7 +478,7 @@ def build(ui):
             pass
 
     claude_send_button = ft.IconButton(
-        ft.Icons.SEND, icon_color=GREEN, disabled=True,
+        ft.Icons.SEND, icon_color=GREY, disabled=True,
         tooltip="Envoyer à Claude", on_click=_claude_send)
     claude_mode_buttons = [
         _side_btn(label, icon, GREEN,
@@ -487,9 +488,77 @@ def build(ui):
         _b.style = _mode_style(False)
     claude_side = ft.Column(claude_mode_buttons, spacing=6,
                             scroll=ft.ScrollMode.AUTO)
-    image_side = ft.Column([ai_retouch_button, ai_reuse_button,
-                            ai_copy_folder_button, ai_prompt_button,
-                            ai_delete_button], spacing=6)
+    # Images : même principe, le mode d'abord. Les modes « préréglés »
+    # travaillent sur l'image jointe ; le texte tapé précise la demande.
+    image_presets = [
+        ("Créer", ft.Icons.BRUSH, None, False, "Décris l'image à créer…"),
+        ("Modifier", ft.Icons.EDIT, None, True,
+         "Décris la modification de l'image jointe…"),
+        ("Fond blanc", ft.Icons.WALLPAPER,
+         "Remplace l'arrière-plan par un fond studio blanc uni, sans "
+         "modifier le sujet.", True, "Précisions éventuelles…"),
+        ("Restaurer", ft.Icons.HEALING,
+         "Restaure cette photo ancienne : retire rayures, taches et "
+         "poussières, corrige la décoloration, garde les visages fidèles "
+         "et l'aspect d'origine.", True, "Précisions éventuelles…"),
+        ("Coloriser", ft.Icons.PALETTE,
+         "Colorise cette photo noir et blanc de façon naturelle et "
+         "réaliste, visages fidèles.", True, "Précisions éventuelles…"),
+        ("Améliorer", ft.Icons.AUTO_AWESOME,
+         "Améliore cette photo : netteté, exposition et couleurs "
+         "naturelles, sans changer le contenu.", True,
+         "Précisions éventuelles…"),
+    ]
+    image_mode = {"i": None}
+
+    async def _image_pick(index):
+        image_mode["i"] = index
+        for k, b in enumerate(image_mode_buttons):
+            b.style = _mode_style(k == index, BLUE)
+        ai_input_field.hint_text = image_presets[index][4]
+        ai_input_field.disabled = ai_send_button.disabled = False
+        ai_send_button.icon_color = BLUE
+        page.update()
+        try:
+            await ai_input_field.focus()
+        except Exception:
+            pass
+
+    def _image_submit(event=None):
+        if image_mode["i"] is None:
+            return
+        _label, _icon, preset, needs_img, _hint = image_presets[
+            image_mode["i"]]
+        text = (ai_input_field.value or "").strip()
+        if needs_img and not ai_pending_images:
+            ai_status_text.value = "Joins d'abord une image (Réutiliser)"
+            page.update()
+            return
+        prompt = " ".join(x for x in (preset, text) if x)
+        if not prompt:
+            return
+        ai_input_field.value = ""
+        page.update()
+        _ai_generate(prompt)
+
+    image_mode_buttons = [
+        _side_btn(label, icon, BLUE, lambda e, k=k: _image_pick(k),
+                  disabled=False)
+        for k, (label, icon, *_r) in enumerate(image_presets)]
+    for _b in image_mode_buttons:
+        _b.style = _mode_style(False, BLUE)
+    ai_input_field.on_submit = _image_submit
+    ai_send_button.on_click = _image_submit
+    ai_input_field.hint_text = "Choisis un mode à gauche"
+    ai_input_field.disabled = ai_send_button.disabled = True
+    ai_send_button.icon_color = GREY
+    image_side = ft.Column(
+        [*image_mode_buttons,
+         ft.Container(ft.Divider(height=1, color=GREY), width=190,
+                      padding=ft.Padding(0, 6, 0, 6)),
+         ai_retouch_button, ai_reuse_button, ai_copy_folder_button,
+         ai_prompt_button, ai_delete_button],
+        spacing=6, scroll=ft.ScrollMode.AUTO)
 
     def _bar(*controls):
         return ft.Container(
