@@ -9,15 +9,17 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.89"
+__version__ = "2.10.90"
 
 import base64
 import datetime
 import io
+import json
 import os
 import subprocess
 import sys
 import threading
+import time
 import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -120,11 +122,37 @@ def load_tasks():
 
 
 _NEWS = {"items": None, "at": 0}
+# Tâches + Agenda gardés sur le Pi (et sur disque) : l'app s'ouvre sur la
+# dernière version connue, rechargée toutes les heures ou au bouton.
+DATA_TTL = 3600
+DATA_CACHE = os.path.join(HOME, ".hub_mobile_cache.json")
+_DATA = {"tasks": None, "agenda": None, "at": 0}
+
+
+def _load_data_cache():
+    try:
+        with open(DATA_CACHE, encoding="utf-8") as f:
+            _DATA.update(json.load(f))
+    except (OSError, ValueError):
+        pass
+
+
+def load_data(force=False):
+    """(tasks, agenda, at) depuis le cache s'il a moins d'une heure."""
+    if force or _DATA["tasks"] is None or \
+            time.time() - _DATA["at"] > DATA_TTL:
+        _DATA.update(tasks=load_tasks(), agenda=load_agenda(),
+                     at=time.time())
+        try:
+            with open(DATA_CACHE, "w", encoding="utf-8") as f:
+                json.dump(_DATA, f, ensure_ascii=False)
+        except OSError:
+            pass
+    return _DATA["tasks"], _DATA["agenda"], _DATA["at"]
 
 
 def load_news(max_age=900):
     """Flux Actus partagés entre sessions, rechargés après 15 min."""
-    import time
     if _NEWS["items"] is None or time.time() - _NEWS["at"] > max_age:
         _NEWS["items"] = rss_feeds.fetch_all_feeds()
         _NEWS["at"] = time.time()
@@ -607,18 +635,20 @@ def main(page: ft.Page):
         page.update()
 
     def refresh(e=None):
+        """Bouton = rechargement forcé ; sinon cache (< 1 h)."""
+        force = e is not None
         status.value = "Chargement…"
         page.update()
 
         def _run():
             try:
-                state["tasks"] = load_tasks()
-                state["agenda"] = load_agenda()
+                tasks, agenda, at = load_data(force=force)
+                state["tasks"], state["agenda"] = tasks, agenda
                 state["images"] = list_images()
-                if state["tab"] == 4:
+                if force and state["tab"] == 4:
                     state["news"] = load_news(max_age=0)
-                status.value = ("Mis à jour à "
-                                + datetime.datetime.now().strftime("%H:%M"))
+                status.value = ("Mis à jour à " + datetime.datetime
+                                .fromtimestamp(at).strftime("%H:%M"))
             except Exception as exc:
                 status.value = f"Erreur : {exc}"
             render()
@@ -648,8 +678,19 @@ def main(page: ft.Page):
                                    expand=True), expand=True))
     refresh()
 
+    def _hourly():
+        # Session ouverte : rechargement automatique toutes les heures.
+        while True:
+            time.sleep(DATA_TTL)
+            try:
+                refresh(None)
+            except Exception:
+                return  # session fermée
+    threading.Thread(target=_hourly, daemon=True).start()
+
 
 if __name__ == "__main__":
+    _load_data_cache()
     threading.Thread(target=load_news, daemon=True).start()
     ft.run(main, view=ft.AppView.WEB_BROWSER, host="0.0.0.0",
            assets_dir=os.path.join(os.path.dirname(
