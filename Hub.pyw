@@ -3222,7 +3222,7 @@ def main(page: ft.Page):
             else:
                 ctrl.size = size + offset
         if state["surface"] == "ia":
-            ai_chat_view.update()
+            page.update()  # réponse de Claude (ai_chat_view n'est plus affiché)
 
     # Format commun des boutons d'icône des barres d'outils (retour user).
     SQUARE_BTN = dict(

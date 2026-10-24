@@ -340,6 +340,11 @@ def build(ui):
     claude_diff = ft.Text(selectable=True, size=CONSTANTS.TEXT_SM + 2,
                           color=WHITE, visible=False)
     claude_last = {"text": "", "source": ""}
+    # Taille réglée par le curseur de la barre d'état (_apply_font_size).
+    claude_md.md_style_sheet = ft.MarkdownStyleSheet(
+        p_text_style=ft.TextStyle(size=state["font_size"]))
+    claude_diff.size = state["font_size"] + 2
+    ui.ai_text_refs.extend([(claude_md, 0), (claude_diff, 2)])
 
     def _diff_spans(old, new):
         """Texte corrigé, mots changés surlignés."""
