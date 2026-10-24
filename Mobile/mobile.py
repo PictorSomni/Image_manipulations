@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.91"
+__version__ = "2.10.92"
 
 import base64
 import datetime
@@ -141,7 +141,8 @@ def load_data(force=False):
     """(tasks, agenda, at) depuis le cache s'il a moins d'une heure."""
     if force or _DATA["tasks"] is None or \
             time.time() - _DATA["at"] > DATA_TTL:
-        _DATA.update(tasks=load_tasks(), agenda=load_agenda(),
+        tasks = load_tasks()
+        _DATA.update(tasks=tasks, agenda=load_agenda(tasks=tasks),
                      at=time.time())
         try:
             with open(DATA_CACHE, "w", encoding="utf-8") as f:
@@ -180,7 +181,9 @@ def load_news(max_age=DATA_TTL):
     return _NEWS["items"]
 
 
-def load_agenda(days=60):
+def load_agenda(days=60, tasks=()):
+    """Rendez-vous des 3 sources + tâches non terminées avec deadline
+    (celles en retard aussi, en tête de liste)."""
     today = datetime.date.today().isoformat()
     end = (datetime.date.today() + datetime.timedelta(days)).isoformat()
     events = []
@@ -189,6 +192,10 @@ def load_agenda(days=60):
             start = r.get("date:Date:start") or ""
             if today <= start[:10] <= end:
                 events.append((start, name, color, r))
+    for r in tasks:
+        start = r.get("date:Deadline:start") or ""
+        if start and start[:10] <= end and r.get("Etat") != "Terminé":
+            events.append((start, "Tâche", "#E5C07B", r))
     return sorted(events, key=lambda e: e[0])
 
 
@@ -319,14 +326,17 @@ def main(page: ft.Page):
         bits = [x for x in (row.get("Objets") and ", ".join(row["Objets"]),
                             row.get("État") or row.get("Etat"),
                             row.get("Téléphone")) if x]
+        title = row.get("Nom") or row.get("Demande") or "—"
         return ft.Container(ft.Row([
             ft.Container(width=4, height=44, bgcolor=color, border_radius=2),
-            ft.Column([ft.Text(f"{hour}  {row.get('Nom') or '—'}".strip(),
+            ft.Column([ft.Text(f"{hour}  {title}".strip(),
                                size=16),
                        ft.Text(" · ".join([source, *bits]), size=13,
                                color=GREY)], spacing=2, tight=True,
                       expand=True)]),
-            bgcolor=CARD, border_radius=10, padding=12)
+            bgcolor=CARD, border_radius=10, padding=12,
+            on_click=(lambda e: _details(row)) if source == "Tâche"
+            else None)
 
     # ── IA ───────────────────────────────────────────────────────────
     prompt = ft.TextField(hint_text="Décris l'image…", multiline=True,
