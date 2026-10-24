@@ -21,7 +21,7 @@ un proxy de page (_TabPage). START_TAB=ia ouvre directement cet onglet.
 Dépendances : Flet, Pillow (PIL), NumPy, OpenCV (cv2)
 """
 
-__version__ = "2.10.49"
+__version__ = "2.10.50"
 
 #############################################################
 #                          IMPORTS                          #
@@ -760,15 +760,18 @@ def main(page: ft.Page):
     page.on_resize = _apply_preview_size
 
     def _live_preview_loop():
+        failures = 0
         while True:
             with state["live_lock"]:
                 request_seen = state["live_req"]
             proxy = state["proxy"]
             name = file_names[state["index"]]
-            params_copy = state["params"]
             date_label = state["date_label"]
             stem = Path(name).stem
             try:
+                # Copie : curseurs et poignées de masque écrivent dans ces
+                # dicts pendant le rendu (« dictionary changed size »).
+                params_copy = copy.deepcopy(state["params"])
                 result = run_pipeline(
                     proxy, params_copy, date_label=date_label,
                     filename_stem=stem,
@@ -783,9 +786,17 @@ def main(page: ft.Page):
                 hist_img.save(hbuf, format="PNG")
                 hist_src = ("data:image/png;base64,"
                            + base64.b64encode(hbuf.getvalue()).decode())
-            except Exception:
+            except Exception as exc:
                 src = None
                 hist_src = None
+                # Rendu raté sur un état en cours de modification : on
+                # réessaie, sinon l'aperçu resterait figé sur l'image
+                # précédente (réglage de masque « disparu », retour user).
+                failures += 1
+                print(f"[aperçu] rendu échoué ({failures}) : {exc!r}")
+                if failures <= 3:
+                    time.sleep(0.05)
+                    continue
 
                 async def _unveil():
                     if state.get("batch"):
@@ -795,6 +806,8 @@ def main(page: ft.Page):
                 page.run_task(_unveil)
 
             if src:
+                failures = 0
+
                 async def _apply(src=src, hist_src=hist_src, proxy=proxy,
                                  req=request_seen):
                     if proxy is not state["proxy"]:
