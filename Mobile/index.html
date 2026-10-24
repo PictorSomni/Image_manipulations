@@ -87,7 +87,7 @@ textarea { resize: vertical; }
 /* Feuille du bas */
 #veil { position: fixed; inset: 0; background: #0008; display: none;
   z-index: 10; }
-#sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 88%;
+#sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 94%;
   overflow-y: auto; background: var(--card); z-index: 11;
   border-radius: 14px 14px 0 0; display: none;
   padding: 8px 20px calc(20px + env(safe-area-inset-bottom)); }
@@ -544,6 +544,14 @@ function listEdit(name, row) {
       h("button", {class: "btn txt", onclick: closeSheet}, "Annuler"),
       row ? h("button", {class: "btn out red", onclick: del},
         "Supprimer") : null)]);
+  // Champs à la hauteur de leur contenu (détails lisibles sans défiler).
+  const fit = t => { t.style.height = "auto";
+    t.style.height = t.scrollHeight + 2 + "px"; };
+  Object.values(fields).forEach((t, i) => {
+    if (i) t.rows = 4;
+    t.addEventListener("input", () => fit(t));
+    requestAnimationFrame(() => fit(t));
+  });
   if (!row) first.focus();
 }
 
