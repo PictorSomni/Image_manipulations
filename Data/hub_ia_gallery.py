@@ -416,24 +416,26 @@ def build(ui):
         ft.Icons.SPELLCHECK, icon_color=GREEN, visible=False,
         tooltip="Relire le texte du champ (orthographe)",
         on_click=_claude_proofread)
+    # Panneau Claude à côté de la galerie, toujours affiché.
     claude_view = ft.Container(
-        ft.Column([claude_md, claude_diff], scroll=ft.ScrollMode.AUTO,
-                  expand=True),
-        expand=True, padding=16, visible=False)
+        ft.Column([
+            ft.Row([ft.Text("CLAUDE", size=CONSTANTS.TEXT_SM, color=GREY,
+                            weight=ft.FontWeight.W_600, expand=True),
+                    claude_copy]),
+            ft.Column([claude_md, claude_diff], scroll=ft.ScrollMode.AUTO,
+                      expand=True)], expand=True, spacing=4),
+        expand=True, padding=ft.Padding(14, 6, 14, 10), bgcolor=DARK,
+        border_radius=CONSTANTS.BUTTON_RADIUS, margin=8)
 
     def _is_claude():
         return (ai_model_dropdown.value or "") == "claude"
 
     def _on_model(event):
         claude = _is_claude()
-        for c in image_only:
-            c.visible = not claude
         if not claude:
             ai_image_quality_dropdown.visible = \
                 not ai_model_dropdown.value.startswith("muse")
-        claude_copy.visible = claude_proof_button.visible = claude
-        claude_view.visible = claude
-        gallery_box.visible = not claude
+        claude_proof_button.visible = claude
         ai_input_field.hint_text = (
             "Écris à Claude, ou colle un texte à relire…" if claude else
             "Décris l'image à générer ou la retouche… (Entrée pour envoyer)")
@@ -474,13 +476,12 @@ def build(ui):
                 ai_speaker_button,
                 ai_copy_button,
                 ai_to_notepad_button,
-                claude_copy,
             ], spacing=8),
             height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
             alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
-        gallery_box,
-        claude_view,
+        ft.Row([gallery_box, claude_view], expand=True, spacing=0,
+               vertical_alignment=ft.CrossAxisAlignment.STRETCH),
         ai_progress_bar,
         ft.Container(content=ai_attach_row, padding=ft.Padding(8, 4, 8, 0)),
         ft.Container(
@@ -490,12 +491,6 @@ def build(ui):
             padding=ft.Padding(8, 4, 8, 4)),
         ft.Container(content=ai_status_text, padding=ft.Padding(8, 0, 8, 6)),
     ], expand=True, spacing=0)
-    # Réglages propres aux images, masqués quand on parle à Claude.
-    image_only = [ai_image_quality_dropdown, ai_image_size_group,
-                  ai_aspect_dropdown, ai_count_dropdown, ai_refine_switch,
-                  ai_retouch_button, ai_reuse_button, ai_copy_folder_button,
-                  ai_prompt_button, ai_delete_button]
-    claude_copy.visible = False
     for _b in (ai_speaker_button, ai_copy_button, ai_to_notepad_button,
                ai_vasy_button, ai_mic_button):
         _b.visible = False  # ponytail: masqués, pas supprimés (code lié)
