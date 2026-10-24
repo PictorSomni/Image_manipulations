@@ -226,7 +226,9 @@ def build(ui):
         ai_gal_checks[path] = check
         tile = ft.Container(
             ft.Stack([
-                ft.Image(src=path, fit=ft.BoxFit.CONTAIN, expand=True),
+                ft.Container(ft.Image(src=path, fit=ft.BoxFit.CONTAIN),
+                             alignment=ft.Alignment(0, 0),
+                             left=0, top=0, right=0, bottom=0),
                 ft.GestureDetector(
                     content=check, left=2, top=2,
                     on_secondary_tap_up=lambda e, p=path: _ai_gal_range(p)),
@@ -234,7 +236,8 @@ def build(ui):
             border=ft.Border.all(3, DARK), border_radius=6, bgcolor=DARK,
             tooltip=_ai_prompt_tooltip(path), data=path)
         tile.on_click = lambda e, p=path: _open_viewer(
-            p, [t.data for t in ai_gallery.controls])
+            p, [t.data for t in ai_gallery.controls],
+            sel=(lambda q: q in ai_gal_selected, _ai_gal_toggle))
         ai_gallery.controls.insert(0, tile)
         if state["surface"] == "ia":
             page.update(ai_gallery)

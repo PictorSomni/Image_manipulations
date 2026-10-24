@@ -3494,7 +3494,8 @@ def main(page: ft.Page):
     viewer_pdf_page_row.visible = False
     viewer_checkbox = ft.Checkbox(
         value=False, active_color=BLUE,
-        on_change=lambda e: _set_selected(
+        on_change=lambda e: (viewer_state.get("sel") or (
+            None, _set_selected))[1](
             viewer_state["paths"][viewer_state["index"]], e.control.value))
 
     viewer_order_slot = ft.Container(visible=False)
@@ -3574,7 +3575,8 @@ def main(page: ft.Page):
         viewer_filename.value = os.path.basename(path)
         viewer_meta.value = _viewer_meta_text(path)
         viewer_counter.value = f"{idx + 1} / {len(paths)}"
-        viewer_checkbox.value = path in selected
+        sel = viewer_state.get("sel")
+        viewer_checkbox.value = (sel[0](path) if sel else path in selected)
         viewer_order_slot.visible = order_mode["value"]
         viewer_order_slot.content = (
             _order_badge(path) if order_mode["value"] else None)
@@ -4081,7 +4083,10 @@ def main(page: ft.Page):
         -1, _viewer_btn(ft.Icons.TUNE, "Retouche photo",
                        _launch_editor_for_current("Retouche photo.pyw")))
 
-    def _open_viewer(start_path, paths=None):
+    def _open_viewer(start_path, paths=None, sel=None):
+        # sel : (est_coché(p), cocher(p, on)) — sélection propre à
+        # l'appelant (galerie IA) au lieu de celle des Fichiers.
+        viewer_state["sel"] = sel
         # Vidéo : lecteur système (lecture intégrée = flet-video + libmpv,
         # pas justifié). Dans la visionneuse, elle apparaît en image fixe.
         if (os.path.splitext(start_path)[1].lower()
