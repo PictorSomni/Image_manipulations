@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.96"
+__version__ = "2.10.97"
 
 import base64
 import datetime
@@ -34,24 +34,26 @@ import notion_rest  # noqa: E402
 import rss_feeds  # noqa: E402
 
 KANBAN_DS = "34f4c64b-5c00-4415-99cb-76234faecef1"
-ETATS = [("À faire", "#5B9BD5"), ("En cours / en attente", "#B388FF"),
-         ("A commander", "#E5C07B"), ("Commandé", "#E59866"),
-         ("Terminé", "#98C379")]
-GREY_FLAG = "#9AA0A6"
+# Couleurs : celles de Hub (CONSTANTS.COLOR_*).
+C = CONSTANTS
+BLUE, VIOLET, GREEN = C.COLOR_BLUE, C.COLOR_VIOLET, C.COLOR_GREEN
+YELLOW, ORANGE, RED, PINK = (C.COLOR_YELLOW, C.COLOR_ORANGE, C.COLOR_RED,
+                             C.COLOR_PINK)
+BG, CARD, GREY = C.COLOR_DARK, C.COLOR_GREY, C.COLOR_LIGHT_GREY
+ETATS = [("À faire", BLUE), ("En cours / en attente", VIOLET),
+         ("A commander", YELLOW), ("Commandé", ORANGE), ("Terminé", GREEN)]
 # Badges des cartes, mêmes valeurs et couleurs que Hub (défaut en 1er).
 FLAGS = [
-    ("Payé ?", {"Non payé": "#E06C75", "Payé": "#98C379"}),
-    ("Prévenir ?", {"Viendra d'office": "#E91E63",
-                    "Appeler quand prêt": "#5B9BD5",
-                    "Pas de messagerie": "#E59866", "Prévenu": "#98C379"}),
-    ("Projet ?", {"Pas de projet": GREY_FLAG, "Faire projet": "#5B9BD5",
-                  "Projet envoyé": "#E5C07B", "Projet validé": "#B388FF",
-                  "Fichiers prêts": "#B388FF"}),
+    ("Payé ?", {"Non payé": RED, "Payé": GREEN}),
+    ("Prévenir ?", {"Viendra d'office": PINK, "Appeler quand prêt": BLUE,
+                    "Pas de messagerie": ORANGE, "Prévenu": GREEN}),
+    ("Projet ?", {"Pas de projet": GREY, "Faire projet": BLUE,
+                  "Projet envoyé": YELLOW, "Projet validé": VIOLET,
+                  "Fichiers prêts": VIOLET}),
 ]
-AGENDA = [("Studio", "ae971f83-22d1-4d53-8972-4c6302c6d371", "#5B9BD5"),
-          ("Reportage", "42f7bb5c-84f2-416a-aad0-8aad7b1ea51a", "#B388FF"),
-          ("Location", "23f887c8-202a-4e37-91e1-812a4a6c7472", "#98C379")]
-BG, CARD, GREY = "#1E1F24", "#2A2C33", "#9AA0A6"
+AGENDA = [("Studio", "ae971f83-22d1-4d53-8972-4c6302c6d371", BLUE),
+          ("Reportage", "42f7bb5c-84f2-416a-aad0-8aad7b1ea51a", VIOLET),
+          ("Location", "23f887c8-202a-4e37-91e1-812a4a6c7472", GREEN)]
 JOURS = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi",
          "dimanche"]
 MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
@@ -206,7 +208,7 @@ def load_agenda(days=60, tasks=()):
     for r in tasks:
         start = r.get("date:Deadline:start") or ""
         if start and start[:10] <= end and r.get("Etat") != "Terminé":
-            events.append((start, "Tâche", "#E5C07B", r))
+            events.append((start, "Tâche", YELLOW, r))
     return sorted(events, key=lambda e: e[0])
 
 
@@ -337,10 +339,12 @@ def main(page: ft.Page):
         page.update()
 
     def _badge(text, color):
+        # Pastille de Hub (_kanban_chip) : fond quasi plein, texte noir.
         return ft.Container(
-            ft.Text(text, size=12, color=color, weight=ft.FontWeight.W_500),
-            border=ft.Border.all(1, color), border_radius=12,
-            padding=ft.Padding(8, 2, 8, 2))
+            ft.Text(text, size=12, color=ft.Colors.BLACK,
+                    weight=ft.FontWeight.W_600),
+            bgcolor=ft.Colors.with_opacity(0.85, color), border_radius=4,
+            padding=ft.Padding(6, 2, 6, 2))
 
     def _task_card(row, etat=False):
         """Comme dans Hub : titre, infos clés et badges Payé / Prévenir /
@@ -365,7 +369,10 @@ def main(page: ft.Page):
                   if info else []),
                 ft.Row(badges, wrap=True, spacing=6, run_spacing=6),
             ], spacing=6, tight=True),
-            bgcolor=CARD, border_radius=10, padding=14, ink=True,
+            # Fond teinté selon l'état, comme les tuiles de Hub.
+            bgcolor=ft.Colors.with_opacity(0.18, dict(ETATS).get(
+                row.get("Etat") or "À faire", BLUE)),
+            border_radius=8, padding=14, ink=True,
             on_click=lambda e: _details(row))
 
     def _etat_sections():
@@ -552,7 +559,7 @@ def main(page: ft.Page):
                 ft.FilledButton("Modifier avec l'IA",
                                 icon=ft.Icons.AUTO_AWESOME, on_click=_use),
                 ft.OutlinedButton("Supprimer", icon=ft.Icons.DELETE_OUTLINE,
-                                  style=ft.ButtonStyle(color="#E06C75"),
+                                  style=ft.ButtonStyle(color=RED),
                                   on_click=lambda e: _trash([path]))],
                 wrap=True),
         ], spacing=10, expand=True), padding=12, expand=True)
@@ -588,7 +595,7 @@ def main(page: ft.Page):
                         ft.Image(src=data, fit=ft.BoxFit.COVER, width=side,
                                  height=side,
                                  opacity=0.55 if picked else 1),
-                        ft.Icon(ft.Icons.CHECK_CIRCLE, color="#5B9BD5",
+                        ft.Icon(ft.Icons.CHECK_CIRCLE, color=BLUE,
                                 right=4, top=4, visible=picked)]),
                     width=side, height=side, border_radius=6,
                     clip_behavior=ft.ClipBehavior.HARD_EDGE),
@@ -608,7 +615,7 @@ def main(page: ft.Page):
                 ft.TextButton("Annuler", on_click=lambda e: (
                     state["picked"].clear(), render())),
                 ft.FilledButton("Supprimer", icon=ft.Icons.DELETE_OUTLINE,
-                                bgcolor="#E06C75",
+                                bgcolor=RED,
                                 on_click=lambda e: _trash(
                                     list(state["picked"])))])
         else:
@@ -641,8 +648,8 @@ def main(page: ft.Page):
                     bgcolor=CARD, border_radius=10, padding=14)]
 
     # ── Actus (mêmes flux que l'onglet Actus de Hub) ─────────────────
-    CAT_COLORS = dict(zip(rss_feeds.CATEGORIES, ["#B388FF", "#5B9BD5",
-                                                 "#98C379", GREY, "#E59866"]))
+    CAT_COLORS = dict(zip(rss_feeds.CATEGORIES, [VIOLET, BLUE, GREEN, GREY,
+                                                 ORANGE]))
 
     def _load_news(e=None):
         state["news"] = []
