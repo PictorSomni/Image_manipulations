@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.112"
+__version__ = "2.10.113"
 
 import asyncio
 import base64
@@ -261,10 +261,15 @@ async def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.DARK
     field = ft.TextField(label="Mot de passe", password=True,
                          can_reveal_password=True, autofocus=True,
+                         capitalization=ft.TextCapitalization.NONE,
+                         autocorrect=False,
                          border_radius=C.BUTTON_RADIUS, width=280)
 
     async def _login(e):
-        if hmac.compare_digest((field.value or "").strip(), secret):
+        # iOS met souvent une majuscule initiale : comparaison sans casse.
+        typed = (field.value or "").strip().lower()
+        print(f"[login] essai ({len(typed)} car.)", flush=True)
+        if hmac.compare_digest(typed, secret.lower()):
             _FAILS["n"] = 0
             try:
                 await prefs.set("hub_token", token)
