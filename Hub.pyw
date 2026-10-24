@@ -9353,34 +9353,40 @@ def main(page: ft.Page):
         terminal_to_notepad_button.tooltip = (
             "Transférer les messages vers le bloc-notes")
         terminal_msgs_btn.visible = True
-        if _msgs_hidden_load():
-            _toggle_msgs(save=False)
+        _apply_msgs_width()
 
-    _MSGS_HIDDEN_FILE = CONSTANTS.state_file(".terminal_msgs_hidden.json")
+    # Messages affichés par défaut, masqués automatiquement si la fenêtre
+    # est étroite (demi-écran, bloc-notes ouvert) ; le bouton bascule
+    # pour la session.
+    msgs_wanted = {"value": True}
 
-    def _msgs_hidden_load():
-        try:
-            with open(_MSGS_HIDDEN_FILE, encoding="utf-8") as f:
-                return bool(json.load(f))
-        except (OSError, ValueError):
+    def _apply_msgs_width():
+        if not shell_term.get("msgs"):
             return False
+        handle, c = shell_term["msgs"]
+        narrow = ((page.window.width or 0)
+                  < CONSTANTS.HUB_TITLEBAR_NARROW_WIDTH)
+        show = msgs_wanted["value"] and not narrow
+        if c.visible == show:
+            return False
+        c.visible = handle.visible = show
+        terminal_msgs_btn.icon = (ft.Icons.VIEW_SIDEBAR if show
+                                  else ft.Icons.VIEW_SIDEBAR_OUTLINED)
+        terminal_msgs_btn.tooltip = ("Masquer les messages" if show
+                                     else "Afficher les messages")
+        return True
 
-    def _toggle_msgs(e=None, save=True):
+    def _toggle_msgs(e=None):
         if not shell_term.get("msgs"):
             return
-        handle, c = shell_term["msgs"]
-        c.visible = handle.visible = not c.visible
-        terminal_msgs_btn.icon = (ft.Icons.VIEW_SIDEBAR if c.visible
-                                  else ft.Icons.VIEW_SIDEBAR_OUTLINED)
-        terminal_msgs_btn.tooltip = ("Masquer les messages" if c.visible
-                                     else "Afficher les messages")
-        if save:
-            try:
-                with open(_MSGS_HIDDEN_FILE, "w", encoding="utf-8") as f:
-                    json.dump(not c.visible, f)
-            except OSError:
-                pass
-            page.update()
+        msgs_wanted["value"] = not shell_term["msgs"][1].visible
+        if not _apply_msgs_width() and msgs_wanted["value"]:
+            # Fenêtre étroite : on force quand même l'affichage demandé.
+            handle, c = shell_term["msgs"]
+            c.visible = handle.visible = True
+            terminal_msgs_btn.icon = ft.Icons.VIEW_SIDEBAR
+            terminal_msgs_btn.tooltip = "Masquer les messages"
+        page.update()
 
     _install_shell_terminal()
 
@@ -9593,6 +9599,8 @@ def main(page: ft.Page):
                 row.visible = not narrow
                 menu.visible = narrow
                 changed = True
+        if _apply_msgs_width():
+            changed = True
         if changed:
             page.update()
 
