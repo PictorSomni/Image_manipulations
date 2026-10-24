@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.125"
+__version__ = "2.10.126"
 
 import asyncio
 import base64
@@ -12814,6 +12814,11 @@ def main(page: ft.Page):
 
     terminal_input.on_submit = _on_terminal_submit
 
+    terminal_msgs_btn = ft.IconButton(
+        ft.Icons.VIEW_SIDEBAR, icon_color=YELLOW,
+        icon_size=CONSTANTS.ICON_SM, tooltip="Masquer les messages",
+        visible=False, on_click=lambda e: _toggle_msgs())
+
     terminal_copy_button = ft.IconButton(
         ft.Icons.COPY_ALL, icon_color=BLUE, icon_size=CONSTANTS.ICON_SM,
         tooltip="Copier le terminal",
@@ -12895,7 +12900,8 @@ def main(page: ft.Page):
             # la ligne de saisie.
             ft.Container(
                 content=ft.Row([
-                    terminal_title, terminal_stop_button, terminal_copy_button,
+                    terminal_title, terminal_stop_button, terminal_msgs_btn,
+                    terminal_copy_button,
                     terminal_to_notepad_button, terminal_clear_button,
                     terminal_fullscreen_btn,
                 ], spacing=4),
@@ -13036,6 +13042,7 @@ def main(page: ft.Page):
                 mouse_cursor=ft.MouseCursor.RESIZE_LEFT_RIGHT,
                 on_horizontal_drag_update=_drag,
                 on_horizontal_drag_end=_drag_end)
+            shell_term["msgs"] = (handle, c)
             return ft.Row([box, handle, c], expand=True, spacing=0,
                           vertical_alignment=ft.CrossAxisAlignment.STRETCH)
         box.expand = 3
@@ -13044,6 +13051,41 @@ def main(page: ft.Page):
                   if getattr(c, "content", None) is not terminal_input]
         shell_term["term"] = term
         shell_term["write"] = write
+        # Copier/Transférer portent sur la colonne des messages, pas sur
+        # le shell (retour user) : libellés ajustés + bouton pour
+        # afficher/masquer cette colonne.
+        terminal_copy_button.tooltip = "Copier les messages"
+        terminal_to_notepad_button.tooltip = (
+            "Transférer les messages vers le bloc-notes")
+        terminal_msgs_btn.visible = True
+        if _msgs_hidden_load():
+            _toggle_msgs(save=False)
+
+    _MSGS_HIDDEN_FILE = CONSTANTS.state_file(".terminal_msgs_hidden.json")
+
+    def _msgs_hidden_load():
+        try:
+            with open(_MSGS_HIDDEN_FILE, encoding="utf-8") as f:
+                return bool(json.load(f))
+        except (OSError, ValueError):
+            return False
+
+    def _toggle_msgs(e=None, save=True):
+        if not shell_term.get("msgs"):
+            return
+        handle, c = shell_term["msgs"]
+        c.visible = handle.visible = not c.visible
+        terminal_msgs_btn.icon = (ft.Icons.VIEW_SIDEBAR if c.visible
+                                  else ft.Icons.VIEW_SIDEBAR_OUTLINED)
+        terminal_msgs_btn.tooltip = ("Masquer les messages" if c.visible
+                                     else "Afficher les messages")
+        if save:
+            try:
+                with open(_MSGS_HIDDEN_FILE, "w", encoding="utf-8") as f:
+                    json.dump(not c.visible, f)
+            except OSError:
+                pass
+            page.update()
 
     _install_shell_terminal()
 
