@@ -745,7 +745,6 @@ function openImage(it) {
 async function loadHome() {
   const jobs = [api("/api/briefing").then(d => S.briefing = d),
     api("/api/weather").then(d => S.weather = d)];
-  if (!S.lists) jobs.push(loadLists());
   if (!S.news) jobs.push(loadNews());
   if (!S.digest) jobs.push(api("/api/digest").then(d => S.digest = d));
   await Promise.allSettled(jobs);
@@ -819,24 +818,6 @@ function viewHome() {
       rows.length > 6 ? h("div", {class: "muted",
         style: {marginTop: "6px"}}, `+ ${rows.length - 6} autres`) :
         null));
-  }
-  // Liste « À faire » : cocher directement
-  if (S.lists) {
-    const left = S.lists.liste.filter(r => !isDone(r));
-    out.push(glass(`Liste à faire · ${left.length}`, "Listes ›", () => {
-      S.listKind = "liste"; tab("lists"); },
-      ...left.slice(0, 8).map(r => h("div", {class: "slot",
-        onclick: () => listEdit("liste", r)},
-        h("input", {type: "checkbox", onclick: e => e.stopPropagation(),
-          onchange: e => { r.fait = e.target.checked ? "True" : "False";
-            saveList("liste"); }}),
-        h("div", {class: "tx"}, r["tâche"] || ""),
-        h("div", {class: "muted"}, catOf(r)))),
-      left.length > 8 ? h("div", {class: "muted",
-        style: {marginTop: "6px"}}, `+ ${left.length - 8} autres`) :
-        null,
-      h("button", {class: "btn txt", style: {padding: "8px 0 0"},
-        onclick: () => listEdit("liste")}, "＋ Ajouter")));
   }
   // Anecdotes du jour tirées des actus
   if (S.digest && S.digest.text) out.push(glass("Le saviez-tu ?",
