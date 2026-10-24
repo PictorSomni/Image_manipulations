@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.85"
+__version__ = "2.10.86"
 
 import base64
 import datetime
@@ -400,6 +400,10 @@ def main(page: ft.Page):
         page.update()
 
     def _grid(paths):
+        # Tuiles à taille fixe (3 par ligne sur iPhone) : avec
+        # ResponsiveRow + aspect_ratio, elles faisaient 0 px de haut.
+        cols = max(3, int((page.width or 390) // 160))
+        side = ((page.width or 390) - 24 - 4 * (cols - 1)) // cols
         tiles = []
         for p in paths:
             try:
@@ -407,11 +411,12 @@ def main(page: ft.Page):
             except Exception:
                 continue
             tiles.append(ft.Container(
-                ft.Image(src=data, fit=ft.BoxFit.COVER),
-                border_radius=6, clip_behavior=ft.ClipBehavior.HARD_EDGE,
-                on_click=lambda e, p=p: _open_image(p),
-                col={"xs": 4, "md": 3, "lg": 2}, aspect_ratio=1))
-        return ft.ResponsiveRow(tiles, spacing=4, run_spacing=4)
+                ft.Image(src=data, fit=ft.BoxFit.COVER, width=side,
+                         height=side),
+                width=side, height=side, border_radius=6,
+                clip_behavior=ft.ClipBehavior.HARD_EDGE,
+                on_click=lambda e, p=p: _open_image(p)))
+        return ft.Row(tiles, wrap=True, spacing=4, run_spacing=4)
 
     def _gallery_view():
         imgs = state["images"]
