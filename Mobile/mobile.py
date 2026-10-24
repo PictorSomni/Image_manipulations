@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.103"
+__version__ = "2.10.104"
 
 import base64
 import datetime
@@ -225,19 +225,29 @@ assert day_label(datetime.date.today().isoformat()) == "Aujourd'hui"
 
 def main(page: ft.Page):
     page.title = "Hub"
-    page.bgcolor = BG
+    page.bgcolor = C.COLOR_BACKGROUND
     page.theme_mode = ft.ThemeMode.DARK
+    # Même thème que Hub : boutons arrondis à BUTTON_RADIUS.
+    btn = ft.ButtonStyle(shape=ft.RoundedRectangleBorder(
+        radius=C.BUTTON_RADIUS))
+    page.dark_theme = page.theme = ft.Theme(
+        button_theme=ft.ButtonTheme(style=btn),
+        icon_button_theme=ft.IconButtonTheme(style=btn),
+        outlined_button_theme=ft.OutlinedButtonTheme(style=btn),
+        text_button_theme=ft.TextButtonTheme(style=btn),
+        filled_button_theme=ft.FilledButtonTheme(style=btn),
+        segmented_button_theme=ft.SegmentedButtonTheme(style=btn))
     page.padding = 0
     state = {"open": {"À faire"}, "tasks": [], "tab": 0, "images": [],
              "shown": 60, "source": None, "format": "1:1", "count": 1,
-             "refine": True, "model": "gemini",
+             "refine": True, "model": "gemini", "quality": "1K",
              "busy": False, "news": None, "news_cat": None,
              "picked": set()}
 
     status = ft.Text("", size=12, color=GREY)
     search = ft.TextField(
         hint_text="Rechercher une carte", prefix_icon=ft.Icons.SEARCH,
-        border_radius=24, dense=True, on_change=lambda e: render(),
+        border_radius=C.BUTTON_RADIUS, dense=True, on_change=lambda e: render(),
         content_padding=ft.Padding(12, 8, 12, 8))
     search_bar = ft.Container(search, padding=ft.Padding(12, 8, 12, 0))
     body = ft.ListView(expand=True, spacing=8,
@@ -433,7 +443,8 @@ def main(page: ft.Page):
 
     # ── IA ───────────────────────────────────────────────────────────
     prompt = ft.TextField(hint_text="Décris l'image…", multiline=True,
-                          min_lines=3, max_lines=8, border_radius=10)
+                          min_lines=3, max_lines=8,
+                          border_radius=C.BUTTON_RADIUS)
     ia_status = ft.Text("", size=13, color=GREY)
     picker = ft.FilePicker()
     prompts_file = CONSTANTS.state_file(".ai_prompts.json")  # = Hub
@@ -476,6 +487,7 @@ def main(page: ft.Page):
         src = state["source"]
         src_bytes = open(src, "rb").read() if src else None
         n, aspect = state["count"], state["format"]
+        quality = state["quality"]
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         kind = "edited" if src_bytes else "generated"
         muse = state["model"] == "muse"
@@ -506,7 +518,7 @@ def main(page: ft.Page):
                 try:
                     msg, img = gen(
                         refined, input_image_bytes=src_bytes,
-                        aspect_ratio=aspect, resolution="1K")
+                        aspect_ratio=aspect, resolution=quality)
                 except Exception as exc:
                     msg, img = str(exc), None
                 if img:
@@ -555,6 +567,8 @@ def main(page: ft.Page):
         return [prompt, src_row,
                 _seg([("gemini", "Gemini"), ("muse", "Muse")], "model"),
                 _seg(FORMATS, "format"),
+                *([] if state["model"] == "muse" else
+                  [_seg([(q, q) for q in ("1K", "2K", "4K")], "quality")]),
                 _seg([(n, f"×{n}") for n in (1, 2, 3, 4)], "count", int),
                 ft.Switch(label="Affiner", value=state["refine"],
                           disabled=state["model"] == "muse",
