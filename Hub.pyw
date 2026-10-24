@@ -15,7 +15,7 @@ placeholders structurés, remplis incrémentalement.
 Lançable indépendamment ou depuis les anciennes apps.
 """
 
-__version__ = "2.10.100"
+__version__ = "2.10.101"
 
 import asyncio
 import base64
@@ -6271,10 +6271,55 @@ def main(page: ft.Page):
         content_padding=ft.Padding.symmetric(horizontal=6, vertical=0),
         width=120)
 
+    # Demande d'origine + demande affinée de chaque image générée, pour
+    # les retrouver (survol d'une tuile, bouton « Reprendre »).
+    _AI_PROMPTS_FILE = CONSTANTS.state_file(".ai_prompts.json")
+
+    def _ai_prompts_load():
+        try:
+            with open(_AI_PROMPTS_FILE, encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return {}
+    ai_prompts = _ai_prompts_load()
+
+    def _ai_prompts_save(path, asked, refined):
+        ai_prompts[os.path.normcase(path)] = {"asked": asked,
+                                              "refined": refined}
+        try:
+            with open(_AI_PROMPTS_FILE, "w", encoding="utf-8") as f:
+                json.dump(ai_prompts, f, ensure_ascii=False, indent=1)
+        except OSError:
+            pass
+
+    def _ai_prompt_tooltip(path):
+        info = ai_prompts.get(os.path.normcase(path))
+        if not info:
+            return os.path.basename(path)
+        tip = f"{os.path.basename(path)}\n\nDemande : {info['asked']}"
+        if info.get("refined") and info["refined"] != info["asked"]:
+            tip += f"\n\nAffinée : {info['refined']}"
+        return tip
+
+    def _ai_gal_restore_prompt():
+        if len(ai_gal_selected) != 1:
+            return
+        info = ai_prompts.get(os.path.normcase(next(iter(ai_gal_selected))))
+        if info:
+            ai_input_field.value = info["asked"]
+            ai_input_field.update()
+            _log_to_terminal(f"↩ Demande : {info['asked']}", BLUE)
+            if info.get("refined") and info["refined"] != info["asked"]:
+                _log_to_terminal(f"✍️ Affinée : {info['refined']}", BLUE)
+
     def _ai_gal_sync_buttons():
         for b in (ai_retouch_button, ai_reuse_button, ai_delete_button):
             b.disabled = not ai_gal_selected
-        page.update(ai_retouch_button, ai_reuse_button, ai_delete_button)
+        ai_prompt_button.disabled = not (
+            len(ai_gal_selected) == 1 and os.path.normcase(
+                next(iter(ai_gal_selected))) in ai_prompts)
+        page.update(ai_retouch_button, ai_reuse_button, ai_delete_button,
+                    ai_prompt_button)
 
     def _ai_gal_toggle(path, tile):
         if path in ai_gal_selected:
@@ -6327,7 +6372,7 @@ def main(page: ft.Page):
         tile = ft.Container(
             ft.Image(src=path, fit=ft.BoxFit.CONTAIN),
             border=ft.Border.all(3, DARK), border_radius=6, bgcolor=DARK,
-            tooltip=os.path.basename(path), data=path)
+            tooltip=_ai_prompt_tooltip(path), data=path)
         tile.on_click = lambda e, p=path, t=tile: _ai_gal_toggle(p, t)
         ai_gallery.controls.insert(0, tile)
         if state["surface"] == "ia":
@@ -6356,6 +6401,7 @@ def main(page: ft.Page):
         stamp = f"{datetime.datetime.now():%Y%m%d_%H%M%S}"
         kind = "edited" if src_bytes else "generated"
         pending = {"n": n}
+        asked = prompt
 
         def _one(i):
             try:
@@ -6369,6 +6415,7 @@ def main(page: ft.Page):
                 path = os.path.join(dest, f"{kind}_{stamp}_{i + 1}.png")
                 with open(path, "wb") as f:
                     f.write(img)
+                _ai_prompts_save(path, asked, prompt)
                 _ai_gal_add(path)
             else:
                 _log_to_terminal(f"[ERREUR] Image {i + 1} : {text}", RED)
@@ -6384,7 +6431,7 @@ def main(page: ft.Page):
             nonlocal prompt
             # Affinage du texte (retour user : sa demande brute est
             # rarement assez précise) — une fois pour les N images.
-            if not use_muse:
+            if not use_muse and ai_refine_switch.value:
                 ai_status_text.value = "✍️ Affinage de la demande…"
                 page.update(ai_status_text)
                 try:
@@ -6423,8 +6470,18 @@ def main(page: ft.Page):
         "Retouche photo", icon=ft.Icons.TUNE, disabled=True,
         on_click=_ai_open_retouch, height=CONSTANTS.HUB_TOOLBAR_H)
     ai_reuse_button = ft.IconButton(
-        ft.Icons.AUTO_AWESOME, disabled=True, icon_color=YELLOW,
-        tooltip="Réutiliser dans l'IA", on_click=_ai_gal_reuse)
+        ft.Icons.SMART_TOY_OUTLINED, disabled=True, icon_color=VIOLET,
+        tooltip="Ajouter à l'IA", on_click=_ai_gal_reuse)
+    ai_prompt_button = ft.IconButton(
+        ft.Icons.HISTORY, disabled=True, icon_color=BLUE,
+        tooltip="Reprendre la demande de cette image",
+        on_click=lambda e: _ai_gal_restore_prompt())
+    # Affinage de la demande par Gemini avant génération (retour user :
+    # désactivable pour envoyer le texte tel quel).
+    ai_refine_switch = ft.Switch(
+        label="Affiner", value=True, active_color=YELLOW,
+        label_text_style=ft.TextStyle(size=CONSTANTS.TEXT_SM, color=WHITE),
+        tooltip="Affiner la demande avant de générer")
     ai_delete_button = ft.IconButton(
         ft.Icons.DELETE_OUTLINE, disabled=True, icon_color=RED,
         tooltip="Supprimer (corbeille)", on_click=_ai_gal_delete)
@@ -6447,8 +6504,10 @@ def main(page: ft.Page):
                 ai_image_size_group,
                 ai_aspect_dropdown,
                 ai_count_dropdown,
+                ai_refine_switch,
                 ai_retouch_button,
                 ai_reuse_button,
+                ai_prompt_button,
                 ai_delete_button,
                 # Voix/copie/bloc-notes masqués ; effacement de la
                 # conversation et ses séparateurs retirés (retour user :
