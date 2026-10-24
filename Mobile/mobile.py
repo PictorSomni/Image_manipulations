@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.124"
+__version__ = "2.10.125"
 
 import asyncio
 import base64
@@ -1001,7 +1001,16 @@ def _app(page: ft.Page):
                                 color=GREY if done else None,
                                 style=ft.TextStyle(
                                     decoration=ft.TextDecoration.LINE_THROUGH)
-                                if done else None)])
+                                if done else None),
+                        # Détails (Markdown) seulement s'il y en a, comme
+                        # dans Hub : sinon la tâche prend toute la largeur.
+                        *([ft.Container(ft.Markdown(
+                            str(r["détails"]), selectable=True,
+                            extension_set=ft.MarkdownExtensionSet
+                            .GITHUB_FLAVORED),
+                            expand=True, opacity=0.5 if done else 1)]
+                          if str(r.get("détails") or "").strip() else [])],
+                        vertical_alignment=ft.CrossAxisAlignment.START)
                 else:
                     content = ft.Row([
                         ft.Text(r.get("article", ""), expand=True),
