@@ -42,6 +42,7 @@ def build(ui):
     ai_image_quality_dropdown = ui.ai_image_quality_dropdown
     ai_image_size_group = ui.ai_image_size_group
     ai_input_field = ui.ai_input_field
+    _open_viewer = ui._open_viewer
     ai_mic_button = ui.ai_mic_button
     ai_model_dropdown = ui.ai_model_dropdown
     ai_pending_images = ui.ai_pending_images
@@ -127,21 +128,46 @@ def build(ui):
             b.disabled = not ai_gal_selected
         ai_copy_folder_button.disabled = not (ai_gal_selected
                                               and state["folder"])
-        ai_prompt_button.disabled = not (
+        ai_prompt_button.disabled = ai_copy_prompt_button.disabled = not (
             len(ai_gal_selected) == 1 and os.path.normcase(
                 next(iter(ai_gal_selected))) in ai_prompts)
         page.update(ai_retouch_button, ai_reuse_button, ai_delete_button,
-                    ai_prompt_button, ai_copy_folder_button)
+                    ai_prompt_button, ai_copy_prompt_button,
+                    ai_copy_folder_button)
 
-    def _ai_gal_toggle(path, tile):
-        if path in ai_gal_selected:
-            ai_gal_selected.discard(path)
-        else:
-            ai_gal_selected.add(path)
-        tile.border = ft.Border.all(3, BLUE if path in ai_gal_selected
-                                    else DARK)
-        page.update(tile)
+    ai_gal_checks = {}
+    ai_gal_anchor = {"path": None}
+
+    def _ai_gal_show(paths):
+        for p in paths:
+            on = p in ai_gal_selected
+            for t in ai_gallery.controls:
+                if t.data == p:
+                    t.border = ft.Border.all(3, BLUE if on else DARK)
+            if p in ai_gal_checks:
+                ai_gal_checks[p].value = on
+        page.update(ai_gallery)
         _ai_gal_sync_buttons()
+
+    def _ai_gal_toggle(path, on):
+        if on:
+            ai_gal_selected.add(path)
+        else:
+            ai_gal_selected.discard(path)
+        ai_gal_anchor["path"] = path
+        _ai_gal_show([path])
+
+    def _ai_gal_range(path):
+        """Clic droit sur la case : toute la série depuis la dernière."""
+        order = [t.data for t in ai_gallery.controls]
+        anchor = ai_gal_anchor["path"]
+        if anchor not in order:
+            _ai_gal_toggle(path, True)
+            return
+        i, j = sorted((order.index(anchor), order.index(path)))
+        ai_gal_selected.update(order[i:j + 1])
+        ai_gal_anchor["path"] = path
+        _ai_gal_show(order[i:j + 1])
 
     def _ai_gal_reuse(event=None):
         """Images sélectionnées → jointes à la prochaine demande IA (comme
@@ -188,18 +214,27 @@ def build(ui):
         _run_task(_ai_navigate_async, folder)
 
     def _ai_gal_clear_selection():
+        old = list(ai_gal_selected)
         ai_gal_selected.clear()
-        for t in ai_gallery.controls:
-            t.border = ft.Border.all(3, DARK)
-        page.update(ai_gallery)
-        _ai_gal_sync_buttons()
+        _ai_gal_show(old)
 
     def _ai_gal_add(path):
+        check = ft.Checkbox(
+            value=False, fill_color=ft.Colors.with_opacity(0.6, DARK),
+            on_change=lambda e, p=path: _ai_gal_toggle(
+                p, e.control.value))
+        ai_gal_checks[path] = check
         tile = ft.Container(
-            ft.Image(src=path, fit=ft.BoxFit.CONTAIN),
+            ft.Stack([
+                ft.Image(src=path, fit=ft.BoxFit.CONTAIN, expand=True),
+                ft.GestureDetector(
+                    content=check, left=2, top=2,
+                    on_secondary_tap_up=lambda e, p=path: _ai_gal_range(p)),
+            ], expand=True),
             border=ft.Border.all(3, DARK), border_radius=6, bgcolor=DARK,
             tooltip=_ai_prompt_tooltip(path), data=path)
-        tile.on_click = lambda e, p=path, t=tile: _ai_gal_toggle(p, t)
+        tile.on_click = lambda e, p=path: _open_viewer(
+            p, [t.data for t in ai_gallery.controls])
         ai_gallery.controls.insert(0, tile)
         if state["surface"] == "ia":
             page.update(ai_gallery)
@@ -319,6 +354,18 @@ def build(ui):
     ai_copy_folder_button = _side_btn(
         "Copier au dossier", ft.Icons.DRIVE_FILE_MOVE_OUTLINE, GREEN,
         _ai_gal_copy)
+    async def _ai_gal_copy_prompt(event):
+        if len(ai_gal_selected) != 1:
+            return
+        info = ai_prompts.get(os.path.normcase(next(iter(ai_gal_selected))))
+        if info:
+            await ft.Clipboard().set(info.get("refined") or info["asked"])
+            ai_status_text.value = "✓ Demande affinée copiée"
+            page.update()
+
+    ai_copy_prompt_button = _side_btn(
+        "Copier la demande", ft.Icons.CONTENT_COPY, BLUE,
+        _ai_gal_copy_prompt)
     ai_prompt_button = _side_btn(
         "Reprendre", ft.Icons.HISTORY, BLUE,
         lambda e: _ai_gal_restore_prompt())
@@ -548,7 +595,7 @@ def build(ui):
          ft.Container(ft.Divider(height=1, color=GREY), width=190,
                       padding=ft.Padding(0, 6, 0, 6)),
          ai_retouch_button, ai_reuse_button, ai_copy_folder_button,
-         ai_prompt_button, ai_delete_button],
+         ai_prompt_button, ai_copy_prompt_button, ai_delete_button],
         spacing=6, scroll=ft.ScrollMode.AUTO)
 
     def _bar(*controls):

@@ -4081,14 +4081,16 @@ def main(page: ft.Page):
         -1, _viewer_btn(ft.Icons.TUNE, "Retouche photo",
                        _launch_editor_for_current("Retouche photo.pyw")))
 
-    def _open_viewer(start_path):
+    def _open_viewer(start_path, paths=None):
         # Vidéo : lecteur système (lecture intégrée = flet-video + libmpv,
         # pas justifié). Dans la visionneuse, elle apparaît en image fixe.
         if (os.path.splitext(start_path)[1].lower()
                 in CONSTANTS.VIDEO_EXTS):
             _open_file_default(start_path)
             return
-        if selected and start_path in selected:
+        if paths:  # liste fournie (galerie IA)
+            pass
+        elif selected and start_path in selected:
             paths = [p for p in content["imgs"] if p in selected]
         elif start_path in content["imgs"]:
             paths = content["imgs"]
