@@ -1,20 +1,20 @@
 # -*- coding: utf-8 -*-
 """
-Hub mobile : Tâches + Agenda pour iPhone / iPad, en web app servie par le
-Pi (Tailscale, http://100.124.227.50:8550 : le nom court ne résout pas
-sur iOS → « Ajouter à l'écran d'accueil »).
+Hub mobile : web app légère (une page HTML + API JSON) servie par le Pi
+sur le port 8550 (Tailscale : http://100.124.227.50:8550, public via
+Funnel : https://pictorsomni.taild63b02.ts.net).
 
-Mêmes données que Hub : Notion (Data/notion_rest.py) pour les cartes et
-l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
-"kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
+Serveur Python stdlib, aucune dépendance web : la page (index.html) fait
+tout le rendu, ce fichier ne sert que les données. Mêmes sources que Hub :
+Notion (Data/notion_rest.py) pour les cartes et l'agenda, hub_sync pour
+l'ordre des cartes et les listes.
 """
 
 
-import asyncio
-import base64
+import datetime
 import hashlib
 import hmac
-import datetime
+import http.cookies
 import io
 import json
 import os
@@ -23,10 +23,12 @@ import sys
 import threading
 import time
 import unicodedata
+import urllib.parse
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "Data"))
-import flet as ft  # noqa: E402
 import CONSTANTS  # noqa: E402
 import hub_sync  # noqa: E402
 import meta_ai  # noqa: E402
@@ -35,6 +37,7 @@ from ai_tools import (  # noqa: E402
 from PIL import Image  # noqa: E402
 import notion_rest  # noqa: E402
 import rss_feeds  # noqa: E402
+
 
 KANBAN_DS = "34f4c64b-5c00-4415-99cb-76234faecef1"
 # Couleurs : celles de Hub (CONSTANTS.COLOR_*).
@@ -88,22 +91,6 @@ def list_images():
                     except OSError:
                         pass
     return sorted(found, key=found.get, reverse=True)
-
-
-def thumb(path, size=360):
-    """Vignette JPEG (data URI), en cache par (chemin, date)."""
-    key = (path, os.path.getmtime(path), size)
-    if key not in _thumbs:
-        with Image.open(path) as im:
-            im = im.convert("RGB")
-            im.thumbnail((size, size))
-            buf = io.BytesIO()
-            im.save(buf, "JPEG", quality=80)
-        # Data URI : des bytes bruts ne s'affichent pas en web (galerie
-        # vide sur iPhone).
-        _thumbs[key] = ("data:image/jpeg;base64,"
-                        + base64.b64encode(buf.getvalue()).decode())
-    return _thumbs[key]
 
 
 def _fold(text):
@@ -225,1033 +212,351 @@ def day_label(iso):
 assert day_label(datetime.date.today().isoformat()) == "Aujourd'hui"
 
 
-def seg(options, value, on_pick, colors=None, size=None):
-    """Choix exclusif façon Hub : CupertinoSlidingSegmentedButton,
-    fond sombre, curseur bleu (ou couleur de l'option), libellé choisi
-    en noir."""
-    keys = [str(v) for v, _ in options]
-    idx = keys.index(str(value)) if str(value) in keys else 0
-    return ft.CupertinoSlidingSegmentedButton(
-        selected_index=idx, bgcolor=BG,
-        thumb_color=colors[idx] if colors else BLUE,
-        padding=ft.Padding(4, 6, 4, 6),
-        controls=[ft.Text(t, color=BG if i == idx else None, size=size,
-                          text_align=ft.TextAlign.CENTER, max_lines=2,
-                          weight=ft.FontWeight.W_600 if i == idx else None)
-                  for i, (_, t) in enumerate(options)],
-        on_change=lambda e: on_pick(
-            options[int(e.control.selected_index)][0]))
+
+def _notes(page_id):
+    """Contenu Markdown d'une page Notion (notes d'une carte / d'un rdv)."""
+    try:
+        text = notion_rest._blocks_to_text(page_id)
+    except Exception:
+        text = ""
+    return text.replace("<empty-block/>", "").strip()
 
 
-# Accès public (Tailscale Funnel) → mot de passe, retenu par l'appareil.
-# Le mot de passe vit uniquement sur le Pi (~/.hub_mobile_pass).
+def _set_props(page_id, props):
+    notion_rest._update({"page_id": page_id, "command": "update_properties",
+                         "properties": props})
+    for row in _DATA["tasks"] or []:
+        if _page_id(row) == page_id:
+            row.update(props)
+
+
+PROMPTS_FILE = CONSTANTS.state_file(".ai_prompts.json")  # = Hub
+LASTCAT_FILE = os.path.join(HOME, ".hub_mobile_lastcat.json")
+
+
+def _read_json(path, default):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def _write_json(path, data):
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+    except OSError:
+        pass
+
+
+def _in_gallery(path):
+    """Chemin réel sous une des GALLERY_ROOTS, sinon None."""
+    real = os.path.realpath(path)
+    for root in GALLERY_ROOTS:
+        root = os.path.realpath(root)
+        if os.path.commonpath([real, root]) == root and \
+                os.path.isfile(real):
+            return real
+    return None
+
+
+def thumb_jpeg(path, size):
+    key = (path, os.path.getmtime(path), size)
+    if key not in _thumbs:
+        with Image.open(path) as im:
+            im = im.convert("RGB")
+            im.thumbnail((size, size))
+            buf = io.BytesIO()
+            im.save(buf, "JPEG", quality=82)
+        _thumbs[key] = buf.getvalue()
+    return _thumbs[key]
+
+
+# ── Génération IA (tâche de fond, la page interroge /api/job) ─────────
+_JOBS = {}
+
+
+def _generate(job, text, src, model, aspect, quality, count, refine):
+    muse = model == "muse"
+    src_bytes = None
+    if src:
+        with open(src, "rb") as f:
+            src_bytes = f.read()
+    kind = ("muse_" if muse else "") + ("edited" if src_bytes
+                                        else "generated")
+    gen = meta_ai.generate_image if muse else _gemini_generate_image
+    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    os.makedirs(IA_DIR, exist_ok=True)
+    refined = text
+    if refine and not muse:
+        job["status"] = "✍️ Affinage de la demande…"
+        try:
+            refined = _gemini_refine_image_prompt(
+                intent_prompt=text, user_request=text,
+                mode="edit_image" if src_bytes else "generate_image",
+                source_filename=os.path.basename(src or ""),
+                model=CONSTANTS.AI_IMAGE_REFINER_MODEL) or text
+        except Exception:
+            pass
+    job["status"] = f"🎨 {count} image(s) en cours…"
+    out, err = [], []
+
+    def _one(i):
+        try:
+            msg, img = gen(refined, input_image_bytes=src_bytes,
+                           aspect_ratio=aspect, resolution=quality)
+        except Exception as exc:
+            msg, img = str(exc), None
+        if img:
+            path = os.path.join(IA_DIR, f"{kind}_{stamp}_{i + 1}.png")
+            with open(path, "wb") as f:
+                f.write(img)
+            out.append(path)
+        else:
+            err.append(msg)
+    threads = [threading.Thread(target=_one, args=(i,), daemon=True)
+               for i in range(count)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    data = _read_json(PROMPTS_FILE, {})
+    for p in out:
+        data[os.path.normcase(p)] = {"asked": text, "refined": refined}
+    _write_json(PROMPTS_FILE, data)
+    job.update(done=True, images=out,
+               status=("Erreur : " + err[0][:200]) if err else "")
+
+
+# ── Mot de passe (accès public via Funnel) ────────────────────────────
 PASS_FILE = os.path.join(HOME, ".hub_mobile_pass")
+LOGIN_LOG = os.path.join(HOME, ".hub_mobile_login.log")
 _FAILS = {"n": 0}
+_AMBIGUOUS = str.maketrans("oli", "011")
 
 
-def _token():
+def _secret():
     try:
         with open(PASS_FILE, encoding="utf-8") as f:
-            secret = f.read().strip()
+            return f.read().strip() or None
     except OSError:
-        return None, None
-    return secret, hashlib.sha256(
-        ("hub-mobile:" + secret).encode()).hexdigest()
+        return None
 
 
-async def main(page: ft.Page):
-    secret, token = _token()
-    prefs = ft.SharedPreferences()
-    page.services.append(prefs)  # service non enregistré = appels muets
-    if not secret:
-        page.add(ft.Text("Mot de passe absent sur le Pi"))
-        return
-    try:
-        saved = await prefs.get("hub_token")
-    except Exception:
-        saved = None
-    if saved and hmac.compare_digest(str(saved), token):
-        _app(page)
-        return
-    page.title = "Hub"
-    page.bgcolor = C.COLOR_BACKGROUND
-    page.theme_mode = ft.ThemeMode.DARK
-    field = ft.TextField(label="Mot de passe", password=True,
-                         can_reveal_password=True, autofocus=True,
-                         capitalization=ft.TextCapitalization.NONE,
-                         autocorrect=False,
-                         border_radius=C.BUTTON_RADIUS, width=280)
+def _token(secret):
+    return hashlib.sha256(("hub-mobile:" + secret).encode()).hexdigest()
 
-    def _log(msg):
-        with open(os.path.join(HOME, ".hub_mobile_login.log"), "a",
-                  encoding="utf-8") as f:
-            f.write(f"{datetime.datetime.now():%H:%M:%S} {msg}\n")
 
-    async def _login(e):
-        _log(f"clic, valeur={len(field.value or '')} car.")
-        # iOS met souvent une majuscule initiale : comparaison sans casse.
-        # + caractères ambigus confondus (0/o, 1/l/i).
-        amb = str.maketrans("oli", "011")
-        typed = (field.value or "").strip().lower().translate(amb)
-        if hmac.compare_digest(typed, secret.lower().translate(amb)):
+def _log(msg):
+    with open(LOGIN_LOG, "a", encoding="utf-8") as f:
+        f.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n")
+
+
+def _password_ok(typed, secret):
+    # iOS met souvent une majuscule initiale : comparaison sans casse,
+    # caractères ambigus confondus (0/o, 1/l/i).
+    def norm(s):
+        return s.strip().lower().translate(_AMBIGUOUS)
+    return hmac.compare_digest(norm(typed), norm(secret))
+
+
+# ── Serveur ───────────────────────────────────────────────────────────
+HERE = os.path.dirname(os.path.abspath(__file__))
+STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
+          "/manifest.json": ("manifest.json", "application/manifest+json")}
+MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".webp": "image/webp"}
+COOKIE = "hub_token"
+
+
+def _json_default(obj):
+    if isinstance(obj, (datetime.datetime, datetime.date)):
+        return obj.isoformat()
+    return str(obj)
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "Hub"
+
+    def log_message(self, fmt, *args):
+        pass  # journal muet : seules les connexions vont dans LOGIN_LOG
+
+    # Réponses
+    def _send(self, body, ctype, code=200, headers=None):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _json(self, data, code=200, headers=None):
+        self._send(json.dumps(data, ensure_ascii=False,
+                              default=_json_default).encode(),
+                   "application/json; charset=utf-8", code, headers)
+
+    def _body(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        return self.rfile.read(n) if n else b""
+
+    def _authed(self):
+        secret = _secret()
+        if not secret:
+            return False
+        jar = http.cookies.SimpleCookie(self.headers.get("Cookie", ""))
+        got = jar[COOKIE].value if COOKIE in jar else ""
+        return hmac.compare_digest(got, _token(secret))
+
+    # Routage
+    def do_GET(self):
+        url = urllib.parse.urlsplit(self.path)
+        q = dict(urllib.parse.parse_qsl(url.query))
+        if url.path in STATIC:
+            name, ctype = STATIC[url.path]
+            with open(os.path.join(HERE, name), "rb") as f:
+                return self._send(f.read(), ctype,
+                                  headers={"Cache-Control": "no-cache"})
+        if url.path.startswith("/assets/"):
+            path = os.path.realpath(os.path.join(HERE, url.path[1:]))
+            if path.startswith(os.path.join(HERE, "assets")) and \
+                    os.path.isfile(path):
+                with open(path, "rb") as f:
+                    return self._send(f.read(), MIME.get(
+                        os.path.splitext(path)[1], "application/octet-stream"))
+            return self._json({"error": "introuvable"}, 404)
+        if url.path == "/api/auth":
+            return self._json({"ok": self._authed()})
+        if not self._authed():
+            return self._json({"error": "auth"}, 401)
+        try:
+            return self._get(url.path, q)
+        except Exception as exc:
+            return self._json({"error": str(exc)}, 500)
+
+    def do_POST(self):
+        url = urllib.parse.urlsplit(self.path)
+        if url.path == "/api/login":
+            return self._login()
+        if not self._authed():
+            return self._json({"error": "auth"}, 401)
+        try:
+            if url.path == "/api/upload":
+                return self._upload(urllib.parse.unquote(
+                    self.headers.get("X-Name", "photo.jpg")))
+            return self._post(url.path, json.loads(self._body() or b"{}"))
+        except Exception as exc:
+            return self._json({"error": str(exc)}, 500)
+
+    def _login(self):
+        secret = _secret()
+        typed = json.loads(self._body() or b"{}").get("password", "")
+        if secret and _password_ok(typed, secret):
             _FAILS["n"] = 0
             _log("accepté")
-            try:
-                await prefs.set("hub_token", token)
-            except Exception as exc:
-                _log(f"mémorisation impossible : {exc}")
-            page.controls.clear()
-            try:
-                _app(page)
-            except Exception:
-                import traceback
-                _log(traceback.format_exc())
-            return
+            cookie = (f"{COOKIE}={_token(secret)}; Max-Age=31536000; "
+                      "Path=/; HttpOnly; SameSite=Lax")
+            return self._json({"ok": True}, headers={"Set-Cookie": cookie})
         _FAILS["n"] += 1
-        await asyncio.sleep(min(2 * _FAILS["n"], 30))  # anti force brute
-        _log(f"refusé ({len(typed)} car., attendu {len(secret)})")
-        error.value = "Mot de passe incorrect"
-        field.value = ""
-        page.update()
-    error = ft.Text("", color=C.COLOR_RED)
-    field.on_submit = _login
-    page.add(ft.SafeArea(ft.Container(ft.Column([
-        ft.Text("Hub", size=28, weight=ft.FontWeight.BOLD), field, error,
-        ft.FilledButton("Entrer", on_click=_login, width=280)],
-        horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=16),
-        alignment=ft.Alignment(0, 0), padding=40), expand=True))
+        time.sleep(min(2 * _FAILS["n"], 30))  # anti force brute
+        _log(f"refusé ({len(typed)} car.)")
+        return self._json({"ok": False}, 403)
 
-
-def _app(page: ft.Page):
-    page.title = "Hub"
-    page.bgcolor = C.COLOR_BACKGROUND
-    page.theme_mode = ft.ThemeMode.DARK
-    # Même thème que Hub : boutons arrondis à BUTTON_RADIUS.
-    btn = ft.ButtonStyle(shape=ft.RoundedRectangleBorder(
-        radius=C.BUTTON_RADIUS))
-    page.dark_theme = page.theme = ft.Theme(
-        button_theme=ft.ButtonTheme(style=btn),
-        icon_button_theme=ft.IconButtonTheme(style=btn),
-        outlined_button_theme=ft.OutlinedButtonTheme(style=btn),
-        text_button_theme=ft.TextButtonTheme(style=btn),
-        filled_button_theme=ft.FilledButtonTheme(style=btn),
-        segmented_button_theme=ft.SegmentedButtonTheme(style=btn))
-    page.padding = 0
-    state = {"open": {"À faire"}, "tasks": [], "tab": 0, "images": [],
-             "shown": 60, "source": None, "format": "1:1", "count": 1,
-             "refine": True, "list_kind": "liste", "model": "gemini", "quality": "1K",
-             "busy": False, "news": None, "news_cat": None,
-             "picked": set()}
-
-    status = ft.Text("", size=12, color=GREY)
-    search = ft.TextField(
-        hint_text="Rechercher une carte", prefix_icon=ft.Icons.SEARCH,
-        border_radius=C.BUTTON_RADIUS, dense=True, on_change=lambda e: render(),
-        content_padding=ft.Padding(12, 8, 12, 8))
-    search.expand = True
-    search_bar = ft.Container(ft.Row([search]),
-                              padding=ft.Padding(12, 8, 12, 0))
-    body = ft.ListView(expand=True, spacing=8,
-                       padding=ft.Padding(12, 8, 12, 24))
-
-    # ── Tâches ───────────────────────────────────────────────────────
-    def _set_prop(row, prop, value):
-        row[prop] = value
-        _details(row)
-        render()
-
-        def _run():
-            try:
-                notion_rest._update({"page_id": _page_id(row),
-                                     "command": "update_properties",
-                                     "properties": {prop: value}})
-            except Exception as exc:
-                status.value = f"Erreur Notion : {exc}"
-                render()
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _set_etat(row, etat):
-        sheet.open = False
-        page.update()
-
-        def _run():
-            try:
-                notion_rest._update({"page_id": _page_id(row),
-                                     "command": "update_properties",
-                                     "properties": {"Etat": etat}})
-                row["Etat"] = etat
-                state["open"] = {etat}
-                status.value = f"Déplacé vers « {etat} »"
-            except Exception as exc:
-                status.value = f"Erreur Notion : {exc}"
-            render()
-        threading.Thread(target=_run, daemon=True).start()
-
-    sheet = ft.BottomSheet(ft.Container(), bgcolor=CARD)
-    page.overlay.append(sheet)
-
-    def _details(row):
-        info = []
-        for label, key in (("Deadline", "date:Deadline:start"),
-                           ("Téléphone", "Téléphone"), ("E-mail", "E-mail"),
-                           ("Prix", "Prix"), ("Créé le", "Créé le")):
-            value = row.get(key)
-            if value not in (None, "", []):
-                info.append(ft.Text(f"{label} : {value}", size=15))
-        actions = []
-        if row.get("Téléphone"):
-            tel = "".join(c for c in row["Téléphone"] if c.isdigit() or c == "+")
-            actions.append(ft.FilledButton(
-                "Appeler", icon=ft.Icons.PHONE, url=f"tel:{tel}"))
-        # Même sélecteur glissant que Hub (retour user).
-        etat_seg = seg([(e, e) for e, _ in ETATS],
-                       row.get("Etat") or "À faire",
-                       lambda v: _set_etat(row, v),
-                       colors=[c for _, c in ETATS], size=11)
-        flag_rows = []
-        for prop, colors in FLAGS:
-            cur = row.get(prop) or next(iter(colors))
-            flag_rows += [ft.Text(prop, size=12, color=GREY), seg(
-                [(v, v) for v in colors], cur,
-                lambda v, p=prop: _set_prop(row, p, v),
-                colors=list(colors.values()), size=11)]
-        # Notes = contenu de la page Notion, chargé à la 1re ouverture.
-        notes = ft.Markdown(
-            row.get("_notes") or "", selectable=True,
-            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
-            on_tap_link=_open_link)
-        notes_box = ft.Container(
-            ft.Column([ft.Text("Notes", size=12, color=GREY), notes],
-                      spacing=4, tight=True),
-            bgcolor=BG, border_radius=8, padding=10,
-            visible=bool(row.get("_notes")))
-        if "_notes" not in row:
-            def _load_notes():
-                try:
-                    text = notion_rest._blocks_to_text(_page_id(row))
-                except Exception:
-                    text = ""
-                row["_notes"] = text.replace("<empty-block/>", "").strip()
-                notes.value = row["_notes"]
-                notes_box.visible = bool(row["_notes"])
-                page.update()
-            threading.Thread(target=_load_notes, daemon=True).start()
-        sheet.content = ft.Container(ft.Column([
-            ft.Text(row.get("Demande") or "(sans titre)", size=18,
-                    weight=ft.FontWeight.BOLD),
-            *info, *flag_rows, notes_box, ft.Row(actions),
-            ft.Text("État", size=12, color=GREY), etat_seg,
-        ], tight=True, spacing=10, scroll=ft.ScrollMode.AUTO,
-            horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
-            padding=20)
-        sheet.open = True
-        page.update()
-
-    def _badge(text, color):
-        # Pastille de Hub (_kanban_chip) : fond quasi plein, texte noir.
-        return ft.Container(
-            ft.Text(text, size=12, color=ft.Colors.BLACK,
-                    weight=ft.FontWeight.W_600),
-            bgcolor=ft.Colors.with_opacity(0.85, color), border_radius=4,
-            padding=ft.Padding(6, 2, 6, 2))
-
-    def _task_card(row, etat=False):
-        """Comme dans Hub : titre, infos clés et badges Payé / Prévenir /
-        Projet (« Pas de projet » masqué)."""
-        deadline = row.get("date:Deadline:start") or ""
-        badges = []
-        if etat:
-            name = row.get("Etat") or "À faire"
-            badges.append(_badge(name, dict(ETATS).get(name, GREY)))
-        for prop, colors in FLAGS:
-            value = row.get(prop) or next(iter(colors))
-            if value != "Pas de projet":
-                badges.append(_badge(value, colors.get(value, GREY)))
-        info = [x for x in (
-            deadline and f"⏰ {day_label(deadline)}",
-            row.get("Prix") not in (None, "") and f"{row['Prix']} €",
-            row.get("Téléphone")) if x]
-        return ft.Container(
-            ft.Column([
-                ft.Text(row.get("Demande") or "(sans titre)", size=16),
-                *([ft.Text("  ·  ".join(info), size=13, color=GREY)]
-                  if info else []),
-                ft.Row(badges, wrap=True, spacing=6, run_spacing=6),
-            ], spacing=6, tight=True),
-            # Fond teinté selon l'état, comme les tuiles de Hub.
-            bgcolor=ft.Colors.with_opacity(0.18, dict(ETATS).get(
-                row.get("Etat") or "À faire", BLUE)),
-            border_radius=8, padding=14, ink=True,
-            on_click=lambda e: _details(row))
-
-    def _etat_sections():
-        """Une liste repliable par état, dans l'ordre manuel de Hub."""
-        def _toggle(e):
-            # Un seul tiroir ouvert à la fois (retour user).
-            etat = e.control.data
-            state["open"] = set() if etat in state["open"] else {etat}
-            render()
-        out = []
-        for etat, color in ETATS:
-            rows = [r for r in state["tasks"]
-                    if (r.get("Etat") or "À faire") == etat]
-            # En-tête comme les colonnes de Hub : bandeau plein, texte
-            # noir. Pas d'ExpansionTile : il réserve une marge à droite.
-            is_open = etat in state["open"]
-            out.append(ft.Container(
-                ft.Row([
-                    ft.Text(f"{etat}  ({len(rows)})", color=ft.Colors.BLACK,
-                            weight=ft.FontWeight.W_700, expand=True),
-                    ft.Icon(ft.Icons.EXPAND_LESS if is_open
-                            else ft.Icons.EXPAND_MORE,
-                            color=ft.Colors.BLACK)]),
-                bgcolor=ft.Colors.with_opacity(0.85, color),
-                border_radius=6, padding=ft.Padding(12, 12, 8, 12),
-                data=etat, on_click=_toggle, ink=True))
-            if is_open:
-                out.extend([_task_card(r) for r in rows] if rows else
-                           [ft.Text("Rien ici", color=GREY)])
-        return out
-
-    # ── Agenda ───────────────────────────────────────────────────────
-    def _event_card(start, source, color, row):
-        hour = start[11:16] if len(start) > 10 else ""
-        bits = [x for x in (row.get("Objets") and ", ".join(row["Objets"]),
-                            row.get("État") or row.get("Etat"),
-                            row.get("Téléphone")) if x]
-        title = row.get("Nom") or row.get("Demande") or "—"
-        return ft.Container(ft.Row([
-            ft.Container(width=4, height=44, bgcolor=color, border_radius=2),
-            ft.Column([ft.Text(f"{hour}  {title}".strip(),
-                               size=16),
-                       ft.Text(" · ".join([source, *bits]), size=13,
-                               color=GREY)], spacing=2, tight=True,
-                      expand=True)]),
-            bgcolor=CARD, border_radius=10, padding=12,
-            on_click=(lambda e: _details(row)) if source == "Tâche"
-            else (lambda e: _event_details(start, source, color, row)))
-
-    def _event_details(start, source, color, row):
-        """Fiche d'un rendez-vous : infos + notes de la page Notion."""
-        title = row.get("Nom") or "—"
-        info = [ft.Text(f"{day_label(start)} "
-                        f"{start[11:16] if len(start) > 10 else ''}",
-                        size=15, color=color)]
-        for label, key in (("État", "État"), ("État", "Etat"),
-                           ("Objets", "Objets"), ("Téléphone", "Téléphone"),
-                           ("E-mail", "Email")):
-            v = row.get(key)
-            if v not in (None, "", []):
-                info.append(ft.Text(f"{label} : " + (
-                    ", ".join(v) if isinstance(v, list) else str(v)),
-                    size=15))
-        actions = []
-        if row.get("Téléphone"):
-            tel = "".join(c for c in row["Téléphone"]
-                          if c.isdigit() or c == "+")
-            actions.append(ft.FilledButton(
-                "Appeler", icon=ft.Icons.PHONE, url=f"tel:{tel}"))
-        notes = ft.Markdown(
-            "Chargement des notes…", selectable=True,
-            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
-            on_tap_link=_open_link)
-        notes_box = ft.Container(
-            ft.Column([ft.Text("Notes", size=12, color=GREY), notes],
-                      spacing=4, tight=True),
-            bgcolor=BG, border_radius=8, padding=10)
-
-        def _load_notes():
-            if "_notes" not in row:
-                try:
-                    text = notion_rest._blocks_to_text(_page_id(row))
-                except Exception:
-                    text = ""
-                row["_notes"] = text.replace("<empty-block/>", "").strip()
-            notes.value = row["_notes"] or "_Pas de notes_"
-            page.update()
-        threading.Thread(target=_load_notes, daemon=True).start()
-        sheet.content = ft.Container(ft.Column([
-            ft.Text(title, size=18, weight=ft.FontWeight.BOLD),
-            ft.Text(source, size=12, color=GREY),
-            *info, notes_box, ft.Row(actions)],
-            tight=True, spacing=10, scroll=ft.ScrollMode.AUTO,
-            horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
-            padding=20)
-        sheet.open = True
-        page.update()
-
-    # ── IA ───────────────────────────────────────────────────────────
-    prompt = ft.TextField(hint_text="Décris l'image…", multiline=True,
-                          min_lines=3, max_lines=8,
-                          border_radius=C.BUTTON_RADIUS)
-    ia_status = ft.Text("", size=13, color=GREY)
-    picker = ft.FilePicker()
-    prompts_file = CONSTANTS.state_file(".ai_prompts.json")  # = Hub
-
-    def _prompts():
-        try:
-            with open(prompts_file, encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, ValueError):
-            return {}
-
-    def _prompts_save(paths, asked, refined):
-        data = _prompts()
-        for p in paths:
-            data[os.path.normcase(p)] = {"asked": asked, "refined": refined}
-        try:
-            with open(prompts_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=1)
-        except OSError:
-            pass
-    page.services.append(picker)
-
-    async def _pick(e):
-        files = await picker.pick_files(file_type=ft.FilePickerFileType.IMAGE,
-                                        with_data=True)
-        if files and files[0].bytes:
-            os.makedirs(IA_DIR, exist_ok=True)
-            path = os.path.join(IA_DIR, "source_" + datetime.datetime.now()
-                                .strftime("%Y%m%d_%H%M%S_") + files[0].name)
-            with open(path, "wb") as f:
-                f.write(files[0].bytes)
-            state["source"] = path
-            render()
-
-    def _generate(e):
-        text = (prompt.value or "").strip()
-        if not text or state["busy"]:
-            return
-        state["busy"] = True
-        src = state["source"]
-        src_bytes = open(src, "rb").read() if src else None
-        n, aspect = state["count"], state["format"]
-        quality = state["quality"]
-        stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        kind = "edited" if src_bytes else "generated"
-        muse = state["model"] == "muse"
-        if muse:
-            kind = "muse_" + kind
-        gen = meta_ai.generate_image if muse else _gemini_generate_image
+    def _upload(self, name):
         os.makedirs(IA_DIR, exist_ok=True)
+        name = os.path.basename(name) or "photo.jpg"
+        path = os.path.join(IA_DIR, "source_" + datetime.datetime.now()
+                            .strftime("%Y%m%d_%H%M%S_") + name)
+        with open(path, "wb") as f:
+            f.write(self._body())
+        return self._json({"path": path})
 
-        def _run():
-            refined = text
-            if state["refine"] and not muse:
-                ia_status.value = "✍️ Affinage de la demande…"
-                page.update()
-                try:
-                    refined = _gemini_refine_image_prompt(
-                        intent_prompt=text, user_request=text,
-                        mode="edit_image" if src_bytes else "generate_image",
-                        source_filename=os.path.basename(src or ""),
-                        model=CONSTANTS.AI_IMAGE_REFINER_MODEL) or text
-                except Exception:
-                    pass
-            ia_status.value = f"🎨 {n} image(s) en cours…"
-            page.update()
-            left = {"n": n, "err": [], "out": []}
-            done = threading.Event()
-
-            def _one(i):
-                try:
-                    msg, img = gen(
-                        refined, input_image_bytes=src_bytes,
-                        aspect_ratio=aspect, resolution=quality)
-                except Exception as exc:
-                    msg, img = str(exc), None
-                if img:
-                    out = os.path.join(IA_DIR, f"{kind}_{stamp}_{i + 1}.png")
-                    with open(out, "wb") as f:
-                        f.write(img)
-                    left["out"].append(out)
-                else:
-                    left["err"].append(msg)
-                left["n"] -= 1
-                if left["n"] == 0:
-                    done.set()
-            for i in range(n):
-                threading.Thread(target=_one, args=(i,), daemon=True).start()
-            done.wait()
-            _prompts_save(left["out"], text, refined)
-            state["busy"] = False
-            ia_status.value = ("Erreur : " + left["err"][0][:200]
-                               if left["err"] else "")
-            state["images"] = list_images()
-            render()
-        threading.Thread(target=_run, daemon=True).start()
-        render()
-
-    def _ia_view():
-        def _seg(options, key, cast=str):
-            def _on(v):
-                state[key] = cast(v)
-                render()
-            return seg(options, state[key], _on)
-        src = state["source"]
-        src_row = ft.Row([
-            ft.OutlinedButton("Photo source", icon=ft.Icons.ADD_PHOTO_ALTERNATE,
-                              on_click=_pick)])
-        if src:
-            src_row.controls = [
-                ft.Image(src=thumb(src, 200), width=72, height=72,
-                         fit=ft.BoxFit.COVER, border_radius=8),
-                ft.Text(os.path.basename(src), size=12, color=GREY,
-                        expand=True),
-                ft.IconButton(ft.Icons.CLOSE, on_click=lambda e: (
-                    state.update(source=None), render()))]
-        return [prompt, src_row,
-                _seg([("gemini", "Gemini"), ("muse", "Muse")], "model"),
-                _seg(FORMATS, "format"),
-                *([] if state["model"] == "muse" else
-                  [_seg([(q, q) for q in ("1K", "2K", "4K")], "quality")]),
-                _seg([(n, f"×{n}") for n in (1, 2, 3, 4)], "count", int),
-                ft.Switch(label="Affiner", value=state["refine"],
-                          disabled=state["model"] == "muse",
-                          on_change=lambda e: state.update(
-                              refine=e.control.value)),
-                ft.FilledButton("Générer", icon=ft.Icons.AUTO_AWESOME,
-                                on_click=_generate, disabled=state["busy"],
-                                height=48),
-                ft.ProgressBar(visible=state["busy"]), ia_status,
-                ft.Divider(height=16),
-                *_gallery_view()]
-
-    # ── Galerie ──────────────────────────────────────────────────────
-    # Images IA (GALLERY_ROOTS). Tap = plein écran ; appui long =
-    # sélection multiple → Supprimer.
-    # Les fichiers vont dans la corbeille du Pi (gio trash), jamais rm.
-    viewer = ft.BottomSheet(ft.Container(), bgcolor="#000000",
-                            fullscreen=True, scrollable=True,
-                            show_drag_handle=True)
-    page.overlay.append(viewer)
-
-    def _trash(paths):
-        for p in paths:
+    def _get(self, path, q):
+        if path == "/api/data":
+            tasks, agenda, at = load_data(force=q.get("force") == "1")
+            return self._json({"tasks": tasks, "agenda": agenda, "at": at})
+        if path == "/api/notes":
+            return self._json({"text": _notes(q["id"])})
+        if path == "/api/lists":
+            return self._json({n: hub_sync.get(n) or []
+                               for n in ("liste", "prix")} | {
+                "lastcat": _read_json(LASTCAT_FILE, {})})
+        if path == "/api/images":
+            prompts = _read_json(PROMPTS_FILE, {})
+            return self._json([
+                {"path": p, "name": os.path.relpath(p, HOME),
+                 "prompt": prompts.get(os.path.normcase(p))}
+                for p in list_images()])
+        if path == "/api/img":
+            real = _in_gallery(q.get("p", ""))
+            if not real:
+                return self._json({"error": "introuvable"}, 404)
+            return self._send(thumb_jpeg(real, int(q.get("s", 360))),
+                              "image/jpeg",
+                              headers={"Cache-Control": "max-age=86400"})
+        if path == "/api/job":
+            return self._json(_JOBS.get(q.get("id"), {"done": True}))
+        if path == "/api/briefing":
             try:
-                subprocess.run(["gio", "trash", p], check=True,
-                               capture_output=True, timeout=10)
-            except Exception as exc:
-                status.value = f"Suppression impossible : {exc}"
-        state["picked"].clear()
-        state["images"] = list_images()
-        viewer.open = False
-        render()
-
-    def _open_image(path):
-        def _use(e):
-            state["source"] = path
-            viewer.open = False
-            render()
-            page.run_task(body.scroll_to, 0, None, None, 300)
-        info = _prompts().get(os.path.normcase(path))
-
-        def _again(e):
-            prompt.value = info["asked"]
-            viewer.open = False
-            render()
-            page.run_task(body.scroll_to, 0, None, None, 300)
-        texts = []
-        if info:
-            texts.append(ft.Text("Demande : " + info["asked"], size=13,
-                                 selectable=True))
-            if info["refined"] != info["asked"]:
-                texts.append(ft.Text("Affiné : " + info["refined"], size=12,
-                                     color=GREY, selectable=True))
-        viewer.content = ft.Container(ft.Column([
-            ft.InteractiveViewer(
-                ft.Image(src=thumb(path, 1600), fit=ft.BoxFit.CONTAIN),
-                min_scale=1, max_scale=6, expand=True),
-            ft.Text(os.path.relpath(path, HOME), size=12, color=GREY),
-            *texts,
-            ft.Row([
-                ft.FilledButton("Modifier avec l'IA",
-                                icon=ft.Icons.AUTO_AWESOME, on_click=_use),
-                *([ft.OutlinedButton("Reprendre la demande",
-                                     icon=ft.Icons.HISTORY, on_click=_again)]
-                  if info else []),
-                ft.OutlinedButton("Supprimer", icon=ft.Icons.DELETE_OUTLINE,
-                                  style=ft.ButtonStyle(color=RED),
-                                  on_click=lambda e: _trash([path]))],
-                wrap=True),
-        ], spacing=10, expand=True), padding=12, expand=True)
-        viewer.open = True
-        page.update()
-
-    def _tile_tap(p):
-        if state["picked"]:
-            state["picked"] ^= {p}
-            render()
-        else:
-            _open_image(p)
-
-    def _tile_long(p):
-        state["picked"] ^= {p}
-        render()
-
-    def _grid(paths):
-        # Tuiles à taille fixe (3 par ligne sur iPhone) : avec
-        # ResponsiveRow + aspect_ratio, elles faisaient 0 px de haut.
-        cols = max(3, int((page.width or 390) // 160))
-        side = ((page.width or 390) - 24 - 4 * (cols - 1)) // cols
-        tiles = []
-        for p in paths:
-            try:
-                data = thumb(p)
-            except Exception:
-                continue
-            picked = p in state["picked"]
-            tiles.append(ft.GestureDetector(
-                ft.Container(
-                    ft.Stack([
-                        ft.Image(src=data, fit=ft.BoxFit.COVER, width=side,
-                                 height=side,
-                                 opacity=0.55 if picked else 1),
-                        ft.Icon(ft.Icons.CHECK_CIRCLE, color=BLUE,
-                                right=4, top=4, visible=picked)]),
-                    width=side, height=side, border_radius=6,
-                    clip_behavior=ft.ClipBehavior.HARD_EDGE),
-                on_tap=lambda e, p=p: _tile_tap(p),
-                on_long_press_start=lambda e, p=p: _tile_long(p)))
-        return ft.Row(tiles, wrap=True, spacing=4, run_spacing=4)
-
-    def _gallery_view():
-        imgs = state["images"]
-        n = len(state["picked"])
-        if n:
-            head = ft.Row([
-                ft.Text(f"{n} sélectionnée(s)", expand=True),
-                ft.TextButton("Tout", on_click=lambda e: (
-                    state["picked"].update(imgs[:state["shown"]]),
-                    render())),
-                ft.TextButton("Annuler", on_click=lambda e: (
-                    state["picked"].clear(), render())),
-                ft.FilledButton("Supprimer", icon=ft.Icons.DELETE_OUTLINE,
-                                bgcolor=RED,
-                                on_click=lambda e: _trash(
-                                    list(state["picked"])))])
-        else:
-            head = ft.Text(f"Galerie · {len(imgs)} images  ·  appui long "
-                           "pour sélectionner", size=14, color=GREY,
-                           weight=ft.FontWeight.BOLD)
-        out = [head, _grid(imgs[:state["shown"]])]
-        if len(imgs) > state["shown"]:
-            out.append(ft.TextButton("Plus", on_click=lambda e: (
-                state.update(shown=state["shown"] + 60), render())))
-        return out
-
-    # ── Listes (todo + prix, mêmes données que Hub via hub_sync) ─────
-    LIST_COLORS = [BLUE, VIOLET, GREEN, C.COLOR_YELLOW_GREEN, C.COLOR_MINT,
-                   YELLOW, ORANGE, RED, PINK, C.COLOR_BLUE_DARK]
-    NEW_CAT = "＋ Nouvelle catégorie…"
-
-    def _list_load():
-        try:
-            for name in ("liste", "prix"):
-                state[name] = hub_sync.get(name) or []
-        except Exception as exc:
-            status.value = f"Listes injoignables : {exc}"
-        render()
-
-    def _list_save(name):
-        try:
-            hub_sync.put(name, state[name])
-        except Exception as exc:
-            status.value = f"Pas enregistré : {exc}"
-        render()
-
-    def _last_cats(name=None, value=None):
-        """Dernière catégorie choisie par liste, gardée entre sessions."""
-        path = os.path.join(HOME, ".hub_mobile_lastcat.json")
-        try:
-            with open(path, encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            data = {}
-        if name:
-            data[name] = value
-            try:
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False)
+                with open(BRIEFING, encoding="utf-8") as f:
+                    text = f.read()
+                when = os.path.getmtime(BRIEFING)
             except OSError:
-                pass
-        return data
+                text, when = "", None
+            return self._json({"text": text, "at": when})
+        if path == "/api/news":
+            items = load_news(max_age=0 if q.get("force") == "1"
+                              else DATA_TTL)
+            return self._json({"items": items[:300],
+                               "categories": rss_feeds.CATEGORIES})
+        if path == "/api/article":
+            return self._json({"text": rss_feeds.fetch_article_text(
+                q.get("url", ""))})
+        return self._json({"error": "inconnu"}, 404)
 
-    def _list_toggle(row, value):
-        row["fait"] = str(value)
-        _list_save("liste")
+    def _post(self, path, data):
+        if path == "/api/task":
+            _set_props(data["id"], data["props"])
+            return self._json({"ok": True})
+        if path == "/api/list":
+            name = data["name"]
+            if name not in ("liste", "prix"):
+                raise ValueError(name)
+            rows = hub_sync.sync_put(name, data.get("base"), data["rows"])
+            if data.get("category"):
+                cats = _read_json(LASTCAT_FILE, {})
+                cats[name] = data["category"]
+                _write_json(LASTCAT_FILE, cats)
+            return self._json({"rows": rows})
+        if path == "/api/generate":
+            src = data.get("source")
+            if src and not _in_gallery(src):
+                raise ValueError("source hors galerie")
+            job_id = uuid.uuid4().hex
+            job = _JOBS[job_id] = {"done": False, "status": "…"}
+            threading.Thread(target=_generate, daemon=True, args=(
+                job, data["prompt"].strip(), src, data.get("model"),
+                data.get("format", "1:1"), data.get("quality", "1K"),
+                max(1, min(4, int(data.get("count", 1)))),
+                bool(data.get("refine")))).start()
+            return self._json({"id": job_id})
+        if path == "/api/trash":
+            for p in data["paths"]:
+                real = _in_gallery(p)
+                if real:  # corbeille du Pi, jamais rm
+                    subprocess.run(["gio", "trash", real], check=True,
+                                   capture_output=True, timeout=10)
+            return self._json({"ok": True})
+        return self._json({"error": "inconnu"}, 404)
 
-    def _list_edit(name, row=None):
-        """Fiche d'ajout / d'édition : toutes les colonnes de la liste,
-        catégorie obligatoire (existante ou nouvelle)."""
-        rows = state[name]
-        cols = []
-        for r in rows:
-            cols += [k for k in r if k not in cols]
-        cols = [c for c in cols if c not in ("catégorie", "fait")] or (
-            ["tâche"] if name == "liste" else ["article", "prix"])
-        cats = list(dict.fromkeys(
-            str(r.get("catégorie", "")).strip() for r in rows
-            if str(r.get("catégorie", "")).strip()))
-        last = _last_cats().get(name)
-        cur = (row or {}).get("catégorie") or (
-            last if last in cats else
-            (str(rows[-1].get("catégorie", "")).strip() or None)
-            if rows else None)
-        new_cat = ft.TextField(label="Nouvelle catégorie", visible=False,
-                               border_radius=C.BUTTON_RADIUS)
-        cat = ft.Dropdown(
-            label="Catégorie", value=cur, width=150,
-            border_radius=C.BUTTON_RADIUS,
-            options=[ft.DropdownOption(c) for c in cats + [NEW_CAT]])
 
-        def _cat_changed(e):
-            new_cat.visible = cat.value == NEW_CAT
-            page.update()
-        cat.on_select = _cat_changed
-        fields = {c: ft.TextField(
-            label=c.capitalize(), value=str((row or {}).get(c, "") or ""),
-            multiline=True, min_lines=1, max_lines=6,
-            border_radius=C.BUTTON_RADIUS) for c in cols}
-
-        def _ok(e):
-            category = (new_cat.value or "").strip() \
-                if cat.value == NEW_CAT else cat.value
-            if not category:
-                cat.error_text = "Obligatoire"
-                page.update()
-                return
-            target = row if row is not None else {}
-            target["catégorie"] = category
-            for c, f in fields.items():
-                target[c] = f.value or ""
-            if row is None:
-                if name == "liste":
-                    target["fait"] = "False"
-                rows.append(target)
-            _last_cats(name, category)
-            list_sheet.open = False
-            _list_save(name)
-
-        def _cancel(e):
-            list_sheet.open = False
-            page.update()
-
-        def _del(e):
-            rows.remove(row)
-            list_sheet.open = False
-            _list_save(name)
-        list_sheet.content = ft.Container(ft.Column([
-            # Catégorie à gauche puis le texte, comme dans Hub.
-            ft.Row([cat, ft.Container(list(fields.values())[0],
-                                      expand=True)],
-                   vertical_alignment=ft.CrossAxisAlignment.START),
-            new_cat, *list(fields.values())[1:],
-            ft.Row([
-                ft.FilledButton("Enregistrer", icon=ft.Icons.CHECK,
-                                on_click=_ok),
-                ft.TextButton("Annuler", on_click=_cancel),
-                *([ft.OutlinedButton("Supprimer",
-                                     icon=ft.Icons.DELETE_OUTLINE,
-                                     style=ft.ButtonStyle(color=RED),
-                                     on_click=_del)] if row else [])])],
-            tight=True, spacing=12, scroll=ft.ScrollMode.AUTO,
-            horizontal_alignment=ft.CrossAxisAlignment.STRETCH),
-            padding=20)
-        list_sheet.open = True
-        page.update()
-
-    list_sheet = ft.BottomSheet(ft.Container(), bgcolor=CARD,
-                                scrollable=True, show_drag_handle=True)
-    page.overlay.append(list_sheet)
-
-    def _list_view():
-        name = state["list_kind"]
-        rows = state.get(name)
-        out = [seg([("liste", "À faire"), ("prix", "Prix")], name,
-                   lambda v: (state.update(list_kind=v), render()))]
-        if rows is None:
-            threading.Thread(target=_list_load, daemon=True).start()
-            state[name] = []
-            return out + [ft.ProgressRing()]
-        cats = list(dict.fromkeys(
-            str(r.get("catégorie", "")).strip() for r in rows))
-        out.append(ft.FilledButton(
-            "Ajouter", icon=ft.Icons.ADD,
-            on_click=lambda e: _list_edit(name)))
-        for i, cat in enumerate(cats):
-            color = LIST_COLORS[i % len(LIST_COLORS)]
-            out.append(ft.Container(
-                ft.Text((cat or "Sans catégorie").upper(),
-                        weight=ft.FontWeight.W_600,
-                        text_align=ft.TextAlign.CENTER),
-                alignment=ft.Alignment(0, 0), border_radius=6,
-                bgcolor=ft.Colors.with_opacity(0.25, color),
-                padding=ft.Padding(10, 8, 10, 8)))
-            for r in rows:
-                if str(r.get("catégorie", "")).strip() != cat:
-                    continue
-                if name == "liste":
-                    done = str(r.get("fait")).lower() in ("true", "1")
-                    content = ft.Row([
-                        ft.Checkbox(value=done, on_change=lambda e, r=r:
-                                    _list_toggle(r, e.control.value)),
-                        ft.Text(r.get("tâche", ""), expand=True,
-                                color=GREY if done else None,
-                                style=ft.TextStyle(
-                                    decoration=ft.TextDecoration.LINE_THROUGH)
-                                if done else None),
-                        # Détails (Markdown) seulement s'il y en a, comme
-                        # dans Hub : sinon la tâche prend toute la largeur.
-                        *([ft.Container(ft.Markdown(
-                            str(r["détails"]), selectable=True,
-                            extension_set=ft.MarkdownExtensionSet
-                            .GITHUB_FLAVORED),
-                            expand=True, opacity=0.5 if done else 1)]
-                          if str(r.get("détails") or "").strip() else [])],
-                        vertical_alignment=ft.CrossAxisAlignment.START)
-                else:
-                    content = ft.Row([
-                        ft.Text(r.get("article", ""), expand=True),
-                        ft.Text(str(r.get("prix", "")),
-                                weight=ft.FontWeight.W_600)])
-                out.append(ft.Container(content, bgcolor=CARD,
-                                        border_radius=8, ink=True,
-                                        on_click=lambda e, r=r:
-                                        _list_edit(name, r),
-                                        padding=ft.Padding(8, 4, 12, 4)))
-        return out
-
-    # ── Briefing ─────────────────────────────────────────────────────
-    async def _open_link(e):
-        await ft.UrlLauncher().launch_url(e.data)
-
-    def _briefing_view():
-        try:
-            with open(BRIEFING, encoding="utf-8") as f:
-                text = f.read()
-            when = datetime.datetime.fromtimestamp(os.path.getmtime(BRIEFING))
-        except OSError:
-            return [ft.Text("Pas encore de briefing", color=GREY)]
-        return [ft.Text(f"{day_label(when.date().isoformat())} à "
-                        f"{when:%H:%M}", size=12, color=GREY),
-                ft.Container(ft.Markdown(
-                    text, selectable=True,
-                    extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
-                    on_tap_link=_open_link),
-                    bgcolor=CARD, border_radius=10, padding=14)]
-
-    # ── Actus (mêmes flux que l'onglet Actus de Hub) ─────────────────
-    CAT_COLORS = dict(zip(rss_feeds.CATEGORIES, [VIOLET, BLUE, GREEN, GREY,
-                                                 ORANGE]))
-
-    def _load_news(e=None):
-        state["news"] = []
-
-        def _run():
-            try:
-                state["news"] = load_news()
-            except Exception as exc:
-                status.value = f"Actus : {exc}"
-            render()
-        # Pas de render() ici : appelé depuis render() (_news_view), un
-        # rendu imbriqué mélangeait les onglets (actu affichée dans Tâches).
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _news_card(it):
-        when = it.get("date")
-        meta = " · ".join(x for x in (
-            it.get("source"), when and when.astimezone().strftime(
-                "%d/%m %H:%M")) if x)
-        row = [ft.Column([
-            ft.Text(it.get("title") or "", size=15,
-                    weight=ft.FontWeight.W_500, max_lines=3),
-            ft.Text(meta, size=12,
-                    color=CAT_COLORS.get(it.get("category"), GREY)),
-        ], spacing=4, tight=True, expand=True)]
-        if it.get("image"):
-            row.append(ft.Image(src=it["image"], width=72, height=72,
-                                fit=ft.BoxFit.COVER, border_radius=8,
-                                error_content=ft.Container()))
-        return ft.Container(ft.Row(row, spacing=10), bgcolor=CARD,
-                            border_radius=10, padding=12,
-                            on_click=lambda e, it=it: _read(it))
-
-    def _read(it):
-        """Lecteur plein écran (comme la colonne de droite de Hub) : résumé
-        RSS tout de suite, article complet chargé en fond."""
-        md = ft.Markdown(
-            it.get("full") or it.get("summary") or "", selectable=True,
-            extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
-            on_tap_link=_open_link)
-        loading = ft.Text("Chargement de l'article…", size=12, color=GREY,
-                          italic=True,
-                          visible="full" not in it
-                          and it.get("category") != "Podcasts")
-        when = it.get("date")
-        viewer.content = ft.Container(ft.Column([
-            ft.Text(it.get("title") or "", size=20,
-                    weight=ft.FontWeight.BOLD),
-            ft.Text(" · ".join(x for x in (
-                it.get("source"), when and when.astimezone().strftime(
-                    "%d/%m %H:%M")) if x), size=12,
-                color=CAT_COLORS.get(it.get("category"), GREY)),
-            loading, md,
-            ft.OutlinedButton("Ouvrir dans Safari", icon=ft.Icons.OPEN_IN_NEW,
-                              on_click=lambda e: page.run_task(
-                                  _launch, it.get("link"))),
-        ], spacing=10, scroll=ft.ScrollMode.AUTO, expand=True),
-            padding=16, expand=True)
-        viewer.open = True
-        page.update()
-        if loading.visible:
-            def _work():
-                it["full"] = rss_feeds.fetch_article_text(it["link"])
-                if it["full"]:
-                    md.value = it["full"]
-                loading.visible = False
-                page.update()
-            threading.Thread(target=_work, daemon=True).start()
-
-    async def _launch(url):
-        if url:
-            await ft.UrlLauncher().launch_url(url)
-
-    def _news_view():
-        if state["news"] is None:
-            _load_news()
-        items = state["news"] or []
-        if not items:
-            return [ft.ProgressRing(), ft.Text("Chargement des flux…",
-                                               color=GREY)]
-
-        def _pick(e):
-            c = e.control.data
-            state["news_cat"] = None if state["news_cat"] == c else c
-            render()
-        chips = ft.Row([ft.Chip(
-            label=ft.Text(c), data=c, selected=state["news_cat"] == c,
-            selected_color=CAT_COLORS[c] + "55", on_select=_pick)
-            for c in rss_feeds.CATEGORIES], scroll=ft.ScrollMode.AUTO,
-            spacing=6)
-        shown = [it for it in items if state["news_cat"] in
-                 (None, it.get("category"))][:80]
-        return [chips, *[_news_card(it) for it in shown]]
-
-    # ── Rendu / chargement ───────────────────────────────────────────
-    render_lock = threading.RLock()
-
-    def render():
-        # Rendus concurrents (fils de chargement + clics) : un à la fois,
-        # sinon la liste se remplit avec le contenu de deux onglets.
-        with render_lock:
-            _render()
-
-    def _render():
-        search_bar.visible = state["tab"] == 0
-        body.controls = []
-        if state["tab"] == 0:
-            q = _fold(search.value).strip()
-            if q:
-                rows = [r for r in state["tasks"] if q in _fold(" ".join(
-                    str(r.get(k) or "") for k in (
-                        "Demande", "Téléphone", "E-mail", "Etat")))]
-                body.controls += [_task_card(r, etat=True) for r in rows] \
-                    or [ft.Text("Aucune carte", color=GREY)]
-            else:
-                body.controls += _etat_sections()
-        elif state["tab"] == 5:
-            body.controls += _list_view()
-        elif state["tab"] == 4:
-            body.controls += _news_view()
-        elif state["tab"] == 3:
-            body.controls += _briefing_view()
-        elif state["tab"] == 2:
-            body.controls += _ia_view()
-        else:
-            last = None
-            for start, source, color, row in state.get("agenda", []):
-                label = day_label(start)
-                if label != last:
-                    body.controls.append(ft.Text(label, size=14,
-                                                 color=GREY,
-                                                 weight=ft.FontWeight.BOLD))
-                    last = label
-                body.controls.append(_event_card(start, source, color, row))
-            if last is None:
-                body.controls.append(ft.Text("Rien les 60 prochains jours",
-                                             color=GREY))
-        body.controls.insert(0, status)
-        page.update()
-
-    def refresh(e=None):
-        """Bouton = rechargement forcé ; sinon cache (< 1 h)."""
-        force = e is not None
-        if force:
-            state["liste"] = state["prix"] = None
-        status.value = "Chargement…"
-        page.update()
-
-        def _run():
-            try:
-                tasks, agenda, at = load_data(force=force)
-                state["tasks"], state["agenda"] = tasks, agenda
-                state["images"] = list_images()
-                if force and state["tab"] == 4:
-                    state["news"] = load_news(max_age=0)
-                status.value = ("Mis à jour à " + datetime.datetime
-                                .fromtimestamp(at).strftime("%H:%M"))
-            except Exception as exc:
-                status.value = f"Erreur : {exc}"
-            render()
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _tab(e):
-        state["tab"] = NAV[e.control.selected_index][0]
-        if state["tab"] == 5:  # relu à chaque visite : Hub a pu écrire
-            state["liste"] = state["prix"] = None
-        render()
-
-    page.appbar = ft.AppBar(
-        title=ft.Text("Hub"), bgcolor=BG,
-        actions=[ft.IconButton(ft.Icons.REFRESH, on_click=refresh)])
-    # Ordre d'affichage (retour user) → identifiant interne de l'onglet.
-    NAV = [(0, ft.Icons.VIEW_KANBAN_OUTLINED, "Tâches"),
-           (1, ft.Icons.CALENDAR_MONTH_OUTLINED, "Agenda"),
-           (5, ft.Icons.CHECKLIST, "Listes"),
-           (2, ft.Icons.AUTO_AWESOME_OUTLINED, "IA"),
-           (3, ft.Icons.WB_SUNNY_OUTLINED, "Briefing"),
-           (4, ft.Icons.RSS_FEED_OUTLINED, "Actus")]
-    nav = ft.NavigationBar(
-        destinations=[
-            ft.NavigationBarDestination(icon=icon, label=label)
-            for _, icon, label in NAV],
-        on_change=_tab, bgcolor=CARD)
-    # Barre d'onglets dans la page (pas page.navigation_bar) pour la
-    # décoller des coins arrondis de l'iPhone (retour user).
-    page.bgcolor = CARD
-    page.add(ft.SafeArea(ft.Column([
-        ft.Container(ft.Column([search_bar, body], spacing=0, expand=True),
-                     bgcolor=C.COLOR_BACKGROUND, expand=True),
-        ft.Container(nav, padding=ft.Padding(18, 0, 18, 14))],
-        spacing=0, expand=True), expand=True))
-    refresh()
-
-    def _hourly():
-        # Session ouverte : rechargement automatique toutes les heures.
-        while True:
-            time.sleep(DATA_TTL)
-            try:
-                refresh(None)
-            except Exception:
-                return  # session fermée
-    threading.Thread(target=_hourly, daemon=True).start()
+def main():
+    _load_data_cache()
+    threading.Thread(target=load_news, daemon=True).start()
+    port = int(os.environ.get("HUB_MOBILE_PORT", 8550))
+    ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 
 if __name__ == "__main__":
-    _load_data_cache()
-    threading.Thread(target=load_news, daemon=True).start()
-    ft.run(main, view=ft.AppView.WEB_BROWSER, host="0.0.0.0",
-           assets_dir=os.path.join(os.path.dirname(
-               os.path.abspath(__file__)), "assets"),
-           port=int(os.environ.get("HUB_MOBILE_PORT", 8550)))
+    main()

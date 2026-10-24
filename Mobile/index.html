@@ -1,0 +1,785 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hub">
+<meta name="theme-color" content="#2C3038">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon-192.png">
+<link rel="icon" href="/assets/favicon.png">
+<title>Hub</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<style>
+/* Couleurs de Hub (CONSTANTS.COLOR_*) */
+:root {
+  --dark: #222429; --bg: #373d4a; --card: #2C3038; --grey: #9399A6;
+  --blue: #45B8F5; --violet: #B48DFF; --green: #49B76C; --yellow: #FBCD5F;
+  --orange: #FFA071; --red: #F17171; --pink: #F471B7; --text: #e6e8ee;
+  --r: 9px;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--card);
+  color: var(--text); font: 15px/1.4 -apple-system, system-ui, "Segoe UI",
+  Roboto, sans-serif; }
+body { display: flex; flex-direction: column;
+  padding-top: env(safe-area-inset-top); }
+header { display: flex; align-items: center; padding: 10px 12px;
+  background: var(--dark); }
+header h1 { font-size: 20px; margin: 0; flex: 1; }
+main { flex: 1; overflow-y: auto; background: var(--bg);
+  padding: 8px 12px 24px; -webkit-overflow-scrolling: touch; }
+main > * + * { margin-top: 8px; }
+nav { display: flex; background: var(--card);
+  padding: 6px 18px calc(14px + env(safe-area-inset-bottom)); }
+nav button { flex: 1; background: none; border: 0; color: var(--grey);
+  font-size: 11px; padding: 6px 0; border-radius: var(--r); }
+nav button span { display: block; font-size: 20px; }
+nav button.on { color: var(--blue); background: #45B8F522; }
+button, .btn { font: inherit; border-radius: var(--r); border: 0;
+  padding: 10px 14px; background: var(--blue); color: var(--dark);
+  font-weight: 600; cursor: pointer; text-decoration: none;
+  display: inline-block; }
+.btn.out { background: none; color: var(--blue);
+  border: 1px solid var(--grey); }
+.btn.red { color: var(--red); }
+.btn.fill-red { background: var(--red); }
+.btn.txt { background: none; color: var(--blue); }
+button:disabled { opacity: .5; }
+.icon { background: none; color: var(--text); font-size: 20px;
+  padding: 6px 10px; }
+input, textarea, select { font: inherit; width: 100%; color: var(--text);
+  background: var(--dark); border: 1px solid #555b68;
+  border-radius: var(--r); padding: 10px 12px; }
+textarea { resize: vertical; }
+.muted { color: var(--grey); font-size: 13px; }
+.status { color: var(--grey); font-size: 12px; min-height: 1em; }
+.card { background: var(--card); border-radius: 8px; padding: 14px;
+  cursor: pointer; }
+.drawer { color: #000; font-weight: 700; border-radius: 6px;
+  padding: 12px; display: flex; cursor: pointer; }
+.drawer b { flex: 1; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.badge { color: #000; font-size: 12px; font-weight: 600; border-radius: 4px;
+  padding: 2px 6px; }
+.event { display: flex; gap: 10px; background: var(--card);
+  border-radius: 10px; padding: 12px; cursor: pointer; }
+.event i { width: 4px; border-radius: 2px; flex: none; }
+.day { color: var(--grey); font-weight: 700; font-size: 14px;
+  margin-top: 14px !important; }
+/* Sélecteur glissant façon CupertinoSlidingSegmentedButton */
+.seg { display: flex; background: var(--dark); border-radius: var(--r);
+  padding: 3px; gap: 2px; }
+.seg button { flex: 1; background: none; color: var(--text);
+  font-weight: 400; padding: 7px 4px; font-size: 13px;
+  border-radius: 7px; transition: background .2s; }
+.seg button.on { color: var(--dark); font-weight: 600; }
+.seg.small button { font-size: 11px; }
+.label { color: var(--grey); font-size: 12px; margin: 10px 0 4px; }
+.md { overflow-wrap: anywhere; }
+.md img { max-width: 100%; height: auto; border-radius: 6px; }
+.md a { color: var(--blue); }
+.md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+.box { background: var(--dark); border-radius: 8px; padding: 10px; }
+/* Feuille du bas */
+#veil { position: fixed; inset: 0; background: #0008; display: none;
+  z-index: 10; }
+#sheet { position: fixed; left: 0; right: 0; bottom: 0; max-height: 88%;
+  overflow-y: auto; background: var(--card); z-index: 11;
+  border-radius: 14px 14px 0 0; display: none;
+  padding: 8px 20px calc(20px + env(safe-area-inset-bottom)); }
+#sheet.full { top: 0; max-height: none; border-radius: 0; background: #000;
+  padding-top: calc(8px + env(safe-area-inset-top)); }
+#sheet .handle { width: 40px; height: 5px; border-radius: 3px;
+  background: var(--grey); margin: 0 auto 12px; }
+#sheet h2 { font-size: 18px; margin: 0 0 8px; }
+#sheet > * + * { margin-top: 10px; }
+.row { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+.grid { display: grid; gap: 4px;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+.grid div { position: relative; aspect-ratio: 1; border-radius: 6px;
+  overflow: hidden; background: var(--card); }
+.grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.grid .picked img { opacity: .55; }
+.grid .picked::after { content: "✓"; position: absolute; top: 4px;
+  right: 6px; color: var(--blue); font-weight: 700; font-size: 20px; }
+.cat { text-align: center; font-weight: 600; border-radius: 6px;
+  padding: 8px 10px; text-transform: uppercase; margin-top: 12px !important; }
+.item { display: flex; gap: 10px; align-items: flex-start;
+  background: var(--card); border-radius: 8px; padding: 8px 12px;
+  cursor: pointer; }
+.item > .t { flex: 1; } .item > .d { flex: 1; font-size: 14px; }
+.item.done .t { color: var(--grey); text-decoration: line-through; }
+.item.done .d { opacity: .5; }
+.item input[type=checkbox] { width: 20px; height: 20px; margin: 2px 0 0;
+  flex: none; accent-color: var(--blue); }
+.chips { display: flex; gap: 6px; overflow-x: auto; }
+.chip { flex: none; border: 1px solid var(--grey); border-radius: 8px;
+  padding: 5px 12px; font-size: 14px; background: none; color: var(--text);
+  font-weight: 400; }
+.news { display: flex; gap: 10px; }
+.news img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px;
+  flex: none; }
+.bar { height: 4px; background: var(--dark); overflow: hidden;
+  border-radius: 2px; }
+.bar::after { content: ""; display: block; height: 100%; width: 30%;
+  background: var(--blue); animation: slide 1.2s infinite linear; }
+@keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
+#login { display: flex; flex-direction: column; align-items: center;
+  gap: 16px; padding: 60px 20px; }
+#login input, #login button { width: 280px; }
+.switch { display: flex; align-items: center; gap: 10px; }
+.switch input { width: auto; }
+</style>
+</head>
+<body>
+<header><h1>Hub</h1>
+  <button class="icon" id="refresh" title="Recharger">⟳</button></header>
+<main id="main"></main>
+<nav id="nav"></nav>
+<div id="veil"></div>
+<div id="sheet"></div>
+<script>
+"use strict";
+const C = {blue: "#45B8F5", violet: "#B48DFF", green: "#49B76C",
+  yellow: "#FBCD5F", orange: "#FFA071", red: "#F17171", pink: "#F471B7",
+  grey: "#9399A6", yg: "#A3C94C", mint: "#51DBC3", bd: "#5E94FF"};
+const ETATS = [["À faire", C.blue], ["En cours / en attente", C.violet],
+  ["A commander", C.yellow], ["Commandé", C.orange], ["Terminé", C.green]];
+const FLAGS = [
+  ["Payé ?", [["Non payé", C.red], ["Payé", C.green]]],
+  ["Prévenir ?", [["Viendra d'office", C.pink],
+    ["Appeler quand prêt", C.blue], ["Pas de messagerie", C.orange],
+    ["Prévenu", C.green]]],
+  ["Projet ?", [["Pas de projet", C.grey], ["Faire projet", C.blue],
+    ["Projet envoyé", C.yellow], ["Projet validé", C.violet],
+    ["Fichiers prêts", C.violet]]]];
+const LIST_COLORS = [C.blue, C.violet, C.green, C.yg, C.mint, C.yellow,
+  C.orange, C.red, C.pink, C.bd];
+const NEWS_COLORS = [C.violet, C.blue, C.green, C.grey, C.orange];
+const NEW_CAT = "＋ Nouvelle catégorie…";
+const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi",
+  "vendredi", "samedi"];
+const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin",
+  "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+const TABS = [["tasks", "▦", "Tâches"], ["agenda", "▤", "Agenda"],
+  ["lists", "☑", "Listes"], ["ia", "✦", "IA"],
+  ["briefing", "☀", "Briefing"], ["news", "◉", "Actus"]];
+
+const S = {tab: "tasks", open: "À faire", q: "", tasks: [], agenda: [],
+  status: "", lists: null, base: {}, listKind: "liste", lastcat: {},
+  images: null, shown: 60, picked: new Set(), source: null, prompt: "",
+  model: "gemini", format: "1:1", quality: "1K", count: 1, refine: true,
+  busy: false, iaStatus: "", briefing: null, news: null, newsCat: null};
+try { S.tab = localStorage.getItem("tab") || S.tab; } catch (e) {}
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const main = $("#main"), sheet = $("#sheet"), veil = $("#veil");
+
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "style" && typeof v === "object")
+      Object.assign(el.style, v);
+    else if (k === "html") el.innerHTML = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat()) {
+    if (k == null || k === false) continue;
+    el.append(k instanceof Node ? k : document.createTextNode(k));
+  }
+  return el;
+}
+const md = text => h("div", {class: "md", html: DOMPurify.sanitize(
+  marked.parse(text || "", {breaks: true}),
+  {ADD_ATTR: ["target"]})});
+const alpha = (hex, a) => hex + Math.round(a * 255).toString(16)
+  .padStart(2, "0");
+const fold = s => String(s || "").toLowerCase().normalize("NFD")
+  .replace(/[̀-ͯ]/g, "");
+const pageId = row => row.url.split("/").pop();
+const tel = s => String(s).replace(/[^\d+]/g, "");
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : body instanceof Blob ?
+    {method: "POST", body} :
+    {method: "POST", body: JSON.stringify(body),
+     headers: {"Content-Type": "application/json"}};
+  const r = await fetch(path, {credentials: "same-origin", ...opt});
+  if (r.status === 401) { showLogin(); throw new Error("auth"); }
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || r.status);
+  return data;
+}
+
+function dayLabel(iso) {
+  const d = new Date(iso.slice(0, 10) + "T00:00:00");
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const delta = Math.round((d - t) / 864e5);
+  if (delta === 0) return "Aujourd'hui";
+  if (delta === 1) return "Demain";
+  const s = `${JOURS[d.getDay()]} ${d.getDate()} ${MOIS[d.getMonth()]}`;
+  return s[0].toUpperCase() + s.slice(1);
+}
+const hm = ts => new Date(ts * 1000).toTimeString().slice(0, 5);
+
+// Choix exclusif : sélecteur glissant, curseur bleu ou couleur de l'option.
+function seg(options, value, onPick, small) {
+  const box = h("div", {class: "seg" + (small ? " small" : "")});
+  options.forEach(([v, label, color]) => {
+    const on = String(v) === String(value);
+    box.append(h("button", {class: on ? "on" : "",
+      style: on ? {background: color || C.blue} : null,
+      onclick: () => onPick(v)}, label));
+  });
+  return box;
+}
+
+// ── Feuille du bas ───────────────────────────────────────────────────
+function openSheet(kids, full) {
+  sheet.className = full ? "full" : "";
+  sheet.replaceChildren(h("div", {class: "handle", onclick: closeSheet}),
+    ...kids);
+  sheet.style.display = veil.style.display = "block";
+  sheet.scrollTop = 0;
+}
+function closeSheet() { sheet.style.display = veil.style.display = "none"; }
+veil.onclick = closeSheet;
+let touchY = null;
+sheet.addEventListener("touchstart", e => {
+  touchY = sheet.scrollTop <= 0 ? e.touches[0].clientY : null; });
+sheet.addEventListener("touchend", e => {
+  if (touchY != null && e.changedTouches[0].clientY - touchY > 90)
+    closeSheet();
+  touchY = null; });
+
+// ── Rendu ────────────────────────────────────────────────────────────
+function render() {
+  const keep = main.scrollTop;
+  main.replaceChildren(h("div", {class: "status"}, S.status),
+    ...VIEWS[S.tab]());
+  main.scrollTop = keep;
+  $("#nav").replaceChildren(...TABS.map(([id, icon, label]) =>
+    h("button", {class: id === S.tab ? "on" : "", onclick: () => tab(id)},
+      h("span", {}, icon), label)));
+}
+function tab(id) {
+  S.tab = id;
+  try { localStorage.setItem("tab", id); } catch (e) {}
+  if (id === "lists") loadLists();
+  if (id === "ia" && !S.images) loadImages();
+  if (id === "briefing") loadBriefing();
+  if (id === "news" && !S.news) loadNews();
+  main.scrollTop = 0;
+  render();
+}
+
+// ── Tâches ───────────────────────────────────────────────────────────
+const etatColor = e => (ETATS.find(x => x[0] === e) || [0, C.grey])[1];
+const badge = (text, color) => h("span", {class: "badge",
+  style: {background: alpha(color, .85)}}, text);
+
+function taskCard(row, withEtat) {
+  const etat = row.Etat || "À faire";
+  const badges = withEtat ? [badge(etat, etatColor(etat))] : [];
+  for (const [prop, opts] of FLAGS) {
+    const v = row[prop] || opts[0][0];
+    if (v !== "Pas de projet")
+      badges.push(badge(v, (opts.find(o => o[0] === v) || [0, C.grey])[1]));
+  }
+  const dl = row["date:Deadline:start"];
+  const info = [dl && "⏰ " + dayLabel(dl),
+    row.Prix != null && row.Prix !== "" && row.Prix + " €",
+    row["Téléphone"]].filter(Boolean);
+  return h("div", {class: "card",
+    style: {background: alpha(etatColor(etat), .18)},
+    onclick: () => taskDetails(row)},
+    h("div", {style: {fontSize: "16px"}}, row.Demande || "(sans titre)"),
+    info.length ? h("div", {class: "muted"}, info.join("  ·  ")) : null,
+    h("div", {class: "badges"}, badges));
+}
+
+function viewTasks() {
+  const search = h("input", {type: "search", placeholder:
+    "🔍 Rechercher une carte", value: S.q});
+  search.oninput = () => {
+    S.q = search.value; render();
+    const el = $("input[type=search]"); el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  };
+  const q = fold(S.q).trim();
+  if (q) {
+    const rows = S.tasks.filter(r => fold(["Demande", "Téléphone",
+      "E-mail", "Etat"].map(k => r[k] || "").join(" ")).includes(q));
+    return [search, ...(rows.length ? rows.map(r => taskCard(r, true)) :
+      [h("div", {class: "muted"}, "Aucune carte")])];
+  }
+  const out = [search];
+  for (const [etat, color] of ETATS) {
+    const rows = S.tasks.filter(r => (r.Etat || "À faire") === etat);
+    const open = S.open === etat;
+    out.push(h("div", {class: "drawer", style: {background:
+      alpha(color, .85)}, onclick: () => {
+        S.open = open ? null : etat; render(); }},
+      h("b", {}, `${etat}  (${rows.length})`), open ? "▴" : "▾"));
+    if (open) out.push(...(rows.length ? rows.map(r => taskCard(r)) :
+      [h("div", {class: "muted"}, "Rien ici")]));
+  }
+  return out;
+}
+
+async function setProps(row, props) {
+  Object.assign(row, props);
+  render();
+  try { await api("/api/task", {id: pageId(row), props}); }
+  catch (e) { S.status = "Erreur Notion : " + e.message; render(); }
+}
+
+function notesBox(row, always) {
+  const box = h("div", {class: "box"}, h("div", {class: "label",
+    style: {marginTop: 0}}, "Notes"));
+  const body = md(row._notes ?? "Chargement des notes…");
+  box.append(body);
+  if (row._notes === "" && !always) box.style.display = "none";
+  if (row._notes === undefined) {
+    api("/api/notes?id=" + pageId(row)).then(d => {
+      row._notes = d.text;
+      body.replaceWith(md(d.text || "_Pas de notes_"));
+      if (!d.text && !always) box.style.display = "none";
+    }).catch(() => {});
+  } else if (!row._notes) body.replaceWith(md("_Pas de notes_"));
+  return box;
+}
+
+function callBtn(row) {
+  return row["Téléphone"] ? h("a", {class: "btn",
+    href: "tel:" + tel(row["Téléphone"])}, "📞 Appeler") : null;
+}
+
+function taskDetails(row) {
+  const info = [["Deadline", "date:Deadline:start"],
+    ["Téléphone", "Téléphone"], ["E-mail", "E-mail"], ["Prix", "Prix"],
+    ["Créé le", "Créé le"]].filter(([, k]) => row[k] != null &&
+      row[k] !== "" && !(Array.isArray(row[k]) && !row[k].length))
+    .map(([l, k]) => h("div", {}, `${l} : ${row[k]}`));
+  const flags = FLAGS.flatMap(([prop, opts]) => [
+    h("div", {class: "label"}, prop),
+    seg(opts.map(([v, c]) => [v, v, c]), row[prop] || opts[0][0],
+      v => { setProps(row, {[prop]: v}); taskDetails(row); }, true)]);
+  openSheet([h("h2", {}, row.Demande || "(sans titre)"), ...info,
+    ...flags, notesBox(row), h("div", {class: "row"}, callBtn(row)),
+    h("div", {class: "label"}, "État"),
+    seg(ETATS.map(([e, c]) => [e, e, c]), row.Etat || "À faire", e => {
+      closeSheet(); S.open = e;
+      S.status = `Déplacé vers « ${e} »`;
+      setProps(row, {Etat: e});
+    }, true)]);
+}
+
+// ── Agenda ───────────────────────────────────────────────────────────
+function viewAgenda() {
+  const out = [];
+  let last = null;
+  for (const [start, source, color, row] of S.agenda) {
+    const label = dayLabel(start);
+    if (label !== last) out.push(h("div", {class: "day"}, label));
+    last = label;
+    const hour = start.length > 10 ? start.slice(11, 16) : "";
+    const title = row.Nom || row.Demande || "—";
+    const bits = [source, row.Objets && row.Objets.join(", "),
+      row["État"] || row.Etat, row["Téléphone"]].filter(Boolean);
+    out.push(h("div", {class: "event", onclick: () => source === "Tâche" ?
+      taskDetails(row) : eventDetails(start, source, color, row)},
+      h("i", {style: {background: color}}),
+      h("div", {}, h("div", {style: {fontSize: "16px"}},
+        `${hour}  ${title}`.trim()),
+        h("div", {class: "muted"}, bits.join(" · ")))));
+  }
+  return out.length ? out :
+    [h("div", {class: "muted"}, "Rien les 60 prochains jours")];
+}
+
+function eventDetails(start, source, color, row) {
+  const info = [["État", "État"], ["État", "Etat"], ["Objets", "Objets"],
+    ["Téléphone", "Téléphone"], ["E-mail", "Email"]]
+    .filter(([, k]) => row[k] != null && row[k] !== "" &&
+      !(Array.isArray(row[k]) && !row[k].length))
+    .map(([l, k]) => h("div", {}, `${l} : ` +
+      (Array.isArray(row[k]) ? row[k].join(", ") : row[k])));
+  openSheet([h("h2", {}, row.Nom || "—"),
+    h("div", {class: "muted"}, source),
+    h("div", {style: {color}}, dayLabel(start) + " " +
+      (start.length > 10 ? start.slice(11, 16) : "")),
+    ...info, notesBox(row, true), h("div", {class: "row"}, callBtn(row))]);
+}
+
+// ── Listes (mêmes données que Hub, fusion côté Pi) ───────────────────
+async function loadLists() {
+  try {
+    const d = await api("/api/lists");
+    S.lists = {liste: d.liste, prix: d.prix};
+    S.base = structuredClone(S.lists);
+    S.lastcat = d.lastcat || {};
+  } catch (e) { S.status = "Listes injoignables : " + e.message; }
+  render();
+}
+
+async function saveList(name, category) {
+  try {
+    const d = await api("/api/list", {name, base: S.base[name],
+      rows: S.lists[name], category});
+    S.lists[name] = d.rows;
+    S.base[name] = structuredClone(d.rows);
+    if (category) S.lastcat[name] = category;
+  } catch (e) { S.status = "Pas enregistré : " + e.message; }
+  render();
+}
+
+const catOf = r => String(r["catégorie"] || "").trim();
+const isDone = r => ["true", "1"].includes(String(r.fait).toLowerCase());
+
+function viewLists() {
+  const name = S.listKind;
+  const out = [seg([["liste", "À faire"], ["prix", "Prix"]], name,
+    v => { S.listKind = v; render(); })];
+  if (!S.lists) return [...out, h("div", {class: "bar"})];
+  const rows = S.lists[name];
+  out.push(h("button", {onclick: () => listEdit(name)}, "＋ Ajouter"));
+  [...new Set(rows.map(catOf))].forEach((cat, i) => {
+    out.push(h("div", {class: "cat", style: {background:
+      alpha(LIST_COLORS[i % LIST_COLORS.length], .25)}},
+      cat || "Sans catégorie"));
+    for (const r of rows.filter(r => catOf(r) === cat)) {
+      if (name === "liste") {
+        const done = isDone(r);
+        const box = h("input", {type: "checkbox", checked: done,
+          onclick: e => e.stopPropagation(),
+          onchange: e => { r.fait = e.target.checked ? "True" : "False";
+            saveList("liste"); }});
+        const det = String(r["détails"] || "").trim();
+        out.push(h("div", {class: "item" + (done ? " done" : ""),
+          onclick: () => listEdit(name, r)}, box,
+          h("div", {class: "t"}, r["tâche"] || ""),
+          det ? h("div", {class: "d"}, md(det)) : null));
+      } else {
+        out.push(h("div", {class: "item", onclick: () => listEdit(name, r)},
+          h("div", {class: "t"}, r.article || ""),
+          h("b", {}, String(r.prix ?? ""))));
+      }
+    }
+  });
+  return out;
+}
+
+function listEdit(name, row) {
+  const rows = S.lists[name];
+  let cols = [];
+  rows.forEach(r => Object.keys(r).forEach(k => cols.includes(k) ||
+    cols.push(k)));
+  cols = cols.filter(c => c !== "catégorie" && c !== "fait");
+  if (!cols.length) cols = name === "liste" ? ["tâche"] : ["article", "prix"];
+  const cats = [...new Set(rows.map(catOf).filter(Boolean))];
+  const last = S.lastcat[name];
+  const cur = row ? catOf(row) : cats.includes(last) ? last :
+    rows.length ? catOf(rows[rows.length - 1]) : "";
+  const cat = h("select", {style: {width: "150px", flex: "none"}},
+    ...[...cats, NEW_CAT].map(c => h("option", {value: c,
+      selected: c === cur}, c)));
+  const newCat = h("input", {placeholder: "Nouvelle catégorie",
+    style: {display: cats.length ? "none" : ""}});
+  if (!cats.length) cat.value = NEW_CAT;
+  cat.onchange = () => newCat.style.display =
+    cat.value === NEW_CAT ? "" : "none";
+  const fields = Object.fromEntries(cols.map(c => [c, h("textarea",
+    {rows: 1, placeholder: c[0].toUpperCase() + c.slice(1)},
+    String((row || {})[c] ?? ""))]));
+  const first = Object.values(fields)[0];
+  first.style.flex = "1"; first.style.width = "auto";
+  const err = h("div", {style: {color: C.red}});
+  const ok = () => {
+    const category = cat.value === NEW_CAT ? newCat.value.trim() : cat.value;
+    if (!category) { err.textContent = "Catégorie obligatoire"; return; }
+    const target = row || {};
+    target["catégorie"] = category;
+    for (const [c, f] of Object.entries(fields)) target[c] = f.value;
+    if (!row) { if (name === "liste") target.fait = "False";
+      rows.push(target); }
+    closeSheet();
+    saveList(name, category);
+  };
+  const del = () => { rows.splice(rows.indexOf(row), 1); closeSheet();
+    saveList(name); };
+  openSheet([h("div", {class: "row", style: {flexWrap: "nowrap"}}, cat,
+    first), newCat, ...Object.values(fields).slice(1), err,
+    h("div", {class: "row"},
+      h("button", {onclick: ok}, "✓ Enregistrer"),
+      h("button", {class: "btn txt", onclick: closeSheet}, "Annuler"),
+      row ? h("button", {class: "btn out red", onclick: del},
+        "Supprimer") : null)]);
+  if (!row) first.focus();
+}
+
+// ── IA ───────────────────────────────────────────────────────────────
+const imgUrl = (p, s = 360) =>
+  `/api/img?s=${s}&p=${encodeURIComponent(p)}`;
+
+async function loadImages() {
+  try { S.images = await api("/api/images"); }
+  catch (e) { S.status = "Galerie : " + e.message; }
+  render();
+}
+
+function viewIa() {
+  const prompt = h("textarea", {rows: 3, placeholder: "Décris l'image…"},
+    S.prompt);
+  prompt.oninput = () => { S.prompt = prompt.value; };
+  const file = h("input", {type: "file", accept: "image/*",
+    style: {display: "none"}, onchange: async () => {
+      const f = file.files[0];
+      if (!f) return;
+      S.iaStatus = "Envoi de la photo…"; render();
+      const r = await fetch("/api/upload", {method: "POST", body: f,
+        headers: {"X-Name": encodeURIComponent(f.name)}});
+      S.source = (await r.json()).path;
+      S.iaStatus = ""; loadImages();
+    }});
+  const src = S.source ? h("div", {class: "row",
+    style: {alignItems: "center", flexWrap: "nowrap"}},
+    h("img", {src: imgUrl(S.source, 200), style: {width: "72px",
+      height: "72px", objectFit: "cover", borderRadius: "8px"}}),
+    h("div", {class: "muted", style: {flex: 1}},
+      S.source.split("/").pop()),
+    h("button", {class: "icon", onclick: () => { S.source = null;
+      render(); }}, "✕")) :
+    h("div", {}, file, h("button", {class: "btn out",
+      onclick: () => file.click()}, "🖼 Photo source"));
+  const set = k => v => { S[k] = v; render(); };
+  const muse = S.model === "muse";
+  return [prompt, src,
+    seg([["gemini", "Gemini"], ["muse", "Muse"]], S.model, set("model")),
+    seg([["1:1", "Carré"], ["2:3", "Portrait"], ["3:2", "Paysage"]],
+      S.format, set("format")),
+    muse ? null : seg(["1K", "2K", "4K"].map(q => [q, q]), S.quality,
+      set("quality")),
+    seg([1, 2, 3, 4].map(n => [n, "×" + n]), S.count, v => {
+      S.count = +v; render(); }),
+    h("label", {class: "switch"}, h("input", {type: "checkbox",
+      checked: S.refine && !muse, disabled: muse,
+      onchange: e => { S.refine = e.target.checked; }}), "Affiner"),
+    h("button", {style: {width: "100%", height: "48px"}, disabled: S.busy,
+      onclick: generate}, "✦ Générer"),
+    S.busy ? h("div", {class: "bar"}) : null,
+    h("div", {class: "muted"}, S.iaStatus),
+    h("hr", {style: {borderColor: "#555b68"}}), ...viewGallery()];
+}
+
+async function generate() {
+  const text = S.prompt.trim();
+  if (!text || S.busy) return;
+  S.busy = true; S.iaStatus = "…"; render();
+  try {
+    const {id} = await api("/api/generate", {prompt: text,
+      source: S.source, model: S.model, format: S.format,
+      quality: S.quality, count: S.count, refine: S.refine});
+    for (;;) {
+      await new Promise(r => setTimeout(r, 2000));
+      const job = await api("/api/job?id=" + id);
+      S.iaStatus = job.status || "";
+      if (job.done) break;
+      if (S.tab === "ia") render();
+    }
+  } catch (e) { S.iaStatus = "Erreur : " + e.message; }
+  S.busy = false;
+  await loadImages();
+}
+
+function viewGallery() {
+  const imgs = S.images || [];
+  const n = S.picked.size;
+  const head = n ? h("div", {class: "row", style: {alignItems: "center"}},
+    h("div", {style: {flex: 1}}, `${n} sélectionnée(s)`),
+    h("button", {class: "btn txt", onclick: () => {
+      imgs.slice(0, S.shown).forEach(i => S.picked.add(i.path)); render();
+    }}, "Tout"),
+    h("button", {class: "btn txt", onclick: () => {
+      S.picked.clear(); render(); }}, "Annuler"),
+    h("button", {class: "btn fill-red", onclick: () =>
+      trash([...S.picked])}, "Supprimer")) :
+    h("div", {class: "muted", style: {fontWeight: 700}},
+      `Galerie · ${imgs.length} images  ·  appui long pour sélectionner`);
+  const grid = h("div", {class: "grid"});
+  for (const it of imgs.slice(0, S.shown)) {
+    let timer = null, long = false;
+    const tile = h("div", {class: S.picked.has(it.path) ? "picked" : ""},
+      h("img", {src: imgUrl(it.path), loading: "lazy", alt: ""}));
+    const pick = () => { S.picked.has(it.path) ? S.picked.delete(it.path) :
+      S.picked.add(it.path); render(); };
+    tile.addEventListener("pointerdown", () => { long = false;
+      timer = setTimeout(() => { long = true; pick(); }, 500); });
+    for (const ev of ["pointerup", "pointerleave", "pointercancel"])
+      tile.addEventListener(ev, () => clearTimeout(timer));
+    tile.addEventListener("contextmenu", e => e.preventDefault());
+    tile.onclick = () => { if (long) return;
+      S.picked.size ? pick() : openImage(it); };
+    grid.append(tile);
+  }
+  const out = [head, grid];
+  if (imgs.length > S.shown) out.push(h("button", {class: "btn txt",
+    onclick: () => { S.shown += 60; render(); }}, "Plus"));
+  return out;
+}
+
+async function trash(paths) {
+  try { await api("/api/trash", {paths}); }
+  catch (e) { S.status = "Suppression impossible : " + e.message; }
+  S.picked.clear(); closeSheet(); loadImages();
+}
+
+function openImage(it) {
+  const p = it.prompt;
+  const top = () => { closeSheet(); main.scrollTo({top: 0,
+    behavior: "smooth"}); render(); };
+  openSheet([
+    h("img", {src: imgUrl(it.path, 1600), style: {width: "100%",
+      borderRadius: "6px"}}),
+    h("div", {class: "muted"}, it.name),
+    p ? h("div", {}, "Demande : " + p.asked) : null,
+    p && p.refined !== p.asked ? h("div", {class: "muted"},
+      "Affiné : " + p.refined) : null,
+    h("div", {class: "row"},
+      h("button", {onclick: () => { S.source = it.path; top(); }},
+        "✦ Modifier avec l'IA"),
+      p ? h("button", {class: "btn out", onclick: () => {
+        S.prompt = p.asked; top(); }}, "Reprendre la demande") : null,
+      h("button", {class: "btn out red", onclick: () => trash([it.path])},
+        "Supprimer"),
+      h("button", {class: "btn txt", onclick: closeSheet}, "Fermer"))],
+    true);
+}
+
+// ── Briefing ─────────────────────────────────────────────────────────
+async function loadBriefing() {
+  try { S.briefing = await api("/api/briefing"); } catch (e) {}
+  render();
+}
+function viewBriefing() {
+  const b = S.briefing;
+  if (!b) return [h("div", {class: "bar"})];
+  if (!b.text) return [h("div", {class: "muted"}, "Pas encore de briefing")];
+  const d = new Date(b.at * 1000);
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1)
+    .padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return [h("div", {class: "muted"}, `${dayLabel(iso)} à ${hm(b.at)}`),
+    h("div", {class: "card", style: {cursor: "auto"}}, md(b.text))];
+}
+
+// ── Actus ────────────────────────────────────────────────────────────
+async function loadNews(force) {
+  try { S.news = await api("/api/news" + (force ? "?force=1" : "")); }
+  catch (e) { S.status = "Actus : " + e.message; }
+  render();
+}
+const newsColor = cat => NEWS_COLORS[(S.news.categories || [])
+  .indexOf(cat)] || C.grey;
+const newsMeta = it => [it.source, it.date && new Date(it.date)
+  .toLocaleString("fr-BE", {day: "2-digit", month: "2-digit",
+    hour: "2-digit", minute: "2-digit"})].filter(Boolean).join(" · ");
+
+function viewNews() {
+  if (!S.news) return [h("div", {class: "bar"}),
+    h("div", {class: "muted"}, "Chargement des flux…")];
+  const chips = h("div", {class: "chips"}, ...S.news.categories.map(c =>
+    h("button", {class: "chip", style: S.newsCat === c ?
+      {background: alpha(newsColor(c), .33)} : null,
+      onclick: () => { S.newsCat = S.newsCat === c ? null : c; render(); }},
+      c)));
+  const shown = S.news.items.filter(it => !S.newsCat ||
+    it.category === S.newsCat).slice(0, 80);
+  return [chips, ...shown.map(it => h("div", {class: "card news",
+    onclick: () => readArticle(it)},
+    h("div", {style: {flex: 1}},
+      h("div", {style: {fontWeight: 500}}, it.title || ""),
+      h("div", {style: {fontSize: "12px", color: newsColor(it.category)}},
+        newsMeta(it))),
+    it.image ? h("img", {src: it.image, loading: "lazy", alt: "",
+      onerror: e => e.target.remove()}) : null))];
+}
+
+function readArticle(it) {
+  const body = md(it.full || it.summary || "");
+  const wait = !it.full && it.category !== "Podcasts" ? h("div",
+    {class: "muted", style: {fontStyle: "italic"}},
+    "Chargement de l'article…") : null;
+  openSheet([h("h2", {style: {fontSize: "20px"}}, it.title || ""),
+    h("div", {style: {fontSize: "12px", color: newsColor(it.category)}},
+      newsMeta(it)), wait, body,
+    h("div", {class: "row"},
+      h("a", {class: "btn out", href: it.link, target: "_blank",
+        rel: "noopener"}, "↗ Ouvrir dans Safari"),
+      h("button", {class: "btn txt", onclick: closeSheet}, "Fermer"))],
+    true);
+  if (wait) api("/api/article?url=" + encodeURIComponent(it.link))
+    .then(d => { if (d.text) { it.full = d.text; body.replaceWith(
+      md(d.text)); } wait.remove(); })
+    .catch(() => wait.remove());
+}
+
+const VIEWS = {tasks: viewTasks, agenda: viewAgenda, lists: viewLists,
+  ia: viewIa, briefing: viewBriefing, news: viewNews};
+
+// ── Chargement ───────────────────────────────────────────────────────
+async function refresh(force) {
+  S.status = "Chargement…"; render();
+  try {
+    const d = await api("/api/data" + (force ? "?force=1" : ""));
+    S.tasks = d.tasks; S.agenda = d.agenda;
+    S.status = "Mis à jour à " + hm(d.at);
+  } catch (e) { if (e.message !== "auth") S.status = "Erreur : " +
+    e.message; }
+  if (force) {
+    if (S.tab === "lists") loadLists();
+    if (S.tab === "ia") loadImages();
+    if (S.tab === "briefing") loadBriefing();
+    if (S.tab === "news") loadNews(true);
+  }
+  render();
+}
+$("#refresh").onclick = () => refresh(true);
+
+function showLogin() {
+  document.querySelector("header").style.display = "none";
+  $("#nav").style.display = "none";
+  const field = h("input", {type: "password", placeholder: "Mot de passe",
+    autocapitalize: "none", autocorrect: "off", autocomplete:
+    "current-password"});
+  const err = h("div", {style: {color: C.red}});
+  const go = async () => {
+    err.textContent = "";
+    const r = await fetch("/api/login", {method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({password: field.value})});
+    if (r.ok) return location.reload();
+    err.textContent = "Mot de passe incorrect"; field.value = "";
+  };
+  field.onkeydown = e => { if (e.key === "Enter") go(); };
+  main.replaceChildren(h("div", {id: "login"},
+    h("h1", {style: {margin: 0}}, "Hub"), field, err,
+    h("button", {onclick: go}, "Entrer")));
+  field.focus();
+}
+
+(async () => {
+  const r = await fetch("/api/auth").then(r => r.json());
+  if (!r.ok) return showLogin();
+  tab(S.tab);
+  refresh(false);
+  setInterval(() => refresh(false), 3600e3);
+})();
+</script>
+</body>
+</html>
