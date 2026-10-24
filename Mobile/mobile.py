@@ -9,7 +9,7 @@ l'agenda, ordre manuel des cartes partagé via le Pi (hub_sync
 "kanban_ordre"). Rien n'est dupliqué : Hub reste l'outil complet.
 """
 
-__version__ = "2.10.82"
+__version__ = "2.10.83"
 
 import base64
 import datetime
@@ -52,6 +52,7 @@ GALLERY_ROOTS = [IA_DIR, os.path.join(HOME, "Pictures"),
                  os.path.join(HOME, "Documents", "Studio C"),
                  os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "..", "Generated")]
+BRIEFING = os.path.join(HOME, "briefing.md")  # écrit par Claude le matin
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp")
 FORMATS = [("1:1", "Carré"), ("2:3", "Portrait"), ("3:2", "Paysage")]
 _thumbs = {}
@@ -410,6 +411,22 @@ def main(page: ft.Page):
                 state.update(shown=state["shown"] + 60), render())))
         return out
 
+    # ── Briefing ─────────────────────────────────────────────────────
+    def _briefing_view():
+        try:
+            with open(BRIEFING, encoding="utf-8") as f:
+                text = f.read()
+            when = datetime.datetime.fromtimestamp(os.path.getmtime(BRIEFING))
+        except OSError:
+            return [ft.Text("Pas encore de briefing", color=GREY)]
+        return [ft.Text(f"{day_label(when.date().isoformat())} à "
+                        f"{when:%H:%M}", size=12, color=GREY),
+                ft.Container(ft.Markdown(
+                    text, selectable=True,
+                    extension_set=ft.MarkdownExtensionSet.GITHUB_FLAVORED,
+                    on_tap_link=lambda e: page.launch_url(e.data)),
+                    bgcolor=CARD, border_radius=10, padding=14)]
+
     # ── Rendu / chargement ───────────────────────────────────────────
     def render():
         search_bar.visible = state["tab"] == 0
@@ -424,6 +441,8 @@ def main(page: ft.Page):
                     or [ft.Text("Aucune carte", color=GREY)]
             else:
                 body.controls += _etat_sections()
+        elif state["tab"] == 4:
+            body.controls += _briefing_view()
         elif state["tab"] == 2:
             body.controls += _ia_view()
         elif state["tab"] == 3:
@@ -476,7 +495,9 @@ def main(page: ft.Page):
             ft.NavigationBarDestination(icon=ft.Icons.AUTO_AWESOME_OUTLINED,
                                         label="IA"),
             ft.NavigationBarDestination(icon=ft.Icons.PHOTO_LIBRARY_OUTLINED,
-                                        label="Galerie")],
+                                        label="Galerie"),
+            ft.NavigationBarDestination(icon=ft.Icons.WB_SUNNY_OUTLINED,
+                                        label="Briefing")],
         on_change=_tab, bgcolor=CARD)
     page.add(ft.SafeArea(ft.Column([search_bar, body], spacing=0,
                                    expand=True), expand=True))
