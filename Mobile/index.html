@@ -107,8 +107,6 @@ textarea { resize: vertical; }
 .thumbs { display: flex; gap: 10px; align-items: center; }
 .thumbs img { width: 56px; height: 56px; border-radius: 10px;
   object-fit: cover; flex: none; }
-.fix { background: #49B76C40; border-radius: 3px; }
-.proof { white-space: pre-wrap; line-height: 1.5; }
 .clip { max-height: 260px; overflow: hidden; position: relative; }
 .clip::after { content: ""; position: absolute; left: 0; right: 0;
   bottom: 0; height: 50px; background: linear-gradient(transparent,
@@ -765,7 +763,6 @@ function viewHome() {
     hour < 12 ? "Bonjour Charles" : hour < 18 ? "Bon après-midi" :
     "Bonsoir"), h("div", {class: "muted"},
     date[0].toUpperCase() + date.slice(1)))];
-  out.push(proofCard());
   const w = S.weather;
   if (w) out.push(glass("Météo · Leuze", null, null, h("div",
     {class: "wx"}, h("div", {class: "ico"}, w.icon),
@@ -832,64 +829,6 @@ function viewHome() {
           h("div", {style: {fontSize: "12px",
             color: newsColor(it.category)}}, newsMeta(it))))))));
   return out;
-}
-
-// ── Relecture : texte collé → version corrigée, changements surlignés ──
-function wordDiff(a, b) {
-  const A = a.split(/(\s+)/), B = b.split(/(\s+)/);
-  const n = A.length, m = B.length;
-  if (n * m > 4e6) return [h("span", {}, b)];
-  const L = Array.from({length: n + 1}, () => new Uint16Array(m + 1));
-  for (let i = n - 1; i >= 0; i--)
-    for (let j = m - 1; j >= 0; j--)
-      L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 :
-        Math.max(L[i + 1][j], L[i][j + 1]);
-  const out = [];
-  let i = 0, j = 0;
-  while (j < m) {
-    if (i < n && A[i] === B[j]) { out.push(B[j]); i++; j++; }
-    else if (i < n && L[i + 1][j] >= L[i][j + 1]) i++;
-    else { out.push(h("span", {class: "fix"}, B[j])); j++; }
-  }
-  return out;
-}
-
-function proofCard() {
-  const area = h("textarea", {rows: 4, placeholder: "Colle un texte…"},
-    S.proofIn || "");
-  area.oninput = () => { S.proofIn = area.value; };
-  const res = S.proofOut;
-  const kids = [area, h("div", {class: "row", style: {marginTop: "8px"}},
-    h("button", {disabled: S.proofBusy, onclick: async () => {
-      if (!S.proofIn || !S.proofIn.trim()) return;
-      S.proofBusy = true; S.proofOut = null; render();
-      try {
-        const d = await api("/api/proofread", {text: S.proofIn});
-        S.proofOut = {from: S.proofIn, to: d.text};
-      } catch (e) { S.proofOut = {error: e.message}; }
-      S.proofBusy = false; render();
-    }}, S.proofBusy ? "Relecture…" : "Relire"),
-    S.proofIn ? h("button", {class: "btn txt", onclick: () => {
-      S.proofIn = ""; S.proofOut = null; render(); }}, "Effacer") : null)];
-  if (S.proofBusy) kids.push(h("div", {class: "bar",
-    style: {marginTop: "8px"}}));
-  if (res && res.error) kids.push(h("div", {style: {color: C.red}},
-    res.error));
-  else if (res) {
-    const same = res.from.trim() === res.to.trim();
-    kids.push(h("div", {class: "box", style: {marginTop: "10px"}},
-      same ? h("div", {class: "muted"}, "✓ Rien à corriger") :
-        h("div", {class: "proof"}, ...wordDiff(res.from, res.to))));
-    if (!same) kids.push(h("div", {class: "row",
-      style: {marginTop: "8px"}},
-      h("button", {onclick: async e => {
-        await navigator.clipboard.writeText(res.to);
-        e.target.textContent = "✓ Copié"; }}, "Copier la version corrigée"),
-      h("button", {class: "btn txt", onclick: () => {
-        S.proofIn = res.to; S.proofOut = null; render(); }},
-        "Garder dans la zone")));
-  }
-  return glass("Relire un texte", null, null, ...kids);
 }
 
 // ── Actus ────────────────────────────────────────────────────────────

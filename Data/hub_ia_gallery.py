@@ -8,8 +8,10 @@ noms de main (ui) et renvoie les noms utilisés ailleurs dans Hub."""
 from PIL import Image as PILImage
 from ai_tools import _gemini_generate_image
 from ai_tools import _gemini_refine_image_prompt
+from ai_tools import proofread_text
 import CONSTANTS
 import datetime
+import difflib
 import flet as ft
 import io
 import json
@@ -325,6 +327,128 @@ def build(ui):
         ft.Icons.DELETE_OUTLINE, disabled=True, icon_color=RED,
         tooltip="Supprimer (corbeille)", on_click=_ai_gal_delete)
 
+    # ── Mode Texte : relecture d'un texte collé (orthographe, grammaire)
+    proof_in = ft.TextField(
+        multiline=True, expand=True, min_lines=12,
+        hint_text="Colle un texte…", border_radius=CONSTANTS.BUTTON_RADIUS,
+        text_size=CONSTANTS.TEXT_SM + 2, bgcolor=DARK, border_color=GREY)
+    proof_out = ft.Text(selectable=True, size=CONSTANTS.TEXT_SM + 2, color=WHITE)
+    proof_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=GREY)
+    proof_bar = ft.ProgressBar(visible=False, color=YELLOW, bgcolor=DARK)
+    proof_result = {"text": ""}
+
+    def _proof_spans(old, new):
+        """Texte corrigé, mots changés surlignés."""
+        a = __import__("re").split(r"(\s+)", old)
+        b = __import__("re").split(r"(\s+)", new)
+        spans = []
+        for tag, _i1, _i2, j1, j2 in difflib.SequenceMatcher(
+                None, a, b, autojunk=False).get_opcodes():
+            chunk = "".join(b[j1:j2])
+            if not chunk:
+                continue
+            spans.append(ft.TextSpan(chunk, ft.TextStyle(
+                bgcolor=ft.Colors.with_opacity(0.35, GREEN),
+                weight=ft.FontWeight.W_600) if tag != "equal" else None))
+        return spans
+
+    def _proofread(event=None):
+        text = proof_in.value or ""
+        if not text.strip():
+            return
+        proof_bar.visible = True
+        proof_status.value = "Relecture…"
+        proof_out.spans, proof_out.value = [], ""
+        page.update()
+
+        def _work():
+            try:
+                fixed = proofread_text(text)
+                proof_result["text"] = fixed
+                if fixed.strip() == text.strip():
+                    proof_status.value = "✓ Rien à corriger"
+                    proof_out.value = fixed
+                else:
+                    proof_out.spans = _proof_spans(text, fixed)
+                    proof_status.value = ""
+            except Exception as exc:
+                proof_status.value = f"Erreur : {exc}"
+            proof_bar.visible = False
+            proof_copy.disabled = proof_keep.disabled = \
+                not proof_result["text"]
+            _run_task(page.update)
+        threading.Thread(target=_work, daemon=True).start()
+
+    async def _proof_copy(event):
+        await ft.Clipboard().set(proof_result["text"])
+        proof_status.value = "✓ Copié"
+        page.update()
+
+    def _proof_keep(event):
+        proof_in.value = proof_result["text"]
+        proof_out.spans, proof_out.value = [], ""
+        proof_status.value = ""
+        page.update()
+
+    def _proof_clear(event):
+        proof_in.value = ""
+        proof_result["text"] = ""
+        proof_out.spans, proof_out.value = [], ""
+        proof_status.value = ""
+        proof_copy.disabled = proof_keep.disabled = True
+        page.update()
+
+    proof_copy = ft.FilledButton("Copier", icon=ft.Icons.COPY,
+                                 disabled=True, on_click=_proof_copy)
+    proof_keep = ft.OutlinedButton("Remplacer à gauche",
+                                   icon=ft.Icons.KEYBOARD_DOUBLE_ARROW_LEFT,
+                                   disabled=True, on_click=_proof_keep)
+    text_view = ft.Container(ft.Column([
+        ft.Row([
+            ft.Column([proof_in], expand=True),
+            ft.Container(ft.Column([proof_out], scroll=ft.ScrollMode.AUTO,
+                                   expand=True),
+                         expand=True, bgcolor=DARK, padding=12,
+                         border_radius=CONSTANTS.BUTTON_RADIUS),
+        ], expand=True, spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.STRETCH),
+        proof_bar,
+        ft.Row([
+            ft.FilledButton("Relire", icon=ft.Icons.SPELLCHECK,
+                            on_click=_proofread),
+            ft.TextButton("Effacer", on_click=_proof_clear),
+            ft.Container(proof_status, expand=True),
+            proof_keep, proof_copy], spacing=8),
+    ], expand=True, spacing=8), expand=True, padding=12, visible=False)
+
+    # Remplis plus bas ; on masque les conteneurs, pas leurs enfants (la
+    # barre de progression et les pièces jointes gèrent leur visibilité).
+    image_tools = ft.Row([], spacing=8)
+    image_view = ft.Column([], expand=True, spacing=0)
+
+    def _ia_mode(event):
+        text_mode = ia_mode_seg.selected_index == 1
+        for i, t in enumerate(ia_mode_texts):
+            t.color = DARK if i == ia_mode_seg.selected_index else None
+        text_view.visible = text_mode
+        image_tools.visible = image_view.visible = not text_mode
+        page.update()
+        if text_mode:
+            _run_task(_proof_focus)
+
+    async def _proof_focus():
+        try:
+            await proof_in.focus()
+        except RuntimeError:
+            pass  # onglet IA pas encore affiché
+
+    ia_mode_texts = [ft.Text("Images", size=CONSTANTS.TEXT_SM, color=DARK),
+                     ft.Text("Texte", size=CONSTANTS.TEXT_SM)]
+    ia_mode_seg = ft.CupertinoSlidingSegmentedButton(
+        selected_index=0, controls=ia_mode_texts, bgcolor=DARK,
+        thumb_color=YELLOW, padding=ft.Padding(4, 6, 4, 6),
+        on_change=_ia_mode)
+
     ia_surface = ft.Column([
         ft.Container(
             # Trois groupes séparés, dans l'ordre d'usage : ce qu'on règle
@@ -337,28 +461,35 @@ def build(ui):
                 # le Container vide garde l'espace flexible qui poussait
                 # les groupes de boutons vers la droite.
                 ft.Container(_surface_title("IA", "ia"), expand=True),
-                ai_model_dropdown,
-                _ai_header_separator(),
-                ai_image_quality_dropdown,
-                ai_image_size_group,
-                ai_aspect_dropdown,
-                ai_count_dropdown,
-                ai_refine_switch,
-                ai_retouch_button,
-                ai_reuse_button,
-                ai_copy_folder_button,
-                ai_prompt_button,
-                ai_delete_button,
-                # Voix/copie/bloc-notes masqués ; effacement de la
-                # conversation et ses séparateurs retirés (retour user :
-                # l'onglet ne sert plus qu'aux images).
-                ai_speaker_button,
-                ai_copy_button,
-                ai_to_notepad_button,
+                ia_mode_seg,
+                image_tools,
             ], spacing=8),
             height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
             alignment=ft.Alignment(-1, 0), bgcolor=BACKGROUND),
         ft.Divider(height=1, color=GREY),
+        text_view,
+        image_view,
+    ], expand=True, spacing=0)
+    image_tools.controls = [
+        ai_model_dropdown,
+        _ai_header_separator(),
+        ai_image_quality_dropdown,
+        ai_image_size_group,
+        ai_aspect_dropdown,
+        ai_count_dropdown,
+        ai_refine_switch,
+        ai_retouch_button,
+        ai_reuse_button,
+        ai_copy_folder_button,
+        ai_prompt_button,
+        ai_delete_button,
+        # Voix/copie/bloc-notes masqués ; effacement de la
+        # conversation et ses séparateurs retirés (retour user :
+        # l'onglet ne sert plus qu'aux images).
+        ai_speaker_button,
+        ai_copy_button,
+        ai_to_notepad_button]
+    image_view.controls = [
         ft.Container(content=ai_gallery, expand=True, padding=8),
         ai_progress_bar,
         ft.Container(content=ai_attach_row, padding=ft.Padding(8, 4, 8, 0)),
@@ -366,8 +497,7 @@ def build(ui):
             content=ft.Row([ai_input_field, ai_vasy_button, ai_mic_button,
                             ai_send_button, ai_stop_button], spacing=4),
             padding=ft.Padding(8, 4, 8, 4)),
-        ft.Container(content=ai_status_text, padding=ft.Padding(8, 0, 8, 6)),
-    ], expand=True, spacing=0)
+        ft.Container(content=ai_status_text, padding=ft.Padding(8, 0, 8, 6))]
     for _b in (ai_speaker_button, ai_copy_button, ai_to_notepad_button,
                ai_vasy_button, ai_mic_button):
         _b.visible = False  # ponytail: masqués, pas supprimés (code lié)
