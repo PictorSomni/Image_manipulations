@@ -18,6 +18,7 @@ import hmac
 import http.cookies
 import io
 import json
+import mimetypes
 import os
 import re
 import subprocess
@@ -700,6 +701,11 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authed():
             return self._json({"error": "auth"}, 401)
         try:
+            if url.path == "/api/attach":  # fichier joint à une tâche
+                q = dict(urllib.parse.parse_qsl(url.query))
+                hub_sync.file_req("PUT", q["id"], q["n"], self._body(),
+                                  timeout=300)
+                return self._json({"ok": True})
             if url.path == "/api/upload":
                 return self._upload(urllib.parse.unquote(
                     self.headers.get("X-Name", "photo.jpg")))
@@ -764,6 +770,12 @@ class Handler(BaseHTTPRequestHandler):
                               headers={"Cache-Control": "max-age=86400"})
         if path == "/api/job":
             return self._json(_JOBS.get(q.get("id"), {"done": True}))
+        if path == "/api/files":
+            return self._json(hub_sync.list_files(q["id"]))
+        if path == "/api/file":
+            return self._send(
+                hub_sync.file_req("GET", q["id"], q["n"]),
+                mimetypes.guess_type(q["n"])[0] or "application/octet-stream")
         if path == "/api/corbeille":
             return self._json(load_trash())
         if path == "/api/claudemodes":
@@ -801,6 +813,9 @@ class Handler(BaseHTTPRequestHandler):
                 hub_sync.claude_prompt(data["text"].strip(), mode))})
         if path == "/api/task":
             _set_props(data["id"], data["props"])
+            return self._json({"ok": True})
+        if path == "/api/detach":
+            hub_sync.file_req("DELETE", data["id"], data["n"])
             return self._json({"ok": True})
         if path == "/api/deltask":
             delete_task(data["id"])

@@ -442,6 +442,35 @@ function notesBox(row, always) {
   return box;
 }
 
+function filesBox(row) {
+  const id = pageId(row);
+  const box = h("div", {class: "box"});
+  const url = n => `/api/file?id=${id}&n=${encodeURIComponent(n)}`;
+  const pick = h("input", {type: "file", multiple: true,
+    style: {display: "none"}});
+  const load = async () => {
+    const names = await api("/api/files?id=" + id).catch(() => []);
+    box.replaceChildren(h("div", {class: "label", style: {marginTop: 0}},
+      "Fichiers"), ...names.map(n => h("div", {class: "row",
+        style: {alignItems: "center", flexWrap: "nowrap"}},
+      h("a", {href: url(n), target: "_blank", style: {flex: 1,
+        color: "inherit", overflowWrap: "anywhere"}}, "📎 " + n),
+      h("button", {class: "icon", onclick: async () => {
+        await api("/api/detach", {id, n}); load(); }}, "✕"))),
+      h("button", {class: "btn out", onclick: () => pick.click()},
+        "＋ Joindre"), pick);
+  };
+  pick.onchange = async () => {
+    box.firstChild.textContent = "Envoi…";
+    for (const f of pick.files)
+      await fetch(`/api/attach?id=${id}&n=${encodeURIComponent(f.name)}`,
+        {method: "POST", body: f});
+    load();
+  };
+  load();
+  return box;
+}
+
 function callBtn(row) {
   return row["Téléphone"] ? h("a", {class: "btn",
     href: "tel:" + tel(row["Téléphone"])}, "📞 Appeler") : null;
@@ -473,7 +502,7 @@ function taskDetails(row) {
     seg(opts.map(([v, c]) => [v, v, c]), row[prop] || opts[0][0],
       v => { setProps(row, {[prop]: v}); taskDetails(row); }, true)]);
   openSheet([title, ...info,
-    ...flags, notesBox(row), h("div", {class: "row"}, callBtn(row)),
+    ...flags, filesBox(row), notesBox(row), h("div", {class: "row"}, callBtn(row)),
     h("div", {class: "label"}, "État"),
     seg(ETATS.map(([e, c]) => [e, e, c]), row.Etat || "À faire", e => {
       closeSheet(); S.open = e;

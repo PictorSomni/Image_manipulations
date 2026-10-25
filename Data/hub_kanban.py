@@ -8,11 +8,13 @@ noms de main (ui) et renvoie les noms utilisés ailleurs dans Hub."""
 import CONSTANTS
 import datetime
 import flet as ft
+import hub_sync
 import json
 import mcp_client
 import notion_rest
 import os
 import re
+import tempfile
 import threading
 import ui_helpers
 
@@ -46,6 +48,8 @@ def build(ui):
     _dialog = ui._dialog
     _dlg_btn = ui._dlg_btn
     _hub_sync_pull_all = ui._hub_sync_pull_all
+    _log_to_terminal = ui.late__log_to_terminal
+    _open_file_default = ui._open_file_default
     _liste_add_task = ui._liste_add_task
     _liste_has_task = ui._liste_has_task
     _load_json = ui._load_json
@@ -384,6 +388,7 @@ def build(ui):
             width=560, bgcolor=DARK, border=CONSTANTS.input_border(GREY),
             color=WHITE, disabled=cached_notes is None)
         content_loaded = {"original": cached_notes}
+        files_row = _kanban_files_row(row["page_id"], read_only=bool(trash))
 
         def _cancel(event):
             dlg.open = False
@@ -522,6 +527,7 @@ def build(ui):
                 prevenu_seg,
                 ft.Text(f"Créé le : {row['cree_le'] or '?'}", size=11,
                        color=LIGHT_GREY),
+                files_row,
                 ft.Divider(height=1, color=GREY),
                 content_field,
             # Hauteur plafonnée à la fenêtre dispo (retour user : sur une
@@ -918,6 +924,85 @@ def build(ui):
         # dans l'Agenda.
         for veil in (kanban_sync_veil, agenda_sync_veil):
             ui_helpers.set_busy_veil(veil, kanban_state["busy"] > 0)
+
+    def _kanban_files_row(page_id, read_only=False):
+        """Fichiers joints à la carte, stockés sur le Pi (hub_sync) :
+        clic = ouvrir, ✕ = retirer, Joindre = un ou plusieurs fichiers."""
+        files_row = ft.Row(wrap=True, spacing=4, run_spacing=4)
+        if not hub_sync.available():
+            return files_row
+        local_dir = os.path.join(tempfile.gettempdir(), "hub_task_files",
+                                 page_id.replace("-", ""))
+
+        def _bg(work):
+            def _run():
+                try:
+                    work()
+                except Exception as exc:
+                    _log_to_terminal(f"[Fichiers] {exc}", RED)
+                _refresh()
+            threading.Thread(target=_run, daemon=True).start()
+
+        def _open(name):
+            def work():
+                os.makedirs(local_dir, exist_ok=True)
+                path = os.path.join(local_dir, name)
+                with open(path, "wb") as f:
+                    f.write(hub_sync.file_req("GET", page_id, name))
+                _open_file_default(path)
+            _bg(work)
+
+        async def _attach(e):
+            picked = await ft.FilePicker().pick_files(
+                dialog_title="Joindre des fichiers", allow_multiple=True)
+            paths = [f.path for f in picked or [] if f.path]
+
+            def work():
+                for p in paths:
+                    with open(p, "rb") as f:
+                        hub_sync.file_req("PUT", page_id,
+                                          os.path.basename(p), f.read(),
+                                          timeout=300)
+            if paths:
+                _bg(work)
+
+        def _chip(name):
+            return ft.Container(ft.Row([c for c in [
+                ft.TextButton(content=ft.Row([
+                    ft.Icon(ft.Icons.ATTACH_FILE, color=LIGHT_GREY,
+                            size=CONSTANTS.ICON_SM),
+                    ft.Text(name, size=CONSTANTS.TEXT_SM, color=WHITE)],
+                    spacing=4, tight=True),
+                    on_click=lambda e: _open(name)),
+                None if read_only else ft.IconButton(
+                    ft.Icons.CLOSE, icon_size=14, icon_color=LIGHT_GREY,
+                    tooltip="Retirer", on_click=lambda e: _bg(
+                        lambda: hub_sync.file_req("DELETE", page_id,
+                                                  name)))] if c],
+                spacing=0, tight=True),
+                bgcolor=GREY, border_radius=8)
+
+        def _refresh():
+            try:
+                names = hub_sync.list_files(page_id)
+            except Exception:
+                names = []
+            files_row.controls = [_chip(n) for n in names]
+            if not read_only:
+                files_row.controls.append(ft.TextButton(
+                    content=ft.Row([
+                        ft.Icon(ft.Icons.ADD, color=MINT,
+                                size=CONSTANTS.ICON_SM),
+                        ft.Text("Joindre", size=CONSTANTS.TEXT_SM,
+                                color=WHITE)], spacing=4, tight=True),
+                    on_click=_attach))
+            try:
+                files_row.update()
+            except Exception:
+                pass  # dialogue déjà fermé
+
+        threading.Thread(target=_refresh, daemon=True).start()
+        return files_row
 
     def _kanban_to_trash(rows):
         """Copie locale des tâches supprimées (thread de travail : va

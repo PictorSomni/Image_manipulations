@@ -20,6 +20,7 @@ import json
 import os
 from collections import Counter
 import urllib.error
+import urllib.parse
 import urllib.request
 
 URL = "https://pictorsomni.taild63b02.ts.net:8443/hub/"
@@ -51,6 +52,22 @@ def _req(method, name, body=None, timeout=8, headers=None):
         headers={"X-Hub-Key": _key(), "Content-Type": "application/json",
                  **(headers or {})})
     return urllib.request.urlopen(req, timeout=timeout)
+
+
+def file_req(method, page_id, name=None, body=None, timeout=60):
+    """Fichiers joints à une tâche (stockés sur le Pi) : GET sans nom =
+    liste des noms, GET/PUT/DELETE avec nom. Renvoie le corps brut."""
+    url = URL + "files/" + page_id.replace("-", "")
+    if name:
+        url += "/" + urllib.parse.quote(name)
+    req = urllib.request.Request(url, data=body, method=method,
+                                 headers={"X-Hub-Key": _key()})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.read()
+
+
+def list_files(page_id):
+    return json.loads(file_req("GET", page_id, timeout=5))
 
 
 def get(name, timeout=8):
