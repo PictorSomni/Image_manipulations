@@ -814,6 +814,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/task":
             _set_props(data["id"], data["props"])
             return self._json({"ok": True})
+        if path == "/api/newtask":
+            page = notion_rest._req("POST", "/pages", {
+                "parent": {"type": "data_source_id",
+                           "data_source_id": KANBAN_DS},
+                "properties": notion_rest._props_for(KANBAN_DS, {
+                    "Demande": data["demande"].strip(),
+                    "Etat": "À faire"})})
+            load_data(force=True)
+            return self._json({"id": page["id"].replace("-", "")})
         if path == "/api/detach":
             hub_sync.file_req("DELETE", data["id"], data["n"])
             return self._json({"ok": True})

@@ -55,6 +55,8 @@ input, textarea, select { font: inherit; width: 100%; color: var(--text);
   background: var(--dark); border: 1px solid #555b68;
   border-radius: var(--r); padding: 10px 12px; }
 textarea { resize: vertical; }
+input[type=date] { -webkit-appearance: none; appearance: none;
+  min-width: 0; min-height: 44px; box-sizing: border-box; }
 .muted { color: var(--grey); font-size: 13px; }
 .status { color: var(--grey); font-size: 12px; min-height: 1em; }
 .card { background: var(--card); border-radius: 8px; padding: 14px;
@@ -375,7 +377,8 @@ function viewTasks() {
     return [search, ...(rows.length ? rows.map(r => taskCard(r, true)) :
       [h("div", {class: "muted"}, "Aucune carte")])];
   }
-  const out = [search];
+  const out = [h("div", {class: "row", style: {flexWrap: "nowrap"}},
+    search, h("button", {onclick: newTask, style: {flex: "none"}}, "＋"))];
   for (const [etat, color] of ETATS) {
     const rows = S.tasks.filter(r => (r.Etat || "À faire") === etat);
     const open = S.open === etat;
@@ -389,6 +392,23 @@ function viewTasks() {
   out.push(h("div", {class: "drawer", style: {background:
     alpha(C.grey, .85)}, onclick: showTrash}, h("b", {}, "🗑 Corbeille")));
   return out;
+}
+
+function newTask() {
+  const t = h("textarea", {rows: 3, placeholder: "Demande"});
+  const ok = async () => {
+    if (!t.value.trim()) return;
+    closeSheet(); S.status = "Création…"; render();
+    try {
+      const d = await api("/api/newtask", {demande: t.value});
+      await refresh();
+      const row = S.tasks.find(r => pageId(r).replace(/-/g, "") === d.id);
+      if (row) { S.open = "À faire"; render(); taskDetails(row); }
+    } catch (e) { S.status = "Erreur : " + e.message; render(); }
+  };
+  openSheet([h("b", {}, "Nouvelle tâche"), t,
+    h("div", {class: "row"}, h("button", {onclick: ok}, "✓ Créer"))]);
+  setTimeout(() => t.focus(), 50);
 }
 
 async function deleteTask(row) {
@@ -491,6 +511,10 @@ function taskDetails(row) {
   const title = h("textarea", {rows: 1, style: {fontSize: "18px",
     fontWeight: 700}}, row.Demande || "");
   title.onchange = () => setProps(row, {Demande: title.value.trim()});
+  const fit = () => { title.style.height = "auto";
+    title.style.height = title.scrollHeight + 2 + "px"; };
+  title.addEventListener("input", fit);
+  requestAnimationFrame(fit);
   const info = [...field("Deadline", "date:Deadline:start", "date"),
     ...field("Téléphone", "Téléphone", "tel"),
     ...field("E-mail", "E-mail", "email"),
