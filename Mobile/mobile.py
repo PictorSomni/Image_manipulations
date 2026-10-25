@@ -312,6 +312,55 @@ def _set_props(page_id, props):
             row.update(props)
 
 
+# Corbeille des tâches partagée avec Hub (hub_sync « corbeille », même
+# format que Hub._kanban_to_trash, gardée 365 jours).
+# ponytail: lire-modifier-écrire sans verrou, dernier qui écrit gagne.
+_TRASH_PROPS = (("demande", "Demande"), ("etat", "Etat"),
+                ("deadline", "date:Deadline:start"),
+                ("telephone", "Téléphone"), ("email", "E-mail"),
+                ("prix", "Prix"), ("projet", "Projet ?"),
+                ("paye", "Payé ?"), ("prevenu", "Prévenir ?"),
+                ("cree_le", "Créé le"))
+
+
+def load_trash():
+    limit = (datetime.datetime.now() - datetime.timedelta(days=365)
+             ).strftime("%Y-%m-%d %H:%M")
+    return [t for t in hub_sync.get("corbeille") or []
+            if t["deleted_at"] >= limit]
+
+
+def delete_task(page_id):
+    row = next((r for r in _DATA["tasks"] or []
+                if _page_id(r) == page_id), {})
+    entry = {"deleted_at": datetime.datetime.now().strftime(
+        "%Y-%m-%d %H:%M"), "row": {"page_id": page_id, **{
+            k: row.get(w) or "" for k, w in _TRASH_PROPS},
+            "notes": _notes(page_id)}}
+    trash = [t for t in load_trash() if t["row"]["page_id"] != page_id]
+    hub_sync.put("corbeille", [entry] + trash)
+    notion_rest._trash({"page_id": page_id})
+    _DATA["tasks"] = [r for r in _DATA["tasks"] or []
+                      if _page_id(r) != page_id]
+
+
+def restore_task(page_id):
+    """Sortie de la corbeille Notion (30 j), sinon recréée (comme Hub)."""
+    trash = load_trash()
+    entry = next(t for t in trash if t["row"]["page_id"] == page_id)
+    try:
+        notion_rest._restore({"page_id": page_id})
+    except Exception:
+        row = entry["row"]
+        props = {w.split(":")[1] if w.startswith("date:") else w: row[k]
+                 for k, w in _TRASH_PROPS[:-1] if row.get(k)}
+        notion_rest._create({"parent": {"data_source_id": KANBAN_DS},
+                             "pages": [{"properties": props,
+                                        "content": row.get("notes")}]})
+    hub_sync.put("corbeille", [t for t in trash if t is not entry])
+    load_data(force=True)
+
+
 PROMPTS_FILE = CONSTANTS.state_file(".ai_prompts.json")  # = Hub
 LASTCAT_FILE = os.path.join(HOME, ".hub_mobile_lastcat.json")
 
@@ -717,6 +766,8 @@ class Handler(BaseHTTPRequestHandler):
                               headers={"Cache-Control": "max-age=86400"})
         if path == "/api/job":
             return self._json(_JOBS.get(q.get("id"), {"done": True}))
+        if path == "/api/corbeille":
+            return self._json(load_trash())
         if path == "/api/claudemodes":
             return self._json([[m[0], m[2]] for m in hub_sync.CLAUDE_MODES])
         if path == "/api/digest":
@@ -752,6 +803,12 @@ class Handler(BaseHTTPRequestHandler):
                 hub_sync.claude_prompt(data["text"].strip(), mode))})
         if path == "/api/task":
             _set_props(data["id"], data["props"])
+            return self._json({"ok": True})
+        if path == "/api/deltask":
+            delete_task(data["id"])
+            return self._json({"ok": True})
+        if path == "/api/restore":
+            restore_task(data["id"])
             return self._json({"ok": True})
         if path == "/api/list":
             name = data["name"]

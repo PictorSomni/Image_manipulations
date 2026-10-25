@@ -386,7 +386,37 @@ function viewTasks() {
     if (open) out.push(...(rows.length ? rows.map(r => taskCard(r)) :
       [h("div", {class: "muted"}, "Rien ici")]));
   }
+  out.push(h("div", {class: "drawer", style: {background:
+    alpha(C.grey, .85)}, onclick: showTrash}, h("b", {}, "🗑 Corbeille")));
   return out;
+}
+
+async function deleteTask(row) {
+  closeSheet();
+  S.tasks = S.tasks.filter(r => r !== row);
+  S.status = "Supprimée"; render();
+  try { await api("/api/deltask", {id: pageId(row)}); }
+  catch (e) { S.status = "Erreur : " + e.message; refresh(); }
+}
+
+async function showTrash() {
+  openSheet([h("div", {class: "muted"}, "Chargement…")], true);
+  const trash = await api("/api/corbeille");
+  const restore = async t => {
+    closeSheet(); S.status = "Restauration…"; render();
+    try { await api("/api/restore", {id: t.row.page_id}); refresh(); }
+    catch (e) { S.status = "Échec : " + e.message; render(); }
+  };
+  openSheet([h("b", {}, "Corbeille des tâches"),
+    ...(trash.length ? trash.map(t => h("div", {class: "card",
+      style: {background: alpha(etatColor(t.row.etat), .18)}},
+      h("div", {style: {fontSize: "16px"}}, t.row.demande || "—"),
+      h("div", {class: "muted"}, ["Supprimée le " + t.deleted_at,
+        t.row.telephone].filter(Boolean).join("  ·  ")),
+      t.row.notes ? md(t.row.notes) : null,
+      h("div", {class: "row"}, h("button", {class: "btn out",
+        onclick: () => restore(t)}, "↩ Restaurer"))))
+      : [h("div", {class: "muted"}, "Vide")])], true);
 }
 
 async function setProps(row, props) {
@@ -449,7 +479,9 @@ function taskDetails(row) {
       closeSheet(); S.open = e;
       S.status = `Déplacé vers « ${e} »`;
       setProps(row, {Etat: e});
-    }, true)]);
+    }, true),
+    h("div", {class: "row"}, h("button", {class: "btn out red",
+      onclick: () => deleteTask(row)}, "Supprimer"))]);
 }
 
 // ── Agenda ───────────────────────────────────────────────────────────
