@@ -34,8 +34,7 @@ import CONSTANTS  # noqa: E402
 import hub_sync  # noqa: E402
 import meta_ai  # noqa: E402
 from ai_tools import (  # noqa: E402
-    _gemini_generate_image, _gemini_interactions_create,
-    _gemini_refine_image_prompt)
+    _gemini_generate_image, _gemini_refine_image_prompt)
 from PIL import Image  # noqa: E402
 import notion_rest  # noqa: E402
 import rss_feeds  # noqa: E402
@@ -172,7 +171,8 @@ def load_news(max_age=DATA_TTL):
             _NEWS.update(saved)
         except (OSError, ValueError, KeyError):
             pass
-    if _NEWS["items"] is None or time.time() - _NEWS["at"] > max_age:
+    # Liste vide (réseau pas prêt au démarrage du Pi) : on réessaie.
+    if not _NEWS["items"] or time.time() - _NEWS["at"] > max_age:
         _NEWS["items"] = rss_feeds.fetch_all_feeds()
         _NEWS["at"] = time.time()
         try:
@@ -395,12 +395,15 @@ def load_digest():
     if cached.get("date") == today:
         return cached
     items = load_news()[:40]
+    if not items:
+        return {"date": today, "text": ""}
     lines = "\n".join(
         f"- [{it.get('source')}] {it.get('title')} : "
         f"{(it.get('summary') or '')[:300]}" for it in items)
-    text, _ = _gemini_interactions_create(
-        DIGEST_PROMPT.format(items=lines),
-        model=CONSTANTS.AI_IMAGE_REFINER_MODEL)
+    try:  # Claude sur le Pi : Gemini réservé aux images
+        text = hub_sync.ask_claude(DIGEST_PROMPT.format(items=lines))
+    except Exception:
+        text = ""
     data = {"date": today, "text": (text or "").strip()}
     if data["text"]:
         _write_json(DIGEST_CACHE, data)
