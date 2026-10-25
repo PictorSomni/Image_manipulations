@@ -927,8 +927,8 @@ function viewHome() {
     })));
   // Tâches par état (À faire, En cours…) : tap = fiche, pastille = état
   // suivant en un geste.
-  const next = e => ETATS[Math.min(ETATS.findIndex(x => x[0] === e) + 1,
-    ETATS.length - 1)][0];
+  // En cours → Terminé directement (retour user).
+  const next = e => e === "À faire" ? ETATS[1][0] : "Terminé";
   for (const [etat, color] of ETATS.slice(0, 2)) {
     const rows = S.tasks.filter(r => (r.Etat || "À faire") === etat);
     out.push(glass(`${etat} · ${rows.length}`, "Tâches ›", () => {
