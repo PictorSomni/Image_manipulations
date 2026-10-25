@@ -38,6 +38,8 @@ nav { display: flex; background: var(--card);
   padding: 6px 18px calc(14px + env(safe-area-inset-bottom)); }
 nav button { flex: 1; background: none; border: 0; color: var(--grey);
   font-size: 11px; padding: 6px 0; border-radius: var(--r); }
+.ms { font-family: "Material Symbols Rounded"; font-size: 1.2em;
+  line-height: 1; vertical-align: -0.2em; font-weight: normal; }
 nav button span { display: block; font-size: 24px;
   font-family: "Material Symbols Rounded"; line-height: 1; }
 nav button.on { color: var(--blue); background: #45B8F522; }
@@ -184,7 +186,7 @@ input[type=date] { -webkit-appearance: none; appearance: none;
 </head>
 <body>
 <header><h1>Hub</h1>
-  <button class="icon" id="refresh" title="Recharger">⟳</button></header>
+  <button class="icon" id="refresh" title="Recharger"><span class="ms">refresh</span></button></header>
 <main id="main"></main>
 <nav id="nav"></nav>
 <div id="veil"></div>
@@ -252,6 +254,7 @@ const alpha = (hex, a) => hex + Math.round(a * 255).toString(16)
   .padStart(2, "0");
 const fold = s => String(s || "").toLowerCase().normalize("NFD")
   .replace(/[̀-ͯ]/g, "");
+const ic = name => h("span", {class: "ms"}, name);
 const pageId = row => row.url.split("/").pop();
 const tel = s => String(s).replace(/[^\d+]/g, "");
 
@@ -295,7 +298,7 @@ function openSheet(kids, full) {
   sheet.className = full ? "full" : "";
   const grip = h("div", {class: "grip"}, h("div", {class: "handle"}),
     h("button", {class: "close", title: "Fermer", onclick: closeSheet},
-      "✕"));
+      ic("close")));
   sheet.replaceChildren(grip, ...kids);
   sheet.style.translate = "";
   sheet.style.display = veil.style.display = "block";
@@ -382,19 +385,19 @@ function viewTasks() {
       [h("div", {class: "muted"}, "Aucune carte")])];
   }
   const out = [h("div", {class: "row", style: {flexWrap: "nowrap"}},
-    search, h("button", {onclick: newTask, style: {flex: "none"}}, "＋"))];
+    search, h("button", {onclick: newTask, style: {flex: "none"}}, ic("add")))];
   for (const [etat, color] of ETATS) {
     const rows = S.tasks.filter(r => (r.Etat || "À faire") === etat);
     const open = S.open === etat;
     out.push(h("div", {class: "drawer", style: {background:
       alpha(color, .85)}, onclick: () => {
         S.open = open ? null : etat; render(); }},
-      h("b", {}, `${etat}  (${rows.length})`), open ? "▴" : "▾"));
+      h("b", {}, `${etat}  (${rows.length})`), ic(open ? "expand_less" : "expand_more")));
     if (open) out.push(...(rows.length ? rows.map(r => taskCard(r)) :
       [h("div", {class: "muted"}, "Rien ici")]));
   }
   out.push(h("div", {class: "drawer", style: {background:
-    alpha(C.grey, .85)}, onclick: showTrash}, h("b", {}, "🗑 Corbeille")));
+    alpha(C.grey, .85)}, onclick: showTrash}, h("b", {}, ic("delete"), " Corbeille")));
   return out;
 }
 
@@ -411,7 +414,7 @@ function newTask() {
     } catch (e) { S.status = "Erreur : " + e.message; render(); }
   };
   openSheet([h("b", {}, "Nouvelle tâche"), t,
-    h("div", {class: "row"}, h("button", {onclick: ok}, "✓ Créer"))]);
+    h("div", {class: "row"}, h("button", {onclick: ok}, ic("check"), " Créer"))]);
   setTimeout(() => t.focus(), 50);
 }
 
@@ -439,7 +442,7 @@ async function showTrash() {
         t.row.telephone].filter(Boolean).join("  ·  ")),
       t.row.notes ? md(t.row.notes) : null,
       h("div", {class: "row"}, h("button", {class: "btn out",
-        onclick: () => restore(t)}, "↩ Restaurer"))))
+        onclick: () => restore(t)}, ic("restore_from_trash"), " Restaurer"))))
       : [h("div", {class: "muted"}, "Vide")])], true);
 }
 
@@ -478,11 +481,11 @@ function filesBox(row) {
       "Fichiers"), ...names.map(n => h("div", {class: "row",
         style: {alignItems: "center", flexWrap: "nowrap"}},
       h("a", {href: url(n), target: "_blank", style: {flex: 1,
-        color: "inherit", overflowWrap: "anywhere"}}, "📎 " + n),
+        color: "inherit", overflowWrap: "anywhere"}}, ic("attach_file"), " " + n),
       h("button", {class: "icon", onclick: async () => {
-        await api("/api/detach", {id, n}); load(); }}, "✕"))),
+        await api("/api/detach", {id, n}); load(); }}, ic("close")))),
       h("button", {class: "btn out", onclick: () => pick.click()},
-        "＋ Joindre"), pick);
+        ic("attach_file"), " Joindre"), pick);
   };
   pick.onchange = async () => {
     box.firstChild.textContent = "Envoi…";
@@ -497,7 +500,7 @@ function filesBox(row) {
 
 function callBtn(row) {
   return row["Téléphone"] ? h("a", {class: "btn",
-    href: "tel:" + tel(row["Téléphone"])}, "📞 Appeler") : null;
+    href: "tel:" + tel(row["Téléphone"])}, ic("call"), " Appeler") : null;
 }
 
 function taskDetails(row) {
@@ -609,7 +612,7 @@ function viewLists() {
     v => { S.listKind = v; render(); })];
   if (!S.lists) return [...out, h("div", {class: "bar"})];
   const rows = S.lists[name];
-  out.push(h("button", {onclick: () => listEdit(name)}, "＋ Ajouter"));
+  out.push(h("button", {onclick: () => listEdit(name)}, ic("add"), " Ajouter"));
   [...new Set(rows.map(catOf))].forEach((cat, i) => {
     out.push(h("div", {class: "cat", style: {background:
       alpha(LIST_COLORS[i % LIST_COLORS.length], .25)}},
@@ -677,7 +680,7 @@ function listEdit(name, row) {
   openSheet([h("div", {class: "row", style: {flexWrap: "nowrap"}}, cat,
     first), newCat, ...Object.values(fields).slice(1), err,
     h("div", {class: "row"},
-      h("button", {onclick: ok}, "✓ Enregistrer"),
+      h("button", {onclick: ok}, ic("check"), " Enregistrer"),
       h("button", {class: "btn txt", onclick: closeSheet}, "Annuler"),
       row ? h("button", {class: "btn out red", onclick: del},
         "Supprimer") : null)]);
@@ -764,9 +767,9 @@ function viewImage() {
     h("div", {class: "muted", style: {flex: 1}},
       S.source.split("/").pop()),
     h("button", {class: "icon", onclick: () => { S.source = null;
-      render(); }}, "✕")) :
+      render(); }}, ic("close"))) :
     h("div", {}, file, h("button", {class: "btn out",
-      onclick: () => file.click()}, "🖼 Photo source"));
+      onclick: () => file.click()}, ic("attach_file"), " Photo source"));
   const set = k => v => { S[k] = v; render(); };
   const muse = S.model === "muse";
   return [prompt, src,
@@ -781,7 +784,7 @@ function viewImage() {
       checked: S.refine && !muse, disabled: muse,
       onchange: e => { S.refine = e.target.checked; }}), "Affiner"),
     h("button", {style: {width: "100%", height: "48px"}, disabled: S.busy,
-      onclick: generate}, "✦ Générer"),
+      onclick: generate}, ic("auto_awesome"), " Générer"),
     S.busy ? h("div", {class: "bar"}) : null,
     h("div", {class: "muted"}, S.iaStatus),
     h("hr", {style: {borderColor: "#555b68"}}), ...viewGallery()];
@@ -862,7 +865,7 @@ function openImage(it) {
       "Affiné : " + p.refined) : null,
     h("div", {class: "row"},
       h("button", {onclick: () => { S.source = it.path; top(); }},
-        "✦ Modifier avec l'IA"),
+        ic("auto_awesome"), " Modifier avec l'IA"),
       p ? h("button", {class: "btn out", onclick: () => {
         S.prompt = p.asked; top(); }}, "Reprendre la demande") : null,
       h("button", {class: "btn out red", onclick: () => trash([it.path])},
@@ -948,7 +951,7 @@ function viewHome() {
             e.stopPropagation();
             S.status = `« ${r.Demande} » → ${next(etat)}`;
             setProps(r, {Etat: next(etat)});
-          }}, "→ " + next(etat).split(" /")[0]))),
+          }}, ic("arrow_forward"), " " + next(etat).split(" /")[0]))),
       rows.length > 6 ? h("div", {class: "muted",
         style: {marginTop: "6px"}}, `+ ${rows.length - 6} autres`) :
         null));
