@@ -763,8 +763,8 @@ function viewHome() {
   const date =
     `${JOURS[now.getDay()]} ${now.getDate()} ${MOIS[now.getMonth()]}`;
   const out = [h("div", {}, h("div", {class: "hello"},
-    hour < 12 ? "Bonjour !" : hour < 18 ? "Bon après-midi" :
-    "Bonsoir"), h("div", {class: "muted"},
+    hour < 12 ? "Bonjour !" : hour < 18 ? "Bon après-midi !" :
+    "Bonsoir !"), h("div", {class: "muted"},
     date[0].toUpperCase() + date.slice(1)))];
   const w = S.weather;
   if (w) out.push(glass("Météo · Leuze", null, null, h("div",
