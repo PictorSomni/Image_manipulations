@@ -120,6 +120,19 @@ def merge3(base, mine, theirs):
     return result
 
 
+def merge_trash(mine, theirs, live=()):
+    """Corbeille des tâches : union par carte (chaque machine garde les
+    siennes), plus récentes d'abord, sans les cartes revenues dans
+    Notion (`live` = page_id actuels)."""
+    seen, out = set(live), []
+    for t in sorted((mine or []) + (theirs or []),
+                    key=lambda t: t["deleted_at"], reverse=True):
+        if t["row"]["page_id"] not in seen:
+            seen.add(t["row"]["page_id"])
+            out.append(t)
+    return out
+
+
 def sync_put(name, base, mine, tries=4):
     """Envoie `mine` sans écraser ce qu'un autre appareil a écrit depuis
     `base` : relit le Pi, fusionne, écrit avec If-Match ; réessaie si le

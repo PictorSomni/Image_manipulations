@@ -151,11 +151,23 @@ def _save_json(path, data):
     if ok and name and hub_sync.available():
         def _push():
             try:
-                hub_sync.put(name, data)
+                if name == "corbeille":
+                    _push_trash(data)
+                else:
+                    hub_sync.put(name, data)
             except Exception:
                 pass  # Notion reste la source, prochaine écriture rattrape
         threading.Thread(target=_push, daemon=True).start()
     return ok
+
+
+def _push_trash(local):
+    """Corbeille : fusion avec celle du Pi au lieu de l'écraser."""
+    live = [r["page_id"] for r in _load_json(_KANBAN_CACHE_FILE, [])]
+    merged = hub_sync.merge_trash(local, hub_sync.get("corbeille"), live)
+    hub_sync.put("corbeille", merged)
+    if merged != local:
+        CONSTANTS.save_json(_KANBAN_TRASH_FILE, merged)
 
 
 def _hub_sync_pull_all():
@@ -167,6 +179,9 @@ def _hub_sync_pull_all():
         try:
             data = hub_sync.get(name, timeout=3)
         except Exception:
+            return
+        if name == "corbeille":
+            _push_trash(_load_json(path, []))
             return
         if data is None:
             local = _load_json(path, None)

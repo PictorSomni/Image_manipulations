@@ -314,7 +314,6 @@ def _set_props(page_id, props):
 
 # Corbeille des tâches partagée avec Hub (hub_sync « corbeille », même
 # format que Hub._kanban_to_trash, gardée 365 jours).
-# ponytail: lire-modifier-écrire sans verrou, dernier qui écrit gagne.
 _TRASH_PROPS = (("demande", "Demande"), ("etat", "Etat"),
                 ("deadline", "date:Deadline:start"),
                 ("telephone", "Téléphone"), ("email", "E-mail"),
@@ -337,8 +336,7 @@ def delete_task(page_id):
         "%Y-%m-%d %H:%M"), "row": {"page_id": page_id, **{
             k: row.get(w) or "" for k, w in _TRASH_PROPS},
             "notes": _notes(page_id)}}
-    trash = [t for t in load_trash() if t["row"]["page_id"] != page_id]
-    hub_sync.put("corbeille", [entry] + trash)
+    hub_sync.put("corbeille", hub_sync.merge_trash([entry], load_trash()))
     notion_rest._trash({"page_id": page_id})
     _DATA["tasks"] = [r for r in _DATA["tasks"] or []
                       if _page_id(r) != page_id]
