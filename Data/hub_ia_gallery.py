@@ -126,6 +126,8 @@ def build(ui):
             return
         info = ai_prompts.get(os.path.normcase(next(iter(ai_gal_selected))))
         if info:
+            if image_mode["i"] is None:
+                _image_pick(0)  # Générer : champ actif pour la modifier
             ai_input_field.value = info["asked"]
             ai_input_field.update()
             _log_to_terminal(f"↩ Demande : {info['asked']}", BLUE)
@@ -387,7 +389,7 @@ def build(ui):
         "Copier la demande", ft.Icons.CONTENT_COPY, BLUE,
         _ai_gal_copy_prompt)
     ai_prompt_button = _side_btn(
-        "Reprendre", ft.Icons.HISTORY, BLUE,
+        "Reprendre la demande", ft.Icons.HISTORY, BLUE,
         lambda e: _ai_gal_restore_prompt())
     # Affinage de la demande par Gemini avant génération (retour user :
     # désactivable pour envoyer le texte tel quel).
@@ -638,18 +640,18 @@ def build(ui):
         on_change=_on_model_seg)
     ai_model_dropdown.visible = False
 
+    # Réglages sur une 2e ligne (retour user : en demi-écran ils passaient
+    # sous la colonne Texte).
+    image_settings = ft.Container(ft.Row(
+        [ai_image_quality_dropdown, ai_image_size_group, ai_aspect_dropdown,
+         ai_count_dropdown, ai_refine_switch], spacing=8, wrap=True,
+        run_spacing=6), padding=ft.Padding(12, 0, 12, 4),
+        bgcolor=BACKGROUND)
     image_view = _pane(
         _bar(ft.Icon(ft.Icons.IMAGE_OUTLINED, color=BLUE, size=18),
              ft.Text("Image", size=CONSTANTS.TEXT_SM + 3, color=BLUE,
                      weight=ft.FontWeight.W_700),
-             ft.Container(width=8), model_seg,
-             # Réglages défilants : en demi-écran, ils passaient sous la
-             # colonne Texte (retour user).
-             ft.Row([ai_image_quality_dropdown, ai_image_size_group,
-                     ai_aspect_dropdown, ai_count_dropdown,
-                     ai_refine_switch], spacing=8, expand=True,
-                    scroll=ft.ScrollMode.AUTO,
-                    alignment=ft.MainAxisAlignment.END)),
+             ft.Container(width=8), model_seg),
         image_side,
         ft.Column([ai_gallery, ai_attach_row], expand=True, spacing=6),
         ai_progress_bar,
@@ -657,6 +659,7 @@ def build(ui):
                 ai_send_button, ai_stop_button], spacing=4),
         ai_status_text)
 
+    image_view.controls.insert(1, image_settings)
     ia_surface = ft.Row([
         image_view,
         ft.VerticalDivider(width=24, thickness=2, color=GREY),
