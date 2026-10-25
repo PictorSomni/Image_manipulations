@@ -614,6 +614,47 @@ async function loadImages() {
 }
 
 function viewIa() {
+  const kind = seg([["image", "Image"], ["text", "Texte"]],
+    S.iaKind || "image", v => { S.iaKind = v; render(); });
+  return S.iaKind === "text" ? [kind, ...viewText()] :
+    [kind, ...viewImage()];
+}
+
+// Texte : mêmes modes que Hub (Data/hub_sync.CLAUDE_MODES).
+function viewText() {
+  if (!S.modes) { api("/api/claudemodes").then(m => { S.modes = m;
+    render(); }); return [h("div", {class: "bar"})]; }
+  const modes = h("div", {class: "row"}, ...S.modes.map(([label], i) =>
+    h("button", {class: "btn" + (S.mode === i ? "" : " out"),
+      onclick: () => { S.mode = i; render(); }}, label)));
+  const input = h("textarea", {rows: 5, disabled: S.mode == null,
+    placeholder: S.mode == null ? "Choisis un mode" :
+      S.modes[S.mode][1]}, S.claudeText || "");
+  input.oninput = () => { S.claudeText = input.value; };
+  const answer = S.claudeAnswer ? [h("div", {class: "card"},
+    md(S.claudeAnswer)), h("button", {class: "btn out", onclick: () =>
+      navigator.clipboard.writeText(S.claudeAnswer).then(() => {
+        S.iaStatus = "✓ Copié"; render(); })}, "Copier")] : [];
+  return [modes, input,
+    h("button", {style: {width: "100%", height: "48px"},
+      disabled: S.busy || S.mode == null, onclick: askClaude}, "Envoyer"),
+    S.busy ? h("div", {class: "bar"}) : null,
+    h("div", {class: "muted"}, S.iaStatus), ...answer];
+}
+
+async function askClaude() {
+  const text = (S.claudeText || "").trim();
+  if (!text || S.busy) return;
+  S.busy = true; S.claudeAnswer = ""; S.iaStatus = "Claude réfléchit…";
+  render();
+  try {
+    S.claudeAnswer = (await api("/api/claude", {mode: S.mode, text})).text;
+    S.claudeText = ""; S.iaStatus = "";
+  } catch (e) { S.iaStatus = "Erreur : " + e.message; }
+  S.busy = false; render();
+}
+
+function viewImage() {
   const prompt = h("textarea", {rows: 3, placeholder: "Décris l'image…"},
     S.prompt);
   prompt.oninput = () => { S.prompt = prompt.value; };

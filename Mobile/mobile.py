@@ -593,6 +593,8 @@ class Handler(BaseHTTPRequestHandler):
                               headers={"Cache-Control": "max-age=86400"})
         if path == "/api/job":
             return self._json(_JOBS.get(q.get("id"), {"done": True}))
+        if path == "/api/claudemodes":
+            return self._json([[m[0], m[2]] for m in hub_sync.CLAUDE_MODES])
         if path == "/api/digest":
             return self._json(load_digest())
         if path == "/api/weather":
@@ -616,6 +618,10 @@ class Handler(BaseHTTPRequestHandler):
         return self._json({"error": "inconnu"}, 404)
 
     def _post(self, path, data):
+        if path == "/api/claude":
+            mode = hub_sync.CLAUDE_MODES[int(data["mode"])][1]
+            return self._json({"text": hub_sync.ask_claude(
+                hub_sync.claude_prompt(data["text"].strip(), mode))})
         if path == "/api/task":
             _set_props(data["id"], data["props"])
             return self._json({"ok": True})
