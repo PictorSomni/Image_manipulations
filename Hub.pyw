@@ -5189,6 +5189,9 @@ def main(page: ft.Page):
         # côté du prix par taille, pour reporter facilement dans le
         # logiciel de caisse — le décompte global (grand_total) reste
         # affiché en plus, pas à la place).
+        format_totals: dict[str, int] = {}
+        for _p, fmt, n in _order_lines():
+            format_totals[fmt] = format_totals.get(fmt, 0) + n
         format_price_totals: dict[str, float] = {}
         for (path, fmt), price in prices.items():
             format_price_totals[fmt] = round(
@@ -5301,8 +5304,7 @@ def main(page: ft.Page):
             return
         try:
             base = _sync_base(name)
-            merged = (hub_sync.sync_put(name, base, rows) if base is not None
-                      else (hub_sync.put(name, rows) or rows))
+            merged = hub_sync.sync_put(name, base, rows)
             _sync_base(name, merged)
             _sync_dirty(name, False)
             if merged != rows:

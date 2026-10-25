@@ -787,7 +787,11 @@ async function loadHome() {
   const jobs = [api("/api/briefing").then(d => S.briefing = d),
     api("/api/weather").then(d => S.weather = d)];
   if (!S.news) jobs.push(loadNews());
-  if (!S.digest) jobs.push(api("/api/digest").then(d => S.digest = d));
+  // Anecdotes à part : écrites par Claude, elles peuvent prendre du temps.
+  if (!S.digest || S.digest.pending) api("/api/digest").then(d => {
+    S.digest = d; if (S.tab === "home") render();
+    if (d.pending) setTimeout(() => { if (S.tab === "home") loadHome(); },
+      15000); }).catch(() => {});
   await Promise.allSettled(jobs);
   render();
 }

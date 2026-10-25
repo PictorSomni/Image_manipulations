@@ -18,8 +18,9 @@ import io
 import json
 import meta_ai
 import os
-import shutil
 import threading
+import uuid
+import shutil
 
 
 def build(ui):
@@ -94,14 +95,22 @@ def build(ui):
             return {}
     ai_prompts = _ai_prompts_load()
 
+    _prompts_lock = threading.Lock()
+
     def _ai_prompts_save(path, asked, refined):
-        ai_prompts[os.path.normcase(path)] = {"asked": asked,
-                                              "refined": refined}
-        try:
-            with open(_AI_PROMPTS_FILE, "w", encoding="utf-8") as f:
-                json.dump(ai_prompts, f, ensure_ascii=False, indent=1)
-        except OSError:
-            pass
+        # Plusieurs images finissent en même temps, et la webapp écrit
+        # le même fichier : verrou, relecture-fusion, écriture atomique.
+        with _prompts_lock:
+            ai_prompts.update(_ai_prompts_load())
+            ai_prompts[os.path.normcase(path)] = {"asked": asked,
+                                                  "refined": refined}
+            tmp = _AI_PROMPTS_FILE + ".tmp"
+            try:
+                with open(tmp, "w", encoding="utf-8") as f:
+                    json.dump(ai_prompts, f, ensure_ascii=False, indent=1)
+                os.replace(tmp, _AI_PROMPTS_FILE)
+            except OSError:
+                pass
 
     def _ai_prompt_tooltip(path):
         info = ai_prompts.get(os.path.normcase(path))
@@ -276,7 +285,8 @@ def build(ui):
         # plus le dossier ouvert ; « Copier dans le dossier » au besoin.
         dest = _AI_DIR
         os.makedirs(dest, exist_ok=True)
-        stamp = f"{datetime.datetime.now():%Y%m%d_%H%M%S}"
+        stamp = (f"{datetime.datetime.now():%Y%m%d_%H%M%S}_"
+                 f"{uuid.uuid4().hex[:4]}")
         kind = "edited" if src_bytes else "generated"
         pending = {"n": n}
         asked = prompt
@@ -289,16 +299,22 @@ def build(ui):
                                 or "1K", model=model)
             except Exception as exc:
                 text, img = str(exc), None
-            if img:
-                path = os.path.join(dest, f"{kind}_{stamp}_{i + 1}.png")
-                with open(path, "wb") as f:
-                    f.write(img)
-                _ai_prompts_save(path, asked, prompt)
-                _ai_gal_add(path)
-            else:
-                _log_to_terminal(f"[ERREUR] Image {i + 1} : {text}", RED)
-            pending["n"] -= 1
-            if pending["n"] == 0:
+            try:
+                if img:
+                    path = os.path.join(dest, f"{kind}_{stamp}_{i + 1}.png")
+                    with open(path, "wb") as f:
+                        f.write(img)
+                    _ai_prompts_save(path, asked, prompt)
+                    _ai_gal_add(path)
+                else:
+                    _log_to_terminal(f"[ERREUR] Image {i + 1} : {text}",
+                                     RED)
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] Image {i + 1} : {exc}", RED)
+            with _prompts_lock:
+                pending["n"] -= 1
+                last = pending["n"] == 0
+            if last:
                 ai_progress_bar.visible = False
                 ai_status_text.value = ""
                 page.update(ai_progress_bar, ai_status_text)

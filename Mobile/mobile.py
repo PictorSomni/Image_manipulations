@@ -12,6 +12,7 @@ l'ordre des cartes et les listes.
 
 
 import datetime
+import functools
 import hashlib
 import hmac
 import http.cookies
@@ -77,7 +78,6 @@ GALLERY_ROOTS = [IA_DIR,
 BRIEFING = os.path.join(HOME, "briefing.md")  # écrit par Claude le matin
 IMG_EXT = (".png", ".jpg", ".jpeg", ".webp")
 FORMATS = [("1:1", "Carré"), ("2:3", "Portrait"), ("3:2", "Paysage")]
-_thumbs = {}
 
 
 def list_images():
@@ -146,14 +146,17 @@ def load_data(force=False):
     """(tasks, agenda, at) depuis le cache s'il a moins d'une heure."""
     if force or _DATA["tasks"] is None or \
             time.time() - _DATA["at"] > DATA_TTL:
-        tasks = load_tasks()
-        _DATA.update(tasks=tasks, agenda=load_agenda(tasks=tasks),
-                     at=time.time())
         try:
-            with open(DATA_CACHE, "w", encoding="utf-8") as f:
-                json.dump(_DATA, f, ensure_ascii=False)
-        except OSError:
-            pass
+            tasks = load_tasks()
+            agenda = load_agenda(tasks=tasks)
+        except Exception:
+            if _DATA["tasks"] is None:
+                raise
+            # Notion injoignable : dernière version connue (l'heure
+            # affichée dans l'app reste celle de cette version).
+            return _DATA["tasks"], _DATA["agenda"], _DATA["at"]
+        _DATA.update(tasks=tasks, agenda=agenda, at=time.time())
+        _write_json(DATA_CACHE, _DATA)
     return _DATA["tasks"], _DATA["agenda"], _DATA["at"]
 
 
@@ -249,9 +252,11 @@ def _read_json(path, default):
 
 
 def _write_json(path, data):
+    tmp = path + ".tmp"  # écriture atomique (fichiers partagés avec Hub)
     try:
-        with open(path, "w", encoding="utf-8") as f:
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, path)
     except OSError:
         pass
 
@@ -268,15 +273,18 @@ def _in_gallery(path):
 
 
 def thumb_jpeg(path, size):
-    key = (path, os.path.getmtime(path), size)
-    if key not in _thumbs:
-        with Image.open(path) as im:
-            im = im.convert("RGB")
-            im.thumbnail((size, size))
-            buf = io.BytesIO()
-            im.save(buf, "JPEG", quality=82)
-        _thumbs[key] = buf.getvalue()
-    return _thumbs[key]
+    size = max(64, min(1600, int(size)))
+    return _thumb(path, os.path.getmtime(path), size)
+
+
+@functools.lru_cache(maxsize=200)  # mémoire du Pi bornée
+def _thumb(path, _mtime, size):
+    with Image.open(path) as im:
+        im = im.convert("RGB")
+        im.thumbnail((size, size))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=82)
+    return buf.getvalue()
 
 
 # ── Génération IA (tâche de fond, la page interroge /api/job) ─────────
@@ -292,7 +300,8 @@ def _generate(job, text, src, model, aspect, quality, count, refine):
     kind = ("muse_" if muse else "") + ("edited" if src_bytes
                                         else "generated")
     gen = meta_ai.generate_image if muse else _gemini_generate_image
-    stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    stamp = (datetime.datetime.now().strftime("%Y%m%d_%H%M%S_")
+             + uuid.uuid4().hex[:4])
     os.makedirs(IA_DIR, exist_ok=True)
     refined = text
     if refine and not muse:
@@ -391,11 +400,39 @@ DIGEST_PROMPT = (
     "« (PetaPixel) [12] ». Rien d'autre.\n\n{items}")
 
 
+_DIGEST_RUN = {"busy": False, "failed_at": 0.0}
+_DIGEST_LOCK = threading.Lock()
+
+
 def load_digest():
+    """Anecdotes du jour, écrites en tâche de fond (une seule à la fois,
+    nouvel essai 30 min après un échec) : l'accueil n'attend pas."""
     today = datetime.date.today().isoformat()
     cached = _read_json(DIGEST_CACHE, {})
     if cached.get("date") == today:
         return cached
+    with _DIGEST_LOCK:
+        if not _DIGEST_RUN["busy"] and \
+                time.time() - _DIGEST_RUN["failed_at"] > 1800:
+            _DIGEST_RUN["busy"] = True
+            threading.Thread(target=_make_digest, args=(today,),
+                             daemon=True).start()
+        busy = _DIGEST_RUN["busy"]
+    return {"date": today, "text": "", "pending": busy}
+
+
+def _make_digest(today):
+    try:
+        data = _build_digest(today)
+    except Exception:
+        data = {}
+    with _DIGEST_LOCK:
+        _DIGEST_RUN["busy"] = False
+        if not data.get("text"):
+            _DIGEST_RUN["failed_at"] = time.time()
+
+
+def _build_digest(today):
     items = load_news()[:40]
     if not items:
         return {"date": today, "text": ""}
@@ -428,7 +465,10 @@ def load_digest():
 # ── Mot de passe (accès public via Funnel) ────────────────────────────
 PASS_FILE = os.path.join(HOME, ".hub_mobile_pass")
 LOGIN_LOG = os.path.join(HOME, ".hub_mobile_login.log")
-_FAILS = {"n": 0}
+_FAILS = {"n": 0, "at": 0.0}
+# Un essai à la fois : des essais en parallèle attendent leur tour.
+_LOGIN_LOCK = threading.Lock()
+MAX_BODY = 50 * 1024 * 1024  # upload photo
 _AMBIGUOUS = str.maketrans("oli", "011")
 
 
@@ -495,6 +535,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _body(self):
         n = int(self.headers.get("Content-Length") or 0)
+        if n > MAX_BODY:
+            raise ValueError("fichier trop lourd")
         return self.rfile.read(n) if n else b""
 
     def _authed(self):
@@ -548,14 +590,23 @@ class Handler(BaseHTTPRequestHandler):
     def _login(self):
         secret = _secret()
         typed = json.loads(self._body() or b"{}").get("password", "")
-        if secret and _password_ok(typed, secret):
-            _FAILS["n"] = 0
+        with _LOGIN_LOCK:  # anti force brute
+            if time.time() - _FAILS["at"] > 900:  # 15 min calmes
+                _FAILS["n"] = 0
+            if _FAILS["n"]:
+                time.sleep(min(2 * _FAILS["n"], 30))
+            ok = bool(secret) and _password_ok(typed, secret)
+            if ok:
+                _FAILS["n"] = 0
+            else:
+                _FAILS["n"] += 1
+                _FAILS["at"] = time.time()
+        if ok:
             _log("accepté")
+            # ponytail: pas de « Secure », l'accès Tailscale est en http
             cookie = (f"{COOKIE}={_token(secret)}; Max-Age=31536000; "
                       "Path=/; HttpOnly; SameSite=Lax")
             return self._json({"ok": True}, headers={"Set-Cookie": cookie})
-        _FAILS["n"] += 1
-        time.sleep(min(2 * _FAILS["n"], 30))  # anti force brute
         _log(f"refusé ({len(typed)} car.)")
         return self._json({"ok": False}, 403)
 
@@ -613,8 +664,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"items": items[:300],
                                "categories": rss_feeds.CATEGORIES})
         if path == "/api/article":
-            return self._json({"text": rss_feeds.fetch_article_text(
-                q.get("url", ""))})
+            # Seulement les liens des flux : pas de file:// ni de service
+            # interne du Pi.
+            url = q.get("url", "")
+            if url not in {it.get("link") for it in load_news()}:
+                return self._json({"error": "lien inconnu"}, 404)
+            return self._json({"text": rss_feeds.fetch_article_text(url)})
         return self._json({"error": "inconnu"}, 404)
 
     def _post(self, path, data):
@@ -640,6 +695,8 @@ class Handler(BaseHTTPRequestHandler):
             if src and not _in_gallery(src):
                 raise ValueError("source hors galerie")
             job_id = uuid.uuid4().hex
+            for old in [k for k, j in _JOBS.items() if j["done"]][:-20]:
+                _JOBS.pop(old, None)  # garde les 20 derniers terminés
             job = _JOBS[job_id] = {"done": False, "status": "…"}
             threading.Thread(target=_generate, daemon=True, args=(
                 job, data["prompt"].strip(), src, data.get("model"),

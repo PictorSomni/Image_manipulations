@@ -127,6 +127,9 @@ def sync_put(name, base, mine, tries=4):
     (à garder comme nouvelle base)."""
     for _ in range(tries):
         theirs, tag = _get_etag(name)
+        if base is None and theirs is not None:
+            # Pas de base connue : union, rien de l'autre côté n'est perdu.
+            base = [r for r in mine if r in theirs]
         merged = merge3(base, mine, theirs) if theirs is not None else mine
         try:
             put(name, merged, if_match=tag)
