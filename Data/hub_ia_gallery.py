@@ -642,9 +642,14 @@ def build(ui):
         _bar(ft.Icon(ft.Icons.IMAGE_OUTLINED, color=BLUE, size=18),
              ft.Text("Image", size=CONSTANTS.TEXT_SM + 3, color=BLUE,
                      weight=ft.FontWeight.W_700),
-             ft.Container(width=8), model_seg, ft.Container(expand=True),
-             ai_image_quality_dropdown, ai_image_size_group,
-             ai_aspect_dropdown, ai_count_dropdown, ai_refine_switch),
+             ft.Container(width=8), model_seg,
+             # Réglages défilants : en demi-écran, ils passaient sous la
+             # colonne Texte (retour user).
+             ft.Row([ai_image_quality_dropdown, ai_image_size_group,
+                     ai_aspect_dropdown, ai_count_dropdown,
+                     ai_refine_switch], spacing=8, expand=True,
+                    scroll=ft.ScrollMode.AUTO,
+                    alignment=ft.MainAxisAlignment.END)),
         image_side,
         ft.Column([ai_gallery, ai_attach_row], expand=True, spacing=6),
         ai_progress_bar,
