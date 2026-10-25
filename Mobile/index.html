@@ -822,7 +822,10 @@ function viewHome() {
   // Anecdotes du jour tirées des actus
   if (S.digest && S.digest.text) out.push(glass("Le saviez-tu ?",
     "Actus ›", () => tab("news"),
-    h("div", {class: "digest"}, md(S.digest.text))));
+    ...(S.digest.entries && S.digest.entries.length ?
+      S.digest.entries.map(e => h("div", {class: "slot digest",
+        onclick: () => readArticle(e.item)}, md(e.md))) :
+      [h("div", {class: "digest"}, md(S.digest.text))])));
   // Dernières actus
   if (S.news) out.push(glass("Actus", "Toutes ›", () => tab("news"),
     ...S.news.items.slice(0, 3).map(it => h("div", {class: "slot",

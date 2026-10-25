@@ -18,6 +18,7 @@ import http.cookies
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -386,7 +387,8 @@ DIGEST_PROMPT = (
     "français, tutoiement, 2 phrases maximum, sans jargon inutile. "
     "Format Markdown strict : une puce par anecdote, qui commence par un "
     "emoji puis un court titre en gras, et finit par la source entre "
-    "parenthèses. Rien d'autre.\n\n{items}")
+    "parenthèses puis le numéro de l'actu entre crochets, par exemple "
+    "« (PetaPixel) [12] ». Rien d'autre.\n\n{items}")
 
 
 def load_digest():
@@ -398,13 +400,26 @@ def load_digest():
     if not items:
         return {"date": today, "text": ""}
     lines = "\n".join(
-        f"- [{it.get('source')}] {it.get('title')} : "
-        f"{(it.get('summary') or '')[:300]}" for it in items)
+        f"{i}. [{it.get('source')}] {it.get('title')} : "
+        f"{(it.get('summary') or '')[:300]}" for i, it in enumerate(items))
     try:  # Claude sur le Pi : Gemini réservé aux images
         text = hub_sync.ask_claude(DIGEST_PROMPT.format(items=lines))
     except Exception:
         text = ""
-    data = {"date": today, "text": (text or "").strip()}
+    # Une entrée cliquable par anecdote : « [n] » → l'actu d'origine.
+    entries = []
+    for line in (text or "").splitlines():
+        m = re.search(r"\s*\[(\d+)\]\s*$", line)
+        if not line.startswith("- ") or not m or \
+                int(m.group(1)) >= len(items):
+            continue
+        it = items[int(m.group(1))]
+        entries.append({"md": line[2:m.start()], "item": {
+            **{k: it.get(k) for k in ("title", "link", "category",
+                                      "source", "summary", "image")},
+            "date": it["date"].isoformat() if it.get("date") else None}})
+    data = {"date": today, "text": (text or "").strip(),
+            "entries": entries}
     if data["text"]:
         _write_json(DIGEST_CACHE, data)
     return data
