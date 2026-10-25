@@ -763,7 +763,7 @@ function viewHome() {
   const date =
     `${JOURS[now.getDay()]} ${now.getDate()} ${MOIS[now.getMonth()]}`;
   const out = [h("div", {}, h("div", {class: "hello"},
-    hour < 12 ? "Bonjour Charles" : hour < 18 ? "Bon après-midi" :
+    hour < 12 ? "Bonjour" : hour < 18 ? "Bon après-midi" :
     "Bonsoir"), h("div", {class: "muted"},
     date[0].toUpperCase() + date.slice(1)))];
   const w = S.weather;
