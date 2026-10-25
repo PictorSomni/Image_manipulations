@@ -7,6 +7,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Hub">
 <meta name="theme-color" content="#2C3038">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=block">
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/assets/icons/apple-touch-icon-192.png">
 <link rel="icon" href="/assets/favicon.png">
@@ -37,7 +38,8 @@ nav { display: flex; background: var(--card);
   padding: 6px 18px calc(14px + env(safe-area-inset-bottom)); }
 nav button { flex: 1; background: none; border: 0; color: var(--grey);
   font-size: 11px; padding: 6px 0; border-radius: var(--r); }
-nav button span { display: block; font-size: 20px; }
+nav button span { display: block; font-size: 24px;
+  font-family: "Material Symbols Rounded"; line-height: 1; }
 nav button.on { color: var(--blue); background: #45B8F522; }
 button, .btn { font: inherit; border-radius: var(--r); border: 0;
   padding: 10px 14px; background: var(--blue); color: var(--dark);
@@ -210,9 +212,11 @@ const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi",
   "vendredi", "samedi"];
 const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin",
   "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
-const TABS = [["home", "⌂", "Accueil"], ["tasks", "▦", "Tâches"],
-  ["agenda", "▤", "Agenda"], ["lists", "☑", "Listes"], ["ia", "✦", "IA"],
-  ["news", "◉", "Actus"]];
+// Noms Material Symbols (mêmes icônes que Hub).
+const TABS = [["home", "home", "Accueil"],
+  ["tasks", "view_kanban", "Tâches"], ["agenda", "calendar_month", "Agenda"],
+  ["lists", "checklist", "Listes"], ["ia", "auto_awesome", "IA"],
+  ["news", "newspaper", "Actus"]];
 
 const S = {tab: "home", open: "À faire", q: "", tasks: [], agenda: [],
   status: "", lists: null, base: {}, listKind: "liste", lastcat: {},
