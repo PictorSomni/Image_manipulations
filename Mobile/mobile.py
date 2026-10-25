@@ -25,6 +25,7 @@ import sys
 import threading
 import time
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
@@ -220,12 +221,84 @@ assert day_label(datetime.date.today().isoformat()) == "Aujourd'hui"
 
 
 def _notes(page_id):
-    """Contenu Markdown d'une page Notion (notes d'une carte / d'un rdv)."""
+    """Contenu Markdown d'une page Notion (notes d'une carte / d'un rdv) ;
+    Notion injoignable : celui de la sauvegarde du Pi."""
     try:
         text = notion_rest._blocks_to_text(page_id)
     except Exception:
-        text = ""
+        return _backup_notes().get(page_id.replace("-", ""), "")
     return text.replace("<empty-block/>", "").strip()
+
+
+# ── Sauvegarde complète de Notion sur le Pi (propriétés + notes) ──────
+# Toutes les 6 h : backup/latest.json + une copie par jour (30 jours).
+# Les notes ne sont relues que pour les pages modifiées depuis.
+BACKUP_DIR = os.path.join(HOME, "notion_backup")
+BACKUP_LATEST = os.path.join(BACKUP_DIR, "latest.json")
+BACKUP_EVERY = 6 * 3600
+
+
+def _backup_notes():
+    data = _read_json(BACKUP_LATEST, {})
+    return {_page_id(r): r.get("notes") or ""
+            for src in data.get("sources", {}).values()
+            for r in src.get("rows", [])}
+
+
+def backup_notion():
+    old = {}
+    for src in _read_json(BACKUP_LATEST, {}).get("sources", {}).values():
+        for r in src.get("rows", []):
+            old[_page_id(r)] = r
+    sources = {}
+    for name, ds in [("Tâches", KANBAN_DS)] + [(n, d) for n, d, _c in AGENDA]:
+        rows = _query(ds)
+        for r in rows:
+            prev = old.get(_page_id(r))
+            if prev and prev.get("last_edited") == r.get("last_edited") \
+                    and "notes" in prev:
+                r["notes"] = prev["notes"]
+                continue
+            try:
+                r["notes"] = _notes_live(_page_id(r))
+            except Exception:
+                if prev and "notes" in prev:  # garde l'ancienne version
+                    r["notes"] = prev["notes"]
+        sources[name] = {"data_source": ds, "rows": rows}
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    data = {"at": datetime.datetime.now().isoformat(timespec="seconds"),
+            "sources": sources}
+    _write_json(BACKUP_LATEST, data)
+    _write_json(os.path.join(BACKUP_DIR,
+                             f"{datetime.date.today().isoformat()}.json"),
+                data)
+    days = sorted(f for f in os.listdir(BACKUP_DIR)
+                  if re.fullmatch(r"\d{4}-\d{2}-\d{2}\.json", f))
+    for f in days[:-30]:
+        os.remove(os.path.join(BACKUP_DIR, f))
+
+
+def _notes_live(page_id):
+    # Notion : ~3 appels/s max ; 429 → on attend et on réessaie.
+    for wait in (1, 5, 20, 60):
+        time.sleep(0.4)
+        try:
+            return notion_rest._blocks_to_text(page_id).replace(
+                "<empty-block/>", "").strip()
+        except urllib.error.HTTPError as exc:
+            if exc.code != 429:
+                raise
+            time.sleep(wait)
+    raise RuntimeError("Notion : trop de requêtes")
+
+
+def _backup_loop():
+    while True:
+        try:
+            backup_notion()
+        except Exception as exc:
+            print(f"[Sauvegarde Notion] {exc}", flush=True)
+        time.sleep(BACKUP_EVERY)
 
 
 def _set_props(page_id, props):
@@ -717,6 +790,7 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     _load_data_cache()
     threading.Thread(target=load_news, daemon=True).start()
+    threading.Thread(target=_backup_loop, daemon=True).start()
     port = int(os.environ.get("HUB_MOBILE_PORT", 8550))
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
