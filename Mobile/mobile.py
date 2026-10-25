@@ -470,25 +470,31 @@ def _generate(job, text, src, model, aspect, quality, count, refine):
 WEATHER_AT = (50.54635, 4.9063)
 WEATHER_CACHE = os.path.join(HOME, ".hub_mobile_weather.json")
 # Codes WMO → (emoji, libellé)
-WMO = {0: ("☀️", "Ensoleillé"), 1: ("🌤️", "Plutôt ensoleillé"),
-       2: ("⛅", "Partiellement nuageux"), 3: ("☁️", "Couvert"),
-       45: ("🌫️", "Brouillard"), 48: ("🌫️", "Brouillard givrant"),
-       51: ("🌦️", "Bruine"), 53: ("🌦️", "Bruine"), 55: ("🌦️", "Bruine"),
-       61: ("🌧️", "Pluie faible"), 63: ("🌧️", "Pluie"),
-       65: ("🌧️", "Forte pluie"), 66: ("🌧️", "Pluie verglaçante"),
-       67: ("🌧️", "Pluie verglaçante"), 71: ("🌨️", "Neige faible"),
-       73: ("🌨️", "Neige"), 75: ("❄️", "Forte neige"),
-       77: ("🌨️", "Grésil"), 80: ("🌦️", "Averses"),
-       81: ("🌦️", "Averses"), 82: ("⛈️", "Fortes averses"),
-       85: ("🌨️", "Averses de neige"), 86: ("🌨️", "Averses de neige"),
-       95: ("⛈️", "Orage"), 96: ("⛈️", "Orage et grêle"),
-       99: ("⛈️", "Orage et grêle")}
+# Code météo → (icône Material Symbols, libellé).
+WMO = {0: ("sunny", "Ensoleillé"), 1: ("partly_cloudy_day", "Plutôt ensoleillé"),
+       2: ("partly_cloudy_day", "Partiellement nuageux"),
+       3: ("cloud", "Couvert"),
+       45: ("foggy", "Brouillard"), 48: ("foggy", "Brouillard givrant"),
+       51: ("rainy_light", "Bruine"), 53: ("rainy_light", "Bruine"),
+       55: ("rainy_light", "Bruine"), 61: ("rainy", "Pluie faible"),
+       63: ("rainy", "Pluie"), 65: ("rainy_heavy", "Forte pluie"),
+       66: ("weather_mix", "Pluie verglaçante"),
+       67: ("weather_mix", "Pluie verglaçante"),
+       71: ("weather_snowy", "Neige faible"), 73: ("weather_snowy", "Neige"),
+       75: ("ac_unit", "Forte neige"), 77: ("weather_hail", "Grésil"),
+       80: ("rainy", "Averses"), 81: ("rainy", "Averses"),
+       82: ("rainy_heavy", "Fortes averses"),
+       85: ("weather_snowy", "Averses de neige"),
+       86: ("weather_snowy", "Averses de neige"),
+       95: ("thunderstorm", "Orage"), 96: ("thunderstorm", "Orage et grêle"),
+       99: ("thunderstorm", "Orage et grêle")}
 
 
 def load_weather():
     today = datetime.date.today().isoformat()
     cached = _read_json(WEATHER_CACHE, {})
-    if cached.get("date") == today:
+    # Icône ASCII = nom Material (les anciens caches avaient un emoji).
+    if cached.get("date") == today and cached.get("icon", "").isascii():
         return cached
     lat, lon = WEATHER_AT
     url = ("https://api.open-meteo.com/v1/forecast?"
@@ -498,7 +504,7 @@ def load_weather():
            "wind_speed_10m_max")
     with urllib.request.urlopen(url, timeout=10) as r:
         d = json.load(r)["daily"]
-    icon, label = WMO.get(d["weather_code"][0], ("🌡️", ""))
+    icon, label = WMO.get(d["weather_code"][0], ("thermostat", ""))
     data = {"date": today, "icon": icon, "label": label,
             "max": round(d["temperature_2m_max"][0]),
             "min": round(d["temperature_2m_min"][0]),
@@ -530,7 +536,8 @@ def load_digest():
     nouvel essai 30 min après un échec) : l'accueil n'attend pas."""
     today = datetime.date.today().isoformat()
     cached = _read_json(DIGEST_CACHE, {})
-    if cached.get("date") == today:
+    # Icône ASCII = nom Material (les anciens caches avaient un emoji).
+    if cached.get("date") == today and cached.get("icon", "").isascii():
         return cached
     with _DIGEST_LOCK:
         if not _DIGEST_RUN["busy"] and \

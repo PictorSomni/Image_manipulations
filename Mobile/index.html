@@ -893,6 +893,25 @@ function glass(title, link, onLink, ...kids) {
     link ? h("a", {onclick: onLink}, link) : null), ...kids);
 }
 
+// Emojis du briefing (écrit par Claude) → icônes Material, comme le reste.
+const EMOJI_ICONS = {"📧": "mail", "✉": "mail", "✅": "task_alt",
+  "📅": "calendar_month", "🗓": "calendar_month", "⏰": "alarm",
+  "📞": "call", "⚠": "warning", "💡": "lightbulb", "📦": "package_2",
+  "🧾": "receipt_long", "💶": "euro", "📰": "newspaper"};
+const EMOJI_RE = /(\p{Extended_Pictographic})\uFE0F?\s*/gu;
+function deEmoji(el) {
+  const walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walk.nextNode()) nodes.push(walk.currentNode);
+  for (const t of nodes) {
+    if (!/\p{Extended_Pictographic}/u.test(t.data)) continue;
+    const parts = t.data.split(EMOJI_RE);
+    t.replaceWith(...parts.map((p, i) => i % 2 ?
+      (EMOJI_ICONS[p] ? [ic(EMOJI_ICONS[p]), " "] : []) : p).flat());
+  }
+  return el;
+}
+
 function viewHome() {
   const now = new Date();
   const todayIso = localIso(now);
@@ -905,16 +924,18 @@ function viewHome() {
     date[0].toUpperCase() + date.slice(1)))];
   const w = S.weather;
   if (w) out.push(glass("Météo · Leuze", null, null, h("div",
-    {class: "wx"}, h("div", {class: "ico"}, w.icon),
+    {class: "wx"}, h("div", {class: "ico ms"}, w.icon),
     h("div", {style: {flex: 1}}, h("div", {class: "deg"},
       `${w.max}°`, h("span", {class: "muted"}, ` / ${w.min}°`)),
       h("div", {}, w.label)),
     h("div", {class: "muted", style: {textAlign: "right"}},
-      `☔ ${w.rain ?? "–"} %`, h("br"), `💨 ${w.wind} km/h`))));
+      ic("umbrella"), ` ${w.rain ?? "–"} %`, h("br"), ic("air"),
+      ` ${w.wind} km/h`))));
   // Briefing complet
   const b = S.briefing;
   if (b && b.text) out.push(glass(`Briefing · ${dayLabel(localIso(
-    new Date(b.at * 1000)))} ${hm(b.at)}`, null, null, md(b.text)));
+    new Date(b.at * 1000)))} ${hm(b.at)}`, null, null,
+    deEmoji(md(b.text))));
   // Échéances proches
   const limit = localIso(new Date(now.getTime() + 864e5));
   const due = S.tasks.filter(r => r.Etat !== "Terminé" &&
