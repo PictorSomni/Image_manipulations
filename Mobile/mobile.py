@@ -323,6 +323,35 @@ _TRASH_PROPS = (("demande", "Demande"), ("etat", "Etat"),
                 ("cree_le", "Créé le"))
 
 
+_BASE_PROPS = {"Nom", "Date", "Téléphone", "E-mail", "Email"}
+# Mêmes défauts et ordre des états que Hub (hub_agenda).
+AGENDA_DEFAULTS = {"Studio": {"État": "Réservé"},
+                   "Reportage": {"État": "Réservé"},
+                   "Location": {"Etat": "Pas d'accompte"}}
+_ORDER = ["Réservé", "En cours", "Terminé", "Prêt"]
+
+
+@functools.lru_cache(maxsize=1)
+def agenda_schema():
+    """Champs propres à chaque type de rendez-vous (lu une fois)."""
+    out = {}
+    for name, ds, _c in AGENDA:
+        fields = {}
+        for prop, info in notion_rest.schema(ds).items():
+            if prop in _BASE_PROPS or info["type"] not in (
+                    "status", "select", "multi_select", "rich_text",
+                    "number"):
+                continue
+            opts = info["options"]
+            if info["type"] == "status":
+                opts = sorted(opts, key=lambda o: _ORDER.index(o[0])
+                              if o[0] in _ORDER else len(_ORDER))
+            fields[prop] = {"type": info["type"], "options": opts,
+                            "default": AGENDA_DEFAULTS[name].get(prop)}
+        out[name] = fields
+    return out
+
+
 def load_trash():
     limit = (datetime.datetime.now() - datetime.timedelta(days=365)
              ).strftime("%Y-%m-%d %H:%M")
@@ -783,6 +812,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(
                 hub_sync.file_req("GET", q["id"], q["n"]),
                 mimetypes.guess_type(q["n"])[0] or "application/octet-stream")
+        if path == "/api/agendaschema":
+            return self._json(agenda_schema())
         if path == "/api/corbeille":
             return self._json(load_trash())
         if path == "/api/claudemodes":
@@ -842,6 +873,7 @@ class Handler(BaseHTTPRequestHandler):
                      # Locations nomme sa propriété « Email ».
                      ("Email" if data["source"] == "Location" else
                       "E-mail"): data.get("mail", "").strip()}
+            props.update(data.get("extra") or {})
             notion_rest._create({"parent": {"data_source_id": ds},
                                  "pages": [{"properties": {
                                      k: v for k, v in props.items() if v},

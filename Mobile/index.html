@@ -555,12 +555,61 @@ function newEvent() {
     notes: h("textarea", {rows: 4, placeholder: "Notes"})};
   const srcs = [["Studio", "Studio", C.blue],
     ["Reportage", "Reportage", C.violet], ["Location", "Location", C.green]];
+  // Champs propres au type (états, objets…), lus du schéma Notion.
+  const NC = {gray: C.grey, default: C.grey, purple: C.violet,
+    blue: C.blue, green: C.green, red: C.red, yellow: C.yellow,
+    orange: C.orange, brown: C.orange, pink: C.pink};
+  let extra = {};
+  const extraBox = h("div", {});
+  const buildExtra = () => {
+    extra = {};
+    const kids = [];
+    for (const [prop, info] of Object.entries((S.agSchema || {})[src.v]
+        || {})) {
+      kids.push(h("div", {class: "label"}, prop));
+      if (info.type === "multi_select") {
+        const chosen = new Set();
+        extra[prop] = () => [...chosen];
+        const box = h("div", {class: "row", style: {flexWrap: "wrap",
+          gap: "6px"}});
+        const draw = () => box.replaceChildren(...info.options.map(
+          ([n, c]) => h("button", {class: "chip", style: chosen.has(n) ?
+            {background: NC[c] || C.grey, color: "#000"} : null,
+            onclick: () => { chosen.has(n) ? chosen.delete(n) :
+              chosen.add(n); draw(); }}, n)));
+        draw();
+        kids.push(box);
+      } else if (info.options.length) {
+        const cur = {v: info.default || info.options[0][0]};
+        extra[prop] = () => cur.v;
+        const box = h("div", {});
+        const draw = () => box.replaceChildren(seg(info.options.map(
+          ([n, c]) => [n, n, NC[c]]), cur.v, v => { cur.v = v; draw(); },
+          true));
+        draw();
+        kids.push(box);
+      } else {
+        const inp = h("input", {inputmode: info.type === "number" ?
+          "decimal" : null});
+        extra[prop] = () => inp.value.trim();
+        kids.push(inp);
+      }
+    }
+    extraBox.replaceChildren(...kids);
+  };
   const pickSeg = () => seg(srcs, src.v, v => { src.v = v;
-    segBox.replaceChildren(pickSeg()); }, true);
+    segBox.replaceChildren(pickSeg()); buildExtra(); }, true);
   const segBox = h("div", {}, pickSeg());
+  if (S.agSchema) buildExtra();
+  else api("/api/agendaschema").then(d => { S.agSchema = d; buildExtra(); })
+    .catch(() => {});
   const ok = async () => {
     if (!f.nom.value.trim() || !f.date.value) return;
-    const body = {source: src.v};
+    const body = {source: src.v, extra: {}};
+    for (const [k, get] of Object.entries(extra)) {
+      const v = get();
+      if (v && v.length) body.extra[k] = v;
+    }
     for (const [k, el] of Object.entries(f)) body[k] = el.value;
     closeSheet(); S.status = "Création…"; render();
     try { await api("/api/newevent", body); await refresh(); }
@@ -569,7 +618,7 @@ function newEvent() {
   openSheet([h("b", {}, "Nouveau rendez-vous"), segBox, f.nom,
     h("div", {class: "label"}, "Date"), f.date,
     h("div", {class: "label"}, "Heure (vide = journée)"), f.heure,
-    f.tel, f.mail, f.notes,
+    f.tel, f.mail, extraBox, f.notes,
     h("div", {class: "row"}, h("button", {onclick: ok}, ic("check"),
       " Créer"))]);
 }
