@@ -135,14 +135,14 @@ def build(ui):
                 _log_to_terminal(f"✍️ Affinée : {info['refined']}", BLUE)
 
     def _ai_gal_sync_buttons():
-        for b in (ai_retouch_button, ai_reuse_button, ai_delete_button):
+        for b in (ai_retouch_button, ai_delete_button):
             b.disabled = not ai_gal_selected
         ai_copy_folder_button.disabled = not (ai_gal_selected
                                               and state["folder"])
         ai_prompt_button.disabled = ai_copy_prompt_button.disabled = not (
             len(ai_gal_selected) == 1 and os.path.normcase(
                 next(iter(ai_gal_selected))) in ai_prompts)
-        page.update(ai_retouch_button, ai_reuse_button, ai_delete_button,
+        page.update(ai_retouch_button, ai_delete_button,
                     ai_prompt_button, ai_copy_prompt_button,
                     ai_copy_folder_button)
 
@@ -371,8 +371,6 @@ def build(ui):
 
     ai_retouch_button = _side_btn("Retouche photo", ft.Icons.TUNE, YELLOW,
                                   _ai_open_retouch)
-    ai_reuse_button = _side_btn("Réutiliser", ft.Icons.SMART_TOY_OUTLINED,
-                                VIOLET, _ai_gal_reuse)
     ai_copy_folder_button = _side_btn(
         "Copier au dossier", ft.Icons.DRIVE_FILE_MOVE_OUTLINE, GREEN,
         _ai_gal_copy)
@@ -587,7 +585,7 @@ def build(ui):
         [*image_mode_buttons,
          ft.Container(ft.Divider(height=1, color=GREY), width=190,
                       padding=ft.Padding(0, 6, 0, 6)),
-         ai_retouch_button, ai_reuse_button, ai_copy_folder_button,
+         ai_retouch_button, ai_copy_folder_button,
          ai_prompt_button, ai_copy_prompt_button, ai_delete_button],
         spacing=6, scroll=ft.ScrollMode.AUTO)
 
