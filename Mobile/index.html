@@ -545,14 +545,24 @@ function taskDetails(row) {
 }
 
 // ── Agenda ───────────────────────────────────────────────────────────
-function newEvent() {
-  const src = {v: "Studio"};
-  const f = {nom: h("input", {placeholder: "Nom"}),
-    date: h("input", {type: "date", value: localIso(new Date())}),
-    heure: h("input", {type: "time"}),
-    tel: h("input", {type: "tel", placeholder: "Téléphone"}),
-    mail: h("input", {type: "email", placeholder: "E-mail"}),
-    notes: h("textarea", {rows: 4, placeholder: "Notes"})};
+// Création (ev absent) ou modification d'un rendez-vous.
+function newEvent(ev) {
+  const [start, source, , row] = ev || ["", "Studio", null, {}];
+  const src = {v: source};
+  const f = {nom: h("input", {placeholder: "Nom", value: row.Nom || ""}),
+    date: h("input", {type: "date",
+      value: start.slice(0, 10) || localIso(new Date())}),
+    heure: h("input", {type: "time", value: start.slice(11, 16)}),
+    tel: h("input", {type: "tel", placeholder: "Téléphone",
+      value: row["Téléphone"] || ""}),
+    mail: h("input", {type: "email", placeholder: "E-mail",
+      value: row["E-mail"] || row.Email || ""}),
+    notes: h("textarea", {rows: 4, placeholder: "Notes",
+      disabled: !!ev}, ev ? "Chargement des notes…" : "")};
+  let notesOrig = "";
+  if (ev) api("/api/notes?id=" + pageId(row)).then(d => {
+    f.notes.value = notesOrig = d.text || ""; f.notes.disabled = false;
+  }).catch(() => { f.notes.value = ""; });
   const srcs = [["Studio", "Studio", C.blue],
     ["Reportage", "Reportage", C.violet], ["Location", "Location", C.green]];
   // Champs propres au type (états, objets…), lus du schéma Notion.
@@ -568,7 +578,7 @@ function newEvent() {
         || {})) {
       kids.push(h("div", {class: "label"}, prop));
       if (info.type === "multi_select") {
-        const chosen = new Set();
+        const chosen = new Set(Array.isArray(row[prop]) ? row[prop] : []);
         extra[prop] = () => [...chosen];
         const box = h("div", {class: "row", style: {flexWrap: "wrap",
           gap: "6px"}});
@@ -580,7 +590,7 @@ function newEvent() {
         draw();
         kids.push(box);
       } else if (info.options.length) {
-        const cur = {v: info.default || info.options[0][0]};
+        const cur = {v: row[prop] || info.default || info.options[0][0]};
         extra[prop] = () => cur.v;
         const box = h("div", {});
         const draw = () => box.replaceChildren(seg(info.options.map(
@@ -590,37 +600,47 @@ function newEvent() {
         kids.push(box);
       } else {
         const inp = h("input", {inputmode: info.type === "number" ?
-          "decimal" : null});
+          "decimal" : null, value: row[prop] ?? ""});
         extra[prop] = () => inp.value.trim();
         kids.push(inp);
       }
     }
     extraBox.replaceChildren(...kids);
   };
-  const pickSeg = () => seg(srcs, src.v, v => { src.v = v;
-    segBox.replaceChildren(pickSeg()); buildExtra(); }, true);
+  const pickSeg = () => seg(srcs, src.v, v => { if (ev) return;
+    src.v = v; segBox.replaceChildren(pickSeg()); buildExtra(); }, true);
   const segBox = h("div", {}, pickSeg());
   if (S.agSchema) buildExtra();
   else api("/api/agendaschema").then(d => { S.agSchema = d; buildExtra(); })
     .catch(() => {});
   const ok = async () => {
     if (!f.nom.value.trim() || !f.date.value) return;
-    const body = {source: src.v, extra: {}};
+    const body = {source: src.v, extra: {}, id: ev ? pageId(row) : null};
     for (const [k, get] of Object.entries(extra)) {
       const v = get();
-      if (v && v.length) body.extra[k] = v;
+      if (ev || (v && v.length)) body.extra[k] = v;
     }
     for (const [k, el] of Object.entries(f)) body[k] = el.value;
-    closeSheet(); S.status = "Création…"; render();
+    if (ev && (f.notes.disabled || body.notes === notesOrig))
+      delete body.notes;  // notes inchangées : on n'y touche pas
+    closeSheet(); S.status = "Enregistrement…"; render();
     try { await api("/api/newevent", body); await refresh(); }
     catch (e) { S.status = "Erreur : " + e.message; render(); }
   };
-  openSheet([h("b", {}, "Nouveau rendez-vous"), segBox, f.nom,
+  const del = async () => {
+    closeSheet(); S.agenda = S.agenda.filter(e => e !== ev); render();
+    try { await api("/api/delevent", {id: pageId(row)}); }
+    catch (e) { S.status = "Erreur : " + e.message; refresh(); }
+  };
+  openSheet([h("b", {}, ev ? "Rendez-vous" : "Nouveau rendez-vous"),
+    segBox, f.nom,
     h("div", {class: "label"}, "Date"), f.date,
     h("div", {class: "label"}, "Heure (vide = journée)"), f.heure,
     f.tel, f.mail, extraBox, f.notes,
     h("div", {class: "row"}, h("button", {onclick: ok}, ic("check"),
-      " Créer"))]);
+      ev ? " Enregistrer" : " Créer"), ev ? callBtn(row) : null,
+      ev ? h("button", {class: "btn out red", onclick: del}, ic("delete"),
+        " Supprimer") : null)]);
 }
 
 function viewAgenda() {
@@ -636,7 +656,7 @@ function viewAgenda() {
     const bits = [source, row.Objets && row.Objets.join(", "),
       row["État"] || row.Etat, row["Téléphone"]].filter(Boolean);
     out.push(h("div", {class: "event", onclick: () => source === "Tâche" ?
-      taskDetails(row) : eventDetails(start, source, color, row)},
+      taskDetails(row) : newEvent([start, source, color, row])},
       h("i", {style: {background: color}}),
       h("div", {}, h("div", {style: {fontSize: "16px"}},
         `${hour}  ${title}`.trim()),
@@ -644,20 +664,6 @@ function viewAgenda() {
   }
   return out.length ? out :
     [h("div", {class: "muted"}, "Rien les 60 prochains jours")];
-}
-
-function eventDetails(start, source, color, row) {
-  const info = [["État", "État"], ["État", "Etat"], ["Objets", "Objets"],
-    ["Téléphone", "Téléphone"], ["E-mail", "Email"]]
-    .filter(([, k]) => row[k] != null && row[k] !== "" &&
-      !(Array.isArray(row[k]) && !row[k].length))
-    .map(([l, k]) => h("div", {}, `${l} : ` +
-      (Array.isArray(row[k]) ? row[k].join(", ") : row[k])));
-  openSheet([h("h2", {}, row.Nom || "—"),
-    h("div", {class: "muted"}, source),
-    h("div", {style: {color}}, dayLabel(start) + " " +
-      (start.length > 10 ? start.slice(11, 16) : "")),
-    ...info, notesBox(row, true), h("div", {class: "row"}, callBtn(row))]);
 }
 
 // ── Listes (mêmes données que Hub, fusion côté Pi) ───────────────────

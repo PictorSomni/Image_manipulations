@@ -874,10 +874,25 @@ class Handler(BaseHTTPRequestHandler):
                      ("Email" if data["source"] == "Location" else
                       "E-mail"): data.get("mail", "").strip()}
             props.update(data.get("extra") or {})
-            notion_rest._create({"parent": {"data_source_id": ds},
-                                 "pages": [{"properties": {
-                                     k: v for k, v in props.items() if v},
-                                     "content": data.get("notes", "").strip()}]})
+            if data.get("id"):  # modification : champs vidés compris
+                notion_rest._update({"page_id": data["id"],
+                                     "command": "update_properties",
+                                     "properties": props})
+                if "notes" in data:
+                    notion_rest._update({"page_id": data["id"],
+                                         "command": "replace_content",
+                                         "new_str": data["notes"].strip()})
+            else:
+                notion_rest._create({"parent": {"data_source_id": ds},
+                                     "pages": [{"properties": {
+                                         k: v for k, v in props.items()
+                                         if v},
+                                         "content": data.get(
+                                             "notes", "").strip()}]})
+            load_data(force=True)
+            return self._json({"ok": True})
+        if path == "/api/delevent":
+            notion_rest._trash({"page_id": data["id"]})
             load_data(force=True)
             return self._json({"ok": True})
         if path == "/api/detach":
