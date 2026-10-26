@@ -154,7 +154,7 @@ async function send() {
   let t = $("msg").value.trim();
   if (!t && !attached.length) return;
   if (attached.length) {
-    t = attached.map(p => `"${p}"`).join(" ") + (t ? "\n" + t : "");
+    t = attached.map(p => `"${p}"`).join(" ") + (t ? " " + t : "");
     attached = [];
   }
   $("msg").value = ""; grow();
