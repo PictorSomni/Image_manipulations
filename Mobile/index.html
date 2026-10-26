@@ -482,7 +482,7 @@ function replyMail(m) {
 function notifyClient(row) {
   const phone = row["Téléphone"], mail = row["E-mail"];
   if (!phone && !mail) return;
-  const prix = Number(row.Prix) ? " Cela fera " + Number(row.Prix)
+  const prix = Number(row.Prix) ? "\nCela fera " + Number(row.Prix)
     .toLocaleString("fr-BE", {maximumFractionDigits: 2}) + " €." : "";
   const text = tu => (tu ? "Bonjour,\n\nTa commande est prête, tu peux " +
     "venir la chercher au magasin." : "Bonjour,\n\nVotre commande est " +
