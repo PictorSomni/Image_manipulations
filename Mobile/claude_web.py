@@ -82,6 +82,11 @@ def _events(path, pos):
             m = json.loads(line).get("message") or {}
         except ValueError:
             continue
+        u = m.get("usage")
+        if u:  # taille du contexte au dernier appel du modèle
+            out.append({"k": "ctx", "n": u.get("input_tokens", 0)
+                        + u.get("cache_read_input_tokens", 0)
+                        + u.get("cache_creation_input_tokens", 0)})
         if m.get("role") == "user" and isinstance(m.get("content"), str):
             out.append({"k": "user", "t": m["content"]})
         if m.get("role") != "assistant":
@@ -193,8 +198,11 @@ class Handler(BaseHTTPRequestHandler):
                 # Premier appel (ou nouvelle conversation) : les derniers
                 # échanges (ligne coupée au début : ignorée par _events).
                 ev, pos = _events(jl, max(0, os.path.getsize(jl) - 400_000))
+                ctx = [e for e in ev if e["k"] == "ctx"][-1:]
                 return self._send(200, {"f": os.path.basename(jl),
-                                        "pos": pos, "ev": ev[-80:]})
+                                        "pos": pos,
+                                        "ev": ctx + [e for e in ev if
+                                                     e["k"] != "ctx"][-80:]})
             ev, pos = _events(jl, int(q["pos"]))
             return self._send(200, {"f": q["f"], "pos": pos, "ev": ev})
         if path == "/job":
