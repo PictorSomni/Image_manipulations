@@ -24,6 +24,11 @@ import urllib.parse
 import urllib.request
 
 URL = "https://pictorsomni.taild63b02.ts.net:8443/hub/"
+try:  # Pi en panne : adresse du secours (Pi/secours.sh)
+    with open(os.path.expanduser("~/.hub_sync_url"), encoding="utf-8") as _f:
+        URL = _f.read().strip() or URL
+except OSError:
+    pass
 _KEY_FILE = os.path.expanduser("~/.hub_sync")
 
 
