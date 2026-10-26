@@ -97,7 +97,7 @@ def send(to, subject, text, reply_to=None):
     msg.add_alternative(
         '<div style="font-family:sans-serif">'
         + html.escape(body).replace("\n", "<br>")
-        + '<br><br><img src="cid:logo" width="220" alt="Studio C"></div>',
+        + '<br><br><img src="cid:logo" width="200" alt="Studio C"></div>',
         subtype="html")
     with open(LOGO, "rb") as f:
         msg.get_payload()[1].add_related(f.read(), "image", "png",
