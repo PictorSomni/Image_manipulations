@@ -179,7 +179,7 @@ def build(ui):
 
         def _text(tu):
             p = row.get("prix")
-            prix = (f"\n\nMontant : {p:g} €".replace(".", ",")
+            prix = (" Cela fera " + f"{p:g}".replace(".", ",") + " €."
                     if isinstance(p, (int, float)) and p else "")
             return (READY_TU if tu else READY).format(prix=prix)
         text = _field(value=_text(False), multiline=True, min_lines=10,
