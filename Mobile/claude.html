@@ -70,6 +70,7 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
   <button onclick="key('non')"><span class="ms">close</span> Non</button>
   <button onclick="key('stop')"><span class="ms">stop</span> Stop</button>
   <button onclick="grill()"><span class="ms">lightbulb</span> Brainstorming</button>
+  <button id="tts" onclick="toggleTts()"><span class="ms">volume_off</span> Lecture</button>
   <button onclick="screen()"><span class="ms">terminal</span> Écran</button>
   <button onclick="act('bilan', 'Bilan du Pi')"><span class="ms">monitor_heart</span> Bilan</button>
   <button onclick="act('maj_pi', 'Mettre à jour le Pi')"><span class="ms">system_update</span> MAJ Pi</button>
@@ -138,10 +139,11 @@ async function poll() {
     const d = await call(`/poll?f=${encodeURIComponent(f)}` +
       (pos === null ? "" : `&pos=${pos}`));
     if (d.f !== f && f) add("think", "— nouvelle conversation —");
+    const live = pos !== null;  // pas de lecture de l'historique
     f = d.f; pos = d.pos;
     for (const e of d.ev) {
       if (e.k === "user") add("user", e.t);
-      else if (e.k === "text") add("text", e.t);
+      else if (e.k === "text") { add("text", e.t); if (live) say(e.t); }
       else if (e.k === "think") add("think", e.t);
       else if (e.k === "tool") add("tool", e.t);
       else if (e.k === "ctx") ctx(e.n);
@@ -221,6 +223,35 @@ async function compact() {
 function grill() {
   $("msg").value = "/grill-me " + $("msg").value; grow(); $("msg").focus();
 }
+
+// Lecture à voix haute des réponses (synthèse vocale du navigateur).
+// La dictée, elle, passe par le micro du clavier iOS.
+let tts = false;
+try { tts = localStorage.getItem("tts") === "1"; } catch (e) {}
+function say(t) {
+  if (!tts) return;
+  const u = new SpeechSynthesisUtterance(t.replace(/[*`#_>|]/g, ""));
+  u.lang = "fr-FR";
+  speechSynthesis.speak(u);
+}
+function drawTts() {
+  $("tts").innerHTML = `<span class="ms">${tts ? "volume_up" :
+    "volume_off"}</span> Lecture`;
+  $("tts").classList.toggle("go", tts);
+}
+function toggleTts() {
+  tts = !tts;
+  try { localStorage.setItem("tts", tts ? "1" : "0"); } catch (e) {}
+  speechSynthesis.cancel();
+  if (tts) say("Lecture activée");  // iOS : 1er son lancé par un geste
+  drawTts();
+}
+drawTts();
+log.addEventListener("click", e => {  // toucher une réponse = la relire
+  const m = e.target.closest(".text");
+  if (m) { speechSynthesis.cancel(); const t = tts; tts = true;
+    say(m.textContent); tts = t; }
+});
 
 function grow() {
   const m = $("msg");
