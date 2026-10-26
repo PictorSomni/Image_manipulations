@@ -21,7 +21,7 @@ MAILS = os.path.join(HOME, "briefing_mails.json")
 ADDRESS = "info@studiocleuze.be"
 HOST = "ex2.mail.ovh.net"
 # Ajouté sous chaque mail envoyé (réponses et « commande prête »).
-FOOTER = ("\n\n--\nStudio Cleuze · 081 51 17 57 · www.studiocleuze.be\n"
+FOOTER = ("\n\n--\nStudio C · Leuze · 081 51 17 57 · www.studiocleuze.be\n"
           "Ouvert de 9h30 à 12h15 et de 13h30 à 18h00\n"
           "Fermé le mardi, le dimanche et les jours fériés")
 
@@ -54,9 +54,9 @@ def _mail(mid):
 
 def draft(mid, tu, tone, hint):
     m = _mail(mid)
-    rule = (f"Rédige la réponse du Studio Cleuze (studio photo, tirages, "
+    rule = (f"Rédige la réponse du Studio C, magasin photo à Leuze (studio, tirages, "
             f"encadrement) à ce mail. {'Tutoie' if tu else 'Vouvoie'} la "
-            f"personne, ton {tone}. Signe « Studio Cleuze ». "
+            f"personne, ton {tone}. Signe « Studio C ». "
             + (f"Consignes de Charles : {hint}. " if hint else "")
             + "Rends uniquement le corps du mail.")
     return hub_sync.ask_claude(hub_sync.claude_prompt(
@@ -83,7 +83,7 @@ def send(to, subject, text, reply_to=None):
     if not re.fullmatch(r"[^@\s<>,]+@[^@\s<>,]+\.[^@\s<>,]+", to or ""):
         raise ValueError(f"adresse invalide : {to}")
     msg = EmailMessage()
-    msg["From"] = f"Studio Cleuze <{ADDRESS}>"
+    msg["From"] = f"Studio C <{ADDRESS}>"
     msg["To"] = to
     msg["Subject"] = subject
     if reply_to:
