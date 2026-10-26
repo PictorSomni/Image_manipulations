@@ -66,6 +66,21 @@ def file_req(method, page_id, name=None, body=None, timeout=60):
         return resp.read()
 
 
+def tasks_call(tool, args, timeout=30):
+    """Tâches stockées sur le Pi (Notion n'en est plus qu'un miroir) :
+    même contrat que notion_rest.call_tool, toujours une chaîne."""
+    try:
+        req = urllib.request.Request(
+            URL + "tasks", method="POST",
+            data=json.dumps({"tool": tool, "args": args}).encode(),
+            headers={"X-Hub-Key": _key(),
+                     "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.read().decode("utf-8")
+    except Exception as exc:
+        return f"Erreur : Pi injoignable ({exc})"
+
+
 def list_files(page_id):
     return json.loads(file_req("GET", page_id, timeout=5))
 

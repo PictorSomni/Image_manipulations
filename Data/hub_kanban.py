@@ -68,7 +68,10 @@ def build(ui):
     # ═════════════════════════════════════════════════════════════════════
     # Clé API Notion (~/.notion_token) si présente : marche quel que soit
     # le compte Notion de la machine (cf. Data/notion_rest.py) ; sinon MCP.
-    _notion_call = (notion_rest.call_tool if notion_rest.TOKEN
+    # Depuis 2.10.188 : tâches stockées sur le Pi (hub-sync), Notion
+    # n'est plus qu'un miroir mis à jour par le Pi.
+    _notion_call = (hub_sync.tasks_call if hub_sync.available()
+                    else notion_rest.call_tool if notion_rest.TOKEN
                     else mcp_client.mcp_call_tool)
     kanban_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY)
     kanban_columns = {etat: ft.ListView(expand=True, spacing=8,
@@ -913,7 +916,7 @@ def build(ui):
     # Voile par-dessus le tableau pendant une synchro Notion (retour
     # user) : bloque le glisser-déposer et les clics, message clair.
     kanban_sync_veil = ui_helpers.busy_veil(
-        "Synchronisation avec Notion…", SURFACE_ACCENT["kanban"])
+        "Synchronisation…", SURFACE_ACCENT["kanban"])
     # Même voile dans l'Agenda pendant une synchro Notion (retour user).
     agenda_sync_veil = ui_helpers.busy_veil(
         "Synchronisation avec Notion…", SURFACE_ACCENT["agenda"])
@@ -1344,7 +1347,7 @@ def build(ui):
                 ft.IconButton(ft.Icons.REFRESH, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["kanban"],
                              icon_size=CONSTANTS.ICON_SM,
-                             tooltip="Actualiser depuis Notion",
+                             tooltip="Actualiser",
                              on_click=_kanban_refresh),
             ], spacing=8),
             height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),

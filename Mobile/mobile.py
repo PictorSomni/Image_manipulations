@@ -6,8 +6,8 @@ Funnel : https://pictorsomni.taild63b02.ts.net).
 
 Serveur Python stdlib, aucune dépendance web : la page (index.html) fait
 tout le rendu, ce fichier ne sert que les données. Mêmes sources que Hub :
-Notion (Data/notion_rest.py) pour les cartes et l'agenda, hub_sync pour
-l'ordre des cartes et les listes.
+le Pi (hub_sync, Notion en miroir) pour les cartes, leur ordre et les
+listes ; Notion (Data/notion_rest.py) pour l'agenda.
 """
 
 
@@ -108,6 +108,14 @@ def _query(ds):
         {"data": {"data_source_url": f"collection://{ds}"}})["results"]
 
 
+def _tasks(tool, args):
+    """Tâches stockées sur le Pi (hub-sync) ; Notion n'est qu'un miroir."""
+    out = hub_sync.tasks_call(tool, args)
+    if out.startswith("Erreur"):
+        raise RuntimeError(out)
+    return json.loads(out)
+
+
 def _page_id(row):
     return row["url"].rsplit("/", 1)[-1]
 
@@ -115,7 +123,7 @@ def _page_id(row):
 def load_tasks():
     """Cartes dans l'ordre manuel de Hub ; jamais placées = en haut, les
     plus récentes d'abord (même règle que Hub._kanban_ordered)."""
-    rows = _query(KANBAN_DS)
+    rows = _tasks("notion-query-data-sources", {})["results"]
     try:
         order = hub_sync.get("kanban_ordre", timeout=5) or []
     except Exception:
@@ -225,6 +233,12 @@ def _notes(page_id):
     """Contenu Markdown d'une page Notion (notes d'une carte / d'un rdv) ;
     Notion injoignable : celui de la sauvegarde du Pi."""
     try:
+        text = _tasks("notion-fetch", {"id": page_id})["text"]
+        return text.split("<content>\n", 1)[1].rsplit(
+            "\n</content>", 1)[0].replace("<empty-block/>", "").strip()
+    except Exception:  # pas une tâche : rendez-vous de l'agenda
+        pass
+    try:
         text = notion_rest._blocks_to_text(page_id)
     except Exception:
         return _backup_notes().get(page_id.replace("-", ""), "")
@@ -306,8 +320,9 @@ def _set_props(page_id, props):
     # Clés aplaties de la lecture (« date:Deadline:start ») → propriété.
     notion = {k.split(":")[1] if k.startswith("date:") else k: v
               for k, v in props.items()}
-    notion_rest._update({"page_id": page_id, "command": "update_properties",
-                         "properties": notion})
+    _tasks("notion-update-page", {"page_id": page_id,
+                                  "command": "update_properties",
+                                  "properties": notion})
     for row in _DATA["tasks"] or []:
         if _page_id(row) == page_id:
             row.update(props)
@@ -367,7 +382,7 @@ def delete_task(page_id):
             k: row.get(w) or "" for k, w in _TRASH_PROPS},
             "notes": _notes(page_id)}}
     hub_sync.put("corbeille", hub_sync.merge_trash([entry], load_trash()))
-    notion_rest._trash({"page_id": page_id})
+    _tasks("notion-trash-page", {"page_id": page_id})
     _DATA["tasks"] = [r for r in _DATA["tasks"] or []
                       if _page_id(r) != page_id]
 
@@ -377,13 +392,12 @@ def restore_task(page_id):
     trash = load_trash()
     entry = next(t for t in trash if t["row"]["page_id"] == page_id)
     try:
-        notion_rest._restore({"page_id": page_id})
+        _tasks("notion-restore-page", {"page_id": page_id})
     except Exception:
         row = entry["row"]
         props = {w.split(":")[1] if w.startswith("date:") else w: row[k]
                  for k, w in _TRASH_PROPS[:-1] if row.get(k)}
-        notion_rest._create({"parent": {"data_source_id": KANBAN_DS},
-                             "pages": [{"properties": props,
+        _tasks("notion-create-pages", {"pages": [{"properties": props,
                                         "content": row.get("notes")}]})
     hub_sync.put("corbeille", [t for t in trash if t is not entry])
     load_data(force=True)
@@ -853,14 +867,11 @@ class Handler(BaseHTTPRequestHandler):
             _set_props(data["id"], data["props"])
             return self._json({"ok": True})
         if path == "/api/newtask":
-            page = notion_rest._req("POST", "/pages", {
-                "parent": {"type": "data_source_id",
-                           "data_source_id": KANBAN_DS},
-                "properties": notion_rest._props_for(KANBAN_DS, {
-                    "Demande": data["demande"].strip(),
-                    "Etat": "À faire"})})
+            pid = _tasks("notion-create-pages", {"pages": [{"properties": {
+                "Demande": data["demande"].strip(),
+                "Etat": "À faire"}}]})["ids"][0]
             load_data(force=True)
-            return self._json({"id": page["id"].replace("-", "")})
+            return self._json({"id": pid})
         if path == "/api/newevent":
             ds = dict((n, d) for n, d, _c in AGENDA)[data["source"]]
             start = data["date"]
