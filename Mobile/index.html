@@ -413,9 +413,42 @@ function newTask() {
       if (row) { S.open = "À faire"; render(); taskDetails(row); }
     } catch (e) { S.status = "Erreur : " + e.message; render(); }
   };
+  const pick = h("input", {type: "file", accept: "image/*",
+    style: {display: "none"}});
+  pick.onchange = async () => {
+    if (!pick.files[0]) return;
+    closeSheet(); S.status = "Lecture du bon…"; render();
+    try {
+      const d = await api("/api/slip", pick.files[0]);
+      await refresh();
+      const row = S.tasks.find(r => pageId(r).replace(/-/g, "") === d.id);
+      S.status = "Bon lu"; S.open = "À faire"; render();
+      if (row) taskDetails(row);
+    } catch (e) { S.status = "Erreur : " + e.message; render(); }
+  };
   openSheet([h("b", {}, "Nouvelle tâche"), t,
-    h("div", {class: "row"}, h("button", {onclick: ok}, ic("check"), " Créer"))]);
+    h("div", {class: "row"}, h("button", {onclick: ok}, ic("check"), " Créer"),
+      h("button", {class: "btn out", onclick: () => pick.click()},
+        ic("photo_camera"), " Photo du bon")), pick]);
   setTimeout(() => t.focus(), 50);
+}
+
+// Client prévenu par SMS ou mail, texte prêt et modifiable.
+function notifyClient(row) {
+  const phone = row["Téléphone"], mail = row["E-mail"];
+  if (!phone && !mail) return;
+  const what = (row.Demande || "").split(":").slice(1).join(":").trim();
+  const t = h("textarea", {rows: 4}, "Bonjour, votre commande" +
+    (what ? ` (${what})` : "") + " est prête au Studio Cleuze. " +
+    "À bientôt !");
+  const go = (href) => { location.href = href + encodeURIComponent(
+    t.value); closeSheet(); };
+  openSheet([h("b", {}, "Prévenir le client"), t, h("div", {class: "row"},
+    phone ? h("button", {onclick: () => go(`sms:${tel(phone)}&body=`)},
+      ic("sms"), " SMS") : null,
+    mail ? h("button", {onclick: () => go(`mailto:${mail}?subject=` +
+      encodeURIComponent("Votre commande est prête") + "&body=")},
+      ic("mail"), " Mail") : null)]);
 }
 
 async function deleteTask(row) {
@@ -548,6 +581,7 @@ function taskDetails(row) {
       closeSheet(); S.open = e;
       S.status = `Déplacé vers « ${e} »`;
       setProps(row, {Etat: e});
+      if (e === "Terminé") notifyClient(row);
     }, true),
     h("div", {class: "row"}, h("button", {class: "btn out red",
       onclick: () => deleteTask(row)}, "Supprimer"))]);
@@ -1070,6 +1104,7 @@ function viewHome() {
             e.stopPropagation();
             S.status = `« ${r.Demande} » → ${next(etat)}`;
             setProps(r, {Etat: next(etat)});
+            if (next(etat) === "Terminé") notifyClient(r);
           }}, ic("arrow_forward"), " " + next(etat).split(" /")[0]))),
       rows.length > 6 ? h("div", {class: "muted",
         style: {marginTop: "6px"}}, `+ ${rows.length - 6} autres`) :
