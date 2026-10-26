@@ -81,6 +81,24 @@ def tasks_call(tool, args, timeout=30):
         return f"Erreur : Pi injoignable ({exc})"
 
 
+def pi_problems():
+    """Problèmes du Pi d'après son bilan horaire (Pi/check_pi.py), plus
+    « bilan trop vieux » si la vérification ne tourne plus. [] = tout va."""
+    import datetime
+    try:
+        data = get("etat_pi", timeout=5) or {}
+    except Exception as exc:
+        return [f"Pi injoignable ({exc})"]
+    try:
+        age = datetime.datetime.now() - datetime.datetime.fromisoformat(
+            data["at"])
+    except (KeyError, ValueError):
+        return ["Bilan du Pi absent"]
+    stale = (["Bilan du Pi vieux de plus de 2 h"]
+             if age > datetime.timedelta(hours=2) else [])
+    return stale + list(data.get("problemes") or [])
+
+
 def list_files(page_id):
     return json.loads(file_req("GET", page_id, timeout=5))
 

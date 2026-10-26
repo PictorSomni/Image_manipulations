@@ -845,7 +845,8 @@ class Handler(BaseHTTPRequestHandler):
                 when = os.path.getmtime(BRIEFING)
             except OSError:
                 text, when = "", None
-            return self._json({"text": text, "at": when})
+            return self._json({"text": text, "at": when,
+                               "pi": hub_sync.pi_problems()})
         if path == "/api/news":
             items = load_news(max_age=0 if q.get("force") == "1"
                               else DATA_TTL)

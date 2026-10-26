@@ -1017,6 +1017,10 @@ function viewHome() {
     "Bonsoir !"), h("div", {class: "muted"},
     date[0].toUpperCase() + date.slice(1)))];
   const w = S.weather;
+  const pb = (S.briefing && S.briefing.pi) || [];
+  if (pb.length) out.push(h("div", {class: "card", style: {background:
+    alpha(C.red, .25)}}, h("b", {}, ic("warning"), " Pi"),
+    ...pb.map(t => h("div", {}, t))));
   if (w) out.push(glass("Météo · Leuze", null, null, h("div",
     {class: "wx"}, h("div", {class: "ico ms"}, w.icon),
     h("div", {style: {flex: 1}}, h("div", {class: "deg"},

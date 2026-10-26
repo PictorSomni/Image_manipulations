@@ -1191,6 +1191,7 @@ def build(ui):
                                       if r["page_id"] not in ids])
             except Exception as exc:
                 rows, error = [], str(exc)
+            pi_pb = hub_sync.pi_problems() if hub_sync.available() else []
 
             async def _apply():
                 kanban_state["loading"] = False
@@ -1202,6 +1203,10 @@ def build(ui):
                     _save_json(_KANBAN_CACHE_FILE, rows)
                     kanban_status.value = (
                         f"{len(rows)} tâches — {_sync_label()}")
+                    kanban_status.color = LIGHT_GREY
+                    if pi_pb:
+                        kanban_status.value = "Pi : " + " · ".join(pi_pb)
+                        kanban_status.color = RED
                     _kanban_rebuild_columns()
                     _agenda_rebuild()
                 page.update()
