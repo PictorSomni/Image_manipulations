@@ -556,7 +556,7 @@ def build(ui):
                               disabled=_liste_has_task(row),
                               on_click=lambda e: _liste_add_task(
                                   row, e.control)),
-                     *([_dlg_btn("Prévenir", color=MINT,
+                     *([_dlg_btn("Prévenir", color=ui.YELLOW,
                                  on_click=lambda e: _notify(row))]
                        if row.get("email") else []),
                      _dlg_btn("Annuler", "cancel", on_click=_cancel),

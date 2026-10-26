@@ -645,7 +645,8 @@ function taskDetails(row) {
     h("div", {class: "row"}, h("button", {class: "btn out red",
       onclick: () => deleteTask(row)}, "Supprimer"),
       row["E-mail"] || row["Téléphone"] ? h("button", {class: "btn",
-        style: {marginLeft: "auto"}, onclick: () => notifyClient(row)},
+        style: {marginLeft: "auto", background: C.yellow, color: "#222429"},
+        onclick: () => notifyClient(row)},
         ic("mark_email_read"), " Prévenir") : null)]);
 }
 
