@@ -10,6 +10,7 @@ import asyncio
 import datetime
 import flet as ft
 import json
+import hub_sync
 import notion_rest
 import threading
 
@@ -45,7 +46,9 @@ def build(ui):
     _kanban_plain_to_notion = ui._kanban_plain_to_notion
     _kanban_refresh = ui._kanban_refresh
     _load_json = ui._load_json
-    _notion_call = ui._notion_call
+    # Agenda stocké sur le Pi (hub-sync), Notion en miroir.
+    _notion_call = (hub_sync.tasks_call if hub_sync.available()
+                    else ui._notion_call)
     _run_task = ui._run_task
     _save_json = ui._save_json
     _surface_title = ui._surface_title
@@ -377,11 +380,16 @@ def build(ui):
             # Schémas relus à chaque actualisation : options modifiées
             # dans Notion prises en compte sans relancer le Hub.
             for name, ds_id, _c, _m in AGENDA_SOURCES:
-                if notion_rest.TOKEN:
-                    try:
+                try:
+                    if hub_sync.available():
+                        raw = hub_sync.tasks_call(
+                            "schema", {"data_source_id": ds_id})
+                        if not raw.startswith("Erreur"):
+                            agenda_schemas[name] = json.loads(raw)
+                    elif notion_rest.TOKEN:
                         agenda_schemas[name] = notion_rest.schema(ds_id)
-                    except Exception:
-                        pass  # options indisponibles : champs de base
+                except Exception:
+                    pass  # options indisponibles : champs de base
 
             async def _apply():
                 agenda_state["loading"] = False
@@ -751,7 +759,7 @@ def build(ui):
                 agenda_status,
                 _agenda_btn(ft.Icons.ADD, "Nouveau rendez-vous",
                             lambda e: _agenda_new_entry()),
-                _agenda_btn(ft.Icons.REFRESH, "Actualiser depuis Notion",
+                _agenda_btn(ft.Icons.REFRESH, "Actualiser",
                             _agenda_refresh),
             ], spacing=8),
             height=TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
@@ -795,7 +803,7 @@ def build(ui):
         _kanban_refresh()
         _agenda_refresh()
 
-    if notion_rest.TOKEN:
+    if notion_rest.TOKEN or hub_sync.available():
         _run_task(_startup_sync)
         _run_task(_hourly_sync)
 

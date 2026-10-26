@@ -6,8 +6,8 @@ Funnel : https://pictorsomni.taild63b02.ts.net).
 
 Serveur Python stdlib, aucune dépendance web : la page (index.html) fait
 tout le rendu, ce fichier ne sert que les données. Mêmes sources que Hub :
-le Pi (hub_sync, Notion en miroir) pour les cartes, leur ordre et les
-listes ; Notion (Data/notion_rest.py) pour l'agenda.
+le Pi (hub_sync, Notion en miroir) pour les cartes, l'agenda, l'ordre des
+cartes et les listes.
 """
 
 
@@ -207,7 +207,8 @@ def load_agenda(days=60, tasks=()):
     end = (datetime.date.today() + datetime.timedelta(days)).isoformat()
     events = []
     for name, ds, color in AGENDA:
-        for r in _query(ds):
+        for r in _tasks("notion-query-data-sources", {"data": {
+                "data_source_url": f"collection://{ds}"}})["results"]:
             start = r.get("date:Date:start") or ""
             if today <= start[:10] <= end:
                 events.append((start, name, color, r))
@@ -236,7 +237,7 @@ def _notes(page_id):
         text = _tasks("notion-fetch", {"id": page_id})["text"]
         return text.split("<content>\n", 1)[1].rsplit(
             "\n</content>", 1)[0].replace("<empty-block/>", "").strip()
-    except Exception:  # pas une tâche : rendez-vous de l'agenda
+    except Exception:  # Pi injoignable : Notion
         pass
     try:
         text = notion_rest._blocks_to_text(page_id)
@@ -352,7 +353,8 @@ def agenda_schema():
     out = {}
     for name, ds, _c in AGENDA:
         fields = {}
-        for prop, info in notion_rest.schema(ds).items():
+        for prop, info in _tasks("schema",
+                                 {"data_source_id": ds}).items():
             if prop in _BASE_PROPS or info["type"] not in (
                     "status", "select", "multi_select", "rich_text",
                     "number"):
@@ -886,24 +888,23 @@ class Handler(BaseHTTPRequestHandler):
                       "E-mail"): data.get("mail", "").strip()}
             props.update(data.get("extra") or {})
             if data.get("id"):  # modification : champs vidés compris
-                notion_rest._update({"page_id": data["id"],
-                                     "command": "update_properties",
-                                     "properties": props})
+                _tasks("notion-update-page", {
+                    "page_id": data["id"], "command": "update_properties",
+                    "properties": props})
                 if "notes" in data:
-                    notion_rest._update({"page_id": data["id"],
-                                         "command": "replace_content",
-                                         "new_str": data["notes"].strip()})
+                    _tasks("notion-update-page", {
+                        "page_id": data["id"], "command": "replace_content",
+                        "new_str": data["notes"].strip()})
             else:
-                notion_rest._create({"parent": {"data_source_id": ds},
-                                     "pages": [{"properties": {
-                                         k: v for k, v in props.items()
-                                         if v},
-                                         "content": data.get(
-                                             "notes", "").strip()}]})
+                _tasks("notion-create-pages", {
+                    "parent": {"data_source_id": ds},
+                    "pages": [{"properties": {k: v for k, v in props.items()
+                                              if v},
+                               "content": data.get("notes", "").strip()}]})
             load_data(force=True)
             return self._json({"ok": True})
         if path == "/api/delevent":
-            notion_rest._trash({"page_id": data["id"]})
+            _tasks("notion-trash-page", {"page_id": data["id"]})
             load_data(force=True)
             return self._json({"ok": True})
         if path == "/api/detach":
