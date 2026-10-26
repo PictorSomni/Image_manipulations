@@ -433,6 +433,50 @@ function newTask() {
   setTimeout(() => t.focus(), 50);
 }
 
+function replyMail(m) {
+  const o = {tu: false, tone: "professionnel et chaleureux"};
+  const choice = (key, opts) => {  // seg qui se redessine au choix
+    const draw = () => seg(opts, o[key], v => {
+      o[key] = v; el.replaceWith(el = draw()); }, true);
+    let el = draw();
+    return el;
+  };
+  const hint = h("textarea", {rows: 2, placeholder: "Consignes"});
+  const text = h("textarea", {rows: 10, placeholder: "Réponse"});
+  const send = h("button", {class: "btn", onclick: async () => {
+    if (!text.value.trim() || !confirm(`Envoyer à ${m.from} ?`)) return;
+    send.disabled = true; send.textContent = "Envoi…";
+    try {
+      await api("/api/mailsend", {id: m.message_id, text: text.value});
+      S.briefing.mails = S.briefing.mails.filter(x => x !== m);
+      closeSheet(); S.status = "Mail envoyé"; render();
+    } catch (e) { send.disabled = false; send.textContent = "Envoyer";
+      alert("Erreur : " + e.message); }
+  }}, ic("send"), " Envoyer");
+  const gen = h("button", {class: "btn out", onclick: async () => {
+    gen.disabled = true; text.value = "Rédaction…";
+    try {
+      text.value = (await api("/api/maildraft", {id: m.message_id,
+        tu: o.tu, tone: o.tone, hint: hint.value.trim()})).text;
+    } catch (e) { text.value = "Erreur : " + e.message; }
+    gen.disabled = false;
+  }}, ic("edit_note"), " Rédiger");
+  const ignore = h("button", {class: "btn out", onclick: async () => {
+    S.briefing.mails = S.briefing.mails.filter(x => x !== m);
+    closeSheet(); render();
+    await api("/api/maildone", {id: m.message_id});
+  }}, ic("done"), " Ignorer");
+  openSheet([h("b", {}, m.subject || "(sans sujet)"),
+    h("div", {class: "muted"}, m.from), md(m.body || ""),
+    h("div", {class: "label"}, "Adresse"),
+    choice("tu", [[false, "Vous"], [true, "Tu"]]),
+    h("div", {class: "label"}, "Ton"),
+    choice("tone", [["professionnel et chaleureux", "Chaleureux"],
+      ["professionnel et sobre", "Sobre"], ["très bref", "Bref"]]),
+    hint, h("div", {class: "row"}, gen), text,
+    h("div", {class: "row"}, send, ignore)], true);
+}
+
 // Client prévenu par SMS ou mail, texte prêt et modifiable.
 function notifyClient(row) {
   const phone = row["Téléphone"], mail = row["E-mail"];
@@ -1063,6 +1107,14 @@ function viewHome() {
     h("div", {class: "muted", style: {textAlign: "right"}},
       ic("umbrella"), ` ${w.rain ?? "–"} %`, h("br"), ic("air"),
       ` ${w.wind} km/h`))));
+  // Mails qui attendent une réponse : rédaction à la demande, envoi validé.
+  const mails = (S.briefing && S.briefing.mails) || [];
+  if (mails.length) out.push(glass(`Mails à répondre · ${mails.length}`,
+    null, null, ...mails.map(m => h("div", {class: "slot",
+      onclick: () => replyMail(m)},
+      h("i", {class: "bar2", style: {background: C.blue}}),
+      h("div", {class: "tx"}, m.name || m.from,
+        h("div", {class: "muted"}, m.summary || m.subject))))));
   // Briefing complet
   const b = S.briefing;
   if (b && b.text) out.push(glass(`Briefing · ${dayLabel(localIso(
