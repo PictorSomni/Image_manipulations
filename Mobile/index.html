@@ -645,8 +645,8 @@ function taskDetails(row) {
     h("div", {class: "row"}, h("button", {class: "btn out red",
       onclick: () => deleteTask(row)}, "Supprimer"),
       row["E-mail"] || row["Téléphone"] ? h("button", {class: "btn",
-        onclick: () => notifyClient(row)}, ic("mark_email_read"),
-        " Prévenir") : null)]);
+        style: {marginLeft: "auto"}, onclick: () => notifyClient(row)},
+        ic("mark_email_read"), " Prévenir") : null)]);
 }
 
 // ── Agenda ───────────────────────────────────────────────────────────
