@@ -10,8 +10,6 @@ import datetime
 import flet as ft
 import hub_sync
 import json
-import mcp_client
-import notion_rest
 import os
 import re
 import tempfile
@@ -59,20 +57,14 @@ def build(ui):
     page = ui.page
     _agenda_rebuild = ui.late__agenda_rebuild
     # ═════════════════════════════════════════════════════════════════════
-    #  Surface Tâches — miroir de la base Notion "Tâches" (page "Travail"),
-    #  via mcp_client (même connexion OAuth que l'assistant IA — cf. Data/
-    #  mcp_client.py). Pas de rafraîchissement en fond (retour user : peu
-    #  de changements par heure, inutile de sonder en continu) : le
-    #  panneau se recharge à chaque fois qu'on revient dessus, plus un
-    #  bouton "Actualiser" manuel.
+    #  Surface Tâches — stockées sur le Pi (hub-sync, Pi/tasks.py), que
+    #  le Pi recopie dans la base Notion "Tâches". Pas de rafraîchissement
+    #  en fond (retour user : peu de changements par heure) : le panneau
+    #  se recharge à chaque fois qu'on revient dessus, plus un bouton
+    #  "Actualiser" manuel.
     # ═════════════════════════════════════════════════════════════════════
-    # Clé API Notion (~/.notion_token) si présente : marche quel que soit
-    # le compte Notion de la machine (cf. Data/notion_rest.py) ; sinon MCP.
-    # Depuis 2.10.188 : tâches stockées sur le Pi (hub-sync), Notion
-    # n'est plus qu'un miroir mis à jour par le Pi.
-    _notion_call = (hub_sync.tasks_call if hub_sync.available()
-                    else notion_rest.call_tool if notion_rest.TOKEN
-                    else mcp_client.mcp_call_tool)
+    # Mêmes appels qu'à l'époque de Notion (noms d'outils gardés).
+    _notion_call = hub_sync.tasks_call
     kanban_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=LIGHT_GREY)
     kanban_columns = {etat: ft.ListView(expand=True, spacing=8,
                                         padding=ft.Padding(6, 4, 6, 8))
@@ -1406,7 +1398,6 @@ def build(ui):
         "_kanban_open_details": _kanban_open_details,
         "_kanban_plain_to_notion": _kanban_plain_to_notion,
         "_kanban_refresh": _kanban_refresh,
-        "_notion_call": _notion_call,
         "_sync_label": _sync_label,
         "agenda_sync_veil": agenda_sync_veil,
         "kanban_state": kanban_state,

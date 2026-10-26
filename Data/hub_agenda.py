@@ -11,7 +11,6 @@ import datetime
 import flet as ft
 import json
 import hub_sync
-import notion_rest
 import threading
 
 
@@ -47,8 +46,7 @@ def build(ui):
     _kanban_refresh = ui._kanban_refresh
     _load_json = ui._load_json
     # Agenda stocké sur le Pi (hub-sync), Notion en miroir.
-    _notion_call = (hub_sync.tasks_call if hub_sync.available()
-                    else ui._notion_call)
+    _notion_call = hub_sync.tasks_call
     _run_task = ui._run_task
     _save_json = ui._save_json
     _surface_title = ui._surface_title
@@ -82,7 +80,7 @@ def build(ui):
                      "yellow": YELLOW, "orange": ORANGE, "brown": ORANGE,
                      "pink": PINK}
     AGENDA_BASE_PROPS = {"Nom", "Date", "Téléphone", "E-mail", "Email"}
-    agenda_schemas = {}  # source -> notion_rest.schema()
+    agenda_schemas = {}  # source -> schéma (via le Pi)
     # Valeurs par défaut à la création (retour user).
     AGENDA_DEFAULTS = {"Studio": {"État": "Réservé"},
                        "Reportage": {"État": "Réservé"},
@@ -380,16 +378,10 @@ def build(ui):
             # Schémas relus à chaque actualisation : options modifiées
             # dans Notion prises en compte sans relancer le Hub.
             for name, ds_id, _c, _m in AGENDA_SOURCES:
-                try:
-                    if hub_sync.available():
-                        raw = hub_sync.tasks_call(
-                            "schema", {"data_source_id": ds_id})
-                        if not raw.startswith("Erreur"):
-                            agenda_schemas[name] = json.loads(raw)
-                    elif notion_rest.TOKEN:
-                        agenda_schemas[name] = notion_rest.schema(ds_id)
-                except Exception:
-                    pass  # options indisponibles : champs de base
+                raw = hub_sync.tasks_call(
+                    "schema", {"data_source_id": ds_id})
+                if not raw.startswith("Erreur"):
+                    agenda_schemas[name] = json.loads(raw)
 
             async def _apply():
                 agenda_state["loading"] = False
@@ -793,9 +785,7 @@ def build(ui):
                 _agenda_refresh()
 
 
-    # Sans clé Notion, la synchro passerait par MCP et ouvrirait le
-    # navigateur toutes les heures sur les machines non connectées
-    # volontairement (retour user).
+    # Sans clé hub-sync, pas de Pi : rien à synchroniser.
     async def _startup_sync():
         # Tâches + Agenda à jour dès le démarrage (retour user), après
         # l'affichage du cache.
@@ -803,7 +793,7 @@ def build(ui):
         _kanban_refresh()
         _agenda_refresh()
 
-    if notion_rest.TOKEN or hub_sync.available():
+    if hub_sync.available():
         _run_task(_startup_sync)
         _run_task(_hourly_sync)
 

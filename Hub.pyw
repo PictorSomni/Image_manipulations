@@ -57,7 +57,6 @@ import ui_helpers
 import image_ops
 import ai_ops
 import thumb_cache
-import mcp_client
 import auto_update
 import notion_rest
 import meta_ai
@@ -6168,7 +6167,6 @@ def main(page: ft.Page):
     _kanban_open_details = _o["_kanban_open_details"]
     _kanban_plain_to_notion = _o["_kanban_plain_to_notion"]
     _kanban_refresh = _o["_kanban_refresh"]
-    _notion_call = _o["_notion_call"]
     _sync_label = _o["_sync_label"]
     agenda_sync_veil = _o["agenda_sync_veil"]
     kanban_state = _o["kanban_state"]
