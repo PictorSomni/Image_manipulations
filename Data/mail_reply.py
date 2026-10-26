@@ -20,6 +20,10 @@ HOME = os.path.expanduser("~")
 MAILS = os.path.join(HOME, "briefing_mails.json")
 ADDRESS = "info@studiocleuze.be"
 HOST = "ex2.mail.ovh.net"
+# Ajouté sous chaque mail envoyé (réponses et « commande prête »).
+FOOTER = ("\n\n--\nStudio Cleuze · 081 51 17 57 · www.studiocleuze.be\n"
+          "Ouvert de 9h30 à 12h15 et de 13h30 à 18h00\n"
+          "Fermé le mardi, le dimanche et les jours fériés")
 
 
 def _read():
@@ -84,7 +88,7 @@ def send(to, subject, text, reply_to=None):
     msg["Subject"] = subject
     if reply_to:
         msg["In-Reply-To"] = msg["References"] = reply_to
-    msg.set_content(text)
+    msg.set_content(text.rstrip() + FOOTER)
     pw = _password()
     with smtplib.SMTP(HOST, 587, timeout=30) as smtp:
         smtp.starttls()
