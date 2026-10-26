@@ -16,7 +16,7 @@
 html, body { margin: 0; height: 100%; background: var(--card);
   color: var(--text); font: 16px -apple-system, system-ui, sans-serif; }
 body { display: flex; flex-direction: column;
-  padding-top: calc(16px + env(safe-area-inset-top)); }
+  padding-top: calc(32px + env(safe-area-inset-top)); }
 .ms { font-family: "Material Symbols Rounded"; font-size: 1.25em;
   vertical-align: -.2em; font-weight: normal; }
 header { display: flex; gap: 6px; padding: 8px 12px; overflow-x: auto; }
@@ -107,7 +107,11 @@ function add(cls, text) {
   const near = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
   const el = document.createElement(cls === "pre" ? "pre" : "div");
   el.className = cls === "pre" ? "" : "m " + cls;
-  el.textContent = text;
+  if (cls === "text")  // Markdown léger : gras et code
+    el.innerHTML = text.replace(/[&<>]/g, c => ({"&": "&amp;", "<": "&lt;",
+      ">": "&gt;"})[c]).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+  else el.textContent = text;
   log.append(el);
   if (near) log.scrollTop = log.scrollHeight;
   return el;
