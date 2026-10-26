@@ -36,6 +36,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 "..", "Data"))
 import CONSTANTS  # noqa: E402
 import hub_sync  # noqa: E402
+import claude_web  # noqa: E402
 import meta_ai  # noqa: E402
 from ai_tools import (  # noqa: E402
     _gemini_generate_image, _gemini_refine_image_prompt)
@@ -955,6 +956,9 @@ def main():
     _load_data_cache()
     threading.Thread(target=load_news, daemon=True).start()
     threading.Thread(target=_backup_loop, daemon=True).start()
+    # Parler à la session Claude du Pi : Tailscale + appareils de Charles
+    # + PIN seulement (port 8551, cf. claude_web.py).
+    threading.Thread(target=claude_web.serve, daemon=True).start()
     port = int(os.environ.get("HUB_MOBILE_PORT", 8550))
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
