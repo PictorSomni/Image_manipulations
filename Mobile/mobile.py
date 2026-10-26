@@ -330,6 +330,7 @@ def _set_props(page_id, props):
     for row in _DATA["tasks"] or []:
         if _page_id(row) == page_id:
             row.update(props)
+    _write_json(DATA_CACHE, _DATA)  # sinon une relance remet l'ancien
 
 
 # Corbeille des tâches partagée avec Hub (hub_sync « corbeille », même
