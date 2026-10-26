@@ -447,7 +447,8 @@ function replyMail(m) {
     if (!text.value.trim() || !confirm(`Envoyer à ${m.from} ?`)) return;
     send.disabled = true; send.textContent = "Envoi…";
     try {
-      await api("/api/mailsend", {id: m.message_id, text: text.value});
+      await api("/api/mail", {action: "reply", id: m.message_id,
+        text: text.value});
       S.briefing.mails = S.briefing.mails.filter(x => x !== m);
       closeSheet(); S.status = "Mail envoyé"; render();
     } catch (e) { send.disabled = false; send.textContent = "Envoyer";
@@ -456,15 +457,15 @@ function replyMail(m) {
   const gen = h("button", {class: "btn out", onclick: async () => {
     gen.disabled = true; text.value = "Rédaction…";
     try {
-      text.value = (await api("/api/maildraft", {id: m.message_id,
-        tu: o.tu, tone: o.tone, hint: hint.value.trim()})).text;
+      text.value = (await api("/api/mail", {action: "draft", id: m.message_id,
+        tu: o.tu, tone: o.tone, hint: hint.value.trim()})).ok;
     } catch (e) { text.value = "Erreur : " + e.message; }
     gen.disabled = false;
   }}, ic("edit_note"), " Rédiger");
   const ignore = h("button", {class: "btn out", onclick: async () => {
     S.briefing.mails = S.briefing.mails.filter(x => x !== m);
     closeSheet(); render();
-    await api("/api/maildone", {id: m.message_id});
+    await api("/api/mail", {action: "done", id: m.message_id});
   }}, ic("done"), " Ignorer");
   openSheet([h("b", {}, m.subject || "(sans sujet)"),
     h("div", {class: "muted"}, m.from), md(m.body || ""),
@@ -477,22 +478,33 @@ function replyMail(m) {
     h("div", {class: "row"}, send, ignore)], true);
 }
 
-// Client prévenu par SMS ou mail, texte prêt et modifiable.
+// Client prévenu : mail envoyé directement depuis le studio, ou SMS.
 function notifyClient(row) {
   const phone = row["Téléphone"], mail = row["E-mail"];
   if (!phone && !mail) return;
   const what = (row.Demande || "").split(":").slice(1).join(":").trim();
-  const t = h("textarea", {rows: 4}, "Bonjour, votre commande" +
-    (what ? ` (${what})` : "") + " est prête au Studio Cleuze. " +
-    "À bientôt !");
-  const go = (href) => { location.href = href + encodeURIComponent(
-    t.value); closeSheet(); };
-  openSheet([h("b", {}, "Prévenir le client"), t, h("div", {class: "row"},
-    phone ? h("button", {onclick: () => go(`sms:${tel(phone)}&body=`)},
-      ic("sms"), " SMS") : null,
-    mail ? h("button", {onclick: () => go(`mailto:${mail}?subject=` +
-      encodeURIComponent("Votre commande est prête") + "&body=")},
-      ic("mail"), " Mail") : null)]);
+  const text = tu => "Bonjour, " + (tu ? "ta" : "votre") + " commande" +
+    (what ? ` (${what})` : "") + " est prête au Studio Cleuze. À bientôt !";
+  const t = h("textarea", {rows: 4}, text(false));
+  const send = h("button", {onclick: async () => {
+    send.disabled = true; send.textContent = "Envoi…";
+    try {
+      await api("/api/mail", {action: "notify", to: mail, text: t.value});
+      closeSheet(); S.status = "Client prévenu par mail";
+      setProps(row, {"Prévenir ?": "Prévenu"});
+    } catch (e) { send.disabled = false; send.textContent = "Erreur : " +
+      e.message; }
+  }}, ic("send"), " Envoyer le mail");
+  let tu = false;
+  const choice = () => seg([[false, "Vous"], [true, "Tu"]], tu, v => {
+    tu = v; t.value = text(v); sw.replaceWith(sw = choice()); }, true);
+  let sw = choice();
+  openSheet([h("b", {}, "Prévenir le client"), sw, t,
+    h("div", {class: "row"}, mail ? send : null,
+      phone ? h("button", {class: "btn out", onclick: () => {
+        location.href = `sms:${tel(phone)}&body=` +
+          encodeURIComponent(t.value); closeSheet(); }},
+        ic("sms"), " SMS") : null)]);
 }
 
 async function deleteTask(row) {

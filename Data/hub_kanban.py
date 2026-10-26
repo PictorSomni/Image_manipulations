@@ -55,6 +55,7 @@ def build(ui):
     _save_json = ui._save_json
     _surface_title = ui._surface_title
     page = ui.page
+    _mails = ui._mails
     _agenda_rebuild = ui.late__agenda_rebuild
     # ═════════════════════════════════════════════════════════════════════
     #  Surface Tâches — stockées sur le Pi (hub-sync, Pi/tasks.py), que
@@ -98,6 +99,8 @@ def build(ui):
         if old_value == new_value:
             return
         row[state_key] = new_value
+        if state_key == "etat" and new_value == "Terminé":
+            _notify(row)
         _kanban_rebuild_columns()
         _save_json(_KANBAN_CACHE_FILE, kanban_state["rows"])
         _kanban_busy(1)
@@ -131,6 +134,11 @@ def build(ui):
             _run_task(_apply)
 
         threading.Thread(target=_work, daemon=True).start()
+
+    def _notify(row):
+        """Propose le mail « commande prête » ; envoyé → « Prévenu »."""
+        _mails["notify_client"](row, on_sent=lambda: _kanban_change_property(
+            row, "Prévenir ?", "prevenu", "Prévenu"))
 
     def _kanban_chip(text, color):
         # Fond quasi plein (0.85) + texte NOIR en gras (retour user :
@@ -442,6 +450,8 @@ def build(ui):
                 new_etat = etat_names[etat_seg.selected_index]
                 if new_etat != row["etat"]:
                     props["Etat"] = new_etat
+                    if new_etat == "Terminé":
+                        _notify(row)
             if seg_touched["paye"]:
                 new_paye = KANBAN_PAYE_OPTIONS[paye_seg.selected_index]
                 if new_paye != (row["paye"] or ""):
@@ -1331,6 +1341,11 @@ def build(ui):
                 kanban_search_wrap,
                 kanban_auto_sync_switch,
                 kanban_status,
+                ft.IconButton(ft.Icons.WB_SUNNY_OUTLINED, **SQUARE_BTN,
+                             icon_color=SURFACE_ACCENT["kanban"],
+                             icon_size=CONSTANTS.ICON_SM,
+                             tooltip="Briefing",
+                             on_click=_mails["open_briefing"]),
                 ft.IconButton(ft.Icons.DELETE_OUTLINE, **SQUARE_BTN,
                              icon_color=SURFACE_ACCENT["kanban"],
                              icon_size=CONSTANTS.ICON_SM,

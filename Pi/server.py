@@ -23,6 +23,7 @@ import threading
 
 import check_pi
 import tasks
+import mail_reply  # noqa: E402  (Data/ ajouté au chemin par tasks)
 
 ROOT = os.path.expanduser("~/hub_sync/data")
 KEY = open(os.path.expanduser("~/.hub_sync_key")).read().strip()
@@ -174,6 +175,17 @@ class H(http.server.BaseHTTPRequestHandler):
                 self.send_error(400)
                 return
             self._reply(200, out.encode(), "text/plain; charset=utf-8")
+            return
+        if self.path.rstrip("/").rsplit("/", 1)[-1] == "mail":
+            # Mails du studio (Data/mail_reply.py), envoyés après validation.
+            size = int(self.headers.get("Content-Length", 0))
+            try:
+                out = {"ok": mail_reply.call(json.loads(
+                    self.rfile.read(min(size, 200_000))))}
+            except Exception as exc:
+                out = {"error": str(exc)}
+            self._reply(200, json.dumps(out, ensure_ascii=False).encode(),
+                        "application/json")
             return
         if self.path.rstrip("/").rsplit("/", 1)[-1] != "claude":
             self.send_error(404)

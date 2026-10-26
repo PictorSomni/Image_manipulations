@@ -69,6 +69,7 @@ import hub_ia_chat
 import hub_ia_gallery
 import hub_actus
 import hub_kanban
+import hub_mails
 import hub_agenda
 from ai_tools import (
     _backup_file, _folder_create_file, _md_dark, _copy_scored_photos,
@@ -6156,6 +6157,8 @@ def main(page: ft.Page):
     actus_state = _o["actus_state"]
     actus_surface = _o["actus_surface"]
 
+    # → Data/hub_mails.py (briefing, mails, « commande prête »)
+    _mails = hub_mails.build(SimpleNamespace(**{**globals(), **locals()}))
     # → Data/hub_kanban.py
     _o = hub_kanban.build(SimpleNamespace(**{**globals(), **locals()}, late__agenda_rebuild=lambda *a, **k: _agenda_rebuild(*a, **k), late__log_to_terminal=lambda *a, **k: _log_to_terminal(*a, **k)))
     _kanban_busy = _o["_kanban_busy"]

@@ -1,0 +1,154 @@
+"""Mails du studio envoyés depuis le Pi (info@studiocleuze.be).
+
+Réponses aux mails repérés par le briefing (~/briefing_mails.json),
+rédigées à la demande de Charles, et « commande prête » aux clients.
+Rien ne part sans validation dans Hub ou la webapp. Tourne sur le Pi
+(mot de passe via `pass`) ; Hub y accède par hub-sync (POST /mail).
+"""
+import imaplib
+import json
+import os
+import re
+import smtplib
+import subprocess
+import time
+from email.message import EmailMessage
+
+import hub_sync
+
+HOME = os.path.expanduser("~")
+MAILS = os.path.join(HOME, "briefing_mails.json")
+ADDRESS = "info@studiocleuze.be"
+HOST = "ex2.mail.ovh.net"
+
+
+def _read():
+    try:
+        with open(MAILS, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return []
+
+
+def _mark_done(mid):
+    mails = _read()
+    for m in mails:
+        if m["message_id"] == mid:
+            m["done"] = True
+    with open(MAILS + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(mails, f, ensure_ascii=False, indent=1)
+    os.replace(MAILS + ".tmp", MAILS)
+
+
+def pending():
+    return [m for m in _read() if not m.get("done")]
+
+
+def _mail(mid):
+    return next(m for m in _read() if m["message_id"] == mid)
+
+
+def draft(mid, tu, tone, hint):
+    m = _mail(mid)
+    rule = (f"Rédige la réponse du Studio Cleuze (studio photo, tirages, "
+            f"encadrement) à ce mail. {'Tutoie' if tu else 'Vouvoie'} la "
+            f"personne, ton {tone}. Signe « Studio Cleuze ». "
+            + (f"Consignes de Charles : {hint}. " if hint else "")
+            + "Rends uniquement le corps du mail.")
+    return hub_sync.ask_claude(hub_sync.claude_prompt(
+        f"De : {m['from']}\nSujet : {m['subject']}\n\n{m['body']}", rule))
+
+
+def _password():
+    pw = subprocess.run(["pass", "show", "mail/studiocleuze"],
+                        capture_output=True, text=True,
+                        timeout=30).stdout.split("\n")[0]
+    if not pw:
+        raise RuntimeError("mot de passe mail introuvable (pass)")
+    return pw
+
+
+def _sent_folder(imap):
+    for line in imap.list()[1]:
+        if b"\\Sent" in line:
+            return line.rsplit(b' "/" ', 1)[-1].decode()
+    return "Sent"
+
+
+def send(to, subject, text, reply_to=None):
+    if not re.fullmatch(r"[^@\s<>,]+@[^@\s<>,]+\.[^@\s<>,]+", to or ""):
+        raise ValueError(f"adresse invalide : {to}")
+    msg = EmailMessage()
+    msg["From"] = f"Studio Cleuze <{ADDRESS}>"
+    msg["To"] = to
+    msg["Subject"] = subject
+    if reply_to:
+        msg["In-Reply-To"] = msg["References"] = reply_to
+    msg.set_content(text)
+    pw = _password()
+    with smtplib.SMTP(HOST, 587, timeout=30) as smtp:
+        smtp.starttls()
+        smtp.login(ADDRESS, pw)
+        smtp.send_message(msg)
+    try:  # copie dans « Éléments envoyés » (le SMTP ne la range pas)
+        with imaplib.IMAP4_SSL(HOST) as imap:
+            imap.login(ADDRESS, pw)
+            imap.append(_sent_folder(imap), "\\Seen",
+                        imaplib.Time2Internaldate(time.time()),
+                        msg.as_bytes())
+    except (imaplib.IMAP4.error, OSError) as exc:
+        print(f"[Mail] copie envoyés : {exc}", flush=True)
+
+
+def reply(mid, text):
+    m = _mail(mid)
+    subj = m["subject"]
+    send(m["from"], subj if subj.lower().startswith("re:")
+         else "Re: " + subj, text, m["message_id"])
+    _mark_done(mid)
+
+
+def ready_text(demande, tu=False):
+    """Message « commande prête » ; la demande est « Nom : travail »."""
+    what = demande.split(":", 1)[1].strip() if ":" in demande else ""
+    yours = "ta" if tu else "votre"
+    return (f"Bonjour, {yours} commande" + (f" ({what})" if what else "")
+            + " est prête au Studio Cleuze. À bientôt !")
+
+
+def call(req):
+    """Point d'entrée de hub-sync (POST /mail) et de la webapp."""
+    a = req["action"]
+    if a == "list":
+        return pending()
+    if a == "briefing":  # le texte du matin, pour Hub
+        path = os.path.join(HOME, "briefing.md")
+        try:
+            with open(path, encoding="utf-8") as f:
+                return {"text": f.read(), "at": os.path.getmtime(path),
+                        "mails": pending(), "pi": hub_sync.pi_problems()}
+        except OSError:
+            return {"text": "", "at": None, "mails": pending(), "pi": []}
+    if a == "draft":
+        return draft(req["id"], req["tu"], req["tone"], req.get("hint", ""))
+    if a == "reply":
+        return reply(req["id"], req["text"])
+    if a == "done":
+        return _mark_done(req["id"])
+    if a == "notify":
+        return send(req["to"], "Votre commande est prête", req["text"])
+    raise ValueError(f"action inconnue : {a}")
+
+
+if __name__ == "__main__":
+    assert ready_text("Hahimana : scan diapositives") == (
+        "Bonjour, votre commande (scan diapositives) est prête au Studio "
+        "Cleuze. À bientôt !")
+    assert "ta commande" in ready_text("x", tu=True)
+    for bad in ("", "a@b", "x@y.be, z@w.be", "a b@c.be"):
+        try:
+            send(bad, "s", "t")
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+    print("ok")

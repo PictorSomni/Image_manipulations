@@ -258,3 +258,17 @@ def ask_claude(prompt, timeout=320):
     if data.get("error"):
         raise RuntimeError(data["error"])
     return data["text"]
+
+
+def mail(action, timeout=320, **args):
+    """Mails du studio via le Pi (POST /mail, voir Data/mail_reply.py)."""
+    req = urllib.request.Request(
+        URL + "mail", method="POST",
+        data=json.dumps({"action": action, **args}).encode(),
+        headers={"X-Hub-Key": _key(),
+                 "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        data = json.load(resp)
+    if data.get("error"):
+        raise RuntimeError(data["error"])
+    return data["ok"]

@@ -38,6 +38,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
 import CONSTANTS  # noqa: E402
 import hub_sync  # noqa: E402
 import claude_web  # noqa: E402
+import mail_reply  # noqa: E402
 import meta_ai  # noqa: E402
 from ai_tools import (  # noqa: E402
     _gemini_generate_image, _gemini_refine_image_prompt)
@@ -421,59 +422,6 @@ def read_slip(data):
         "properties": props, "content": d.get("notes") or ""}]})["ids"][0]
     load_data(force=True)
     return pid
-
-
-# ── Mails à répondre (repérés par le briefing) ─────────────────────────
-# Le briefing écrit ~/briefing_mails.json ; ici on rédige une réponse à la
-# demande de Charles et on l'envoie seulement quand il la valide.
-MAILS = os.path.join(HOME, "briefing_mails.json")
-MAIL_FROM = "info@studiocleuze.be"
-
-
-def load_mails():
-    return [m for m in _read_json(MAILS, []) if not m.get("done")]
-
-
-def _mail(mid):
-    mails = _read_json(MAILS, [])
-    return mails, next(m for m in mails if m["message_id"] == mid)
-
-
-def draft_reply(mid, tu, tone, hint):
-    _mails, m = _mail(mid)
-    prompt = (
-        "Rédige la réponse du Studio Cleuze (studio photo, tirages, "
-        f"encadrement) à ce mail. {'Tutoie' if tu else 'Vouvoie'} la "
-        f"personne, ton {tone}. Signe « Studio Cleuze ». "
-        + (f"Consignes de Charles : {hint}. " if hint else "")
-        + "Rends uniquement le corps du mail.")
-    return hub_sync.ask_claude(hub_sync.claude_prompt(
-        f"De : {m['from']}\nSujet : {m['subject']}\n\n{m['body']}",
-        prompt))
-
-
-def send_reply(mid, text):
-    import smtplib
-    from email.message import EmailMessage
-    mails, m = _mail(mid)
-    pw = subprocess.run(["pass", "show", "mail/studiocleuze"],
-                        capture_output=True, text=True,
-                        timeout=30).stdout.split("\n")[0]
-    if not pw:
-        raise RuntimeError("mot de passe mail introuvable (pass)")
-    msg = EmailMessage()
-    msg["From"] = f"Studio Cleuze <{MAIL_FROM}>"
-    msg["To"] = m["from"]
-    subj = m["subject"]
-    msg["Subject"] = subj if subj.lower().startswith("re:") else "Re: " + subj
-    msg["In-Reply-To"] = msg["References"] = m["message_id"]
-    msg.set_content(text)
-    with smtplib.SMTP("ex2.mail.ovh.net", 587, timeout=30) as smtp:
-        smtp.starttls()
-        smtp.login(MAIL_FROM, pw)
-        smtp.send_message(msg)
-    m["done"] = True
-    _write_json(MAILS, mails)
 
 
 def load_trash():
@@ -956,7 +904,7 @@ class Handler(BaseHTTPRequestHandler):
                 text, when = "", None
             return self._json({"text": text, "at": when,
                                "pi": hub_sync.pi_problems(),
-                               "mails": load_mails()})
+                               "mails": mail_reply.pending()})
         if path == "/api/news":
             items = load_news(max_age=0 if q.get("force") == "1"
                               else DATA_TTL)
@@ -976,17 +924,8 @@ class Handler(BaseHTTPRequestHandler):
             mode = hub_sync.CLAUDE_MODES[int(data["mode"])][1]
             return self._json({"text": hub_sync.ask_claude(
                 hub_sync.claude_prompt(data["text"].strip(), mode))})
-        if path == "/api/maildraft":
-            return self._json({"text": draft_reply(
-                data["id"], data["tu"], data["tone"], data["hint"])})
-        if path == "/api/mailsend":
-            send_reply(data["id"], data["text"])
-            return self._json({"ok": True})
-        if path == "/api/maildone":
-            mails, m = _mail(data["id"])
-            m["done"] = True
-            _write_json(MAILS, mails)
-            return self._json({"ok": True})
+        if path == "/api/mail":  # Data/mail_reply.py (Hub : hub-sync)
+            return self._json({"ok": mail_reply.call(data)})
         if path == "/api/task":
             _set_props(data["id"], data["props"])
             return self._json({"ok": True})
