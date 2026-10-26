@@ -69,6 +69,7 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
   <button onclick="key('oui')"><span class="ms">check</span> Oui</button>
   <button onclick="key('non')"><span class="ms">close</span> Non</button>
   <button onclick="key('stop')"><span class="ms">stop</span> Stop</button>
+  <button onclick="grill()"><span class="ms">quiz</span> Grill me</button>
   <button onclick="screen()"><span class="ms">terminal</span> Écran</button>
   <button onclick="act('bilan', 'Bilan du Pi')"><span class="ms">monitor_heart</span> Bilan</button>
   <button onclick="act('maj_pi', 'Mettre à jour le Pi')"><span class="ms">system_update</span> MAJ Pi</button>
@@ -215,6 +216,10 @@ async function compact() {
   if (!confirm("Compacter la conversation ?")) return;
   try { await call("/send", {text: "/compact"}); }
   catch (e) { add("tool", e.message); }
+}
+
+function grill() {
+  $("msg").value = "/grill-me " + $("msg").value; grow(); $("msg").focus();
 }
 
 function grow() {
