@@ -8,8 +8,9 @@ Pour Charles seul, triple verrou :
     jamais via le Funnel ni le tunnel public de la webapp ;
   - l'appareil appelant doit appartenir au compte Tailscale du Pi
     (tailscale whois) ;
-  - code PIN (~/.claude_web_pin, une ligne), session fermée après
-    30 min sans activité.
+  - code PIN (~/.claude_web_pin, une ligne) une fois par appareil, qui
+    reste connecté 30 jours (sessions gardées dans ~/.claude_web_sessions,
+    vider ce fichier déconnecte tout).
 """
 
 
@@ -26,8 +27,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 PIN_FILE = os.path.expanduser("~/.claude_web_pin")
 PORT = 8551
-IDLE = 30 * 60
-_sessions = {}  # jeton -> dernière activité
+IDLE = 30 * 24 * 3600
+SESSIONS_FILE = os.path.expanduser("~/.claude_web_sessions")
+try:
+    with open(SESSIONS_FILE, encoding="utf-8") as _f:
+        _sessions = json.load(_f)  # jeton -> dernière activité
+except (OSError, ValueError):
+    _sessions = {}
+
+
+def _save_sessions():
+    with open(SESSIONS_FILE + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(_sessions, f)
+    os.chmod(SESSIONS_FILE + ".tmp", 0o600)
+    os.replace(SESSIONS_FILE + ".tmp", SESSIONS_FILE)
 _lock = threading.Lock()
 
 
@@ -146,7 +159,9 @@ class Handler(BaseHTTPRequestHandler):
                       if now - last > IDLE]:
                 del _sessions[t]
             if tok in _sessions:
-                _sessions[tok] = now
+                if now - _sessions[tok] > 3600:  # écrit au plus 1×/h
+                    _sessions[tok] = now
+                    _save_sessions()
                 return True
         return False
 
@@ -209,6 +224,7 @@ class Handler(BaseHTTPRequestHandler):
             tok = secrets.token_urlsafe(24)
             with _lock:
                 _sessions[tok] = time.time()
+                _save_sessions()
             return self._send(200, {"session": tok})
         if not self._session_ok():
             return self._send(401, {"error": "PIN"})

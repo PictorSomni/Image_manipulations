@@ -71,7 +71,7 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
 </footer>
 <script>
 let session = "", f = "", pos = null, timer = null;
-try { session = sessionStorage.getItem("s") || ""; } catch (e) {}
+try { session = localStorage.getItem("s") || ""; } catch (e) {}
 const $ = id => document.getElementById(id);
 const log = $("log");
 
@@ -97,7 +97,7 @@ async function login() {
   $("err").textContent = "";
   try {
     session = (await call("/login", {pin: $("pin").value})).session;
-    try { sessionStorage.setItem("s", session); } catch (e) {}
+    try { localStorage.setItem("s", session); } catch (e) {}
     $("pin").value = "";
     show(true);
   } catch (e) { $("err").textContent = e.message; }
