@@ -584,6 +584,11 @@ def main(page: ft.Page):
         try:
             await asyncio.sleep(0.15)
             await field.focus()
+            # Re-focus : un focus programmé ailleurs (barre de recherche)
+            # peut arriver après, et la frappe filtrerait alors l'arrière-
+            # plan (retour user).
+            await asyncio.sleep(0.25)
+            await field.focus()
         except Exception:
             pass
     # Liste (pas un set) — ordre de clic préservé, comme Dashboard.pyw
@@ -10189,6 +10194,10 @@ print("[délai dépassé]")
         # Ctrl+Maj+C / Ctrl+Maj+V : copier la sélection / coller (Ctrl+C
         # reste l'interruption du shell).
         # Mac : Cmd+C / Cmd+V (Ctrl+C reste l'interruption).
+        if _dialog_open():
+            # Un dialogue a la main : rien vers le terminal ni l'arrière-
+            # plan, la frappe va au champ du dialogue (retour user).
+            return
         if (shell_term.get("hover") and event.key in ("C", "V")
                 and ((event.ctrl and event.shift) or event.meta)):
             term = shell_term["term"]
