@@ -559,8 +559,10 @@ def build(ui):
         _label, _icon, preset, needs_img, _hint = image_presets[
             image_mode["i"]]
         text = (ai_input_field.value or "").strip()
+        if needs_img and ai_gal_selected:
+            _ai_gal_reuse()  # images cochées envoyées d'office
         if needs_img and not ai_pending_images:
-            ai_status_text.value = "Joins d'abord une image (Réutiliser)"
+            ai_status_text.value = "Coche d'abord une image"
             page.update()
             return
         prompt = " ".join(x for x in (preset, text) if x)
@@ -653,10 +655,13 @@ def build(ui):
                      weight=ft.FontWeight.W_700),
              ft.Container(width=8), model_seg),
         image_side,
-        ft.Column([ai_gallery, ai_attach_row], expand=True, spacing=6),
+        ai_gallery,
         ai_progress_bar,
-        ft.Row([ai_input_field, ai_vasy_button, ai_mic_button,
-                ai_send_button, ai_stop_button], spacing=4),
+        # Pièces jointes juste au-dessus du champ, alignées avec lui.
+        ft.Column([ai_attach_row,
+                   ft.Row([ai_input_field, ai_vasy_button, ai_mic_button,
+                           ai_send_button, ai_stop_button], spacing=4)],
+                  spacing=6),
         ai_status_text)
 
     image_view.controls.insert(1, image_settings)
