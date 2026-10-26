@@ -5100,6 +5100,7 @@ def main(page: ft.Page):
     # → Data/hub_ia_chat.py
     _o = hub_ia_chat.build(SimpleNamespace(**{**globals(), **locals()}, late__ai_generate=lambda *a, **k: _ai_generate(*a, **k), late__busy_end=lambda *a, **k: _busy_end(*a, **k), late__busy_start=lambda *a, **k: _busy_start(*a, **k), late__liste_reload=lambda *a, **k: _liste_reload(*a, **k), late__log_to_terminal=lambda *a, **k: _log_to_terminal(*a, **k), late__select_surface=lambda *a, **k: _select_surface(*a, **k)))
     _ai_attach_image = _o["_ai_attach_image"]
+    _ai_remove_image = _o["_ai_remove_image"]
     _ai_header_separator = _o["_ai_header_separator"]
     _ai_load_history = _o["_ai_load_history"]
     ai_attach_row = _o["ai_attach_row"]

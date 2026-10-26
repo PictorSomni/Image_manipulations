@@ -696,10 +696,15 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1",
                 # On évite d'envoyer response_format, qui peut provoquer l'erreur
                 # "Extra inputs are not permitted" selon la version du SDK/API.
                 _contents = [prompt]
-                if input_image_bytes:
+                # Une image (bytes) ou plusieurs (liste) : toutes envoyées.
+                _srcs = (input_image_bytes
+                         if isinstance(input_image_bytes, list)
+                         else [input_image_bytes] if input_image_bytes
+                         else [])
+                for _src in _srcs:
                     try:
                         from PIL import Image as _PILImg, ImageOps as _PILOps
-                        _pil = _PILImg.open(_io_img.BytesIO(input_image_bytes))
+                        _pil = _PILImg.open(_io_img.BytesIO(_src))
                         # Transposer EXIF et convertir en RGB pour supprimer la transparence RGBA potentiellement rejetée
                         _pil = _PILOps.exif_transpose(_pil).convert("RGB")
                         # Redimensionnement préventif au format 4K max pour préserver la qualité maximale
@@ -712,7 +717,7 @@ def _gemini_generate_image(prompt, input_image_bytes=None, aspect_ratio="1:1",
                         )
                     except Exception:
                         _contents.append(
-                            _gtypes_img.Part.from_bytes(data=input_image_bytes, mime_type="image/jpeg")
+                            _gtypes_img.Part.from_bytes(data=_src, mime_type="image/jpeg")
                         )
 
                 # Config minimale et robuste pour compatibilité multi-versions.

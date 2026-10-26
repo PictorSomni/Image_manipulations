@@ -931,6 +931,7 @@ def build(ui):
 
     return {
         "_ai_attach_image": _ai_attach_image,
+        "_ai_remove_image": _ai_remove_image,
         "_ai_header_separator": _ai_header_separator,
         "_ai_load_history": _ai_load_history,
         "ai_attach_row": ai_attach_row,

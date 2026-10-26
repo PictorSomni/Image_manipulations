@@ -8,6 +8,7 @@ noms de main (ui) et renvoie les noms utilisés ailleurs dans Hub."""
 from PIL import Image as PILImage
 from ai_tools import _gemini_generate_image
 from ai_tools import _gemini_refine_image_prompt
+import base64
 import CONSTANTS
 import datetime
 import hub_sync
@@ -35,6 +36,7 @@ def build(ui):
     WHITE = ui.WHITE
     YELLOW = ui.YELLOW
     _ai_attach_image = ui._ai_attach_image
+    _ai_remove_image = ui._ai_remove_image
     _ai_load_history = ui._ai_load_history
     _ai_navigate_async = ui._ai_navigate_async
     _run_task = ui._run_task
@@ -159,6 +161,15 @@ def build(ui):
                 ai_gal_checks[p].value = on
         page.update(ai_gallery)
         _ai_gal_sync_buttons()
+        # Cochée = jointe (visible au-dessus du champ, avec celles venues
+        # de Fichiers) ; décochée = retirée.
+        for p in paths:
+            entry = next((e for e in ai_pending_images if e["path"] == p),
+                         None)
+            if p in ai_gal_selected and not entry:
+                _ai_attach_image(p)
+            elif p not in ai_gal_selected and entry:
+                _ai_remove_image(entry)
 
     def _ai_gal_toggle(path, on):
         if on:
@@ -179,14 +190,6 @@ def build(ui):
         ai_gal_selected.update(order[i:j + 1])
         ai_gal_anchor["path"] = path
         _ai_gal_show(order[i:j + 1])
-
-    def _ai_gal_reuse(event=None):
-        """Images sélectionnées → jointes à la prochaine demande IA (comme
-        « Modifier avec l'IA » de l'app mobile)."""
-        ai_pending_images.clear()
-        for p in sorted(ai_gal_selected):
-            _ai_attach_image(p)
-        _ai_gal_clear_selection()
 
     def _ai_gal_delete(event=None):
         """Corbeille du système (send2trash), sinon dossier « _Supprimés »
@@ -269,13 +272,12 @@ def build(ui):
         """Lance N générations (ou retouches de la 1re image jointe) en
         parallèle ; chaque résultat arrive dans la galerie."""
         n = int(ai_count_dropdown.value or 1)
-        src_path = ai_pending_images[0]["path"] if ai_pending_images else None
-        src_bytes = None
+        # Toutes les pièces jointes, à la taille du bouton 1024/REEL
+        # (b64 préparé au moment de joindre).
+        src_bytes = [base64.b64decode(e["b64"]) for e in ai_pending_images]
         aspect = "1:1"
-        if src_path:
-            with open(src_path, "rb") as f:
-                src_bytes = f.read()
-            with PILImage.open(io.BytesIO(src_bytes)) as im:
+        if src_bytes:
+            with PILImage.open(io.BytesIO(src_bytes[0])) as im:
                 aspect = f"{im.width}:{im.height}"  # ramené au plus proche
         if ai_aspect_dropdown.value != "Auto":
             aspect = ai_aspect_dropdown.value
@@ -562,8 +564,6 @@ def build(ui):
         _label, _icon, preset, needs_img, _hint = image_presets[
             image_mode["i"]]
         text = (ai_input_field.value or "").strip()
-        if ai_gal_selected:
-            _ai_gal_reuse()  # images cochées envoyées d'office
         if needs_img and not ai_pending_images:
             ai_status_text.value = "Coche d'abord une image"
             page.update()
@@ -576,6 +576,7 @@ def build(ui):
         ai_input_field.value = ""
         page.update()
         _ai_generate(prompt)
+        _ai_gal_clear_selection()  # pièces jointes parties avec la demande
 
     image_mode_buttons = [
         _side_btn(label, icon, BLUE, lambda e, k=k: _image_pick(k),

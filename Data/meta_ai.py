@@ -103,10 +103,12 @@ def _size(aspect_ratio):
 def _body(prompt, input_image_bytes=None, aspect_ratio=None):
     body = {"model": IMAGE_MODEL, "prompt": prompt, "n": 1,
             "size": _size(aspect_ratio)}
-    if input_image_bytes:
-        b64 = base64.b64encode(input_image_bytes).decode()
-        body["images"] = [{"image_url":
-                           f"data:{_mime(input_image_bytes)};base64,{b64}"}]
+    srcs = (input_image_bytes if isinstance(input_image_bytes, list)
+            else [input_image_bytes] if input_image_bytes else [])
+    if srcs:  # une ou plusieurs images
+        body["images"] = [
+            {"image_url": f"data:{_mime(b)};base64,"
+                          f"{base64.b64encode(b).decode()}"} for b in srcs]
     return body
 
 
