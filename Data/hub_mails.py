@@ -11,11 +11,11 @@ import flet as ft
 import CONSTANTS
 import hub_sync
 
-# Le message de Charles, mot pour mot.
+# Le message de Charles, mot pour mot (+ le prix s'il est connu).
 READY = ("Bonjour,\n\nVotre commande est prête, vous pouvez venir la "
-         "chercher au magasin.\n\nA bientôt,\nStudio C")
+         "chercher au magasin.{prix}\n\nA bientôt,\nStudio C")
 READY_TU = ("Bonjour,\n\nTa commande est prête, tu peux venir la "
-            "chercher au magasin.\n\nA bientôt,\nStudio C")
+            "chercher au magasin.{prix}\n\nA bientôt,\nStudio C")
 TONES = [("professionnel et chaleureux", "Chaleureux"),
          ("professionnel et sobre", "Sobre"), ("très bref", "Bref")]
 
@@ -178,9 +178,12 @@ def build(ui):
             return
 
         def _text(tu):
-            return READY_TU if tu else READY
-        text = _field(value=_text(False), multiline=True, min_lines=3,
-                      max_lines=8)
+            p = row.get("prix")
+            prix = (f"\n\nMontant : {p:g} €".replace(".", ",")
+                    if isinstance(p, (int, float)) and p else "")
+            return (READY_TU if tu else READY).format(prix=prix)
+        text = _field(value=_text(False), multiline=True, min_lines=10,
+                      max_lines=16)
         status = ft.Text("", size=11, color=LIGHT_GREY)
 
         def _tu(v):

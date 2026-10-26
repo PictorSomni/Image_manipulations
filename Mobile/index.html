@@ -482,11 +482,13 @@ function replyMail(m) {
 function notifyClient(row) {
   const phone = row["Téléphone"], mail = row["E-mail"];
   if (!phone && !mail) return;
-  const text = tu => tu ? "Bonjour,\n\nTa commande est prête, tu peux " +
-    "venir la chercher au magasin.\n\nA bientôt,\nStudio C" :
-    "Bonjour,\n\nVotre commande est prête, vous pouvez venir la " +
-    "chercher au magasin.\n\nA bientôt,\nStudio C";
-  const t = h("textarea", {rows: 4}, text(false));
+  const prix = Number(row.Prix) ? "\n\nMontant : " + Number(row.Prix)
+    .toLocaleString("fr-BE", {maximumFractionDigits: 2}) + " €" : "";
+  const text = tu => (tu ? "Bonjour,\n\nTa commande est prête, tu peux " +
+    "venir la chercher au magasin." : "Bonjour,\n\nVotre commande est " +
+    "prête, vous pouvez venir la chercher au magasin.") + prix +
+    "\n\nA bientôt,\nStudio C";
+  const t = h("textarea", {rows: 11}, text(false));
   const send = h("button", {onclick: async () => {
     send.disabled = true; send.textContent = "Envoi…";
     try {
@@ -505,7 +507,7 @@ function notifyClient(row) {
       phone ? h("button", {class: "btn out", onclick: () => {
         location.href = `sms:${tel(phone)}&body=` +
           encodeURIComponent(t.value); closeSheet(); }},
-        ic("sms"), " SMS") : null)]);
+        ic("sms"), " SMS") : null)], true);
 }
 
 async function deleteTask(row) {
