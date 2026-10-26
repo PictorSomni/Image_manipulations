@@ -545,8 +545,38 @@ function taskDetails(row) {
 }
 
 // ── Agenda ───────────────────────────────────────────────────────────
+function newEvent() {
+  const src = {v: "Studio"};
+  const f = {nom: h("input", {placeholder: "Nom"}),
+    date: h("input", {type: "date", value: localIso(new Date())}),
+    heure: h("input", {type: "time"}),
+    tel: h("input", {type: "tel", placeholder: "Téléphone"}),
+    mail: h("input", {type: "email", placeholder: "E-mail"}),
+    notes: h("textarea", {rows: 4, placeholder: "Notes"})};
+  const srcs = [["Studio", "Studio", C.blue],
+    ["Reportage", "Reportage", C.violet], ["Location", "Location", C.green]];
+  const pickSeg = () => seg(srcs, src.v, v => { src.v = v;
+    segBox.replaceChildren(pickSeg()); }, true);
+  const segBox = h("div", {}, pickSeg());
+  const ok = async () => {
+    if (!f.nom.value.trim() || !f.date.value) return;
+    const body = {source: src.v};
+    for (const [k, el] of Object.entries(f)) body[k] = el.value;
+    closeSheet(); S.status = "Création…"; render();
+    try { await api("/api/newevent", body); await refresh(); }
+    catch (e) { S.status = "Erreur : " + e.message; render(); }
+  };
+  openSheet([h("b", {}, "Nouveau rendez-vous"), segBox, f.nom,
+    h("div", {class: "label"}, "Date"), f.date,
+    h("div", {class: "label"}, "Heure (vide = journée)"), f.heure,
+    f.tel, f.mail, f.notes,
+    h("div", {class: "row"}, h("button", {onclick: ok}, ic("check"),
+      " Créer"))]);
+}
+
 function viewAgenda() {
-  const out = [];
+  const out = [h("div", {class: "row", style: {justifyContent: "flex-end"}},
+    h("button", {onclick: newEvent}, ic("add"), " Rendez-vous"))];
   let last = null;
   for (const [start, source, color, row] of S.agenda) {
     const label = dayLabel(start);

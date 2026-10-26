@@ -830,6 +830,24 @@ class Handler(BaseHTTPRequestHandler):
                     "Etat": "À faire"})})
             load_data(force=True)
             return self._json({"id": page["id"].replace("-", "")})
+        if path == "/api/newevent":
+            ds = dict((n, d) for n, d, _c in AGENDA)[data["source"]]
+            start = data["date"]
+            if data.get("heure"):  # heure locale du Pi (Bruxelles)
+                start = datetime.datetime.fromisoformat(
+                    f"{start}T{data['heure']}").astimezone().isoformat(
+                    timespec="minutes")
+            props = {"Nom": data["nom"].strip(), "Date": start,
+                     "Téléphone": data.get("tel", "").strip(),
+                     # Locations nomme sa propriété « Email ».
+                     ("Email" if data["source"] == "Location" else
+                      "E-mail"): data.get("mail", "").strip()}
+            notion_rest._create({"parent": {"data_source_id": ds},
+                                 "pages": [{"properties": {
+                                     k: v for k, v in props.items() if v},
+                                     "content": data.get("notes", "").strip()}]})
+            load_data(force=True)
+            return self._json({"ok": True})
         if path == "/api/detach":
             hub_sync.file_req("DELETE", data["id"], data["n"])
             return self._json({"ok": True})
