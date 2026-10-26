@@ -617,8 +617,7 @@ def build(ui):
         # images en pièce jointe visuelle, tout le reste en texte injecté.
         for p in paths:
             if os.path.splitext(p)[1].lower() in CONSTANTS.IMAGE_EXTS:
-                _ai_attach_image(
-                    p, use_original=CONSTANTS.AI_IMAGE_ATTACH_SELECTED_ORIGINAL)
+                _ai_attach_image(p)  # taille selon le bouton 1024/REEL
             else:
                 _ai_attach_document_file(p)
         _select_surface("ia")
@@ -895,11 +894,14 @@ def build(ui):
         ai_image_mode_label.value = "REEL" if use_original else "1024"
         ai_image_mode_label.color = GREEN if use_original else BLUE
         ai_image_size_button.tooltip = (
-            "Mode images IA en taille réelle (fichier original) — "
-            "affecte uniquement les nouveaux fichiers joints"
-            if use_original else
-            "Mode images IA optimisé (1024px max) — "
-            "affecte uniquement les nouveaux fichiers joints")
+            "Images IA en taille réelle (fichier original)"
+            if use_original else "Images IA optimisées (1024 px max)")
+        # Images déjà jointes refaites à la nouvelle taille (retour user :
+        # on peut basculer avant ou après avoir joint).
+        paths = [e["path"] for e in ai_pending_images]
+        ai_pending_images.clear()
+        for p in paths:
+            _ai_attach_image(p, use_original)
         page.update()
 
     ai_image_size_button = ft.IconButton(
