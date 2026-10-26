@@ -186,9 +186,11 @@ class Handler(BaseHTTPRequestHandler):
         if not self._guard():
             return
         path, _, query = self.path.partition("?")
-        if path == "/":
-            with open(os.path.join(HERE, "claude.html"), "rb") as f:
-                return self._send(200, f.read(), "text/html")
+        if path in ("/", "/icon.png"):
+            name, ctype = (("claude.html", "text/html") if path == "/"
+                           else ("claude_icon.png", "image/png"))
+            with open(os.path.join(HERE, name), "rb") as f:
+                return self._send(200, f.read(), ctype)
         if not self._session_ok():
             return self._send(401, {"error": "PIN"})
         if path == "/poll":
