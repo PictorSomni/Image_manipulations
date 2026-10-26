@@ -556,6 +556,9 @@ def build(ui):
                               disabled=_liste_has_task(row),
                               on_click=lambda e: _liste_add_task(
                                   row, e.control)),
+                     *([_dlg_btn("Prévenir", color=MINT,
+                                 on_click=lambda e: _notify(row))]
+                       if row.get("email") else []),
                      _dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Enregistrer", "primary", on_click=_confirm)],
             # Marge mini garantie avec le haut/bas de l'écran (retour

@@ -632,7 +632,10 @@ function taskDetails(row) {
     seg(opts.map(([v, c]) => [v, v, c]), row[prop] || opts[0][0],
       v => { setProps(row, {[prop]: v}); taskDetails(row); }, true)]);
   openSheet([title, ...info,
-    ...flags, filesBox(row), notesBox(row), h("div", {class: "row"}, callBtn(row)),
+    ...flags, filesBox(row), notesBox(row), h("div", {class: "row"}, callBtn(row),
+      row["E-mail"] || row["Téléphone"] ? h("button", {class: "btn",
+        onclick: () => notifyClient(row)}, ic("mark_email_read"),
+        " Prévenir") : null),
     h("div", {class: "label"}, "État"),
     seg(ETATS.map(([e, c]) => [e, e, c]), row.Etat || "À faire", e => {
       closeSheet(); S.open = e;
