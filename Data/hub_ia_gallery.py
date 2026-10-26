@@ -524,8 +524,13 @@ def build(ui):
     # Images : même principe, le mode d'abord. Les modes « préréglés »
     # travaillent sur l'image jointe ; le texte tapé précise la demande.
     image_presets = [
-        ("Générer", ft.Icons.BRUSH, None, False, "Décris l'image à générer…"),
-        ("Modifier", ft.Icons.EDIT, None, True,
+        ("Générer", ft.Icons.BRUSH,
+         "Crée une nouvelle image. Si une image est jointe, sers-t'en "
+         "seulement comme référence (style, sujet, raccord) sans la "
+         "modifier.", False, "Décris l'image à générer…"),
+        ("Modifier", ft.Icons.EDIT,
+         "Modifie l'image jointe selon la demande, en gardant tout le "
+         "reste identique.", True,
          "Décris la modification de l'image jointe…"),
         ("Restaurer", ft.Icons.HEALING,
          "Restaure cette photo ancienne : retire rayures, taches et "
@@ -557,12 +562,14 @@ def build(ui):
         _label, _icon, preset, needs_img, _hint = image_presets[
             image_mode["i"]]
         text = (ai_input_field.value or "").strip()
-        if needs_img and ai_gal_selected:
+        if ai_gal_selected:
             _ai_gal_reuse()  # images cochées envoyées d'office
         if needs_img and not ai_pending_images:
             ai_status_text.value = "Coche d'abord une image"
             page.update()
             return
+        if not text and image_mode["i"] < 2:
+            return  # Générer / Modifier : la demande est obligatoire
         prompt = " ".join(x for x in (preset, text) if x)
         if not prompt:
             return
