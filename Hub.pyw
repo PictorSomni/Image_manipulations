@@ -58,6 +58,7 @@ import image_ops
 import ai_ops
 import thumb_cache
 import mcp_client
+import auto_update
 import notion_rest
 import meta_ai
 import credentials
@@ -10310,6 +10311,28 @@ print("[délai dépassé]")
         body,
     ], expand=True, spacing=0))
     _apply_titlebar_width()   # état initial : pas d'attente du 1er resize
+
+    def _auto_update():
+        done = auto_update.pull()
+        if not done:
+            return
+
+        async def _tell():
+            def _close(e):
+                dlg.open = False
+                page.update()
+            dlg = _dialog(
+                title=ft.Text("Hub mis à jour"),
+                content=ft.Text(f"{done[0]} → {done[1]}\n"
+                                "Relance Hub pour utiliser la nouvelle "
+                                "version.", color=WHITE),
+                actions=[_dlg_btn("OK", on_click=_close)])
+            page.overlay.append(dlg)
+            dlg.open = True
+            page.update()
+        _run_task(_tell)
+
+    threading.Thread(target=_auto_update, daemon=True).start()
 
     # Aucun dossier sélectionné au lancement -> restaure les onglets
     # laissés ouverts à la fermeture précédente (retour user : un
