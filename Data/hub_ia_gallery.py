@@ -660,6 +660,8 @@ def build(ui):
         ai_status_text)
 
     image_view.controls.insert(1, image_settings)
+    # 2e ligne de réglages sur toute la largeur, comme la barre.
+    image_view.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
     ia_surface = ft.Row([
         image_view,
         ft.VerticalDivider(width=24, thickness=2, color=GREY),
