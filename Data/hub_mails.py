@@ -11,6 +11,11 @@ import flet as ft
 import CONSTANTS
 import hub_sync
 
+# Le message de Charles, mot pour mot.
+READY = ("Bonjour,\n\nVotre commande est prête, vous pouvez venir la "
+         "chercher au magasin.\n\nA bientôt,\nStudio C")
+READY_TU = ("Bonjour,\n\nTa commande est prête, tu peux venir la "
+            "chercher au magasin.\n\nA bientôt,\nStudio C")
 TONES = [("professionnel et chaleureux", "Chaleureux"),
          ("professionnel et sobre", "Sobre"), ("très bref", "Bref")]
 
@@ -171,13 +176,9 @@ def build(ui):
         mail = (row.get("email") or "").strip()
         if not mail:
             return
-        what = row.get("demande") or ""
-        what = what.split(":", 1)[1].strip() if ":" in what else ""
 
         def _text(tu):
-            return ("Bonjour, " + ("ta" if tu else "votre") + " commande"
-                    + (f" ({what})" if what else "")
-                    + " est prête au Studio Cleuze. À bientôt !")
+            return READY_TU if tu else READY
         text = _field(value=_text(False), multiline=True, min_lines=3,
                       max_lines=8)
         status = ft.Text("", size=11, color=LIGHT_GREY)

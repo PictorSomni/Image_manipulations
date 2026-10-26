@@ -482,9 +482,10 @@ function replyMail(m) {
 function notifyClient(row) {
   const phone = row["Téléphone"], mail = row["E-mail"];
   if (!phone && !mail) return;
-  const what = (row.Demande || "").split(":").slice(1).join(":").trim();
-  const text = tu => "Bonjour, " + (tu ? "ta" : "votre") + " commande" +
-    (what ? ` (${what})` : "") + " est prête au Studio Cleuze. À bientôt !";
+  const text = tu => tu ? "Bonjour,\n\nTa commande est prête, tu peux " +
+    "venir la chercher au magasin.\n\nA bientôt,\nStudio C" :
+    "Bonjour,\n\nVotre commande est prête, vous pouvez venir la " +
+    "chercher au magasin.\n\nA bientôt,\nStudio C";
   const t = h("textarea", {rows: 4}, text(false));
   const send = h("button", {onclick: async () => {
     send.disabled = true; send.textContent = "Envoi…";

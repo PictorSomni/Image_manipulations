@@ -108,14 +108,6 @@ def reply(mid, text):
     _mark_done(mid)
 
 
-def ready_text(demande, tu=False):
-    """Message « commande prête » ; la demande est « Nom : travail »."""
-    what = demande.split(":", 1)[1].strip() if ":" in demande else ""
-    yours = "ta" if tu else "votre"
-    return (f"Bonjour, {yours} commande" + (f" ({what})" if what else "")
-            + " est prête au Studio Cleuze. À bientôt !")
-
-
 def call(req):
     """Point d'entrée de hub-sync (POST /mail) et de la webapp."""
     a = req["action"]
@@ -141,10 +133,6 @@ def call(req):
 
 
 if __name__ == "__main__":
-    assert ready_text("Hahimana : scan diapositives") == (
-        "Bonjour, votre commande (scan diapositives) est prête au Studio "
-        "Cleuze. À bientôt !")
-    assert "ta commande" in ready_text("x", tu=True)
     for bad in ("", "a@b", "x@y.be, z@w.be", "a b@c.be"):
         try:
             send(bad, "s", "t")
