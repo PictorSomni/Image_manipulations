@@ -5,6 +5,7 @@ rédigées à la demande de Charles, et « commande prête » aux clients.
 Rien ne part sans validation dans Hub ou la webapp. Tourne sur le Pi
 (mot de passe via `pass`) ; Hub y accède par hub-sync (POST /mail).
 """
+import html
 import imaplib
 import json
 import os
@@ -20,6 +21,8 @@ HOME = os.path.expanduser("~")
 MAILS = os.path.join(HOME, "briefing_mails.json")
 ADDRESS = "info@studiocleuze.be"
 HOST = "ex2.mail.ovh.net"
+LOGO = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                    "logo_mail.png")
 # Ajouté sous chaque mail envoyé (réponses et « commande prête »).
 FOOTER = ("\n\n--\nStudio C · Leuze · 081 51 17 57 · www.studiocleuze.be\n"
           "Ouvert de 9h30 à 12h15 et de 13h30 à 18h00\n"
@@ -88,7 +91,17 @@ def send(to, subject, text, reply_to=None):
     msg["Subject"] = subject
     if reply_to:
         msg["In-Reply-To"] = msg["References"] = reply_to
-    msg.set_content(text.rstrip() + FOOTER)
+    body = text.rstrip() + FOOTER
+    msg.set_content(body)
+    # Version HTML : même texte + logo sous la signature.
+    msg.add_alternative(
+        '<div style="font-family:sans-serif">'
+        + html.escape(body).replace("\n", "<br>")
+        + '<br><br><img src="cid:logo" width="220" alt="Studio C"></div>',
+        subtype="html")
+    with open(LOGO, "rb") as f:
+        msg.get_payload()[1].add_related(f.read(), "image", "png",
+                                         cid="<logo>")
     pw = _password()
     with smtplib.SMTP(HOST, 587, timeout=30) as smtp:
         smtp.starttls()
