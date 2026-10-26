@@ -66,6 +66,8 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
 </header>
 <main class="hide" id="log"></main>
 <footer class="hide">
+  <input id="files" type="file" multiple class="hide">
+  <button onclick="$('files').click()"><span class="ms">attach_file</span></button>
   <textarea id="msg" rows="1"></textarea>
   <button class="go" onclick="send()"><span class="ms">send</span></button>
 </footer>
@@ -132,9 +134,29 @@ async function poll() {
   } catch (e) {}
 }
 
+let attached = [];
+$("files").addEventListener("change", async () => {
+  for (const file of $("files").files) {
+    const note = add("tool", "Envoi de " + file.name + "…");
+    try {
+      const r = await fetch("/upload?n=" + encodeURIComponent(file.name),
+        {method: "POST", body: file, headers: {"X-Session": session}});
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || r.status);
+      attached.push(d.path);
+      note.textContent = "Joint : " + d.path;
+    } catch (e) { note.textContent = "Échec " + file.name + " : " + e.message; }
+  }
+  $("files").value = "";
+});
+
 async function send() {
-  const t = $("msg").value.trim();
-  if (!t) return;
+  let t = $("msg").value.trim();
+  if (!t && !attached.length) return;
+  if (attached.length) {
+    t = attached.map(p => `"${p}"`).join(" ") + (t ? "\n" + t : "");
+    attached = [];
+  }
   $("msg").value = ""; grow();
   try { await call("/send", {text: t}); } catch (e) { add("tool", e.message); }
 }

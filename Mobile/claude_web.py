@@ -22,9 +22,11 @@ import secrets
 import subprocess
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+INBOX = os.path.expanduser("~/hub_inbox")
 PIN_FILE = os.path.expanduser("~/.claude_web_pin")
 PORT = 8551
 IDLE = 30 * 24 * 3600
@@ -207,6 +209,31 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._guard():
             return
+        if self.path.startswith("/upload?"):
+            # Fichier joint (corps brut) → ~/hub_inbox, comme Hub.
+            if not self._session_ok():
+                return self._send(401, {"error": "PIN"})
+            name = os.path.basename(urllib.parse.unquote(
+                self.path.split("n=", 1)[-1])).lstrip(".") or "fichier"
+            size = int(self.headers.get("Content-Length", 0))
+            if size > 200_000_000:
+                return self._send(413, {"error": "trop gros"})
+            os.makedirs(INBOX, exist_ok=True)
+            dest = os.path.join(INBOX, name)
+            base, ext = os.path.splitext(dest)
+            n = 1
+            while os.path.exists(dest):
+                dest = f"{base}_{n}{ext}"
+                n += 1
+            with open(dest, "wb") as f:
+                left = size
+                while left:
+                    chunk = self.rfile.read(min(left, 1 << 20))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    left -= len(chunk)
+            return self._send(200, {"path": dest})
         try:
             data = self._body()
         except ValueError:
