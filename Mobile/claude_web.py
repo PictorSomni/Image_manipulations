@@ -173,10 +173,11 @@ class Handler(BaseHTTPRequestHandler):
             q = dict(p.split("=", 1) for p in query.split("&") if "=" in p)
             jl = _jsonl()
             if q.get("f") != os.path.basename(jl) or "pos" not in q:
-                # Premier appel (ou nouvelle conversation) : la fin.
+                # Premier appel (ou nouvelle conversation) : les derniers
+                # échanges (ligne coupée au début : ignorée par _events).
+                ev, pos = _events(jl, max(0, os.path.getsize(jl) - 400_000))
                 return self._send(200, {"f": os.path.basename(jl),
-                                        "pos": os.path.getsize(jl),
-                                        "ev": []})
+                                        "pos": pos, "ev": ev[-80:]})
             ev, pos = _events(jl, int(q["pos"]))
             return self._send(200, {"f": q["f"], "pos": pos, "ev": ev})
         if path == "/job":
