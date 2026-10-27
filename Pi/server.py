@@ -24,6 +24,7 @@ import threading
 import check_pi
 import tasks
 import mail_reply  # noqa: E402  (Data/ ajouté au chemin par tasks)
+import mail_watch  # noqa: E402
 
 ROOT = os.path.expanduser("~/hub_sync/data")
 KEY = open(os.path.expanduser("~/.hub_sync_key")).read().strip()
@@ -286,6 +287,7 @@ class H(http.server.BaseHTTPRequestHandler):
 os.makedirs(ROOT, exist_ok=True)
 threading.Thread(target=tasks.mirror_loop, daemon=True).start()
 threading.Thread(target=check_pi.loop, daemon=True).start()
+threading.Thread(target=mail_watch.loop, daemon=True).start()
 # Secours sur un autre ordinateur : HUB_SYNC_BIND = son adresse Tailscale.
 http.server.ThreadingHTTPServer(
     (os.environ.get("HUB_SYNC_BIND", "127.0.0.1"),
