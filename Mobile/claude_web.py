@@ -383,6 +383,9 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=_run_job, args=(name,),
                              daemon=True).start()
             return self._send(200, {"ok": True})
+        if self.path == "/hidden":  # page quittée : notifier tout de suite
+            _watch["seen"] = 0
+            return self._send(200, {"ok": True})
         if self.path == "/key":
             # Réponses aux demandes de permission / interruption.
             k = str(data.get("k"))
@@ -401,7 +404,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 # ── Notifications : fin de réponse, ou accord attendu ─────────────────
-# Seulement quand la page n'est pas ouverte (pas de /poll depuis 30 s).
+# Seulement quand la page n'est pas affichée (/hidden, ou pas de /poll
+# depuis 5 s).
 _watch = {"seen": 0}
 
 
@@ -421,7 +425,7 @@ def _watch_loop():
             # Accord demandé, ou confiance dans le dossier (redemandée à
             # chaque démarrage de Claude Code dans le dossier personnel).
             waiting = "Do you want" in pane or "trust" in pane
-            if time.time() - _watch["seen"] < 30:
+            if time.time() - _watch["seen"] < 5:
                 asked = waiting
                 continue
             texts = [e["t"] for e in ev if e["k"] == "text"]

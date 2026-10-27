@@ -132,6 +132,13 @@ async function call(path, body) {
   return d;
 }
 
+// App quittée : le Pi notifie dès maintenant, sans attendre.
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && session) fetch("/hidden", {method: "POST",
+    keepalive: true, body: "{}", headers: {"X-Session": session,
+    "Content-Type": "application/json"}}).catch(() => {});
+});
+
 function show(on) {
   $("login").classList.toggle("hide", on);
   for (const el of document.querySelectorAll("header, main, footer"))
