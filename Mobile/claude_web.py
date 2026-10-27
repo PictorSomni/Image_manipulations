@@ -208,6 +208,7 @@ def _run_job(name):
         _job["out"] = (_job["out"] + line)[-20000:]
     _job["code"] = p.wait()
     _job["done"] = True
+    _updates["at"] = 0  # la veille revérifie les MAJ dans les 4 s
 
 
 class Handler(BaseHTTPRequestHandler):
