@@ -167,7 +167,9 @@ def _check_updates():
     _sh(f"git -C {REPO} fetch -q")
     if _sh(f"git -C {REPO} rev-list --count HEAD..@{{u}}") not in ("", "0"):
         out.append(("Hub", "maj_hub"))
-    n = _sh("apt list --upgradable 2>/dev/null | grep -c upgradable")
+    # Paquets bloqués (apt-mark hold) : jamais mis à jour, on les ignore.
+    n = _sh("apt list --upgradable 2>/dev/null | grep upgradable | "
+            "grep -cvFf <(apt-mark showhold | sed 's|$|/|') || true")
     if n not in ("", "0"):
         out.append((f"Pi ({n} paquets)", "maj_pi"))
     _updates.update(list=out, at=time.time())
