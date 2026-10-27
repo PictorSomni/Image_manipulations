@@ -419,13 +419,17 @@ def _watch_loop():
 def serve():
     """Lancé en fil par mobile.py ; ne fait rien hors Tailscale."""
     global OWNER, MY_IP
-    try:
-        ip = MY_IP = _tailscale("ip", "-4").split()[0]
-        OWNER = _owner()
-    except (IndexError, ValueError, KeyError, OSError,
-            subprocess.SubprocessError) as exc:
-        print(f"[Claude web] Tailscale indisponible : {exc}", flush=True)
-        return
+    # Au démarrage du Pi, Tailscale peut ne pas être prêt : on réessaie.
+    while True:
+        try:
+            ip = MY_IP = _tailscale("ip", "-4").split()[0]
+            OWNER = _owner()
+            break
+        except (IndexError, ValueError, KeyError, OSError,
+                subprocess.SubprocessError) as exc:
+            print(f"[Claude web] Tailscale indisponible : {exc}",
+                  flush=True)
+            time.sleep(15)
     threading.Thread(target=_watch_loop, daemon=True).start()
     ThreadingHTTPServer((ip, PORT), Handler).serve_forever()
 
