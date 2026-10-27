@@ -157,8 +157,10 @@ async function login() {
   } catch (e) { $("err").textContent = e.message; }
 }
 
+let follow = 0;  // après un envoi : le fil suit, même si on était plus haut
 function add(cls, text) {
-  const near = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+  const near = log.scrollHeight - log.scrollTop - log.clientHeight < 80
+    || Date.now() - follow < 20000;
   const el = document.createElement(cls === "pre" ? "pre" : "div");
   el.className = cls === "pre" ? "" : "m " + cls;
   if (cls === "text")  // Markdown léger : gras et code
@@ -220,7 +222,8 @@ async function send() {
     attached = [];
   }
   $("msg").value = ""; grow();
-  sent = Date.now(); busy("Envoi…");
+  sent = follow = Date.now(); busy("Envoi…");
+  log.scrollTop = log.scrollHeight;
   try { await call("/send", {text: t}); } catch (e) { add("tool", e.message); }
 }
 
