@@ -81,9 +81,13 @@ def _events(path, pos):
     out = []
     for line in chunk[:end].splitlines():
         try:
-            m = json.loads(line).get("message") or {}
+            obj = json.loads(line)
         except ValueError:
             continue
+        # Copies internes (« api-request-blob »…) : seuls user/assistant.
+        if obj.get("type") not in ("user", "assistant"):
+            continue
+        m = obj.get("message") or {}
         u = m.get("usage")
         if u:  # taille du contexte au dernier appel du modèle
             out.append({"k": "ctx", "n": u.get("input_tokens", 0)
