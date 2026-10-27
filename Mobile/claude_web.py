@@ -107,14 +107,6 @@ def _events(path, pos):
                 out.append({"k": "text", "t": b["text"]})
             elif b.get("type") == "thinking" and b.get("thinking"):
                 out.append({"k": "think", "t": b["thinking"].strip()})
-            elif b.get("type") == "tool_use" and \
-                    b.get("name") == "AskUserQuestion":
-                # Questions à choix : boutons dans la page (touches 1-9).
-                out.append({"k": "ask", "q": [
-                    {"t": q.get("question", ""),
-                     "o": [o.get("label", "") for o in q.get("options", [])],
-                     "multi": bool(q.get("multiSelect"))}
-                    for q in (b.get("input") or {}).get("questions", [])]})
             elif b.get("type") == "tool_use":
                 i = b.get("input") or {}
                 what = (i.get("description") or i.get("command")
@@ -181,6 +173,20 @@ def _check_updates():
     if n not in ("", "0"):
         out.append((f"Pi ({n} paquets)", "maj_pi"))
     _updates.update(list=out, at=time.time())
+
+
+ASK = os.path.expanduser("~/.claude_ask.json")
+
+
+def _ask(pane):
+    """Question à choix en attente (déposée par Pi/ask_hook.py), ou None."""
+    if "Esc to cancel" not in pane:
+        return None
+    try:
+        with open(ASK, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
 
 
 def _tmux(*keys, literal=False):
@@ -302,7 +308,8 @@ class Handler(BaseHTTPRequestHandler):
             if "Restart to update" in pane:  # MAJ installée, pas chargée
                 upd.insert(0, ("Claude installé", "relancer_claude"))
             return self._send(200, {"f": q["f"], "pos": pos, "ev": ev,
-                                    "busy": _busy(pane), "upd": upd})
+                                    "busy": _busy(pane), "upd": upd,
+                                    "ask": _ask(pane)})
         if path == "/job":
             return self._send(200, _job)
         if path == "/screen":
@@ -389,6 +396,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/key":
             # Réponses aux demandes de permission / interruption.
             k = str(data.get("k"))
+            pane = _pane()
+            if k in ("oui", "non") and "Esc to cancel" not in pane \
+                    and "Do you want" not in pane and "trust" not in pane:
+                # Rien à valider : « oui » / « non » envoyés comme message.
+                _tmux(k, literal=True)
+                time.sleep(0.2)
+                _tmux("Enter")
+                return self._send(200, {"ok": True})
             key = {"oui": "Enter", "non": "Escape", "stop": "Escape",
                    "entree": "Enter"}.get(k) or (k if k in "123456789"
                                                  and len(k) == 1 else None)
@@ -432,10 +447,11 @@ def _watch_loop():
             if any(e["k"] == "end" for e in ev):
                 push.send("Claude a répondu",
                           texts[-1] if texts else "Réponse prête")
-            for e in ev:
-                if e["k"] == "ask" and e["q"]:
-                    push.send("Claude te pose une question",
-                              e["q"][0]["t"][:200])
+            ask = _ask(pane)
+            if ask and ask["at"] != _watch.get("ask") and ask["q"]:
+                _watch["ask"] = ask["at"]
+                push.send("Claude te pose une question",
+                          ask["q"][0]["t"][:200])
             if waiting and not asked:
                 push.send("Claude attend ton accord",
                           pane.strip().splitlines()[-1][:200]

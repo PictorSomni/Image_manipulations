@@ -180,6 +180,7 @@ async function poll() {
     f = d.f; pos = d.pos;
     if (d.max) CTX_MAX = d.max;
     if (d.upd) upd(d.upd);
+    if ("ask" in d) showAsk(d.ask);
     if ("busy" in d) {
       if (d.busy) sent = 0;
       busy(d.busy || (Date.now() - sent < 15000 ? "Envoi…" : ""));
@@ -189,7 +190,6 @@ async function poll() {
       else if (e.k === "text") { add("text", e.t); if (live) say(e.t); }
       else if (e.k === "think") add("think", e.t);
       else if (e.k === "tool") add("tool", e.t);
-      else if (e.k === "ask") ask(e.q, live);
       else if (e.k === "ctx") ctx(e.n);
       else if (e.k === "end") sent = 0;
     }
@@ -227,6 +227,14 @@ async function send() {
 // Questions à choix de Claude : un bouton par réponse (touche 1-9 dans
 // le terminal), « Autre » pour du texte libre, puis « Valider » s'il y a
 // plusieurs questions ou des choix multiples.
+let askAt = null, askBox = null;
+function showAsk(a) {
+  if ((a && a.at) === askAt) return;
+  askAt = a && a.at;
+  if (askBox) { askBox.remove(); askBox = null; }
+  if (a) askBox = ask(a.q, true);
+}
+
 function ask(qs, live) {
   const box = add("tool", "");
   box.textContent = "";
@@ -257,6 +265,7 @@ function ask(qs, live) {
     v.onclick = () => { key("entree"); v.disabled = true; };
     box.append(v);
   }
+  return box;
 }
 
 async function key(k) {
