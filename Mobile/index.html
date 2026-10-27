@@ -433,6 +433,21 @@ function newTask() {
   setTimeout(() => t.focus(), 50);
 }
 
+// Pièces jointes d'un mail (photos en vignettes, le reste en liens).
+function mailFiles(id) {
+  const box = h("div", {class: "box"}, "Pièces jointes…");
+  const url = n => `/api/file?id=${id}&n=${encodeURIComponent(n)}`;
+  api("/api/files?id=" + id).catch(() => []).then(names =>
+    box.replaceChildren(...names.map(n => h("a", {href: url(n),
+      target: "_blank", style: {display: "block", color: "inherit",
+      overflowWrap: "anywhere", margin: "4px 0"}},
+      /\.(jpe?g|png|gif|webp|heic)$/i.test(n)
+        ? h("img", {src: url(n), style: {maxWidth: "100%",
+            borderRadius: "8px"}})
+        : [ic("attach_file"), " " + n]))));
+  return box;
+}
+
 function replyMail(m) {
   const o = {tu: false, tone: "professionnel et chaleureux"};
   const choice = (key, opts) => {  // seg qui se redessine au choix
@@ -469,6 +484,7 @@ function replyMail(m) {
   }}, ic("done"), " Ignorer");
   openSheet([h("b", {}, m.subject || "(sans sujet)"),
     h("div", {class: "muted"}, m.from), md(m.body || ""),
+    m.files_id ? mailFiles(m.files_id) : null,
     h("div", {class: "label"}, "Adresse"),
     choice("tu", [[false, "Vous"], [true, "Tu"]]),
     h("div", {class: "label"}, "Ton"),

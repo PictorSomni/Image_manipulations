@@ -4,6 +4,8 @@ Tout passe par le Pi (hub_sync.mail → Data/mail_reply.py) ; rien n'est
 envoyé sans clic sur « Envoyer ».
 """
 import datetime
+import os
+import tempfile
 import threading
 
 import flet as ft
@@ -60,6 +62,30 @@ def build(ui):
         return ft.TextField(width=560, bgcolor=DARK, color=WHITE,
                             border=CONSTANTS.input_border(GREY), **kw)
 
+    def _mail_files(fid):
+        """Pièces jointes du mail : un bouton par fichier, ouvert dans
+        l'application par défaut après téléchargement depuis le Pi."""
+        row = ft.Row([], wrap=True, spacing=6)
+        folder = os.path.join(tempfile.gettempdir(), "hub_mail_files", fid)
+
+        def _open(name):
+            def work():
+                os.makedirs(folder, exist_ok=True)
+                path = os.path.join(folder, name)
+                with open(path, "wb") as f:
+                    f.write(hub_sync.file_req("GET", fid, name))
+                ui._open_file_default(path)
+            _bg(work, lambda out: None)
+
+        def _listed(names):
+            if isinstance(names, Exception):
+                names = []
+            row.controls = [ft.TextButton(
+                n, icon=ft.Icons.ATTACH_FILE,
+                on_click=lambda e, n=n: _open(n)) for n in names]
+        _bg(lambda: hub_sync.list_files(fid), _listed)
+        return row
+
     # ── Réponse à un mail ────────────────────────────────────────────────
     def open_reply(m, on_done=None):
         o = {"tu": False, "tone": TONES[0][0]}
@@ -108,6 +134,8 @@ def build(ui):
             content=ft.Column([
                 ft.Text(m.get("from", ""), size=11, color=LIGHT_GREY),
                 ft.Text(m.get("body", ""), color=WHITE, selectable=True),
+                *([_mail_files(m["files_id"])] if m.get("files_id")
+                  else []),
                 ft.Divider(height=1, color=GREY),
                 _seg([(False, "Vous"), (True, "Tu")],
                      lambda v: o.update(tu=v)),

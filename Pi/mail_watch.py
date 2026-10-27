@@ -11,6 +11,7 @@ import email
 import email.header
 import email.policy
 import email.utils
+import hashlib
 import html
 import imaplib
 import json
@@ -26,6 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(
     os.path.realpath(__file__))), "Mobile"))
 import push  # noqa: E402
 
+FILES = os.path.expanduser("~/task_files")
 STATE = os.path.expanduser("~/.mail_watch.json")
 CLAUDE = os.path.expanduser("~/.local/bin/claude")
 CWD = os.path.expanduser("~/hub_sync/claude_cwd")
@@ -72,6 +74,26 @@ def _text(msg):
     text = re.split(r"\n(?:Le .{5,80} a écrit|On .{5,80} wrote|De ?: )",
                     text)[0]
     return re.sub(r"[ \t]+", " ", re.sub(r"\n\s*\n+", "\n\n", text)).strip()
+
+
+def _save_files(msg, mid):
+    """Pièces jointes (photos, PDF…) dans ~/task_files/<id>, servies par
+    /files comme celles des tâches. Renvoie l'id, ou "" s'il n'y en a
+    pas. Les petites images de signature sont ignorées."""
+    fid = hashlib.md5(mid.encode()).hexdigest()
+    folder, n = os.path.join(FILES, fid), 0
+    for part in msg.iter_attachments():
+        data = part.get_payload(decode=True) or b""
+        name = os.path.basename(part.get_filename() or "")
+        if not name or name.startswith(".") or len(name) > 150 or (
+                part.get_content_maintype() == "image"
+                and len(data) < 15000):
+            continue
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, name), "wb") as f:
+            f.write(data)
+        n += 1
+    return fid if n else ""
 
 
 def _new_mails():
@@ -128,7 +150,8 @@ def run():
         summary = verdict.get("summary") or subject
         pending.append({"message_id": mid, "from": addr,
                         "name": name or addr, "subject": subject,
-                        "summary": summary, "body": body[:4000]})
+                        "summary": summary, "body": body[:4000],
+                        "files_id": _save_files(msg, mid)})
         known.add(mid)
         title = ("URGENT : " if verdict.get("urgent") else "Mail : ") \
             + (name or addr)
