@@ -62,29 +62,52 @@ def build(ui):
         return ft.TextField(width=560, bgcolor=DARK, color=WHITE,
                             border=CONSTANTS.input_border(GREY), **kw)
 
-    def _mail_files(fid):
-        """Pièces jointes du mail : un bouton par fichier, ouvert dans
-        l'application par défaut après téléchargement depuis le Pi."""
-        row = ft.Row([], wrap=True, spacing=6)
-        folder = os.path.join(tempfile.gettempdir(), "hub_mail_files", fid)
+    def _mail_files(m):
+        """Pièces jointes du mail : un bouton par fichier (ouvert dans
+        l'application par défaut) et « Enregistrer » dans un dossier."""
+        fid = m["files_id"]
+        files = ft.Row([], wrap=True, spacing=6)
+        temp = os.path.join(tempfile.gettempdir(), "hub_mail_files", fid)
+        status = ft.Text("", size=11, color=LIGHT_GREY)
 
-        def _open(name):
-            def work():
-                os.makedirs(folder, exist_ok=True)
-                path = os.path.join(folder, name)
-                with open(path, "wb") as f:
-                    f.write(hub_sync.file_req("GET", fid, name))
-                ui._open_file_default(path)
-            _bg(work, lambda out: None)
+        def _download(folder, names):
+            os.makedirs(folder, exist_ok=True)
+            for n in names:
+                with open(os.path.join(folder, n), "wb") as f:
+                    f.write(hub_sync.file_req("GET", fid, n))
+            return folder
+
+        def _open(n):
+            _bg(lambda: _download(temp, [n]), lambda out: isinstance(
+                out, Exception) or ui._open_file_default(
+                    os.path.join(out, n)))
+
+        def _saved(out):
+            if isinstance(out, Exception):
+                status.value = f"Erreur : {out}"
+                return
+            status.value = f"Enregistré dans {out}"
+            ui._open_file_default(out)
+
+        async def _save(e):
+            folder = await ft.FilePicker().get_directory_path(
+                dialog_title="Enregistrer les pièces jointes dans")
+            if folder:
+                status.value = "Téléchargement…"
+                page.update()
+                names = [c.data for c in files.controls]
+                _bg(lambda: _download(folder, names), _saved)
 
         def _listed(names):
             if isinstance(names, Exception):
                 names = []
-            row.controls = [ft.TextButton(
-                n, icon=ft.Icons.ATTACH_FILE,
+            files.controls = [ft.TextButton(
+                n, icon=ft.Icons.ATTACH_FILE, data=n,
                 on_click=lambda e, n=n: _open(n)) for n in names]
         _bg(lambda: hub_sync.list_files(fid), _listed)
-        return row
+        return ft.Column([files, ft.TextButton(
+            "Enregistrer", icon=ft.Icons.DOWNLOAD, on_click=_save),
+            status], spacing=4, tight=True)
 
     # ── Réponse à un mail ────────────────────────────────────────────────
     def open_reply(m, on_done=None):
@@ -134,7 +157,7 @@ def build(ui):
             content=ft.Column([
                 ft.Text(m.get("from", ""), size=11, color=LIGHT_GREY),
                 ft.Text(m.get("body", ""), color=WHITE, selectable=True),
-                *([_mail_files(m["files_id"])] if m.get("files_id")
+                *([_mail_files(m)] if m.get("files_id")
                   else []),
                 ft.Divider(height=1, color=GREY),
                 _seg([(False, "Vous"), (True, "Tu")],
