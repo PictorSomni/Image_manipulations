@@ -25,6 +25,8 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import push
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 INBOX = os.path.expanduser("~/hub_inbox")
 PIN_FILE = os.path.expanduser("~/.claude_web_pin")
@@ -177,7 +179,12 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(min(n, 200_000)) or b"{}")
 
     def _guard(self):
-        if not _is_owner(self.client_address[0]):
+        ip = self.client_address[0]
+        if ip == MY_IP:  # via « tailscale serve » (HTTPS) : identité en tête
+            ok = self.headers.get("Tailscale-User-Login") == OWNER
+        else:
+            ok = _is_owner(ip)
+        if not ok:
             self._send(403, {"error": "appareil refusé"})
             return False
         return True
@@ -186,14 +193,21 @@ class Handler(BaseHTTPRequestHandler):
         if not self._guard():
             return
         path, _, query = self.path.partition("?")
-        if path in ("/", "/icon.png"):
-            name, ctype = (("claude.html", "text/html") if path == "/"
-                           else ("claude_icon.png", "image/png"))
+        static = {"/": ("claude.html", "text/html"),
+                  "/icon.png": ("claude_icon.png", "image/png"),
+                  "/sw.js": ("claude_sw.js", "text/javascript"),
+                  "/manifest.json": ("claude_manifest.json",
+                                     "application/manifest+json")}
+        if path in static:
+            name, ctype = static[path]
             with open(os.path.join(HERE, name), "rb") as f:
                 return self._send(200, f.read(), ctype)
         if not self._session_ok():
             return self._send(401, {"error": "PIN"})
+        if path == "/vapid":
+            return self._send(200, {"key": push.public_key()})
         if path == "/poll":
+            _watch["seen"] = time.time()
             q = dict(p.split("=", 1) for p in query.split("&") if "=" in p)
             jl = _jsonl()
             if q.get("f") != os.path.basename(jl) or "pos" not in q:
@@ -265,6 +279,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"session": tok})
         if not self._session_ok():
             return self._send(401, {"error": "PIN"})
+        if self.path == "/subscribe":
+            push.subscribe(data)
+            push.send("Claude", "Notifications activées")
+            return self._send(200, {"ok": True})
         if self.path == "/send":
             text = str(data.get("text", "")).strip()
             if text:
@@ -293,17 +311,53 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {"error": "inconnu"})
 
 
+# ── Notifications : fin de réponse, ou accord attendu ─────────────────
+# Seulement quand la page n'est pas ouverte (pas de /poll depuis 30 s).
+_watch = {"seen": 0}
+
+
+def _watch_loop():
+    jl = _jsonl()
+    pos, asked = os.path.getsize(jl), False
+    while True:
+        time.sleep(4)
+        try:
+            if _jsonl() != jl:
+                jl = _jsonl()
+                pos = os.path.getsize(jl)
+            ev, pos = _events(jl, pos)
+            pane = subprocess.run(
+                ["tmux", "capture-pane", "-p", "-t", "claude"],
+                capture_output=True, text=True, timeout=10).stdout
+            waiting = "Do you want" in pane
+            if time.time() - _watch["seen"] < 30:
+                asked = waiting
+                continue
+            texts = [e["t"] for e in ev if e["k"] == "text"]
+            if any(e["k"] == "end" for e in ev):
+                push.send("Claude a répondu",
+                          texts[-1] if texts else "Réponse prête")
+            if waiting and not asked:
+                push.send("Claude attend ton accord",
+                          pane.strip().splitlines()[-1][:200]
+                          if pane.strip() else "")
+            asked = waiting
+        except Exception as exc:  # ne doit jamais arrêter la webapp
+            print(f"[Claude web] veille : {exc}", flush=True)
+
+
 def serve():
     """Lancé en fil par mobile.py ; ne fait rien hors Tailscale."""
-    global OWNER
+    global OWNER, MY_IP
     try:
-        ip = _tailscale("ip", "-4").split()[0]
+        ip = MY_IP = _tailscale("ip", "-4").split()[0]
         OWNER = _owner()
     except (IndexError, ValueError, KeyError, OSError,
             subprocess.SubprocessError) as exc:
         print(f"[Claude web] Tailscale indisponible : {exc}", flush=True)
         return
+    threading.Thread(target=_watch_loop, daemon=True).start()
     ThreadingHTTPServer((ip, PORT), Handler).serve_forever()
 
 
-OWNER = None
+OWNER = MY_IP = None

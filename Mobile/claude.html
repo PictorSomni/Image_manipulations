@@ -10,6 +10,7 @@
 <title>Claude</title>
 <link rel="apple-touch-icon" href="/icon.png">
 <link rel="icon" href="/icon.png">
+<link rel="manifest" href="/manifest.json">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=block">
 <style>
 :root { --dark: #222429; --bg: #373d4a; --card: #2C3038; --grey: #9399A6;
@@ -80,6 +81,7 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
   <button onclick="key('stop')"><span class="ms">stop</span> Stop</button>
   <button onclick="grill()"><span class="ms">lightbulb</span> Brainstorming</button>
   <button id="tts" onclick="toggleTts()"><span class="ms">volume_off</span> Lecture</button>
+  <button onclick="notifs()"><span class="ms">notifications</span> Notifs</button>
   <button onclick="screen()"><span class="ms">terminal</span> Écran</button>
   <button onclick="act('bilan', 'Bilan du Pi')"><span class="ms">monitor_heart</span> Bilan</button>
   <button onclick="act('maj_pi', 'Mettre à jour le Pi')"><span class="ms">system_update</span> MAJ Pi</button>
@@ -93,6 +95,7 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
   <input id="files" type="file" multiple class="hide">
   <button onclick="$('files').click()"><span class="ms">attach_file</span></button>
   <textarea id="msg" rows="1"></textarea>
+  <button id="mic" onclick="mic()"><span class="ms">mic</span></button>
   <button class="go" onclick="send()"><span class="ms">send</span></button>
 </footer>
 <script>
@@ -261,6 +264,49 @@ log.addEventListener("click", e => {  // toucher une réponse = la relire
   if (m) { speechSynthesis.cancel(); const t = tts; tts = true;
     say(m.textContent); tts = t; }
 });
+
+// Notifications sur l'iPhone et la montre (page en HTTPS, ajoutée à
+// l'écran d'accueil) : Claude a répondu, ou attend ton accord.
+async function notifs() {
+  if (!window.isSecureContext || !("serviceWorker" in navigator))
+    return add("tool", "Notifications : ouvre la page en HTTPS " +
+      "(https://pictorsomni.taild63b02.ts.net:10000) et ajoute-la à " +
+      "l'écran d'accueil.");
+  try {
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    if (await Notification.requestPermission() !== "granted")
+      return add("tool", "Notifications refusées dans les réglages.");
+    const key = (await call("/vapid")).key;
+    const raw = Uint8Array.from(atob(key.replace(/-/g, "+")
+      .replace(/_/g, "/")), c => c.charCodeAt(0));
+    const sub = await reg.pushManager.subscribe({userVisibleOnly: true,
+      applicationServerKey: raw});
+    await call("/subscribe", sub.toJSON());
+    add("tool", "Notifications activées sur cet appareil.");
+  } catch (e) { add("tool", "Notifications : " + e.message); }
+}
+
+// Dictée sans clavier (reconnaissance vocale de Safari, HTTPS requis).
+let rec = null;
+function mic() {
+  if (rec) return rec.stop();
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR || !window.isSecureContext)
+    return add("tool", "Dictée : ouvre la page en HTTPS " +
+      "(https://pictorsomni.taild63b02.ts.net:10000).");
+  const before = $("msg").value ? $("msg").value.trimEnd() + " " : "";
+  rec = new SR();
+  rec.lang = "fr-FR"; rec.continuous = true; rec.interimResults = true;
+  rec.onresult = e => {
+    $("msg").value = before + Array.from(e.results, r => r[0].transcript)
+      .join(""); grow();
+  };
+  rec.onend = () => { rec = null; $("mic").classList.remove("go"); };
+  rec.onerror = e => add("tool", "Dictée : " + e.error);
+  speechSynthesis.cancel();  // ne pas s'entendre soi-même
+  rec.start();
+  $("mic").classList.add("go");
+}
 
 function drawer(open) {
   const hd = document.querySelector("header");
