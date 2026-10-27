@@ -113,6 +113,16 @@ def _events(path, pos):
     return out, pos
 
 
+def _ctx_max():
+    """Seuil de compactage auto de Claude Code (réglages du Pi)."""
+    try:
+        with open(os.path.expanduser("~/.claude/settings.json"),
+                  encoding="utf-8") as f:
+            return int(json.load(f).get("autoCompactWindow", 1_000_000))
+    except (OSError, ValueError):
+        return 1_000_000
+
+
 def _tmux(*keys, literal=False):
     subprocess.run(["tmux", "send-keys", "-t", "claude",
                     *(["-l"] if literal else []), *keys], timeout=10)
@@ -220,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
                 ev, pos = _events(jl, max(0, os.path.getsize(jl) - 400_000))
                 ctx = [e for e in ev if e["k"] == "ctx"][-1:]
                 return self._send(200, {"f": os.path.basename(jl),
-                                        "pos": pos,
+                                        "pos": pos, "max": _ctx_max(),
                                         "ev": ctx + [e for e in ev if
                                                      e["k"] != "ctx"][-80:]})
             ev, pos = _events(jl, int(q["pos"]))

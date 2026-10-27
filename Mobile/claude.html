@@ -153,6 +153,7 @@ async function poll() {
     if (d.f !== f && f) add("think", "— nouvelle conversation —");
     const live = pos !== null;  // pas de lecture de l'historique
     f = d.f; pos = d.pos;
+    if (d.max) CTX_MAX = d.max;
     for (const e of d.ev) {
       if (e.k === "user") add("user", e.t);
       else if (e.k === "text") { add("text", e.t); if (live) say(e.t); }
@@ -191,7 +192,7 @@ async function send() {
 }
 
 async function key(k) {
-  try { await call("/key", {k}); setTimeout(screen, 800); }
+  try { await call("/key", {k}); }
   catch (e) { add("tool", e.message); }
 }
 
@@ -217,7 +218,7 @@ async function act(name, label) {
   }, 1500);
 }
 
-const CTX_MAX = 1000000;  // fenêtre de contexte du modèle (1 M)
+let CTX_MAX = 200000;  // seuil de compactage auto, envoyé par /poll
 function ctx(n) {
   const p = Math.min(100, n * 100 / CTX_MAX);
   $("ctxt").textContent = `Contexte : ${Math.round(n / 1000)} k (${Math.round(p)} %)`;
