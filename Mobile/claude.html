@@ -56,6 +56,16 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
 #login { margin: 30vh auto 0; max-width: 260px; display: flex;
   flex-direction: column; gap: 10px; text-align: center; }
 .hide { display: none !important; }
+#upd { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
+#upd button { color: var(--orange); font-size: 14px; }
+#busy { padding: 6px 16px; font-size: 13px; color: var(--grey);
+  background: var(--bg); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }
+#busy .bar { height: 3px; border-radius: 2px; background: var(--dark);
+  overflow: hidden; margin-bottom: 5px; }
+#busy .bar i { display: block; width: 30%; height: 100%;
+  background: var(--blue); animation: slide 1.2s ease-in-out infinite; }
+@keyframes slide { from { margin-left: -30%; } to { margin-left: 100%; } }
 /* Téléphone : boutons rangés dans un tiroir, ouvert par « Outils ». */
 #drawer { display: none; }
 @media (max-width: 700px) {
@@ -76,6 +86,7 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
     <div class="bar"><i id="ctxb" style="width: 0"></i></div>
     <button onclick="compact()"><span class="ms">compress</span> Compacter</button>
     <button id="drawer" onclick="drawer()"><span class="ms">menu</span></button></div>
+  <div id="upd"></div>
   <button onclick="key('oui')"><span class="ms">check</span> Oui</button>
   <button onclick="key('non')"><span class="ms">close</span> Non</button>
   <button onclick="key('stop')"><span class="ms">stop</span> Stop</button>
@@ -92,6 +103,7 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
   <button class="warn" onclick="act('reboot', 'Redémarrer le Pi')"><span class="ms">power_settings_new</span> Redémarrer</button>
 </header>
 <main class="hide" id="log"></main>
+<div id="busy" class="hide"><div class="bar"><i></i></div><span></span></div>
 <footer class="hide">
   <input id="files" type="file" multiple class="hide">
   <button onclick="$('files').click()"><span class="ms">attach_file</span></button>
@@ -154,12 +166,18 @@ async function poll() {
     const live = pos !== null;  // pas de lecture de l'historique
     f = d.f; pos = d.pos;
     if (d.max) CTX_MAX = d.max;
+    if (d.upd) upd(d.upd);
+    if ("busy" in d) {
+      if (d.busy) sent = 0;
+      busy(d.busy || (Date.now() - sent < 15000 ? "Envoi…" : ""));
+    }
     for (const e of d.ev) {
       if (e.k === "user") add("user", e.t);
       else if (e.k === "text") { add("text", e.t); if (live) say(e.t); }
       else if (e.k === "think") add("think", e.t);
       else if (e.k === "tool") add("tool", e.t);
       else if (e.k === "ctx") ctx(e.n);
+      else if (e.k === "end") sent = 0;
     }
   } catch (e) {}
 }
@@ -188,6 +206,7 @@ async function send() {
     attached = [];
   }
   $("msg").value = ""; grow();
+  sent = Date.now(); busy("Envoi…");
   try { await call("/send", {text: t}); } catch (e) { add("tool", e.message); }
 }
 
@@ -216,6 +235,28 @@ async function act(name, label) {
       }
     } catch (e) {}  // webapp relancée : on réessaie
   }, 1500);
+}
+
+// Claude au travail : barre animée + sa ligne d'activité (« Réflexion… »).
+// Juste après un envoi, « Envoi… » couvre le temps que Claude démarre.
+let sent = 0;
+function busy(t) {
+  $("busy").classList.toggle("hide", !t);
+  $("busy").querySelector("span").textContent = t;
+}
+
+// Mises à jour en attente (vérifiées par le Pi) : un bouton chacune.
+let updKey = "";
+function upd(list) {
+  if (JSON.stringify(list) === updKey) return;
+  updKey = JSON.stringify(list);
+  $("upd").replaceChildren(...list.map(([t, a]) => {
+    const b = document.createElement("button");
+    b.innerHTML = `<span class="ms">upgrade</span> MAJ ${t}`;
+    b.onclick = () => act(a, a === "relancer_claude" ?
+      "Relancer Claude pour finir sa mise à jour" : "Mettre à jour " + t);
+    return b;
+  }));
 }
 
 let CTX_MAX = 200000;  // seuil de compactage auto, envoyé par /poll

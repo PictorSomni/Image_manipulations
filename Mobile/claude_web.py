@@ -18,11 +18,13 @@ import glob
 import hmac
 import json
 import os
+import re
 import secrets
 import subprocess
 import threading
 import time
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import push
@@ -94,7 +96,10 @@ def _events(path, pos):
                         + u.get("cache_read_input_tokens", 0)
                         + u.get("cache_creation_input_tokens", 0)})
         if m.get("role") == "user" and isinstance(m.get("content"), str):
-            out.append({"k": "user", "t": m["content"]})
+            # Long message collé par tmux : Claude Code l'entoure de
+            # balises <pasted_content id=…>, inutiles à l'affichage.
+            out.append({"k": "user", "t": re.sub(
+                r"</?pasted_content[^>]*>\n?", "", m["content"]).strip()})
         if m.get("role") != "assistant":
             continue
         for b in m.get("content") or []:
@@ -121,6 +126,51 @@ def _ctx_max():
             return int(json.load(f).get("autoCompactWindow", 1_000_000))
     except (OSError, ValueError):
         return 1_000_000
+
+
+def _pane():
+    return subprocess.run(["tmux", "capture-pane", "-p", "-t", "claude"],
+                          capture_output=True, text=True, timeout=10).stdout
+
+
+# Ligne d'activité de Claude Code (« ✶ Jitterbugging… (22s · …) »).
+_BUSY = re.compile(r"^\S \S.*… \(\d+[smh]")
+
+
+def _busy(pane):
+    for line in reversed(pane.splitlines()):
+        if _BUSY.match(line.strip()):
+            return line.strip()
+    return ""
+
+
+# Mises à jour en attente, revérifiées toutes les 3 h : [(texte, action)].
+_updates = {"list": [], "at": 0}
+
+
+def _sh(cmd):
+    return subprocess.run(["bash", "-lc", cmd], capture_output=True,
+                          text=True, timeout=120).stdout.strip()
+
+
+def _check_updates():
+    out = []
+    try:
+        with urllib.request.urlopen("https://registry.npmjs.org/"
+                                    "@anthropic-ai/claude-code/latest",
+                                    timeout=20) as r:
+            last = json.load(r)["version"]
+        if _sh(f"{CLAUDE} --version").split()[0] != last:
+            out.append((f"Claude {last}", "maj_claude"))
+    except (OSError, ValueError, KeyError, IndexError):
+        pass
+    _sh(f"git -C {REPO} fetch -q")
+    if _sh(f"git -C {REPO} rev-list --count HEAD..@{{u}}") not in ("", "0"):
+        out.append(("Hub", "maj_hub"))
+    n = _sh("apt list --upgradable 2>/dev/null | grep -c upgradable")
+    if n not in ("", "0"):
+        out.append((f"Pi ({n} paquets)", "maj_pi"))
+    _updates.update(list=out, at=time.time())
 
 
 def _tmux(*keys, literal=False):
@@ -234,7 +284,12 @@ class Handler(BaseHTTPRequestHandler):
                                         "ev": ctx + [e for e in ev if
                                                      e["k"] != "ctx"][-80:]})
             ev, pos = _events(jl, int(q["pos"]))
-            return self._send(200, {"f": q["f"], "pos": pos, "ev": ev})
+            pane = _pane()
+            upd = list(_updates["list"])
+            if "Restart to update" in pane:  # MAJ installée, pas chargée
+                upd.insert(0, ("Claude installé", "relancer_claude"))
+            return self._send(200, {"f": q["f"], "pos": pos, "ev": ev,
+                                    "busy": _busy(pane), "upd": upd})
         if path == "/job":
             return self._send(200, _job)
         if path == "/screen":
@@ -340,9 +395,9 @@ def _watch_loop():
                 jl = _jsonl()
                 pos = os.path.getsize(jl)
             ev, pos = _events(jl, pos)
-            pane = subprocess.run(
-                ["tmux", "capture-pane", "-p", "-t", "claude"],
-                capture_output=True, text=True, timeout=10).stdout
+            if time.time() - _updates["at"] > 3 * 3600:
+                _check_updates()
+            pane = _pane()
             waiting = "Do you want" in pane
             if time.time() - _watch["seen"] < 30:
                 asked = waiting
