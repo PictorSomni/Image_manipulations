@@ -72,6 +72,12 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
   #drawer { display: inline-block; }
   header:not(.open) > button { display: none; }
 }
+.ask { margin: 6px 0; }
+.ask b { display: block; margin-bottom: 4px; }
+.ask button, .tool > button { margin: 3px 4px 3px 0; padding: 6px 10px;
+  border-radius: 8px; border: 1px solid #555; background: #2a2a2a;
+  color: inherit; font: inherit; }
+.ask button.on { background: #3b6; color: #000; }
 </style>
 </head>
 <body>
@@ -176,6 +182,7 @@ async function poll() {
       else if (e.k === "text") { add("text", e.t); if (live) say(e.t); }
       else if (e.k === "think") add("think", e.t);
       else if (e.k === "tool") add("tool", e.t);
+      else if (e.k === "ask") ask(e.q, live);
       else if (e.k === "ctx") ctx(e.n);
       else if (e.k === "end") sent = 0;
     }
@@ -208,6 +215,41 @@ async function send() {
   $("msg").value = ""; grow();
   sent = Date.now(); busy("Envoi…");
   try { await call("/send", {text: t}); } catch (e) { add("tool", e.message); }
+}
+
+// Questions à choix de Claude : un bouton par réponse (touche 1-9 dans
+// le terminal), « Autre » pour du texte libre, puis « Valider » s'il y a
+// plusieurs questions ou des choix multiples.
+function ask(qs, live) {
+  const box = add("tool", "");
+  box.textContent = "";
+  qs.forEach(q => {
+    const d = document.createElement("div");
+    d.className = "ask";
+    d.append(Object.assign(document.createElement("b"),
+      {textContent: q.t}));
+    [...q.o, "Autre…"].forEach((label, i) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.disabled = !live;
+      b.onclick = async () => {
+        let t = "";
+        if (i === q.o.length && !(t = prompt(q.t))) return;
+        await call("/key", {k: String(i + 1), t});
+        if (!q.multi) d.querySelectorAll("button")
+          .forEach(x => x.disabled = true);
+        b.classList.add("on");
+      };
+      d.append(b);
+    });
+    box.append(d);
+  });
+  if (live && (qs.length > 1 || qs.some(q => q.multi))) {
+    const v = document.createElement("button");
+    v.textContent = "Valider";
+    v.onclick = () => { key("entree"); v.disabled = true; };
+    box.append(v);
+  }
 }
 
 async function key(k) {

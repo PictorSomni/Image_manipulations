@@ -107,6 +107,14 @@ def _events(path, pos):
                 out.append({"k": "text", "t": b["text"]})
             elif b.get("type") == "thinking" and b.get("thinking"):
                 out.append({"k": "think", "t": b["thinking"].strip()})
+            elif b.get("type") == "tool_use" and \
+                    b.get("name") == "AskUserQuestion":
+                # Questions à choix : boutons dans la page (touches 1-9).
+                out.append({"k": "ask", "q": [
+                    {"t": q.get("question", ""),
+                     "o": [o.get("label", "") for o in q.get("options", [])],
+                     "multi": bool(q.get("multiSelect"))}
+                    for q in (b.get("input") or {}).get("questions", [])]})
             elif b.get("type") == "tool_use":
                 i = b.get("input") or {}
                 what = (i.get("description") or i.get("command")
@@ -377,10 +385,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True})
         if self.path == "/key":
             # Réponses aux demandes de permission / interruption.
-            key = {"oui": "Enter", "non": "Escape", "1": "1", "2": "2",
-                   "3": "3", "stop": "Escape"}.get(data.get("k"))
+            k = str(data.get("k"))
+            key = {"oui": "Enter", "non": "Escape", "stop": "Escape",
+                   "entree": "Enter"}.get(k) or (k if k in "123456789"
+                                                 and len(k) == 1 else None)
             if key:
                 _tmux(key)
+            if key and data.get("t"):  # « Autre » : texte libre
+                time.sleep(0.3)
+                _tmux(str(data["t"])[:2000], literal=True)
+                time.sleep(0.2)
+                _tmux("Enter")
             return self._send(200, {"ok": bool(key)})
         self._send(404, {"error": "inconnu"})
 
@@ -413,6 +428,10 @@ def _watch_loop():
             if any(e["k"] == "end" for e in ev):
                 push.send("Claude a répondu",
                           texts[-1] if texts else "Réponse prête")
+            for e in ev:
+                if e["k"] == "ask" and e["q"]:
+                    push.send("Claude te pose une question",
+                              e["q"][0]["t"][:200])
             if waiting and not asked:
                 push.send("Claude attend ton accord",
                           pane.strip().splitlines()[-1][:200]
