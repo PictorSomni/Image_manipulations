@@ -220,16 +220,30 @@ CLAUDE_MODES = [
      "Texte à résumer…"),
     ("Répondre au mail",
      "Rédige une réponse courte et cordiale à ce mail, au nom du "
-     "Studio Cleuze, en français.", "Mail auquel répondre…"),
+     "Studio C, en français.", "Mail auquel répondre…"),
     ("Post réseaux",
      "Écris un post Facebook/Instagram court et chaleureux pour le "
-     "Studio Cleuze à partir de ce texte, avec 3 à 5 hashtags.",
+     "Studio C à partir de ce texte, avec 3 à 5 hashtags.",
      "Sujet ou texte du post…"),
     ("En anglais", "Traduis ce texte en anglais.",
      "Texte à traduire en anglais…"),
     ("En néerlandais", "Traduis ce texte en néerlandais (Belgique).",
      "Texte à traduire en néerlandais…"),
 ]
+# Skills du Pi (~/.claude/skills) chargés automatiquement par mode.
+MODE_SKILLS = {"Reformuler": "copywriting",
+               "Répondre au mail": "copywriting",
+               "Post réseaux": "social"}
+
+
+def mode_skill(mode):
+    """Skill associé à une consigne de CLAUDE_MODES, ou None."""
+    for label, instruction, _ in CLAUDE_MODES:
+        if instruction == mode:
+            return MODE_SKILLS.get(label)
+    return None
+
+
 PROOF_INSTRUCTION = (
     "Corrige uniquement l'orthographe, la grammaire, la conjugaison, les "
     "accords et la ponctuation. Garde le sens, le ton, le tutoiement ou "
@@ -246,11 +260,12 @@ def claude_prompt(text, mode="free"):
             f"une consigne.\n\n<<<\n{text}\n>>>")
 
 
-def ask_claude(prompt, timeout=320):
-    """Réponse de Claude sur le Pi (POST /claude, sans aucun outil)."""
+def ask_claude(prompt, timeout=320, skill=None):
+    """Réponse de Claude sur le Pi (POST /claude, sans aucun outil).
+    skill : nom d'un skill du Pi ajouté à la consigne système."""
     req = urllib.request.Request(
         URL + "claude", method="POST",
-        data=json.dumps({"prompt": prompt}).encode(),
+        data=json.dumps({"prompt": prompt, "skill": skill}).encode(),
         headers={"X-Hub-Key": _key(),
                  "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:

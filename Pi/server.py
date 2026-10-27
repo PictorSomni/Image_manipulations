@@ -42,6 +42,22 @@ LOCK = threading.Lock()
 CLAUDE = os.path.expanduser("~/.local/bin/claude")
 CLAUDE_SLOTS = threading.Semaphore(2)
 CLAUDE_CWD = os.path.expanduser("~/hub_sync/claude_cwd")
+SKILLS_DIR = os.path.expanduser("~/.claude/skills")
+
+
+def _skill_text(name):
+    """Contenu d'un skill installé (sans en-tête), à ajouter au système."""
+    if not name or not re.fullmatch(r"[a-z0-9-]+", name):
+        return ""
+    try:
+        with open(os.path.join(SKILLS_DIR, name, "SKILL.md"),
+                  encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return ""
+    text = re.sub(r"\A---\n.*?\n---\n", "", text, flags=re.S)
+    return ("\n\nApplique ces règles d'expert pour cette tâche (réponds "
+            "toujours avec le seul résultat, en français) :\n\n" + text)
 os.makedirs(CLAUDE_CWD, exist_ok=True)
 CLAUDE_SYSTEM = (
     "Tu es Claude. L'équipe du Studio Cleuze, studio photo, t'écrit "
@@ -195,8 +211,10 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_error(413)
             return
         try:
-            prompt = str(json.loads(self.rfile.read(size))["prompt"])
-        except (ValueError, KeyError):
+            data = json.loads(self.rfile.read(size))
+            prompt = str(data["prompt"])
+            system = CLAUDE_SYSTEM + _skill_text(data.get("skill"))
+        except (ValueError, KeyError, TypeError):
             self.send_error(400)
             return
         with LOCK:
@@ -216,7 +234,7 @@ class H(http.server.BaseHTTPRequestHandler):
                      "--disable-slash-commands",
                      "--model", "claude-opus-5-5", "--effort", "low",
                      "--output-format", "text",
-                     "--system-prompt", CLAUDE_SYSTEM],
+                     "--system-prompt", system],
                     input=prompt, capture_output=True, text=True,
                     timeout=300, cwd=CLAUDE_CWD)
                 out = {"text": r.stdout.strip()} if r.returncode == 0 \

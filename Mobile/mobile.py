@@ -924,7 +924,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/claude":
             mode = hub_sync.CLAUDE_MODES[int(data["mode"])][1]
             return self._json({"text": hub_sync.ask_claude(
-                hub_sync.claude_prompt(data["text"].strip(), mode))})
+                hub_sync.claude_prompt(data["text"].strip(), mode),
+                skill=hub_sync.mode_skill(mode))})
         if path == "/api/mail":  # Data/mail_reply.py (Hub : hub-sync)
             return self._json({"ok": mail_reply.call(data)})
         if path == "/api/task":

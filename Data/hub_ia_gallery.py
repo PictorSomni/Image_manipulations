@@ -444,7 +444,8 @@ def build(ui):
 
         def _work():
             try:
-                answer = hub_sync.ask_claude(prompt)
+                answer = hub_sync.ask_claude(
+                    prompt, skill=hub_sync.mode_skill(mode))
                 answer = answer.replace("<<<", "").replace(">>>", "")
                 answer = answer.strip()
                 claude_last.update(text=answer, source=text)
