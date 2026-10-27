@@ -401,7 +401,9 @@ def _watch_loop():
             if time.time() - _updates["at"] > 3 * 3600:
                 _check_updates()
             pane = _pane()
-            waiting = "Do you want" in pane
+            # Accord demandé, ou confiance dans le dossier (redemandée à
+            # chaque démarrage de Claude Code dans le dossier personnel).
+            waiting = "Do you want" in pane or "trust" in pane
             if time.time() - _watch["seen"] < 30:
                 asked = waiting
                 continue
