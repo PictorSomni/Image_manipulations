@@ -55,6 +55,12 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
 #login { margin: 30vh auto 0; max-width: 260px; display: flex;
   flex-direction: column; gap: 10px; text-align: center; }
 .hide { display: none !important; }
+/* Téléphone : boutons rangés dans un tiroir, ouvert par « Outils ». */
+#drawer { display: none; }
+@media (max-width: 700px) {
+  #drawer { display: inline-block; }
+  header:not(.open) > button { display: none; }
+}
 </style>
 </head>
 <body>
@@ -67,7 +73,8 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
 <header class="hide">
   <div id="ctx"><span id="ctxt">Contexte : …</span>
     <div class="bar"><i id="ctxb" style="width: 0"></i></div>
-    <button onclick="compact()"><span class="ms">compress</span> Compacter</button></div>
+    <button onclick="compact()"><span class="ms">compress</span> Compacter</button>
+    <button id="drawer" onclick="drawer()"><span class="ms">menu</span></button></div>
   <button onclick="key('oui')"><span class="ms">check</span> Oui</button>
   <button onclick="key('non')"><span class="ms">close</span> Non</button>
   <button onclick="key('stop')"><span class="ms">stop</span> Stop</button>
@@ -253,6 +260,17 @@ log.addEventListener("click", e => {  // toucher une réponse = la relire
   const m = e.target.closest(".text");
   if (m) { speechSynthesis.cancel(); const t = tts; tts = true;
     say(m.textContent); tts = t; }
+});
+
+function drawer(open) {
+  const hd = document.querySelector("header");
+  hd.classList.toggle("open", open);
+  $("drawer").firstChild.textContent = hd.classList.contains("open") ?
+    "close" : "menu";
+}
+// Une action choisie referme le tiroir.
+document.querySelector("header").addEventListener("click", e => {
+  if (e.target.closest("header > button")) drawer(false);
 });
 
 function grow() {
