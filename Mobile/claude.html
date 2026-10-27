@@ -96,7 +96,6 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
   <input id="files" type="file" multiple class="hide">
   <button onclick="$('files').click()"><span class="ms">attach_file</span></button>
   <textarea id="msg" rows="1"></textarea>
-  <button id="mic" onclick="mic()"><span class="ms">mic</span></button>
   <button class="go" onclick="send()"><span class="ms">send</span></button>
 </footer>
 <script>
@@ -285,28 +284,6 @@ async function notifs() {
     await call("/subscribe", sub.toJSON());
     add("tool", "Notifications activées sur cet appareil.");
   } catch (e) { add("tool", "Notifications : " + e.message); }
-}
-
-// Dictée sans clavier (reconnaissance vocale de Safari, HTTPS requis).
-let rec = null;
-function mic() {
-  if (rec) return rec.stop();
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR || !window.isSecureContext)
-    return add("tool", "Dictée : ouvre la page en HTTPS " +
-      "(https://pictorsomni.taild63b02.ts.net:10000).");
-  const before = $("msg").value ? $("msg").value.trimEnd() + " " : "";
-  rec = new SR();
-  rec.lang = "fr-FR"; rec.continuous = true; rec.interimResults = true;
-  rec.onresult = e => {
-    $("msg").value = before + Array.from(e.results, r => r[0].transcript)
-      .join(""); grow();
-  };
-  rec.onend = () => { rec = null; $("mic").classList.remove("go"); };
-  rec.onerror = e => add("tool", "Dictée : " + e.error);
-  speechSynthesis.cancel();  // ne pas s'entendre soi-même
-  rec.start();
-  $("mic").classList.add("go");
 }
 
 // « ! commande » = exécutée dans le terminal du Pi par Claude Code.
