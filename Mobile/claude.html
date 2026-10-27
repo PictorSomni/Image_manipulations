@@ -82,7 +82,8 @@ pre { font: 12px ui-monospace, monospace; white-space: pre-wrap;
   <button onclick="grill()"><span class="ms">lightbulb</span> Brainstorming</button>
   <button id="tts" onclick="toggleTts()"><span class="ms">volume_off</span> Lecture</button>
   <button onclick="notifs()"><span class="ms">notifications</span> Notifs</button>
-  <button onclick="screen()"><span class="ms">terminal</span> Écran</button>
+  <button onclick="shell()"><span class="ms">terminal</span> Terminal</button>
+  <button onclick="screen()"><span class="ms">monitor</span> Écran</button>
   <button onclick="act('bilan', 'Bilan du Pi')"><span class="ms">monitor_heart</span> Bilan</button>
   <button onclick="act('maj_pi', 'Mettre à jour le Pi')"><span class="ms">system_update</span> MAJ Pi</button>
   <button onclick="act('maj_claude', 'Mettre à jour Claude')"><span class="ms">upgrade</span> MAJ Claude</button>
@@ -306,6 +307,13 @@ function mic() {
   speechSynthesis.cancel();  // ne pas s'entendre soi-même
   rec.start();
   $("mic").classList.add("go");
+}
+
+// « ! commande » = exécutée dans le terminal du Pi par Claude Code.
+function shell() {
+  const m = $("msg");
+  if (!m.value.startsWith("! ")) m.value = "! " + m.value;
+  grow(); m.focus();
 }
 
 function drawer(open) {
