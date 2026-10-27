@@ -1,6 +1,6 @@
 """Veille des mails du studio (info@studiocleuze.be), dans hub-sync.
 
-Toutes les 30 minutes (7h-20h), lit les nouveaux mails, fait trier par
+Toutes les 30 minutes (9h-19h), lit les nouveaux mails, fait trier par
 Claude (sans outils) ce qui demande une action, l'ajoute aux mails à
 répondre de Hub (~/briefing_mails.json) et envoie une notification
 push à l'iPhone ; « URGENT » en tête pour ce qui est à faire le jour
@@ -164,7 +164,7 @@ def run():
 def loop():
     time.sleep(90)
     while True:
-        if 7 <= datetime.datetime.now().hour < 20:
+        if 9 <= datetime.datetime.now().hour < 19:
             try:
                 run()
             except Exception as exc:
