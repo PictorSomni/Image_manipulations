@@ -11,17 +11,22 @@ import random
 import re
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "Data"))
 import hub_sync  # noqa: E402
 
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "Mobile"))
+import push  # noqa: E402
+
 PORT = 8560
 STATE = os.path.expanduser("~/quiz/state.json")
 TEAM = "Ensemble"
 SEEN_MAX = 400       # questions gardées pour éviter les répétitions
-REVIEW_DAYS = 2      # une question ratée revient après ce délai
+REVIEW_STEPS = [1, 3, 7, 30]  # jours avant chaque retour d'une ratée
+DAILY_HOUR = 8       # heure de la question du jour
 THEMES = ["Tout mélangé", "Histoire", "Géographie", "Sciences",
           "Nature et animaux", "Espace", "Corps humain", "Inventions",
           "Art et peinture", "Littérature", "Musique", "Cinéma",
@@ -65,10 +70,13 @@ def summary():
                 "points", "good", "bad", "games", "best_streak",
                 "best_game")} | {"review": sum(
                     r["due"] <= _today() for r in p["review"])}
-                for n, p in state["profiles"].items()}}
+                for n, p in state["profiles"].items()},
+            "daily": state.get("daily")}
 
 
-def _ask(theme, level, n, avoid):
+def _ask(theme, level, n, avoid, kind="qcm"):
+    if kind == "vf":
+        return _ask_vf(theme, level, n, avoid)
     rule = (
         f"Tu écris {n} questions de quiz de culture générale en français "
         f"pour un couple qui veut apprendre en s'amusant. Thème : "
@@ -81,6 +89,26 @@ def _ask(theme, level, n, avoid):
         "réponses], \"hint\": indice qui aide sans donner la réponse, "
         "\"explain\": 2 ou 3 phrases qui expliquent la réponse et "
         "ajoutent une anecdote à retenir}].")
+    return _parse(rule, avoid, theme, level, "qcm")
+
+
+def _ask_vf(theme, level, n, avoid):
+    rule = (
+        f"Tu écris {n} affirmations de culture générale en français, à "
+        "juger vrai ou faux, pour un couple qui veut apprendre en "
+        f"s'amusant. Thème : "
+        f"{'varié, un domaine différent par affirmation' if theme == THEMES[0] else theme}. "
+        f"Difficulté {level + 1}/10 ({LEVELS[level]}). Environ moitié "
+        "vraies, moitié fausses ; les fausses sont des idées reçues ou des "
+        "erreurs plausibles, jamais des pièges de formulation. Réponds "
+        "UNIQUEMENT par un tableau JSON : [{\"theme\": domaine en 1 ou 2 "
+        "mots, \"q\": affirmation, \"true\": true ou false, "
+        "\"explain\": 1 ou 2 phrases surprenantes qui rétablissent les "
+        "faits}].")
+    return _parse(rule, avoid, theme, level, "vf")
+
+
+def _parse(rule, avoid, theme, level, kind):
     if avoid:
         rule += " Questions déjà posées, à ne pas refaire : " + " | ".join(
             avoid[-150:])
@@ -88,6 +116,14 @@ def _ask(theme, level, n, avoid):
     found = re.search(r"\[.*\]", text, re.S)
     out = []
     for item in json.loads(found.group(0)) if found else []:
+        if kind == "vf":
+            if "q" in item and isinstance(item.get("true"), bool):
+                out.append({"theme": item.get("theme") or theme,
+                            "q": item["q"], "choices": ["Vrai", "Faux"],
+                            "answer": 0 if item["true"] else 1, "hint": "",
+                            "explain": item.get("explain", ""),
+                            "level": level})
+            continue
         try:
             choices = [str(item["good"])] + [str(b) for b in item["bad"][:3]]
         except (KeyError, TypeError):
@@ -103,22 +139,21 @@ def _ask(theme, level, n, avoid):
     return out
 
 
-def questions(name, theme, level, n=10):
+def questions(name, theme, level, n=10, kind="qcm"):
     level = max(0, min(int(level), len(LEVELS) - 1))
     with _lock:
         state = _read()
         prof = _profile(state, name)
         avoid = [q for p in state["profiles"].values() for q in p["seen"]]
         due = [r for r in prof["review"] if r["due"] <= _today()]
-    out = [q for q in _ask(theme, level, n, avoid) if q["q"] not in avoid]
+    out = [q for q in _ask(theme, level, n, avoid, kind) if q["q"] not in avoid]
     with _lock:  # vues dès l'envoi : le lot suivant ne les reprend pas
         state = _read()
         prof = _profile(state, name)
         prof["seen"] = (prof["seen"] + [q["q"] for q in out])[-SEEN_MAX:]
         _write(state)
-    if due:  # une question ratée revient dans le lot, pour réviser
-        old = dict(random.choice(due)["q"], review=True)
-        out.insert(random.randrange(len(out) + 1), old)
+    for r in random.sample(due, min(3, len(due))):  # révisions dues
+        out.insert(random.randrange(len(out) + 1), dict(r["q"], review=True))
     return out
 
 
@@ -133,12 +168,17 @@ def answer(name, q, ok, streak, game_points):
         prof["best_game"] = max(prof["best_game"], int(game_points))
         if q["q"] not in prof["seen"]:
             prof["seen"] = (prof["seen"] + [q["q"]])[-SEEN_MAX:]
-        prof["review"] = [r for r in prof["review"]
-                          if r["q"]["q"] != q["q"]]
-        if not ok:
-            due = datetime.date.today() + datetime.timedelta(REVIEW_DAYS)
-            prof["review"].append({"due": due.isoformat(), "q": {
-                k: v for k, v in q.items() if k != "review"}})
+        old = [r for r in prof["review"] if r["q"]["q"] == q["q"]]
+        prof["review"] = [r for r in prof["review"] if r not in old]
+        # Révision espacée : ratée → demain, puis 3, 7 et 30 jours si
+        # elle est réussie à chaque retour.
+        step = 0 if not ok else old[0].get("step", 0) + 1 if old else None
+        if step is not None and step < len(REVIEW_STEPS):
+            due = datetime.date.today() + datetime.timedelta(
+                REVIEW_STEPS[step])
+            prof["review"].append({"due": due.isoformat(), "step": step,
+                                   "q": {k: v for k, v in q.items()
+                                         if k != "review"}})
         _write(state)
     return summary()
 
@@ -149,6 +189,25 @@ def end_game(name):
         _profile(state, name)["games"] += 1
         _write(state)
     return summary()
+
+
+def daily_loop():
+    """Chaque matin, une question pour tous, annoncée par notification."""
+    while True:
+        try:
+            today = _today()
+            if (datetime.datetime.now().hour >= DAILY_HOUR
+                    and (_read().get("daily") or {}).get("date") != today):
+                qs = questions(TEAM, THEMES[0], 3, n=3)
+                q = next(x for x in qs if not x.get("review"))
+                with _lock:
+                    state = _read()
+                    state["daily"] = {"date": today, "q": q}
+                    _write(state)
+                push.send("Question du jour", q["q"])
+        except Exception as exc:
+            print(f"[Question du jour] {exc}", flush=True)
+        time.sleep(600)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -187,7 +246,8 @@ class Handler(BaseHTTPRequestHandler):
             name = str(data.get("profile") or TEAM).strip()[:30] or TEAM
             if self.path == "/api/questions":
                 out = questions(name, str(data.get("theme") or THEMES[0])
-                                [:60], data.get("level", 0))
+                                [:60], data.get("level", 0),
+                                kind=data.get("kind", "qcm"))
             elif self.path == "/api/answer":
                 out = answer(name, data["q"], bool(data["ok"]),
                              data.get("streak", 0), data.get("points", 0))
@@ -207,4 +267,5 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    threading.Thread(target=daily_loop, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

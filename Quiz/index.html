@@ -92,7 +92,7 @@ button { font: inherit; cursor: pointer; }
 <script>
 const $app = document.getElementById("app");
 const S = {info: null, profile: localStorage.quizProfile || "Ensemble",
-  theme: "Tout mélangé", game: null};
+  theme: "Tout mélangé", kind: localStorage.quizKind || "qcm", game: null};
 const CORRECT_PER_LEVEL = 4;
 const JOKERS = 3;
 
@@ -159,6 +159,12 @@ async function home() {
     p.review ? h("div", {class: "muted", style: "margin-top:8px"},
       `${p.review} question${p.review > 1 ? "s" : ""} à réviser ` +
       "glissée" + (p.review > 1 ? "s" : "") + " dans la partie") : null,
+    daily(),
+    h("div", {class: "label"}, "Jeu"),
+    h("div", {class: "seg"}, ...[["qcm", "Questions"], ["vf", "Vrai ou faux"]]
+      .map(([k, t]) => h("button", {class: k === S.kind ? "on" : "",
+        onclick: () => { S.kind = k; localStorage.quizKind = k; home(); }},
+        t))),
     h("div", {class: "label"}, "Thème"),
     h("div", {class: "chips"}, [...pick(S.info.themes, S.theme,
       v => S.theme = v).children].concat(custom)),
@@ -166,9 +172,23 @@ async function home() {
 }
 
 // ── Partie ───────────────────────────────────────────────────────────
-function start() {
+// Question du jour : une seule question, puis retour à l'accueil.
+function daily() {
+  const d = S.info.daily;
+  if (!d || localStorage.quizDaily === d.date) return null;
+  return h("button", {class: "card", style: "width:100%;text-align:left;" +
+    "border:1px solid var(--yellow);color:var(--text)", onclick: () => {
+      start(true); S.game.queue = [d.q]; next(); }},
+    h("div", {class: "theme", style: "color:var(--yellow)"},
+      "Question du jour"),
+    h("div", {style: "margin-top:4px"}, d.q.q));
+}
+
+function start(single) {
   S.game = {queue: [], level: 0, correct: 0, points: 0, streak: 0,
-    best: 0, n: 0, half: JOKERS, hints: JOKERS, done: [], loading: null};
+    best: 0, n: 0, half: JOKERS, hints: JOKERS, done: [], loading: null,
+    asked: new Set(), single};
+  if (single) return;
   fill();
   next();
 }
@@ -178,7 +198,7 @@ function fill() {
   const g = S.game;
   if (g.loading) return g.loading;
   g.loading = api("/api/questions", {profile: S.profile, theme: S.theme,
-    level: g.level}).then(qs => { g.queue.push(...qs); })
+    level: g.level, kind: S.kind}).then(qs => { g.queue.push(...qs); })
     .finally(() => { g.loading = null; });
   return g.loading;
 }
@@ -198,7 +218,9 @@ async function next() {
     if (!g.queue.length) return next();
   }
   const q = g.queue.shift();
-  if (g.queue.length < 4) fill().catch(() => {});
+  if (g.asked.has(q.q)) return next();
+  g.asked.add(q.q);
+  if (g.queue.length < 4 && !g.single) fill().catch(() => {});
   ask(q);
 }
 
@@ -208,7 +230,8 @@ function ask(q) {
   const hint = h("div", {class: "hint"});
   const buttons = q.choices.map((c, i) => h("button", {class: "choice",
     onclick: () => reply(q, i, buttons, jokers)}, c));
-  const half = h("button", {class: "joker", disabled: !g.half,
+  const half = h("button", {class: "joker",
+    disabled: !g.half || q.choices.length < 4,
     onclick: () => {
       g.half--; half.disabled = true;
       buttons.map((b, i) => i).filter(i => i !== q.answer)
@@ -237,6 +260,7 @@ function ask(q) {
 function reply(q, i, buttons, jokers) {
   const g = S.game;
   const ok = i === q.answer;
+  if (g.single) localStorage.quizDaily = S.info.daily.date;
   buttons.forEach((b, j) => { b.disabled = true;
     if (j === q.answer) b.classList.add("good");
     else if (j === i) b.classList.add("bad"); });
@@ -262,9 +286,10 @@ function reply(q, i, buttons, jokers) {
       up ? h("div", {style: "color:var(--yellow);margin-top:4px"},
         "Niveau suivant : " + S.info.levels[g.level]) : null,
       h("div", {style: "margin-top:6px"}, q.explain)),
-    h("button", {class: "big", onclick: next}, "Question suivante"),
+    g.single ? null :
+      h("button", {class: "big", onclick: next}, "Question suivante"),
     h("button", {class: "ghost", style: "width:100%", onclick: finish},
-      "Terminer la partie"));
+      g.single ? "Terminer" : "Terminer la partie"));
   buttons[q.answer].scrollIntoView({behavior: "smooth", block: "start"});
 }
 
