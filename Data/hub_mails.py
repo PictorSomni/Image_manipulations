@@ -284,6 +284,19 @@ def build(ui):
                 for n in b["news"]]))
         return cards
 
+    def _text_of(ctl):
+        """Tout le texte d'un contrôle, pour estimer sa hauteur."""
+        out = getattr(ctl, "value", None) or ""
+        if not isinstance(out, str):
+            out = ""
+        for attr in ("content", "title", "subtitle"):
+            sub = getattr(ctl, attr, None)
+            if sub is not None and not isinstance(sub, str):
+                out += " " * 60 + _text_of(sub)
+        for sub in getattr(ctl, "controls", None) or []:
+            out += " " * 60 + _text_of(sub)
+        return out
+
     def _briefing_controls(b, refill):
         if isinstance(b, Exception):
             return [ft.Text(f"Pi injoignable : {b}", color=RED)]
@@ -329,7 +342,19 @@ def build(ui):
         if not cards:
             cards.append(_card("Briefing", accent, [ft.Text(
                 "Pas encore de briefing.", color=LIGHT_GREY)]))
-        ctl = [ft.ResponsiveRow(cards, spacing=12, run_spacing=12)]
+        # Deux colonnes empilées (maçonnerie) : pas de trou sous une carte
+        # plus courte que sa voisine. Hauteur estimée sur le texte.
+        cols, heights = [[], []], [0, 0]
+        for c in cards:
+            i = heights.index(min(heights))
+            cols[i].append(c)
+            heights[i] += 2 + len(_text_of(c)) / 60
+        ctl = [ft.ResponsiveRow([ft.Column(
+            col, spacing=12,
+            horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
+            col={"xs": 12, "md": 6}) for col in cols],
+            spacing=12, run_spacing=12,
+            vertical_alignment=ft.CrossAxisAlignment.START)]
         if b["at"]:
             when = datetime.datetime.fromtimestamp(b["at"])
             ctl.insert(0, ft.Text(when.strftime(
