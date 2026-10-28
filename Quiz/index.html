@@ -28,6 +28,12 @@ h1 { font-size: 28px; margin: 8px 0 4px; }
 .muted { color: var(--grey); font-size: 14px; }
 .label { color: var(--grey); font-size: 13px; text-transform: uppercase;
   letter-spacing: .05em; margin: 22px 0 8px; }
+.seg { display: flex; background: var(--card); border-radius: 10px;
+  padding: 3px; }
+.seg button { flex: 1; border: 0; background: none; color: var(--text);
+  padding: 9px; border-radius: 8px; font-size: 15px; }
+.seg button.on { background: var(--violet); color: #222429;
+  font-weight: 600; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { border: 1px solid #fff2; background: var(--card); color: var(--text);
   border-radius: 20px; padding: 7px 14px; font-size: 15px; }
@@ -123,18 +129,12 @@ async function home() {
     catch (e) { return show(h("div", {class: "wait"}, "Erreur : " +
       e.message)); }
   }
-  const names = Object.keys(S.info.profiles);
+  const names = ["Aurélie", "Charles", S.info.team];
   if (!names.includes(S.profile)) S.profile = S.info.team;
   const p = S.info.profiles[S.profile] || {};
   const pick = (list, cur, set) => h("div", {class: "chips"},
     ...list.map(v => h("button", {class: "chip" + (v === cur ? " on" : ""),
       onclick: () => { set(v); home(); }}, v)));
-  const add = h("button", {class: "chip", onclick: async () => {
-    const n = (prompt("Prénom") || "").trim();
-    if (!n) return;
-    S.info = await api("/api/profile", {profile: n});
-    S.profile = n; localStorage.quizProfile = n; home();
-  }}, "+");
   const custom = h("button", {class: "chip" +
     (S.info.themes.includes(S.theme) ? "" : " on"), onclick: () => {
       const t = (prompt("Thème", S.info.themes.includes(S.theme) ? "" :
@@ -145,8 +145,9 @@ async function home() {
     h("h1", {}, "Quiz"),
     h("div", {class: "muted"}, "Apprendre ensemble, une question à la fois"),
     h("div", {class: "label"}, "Qui joue"),
-    h("div", {class: "chips"}, [...pick(names, S.profile, v => {
-      S.profile = v; localStorage.quizProfile = v; }).children].concat(add)),
+    h("div", {class: "seg"}, ...names.map(v => h("button",
+      {class: v === S.profile ? "on" : "", onclick: () => {
+        S.profile = v; localStorage.quizProfile = v; home(); }}, v))),
     h("div", {class: "card stats"},
       h("div", {}, h("b", {}, p.points || 0), h("span", {class: "muted"},
         "points")),
