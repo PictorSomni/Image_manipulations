@@ -155,6 +155,17 @@ def _load_data_cache():
         pass
 
 
+def _with_files():
+    """Id (sans tirets) des tâches qui ont des fichiers sur le Pi."""
+    root = os.path.expanduser("~/task_files")
+    try:
+        return [d for d in os.listdir(root) if any(
+            not n.startswith(("_", "."))
+            for n in os.listdir(os.path.join(root, d)))]
+    except OSError:
+        return []
+
+
 def load_data(force=False):
     """(tasks, agenda, at) depuis le cache s'il a moins d'une heure."""
     if force or _DATA["tasks"] is None or \
@@ -858,7 +869,8 @@ class Handler(BaseHTTPRequestHandler):
     def _get(self, path, q):
         if path == "/api/data":
             tasks, agenda, at = load_data(force=q.get("force") == "1")
-            return self._json({"tasks": tasks, "agenda": agenda, "at": at})
+            return self._json({"tasks": tasks, "agenda": agenda, "at": at,
+                               "files": _with_files()})
         if path == "/api/notes":
             return self._json({"text": _notes(q["id"])})
         if path == "/api/lists":

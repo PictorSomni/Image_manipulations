@@ -370,7 +370,9 @@ function taskCard(row, withEtat) {
   return h("div", {class: "card",
     style: {background: alpha(etatColor(etat), .18)},
     onclick: () => taskDetails(row)},
-    h("div", {style: {fontSize: "16px"}}, row.Demande || "(sans titre)"),
+    h("div", {style: {fontSize: "16px"}}, row.Demande || "(sans titre)",
+      S.withFiles && S.withFiles.has(pageId(row).replace(/-/g, ""))
+        ? [" ", ic("attach_file")] : null),
     info.length ? h("div", {class: "muted"}, info.join("  ·  ")) : null,
     h("div", {class: "badges"}, badges));
 }
@@ -612,6 +614,9 @@ function filesBox(row) {
     style: {display: "none"}});
   const load = async () => {
     const names = await api("/api/files?id=" + id).catch(() => []);
+    const key = id.replace(/-/g, "");
+    if (S.withFiles && S.withFiles.has(key) !== !!names.length) {
+      S.withFiles[names.length ? "add" : "delete"](key); render(); }
     box.replaceChildren(h("div", {class: "label", style: {marginTop: 0}},
       "Fichiers"), ...names.map(n => h("div", {class: "row",
         style: {alignItems: "center", flexWrap: "nowrap"}},
@@ -1197,6 +1202,7 @@ function viewHome() {
       onclick: () => replyMail(m)},
       h("i", {class: "bar2", style: {background: C.blue}}),
       h("div", {class: "tx"}, m.name || m.from,
+        m.files_id ? [" ", ic("attach_file")] : null,
         h("div", {class: "muted"}, m.summary || m.subject))))));
   // Briefing complet
   const b = S.briefing;
@@ -1326,6 +1332,7 @@ async function refresh(force) {
   try {
     const d = await api("/api/data" + (force ? "?force=1" : ""));
     S.tasks = d.tasks; S.agenda = d.agenda;
+    S.withFiles = new Set(d.files || []);
     S.status = "Mis à jour à " + hm(d.at);
   } catch (e) { if (e.message !== "auth") S.status = "Erreur : " +
     e.message; }
