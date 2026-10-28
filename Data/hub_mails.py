@@ -87,7 +87,6 @@ def build(ui):
                 status.value = f"Erreur : {out}"
                 return
             status.value = f"Enregistré dans {out}"
-            ui._open_file_default(out)
 
         async def _save(e):
             folder = await ft.FilePicker().get_directory_path(
