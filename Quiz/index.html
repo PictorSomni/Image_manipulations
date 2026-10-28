@@ -50,7 +50,7 @@ button { font: inherit; cursor: pointer; }
   padding: 10px; border-radius: 10px; font-size: 15px; font-weight: 700; }
 .seg button.on { background: var(--violet); color: #2a1660;
   box-shadow: 0 4px 14px #9d6bff66; }
-.modes { display: flex; gap: 12px; }
+.modes { display: flex; gap: 8px; align-items: center; }
 .modes button { flex: 1; border: 0; border-radius: 18px; padding: 22px 8px;
   font: inherit; font-size: 19px; font-weight: 800; color: #2a1660;
   opacity: .8; transform: scale(.94); transition: .15s; }
@@ -58,8 +58,12 @@ button { font: inherit; cursor: pointer; }
   box-shadow: 0 6px 0 #4a2fa8; }
 .modes .vf { background: linear-gradient(135deg, #86e3aa, #8fd2f6);
   box-shadow: 0 6px 0 #1f6e7a; }
-.modes button.on { opacity: 1; transform: none; outline: 3px solid #2a1660;
-  outline-offset: -3px; }
+.modes button.on { flex: 1.6; opacity: 1; transform: none; font-size: 22px;
+  padding: 30px 8px; outline: 3px solid #2a1660; outline-offset: -3px; }
+.modes button:not(.on) { opacity: .55; transform: scale(.82);
+  filter: saturate(.4); }
+.modes .qcm.on { background: linear-gradient(135deg, #9b73ff, #f06bb5); }
+.modes .vf.on { background: linear-gradient(135deg, #3fd47f, #45b8f5); }
 .pick { width: 100%; padding: 14px 16px; border-radius: 14px;
   font: inherit; font-size: 17px; font-weight: 700; color: var(--text);
   border: 2px solid #9d6bffaa !important;
