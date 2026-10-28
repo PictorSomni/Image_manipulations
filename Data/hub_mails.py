@@ -273,8 +273,12 @@ def build(ui):
         tâches sont déjà dans le texte du briefing)."""
         cards = []
         if b.get("digest"):
-            cards.append(_card("Le saviez-tu ?", accent, [ft.Markdown(
-                d, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)
+            cards.append(_card("Le saviez-tu ?", accent, [ft.Container(
+                ft.Markdown(d["md"],
+                            extension_set=ft.MarkdownExtensionSet.GITHUB_WEB),
+                ink=True, border_radius=8, padding=ft.Padding(6, 4, 6, 4),
+                on_click=lambda e, u=d["link"]: u and hooks.get(
+                    "open_news", webbrowser.open)(u))
                 for d in b["digest"]]))
         if b.get("news"):
             cards.append(_card("Actus", BLUE, [ft.ListTile(

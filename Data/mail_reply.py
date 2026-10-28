@@ -78,8 +78,9 @@ def extras():
     dg = _cache(".hub_mobile_digest.json")
     news = _cache(".hub_mobile_news.json").get("items") or []
     return {"weather": wx if wx.get("date") == today else None,
-            "digest": [e["md"] for e in dg.get("entries") or []
-                       if e.get("md")],
+            "digest": [{"md": e["md"], "link": (e.get("item") or {})
+                        .get("link")}
+                       for e in dg.get("entries") or [] if e.get("md")],
             "news": [{k: it.get(k) for k in ("title", "source", "link")}
                      for it in news[:3]]}
 
