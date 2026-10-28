@@ -8371,8 +8371,23 @@ def main(page: ft.Page):
         # les plus fréquentes — évite une longue liste de ListTile pour
         # ce qui est déjà reconnaissable à l'icône (retour user).
         # None = séparateur vertical.
-        row = []
-        for t in tools:
+        # Trop d'icônes pour une ligne : deux lignes centrées de largeur
+        # proche, coupées au séparateur le plus près du milieu (retour
+        # user).
+        total = sum(t is not None for t in tools)
+        cut, count, best = None, 0, total
+        for i, t in enumerate(tools):
+            if t is None:
+                if total > 12 and abs(total - 2 * count) < best:
+                    cut, best = i, abs(total - 2 * count)
+            else:
+                count += 1
+        lines, row = [], []
+        for i, t in enumerate(tools):
+            if i == cut:
+                lines.append(row)
+                row = []
+                continue
             if t is None:
                 row.append(ft.Container(
                     ft.VerticalDivider(color=LIGHT_GREY), height=32))
@@ -8383,7 +8398,11 @@ def main(page: ft.Page):
                 t[1], icon_color=t[2], icon_size=CONSTANTS.ICON_LG,
                 tooltip=t[0], on_click=t[3])
             row.append(_icon_btns[t[0]])
-        return ft.Row(row, spacing=0, wrap=True)
+        lines.append(row)
+        return ft.Row([ft.Column(
+            [ft.Row(r, spacing=0, tight=True) for r in lines], spacing=4,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER)],
+            alignment=ft.MainAxisAlignment.CENTER)
 
     # Une couleur par catégorie, fixée ici plutôt que déduite de la 1re
     # action : deux catégories voisines partageaient souvent la couleur
