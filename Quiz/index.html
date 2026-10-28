@@ -145,8 +145,8 @@ async function home() {
     h("h1", {}, "Quiz"),
     h("div", {class: "muted"}, "Apprendre ensemble, une question à la fois"),
     h("div", {class: "label"}, "Qui joue"),
-    h("div", {class: "chips"}, pick(names, S.profile, v => {
-      S.profile = v; localStorage.quizProfile = v; }).children, add),
+    h("div", {class: "chips"}, [...pick(names, S.profile, v => {
+      S.profile = v; localStorage.quizProfile = v; }).children].concat(add)),
     h("div", {class: "card stats"},
       h("div", {}, h("b", {}, p.points || 0), h("span", {class: "muted"},
         "points")),
@@ -159,8 +159,8 @@ async function home() {
       `${p.review} question${p.review > 1 ? "s" : ""} à réviser ` +
       "glissée" + (p.review > 1 ? "s" : "") + " dans la partie") : null,
     h("div", {class: "label"}, "Thème"),
-    h("div", {class: "chips"}, pick(S.info.themes, S.theme,
-      v => S.theme = v).children, custom),
+    h("div", {class: "chips"}, [...pick(S.info.themes, S.theme,
+      v => S.theme = v).children].concat(custom)),
     h("button", {class: "big", onclick: start}, "Jouer"));
 }
 
