@@ -174,7 +174,7 @@ async function home() {
     h("div", {class: "label"}, "Thème"),
     h("div", {class: "chips"}, [...pick(S.info.themes, S.theme,
       v => S.theme = v).children].concat(custom)),
-    h("button", {class: "big", onclick: start}, "Jouer"));
+    h("button", {class: "big", onclick: () => start()}, "Jouer"));
 }
 
 // ── Partie ───────────────────────────────────────────────────────────
