@@ -30,6 +30,7 @@ DAILY_HOUR = 8       # heure de la question du jour
 THEMES = ["Tout mélangé", "Histoire", "Géographie", "Sciences",
           "Nature et animaux", "Espace", "Corps humain", "Inventions",
           "Art et peinture", "Littérature", "Musique", "Cinéma",
+          "Culture pop",
           "Langue française", "Mythologie", "Cuisine", "Sport",
           "Belgique", "Photographie"]
 LEVELS = ["Facile", "Accessible", "Moyen", "Corsé", "Difficile",
