@@ -198,7 +198,7 @@ async function next() {
     if (!g.queue.length) return next();
   }
   const q = g.queue.shift();
-  if (g.queue.length < 3) fill().catch(() => {});
+  if (g.queue.length < 4) fill().catch(() => {});
   ask(q);
 }
 

@@ -83,7 +83,7 @@ def _ask(theme, level, n, avoid):
         "ajoutent une anecdote à retenir}].")
     if avoid:
         rule += " Questions déjà posées, à ne pas refaire : " + " | ".join(
-            avoid[-60:])
+            avoid[-150:])
     text = hub_sync.ask_claude(rule)
     found = re.search(r"\[.*\]", text, re.S)
     out = []
@@ -103,14 +103,19 @@ def _ask(theme, level, n, avoid):
     return out
 
 
-def questions(name, theme, level, n=5):
+def questions(name, theme, level, n=10):
     level = max(0, min(int(level), len(LEVELS) - 1))
     with _lock:
         state = _read()
         prof = _profile(state, name)
-        avoid = list(prof["seen"])
+        avoid = [q for p in state["profiles"].values() for q in p["seen"]]
         due = [r for r in prof["review"] if r["due"] <= _today()]
-    out = _ask(theme, level, n, avoid)
+    out = [q for q in _ask(theme, level, n, avoid) if q["q"] not in avoid]
+    with _lock:  # vues dès l'envoi : le lot suivant ne les reprend pas
+        state = _read()
+        prof = _profile(state, name)
+        prof["seen"] = (prof["seen"] + [q["q"] for q in out])[-SEEN_MAX:]
+        _write(state)
     if due:  # une question ratée revient dans le lot, pour réviser
         old = dict(random.choice(due)["q"], review=True)
         out.insert(random.randrange(len(out) + 1), old)
