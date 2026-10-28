@@ -220,15 +220,15 @@ async function home() {
       {class: v === S.profile ? "on" : "", onclick: () => {
         S.profile = v; localStorage.quizProfile = v; home(); }}, v))),
     h("div", {class: "card stats"},
-      h("div", {}, h("div", {class: "ico"}, "⭐"), h("b", {}, p.good || 0),
-        h("span", {class: "muted"}, "bonnes réponses")),
-      h("div", {}, h("div", {class: "ico"}, "🎯"),
-        h("b", {}, (p.good || 0) + (p.bad || 0) ?
-        Math.round(100 * p.good / (p.good + p.bad)) + " %" : "–"),
-        h("span", {class: "muted"}, "réussite")),
-      h("div", {}, h("div", {class: "ico"}, "🔥"),
-        h("b", {}, p.best_streak || 0), h("span",
-        {class: "muted"}, "meilleure série"))),
+      h("div", {}, h("div", {class: "ico"}, "🧭"),
+        h("b", {}, (p.good || 0) + (p.bad || 0)),
+        h("span", {class: "muted"}, "découvertes")),
+      h("div", {}, h("div", {class: "ico"}, "🌱"),
+        h("b", {}, p.good || 0),
+        h("span", {class: "muted"}, "trouvées")),
+      h("div", {}, h("div", {class: "ico"}, "🧠"),
+        h("b", {}, p.mastered || 0),
+        h("span", {class: "muted"}, "maîtrisées"))),
     p.review ? h("div", {class: "muted", style: "margin-top:8px"},
       `${p.review} question${p.review > 1 ? "s" : ""} à réviser ` +
       "glissée" + (p.review > 1 ? "s" : "") + " dans la partie") : null,
@@ -324,7 +324,6 @@ function ask(q) {
   const into = g.correct % CORRECT_PER_LEVEL;
   show(
     h("div", {class: "top"}, h("span", {class: "sp"}),
-      g.streak > 1 ? h("span", {class: "pill"}, `🔥 ${g.streak}`) : null,
       h("span", {class: "pill"}, `Q${g.n} · ${S.info.levels[g.level]}`)),
     h("div", {class: "bar"}, h("i", {style:
       `width:${100 * into / CORRECT_PER_LEVEL}%`})),
@@ -382,8 +381,7 @@ async function finish() {
   show(
     h("h1", {}, "🏆 ", h("span", {}, `${good} / ${g.done.length}`)),
     h("div", {class: "muted"}, `${good} bonne${good > 1 ? "s" : ""} ` +
-      `réponse${good > 1 ? "s" : ""} sur ${g.done.length} · meilleure ` +
-      `série ${g.best} · niveau ${S.info.levels[g.level]}`),
+      `réponse${good > 1 ? "s" : ""} sur ${g.done.length} · niveau ${S.info.levels[g.level]}`),
     h("div", {class: "label"}, "Ce que vous avez appris"),
     ...g.done.map(({q, ok}) => h("div", {class: "card learned " +
       (ok ? "ok" : "ko")}, h("b", {}, q.q), h("div", {},

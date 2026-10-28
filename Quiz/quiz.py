@@ -69,7 +69,8 @@ def summary():
     return {"themes": THEMES, "levels": LEVELS, "team": TEAM,
             "profiles": {n: {k: p[k] for k in (
                 "points", "good", "bad", "games", "best_streak",
-                "best_game")} | {"review": sum(
+                "best_game")} | {"mastered": p.get("mastered", 0),
+                                 "review": sum(
                     r["due"] <= _today() for r in p["review"])}
                 for n, p in state["profiles"].items()},
             "daily": state.get("daily")}
@@ -176,6 +177,8 @@ def answer(name, q, ok, streak, game_points):
         # Révision espacée : ratée → demain, puis 3, 7 et 30 jours si
         # elle est réussie à chaque retour.
         step = 0 if not ok else old[0].get("step", 0) + 1 if old else None
+        if step == len(REVIEW_STEPS):
+            prof["mastered"] = prof.get("mastered", 0) + 1
         if step is not None and step < len(REVIEW_STEPS):
             due = datetime.date.today() + datetime.timedelta(
                 REVIEW_STEPS[step])
