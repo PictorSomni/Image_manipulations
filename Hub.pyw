@@ -6291,7 +6291,9 @@ def main(page: ft.Page):
         is_active = key == "files"
         icon_ctrl = ft.Icon(icon, size=CONSTANTS.ICON_SM,
                             color=DARK if is_active else WHITE)
-        label_ctrl = ft.Text(label, size=CONSTANTS.TEXT_SM,
+        # Texte plus petit et marges autour du bouton : 7 onglets tiennent
+        # sans être à l'étroit sur l'écran du MacBook (retour user).
+        label_ctrl = ft.Text(label, size=11,
                              color=DARK if is_active else WHITE, no_wrap=True,
                              weight=ft.FontWeight.W_700 if is_active
                              else ft.FontWeight.NORMAL)
@@ -6299,11 +6301,12 @@ def main(page: ft.Page):
             content=ft.Column([
                 icon_ctrl,
                 ft.Container(content=label_ctrl, rotate=ft.Rotate(-1.5708),
-                            alignment=ft.Alignment.CENTER, height=86),
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=4,
+                            alignment=ft.Alignment.CENTER, height=58),
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=0,
                alignment=ft.MainAxisAlignment.CENTER),
             expand=True, alignment=ft.Alignment.CENTER,
-            margin=4, border_radius=8,
+            margin=ft.Margin.symmetric(horizontal=8, vertical=6),
+            border_radius=8,
             ink=True, on_click=lambda e, k=key: _select_surface(k),
             bgcolor=SURFACE_ACCENT.get(key, BLUE) if is_active else None,
         )
