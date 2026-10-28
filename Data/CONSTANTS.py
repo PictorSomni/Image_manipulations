@@ -1203,8 +1203,15 @@ def ensure_imagemagick_env():
     échoue même quand `brew install imagemagick` est à jour.
     """
     import platform
-    if platform.system() != "Darwin" or os.environ.get("MAGICK_HOME"):
+    if platform.system() != "Darwin":
         return
+    # Valeur déjà présente mais inutilisable (ex. guillemets inclus,
+    # '"/opt/homebrew/opt/imagemagick"') : on la corrige ou la remplace.
+    home = os.environ.get("MAGICK_HOME", "").strip().strip("'\"")
+    if home and os.path.isdir(os.path.join(home, "lib")):
+        os.environ["MAGICK_HOME"] = home
+        return
+    os.environ.pop("MAGICK_HOME", None)
     for prefix in ("/opt/homebrew/opt/imagemagick", "/usr/local/opt/imagemagick"):
         if os.path.isdir(os.path.join(prefix, "lib")):
             os.environ["MAGICK_HOME"] = prefix
