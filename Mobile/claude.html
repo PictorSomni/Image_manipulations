@@ -46,6 +46,7 @@ textarea { resize: none; max-height: 40vh; }
 .m { margin: 8px 0; padding: 10px 12px; border-radius: var(--r);
   white-space: pre-wrap; word-wrap: break-word; }
 .user { background: #45B8F533; margin-left: 15%; }
+.m.img img { max-width: 100%; border-radius: 10px; display: block; }
 .user.pending { opacity: .6; border: 1px dashed #45B8F5; }
 .user.pending::after { content: "En attente"; display: block;
   font-size: 11px; opacity: .8; margin-top: 4px; }
@@ -184,6 +185,19 @@ function add(cls, text) {
   return el;
 }
 
+async function img(path) {
+  const el = add("img", "");
+  try {
+    const r = await fetch("/img?p=" + encodeURIComponent(path),
+      {headers: {"X-Session": session}});
+    if (!r.ok) throw 0;
+    const i = document.createElement("img");
+    i.src = URL.createObjectURL(await r.blob());
+    i.onclick = () => window.open(i.src);
+    el.append(i);
+  } catch (e) { el.textContent = "Image : " + path.split("/").pop(); }
+}
+
 async function poll() {
   try {
     const d = await call(`/poll?f=${encodeURIComponent(f)}` +
@@ -207,6 +221,7 @@ async function poll() {
       else if (e.k === "text") { add("text", e.t); if (live) say(e.t); }
       else if (e.k === "think") add("think", e.t);
       else if (e.k === "tool") add("tool", e.t);
+      else if (e.k === "img") img(e.t);
       else if (e.k === "ctx") ctx(e.n);
       else if (e.k === "end") sent = 0;
     }

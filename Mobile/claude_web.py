@@ -68,6 +68,10 @@ def _is_owner(ip):
         return False
 
 
+IMG_TYPES = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+_shared = set()  # images envoyées par SendUserFile
+
+
 def _jsonl():
     files = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
     return max(files, key=os.path.getmtime)
@@ -119,6 +123,14 @@ def _events(path, pos):
                 out.append({"k": "text", "t": b["text"]})
             elif b.get("type") == "thinking" and b.get("thinking"):
                 out.append({"k": "think", "t": b["thinking"].strip()})
+            elif b.get("type") == "tool_use" and \
+                    b.get("name") == "SendUserFile":
+                # Images envoyées : affichées dans le fil, servies par
+                # /img (seuls les fichiers ainsi annoncés).
+                for path in (b.get("input") or {}).get("files") or []:
+                    if path.lower().endswith(IMG_TYPES):
+                        _shared.add(path)
+                        out.append({"k": "img", "t": path})
             elif b.get("type") == "tool_use":
                 i = b.get("input") or {}
                 what = (i.get("description") or i.get("command")
@@ -299,6 +311,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, f.read(), ctype)
         if not self._session_ok():
             return self._send(401, {"error": "PIN"})
+        if path == "/img":
+            want = urllib.parse.unquote(query.partition("p=")[2])
+            if want not in _shared or not os.path.isfile(want):
+                return self._send(404, {"error": "inconnu"})
+            ext = want.rsplit(".", 1)[-1].lower().replace("jpg", "jpeg")
+            with open(want, "rb") as f:
+                return self._send(200, f.read(), "image/" + ext)
         if path == "/vapid":
             return self._send(200, {"key": push.public_key()})
         if path == "/poll":
