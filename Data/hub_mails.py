@@ -220,7 +220,7 @@ def build(ui):
             b["mails"].remove(m)
             refill(b)
         if mails:
-            cards.append(_card(f"Mails à répondre · {len(mails)}", BLUE, [
+            cards.append(_card(f"Mails · {len(mails)}", BLUE, [
                 ft.ListTile(
                     leading=ft.Icon(ft.Icons.MAIL_OUTLINE, color=BLUE),
                     title=ft.Text(m.get("name") or m["from"], color=WHITE),
@@ -229,7 +229,9 @@ def build(ui):
                                      color=LIGHT_GREY),
                     on_click=lambda e, m=m: open_reply(m, _answered))
                 for m in mails]))
-        for i, (title, body) in enumerate(_sections(b["text"])):
+        for title, body in _sections(b["text"]):
+            if "mail" in title.lower():  # déjà dans la carte Mails
+                continue
             color = next((c for k, c in section_colors
                           if k in title.lower()), accent)
             cards.append(_card(title, color, [ft.Markdown(

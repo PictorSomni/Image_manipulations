@@ -1147,7 +1147,7 @@ function viewHome() {
       ` ${w.wind} km/h`))));
   // Mails qui attendent une réponse : rédaction à la demande, envoi validé.
   const mails = (S.briefing && S.briefing.mails) || [];
-  if (mails.length) out.push(glass(`Mails à répondre · ${mails.length}`,
+  if (mails.length) out.push(glass(`Mails · ${mails.length}`,
     null, null, ...mails.map(m => h("div", {class: "slot",
       onclick: () => replyMail(m)},
       h("i", {class: "bar2", style: {background: C.blue}}),
@@ -1157,7 +1157,9 @@ function viewHome() {
   const b = S.briefing;
   if (b && b.text) out.push(glass(`Briefing · ${dayLabel(localIso(
     new Date(b.at * 1000)))} ${hm(b.at)}`, null, null,
-    deEmoji(md(b.text))));
+    // Section « Mails » du texte : déjà dans la carte Mails.
+    deEmoji(md(b.text.replace(/^## [^\n]*mail[^\n]*\n[\s\S]*?(?=^## |(?![\s\S]))/gim,
+      "")))));
   // Échéances proches
   const limit = localIso(new Date(now.getTime() + 864e5));
   const due = S.tasks.filter(r => r.Etat !== "Terminé" &&
