@@ -86,6 +86,18 @@ def _events(path, pos):
             obj = json.loads(line)
         except ValueError:
             continue
+        # Message envoyé pendant que Claude travaille : mis en file,
+        # puis remis en cours de tour (pièce jointe « queued_command »).
+        if obj.get("type") == "queue-operation" and \
+                obj.get("operation") == "enqueue" and \
+                not (obj.get("content") or "<").startswith("<"):
+            out.append({"k": "queued", "t": obj["content"].strip()})
+            continue
+        a = obj.get("attachment") or {}
+        if a.get("type") == "queued_command" and \
+                not (a.get("prompt") or "<").startswith("<"):
+            out.append({"k": "user", "t": a["prompt"].strip()})
+            continue
         # Copies internes (« api-request-blob »…) : seuls user/assistant.
         if obj.get("type") not in ("user", "assistant"):
             continue

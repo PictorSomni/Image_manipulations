@@ -46,6 +46,9 @@ textarea { resize: none; max-height: 40vh; }
 .m { margin: 8px 0; padding: 10px 12px; border-radius: var(--r);
   white-space: pre-wrap; word-wrap: break-word; }
 .user { background: #45B8F533; margin-left: 15%; }
+.user.pending { opacity: .6; border: 1px dashed #45B8F5; }
+.user.pending::after { content: "En attente"; display: block;
+  font-size: 11px; opacity: .8; margin-top: 4px; }
 .text { background: var(--card); }
 .think { color: var(--grey); font-size: 14px; font-style: italic; }
 .tool { color: var(--orange); font-size: 13px; font-family: ui-monospace,
@@ -157,6 +160,7 @@ async function login() {
   } catch (e) { $("err").textContent = e.message; }
 }
 
+const pending = {};  // messages en file pendant que Claude travaille
 let follow = 0;  // après un envoi : le fil suit, même si on était plus haut
 function add(cls, text) {
   const near = log.scrollHeight - log.scrollTop - log.clientHeight < 80
@@ -188,7 +192,11 @@ async function poll() {
       busy(d.busy || (Date.now() - sent < 15000 ? "Envoi…" : ""));
     }
     for (const e of d.ev) {
-      if (e.k === "user") add("user", e.t);
+      if (e.k === "queued")
+        pending[e.t] = add("user pending", e.t);
+      else if (e.k === "user" && pending[e.t]) {
+        pending[e.t].classList.remove("pending"); delete pending[e.t];
+      } else if (e.k === "user") add("user", e.t);
       else if (e.k === "text") { add("text", e.t); if (live) say(e.t); }
       else if (e.k === "think") add("think", e.t);
       else if (e.k === "tool") add("tool", e.t);
