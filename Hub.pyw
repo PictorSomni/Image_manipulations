@@ -9803,8 +9803,9 @@ print("[délai dépassé]")
         Claude (sans Entrée : on ajoute son message). Retour user."""
         import shutil
         import socket
-        _close_actions()
+        # Lue avant _close_actions(), qui vide la sélection.
         files = [p for p in selected if os.path.isfile(p)]
+        _close_actions()
         if not files:
             _log_to_terminal("[ERREUR] Sélectionne d'abord un ou des "
                              "fichiers", RED)
