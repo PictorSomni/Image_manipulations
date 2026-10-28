@@ -10293,6 +10293,9 @@ print("[délai dépassé]")
         if ctrl and event.key in ("Arrow Down", "ArrowDown"):
             _toggle_notes(None)
             return
+        if ctrl and event.key in ("Arrow Right", "ArrowRight"):
+            _toggle_msgs()
+            return
         if not ctrl and event.key in ("Arrow Up", "ArrowUp", "Arrow Down", "ArrowDown"):
             focused = _focused_input["name"]
             # Un champ non vide peut être une réponse multi-lignes en cours
