@@ -113,9 +113,11 @@ def _parse(rule, avoid, theme, level, kind):
         rule += " Questions déjà posées, à ne pas refaire : " + " | ".join(
             avoid[-150:])
     text = hub_sync.ask_claude(rule)
-    found = re.search(r"\[.*\]", text, re.S)
+    start = text.find("[")
+    items = (json.JSONDecoder().raw_decode(text[start:])[0]
+             if start >= 0 else [])
     out = []
-    for item in json.loads(found.group(0)) if found else []:
+    for item in items:
         if kind == "vf":
             if "q" in item and isinstance(item.get("true"), bool):
                 out.append({"theme": item.get("theme") or theme,
