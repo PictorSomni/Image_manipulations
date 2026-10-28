@@ -61,7 +61,8 @@ def draft(mid, tu, tone, hint):
     m = _mail(mid)
     rule = (f"Rédige la réponse du Studio C, magasin photo à Leuze (studio, tirages, "
             f"encadrement) à ce mail. {'Tutoie' if tu else 'Vouvoie'} la "
-            f"personne, ton {tone}. Signe « Studio C ». Ne reprends "
+            f"personne, ton {tone}. Termine exactement par « Belle "
+            f"journée, » puis « Studio C » à la ligne. Ne reprends "
             f"pas le détail de la commande ou de la demande : la "
             f"personne le connaît, réponds directement. "
             + (f"Consignes de Charles : {hint}. " if hint else "")
