@@ -8135,6 +8135,8 @@ def main(page: ft.Page):
          zipper_btn.on_click),
         ("Partager le lien", ft.Icons.LINK, BLUE,
          lambda e: _run_action(_share_link, list(selected))),
+        ("Envoyer à Claude", ft.Icons.SEND_OUTLINED, YELLOW,
+         lambda e: _send_to_claude()),
         ("Ajouter à l'IA", ft.Icons.SMART_TOY_OUTLINED, VIOLET,
          ajouter_ia_btn.on_click),
         ("Supprimer", ft.Icons.DELETE_OUTLINE, RED,
@@ -8288,8 +8290,6 @@ def main(page: ft.Page):
              lambda e: _launch_tool("Nettoyer metadonnées.py")),
             ("Nettoyer noms Topaz", ft.Icons.DRIVE_FILE_RENAME_OUTLINE,
              YELLOW, lambda e: _launch_tool("Nettoyer noms Topaz.py")),
-            ("Envoyer à Claude", ft.Icons.SEND_OUTLINED, YELLOW,
-             lambda e: _send_to_claude()),
         ]),
         ("Montage", [
             ("Montage collage", ft.Icons.GRID_VIEW_OUTLINED, VIOLET,
