@@ -131,7 +131,8 @@ input[type=date] { -webkit-appearance: none; appearance: none;
   border-radius: 14px 14px 0 0; display: none;
   padding: 8px 20px calc(20px + env(safe-area-inset-bottom)); }
 #sheet.full { top: 0; max-height: none; border-radius: 0; background: #000;
-  padding-top: calc(40px + env(safe-area-inset-top)); }
+  padding-top: 0; }
+
 #sheet .handle { width: 40px; height: 5px; border-radius: 3px;
   background: var(--grey); margin: 0 auto 12px; }
 #sheet .grip { position: sticky; top: -8px; z-index: 1; cursor: grab;
@@ -139,6 +140,11 @@ input[type=date] { -webkit-appearance: none; appearance: none;
   background: inherit; }
 #sheet .close { position: absolute; right: 12px; top: 0; font-size: 18px;
   padding: 4px 10px; background: none; color: var(--grey); }
+/* Plein écran : la poignée couvre aussi l'encoche, rien ne défile
+   au-dessus. */
+#sheet.full .grip { top: 0; margin-top: 0;
+  padding-top: calc(48px + env(safe-area-inset-top)); }
+#sheet.full .close { top: calc(40px + env(safe-area-inset-top)); }
 @media (min-width: 700px) {
   #sheet { left: 50%; right: auto; width: 640px; transform:
     translateX(-50%); }
