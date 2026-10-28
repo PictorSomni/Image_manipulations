@@ -120,7 +120,8 @@ async function api(path, body) {
   return d;
 }
 
-function show(...kids) { $app.replaceChildren(...kids); scrollTo(0, 0); }
+function show(...kids) {
+  $app.replaceChildren(...kids.filter(k => k != null && k !== false)); scrollTo(0, 0); }
 
 // ── Accueil ──────────────────────────────────────────────────────────
 async function home() {
