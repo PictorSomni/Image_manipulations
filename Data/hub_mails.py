@@ -239,6 +239,33 @@ def build(ui):
             out.append((title or "Briefing", "\n".join(lines)))
         return out
 
+    def _quiz_card(q):
+        """Question du jour du quiz : un choix révèle réponse et anecdote."""
+        yellow = CONSTANTS.COLOR_YELLOW
+        result = ft.Column(spacing=4, tight=True)
+
+        def _pick(e, i):
+            for j, btn in enumerate(buttons):
+                btn.disabled = True
+                if j == q["answer"]:
+                    btn.bgcolor = CONSTANTS.COLOR_GREEN
+                elif j == i:
+                    btn.bgcolor = CONSTANTS.COLOR_RED
+            ok = i == q["answer"]
+            result.controls = [
+                ft.Text("Bravo !" if ok else "C'était : "
+                        + q["choices"][q["answer"]], color=WHITE,
+                        weight=ft.FontWeight.W_500),
+                ft.Text(q.get("explain", ""), color=LIGHT_GREY)]
+            page.update()
+        buttons = [ft.Button(c, color=WHITE, bgcolor=GREY,
+                             on_click=lambda e, i=i: _pick(e, i))
+                   for i, c in enumerate(q["choices"])]
+        return _card("Question du jour", yellow, [
+            ft.Text(q["q"], color=WHITE, size=CONSTANTS.TEXT_LG),
+            ft.Row(buttons, wrap=True, spacing=8, run_spacing=8),
+            result])
+
     def _briefing_controls(b, refill):
         if isinstance(b, Exception):
             return [ft.Text(f"Pi injoignable : {b}", color=RED)]
@@ -263,6 +290,8 @@ def build(ui):
                                      size=16) if m.get("files_id") else None,
                     on_click=lambda e, m=m: open_reply(m, _answered))
                 for m in mails]))
+        if b.get("quiz"):
+            cards.append(_quiz_card(b["quiz"]))
         for title, body in _sections(b["text"]):
             if "mail" in title.lower():  # déjà dans la carte Mails
                 continue

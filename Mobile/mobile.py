@@ -917,7 +917,8 @@ class Handler(BaseHTTPRequestHandler):
                 text, when = "", None
             return self._json({"text": text, "at": when,
                                "pi": hub_sync.pi_problems(),
-                               "mails": mail_reply.pending()})
+                               "mails": mail_reply.pending(),
+                               "quiz": mail_reply.quiz_daily()})
         if path == "/api/news":
             items = load_news(max_age=0 if q.get("force") == "1"
                               else DATA_TTL)

@@ -1204,6 +1204,25 @@ function viewHome() {
       h("div", {class: "tx"}, m.name || m.from,
         m.files_id ? [" ", ic("attach_file")] : null,
         h("div", {class: "muted"}, m.summary || m.subject))))));
+  // Question du jour du quiz : un choix révèle réponse et anecdote.
+  const qz = S.briefing && S.briefing.quiz;
+  if (qz) {
+    const res = h("div");
+    const opts = qz.choices.map((c, i) => h("div", {class: "slot",
+      onclick: () => {
+        if (res.textContent) return;
+        opts.forEach((o, j) => { o.firstChild.style.background =
+          j === qz.answer ? C.green : j === i ? C.red : "#fff2"; });
+        res.append(h("b", {}, i === qz.answer ? "Bravo !" :
+          "C'était : " + qz.choices[qz.answer]),
+          h("div", {class: "muted"}, qz.explain));
+      }}, h("i", {class: "bar2", style: {background: "#fff2"}}),
+      h("div", {class: "tx"}, c)));
+    out.push(glass("Question du jour", "Quiz ›", () => {
+      location.href = `http://${location.hostname}:8560`; },
+      h("div", {style: {fontWeight: 600, marginBottom: "6px"}}, qz.q),
+      ...opts, res));
+  }
   // Briefing complet
   const b = S.briefing;
   if (b && b.text) out.push(glass(`Briefing · ${dayLabel(localIso(

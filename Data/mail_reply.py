@@ -6,6 +6,7 @@ Rien ne part sans validation dans Hub ou la webapp. Tourne sur le Pi
 (mot de passe via `pass`) ; Hub y accède par hub-sync (POST /mail).
 """
 import base64
+import datetime
 import html
 import imaplib
 import json
@@ -47,6 +48,18 @@ def _mark_done(mid):
     with open(MAILS + ".tmp", "w", encoding="utf-8") as f:
         json.dump(mails, f, ensure_ascii=False, indent=1)
     os.replace(MAILS + ".tmp", MAILS)
+
+
+def quiz_daily():
+    """Question du jour du quiz (Quiz/quiz.py), si elle date d'aujourd'hui."""
+    try:
+        with open(os.path.join(HOME, "quiz", "state.json"),
+                  encoding="utf-8") as f:
+            daily = json.load(f).get("daily") or {}
+    except (OSError, ValueError):
+        return None
+    today = datetime.date.today().isoformat()
+    return daily.get("q") if daily.get("date") == today else None
 
 
 def pending():
@@ -145,9 +158,11 @@ def call(req):
         try:
             with open(path, encoding="utf-8") as f:
                 return {"text": f.read(), "at": os.path.getmtime(path),
-                        "mails": pending(), "pi": hub_sync.pi_problems()}
+                        "mails": pending(), "pi": hub_sync.pi_problems(),
+                        "quiz": quiz_daily()}
         except OSError:
-            return {"text": "", "at": None, "mails": pending(), "pi": []}
+            return {"text": "", "at": None, "mails": pending(), "pi": [],
+                    "quiz": quiz_daily()}
     if a == "draft":
         return draft(req["id"], req["tu"], req["tone"], req.get("hint", ""))
     if a == "reply":
