@@ -35,6 +35,7 @@ body::after { background: var(--pink); bottom: -30vmax; left: -25vmax;
 main { max-width: 640px; margin: 0 auto; padding:
   calc(16px + env(safe-area-inset-top)) 16px
   calc(28px + env(safe-area-inset-bottom)); }
+.title { font-size: 64px; text-align: center; margin-top: 16px; }
 h1 { font-size: 34px; font-weight: 800; margin: 8px 0 2px;
   letter-spacing: -.02em; }
 h1 span { background: linear-gradient(90deg, var(--yellow), var(--pink));
@@ -214,8 +215,8 @@ async function home() {
   }}, ...themes.map(v => h("option", {value: v, selected: v === S.theme},
     v)), h("option", {value: ""}, "Autre…"));
   show(
-    h("h1", {}, h("span", {}, "Quiz")),
-    h("div", {class: "muted"}, "Apprendre ensemble, une question à la fois"),
+    h("h1", {class: "title"}, h("span", {}, "Quiz")),
+    h("div", {class: "muted", style: "text-align:center"}, "Apprendre ensemble, une question à la fois"),
     h("div", {class: "label"}, "Qui joue"),
     h("div", {class: "seg"}, ...names.map(v => h("button",
       {class: v === S.profile ? "on" : "", onclick: () => {
