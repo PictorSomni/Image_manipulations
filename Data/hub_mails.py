@@ -27,6 +27,8 @@ def build(ui):
     DARK, WHITE, GREY = ui.DARK, ui.WHITE, ui.GREY
     LIGHT_GREY, RED, BLUE = ui.LIGHT_GREY, ui.RED, ui.BLUE
     _dialog, _dlg_btn, _run_task = ui._dialog, ui._dlg_btn, ui._run_task
+    # Rempli par Hub une fois l'onglet Fichiers prêt (open_folder).
+    hooks = {}
 
     def _bg(work, done):
         """work() dans un fil, puis done(résultat ou exception) dans l'UI."""
@@ -87,6 +89,14 @@ def build(ui):
                 status.value = f"Erreur : {out}"
                 return
             status.value = f"Enregistré dans {out}"
+            open_btn.data = out
+            open_btn.visible = "open_folder" in hooks
+
+        def _open_in_hub(e):
+            for c in page.overlay:
+                if isinstance(c, ft.AlertDialog):
+                    c.open = False
+            hooks["open_folder"](open_btn.data)
 
         async def _save(e):
             folder = await ft.FilePicker().get_directory_path(
@@ -104,9 +114,12 @@ def build(ui):
                 n, icon=ft.Icons.ATTACH_FILE, data=n,
                 on_click=lambda e, n=n: _open(n)) for n in names]
         _bg(lambda: hub_sync.list_files(fid), _listed)
-        return ft.Column([files, ft.TextButton(
+        open_btn = ft.TextButton("Ouvrir dans Hub",
+                                 icon=ft.Icons.FOLDER_OPEN_OUTLINED,
+                                 visible=False, on_click=_open_in_hub)
+        return ft.Column([files, ft.Row([ft.TextButton(
             "Enregistrer", icon=ft.Icons.DOWNLOAD, on_click=_save),
-            status], spacing=4, tight=True)
+            open_btn], spacing=6), status], spacing=4, tight=True)
 
     # ── Réponse à un mail ────────────────────────────────────────────────
     def open_reply(m, on_done=None):
@@ -321,6 +334,7 @@ def build(ui):
                      _dlg_btn("Envoyer", "primary", on_click=_send)])
         _show(dlg)
 
-    return {"notify_client": notify_client,
-            "briefing_surface": briefing_surface,
-            "briefing_refresh": briefing_refresh}
+    hooks.update({"notify_client": notify_client,
+                  "briefing_surface": briefing_surface,
+                  "briefing_refresh": briefing_refresh})
+    return hooks

@@ -6287,6 +6287,10 @@ def main(page: ft.Page):
             _run_task(_ai_update_and_scroll)
         _run_task(_focus_active_surface)
 
+    # Pièce jointe d'un mail enregistrée → dossier ouvert dans Fichiers.
+    _mails["open_folder"] = lambda path: (_select_surface("files"),
+                                          _navigate(path))
+
     def _rail_tab(key, label, icon):
         is_active = key == "files"
         icon_ctrl = ft.Icon(icon, size=CONSTANTS.ICON_SM,
