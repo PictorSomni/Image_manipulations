@@ -6290,6 +6290,25 @@ def main(page: ft.Page):
     # Pièce jointe d'un mail enregistrée → dossier ouvert dans Fichiers.
     _mails["open_folder"] = lambda path: (_select_surface("files"),
                                           _navigate(path))
+    # Briefing : une actu s'ouvre en grand dans Actus, une tâche passe à
+    # l'état suivant d'un clic (comme Hub mobile).
+
+    def _briefing_news(link):
+        item = next((it for it in actus_state["items"]
+                     if it["link"] == link), None)
+        if item is None:
+            webbrowser.open(link)
+            return
+        _select_surface("actus")
+        _actus_show(item)
+    _mails.update(
+        open_news=_briefing_news,
+        kanban_rows=lambda: kanban_state["rows"],
+        set_etat=lambda row, etat: _kanban_change_property(
+            row, "Etat", "etat", etat),
+        set_prevenu=lambda row: _kanban_change_property(
+            row, "Prévenir ?", "prevenu", "Prévenu"),
+        open_task=_kanban_open_details)
 
     def _rail_tab(key, label, icon):
         is_active = key == "files"

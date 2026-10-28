@@ -280,8 +280,42 @@ def build(ui):
             cards.append(_card("Actus", BLUE, [ft.ListTile(
                 title=ft.Text(n.get("title") or "", color=WHITE),
                 subtitle=ft.Text(n.get("source") or "", color=LIGHT_GREY),
-                on_click=lambda e, u=n.get("link"): u and webbrowser.open(u))
+                on_click=lambda e, u=n.get("link"): u and hooks.get(
+                    "open_news", webbrowser.open)(u))
                 for n in b["news"]]))
+        return cards
+
+    def _task_cards(refill, b):
+        """À faire et En cours : clic = fiche, pastille = état suivant."""
+        rows = hooks["kanban_rows"]()
+        (todo, todo_c), (doing, doing_c) = ui.KANBAN_ETATS[:2]
+        nxt = {todo: (doing, doing_c),
+               doing: ("Terminé", ui.KANBAN_ETAT_COLORS["Terminé"])}
+
+        def _advance(row, etat):
+            hooks["set_etat"](row, etat)
+            if etat == "Terminé":
+                notify_client(row,
+                              on_sent=lambda: hooks["set_prevenu"](row))
+            refill(b)
+
+        def _line(row):
+            etat, color = nxt[row["etat"]]
+            return ft.ListTile(
+                title=ft.Text(row["demande"] or "(sans titre)",
+                              color=WHITE),
+                trailing=ft.Button(
+                    etat.split(" /")[0], icon=ft.Icons.ARROW_FORWARD,
+                    color=DARK, bgcolor=color,
+                    on_click=lambda e, r=row, t=etat: _advance(r, t)),
+                on_click=lambda e, r=row: hooks["open_task"](r))
+        cards = []
+        for etat, color in ((todo, todo_c), (doing, doing_c)):
+            mine = [r for r in rows if r["etat"] == etat]
+            more = ([ft.Text(f"+ {len(mine) - 8} autres", color=LIGHT_GREY)]
+                    if len(mine) > 8 else [])
+            cards.append(_card(f"{etat} · {len(mine)}", color,
+                               [_line(r) for r in mine[:8]] + more))
         return cards
 
     def _text_of(ctl):
@@ -333,11 +367,15 @@ def build(ui):
         for title, body in _sections(b["text"]):
             if "mail" in title.lower():  # déjà dans la carte Mails
                 continue
+            if "tâche" in title.lower() and "kanban_rows" in hooks:
+                continue  # remplacé par les cartes interactives
             color = next((c for k, c in section_colors
                           if k in title.lower()), accent)
             cards.append(_card(title, color, [ft.Markdown(
                 body.strip(), selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)]))
+        if "kanban_rows" in hooks:
+            cards += _task_cards(refill, b)
         cards += _extra_cards(b)
         if not cards:
             cards.append(_card("Briefing", accent, [ft.Text(
