@@ -259,6 +259,8 @@ def build(ui):
                     subtitle=ft.Text(m.get("summary")
                                      or m.get("subject", ""),
                                      color=LIGHT_GREY),
+                    trailing=ft.Icon(ft.Icons.ATTACH_FILE, color=LIGHT_GREY,
+                                     size=16) if m.get("files_id") else None,
                     on_click=lambda e, m=m: open_reply(m, _answered))
                 for m in mails]))
         for title, body in _sections(b["text"]):

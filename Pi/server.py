@@ -100,6 +100,8 @@ class H(http.server.BaseHTTPRequestHandler):
             return False
         parts = [urllib.parse.unquote(p) for p in
                  self.path.split("/files/", 1)[1].strip("/").split("/")]
+        if parts == [""]:  # /files/ : cartes qui ont des fichiers
+            return FILES, None
         name = parts[1] if len(parts) == 2 else None
         if not PID_RE.match(parts[0]) or len(parts) > 2 or name is not None \
                 and (not name or name.startswith(".") or "\\" in name
@@ -129,6 +131,10 @@ class H(http.server.BaseHTTPRequestHandler):
             names = sorted(n for n in os.listdir(folder)
                            if not n.startswith(("_", "."))) \
                 if os.path.isdir(folder) else []
+            if folder == FILES:
+                names = [d for d in names if any(
+                    not n.startswith(("_", "."))
+                    for n in os.listdir(os.path.join(FILES, d)))]
             self._reply(200, json.dumps(names, ensure_ascii=False).encode())
             return True
         path = os.path.join(folder, name)

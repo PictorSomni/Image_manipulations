@@ -610,6 +610,8 @@ def build(ui):
                 ft.Text(row["demande"], size=CONSTANTS.TEXT_SM, color=WHITE,
                         weight=ft.FontWeight.W_600, max_lines=3,
                         overflow=ft.TextOverflow.ELLIPSIS, expand=True),
+                *([ft.Icon(ft.Icons.ATTACH_FILE, color=LIGHT_GREY,
+                           size=14)] if row.get("files") else []),
                 ft.IconButton(
                     ft.Icons.OPEN_IN_FULL, icon_color=DARK, icon_size=14,
                     tooltip="Détails / modifier",
@@ -740,6 +742,11 @@ def build(ui):
 
     def _kanban_parse_rows(raw_json_str):
         data = json.loads(raw_json_str)
+        try:  # cartes qui ont des fichiers sur le Pi (trombone)
+            with_files = set(json.loads(hub_sync.file_req("GET", "",
+                                                          timeout=5)))
+        except Exception:
+            with_files = set()
         rows = []
         for r in data.get("results", []):
             url = r.get("url", "")
@@ -747,6 +754,7 @@ def build(ui):
             rows.append({
                 "page_id": page_id,
                 "demande": r.get("Demande") or "(sans titre)",
+                "files": page_id.replace("-", "") in with_files,
                 "etat": r.get("Etat") or "À faire",
                 "deadline": r.get("date:Deadline:start", ""),
                 "telephone": r.get("Téléphone", ""),
