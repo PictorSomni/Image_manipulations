@@ -109,7 +109,7 @@ ROTATABLE_EXTS = frozenset({
 COLOR_DARK         = "#222429"
 COLOR_BACKGROUND   = "#373d4a"
 COLOR_GREY         = "#2C3038"
-COLOR_LIGHT_GREY   = "#9399A6"
+COLOR_LIGHT_GREY   = "#B4BAC6"
 COLOR_BLUE         = "#45B8F5"
 COLOR_BLUE_LIGHT   = "#4EC3FF"
 COLOR_BLUE_DARK    = "#5E94FF"
@@ -122,7 +122,7 @@ COLOR_HOVER_YELLOW = "#F9BA4E"
 COLOR_ORANGE       = "#FFA071"
 COLOR_RED          = "#F17171"
 COLOR_PINK         = "#F471B7"
-COLOR_WHITE        = "#c7ccd8"
+COLOR_WHITE        = "#eef0f4"
 
 
 # ── 3bis. SYSTÈME DE DESIGN — rôles & échelle ─────────────────────────────────

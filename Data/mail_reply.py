@@ -62,6 +62,28 @@ def quiz_daily():
     return daily.get("q") if daily.get("date") == today else None
 
 
+def _cache(name):
+    try:
+        with open(os.path.join(HOME, name), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def extras():
+    """Ce que la webapp montre en plus à l'accueil, pour le briefing de
+    Hub : météo, anecdotes, actus (caches de Mobile/mobile.py)."""
+    today = datetime.date.today().isoformat()
+    wx = _cache(".hub_mobile_weather.json")
+    dg = _cache(".hub_mobile_digest.json")
+    news = _cache(".hub_mobile_news.json").get("items") or []
+    return {"weather": wx if wx.get("date") == today else None,
+            "digest": [e["md"] for e in dg.get("entries") or []
+                       if e.get("md")],
+            "news": [{k: it.get(k) for k in ("title", "source", "link")}
+                     for it in news[:3]]}
+
+
 def pending():
     return [m for m in _read() if not m.get("done")]
 
@@ -159,10 +181,10 @@ def call(req):
             with open(path, encoding="utf-8") as f:
                 return {"text": f.read(), "at": os.path.getmtime(path),
                         "mails": pending(), "pi": hub_sync.pi_problems(),
-                        "quiz": quiz_daily()}
+                        "quiz": quiz_daily(), **extras()}
         except OSError:
             return {"text": "", "at": None, "mails": pending(), "pi": [],
-                    "quiz": quiz_daily()}
+                    "quiz": quiz_daily(), **extras()}
     if a == "draft":
         return draft(req["id"], req["tu"], req["tone"], req.get("hint", ""))
     if a == "reply":

@@ -8,6 +8,7 @@ import datetime
 import os
 import tempfile
 import threading
+import webbrowser
 
 import flet as ft
 
@@ -27,6 +28,7 @@ def build(ui):
     page = ui.page
     DARK, WHITE, GREY = ui.DARK, ui.WHITE, ui.GREY
     LIGHT_GREY, RED, BLUE = ui.LIGHT_GREY, ui.RED, ui.BLUE
+    YELLOW = CONSTANTS.COLOR_YELLOW
     _dialog, _dlg_btn, _run_task = ui._dialog, ui._dlg_btn, ui._run_task
     # Rempli par Hub une fois l'onglet Fichiers prêt (open_folder).
     hooks = {}
@@ -266,6 +268,22 @@ def build(ui):
             ft.Row(buttons, wrap=True, spacing=8, run_spacing=8),
             result])
 
+    def _extra_cards(b):
+        """Comme l'accueil de la webapp : anecdotes et actus (échéances et
+        tâches sont déjà dans le texte du briefing)."""
+        cards = []
+        if b.get("digest"):
+            cards.append(_card("Le saviez-tu ?", accent, [ft.Markdown(
+                d, extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)
+                for d in b["digest"]]))
+        if b.get("news"):
+            cards.append(_card("Actus", BLUE, [ft.ListTile(
+                title=ft.Text(n.get("title") or "", color=WHITE),
+                subtitle=ft.Text(n.get("source") or "", color=LIGHT_GREY),
+                on_click=lambda e, u=n.get("link"): u and webbrowser.open(u))
+                for n in b["news"]]))
+        return cards
+
     def _briefing_controls(b, refill):
         if isinstance(b, Exception):
             return [ft.Text(f"Pi injoignable : {b}", color=RED)]
@@ -273,6 +291,13 @@ def build(ui):
         if b["pi"]:
             cards.append(_card("Pi", RED, [ft.Text(p, color=WHITE)
                                            for p in b["pi"]]))
+        wx = b.get("weather")
+        if wx:
+            cards.append(_card("Météo · Leuze", YELLOW, [
+                ft.Text(f"{wx['max']}° / {wx['min']}° · {wx['label']}",
+                        color=WHITE, size=CONSTANTS.TEXT_LG),
+                ft.Text(f"Pluie {wx.get('rain', '–')} % · vent "
+                        f"{wx['wind']} km/h", color=LIGHT_GREY)]))
         mails = b["mails"]
 
         def _answered(m):
@@ -300,6 +325,7 @@ def build(ui):
             cards.append(_card(title, color, [ft.Markdown(
                 body.strip(), selectable=True,
                 extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)]))
+        cards += _extra_cards(b)
         if not cards:
             cards.append(_card("Briefing", accent, [ft.Text(
                 "Pas encore de briefing.", color=LIGHT_GREY)]))
