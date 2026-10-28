@@ -102,20 +102,21 @@ button { font: inherit; cursor: pointer; }
   display: grid; place-items: center; }
 .choice:nth-child(1) { --c: #7b5cff; } .choice:nth-child(2) { --c: #e0559f; }
 .choice:nth-child(3) { --c: #2f9fd8; } .choice:nth-child(4) { --c: #e58a3a; }
-.grid.two .choice { min-height: 120px; font-size: 22px; text-align: center;
-  padding: 12px; }
+.grid.two .choice { min-height: 120px; font-size: 24px; font-weight: 800;
+  text-align: center; padding: 12px; color: #1a1433; }
 .grid.two .choice::before { display: none; }
 .grid.two .choice:nth-child(1) { --c: #2fae63; }
 .grid.two .choice:nth-child(2) { --c: #e0505f; }
-.grid.done .choice { opacity: .35; }
+.grid.done .choice { opacity: .35; transform: scale(.88);
+  transition: transform .3s, opacity .3s; }
 .grid .choice.good { --c: var(--green) !important; opacity: 1;
   box-shadow: 0 0 0 3px #fff, 0 0 30px #49d17c99;
-  animation: pop .35s ease-out; }
+  transform: scale(1.08); z-index: 1; animation: pop .35s ease-out; }
 .grid .choice.bad { --c: var(--red) !important; opacity: 1;
   box-shadow: 0 0 0 3px #fff6, 0 0 24px #ff6b7d88;
   animation: shake .35s; }
 .choice.gone { opacity: .15; }
-@keyframes pop { 50% { transform: scale(1.07); } }
+@keyframes pop { 50% { transform: scale(1.16); } }
 @keyframes shake { 25% { transform: translateX(-6px); }
   75% { transform: translateX(6px); } }
 .jokers { display: flex; gap: 10px; margin-top: 16px; }
