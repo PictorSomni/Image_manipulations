@@ -92,7 +92,8 @@ button { font: inherit; cursor: pointer; }
 <script>
 const $app = document.getElementById("app");
 const S = {info: null, profile: localStorage.quizProfile || "Ensemble",
-  theme: "Tout mélangé", kind: localStorage.quizKind || "qcm", game: null};
+  theme: "Tout mélangé", kind: localStorage.quizKind || "qcm",
+  level: +localStorage.quizLevel || 0, game: null};
 const CORRECT_PER_LEVEL = 4;
 const JOKERS = 3;
 
@@ -165,6 +166,10 @@ async function home() {
       .map(([k, t]) => h("button", {class: k === S.kind ? "on" : "",
         onclick: () => { S.kind = k; localStorage.quizKind = k; home(); }},
         t))),
+    h("div", {class: "label"}, "Difficulté de départ"),
+    h("div", {class: "chips"}, ...S.info.levels.map((t, i) => h("button",
+      {class: "chip" + (i === S.level ? " on" : ""), onclick: () => {
+        S.level = i; localStorage.quizLevel = i; home(); }}, t))),
     h("div", {class: "label"}, "Thème"),
     h("div", {class: "chips"}, [...pick(S.info.themes, S.theme,
       v => S.theme = v).children].concat(custom)),
@@ -185,7 +190,7 @@ function daily() {
 }
 
 function start(single) {
-  S.game = {queue: [], level: 0, correct: 0, points: 0, streak: 0,
+  S.game = {queue: [], level: single ? 3 : S.level, correct: 0, points: 0, streak: 0,
     best: 0, n: 0, half: JOKERS, hints: JOKERS, done: [], loading: null,
     asked: new Set(), single};
   if (single) return;
