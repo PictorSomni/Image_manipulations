@@ -58,6 +58,12 @@ button { font: inherit; cursor: pointer; }
 .modes .vf { background: linear-gradient(135deg, #2fae63, #2f9fd8);
   box-shadow: 0 6px 0 #1f6e7a; }
 .modes button.on { opacity: 1; transform: none; outline: 3px solid #fff; }
+.pick { width: 100%; padding: 14px 16px; border-radius: 14px;
+  font: inherit; font-size: 17px; font-weight: 700; color: var(--text);
+  background: var(--card); border: 1px solid var(--line);
+  appearance: none; -webkit-appearance: none;
+  background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9'%3E%3Cpath d='M1 1l6 6 6-6' stroke='%23a9a3c9' stroke-width='2' fill='none'/%3E%3C/svg%3E") no-repeat right 18px center; }
+.pick option { background: var(--deep); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { border: 1px solid var(--line); background: var(--card);
   color: var(--text); border-radius: 20px; padding: 7px 14px;
@@ -198,15 +204,15 @@ async function home() {
   const names = ["Aurélie", "Charles", S.info.team];
   if (!names.includes(S.profile)) S.profile = S.info.team;
   const p = S.info.profiles[S.profile] || {};
-  const pick = (list, cur, set) => h("div", {class: "chips"},
-    ...list.map(v => h("button", {class: "chip" + (v === cur ? " on" : ""),
-      onclick: () => { set(v); home(); }}, v)));
-  const custom = h("button", {class: "chip" +
-    (S.info.themes.includes(S.theme) ? "" : " on"), onclick: () => {
-      const t = (prompt("Thème", S.info.themes.includes(S.theme) ? "" :
-        S.theme) || "").trim();
-      if (t) { S.theme = t; home(); }
-    }}, S.info.themes.includes(S.theme) ? "Autre…" : S.theme);
+  const themes = S.info.themes.includes(S.theme) ? S.info.themes :
+    [...S.info.themes, S.theme];
+  const theme = h("select", {class: "pick", onchange: e => {
+    if (e.target.value) return S.theme = e.target.value;
+    const t = (prompt("Thème") || "").trim();
+    if (t) S.theme = t;
+    home();
+  }}, ...themes.map(v => h("option", {value: v, selected: v === S.theme},
+    v)), h("option", {value: ""}, "Autre…"));
   show(
     h("h1", {}, h("span", {}, "Quiz")),
     h("div", {class: "muted"}, "Apprendre ensemble, une question à la fois"),
@@ -234,12 +240,12 @@ async function home() {
         onclick: () => { S.kind = k; localStorage.quizKind = k; home(); }},
         t))),
     h("div", {class: "label"}, "Difficulté de départ"),
-    h("div", {class: "chips"}, ...S.info.levels.map((t, i) => h("button",
-      {class: "chip" + (i === S.level ? " on" : ""), onclick: () => {
-        S.level = i; localStorage.quizLevel = i; home(); }}, t))),
+    h("select", {class: "pick", onchange: e => {
+      S.level = +e.target.value; localStorage.quizLevel = S.level; }},
+      ...S.info.levels.map((t, i) => h("option",
+        {value: i, selected: i === S.level}, t))),
     h("div", {class: "label"}, "Thème"),
-    h("div", {class: "chips"}, [...pick(S.info.themes, S.theme,
-      v => S.theme = v).children].concat(custom)),
+    theme,
     h("button", {class: "big", onclick: () => start()}, "Jouer"));
 }
 
