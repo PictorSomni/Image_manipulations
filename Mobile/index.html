@@ -833,11 +833,37 @@ function viewLists() {
     v => { S.listKind = v; render(); })];
   if (!S.lists) return [...out, h("div", {class: "bar"})];
   const rows = S.lists[name];
-  out.push(h("button", {onclick: () => listEdit(name)}, ic("add"), " Ajouter"));
-  [...new Set(rows.map(catOf))].forEach((cat, i) => {
+  out.push(h("div", {class: "row"},
+    h("button", {onclick: () => listEdit(name)}, ic("add"), " Ajouter"),
+    h("button", {class: S.sorting ? "" : "btn out", onclick: () => {
+      S.sorting = !S.sorting; render(); }}, ic("swap_vert"), " Ordre")));
+  const cats = [...new Set(rows.map(catOf))];
+  // Mode « Ordre » : flèches pour monter / descendre lignes et catégories.
+  const arrows = move => S.sorting ? [
+    h("button", {class: "icon", onclick: e => { e.stopPropagation();
+      move(-1); }}, ic("arrow_upward")),
+    h("button", {class: "icon", onclick: e => { e.stopPropagation();
+      move(1); }}, ic("arrow_downward"))] : [];
+  const moveCat = (cat, d) => {
+    const j = cats.indexOf(cat) + d;
+    if (j < 0 || j >= cats.length) return;
+    cats.splice(j - d, 1); cats.splice(j, 0, cat);
+    S.lists[name] = cats.flatMap(c => rows.filter(r => catOf(r) === c));
+    saveList(name);
+  };
+  const moveRow = (r, d) => {
+    const same = rows.filter(x => catOf(x) === catOf(r));
+    const other = same[same.indexOf(r) + d];
+    if (!other) return;
+    const a = rows.indexOf(r), b = rows.indexOf(other);
+    [rows[a], rows[b]] = [rows[b], rows[a]];
+    saveList(name);
+  };
+  cats.forEach((cat, i) => {
     out.push(h("div", {class: "cat", style: {background:
-      alpha(LIST_COLORS[i % LIST_COLORS.length], .25)}},
-      cat || "Sans catégorie"));
+      alpha(LIST_COLORS[i % LIST_COLORS.length], .25), display: "flex",
+      alignItems: "center"}}, h("span", {style: {flex: 1}},
+      cat || "Sans catégorie"), ...arrows(d => moveCat(cat, d))));
     for (const r of rows.filter(r => catOf(r) === cat)) {
       if (name === "liste") {
         const done = isDone(r);
@@ -849,11 +875,12 @@ function viewLists() {
         out.push(h("div", {class: "item" + (done ? " done" : ""),
           onclick: () => listEdit(name, r)}, box,
           h("div", {class: "t"}, r["tâche"] || ""),
-          det ? h("div", {class: "d"}, md(det)) : null));
+          det ? h("div", {class: "d"}, md(det)) : null,
+          ...arrows(d => moveRow(r, d))));
       } else {
         out.push(h("div", {class: "item", onclick: () => listEdit(name, r)},
           h("div", {class: "t"}, r.article || ""),
-          h("b", {}, String(r.prix ?? ""))));
+          h("b", {}, String(r.prix ?? "")), ...arrows(d => moveRow(r, d))));
       }
     }
   });
