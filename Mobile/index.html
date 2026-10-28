@@ -664,7 +664,7 @@ function taskDetails(row) {
     seg(opts.map(([v, c]) => [v, v, c]), row[prop] || opts[0][0],
       v => { setProps(row, {[prop]: v}); taskDetails(row); }, true)]);
   openSheet([title, ...info,
-    ...flags, filesBox(row), notesBox(row), h("div", {class: "row"}, callBtn(row)),
+    ...flags, filesBox(row), notesBox(row),
     h("div", {class: "label"}, "État"),
     seg(ETATS.map(([e, c]) => [e, e, c]), row.Etat || "À faire", e => {
       closeSheet(); S.open = e;
@@ -674,8 +674,9 @@ function taskDetails(row) {
     }, true),
     h("div", {class: "row"}, h("button", {class: "btn out red",
       onclick: () => deleteTask(row)}, "Supprimer"),
+      h("span", {style: {marginLeft: "auto"}}), callBtn(row),
       row["E-mail"] || row["Téléphone"] ? h("button", {class: "btn",
-        style: {marginLeft: "auto", background: C.yellow, color: "#222429"},
+        style: {background: C.yellow, color: "#222429"},
         onclick: () => notifyClient(row)},
         ic("mark_email_read"), " Prévenir") : null)]);
 }
