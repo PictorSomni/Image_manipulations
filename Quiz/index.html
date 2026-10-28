@@ -91,6 +91,9 @@ button { font: inherit; cursor: pointer; }
 .stats b { display: block; font-size: 26px; font-weight: 800; }
 .top { display: flex; align-items: center; gap: 10px; }
 .top .sp { flex: 1; }
+.menu { background: #d8cbff; color: #2a1660; border: 0; border-radius: 14px;
+  padding: 10px 16px; font: inherit; font-size: 16px; font-weight: 800;
+  box-shadow: 0 4px 0 #7a5fd0; }
 .pill { background: #0003; border: 1px solid var(--line); border-radius: 20px;
   padding: 5px 12px; font-size: 13px; color: var(--grey); }
 .score { font-size: 30px; font-weight: 800; color: var(--yellow); }
@@ -323,7 +326,7 @@ function ask(q) {
   const jokers = h("div", {class: "jokers"}, half, help);
   const into = g.correct % CORRECT_PER_LEVEL;
   show(
-    h("div", {class: "top"}, h("button", {class: "pill", onclick: () => {
+    h("div", {class: "top"}, h("button", {class: "menu", onclick: () => {
       S.game = null; home(); }}, "‹ Menu"), h("span", {class: "sp"}),
       h("span", {class: "pill"}, `Q${g.n} · ${S.info.levels[g.level]}`)),
     h("div", {class: "bar"}, h("i", {style:
