@@ -1,0 +1,3 @@
+{"name": "Quiz", "short_name": "Quiz", "start_url": "/", "display": "standalone",
+ "background_color": "#222429", "theme_color": "#222429",
+ "icons": [{"src": "/icon.png", "sizes": "512x512", "type": "image/png"}]}

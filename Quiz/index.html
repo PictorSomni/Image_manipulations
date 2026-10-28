@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Quiz">
+<meta name="theme-color" content="#222429">
+<link rel="apple-touch-icon" href="/icon.png">
+<link rel="icon" href="/icon.png">
+<link rel="manifest" href="/manifest.json">
+<title>Quiz</title>
+<style>
+:root {
+  --dark: #222429; --bg: #373d4a; --card: #2C3038; --grey: #9399A6;
+  --blue: #45B8F5; --violet: #B48DFF; --green: #49B76C; --yellow: #FBCD5F;
+  --orange: #FFA071; --red: #F17171; --pink: #F471B7; --text: #e6e8ee;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; min-height: 100%; background: var(--dark);
+  color: var(--text); font: 16px/1.45 -apple-system, system-ui,
+  "Segoe UI", sans-serif; }
+main { max-width: 640px; margin: 0 auto; padding:
+  calc(16px + env(safe-area-inset-top)) 16px
+  calc(24px + env(safe-area-inset-bottom)); }
+h1 { font-size: 28px; margin: 8px 0 4px; }
+.muted { color: var(--grey); font-size: 14px; }
+.label { color: var(--grey); font-size: 13px; text-transform: uppercase;
+  letter-spacing: .05em; margin: 22px 0 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { border: 1px solid #fff2; background: var(--card); color: var(--text);
+  border-radius: 20px; padding: 7px 14px; font-size: 15px; }
+.chip.on { background: var(--violet); color: #222429; border-color:
+  var(--violet); font-weight: 600; }
+button { font: inherit; cursor: pointer; }
+.big { width: 100%; border: 0; border-radius: 12px; padding: 15px;
+  font-size: 18px; font-weight: 700; background: var(--violet);
+  color: #222429; margin-top: 24px; }
+.big:disabled { opacity: .5; }
+.ghost { background: none; border: 0; color: var(--grey); padding: 8px; }
+.card { background: var(--card); border-radius: 14px; padding: 16px;
+  margin-top: 12px; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  text-align: center; }
+.stats b { display: block; font-size: 22px; }
+.top { display: flex; align-items: center; gap: 10px; font-size: 14px;
+  color: var(--grey); }
+.top .sp { flex: 1; }
+.bar { height: 6px; border-radius: 3px; background: #fff1; margin: 10px 0 0;
+  overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--yellow);
+  transition: width .4s; }
+.theme { color: var(--violet); font-size: 13px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .05em; }
+.q { font-size: 21px; font-weight: 600; margin: 6px 0 4px; }
+.choice { display: block; width: 100%; text-align: left; margin-top: 10px;
+  padding: 14px 16px; border-radius: 12px; border: 1px solid #fff2;
+  background: var(--card); color: var(--text); font-size: 17px; }
+.choice.good { background: var(--green); color: #222429; border-color:
+  var(--green); font-weight: 600; }
+.choice.bad { background: var(--red); color: #222429; border-color:
+  var(--red); }
+.choice.gone { opacity: .25; }
+.jokers { display: flex; gap: 8px; margin-top: 16px; }
+.joker { flex: 1; border: 1px solid var(--yellow); background: none;
+  color: var(--yellow); border-radius: 10px; padding: 9px; font-size: 14px; }
+.joker:disabled { opacity: .3; }
+.hint { color: var(--yellow); margin-top: 12px; }
+.explain { border-left: 4px solid var(--blue); background: #45B8F51a; }
+.explain.ok { border-color: var(--green); background: #49B76C1a; }
+.explain.ko { border-color: var(--red); background: #F171711a; }
+.wait { text-align: center; padding: 60px 0; color: var(--grey); }
+.spin { width: 34px; height: 34px; margin: 0 auto 14px; border-radius: 50%;
+  border: 3px solid #fff2; border-top-color: var(--violet);
+  animation: s 1s linear infinite; }
+@keyframes s { to { transform: rotate(360deg); } }
+.learned { margin-top: 12px; padding-left: 12px; border-left: 3px solid
+  var(--grey); }
+.learned.ok { border-color: var(--green); }
+.learned.ko { border-color: var(--red); }
+</style>
+</head>
+<body>
+<main id="app"></main>
+<script>
+const $app = document.getElementById("app");
+const S = {info: null, profile: localStorage.quizProfile || "Ensemble",
+  theme: "Tout mélangé", game: null};
+const CORRECT_PER_LEVEL = 4;
+const JOKERS = 3;
+
+function h(tag, attrs = {}, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat()) {
+    if (k == null || k === false) continue;
+    el.append(k instanceof Node ? k : document.createTextNode(k));
+  }
+  return el;
+}
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body)} : {});
+  const d = await r.json();
+  if (d && d.error) throw new Error(d.error);
+  return d;
+}
+
+function show(...kids) { $app.replaceChildren(...kids); scrollTo(0, 0); }
+
+// ── Accueil ──────────────────────────────────────────────────────────
+async function home() {
+  if (!S.info) {
+    show(h("div", {class: "wait"}, h("div", {class: "spin"}), "Chargement…"));
+    try { S.info = await api("/api/state"); }
+    catch (e) { return show(h("div", {class: "wait"}, "Erreur : " +
+      e.message)); }
+  }
+  const names = Object.keys(S.info.profiles);
+  if (!names.includes(S.profile)) S.profile = S.info.team;
+  const p = S.info.profiles[S.profile] || {};
+  const pick = (list, cur, set) => h("div", {class: "chips"},
+    ...list.map(v => h("button", {class: "chip" + (v === cur ? " on" : ""),
+      onclick: () => { set(v); home(); }}, v)));
+  const add = h("button", {class: "chip", onclick: async () => {
+    const n = (prompt("Prénom") || "").trim();
+    if (!n) return;
+    S.info = await api("/api/profile", {profile: n});
+    S.profile = n; localStorage.quizProfile = n; home();
+  }}, "+");
+  const custom = h("button", {class: "chip" +
+    (S.info.themes.includes(S.theme) ? "" : " on"), onclick: () => {
+      const t = (prompt("Thème", S.info.themes.includes(S.theme) ? "" :
+        S.theme) || "").trim();
+      if (t) { S.theme = t; home(); }
+    }}, S.info.themes.includes(S.theme) ? "Autre…" : S.theme);
+  show(
+    h("h1", {}, "Quiz"),
+    h("div", {class: "muted"}, "Apprendre ensemble, une question à la fois"),
+    h("div", {class: "label"}, "Qui joue"),
+    h("div", {class: "chips"}, pick(names, S.profile, v => {
+      S.profile = v; localStorage.quizProfile = v; }).children, add),
+    h("div", {class: "card stats"},
+      h("div", {}, h("b", {}, p.points || 0), h("span", {class: "muted"},
+        "points")),
+      h("div", {}, h("b", {}, (p.good || 0) + (p.bad || 0) ?
+        Math.round(100 * p.good / (p.good + p.bad)) + " %" : "–"),
+        h("span", {class: "muted"}, "réussite")),
+      h("div", {}, h("b", {}, p.best_streak || 0), h("span",
+        {class: "muted"}, "meilleure série"))),
+    p.review ? h("div", {class: "muted", style: "margin-top:8px"},
+      `${p.review} question${p.review > 1 ? "s" : ""} à réviser ` +
+      "glissée" + (p.review > 1 ? "s" : "") + " dans la partie") : null,
+    h("div", {class: "label"}, "Thème"),
+    h("div", {class: "chips"}, pick(S.info.themes, S.theme,
+      v => S.theme = v).children, custom),
+    h("button", {class: "big", onclick: start}, "Jouer"));
+}
+
+// ── Partie ───────────────────────────────────────────────────────────
+function start() {
+  S.game = {queue: [], level: 0, correct: 0, points: 0, streak: 0,
+    best: 0, n: 0, half: JOKERS, hints: JOKERS, done: [], loading: null};
+  fill();
+  next();
+}
+
+// Lot suivant demandé en avance : la question d'après est déjà prête.
+function fill() {
+  const g = S.game;
+  if (g.loading) return g.loading;
+  g.loading = api("/api/questions", {profile: S.profile, theme: S.theme,
+    level: g.level}).then(qs => { g.queue.push(...qs); })
+    .finally(() => { g.loading = null; });
+  return g.loading;
+}
+
+async function next() {
+  const g = S.game;
+  if (!g.queue.length) {
+    show(h("div", {class: "wait"}, h("div", {class: "spin"}),
+      "Claude prépare les questions…"));
+    try { await fill(); }
+    catch (e) {
+      return show(h("div", {class: "wait"}, "Erreur : " + e.message,
+        h("button", {class: "big", onclick: next}, "Réessayer"),
+        h("button", {class: "ghost", onclick: finish}, "Terminer")));
+    }
+    if (S.game !== g) return;
+    if (!g.queue.length) return next();
+  }
+  const q = g.queue.shift();
+  if (g.queue.length < 3) fill().catch(() => {});
+  ask(q);
+}
+
+function ask(q) {
+  const g = S.game;
+  g.n++;
+  const hint = h("div", {class: "hint"});
+  const buttons = q.choices.map((c, i) => h("button", {class: "choice",
+    onclick: () => reply(q, i, buttons, jokers)}, c));
+  const half = h("button", {class: "joker", disabled: !g.half,
+    onclick: () => {
+      g.half--; half.disabled = true;
+      buttons.map((b, i) => i).filter(i => i !== q.answer)
+        .sort(() => Math.random() - .5).slice(0, 2)
+        .forEach(i => { buttons[i].classList.add("gone");
+          buttons[i].disabled = true; });
+    }}, `50/50 · ${g.half}`);
+  const help = h("button", {class: "joker", disabled: !g.hints || !q.hint,
+    onclick: () => { g.hints--; help.disabled = true;
+      hint.textContent = "💡 " + q.hint; }}, `Indice · ${g.hints}`);
+  const jokers = h("div", {class: "jokers"}, half, help);
+  const into = g.correct % CORRECT_PER_LEVEL;
+  show(
+    h("div", {class: "top"}, h("span", {}, `Question ${g.n}`),
+      h("span", {}, S.info.levels[g.level]), h("span", {class: "sp"}),
+      h("b", {style: "color:var(--yellow)"}, `${g.points} pts`),
+      g.streak > 1 ? h("span", {}, `🔥 ${g.streak}`) : null),
+    h("div", {class: "bar"}, h("i", {style:
+      `width:${100 * into / CORRECT_PER_LEVEL}%`})),
+    h("div", {class: "card"},
+      h("div", {class: "theme"}, (q.review ? "Révision · " : "") + q.theme),
+      h("div", {class: "q"}, q.q)),
+    ...buttons, jokers, hint);
+}
+
+function reply(q, i, buttons, jokers) {
+  const g = S.game;
+  const ok = i === q.answer;
+  buttons.forEach((b, j) => { b.disabled = true;
+    if (j === q.answer) b.classList.add("good");
+    else if (j === i) b.classList.add("bad"); });
+  jokers.remove();
+  let up = false;
+  if (ok) {
+    g.points += 10 * (g.level + 1);
+    g.streak++; g.best = Math.max(g.best, g.streak); g.correct++;
+    if (g.correct % CORRECT_PER_LEVEL === 0 &&
+        g.level < S.info.levels.length - 1) {
+      g.level++; up = true;
+      g.queue = g.queue.filter(x => x.review);  // niveau suivant
+      fill().catch(() => {});
+    }
+  } else g.streak = 0;
+  g.done.push({q, ok});
+  api("/api/answer", {profile: S.profile, q, ok, streak: g.best,
+    points: g.points}).then(d => S.info = d).catch(() => {});
+  $app.append(
+    h("div", {class: "card explain " + (ok ? "ok" : "ko")},
+      h("b", {}, ok ? "Bravo !" : "Pas cette fois : " +
+        q.choices[q.answer]),
+      up ? h("div", {style: "color:var(--yellow);margin-top:4px"},
+        "Niveau suivant : " + S.info.levels[g.level]) : null,
+      h("div", {style: "margin-top:6px"}, q.explain)),
+    h("button", {class: "big", onclick: next}, "Question suivante"),
+    h("button", {class: "ghost", style: "width:100%", onclick: finish},
+      "Terminer la partie"));
+  buttons[q.answer].scrollIntoView({behavior: "smooth", block: "start"});
+}
+
+async function finish() {
+  const g = S.game;
+  S.game = null;
+  if (!g || !g.done.length) return home();
+  api("/api/end", {profile: S.profile}).then(d => S.info = d)
+    .catch(() => {});
+  const good = g.done.filter(d => d.ok).length;
+  show(
+    h("h1", {}, `${g.points} points`),
+    h("div", {class: "muted"}, `${good} bonne${good > 1 ? "s" : ""} ` +
+      `réponse${good > 1 ? "s" : ""} sur ${g.done.length} · meilleure ` +
+      `série ${g.best} · niveau ${S.info.levels[g.level]}`),
+    h("div", {class: "label"}, "Ce que vous avez appris"),
+    ...g.done.map(({q, ok}) => h("div", {class: "learned " +
+      (ok ? "ok" : "ko")}, h("b", {}, q.q), h("div", {},
+      q.choices[q.answer]), h("div", {class: "muted"}, q.explain))),
+    h("button", {class: "big", onclick: home}, "Retour"));
+}
+
+home();
+</script>
+</body>
+</html>
