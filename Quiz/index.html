@@ -49,6 +49,15 @@ button { font: inherit; cursor: pointer; }
   padding: 10px; border-radius: 10px; font-size: 15px; font-weight: 600; }
 .seg button.on { background: var(--violet); color: #fff;
   box-shadow: 0 4px 14px #9d6bff66; }
+.modes { display: flex; gap: 12px; }
+.modes button { flex: 1; border: 0; border-radius: 18px; padding: 22px 8px;
+  font: inherit; font-size: 19px; font-weight: 800; color: #fff;
+  opacity: .6; transform: scale(.94); transition: .15s; }
+.modes .qcm { background: linear-gradient(135deg, #7b5cff, #e0559f);
+  box-shadow: 0 6px 0 #4a2fa8; }
+.modes .vf { background: linear-gradient(135deg, #2fae63, #2f9fd8);
+  box-shadow: 0 6px 0 #1f6e7a; }
+.modes button.on { opacity: 1; transform: none; outline: 3px solid #fff; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { border: 1px solid var(--line); background: var(--card);
   color: var(--text); border-radius: 20px; padding: 7px 14px;
@@ -220,8 +229,8 @@ async function home() {
       "glissée" + (p.review > 1 ? "s" : "") + " dans la partie") : null,
     daily(),
     h("div", {class: "label"}, "Jeu"),
-    h("div", {class: "seg"}, ...[["qcm", "Questions"], ["vf", "Vrai ou faux"]]
-      .map(([k, t]) => h("button", {class: k === S.kind ? "on" : "",
+    h("div", {class: "modes"}, ...[["qcm", "Questions"], ["vf", "Vrai ou faux"]]
+      .map(([k, t]) => h("button", {class: k + (k === S.kind ? " on" : ""),
         onclick: () => { S.kind = k; localStorage.quizKind = k; home(); }},
         t))),
     h("div", {class: "label"}, "Difficulté de départ"),
