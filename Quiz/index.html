@@ -44,10 +44,10 @@ h1 span { background: linear-gradient(90deg, var(--yellow), var(--pink));
 .label { color: var(--grey); font-size: 12px; font-weight: 700;
   text-transform: uppercase; letter-spacing: .08em; margin: 24px 0 8px; }
 button { font: inherit; cursor: pointer; }
-.seg { display: flex; background: #0003; border: 1px solid var(--line);
+.seg { display: flex; background: #d8cbff; border: 0;
   border-radius: 14px; padding: 4px; }
-.seg button { flex: 1; border: 0; background: none; color: var(--grey);
-  padding: 10px; border-radius: 10px; font-size: 15px; font-weight: 600; }
+.seg button { flex: 1; border: 0; background: none; color: #2a1660;
+  padding: 10px; border-radius: 10px; font-size: 15px; font-weight: 700; }
 .seg button.on { background: var(--violet); color: #2a1660;
   box-shadow: 0 4px 14px #9d6bff66; }
 .modes { display: flex; gap: 12px; }
@@ -61,6 +61,7 @@ button { font: inherit; cursor: pointer; }
 .modes button.on { opacity: 1; transform: none; outline: 3px solid #fff; }
 .pick { width: 100%; padding: 14px 16px; border-radius: 14px;
   font: inherit; font-size: 17px; font-weight: 700; color: var(--text);
+  border: 2px solid #9d6bffaa !important;
   background: var(--card); border: 1px solid var(--line);
   appearance: none; -webkit-appearance: none;
   background: var(--card) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9'%3E%3Cpath d='M1 1l6 6 6-6' stroke='%23a9a3c9' stroke-width='2' fill='none'/%3E%3C/svg%3E") no-repeat right 18px center; }
