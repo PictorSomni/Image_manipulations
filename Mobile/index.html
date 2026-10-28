@@ -522,7 +522,8 @@ function notifyClient(row) {
     h("div", {class: "row"}, mail ? send : null,
       phone ? h("button", {class: "btn out", onclick: () => {
         location.href = `sms:${tel(phone)}&body=` +
-          encodeURIComponent(t.value); closeSheet(); }},
+          encodeURIComponent(t.value); closeSheet();
+        setProps(row, {"Prévenir ?": "Prévenu"}); }},
         ic("sms"), " SMS") : null)], true);
 }
 
@@ -617,7 +618,9 @@ function filesBox(row) {
 
 function callBtn(row) {
   return row["Téléphone"] ? h("a", {class: "btn",
-    href: "tel:" + tel(row["Téléphone"])}, ic("call"), " Appeler") : null;
+    href: "tel:" + tel(row["Téléphone"]),
+    onclick: () => setProps(row, {"Prévenir ?": "Prévenu"})},
+    ic("call"), " Appeler") : null;
 }
 
 function taskDetails(row) {
