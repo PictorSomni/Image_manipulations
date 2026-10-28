@@ -323,7 +323,8 @@ function ask(q) {
   const jokers = h("div", {class: "jokers"}, half, help);
   const into = g.correct % CORRECT_PER_LEVEL;
   show(
-    h("div", {class: "top"}, h("span", {class: "sp"}),
+    h("div", {class: "top"}, h("button", {class: "pill", onclick: () => {
+      S.game = null; home(); }}, "‹ Menu"), h("span", {class: "sp"}),
       h("span", {class: "pill"}, `Q${g.n} · ${S.info.levels[g.level]}`)),
     h("div", {class: "bar"}, h("i", {style:
       `width:${100 * into / CORRECT_PER_LEVEL}%`})),
