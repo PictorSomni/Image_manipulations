@@ -85,6 +85,7 @@ SURFACES = [
     # Même ordre que l'app mobile (retour user), Fichiers en tête.
     ("kanban", "Tâches",  ft.Icons.VIEW_KANBAN_OUTLINED),
     ("agenda", "Agenda",  ft.Icons.CALENDAR_MONTH_OUTLINED),
+    ("briefing", "Briefing", ft.Icons.WB_SUNNY_OUTLINED),
     ("liste", "Liste",    ft.Icons.LIST_ALT_OUTLINED),
     ("ia",    "IA",       ft.Icons.SMART_TOY_OUTLINED),
     ("actus", "Actus",    ft.Icons.RSS_FEED_OUTLINED),
@@ -485,7 +486,7 @@ def main(page: ft.Page):
 
     SURFACE_ACCENT = {"files": BLUE, "liste": PINK, "kanban": MINT,
                       "ia": YELLOW, "actus": RED,
-                      "agenda": YELLOW_GREEN}
+                      "agenda": YELLOW_GREEN, "briefing": ORANGE}
 
     # Couleur par valeur, comme dans Notion (cf. _kanban_prop_menu).
     KANBAN_PROJET_COLORS = {"Pas de projet": GREY, "Faire projet": BLUE,
@@ -6192,6 +6193,7 @@ def main(page: ft.Page):
         "actus": actus_surface,
         "kanban": kanban_surface,
         "agenda": agenda_surface,
+        "briefing": _mails["briefing_surface"],
     }
     # Barre colorée en haut de chaque onglet, comme Terminal / Bloc-notes
     # (retour user : même look partout).
@@ -6266,6 +6268,8 @@ def main(page: ft.Page):
             _actus_refresh()
         if key == "agenda" and not agenda_state["events"]:
             _agenda_refresh()
+        if key == "briefing":
+            _mails["briefing_refresh"]()
         # Kanban : plus de rechargement auto à chaque passage sur l'onglet
         # (retour user, coût des appels) — le cache local suffit à
         # l'affichage, l'actualisation se fait via le bouton dédié.

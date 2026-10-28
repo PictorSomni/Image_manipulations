@@ -29,6 +29,7 @@ import push  # noqa: E402
 
 FILES = os.path.expanduser("~/task_files")
 STATE = os.path.expanduser("~/.mail_watch.json")
+BRIEFING = os.path.expanduser("~/briefing.md")
 CLAUDE = os.path.expanduser("~/.local/bin/claude")
 CWD = os.path.expanduser("~/hub_sync/claude_cwd")
 RULE = (
@@ -131,6 +132,28 @@ def _classify(sender, subject, body):
     return json.loads(found.group(0)) if found else {}
 
 
+def _add_to_briefing(line):
+    """Ajoute le mail à la fin de la section « ## Mails » du briefing."""
+    try:
+        with open(BRIEFING, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        lines = []
+    start = next((i for i, x in enumerate(lines)
+                  if x.startswith("## ") and "mail" in x.lower()), None)
+    if start is None:
+        lines += ["", "## Mails", line]
+    else:
+        end = next((i for i in range(start + 1, len(lines))
+                    if lines[i].startswith("## ")), len(lines))
+        while end > start + 1 and not lines[end - 1].strip():
+            end -= 1
+        lines.insert(end, line)
+    with open(BRIEFING + ".tmp", "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    os.replace(BRIEFING + ".tmp", BRIEFING)
+
+
 def run():
     pending = mail_reply._read()
     known = {m["message_id"] for m in pending}
@@ -156,6 +179,10 @@ def run():
         title = ("URGENT : " if verdict.get("urgent") else "Mail : ") \
             + (name or addr)
         push.send(title, summary)
+        _add_to_briefing(
+            f"- {'**URGENT** ' if verdict.get('urgent') else ''}"
+            f"**{name or addr}** "
+            f"({datetime.datetime.now():%H:%M}) : {summary}")
     with open(mail_reply.MAILS + ".tmp", "w", encoding="utf-8") as f:
         json.dump(pending, f, ensure_ascii=False, indent=1)
     os.replace(mail_reply.MAILS + ".tmp", mail_reply.MAILS)

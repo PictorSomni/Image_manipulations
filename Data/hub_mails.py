@@ -175,51 +175,105 @@ def build(ui):
             inset_padding=ft.Padding(20, 40, 20, 40))
         _show(dlg)
 
-    # ── Briefing du matin ────────────────────────────────────────────────
-    def open_briefing(event=None):
-        body = ft.Column([ft.Text("Chargement…", color=LIGHT_GREY)],
-                         tight=True, spacing=8, scroll=ft.ScrollMode.AUTO,
-                         width=640,
-                         height=max(300, min(720, (page.height or 900)
-                                             - 200)))
+    # ── Briefing du matin : onglet de Hub, une carte par section ─────────
+    accent = ui.SURFACE_ACCENT["briefing"]
+    # Couleur par section, d'après son titre (Échéances en rouge…).
+    section_colors = [("chéance", RED), ("mail", BLUE),
+                      ("tâche", ui.VIOLET), ("liste", ui.PINK),
+                      ("agenda", ui.YELLOW_GREEN), ("rappel", ui.ORANGE)]
 
-        def _fill(b):
-            if isinstance(b, Exception):
-                body.controls = [ft.Text(f"Pi injoignable : {b}",
-                                         color=RED)]
-                return
-            ctl = [ft.Text("Pi : " + p, color=RED) for p in b["pi"]]
-            mails = b["mails"]
-            if mails:
-                ctl.append(ft.Text(f"Mails à répondre · {len(mails)}",
-                                   weight=ft.FontWeight.W_500,
-                                   color=WHITE))
+    def _card(title, color, controls):
+        return ft.Container(
+            ft.Column([ft.Text(title, color=color, size=CONSTANTS.TEXT_LG,
+                               weight=ft.FontWeight.W_500)] + controls,
+                      spacing=6, tight=True),
+            bgcolor=ft.Colors.with_opacity(0.12, color),
+            border=ft.Border(left=ft.BorderSide(4, color)),
+            border_radius=CONSTANTS.BUTTON_RADIUS,
+            padding=ft.Padding(16, 12, 16, 14),
+            col={"xs": 12, "md": 6})
 
-            def _answered(m):
-                b["mails"].remove(m)
-                _fill(b)
-                page.update()
-            ctl += [ft.ListTile(
-                leading=ft.Icon(ft.Icons.MAIL_OUTLINE, color=BLUE),
-                title=ft.Text(m.get("name") or m["from"], color=WHITE),
-                subtitle=ft.Text(m.get("summary") or m.get("subject", ""),
-                                 color=LIGHT_GREY),
-                on_click=lambda e, m=m: open_reply(m, _answered))
-                for m in mails]
-            if b["at"]:
-                when = datetime.datetime.fromtimestamp(b["at"])
-                ctl.append(ft.Text(when.strftime("Briefing du %d/%m à %H:%M"),
-                                   size=11, color=LIGHT_GREY))
-            ctl.append(ft.Markdown(b["text"] or "Pas encore de briefing.",
-                                   selectable=True))
-            body.controls = ctl
+    def _sections(text):
+        """Découpe le Markdown du briefing sur les titres « ## »."""
+        out, title, lines = [], None, []
+        for line in (text or "").splitlines():
+            if line.startswith("## "):
+                if title or "".join(lines).strip():
+                    out.append((title or "Briefing", "\n".join(lines)))
+                title, lines = line[3:].strip(), []
+            elif not line.startswith("# "):
+                lines.append(line)
+        if title or "".join(lines).strip():
+            out.append((title or "Briefing", "\n".join(lines)))
+        return out
 
-        dlg = _dialog(title=ft.Text("Briefing"), content=body,
-                      actions=[_dlg_btn("Fermer", "cancel",
-                                        on_click=lambda e: _close(dlg))],
-                      inset_padding=ft.Padding(20, 40, 20, 40))
-        _show(dlg)
-        _bg(lambda: hub_sync.mail("briefing", timeout=20), _fill)
+    def _briefing_controls(b, refill):
+        if isinstance(b, Exception):
+            return [ft.Text(f"Pi injoignable : {b}", color=RED)]
+        cards = []
+        if b["pi"]:
+            cards.append(_card("Pi", RED, [ft.Text(p, color=WHITE)
+                                           for p in b["pi"]]))
+        mails = b["mails"]
+
+        def _answered(m):
+            b["mails"].remove(m)
+            refill(b)
+        if mails:
+            cards.append(_card(f"Mails à répondre · {len(mails)}", BLUE, [
+                ft.ListTile(
+                    leading=ft.Icon(ft.Icons.MAIL_OUTLINE, color=BLUE),
+                    title=ft.Text(m.get("name") or m["from"], color=WHITE),
+                    subtitle=ft.Text(m.get("summary")
+                                     or m.get("subject", ""),
+                                     color=LIGHT_GREY),
+                    on_click=lambda e, m=m: open_reply(m, _answered))
+                for m in mails]))
+        for i, (title, body) in enumerate(_sections(b["text"])):
+            color = next((c for k, c in section_colors
+                          if k in title.lower()), accent)
+            cards.append(_card(title, color, [ft.Markdown(
+                body.strip(), selectable=True,
+                extension_set=ft.MarkdownExtensionSet.GITHUB_WEB)]))
+        if not cards:
+            cards.append(_card("Briefing", accent, [ft.Text(
+                "Pas encore de briefing.", color=LIGHT_GREY)]))
+        ctl = [ft.ResponsiveRow(cards, spacing=12, run_spacing=12)]
+        if b["at"]:
+            when = datetime.datetime.fromtimestamp(b["at"])
+            ctl.insert(0, ft.Text(when.strftime(
+                "Briefing du %d/%m à %H:%M"), size=11, color=LIGHT_GREY))
+        return ctl
+
+    briefing_view = ft.ListView(expand=True, spacing=10,
+                                padding=ft.Padding(16, 12, 16, 16))
+
+    def _briefing_fill(b):
+        briefing_view.controls = _briefing_controls(b, _briefing_fill)
+        page.update()
+
+    def briefing_refresh(event=None):
+        if not briefing_view.controls:
+            briefing_view.controls = [ft.Text("Chargement…",
+                                              color=LIGHT_GREY)]
+        _bg(lambda: hub_sync.mail("briefing", timeout=20), _briefing_fill)
+
+    briefing_surface = ft.Column([
+        ft.Container(
+            content=ft.Row([
+                ui._surface_title("Briefing", "briefing"),
+                ft.Container(expand=True),
+                ft.IconButton(ft.Icons.REFRESH, **ui.SQUARE_BTN,
+                              icon_color=accent,
+                              icon_size=CONSTANTS.ICON_SM,
+                              tooltip="Actualiser",
+                              on_click=briefing_refresh),
+            ], spacing=12),
+            height=ui.TOOLBAR_H, padding=ft.Padding(12, 0, 12, 0),
+            alignment=ft.Alignment(-1, 0), bgcolor=ui.BACKGROUND),
+        ft.Divider(height=1, color=GREY),
+        briefing_view,
+    ], expand=True, spacing=0)
 
     # ── Client prévenu quand c'est prêt ──────────────────────────────────
     def notify_client(row, on_sent=None):
@@ -266,4 +320,6 @@ def build(ui):
                      _dlg_btn("Envoyer", "primary", on_click=_send)])
         _show(dlg)
 
-    return {"open_briefing": open_briefing, "notify_client": notify_client}
+    return {"notify_client": notify_client,
+            "briefing_surface": briefing_surface,
+            "briefing_refresh": briefing_refresh}
