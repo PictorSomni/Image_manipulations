@@ -220,8 +220,8 @@ async function home() {
       {class: v === S.profile ? "on" : "", onclick: () => {
         S.profile = v; localStorage.quizProfile = v; home(); }}, v))),
     h("div", {class: "card stats"},
-      h("div", {}, h("div", {class: "ico"}, "⭐"), h("b", {}, p.points || 0),
-        h("span", {class: "muted"}, "points")),
+      h("div", {}, h("div", {class: "ico"}, "⭐"), h("b", {}, p.good || 0),
+        h("span", {class: "muted"}, "bonnes réponses")),
       h("div", {}, h("div", {class: "ico"}, "🎯"),
         h("b", {}, (p.good || 0) + (p.bad || 0) ?
         Math.round(100 * p.good / (p.good + p.bad)) + " %" : "–"),
@@ -323,8 +323,7 @@ function ask(q) {
   const jokers = h("div", {class: "jokers"}, half, help);
   const into = g.correct % CORRECT_PER_LEVEL;
   show(
-    h("div", {class: "top"}, h("div", {class: "score"}, g.points,
-      h("small", {}, " pts")), h("span", {class: "sp"}),
+    h("div", {class: "top"}, h("span", {class: "sp"}),
       g.streak > 1 ? h("span", {class: "pill"}, `🔥 ${g.streak}`) : null,
       h("span", {class: "pill"}, `Q${g.n} · ${S.info.levels[g.level]}`)),
     h("div", {class: "bar"}, h("i", {style:
@@ -381,7 +380,7 @@ async function finish() {
     .catch(() => {});
   const good = g.done.filter(d => d.ok).length;
   show(
-    h("h1", {}, "🏆 ", h("span", {}, `${g.points} points`)),
+    h("h1", {}, "🏆 ", h("span", {}, `${good} / ${g.done.length}`)),
     h("div", {class: "muted"}, `${good} bonne${good > 1 ? "s" : ""} ` +
       `réponse${good > 1 ? "s" : ""} sur ${g.done.length} · meilleure ` +
       `série ${g.best} · niveau ${S.info.levels[g.level]}`),
