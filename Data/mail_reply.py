@@ -5,9 +5,11 @@ rédigées à la demande de Charles, et « commande prête » aux clients.
 Rien ne part sans validation dans Hub ou la webapp. Tourne sur le Pi
 (mot de passe via `pass`) ; Hub y accède par hub-sync (POST /mail).
 """
+import base64
 import html
 import imaplib
 import json
+import mimetypes
 import os
 import re
 import smtplib
@@ -84,7 +86,7 @@ def _sent_folder(imap):
     return "Sent"
 
 
-def send(to, subject, text, reply_to=None):
+def send(to, subject, text, reply_to=None, files=()):
     if not re.fullmatch(r"[^@\s<>,]+@[^@\s<>,]+\.[^@\s<>,]+", to or ""):
         raise ValueError(f"adresse invalide : {to}")
     msg = EmailMessage()
@@ -104,6 +106,11 @@ def send(to, subject, text, reply_to=None):
     with open(LOGO, "rb") as f:
         msg.get_payload()[1].add_related(f.read(), "image", "png",
                                          cid="<logo>")
+    for f in files:  # pièces jointes : {"name", "data" en base64}
+        kind = (mimetypes.guess_type(f["name"])[0]
+                or "application/octet-stream").split("/")
+        msg.add_attachment(base64.b64decode(f["data"]), kind[0], kind[1],
+                           filename=os.path.basename(f["name"]))
     pw = _password()
     with smtplib.SMTP(HOST, 587, timeout=30) as smtp:
         smtp.starttls()
@@ -119,11 +126,11 @@ def send(to, subject, text, reply_to=None):
         print(f"[Mail] copie envoyés : {exc}", flush=True)
 
 
-def reply(mid, text):
+def reply(mid, text, files=()):
     m = _mail(mid)
     subj = m["subject"]
     send(m["from"], subj if subj.lower().startswith("re:")
-         else "Re: " + subj, text, m["message_id"])
+         else "Re: " + subj, text, m["message_id"], files)
     _mark_done(mid)
 
 
@@ -143,7 +150,7 @@ def call(req):
     if a == "draft":
         return draft(req["id"], req["tu"], req["tone"], req.get("hint", ""))
     if a == "reply":
-        return reply(req["id"], req["text"])
+        return reply(req["id"], req["text"], req.get("files") or ())
     if a == "done":
         return _mark_done(req["id"])
     if a == "notify":

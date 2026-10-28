@@ -462,13 +462,24 @@ function replyMail(m) {
     if (!text.value.trim() || !confirm(`Envoyer à ${m.from} ?`)) return;
     send.disabled = true; send.textContent = "Envoi…";
     try {
+      const files = await Promise.all([...pick.files].map(f =>
+        new Promise(ok => { const r = new FileReader();
+          r.onload = () => ok({name: f.name,
+            data: r.result.split(",")[1]});
+          r.readAsDataURL(f); })));
       await api("/api/mail", {action: "reply", id: m.message_id,
-        text: text.value});
+        text: text.value, files});
       S.briefing.mails = S.briefing.mails.filter(x => x !== m);
       closeSheet(); S.status = "Mail envoyé"; render();
     } catch (e) { send.disabled = false; send.textContent = "Envoyer";
       alert("Erreur : " + e.message); }
   }}, ic("send"), " Envoyer");
+  const names = h("div", {class: "muted"});
+  const pick = h("input", {type: "file", multiple: true,
+    style: {display: "none"}, onchange: () => names.textContent =
+      [...pick.files].map(f => f.name).join(", ")});
+  const join = h("button", {class: "btn out", onclick: () => pick.click()},
+    ic("attach_file"), " Joindre");
   const gen = h("button", {class: "btn out", onclick: async () => {
     gen.disabled = true; text.value = "Rédaction…";
     try {
@@ -491,7 +502,7 @@ function replyMail(m) {
     choice("tone", [["professionnel et chaleureux", "Chaleureux"],
       ["professionnel et sobre", "Sobre"], ["très bref", "Bref"]]),
     hint, h("div", {class: "row"}, gen), text,
-    h("div", {class: "row"}, send, ignore)], true);
+    names, h("div", {class: "row"}, send, join, ignore), pick], true);
 }
 
 // Client prévenu : mail envoyé directement depuis le studio, ou SMS.

@@ -3,6 +3,7 @@
 Tout passe par le Pi (hub_sync.mail → Data/mail_reply.py) ; rien n'est
 envoyé sans clic sur « Envoyer ».
 """
+import base64
 import datetime
 import os
 import tempfile
@@ -129,6 +130,23 @@ def build(ui):
         text = _field(hint_text="Réponse", multiline=True, min_lines=8,
                       max_lines=16)
         status = ft.Text("", size=11, color=LIGHT_GREY)
+        joined = []
+        names = ft.Text("", size=11, color=LIGHT_GREY)
+
+        async def _join(e):
+            picked = await ft.FilePicker().pick_files(
+                dialog_title="Joindre des fichiers", allow_multiple=True)
+            joined.extend(f.path for f in picked or [] if f.path)
+            names.value = ", ".join(os.path.basename(p) for p in joined)
+            page.update()
+
+        def _files():
+            out = []
+            for p in joined:
+                with open(p, "rb") as f:
+                    out.append({"name": os.path.basename(p), "data":
+                                base64.b64encode(f.read()).decode()})
+            return out
 
         def _draft(e):
             status.value = "Rédaction…"
@@ -149,7 +167,8 @@ def build(ui):
             status.value = "Envoi…"
             page.update()
             _bg(lambda: hub_sync.mail("reply", id=m["message_id"],
-                                      text=text.value), _sent)
+                                      text=text.value, files=_files()),
+                _sent)
 
         def _sent(out):
             if isinstance(out, Exception):
@@ -175,10 +194,11 @@ def build(ui):
                 _seg([(False, "Vous"), (True, "Tu")],
                      lambda v: o.update(tu=v)),
                 _seg(TONES, lambda v: o.update(tone=v)),
-                hint, text, status,
+                hint, text, names, status,
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO, width=600,
                height=max(300, min(680, (page.height or 900) - 220))),
             actions=[_dlg_btn("Ignorer", "cancel", on_click=_ignore),
+                     _dlg_btn("Joindre", "cancel", on_click=_join),
                      _dlg_btn("Fermer", "cancel",
                               on_click=lambda e: _close(dlg)),
                      _dlg_btn("Rédiger", color=ui.VIOLET,
