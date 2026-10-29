@@ -99,6 +99,9 @@ button { font: inherit; cursor: pointer; }
 .menu { background: #d8cbff; color: #2a1660; border: 0; border-radius: 14px;
   padding: 10px 16px; font: inherit; font-size: 16px; font-weight: 800;
   box-shadow: 0 4px 0 #7a5fd0; }
+.tog { background: #d8cbff; color: #2a1660; border: 0; border-radius: 14px;
+  padding: 8px 11px; font-size: 18px; box-shadow: 0 4px 0 #7a5fd0; }
+.tog.off { background: #ffffff26; box-shadow: none; filter: grayscale(1); }
 .pill { background: #0003; border: 1px solid var(--line); border-radius: 20px;
   padding: 5px 12px; font-size: 13px; color: var(--grey); }
 .score { font-size: 30px; font-weight: 800; color: var(--yellow); }
@@ -171,7 +174,56 @@ const $app = document.getElementById("app");
 const S = {info: null, profile: localStorage.quizProfile || "Ensemble",
   theme: "Tout mélangé", kind: localStorage.quizKind || "qcm",
   level: +localStorage.quizLevel || 0, game: null};
+S.sound = localStorage.quizSound !== "0";
+S.voice = localStorage.quizVoice !== "0";
 const CORRECT_PER_LEVEL = 4;
+
+// Petits sons générés (pas de fichier) : notes montantes ou descente douce.
+let actx;
+function beep(ok) {
+  if (!S.sound) return;
+  actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+  const notes = ok ? [660, 880, 1320] : [330, 247];
+  notes.forEach((f, i) => {
+    const o = actx.createOscillator(), g = actx.createGain();
+    const t = actx.currentTime + i * .11;
+    o.type = ok ? "triangle" : "sine"; o.frequency.value = f;
+    g.gain.setValueAtTime(.0001, t);
+    g.gain.exponentialRampToValueAtTime(.25, t + .02);
+    g.gain.exponentialRampToValueAtTime(.0001, t + .3);
+    o.connect(g).connect(actx.destination); o.start(t); o.stop(t + .32);
+  });
+}
+
+// Lecture vocale avec les voix de l'iPhone (Premium/Améliorée si dispo).
+function frVoice() {
+  const fr = speechSynthesis.getVoices().filter(v => /^fr/i.test(v.lang));
+  return fr.find(v => /premium/i.test(v.name)) ||
+    fr.find(v => /enhanced|améliorée/i.test(v.name)) ||
+    fr.find(v => v.lang === "fr-FR") || fr[0];
+}
+function say(text) {
+  if (!window.speechSynthesis) return;
+  speechSynthesis.cancel();
+  if (!S.voice || !text) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "fr-FR"; u.voice = frVoice() || null;
+  speechSynthesis.speak(u);
+}
+function toggles(reread) {
+  const mk = (key, on, off, store) => {
+    const b = h("button", {class: "tog" + (S[key] ? "" : " off"),
+      onclick: () => {
+        S[key] = !S[key]; localStorage[store] = S[key] ? "1" : "0";
+        b.className = "tog" + (S[key] ? "" : " off");
+        b.textContent = S[key] ? on : off;
+        if (key === "voice") S.voice ? reread() : say("");
+      }}, S[key] ? on : off);
+    return b;
+  };
+  return [mk("sound", "🔔", "🔕", "quizSound"),
+          mk("voice", "🗣️", "🤐", "quizVoice")];
+}
 const JOKERS = 3;
 
 function h(tag, attrs = {}, ...kids) {
@@ -332,7 +384,8 @@ function ask(q) {
   const into = g.correct % CORRECT_PER_LEVEL;
   show(
     h("div", {class: "top"}, h("button", {class: "menu", onclick: () => {
-      S.game = null; home(); }}, "‹ Menu"), h("span", {class: "sp"}),
+      say(""); S.game = null; home(); }}, "‹ Menu"),
+      ...toggles(() => say(spoken)), h("span", {class: "sp"}),
       h("span", {class: "pill"}, `Q${g.n} · ${S.info.levels[g.level]}`)),
     h("div", {class: "bar"}, h("i", {style:
       `width:${100 * into / CORRECT_PER_LEVEL}%`})),
@@ -341,6 +394,8 @@ function ask(q) {
         q.theme),
       h("div", {class: "q"}, q.q)),
     grid, jokers, hint);
+  const spoken = q.q + " " + q.choices.join(", ") + ".";
+  say(spoken);
 }
 
 function reply(q, i, buttons, jokers) {
@@ -352,6 +407,9 @@ function reply(q, i, buttons, jokers) {
     if (j === q.answer) b.classList.add("good");
     else if (j === i) b.classList.add("bad"); });
   jokers.remove();
+  beep(ok);
+  say((ok ? "Bravo ! " : "Pas cette fois. C'était : " +
+    q.choices[q.answer] + ". ") + (q.explain || ""));
   let up = false;
   if (ok) {
     g.points += 10 * (g.level + 1);
@@ -381,6 +439,7 @@ function reply(q, i, buttons, jokers) {
 }
 
 async function finish() {
+  say("");
   const g = S.game;
   S.game = null;
   if (!g || !g.done.length) return home();
