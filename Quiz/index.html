@@ -195,19 +195,14 @@ function beep(ok) {
   });
 }
 
-// Lecture vocale avec les voix de l'iPhone (Premium/Améliorée si dispo).
-function frVoice() {
-  const fr = speechSynthesis.getVoices().filter(v => /^fr/i.test(v.lang));
-  return fr.find(v => /premium/i.test(v.name)) ||
-    fr.find(v => /enhanced|améliorée/i.test(v.name)) ||
-    fr.find(v => v.lang === "fr-FR") || fr[0];
-}
+// Lecture vocale : voix française par défaut de l'iPhone, la même
+// pour tout (choisir une voix « Premium » en changeait au milieu).
 function say(text) {
   if (!window.speechSynthesis) return;
   speechSynthesis.cancel();
   if (!S.voice || !text) return;
   const u = new SpeechSynthesisUtterance(text);
-  u.lang = "fr-FR"; u.voice = frVoice() || null;
+  u.lang = "fr-FR";
   speechSynthesis.speak(u);
 }
 function toggles(reread) {
