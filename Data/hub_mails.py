@@ -69,6 +69,9 @@ def build(ui):
         return ft.TextField(width=560, bgcolor=DARK, color=WHITE,
                             border=CONSTANTS.input_border(GREY), **kw)
 
+    VIEWER_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
+                   ".tif", ".tiff", ".pdf")
+
     def _mail_files(m):
         """Pièces jointes du mail : un bouton par fichier (ouvert dans
         l'application par défaut) et « Enregistrer » dans un dossier."""
@@ -85,9 +88,17 @@ def build(ui):
             return folder
 
         def _open(n):
-            _bg(lambda: _download(temp, [n]), lambda out: isinstance(
-                out, Exception) or ui._open_file_default(
-                    os.path.join(out, n)))
+            # Aperçu dans la visionneuse de Hub (images, PDF) plutôt que
+            # le logiciel par défaut (retour user) ; le reste : par défaut.
+            def _shown(out):
+                if isinstance(out, Exception):
+                    return
+                path = os.path.join(out, n)
+                if os.path.splitext(n)[1].lower() in VIEWER_EXTS:
+                    ui._open_viewer(path)
+                else:
+                    ui._open_file_default(path)
+            _bg(lambda: _download(temp, [n]), _shown)
 
         def _saved(out):
             if isinstance(out, Exception):
