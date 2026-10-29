@@ -3897,6 +3897,15 @@ def main(page: ft.Page):
         _close_viewer()
         _print_paths([path])
 
+    async def _viewer_save_copy(e):
+        # Copie où on veut (ex. pièce jointe d'une tâche → dossier projet).
+        path = viewer_state["paths"][viewer_state["index"]]
+        with open(path, "rb") as f:
+            data = f.read()
+        await ft.FilePicker().save_file(
+            dialog_title="Enregistrer une copie",
+            file_name=os.path.basename(path), src_bytes=data)
+
     # Pastilles flottantes semi-transparentes (façon Dashboard.pyw:5928-6052 —
     # overlay_bar_color/top_bar/close_btn_top/navigation_bar), jamais une
     # barre pleine largeur : celle-ci masquait une partie de l'image (retour
@@ -3947,6 +3956,8 @@ def main(page: ft.Page):
             # la barre d'actions et le menu clic-droit.
             _viewer_btn(ft.Icons.PRINT_OUTLINED, "Imprimer",
                        lambda e: _viewer_print_current()),
+            _viewer_btn(ft.Icons.SAVE_ALT, "Enregistrer une copie",
+                        _viewer_save_copy),
             viewer_order_slot,
         ], spacing=6, tight=True, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         bgcolor=_VIEWER_BAR_BG, padding=ft.Padding(8, 6, 8, 6), border_radius=16,
@@ -4142,8 +4153,10 @@ def main(page: ft.Page):
             viewer_image_wrap.content = images_page_view
         _close_drawers()
         _update_viewer()
-        if viewer_overlay not in page.overlay:
-            page.overlay.append(viewer_overlay)
+        # Toujours au-dessus (ex. ouverte depuis la fiche d'une tâche).
+        if viewer_overlay in page.overlay:
+            page.overlay.remove(viewer_overlay)
+        page.overlay.append(viewer_overlay)
         _prev_keyboard["fn"] = page.on_keyboard_event
         page.on_keyboard_event = _viewer_on_key
         page.update()

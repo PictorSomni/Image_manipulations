@@ -52,6 +52,7 @@ def build(ui):
     _liste_has_task = ui._liste_has_task
     _load_json = ui._load_json
     _run_task = ui._run_task
+    _open_viewer = ui._open_viewer
     IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
     _save_json = ui._save_json
     _surface_title = ui._surface_title
@@ -960,32 +961,6 @@ def build(ui):
                 _refresh()
             threading.Thread(target=_run, daemon=True).start()
 
-        def _viewer(name, data, path):
-            """Image vue dans Hub : Enregistrer (où on veut, ex. dossier
-            du projet) ou Ouvrir avec l'appli par défaut."""
-            async def _save(e):
-                await ft.FilePicker().save_file(
-                    dialog_title="Enregistrer", file_name=name,
-                    src_bytes=data)
-
-            def _close(e=None):
-                dlg.open = False
-                page.update()
-            dlg = _dialog(
-                title=ft.Text(name), content=ft.Image(
-                    src=data, fit=ft.BoxFit.CONTAIN,
-                    width=min(1100, (page.width or 1200) - 120),
-                    height=max(300, (page.height or 900) - 260)),
-                actions=[
-                    _dlg_btn("Ouvrir", "cancel", on_click=lambda e: (
-                        _close(), _open_file_default(path))),
-                    _dlg_btn("Enregistrer", "primary", on_click=_save),
-                    _dlg_btn("Fermer", "cancel", on_click=_close)],
-                inset_padding=ft.Padding(20, 30, 20, 30))
-            page.overlay.append(dlg)
-            dlg.open = True
-            page.update()
-
         def _open(name):
             def work():
                 os.makedirs(local_dir, exist_ok=True)
@@ -997,8 +972,8 @@ def build(ui):
                     _open_file_default(path)
                     return
 
-                async def _show():
-                    _viewer(name, data, path)
+                async def _show():  # visionneuse commune de Hub
+                    _open_viewer(path)
                 _run_task(_show)
             _bg(work)
 
