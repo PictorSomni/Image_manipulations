@@ -15,6 +15,7 @@ import flet as ft
 
 import CONSTANTS
 import hub_sync
+import thumb_cache
 import ui_helpers
 
 # Le message de Charles, mot pour mot (+ le prix s'il est connu).
@@ -74,7 +75,7 @@ def build(ui):
     VIEWER_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
                    ".tif", ".tiff", ".pdf")
 
-    def _mail_files(m, leave, back):
+    def _mail_files(m):
         """Pièces jointes du mail : un bouton par fichier (ouvert dans
         l'application par défaut) et « Enregistrer » dans un dossier."""
         fid = m["files_id"]
@@ -90,22 +91,30 @@ def build(ui):
             return folder
 
         def _open(n):
-            # Aperçu dans la visionneuse de Hub (images, PDF) plutôt que
-            # le logiciel par défaut (retour user) ; le reste : par défaut.
-            def _shown(out):
-                if isinstance(out, Exception):
-                    return
-                path = os.path.join(out, n)
+            _bg(lambda: _download(temp, [n]), lambda out: isinstance(
+                out, Exception) or ui._open_file_default(
+                    os.path.join(out, n)))
+
+        def _preview(names):
+            """Aperçu sous le message (retour user) : images et 1re page
+            des PDF, rendues via thumb_cache comme dans Fichiers."""
+            out = []
+            for n in names:
                 if os.path.splitext(n)[1].lower() in VIEWER_EXTS:
-                    # Un AlertDialog reste au-dessus de tout overlay : la
-                    # fenêtre du mail est fermée pendant l'aperçu, puis
-                    # recréée à neuf (la réafficher la laissait derrière
-                    # ou sans croix active — retour user).
-                    leave()
-                    ui._open_viewer(path, on_close=back)
-                else:
-                    ui._open_file_default(path)
-            _bg(lambda: _download(temp, [n]), _shown)
+                    _download(temp, [n])
+                    data = thumb_cache.get_or_generate(
+                        os.path.join(temp, n), size_px=1600)
+                    if data:
+                        out.append((n, data))
+            return out
+
+        def _previewed(out):
+            if isinstance(out, Exception):
+                return
+            previews.controls = [
+                ft.Image(src=data, width=560, fit=ft.BoxFit.CONTAIN,
+                         border_radius=CONSTANTS.BUTTON_RADIUS)
+                for _n, data in out]
 
         def _saved(out):
             if isinstance(out, Exception):
@@ -136,11 +145,13 @@ def build(ui):
             files.controls = [ft.TextButton(
                 n, icon=ft.Icons.ATTACH_FILE, data=n,
                 on_click=lambda e, n=n: _open(n)) for n in names]
+            _bg(lambda: _preview(names), _previewed)
+        previews = ft.Column(spacing=8, tight=True)
         _bg(lambda: hub_sync.list_files(fid), _listed)
         open_btn = ft.TextButton("Ouvrir dans Hub",
                                  icon=ft.Icons.FOLDER_OPEN_OUTLINED,
                                  visible=False, on_click=_open_in_hub)
-        return ft.Column([files, ft.Row([ft.TextButton(
+        return ft.Column([previews, files, ft.Row([ft.TextButton(
             "Enregistrer", icon=ft.Icons.DOWNLOAD, on_click=_save),
             open_btn], spacing=6), status], spacing=4, tight=True)
 
@@ -229,8 +240,7 @@ def build(ui):
             content=ft.Stack([ft.Column([
                 ft.Text(m.get("from", ""), size=11, color=LIGHT_GREY),
                 ft.Text(m.get("body", ""), color=WHITE, selectable=True),
-                *([_mail_files(m, lambda: _close(dlg),
-                               lambda: open_reply(m, on_done))] if m.get("files_id")
+                *([_mail_files(m)] if m.get("files_id")
                   else []),
                 ft.Divider(height=1, color=GREY),
                 _seg([(False, "Vous"), (True, "Tu")],
