@@ -97,8 +97,10 @@ def build(ui):
                 if os.path.splitext(n)[1].lower() in VIEWER_EXTS:
                     # Un AlertDialog reste au-dessus de tout overlay :
                     # masqué le temps de l'aperçu, rouvert à la fermeture.
-                    dlgs = [c for c in page.overlay
-                            if isinstance(c, ft.AlertDialog) and c.open]
+                    # Seulement le dernier : d'anciens dialogues fermés
+                    # d'un clic extérieur peuvent rester open=True.
+                    dlgs = [c for c in reversed(page.overlay)
+                            if isinstance(c, ft.AlertDialog) and c.open][:1]
                     for d in dlgs:
                         d.open = False
 
