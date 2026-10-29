@@ -56,6 +56,8 @@ def build(ui):
 
     def _close(dlg):
         dlg.open = False
+        if dlg in page.overlay:
+            page.overlay.remove(dlg)
         page.update()
 
     def _seg(options, on_pick):
@@ -72,7 +74,7 @@ def build(ui):
     VIEWER_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
                    ".tif", ".tiff", ".pdf")
 
-    def _mail_files(m):
+    def _mail_files(m, leave, back):
         """Pièces jointes du mail : un bouton par fichier (ouvert dans
         l'application par défaut) et « Enregistrer » dans un dossier."""
         fid = m["files_id"]
@@ -95,23 +97,12 @@ def build(ui):
                     return
                 path = os.path.join(out, n)
                 if os.path.splitext(n)[1].lower() in VIEWER_EXTS:
-                    # Un AlertDialog reste au-dessus de tout overlay :
-                    # masqué le temps de l'aperçu, rouvert à la fermeture.
-                    # Seulement le dernier : d'anciens dialogues fermés
-                    # d'un clic extérieur peuvent rester open=True.
-                    dlgs = [c for c in reversed(page.overlay)
-                            if isinstance(c, ft.AlertDialog) and c.open][:1]
-                    # Retiré puis remonté : basculer open seul laissait
-                    # la croix inopérante au retour (retour user).
-                    for d in dlgs:
-                        d.open = False
-                        page.overlay.remove(d)
-
-                    def _back():
-                        for d in dlgs:
-                            page.overlay.append(d)
-                            d.open = True
-                    ui._open_viewer(path, on_close=_back)
+                    # Un AlertDialog reste au-dessus de tout overlay : la
+                    # fenêtre du mail est fermée pendant l'aperçu, puis
+                    # recréée à neuf (la réafficher la laissait derrière
+                    # ou sans croix active — retour user).
+                    leave()
+                    ui._open_viewer(path, on_close=back)
                 else:
                     ui._open_file_default(path)
             _bg(lambda: _download(temp, [n]), _shown)
@@ -238,7 +229,8 @@ def build(ui):
             content=ft.Stack([ft.Column([
                 ft.Text(m.get("from", ""), size=11, color=LIGHT_GREY),
                 ft.Text(m.get("body", ""), color=WHITE, selectable=True),
-                *([_mail_files(m)] if m.get("files_id")
+                *([_mail_files(m, lambda: _close(dlg),
+                               lambda: open_reply(m, on_done))] if m.get("files_id")
                   else []),
                 ft.Divider(height=1, color=GREY),
                 _seg([(False, "Vous"), (True, "Tu")],
