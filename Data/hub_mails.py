@@ -15,6 +15,7 @@ import flet as ft
 
 import CONSTANTS
 import hub_sync
+import ui_helpers
 
 # Le message de Charles, mot pour mot (+ le prix s'il est connu).
 READY = ("Bonjour,\n\nVotre commande est prête, vous pouvez venir la "
@@ -133,6 +134,12 @@ def build(ui):
         text = _field(hint_text="Réponse", multiline=True, min_lines=8,
                       max_lines=16)
         status = ft.Text("", size=11, color=LIGHT_GREY)
+        veil = ui_helpers.busy_veil("", ui.VIOLET)
+
+        def _busy(msg=None):
+            veil.content.controls[1].value = msg or ""
+            ui_helpers.set_busy_veil(veil, bool(msg))
+            page.update()
         joined = []
         names = ft.Text("", size=11, color=LIGHT_GREY)
 
@@ -152,13 +159,13 @@ def build(ui):
             return out
 
         def _draft(e):
-            status.value = "Rédaction…"
-            page.update()
+            _busy("Rédaction…")
             _bg(lambda: hub_sync.mail("draft", id=m["message_id"],
                                       tu=o["tu"], tone=o["tone"],
                                       hint=hint.value or ""), _drafted)
 
         def _drafted(out):
+            _busy()
             if isinstance(out, Exception):
                 status.value = f"Erreur : {out}"
             else:
@@ -167,13 +174,13 @@ def build(ui):
         def _send(e):
             if not (text.value or "").strip():
                 return
-            status.value = "Envoi…"
-            page.update()
+            _busy("Envoi en cours…")
             _bg(lambda: hub_sync.mail("reply", id=m["message_id"],
                                       text=text.value, files=_files()),
                 _sent)
 
         def _sent(out):
+            _busy()
             if isinstance(out, Exception):
                 status.value = f"Erreur : {out}"
                 return
@@ -206,7 +213,7 @@ def build(ui):
                 ft.IconButton(ft.Icons.CLOSE, icon_color=LIGHT_GREY,
                               tooltip="Fermer",
                               on_click=lambda e: _close(dlg))]),
-            content=ft.Column([
+            content=ft.Stack([ft.Column([
                 ft.Text(m.get("from", ""), size=11, color=LIGHT_GREY),
                 ft.Text(m.get("body", ""), color=WHITE, selectable=True),
                 *([_mail_files(m)] if m.get("files_id")
@@ -218,6 +225,7 @@ def build(ui):
                 hint, text, names, status,
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO, width=600,
                height=max(300, min(680, (page.height or 900) - 220))),
+                veil]),
             actions=[_dlg_btn("Ignorer", color=LIGHT_GREY,
                               on_click=_ignore),
                      *([_dlg_btn("Tâche", color=ui.ORANGE,
