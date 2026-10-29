@@ -756,7 +756,7 @@ AI_RETOUCH_FEATHER_MIN   = 12      # rayon minimum en px
 # changeait rien à la ligne visible). Exprimé en fraction de la largeur
 # RÉELLEMENT AJOUTÉE (px de marge de ce côté) — déjà proportionnel à
 # l'ampleur de l'extension, pas besoin de recalculer à la main.
-AI_EXPAND_FEATHER_RATIO = 0.4      # ~40 % de la largeur de marge ajoutée
+AI_EXPAND_FEATHER_RATIO = 0.125    # 1/3 de l'ancien 0.4 (pas du slider : 0.025)
 AI_EXPAND_FEATHER_MIN   = 4        # rayon minimum en px
 
 # Profondeur de contexte envoyée à Gemini pour l'extension de cadre,
