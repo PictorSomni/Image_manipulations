@@ -14,6 +14,7 @@ import os
 import re
 import tempfile
 import threading
+import thumb_cache
 import ui_helpers
 
 
@@ -1004,9 +1005,25 @@ def build(ui):
             if paths:
                 _bg(work)
 
-        def _chip(name):
+        def _thumb(name):
+            """Miniature d'une image jointe (retour user), None sinon."""
+            if os.path.splitext(name)[1].lower() not in IMAGE_EXTS:
+                return None
+            path = os.path.join(local_dir, name)
+            try:
+                if not os.path.exists(path):
+                    os.makedirs(local_dir, exist_ok=True)
+                    with open(path, "wb") as f:
+                        f.write(hub_sync.file_req("GET", page_id, name))
+                return thumb_cache.get_or_generate(path, size_px=240)
+            except Exception:
+                return None
+
+        def _chip(name, thumb=None):
             return ft.Container(ft.Row([c for c in [
                 ft.TextButton(content=ft.Row([
+                    ft.Image(src=thumb, height=80,
+                             border_radius=6) if thumb else
                     ft.Icon(ft.Icons.ATTACH_FILE, color=LIGHT_GREY,
                             size=CONSTANTS.ICON_SM),
                     ft.Text(name, size=CONSTANTS.TEXT_SM, color=WHITE)],
@@ -1025,7 +1042,7 @@ def build(ui):
                 names = hub_sync.list_files(page_id)
             except Exception:
                 names = []
-            files_row.controls = [_chip(n) for n in names]
+            files_row.controls = [_chip(n, _thumb(n)) for n in names]
             if not read_only:
                 files_row.controls.append(ft.TextButton(
                     content=ft.Row([
