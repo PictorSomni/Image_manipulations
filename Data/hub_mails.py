@@ -202,11 +202,6 @@ def build(ui):
                 "telephone": tel.group(0) if tel else "",
                 "notes": body})
 
-        def _ignore(e):
-            _close(dlg)
-            _bg(lambda: hub_sync.mail("done", id=m["message_id"]),
-                lambda out: on_done and on_done(m))
-
         dlg = _dialog(
             title=ft.Row([
                 ft.Text(m.get("subject") or "(sans sujet)", expand=True),
@@ -226,9 +221,7 @@ def build(ui):
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO, width=600,
                height=max(300, min(680, (page.height or 900) - 220))),
                 veil]),
-            actions=[_dlg_btn("Ignorer", color=LIGHT_GREY,
-                              on_click=_ignore),
-                     *([_dlg_btn("Tâche", color=ui.ORANGE,
+            actions=[*([_dlg_btn("Tâche", color=ui.ORANGE,
                                  on_click=_to_task)]
                        if "new_task" in hooks else []),
                      _dlg_btn("Joindre", color=CONSTANTS.COLOR_MINT,
@@ -382,8 +375,14 @@ def build(ui):
         mails = b["mails"]
 
         def _answered(m):
-            b["mails"].remove(m)
-            refill(b)
+            if m in b["mails"]:
+                b["mails"].remove(m)
+                refill(b)
+
+        def _dismiss(m):
+            _answered(m)
+            _bg(lambda: hub_sync.mail("done", id=m["message_id"]),
+                lambda out: None)
         if mails:
             cards.append(_card(f"Mails · {len(mails)}", BLUE, [
                 ft.ListTile(
@@ -392,8 +391,14 @@ def build(ui):
                     subtitle=ft.Text(m.get("summary")
                                      or m.get("subject", ""),
                                      color=LIGHT_GREY),
-                    trailing=ft.Icon(ft.Icons.ATTACH_FILE, color=LIGHT_GREY,
-                                     size=16) if m.get("files_id") else None,
+                    trailing=ft.Row([
+                        *([ft.Icon(ft.Icons.ATTACH_FILE, color=LIGHT_GREY,
+                                   size=16)] if m.get("files_id") else []),
+                        ft.IconButton(
+                            ft.Icons.CLOSE, icon_color=LIGHT_GREY,
+                            tooltip="Retirer",
+                            on_click=lambda e, m=m: _dismiss(m))],
+                        tight=True, spacing=0),
                     on_click=lambda e, m=m: open_reply(m, _answered))
                 for m in mails]))
         if b.get("quiz"):
