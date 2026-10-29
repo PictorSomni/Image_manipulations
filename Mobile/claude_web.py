@@ -73,7 +73,23 @@ _shared = set()  # images envoyées par SendUserFile
 
 
 def _jsonl():
+    """Conversation de la session tmux « claude » (ou du job qu'elle a
+    repris) : la plus récente seule faisait sauter le fil entre deux
+    conversations écrites en même temps."""
     files = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
+    for f in glob.glob(os.path.expanduser("~/.claude/sessions/*.json")):
+        try:
+            with open(f, encoding="utf-8") as fh:
+                info = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if not str(info.get("tmux", "")).startswith("claude:"):
+            continue
+        for sid in (info.get("parkedJobId"), info.get("sessionId")):
+            mine = [x for x in files if sid and
+                    os.path.basename(x).startswith(sid)]
+            if mine:
+                return max(mine, key=os.path.getmtime)
     return max(files, key=os.path.getmtime)
 
 
