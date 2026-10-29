@@ -49,6 +49,7 @@ Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
 #############################################################
 import math
 import os
+import re
 import random
 import sys
 from pathlib import Path
@@ -786,8 +787,11 @@ def main():
         # mode grille, qui plaçait toujours les photos dans l'ordre des
         # fichiers) — répartition aléatoire des photos entre les cases/
         # feuilles, reproductible via COLLAGE_SEED comme en mode mosaïque.
-        ordered_names = list(photo_names)
-        random.Random(seed).shuffle(ordered_names)
+        ordered_names = sorted(photo_names, key=lambda n: [
+            int(t) if t.isdigit() else t.lower()
+            for t in re.split(r"(\d+)", n)])
+        if os.environ.get("COLLAGE_GRID_ORDER", "0").strip() != "1":
+            random.Random(seed).shuffle(ordered_names)
         # Répéter (retour user : flyer recto/verso, 2× le recto sur une A4
         # puis 2× le verso) : une feuille par image, remplie de copies.
         repeat = os.environ.get("COLLAGE_GRID_REPEAT", "0").strip() == "1"

@@ -7280,8 +7280,12 @@ def main(page: ft.Page):
         repeat_switch = ft.Switch(
             label="Répéter chaque image", value=False,
             active_color=BLUE, on_change=lambda e: _do_preview())
+        # Ordre alphanumérique des fichiers au lieu du tirage aléatoire.
+        order_switch = ft.Switch(
+            label="Ordre alphanumérique", value=True,
+            active_color=BLUE, on_change=lambda e: _do_preview())
         max_per_sheet_section = ft.Column(
-            [max_per_sheet_btn, repeat_switch], spacing=6,
+            [max_per_sheet_btn, repeat_switch, order_switch], spacing=6,
             horizontal_alignment=ft.CrossAxisAlignment.CENTER)
         max_per_sheet_section.visible = False
 
@@ -7606,8 +7610,12 @@ def main(page: ft.Page):
                 # Même tirage que le rendu final (retour user : le dé ne
                 # faisait rien en mode grille) — répartition aléatoire des
                 # photos, reproductible par preview_seed comme en mosaïque.
-                ordered_paths = list(photo_paths)
-                random.Random(preview_seed["value"]).shuffle(ordered_paths)
+                ordered_paths = sorted(photo_paths, key=lambda p: [
+                    int(t) if t.isdigit() else t.lower()
+                    for t in re.split(r"(\d+)", os.path.basename(p))])
+                if not order_switch.value:
+                    random.Random(preview_seed["value"]).shuffle(
+                        ordered_paths)
                 sheet_photos = (ordered_paths[:max_per_sheet] if max_per_sheet
                                 else ordered_paths)
                 if max_per_sheet and repeat_switch.value:
@@ -7700,6 +7708,7 @@ def main(page: ft.Page):
                     str(max_per_sheet_mode["value"] or 0),
                 "COLLAGE_GRID_PSD": "1" if grid_psd["value"] else "0",
                 "COLLAGE_GRID_REPEAT": "1" if repeat_switch.value else "0",
+                "COLLAGE_GRID_ORDER": "1" if order_switch.value else "0",
                 "COLLAGE_SIZE_VARIATION": str(size_slider.value),
                 "COLLAGE_ROTATION_VARIATION": str(rotation_slider.value),
                 # Même tirage que l'aperçu affiché en dernier (si généré) :
