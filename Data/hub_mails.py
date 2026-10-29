@@ -95,7 +95,17 @@ def build(ui):
                     return
                 path = os.path.join(out, n)
                 if os.path.splitext(n)[1].lower() in VIEWER_EXTS:
-                    ui._open_viewer(path)
+                    # Un AlertDialog reste au-dessus de tout overlay :
+                    # masqué le temps de l'aperçu, rouvert à la fermeture.
+                    dlgs = [c for c in page.overlay
+                            if isinstance(c, ft.AlertDialog) and c.open]
+                    for d in dlgs:
+                        d.open = False
+
+                    def _back():
+                        for d in dlgs:
+                            d.open = True
+                    ui._open_viewer(path, on_close=_back)
                 else:
                     ui._open_file_default(path)
             _bg(lambda: _download(temp, [n]), _shown)

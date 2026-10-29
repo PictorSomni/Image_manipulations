@@ -3808,6 +3808,9 @@ def main(page: ft.Page):
         _close_drawers()
         if viewer_overlay in page.overlay:
             page.overlay.remove(viewer_overlay)
+        on_close = viewer_state.pop("on_close", None)
+        if on_close:
+            on_close()
         page.update()
         _run_task(_focus_active_surface)
 
@@ -4116,10 +4119,13 @@ def main(page: ft.Page):
         -1, _viewer_btn(ft.Icons.TUNE, "Retouche photo",
                        _launch_editor_for_current("Retouche photo.pyw")))
 
-    def _open_viewer(start_path, paths=None, sel=None):
+    def _open_viewer(start_path, paths=None, sel=None, on_close=None):
         # sel : (est_coché(p), cocher(p, on)) — sélection propre à
         # l'appelant (galerie IA) au lieu de celle des Fichiers.
+        # on_close : rappelé à la fermeture (ex. rouvrir un dialogue
+        # masqué, qui passerait sinon par-dessus la visionneuse).
         viewer_state["sel"] = sel
+        viewer_state["on_close"] = on_close
         # Vidéo : lecteur système (lecture intégrée = flet-video + libmpv,
         # pas justifié). Dans la visionneuse, elle apparaît en image fixe.
         if (os.path.splitext(start_path)[1].lower()
