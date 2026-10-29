@@ -52,6 +52,7 @@ def build(ui):
     _liste_has_task = ui._liste_has_task
     _load_json = ui._load_json
     _run_task = ui._run_task
+    IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
     _save_json = ui._save_json
     _surface_title = ui._surface_title
     page = ui.page
@@ -959,13 +960,46 @@ def build(ui):
                 _refresh()
             threading.Thread(target=_run, daemon=True).start()
 
+        def _viewer(name, data, path):
+            """Image vue dans Hub : Enregistrer (où on veut, ex. dossier
+            du projet) ou Ouvrir avec l'appli par défaut."""
+            async def _save(e):
+                await ft.FilePicker().save_file(
+                    dialog_title="Enregistrer", file_name=name,
+                    src_bytes=data)
+
+            def _close(e=None):
+                dlg.open = False
+                page.update()
+            dlg = _dialog(
+                title=ft.Text(name), content=ft.Image(
+                    src=data, fit=ft.BoxFit.CONTAIN,
+                    width=min(1100, (page.width or 1200) - 120),
+                    height=max(300, (page.height or 900) - 260)),
+                actions=[
+                    _dlg_btn("Ouvrir", "cancel", on_click=lambda e: (
+                        _close(), _open_file_default(path))),
+                    _dlg_btn("Enregistrer", "primary", on_click=_save),
+                    _dlg_btn("Fermer", "cancel", on_click=_close)],
+                inset_padding=ft.Padding(20, 30, 20, 30))
+            page.overlay.append(dlg)
+            dlg.open = True
+            page.update()
+
         def _open(name):
             def work():
                 os.makedirs(local_dir, exist_ok=True)
                 path = os.path.join(local_dir, name)
+                data = hub_sync.file_req("GET", page_id, name)
                 with open(path, "wb") as f:
-                    f.write(hub_sync.file_req("GET", page_id, name))
-                _open_file_default(path)
+                    f.write(data)
+                if os.path.splitext(name)[1].lower() not in IMAGE_EXTS:
+                    _open_file_default(path)
+                    return
+
+                async def _show():
+                    _viewer(name, data, path)
+                _run_task(_show)
             _bg(work)
 
         async def _attach(e):
