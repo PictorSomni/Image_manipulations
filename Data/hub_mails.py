@@ -101,11 +101,15 @@ def build(ui):
                     # d'un clic extérieur peuvent rester open=True.
                     dlgs = [c for c in reversed(page.overlay)
                             if isinstance(c, ft.AlertDialog) and c.open][:1]
+                    # Retiré puis remonté : basculer open seul laissait
+                    # la croix inopérante au retour (retour user).
                     for d in dlgs:
                         d.open = False
+                        page.overlay.remove(d)
 
                     def _back():
                         for d in dlgs:
+                            page.overlay.append(d)
                             d.open = True
                     ui._open_viewer(path, on_close=_back)
                 else:
