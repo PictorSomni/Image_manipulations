@@ -215,7 +215,8 @@ def build(ui):
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO, width=600,
                height=max(300, min(680, (page.height or 900) - 220))),
             actions=[_dlg_btn("Ignorer", "cancel", on_click=_ignore),
-                     *([_dlg_btn("Tâche", "cancel", on_click=_to_task)]
+                     *([_dlg_btn("Tâche", color=ui.ORANGE,
+                                 on_click=_to_task)]
                        if "new_task" in hooks else []),
                      _dlg_btn("Joindre", "cancel", on_click=_join),
                      _dlg_btn("Fermer", "cancel",
