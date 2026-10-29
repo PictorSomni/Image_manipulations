@@ -6,6 +6,7 @@ envoyé sans clic sur « Envoyer ».
 import base64
 import datetime
 import os
+import re
 import tempfile
 import threading
 import webbrowser
@@ -180,6 +181,20 @@ def build(ui):
             if on_done:
                 on_done(m)
 
+        def _to_task(e):
+            _close(dlg)
+            sender = m.get("from", "")
+            mail = re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", sender)
+            name = sender.split("<")[0].strip().strip('"')
+            body = m.get("body", "")
+            tel = re.search(r"(?:\+|00)?\d[\d ./-]{7,}\d", body)
+            hooks["new_task"]({
+                "demande": " – ".join(
+                    x for x in (name, m.get("subject", "")) if x),
+                "email": mail.group(0) if mail else "",
+                "telephone": tel.group(0) if tel else "",
+                "notes": body})
+
         def _ignore(e):
             _close(dlg)
             _bg(lambda: hub_sync.mail("done", id=m["message_id"]),
@@ -200,6 +215,8 @@ def build(ui):
             ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO, width=600,
                height=max(300, min(680, (page.height or 900) - 220))),
             actions=[_dlg_btn("Ignorer", "cancel", on_click=_ignore),
+                     *([_dlg_btn("Tâche", "cancel", on_click=_to_task)]
+                       if "new_task" in hooks else []),
                      _dlg_btn("Joindre", "cancel", on_click=_join),
                      _dlg_btn("Fermer", "cancel",
                               on_click=lambda e: _close(dlg)),

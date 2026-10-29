@@ -6321,7 +6321,8 @@ def main(page: ft.Page):
             row, "Etat", "etat", etat),
         set_prevenu=lambda row: _kanban_change_property(
             row, "Prévenir ?", "prevenu", "Prévenu"),
-        open_task=_kanban_open_details)
+        open_task=_kanban_open_details,
+        new_task=lambda prefill: _kanban_new_task(prefill=prefill))
 
     def _rail_tab(key, label, icon):
         is_active = key == "files"
