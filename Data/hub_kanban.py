@@ -137,9 +137,10 @@ def build(ui):
 
         threading.Thread(target=_work, daemon=True).start()
 
-    def _notify(row):
-        """Propose le mail « commande prête » ; envoyé → « Prévenu »."""
-        _mails["notify_client"](row, on_sent=lambda: _kanban_change_property(
+    def _notify(row, live=None):
+        """Propose le mail « commande prête » ; envoyé → « Prévenu ».
+        live : valeurs en cours de saisie dans la fiche, non enregistrées."""
+        _mails["notify_client"]({**row, **(live or {})}, on_sent=lambda: _kanban_change_property(
             row, "Prévenir ?", "prevenu", "Prévenu"))
 
     def _kanban_chip(text, color):
@@ -395,6 +396,17 @@ def build(ui):
         content_loaded = {"original": cached_notes}
         files_row = _kanban_files_row(row["page_id"], read_only=bool(trash))
 
+        def _live_fields():
+            # Prix/e-mail tapés mais pas encore enregistrés (retour user).
+            raw = (prix_field.value or "").strip().replace(",", ".")
+            try:
+                prix = float(raw) if raw else None
+            except ValueError:
+                prix = row["prix"]
+            return {"prix": prix,
+                    "email": (email_field.value or "").strip()
+                    or row.get("email")}
+
         def _cancel(event):
             dlg.open = False
             page.update()
@@ -559,7 +571,8 @@ def build(ui):
                               on_click=lambda e: _liste_add_task(
                                   row, e.control)),
                      *([_dlg_btn("Prévenir", color=ui.YELLOW,
-                                 on_click=lambda e: _notify(row))]
+                                 on_click=lambda e: _notify(
+                                     row, _live_fields()))]
                        if row.get("email") else []),
                      _dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Enregistrer", "primary", on_click=_confirm)],
