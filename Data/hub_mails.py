@@ -201,7 +201,11 @@ def build(ui):
                 lambda out: on_done and on_done(m))
 
         dlg = _dialog(
-            title=ft.Text(m.get("subject") or "(sans sujet)"),
+            title=ft.Row([
+                ft.Text(m.get("subject") or "(sans sujet)", expand=True),
+                ft.IconButton(ft.Icons.CLOSE, icon_color=LIGHT_GREY,
+                              tooltip="Fermer",
+                              on_click=lambda e: _close(dlg))]),
             content=ft.Column([
                 ft.Text(m.get("from", ""), size=11, color=LIGHT_GREY),
                 ft.Text(m.get("body", ""), color=WHITE, selectable=True),
@@ -221,8 +225,6 @@ def build(ui):
                        if "new_task" in hooks else []),
                      _dlg_btn("Joindre", color=CONSTANTS.COLOR_MINT,
                               on_click=_join),
-                     _dlg_btn("Fermer", "cancel",
-                              on_click=lambda e: _close(dlg)),
                      _dlg_btn("Rédiger", color=ui.VIOLET,
                               on_click=_draft),
                      _dlg_btn("Envoyer", "primary", on_click=_send)],
