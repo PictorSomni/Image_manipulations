@@ -987,6 +987,12 @@ def build(ui):
                     return
 
                 async def _show():  # visionneuse commune de Hub
+                    # La fiche se ferme, la pièce jointe en plein écran
+                    # (retour user : sinon le dialogue reste devant).
+                    for c in list(page.overlay):
+                        if isinstance(c, ft.AlertDialog):
+                            c.open = False
+                            page.overlay.remove(c)
                     _open_viewer(path)
                 _run_task(_show)
             _bg(work)

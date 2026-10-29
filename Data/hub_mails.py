@@ -91,9 +91,21 @@ def build(ui):
             return folder
 
         def _open(n):
-            _bg(lambda: _download(temp, [n]), lambda out: isinstance(
-                out, Exception) or ui._open_file_default(
-                    os.path.join(out, n)))
+            # Images/PDF : le mail se ferme et la pièce jointe s'affiche
+            # en plein écran dans la visionneuse (retour user).
+            def _shown(out):
+                if isinstance(out, Exception):
+                    return
+                path = os.path.join(out, n)
+                if os.path.splitext(n)[1].lower() not in VIEWER_EXTS:
+                    ui._open_file_default(path)
+                    return
+                for c in list(page.overlay):
+                    if isinstance(c, ft.AlertDialog):
+                        c.open = False
+                        page.overlay.remove(c)
+                ui._open_viewer(path)
+            _bg(lambda: _download(temp, [n]), _shown)
 
         def _preview(names):
             """Aperçu sous le message (retour user) : images et 1re page
@@ -111,10 +123,11 @@ def build(ui):
         def _previewed(out):
             if isinstance(out, Exception):
                 return
-            previews.controls = [
+            previews.controls = [ft.GestureDetector(
                 ft.Image(src=data, width=560, fit=ft.BoxFit.CONTAIN,
-                         border_radius=CONSTANTS.BUTTON_RADIUS)
-                for _n, data in out]
+                         border_radius=CONSTANTS.BUTTON_RADIUS),
+                mouse_cursor=ft.MouseCursor.CLICK,
+                on_tap=lambda e, n=n: _open(n)) for n, data in out]
 
         def _saved(out):
             if isinstance(out, Exception):
