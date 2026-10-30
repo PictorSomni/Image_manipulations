@@ -32,7 +32,30 @@ THEMES = ["Tout mélangé", "Histoire", "Géographie", "Sciences",
           "Art et peinture", "Littérature", "Musique", "Cinéma",
           "Culture pop",
           "Langue française", "Mythologie", "Cuisine", "Sport",
-          "Belgique", "Photographie"]
+          "Belgique", "Photographie", "Drone"]
+# Thèmes « cours » : fiche de référence jointe à la demande (retour user :
+# réviser le certificat drone A1/A3 belge). Source : DGTA/EASA, 2026.
+COURSES = {"Drone": (
+    "Cours de télépilote, catégorie ouverte UE (règlement 2019/947), "
+    "appliquée en Belgique (SPF Mobilité, DGTA). Base-toi sur ces règles "
+    "et le contenu officiel de l'examen A1/A3 (météo, performances, "
+    "facteurs humains, procédures, vie privée, sécurité aérienne) : "
+    "120 m max au-dessus du sol, vol à vue (VLOS), jamais au-dessus de "
+    "rassemblements, pas de largage. Classes C0 <250 g, C1 <900 g, "
+    "C2 <4 kg, C3/C4 <25 kg. A1 : C0/C1, survol bref de personnes non "
+    "impliquées toléré (à éviter en C1). A2 : C2, 30 m des personnes, "
+    "5 m en mode basse vitesse, certificat A2 (examen au SPF, "
+    "auto-formation pratique). A3 : C3/C4 et anciens drones <25 kg, "
+    "150 m des zones habitées, commerciales, industrielles ou de "
+    "loisirs. Catégorie spécifique : hors VLOS, >120 m ou >25 kg "
+    "(STS-01, STS-02, SORA, LUC). Enregistrement exploitant obligatoire "
+    "si >250 g ou caméra (gratuit, Drone Portal), numéro affiché sur "
+    "le drone et dans le Remote ID, un seul État membre. Assurance RC "
+    "obligatoire en Belgique. Âge minimum 16 ans (sauf jouets C0 ou "
+    "supervision). Certificats A1/A3 et A2 valables 5 ans. Géozones "
+    "(aéroports, prisons, sites nucléaires, domaines royaux) : vérifier "
+    "la carte Droneguide de skeyes avant chaque vol, accès aux zones "
+    "contrôlées via SkeyDrone DAA.")}
 LEVELS = ["Facile", "Accessible", "Moyen", "Corsé", "Difficile",
           "Expert", "Très expert", "Érudit", "Maître", "Légende"]
 _lock = threading.Lock()
@@ -111,6 +134,8 @@ def _ask_vf(theme, level, n, avoid):
 
 
 def _parse(rule, avoid, theme, level, kind):
+    if theme in COURSES:
+        rule += " Référence : " + COURSES[theme]
     if avoid:
         rule += " Questions déjà posées, à ne pas refaire : " + " | ".join(
             avoid[-150:])
