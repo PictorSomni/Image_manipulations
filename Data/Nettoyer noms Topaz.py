@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Retire le suffixe ajouté par Topaz cloud au nom des fichiers :
-« IMG_0550-cloud-wonder 3.5-1x.jpg » → « IMG_0550.jpg ».
+Remplace le suffixe ajouté par Topaz cloud par « _OK » :
+« IMG_0550-cloud-wonder 3.5-1x.jpg » → « IMG_0550_OK.jpg ».
 
 N'écrase jamais un fichier existant (le fichier est alors laissé tel quel).
 
@@ -19,12 +19,12 @@ SUFFIX = re.compile(r"-cloud-.*$")
 
 
 def clean_name(name):
-    """Nom sans le suffixe Topaz, extension conservée."""
+    """Suffixe Topaz remplacé par « _OK », extension conservée."""
     p = Path(name)
-    return SUFFIX.sub("", p.stem) + p.suffix
+    return SUFFIX.sub("_OK", p.stem) + p.suffix
 
 
-assert clean_name("IMG_0550-cloud-wonder 3.5-1x.jpg") == "IMG_0550.jpg"
+assert clean_name("IMG_0550-cloud-wonder 3.5-1x.jpg") == "IMG_0550_OK.jpg"
 assert clean_name("IMG_0550.jpg") == "IMG_0550.jpg"
 
 if __name__ == "__main__":
