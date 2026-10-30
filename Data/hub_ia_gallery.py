@@ -268,7 +268,7 @@ def build(ui):
     for _p in _ai_old:
         _ai_gal_add(_p)
 
-    def _ai_generate(prompt):
+    def _ai_generate(prompt, refine=True):
         """Lance N générations (ou retouches de la 1re image jointe) en
         parallèle ; chaque résultat arrive dans la galerie."""
         n = int(ai_count_dropdown.value or 1)
@@ -327,7 +327,8 @@ def build(ui):
             nonlocal prompt
             # Affinage du texte (retour user : sa demande brute est
             # rarement assez précise) — une fois pour les N images.
-            if not use_muse and ai_refine_switch.value:
+            # Modes préréglés : prompt déjà écrit, pas d'affinage.
+            if refine and not use_muse and ai_refine_switch.value:
                 ai_status_text.value = "✍️ Affinage de la demande…"
                 page.update(ai_status_text)
                 try:
@@ -576,7 +577,7 @@ def build(ui):
             return
         ai_input_field.value = ""
         page.update()
-        _ai_generate(prompt)
+        _ai_generate(prompt, refine=image_mode["i"] < 2)
         _ai_gal_clear_selection()  # pièces jointes parties avec la demande
 
     image_mode_buttons = [
