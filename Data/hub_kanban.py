@@ -997,6 +997,20 @@ def build(ui):
                 _run_task(_show)
             _bg(work)
 
+        def _save(name):
+            """Copie dans le dossier de l'onglet ouvert (retour user)."""
+            folder = ui.state["folder"]
+            if not folder:
+                _log_to_terminal("[Fichiers] Aucun dossier ouvert", RED)
+                return
+
+            def work():
+                with open(os.path.join(folder, name), "wb") as f:
+                    f.write(hub_sync.file_req("GET", page_id, name))
+                _log_to_terminal(f"[Fichiers] {name} → {folder}", MINT)
+                ui._refresh_folder()
+            _bg(work)
+
         async def _attach(e):
             picked = await ft.FilePicker().pick_files(
                 dialog_title="Joindre des fichiers", allow_multiple=True)
@@ -1035,6 +1049,10 @@ def build(ui):
                     ft.Text(name, size=CONSTANTS.TEXT_SM, color=WHITE)],
                     spacing=4, tight=True),
                     on_click=lambda e: _open(name)),
+                ft.IconButton(
+                    ft.Icons.DOWNLOAD, icon_size=16, icon_color=MINT,
+                    tooltip="Enregistrer dans le dossier ouvert",
+                    on_click=lambda e: _save(name)),
                 None if read_only else ft.IconButton(
                     ft.Icons.CLOSE, icon_size=14, icon_color=LIGHT_GREY,
                     tooltip="Retirer", on_click=lambda e: _bg(
