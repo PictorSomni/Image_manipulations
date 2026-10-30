@@ -143,6 +143,23 @@ def _parse(rule, avoid, theme, level, kind):
     return out
 
 
+def _prepare(key, theme, level, n, kind):
+    """Génère en fond le lot suivant pour ces réglages."""
+    try:
+        with _lock:
+            state = _read()
+            avoid = [q for p in state["profiles"].values()
+                     for q in p["seen"]]
+        out = [q for q in _ask(theme, level, n, avoid, kind)
+               if q["q"] not in avoid]
+        with _lock:
+            state = _read()
+            state.setdefault("next", {})[key] = out
+            _write(state)
+    except Exception as exc:
+        print(f"[Lot suivant] {exc}", flush=True)
+
+
 def questions(name, theme, level, n=10, kind="qcm"):
     level = max(0, min(int(level), len(LEVELS) - 1))
     with _lock:
@@ -150,7 +167,17 @@ def questions(name, theme, level, n=10, kind="qcm"):
         prof = _profile(state, name)
         avoid = [q for p in state["profiles"].values() for q in p["seen"]]
         due = [r for r in prof["review"] if r["due"] <= _today()]
-    out = [q for q in _ask(theme, level, n, avoid, kind) if q["q"] not in avoid]
+    key = f"{theme}|{level}|{kind}|{n}"
+    with _lock:  # lot préparé d'avance (retour user) : départ immédiat
+        state = _read()
+        out = [q for q in state.setdefault("next", {}).pop(key, [])
+               if q["q"] not in avoid]
+        _write(state)
+    if not out:
+        out = [q for q in _ask(theme, level, n, avoid, kind)
+               if q["q"] not in avoid]
+    threading.Thread(target=_prepare, args=(key, theme, level, n, kind),
+                     daemon=True).start()
     with _lock:  # vues dès l'envoi : le lot suivant ne les reprend pas
         state = _read()
         prof = _profile(state, name)
