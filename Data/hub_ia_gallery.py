@@ -20,6 +20,7 @@ import json
 import meta_ai
 import os
 import threading
+import time
 import uuid
 import shutil
 
@@ -296,6 +297,8 @@ def build(ui):
         asked = prompt
 
         def _one(i):
+            t0 = time.time()  # traces : où ça bloque (retour user)
+            _log_to_terminal(f"→ Image {i + 1} envoyée à {model}", BLUE)
             try:
                 text, img = gen(prompt, input_image_bytes=src_bytes,
                                 aspect_ratio=aspect,
@@ -303,6 +306,8 @@ def build(ui):
                                 or "1K", model=model)
             except Exception as exc:
                 text, img = str(exc), None
+            _log_to_terminal(f"← Image {i + 1} : réponse en "
+                             f"{time.time() - t0:.0f} s", BLUE)
             try:
                 if img:
                     path = os.path.join(dest, f"{kind}_{stamp}_{i + 1}.png")
@@ -324,6 +329,14 @@ def build(ui):
                 page.update(ai_progress_bar, ai_status_text)
 
         def _start():
+            try:
+                _start_inner()
+            except Exception as exc:
+                _log_to_terminal(f"[ERREUR] IA : {exc!r}", RED)
+                ai_progress_bar.visible = False
+                page.update(ai_progress_bar)
+
+        def _start_inner():
             nonlocal prompt
             # Affinage du texte (retour user : sa demande brute est
             # rarement assez précise) — une fois pour les N images.
