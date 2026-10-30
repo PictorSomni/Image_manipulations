@@ -248,7 +248,10 @@ ACTIONS = {
     "maj_hub": f"git -C {REPO} pull --ff-only && sudo -n systemctl restart "
                "hub-sync && echo 'Webapp relancée' && systemctl --user "
                "restart hub-mobile",
-    "relancer_claude": "tmux kill-session -t claude; tmux new-session -d -c ~ "
+    # Scope à part : sinon le serveur tmux naît dans le service
+    # hub-mobile et meurt avec lui (relance de la webapp, MAJ Hub).
+    "relancer_claude": "tmux kill-session -t claude; systemd-run --user "
+                       "--scope --quiet tmux new-session -d -c ~ "
                        f"-s claude '{CLAUDE} --continue --chrome' "
                        f"&& (bash {REPO}/Pi/claude_trust.sh "
                        ">/dev/null 2>&1 &) "
