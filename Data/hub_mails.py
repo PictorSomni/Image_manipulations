@@ -56,9 +56,9 @@ def build(ui):
         page.update()
 
     def _close(dlg):
+        # Pas de retrait de page.overlay dans la même mise à jour : le
+        # client ne voit jamais open=False et le dialogue reste orphelin.
         dlg.open = False
-        if dlg in page.overlay:
-            page.overlay.remove(dlg)
         page.update()
 
     def _seg(options, on_pick):
@@ -100,10 +100,10 @@ def build(ui):
                 if os.path.splitext(n)[1].lower() not in VIEWER_EXTS:
                     ui._open_file_default(path)
                     return
-                for c in list(page.overlay):
+                for c in page.overlay:
                     if isinstance(c, ft.AlertDialog):
                         c.open = False
-                        page.overlay.remove(c)
+                page.update()
                 ui._open_viewer(path)
             _bg(lambda: _download(temp, [n]), _shown)
 
