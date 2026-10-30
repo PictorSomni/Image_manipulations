@@ -187,7 +187,8 @@ def build(ui):
 
         async def _join(e):
             picked = await ft.FilePicker().pick_files(
-                dialog_title="Joindre des fichiers", allow_multiple=True)
+                dialog_title="Joindre des fichiers", allow_multiple=True,
+                initial_directory=ui.state["folder"] or None)
             joined.extend(f.path for f in picked or [] if f.path)
             names.value = ", ".join(os.path.basename(p) for p in joined)
             page.update()
