@@ -77,6 +77,36 @@ def _text(msg):
     return re.sub(r"[ \t]+", " ", re.sub(r"\n\s*\n+", "\n\n", text)).strip()
 
 
+RAW_EXTS = (".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2",
+            ".raf", ".pef", ".srw")
+
+
+def to_jpeg(name, data):
+    """RAW → JPEG lisible partout (retour user) : on garde le plus grand
+    aperçu JPEG embarqué. Renvoie (nom, données) inchangés sinon."""
+    stem, ext = os.path.splitext(name)
+    if ext.lower() not in RAW_EXTS:
+        return name, data
+    import io
+    from PIL import Image
+    best, area, i = None, 0, data.find(b"\xff\xd8\xff")
+    while i != -1:
+        try:
+            w, h = Image.open(io.BytesIO(data[i:])).size
+            if w * h > area:
+                best, area = i, w * h
+        except Exception:
+            pass
+        i = data.find(b"\xff\xd8\xff", i + 3)
+    if best is None:
+        return name, data
+    img = Image.open(io.BytesIO(data[best:]))
+    img.load()
+    out = io.BytesIO()
+    img.convert("RGB").save(out, "JPEG", quality=92)
+    return stem + ".jpg", out.getvalue()
+
+
 def _save_files(msg, mid):
     """Pièces jointes (photos, PDF…) dans ~/task_files/<id>, servies par
     /files comme celles des tâches. Renvoie l'id, ou "" s'il n'y en a
@@ -90,6 +120,7 @@ def _save_files(msg, mid):
                 part.get_content_maintype() == "image"
                 and len(data) < 15000):
             continue
+        name, data = to_jpeg(name, data)
         os.makedirs(folder, exist_ok=True)
         with open(os.path.join(folder, name), "wb") as f:
             f.write(data)

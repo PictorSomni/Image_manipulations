@@ -150,8 +150,10 @@ class H(http.server.BaseHTTPRequestHandler):
                 self.send_error(413)
                 return True
             os.makedirs(folder, exist_ok=True)
+            name, data = mail_watch.to_jpeg(name, self.rfile.read(size))
+            path = os.path.join(folder, name)
             with open(path + ".tmp", "wb") as fh:
-                fh.write(self.rfile.read(size))
+                fh.write(data)
             os.replace(path + ".tmp", path)
             self._reply(204)
         elif method == "DELETE":
