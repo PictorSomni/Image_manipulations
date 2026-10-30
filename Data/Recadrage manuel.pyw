@@ -4996,6 +4996,9 @@ class PhotoCropper:
         self.image_paths = [path]
         self.current_index = 0
         self.batch_mode = True
+        # Chaque photo repart en Taille réelle (retour user).
+        self.current_format_label = _REAL_KEY
+        self.format_radio_group.value = _REAL_KEY
         if self.current_format_label == _REAL_KEY:
             self.current_format = self._real_dims()
             self.update_canvas_size()
