@@ -256,7 +256,10 @@ def daily_loop():
             today = _today()
             if (datetime.datetime.now().hour >= DAILY_HOUR
                     and (_read().get("daily") or {}).get("date") != today):
-                qs = questions(TEAM, THEMES[0], 3, n=3)
+                # Un jour sur trois : révision drone (retour user).
+                theme = ("Drone" if datetime.date.today().toordinal() % 3
+                         == 0 else THEMES[0])
+                qs = questions(TEAM, theme, 3, n=3)
                 q = next(x for x in qs if not x.get("review"))
                 with _lock:
                     state = _read()
