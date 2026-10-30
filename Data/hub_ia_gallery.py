@@ -276,6 +276,8 @@ def build(ui):
         # Toutes les pièces jointes, à la taille du bouton 1024/REEL
         # (b64 préparé au moment de joindre).
         src_bytes = [base64.b64decode(e["b64"]) for e in ai_pending_images]
+        src_path = (ai_pending_images[0]["path"] if ai_pending_images
+                    else None)
         aspect = "1:1"
         if src_bytes:
             with PILImage.open(io.BytesIO(src_bytes[0])) as im:
