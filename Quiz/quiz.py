@@ -147,7 +147,7 @@ def _parse(rule, avoid, theme, level, kind):
     for item in items:
         if kind == "vf":
             if "q" in item and isinstance(item.get("true"), bool):
-                out.append({"theme": item.get("theme") or theme,
+                out.append({"pick": theme, "theme": item.get("theme") or theme,
                             "q": item["q"], "choices": ["Vrai", "Faux"],
                             "answer": 0 if item["true"] else 1, "hint": "",
                             "explain": item.get("explain", ""),
@@ -160,7 +160,7 @@ def _parse(rule, avoid, theme, level, kind):
         if len(set(choices)) != 4:
             continue
         random.shuffle(choices)
-        out.append({"theme": item.get("theme") or theme, "q": item["q"],
+        out.append({"pick": theme, "theme": item.get("theme") or theme, "q": item["q"],
                     "choices": choices,
                     "answer": choices.index(str(item["good"])),
                     "hint": item.get("hint", ""),
@@ -191,7 +191,9 @@ def questions(name, theme, level, n=10, kind="qcm"):
         state = _read()
         prof = _profile(state, name)
         avoid = [q for p in state["profiles"].values() for q in p["seen"]]
-        due = [r for r in prof["review"] if r["due"] <= _today()]
+        # Thème choisi : seulement ses propres révisions (retour user).
+        due = [r for r in prof["review"] if r["due"] <= _today() and (
+            theme == THEMES[0] or r["q"].get("pick") == theme)]
     key = f"{theme}|{level}|{kind}|{n}"
     with _lock:  # lot préparé d'avance (retour user) : départ immédiat
         state = _read()
