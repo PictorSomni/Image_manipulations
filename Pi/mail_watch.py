@@ -84,11 +84,21 @@ RAW_EXTS = (".dng", ".cr2", ".cr3", ".nef", ".arw", ".orf", ".rw2",
 def to_jpeg(name, data):
     """RAW → JPEG lisible partout (retour user) : on garde le plus grand
     aperçu JPEG embarqué. Renvoie (nom, données) inchangés sinon."""
-    stem, ext = os.path.splitext(name)
-    if ext.lower() not in RAW_EXTS:
-        return name, data
     import io
     from PIL import Image
+    stem, ext = os.path.splitext(name)
+    if ext.lower() in (".heic", ".heif"):
+        try:
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+            out = io.BytesIO()
+            Image.open(io.BytesIO(data)).convert("RGB").save(
+                out, "JPEG", quality=92)
+            return stem + ".jpg", out.getvalue()
+        except Exception:  # pillow-heif absent : fichier gardé tel quel
+            return name, data
+    if ext.lower() not in RAW_EXTS:
+        return name, data
     best, area, i = None, 0, data.find(b"\xff\xd8\xff")
     while i != -1:
         try:
