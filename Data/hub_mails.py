@@ -569,20 +569,39 @@ def build(ui):
                      _dlg_btn("Envoyer", "primary", on_click=_send)])
         _show(dlg)
 
-    def new_mail():
-        """Mail écrit de zéro, envoyé depuis l'adresse du studio."""
-        to = _field(label="À", autofocus=True)
-        subject = _field(label="Objet")
+    def new_mail(to_addr=""):
+        """Mail écrit de zéro (ou depuis une tâche), avec pièces jointes."""
+        to = _field(label="À", value=to_addr, autofocus=not to_addr)
+        subject = _field(label="Objet", autofocus=bool(to_addr))
         text = _field(label="Message", multiline=True, min_lines=10,
                       max_lines=16, value="Bonjour,\n\n")
         status = ft.Text("", size=13, color=WHITE)
+        names = ft.Text("", size=13, color=LIGHT_GREY)
+        joined = []
+
+        async def _join(e):
+            picked = await ft.FilePicker().pick_files(
+                dialog_title="Joindre des fichiers", allow_multiple=True,
+                initial_directory=ui.state["folder"] or None)
+            joined.extend(f.path for f in picked or [] if f.path)
+            names.value = ", ".join(os.path.basename(p) for p in joined)
+            page.update()
+
+        def _files():
+            out = []
+            for p in joined:
+                with open(p, "rb") as f:
+                    out.append({"name": os.path.basename(p), "data":
+                                base64.b64encode(f.read()).decode()})
+            return out
 
         def _send(e):
             status.value = "Envoi…"
             page.update()
             _bg(lambda: hub_sync.mail("new", to=to.value,
                                       subject=subject.value,
-                                      text=text.value), _sent)
+                                      text=text.value, files=_files()),
+                _sent)
 
         def _sent(out):
             if isinstance(out, Exception):
@@ -592,9 +611,10 @@ def build(ui):
 
         dlg = _dialog(
             title=ft.Text("Nouveau mail"),
-            content=ft.Column([to, subject, text, status], tight=True,
-                              spacing=8, width=600),
-            actions=[_dlg_btn("Annuler", "cancel",
+            content=ft.Column([to, subject, text, names, status],
+                              tight=True, spacing=8, width=600),
+            actions=[_dlg_btn("Joindre", "cancel", on_click=_join),
+                     _dlg_btn("Annuler", "cancel",
                               on_click=lambda e: _close(dlg)),
                      _dlg_btn("Envoyer", "primary", on_click=_send)])
         _show(dlg)

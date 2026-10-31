@@ -514,21 +514,33 @@ function replyMail(m) {
 }
 
 // Mail écrit de zéro, envoyé depuis l'adresse du studio.
-function newMail() {
-  const to = h("input", {type: "email", placeholder: "À"});
+function newMail(addr) {
+  const to = h("input", {type: "email", placeholder: "À",
+    value: typeof addr === "string" ? addr : ""});
   const subj = h("input", {placeholder: "Objet"});
   const t = h("textarea", {rows: 11}, "Bonjour,\n\n");
-  const send = h("button", {onclick: async () => {
+  const names = h("div", {class: "muted"});
+  const pick = h("input", {type: "file", multiple: true,
+    style: {display: "none"}, onchange: () => names.textContent =
+      [...pick.files].map(f => f.name).join(", ")});
+  const join = h("button", {class: "btn out", onclick: () => pick.click()},
+    ic("attach_file"), " Joindre");
+  const send = h("button", {class: "btn", onclick: async () => {
     send.disabled = true; send.textContent = "Envoi…";
     try {
+      const files = await Promise.all([...pick.files].map(f =>
+        new Promise(ok => { const r = new FileReader();
+          r.onload = () => ok({name: f.name,
+            data: r.result.split(",")[1]});
+          r.readAsDataURL(f); })));
       await api("/api/mail", {action: "new", to: to.value,
-        subject: subj.value, text: t.value});
+        subject: subj.value, text: t.value, files});
       closeSheet(); S.status = "Mail envoyé";
     } catch (e) { send.disabled = false; send.textContent = "Erreur : " +
       e.message; }
   }}, ic("send"), " Envoyer");
-  openSheet([h("b", {}, "Nouveau mail"), to, subj, t,
-    h("div", {class: "row"}, send)], true);
+  openSheet([h("b", {}, "Nouveau mail"), to, subj, t, names,
+    h("div", {class: "row"}, join, send), pick], true);
 }
 
 // Client prévenu : mail envoyé directement depuis le studio, ou SMS.
@@ -704,8 +716,11 @@ function taskDetails(row) {
     h("div", {class: "row"}, h("button", {class: "btn out red",
       onclick: () => deleteTask(row)}, "Supprimer"),
       h("span", {style: {marginLeft: "auto"}}), callBtn(row),
-      row["E-mail"] || row["Téléphone"] ? h("button", {class: "btn",
+      row["E-mail"] ? h("button", {class: "btn",
         style: {background: C.yellow, color: "#222429"},
+        onclick: () => newMail(row["E-mail"])},
+        ic("mail"), " Mail") : row["Téléphone"] ? h("button", {
+        class: "btn", style: {background: C.yellow, color: "#222429"},
         onclick: () => notifyClient(row)},
         ic("mark_email_read"), " Prévenir") : null)]);
 }

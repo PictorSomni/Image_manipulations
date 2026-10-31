@@ -572,9 +572,10 @@ def build(ui):
                               disabled=_liste_has_task(row),
                               on_click=lambda e: _liste_add_task(
                                   row, e.control)),
-                     *([_dlg_btn("Prévenir", color=ui.YELLOW,
-                                 on_click=lambda e: _notify(
-                                     row, _live_fields()))]
+                     *([_dlg_btn("Mail", color=ui.YELLOW,
+                                 on_click=lambda e: _mails["new_mail"](
+                                     {**row, **_live_fields()}.get(
+                                         "email", "")))]
                        if row.get("email") else []),
                      _dlg_btn("Annuler", "cancel", on_click=_cancel),
                      _dlg_btn("Enregistrer", "primary", on_click=_confirm)],
