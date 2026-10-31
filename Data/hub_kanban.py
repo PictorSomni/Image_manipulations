@@ -54,6 +54,7 @@ def build(ui):
     _load_json = ui._load_json
     _run_task = ui._run_task
     _open_viewer = ui._open_viewer
+    _viewer_split_front = ui._viewer_split_front
     IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
     _save_json = ui._save_json
     _surface_title = ui._surface_title
@@ -591,6 +592,7 @@ def build(ui):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        _viewer_split_front(dlg)
 
         def _load_content():
             raw = _notion_call(
@@ -941,6 +943,7 @@ def build(ui):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        _viewer_split_front(dlg)
 
     # Voile par-dessus le tableau pendant une synchro Notion (retour
     # user) : bloque le glisser-déposer et les clics, message clair.
@@ -1214,6 +1217,7 @@ def build(ui):
         page.overlay.append(dlg)
         dlg.open = True
         page.update()
+        _viewer_split_front(dlg)
 
     def _sync_label(cache_file=None):
         """« Synchro 14:05 » (aujourd'hui) ou « Synchro 26/09 14:05 » ;

@@ -3420,7 +3420,8 @@ def main(page: ft.Page):
     #  page.overlay (hors de l'arbre de mise en page normal -> aucun des
     #  soucis d'expand/Stack imbriqué rencontrés dans la surface Fichiers).
     # ═════════════════════════════════════════════════════════════════════
-    viewer_state = {"paths": [], "index": 0, "win_start": 0}
+    viewer_state = {"paths": [], "index": 0, "win_start": 0,
+                    "split": False}
     # Dézoomer sous "ajustée à l'écran" (InteractiveViewer.min_scale) ne
     # marche pas à la souris ici : la PageView qui permet de glisser
     # d'une photo à l'autre intercepte le défilement de la molette avant
@@ -3805,6 +3806,7 @@ def main(page: ft.Page):
 
     def _close_viewer(event=None):
         page.on_keyboard_event = _prev_keyboard["fn"]
+        viewer_state["split"] = False
         _close_drawers()
         if viewer_overlay in page.overlay:
             page.overlay.remove(viewer_overlay)
@@ -3915,8 +3917,13 @@ def main(page: ft.Page):
         bgcolor=_VIEWER_BAR_BG, padding=ft.Padding(18, 6, 18, 6),
         border_radius=12,
     )
+    split_btn = _viewer_btn(ft.Icons.VERTICAL_SPLIT, "Moitié d'écran",
+                            lambda e: _toggle_viewer_split())
     viewer_close_pill = ft.Container(
-        content=_viewer_btn(ft.Icons.CLOSE, "Fermer (Échap)", _close_viewer),
+        content=ft.Row([
+            split_btn,
+            _viewer_btn(ft.Icons.CLOSE, "Fermer (Échap)", _close_viewer),
+        ], spacing=0, tight=True),
         bgcolor=_VIEWER_BAR_BG, border_radius=20,
     )
     viewer_bottom_bar = ft.Container(
@@ -3997,7 +4004,7 @@ def main(page: ft.Page):
         # page_image_controls est indexé par index GLOBAL dans `paths`.
         page_image_controls.clear()
         pages_loaded.clear()
-        win_w = page.window.width or 1280
+        win_w = _viewer_width()
         win_h = page.window.height or 860
         containers = []
         for global_idx in range(start, end):
@@ -4065,13 +4072,58 @@ def main(page: ft.Page):
         viewer_close_wrap, viewer_bottom_bar_wrap,
     ], expand=True)
 
+    def _split_left():
+        # Mode moitié d'écran : la visionneuse n'occupe que la moitié
+        # droite, la gauche (vide dans le Stack) laisse passer clics et
+        # saisie vers l'interface (ex. créer une tâche depuis une image).
+        if not viewer_state["split"]:
+            return 0
+        return (page.window.width or 1280) // 2
+
+    def _viewer_width():
+        return ((page.window.width or 1280) - _split_left()
+                - (viewer_image_wrap.right or 0))
+
     def _set_drawer_space(width):
-        viewer_image_wrap.right = width
-        viewer_top_bar_wrap.right = width
+        left = _split_left()
+        for wrap in (viewer_image_wrap, viewer_top_bar_wrap,
+                     viewer_bottom_bar_wrap, viewer_load_veil):
+            wrap.left = left
+            wrap.right = width
         viewer_close_wrap.right = 8 + width
-        viewer_bottom_bar_wrap.right = width
-        images_page_view.width = (page.window.width or 1280) - width
+        images_page_view.width = _viewer_width()
         images_page_view.height = page.window.height or 860
+
+    def _toggle_viewer_split(event=None):
+        viewer_state["split"] = not viewer_state["split"]
+        split_btn.icon = (ft.Icons.FULLSCREEN if viewer_state["split"]
+                          else ft.Icons.VERTICAL_SPLIT)
+        _set_drawer_space(viewer_image_wrap.right or 0)
+        # Clavier rendu à l'interface en moitié d'écran : les flèches
+        # tapées dans un champ ne doivent pas changer d'image.
+        page.on_keyboard_event = (_prev_keyboard["fn"]
+                                  if viewer_state["split"]
+                                  else _viewer_on_key)
+        if _HAS_PAGE_VIEW:
+            idx = viewer_state["index"]
+            start = viewer_state["win_start"]
+            end = start + len(images_page_view.controls)
+            images_page_view.controls = _build_page_containers(
+                viewer_state["paths"], start, end)
+            images_page_view.selected_index = idx - start
+            _load_pages_around(idx)
+        page.update()
+
+    def _viewer_split_front(dlg):
+        # Dialogue ouvert pendant la moitié d'écran : calé à gauche et
+        # visionneuse remise au-dessus, l'image reste visible à côté.
+        if not (viewer_state["split"] and viewer_overlay in page.overlay):
+            return
+        dlg.alignment = ft.Alignment.CENTER_LEFT
+        page.overlay.remove(viewer_overlay)
+        page.overlay.append(viewer_overlay)
+        page.update()
+
 
     # ═════════════════════════════════════════════════════════════════════
     #  Édition — Recadrage manuel.pyw (retouche + recadrage, tous les outils)
