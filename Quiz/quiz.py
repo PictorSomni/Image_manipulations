@@ -114,6 +114,24 @@ def summary():
             "daily": state.get("daily")}
 
 
+def _difficulty(level):
+    if level >= 0:
+        return f"Difficulté {level + 1}/10 ({LEVELS[level]})."
+    # Aléatoire (retour user) : chaque élément a sa propre difficulté.
+    return ("Difficulté variée : mélange au hasard de très simples à très "
+            "pointues (1 à 10), et ajoute à chaque élément un champ "
+            "\"level\" : sa difficulté de 1 à 10.")
+
+
+def _item_level(item, level):
+    if level >= 0:
+        return level
+    try:
+        return max(0, min(int(item.get("level", 5)) - 1, len(LEVELS) - 1))
+    except (TypeError, ValueError):
+        return 4
+
+
 def _ask(theme, level, n, avoid, kind="qcm"):
     if kind == "vf":
         return _ask_vf(theme, level, n, avoid)
@@ -121,7 +139,7 @@ def _ask(theme, level, n, avoid, kind="qcm"):
         f"Tu écris {n} questions de quiz de culture générale en français "
         f"pour un couple qui veut apprendre en s'amusant. Thème : "
         f"{'varié, un domaine différent par question' if theme == THEMES[0] else theme}. "
-        f"Difficulté {level + 1}/10 ({LEVELS[level]}). Faits exacts et "
+        f"{_difficulty(level)} Faits exacts et "
         "vérifiables uniquement ; pas de question piège ni ambiguë ; les "
         "mauvaises réponses doivent être plausibles. Réponds UNIQUEMENT "
         "par un tableau JSON : [{\"theme\": domaine en 1 ou 2 mots, "
@@ -138,7 +156,7 @@ def _ask_vf(theme, level, n, avoid):
         "juger vrai ou faux, pour un couple qui veut apprendre en "
         f"s'amusant. Thème : "
         f"{'varié, un domaine différent par affirmation' if theme == THEMES[0] else theme}. "
-        f"Difficulté {level + 1}/10 ({LEVELS[level]}). Environ moitié "
+        f"{_difficulty(level)} Environ moitié "
         "vraies, moitié fausses ; les fausses sont des idées reçues ou des "
         "erreurs plausibles, jamais des pièges de formulation. Réponds "
         "UNIQUEMENT par un tableau JSON : [{\"theme\": domaine en 1 ou 2 "
@@ -166,7 +184,7 @@ def _parse(rule, avoid, theme, level, kind):
                             "q": item["q"], "choices": ["Vrai", "Faux"],
                             "answer": 0 if item["true"] else 1, "hint": "",
                             "explain": item.get("explain", ""),
-                            "level": level})
+                            "level": _item_level(item, level)})
             continue
         try:
             choices = [str(item["good"])] + [str(b) for b in item["bad"][:3]]
@@ -179,7 +197,8 @@ def _parse(rule, avoid, theme, level, kind):
                     "choices": choices,
                     "answer": choices.index(str(item["good"])),
                     "hint": item.get("hint", ""),
-                    "explain": item.get("explain", ""), "level": level})
+                    "explain": item.get("explain", ""),
+                    "level": _item_level(item, level)})
     return out
 
 
@@ -201,7 +220,9 @@ def _prepare(key, theme, level, n, kind):
 
 
 def questions(name, theme, level, n=10, kind="qcm"):
-    level = max(0, min(int(level), len(LEVELS) - 1))
+    level = int(level)  # -1 : aléatoire
+    if level != -1:
+        level = max(0, min(level, len(LEVELS) - 1))
     with _lock:
         state = _read()
         prof = _profile(state, name)

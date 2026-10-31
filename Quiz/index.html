@@ -296,6 +296,7 @@ async function home() {
     h("div", {class: "label"}, "Difficulté de départ"),
     h("select", {class: "pick", onchange: e => {
       S.level = +e.target.value; localStorage.quizLevel = S.level; }},
+      h("option", {value: -1, selected: S.level === -1}, "Aléatoire"),
       ...S.info.levels.map((t, i) => h("option",
         {value: i, selected: i === S.level}, t))),
     h("div", {class: "label"}, "Thème"),
@@ -381,7 +382,7 @@ function ask(q) {
     h("div", {class: "top"}, h("button", {class: "menu", onclick: () => {
       say(""); S.game = null; home(); }}, "‹ Menu"),
       ...toggles(() => say(spoken)), h("span", {class: "sp"}),
-      h("span", {class: "pill"}, `Q${g.n} · ${S.info.levels[g.level]}`)),
+      h("span", {class: "pill"}, `Q${g.n} · ${S.info.levels[q.level ?? g.level]}`)),
     h("div", {class: "bar"}, h("i", {style:
       `width:${100 * into / CORRECT_PER_LEVEL}%`})),
     h("div", {class: "card qcard"},
@@ -407,9 +408,9 @@ function reply(q, i, buttons, jokers) {
     q.choices[q.answer] + ". ") + (q.explain || ""));
   let up = false;
   if (ok) {
-    g.points += 10 * (g.level + 1);
+    g.points += 10 * ((q.level ?? g.level) + 1);
     g.streak++; g.best = Math.max(g.best, g.streak); g.correct++;
-    if (g.correct % CORRECT_PER_LEVEL === 0 &&
+    if (g.level >= 0 && g.correct % CORRECT_PER_LEVEL === 0 &&
         g.level < S.info.levels.length - 1) {
       g.level++; up = true;
       g.queue = g.queue.filter(x => x.review);  // niveau suivant
@@ -444,7 +445,8 @@ async function finish() {
   show(
     h("h1", {}, "🏆 ", h("span", {}, `${good} / ${g.done.length}`)),
     h("div", {class: "muted"}, `${good} bonne${good > 1 ? "s" : ""} ` +
-      `réponse${good > 1 ? "s" : ""} sur ${g.done.length} · niveau ${S.info.levels[g.level]}`),
+      `réponse${good > 1 ? "s" : ""} sur ${g.done.length} · niveau ${g.level < 0 ? "aléatoire" :
+        S.info.levels[g.level]}`),
     h("div", {class: "label"}, "Ce que vous avez appris"),
     ...g.done.map(({q, ok}) => h("div", {class: "card learned " +
       (ok ? "ok" : "ko")}, h("b", {}, q.q), h("div", {},
