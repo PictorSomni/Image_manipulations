@@ -32,7 +32,7 @@ THEMES = ["Tout mélangé", "Histoire", "Géographie", "Sciences",
           "Art et peinture", "Littérature", "Musique", "Cinéma",
           "Culture pop",
           "Langue française", "Mythologie", "Cuisine", "Sport",
-          "Belgique", "Photographie", "Drone"]
+          "Belgique", "Photographie", "Drone", "Santé"]
 # Thèmes « cours » : fiche de référence jointe à la demande (retour user :
 # réviser le certificat drone A1/A3 belge). Source : DGTA/EASA, 2026.
 COURSES = {"Drone": (
@@ -55,7 +55,22 @@ COURSES = {"Drone": (
     "supervision). Certificats A1/A3 et A2 valables 5 ans. Géozones "
     "(aéroports, prisons, sites nucléaires, domaines royaux) : vérifier "
     "la carte Droneguide de skeyes avant chaque vol, accès aux zones "
-    "contrôlées via SkeyDrone DAA.")}
+    "contrôlées via SkeyDrone DAA."),
+    # Retour user : comprendre son corps pour mieux le préserver.
+    "Santé": (
+        "Santé au quotidien : comment fonctionne le corps et POURQUOI "
+        "une habitude lui fait du bien ou du mal (expliquer le mécanisme, "
+        "pas seulement la règle). Domaines : sucre et glycémie (pic, "
+        "insuline, fringales, foie, stockage), alimentation (protéines, "
+        "fibres, satiété, ultra-transformés, sel, graisses), poids et "
+        "métabolisme, marche et activité physique (cœur, muscles, "
+        "humeur), sommeil, stress et alimentation émotionnelle, "
+        "dopamine et addictions (sucre, alcool, tabac, écrans), "
+        "hydratation, cœur et tension, intestin et microbiote, cerveau. "
+        "Uniquement le consensus scientifique actuel (OMS, études "
+        "solides), chiffres concrets, ton bienveillant, sans "
+        "culpabiliser ni faire peur, pas de conseil médical "
+        "personnalisé.")}
 LEVELS = ["Facile", "Accessible", "Moyen", "Corsé", "Difficile",
           "Expert", "Très expert", "Érudit", "Maître", "Légende"]
 _lock = threading.Lock()
@@ -258,9 +273,10 @@ def daily_loop():
             today = _today()
             if (datetime.datetime.now().hour >= DAILY_HOUR
                     and (_read().get("daily") or {}).get("date") != today):
-                # Un jour sur trois : révision drone (retour user).
-                theme = ("Drone" if datetime.date.today().toordinal() % 3
-                         == 0 else THEMES[0])
+                # Rotation sur trois jours : drone, santé, mélangé
+                # (retour user).
+                theme = ("Drone", "Santé", THEMES[0])[
+                    datetime.date.today().toordinal() % 3]
                 qs = questions(TEAM, theme, 3, n=3)
                 q = next(x for x in qs if not x.get("review"))
                 with _lock:
