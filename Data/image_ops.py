@@ -1983,50 +1983,172 @@ def add_mystical(pil_img, amount, softness, shadows):
     return _to_pil(out)
 
 
-def add_haze(pil_img, amount, depth, warmth):
-    """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
-    plus dense en haut de l'image selon depth (0 uniforme, 1 = surtout le
-    haut), contraste et noirs relevés. warmth -1 froid .. 1 chaud."""
-    img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
+_DEPTH_URL = ("https://huggingface.co/onnx-community/"
+              "depth-anything-v2-small/resolve/main/onnx/"
+              "model_quantized.onnx")
+_DEPTH_FILE = os.path.join(os.path.expanduser("~"), ".cache",
+                           "hub_models", "depth_anything_v2_small_q.onnx")
+_depth_state = {"session": None, "cache": {}}
+
+
+def _depth_session():
+    """Session Depth Anything V2 small (27 Mo, téléchargée au premier
+    usage dans ~/.cache/hub_models)."""
+    if _depth_state["session"] is None:
+        import onnxruntime
+        import urllib.request
+        if not os.path.exists(_DEPTH_FILE):
+            os.makedirs(os.path.dirname(_DEPTH_FILE), exist_ok=True)
+            tmp = _DEPTH_FILE + ".part"
+            urllib.request.urlretrieve(_DEPTH_URL, tmp)
+            os.replace(tmp, _DEPTH_FILE)
+        _depth_state["session"] = onnxruntime.InferenceSession(
+            _DEPTH_FILE, providers=["CPUExecutionProvider"])
+    return _depth_state["session"]
+
+
+def _depth_rough(img):
+    """Éloignement estimé sans IA : zones floues / peu détaillées = loin
+    (arrière-plan, bokeh, ciel), un peu de dégradé vertical en plus."""
+    luma = _luma(img)
+    detail = np.abs(luma - _blur_pct(luma, 0.4))
+    detail = _blur_pct(detail, 4)
+    detail /= max(1e-4, float(np.percentile(detail, 97)))
+    h = img.shape[0]
+    ramp = np.linspace(1.0, 0.0, h, dtype=np.float32)[:, None]
+    far = 0.75 * (1 - np.clip(detail, 0, 1)) + 0.25 * ramp
+    return np.clip(_blur_pct(far, 2), 0, 1)
+
+
+def _depth_precise(img):
+    sess = _depth_session()
     h, w = img.shape[:2]
+    k = 518.0 / max(h, w)
+    th = max(14, int(round(h * k / 14)) * 14)
+    tw = max(14, int(round(w * k / 14)) * 14)
+    x = cv2.resize(img, (tw, th), interpolation=cv2.INTER_AREA)
+    x = (x - np.array([0.485, 0.456, 0.406], np.float32)) \
+        / np.array([0.229, 0.224, 0.225], np.float32)
+    x = x.transpose(2, 0, 1)[None].astype(np.float32)
+    d = sess.run(None, {sess.get_inputs()[0].name: x})[0][0]
+    d = (d - d.min()) / max(1e-6, float(np.ptp(d)))
+    far = 1.0 - cv2.resize(d.astype(np.float32), (w, h),
+                           interpolation=cv2.INTER_CUBIC)
+    return np.clip(far, 0, 1)
+
+
+def depth_map(img, precise=False):
+    """Carte d'éloignement 0 (proche) .. 1 (loin) d'une image float RGB,
+    mise en cache par image (calculée une fois, pas à chaque curseur).
+    Mode précis : IA ; repli sur l'estimation si le modèle échoue."""
+    thumb = cv2.resize(img, (16, 16), interpolation=cv2.INTER_AREA)
+    key = (img.shape, precise, (thumb * 255).astype(np.uint8).tobytes())
+    cache = _depth_state["cache"]
+    if key not in cache:
+        far = None
+        if precise:
+            try:
+                far = _depth_precise(img)
+            except Exception as exc:
+                print(f"Profondeur IA indisponible : {exc}")
+        if far is None:
+            far = _depth_rough(img)
+        if len(cache) > 6:
+            cache.pop(next(iter(cache)))
+        cache[key] = far
+    return cache[key]
+
+
+def _cloud_noise(h, w, size, seed=11):
+    """Bruit fractal doux 0..1 (nappes de brume), graine fixe : même
+    motif à chaque rendu. size : % de la petite dimension."""
+    rng = np.random.default_rng(seed)
+    out = np.zeros((h, w), np.float32)
+    base = max(2.0, size / 100.0 * min(h, w))
+    total = 0.0
+    for octave in range(5):
+        cell = base / (2 ** octave)
+        gh = max(2, int(h / cell) + 2)
+        gw = max(2, int(w / cell) + 2)
+        grid = rng.random((gh, gw)).astype(np.float32)
+        layer = cv2.resize(grid, (w, h), interpolation=cv2.INTER_CUBIC)
+        weight = 0.5 ** octave
+        out += layer * weight
+        total += weight
+    out = cv2.GaussianBlur(out / total, (0, 0), max(1.0, base / 12))
+    out = (out - out.min()) / max(1e-6, float(np.ptp(out)))
+    return out
+
+
+def add_haze(pil_img, amount, depth, warmth, precise=False,
+             clouds=0.0, cloud_size=30.0):
+    """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
+    dense au loin selon la carte de profondeur. depth : 0 uniforme,
+    1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
+    clouds 0-1 : nappes irrégulières plutôt qu'un voile uni."""
+    img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
     color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
                       0.86 - 0.08 * warmth], np.float32)
-    ramp = np.linspace(1.0, 0.0, h, dtype=np.float32)[:, None]
-    m = (1 - depth) + depth * ramp ** 1.5
-    # Les zones claires (ciel) prennent plus de brume, comme au loin.
-    m = m * (0.6 + 0.4 * _luma(_blur_pct(img, 3)))
+    far = depth_map(img, precise)
+    m = (1 - depth) + depth * far ** 1.3
+    if clouds > 0:
+        h, w = img.shape[:2]
+        n = _cloud_noise(h, w, cloud_size)
+        n = np.clip((n - 0.3) * 1.8, 0, 1) ** 1.2
+        m = m * ((1 - clouds) + clouds * n * 1.6)
     a = np.clip(amount * m, 0, 0.95)[..., None]
     out = img * (1 - a) + color * a
     return _to_pil(out)
 
 
 def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
-                sun_size):
-    """Rayons de soleil : lumières de la photo (au-dessus du seuil) et
-    disque solaire en (x, y) % étirés radialement depuis la source, puis
-    ajoutés en Screen. length 0-100, intensity 0-1, warmth 0-1,
-    threshold 0-1, sun_size % de la petite dimension."""
+                sun_size, influence=0.5, depth=0.0, precise=False):
+    """Rayons de soleil depuis (x, y) en %, hors cadre permis (-50..150).
+    La lumière traverse les zones claires de la photo et bute sur les
+    sombres (influence 0-1, feuillages, silhouettes) ; depth 0-1 réserve
+    les rayons à l'arrière-plan (le sujet proche les masque)."""
     img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
     h, w = img.shape[:2]
-    scale = min(1.0, 640.0 / max(h, w))
+    scale = min(1.0, 480.0 / max(h, w))
     sw, sh = max(1, int(w * scale)), max(1, int(h * scale))
     small = cv2.resize(img, (sw, sh), interpolation=cv2.INTER_AREA)
+    far = None
+    if depth > 0:
+        far = cv2.resize(depth_map(img, precise), (sw, sh),
+                         interpolation=cv2.INTER_AREA)
+    # Toile élargie pour un soleil hors cadre.
     cx, cy = x / 100.0 * sw, y / 100.0 * sh
-    luma = _luma(small)
-    src = np.clip((luma - threshold) / max(1e-3, 1 - threshold), 0, 1)
-    yy, xx = np.mgrid[0:sh, 0:sw].astype(np.float32)
+    pl = int(max(0, -cx) + 4)
+    pr = int(max(0, cx - sw) + 4)
+    pt = int(max(0, -cy) + 4)
+    pb = int(max(0, cy - sh) + 4)
+    luma = cv2.copyMakeBorder(_luma(small), pt, pb, pl, pr,
+                              cv2.BORDER_REPLICATE)
+    ch, cw = luma.shape
+    cx, cy = cx + pl, cy + pt
+    yy, xx = np.mgrid[0:ch, 0:cw].astype(np.float32)
     rad = max(1.0, sun_size / 100.0 * min(sw, sh))
     disc = np.exp(-(((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * rad ** 2)))
-    src = np.maximum(src * 0.8, disc)
-    # Stries angulaires fixes (graine constante) : de vrais faisceaux
-    # plutôt qu'un simple halo, même sans trouée de lumière dans la photo.
+    lit = np.clip((luma - threshold) / max(1e-3, 1 - threshold), 0, 1)
+    # Transmission : la lumière passe par les clairs de l'image.
+    trans = np.clip((luma - threshold * 0.6)
+                    / max(1e-3, 1 - threshold * 0.6), 0, 1)
+    if far is not None:
+        f = cv2.copyMakeBorder(far, pt, pb, pl, pr, cv2.BORDER_REPLICATE)
+        trans = trans * ((1 - depth) + depth * f)
     rng = np.random.default_rng(7)
     bins = cv2.GaussianBlur(rng.random((1, 720)).astype(np.float32),
                             (0, 0), 2.5).ravel()
     bins = (bins - bins.min()) / max(1e-6, np.ptp(bins))
     ang = (np.arctan2(yy - cy, xx - cx) + np.pi) / (2 * np.pi) * 719
     streak = 0.15 + 0.85 * bins[ang.astype(np.int32)] ** 1.5
-    src = np.maximum(src, disc ** 0.15 * 0.9) * streak
+    streak = streak * (1 - influence * 0.6) + influence * 0.6
+    # Halo large, qui atteint l'image même avec un soleil hors cadre.
+    dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+    reach = rad * 3 + 0.5 * math.hypot(sw, sh) * length / 100.0
+    glow = np.exp(-dist / max(1.0, reach)) * 0.9
+    src = glow * ((1 - influence * 0.75) + influence * 0.75 * trans)
+    src = np.maximum(src, lit * 0.8 * influence) * streak
     src = np.maximum(src, disc)
     col = np.array([1.0, 0.92 - 0.12 * warmth, 0.8 - 0.35 * warmth],
                    np.float32)
@@ -2034,14 +2156,16 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     steps = 48
     span = length / 100.0 * 0.95
     for i in range(steps):
-        s = 1.0 - span * i / steps
+        s = 1.0 + 2.0 * span * i / steps  # étire depuis le soleil
         mat = np.float32([[s, 0, cx * (1 - s)], [0, s, cy * (1 - s)]])
-        warped = cv2.warpAffine(src, mat, (sw, sh),
+        warped = cv2.warpAffine(src, mat, (cw, ch),
                                 flags=cv2.INTER_LINEAR,
                                 borderMode=cv2.BORDER_CONSTANT)
         acc += warped * (1.0 - i / steps)
     acc /= steps * 0.5
-    acc = cv2.GaussianBlur(acc, (0, 0), 1.5)
+    acc = cv2.GaussianBlur(acc, (0, 0), 1.5)[pt:pt + sh, pl:pl + sw]
+    if far is not None:
+        acc = acc * ((1 - depth) + depth * far)
     rays = cv2.resize(acc, (w, h), interpolation=cv2.INTER_LINEAR)
     layer = np.clip(rays * intensity * 1.6, 0, 1)[..., None] * col
     out = 1 - (1 - img) * (1 - layer)

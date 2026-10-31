@@ -176,13 +176,19 @@ def default_params():
                          "shadows": C.MYSTIQUE_SHADOWS},
             "brume": {"enabled": C.BRUME_ENABLED,
                       "amount": C.BRUME_AMOUNT, "depth": C.BRUME_DEPTH,
-                      "warmth": C.BRUME_WARMTH},
+                      "warmth": C.BRUME_WARMTH,
+                      "precise": C.BRUME_PRECISE,
+                      "clouds": C.BRUME_CLOUDS,
+                      "cloud_size": C.BRUME_CLOUD_SIZE},
             "rayons": {"enabled": C.RAYONS_ENABLED, "x": C.RAYONS_X,
                        "y": C.RAYONS_Y, "length": C.RAYONS_LENGTH,
                        "intensity": C.RAYONS_INTENSITY,
                        "warmth": C.RAYONS_WARMTH,
                        "threshold": C.RAYONS_THRESHOLD,
-                       "sun_size": C.RAYONS_SUN_SIZE},
+                       "sun_size": C.RAYONS_SUN_SIZE,
+                       "influence": C.RAYONS_INFLUENCE,
+                       "depth": C.RAYONS_DEPTH,
+                       "precise": C.RAYONS_PRECISE},
             "grain1": {"enabled": C.RETOUCHE_LOT_GRAIN1_ENABLED,
                       "amount": C.GRAIN_AMOUNT,
                       "size": C.GRAIN_SIZE, "color_ratio": C.GRAIN_COLOR_RATIO,
@@ -468,10 +474,12 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
            ("amount", "radius")),
           ("mystique", image_ops.add_mystical,
            ("amount", "softness", "shadows")),
-          ("brume", image_ops.add_haze, ("amount", "depth", "warmth")),
+          ("brume", image_ops.add_haze,
+           ("amount", "depth", "warmth", "precise", "clouds",
+            "cloud_size")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
-            "sun_size")),
+            "sun_size", "influence", "depth", "precise")),
           ("vignette", image_ops.add_vignette,
            ("amount", "size", "feather", "roundness"))]
     for name, func, keys in fx:
@@ -1660,6 +1668,16 @@ def main(page: ft.Page):
         rows = [_slider_row(flabel, sub, key, lo, hi, step=st,
                             reset=sub[key])
                 for key, flabel, lo, hi, st in field_specs]
+        if "precise" in sub:
+            sw = ft.Switch(label="Précis", value=sub["precise"],
+                           active_color=color)
+
+            def _precise(e, sub=sub, sw=sw):
+                sub["precise"] = sw.value
+                live_preview_tick()
+            sw.on_change = _precise
+            reset_registry.setdefault("precise", []).append((sw, sub))
+            rows.append(sw)
         return _make_section(label, color, icon, sub, rows)
 
     _grain_specs = [
@@ -1703,16 +1721,20 @@ def main(page: ft.Page):
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
             ("amount", "Intensité", 0, 1, 0.01),
             ("depth", "Profondeur", 0, 1, 0.01),
-            ("warmth", "Chaleur", -1, 1, 0.01)])
+            ("warmth", "Chaleur", -1, 1, 0.01),
+            ("clouds", "Nuages", 0, 1, 0.01),
+            ("cloud_size", "Taille des nuages", 5, 100, 1)])
     section_rayons = _grain_section(
         "Rayons de soleil", PINK, ft.Icons.WB_TWILIGHT, ga["rayons"], [
-            ("x", "Position X", 0, 100, 1),
-            ("y", "Position Y", 0, 100, 1),
+            ("x", "Position X", -50, 150, 1),
+            ("y", "Position Y", -50, 150, 1),
             ("length", "Longueur", 0, 100, 1),
             ("intensity", "Intensité", 0, 1, 0.01),
             ("warmth", "Chaleur", 0, 1, 0.01),
             ("threshold", "Seuil", 0, 1, 0.01),
-            ("sun_size", "Taille du soleil", 0, 20, 0.5)])
+            ("sun_size", "Taille du soleil", 0, 20, 0.5),
+            ("influence", "Influence de la photo", 0, 1, 0.01),
+            ("depth", "Derrière le sujet", 0, 1, 0.01)])
     section_vignette = _grain_section(
         "Vignette", BLUE_DARK, ft.Icons.VIGNETTE, ga["vignette"], [
             ("amount", "Intensité", -100, 100, 1),
@@ -1999,6 +2021,9 @@ def main(page: ft.Page):
     def _sync_controls_from_params():
         """Reflète state["params"] (déjà à jour) sur tous les contrôles —
         partagé par Réinitialiser et Charger des réglages."""
+        for sw, dct in reset_registry.get("precise", []):
+            sw.value = dct["precise"]
+            sw.update()
         for switch, dct in reset_registry["switches"]:
             switch.value = dct["enabled"]
             switch.update()

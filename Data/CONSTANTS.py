@@ -1050,8 +1050,11 @@ MYSTIQUE_SOFTNESS = 8
 MYSTIQUE_SHADOWS = 0.3
 BRUME_ENABLED = False
 BRUME_AMOUNT = 0.3
-BRUME_DEPTH = 0.6
+BRUME_DEPTH = 0.8
 BRUME_WARMTH = 0.2
+BRUME_CLOUDS = 0.5  # 0 voile uni · 1 nappes marquées
+BRUME_CLOUD_SIZE = 30
+BRUME_PRECISE = False  # carte de profondeur IA
 RAYONS_ENABLED = False
 RAYONS_X = 75
 RAYONS_Y = 10
@@ -1060,6 +1063,9 @@ RAYONS_INTENSITY = 0.5
 RAYONS_WARMTH = 0.6
 RAYONS_THRESHOLD = 0.8
 RAYONS_SUN_SIZE = 4
+RAYONS_INFLUENCE = 0.5  # la photo module les rayons
+RAYONS_DEPTH = 0.0  # 1 = rayons seulement derrière le sujet
+RAYONS_PRECISE = False
 
 # ── 12.4  Désaturation des extrêmes + boost mi-tons (Retouche photo.pyw) ────
 # Les films argentiques perdent de la saturation dans les ombres très sombres
