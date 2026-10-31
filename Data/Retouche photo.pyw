@@ -189,7 +189,9 @@ def default_params():
                        "influence": C.RAYONS_INFLUENCE,
                        "depth": C.RAYONS_DEPTH,
                        "precise": C.RAYONS_PRECISE,
-                       "rays": C.RAYONS_RAYS},
+                       "rays": C.RAYONS_RAYS,
+                       "count": C.RAYONS_COUNT,
+                       "ray_width": C.RAYONS_WIDTH},
             "grain1": {"enabled": C.RETOUCHE_LOT_GRAIN1_ENABLED,
                       "amount": C.GRAIN_AMOUNT,
                       "size": C.GRAIN_SIZE, "color_ratio": C.GRAIN_COLOR_RATIO,
@@ -480,7 +482,8 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             "cloud_size")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
-            "sun_size", "influence", "depth", "precise", "rays")),
+            "sun_size", "influence", "depth", "precise", "rays",
+            "count", "ray_width")),
           ("vignette", image_ops.add_vignette,
            ("amount", "size", "feather", "roundness"))]
     for name, func, keys in fx:
@@ -680,7 +683,65 @@ def main(page: ft.Page):
     def _armed():
         return pick["mode"] is not None and state["proxy"] is not None
 
+    # « Placer le soleil » : clic ou glisser sur l'aperçu, hors cadre
+    # permis en glissant au-delà des bords de l'image.
+    sun = {"on": False}
+    sun_marker = ft.Container(
+        content=ft.Icon(ft.Icons.WB_SUNNY, color=ORANGE, size=28),
+        width=28, height=28, visible=False)
+
+    def _to_image_frac_raw(x, y):
+        proxy = state["proxy"]
+        w, h = image_display.width, image_display.height
+        scale = min(w / proxy.width, h / proxy.height)
+        fx = (x - (w - proxy.width * scale) / 2) / (proxy.width * scale)
+        fy = (y - (h - proxy.height * scale) / 2) / (proxy.height * scale)
+        return fx, fy
+
+    def _place_marker():
+        r = state["params"]["grain"]["rayons"]
+        proxy = state["proxy"]
+        if proxy is None:
+            return
+        w, h = image_display.width, image_display.height
+        scale = min(w / proxy.width, h / proxy.height)
+        ox = (w - proxy.width * scale) / 2
+        oy = (h - proxy.height * scale) / 2
+        sun_marker.left = ox + r["x"] / 100 * proxy.width * scale - 14
+        sun_marker.top = oy + r["y"] / 100 * proxy.height * scale - 14
+        sun_marker.visible = sun["on"]
+        sun_marker.update()
+
+    def _move_sun(x, y):
+        fx, fy = _to_image_frac_raw(x, y)
+        r = state["params"]["grain"]["rayons"]
+        r["x"] = round(min(150, max(-50, fx * 100)))
+        r["y"] = round(min(150, max(-50, fy * 100)))
+        r["enabled"] = True
+        _place_marker()
+        live_preview_tick()
+
+    def _toggle_sun():
+        if state["proxy"] is None:
+            return
+        sun["on"] = not sun["on"]
+        btn = state["sun_btn"]
+        btn.style.color = ORANGE if sun["on"] else WHITE
+        btn.style.side = ft.BorderSide(1, ORANGE if sun["on"] else GREY)
+        btn.update()
+        preview_tap.mouse_cursor = (ft.MouseCursor.PRECISE if sun["on"]
+                                    else None)
+        preview_viewer.pan_enabled = not sun["on"]
+        preview_tap.update()
+        preview_viewer.update()
+        _place_marker()
+        if not sun["on"]:
+            _sync_controls_from_params()
+
     def _on_preview_pan_down(e):
+        if sun["on"]:
+            _move_sun(e.local_position.x, e.local_position.y)
+            return
         if state.get("tab") == "masks":
             _mask_pan_down(e)
             return
@@ -688,6 +749,9 @@ def main(page: ft.Page):
             pick["start"] = (e.local_position.x, e.local_position.y)
 
     def _on_preview_pan_update(e):
+        if sun["on"]:
+            _move_sun(e.local_position.x, e.local_position.y)
+            return
         if state.get("tab") == "masks":
             _mask_pan_update(e)
             return
@@ -701,6 +765,9 @@ def main(page: ft.Page):
         sel_rect.update()
 
     def _on_preview_pan_end(e):
+        if sun["on"]:
+            _sync_controls_from_params()
+            return
         if state.get("tab") == "masks":
             _mask_pan_end(e)
             return
@@ -717,6 +784,10 @@ def main(page: ft.Page):
 
     def _on_preview_tap(e):
         # Simple clic : petit carré (~3 % du grand côté) autour du point.
+        if sun["on"]:
+            _move_sun(e.local_position.x, e.local_position.y)
+            _sync_controls_from_params()
+            return
         if not _armed():
             return
         fx, fy = _to_image_frac(e.local_position.x, e.local_position.y)
@@ -726,7 +797,7 @@ def main(page: ft.Page):
 
     preview_tap = ft.GestureDetector(
         content=ft.Stack([image_display, original_display, sel_rect,
-                          mask_canvas]),
+                          mask_canvas, sun_marker]),
         on_tap_up=_on_preview_tap, on_pan_down=_on_preview_pan_down,
         on_pan_update=_on_preview_pan_update,
         on_pan_end=_on_preview_pan_end)
@@ -1663,7 +1734,7 @@ def main(page: ft.Page):
     # enterrait plutôt que de les rendre directement accessibles) ───────
     ga = state["params"]["grain"]
 
-    def _grain_section(label, color, icon, sub, field_specs):
+    def _grain_section(label, color, icon, sub, field_specs, extra=()):
         # Curseurs plutôt que champs texte (retour user) ; double-tap
         # ramène au défaut d'origine du paramètre.
         rows = [_slider_row(flabel, sub, key, lo, hi, step=st,
@@ -1679,6 +1750,7 @@ def main(page: ft.Page):
             sw.on_change = _precise
             reset_registry.setdefault("precise", []).append((sw, sub))
             rows.append(sw)
+        rows.extend(extra)
         return _make_section(label, color, icon, sub, rows)
 
     _grain_specs = [
@@ -1725,18 +1797,26 @@ def main(page: ft.Page):
             ("warmth", "Chaleur", -1, 1, 0.01),
             ("clouds", "Nuages", 0, 1, 0.01),
             ("cloud_size", "Taille des nuages", 5, 100, 1)])
+    sun_btn = ft.OutlinedButton(
+        "Placer le soleil", icon=ft.Icons.WB_SUNNY_OUTLINED,
+        on_click=lambda e: _toggle_sun(),
+        style=ft.ButtonStyle(color=WHITE, side=ft.BorderSide(1, GREY)))
+    state["sun_btn"] = sun_btn
     section_rayons = _grain_section(
         "Rayons de soleil", PINK, ft.Icons.WB_TWILIGHT, ga["rayons"], [
             ("x", "Position X", -50, 150, 1),
             ("y", "Position Y", -50, 150, 1),
             ("rays", "Faisceaux", 0, 1, 0.01),
+            ("count", "Nombre de rayons", 3, 120, 1),
+            ("ray_width", "Largeur des rayons", 0.2, 3, 0.05),
             ("length", "Longueur", 0, 100, 1),
             ("intensity", "Intensité", 0, 1, 0.01),
             ("warmth", "Chaleur", 0, 1, 0.01),
             ("threshold", "Seuil", 0, 1, 0.01),
             ("sun_size", "Taille du soleil", 0, 20, 0.5),
             ("influence", "Influence de la photo", 0, 1, 0.01),
-            ("depth", "Derrière le sujet", 0, 1, 0.01)])
+            ("depth", "Derrière le sujet", 0, 1, 0.01)],
+        extra=[sun_btn])
     section_vignette = _grain_section(
         "Vignette", BLUE_DARK, ft.Icons.VIGNETTE, ga["vignette"], [
             ("amount", "Intensité", -100, 100, 1),

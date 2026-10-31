@@ -2157,7 +2157,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
 
 def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
                 sun_size, influence=0.5, depth=0.0, precise=False,
-                rays=1.0):
+                rays=1.0, count=40, ray_width=1.0):
     """Rayons de soleil depuis (x, y) en %, hors cadre permis (-50..150).
     La lumière traverse les zones claires de la photo et bute sur les
     sombres (influence 0-1, feuillages, silhouettes) ; depth 0-1 réserve
@@ -2191,12 +2191,22 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     if far is not None:
         f = cv2.copyMakeBorder(far, pt, pb, pl, pr, cv2.BORDER_REPLICATE)
         trans = trans * ((1 - depth) + depth * f)
+    # Faisceaux : `count` lobes angulaires de largeurs variées (des
+    # larges et des fins), graine fixe pour un motif stable.
     rng = np.random.default_rng(7)
-    bins = cv2.GaussianBlur(rng.random((1, 720)).astype(np.float32),
-                            (0, 0), 2.5).ravel()
-    bins = (bins - bins.min()) / max(1e-6, np.ptp(bins))
-    ang = (np.arctan2(yy - cy, xx - cx) + np.pi) / (2 * np.pi) * 719
-    streak = 0.15 + 0.85 * bins[ang.astype(np.int32)] ** 1.5
+    count = max(1, int(count))
+    nb = 1440
+    theta = np.arange(nb, dtype=np.float32) / nb * 2 * np.pi
+    bins = np.zeros(nb, np.float32)
+    step = 2 * np.pi / count
+    for k in range(count):
+        c = (k + rng.uniform(-0.4, 0.4)) * step
+        sig = step * 0.18 * ray_width * rng.uniform(0.25, 1.8)
+        dd = np.angle(np.exp(1j * (theta - c))).astype(np.float32)
+        bins = np.maximum(bins, rng.uniform(0.45, 1.0)
+                          * np.exp(-dd ** 2 / (2 * sig ** 2)))
+    ang = (np.arctan2(yy - cy, xx - cx) + np.pi) / (2 * np.pi) * (nb - 1)
+    streak = 0.12 + 0.88 * bins[ang.astype(np.int32)]
     streak = streak * (1 - influence * 0.6) + influence * 0.6
     streak = (1 - rays) + rays * streak  # 0 = atmosphère sans faisceaux
     # Halo large, qui atteint l'image même avec un soleil hors cadre.
