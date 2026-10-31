@@ -70,7 +70,18 @@ COURSES = {"Drone": (
         "Uniquement le consensus scientifique actuel (OMS, études "
         "solides), chiffres concrets, ton bienveillant, sans "
         "culpabiliser ni faire peur, pas de conseil médical "
-        "personnalisé.")}
+        "personnalisé."),
+    # Retour user : enrichir son vocabulaire, trouver le mot.
+    "Langue française": (
+        "Vocabulaire avant tout : surtout des questions « quel mot "
+        "correspond à cette définition ? » ou « que veut dire ce mot ? », "
+        "avec des mots beaux, rares ou utiles à placer, variés d'une "
+        "série à l'autre, les mauvaises réponses étant des mots réels "
+        "proches. Aussi : "
+        "origine des mots et expressions, sens exact de mots souvent "
+        "mal employés, orthographe et accords piégeux, synonymes et "
+        "antonymes, belgicismes. Dans l'explication, donne l'étymologie "
+        "et un exemple de phrase.")}
 LEVELS = ["Facile", "Accessible", "Moyen", "Corsé", "Difficile",
           "Expert", "Très expert", "Érudit", "Maître", "Légende"]
 _lock = threading.Lock()
@@ -172,10 +183,18 @@ def _parse(rule, avoid, theme, level, kind):
     if avoid:
         rule += " Questions déjà posées, à ne pas refaire : " + " | ".join(
             avoid[-150:])
-    text = hub_sync.ask_claude(rule)
-    start = text.find("[")
-    items = (json.JSONDecoder().raw_decode(text[start:])[0]
-             if start >= 0 else [])
+    rule += (" Dans les textes, utilise les guillemets « », jamais de "
+             "guillemets droits.")
+    for attempt in range(2):  # JSON parfois cassé : un second essai
+        text = hub_sync.ask_claude(rule)
+        start = text.find("[")
+        try:
+            items = (json.JSONDecoder().raw_decode(text[start:])[0]
+                     if start >= 0 else [])
+            break
+        except json.JSONDecodeError:
+            if attempt:
+                raise
     out = []
     for item in items:
         if kind == "vf":
