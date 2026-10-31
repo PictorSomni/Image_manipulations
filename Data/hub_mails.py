@@ -286,10 +286,14 @@ def build(ui):
                       ("tâche", ui.VIOLET), ("liste", ui.PINK),
                       ("agenda", ui.YELLOW_GREEN), ("rappel", ui.ORANGE)]
 
-    def _card(title, color, controls):
+    def _card(title, color, controls, action=None):
+        head = ft.Text(title, color=color, size=CONSTANTS.TEXT_LG,
+                       weight=ft.FontWeight.W_500)
+        if action:
+            head = ft.Row([head, action],
+                          alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
         return ft.Container(
-            ft.Column([ft.Text(title, color=color, size=CONSTANTS.TEXT_LG,
-                               weight=ft.FontWeight.W_500)] + controls,
+            ft.Column([head] + controls,
                       spacing=6, tight=True),
             bgcolor=ft.Colors.with_opacity(0.12, color),
             border=ft.Border(left=ft.BorderSide(4, color)),
@@ -430,14 +434,13 @@ def build(ui):
             _answered(m)
             _bg(lambda: hub_sync.mail("done", id=m["message_id"]),
                 lambda out: None)
-        new_btn = ft.Row([ft.IconButton(
-            ft.Icons.ADD, icon_color=BLUE, tooltip="Nouveau mail",
-            on_click=lambda e: new_mail())],
-            alignment=ft.MainAxisAlignment.END)
+        new_btn = ft.IconButton(
+            ft.Icons.OUTGOING_MAIL, icon_color=BLUE, tooltip="Nouveau mail",
+            on_click=lambda e: new_mail())
         if not mails:
-            cards.append(_card("Mails", BLUE, [new_btn]))
+            cards.append(_card("Mails", BLUE, [], new_btn))
         if mails:
-            cards.append(_card(f"Mails · {len(mails)}", BLUE, [new_btn] + [
+            cards.append(_card(f"Mails · {len(mails)}", BLUE, [
                 ft.ListTile(
                     leading=ft.Icon(ft.Icons.MAIL_OUTLINE, color=BLUE),
                     title=ft.Text(m.get("name") or m["from"], color=WHITE),
@@ -453,7 +456,7 @@ def build(ui):
                             on_click=lambda e, m=m: _dismiss(m))],
                         tight=True, spacing=0),
                     on_click=lambda e, m=m: open_reply(m, _answered))
-                for m in mails]))
+                for m in mails], new_btn))
         if b.get("quiz"):
             cards.append(_quiz_card(b["quiz"]))
         for title, body in _sections(b["text"]):
