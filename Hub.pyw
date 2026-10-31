@@ -4119,7 +4119,11 @@ def main(page: ft.Page):
         # visionneuse remise au-dessus, l'image reste visible à côté.
         if not (viewer_state["split"] and viewer_overlay in page.overlay):
             return
-        dlg.alignment = ft.Alignment.CENTER_LEFT
+        # Centré dans la moitié gauche (marge droite = largeur de la
+        # visionneuse) et sans voile sombre, qui assombrissait l'image.
+        dlg.alignment = ft.Alignment.CENTER
+        dlg.inset_padding = ft.Padding(20, 40, 20 + _viewer_width(), 40)
+        dlg.barrier_color = ft.Colors.TRANSPARENT
         page.overlay.remove(viewer_overlay)
         page.overlay.append(viewer_overlay)
         page.update()
