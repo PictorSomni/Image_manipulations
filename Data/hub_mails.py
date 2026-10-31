@@ -571,13 +571,29 @@ def build(ui):
 
     def new_mail(to_addr=""):
         """Mail écrit de zéro (ou depuis une tâche), avec pièces jointes."""
+        o = {"tu": False, "tone": TONES[0][0]}
         to = _field(label="À", value=to_addr, autofocus=not to_addr)
         subject = _field(label="Objet", autofocus=bool(to_addr))
+        hint = _field(hint_text="Consignes", multiline=True, min_lines=1,
+                      max_lines=3)
         text = _field(label="Message", multiline=True, min_lines=10,
                       max_lines=16, value="Bonjour,\n\n")
         status = ft.Text("", size=13, color=WHITE)
         names = ft.Text("", size=13, color=LIGHT_GREY)
         joined = []
+
+        def _draft(e):
+            status.value = "Rédaction…"
+            page.update()
+            _bg(lambda: hub_sync.mail(
+                "compose", to=to.value, subject=subject.value, tu=o["tu"],
+                tone=o["tone"], hint=hint.value or ""), _drafted)
+
+        def _drafted(out):
+            if isinstance(out, Exception):
+                status.value = f"Erreur : {out}"
+            else:
+                status.value, text.value = "", out
 
         async def _join(e):
             picked = await ft.FilePicker().pick_files(
@@ -611,9 +627,18 @@ def build(ui):
 
         dlg = _dialog(
             title=ft.Text("Nouveau mail"),
-            content=ft.Column([to, subject, text, names, status],
-                              tight=True, spacing=8, width=600),
-            actions=[_dlg_btn("Joindre", "cancel", on_click=_join),
+            content=ft.Column([
+                to, subject,
+                _seg([(False, "Vous"), (True, "Tu")],
+                     lambda v: o.update(tu=v)),
+                _seg(TONES, lambda v: o.update(tone=v)),
+                hint, text, names, status],
+                tight=True, spacing=8, width=600,
+                scroll=ft.ScrollMode.AUTO),
+            actions=[_dlg_btn("Joindre", color=CONSTANTS.COLOR_MINT,
+                              on_click=_join),
+                     _dlg_btn("Rédiger", color=ui.VIOLET,
+                              on_click=_draft),
                      _dlg_btn("Annuler", "cancel",
                               on_click=lambda e: _close(dlg)),
                      _dlg_btn("Envoyer", "primary", on_click=_send)])

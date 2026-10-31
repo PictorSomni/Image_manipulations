@@ -107,6 +107,19 @@ def draft(mid, tu, tone, hint):
         f"De : {m['from']}\nSujet : {m['subject']}\n\n{m['body']}", rule))
 
 
+def compose(to, subject, tu, tone, hint):
+    """Mail écrit de zéro : rédigé d'après les consignes de Charles."""
+    rule = (f"Rédige un mail du Studio C, magasin photo à Leuze (studio, "
+            f"tirages, encadrement), à {to or 'un client'}"
+            + (f", objet « {subject} »" if subject else "")
+            + f". {'Tutoie' if tu else 'Vouvoie'} la personne, ton {tone}. "
+            f"Commence par « Bonjour, ». Termine exactement par « Belle "
+            f"journée, » puis « Studio C » à la ligne. "
+            "Rends uniquement le corps du mail.")
+    return hub_sync.ask_claude(hub_sync.claude_prompt(
+        f"Consignes de Charles : {hint or subject}", rule))
+
+
 def _password():
     pw = subprocess.run(["pass", "show", "mail/studiocleuze"],
                         capture_output=True, text=True,
@@ -192,6 +205,10 @@ def call(req):
         return reply(req["id"], req["text"], req.get("files") or ())
     if a == "done":
         return _mark_done(req["id"])
+    if a == "compose":
+        return compose(req.get("to", ""), req.get("subject", ""),
+                       req.get("tu"), req.get("tone", "professionnel"),
+                       req.get("hint", ""))
     if a == "new":  # mail écrit de zéro
         return send(req["to"].strip(), req["subject"].strip() or "Studio C",
                     req["text"], files=req.get("files") or ())

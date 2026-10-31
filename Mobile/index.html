@@ -519,6 +519,23 @@ function newMail(addr) {
     value: typeof addr === "string" ? addr : ""});
   const subj = h("input", {placeholder: "Objet"});
   const t = h("textarea", {rows: 11}, "Bonjour,\n\n");
+  const o = {tu: false, tone: "professionnel et chaleureux"};
+  const choice = (key, opts) => {
+    const draw = () => seg(opts, o[key], v => {
+      o[key] = v; el.replaceWith(el = draw()); }, true);
+    let el = draw();
+    return el;
+  };
+  const hint = h("textarea", {rows: 2, placeholder: "Consignes"});
+  const gen = h("button", {class: "btn out", onclick: async () => {
+    gen.disabled = true; t.value = "Rédaction…";
+    try {
+      t.value = (await api("/api/mail", {action: "compose", to: to.value,
+        subject: subj.value, tu: o.tu, tone: o.tone,
+        hint: hint.value.trim()})).ok;
+    } catch (e) { t.value = "Erreur : " + e.message; }
+    gen.disabled = false;
+  }}, ic("edit_note"), " Rédiger");
   const names = h("div", {class: "muted"});
   const pick = h("input", {type: "file", multiple: true,
     style: {display: "none"}, onchange: () => names.textContent =
@@ -539,7 +556,13 @@ function newMail(addr) {
     } catch (e) { send.disabled = false; send.textContent = "Erreur : " +
       e.message; }
   }}, ic("send"), " Envoyer");
-  openSheet([h("b", {}, "Nouveau mail"), to, subj, t, names,
+  openSheet([h("b", {}, "Nouveau mail"), to, subj,
+    h("div", {class: "label"}, "Adresse"),
+    choice("tu", [[false, "Vous"], [true, "Tu"]]),
+    h("div", {class: "label"}, "Ton"),
+    choice("tone", [["professionnel et chaleureux", "Chaleureux"],
+      ["professionnel et sobre", "Sobre"], ["très bref", "Bref"]]),
+    hint, h("div", {class: "row"}, gen), t, names,
     h("div", {class: "row"}, join, send), pick], true);
 }
 
