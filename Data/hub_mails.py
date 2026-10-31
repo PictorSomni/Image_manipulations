@@ -435,7 +435,14 @@ def build(ui):
             _bg(lambda: hub_sync.mail("done", id=m["message_id"]),
                 lambda out: None)
         new_btn = ft.IconButton(
-            ft.Icons.OUTGOING_MAIL, icon_color=BLUE, tooltip="Nouveau mail",
+            ft.Stack([
+                ft.Icon(ft.Icons.MAIL_OUTLINE, color=BLUE, size=26),
+                ft.Container(
+                    ft.Icon(ft.Icons.ADD, color=DARK, size=13),
+                    bgcolor=BLUE, border_radius=9, width=15, height=15,
+                    alignment=ft.Alignment.CENTER, right=0, bottom=0)],
+                width=30, height=30),
+            tooltip="Nouveau mail",
             on_click=lambda e: new_mail())
         if not mails:
             cards.append(_card("Mails", BLUE, [], new_btn))
