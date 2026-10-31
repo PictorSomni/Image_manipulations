@@ -327,7 +327,7 @@ def pool_loop():
                             key, [])
                         have += new
                         _write(state)
-                    time.sleep(5)
+                    time.sleep(180)  # laisse la place au Hub
         _pool_wake.wait(3600)
         _pool_wake.clear()
 
