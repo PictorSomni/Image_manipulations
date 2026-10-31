@@ -32,7 +32,7 @@ THEMES = ["Tout mélangé", "Histoire", "Géographie", "Sciences",
           "Art et peinture", "Littérature", "Musique", "Cinéma",
           "Culture pop",
           "Langue française", "Mythologie", "Cuisine", "Sport",
-          "Belgique", "Photographie", "Drone", "Santé"]
+          "Photographie", "Drone", "Santé"]
 # Thèmes « cours » : fiche de référence jointe à la demande (retour user :
 # réviser le certificat drone A1/A3 belge). Source : DGTA/EASA, 2026.
 COURSES = {"Drone": (
@@ -294,13 +294,13 @@ def end_game(name):
     return summary()
 
 
-POOL_LOW = 40        # en dessous : on régénère
-POOL_HIGH = 100      # taille visée de la réserve par catégorie
+POOL_LOW = 15        # en dessous : on régénère
+POOL_HIGH = 30       # taille visée de la réserve par catégorie
 _pool_wake = threading.Event()
 
 
 def pool_loop():
-    """Garde ~100 questions d'avance par thème et par type."""
+    """Garde ~30 questions d'avance par thème et par type."""
     while True:
         for kind in ("qcm", "vf"):
             for theme in THEMES:
