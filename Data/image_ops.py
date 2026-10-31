@@ -2103,6 +2103,18 @@ def _cloud_noise(h, w, size, seed=11):
     return cv2.resize(n, (w, h), interpolation=cv2.INTER_CUBIC)
 
 
+_noise_cache = {}
+
+
+def _cloud_noise_cached(h, w, size, seed):
+    key = (h, w, round(size, 1), seed)
+    if key not in _noise_cache:
+        if len(_noise_cache) > 24:
+            _noise_cache.pop(next(iter(_noise_cache)))
+        _noise_cache[key] = _cloud_noise(h, w, size, seed)
+    return _noise_cache[key]
+
+
 def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
@@ -2118,23 +2130,28 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     d = min(1.0, depth)
     m = (1 - d) + d * far ** expo
     a = np.clip(amount * m, 0, 0.95)[..., None]
-    layer = np.broadcast_to(color, img.shape)
-    if clouds > 0:
-        # Texture nuageuse : volutes éclairées par le haut (bords clairs,
-        # creux gris-bleu), la brume a du relief au lieu d'un aplat.
-        h, w = img.shape[:2]
-        n = _cloud_noise(h, w, cloud_size)
-        n = np.clip((n - 0.2) * 1.4, 0, 1) ** 1.3
-        shift = max(1, int(cloud_size / 100.0 * min(h, w) * 0.08))
-        up = np.vstack([np.repeat(n[:1], shift, axis=0), n[:-shift]])
-        lit = np.clip((n - up) * 4, -1, 1)
-        shade = np.array([0.88, 0.90, 0.95], np.float32) * color
-        tex = shade + (color * 1.08 - shade) * n[..., None]
-        tex = tex + 0.04 * lit[..., None]
-        layer = color + clouds * (tex - color)
-        a = a * ((1 - clouds * 0.5) + clouds * 0.5 * n[..., None] * 1.6)
-        a = np.clip(a, 0, 0.95)
-    out = img * (1 - a) + layer * a
+    if clouds <= 0:
+        return _to_pil(img * (1 - a) + color * a)
+    # Couches successives de nappes translucides, du fond vers l'avant :
+    # chaque couche est posée à une distance et ne voile que ce qui est
+    # derrière elle ; les lointaines sont plus fines et plus serrées
+    # (perspective), les proches plus amples.
+    h, w = img.shape[:2]
+    out = img * (1 - a * (1 - 0.6 * clouds)) \
+        + color * a * (1 - 0.6 * clouds)
+    fd = far ** expo
+    layers = 6
+    shade = np.array([0.84, 0.87, 0.93], np.float32) * color
+    for i in reversed(range(layers)):
+        t = (i + 0.5) / layers
+        vis = np.clip((fd - t * 0.9) * layers + 0.5, 0, 1)
+        vis = (1 - d) + d * vis
+        n = _cloud_noise_cached(h, w, cloud_size * (1.3 - 0.8 * t),
+                                11 + i)
+        n = np.clip((n - 0.35) * 1.8, 0, 1) ** 1.6
+        col = shade + (color * 1.06 - shade) * n[..., None]
+        al = np.clip(amount * clouds * 0.45 * n * vis, 0, 0.9)[..., None]
+        out = out * (1 - al) + col * al
     return _to_pil(out)
 
 
