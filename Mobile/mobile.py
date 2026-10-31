@@ -740,7 +740,8 @@ def _password_ok(typed, secret):
 # ── Serveur ───────────────────────────────────────────────────────────
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = {"/": ("index.html", "text/html; charset=utf-8"),
-          "/manifest.json": ("manifest.json", "application/manifest+json")}
+          "/manifest.json": ("manifest.json", "application/manifest+json"),
+          "/mail.js": ("mail.js", "text/javascript; charset=utf-8")}
 MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
         ".webp": "image/webp"}
 COOKIE = "hub_token"

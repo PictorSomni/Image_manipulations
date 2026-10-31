@@ -14,6 +14,7 @@
 <title>Hub</title>
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="/mail.js"></script>
 <style>
 /* Couleurs de Hub (CONSTANTS.COLOR_*) */
 :root {
@@ -457,113 +458,17 @@ function mailFiles(id) {
 }
 
 function replyMail(m) {
-  const o = {tu: false, tone: "professionnel et chaleureux"};
-  const choice = (key, opts) => {  // seg qui se redessine au choix
-    const draw = () => seg(opts, o[key], v => {
-      o[key] = v; el.replaceWith(el = draw()); }, true);
-    let el = draw();
-    return el;
-  };
-  const hint = h("textarea", {rows: 2, placeholder: "Consignes"});
-  const text = h("textarea", {rows: 10, placeholder: "Réponse"});
-  const send = h("button", {class: "btn", onclick: async () => {
-    if (!text.value.trim() || !confirm(`Envoyer à ${m.from} ?`)) return;
-    send.disabled = true; send.textContent = "Envoi…";
-    try {
-      const files = await Promise.all([...pick.files].map(f =>
-        new Promise(ok => { const r = new FileReader();
-          r.onload = () => ok({name: f.name,
-            data: r.result.split(",")[1]});
-          r.readAsDataURL(f); })));
-      await api("/api/mail", {action: "reply", id: m.message_id,
-        text: text.value, files});
-      S.briefing.mails = S.briefing.mails.filter(x => x !== m);
-      closeSheet(); S.status = "Mail envoyé"; render();
-    } catch (e) { send.disabled = false; send.textContent = "Envoyer";
-      alert("Erreur : " + e.message); }
-  }}, ic("send"), " Envoyer");
-  const names = h("div", {class: "muted"});
-  const pick = h("input", {type: "file", multiple: true,
-    style: {display: "none"}, onchange: () => names.textContent =
-      [...pick.files].map(f => f.name).join(", ")});
-  const join = h("button", {class: "btn out", onclick: () => pick.click()},
-    ic("attach_file"), " Joindre");
-  const gen = h("button", {class: "btn out", onclick: async () => {
-    gen.disabled = true; text.value = "Rédaction…";
-    try {
-      text.value = (await api("/api/mail", {action: "draft", id: m.message_id,
-        tu: o.tu, tone: o.tone, hint: hint.value.trim()})).ok;
-    } catch (e) { text.value = "Erreur : " + e.message; }
-    gen.disabled = false;
-  }}, ic("edit_note"), " Rédiger");
   const ignore = h("button", {class: "btn out", onclick: async () => {
     S.briefing.mails = S.briefing.mails.filter(x => x !== m);
     closeSheet(); render();
     await api("/api/mail", {action: "done", id: m.message_id});
   }}, ic("done"), " Ignorer");
-  openSheet([h("b", {}, m.subject || "(sans sujet)"),
-    h("div", {class: "muted"}, m.from), md(m.body || ""),
-    m.files_id ? mailFiles(m.files_id) : null,
-    h("div", {class: "label"}, "Adresse"),
-    choice("tu", [[false, "Vous"], [true, "Tu"]]),
-    h("div", {class: "label"}, "Ton"),
-    choice("tone", [["professionnel et chaleureux", "Chaleureux"],
-      ["professionnel et sobre", "Sobre"], ["très bref", "Bref"]]),
-    hint, h("div", {class: "row"}, gen), text,
-    names, h("div", {class: "row"}, send, join, ignore), pick], true);
+  mailSheet({reply: m, extra: [ignore], onSent: () => {
+    S.briefing.mails = S.briefing.mails.filter(x => x !== m); }});
 }
 
-// Mail écrit de zéro, envoyé depuis l'adresse du studio.
 function newMail(addr) {
-  const to = h("input", {type: "email", placeholder: "À",
-    value: typeof addr === "string" ? addr : ""});
-  const subj = h("input", {placeholder: "Objet"});
-  const t = h("textarea", {rows: 11}, "Bonjour,\n\n");
-  const o = {tu: false, tone: "professionnel et chaleureux"};
-  const choice = (key, opts) => {
-    const draw = () => seg(opts, o[key], v => {
-      o[key] = v; el.replaceWith(el = draw()); }, true);
-    let el = draw();
-    return el;
-  };
-  const hint = h("textarea", {rows: 2, placeholder: "Consignes"});
-  const gen = h("button", {class: "btn out", onclick: async () => {
-    gen.disabled = true; t.value = "Rédaction…";
-    try {
-      t.value = (await api("/api/mail", {action: "compose", to: to.value,
-        subject: subj.value, tu: o.tu, tone: o.tone,
-        hint: hint.value.trim()})).ok;
-    } catch (e) { t.value = "Erreur : " + e.message; }
-    gen.disabled = false;
-  }}, ic("edit_note"), " Rédiger");
-  const names = h("div", {class: "muted"});
-  const pick = h("input", {type: "file", multiple: true,
-    style: {display: "none"}, onchange: () => names.textContent =
-      [...pick.files].map(f => f.name).join(", ")});
-  const join = h("button", {class: "btn out", onclick: () => pick.click()},
-    ic("attach_file"), " Joindre");
-  const send = h("button", {class: "btn", onclick: async () => {
-    send.disabled = true; send.textContent = "Envoi…";
-    try {
-      const files = await Promise.all([...pick.files].map(f =>
-        new Promise(ok => { const r = new FileReader();
-          r.onload = () => ok({name: f.name,
-            data: r.result.split(",")[1]});
-          r.readAsDataURL(f); })));
-      await api("/api/mail", {action: "new", to: to.value,
-        subject: subj.value, text: t.value, files});
-      closeSheet(); S.status = "Mail envoyé";
-    } catch (e) { send.disabled = false; send.textContent = "Erreur : " +
-      e.message; }
-  }}, ic("send"), " Envoyer");
-  openSheet([h("b", {}, "Nouveau mail"), to, subj,
-    h("div", {class: "label"}, "Adresse"),
-    choice("tu", [[false, "Vous"], [true, "Tu"]]),
-    h("div", {class: "label"}, "Ton"),
-    choice("tone", [["professionnel et chaleureux", "Chaleureux"],
-      ["professionnel et sobre", "Sobre"], ["très bref", "Bref"]]),
-    hint, h("div", {class: "row"}, gen), t, names,
-    h("div", {class: "row"}, join, send), pick], true);
+  mailSheet({to: typeof addr === "string" ? addr : ""});
 }
 
 // Client prévenu : mail envoyé directement depuis le studio, ou SMS.
@@ -576,27 +481,9 @@ function notifyClient(row) {
     "venir la chercher au magasin." : "Bonjour,\n\nVotre commande est " +
     "prête, vous pouvez venir la chercher au magasin.") + prix +
     "\n\nA bientôt,\nStudio C";
-  const t = h("textarea", {rows: 11}, text(false));
-  const send = h("button", {onclick: async () => {
-    send.disabled = true; send.textContent = "Envoi…";
-    try {
-      await api("/api/mail", {action: "notify", to: mail, text: t.value});
-      closeSheet(); S.status = "Client prévenu par mail";
-      setProps(row, {"Prévenir ?": "Prévenu"});
-    } catch (e) { send.disabled = false; send.textContent = "Erreur : " +
-      e.message; }
-  }}, ic("send"), " Envoyer le mail");
-  let tu = false;
-  const choice = () => seg([[false, "Vous"], [true, "Tu"]], tu, v => {
-    tu = v; t.value = text(v); sw.replaceWith(sw = choice()); }, true);
-  let sw = choice();
-  openSheet([h("b", {}, "Prévenir le client"), sw, t,
-    h("div", {class: "row"}, mail ? send : null,
-      phone ? h("button", {class: "btn out", onclick: () => {
-        location.href = `sms:${tel(phone)}&body=` +
-          encodeURIComponent(t.value); closeSheet();
-        setProps(row, {"Prévenir ?": "Prévenu"}); }},
-        ic("sms"), " SMS") : null)], true);
+  mailSheet({to: mail, phone, subject: "Votre commande est prête",
+    text: text(false), textTu: text(true),
+    onSent: () => setProps(row, {"Prévenir ?": "Prévenu"})});
 }
 
 async function deleteTask(row) {
@@ -739,13 +626,11 @@ function taskDetails(row) {
     h("div", {class: "row"}, h("button", {class: "btn out red",
       onclick: () => deleteTask(row)}, "Supprimer"),
       h("span", {style: {marginLeft: "auto"}}), callBtn(row),
-      row["E-mail"] ? h("button", {class: "btn",
+      row["E-mail"] || row["Téléphone"] ? h("button", {class: "btn",
         style: {background: C.yellow, color: "#222429"},
-        onclick: () => newMail(row["E-mail"])},
-        ic("mail"), " Mail") : row["Téléphone"] ? h("button", {
-        class: "btn", style: {background: C.yellow, color: "#222429"},
-        onclick: () => notifyClient(row)},
-        ic("mark_email_read"), " Prévenir") : null)]);
+        onclick: () => mailSheet({to: row["E-mail"] || "",
+          phone: row["Téléphone"]})},
+        ic("mail"), " Mail") : null)]);
 }
 
 // ── Agenda ───────────────────────────────────────────────────────────

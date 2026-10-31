@@ -3,7 +3,6 @@
 Tout passe par le Pi (hub_sync.mail → Data/mail_reply.py) ; rien n'est
 envoyé sans clic sur « Envoyer ».
 """
-import base64
 import datetime
 import os
 import re
@@ -15,16 +14,14 @@ import flet as ft
 
 import CONSTANTS
 import hub_sync
+import mail_compose
 import thumb_cache
-import ui_helpers
 
 # Le message de Charles, mot pour mot (+ le prix s'il est connu).
 READY = ("Bonjour,\n\nVotre commande est prête, vous pouvez venir la "
          "chercher au magasin.{prix}\n\nA bientôt,\nStudio C")
 READY_TU = ("Bonjour,\n\nTa commande est prête, tu peux venir la "
             "chercher au magasin.{prix}\n\nA bientôt,\nStudio C")
-TONES = [("professionnel et chaleureux", "Chaleureux"),
-         ("professionnel et sobre", "Sobre"), ("très bref", "Bref")]
 
 
 def build(ui):
@@ -71,6 +68,8 @@ def build(ui):
     def _field(**kw):
         return ft.TextField(width=560, bgcolor=DARK, color=WHITE,
                             border=CONSTANTS.input_border(GREY), **kw)
+
+    open_mail = mail_compose.build(ui, _bg, _show, _close, _seg, _field)
 
     VIEWER_EXTS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp",
                    ".tif", ".tiff", ".pdf")
@@ -172,71 +171,12 @@ def build(ui):
             "Enregistrer", icon=ft.Icons.DOWNLOAD, on_click=_save),
             open_btn], spacing=6), status], spacing=4, tight=True)
 
-    # ── Réponse à un mail ────────────────────────────────────────────────
+    # ── Réponse à un mail (fenêtre commune : mail_compose) ───────────────
     def open_reply(m, on_done=None):
-        o = {"tu": False, "tone": TONES[0][0]}
-        hint = _field(hint_text="Consignes", multiline=True, min_lines=1,
-                      max_lines=3)
-        text = _field(hint_text="Réponse", multiline=True, min_lines=8,
-                      max_lines=16)
-        status = ft.Text("", size=11, color=LIGHT_GREY)
-        veil = ui_helpers.busy_veil("", ui.VIOLET)
-
-        def _busy(msg=None):
-            veil.content.controls[1].value = msg or ""
-            ui_helpers.set_busy_veil(veil, bool(msg))
-            page.update()
-        joined = []
-        names = ft.Text("", size=11, color=LIGHT_GREY)
-
-        async def _join(e):
-            picked = await ft.FilePicker().pick_files(
-                dialog_title="Joindre des fichiers", allow_multiple=True,
-                initial_directory=ui.state["folder"] or None)
-            joined.extend(f.path for f in picked or [] if f.path)
-            names.value = ", ".join(os.path.basename(p) for p in joined)
-            page.update()
-
-        def _files():
-            out = []
-            for p in joined:
-                with open(p, "rb") as f:
-                    out.append({"name": os.path.basename(p), "data":
-                                base64.b64encode(f.read()).decode()})
-            return out
-
-        def _draft(e):
-            _busy("Rédaction…")
-            _bg(lambda: hub_sync.mail("draft", id=m["message_id"],
-                                      tu=o["tu"], tone=o["tone"],
-                                      hint=hint.value or ""), _drafted)
-
-        def _drafted(out):
-            _busy()
-            if isinstance(out, Exception):
-                status.value = f"Erreur : {out}"
-            else:
-                status.value, text.value = "", out
-
-        def _send(e):
-            if not (text.value or "").strip():
-                return
-            _busy("Envoi en cours…")
-            _bg(lambda: hub_sync.mail("reply", id=m["message_id"],
-                                      text=text.value, files=_files()),
-                _sent)
-
-        def _sent(out):
-            _busy()
-            if isinstance(out, Exception):
-                status.value = f"Erreur : {out}"
-                return
-            _close(dlg)
-            if on_done:
-                on_done(m)
+        box = {}
 
         def _to_task(e):
-            _close(dlg)
+            _close(box["dlg"])
             sender = m.get("from", "")
             mail = re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", sender)
             name = sender.split("<")[0].strip().strip('"')
@@ -249,35 +189,15 @@ def build(ui):
                 "telephone": tel.group(0) if tel else "",
                 "notes": body})
 
-        dlg = _dialog(
-            title=ft.Row([
-                ft.Text(m.get("subject") or "(sans sujet)", expand=True),
-                ft.IconButton(ft.Icons.CLOSE, icon_color=LIGHT_GREY,
-                              tooltip="Fermer",
-                              on_click=lambda e: _close(dlg))]),
-            content=ft.Stack([ft.Column([
-                ft.Text(m.get("from", ""), size=11, color=LIGHT_GREY),
-                ft.Text(m.get("body", ""), color=WHITE, selectable=True),
-                *([_mail_files(m)] if m.get("files_id")
-                  else []),
-                ft.Divider(height=1, color=GREY),
-                _seg([(False, "Vous"), (True, "Tu")],
-                     lambda v: o.update(tu=v)),
-                _seg(TONES, lambda v: o.update(tone=v)),
-                hint, text, names, status,
-            ], tight=True, spacing=8, scroll=ft.ScrollMode.AUTO, width=600,
-               height=max(300, min(680, (page.height or 900) - 220))),
-                veil]),
-            actions=[*([_dlg_btn("Tâche", color=ui.ORANGE,
-                                 on_click=_to_task)]
-                       if "new_task" in hooks else []),
-                     _dlg_btn("Joindre", color=CONSTANTS.COLOR_MINT,
-                              on_click=_join),
-                     _dlg_btn("Rédiger", color=ui.VIOLET,
-                              on_click=_draft),
-                     _dlg_btn("Envoyer", "primary", on_click=_send)],
-            inset_padding=ft.Padding(20, 40, 20, 40))
-        _show(dlg)
+        box["dlg"] = open_mail(
+            reply=m,
+            header=[ft.Text(m.get("body", ""), color=WHITE,
+                            selectable=True),
+                    *([_mail_files(m)] if m.get("files_id") else [])],
+            extra_actions=[_dlg_btn("Tâche", color=ui.ORANGE,
+                                    on_click=_to_task)]
+            if "new_task" in hooks else [],
+            on_sent=(lambda: on_done(m)) if on_done else None)
 
     # ── Briefing du matin : onglet de Hub, une carte par section ─────────
     accent = ui.SURFACE_ACCENT["briefing"]
@@ -537,119 +457,15 @@ def build(ui):
         mail = (row.get("email") or "").strip()
         if not mail:
             return
-
-        def _text(tu):
-            p = row.get("prix")
-            prix = ("\nCela fera " + f"{p:g}".replace(".", ",") + " €."
-                    if isinstance(p, (int, float)) and p else "")
-            return (READY_TU if tu else READY).format(prix=prix)
-        text = _field(value=_text(False), multiline=True, min_lines=10,
-                      max_lines=16)
-        status = ft.Text("", size=11, color=LIGHT_GREY)
-
-        def _tu(v):
-            text.value = _text(v)
-            text.update()
-
-        def _send(e):
-            status.value = "Envoi…"
-            page.update()
-            _bg(lambda: hub_sync.mail("notify", to=mail, text=text.value),
-                _sent)
-
-        def _sent(out):
-            if isinstance(out, Exception):
-                status.value = f"Erreur : {out}"
-                return
-            _close(dlg)
-            if on_sent:
-                on_sent()
-
-        dlg = _dialog(
-            title=ft.Text("Prévenir le client"),
-            content=ft.Column([ft.Text(mail, size=11, color=LIGHT_GREY),
-                               _seg([(False, "Vous"), (True, "Tu")], _tu),
-                               text, status], tight=True, spacing=8,
-                              width=600),
-            actions=[_dlg_btn("Plus tard", "cancel",
-                              on_click=lambda e: _close(dlg)),
-                     _dlg_btn("Envoyer", "primary", on_click=_send)])
-        _show(dlg)
+        p = row.get("prix")
+        prix = ("\nCela fera " + f"{p:g}".replace(".", ",") + " €."
+                if isinstance(p, (int, float)) and p else "")
+        open_mail(to=mail, subject="Votre commande est prête",
+                  text=READY.format(prix=prix),
+                  text_tu=READY_TU.format(prix=prix), on_sent=on_sent)
 
     def new_mail(to_addr=""):
-        """Mail écrit de zéro (ou depuis une tâche), avec pièces jointes."""
-        o = {"tu": False, "tone": TONES[0][0]}
-        to = _field(label="À", value=to_addr, autofocus=not to_addr)
-        subject = _field(label="Objet", autofocus=bool(to_addr))
-        hint = _field(hint_text="Consignes", multiline=True, min_lines=1,
-                      max_lines=3)
-        text = _field(label="Message", multiline=True, min_lines=10,
-                      max_lines=16, value="Bonjour,\n\n")
-        status = ft.Text("", size=13, color=WHITE)
-        names = ft.Text("", size=13, color=LIGHT_GREY)
-        joined = []
-
-        def _draft(e):
-            status.value = "Rédaction…"
-            page.update()
-            _bg(lambda: hub_sync.mail(
-                "compose", to=to.value, subject=subject.value, tu=o["tu"],
-                tone=o["tone"], hint=hint.value or ""), _drafted)
-
-        def _drafted(out):
-            if isinstance(out, Exception):
-                status.value = f"Erreur : {out}"
-            else:
-                status.value, text.value = "", out
-
-        async def _join(e):
-            picked = await ft.FilePicker().pick_files(
-                dialog_title="Joindre des fichiers", allow_multiple=True,
-                initial_directory=ui.state["folder"] or None)
-            joined.extend(f.path for f in picked or [] if f.path)
-            names.value = ", ".join(os.path.basename(p) for p in joined)
-            page.update()
-
-        def _files():
-            out = []
-            for p in joined:
-                with open(p, "rb") as f:
-                    out.append({"name": os.path.basename(p), "data":
-                                base64.b64encode(f.read()).decode()})
-            return out
-
-        def _send(e):
-            status.value = "Envoi…"
-            page.update()
-            _bg(lambda: hub_sync.mail("new", to=to.value,
-                                      subject=subject.value,
-                                      text=text.value, files=_files()),
-                _sent)
-
-        def _sent(out):
-            if isinstance(out, Exception):
-                status.value = f"Erreur : {out}"
-                return
-            _close(dlg)
-
-        dlg = _dialog(
-            title=ft.Text("Nouveau mail"),
-            content=ft.Column([
-                to, subject,
-                _seg([(False, "Vous"), (True, "Tu")],
-                     lambda v: o.update(tu=v)),
-                _seg(TONES, lambda v: o.update(tone=v)),
-                hint, text, names, status],
-                tight=True, spacing=8, width=600,
-                scroll=ft.ScrollMode.AUTO),
-            actions=[_dlg_btn("Joindre", color=CONSTANTS.COLOR_MINT,
-                              on_click=_join),
-                     _dlg_btn("Rédiger", color=ui.VIOLET,
-                              on_click=_draft),
-                     _dlg_btn("Annuler", "cancel",
-                              on_click=lambda e: _close(dlg)),
-                     _dlg_btn("Envoyer", "primary", on_click=_send)])
-        _show(dlg)
+        open_mail(to=to_addr)
 
     hooks.update({"notify_client": notify_client,
                   "new_mail": new_mail,
