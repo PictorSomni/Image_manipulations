@@ -2059,25 +2059,48 @@ def depth_map(img, precise=False):
     return cache[key]
 
 
-def _cloud_noise(h, w, size, seed=11):
-    """Bruit fractal doux 0..1 (nappes de brume), graine fixe : même
-    motif à chaque rendu. size : % de la petite dimension."""
-    rng = np.random.default_rng(seed)
+def _fbm(h, w, base, rng, octaves=6, stretch=3.0):
+    """Bruit fractal étiré horizontalement (nappes couchées)."""
     out = np.zeros((h, w), np.float32)
-    base = max(2.0, size / 100.0 * min(h, w))
     total = 0.0
-    for octave in range(5):
+    for octave in range(octaves):
         cell = base / (2 ** octave)
         gh = max(2, int(h / cell) + 2)
-        gw = max(2, int(w / cell) + 2)
+        gw = max(2, int(w / (cell * stretch)) + 2)
         grid = rng.random((gh, gw)).astype(np.float32)
         layer = cv2.resize(grid, (w, h), interpolation=cv2.INTER_CUBIC)
-        weight = 0.5 ** octave
+        weight = 0.55 ** octave
         out += layer * weight
         total += weight
-    out = cv2.GaussianBlur(out / total, (0, 0), max(1.0, base / 12))
-    out = (out - out.min()) / max(1e-6, float(np.ptp(out)))
-    return out
+    return out / total
+
+
+def _cloud_noise(h, w, size, seed=11):
+    """Brume effilochée 0..1, graine fixe (même motif à chaque rendu) :
+    bruit fractal couché, déformé par un second bruit (volutes), puis
+    « crêtes » fines pour les filaments. size : % de la petite dim."""
+    rng = np.random.default_rng(seed)
+    base = max(2.0, size / 100.0 * min(h, w))
+    # Calcul en basse résolution (rapide), agrandi à la fin.
+    k = min(1.0, 700.0 / max(h, w))
+    sh, sw = max(8, int(h * k)), max(8, int(w * k))
+    b = base * k
+    wx = (_fbm(sh, sw, b, rng, 4) - 0.5) * b * 1.2
+    wy = (_fbm(sh, sw, b, rng, 4) - 0.5) * b * 0.5
+    n = _fbm(sh, sw, b, rng, 6)
+    yy, xx = np.mgrid[0:sh, 0:sw].astype(np.float32)
+    n = cv2.remap(n, xx + wx, yy + wy, cv2.INTER_LINEAR,
+                  borderMode=cv2.BORDER_REFLECT)
+    ridge = 1.0 - np.abs(n - 0.5) * 2.0  # filaments
+    ridge = cv2.GaussianBlur(ridge ** 2, (0, 0), max(1.0, b * 0.04),
+                             sigmaY=max(0.5, b * 0.015))
+    n = 0.75 * n + 0.25 * ridge
+    # Flou couché : traînées horizontales douces, pas de bords nets.
+    n = cv2.GaussianBlur(n, (0, 0), max(1.0, b * 0.08),
+                         sigmaY=max(0.5, b * 0.025))
+    lo, hi = np.percentile(n, (2, 98))
+    n = np.clip((n - lo) / max(1e-6, hi - lo), 0, 1)
+    return cv2.resize(n, (w, h), interpolation=cv2.INTER_CUBIC)
 
 
 def add_haze(pil_img, amount, depth, warmth, precise=False,
@@ -2090,7 +2113,10 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
                       0.86 - 0.08 * warmth], np.float32)
     far = depth_map(img, precise)
-    m = (1 - depth) + depth * far ** 1.3
+    # depth > 1 : sépare encore plus nettement fond et sujet.
+    expo = 1.3 + max(0.0, depth - 1.0) * 3.0
+    d = min(1.0, depth)
+    m = (1 - d) + d * far ** expo
     a = np.clip(amount * m, 0, 0.95)[..., None]
     layer = np.broadcast_to(color, img.shape)
     if clouds > 0:
@@ -2098,13 +2124,13 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         # creux gris-bleu), la brume a du relief au lieu d'un aplat.
         h, w = img.shape[:2]
         n = _cloud_noise(h, w, cloud_size)
-        n = np.clip((n - 0.25) * 1.6, 0, 1)
+        n = np.clip((n - 0.2) * 1.4, 0, 1) ** 1.3
         shift = max(1, int(cloud_size / 100.0 * min(h, w) * 0.08))
         up = np.vstack([np.repeat(n[:1], shift, axis=0), n[:-shift]])
         lit = np.clip((n - up) * 4, -1, 1)
-        shade = np.array([0.80, 0.83, 0.90], np.float32) * color
+        shade = np.array([0.88, 0.90, 0.95], np.float32) * color
         tex = shade + (color * 1.08 - shade) * n[..., None]
-        tex = tex + 0.12 * lit[..., None]
+        tex = tex + 0.04 * lit[..., None]
         layer = color + clouds * (tex - color)
         a = a * ((1 - clouds * 0.5) + clouds * 0.5 * n[..., None] * 1.6)
         a = np.clip(a, 0, 0.95)

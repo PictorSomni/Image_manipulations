@@ -1721,7 +1721,7 @@ def main(page: ft.Page):
     section_brume = _grain_section(
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
             ("amount", "Intensité", 0, 1, 0.01),
-            ("depth", "Profondeur", 0, 1, 0.01),
+            ("depth", "Profondeur", 0, 2, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
             ("clouds", "Nuages", 0, 1, 0.01),
             ("cloud_size", "Taille des nuages", 5, 100, 1)])
