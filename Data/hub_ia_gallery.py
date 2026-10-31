@@ -445,7 +445,8 @@ def build(ui):
         return spans
 
     claude_progress = ft.ProgressBar(color=GREEN, visible=False)
-    claude_status = ft.Text("", size=CONSTANTS.TEXT_SM, color=CONSTANTS.COLOR_LIGHT_GREY,
+    claude_status = ft.Text("", size=CONSTANTS.TEXT_SM,
+                            color=CONSTANTS.COLOR_LIGHT_GREY,
                             weight=ft.FontWeight.W_600)
 
     def _claude_ask(text, mode="free"):
