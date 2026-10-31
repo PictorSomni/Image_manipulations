@@ -162,6 +162,27 @@ def default_params():
                         "red_shift": C.HALATION_RED_SHIFT},
             "bloom": {"enabled": C.BLOOM_ENABLED, "radius": C.BLOOM_RADIUS,
                      "intensity": C.BLOOM_INTENSITY},
+            "structure": {"enabled": C.STRUCTURE_ENABLED,
+                          "amount": C.STRUCTURE_AMOUNT,
+                          "radius": C.STRUCTURE_RADIUS},
+            "vignette": {"enabled": C.VIGNETTE_ENABLED,
+                         "amount": C.VIGNETTE_AMOUNT,
+                         "size": C.VIGNETTE_SIZE,
+                         "feather": C.VIGNETTE_FEATHER,
+                         "roundness": C.VIGNETTE_ROUNDNESS},
+            "mystique": {"enabled": C.MYSTIQUE_ENABLED,
+                         "amount": C.MYSTIQUE_AMOUNT,
+                         "softness": C.MYSTIQUE_SOFTNESS,
+                         "shadows": C.MYSTIQUE_SHADOWS},
+            "brume": {"enabled": C.BRUME_ENABLED,
+                      "amount": C.BRUME_AMOUNT, "depth": C.BRUME_DEPTH,
+                      "warmth": C.BRUME_WARMTH},
+            "rayons": {"enabled": C.RAYONS_ENABLED, "x": C.RAYONS_X,
+                       "y": C.RAYONS_Y, "length": C.RAYONS_LENGTH,
+                       "intensity": C.RAYONS_INTENSITY,
+                       "warmth": C.RAYONS_WARMTH,
+                       "threshold": C.RAYONS_THRESHOLD,
+                       "sun_size": C.RAYONS_SUN_SIZE},
             "grain1": {"enabled": C.RETOUCHE_LOT_GRAIN1_ENABLED,
                       "amount": C.GRAIN_AMOUNT,
                       "size": C.GRAIN_SIZE, "color_ratio": C.GRAIN_COLOR_RATIO,
@@ -443,6 +464,20 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
     if g["bloom"]["enabled"]:
         a = g["bloom"]
         result = image_ops.add_bloom(result, a["radius"], a["intensity"])
+    fx = [("structure", image_ops.add_structure,
+           ("amount", "radius")),
+          ("mystique", image_ops.add_mystical,
+           ("amount", "softness", "shadows")),
+          ("brume", image_ops.add_haze, ("amount", "depth", "warmth")),
+          ("rayons", image_ops.add_sunrays,
+           ("x", "y", "length", "intensity", "warmth", "threshold",
+            "sun_size")),
+          ("vignette", image_ops.add_vignette,
+           ("amount", "size", "feather", "roundness"))]
+    for name, func, keys in fx:
+        a = g.get(name)
+        if a and a.get("enabled"):
+            result = func(result, *(a[k] for k in keys))
     if g["grain1"]["enabled"]:
         a = g["grain1"]
         result = image_ops.add_film_grain(
@@ -1655,6 +1690,35 @@ def main(page: ft.Page):
         "Bloom (Soft Light)", BLUE_DARK, ft.Icons.WB_SUNNY, ga["bloom"], [
             ("radius", "Rayon", 0, 50, 1),
             ("intensity", "Intensité", 0, 1, 0.01)])
+    section_structure = _grain_section(
+        "Structure", MINT, ft.Icons.DETAILS, ga["structure"], [
+            ("amount", "Intensité", -100, 100, 1),
+            ("radius", "Rayon", 0.2, 5, 0.1)])
+    section_mystique = _grain_section(
+        "Mystique", VIOLET, ft.Icons.AUTO_AWESOME, ga["mystique"], [
+            ("amount", "Intensité", 0, 1, 0.01),
+            ("softness", "Douceur", 1, 30, 0.5),
+            ("shadows", "Ombres", 0, 1, 0.01)])
+    section_brume = _grain_section(
+        "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
+            ("amount", "Intensité", 0, 1, 0.01),
+            ("depth", "Profondeur", 0, 1, 0.01),
+            ("warmth", "Chaleur", -1, 1, 0.01)])
+    section_rayons = _grain_section(
+        "Rayons de soleil", PINK, ft.Icons.WB_TWILIGHT, ga["rayons"], [
+            ("x", "Position X", 0, 100, 1),
+            ("y", "Position Y", 0, 100, 1),
+            ("length", "Longueur", 0, 100, 1),
+            ("intensity", "Intensité", 0, 1, 0.01),
+            ("warmth", "Chaleur", 0, 1, 0.01),
+            ("threshold", "Seuil", 0, 1, 0.01),
+            ("sun_size", "Taille du soleil", 0, 20, 0.5)])
+    section_vignette = _grain_section(
+        "Vignette", BLUE_DARK, ft.Icons.VIGNETTE, ga["vignette"], [
+            ("amount", "Intensité", -100, 100, 1),
+            ("size", "Taille", 0, 100, 1),
+            ("feather", "Douceur", 0, 100, 1),
+            ("roundness", "Rondeur", 0, 100, 1)])
     section_grain1 = _grain_section(
         "Grain — Couche 1", VIOLET, ft.Icons.GRAIN, ga["grain1"],
         _grain_specs)
@@ -2193,6 +2257,9 @@ def main(page: ft.Page):
         _group("Base", [section_couleur]),
         _group("Couleur créative", [section_virage, section_lut]),
         _group("Détail", [section_nettete, section_denoise]),
+        _group("Ambiance",
+               [section_structure, section_mystique, section_brume,
+                section_rayons, section_vignette]),
         _group("Effets pellicule",
                [section_grain1, section_grain2, section_halation,
                 section_bloom, section_ca, section_desat]),

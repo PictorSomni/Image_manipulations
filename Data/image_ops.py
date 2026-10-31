@@ -1903,6 +1903,151 @@ def add_bloom(
     return Image.fromarray((np.clip(result, 0.0, 1.0) * 255).astype(np.uint8))
 
 
+# ── Effets « Luminar » : Structure, Vignette, Mystique, Brume, Rayons ────
+def _blur_pct(arr, radius_pct):
+    """Flou gaussien d'un rayon en % de la petite dimension, calculé en
+    basse résolution au-delà de ~20 px de sigma (comme add_bloom)."""
+    h, w = arr.shape[:2]
+    sigma = max(0.5, radius_pct / 100.0 * min(h, w))
+    scale = min(1.0, 20.0 / sigma)
+    if scale >= 1.0:
+        return cv2.GaussianBlur(arr, (0, 0), sigma)
+    sh, sw = max(1, int(h * scale)), max(1, int(w * scale))
+    small = cv2.resize(arr, (sw, sh), interpolation=cv2.INTER_AREA)
+    small = cv2.GaussianBlur(small, (0, 0), sigma * scale)
+    return cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+
+
+def _luma(img):
+    return 0.299 * img[..., 0] + 0.587 * img[..., 1] + 0.114 * img[..., 2]
+
+
+def _to_pil(img):
+    return Image.fromarray((np.clip(img, 0.0, 1.0) * 255 + 0.5)
+                           .astype(np.uint8))
+
+
+def add_structure(pil_img, amount, radius):
+    """Micro-contraste local sur la luminance, ménageant ombres et hautes
+    lumières (pas d'effet HDR). amount : -100..100 ; radius : % (0.2-5)."""
+    img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
+    luma = _luma(img)
+    detail = luma - _blur_pct(luma, radius)
+    mid = 1.0 - np.abs(luma * 2.0 - 1.0) ** 2  # mi-tons favorisés
+    gain = amount / 100.0 * 1.6
+    out = img + (gain * detail * mid)[..., None]
+    return _to_pil(out)
+
+
+def add_vignette(pil_img, amount, size, feather, roundness=50.0):
+    """Assombrit (amount < 0) ou éclaircit (> 0) les bords. size : % de la
+    zone épargnée ; feather : douceur 0-100 ; roundness : 0 = suit le
+    cadre, 100 = cercle."""
+    img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
+    h, w = img.shape[:2]
+    ys, xs = np.ogrid[-1:1:complex(0, h), -1:1:complex(0, w)]
+    r = roundness / 100.0
+    big = max(h, w)
+    ax = (1 - r) + r * w / big
+    ay = (1 - r) + r * h / big
+    d = np.sqrt((xs * ax) ** 2 + (ys * ay) ** 2) / math.sqrt(2)
+    inner = size / 100.0
+    soft = max(0.02, feather / 100.0)
+    m = np.clip((d - inner * (1 - soft)) / max(1e-3, 1 - inner * (1 - soft)),
+                0.0, 1.0)
+    m = m * m * (3 - 2 * m)
+    a = amount / 100.0
+    if a < 0:
+        out = img * (1.0 + a * m)[..., None]
+    else:
+        out = img + (1.0 - img) * (a * m)[..., None]
+    return _to_pil(out)
+
+
+def add_mystical(pil_img, amount, softness, shadows):
+    """Lueur rêveuse type « Mystical » : copie floutée en Soft Light +
+    Screen (éclat doux, détails gardés), ombres approfondies et
+    saturation légère. amount 0-1, softness % (1-30), shadows 0-1."""
+    img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
+    blur = _blur_pct(img, softness)
+    soft = np.where(blur <= 0.5,
+                    img - (1 - 2 * blur) * img * (1 - img),
+                    img + (2 * blur - 1) * (np.sqrt(img) - img))
+    screen = 1 - (1 - img) * (1 - blur * 0.6)
+    dreamy = soft * 0.6 + screen * 0.4
+    luma = _luma(img)[..., None]
+    dreamy = dreamy * (1 - shadows * 0.5 * (1 - luma) ** 2)
+    g = _luma(dreamy)[..., None]
+    dreamy = g + (dreamy - g) * (1 + 0.25 * amount)
+    out = img + (dreamy - img) * amount
+    return _to_pil(out)
+
+
+def add_haze(pil_img, amount, depth, warmth):
+    """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
+    plus dense en haut de l'image selon depth (0 uniforme, 1 = surtout le
+    haut), contraste et noirs relevés. warmth -1 froid .. 1 chaud."""
+    img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
+    h, w = img.shape[:2]
+    color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
+                      0.86 - 0.08 * warmth], np.float32)
+    ramp = np.linspace(1.0, 0.0, h, dtype=np.float32)[:, None]
+    m = (1 - depth) + depth * ramp ** 1.5
+    # Les zones claires (ciel) prennent plus de brume, comme au loin.
+    m = m * (0.6 + 0.4 * _luma(_blur_pct(img, 3)))
+    a = np.clip(amount * m, 0, 0.95)[..., None]
+    out = img * (1 - a) + color * a
+    return _to_pil(out)
+
+
+def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
+                sun_size):
+    """Rayons de soleil : lumières de la photo (au-dessus du seuil) et
+    disque solaire en (x, y) % étirés radialement depuis la source, puis
+    ajoutés en Screen. length 0-100, intensity 0-1, warmth 0-1,
+    threshold 0-1, sun_size % de la petite dimension."""
+    img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
+    h, w = img.shape[:2]
+    scale = min(1.0, 640.0 / max(h, w))
+    sw, sh = max(1, int(w * scale)), max(1, int(h * scale))
+    small = cv2.resize(img, (sw, sh), interpolation=cv2.INTER_AREA)
+    cx, cy = x / 100.0 * sw, y / 100.0 * sh
+    luma = _luma(small)
+    src = np.clip((luma - threshold) / max(1e-3, 1 - threshold), 0, 1)
+    yy, xx = np.mgrid[0:sh, 0:sw].astype(np.float32)
+    rad = max(1.0, sun_size / 100.0 * min(sw, sh))
+    disc = np.exp(-(((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * rad ** 2)))
+    src = np.maximum(src * 0.8, disc)
+    # Stries angulaires fixes (graine constante) : de vrais faisceaux
+    # plutôt qu'un simple halo, même sans trouée de lumière dans la photo.
+    rng = np.random.default_rng(7)
+    bins = cv2.GaussianBlur(rng.random((1, 720)).astype(np.float32),
+                            (0, 0), 2.5).ravel()
+    bins = (bins - bins.min()) / max(1e-6, np.ptp(bins))
+    ang = (np.arctan2(yy - cy, xx - cx) + np.pi) / (2 * np.pi) * 719
+    streak = 0.15 + 0.85 * bins[ang.astype(np.int32)] ** 1.5
+    src = np.maximum(src, disc ** 0.15 * 0.9) * streak
+    src = np.maximum(src, disc)
+    col = np.array([1.0, 0.92 - 0.12 * warmth, 0.8 - 0.35 * warmth],
+                   np.float32)
+    acc = np.zeros_like(src)
+    steps = 48
+    span = length / 100.0 * 0.95
+    for i in range(steps):
+        s = 1.0 - span * i / steps
+        mat = np.float32([[s, 0, cx * (1 - s)], [0, s, cy * (1 - s)]])
+        warped = cv2.warpAffine(src, mat, (sw, sh),
+                                flags=cv2.INTER_LINEAR,
+                                borderMode=cv2.BORDER_CONSTANT)
+        acc += warped * (1.0 - i / steps)
+    acc /= steps * 0.5
+    acc = cv2.GaussianBlur(acc, (0, 0), 1.5)
+    rays = cv2.resize(acc, (w, h), interpolation=cv2.INTER_LINEAR)
+    layer = np.clip(rays * intensity * 1.6, 0, 1)[..., None] * col
+    out = 1 - (1 - img) * (1 - layer)
+    return _to_pil(out)
+
+
 def get_date_taken(image):
     """Retourne la date de prise de vue depuis les EXIF, ou None. Reprise
     fidèle de Copyright.py."""

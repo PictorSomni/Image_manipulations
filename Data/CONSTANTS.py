@@ -1035,6 +1035,32 @@ BLOOM_ENABLED    = False
 BLOOM_RADIUS     = 16
 BLOOM_INTENSITY  = 0.64
 
+# Effets « Luminar » : Structure, Vignette, Mystique, Brume, Rayons
+STRUCTURE_ENABLED = False
+STRUCTURE_AMOUNT = 30  # -100..100
+STRUCTURE_RADIUS = 1.0  # % de la petite dimension
+VIGNETTE_ENABLED = False
+VIGNETTE_AMOUNT = -40  # < 0 assombrit, > 0 éclaircit
+VIGNETTE_SIZE = 50
+VIGNETTE_FEATHER = 60
+VIGNETTE_ROUNDNESS = 50
+MYSTIQUE_ENABLED = False
+MYSTIQUE_AMOUNT = 0.5
+MYSTIQUE_SOFTNESS = 8
+MYSTIQUE_SHADOWS = 0.3
+BRUME_ENABLED = False
+BRUME_AMOUNT = 0.3
+BRUME_DEPTH = 0.6
+BRUME_WARMTH = 0.2
+RAYONS_ENABLED = False
+RAYONS_X = 75
+RAYONS_Y = 10
+RAYONS_LENGTH = 60
+RAYONS_INTENSITY = 0.5
+RAYONS_WARMTH = 0.6
+RAYONS_THRESHOLD = 0.8
+RAYONS_SUN_SIZE = 4
+
 # ── 12.4  Désaturation des extrêmes + boost mi-tons (Retouche photo.pyw) ────
 # Les films argentiques perdent de la saturation dans les ombres très sombres
 # et dans les hautes lumières très claires (compression des couleurs aux extrêmes).
