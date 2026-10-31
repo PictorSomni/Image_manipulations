@@ -221,23 +221,6 @@ def _parse(rule, avoid, theme, level, kind):
     return out
 
 
-def _prepare(key, theme, level, n, kind):
-    """Génère en fond le lot suivant pour ces réglages."""
-    try:
-        with _lock:
-            state = _read()
-            avoid = [q for p in state["profiles"].values()
-                     for q in p["seen"]]
-        out = [q for q in _ask(theme, level, n, avoid, kind)
-               if q["q"] not in avoid]
-        with _lock:
-            state = _read()
-            state.setdefault("next", {})[key] = out
-            _write(state)
-    except Exception as exc:
-        print(f"[Lot suivant] {exc}", flush=True)
-
-
 def questions(name, theme, level, n=10, kind="qcm"):
     level = int(level)  # -1 : aléatoire
     if level != -1:
@@ -249,17 +232,22 @@ def questions(name, theme, level, n=10, kind="qcm"):
         # Thème choisi : seulement ses propres révisions (retour user).
         due = [r for r in prof["review"] if r["due"] <= _today() and (
             theme == THEMES[0] or r["q"].get("pick") == theme)]
-    key = f"{theme}|{level}|{kind}|{n}"
-    with _lock:  # lot préparé d'avance (retour user) : départ immédiat
+    with _lock:  # pioche dans la réserve générée d'avance (retour user)
         state = _read()
-        out = [q for q in state.setdefault("next", {}).pop(key, [])
-               if q["q"] not in avoid]
+        pool = state.setdefault("pool", {}).setdefault(
+            f"{theme}|{kind}", [])
+        ok = [q for q in pool if q["q"] not in avoid and (
+            level == -1 or abs(q.get("level", 0) - level) <= 1)]
+        random.shuffle(ok)
+        out = ok[:n]
+        taken = {q["q"] for q in out} | set(avoid)
+        pool[:] = [q for q in pool if q["q"] not in taken]
         _write(state)
-    if not out:
-        out = [q for q in _ask(theme, level, n, avoid, kind)
-               if q["q"] not in avoid]
-    threading.Thread(target=_prepare, args=(key, theme, level, n, kind),
-                     daemon=True).start()
+    if len(out) < n:  # réserve trop maigre : complément à la demande
+        out += [q for q in _ask(theme, level, n - len(out),
+                                avoid + [q["q"] for q in out], kind)
+                if q["q"] not in avoid][:n - len(out)]
+    _pool_wake.set()
     with _lock:  # vues dès l'envoi : le lot suivant ne les reprend pas
         state = _read()
         prof = _profile(state, name)
@@ -304,6 +292,44 @@ def end_game(name):
         _profile(state, name)["games"] += 1
         _write(state)
     return summary()
+
+
+POOL_LOW = 40        # en dessous : on régénère
+POOL_HIGH = 100      # taille visée de la réserve par catégorie
+_pool_wake = threading.Event()
+
+
+def pool_loop():
+    """Garde ~100 questions d'avance par thème et par type."""
+    while True:
+        for kind in ("qcm", "vf"):
+            for theme in THEMES:
+                key = f"{theme}|{kind}"
+                with _lock:
+                    state = _read()
+                    have = state.get("pool", {}).get(key, [])
+                    if len(have) >= POOL_LOW:
+                        continue
+                    avoid = [q for p in state["profiles"].values()
+                             for q in p["seen"]] + [q["q"] for q in have]
+                while len(have) < POOL_HIGH:
+                    try:
+                        new = _ask(theme, -1, 10, avoid, kind)
+                    except Exception:
+                        break
+                    new = [q for q in new if q["q"] not in avoid]
+                    if not new:
+                        break
+                    avoid += [q["q"] for q in new]
+                    with _lock:
+                        state = _read()
+                        have = state.setdefault("pool", {}).setdefault(
+                            key, [])
+                        have += new
+                        _write(state)
+                    time.sleep(5)
+        _pool_wake.wait(3600)
+        _pool_wake.clear()
 
 
 def daily_loop():
@@ -387,4 +413,5 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     threading.Thread(target=daily_loop, daemon=True).start()
+    threading.Thread(target=pool_loop, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
