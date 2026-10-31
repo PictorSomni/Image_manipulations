@@ -39,6 +39,13 @@ try:
 except ImportError:
     _PILImage = None
 
+try:
+    import io
+    from PIL import ImageOps as _PILImageOps
+    import image_ops
+except ImportError:
+    image_ops = None
+
 # ─────────────────────────────────────────────────────────────────────────────
 #  CONSTANTES
 # ─────────────────────────────────────────────────────────────────────────────
@@ -142,6 +149,25 @@ def _find_resume_index(pairs_list: list, base_dir: Path) -> int:
             return pair_index
 
     return len(pairs_list)  # Toutes les paires ont déjà été traitées
+
+
+def _display_src(file_path: Path):
+    """Image corrigée pour l'écran (profil ICC -> sRGB + compensation
+    écran, comme la visionneuse du Hub), sinon le chemin brut."""
+    if image_ops is None or _PILImage is None:
+        return str(file_path)
+    try:
+        with _PILImage.open(file_path) as img:
+            icc = img.info.get("icc_profile")
+            img = _PILImageOps.exif_transpose(img)
+            if icc or img.mode == "CMYK":
+                img = image_ops.convert_to_srgb(img, icc)
+            out = image_ops.compensate_for_display(img)
+            buf = io.BytesIO()
+            out.convert("RGB").save(buf, "JPEG", quality=92)
+            return buf.getvalue()
+    except Exception:
+        return str(file_path)
 
 
 def _get_image_size(file_path: Path) -> str:
@@ -373,8 +399,8 @@ def main(page: ft.Page):
         viewer_state.scale    = 1.0
         viewer_state.offset_x = 0.0
         viewer_state.offset_y = 0.0
-        image_left.src  = str(file1)
-        image_right.src = str(file2)
+        image_left.src  = _display_src(file1)
+        image_right.src = _display_src(file2)
         cont_left.scale  = ft.Scale(1.0)
         cont_left.offset = ft.Offset(0, 0)
         cont_right.scale  = ft.Scale(1.0)
