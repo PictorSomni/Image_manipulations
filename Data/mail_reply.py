@@ -192,6 +192,9 @@ def call(req):
         return reply(req["id"], req["text"], req.get("files") or ())
     if a == "done":
         return _mark_done(req["id"])
+    if a == "new":  # mail écrit de zéro
+        return send(req["to"].strip(), req["subject"].strip() or "Studio C",
+                    req["text"])
     if a == "notify":
         return send(req["to"], "Votre commande est prête", req["text"])
     raise ValueError(f"action inconnue : {a}")

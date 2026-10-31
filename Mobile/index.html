@@ -513,6 +513,24 @@ function replyMail(m) {
     names, h("div", {class: "row"}, send, join, ignore), pick], true);
 }
 
+// Mail écrit de zéro, envoyé depuis l'adresse du studio.
+function newMail() {
+  const to = h("input", {type: "email", placeholder: "À"});
+  const subj = h("input", {placeholder: "Objet"});
+  const t = h("textarea", {rows: 11}, "Bonjour,\n\n");
+  const send = h("button", {onclick: async () => {
+    send.disabled = true; send.textContent = "Envoi…";
+    try {
+      await api("/api/mail", {action: "new", to: to.value,
+        subject: subj.value, text: t.value});
+      closeSheet(); S.status = "Mail envoyé";
+    } catch (e) { send.disabled = false; send.textContent = "Erreur : " +
+      e.message; }
+  }}, ic("send"), " Envoyer");
+  openSheet([h("b", {}, "Nouveau mail"), to, subj, t,
+    h("div", {class: "row"}, send)], true);
+}
+
 // Client prévenu : mail envoyé directement depuis le studio, ou SMS.
 function notifyClient(row) {
   const phone = row["Téléphone"], mail = row["E-mail"];
@@ -1197,8 +1215,8 @@ function viewHome() {
       ` ${w.wind} km/h`))));
   // Mails qui attendent une réponse : rédaction à la demande, envoi validé.
   const mails = (S.briefing && S.briefing.mails) || [];
-  if (mails.length) out.push(glass(`Mails · ${mails.length}`,
-    null, null, ...mails.map(m => h("div", {class: "slot",
+  out.push(glass(mails.length ? `Mails · ${mails.length}` : "Mails",
+    "+ Nouveau", newMail, ...mails.map(m => h("div", {class: "slot",
       onclick: () => replyMail(m)},
       h("i", {class: "bar2", style: {background: C.blue}}),
       h("div", {class: "tx"}, m.name || m.from,

@@ -430,8 +430,14 @@ def build(ui):
             _answered(m)
             _bg(lambda: hub_sync.mail("done", id=m["message_id"]),
                 lambda out: None)
+        new_btn = ft.Row([ft.IconButton(
+            ft.Icons.ADD, icon_color=BLUE, tooltip="Nouveau mail",
+            on_click=lambda e: new_mail())],
+            alignment=ft.MainAxisAlignment.END)
+        if not mails:
+            cards.append(_card("Mails", BLUE, [new_btn]))
         if mails:
-            cards.append(_card(f"Mails · {len(mails)}", BLUE, [
+            cards.append(_card(f"Mails · {len(mails)}", BLUE, [new_btn] + [
                 ft.ListTile(
                     leading=ft.Icon(ft.Icons.MAIL_OUTLINE, color=BLUE),
                     title=ft.Text(m.get("name") or m["from"], color=WHITE),
@@ -560,7 +566,38 @@ def build(ui):
                      _dlg_btn("Envoyer", "primary", on_click=_send)])
         _show(dlg)
 
+    def new_mail():
+        """Mail écrit de zéro, envoyé depuis l'adresse du studio."""
+        to = _field(label="À", autofocus=True)
+        subject = _field(label="Objet")
+        text = _field(label="Message", multiline=True, min_lines=10,
+                      max_lines=16, value="Bonjour,\n\n")
+        status = ft.Text("", size=13, color=WHITE)
+
+        def _send(e):
+            status.value = "Envoi…"
+            page.update()
+            _bg(lambda: hub_sync.mail("new", to=to.value,
+                                      subject=subject.value,
+                                      text=text.value), _sent)
+
+        def _sent(out):
+            if isinstance(out, Exception):
+                status.value = f"Erreur : {out}"
+                return
+            _close(dlg)
+
+        dlg = _dialog(
+            title=ft.Text("Nouveau mail"),
+            content=ft.Column([to, subject, text, status], tight=True,
+                              spacing=8, width=600),
+            actions=[_dlg_btn("Annuler", "cancel",
+                              on_click=lambda e: _close(dlg)),
+                     _dlg_btn("Envoyer", "primary", on_click=_send)])
+        _show(dlg)
+
     hooks.update({"notify_client": notify_client,
+                  "new_mail": new_mail,
                   "briefing_surface": briefing_surface,
                   "briefing_refresh": briefing_refresh})
     return hooks
