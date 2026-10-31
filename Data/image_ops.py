@@ -2091,18 +2091,30 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
                       0.86 - 0.08 * warmth], np.float32)
     far = depth_map(img, precise)
     m = (1 - depth) + depth * far ** 1.3
+    a = np.clip(amount * m, 0, 0.95)[..., None]
+    layer = np.broadcast_to(color, img.shape)
     if clouds > 0:
+        # Texture nuageuse : volutes éclairées par le haut (bords clairs,
+        # creux gris-bleu), la brume a du relief au lieu d'un aplat.
         h, w = img.shape[:2]
         n = _cloud_noise(h, w, cloud_size)
-        n = np.clip((n - 0.3) * 1.8, 0, 1) ** 1.2
-        m = m * ((1 - clouds) + clouds * n * 1.6)
-    a = np.clip(amount * m, 0, 0.95)[..., None]
-    out = img * (1 - a) + color * a
+        n = np.clip((n - 0.25) * 1.6, 0, 1)
+        shift = max(1, int(cloud_size / 100.0 * min(h, w) * 0.08))
+        up = np.vstack([np.repeat(n[:1], shift, axis=0), n[:-shift]])
+        lit = np.clip((n - up) * 4, -1, 1)
+        shade = np.array([0.80, 0.83, 0.90], np.float32) * color
+        tex = shade + (color * 1.08 - shade) * n[..., None]
+        tex = tex + 0.12 * lit[..., None]
+        layer = color + clouds * (tex - color)
+        a = a * ((1 - clouds * 0.5) + clouds * 0.5 * n[..., None] * 1.6)
+        a = np.clip(a, 0, 0.95)
+    out = img * (1 - a) + layer * a
     return _to_pil(out)
 
 
 def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
-                sun_size, influence=0.5, depth=0.0, precise=False):
+                sun_size, influence=0.5, depth=0.0, precise=False,
+                rays=1.0):
     """Rayons de soleil depuis (x, y) en %, hors cadre permis (-50..150).
     La lumière traverse les zones claires de la photo et bute sur les
     sombres (influence 0-1, feuillages, silhouettes) ; depth 0-1 réserve
@@ -2143,6 +2155,7 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     ang = (np.arctan2(yy - cy, xx - cx) + np.pi) / (2 * np.pi) * 719
     streak = 0.15 + 0.85 * bins[ang.astype(np.int32)] ** 1.5
     streak = streak * (1 - influence * 0.6) + influence * 0.6
+    streak = (1 - rays) + rays * streak  # 0 = atmosphère sans faisceaux
     # Halo large, qui atteint l'image même avec un soleil hors cadre.
     dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
     reach = rad * 3 + 0.5 * math.hypot(sw, sh) * length / 100.0

@@ -188,7 +188,8 @@ def default_params():
                        "sun_size": C.RAYONS_SUN_SIZE,
                        "influence": C.RAYONS_INFLUENCE,
                        "depth": C.RAYONS_DEPTH,
-                       "precise": C.RAYONS_PRECISE},
+                       "precise": C.RAYONS_PRECISE,
+                       "rays": C.RAYONS_RAYS},
             "grain1": {"enabled": C.RETOUCHE_LOT_GRAIN1_ENABLED,
                       "amount": C.GRAIN_AMOUNT,
                       "size": C.GRAIN_SIZE, "color_ratio": C.GRAIN_COLOR_RATIO,
@@ -479,7 +480,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             "cloud_size")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
-            "sun_size", "influence", "depth", "precise")),
+            "sun_size", "influence", "depth", "precise", "rays")),
           ("vignette", image_ops.add_vignette,
            ("amount", "size", "feather", "roundness"))]
     for name, func, keys in fx:
@@ -1728,6 +1729,7 @@ def main(page: ft.Page):
         "Rayons de soleil", PINK, ft.Icons.WB_TWILIGHT, ga["rayons"], [
             ("x", "Position X", -50, 150, 1),
             ("y", "Position Y", -50, 150, 1),
+            ("rays", "Faisceaux", 0, 1, 0.01),
             ("length", "Longueur", 0, 100, 1),
             ("intensity", "Intensité", 0, 1, 0.01),
             ("warmth", "Chaleur", 0, 1, 0.01),
