@@ -189,6 +189,7 @@ def default_params():
                        "influence": C.RAYONS_INFLUENCE,
                        "depth": C.RAYONS_DEPTH,
                        "precise": C.RAYONS_PRECISE,
+                       "parallel": C.RAYONS_PARALLEL,
                        "rays": C.RAYONS_RAYS,
                        "count": C.RAYONS_COUNT,
                        "ray_width": C.RAYONS_WIDTH,
@@ -484,7 +485,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
-            "count", "ray_width", "shadows")),
+            "count", "ray_width", "shadows", "parallel")),
           ("vignette", image_ops.add_vignette,
            ("amount", "size", "feather", "roundness"))]
     for name, func, keys in fx:
@@ -1742,15 +1743,19 @@ def main(page: ft.Page):
         rows = [_slider_row(flabel, sub, key, lo, hi, step=st,
                             reset=sub[key])
                 for key, flabel, lo, hi, st in field_specs]
-        if "precise" in sub:
-            sw = ft.Switch(label="Précis", value=sub["precise"],
+        for key, slabel in (("parallel", "Parallèles"),
+                            ("precise", "Précis")):
+            if key not in sub:
+                continue
+            sw = ft.Switch(label=slabel, value=sub[key],
                            active_color=color)
 
-            def _precise(e, sub=sub, sw=sw):
-                sub["precise"] = sw.value
+            def _flip(e, sub=sub, sw=sw, key=key):
+                sub[key] = sw.value
                 live_preview_tick()
-            sw.on_change = _precise
-            reset_registry.setdefault("precise", []).append((sw, sub))
+            sw.on_change = _flip
+            reset_registry.setdefault("toggles", []).append(
+                (sw, sub, key))
             rows.append(sw)
         rows = [*head, *rows, *extra]
         return _make_section(label, color, icon, sub, rows)
@@ -2106,8 +2111,8 @@ def main(page: ft.Page):
     def _sync_controls_from_params():
         """Reflète state["params"] (déjà à jour) sur tous les contrôles —
         partagé par Réinitialiser et Charger des réglages."""
-        for sw, dct in reset_registry.get("precise", []):
-            sw.value = dct["precise"]
+        for sw, dct, key in reset_registry.get("toggles", []):
+            sw.value = dct[key]
             sw.update()
         for switch, dct in reset_registry["switches"]:
             switch.value = dct["enabled"]

@@ -2164,7 +2164,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
 
 def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
                 sun_size, influence=0.5, depth=0.0, precise=False,
-                rays=1.0, count=40, ray_width=1.0, shadows=0.0):
+                rays=1.0, count=40, ray_width=1.0, shadows=0.0,
+                parallel=False):
     """Rayons de soleil depuis (x, y) en %, hors cadre permis (-50..150).
     La lumière traverse les zones claires de la photo et bute sur les
     sombres (influence 0-1, feuillages, silhouettes) ; depth 0-1 réserve
@@ -2185,12 +2186,19 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
                         interpolation=cv2.INTER_AREA)
         lo, hi = np.percentile(fn, (5, 95))
         occ = np.clip((fn - lo) / max(1e-4, hi - lo), 0, 1) ** 2
-    # Toile élargie pour un soleil hors cadre.
+    # Toile élargie pour un soleil hors cadre (inutile en parallèle :
+    # seule la direction soleil → centre compte).
     cx, cy = x / 100.0 * sw, y / 100.0 * sh
-    pl = int(max(0, -cx) + 4)
-    pr = int(max(0, cx - sw) + 4)
-    pt = int(max(0, -cy) + 4)
-    pb = int(max(0, cy - sh) + 4)
+    dx, dy = sw / 2 - cx, sh / 2 - cy
+    dn = max(1e-3, math.hypot(dx, dy))
+    dx, dy = dx / dn, dy / dn
+    if parallel:
+        pl = pr = pt = pb = 4
+    else:
+        pl = int(max(0, -cx) + 4)
+        pr = int(max(0, cx - sw) + 4)
+        pt = int(max(0, -cy) + 4)
+        pb = int(max(0, cy - sh) + 4)
     luma = cv2.copyMakeBorder(_luma(small), pt, pb, pl, pr,
                               cv2.BORDER_REPLICATE)
     ch, cw = luma.shape
@@ -2221,12 +2229,25 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
         dd = np.angle(np.exp(1j * (theta - c))).astype(np.float32)
         bins = np.maximum(bins, rng.uniform(0.45, 1.0)
                           * np.exp(-dd ** 2 / (2 * sig ** 2)))
-    ang = (np.arctan2(yy - cy, xx - cx) + np.pi) / (2 * np.pi) * (nb - 1)
+    if parallel:
+        # Bandes perpendiculaires à la direction de la lumière.
+        diag = math.hypot(sw, sh)
+        perp = (-(xx - cx) * dy + (yy - cy) * dx) / (diag * 1.5)
+        ang = np.mod(perp, 1.0) * (nb - 1)
+    else:
+        ang = (np.arctan2(yy - cy, xx - cx) + np.pi) / (2 * np.pi) \
+            * (nb - 1)
     streak = 0.12 + 0.88 * bins[ang.astype(np.int32)]
     streak = streak * (1 - influence * 0.6) + influence * 0.6
     streak = (1 - rays) + rays * streak  # 0 = atmosphère sans faisceaux
     # Halo large, qui atteint l'image même avec un soleil hors cadre.
-    dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+    if parallel:
+        # Distance comptée depuis le bord côté soleil.
+        dist = (xx - cx) * dx + (yy - cy) * dy
+        dist = dist - dist[pt:pt + sh, pl:pl + sw].min()
+        disc = np.zeros_like(disc)
+    else:
+        dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
     reach = rad * 3 + 0.5 * math.hypot(sw, sh) * length / 100.0
     glow = np.exp(-dist / max(1.0, reach)) * 0.9
     free = np.maximum(glow * streak, disc)
@@ -2240,11 +2261,16 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     # faisceaux d'ombre qui partent du sujet, à l'opposé du soleil.
     both = np.dstack([src, free]).astype(np.float32)
     acc = np.zeros_like(both)
-    steps = 48
+    steps = 96 if parallel else 48
     span = length / 100.0 * 0.95
     for i in range(steps):
-        s = 1.0 + 2.0 * span * i / steps  # étire depuis le soleil
-        mat = np.float32([[s, 0, cx * (1 - s)], [0, s, cy * (1 - s)]])
+        if parallel:  # glisse dans la direction de la lumière
+            t = span * i / steps * math.hypot(sw, sh)
+            mat = np.float32([[1, 0, dx * t], [0, 1, dy * t]])
+        else:
+            s = 1.0 + 2.0 * span * i / steps  # étire depuis le soleil
+            mat = np.float32([[s, 0, cx * (1 - s)],
+                              [0, s, cy * (1 - s)]])
         warped = cv2.warpAffine(both, mat, (cw, ch),
                                 flags=cv2.INTER_LINEAR,
                                 borderMode=cv2.BORDER_CONSTANT)

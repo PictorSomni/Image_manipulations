@@ -1066,6 +1066,7 @@ RAYONS_SUN_SIZE = 4
 RAYONS_INFLUENCE = 1.0  # la photo module les rayons
 RAYONS_DEPTH = 3.0  # 1 = rayons seulement derrière le sujet
 RAYONS_PRECISE = False
+RAYONS_PARALLEL = False  # rayons parallèles (soleil lointain)
 RAYONS_RAYS = 1.0  # 0 = lumière diffuse sans faisceaux
 RAYONS_COUNT = 40  # nombre de faisceaux
 RAYONS_WIDTH = 1.0  # largeur moyenne des faisceaux
