@@ -71,7 +71,9 @@ LIGHT_GREY = CONSTANTS.COLOR_LIGHT_GREY
 # Image 1x1 transparente — placeholder avant chargement du premier aperçu.
 _BLANK_SRC = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs="
 
-EXTENSION = (".JPG", ".JPEG", ".PNG", ".BMP", ".TIFF", ".TIF", ".WEBP")
+EXTENSION = (".JPG", ".JPEG", ".PNG", ".BMP", ".TIFF", ".TIF", ".WEBP",
+             ".DNG", ".CR2", ".CR3", ".NEF", ".ARW", ".RAF", ".ORF",
+             ".RW2", ".PEF", ".SRW")
 
 
 #############################################################

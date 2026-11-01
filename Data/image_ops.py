@@ -111,6 +111,31 @@ def convert_to_srgb(source_image: Image.Image,
         return source_image
 
 
+RAW_EXTENSIONS = (".DNG", ".CR2", ".CR3", ".NEF", ".ARW", ".RAF",
+                  ".ORF", ".RW2", ".PEF", ".SRW")
+_pil_open = Image.open
+
+
+@functools.lru_cache(maxsize=2)
+def _decode_raw(path, _mtime):
+    import rawpy
+    with rawpy.imread(path) as r:
+        rgb = r.postprocess(use_camera_wb=True, output_bps=8)
+    return Image.fromarray(rgb)
+
+
+def _open_any(fp, *args, **kwargs):
+    """Image.open qui comprend aussi les RAW (via rawpy)."""
+    if isinstance(fp, (str, Path)) and \
+            Path(fp).suffix.upper() in RAW_EXTENSIONS:
+        path = str(fp)
+        return _decode_raw(path, os.path.getmtime(path)).copy()
+    return _pil_open(fp, *args, **kwargs)
+
+
+Image.open = _open_any
+
+
 def open_srgb(path) -> Image.Image:
     """Ouvre une image, corrige l'orientation EXIF puis convertit en RGB
     sRGB managé via son profil ICC embarqué (ex. profil scanner non-sRGB) —
