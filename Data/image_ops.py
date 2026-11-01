@@ -2198,10 +2198,12 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     yy, xx = np.mgrid[0:ch, 0:cw].astype(np.float32)
     rad = max(1.0, sun_size / 100.0 * min(sw, sh))
     disc = np.exp(-(((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * rad ** 2)))
-    lit = np.clip((luma - threshold) / max(1e-3, 1 - threshold), 0, 1)
-    # Transmission : la lumière passe par les clairs de l'image.
-    trans = np.clip((luma - threshold * 0.6)
-                    / max(1e-3, 1 - threshold * 0.6), 0, 1)
+    # Masque de passage (comme Luminar) : seuls les clairs de l'image
+    # émettent ; les sombres (feuillages, toits) coupent la lumière et
+    # laissent des faisceaux d'ombre derrière eux.
+    tr = threshold * 0.85
+    trans = np.clip((luma - tr) / max(1e-3, 1 - tr), 0, 1)
+    trans = cv2.GaussianBlur(trans * trans * (3 - 2 * trans), (0, 0), 0.8)
     if far is not None:
         f = cv2.copyMakeBorder(far, pt, pb, pl, pr, cv2.BORDER_REPLICATE)
         trans = trans * f
@@ -2227,10 +2229,8 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     dist = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
     reach = rad * 3 + 0.5 * math.hypot(sw, sh) * length / 100.0
     glow = np.exp(-dist / max(1.0, reach)) * 0.9
-    src = glow * ((1 - influence * 0.75) + influence * 0.75 * trans)
-    src = np.maximum(src, lit * 0.8 * influence) * streak
-    src = np.maximum(src, disc)
-    free = src
+    free = np.maximum(glow * streak, disc)
+    src = free * ((1 - influence) + influence * trans)
     if occ is not None:
         o = cv2.copyMakeBorder(occ, pt, pb, pl, pr, cv2.BORDER_REPLICATE)
         src = src * ((1 - shadows) + shadows * o)
@@ -2252,16 +2252,19 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     acc /= steps * 0.5
     acc = cv2.GaussianBlur(acc, (0, 0), 1.5)[pt:pt + sh, pl:pl + sw]
     lit, unlit = acc[..., 0], acc[..., 1]
+    # Compense la lumière perdue derrière les obstacles.
+    lit = lit * (1 + 1.6 * influence)
     shade = np.clip(unlit - lit, 0, None)
     if far is not None:
         lit = lit * far
     rays = cv2.resize(lit, (w, h), interpolation=cv2.INTER_LINEAR)
     layer = np.clip(rays * intensity * 1.6, 0, 1)[..., None] * col
     out = 1 - (1 - img) * (1 - layer)
-    if occ is not None:
+    if occ is not None or influence > 0:
         shade = cv2.resize(shade, (w, h), interpolation=cv2.INTER_LINEAR)
         shade = np.clip(shade * intensity * 1.6, 0, 1)
-        out = out * (1 - shadows * 0.45 * shade[..., None])
+        k = 0.45 * max(shadows, influence * 0.6)
+        out = out * (1 - k * shade[..., None])
     return _to_pil(out)
 
 
