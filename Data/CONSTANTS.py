@@ -1058,18 +1058,18 @@ BRUME_PRECISE = False  # carte de profondeur IA
 RAYONS_ENABLED = False
 RAYONS_X = 75
 RAYONS_Y = 10
-RAYONS_LENGTH = 60
+RAYONS_LENGTH = 100
 RAYONS_INTENSITY = 0.5
 RAYONS_WARMTH = 0.6
 RAYONS_THRESHOLD = 0.8
 RAYONS_SUN_SIZE = 4
-RAYONS_INFLUENCE = 0.5  # la photo module les rayons
-RAYONS_DEPTH = 0.0  # 1 = rayons seulement derrière le sujet
+RAYONS_INFLUENCE = 1.0  # la photo module les rayons
+RAYONS_DEPTH = 3.0  # 1 = rayons seulement derrière le sujet
 RAYONS_PRECISE = False
-RAYONS_RAYS = 1.0
+RAYONS_RAYS = 1.0  # 0 = lumière diffuse sans faisceaux
 RAYONS_COUNT = 40  # nombre de faisceaux
-RAYONS_WIDTH = 1.0
-RAYONS_SHADOWS = 0.0  # ombres volumétriques (le sujet coupe la lumière)  # largeur moyenne des faisceaux  # 0 = lumière diffuse sans faisceaux
+RAYONS_WIDTH = 1.0  # largeur moyenne des faisceaux
+RAYONS_SHADOWS = 1.0  # ombres volumétriques (le sujet coupe la lumière)
 
 # ── 12.4  Désaturation des extrêmes + boost mi-tons (Retouche photo.pyw) ────
 # Les films argentiques perdent de la saturation dans les ombres très sombres
