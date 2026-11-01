@@ -183,7 +183,10 @@ def _hub_sync_pull_all():
         except Exception:
             return
         if name == "corbeille":
-            _push_trash(_load_json(path, []))
+            try:
+                _push_trash(_load_json(path, []))
+            except Exception:
+                pass  # Pi lent ou hors ligne : prochaine synchro
             return
         if data is None:
             local = _load_json(path, None)
