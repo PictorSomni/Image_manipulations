@@ -1069,8 +1069,7 @@ RAYONS_PRECISE = False
 RAYONS_RAYS = 1.0
 RAYONS_COUNT = 40  # nombre de faisceaux
 RAYONS_WIDTH = 1.0
-RAYONS_SHADOWS = 0.0  # ombres orientées par le soleil
-RAYONS_SHADOW_LENGTH = 40  # largeur moyenne des faisceaux  # 0 = lumière diffuse sans faisceaux
+RAYONS_SHADOWS = 0.0  # ombres volumétriques (le sujet coupe la lumière)  # largeur moyenne des faisceaux  # 0 = lumière diffuse sans faisceaux
 
 # ── 12.4  Désaturation des extrêmes + boost mi-tons (Retouche photo.pyw) ────
 # Les films argentiques perdent de la saturation dans les ombres très sombres

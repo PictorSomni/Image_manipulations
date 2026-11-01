@@ -192,8 +192,7 @@ def default_params():
                        "rays": C.RAYONS_RAYS,
                        "count": C.RAYONS_COUNT,
                        "ray_width": C.RAYONS_WIDTH,
-                       "shadows": C.RAYONS_SHADOWS,
-                       "shadow_length": C.RAYONS_SHADOW_LENGTH},
+                       "shadows": C.RAYONS_SHADOWS},
             "grain1": {"enabled": C.RETOUCHE_LOT_GRAIN1_ENABLED,
                       "amount": C.GRAIN_AMOUNT,
                       "size": C.GRAIN_SIZE, "color_ratio": C.GRAIN_COLOR_RATIO,
@@ -485,7 +484,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
-            "count", "ray_width", "shadows", "shadow_length")),
+            "count", "ray_width", "shadows")),
           ("vignette", image_ops.add_vignette,
            ("amount", "size", "feather", "roundness"))]
     for name, func, keys in fx:
@@ -1819,8 +1818,7 @@ def main(page: ft.Page):
             ("sun_size", "Taille du soleil", 0, 20, 0.5),
             ("influence", "Influence de la photo", 0, 1, 0.01),
             ("depth", "Profondeur", 0, 3, 0.01),
-            ("shadows", "Ombres", 0, 1, 0.01),
-            ("shadow_length", "Longueur des ombres", 0, 100, 1)],
+            ("shadows", "Ombres volumétriques", 0, 1, 0.01)],
         head=[sun_btn])
     section_vignette = _grain_section(
         "Vignette", BLUE_DARK, ft.Icons.VIGNETTE, ga["vignette"], [
