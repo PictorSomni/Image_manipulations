@@ -1819,9 +1819,9 @@ def main(page: ft.Page):
             ("length", "Longueur", 0, 100, 1),
             ("intensity", "Intensité", 0, 1, 0.01),
             ("warmth", "Chaleur", 0, 1, 0.01),
-            ("threshold", "Seuil", 0, 1, 0.01),
             ("sun_size", "Taille du soleil", 0, 20, 0.5),
             ("influence", "Influence de la photo", 0, 1, 0.01),
+            ("threshold", "Seuil", 0, 1, 0.01),
             ("depth", "Profondeur", 0, 3, 0.01),
             ("shadows", "Ombres volumétriques", 0, 1, 0.01)],
         head=[ft.Row([sun_btn])])
