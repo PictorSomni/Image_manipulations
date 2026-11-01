@@ -1806,7 +1806,7 @@ def main(page: ft.Page):
             ("cloud_size", "Taille des nuages", 5, 100, 1)])
     sun_btn = ft.OutlinedButton(
         "Placer le soleil", icon=ft.Icons.WB_SUNNY_OUTLINED,
-        on_click=lambda e: _toggle_sun(),
+        on_click=lambda e: _toggle_sun(), expand=True,
         style=ft.ButtonStyle(color=WHITE, side=ft.BorderSide(1, GREY)))
     state["sun_btn"] = sun_btn
     section_rayons = _grain_section(
@@ -1824,7 +1824,7 @@ def main(page: ft.Page):
             ("influence", "Influence de la photo", 0, 1, 0.01),
             ("depth", "Profondeur", 0, 3, 0.01),
             ("shadows", "Ombres volumétriques", 0, 1, 0.01)],
-        head=[sun_btn])
+        head=[ft.Row([sun_btn])])
     section_vignette = _grain_section(
         "Vignette", BLUE_DARK, ft.Icons.VIGNETTE, ga["vignette"], [
             ("amount", "Intensité", -100, 100, 1),
