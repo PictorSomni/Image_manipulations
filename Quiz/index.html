@@ -7,9 +7,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Quiz">
 <meta name="theme-color" content="#1a1433">
-<link rel="apple-touch-icon" href="/icon.png">
-<link rel="icon" href="/icon.png">
-<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="icon" href="icon.png">
+<link rel="manifest" href="manifest.json">
 <title>Quiz</title>
 <style>
 :root {
@@ -251,7 +251,7 @@ function show(...kids) {
 async function home() {
   if (!S.info) {
     show(h("div", {class: "wait"}, h("div", {class: "spin"}), "Chargement…"));
-    try { S.info = await api("/api/state"); }
+    try { S.info = await api("api/state"); }
     catch (e) { return show(h("div", {class: "wait"}, "Erreur : " +
       e.message)); }
   }
@@ -329,7 +329,7 @@ function start(single) {
 function fill() {
   const g = S.game;
   if (g.loading) return g.loading;
-  g.loading = api("/api/questions", {profile: S.profile, theme: S.theme,
+  g.loading = api("api/questions", {profile: S.profile, theme: S.theme,
     level: g.level, kind: S.kind}).then(qs => { g.queue.push(...qs); })
     .finally(() => { g.loading = null; });
   return g.loading;
@@ -418,7 +418,7 @@ function reply(q, i, buttons, jokers) {
     }
   } else g.streak = 0;
   g.done.push({q, ok});
-  api("/api/answer", {profile: S.profile, q, ok, streak: g.best,
+  api("api/answer", {profile: S.profile, q, ok, streak: g.best,
     points: g.points}).then(d => S.info = d).catch(() => {});
   $app.append(
     h("div", {class: "card explain " + (ok ? "ok" : "ko")},
@@ -439,7 +439,7 @@ async function finish() {
   const g = S.game;
   S.game = null;
   if (!g || !g.done.length) return home();
-  api("/api/end", {profile: S.profile}).then(d => S.info = d)
+  api("api/end", {profile: S.profile}).then(d => S.info = d)
     .catch(() => {});
   const good = g.done.filter(d => d.ok).length;
   show(

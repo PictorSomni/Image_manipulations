@@ -355,6 +355,17 @@ def daily_loop():
         time.sleep(600)
 
 
+def _route(path):
+    """Chemin sans préfixe (le quiz peut vivre sous /quiz-xxx/ via
+    Funnel) ; None = dossier sans « / » final, à rediriger."""
+    if "/api/" in path:
+        return "/api/" + path.split("/api/")[-1]
+    last = path.rsplit("/", 1)[-1]
+    if last and "." not in last:
+        return None
+    return "/" + last
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -375,7 +386,13 @@ class Handler(BaseHTTPRequestHandler):
         files = {"/": ("index.html", "text/html; charset=utf-8"),
                  "/icon.png": ("icon.png", "image/png"),
                  "/manifest.json": ("manifest.json", "application/json")}
-        path = self.path.split("?")[0]
+        raw = self.path.split("?")[0]
+        path = _route(raw)
+        if path is None:  # /quiz-xxx sans « / » final : liens relatifs
+            self.send_response(301)
+            self.send_header("Location", raw + "/")
+            self.end_headers()
+            return
         if path == "/api/state":
             return self._json(summary())
         if path not in files:
@@ -389,16 +406,17 @@ class Handler(BaseHTTPRequestHandler):
         try:
             data = json.loads(self.rfile.read(min(size, 100_000)))
             name = str(data.get("profile") or TEAM).strip()[:30] or TEAM
-            if self.path == "/api/questions":
+            route = _route(self.path.split("?")[0])
+            if route == "/api/questions":
                 out = questions(name, str(data.get("theme") or THEMES[0])
                                 [:60], data.get("level", 0),
                                 kind=data.get("kind", "qcm"))
-            elif self.path == "/api/answer":
+            elif route == "/api/answer":
                 out = answer(name, data["q"], bool(data["ok"]),
                              data.get("streak", 0), data.get("points", 0))
-            elif self.path == "/api/end":
+            elif route == "/api/end":
                 out = end_game(name)
-            elif self.path == "/api/profile":
+            elif route == "/api/profile":
                 with _lock:
                     state = _read()
                     _profile(state, name)
