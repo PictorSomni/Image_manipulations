@@ -2103,6 +2103,51 @@ def _cloud_noise(h, w, size, seed=11):
     return cv2.resize(n, (w, h), interpolation=cv2.INTER_CUBIC)
 
 
+def _depth_weight(far, depth):
+    """Poids 0..1 selon l'éloignement. depth 0 uniforme, 1 surtout le
+    fond, au-delà (jusqu'à 3) le fond seul, de plus en plus tranché."""
+    expo = 1.3 + max(0.0, depth - 1.0) * 3.0
+    d = min(1.0, depth)
+    return (1 - d) + d * far ** expo
+
+
+def _sun_shadows(img, far, sx, sy, strength, length):
+    """Ombres orientées par le soleil (sx, sy en px de img) : le sujet
+    proche projette une ombre sur le fond, à l'opposé du soleil, et son
+    côté tourné vers le soleil s'éclaire, l'autre s'assombrit."""
+    h, w = img.shape[:2]
+    # Relief : chaque plan ombre ce qui est derrière lui (champ de
+    # hauteurs), l'ombre s'allonge à l'opposé du soleil.
+    hgt = _blur_pct(1.0 - far, 0.6)
+    lo, hi = np.percentile(hgt, (5, 95))
+    hgt = np.clip((hgt - lo) / max(1e-4, hi - lo), 0, 1)
+    vx, vy = w / 2 - sx, h / 2 - sy
+    norm = max(1e-3, math.hypot(vx, vy))
+    vx, vy = vx / norm, vy / norm
+    reach = length / 100.0 * 0.45 * math.hypot(w, h)
+    smear = hgt.copy()
+    steps = 16
+    for i in range(1, steps + 1):
+        t = reach * i / steps
+        mat = np.float32([[1, 0, vx * t], [0, 1, vy * t]])
+        moved = cv2.warpAffine(hgt, mat, (w, h),
+                               borderMode=cv2.BORDER_REPLICATE)
+        smear = np.maximum(smear, moved - 0.6 * i / steps)
+    cast = np.clip((smear - hgt) * 3, 0, 1)
+    cast = _blur_pct(cast, 0.8 + length / 40)
+    near = hgt
+    rel = _blur_pct(near, 1.0)
+    gy, gx = np.gradient(rel)
+    facing = -(gx * vx + gy * vy)
+    facing = np.clip(facing / max(1e-4, float(np.percentile(
+        np.abs(facing), 99))), -1, 1) * near
+    tint = np.array([0.85, 0.9, 1.0], np.float32)
+    out = img * (1 - strength * 0.6 * cast[..., None]
+                 * (1 - tint * 0.3))
+    out = out * (1 + strength * 0.3 * facing[..., None])
+    return out
+
+
 _noise_cache = {}
 
 
@@ -2125,10 +2170,9 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
                       0.86 - 0.08 * warmth], np.float32)
     far = depth_map(img, precise)
-    # depth > 1 : sépare encore plus nettement fond et sujet.
+    m = _depth_weight(far, depth)
     expo = 1.3 + max(0.0, depth - 1.0) * 3.0
     d = min(1.0, depth)
-    m = (1 - d) + d * far ** expo
     a = np.clip(amount * m, 0, 0.95)[..., None]
     if clouds <= 0:
         return _to_pil(img * (1 - a) + color * a)
@@ -2157,7 +2201,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
 
 def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
                 sun_size, influence=0.5, depth=0.0, precise=False,
-                rays=1.0, count=40, ray_width=1.0):
+                rays=1.0, count=40, ray_width=1.0, shadows=0.0,
+                shadow_length=40.0):
     """Rayons de soleil depuis (x, y) en %, hors cadre permis (-50..150).
     La lumière traverse les zones claires de la photo et bute sur les
     sombres (influence 0-1, feuillages, silhouettes) ; depth 0-1 réserve
@@ -2169,8 +2214,18 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     small = cv2.resize(img, (sw, sh), interpolation=cv2.INTER_AREA)
     far = None
     if depth > 0:
-        far = cv2.resize(depth_map(img, precise), (sw, sh),
-                         interpolation=cv2.INTER_AREA)
+        far = cv2.resize(_depth_weight(depth_map(img, precise), depth),
+                         (sw, sh), interpolation=cv2.INTER_AREA)
+    if shadows > 0:
+        sm = cv2.resize(depth_map(img, precise), (sw, sh),
+                        interpolation=cv2.INTER_AREA)
+        k = min(1.0, 480.0 / max(h, w))
+        dark = _sun_shadows(small, sm, x / 100 * sw, y / 100 * sh,
+                            shadows, shadow_length) / np.maximum(
+                                small, 1e-3)
+        img = np.clip(img * cv2.resize(dark, (w, h),
+                                       interpolation=cv2.INTER_LINEAR),
+                      0, 1)
     # Toile élargie pour un soleil hors cadre.
     cx, cy = x / 100.0 * sw, y / 100.0 * sh
     pl = int(max(0, -cx) + 4)
@@ -2190,7 +2245,7 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
                     / max(1e-3, 1 - threshold * 0.6), 0, 1)
     if far is not None:
         f = cv2.copyMakeBorder(far, pt, pb, pl, pr, cv2.BORDER_REPLICATE)
-        trans = trans * ((1 - depth) + depth * f)
+        trans = trans * f
     # Faisceaux : `count` lobes angulaires de largeurs variées (des
     # larges et des fins), graine fixe pour un motif stable.
     rng = np.random.default_rng(7)
@@ -2231,7 +2286,7 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     acc /= steps * 0.5
     acc = cv2.GaussianBlur(acc, (0, 0), 1.5)[pt:pt + sh, pl:pl + sw]
     if far is not None:
-        acc = acc * ((1 - depth) + depth * far)
+        acc = acc * far
     rays = cv2.resize(acc, (w, h), interpolation=cv2.INTER_LINEAR)
     layer = np.clip(rays * intensity * 1.6, 0, 1)[..., None] * col
     out = 1 - (1 - img) * (1 - layer)

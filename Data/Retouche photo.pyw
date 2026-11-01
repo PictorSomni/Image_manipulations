@@ -191,7 +191,9 @@ def default_params():
                        "precise": C.RAYONS_PRECISE,
                        "rays": C.RAYONS_RAYS,
                        "count": C.RAYONS_COUNT,
-                       "ray_width": C.RAYONS_WIDTH},
+                       "ray_width": C.RAYONS_WIDTH,
+                       "shadows": C.RAYONS_SHADOWS,
+                       "shadow_length": C.RAYONS_SHADOW_LENGTH},
             "grain1": {"enabled": C.RETOUCHE_LOT_GRAIN1_ENABLED,
                       "amount": C.GRAIN_AMOUNT,
                       "size": C.GRAIN_SIZE, "color_ratio": C.GRAIN_COLOR_RATIO,
@@ -483,7 +485,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
-            "count", "ray_width")),
+            "count", "ray_width", "shadows", "shadow_length")),
           ("vignette", image_ops.add_vignette,
            ("amount", "size", "feather", "roundness"))]
     for name, func, keys in fx:
@@ -1734,7 +1736,8 @@ def main(page: ft.Page):
     # enterrait plutôt que de les rendre directement accessibles) ───────
     ga = state["params"]["grain"]
 
-    def _grain_section(label, color, icon, sub, field_specs, extra=()):
+    def _grain_section(label, color, icon, sub, field_specs, extra=(),
+                       head=()):
         # Curseurs plutôt que champs texte (retour user) ; double-tap
         # ramène au défaut d'origine du paramètre.
         rows = [_slider_row(flabel, sub, key, lo, hi, step=st,
@@ -1750,7 +1753,7 @@ def main(page: ft.Page):
             sw.on_change = _precise
             reset_registry.setdefault("precise", []).append((sw, sub))
             rows.append(sw)
-        rows.extend(extra)
+        rows = [*head, *rows, *extra]
         return _make_section(label, color, icon, sub, rows)
 
     _grain_specs = [
@@ -1793,7 +1796,7 @@ def main(page: ft.Page):
     section_brume = _grain_section(
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
             ("amount", "Intensité", 0, 1, 0.01),
-            ("depth", "Profondeur", 0, 2, 0.01),
+            ("depth", "Profondeur", 0, 3, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
             ("clouds", "Nuages", 0, 1, 0.01),
             ("cloud_size", "Taille des nuages", 5, 100, 1)])
@@ -1815,8 +1818,10 @@ def main(page: ft.Page):
             ("threshold", "Seuil", 0, 1, 0.01),
             ("sun_size", "Taille du soleil", 0, 20, 0.5),
             ("influence", "Influence de la photo", 0, 1, 0.01),
-            ("depth", "Derrière le sujet", 0, 1, 0.01)],
-        extra=[sun_btn])
+            ("depth", "Profondeur", 0, 3, 0.01),
+            ("shadows", "Ombres", 0, 1, 0.01),
+            ("shadow_length", "Longueur des ombres", 0, 100, 1)],
+        head=[sun_btn])
     section_vignette = _grain_section(
         "Vignette", BLUE_DARK, ft.Icons.VIGNETTE, ga["vignette"], [
             ("amount", "Intensité", -100, 100, 1),
