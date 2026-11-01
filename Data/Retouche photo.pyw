@@ -1743,8 +1743,20 @@ def main(page: ft.Page):
         rows = [_slider_row(flabel, sub, key, lo, hi, step=st,
                             reset=sub[key])
                 for key, flabel, lo, hi, st in field_specs]
-        for key, slabel in (("parallel", "Parallèles"),
-                            ("precise", "Précis")):
+        if "precise" in sub:
+            lv = ft.CupertinoSlidingSegmentedButton(
+                selected_index=int(sub["precise"]),
+                controls=[ft.Text(t, color=WHITE) for t in
+                          ("Rapide", "Équilibré", "Qualité")],
+                thumb_color=color, expand=True)
+
+            def _level(e, sub=sub, lv=lv):
+                sub["precise"] = lv.selected_index
+                live_preview_tick()
+            lv.on_change = _level
+            reset_registry.setdefault("levels", []).append((lv, sub))
+            rows.append(ft.Row([lv]))
+        for key, slabel in (("parallel", "Parallèles"),):
             if key not in sub:
                 continue
             sw = ft.Switch(label=slabel, value=sub[key],
@@ -2111,6 +2123,9 @@ def main(page: ft.Page):
     def _sync_controls_from_params():
         """Reflète state["params"] (déjà à jour) sur tous les contrôles —
         partagé par Réinitialiser et Charger des réglages."""
+        for lv, dct in reset_registry.get("levels", []):
+            lv.selected_index = int(dct["precise"])
+            lv.update()
         for sw, dct, key in reset_registry.get("toggles", []):
             sw.value = dct[key]
             sw.update()

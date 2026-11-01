@@ -2020,10 +2020,19 @@ def _depth_rough(img):
     return np.clip(_blur_pct(far, 2), 0, 1)
 
 
-def _depth_precise(img):
+def _guided(guide, src, r, eps=1e-3):
+    """Filtre guidé : recale les bords de src sur ceux de la photo."""
+    box = lambda a: cv2.boxFilter(a, -1, (r, r))  # noqa: E731
+    mg, ms = box(guide), box(src)
+    a = (box(guide * src) - mg * ms) / (box(guide * guide) - mg * mg + eps)
+    b = ms - a * mg
+    return box(a) * guide + box(b)
+
+
+def _depth_precise(img, size=518):
     sess = _depth_session()
     h, w = img.shape[:2]
-    k = 518.0 / max(h, w)
+    k = float(size) / max(h, w)
     th = max(14, int(round(h * k / 14)) * 14)
     tw = max(14, int(round(w * k / 14)) * 14)
     x = cv2.resize(img, (tw, th), interpolation=cv2.INTER_AREA)
@@ -2037,10 +2046,13 @@ def _depth_precise(img):
     return np.clip(far, 0, 1)
 
 
-def depth_map(img, precise=False):
+def depth_map(img, precise=0):
     """Carte d'éloignement 0 (proche) .. 1 (loin) d'une image float RGB,
     mise en cache par image (calculée une fois, pas à chaque curseur).
-    Mode précis : IA ; repli sur l'estimation si le modèle échoue."""
+    precise : 0 rapide (estimation), 1 équilibré (IA 518 px), 2 qualité
+    (IA 1036 px + bords recalés sur la photo). Repli sur l'estimation
+    si le modèle échoue."""
+    precise = int(precise)
     thumb = cv2.resize(img, (16, 16), interpolation=cv2.INTER_AREA)
     key = (img.shape, precise, (thumb * 255).astype(np.uint8).tobytes())
     cache = _depth_state["cache"]
@@ -2048,7 +2060,22 @@ def depth_map(img, precise=False):
         far = None
         if precise:
             try:
-                far = _depth_precise(img)
+                if precise >= 2:
+                    far = _depth_precise(img, 1036)
+                    g = _luma(img)
+                    sc = min(1.0, 1500.0 / max(g.shape))
+                    if sc < 1:
+                        g = cv2.resize(g, None, fx=sc, fy=sc,
+                                       interpolation=cv2.INTER_AREA)
+                    f = cv2.resize(far, (g.shape[1], g.shape[0]),
+                                   interpolation=cv2.INTER_AREA)
+                    r = max(3, int(max(g.shape) / 150)) | 1
+                    f = _guided(g, f, r)
+                    far = np.clip(cv2.resize(
+                        f, (img.shape[1], img.shape[0]),
+                        interpolation=cv2.INTER_LINEAR), 0, 1)
+                else:
+                    far = _depth_precise(img)
             except Exception as exc:
                 print(f"Profondeur IA indisponible : {exc}")
         if far is None:
