@@ -2140,7 +2140,9 @@ def depth_map(img, precise=0):
     precise : 0 rapide (estimation), 1 équilibré (IA small), 2 qualité
     (IA base, multi-échelle, bords recalés). Repli sur l'estimation
     si le modèle échoue."""
-    precise = int(precise)
+    # ponytail: seul le mode qualité sert (retour user) ; le paramètre
+    # reste pour les anciens préréglages.
+    precise = 2
     thumb = cv2.resize(img, (16, 16), interpolation=cv2.INTER_AREA)
     key = (img.shape, precise, (thumb * 255).astype(np.uint8).tobytes())
     cache = _depth_state["cache"]
@@ -2297,7 +2299,8 @@ def _puffs(far, h, w, size, seed=5, count=180):
 
 def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, particles=0.0,
-             show_depth=False, ground=0.0, ground_height=0.3):
+             show_depth=False, ground=0.0, ground_height=0.3,
+             thick=0.0):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -2318,8 +2321,26 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     m = _depth_weight(far, depth) * hw
     expo = 1.3 + max(0.0, depth - 1.0) * 3.0
     d = min(1.0, depth)
-    a = np.clip(amount * m, 0, 0.95)[..., None]
     h, w = img.shape[:2]
+    if thick > 0:
+        # Épaisseur : bancs denses et trouées claires plutôt qu'un voile
+        # égal ; motif choisi selon la distance (plus fin au loin).
+        dens = np.zeros((h, w), np.float32)
+        wsum = np.zeros((h, w), np.float32)
+        for i in range(5):
+            t = (i + 0.5) / 5
+            band = np.exp(-((far - t) * 5) ** 2)
+            n = _cloud_noise_cached(
+                h, w, max(3.0, cloud_size * 1.6 * (1.05 - t) ** 1.6),
+                31 + i)
+            dens += n * band
+            wsum += band
+        dens /= np.maximum(wsum, 1e-4)
+        k = 4 + 14 * thick
+        dens = 1 / (1 + np.exp(-(dens - 0.5) * k))
+        dens = np.where(far > 0.97, 0.5, dens)  # pas de trous dans le ciel
+        m = m * ((1 - thick) + thick * 4.0 * dens)
+    a = np.clip(amount * m, 0, 0.95 + 0.04 * thick)[..., None]
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + color * a * (1 - 0.6 * clouds)
     shade = np.array([0.84, 0.87, 0.93], np.float32) * color

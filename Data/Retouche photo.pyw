@@ -183,6 +183,7 @@ def default_params():
                       "clouds": C.BRUME_CLOUDS,
                       "cloud_size": C.BRUME_CLOUD_SIZE,
                       "particles": C.BRUME_PARTICLES,
+                      "thick": C.BRUME_THICK,
                       "ground": C.BRUME_GROUND,
                       "ground_height": C.BRUME_GROUND_HEIGHT,
                       "show_depth": False},
@@ -490,7 +491,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
           ("brume", image_ops.add_haze,
            ("amount", "depth", "warmth", "precise", "clouds",
             "cloud_size", "particles", "show_depth", "ground",
-            "ground_height")),
+            "ground_height", "thick")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
@@ -1753,19 +1754,6 @@ def main(page: ft.Page):
         rows = [_slider_row(flabel, sub, key, lo, hi, step=st,
                             reset=sub[key])
                 for key, flabel, lo, hi, st in field_specs]
-        if "precise" in sub:
-            lv = ft.CupertinoSlidingSegmentedButton(
-                selected_index=int(sub["precise"]),
-                controls=[ft.Text(t, color=WHITE) for t in
-                          ("Rapide", "Équilibré", "Qualité")],
-                thumb_color=color, expand=True)
-
-            def _level(e, sub=sub, lv=lv):
-                sub["precise"] = lv.selected_index
-                live_preview_tick()
-            lv.on_change = _level
-            reset_registry.setdefault("levels", []).append((lv, sub))
-            rows.append(ft.Row([lv]))
         for key, slabel in (("parallel", "Parallèles"),
                             ("show_depth", "Voir la profondeur")):
             if key not in sub:
@@ -1827,6 +1815,7 @@ def main(page: ft.Page):
             ("warmth", "Chaleur", -1, 1, 0.01),
             ("clouds", "Nuages", 0, 1, 0.01),
             ("cloud_size", "Taille des nuages", 5, 100, 1),
+            ("thick", "Épaisseur", 0, 1, 0.01),
             ("particles", "Particules", 0, 1, 0.01),
             ("ground", "Brume au sol", 0, 1, 0.01),
             ("ground_height", "Hauteur", 0.02, 1, 0.01)])
