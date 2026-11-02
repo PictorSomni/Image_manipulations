@@ -2438,7 +2438,7 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
         if parallel:  # direction lointaine : soleil bien derrière
             sx = fs.shape[1] / 2 + (sx - fs.shape[1] / 2) * 3
             sy = fs.shape[0] / 2 + (sy - fs.shape[0] / 2) * 3
-        surf, vol = _sun_shadow(fs, sx, sy)
+        vol = _sun_shadow(fs, sx, sy)[1]
     # Toile élargie pour un soleil hors cadre (inutile en parallèle :
     # seule la direction soleil → centre compte).
     cx, cy = x / 100.0 * sw, y / 100.0 * sh
@@ -2535,12 +2535,12 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     lit, unlit = acc[..., 0], acc[..., 1]
     # Compense la lumière perdue derrière les obstacles.
     lit = lit * (1 + 1.6 * influence)
-    shade = np.clip(unlit - lit, 0, None)
     if far is not None:
         lit = lit * far
     if vol is not None:
         v = cv2.resize(vol, (sw, sh), interpolation=cv2.INTER_LINEAR)
-        lit = lit * ((1 - shadows) + shadows * 1.4 * v)
+        # Ombres dans le volume seulement : rien n'est peint au sol.
+        lit = lit * ((1 - shadows) + shadows * v ** 2)
     rays = cv2.resize(lit, (w, h), interpolation=cv2.INTER_LINEAR)
     # Ajout en lumière linéaire (comme une exposition) puis épaule douce :
     # la lumière éclaire sans boucher les blancs.
@@ -2550,14 +2550,7 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     lin = np.where(hi, knee + (1 - knee) * np.tanh(
         (lin - knee) / (1 - knee)), lin)
     out = np.clip(lin, 0, 1) ** (1 / 2.2)
-    if influence > 0:
-        shade = cv2.resize(shade, (w, h), interpolation=cv2.INTER_LINEAR)
-        shade = np.clip(shade * intensity * 1.6, 0, 1)
-        out = out * (1 - 0.27 * influence * shade[..., None])
-    if surf is not None:
-        s = cv2.resize(surf, (w, h), interpolation=cv2.INTER_LINEAR)
-        out = out * (1 - shadows * min(1.0, intensity * 1.2) * 0.45
-                     * (1 - s[..., None]))
+
     return _to_pil(out)
 
 
