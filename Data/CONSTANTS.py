@@ -1054,7 +1054,6 @@ BRUME_DEPTH = 3.0  # 0 uniforme · 1 fond · 2 fond seul
 BRUME_WARMTH = 0.2
 BRUME_CLOUDS = 0.5  # 0 voile uni · 1 nappes marquées
 BRUME_CLOUD_SIZE = 30
-BRUME_PARTICLES = 0.0  # bouffées en 3D
 BRUME_THICK = 0.0  # 0 voile égal · 1 bancs épais et trouées
 BRUME_GROUND = 0.0  # 0 partout · 1 seulement au ras du sol / de l'eau
 BRUME_GROUND_HEIGHT = 0.3  # hauteur où elle s'efface

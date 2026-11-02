@@ -182,7 +182,6 @@ def default_params():
                       "precise": C.BRUME_PRECISE,
                       "clouds": C.BRUME_CLOUDS,
                       "cloud_size": C.BRUME_CLOUD_SIZE,
-                      "particles": C.BRUME_PARTICLES,
                       "thick": C.BRUME_THICK,
                       "ground": C.BRUME_GROUND,
                       "ground_height": C.BRUME_GROUND_HEIGHT,
@@ -490,7 +489,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
            ("amount", "softness", "shadows")),
           ("brume", image_ops.add_haze,
            ("amount", "depth", "warmth", "precise", "clouds",
-            "cloud_size", "particles", "show_depth", "ground",
+            "cloud_size", "show_depth", "ground",
             "ground_height", "thick")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
@@ -499,6 +498,10 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
             "diffusion", "show_depth")),
           ("vignette", image_ops.add_vignette,
            ("amount", "size", "feather", "roundness"))]
+    # Une seule carte de profondeur, calculée sur la source, pour brume
+    # et rayons (pas recalculée quand un réglage amont change).
+    image_ops.pin_depth(image if any(
+        g[n].get("enabled") for n in ("brume", "rayons")) else None)
     for name, func, keys in fx:
         a = g.get(name)
         if a and a.get("enabled"):
@@ -1816,7 +1819,6 @@ def main(page: ft.Page):
             ("clouds", "Nuages", 0, 1, 0.01),
             ("cloud_size", "Taille des nuages", 5, 100, 1),
             ("thick", "Épaisseur", 0, 1, 0.01),
-            ("particles", "Particules", 0, 1, 0.01),
             ("ground", "Brume au sol", 0, 1, 0.01),
             ("ground_height", "Hauteur", 0.02, 1, 0.01)])
     sun_btn = ft.OutlinedButton(

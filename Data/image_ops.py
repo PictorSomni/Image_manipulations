@@ -2143,6 +2143,11 @@ def depth_map(img, precise=0):
     # ponytail: seul le mode qualité sert (retour user) ; le paramètre
     # reste pour les anciens préréglages.
     precise = 2
+    pin = _depth_state.get("pin")
+    if pin is not None and abs(pin.shape[1] / pin.shape[0]
+                               - img.shape[1] / img.shape[0]) < 0.01:
+        return cv2.resize(pin, (img.shape[1], img.shape[0]),
+                          interpolation=cv2.INTER_LINEAR)
     thumb = cv2.resize(img, (16, 16), interpolation=cv2.INTER_AREA)
     key = (img.shape, precise, (thumb * 255).astype(np.uint8).tobytes())
     cache = _depth_state["cache"]
@@ -2191,6 +2196,16 @@ def height_map(far, fov=60.0):
     ht[~sky] = 1.0
     ht = cv2.GaussianBlur(ht, (0, 0), 1.0)
     return cv2.resize(ht, (w, h), interpolation=cv2.INTER_LINEAR)
+
+
+def pin_depth(pil_img):
+    """Calcule la carte sur la photo source et la partage entre les
+    effets (brume, rayons) : une seule carte, indépendante des réglages
+    appliqués avant eux. None pour retirer."""
+    _depth_state["pin"] = None
+    if pil_img is not None:
+        src = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
+        _depth_state["pin"] = depth_map(src)
 
 
 def _depth_view(far):
@@ -2263,49 +2278,14 @@ def _cloud_noise_cached(h, w, size, seed):
     return _noise_cache[key]
 
 
-def _puffs(far, h, w, size, seed=5, count=180):
-    """Bouffées de brume placées en 3D : chacune a une distance z devant
-    la scène (z <= éloignement du pixel), un rayon en 1/distance (les
-    lointaines petites, les proches amples) et disparaît là où un objet
-    plus proche qu'elle la masque. Retourne une couverture 0..1."""
-    rng = np.random.default_rng(seed)
-    k = min(1.0, 600.0 / max(h, w))
-    sh, sw = max(8, int(h * k)), max(8, int(w * k))
-    f = cv2.resize(far, (sw, sh), interpolation=cv2.INTER_AREA)
-    tex = _cloud_noise_cached(sh, sw, 12.0, seed + 40)
-    cov = np.zeros((sh, sw), np.float32)
-    base = size / 100.0 * min(sh, sw)
-    pts = []
-    for _ in range(count):
-        px, py = int(rng.integers(0, sw)), int(rng.integers(0, sh))
-        z = float(f[py, px]) * rng.uniform(0.3, 1.0)
-        pts.append((z, px, py))
-    for z, px, py in sorted(pts, reverse=True):  # du fond vers l'avant
-        r = max(1.5, base * 0.35 * (1.1 - z) ** 1.5
-                * rng.uniform(0.5, 1.5))
-        x0, x1 = max(0, int(px - 2 * r)), min(sw, int(px + 2 * r) + 1)
-        y0, y1 = max(0, int(py - r)), min(sh, int(py + r) + 1)
-        if x1 <= x0 or y1 <= y0:
-            continue
-        yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
-        q = ((xx - px) / (2 * r)) ** 2 + ((yy - py) / r) ** 2
-        blob = np.clip(1 - q, 0, 1) ** 1.5 * tex[y0:y1, x0:x1]
-        hide = np.clip((f[y0:y1, x0:x1] - z) * 12 + 0.5, 0, 1)
-        a = np.clip(blob * hide * 0.9, 0, 1)
-        cov[y0:y1, x0:x1] = cov[y0:y1, x0:x1] * (1 - a) + a
-    cov = cv2.GaussianBlur(cov, (0, 0), 0.8)
-    return cv2.resize(cov, (w, h), interpolation=cv2.INTER_CUBIC)
-
-
 def add_haze(pil_img, amount, depth, warmth, precise=False,
-             clouds=0.0, cloud_size=30.0, particles=0.0,
-             show_depth=False, ground=0.0, ground_height=0.3,
+             clouds=0.0, cloud_size=30.0, show_depth=False, ground=0.0, ground_height=0.3,
              thick=0.0):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
     clouds 0-1 : nappes irrégulières plutôt qu'un voile uni, en
-    perspective (plus fines au loin). particles 0-1 : bouffées en 3D."""
+    perspective (plus fines au loin)."""
     img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
     color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
                       0.86 - 0.08 * warmth], np.float32)
@@ -2322,6 +2302,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     expo = 1.3 + max(0.0, depth - 1.0) * 3.0
     d = min(1.0, depth)
     h, w = img.shape[:2]
+    thick = thick * 0.35  # au-delà l'effet devient faux (retour user)
     if thick > 0:
         # Épaisseur : bancs denses et trouées claires plutôt qu'un voile
         # égal ; motif choisi selon la distance (plus fin au loin).
@@ -2362,12 +2343,6 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             al = np.clip(amount * clouds * 0.32 * n * vis * hw, 0, 0.9)
             al = al[..., None]
             out = out * (1 - al) + col * al
-    if particles > 0:
-        cov = _puffs(far, h, w, cloud_size)
-        al = np.clip(amount * particles * 1.4 * cov * hw, 0,
-                     0.92)[..., None]
-        col = shade + (color * 1.08 - shade) * cov[..., None]
-        out = out * (1 - al) + col * al
     return _to_pil(out)
 
 
