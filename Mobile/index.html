@@ -484,12 +484,15 @@ function searchMails() {
           (m.sent ? "À : " : "De : ") + m.from),
           h("div", {style: {whiteSpace: "pre-wrap", margin: "8px 0"}},
             m.body),
+          m.files_id ? mailFiles(m.files_id) : null,
           h("button", {class: "btn", onclick: () =>
             mailSheet({reply: m})}, ic("reply"), " Répondre"));
         return h("div", {}, h("div", {class: "slot", onclick: () =>
           full.style.display = full.style.display ? "" : "none"},
           h("i", {class: "bar2", style: {background: C.blue}}),
-          h("div", {class: "tx"}, m.name, h("div", {class: "muted"},
+          h("div", {class: "tx"}, m.name,
+            m.files_id ? [" ", ic("attach_file")] : null,
+            h("div", {class: "muted"},
             m.date.slice(0, 10) + " · " + m.subject))), full);
       }) : [h("div", {class: "muted"}, "Aucun mail")]));
     } catch (e) { list.replaceChildren(h("div", {}, "Erreur : " +

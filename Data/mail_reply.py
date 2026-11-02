@@ -144,8 +144,13 @@ def search(q, limit=30):
     """Mails reçus et envoyés (toute la boîte) dont l'expéditeur, le
     destinataire ou l'objet contient `q` — à défaut, le texte."""
     import email
+    import email.policy
     import email.utils
+    import sys
     import mail_reader
+    sys.path.insert(0, os.path.join(os.path.dirname(
+        os.path.abspath(__file__)), "..", "Pi"))
+    from mail_watch import _save_files
     q = (q or "").replace('"', "").strip()
     if not q:
         return []
@@ -165,7 +170,8 @@ def search(q, limit=30):
                 nums = data[0].split()
             for num in nums[::-1][:limit]:
                 _, parts = imap.fetch(num, "(BODY.PEEK[])")
-                msg = email.message_from_bytes(parts[0][1])
+                msg = email.message_from_bytes(parts[0][1],
+                                               policy=email.policy.default)
                 try:
                     date = email.utils.parsedate_to_datetime(msg["Date"])
                     stamp = f"{date:%Y-%m-%d %H:%M}"
@@ -181,6 +187,11 @@ def search(q, limit=30):
                     "subject": mail_reader._decode(msg["Subject"]),
                     "body": _clean_body(msg),
                     "date": stamp, "sent": sent})
+                mid = found[-1]["message_id"]
+                try:  # pièces jointes servies par /files, comme le briefing
+                    found[-1]["files_id"] = _save_files(msg, mid)
+                except Exception as exc:
+                    print(f"[Mail] pièces jointes : {exc}", flush=True)
     found.sort(key=lambda m: m["date"], reverse=True)
     found = found[:limit]
     with open(FOUND + ".tmp", "w", encoding="utf-8") as f:

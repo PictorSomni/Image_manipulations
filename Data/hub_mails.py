@@ -224,6 +224,7 @@ def build(ui):
                         + ("À : " if m["sent"] else "De : ") + m["from"],
                         color=LIGHT_GREY, selectable=True),
                 _dlg_btn("Répondre", on_click=lambda e: _reply(m)),
+                *([_mail_files(m)] if m.get("files_id") else []),
                 ft.Text(m["body"], color=WHITE, selectable=True)]
             page.update()
 
@@ -239,6 +240,8 @@ def build(ui):
                 title=ft.Text(m["name"], color=WHITE),
                 subtitle=ft.Text(f"{m['date'][:10]} · {m['subject']}",
                                  color=LIGHT_GREY),
+                trailing=ft.Icon(ft.Icons.ATTACH_FILE, color=LIGHT_GREY,
+                                 size=16) if m.get("files_id") else None,
                 on_click=lambda e, m=m: _pick(m)) for m in out]
             if out:
                 _pick(out[0])
