@@ -556,8 +556,10 @@ def compute_crop_with_canvas(image: Image.Image, target_w_px: int,
                     white_background, output_image
                 ).convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
             background_layer = blurred_background.convert("RGBA")
+        subject_mask = output_image.getchannel("A")
         output_image = Image.alpha_composite(
             background_layer, output_image).convert("RGB")
+        output_image.info["rembg_alpha"] = subject_mask
     else:
         output_image = output_image.convert("RGB")
 
@@ -660,9 +662,11 @@ def compute_fit_in(image: Image.Image, target_w_px: int, target_h_px: int,
                     white_background, source_image
                 ).convert("RGB").filter(ImageFilter.GaussianBlur(radius=64))
             background_layer = blurred_background.convert("RGBA")
+        subject_mask = source_image.getchannel("A")
         source_image = Image.alpha_composite(
             background_layer, source_image).convert("RGB")
     else:
+        subject_mask = None
         source_image = source_image.convert("RGB")
 
     fit_scale_factor = min(target_w_px / original_width,
@@ -675,9 +679,26 @@ def compute_fit_in(image: Image.Image, target_w_px: int, target_h_px: int,
     paste_offset_x = (target_w_px - resized_width) // 2
     paste_offset_y = (target_h_px - resized_height) // 2
     output_canvas.paste(resized_image, (paste_offset_x, paste_offset_y))
+    if subject_mask is not None:
+        mask_canvas = Image.new("L", (target_w_px, target_h_px), 0)
+        mask_canvas.paste(subject_mask.resize(
+            (resized_width, resized_height), Image.Resampling.BICUBIC),
+            (paste_offset_x, paste_offset_y))
+        output_canvas.info["rembg_alpha"] = mask_canvas
     if is_bw:
         output_canvas = output_canvas.convert("L").convert("RGB")
     return output_canvas
+
+
+def keep_background(adjusted: Image.Image,
+                    before: Image.Image) -> Image.Image:
+    """Remet le fond de remplacement d'un détourage tel qu'il était
+    avant les réglages : seul le sujet est retouché."""
+    mask = before.info.get("rembg_alpha")
+    if mask is None or mask.size != adjusted.size:
+        return adjusted
+    return Image.composite(adjusted.convert("RGB"), before.convert("RGB"),
+                           mask)
 
 
 # ================================================================ #

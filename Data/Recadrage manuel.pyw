@@ -2258,7 +2258,9 @@ class PhotoCropper:
                         white_background = Image.new("RGBA", preview_image.size, (255, 255, 255, 255))
                         blurred_background = Image.alpha_composite(white_background, preview_image).convert("RGB").filter(ImageFilter.GaussianBlur(radius=30))
                     background_layer = blurred_background.convert("RGBA")
+                subject_mask = preview_image.getchannel("A")
                 preview_image = Image.alpha_composite(background_layer, preview_image).convert("RGB")
+                preview_image.info["rembg_alpha"] = subject_mask
                 self._rembg_composite_cache = (composite_cache_key, preview_image.copy())
         else:
             preview_image = preview_image.convert("RGB")
@@ -2268,6 +2270,7 @@ class PhotoCropper:
             preview_image = ImageOps.grayscale(preview_image).convert("RGB")
 
         # Contraste, saturation, exposition
+        unadjusted_image = preview_image
         preview_image = self._apply_adjustments(preview_image)
 
         # Ombres
@@ -2283,6 +2286,9 @@ class PhotoCropper:
             preview_image = image_ops.apply_whites(preview_image, self.whites)
         if getattr(self, 'blacks', 0) != 0:
             preview_image = image_ops.apply_blacks(preview_image, self.blacks)
+        # Le fond de remplacement d'un détourage n'est pas retouché
+        preview_image = image_ops.keep_background(preview_image,
+                                                  unadjusted_image)
 
         # Netteté
         if self.is_sharpen:
@@ -4364,6 +4370,7 @@ class PhotoCropper:
                           else (255, 255, 255, 255))
                     _bg = Image.new('RGBA', _src.size, _c)
                 output_image = Image.alpha_composite(_bg, _src).convert('RGB')
+                output_image.info["rembg_alpha"] = _src.getchannel("A")
             else:
                 output_image = _src.convert('RGB')
             if job["is_bw"]:
@@ -4394,6 +4401,7 @@ class PhotoCropper:
         # Appliquer les réglages couleur sur la photo AVANT l'ajout des
         # bordures/marges, pour que les zones blanches (13x15, Polaroid,
         # ID grille…) restent blanc pur.
+        unadjusted_image = output_image
         output_image = image_ops.apply_adjustments(
             output_image, exposure=job["exposure"],
             contrast=job["contrast"], saturation=job["saturation"],
@@ -4411,6 +4419,8 @@ class PhotoCropper:
         if job["blacks"] != 0:
             output_image = image_ops.apply_blacks(output_image,
                                                    job["blacks"])
+        output_image = image_ops.keep_background(output_image,
+                                                 unadjusted_image)
 
         if _crop_mode != 'none' and job["white_border"]:
             border_px = mm_to_pixels(5)
@@ -4703,6 +4713,7 @@ class PhotoCropper:
             # Réglages couleur du snapshot AVANT les bordures, via
             # image_ops directement (aucune mutation temporaire de self :
             # l'UI travaille déjà sur l'image suivante).
+            unadjusted_image = snapshot_output_image
             snapshot_output_image = image_ops.apply_adjustments(
                 snapshot_output_image,
                 exposure=snapshot.get("exposure", 0),
@@ -4723,6 +4734,8 @@ class PhotoCropper:
             if snapshot.get("blacks", 0) != 0:
                 snapshot_output_image = image_ops.apply_blacks(
                     snapshot_output_image, snapshot["blacks"])
+            snapshot_output_image = image_ops.keep_background(
+                snapshot_output_image, unadjusted_image)
 
             snapshot_copies_count = snapshot.get("copies", 1)
             snapshot_copies_prefix = f"{snapshot_copies_count}X_"
