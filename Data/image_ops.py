@@ -2114,7 +2114,12 @@ def _depth_precise(img, quality=False):
     # le ciel (disparité minimale) part au plus loin.
     lo, hi = np.percentile(d, (2, 99))
     d = np.clip((d - lo) / max(1e-6, hi - lo), 0, 1)
-    far = 1.0 - cv2.resize(d, (w, h), interpolation=cv2.INTER_CUBIC)
+    # Le modèle donne une disparité (~1/distance) : on repasse en
+    # distance, en log, sinon tout le lointain (îlot, montagnes) finit
+    # au même blanc et la perspective disparaît.
+    d = np.log(1.0 / (d + 0.03))
+    d = (d - d.min()) / max(1e-6, float(np.ptp(d)))
+    far = cv2.resize(d, (w, h), interpolation=cv2.INTER_CUBIC)
     if quality:
         g = _luma(img)
         sc = min(1.0, 2500.0 / max(g.shape))
