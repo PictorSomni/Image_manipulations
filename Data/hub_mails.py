@@ -224,8 +224,8 @@ def build(ui):
                         + ("À : " if m["sent"] else "De : ") + m["from"],
                         color=LIGHT_GREY, selectable=True),
                 _dlg_btn("Répondre", on_click=lambda e: _reply(m)),
-                *([_mail_files(m)] if m.get("files_id") else []),
-                ft.Text(m["body"], color=WHITE, selectable=True)]
+                ft.Text(m["body"], color=WHITE, selectable=True),
+                *([_mail_files(m)] if m.get("files_id") else [])]
             page.update()
 
         def _done(out):
