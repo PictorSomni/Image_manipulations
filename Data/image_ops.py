@@ -2380,6 +2380,7 @@ def _sun_shadow(far, sx, sy, fov=60.0):
     L = np.array([(sx - sw / 2) / foc, (sy - sh / 2) / foc, 1.0])
     L /= np.linalg.norm(L)
     zmax = float(z.max())
+    zsky = math.exp(0.95 * math.log(80.0))
 
     def lit(px, py, pz):
         ok = np.ones(px.shape, np.float32)
@@ -2390,7 +2391,9 @@ def _sun_shadow(far, sx, sy, fov=60.0):
             v = (foc * qy / qz + sh / 2).astype(np.int32)
             inside = (u >= 0) & (u < sw) & (v >= 0) & (v < sh)
             zs = z[np.clip(v, 0, sh - 1), np.clip(u, 0, sw - 1)]
-            hit = inside & (zs < qz * 0.97) & (qz - zs < qz * 0.35)
+            # Le ciel n'est pas un mur : il ne fait pas d'ombre.
+            hit = inside & (zs < qz * 0.97) & (qz - zs < qz * 0.35) \
+                & (zs < zsky)
             ok = np.where(hit, 0.0, ok)
         return ok
 
@@ -2540,6 +2543,9 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     if vol is not None:
         v = cv2.resize(vol, (sw, sh), interpolation=cv2.INTER_LINEAR)
         # Ombres dans le volume seulement : rien n'est peint au sol.
+        # Calé sur l'air le plus éclairé : les ombres creusent les
+        # faisceaux sans éteindre l'ensemble.
+        v = np.clip(v / max(1e-3, float(np.percentile(v, 95))), 0, 1)
         lit = lit * ((1 - shadows) + shadows * v ** 2)
     rays = cv2.resize(lit, (w, h), interpolation=cv2.INTER_LINEAR)
     # Ajout en lumière linéaire (comme une exposition) puis épaule douce :
