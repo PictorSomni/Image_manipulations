@@ -1240,7 +1240,7 @@ function viewHome() {
           onclick: () => notifyClient(r)}, ic("mail")) : null,
         h("button", {class: "btn out", title: "Prévenu", onclick: () =>
           setProps(r, {"Prévenir ?": "Prévenu"})}, ic("done"))]
-        .filter(Boolean)))))));
+        .filter(Boolean))))));
   // Question du jour du quiz : un choix révèle réponse et anecdote.
   const qz = S.briefing && S.briefing.quiz;
   if (qz) {
