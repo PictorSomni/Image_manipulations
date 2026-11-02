@@ -182,7 +182,6 @@ def default_params():
                       "precise": C.BRUME_PRECISE,
                       "clouds": C.BRUME_CLOUDS,
                       "cloud_size": C.BRUME_CLOUD_SIZE,
-                      "near": C.BRUME_NEAR, "far_end": C.BRUME_FAR,
                       "particles": C.BRUME_PARTICLES,
                       "show_depth": False},
             "rayons": {"enabled": C.RAYONS_ENABLED, "x": C.RAYONS_X,
@@ -199,9 +198,7 @@ def default_params():
                        "count": C.RAYONS_COUNT,
                        "ray_width": C.RAYONS_WIDTH,
                        "shadows": C.RAYONS_SHADOWS,
-                       "hardness": C.RAYONS_HARDNESS,
                        "diffusion": C.RAYONS_DIFFUSION,
-                       "near": C.RAYONS_NEAR, "far_end": C.RAYONS_FAR,
                        "show_depth": False},
             "grain1": {"enabled": C.RETOUCHE_LOT_GRAIN1_ENABLED,
                       "amount": C.GRAIN_AMOUNT,
@@ -490,13 +487,12 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
            ("amount", "softness", "shadows")),
           ("brume", image_ops.add_haze,
            ("amount", "depth", "warmth", "precise", "clouds",
-            "cloud_size", "near", "far_end", "particles",
-            "show_depth")),
+            "cloud_size", "particles", "show_depth")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
-            "count", "ray_width", "shadows", "parallel", "hardness",
-            "diffusion", "near", "far_end", "show_depth")),
+            "count", "ray_width", "shadows", "parallel",
+            "diffusion", "show_depth")),
           ("vignette", image_ops.add_vignette,
            ("amount", "size", "feather", "roundness"))]
     for name, func, keys in fx:
@@ -1828,9 +1824,7 @@ def main(page: ft.Page):
             ("warmth", "Chaleur", -1, 1, 0.01),
             ("clouds", "Nuages", 0, 1, 0.01),
             ("cloud_size", "Taille des nuages", 5, 100, 1),
-            ("particles", "Particules", 0, 1, 0.01),
-            ("near", "Proche", 0, 1, 0.01),
-            ("far_end", "Loin", 0, 1, 0.01)])
+            ("particles", "Particules", 0, 1, 0.01)])
     sun_btn = ft.OutlinedButton(
         "Placer le soleil", icon=ft.Icons.WB_SUNNY_OUTLINED,
         on_click=lambda e: _toggle_sun(), expand=True,
@@ -1845,16 +1839,13 @@ def main(page: ft.Page):
             ("ray_width", "Largeur des rayons", 0.2, 3, 0.05),
             ("length", "Longueur", 0, 100, 1),
             ("intensity", "Intensité", 0, 1, 0.01),
-            ("hardness", "Dureté", 0, 1, 0.01),
             ("diffusion", "Diffusion", 0, 1, 0.01),
             ("warmth", "Chaleur", 0, 1, 0.01),
             ("sun_size", "Taille du soleil", 0, 20, 0.5),
             ("influence", "Influence de la photo", 0, 1, 0.01),
             ("threshold", "Seuil", 0, 1, 0.01),
             ("depth", "Profondeur", 0, 3, 0.01),
-            ("shadows", "Ombres volumétriques", 0, 1, 0.01),
-            ("near", "Proche", 0, 1, 0.01),
-            ("far_end", "Loin", 0, 1, 0.01)],
+            ("shadows", "Ombres volumétriques", 0, 1, 0.01)],
         head=[ft.Row([sun_btn])])
     section_vignette = _grain_section(
         "Vignette", BLUE_DARK, ft.Icons.VIGNETTE, ga["vignette"], [

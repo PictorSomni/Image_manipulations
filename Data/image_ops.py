@@ -2154,12 +2154,6 @@ def depth_map(img, precise=0):
     return cache[key]
 
 
-def _depth_range(far, near, far_end):
-    """Recadre l'éloignement sur la tranche [near, far_end] choisie."""
-    far_end = max(far_end, near + 0.02)
-    return np.clip((far - near) / (far_end - near), 0, 1)
-
-
 def _depth_view(far):
     """Carte affichée : blanc = loin, noir = proche."""
     g = (np.clip(far, 0, 1) * 255).astype(np.uint8)
@@ -2265,19 +2259,17 @@ def _puffs(far, h, w, size, seed=5, count=180):
 
 
 def add_haze(pil_img, amount, depth, warmth, precise=False,
-             clouds=0.0, cloud_size=30.0, near=0.0, far_end=1.0,
-             particles=0.0, show_depth=False):
+             clouds=0.0, cloud_size=30.0, particles=0.0,
+             show_depth=False):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
     clouds 0-1 : nappes irrégulières plutôt qu'un voile uni, en
-    perspective (plus fines au loin). near/far_end : tranche de
-    distance concernée. particles 0-1 : bouffées en 3D."""
+    perspective (plus fines au loin). particles 0-1 : bouffées en 3D."""
     img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
     color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
                       0.86 - 0.08 * warmth], np.float32)
-    raw = depth_map(img, precise)
-    far = _depth_range(raw, near, far_end)
+    far = depth_map(img, precise)
     if show_depth:
         return _depth_view(far)
     m = _depth_weight(far, depth)
@@ -2317,8 +2309,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
 def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
                 sun_size, influence=0.5, depth=0.0, precise=False,
                 rays=1.0, count=40, ray_width=1.0, shadows=0.0,
-                parallel=False, hardness=0.5, diffusion=0.0,
-                near=0.0, far_end=1.0, show_depth=False):
+                parallel=False, diffusion=0.0, show_depth=False):
     """Rayons de soleil depuis (x, y) en %, hors cadre permis (-50..150).
     La lumière traverse les zones claires de la photo et bute sur les
     sombres (influence 0-1, feuillages, silhouettes) ; depth 0-1 réserve
@@ -2330,7 +2321,7 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     small = cv2.resize(img, (sw, sh), interpolation=cv2.INTER_AREA)
     far = None
     if show_depth or depth > 0 or shadows > 0:
-        dm = _depth_range(depth_map(img, precise), near, far_end)
+        dm = depth_map(img, precise)
         if show_depth:
             return _depth_view(dm)
     if depth > 0:
@@ -2394,7 +2385,8 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     else:
         ang = (np.arctan2(yy - cy, xx - cx) + np.pi) / (2 * np.pi) \
             * (nb - 1)
-    # Dureté : faisceaux tranchés (haut) ou lumière douce (bas).
+    # Plus de faisceaux = faisceaux aussi plus tranchés.
+    hardness = 0.2 + 0.7 * rays
     bins = bins ** (2.0 ** ((hardness - 0.5) * 3))
     streak = 0.12 + 0.88 * bins[ang.astype(np.int32)]
     streak = streak * (1 - influence * 0.6) + influence * 0.6
