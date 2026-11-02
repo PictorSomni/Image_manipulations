@@ -105,6 +105,41 @@ def _found():
         return []
 
 
+def _clean_body(msg):
+    """Texte lisible : paragraphes gardés, HTML débalisé, historique
+    cité (« Le … a écrit », « De : … ») coupé."""
+    parts = [p for p in msg.walk() if not p.get_filename()
+             and p.get_content_type() in ("text/plain", "text/html")]
+    part = next((p for p in parts if p.get_content_type() == "text/plain"),
+                parts[0] if parts else None)
+    if part is None:
+        return ""
+    raw = part.get_payload(decode=True) or b""
+    text = raw.decode(part.get_content_charset() or "utf-8", "replace")
+    if part.get_content_type() == "text/html":
+        text = re.sub(r"(?is)<(style|script|head).*?</\1>", "", text)
+        text = re.sub(r"(?i)<br\s*/?>|</(p|div|tr|li|h\d)>", "\n", text)
+        text = html.unescape(re.sub(r"<[^>]+>", "", text))
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = []
+    for line in text.split("\n"):
+        line = " ".join(line.replace("\xa0", " ").split())
+        if line.startswith(">"):
+            continue
+        if re.match(r"(Le .{5,120} a écrit ?:|On .{5,120} wrote:|"
+                    r"-+ ?(Original|Message d'origine)|"
+                    r"(De|From) ?: .+@)", line):
+            break
+        lines.append(line)
+    text = "\n".join(lines)
+    # Lignes coupées à ~76 caractères par le client mail : recollées.
+    text = re.sub(r"(?<=[^\n.!?:;])\n(?=[a-zà-ÿ(])", " ", text)
+    text = re.sub(r"\[https?://[^\]]*\]|<(mailto:|https?://)[^>]*>", "",
+                  text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()[:20_000]
+
+
 def search(q, limit=30):
     """Mails reçus et envoyés (toute la boîte) dont l'expéditeur, le
     destinataire ou l'objet contient `q` — à défaut, le texte."""
@@ -144,7 +179,7 @@ def search(q, limit=30):
                     "name": ("→ " if sent else "")
                     + (other.split("<")[0].strip().strip('"') or other),
                     "subject": mail_reader._decode(msg["Subject"]),
-                    "body": mail_reader._body_text(msg, 20_000),
+                    "body": _clean_body(msg),
                     "date": stamp, "sent": sent})
     found.sort(key=lambda m: m["date"], reverse=True)
     found = found[:limit]
