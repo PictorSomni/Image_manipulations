@@ -2118,7 +2118,22 @@ def _depth_precise(img, quality=False):
     # distance, en log, sinon tout le lointain (îlot, montagnes) finit
     # au même blanc et la perspective disparaît.
     d = np.log(1.0 / (d + 0.03))
-    d = (d - d.min()) / max(1e-6, float(np.ptp(d)))
+    # Ciel = disparité quasi nulle (sur la passe globale, sans le liseré
+    # du détail) : mis au plus loin ; le reste s'étale sur 0..0.92 pour
+    # ne pas être écrasé dans le noir par le ciel.
+    sky = np.zeros(d.shape, bool)
+    if quality:
+        gn = np.clip((g - lo) / max(1e-6, hi - lo), 0, 1)
+        # Le modèle met parfois le ciel à mi-distance : on prend la
+        # valeur du haut de l'image comme référence de ciel.
+        ref = float(np.median(gn[:max(2, gn.shape[0] // 40)]))
+        sky = gn < min(0.35, ref + 0.04)
+        sky = cv2.resize(sky.astype(np.uint8), d.shape[::-1],
+                         interpolation=cv2.INTER_NEAREST) > 0
+    ground = d[~sky] if (~sky).sum() > 100 else d.ravel()
+    a, b = np.percentile(ground, (1, 99.5))
+    d = np.clip((d - a) / max(1e-6, b - a), 0, 1) * 0.92
+    d[sky] = 1.0
     far = cv2.resize(d, (w, h), interpolation=cv2.INTER_CUBIC)
     if quality:
         g = _luma(img)
