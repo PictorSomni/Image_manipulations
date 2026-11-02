@@ -2029,28 +2029,33 @@ def add_mystical(pil_img, amount, softness, shadows):
     return _to_pil(out)
 
 
-_DEPTH_URL = ("https://huggingface.co/onnx-community/"
-              "depth-anything-v2-small/resolve/main/onnx/"
-              "model_quantized.onnx")
-_DEPTH_FILE = os.path.join(os.path.expanduser("~"), ".cache",
-                           "hub_models", "depth_anything_v2_small_q.onnx")
-_depth_state = {"session": None, "cache": {}}
+_DEPTH_URLS = {
+    "small": "https://huggingface.co/onnx-community/"
+             "depth-anything-v2-small/resolve/main/onnx/"
+             "model_quantized.onnx",
+    "base": "https://huggingface.co/onnx-community/"
+            "depth-anything-v2-base/resolve/main/onnx/"
+            "model_quantized.onnx"}
+_depth_state = {"session": {}, "cache": {}}
 
 
-def _depth_session():
-    """Session Depth Anything V2 small (27 Mo, téléchargée au premier
-    usage dans ~/.cache/hub_models)."""
-    if _depth_state["session"] is None:
+def _depth_session(kind="small"):
+    """Session Depth Anything V2 (small 27 Mo, base 100 Mo pour le mode
+    qualité), téléchargée au premier usage dans ~/.cache/hub_models."""
+    if kind not in _depth_state["session"]:
         import onnxruntime
         import urllib.request
-        if not os.path.exists(_DEPTH_FILE):
-            os.makedirs(os.path.dirname(_DEPTH_FILE), exist_ok=True)
-            tmp = _DEPTH_FILE + ".part"
-            urllib.request.urlretrieve(_DEPTH_URL, tmp)
-            os.replace(tmp, _DEPTH_FILE)
-        _depth_state["session"] = onnxruntime.InferenceSession(
-            _DEPTH_FILE, providers=["CPUExecutionProvider"])
-    return _depth_state["session"]
+        path = os.path.join(os.path.expanduser("~"), ".cache",
+                            "hub_models",
+                            f"depth_anything_v2_{kind}_q.onnx")
+        if not os.path.exists(path):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = path + ".part"
+            urllib.request.urlretrieve(_DEPTH_URLS[kind], tmp)
+            os.replace(tmp, path)
+        _depth_state["session"][kind] = onnxruntime.InferenceSession(
+            path, providers=["CPUExecutionProvider"])
+    return _depth_state["session"][kind]
 
 
 def _depth_rough(img):
@@ -2075,8 +2080,9 @@ def _guided(guide, src, r, eps=1e-3):
     return box(a) * guide + box(b)
 
 
-def _depth_precise(img, size=518):
-    sess = _depth_session()
+def _disparity(img, size, kind):
+    """Disparité brute (grand = proche) à la taille d'entrée `size`."""
+    sess = _depth_session(kind)
     h, w = img.shape[:2]
     k = float(size) / max(h, w)
     th = max(14, int(round(h * k / 14)) * 14)
@@ -2086,17 +2092,48 @@ def _depth_precise(img, size=518):
         / np.array([0.229, 0.224, 0.225], np.float32)
     x = x.transpose(2, 0, 1)[None].astype(np.float32)
     d = sess.run(None, {sess.get_inputs()[0].name: x})[0][0]
-    d = (d - d.min()) / max(1e-6, float(np.ptp(d)))
-    far = 1.0 - cv2.resize(d.astype(np.float32), (w, h),
-                           interpolation=cv2.INTER_CUBIC)
+    return d.astype(np.float32)
+
+
+def _depth_precise(img, quality=False):
+    """Éloignement IA 0..1. Qualité : modèle base, passe globale 518 px
+    (étagement juste) + passe 1036 px dont on ne garde que le détail
+    (contours fins), puis bords recalés sur la photo à ~2500 px."""
+    h, w = img.shape[:2]
+    kind = "base" if quality else "small"
+    d = _disparity(img, 518, kind)
+    if quality:
+        fine = _disparity(img, 1036, kind)
+        g = cv2.resize(d, fine.shape[::-1], interpolation=cv2.INTER_CUBIC)
+        # Même échelle que la passe globale, puis détail haute fréquence.
+        fine = (fine - fine.mean()) / max(1e-6, float(fine.std())) \
+            * float(g.std()) + float(g.mean())
+        sig = max(fine.shape) / 60.0
+        d = g + (fine - cv2.GaussianBlur(fine, (0, 0), sig))
+    # Étagement calé sur les valeurs courantes, pas sur un point isolé ;
+    # le ciel (disparité minimale) part au plus loin.
+    lo, hi = np.percentile(d, (2, 99))
+    d = np.clip((d - lo) / max(1e-6, hi - lo), 0, 1)
+    far = 1.0 - cv2.resize(d, (w, h), interpolation=cv2.INTER_CUBIC)
+    if quality:
+        g = _luma(img)
+        sc = min(1.0, 2500.0 / max(g.shape))
+        if sc < 1:
+            g = cv2.resize(g, None, fx=sc, fy=sc,
+                           interpolation=cv2.INTER_AREA)
+        f = cv2.resize(far, (g.shape[1], g.shape[0]),
+                       interpolation=cv2.INTER_AREA)
+        r = max(3, int(max(g.shape) / 250)) | 1
+        f = _guided(g, f, r, 4e-4)
+        far = cv2.resize(f, (w, h), interpolation=cv2.INTER_LINEAR)
     return np.clip(far, 0, 1)
 
 
 def depth_map(img, precise=0):
     """Carte d'éloignement 0 (proche) .. 1 (loin) d'une image float RGB,
     mise en cache par image (calculée une fois, pas à chaque curseur).
-    precise : 0 rapide (estimation), 1 équilibré (IA 518 px), 2 qualité
-    (IA 1036 px + bords recalés sur la photo). Repli sur l'estimation
+    precise : 0 rapide (estimation), 1 équilibré (IA small), 2 qualité
+    (IA base, multi-échelle, bords recalés). Repli sur l'estimation
     si le modèle échoue."""
     precise = int(precise)
     thumb = cv2.resize(img, (16, 16), interpolation=cv2.INTER_AREA)
@@ -2106,22 +2143,7 @@ def depth_map(img, precise=0):
         far = None
         if precise:
             try:
-                if precise >= 2:
-                    far = _depth_precise(img, 1036)
-                    g = _luma(img)
-                    sc = min(1.0, 1500.0 / max(g.shape))
-                    if sc < 1:
-                        g = cv2.resize(g, None, fx=sc, fy=sc,
-                                       interpolation=cv2.INTER_AREA)
-                    f = cv2.resize(far, (g.shape[1], g.shape[0]),
-                                   interpolation=cv2.INTER_AREA)
-                    r = max(3, int(max(g.shape) / 150)) | 1
-                    f = _guided(g, f, r)
-                    far = np.clip(cv2.resize(
-                        f, (img.shape[1], img.shape[0]),
-                        interpolation=cv2.INTER_LINEAR), 0, 1)
-                else:
-                    far = _depth_precise(img)
+                far = _depth_precise(img, precise >= 2)
             except Exception as exc:
                 print(f"Profondeur IA indisponible : {exc}")
         if far is None:
@@ -2130,6 +2152,18 @@ def depth_map(img, precise=0):
             cache.pop(next(iter(cache)))
         cache[key] = far
     return cache[key]
+
+
+def _depth_range(far, near, far_end):
+    """Recadre l'éloignement sur la tranche [near, far_end] choisie."""
+    far_end = max(far_end, near + 0.02)
+    return np.clip((far - near) / (far_end - near), 0, 1)
+
+
+def _depth_view(far):
+    """Carte affichée : blanc = loin, noir = proche."""
+    g = (np.clip(far, 0, 1) * 255).astype(np.uint8)
+    return Image.fromarray(g).convert("RGB")
 
 
 def _fbm(h, w, base, rng, octaves=6, stretch=3.0):
@@ -2196,41 +2230,86 @@ def _cloud_noise_cached(h, w, size, seed):
     return _noise_cache[key]
 
 
+def _puffs(far, h, w, size, seed=5, count=180):
+    """Bouffées de brume placées en 3D : chacune a une distance z devant
+    la scène (z <= éloignement du pixel), un rayon en 1/distance (les
+    lointaines petites, les proches amples) et disparaît là où un objet
+    plus proche qu'elle la masque. Retourne une couverture 0..1."""
+    rng = np.random.default_rng(seed)
+    k = min(1.0, 600.0 / max(h, w))
+    sh, sw = max(8, int(h * k)), max(8, int(w * k))
+    f = cv2.resize(far, (sw, sh), interpolation=cv2.INTER_AREA)
+    tex = _cloud_noise_cached(sh, sw, 12.0, seed + 40)
+    cov = np.zeros((sh, sw), np.float32)
+    base = size / 100.0 * min(sh, sw)
+    pts = []
+    for _ in range(count):
+        px, py = int(rng.integers(0, sw)), int(rng.integers(0, sh))
+        z = float(f[py, px]) * rng.uniform(0.3, 1.0)
+        pts.append((z, px, py))
+    for z, px, py in sorted(pts, reverse=True):  # du fond vers l'avant
+        r = max(1.5, base * 0.35 * (1.1 - z) ** 1.5
+                * rng.uniform(0.5, 1.5))
+        x0, x1 = max(0, int(px - 2 * r)), min(sw, int(px + 2 * r) + 1)
+        y0, y1 = max(0, int(py - r)), min(sh, int(py + r) + 1)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        yy, xx = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+        q = ((xx - px) / (2 * r)) ** 2 + ((yy - py) / r) ** 2
+        blob = np.clip(1 - q, 0, 1) ** 1.5 * tex[y0:y1, x0:x1]
+        hide = np.clip((f[y0:y1, x0:x1] - z) * 12 + 0.5, 0, 1)
+        a = np.clip(blob * hide * 0.9, 0, 1)
+        cov[y0:y1, x0:x1] = cov[y0:y1, x0:x1] * (1 - a) + a
+    cov = cv2.GaussianBlur(cov, (0, 0), 0.8)
+    return cv2.resize(cov, (w, h), interpolation=cv2.INTER_CUBIC)
+
+
 def add_haze(pil_img, amount, depth, warmth, precise=False,
-             clouds=0.0, cloud_size=30.0):
+             clouds=0.0, cloud_size=30.0, near=0.0, far_end=1.0,
+             particles=0.0, show_depth=False):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
-    clouds 0-1 : nappes irrégulières plutôt qu'un voile uni."""
+    clouds 0-1 : nappes irrégulières plutôt qu'un voile uni, en
+    perspective (plus fines au loin). near/far_end : tranche de
+    distance concernée. particles 0-1 : bouffées en 3D."""
     img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
     color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
                       0.86 - 0.08 * warmth], np.float32)
-    far = depth_map(img, precise)
+    raw = depth_map(img, precise)
+    far = _depth_range(raw, near, far_end)
+    if show_depth:
+        return _depth_view(far)
     m = _depth_weight(far, depth)
     expo = 1.3 + max(0.0, depth - 1.0) * 3.0
     d = min(1.0, depth)
     a = np.clip(amount * m, 0, 0.95)[..., None]
-    if clouds <= 0:
-        return _to_pil(img * (1 - a) + color * a)
-    # Couches successives de nappes translucides, du fond vers l'avant :
-    # chaque couche est posée à une distance et ne voile que ce qui est
-    # derrière elle ; les lointaines sont plus fines et plus serrées
-    # (perspective), les proches plus amples.
     h, w = img.shape[:2]
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + color * a * (1 - 0.6 * clouds)
-    fd = far ** expo
-    layers = 6
     shade = np.array([0.84, 0.87, 0.93], np.float32) * color
-    for i in reversed(range(layers)):
-        t = (i + 0.5) / layers
-        vis = np.clip((fd - t * 0.9) * layers + 0.5, 0, 1)
-        vis = (1 - d) + d * vis
-        n = _cloud_noise_cached(h, w, cloud_size * (1.3 - 0.8 * t),
-                                11 + i)
-        n = np.clip((n - 0.35) * 1.8, 0, 1) ** 1.6
-        col = shade + (color * 1.06 - shade) * n[..., None]
-        al = np.clip(amount * clouds * 0.45 * n * vis, 0, 0.9)[..., None]
+    if clouds > 0:
+        # Couches successives de nappes translucides, du fond vers
+        # l'avant : chaque couche ne voile que ce qui est derrière elle ;
+        # leur taille suit 1/distance (perspective).
+        fd = far ** expo
+        layers = 10
+        for i in reversed(range(layers)):
+            t = (i + 0.5) / layers
+            vis = np.clip((fd - t * 0.9) * layers + 0.5, 0, 1)
+            vis = (1 - d) + d * vis
+            n = _cloud_noise_cached(
+                h, w, max(3.0, cloud_size * 1.4 * (1.05 - t) ** 1.6),
+                11 + i)
+            n = np.clip((n - 0.35) * 1.8, 0, 1) ** 1.6
+            col = shade + (color * 1.06 - shade) * n[..., None]
+            al = np.clip(amount * clouds * 0.32 * n * vis, 0, 0.9)
+            al = al[..., None]
+            out = out * (1 - al) + col * al
+    if particles > 0:
+        cov = _puffs(far, h, w, cloud_size)
+        al = np.clip(amount * particles * 1.4 * cov, 0, 0.92)[..., None]
+        col = shade + (color * 1.08 - shade) * cov[..., None]
         out = out * (1 - al) + col * al
     return _to_pil(out)
 
@@ -2238,7 +2317,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
 def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
                 sun_size, influence=0.5, depth=0.0, precise=False,
                 rays=1.0, count=40, ray_width=1.0, shadows=0.0,
-                parallel=False):
+                parallel=False, hardness=0.5, diffusion=0.0,
+                near=0.0, far_end=1.0, show_depth=False):
     """Rayons de soleil depuis (x, y) en %, hors cadre permis (-50..150).
     La lumière traverse les zones claires de la photo et bute sur les
     sombres (influence 0-1, feuillages, silhouettes) ; depth 0-1 réserve
@@ -2249,13 +2329,17 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     sw, sh = max(1, int(w * scale)), max(1, int(h * scale))
     small = cv2.resize(img, (sw, sh), interpolation=cv2.INTER_AREA)
     far = None
+    if show_depth or depth > 0 or shadows > 0:
+        dm = _depth_range(depth_map(img, precise), near, far_end)
+        if show_depth:
+            return _depth_view(dm)
     if depth > 0:
-        far = cv2.resize(_depth_weight(depth_map(img, precise), depth),
+        far = cv2.resize(_depth_weight(dm, depth),
                          (sw, sh), interpolation=cv2.INTER_AREA)
     occ = None
     if shadows > 0:
         # Occultation volumétrique : le proche (sujet) bloque la lumière.
-        fn = cv2.resize(depth_map(img, precise), (sw, sh),
+        fn = cv2.resize(dm, (sw, sh),
                         interpolation=cv2.INTER_AREA)
         lo, hi = np.percentile(fn, (5, 95))
         occ = np.clip((fn - lo) / max(1e-4, hi - lo), 0, 1) ** 2
@@ -2310,6 +2394,8 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     else:
         ang = (np.arctan2(yy - cy, xx - cx) + np.pi) / (2 * np.pi) \
             * (nb - 1)
+    # Dureté : faisceaux tranchés (haut) ou lumière douce (bas).
+    bins = bins ** (2.0 ** ((hardness - 0.5) * 3))
     streak = 0.12 + 0.88 * bins[ang.astype(np.int32)]
     streak = streak * (1 - influence * 0.6) + influence * 0.6
     streak = (1 - rays) + rays * streak  # 0 = atmosphère sans faisceaux
@@ -2349,16 +2435,27 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
                                 borderMode=cv2.BORDER_CONSTANT)
         acc += warped * (1.0 - i / steps)
     acc /= steps * 0.5
-    acc = cv2.GaussianBlur(acc, (0, 0), 1.5)[pt:pt + sh, pl:pl + sw]
+    acc = cv2.GaussianBlur(acc, (0, 0), 0.6 + 1.8 * (1 - hardness))
+    acc = acc[pt:pt + sh, pl:pl + sw]
     lit, unlit = acc[..., 0], acc[..., 1]
     # Compense la lumière perdue derrière les obstacles.
     lit = lit * (1 + 1.6 * influence)
     shade = np.clip(unlit - lit, 0, None)
     if far is not None:
         lit = lit * far
+    if diffusion > 0:
+        # Lumière diffusée par l'air : halo large autour des faisceaux.
+        glow2 = cv2.GaussianBlur(lit, (0, 0), 0.06 * max(sw, sh))
+        lit = lit * (1 - 0.6 * diffusion) + diffusion * 0.9 * glow2
     rays = cv2.resize(lit, (w, h), interpolation=cv2.INTER_LINEAR)
-    layer = np.clip(rays * intensity * 1.6, 0, 1)[..., None] * col
-    out = 1 - (1 - img) * (1 - layer)
+    # Ajout en lumière linéaire (comme une exposition) puis épaule douce :
+    # la lumière éclaire sans boucher les blancs.
+    lin = img ** 2.2 + (rays * intensity * 0.9)[..., None] * col
+    knee = 0.8
+    hi = lin > knee
+    lin = np.where(hi, knee + (1 - knee) * np.tanh(
+        (lin - knee) / (1 - knee)), lin)
+    out = np.clip(lin, 0, 1) ** (1 / 2.2)
     if occ is not None or influence > 0:
         shade = cv2.resize(shade, (w, h), interpolation=cv2.INTER_LINEAR)
         shade = np.clip(shade * intensity * 1.6, 0, 1)

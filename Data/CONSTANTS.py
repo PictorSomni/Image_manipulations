@@ -1054,6 +1054,9 @@ BRUME_DEPTH = 3.0  # 0 uniforme · 1 fond · 2 fond seul
 BRUME_WARMTH = 0.2
 BRUME_CLOUDS = 0.5  # 0 voile uni · 1 nappes marquées
 BRUME_CLOUD_SIZE = 30
+BRUME_NEAR = 0.0  # tranche de distance concernée
+BRUME_FAR = 1.0
+BRUME_PARTICLES = 0.0  # bouffées en 3D
 BRUME_PRECISE = 0  # 0 rapide · 1 équilibré · 2 qualité  # carte de profondeur IA
 RAYONS_ENABLED = False
 RAYONS_X = 75
@@ -1070,6 +1073,10 @@ RAYONS_PARALLEL = False  # rayons parallèles (soleil lointain)
 RAYONS_RAYS = 1.0  # 0 = lumière diffuse sans faisceaux
 RAYONS_COUNT = 40  # nombre de faisceaux
 RAYONS_WIDTH = 1.0  # largeur moyenne des faisceaux
+RAYONS_HARDNESS = 0.5  # 0 doux · 1 tranché
+RAYONS_DIFFUSION = 0.0  # halo diffusé par l'air
+RAYONS_NEAR = 0.0
+RAYONS_FAR = 1.0
 RAYONS_SHADOWS = 1.0  # ombres volumétriques (le sujet coupe la lumière)
 
 # ── 12.4  Désaturation des extrêmes + boost mi-tons (Retouche photo.pyw) ────
