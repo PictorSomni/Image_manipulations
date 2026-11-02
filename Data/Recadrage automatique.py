@@ -407,6 +407,12 @@ if fit_mode:
     
     print("#" * 40)
     
+    # Une seule photo marquée 1X_ (préfixe posé d'office par Recadrage
+    # manuel) : on remplit la feuille, comme « 2 en 1.py » (retour user).
+    if (len(tiles_list) == 1 and tiles_list[0]['forced']
+            and tiles_list[0]['count'] == 1):
+        tiles_list[0]['forced'] = False
+
     # Étape 2 : Séparer et Packer les tuiles de manière intelligente
     if tiles_list:
         all_canvases = []  # Liste finale de tuples : (canvas, canvas_tiles, suggested_stem)
