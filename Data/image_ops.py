@@ -2296,7 +2296,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     if ground > 0:
         ht = height_map(far)
         hw = (1 - ground) + ground * np.exp(
-            -ht / max(0.02, ground_height))
+            -ht / max(1e-4, ground_height ** 2))
     if show_depth:
         return _depth_view(far if ground <= 0 else 1 - hw)
     m = _depth_weight(far, depth) * hw

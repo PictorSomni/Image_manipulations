@@ -1820,7 +1820,7 @@ def main(page: ft.Page):
             ("cloud_size", "Taille des nuages", 5, 100, 1),
             ("thick", "Épaisseur", 0, 1, 0.01),
             ("ground", "Brume au sol", 0, 1, 0.01),
-            ("ground_height", "Hauteur", 0.02, 1, 0.01)])
+            ("ground_height", "Hauteur", 0, 1, 0.005)])
     sun_btn = ft.OutlinedButton(
         "Placer le soleil", icon=ft.Icons.WB_SUNNY_OUTLINED,
         on_click=lambda e: _toggle_sun(), expand=True,
