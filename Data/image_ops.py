@@ -2350,7 +2350,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
 def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
                 sun_size, influence=0.5, depth=0.0, precise=False,
                 rays=1.0, count=40, ray_width=1.0, shadows=0.0,
-                parallel=False, diffusion=0.0, show_depth=False):
+                parallel=False, show_depth=False):
     """Rayons de soleil depuis (x, y) en %, hors cadre permis (-50..150).
     La lumière traverse les zones claires de la photo et bute sur les
     sombres (influence 0-1, feuillages, silhouettes) ; depth 0-1 réserve
@@ -2476,10 +2476,6 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     shade = np.clip(unlit - lit, 0, None)
     if far is not None:
         lit = lit * far
-    if diffusion > 0:
-        # Lumière diffusée par l'air : halo large autour des faisceaux.
-        glow2 = cv2.GaussianBlur(lit, (0, 0), 0.06 * max(sw, sh))
-        lit = lit * (1 - 0.6 * diffusion) + diffusion * 0.9 * glow2
     rays = cv2.resize(lit, (w, h), interpolation=cv2.INTER_LINEAR)
     # Ajout en lumière linéaire (comme une exposition) puis épaule douce :
     # la lumière éclaire sans boucher les blancs.

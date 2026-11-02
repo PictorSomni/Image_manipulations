@@ -1073,7 +1073,6 @@ RAYONS_PARALLEL = False  # rayons parallèles (soleil lointain)
 RAYONS_RAYS = 1.0  # 0 = lumière diffuse sans faisceaux
 RAYONS_COUNT = 40  # nombre de faisceaux
 RAYONS_WIDTH = 1.0  # largeur moyenne des faisceaux
-RAYONS_DIFFUSION = 0.0  # halo diffusé par l'air
 RAYONS_SHADOWS = 1.0  # ombres volumétriques (le sujet coupe la lumière)
 
 # ── 12.4  Désaturation des extrêmes + boost mi-tons (Retouche photo.pyw) ────
