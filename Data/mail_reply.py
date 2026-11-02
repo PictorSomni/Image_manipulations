@@ -90,7 +90,68 @@ def pending():
 
 
 def _mail(mid):
-    return next(m for m in _read() if m["message_id"] == mid)
+    return next(m for m in _read() + _found() if m["message_id"] == mid)
+
+
+FOUND = os.path.join(HOME, "mail_search.json")
+
+
+def _found():
+    """Derniers résultats de recherche : pour y répondre ensuite."""
+    try:
+        with open(FOUND, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return []
+
+
+def search(q, limit=30):
+    """Mails reçus et envoyés (toute la boîte) dont l'expéditeur, le
+    destinataire ou l'objet contient `q` — à défaut, le texte."""
+    import email
+    import email.utils
+    import mail_reader
+    q = (q or "").replace('"', "").strip()
+    if not q:
+        return []
+    found = []
+    with imaplib.IMAP4_SSL(HOST, 993, timeout=30) as imap:
+        imap.login(ADDRESS, _password())
+        imap._encoding = "utf-8"
+        for folder, sent in (("INBOX", False), (_sent_folder(imap), True)):
+            imap.select(folder, readonly=True)
+            arg = '"' + q + '"'
+            # Un critère à la fois : le OR imbriqué rate chez OVH Exchange.
+            nums = sorted({n for key in ("FROM", "TO", "SUBJECT")
+                           for n in imap.search(None, key, arg)[1][0].split()},
+                          key=int)
+            if not nums:
+                _, data = imap.search(None, "TEXT", arg)
+                nums = data[0].split()
+            for num in nums[::-1][:limit]:
+                _, parts = imap.fetch(num, "(BODY.PEEK[])")
+                msg = email.message_from_bytes(parts[0][1])
+                try:
+                    date = email.utils.parsedate_to_datetime(msg["Date"])
+                    stamp = f"{date:%Y-%m-%d %H:%M}"
+                except (TypeError, ValueError):
+                    stamp = ""
+                other = mail_reader._decode(msg["To" if sent else "From"])
+                found.append({
+                    "message_id": msg["Message-ID"] or f"{folder}:{num}",
+                    # Répondre à un mail envoyé = écrire au destinataire.
+                    "from": other,
+                    "name": ("→ " if sent else "")
+                    + (other.split("<")[0].strip().strip('"') or other),
+                    "subject": mail_reader._decode(msg["Subject"]),
+                    "body": mail_reader._body_text(msg, 20_000),
+                    "date": stamp, "sent": sent})
+    found.sort(key=lambda m: m["date"], reverse=True)
+    found = found[:limit]
+    with open(FOUND + ".tmp", "w", encoding="utf-8") as f:
+        json.dump(found, f, ensure_ascii=False)
+    os.replace(FOUND + ".tmp", FOUND)
+    return found
 
 
 def draft(mid, tu, tone, hint):
@@ -189,6 +250,8 @@ def call(req):
     a = req["action"]
     if a == "list":
         return pending()
+    if a == "search":
+        return search(req.get("q", ""))
     if a == "briefing":  # le texte du matin, pour Hub
         path = os.path.join(HOME, "briefing.md")
         try:

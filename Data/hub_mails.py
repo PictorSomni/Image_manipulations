@@ -199,6 +199,48 @@ def build(ui):
             if "new_task" in hooks else [],
             on_sent=(lambda: on_done(m)) if on_done else None)
 
+    # ── Recherche dans toute la boîte (reçus + envoyés) ──────────────────
+    def search_mails(e=None):
+        box = {}
+        results = ft.ListView(spacing=0, height=420, width=560)
+        status = ft.Text("", color=LIGHT_GREY)
+
+        def _pick(m):
+            _close(box["dlg"])
+            open_reply(m)
+
+        def _done(out):
+            if isinstance(out, Exception):
+                status.value = f"Erreur : {out}"
+                return
+            status.value = "" if out else "Aucun mail"
+            results.controls = [ft.ListTile(
+                leading=ft.Icon(ft.Icons.SEND if m["sent"]
+                                else ft.Icons.MAIL_OUTLINE, color=BLUE),
+                title=ft.Text(m["name"], color=WHITE),
+                subtitle=ft.Text(f"{m['date'][:10]} · {m['subject']}",
+                                 color=LIGHT_GREY),
+                on_click=lambda e, m=m: _pick(m)) for m in out]
+
+        def _go(e):
+            q = field.value.strip()
+            if not q:
+                return
+            status.value = "Recherche…"
+            results.controls = []
+            page.update()
+            _bg(lambda: hub_sync.mail("search", q=q), _done)
+
+        field = _field(hint_text="Nom, adresse, objet…", autofocus=True,
+                       on_submit=_go)
+        box["dlg"] = _dialog(
+            title=ft.Text("Rechercher un mail"), bar_color=BLUE,
+            content=ft.Column([field, status, results], tight=True),
+            actions=[_dlg_btn("Chercher", on_click=_go),
+                     _dlg_btn("Fermer",
+                              on_click=lambda e: _close(box["dlg"]))])
+        _show(box["dlg"])
+
     # ── Briefing du matin : onglet de Hub, une carte par section ─────────
     accent = ui.SURFACE_ACCENT["briefing"]
     # Couleur par section, d'après son titre (Échéances en rouge…).
@@ -364,6 +406,10 @@ def build(ui):
                 width=30, height=30),
             tooltip="Nouveau mail",
             on_click=lambda e: new_mail())
+        new_btn = ft.Row([
+            ft.IconButton(ft.Icons.SEARCH, icon_color=BLUE,
+                          tooltip="Rechercher", on_click=search_mails),
+            new_btn], tight=True, spacing=0)
         if not mails:
             cards.append(_card("Mails", BLUE, [], new_btn))
         if mails:
