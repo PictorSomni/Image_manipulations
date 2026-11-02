@@ -2499,7 +2499,8 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     streak = streak * (1 - flat) + flat
     # Faisceaux et lumière diffuse se dosent séparément ; la diffuse
     # reste douce pour ne pas tout illuminer.
-    streak = rays * 1.4 * streak + diffuse * 0.4
+    # Faisceaux à 0 = halo uniforme, à 1 = traits seuls.
+    streak = (1 - rays) * 0.7 + rays * 1.4 * streak
     # Halo large, qui atteint l'image même avec un soleil hors cadre.
     if parallel:
         # Distance comptée depuis le bord côté soleil.
