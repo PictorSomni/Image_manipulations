@@ -542,7 +542,7 @@ function smsBtn(row) {
     href: `sms:${tel(row["Téléphone"])}&body=` +
       encodeURIComponent(readyText(row, false)),
     onclick: () => setProps(row, {"Prévenir ?": "Prévenu"})},
-    ic("sms"), " SMS") : null;
+    ic("sms")) : null;
 }
 
 function notifyClient(row) {
@@ -655,7 +655,7 @@ function callBtn(row) {
   return row["Téléphone"] ? h("a", {class: "btn",
     href: "tel:" + tel(row["Téléphone"]),
     onclick: () => setProps(row, {"Prévenir ?": "Prévenu"})},
-    ic("call"), " Appeler") : null;
+    ic("call")) : null;
 }
 
 function taskDetails(row) {
@@ -696,14 +696,15 @@ function taskDetails(row) {
       setProps(row, {Etat: e});
       if (e === "Terminé") notifyClient(row);
     }, true),
-    h("div", {class: "row"}, h("button", {class: "btn out red",
-      onclick: () => deleteTask(row)}, "Supprimer"),
+    h("div", {class: "row", style: {flexWrap: "nowrap"}},
+      h("button", {class: "btn out red", title: "Supprimer",
+      onclick: () => deleteTask(row)}, ic("delete")),
       h("span", {style: {marginLeft: "auto"}}), smsBtn(row), callBtn(row),
       row["E-mail"] || row["Téléphone"] ? h("button", {class: "btn",
         style: {background: C.yellow, color: "#222429"},
         onclick: () => mailSheet({to: row["E-mail"] || "",
-          phone: row["Téléphone"]})},
-        ic("mail"), " Mail") : null)]);
+          phone: row["Téléphone"]}), title: "Mail"},
+        ic("mail")) : null)]);
 }
 
 // ── Agenda ───────────────────────────────────────────────────────────
@@ -1230,7 +1231,8 @@ function viewHome() {
       h("div", {class: "tx", onclick: () => taskDetails(r)},
         r.Nom || r.Demande || "—", h("div", {class: "muted"},
           r["Téléphone"] || r["E-mail"] || "Pas de contact")),
-      h("div", {class: "row"}, smsBtn(r), callBtn(r),
+      h("div", {class: "row", style: {flexWrap: "nowrap"}},
+        smsBtn(r), callBtn(r),
         r["E-mail"] ? h("button", {class: "btn out",
           onclick: () => notifyClient(r)}, ic("mail")) : null,
         h("button", {class: "btn out", title: "Prévenu", onclick: () =>
