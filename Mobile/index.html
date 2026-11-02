@@ -498,6 +498,25 @@ function newMail(addr) {
 }
 
 // Client prévenu : mail envoyé directement depuis le studio, ou SMS.
+// Texte « commande prête » (mail et SMS).
+function readyText(row, tu) {
+  const prix = Number(row.Prix) ? "\nCela fera " + Number(row.Prix)
+    .toLocaleString("fr-BE", {maximumFractionDigits: 2}) + " €." : "";
+  return (tu ? "Bonjour,\n\nTa commande est prête, tu peux " +
+    "venir la chercher au magasin." : "Bonjour,\n\nVotre commande est " +
+    "prête, vous pouvez venir la chercher au magasin.") + prix +
+    "\n\nA bientôt,\nStudio C";
+}
+
+function smsBtn(row) {
+  return row["Téléphone"] ? h("a", {class: "btn",
+    style: {background: C.green, color: "#222429"},
+    href: `sms:${tel(row["Téléphone"])}&body=` +
+      encodeURIComponent(readyText(row, false)),
+    onclick: () => setProps(row, {"Prévenir ?": "Prévenu"})},
+    ic("sms"), " SMS") : null;
+}
+
 function notifyClient(row) {
   const phone = row["Téléphone"], mail = row["E-mail"];
   if (!phone && !mail) return;
@@ -651,7 +670,7 @@ function taskDetails(row) {
     }, true),
     h("div", {class: "row"}, h("button", {class: "btn out red",
       onclick: () => deleteTask(row)}, "Supprimer"),
-      h("span", {style: {marginLeft: "auto"}}), callBtn(row),
+      h("span", {style: {marginLeft: "auto"}}), smsBtn(row), callBtn(row),
       row["E-mail"] || row["Téléphone"] ? h("button", {class: "btn",
         style: {background: C.yellow, color: "#222429"},
         onclick: () => mailSheet({to: row["E-mail"] || "",
@@ -1174,6 +1193,20 @@ function viewHome() {
       h("div", {class: "tx"}, m.name || m.from,
         m.files_id ? [" ", ic("attach_file")] : null,
         h("div", {class: "muted"}, m.summary || m.subject))))));
+  // Terminées mais client pas encore prévenu : SMS / appel / mail.
+  const waiting = (S.tasks || []).filter(r => r.Etat === "Terminé" &&
+    !["Prévenu", "Viendra d'office"].includes(r["Prévenir ?"]));
+  if (waiting.length) out.push(glass(`À prévenir · ${waiting.length}`,
+    null, null, ...waiting.map(r => h("div", {class: "slot"},
+      h("i", {class: "bar2", style: {background: C.green}}),
+      h("div", {class: "tx", onclick: () => taskDetails(r)},
+        r.Nom || r.Demande || "—", h("div", {class: "muted"},
+          r["Téléphone"] || r["E-mail"] || "Pas de contact")),
+      h("div", {class: "row"}, smsBtn(r), callBtn(r),
+        r["E-mail"] ? h("button", {class: "btn out",
+          onclick: () => notifyClient(r)}, ic("mail")) : null,
+        h("button", {class: "btn out", title: "Prévenu", onclick: () =>
+          setProps(r, {"Prévenir ?": "Prévenu"})}, ic("done")))))));
   // Question du jour du quiz : un choix révèle réponse et anecdote.
   const qz = S.briefing && S.briefing.quiz;
   if (qz) {
