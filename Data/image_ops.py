@@ -2117,7 +2117,7 @@ def _depth_precise(img, quality=False):
     # Le modèle donne une disparité (~1/distance) : on repasse en
     # distance, en log, sinon tout le lointain (îlot, montagnes) finit
     # au même blanc et la perspective disparaît.
-    d = np.log(1.0 / (d + 0.03))
+    d = np.log(1.0 / (d + 0.005))
     # Ciel = disparité quasi nulle (sur la passe globale, sans le liseré
     # du détail) : mis au plus loin ; le reste s'étale sur 0..0.92 pour
     # ne pas être écrasé dans le noir par le ciel.
@@ -2126,8 +2126,12 @@ def _depth_precise(img, quality=False):
         gn = np.clip((g - lo) / max(1e-6, hi - lo), 0, 1)
         # Le modèle met parfois le ciel à mi-distance : on prend la
         # valeur du haut de l'image comme référence de ciel.
+        # Ciel déjà ~0 : seuil absolu très bas, sinon le lointain
+        # brumeux (disparité minuscule) passerait pour du ciel.
+        # ponytail: heuristique sur le haut de l'image ; modèle de
+        # segmentation du ciel si elle rate encore.
         ref = float(np.median(gn[:max(2, gn.shape[0] // 40)]))
-        sky = gn < min(0.35, ref + 0.04)
+        sky = gn < (min(0.35, ref + 0.04) if ref > 0.05 else 0.004)
         sky = cv2.resize(sky.astype(np.uint8), d.shape[::-1],
                          interpolation=cv2.INTER_NEAREST) > 0
     ground = d[~sky] if (~sky).sum() > 100 else d.ravel()
@@ -2296,7 +2300,7 @@ def _cloud_noise_cached(h, w, size, seed):
 def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
-             thick=0.0):
+             thick=0.0, fond=1.0):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -2306,6 +2310,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
                       0.86 - 0.08 * warmth], np.float32)
     far = depth_map(img, precise)
+    # Fond : tout ce qui est plus loin que ce seuil compte comme le fond.
+    far = np.clip(far / max(0.05, fond), 0, 1)
     # Brume au sol : dense près de l'eau / des fonds, s'efface en montant.
     hw = 1.0
     if ground > 0:
