@@ -8,6 +8,7 @@ import os
 import re
 import tempfile
 import threading
+import urllib.parse
 import webbrowser
 
 import flet as ft
@@ -350,6 +351,51 @@ def build(ui):
                     on_click=lambda e, r=row, t=etat: _advance(r, t)),
                 on_click=lambda e, r=row: hooks["open_task"](r))
         cards = []
+        # Terminées, client pas encore prévenu (comme la webapp).
+        waiting = [r for r in rows if r["etat"] == "Terminé"
+                   and r.get("prevenu") not in ("Prévenu",
+                                                "Viendra d'office")]
+        green = ui.KANBAN_ETAT_COLORS["Terminé"]
+
+        def _prevenu(row):
+            hooks["set_prevenu"](row)
+            row["prevenu"] = "Prévenu"
+            refill(b)
+
+        def _sms(row):
+            phone = re.sub(r"[^\d+]", "", row.get("telephone") or "")
+            p = row.get("prix")
+            prix = ("\nCela fera " + f"{p:g}".replace(".", ",") + " €."
+                    if isinstance(p, (int, float)) and p else "")
+            webbrowser.open(f"sms:{phone}&body="
+                            + urllib.parse.quote(READY.format(prix=prix)))
+            _prevenu(row)
+
+        def _wait_line(row):
+            btns = []
+            if row.get("telephone"):
+                btns.append(ft.IconButton(
+                    ft.Icons.SMS, icon_color=green, tooltip="SMS",
+                    on_click=lambda e, r=row: _sms(r)))
+            if row.get("email"):
+                btns.append(ft.IconButton(
+                    ft.Icons.MAIL_OUTLINE, icon_color=BLUE, tooltip="Mail",
+                    on_click=lambda e, r=row: notify_client(
+                        r, on_sent=lambda: _prevenu(r))))
+            btns.append(ft.IconButton(
+                ft.Icons.DONE, icon_color=WHITE, tooltip="Prévenu",
+                on_click=lambda e, r=row: _prevenu(r)))
+            return ft.ListTile(
+                title=ft.Text(row["demande"] or "(sans titre)",
+                              color=WHITE),
+                subtitle=ft.Text(row.get("telephone") or row.get("email")
+                                 or "Pas de contact", color=LIGHT_GREY,
+                                 selectable=True),
+                trailing=ft.Row(btns, tight=True, spacing=0),
+                on_click=lambda e, r=row: hooks["open_task"](r))
+        if waiting:
+            cards.append(_card(f"À prévenir · {len(waiting)}", green,
+                               [_wait_line(r) for r in waiting]))
         for etat, color in ((todo, todo_c), (doing, doing_c)):
             mine = [r for r in rows if r["etat"] == etat]
             more = ([ft.Text(f"+ {len(mine) - 8} autres", color=LIGHT_GREY)]
