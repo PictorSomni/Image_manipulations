@@ -1231,12 +1231,16 @@ function viewHome() {
       h("div", {class: "tx", onclick: () => taskDetails(r)},
         r.Nom || r.Demande || "—", h("div", {class: "muted"},
           r["Téléphone"] || r["E-mail"] || "Pas de contact")),
-      h("div", {class: "row", style: {flexWrap: "nowrap"}},
+      ...(btns => [h("div", {class: "row", style: btns.length === 4
+        // 4 icônes : 2 x 2 (SMS/appeler, puis mail/prévenu).
+        ? {display: "grid", gridTemplateColumns: "auto auto"}
+        : {flexWrap: "nowrap"}}, ...btns)])([
         smsBtn(r), callBtn(r),
         r["E-mail"] ? h("button", {class: "btn out",
           onclick: () => notifyClient(r)}, ic("mail")) : null,
         h("button", {class: "btn out", title: "Prévenu", onclick: () =>
-          setProps(r, {"Prévenir ?": "Prévenu"})}, ic("done")))))));
+          setProps(r, {"Prévenir ?": "Prévenu"})}, ic("done"))]
+        .filter(Boolean)))))));
   // Question du jour du quiz : un choix révèle réponse et anecdote.
   const qz = S.briefing && S.briefing.quiz;
   if (qz) {
