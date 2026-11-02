@@ -2475,10 +2475,13 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     else:
         ang = (np.arctan2(yy - cy, xx - cx) + np.pi) / (2 * np.pi) \
             * (nb - 1)
-    streak = 0.12 + 0.88 * bins[ang.astype(np.int32)]
-    streak = streak * (1 - influence * 0.6) + influence * 0.6
-    # Faisceaux et lumière diffuse se dosent séparément.
-    streak = rays * streak + diffuse
+    # Plus de faisceaux = traits plus contrastés, moins aplatis.
+    streak = 0.04 + 0.96 * bins[ang.astype(np.int32)] ** (1 + 1.5 * rays)
+    flat = influence * 0.6 * (1 - rays)
+    streak = streak * (1 - flat) + flat
+    # Faisceaux et lumière diffuse se dosent séparément ; la diffuse
+    # reste douce pour ne pas tout illuminer.
+    streak = rays * 1.4 * streak + diffuse * 0.4
     # Halo large, qui atteint l'image même avec un soleil hors cadre.
     if parallel:
         # Distance comptée depuis le bord côté soleil.
