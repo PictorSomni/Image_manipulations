@@ -7307,7 +7307,7 @@ def main(page: ft.Page):
         # les photos débordent sur une/des feuille(s) suivante(s) — même
         # bascule bouton plein que le reste ; "Toutes" = comportement
         # historique (une seule feuille, quel que soit le nombre de photos).
-        _MAX_PER_SHEET_CHOICES = [2, 4, 9, None]
+        _MAX_PER_SHEET_CHOICES = [2, 4, 8, 9, None]
         max_per_sheet_mode = {"value": None}
 
         def _on_max_per_sheet_change(e):
@@ -7322,7 +7322,8 @@ def main(page: ft.Page):
             ft.Text(str(n) if n else "Toutes", size=CONSTANTS.TEXT_SM)
             for n in _MAX_PER_SHEET_CHOICES]
         max_per_sheet_btn = ft.CupertinoSlidingSegmentedButton(
-            selected_index=3, controls=max_per_sheet_texts,
+            selected_index=len(_MAX_PER_SHEET_CHOICES) - 1,
+            controls=max_per_sheet_texts,
             thumb_color=BLUE, on_change=_on_max_per_sheet_change)
         _style_segments(max_per_sheet_btn, max_per_sheet_texts)
         # Une feuille par image, remplie de copies (ex. flyer recto/verso).

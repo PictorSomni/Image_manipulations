@@ -37,7 +37,7 @@ Variables d'environnement :
   COLLAGE_CENTER_FILE      — nom d'une photo à poser au centre, agrandie (optionnel).
   COLLAGE_FEATURED_FILES   — noms de photos à mettre en avant, séparés par ``|`` (optionnel).
   COLLAGE_SEED             — graine aléatoire (optionnel, pour reproduire un tirage).
-  COLLAGE_GRID_MAX_PER_SHEET — mode grille : nb max de photos par feuille (2/4/9, 0 = toutes sur une seule feuille).
+  COLLAGE_GRID_MAX_PER_SHEET — mode grille : nb max de photos par feuille (2/4/8/9, 0 = toutes sur une seule feuille).
 
 Dépendances : Pillow, numpy (déjà requis par image_ops), pytoshop, six
   (pour le .psd — sans pytoshop, seul l'aperçu PNG est produit).
