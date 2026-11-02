@@ -10441,20 +10441,43 @@ print("[délai dépassé]")
     _apply_titlebar_width()   # état initial : pas d'attente du 1er resize
 
     def _auto_update():
+        started = time.monotonic()
         done = auto_update.pull()
         if not done:
+            return
+
+        async def _relaunch():
+            _log_to_terminal(f"🔄 Mise à jour {done[0]} → {done[1]}, "
+                             "redémarrage…", BLUE)
+            await asyncio.sleep(0.4)
+            subprocess.Popen([sys.executable, os.path.abspath(__file__)])
+            await asyncio.sleep(0.2)
+            try:
+                await page.window.close()
+            except Exception:
+                pass
+            os._exit(0)
+
+        # Juste après le lancement : on relance d'office. Si le pull a
+        # traîné (réseau lent), Charles travaille peut-être déjà : on
+        # propose plutôt de relancer.
+        if time.monotonic() - started < 20:
+            _run_task(_relaunch)
             return
 
         async def _tell():
             def _close(e):
                 dlg.open = False
                 page.update()
+
+            def _now(e):
+                _close(e)
+                _run_task(_relaunch)
             dlg = _dialog(
                 title=ft.Text("Hub mis à jour"),
-                content=ft.Text(f"{done[0]} → {done[1]}\n"
-                                "Relance Hub pour utiliser la nouvelle "
-                                "version.", color=WHITE),
-                actions=[_dlg_btn("OK", on_click=_close)])
+                content=ft.Text(f"{done[0]} → {done[1]}", color=WHITE),
+                actions=[_dlg_btn("Plus tard", "cancel", on_click=_close),
+                         _dlg_btn("Relancer", "primary", on_click=_now)])
             page.overlay.append(dlg)
             dlg.open = True
             page.update()
