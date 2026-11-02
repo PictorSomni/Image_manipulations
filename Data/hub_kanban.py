@@ -912,6 +912,14 @@ def build(ui):
                                 "data_source_id": data_source_id},
                      "pages": [page_data]})
                 failed = result.startswith("Erreur")
+                if not failed and prefill.get("files_id"):
+                    # Pièces jointes du mail d'origine → fichiers de la tâche.
+                    try:
+                        pid = json.loads(result)["ids"][0]
+                        hub_sync.mail("copy_files", src=prefill["files_id"],
+                                      dst=pid)
+                    except Exception as exc:
+                        print(f"[Kanban] pièces jointes : {exc}", flush=True)
 
                 async def _apply():
                     if failed:

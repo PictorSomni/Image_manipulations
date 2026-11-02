@@ -140,6 +140,20 @@ def _clean_body(msg):
     return text.strip()[:20_000]
 
 
+def copy_files(src, dst):
+    """Copie ~/task_files/<src> (pièces jointes d'un mail) dans le
+    dossier de la tâche <dst> (id avec ou sans tirets)."""
+    import shutil
+    src, dst = src.replace("-", ""), dst.replace("-", "")
+    if not (re.fullmatch(r"[0-9a-f]{32}", src)
+            and re.fullmatch(r"[0-9a-f]{32}", dst)):
+        raise ValueError("id invalide")
+    root = os.path.join(HOME, "task_files")
+    shutil.copytree(os.path.join(root, src), os.path.join(root, dst),
+                    dirs_exist_ok=True)
+    return True
+
+
 def search(q, limit=30):
     """Mails reçus et envoyés (toute la boîte) dont l'expéditeur, le
     destinataire ou l'objet contient `q` — à défaut, le texte."""
@@ -296,6 +310,8 @@ def call(req):
     a = req["action"]
     if a == "list":
         return pending()
+    if a == "copy_files":  # pièces jointes d'un mail → fichiers de tâche
+        return copy_files(req["src"], req["dst"])
     if a == "search":
         return search(req.get("q", ""))
     if a == "briefing":  # le texte du matin, pour Hub

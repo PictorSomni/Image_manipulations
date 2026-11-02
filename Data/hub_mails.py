@@ -173,22 +173,27 @@ def build(ui):
             open_btn], spacing=6), status], spacing=4, tight=True)
 
     # ── Réponse à un mail (fenêtre commune : mail_compose) ───────────────
+    def mail_to_task(m):
+        """Fiche « nouvelle tâche » préremplie d'après le mail."""
+        sender = m.get("from", "")
+        mail = re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", sender)
+        name = sender.split("<")[0].strip().strip('"')
+        body = m.get("body", "")
+        tel = re.search(r"(?:\+|00)?\d[\d ./-]{7,}\d", body)
+        hooks["new_task"]({
+            "demande": " – ".join(
+                x for x in (name, m.get("subject", "")) if x),
+            "email": mail.group(0) if mail else "",
+            "telephone": tel.group(0) if tel else "",
+            "notes": body,
+            "files_id": m.get("files_id", "")})
+
     def open_reply(m, on_done=None):
         box = {}
 
         def _to_task(e):
             _close(box["dlg"])
-            sender = m.get("from", "")
-            mail = re.search(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", sender)
-            name = sender.split("<")[0].strip().strip('"')
-            body = m.get("body", "")
-            tel = re.search(r"(?:\+|00)?\d[\d ./-]{7,}\d", body)
-            hooks["new_task"]({
-                "demande": " – ".join(
-                    x for x in (name, m.get("subject", "")) if x),
-                "email": mail.group(0) if mail else "",
-                "telephone": tel.group(0) if tel else "",
-                "notes": body})
+            mail_to_task(m)
 
         box["dlg"] = open_mail(
             reply=m,
@@ -213,6 +218,10 @@ def build(ui):
             _close(box["dlg"])
             open_reply(m)
 
+        def _task(m):
+            _close(box["dlg"])
+            mail_to_task(m)
+
         def _pick(m):
             for t in results.controls:
                 t.bgcolor = (ft.Colors.with_opacity(0.2, BLUE)
@@ -223,7 +232,11 @@ def build(ui):
                 ft.Text(f"{m['date']} · "
                         + ("À : " if m["sent"] else "De : ") + m["from"],
                         color=LIGHT_GREY, selectable=True),
-                _dlg_btn("Répondre", on_click=lambda e: _reply(m)),
+                ft.Row([
+                    _dlg_btn("Répondre", on_click=lambda e: _reply(m)),
+                    *([_dlg_btn("Tâche", color=ui.ORANGE,
+                                on_click=lambda e: _task(m))]
+                      if "new_task" in hooks else [])]),
                 ft.Text(m["body"], color=WHITE, selectable=True),
                 *([_mail_files(m)] if m.get("files_id") else [])]
             page.update()

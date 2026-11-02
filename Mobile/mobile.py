@@ -946,9 +946,18 @@ class Handler(BaseHTTPRequestHandler):
             _set_props(data["id"], data["props"])
             return self._json({"ok": True})
         if path == "/api/newtask":
-            pid = _tasks("notion-create-pages", {"pages": [{"properties": {
-                "Demande": data["demande"].strip(),
-                "Etat": "À faire"}}]})["ids"][0]
+            props = {"Demande": data["demande"].strip(), "Etat": "À faire"}
+            for key, prop in (("email", "E-mail"),
+                              ("telephone", "Téléphone")):
+                if (data.get(key) or "").strip():
+                    props[prop] = data[key].strip()
+            page = {"properties": props}
+            if (data.get("notes") or "").strip():
+                page["content"] = data["notes"].strip()
+            pid = _tasks("notion-create-pages",
+                         {"pages": [page]})["ids"][0]
+            if data.get("files_id"):  # pièces jointes du mail d'origine
+                mail_reply.copy_files(data["files_id"], pid)
             load_data(force=True)
             return self._json({"id": pid})
         if path == "/api/newevent":
