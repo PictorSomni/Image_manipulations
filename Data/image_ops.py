@@ -2279,7 +2279,8 @@ def _cloud_noise_cached(h, w, size, seed):
 
 
 def add_haze(pil_img, amount, depth, warmth, precise=False,
-             clouds=0.0, cloud_size=30.0, show_depth=False, ground=0.0, ground_height=0.3,
+             clouds=0.0, cloud_size=30.0, show_depth=False,
+             ground=0.0, ground_height=0.3,
              thick=0.0):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
