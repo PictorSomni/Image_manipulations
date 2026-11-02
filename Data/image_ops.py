@@ -2159,6 +2159,38 @@ def depth_map(img, precise=0):
     return cache[key]
 
 
+def height_map(far, fov=60.0):
+    """Hauteur 0 (sol, eau) .. 1 (cimes, crêtes) déduite de la carte
+    d'éloignement : rétro-projection 3D (focale supposée `fov`°), puis
+    plan du sol ajusté sur l'enveloppe basse des points.
+    ponytail: fov fixe et plan unique, un relief très vallonné a des
+    collines « hautes » ; lire la focale EXIF si ça gêne."""
+    h, w = far.shape
+    k = min(1.0, 256.0 / max(h, w))
+    sh, sw = max(8, int(h * k)), max(8, int(w * k))
+    f = cv2.resize(far, (sw, sh), interpolation=cv2.INTER_AREA)
+    z = np.exp(f * math.log(80.0))  # distance relative 1..80
+    foc = 0.5 * sw / math.tan(math.radians(fov) / 2)
+    yy, xx = np.mgrid[0:sh, 0:sw].astype(np.float32)
+    X = (xx - sw / 2) / foc * z
+    Y = -(yy - sh / 2) / foc * z  # vers le haut
+    sky = f < 0.97
+    A = np.stack([X[sky], z[sky], np.ones(int(sky.sum()))], 1)
+    yv = Y[sky]
+    keep = np.ones(len(yv), bool)
+    for _ in range(4):  # descend vers l'enveloppe basse
+        coef = np.linalg.lstsq(A[keep], yv[keep], rcond=None)[0]
+        keep = yv <= A @ coef
+        if keep.sum() < 20:
+            break
+    ht = Y - (coef[0] * X + coef[1] * z + coef[2])
+    lo, hi = np.percentile(ht[sky], (3, 97))
+    ht = np.clip((ht - lo) / max(1e-6, hi - lo), 0, 1)
+    ht[~sky] = 1.0
+    ht = cv2.GaussianBlur(ht, (0, 0), 1.0)
+    return cv2.resize(ht, (w, h), interpolation=cv2.INTER_LINEAR)
+
+
 def _depth_view(far):
     """Carte affichée : blanc = loin, noir = proche."""
     g = (np.clip(far, 0, 1) * 255).astype(np.uint8)
@@ -2265,7 +2297,7 @@ def _puffs(far, h, w, size, seed=5, count=180):
 
 def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, particles=0.0,
-             show_depth=False):
+             show_depth=False, ground=0.0, ground_height=0.3):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -2275,9 +2307,15 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
                       0.86 - 0.08 * warmth], np.float32)
     far = depth_map(img, precise)
+    # Brume au sol : dense près de l'eau / des fonds, s'efface en montant.
+    hw = 1.0
+    if ground > 0:
+        ht = height_map(far)
+        hw = (1 - ground) + ground * np.exp(
+            -ht / max(0.02, ground_height))
     if show_depth:
-        return _depth_view(far)
-    m = _depth_weight(far, depth)
+        return _depth_view(far if ground <= 0 else 1 - hw)
+    m = _depth_weight(far, depth) * hw
     expo = 1.3 + max(0.0, depth - 1.0) * 3.0
     d = min(1.0, depth)
     a = np.clip(amount * m, 0, 0.95)[..., None]
@@ -2300,12 +2338,13 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
                 11 + i)
             n = np.clip((n - 0.35) * 1.8, 0, 1) ** 1.6
             col = shade + (color * 1.06 - shade) * n[..., None]
-            al = np.clip(amount * clouds * 0.32 * n * vis, 0, 0.9)
+            al = np.clip(amount * clouds * 0.32 * n * vis * hw, 0, 0.9)
             al = al[..., None]
             out = out * (1 - al) + col * al
     if particles > 0:
         cov = _puffs(far, h, w, cloud_size)
-        al = np.clip(amount * particles * 1.4 * cov, 0, 0.92)[..., None]
+        al = np.clip(amount * particles * 1.4 * cov * hw, 0,
+                     0.92)[..., None]
         col = shade + (color * 1.08 - shade) * cov[..., None]
         out = out * (1 - al) + col * al
     return _to_pil(out)
