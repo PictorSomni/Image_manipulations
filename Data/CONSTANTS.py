@@ -1067,13 +1067,14 @@ RAYONS_WARMTH = 0.6
 RAYONS_THRESHOLD = 0.8
 RAYONS_SUN_SIZE = 4
 RAYONS_INFLUENCE = 1.0  # la photo module les rayons
-RAYONS_DEPTH = 3.0  # 1 = rayons seulement derrière le sujet
+RAYONS_DEPTH = 0.0  # >0 = rayons seulement au loin
 RAYONS_PRECISE = 0  # 0 rapide · 1 équilibré · 2 qualité
 RAYONS_PARALLEL = False  # rayons parallèles (soleil lointain)
 RAYONS_RAYS = 1.0  # 0 = lumière diffuse sans faisceaux
 RAYONS_COUNT = 40  # nombre de faisceaux
 RAYONS_WIDTH = 1.0  # largeur moyenne des faisceaux
-RAYONS_SHADOWS = 1.0  # ombres volumétriques (le sujet coupe la lumière)
+RAYONS_SHADOWS = 1.0  # ombres projetées par le relief
+RAYONS_DIFFUSE = 0.15  # lumière diffuse, sans faisceaux
 
 # ── 12.4  Désaturation des extrêmes + boost mi-tons (Retouche photo.pyw) ────
 # Les films argentiques perdent de la saturation dans les ombres très sombres

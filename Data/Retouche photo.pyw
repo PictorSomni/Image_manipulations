@@ -200,6 +200,7 @@ def default_params():
                        "count": C.RAYONS_COUNT,
                        "ray_width": C.RAYONS_WIDTH,
                        "shadows": C.RAYONS_SHADOWS,
+                       "diffuse": C.RAYONS_DIFFUSE,
                        "show_depth": False},
             "grain1": {"enabled": C.RETOUCHE_LOT_GRAIN1_ENABLED,
                       "amount": C.GRAIN_AMOUNT,
@@ -494,7 +495,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
             "count", "ray_width", "shadows", "parallel",
-            "show_depth")),
+            "show_depth", "diffuse")),
           ("vignette", image_ops.add_vignette,
            ("amount", "size", "feather", "roundness"))]
     # Une seule carte de profondeur, calculée sur la source, pour brume
@@ -1830,6 +1831,7 @@ def main(page: ft.Page):
             ("x", "Position X", -50, 150, 1),
             ("y", "Position Y", -50, 150, 1),
             ("rays", "Faisceaux", 0, 1, 0.01),
+            ("diffuse", "Lumière diffuse", 0, 1, 0.01),
             ("count", "Nombre de rayons", 3, 120, 1),
             ("ray_width", "Largeur des rayons", 0.2, 3, 0.05),
             ("length", "Longueur", 0, 100, 1),
@@ -1839,7 +1841,7 @@ def main(page: ft.Page):
             ("influence", "Influence de la photo", 0, 1, 0.01),
             ("threshold", "Seuil", 0, 1, 0.01),
             ("depth", "Profondeur", 0, 3, 0.01),
-            ("shadows", "Ombres volumétriques", 0, 1, 0.01)],
+            ("shadows", "Ombres projetées", 0, 1, 0.01)],
         head=[ft.Row([sun_btn])])
     section_vignette = _grain_section(
         "Vignette", BLUE_DARK, ft.Icons.VIGNETTE, ga["vignette"], [

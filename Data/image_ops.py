@@ -2347,10 +2347,54 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     return _to_pil(out)
 
 
+def _sun_shadow(far, sx, sy, fov=60.0):
+    """Ombres projetées en 3D depuis un soleil vu au pixel (sx, sy) de
+    la grille `far` (soleil à l'infini dans cette direction). La scène
+    est rétro-projetée comme pour height_map ; chaque point marche vers
+    le soleil et est à l'ombre si un relief plus proche le coupe.
+    Retourne (surf, vol) 0..1 : surface éclairée, et part éclairée de
+    l'air entre l'appareil et le point (faisceaux d'ombre volumétriques).
+    ponytail: tests à l'écran (rien hors cadre ne fait d'ombre), 10x10
+    échantillons ; plus si les ombres paraissent crénelées."""
+    sh, sw = far.shape
+    z = np.exp(far * math.log(80.0))
+    foc = 0.5 * sw / math.tan(math.radians(fov) / 2)
+    yy, xx = np.mgrid[0:sh, 0:sw].astype(np.float32)
+    X = (xx - sw / 2) / foc * z
+    Y = (yy - sh / 2) / foc * z
+    L = np.array([(sx - sw / 2) / foc, (sy - sh / 2) / foc, 1.0])
+    L /= np.linalg.norm(L)
+    zmax = float(z.max())
+
+    def lit(px, py, pz):
+        ok = np.ones(px.shape, np.float32)
+        for t in np.geomspace(0.02, 0.6, 10) * zmax:
+            qx, qy, qz = px + L[0] * t, py + L[1] * t, pz + L[2] * t
+            qz = np.maximum(qz, 1e-3)
+            u = (foc * qx / qz + sw / 2).astype(np.int32)
+            v = (foc * qy / qz + sh / 2).astype(np.int32)
+            inside = (u >= 0) & (u < sw) & (v >= 0) & (v < sh)
+            zs = z[np.clip(v, 0, sh - 1), np.clip(u, 0, sw - 1)]
+            hit = inside & (zs < qz * 0.97) & (qz - zs < qz * 0.35)
+            ok = np.where(hit, 0.0, ok)
+        return ok
+
+    sky = far > 0.97
+    surf = lit(X, Y, z)
+    surf[sky] = 1.0
+    vol = np.zeros_like(z)
+    for s in np.linspace(0.1, 1.0, 10):
+        vol += lit(X * s, Y * s, z * s)
+    vol /= 10
+    blur = max(1.0, sw / 200.0)
+    return (cv2.GaussianBlur(surf, (0, 0), blur),
+            cv2.GaussianBlur(vol, (0, 0), blur * 2))
+
+
 def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
                 sun_size, influence=0.5, depth=0.0, precise=False,
                 rays=1.0, count=40, ray_width=1.0, shadows=0.0,
-                parallel=False, show_depth=False):
+                parallel=False, show_depth=False, diffuse=0.0):
     """Rayons de soleil depuis (x, y) en %, hors cadre permis (-50..150).
     La lumière traverse les zones claires de la photo et bute sur les
     sombres (influence 0-1, feuillages, silhouettes) ; depth 0-1 réserve
@@ -2368,13 +2412,18 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     if depth > 0:
         far = cv2.resize(_depth_weight(dm, depth),
                          (sw, sh), interpolation=cv2.INTER_AREA)
-    occ = None
+    surf = vol = None
     if shadows > 0:
-        # Occultation volumétrique : le proche (sujet) bloque la lumière.
-        fn = cv2.resize(dm, (sw, sh),
+        # Ombres projetées par le relief réel (île, arbres, crêtes).
+        k2 = min(1.0, 220.0 / max(sw, sh))
+        fs = cv2.resize(dm, (max(8, int(sw * k2)), max(8, int(sh * k2))),
                         interpolation=cv2.INTER_AREA)
-        lo, hi = np.percentile(fn, (5, 95))
-        occ = np.clip((fn - lo) / max(1e-4, hi - lo), 0, 1) ** 2
+        sx = x / 100.0 * fs.shape[1]
+        sy = y / 100.0 * fs.shape[0]
+        if parallel:  # direction lointaine : soleil bien derrière
+            sx = fs.shape[1] / 2 + (sx - fs.shape[1] / 2) * 3
+            sy = fs.shape[0] / 2 + (sy - fs.shape[0] / 2) * 3
+        surf, vol = _sun_shadow(fs, sx, sy)
     # Toile élargie pour un soleil hors cadre (inutile en parallèle :
     # seule la direction soleil → centre compte).
     cx, cy = x / 100.0 * sw, y / 100.0 * sh
@@ -2426,12 +2475,10 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     else:
         ang = (np.arctan2(yy - cy, xx - cx) + np.pi) / (2 * np.pi) \
             * (nb - 1)
-    # Plus de faisceaux = faisceaux aussi plus tranchés.
-    hardness = 0.2 + 0.7 * rays
-    bins = bins ** (2.0 ** ((hardness - 0.5) * 3))
     streak = 0.12 + 0.88 * bins[ang.astype(np.int32)]
     streak = streak * (1 - influence * 0.6) + influence * 0.6
-    streak = (1 - rays) + rays * streak  # 0 = atmosphère sans faisceaux
+    # Faisceaux et lumière diffuse se dosent séparément.
+    streak = rays * streak + diffuse
     # Halo large, qui atteint l'image même avec un soleil hors cadre.
     if parallel:
         # Distance comptée depuis le bord côté soleil.
@@ -2444,9 +2491,6 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     glow = np.exp(-dist / max(1.0, reach)) * 0.9
     free = np.maximum(glow * streak, disc)
     src = free * ((1 - influence) + influence * trans)
-    if occ is not None:
-        o = cv2.copyMakeBorder(occ, pt, pb, pl, pr, cv2.BORDER_REPLICATE)
-        src = src * ((1 - shadows) + shadows * o)
     col = np.array([1.0, 0.92 - 0.12 * warmth, 0.8 - 0.35 * warmth],
                    np.float32)
     # Deux canaux : lumière occultée / libre ; l'écart donne les
@@ -2468,7 +2512,7 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
                                 borderMode=cv2.BORDER_CONSTANT)
         acc += warped * (1.0 - i / steps)
     acc /= steps * 0.5
-    acc = cv2.GaussianBlur(acc, (0, 0), 0.6 + 1.8 * (1 - hardness))
+    acc = cv2.GaussianBlur(acc, (0, 0), 1.5)
     acc = acc[pt:pt + sh, pl:pl + sw]
     lit, unlit = acc[..., 0], acc[..., 1]
     # Compense la lumière perdue derrière les obstacles.
@@ -2476,6 +2520,9 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     shade = np.clip(unlit - lit, 0, None)
     if far is not None:
         lit = lit * far
+    if vol is not None:
+        v = cv2.resize(vol, (sw, sh), interpolation=cv2.INTER_LINEAR)
+        lit = lit * ((1 - shadows) + shadows * 1.4 * v)
     rays = cv2.resize(lit, (w, h), interpolation=cv2.INTER_LINEAR)
     # Ajout en lumière linéaire (comme une exposition) puis épaule douce :
     # la lumière éclaire sans boucher les blancs.
@@ -2485,11 +2532,14 @@ def add_sunrays(pil_img, x, y, length, intensity, warmth, threshold,
     lin = np.where(hi, knee + (1 - knee) * np.tanh(
         (lin - knee) / (1 - knee)), lin)
     out = np.clip(lin, 0, 1) ** (1 / 2.2)
-    if occ is not None or influence > 0:
+    if influence > 0:
         shade = cv2.resize(shade, (w, h), interpolation=cv2.INTER_LINEAR)
         shade = np.clip(shade * intensity * 1.6, 0, 1)
-        k = 0.45 * max(shadows, influence * 0.6)
-        out = out * (1 - k * shade[..., None])
+        out = out * (1 - 0.27 * influence * shade[..., None])
+    if surf is not None:
+        s = cv2.resize(surf, (w, h), interpolation=cv2.INTER_LINEAR)
+        out = out * (1 - shadows * min(1.0, intensity * 1.2) * 0.45
+                     * (1 - s[..., None]))
     return _to_pil(out)
 
 
