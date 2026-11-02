@@ -389,7 +389,8 @@ def _contain_resize(image, box_w, box_h):
 def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
                         fit_mode, load_source,
                         log=lambda msg: print(msg, flush=True),
-                        auto_rotate=True, slots=None, psd_layers=None):
+                        auto_rotate=True, slots=None, psd_layers=None,
+                        dpi=CONSTANTS.DPI, size_of=None):
     """Place chaque photo dans une grille auto-calculée (compute_grid_layout)
     sur fond blanc plein — prêt à imprimer directement, pas de calque PSD.
     `fit_mode` "cover" remplit chaque case (recadre, cf. fit_and_rotate) ;
@@ -409,9 +410,20 @@ def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
     Désactivable pour respecter l'orientation d'origine des photos.
     `psd_layers` : liste à remplir (format de write_psd_file) avec un
     calque par case, pour la sortie PSD (retour user).
+    `fit_mode` "actual" (100 %, retour user : cartes de visite) : chaque
+    photo à sa taille réelle (pixels / ppp source * `dpi`), grille serrée
+    centrée, écart `gap_px`. `size_of(key, source)` donne cette taille en
+    px de planche (aperçu sur vignettes).
     Renvoie une image RGB."""
-    cells = compute_grid_layout(slots or len(photo_keys), canvas_w, canvas_h,
-                                margin_px, gap_px)
+    count = slots or len(photo_keys)
+    sizes = {}
+    if fit_mode == "actual":
+        cells = _actual_cells(photo_keys, count, canvas_w, canvas_h,
+                              margin_px, gap_px, load_source, auto_rotate,
+                              dpi, size_of, sizes)
+    else:
+        cells = compute_grid_layout(count, canvas_w, canvas_h,
+                                    margin_px, gap_px)
     canvas = Image.new("RGB", (canvas_w, canvas_h), (255, 255, 255))
     total = len(photo_keys)
     for index, (key, (x, y, w, h)) in enumerate(zip(photo_keys, cells),
@@ -427,7 +439,16 @@ def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
         box_w, box_h = max(1, round(w)), max(1, round(h))
         if auto_rotate and (source.width < source.height) != (box_w < box_h):
             source = source.transpose(Image.Transpose.ROTATE_90)
-        if fit_mode == "contain":
+        if fit_mode == "actual":
+            w, h = sizes.get(key, (box_w, box_h))
+            if auto_rotate and (source.width < source.height) != (w < h):
+                w, h = h, w
+            resized = source.resize((max(1, w), max(1, h)),
+                                    Image.Resampling.LANCZOS)
+            tile = Image.new("RGBA", (box_w, box_h), (255, 255, 255, 255))
+            tile.paste(resized, ((box_w - resized.width) // 2,
+                                 (box_h - resized.height) // 2), resized)
+        elif fit_mode == "contain":
             resized = _contain_resize(source, box_w, box_h)
             tile = Image.new("RGBA", (box_w, box_h), (255, 255, 255, 255))
             tile.paste(resized, ((box_w - resized.width) // 2,
@@ -446,7 +467,7 @@ def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
             # Calque = photo COMPLÈTE (non recadrée), centrée comme sur la
             # planche, sous un masque de la taille de la case : on peut la
             # recaler dans Affinity (retour user), comme en mosaïque.
-            full = (resized if fit_mode == "contain"
+            full = (resized if fit_mode in ("contain", "actual")
                     else _cover_resize(source, box_w, box_h, None))
             left, top = round(x), round(y)
             psd_layers.append((
@@ -455,6 +476,59 @@ def render_grid_montage(photo_keys, canvas_w, canvas_h, margin_px, gap_px,
                 top + (box_h - full.height) // 2,
                 left, top, left + box_w, top + box_h))
     return canvas
+
+
+def _native_size(source, dpi):
+    """Taille réelle de `source` en px à `dpi` (ppp source, défaut DPI)."""
+    src_dpi = source.info.get("dpi", (CONSTANTS.DPI,))[0] or CONSTANTS.DPI
+    f = dpi / float(src_dpi)
+    return round(source.width * f), round(source.height * f)
+
+
+def _actual_cells(photo_keys, count, canvas_w, canvas_h, margin_px, gap_px,
+                  load_source, auto_rotate, dpi, size_of, sizes):
+    """Cases du mode 100 % : taille = plus grande photo, grille la plus
+    compacte qui tient sur la planche, centrée."""
+    cell_w = cell_h = 1
+    for key in dict.fromkeys(photo_keys):
+        try:
+            source = load_source(key)
+        except Exception:
+            continue
+        if source is None:
+            continue
+        try:
+            w, h = size_of(key, source) if size_of else (None, None)
+        except Exception:
+            w = h = None
+        if w is None:
+            w, h = _native_size(source, dpi)
+        sizes[key] = (w, h)
+        cell_w, cell_h = max(cell_w, w), max(cell_h, h)
+    avail_w = canvas_w - 2 * margin_px
+    avail_h = canvas_h - 2 * margin_px
+
+    def fits(cols, rows, cw, ch):
+        return (cols * cw + (cols - 1) * gap_px <= avail_w
+                and rows * ch + (rows - 1) * gap_px <= avail_h)
+
+    best = None
+    for cols in range(1, count + 1):
+        rows = math.ceil(count / cols)
+        for cw, ch in ((cell_w, cell_h), (cell_h, cell_w)):
+            if auto_rotate or (cw, ch) == (cell_w, cell_h):
+                over = 0 if fits(cols, rows, cw, ch) else 1
+                turned = (cw, ch) != (cell_w, cell_h)
+                shape = abs(math.log((cols * cw + 1) / (rows * ch + 1))
+                            - math.log((avail_w + 1) / (avail_h + 1)))
+                score = (over, turned, shape)
+                if best is None or score < best[0]:
+                    best = (score, cols, rows, cw, ch)
+    _, cols, rows, cw, ch = best
+    left = (canvas_w - (cols * cw + (cols - 1) * gap_px)) / 2
+    top = (canvas_h - (rows * ch + (rows - 1) * gap_px)) / 2
+    return [(left + c * (cw + gap_px), top + r * (ch + gap_px), cw, ch)
+            for r in range(rows) for c in range(cols)][:count]
 
 
 def _cover_resize(image, box_w, box_h, max_crop=MAX_CROP_FRACTION):
@@ -816,7 +890,7 @@ def main():
             canvas = render_grid_montage(
                 sheet_photos, canvas_w, canvas_h, margin_px, gap_px,
                 grid_fit, load_source, auto_rotate=auto_rotate,
-                slots=max_per_sheet, psd_layers=layers)
+                slots=max_per_sheet, psd_layers=layers, dpi=dpi)
             suffix = "" if len(sheets) == 1 else f" {i}"
             # PSD à la place du JPG ; JPG en secours si pytoshop absent.
             if want_psd and write_psd_file(

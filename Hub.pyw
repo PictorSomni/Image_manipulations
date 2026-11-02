@@ -7478,7 +7478,8 @@ def main(page: ft.Page):
         _style_segments(mode_btn, mode_texts)
 
         def _on_fit_change(e):
-            grid_fit["value"] = "contain" if fit_btn.selected_index == 0 else "cover"
+            grid_fit["value"] = ("contain", "cover", "actual")[
+                fit_btn.selected_index]
             _style_segments(fit_btn, fit_texts)
             for t in fit_texts:
                 t.update()
@@ -7487,7 +7488,8 @@ def main(page: ft.Page):
         # Fit-in (contain, préserve les proportions) / Fill-in (cover,
         # remplit et recadre) — défaut = Fill-in (retour user).
         fit_texts = [ft.Text("Fit-in", size=CONSTANTS.TEXT_SM),
-                    ft.Text("Fill-in", size=CONSTANTS.TEXT_SM)]
+                    ft.Text("Fill-in", size=CONSTANTS.TEXT_SM),
+                    ft.Text("100%", size=CONSTANTS.TEXT_SM)]
         fit_btn = ft.CupertinoSlidingSegmentedButton(
             selected_index=1, controls=fit_texts,
             thumb_color=MINT, on_change=_on_fit_change)
@@ -7629,6 +7631,16 @@ def main(page: ft.Page):
                     return None
                 return PILImage.open(io.BytesIO(data)).convert("RGBA")
 
+            def _preview_size_of(prev_dpi):
+                # Taille réelle lue dans l'en-tête du fichier (la vignette
+                # n'a ni la taille ni les ppp d'origine).
+                def size_of(path, _thumb):
+                    with PILImage.open(path) as im:
+                        src = im.info.get("dpi", (CONSTANTS.DPI,))[0]
+                        f = prev_dpi / float(src or CONSTANTS.DPI)
+                        return round(im.width * f), round(im.height * f)
+                return size_of
+
             montage_mod = _load_montage_module()
             n_sheets = 1
             if mode["value"] == "stickers":
@@ -7677,7 +7689,8 @@ def main(page: ft.Page):
                     sheet_photos, prev_w, prev_h, gap_px, gap_px,
                     grid_fit["value"], load_thumb, log=lambda msg: None,
                     auto_rotate=grid_auto_rotate["value"],
-                    slots=max_per_sheet)
+                    slots=max_per_sheet, dpi=dpi * scale,
+                    size_of=_preview_size_of(dpi * scale))
             else:
                 canvas, _ = montage_mod.render_montage(
                     photo_paths, prev_w, prev_h, size_slider.value,
