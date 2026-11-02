@@ -1064,15 +1064,15 @@ RAYONS_Y = 10
 RAYONS_LENGTH = 100
 RAYONS_INTENSITY = 0.5
 RAYONS_WARMTH = 0.6
-RAYONS_THRESHOLD = 0.8
+RAYONS_THRESHOLD = 0.64
 RAYONS_SUN_SIZE = 4
 RAYONS_INFLUENCE = 1.0  # la photo module les rayons
 RAYONS_DEPTH = 0.0  # >0 = rayons seulement au loin
 RAYONS_PRECISE = 0  # 0 rapide · 1 équilibré · 2 qualité
 RAYONS_PARALLEL = False  # rayons parallèles (soleil lointain)
 RAYONS_RAYS = 1.0  # 0 = lumière diffuse sans faisceaux
-RAYONS_COUNT = 40  # nombre de faisceaux
-RAYONS_WIDTH = 1.0  # largeur moyenne des faisceaux
+RAYONS_COUNT = 15  # nombre de faisceaux
+RAYONS_WIDTH = 3.0  # largeur moyenne des faisceaux
 RAYONS_SHADOWS = 1.0  # ombres projetées par le relief
 
 # ── 12.4  Désaturation des extrêmes + boost mi-tons (Retouche photo.pyw) ────
