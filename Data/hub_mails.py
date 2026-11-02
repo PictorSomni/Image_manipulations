@@ -203,12 +203,29 @@ def build(ui):
     # ── Recherche dans toute la boîte (reçus + envoyés) ──────────────────
     def search_mails(e=None):
         box = {}
-        results = ft.ListView(spacing=0, height=420, width=560)
+        results = ft.ListView(spacing=0, height=480, width=380)
         status = ft.Text("", color=LIGHT_GREY)
+        # Mail ouvert à côté de la liste : on compare sans fermer.
+        preview = ft.Column([], width=560, height=480,
+                            scroll=ft.ScrollMode.AUTO, spacing=6)
 
-        def _pick(m):
+        def _reply(m):
             _close(box["dlg"])
             open_reply(m)
+
+        def _pick(m):
+            for t in results.controls:
+                t.bgcolor = (ft.Colors.with_opacity(0.2, BLUE)
+                             if t.data is m else None)
+            preview.controls = [
+                ft.Text(m["subject"] or "(sans objet)", color=WHITE,
+                        size=CONSTANTS.TEXT_LG, selectable=True),
+                ft.Text(f"{m['date']} · "
+                        + ("À : " if m["sent"] else "De : ") + m["from"],
+                        color=LIGHT_GREY, selectable=True),
+                _dlg_btn("Répondre", on_click=lambda e: _reply(m)),
+                ft.Text(m["body"], color=WHITE, selectable=True)]
+            page.update()
 
         def _done(out):
             if isinstance(out, Exception):
@@ -216,12 +233,15 @@ def build(ui):
                 return
             status.value = "" if out else "Aucun mail"
             results.controls = [ft.ListTile(
+                data=m,
                 leading=ft.Icon(ft.Icons.SEND if m["sent"]
                                 else ft.Icons.MAIL_OUTLINE, color=BLUE),
                 title=ft.Text(m["name"], color=WHITE),
                 subtitle=ft.Text(f"{m['date'][:10]} · {m['subject']}",
                                  color=LIGHT_GREY),
                 on_click=lambda e, m=m: _pick(m)) for m in out]
+            if out:
+                _pick(out[0])
 
         def _go(e):
             q = field.value.strip()
@@ -229,6 +249,7 @@ def build(ui):
                 return
             status.value = "Recherche…"
             results.controls = []
+            preview.controls = []
             page.update()
             _bg(lambda: hub_sync.mail("search", q=q), _done)
 
@@ -236,7 +257,10 @@ def build(ui):
                        on_submit=_go)
         box["dlg"] = _dialog(
             title=ft.Text("Rechercher un mail"), bar_color=BLUE,
-            content=ft.Column([field, status, results], tight=True),
+            content=ft.Column([field, status, ft.Row(
+                [results, ft.VerticalDivider(width=1, color=GREY), preview],
+                vertical_alignment=ft.CrossAxisAlignment.START)],
+                tight=True),
             actions=[_dlg_btn("Chercher", on_click=_go),
                      _dlg_btn("Fermer",
                               on_click=lambda e: _close(box["dlg"]))])

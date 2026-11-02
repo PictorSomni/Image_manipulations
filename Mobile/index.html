@@ -477,12 +477,21 @@ function searchMails() {
     try {
       const r = (await api("/api/mail", {action: "search",
                                          q: q.value.trim()})).ok;
-      list.replaceChildren(...(r.length ? r.map(m => h("div",
-        {class: "slot", onclick: () => mailSheet({reply: m})},
-        h("i", {class: "bar2", style: {background: C.blue}}),
-        h("div", {class: "tx"}, m.name, h("div", {class: "muted"},
-          m.date.slice(0, 10) + " · " + m.subject))))
-        : [h("div", {class: "muted"}, "Aucun mail")]));
+      // Clic : le mail se déplie sous la ligne, la liste reste là.
+      list.replaceChildren(...(r.length ? r.map(m => {
+        const full = h("div", {style: {display: "none", padding:
+          "6px 0 12px 12px"}}, h("div", {class: "muted"},
+          (m.sent ? "À : " : "De : ") + m.from),
+          h("div", {style: {whiteSpace: "pre-wrap", margin: "8px 0"}},
+            m.body),
+          h("button", {class: "btn", onclick: () =>
+            mailSheet({reply: m})}, ic("reply"), " Répondre"));
+        return h("div", {}, h("div", {class: "slot", onclick: () =>
+          full.style.display = full.style.display ? "" : "none"},
+          h("i", {class: "bar2", style: {background: C.blue}}),
+          h("div", {class: "tx"}, m.name, h("div", {class: "muted"},
+            m.date.slice(0, 10) + " · " + m.subject))), full);
+      }) : [h("div", {class: "muted"}, "Aucun mail")]));
     } catch (e) { list.replaceChildren(h("div", {}, "Erreur : " +
       e.message)); }
   };
