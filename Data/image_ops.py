@@ -2389,12 +2389,13 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
             + rng.uniform(-0.03, 0.03) * h
         dy = yy - edge
         # Au loin, bords fondus et bancs plus légers (spread).
-        sf = soft * (1 + 8 * spread * t ** 2)
+        sf = soft * (1 + 3 * spread + 8 * spread * t ** 2)
         cov = np.clip(dy / sf, 0, 1)
         cov = cov * np.exp(-np.maximum(dy, 0) / (h * (0.25 + 0.3 * t)))
         tex = _cloud_noise_cached(h, w, max(4.0, 40 * (1.05 - t)), 71 + i)
         cov = cov * (0.7 + 0.3 * tex)
-        vis = np.clip((far - t) * 20 + 0.5, 0, 1)
+        vis = np.clip((far - t) * 20 / (1 + 5 * spread) + 0.5, 0, 1)
+        vis = vis * vis * (3 - 2 * vis)
         rim = np.exp(-(dy / (sf * 1.5 + 2)) ** 2) * (dy > -sf)
         rim = rim * (1 - spread * t)
         col = shade + (color * 1.08 - shade) * (0.7 + 0.3 * rim)[..., None]

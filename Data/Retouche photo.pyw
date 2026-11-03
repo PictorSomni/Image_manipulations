@@ -1820,7 +1820,7 @@ def main(page: ft.Page):
             ("clouds", "Nuages", 0, 1, 0.01),
             ("cloud_size", "Taille des nuages", 5, 100, 1),
             ("thick", "Épaisseur", 0, 1, 0.01),
-            ("spread", "Fondu au loin", 0, 1, 0.01),
+            ("spread", "Fondu", 0, 1, 0.01),
             ("fond", "Début du fond", 0.05, 1, 0.01),
             ("ground", "Brume au sol", 0, 1, 0.01),
             ("ground_height", "Hauteur", 0, 1, 0.005)])
