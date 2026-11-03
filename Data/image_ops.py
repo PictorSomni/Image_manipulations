@@ -2309,6 +2309,12 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
     color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
                       0.86 - 0.08 * warmth], np.float32)
+    # La brume prend la lumière de la scène : teinte locale très floue
+    # (couchant magenta, ombres bleues du matin…), luminosité gardée.
+    big = max(img.shape[:2]) / 8.0
+    amb = cv2.GaussianBlur(img, (0, 0), big)
+    amb = amb / (amb.mean(axis=2, keepdims=True) + 1e-3)
+    color = color * (0.4 + 0.6 * np.clip(amb, 0.3, 2.0))
     far = depth_map(img, precise)
     # Fond : tout ce qui est plus loin que ce seuil compte comme le fond.
     far = np.clip(far / max(0.05, fond), 0, 1)
@@ -2327,9 +2333,9 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     a = np.clip(amount * m, 0, 0.95)[..., None]
     # Diffusion : la lumière diffusée floute et adoucit le lointain,
     # pas seulement un voile laiteux posé dessus.
-    sig = max(h, w) / 140.0
+    sig = max(h, w) / 90.0
     blur = cv2.GaussianBlur(img, (0, 0), sig)
-    img = img + (blur - img) * np.clip(a * 1.4, 0, 1)
+    img = img + (blur - img) * np.clip(a * 1.8, 0, 1)
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + color * a * (1 - 0.6 * clouds)
     shade = np.array([0.84, 0.87, 0.93], np.float32) * color
