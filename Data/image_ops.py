@@ -2454,10 +2454,11 @@ def _bumpy_top(m, bumps, edge, seed=5):
     # des rondeurs de brume, pas des disques dessinés.
     r0 = h * (0.02 + 0.1 * bumps)
     tx = _cloud_noise_cached(h, w, max(4.0, r0 * 0.8), 17)
-    balls = balls * (0.55 + 0.45 * tx)
+    nz = 0.45 * (0.3 + 0.7 * edge)
+    balls = balls * (1 - nz + nz * tx)
     balls = cv2.GaussianBlur(balls, (0, 0),
-                             max(1.0, r0 * (0.1 + 0.8 * edge)))
-    out = ms + (1 - ms) * balls * 0.9
+                             max(0.6, r0 * (0.03 + 0.87 * edge)))
+    out = ms + (1 - ms) * balls * (1 - 0.1 * edge)
     return cv2.resize(out, (W, H), interpolation=cv2.INTER_LINEAR)
 
 
