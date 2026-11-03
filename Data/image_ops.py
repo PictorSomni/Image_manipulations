@@ -2493,11 +2493,14 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
 
 def _sub_balls(img, cx, cy, r, v, rng, depth):
     """Petites boules sur le haut d'une boule (récursif, depth niveaux)."""
-    if depth <= 0 or r < 3:
+    if depth <= 0 or r < 1.2:
         return
-    # Taille du grain : 0 = beaucoup de petites, 1 = peu de grosses.
-    q = 0.05 + 0.3 * _GRAIN
-    nb = min(30, max(2, int(round(1.5 / q))))
+    # Détail : 1 = beaucoup de petites, 0 = peu de grosses. Niveaux
+    # suivants au tiers, peu nombreux (sinon nb**3 cercles).
+    q = 0.12 + 0.3 * _GRAIN
+    nb = min(14, max(2, int(round(1.5 / q))))
+    if depth < 3:
+        q, nb = 0.35, 5
     for _ in range(nb):
         t = rng.uniform(np.pi * 1.1, np.pi * 1.9)
         rr = r * q * rng.uniform(0.8, 1.2)
@@ -2556,7 +2559,7 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
                        float(lvl[i]), -1, cv2.LINE_AA)
             # Fractal : sur chaque volute, des volutes plus petites
             # posées sur son arrondi, et encore plus petites dessus.
-            _sub_balls(sub, i, cy, r, float(lvl[i]), rng, 2)
+            _sub_balls(sub, i, cy, r, float(lvl[i]), rng, 3)
             x += r * rng.uniform(0.9, 1.5)
         else:
             x += 4
@@ -2571,7 +2574,7 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
                              max(0.6, r0 * (0.03 + 0.87 * edge)))
     # Sous-volutes floutées à leur échelle : sinon le flou des grosses
     # les efface.
-    qs = 0.05 + 0.3 * _GRAIN
+    qs = 0.04 + 0.1 * _GRAIN
     sub = cv2.GaussianBlur(sub, (0, 0),
                            max(0.6, r0 * qs * (0.15 + 0.6 * edge)))
     # Relief des sous-volutes même posées dans une grosse : leur bord
