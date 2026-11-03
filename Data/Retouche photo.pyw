@@ -184,6 +184,7 @@ def default_params():
                       "cloud_size": C.BRUME_CLOUD_SIZE,
                       "thick": C.BRUME_THICK,
                       "fond": C.BRUME_FOND,
+                      "spread": C.BRUME_SPREAD,
                       "ground": C.BRUME_GROUND,
                       "ground_height": C.BRUME_GROUND_HEIGHT,
                       "show_depth": False},
@@ -490,7 +491,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
           ("brume", image_ops.add_haze,
            ("amount", "depth", "warmth", "precise", "clouds",
             "cloud_size", "show_depth", "ground",
-            "ground_height", "thick", "fond")),
+            "ground_height", "thick", "fond", "spread")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
@@ -1819,6 +1820,7 @@ def main(page: ft.Page):
             ("clouds", "Nuages", 0, 1, 0.01),
             ("cloud_size", "Taille des nuages", 5, 100, 1),
             ("thick", "Épaisseur", 0, 1, 0.01),
+            ("spread", "Fondu au loin", 0, 1, 0.01),
             ("fond", "Début du fond", 0.05, 1, 0.01),
             ("ground", "Brume au sol", 0, 1, 0.01),
             ("ground_height", "Hauteur", 0, 1, 0.005)])
@@ -1962,8 +1964,12 @@ def main(page: ft.Page):
         # réglages…" pour reprendre et ajuster un lot précédent.
         with open(folder_path / "retouche_params.json", "w",
                   encoding="utf-8") as f:
-            json.dump(params_snapshot, f, indent=2, ensure_ascii=False)
-        todo = [n for n in file_names if _is_edited(n)]
+            todo = [n for n in file_names if _is_edited(n)]
+            # Réglages photo par photo : "Charger des réglages…" les
+            # redistribue sur chaque image.
+            json.dump(dict(params_snapshot, _photos={
+                n: _photo_params(n) for n in todo}), f, indent=2,
+                ensure_ascii=False)
         total = len(todo)
         done = 0
         for i, name in enumerate(todo):
@@ -2193,8 +2199,18 @@ def main(page: ft.Page):
         try:
             with open(files[0].path, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
+            photos = loaded.pop("_photos", {})
             loaded.setdefault("masques", [])
-            _update_in_place(state["params"], loaded)
+            if photos and state["base"] is None:
+                state["base"] = copy.deepcopy(state["params"])
+            for n, prm in photos.items():
+                if n in file_names:
+                    prm.setdefault("masques", [])
+                    state["overrides"][n] = prm
+            _update_in_place(state["params"], copy.deepcopy(
+                photos.get(state["cur"]) or loaded))
+            if photos:
+                _refresh_filmstrip()
         except Exception as exc:
             load_params_status.value = f"Erreur : {exc}"
             load_params_status.color = RED
@@ -2242,6 +2258,7 @@ def main(page: ft.Page):
         preset_list.update()
         try:
             loaded = load_preset(name)
+            loaded.pop("_photos", None)
             loaded.setdefault("masques", [])
             _update_in_place(state["params"], loaded)
         except Exception as exc:

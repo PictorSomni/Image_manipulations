@@ -1054,6 +1054,7 @@ BRUME_DEPTH = 0.0  # 0 uniforme · 1 fond · 2 fond seul
 BRUME_WARMTH = 0.2
 BRUME_CLOUDS = 0.5  # 0 voile uni · 1 nappes marquées
 BRUME_CLOUD_SIZE = 30
+BRUME_SPREAD = 0.5  # bancs lointains plus fondus
 BRUME_FOND = 1.0  # plus bas = le fond commence plus près
 BRUME_THICK = 0.0  # 0 voile égal · 1 bancs épais et trouées
 BRUME_GROUND = 1.0  # 0 partout · 1 seulement au ras du sol / de l'eau
@@ -1065,13 +1066,13 @@ RAYONS_Y = 10
 RAYONS_LENGTH = 100
 RAYONS_INTENSITY = 0.5
 RAYONS_WARMTH = 0.6
-RAYONS_THRESHOLD = 0.64
+RAYONS_THRESHOLD = 0.42
 RAYONS_SUN_SIZE = 4
-RAYONS_INFLUENCE = 1.0  # la photo module les rayons
-RAYONS_DEPTH = 0.0  # >0 = rayons seulement au loin
+RAYONS_INFLUENCE = 0.95  # la photo module les rayons
+RAYONS_DEPTH = 1.5  # >0 = rayons seulement au loin
 RAYONS_PRECISE = 0  # 0 rapide · 1 équilibré · 2 qualité
 RAYONS_PARALLEL = False  # rayons parallèles (soleil lointain)
-RAYONS_RAYS = 1.0  # 0 = lumière diffuse sans faisceaux
+RAYONS_RAYS = 0.8  # 0 = lumière diffuse sans faisceaux
 RAYONS_COUNT = 15  # nombre de faisceaux
 RAYONS_WIDTH = 3.0  # largeur moyenne des faisceaux
 RAYONS_SHADOWS = 1.0  # ombres projetées par le relief

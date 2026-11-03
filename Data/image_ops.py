@@ -2300,7 +2300,7 @@ def _cloud_noise_cached(h, w, size, seed):
 def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
-             thick=0.0, fond=1.0):
+             thick=0.0, fond=1.0, spread=0.5):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -2352,11 +2352,13 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             al = al[..., None]
             out = out * (1 - al) + col * al
     if thick > 0:
-        out = _fog_banks(out, far, hw, amount, thick, color, shade)
+        out = _fog_banks(out, far, hw, amount, thick, color, shade,
+                         spread)
     return _to_pil(out)
 
 
-def _fog_banks(out, far, hw, amount, thick, color, shade, n=7):
+def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
+               n=7):
     """Bancs de brume en couches, du fond vers l'avant, comme des vagues :
     chaque banc a un bord supérieur ondulé, éclairé, qui se détache du
     banc de derrière ; il ne recouvre que ce qui est plus loin que lui.
@@ -2386,14 +2388,18 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, n=7):
         edge = y0 - amp * (0.3 + wave + 0.25 * rip) - amp * 0.6 * tx \
             + rng.uniform(-0.03, 0.03) * h
         dy = yy - edge
-        cov = np.clip(dy / soft, 0, 1)
+        # Au loin, bords fondus et bancs plus légers (spread).
+        sf = soft * (1 + 8 * spread * t ** 2)
+        cov = np.clip(dy / sf, 0, 1)
         cov = cov * np.exp(-np.maximum(dy, 0) / (h * (0.25 + 0.3 * t)))
         tex = _cloud_noise_cached(h, w, max(4.0, 40 * (1.05 - t)), 71 + i)
         cov = cov * (0.7 + 0.3 * tex)
         vis = np.clip((far - t) * 20 + 0.5, 0, 1)
-        rim = np.exp(-(dy / (soft * 1.5 + 2)) ** 2) * (dy > -soft)
+        rim = np.exp(-(dy / (sf * 1.5 + 2)) ** 2) * (dy > -sf)
+        rim = rim * (1 - spread * t)
         col = shade + (color * 1.08 - shade) * (0.7 + 0.3 * rim)[..., None]
-        al = np.clip(amount * thick * 0.85 * cov * vis * hw, 0, 0.92)
+        al = np.clip(amount * thick * 0.85 * cov * vis * hw
+                     * (1 - 0.5 * spread * t), 0, 0.92)
         out = out * (1 - al[..., None]) + col * al[..., None]
     return out
 
