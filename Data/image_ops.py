@@ -2523,7 +2523,7 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
     thr = 0.5 * float(np.percentile(ms, 99.5))
     # ponytail: curseur remappé sur l'ancienne plage 0,5-1 (en dessous,
     # boules trop espacées, retour user).
-    r0 = h * (0.065 + 0.055 * bumps)
+    r0 = h * (0.03 + 0.05 * bumps)
     if thr <= 0.02:
         return m
     # Ligne du dessus lissée sur la largeur : les boules suivent la
@@ -2640,7 +2640,10 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         cv = contrast
         amp = h * 0.06 * (1.1 - t) * (0.3 + 1.4 * curl) * (0.1 + 0.9 * cv)
         # Bord bousculé par la texture : pas une ligne trop propre.
-        tx = _cloud_noise_cached(h, w, max(4.0, 25 * (1.05 - t)), 91 + i)
+        # ponytail: bruit rond ; le bruit à filaments faisait des
+        # rideaux verticaux (aurore boréale) sous le bord.
+        tx = 0.5 + 0.25 * _grain(h, w, 91 + i,
+                                 max(1.0, h * 0.05 * (1.05 - t)))
         edge = y0 - amp * (0.3 + wave + 0.5 * curl * rip) \
             - amp * (0.2 + 0.8 * curl) * tx \
             + rng.uniform(-0.03, 0.03) * h
@@ -2662,7 +2665,8 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         sf = soft * (1 + 1.5 * spread + 3 * spread * t ** 2)
         cov = np.clip(dy / sf, 0, 1)
         cov = cov * np.exp(-np.maximum(dy, 0) / (h * (0.25 + 0.3 * t)))
-        tex = _cloud_noise_cached(h, w, max(4.0, 40 * (1.05 - t)), 71 + i)
+        tex = 0.5 + 0.12 * _grain(h, w, 71 + i,
+                                  max(1.0, h * 0.06 * (1.05 - t)))
         # Densité : volute épaisse opaque, creux fin qui laisse voir.
         dens = np.clip(0.55 + (tex - 0.5) * 9 * contrast, 0.0, 1)
         cov = cov * dens * (1 + 0.5 * contrast)
