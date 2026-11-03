@@ -2324,26 +2324,12 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     expo = 1.3 + max(0.0, depth - 1.0) * 3.0
     d = min(1.0, depth)
     h, w = img.shape[:2]
-    thick = thick * 0.35  # au-delà l'effet devient faux (retour user)
-    if thick > 0:
-        # Épaisseur : bancs denses et trouées claires plutôt qu'un voile
-        # égal ; motif choisi selon la distance (plus fin au loin).
-        dens = np.zeros((h, w), np.float32)
-        wsum = np.zeros((h, w), np.float32)
-        for i in range(5):
-            t = (i + 0.5) / 5
-            band = np.exp(-((far - t) * 5) ** 2)
-            n = _cloud_noise_cached(
-                h, w, max(3.0, cloud_size * 1.6 * (1.05 - t) ** 1.6),
-                31 + i)
-            dens += n * band
-            wsum += band
-        dens /= np.maximum(wsum, 1e-4)
-        k = 4 + 14 * thick
-        dens = 1 / (1 + np.exp(-(dens - 0.5) * k))
-        dens = np.where(far > 0.97, 0.5, dens)  # pas de trous dans le ciel
-        m = m * ((1 - thick) + thick * 4.0 * dens)
-    a = np.clip(amount * m, 0, 0.95 + 0.04 * thick)[..., None]
+    a = np.clip(amount * m, 0, 0.95)[..., None]
+    # Diffusion : la lumière diffusée floute et adoucit le lointain,
+    # pas seulement un voile laiteux posé dessus.
+    sig = max(h, w) / 140.0
+    blur = cv2.GaussianBlur(img, (0, 0), sig)
+    img = img + (blur - img) * np.clip(a * 1.4, 0, 1)
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + color * a * (1 - 0.6 * clouds)
     shade = np.array([0.84, 0.87, 0.93], np.float32) * color
@@ -2365,7 +2351,51 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             al = np.clip(amount * clouds * 0.32 * n * vis * hw, 0, 0.9)
             al = al[..., None]
             out = out * (1 - al) + col * al
+    if thick > 0:
+        out = _fog_banks(out, far, hw, amount, thick, color, shade)
     return _to_pil(out)
+
+
+def _fog_banks(out, far, hw, amount, thick, color, shade, n=7):
+    """Bancs de brume en couches, du fond vers l'avant, comme des vagues :
+    chaque banc a un bord supérieur ondulé, éclairé, qui se détache du
+    banc de derrière ; il ne recouvre que ce qui est plus loin que lui.
+    thick règle la netteté des bords et la présence des bancs.
+    ponytail: hauteur des bancs déduite de la ligne où la profondeur
+    vaut t ; pas de vraie simulation volumique."""
+    h, w = far.shape
+    rng = np.random.default_rng(7)
+    yy = np.arange(h, dtype=np.float32)[:, None]
+    rows = np.broadcast_to(yy, (h, w))
+    soft = h * (0.05 * (1 - thick) + 0.015)
+    for i in reversed(range(n)):
+        t = 0.25 + 0.7 * (i + 0.5) / n
+        band = np.abs(far - t) < 0.06
+        if band.sum() < w:
+            continue
+        y0 = float(np.median(rows[band]))
+        # Bord ondulé : grandes ondes + petites crêtes, plus fines au loin.
+        k = max(3, int(6 + 10 * t))
+        wave = cv2.resize(rng.random((1, k)).astype(np.float32), (w, 1),
+                          interpolation=cv2.INTER_CUBIC)
+        rip = cv2.resize(rng.random((1, k * 4)).astype(np.float32),
+                         (w, 1), interpolation=cv2.INTER_CUBIC)
+        amp = h * 0.06 * (1.1 - t)
+        # Bord bousculé par la texture : pas une ligne trop propre.
+        tx = _cloud_noise_cached(h, w, max(4.0, 25 * (1.05 - t)), 91 + i)
+        edge = y0 - amp * (0.3 + wave + 0.25 * rip) - amp * 0.6 * tx \
+            + rng.uniform(-0.03, 0.03) * h
+        dy = yy - edge
+        cov = np.clip(dy / soft, 0, 1)
+        cov = cov * np.exp(-np.maximum(dy, 0) / (h * (0.25 + 0.3 * t)))
+        tex = _cloud_noise_cached(h, w, max(4.0, 40 * (1.05 - t)), 71 + i)
+        cov = cov * (0.7 + 0.3 * tex)
+        vis = np.clip((far - t) * 20 + 0.5, 0, 1)
+        rim = np.exp(-(dy / (soft * 1.5 + 2)) ** 2) * (dy > -soft)
+        col = shade + (color * 1.08 - shade) * (0.7 + 0.3 * rim)[..., None]
+        al = np.clip(amount * thick * 0.85 * cov * vis * hw, 0, 0.92)
+        out = out * (1 - al[..., None]) + col * al[..., None]
+    return out
 
 
 def _sun_shadow(far, sx, sy, fov=60.0):
