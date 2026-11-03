@@ -2286,6 +2286,15 @@ def _fbm(h, w, base, rng, octaves=6, stretch=3.0):
     return out / total
 
 
+def _grain(h, w, seed, sig=None):
+    """Bruit rond centré (écart-type ~1) ; sig px, ~1 px à 800 px."""
+    rng = np.random.default_rng(seed + 1000 * _SEED)
+    sig = max(0.6, max(h, w) / 700.0) if sig is None else sig
+    g = cv2.GaussianBlur(rng.standard_normal((h, w)).astype(np.float32),
+                         (0, 0), sig)
+    return g / max(1e-3, float(g.std()))
+
+
 def _cloud_noise(h, w, size, seed=11):
     """Brume effilochée 0..1, graine fixe (même motif à chaque rendu) :
     bruit fractal couché, déformé par un second bruit (volutes), puis
@@ -2421,13 +2430,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         crest = cv2.GaussianBlur(crest, (0, 0), dd)
         # Sous-bruit : petites bosses de nuage dans la houle (2397),
         # plus fines au loin.
-        fw = max(8, lw // 2)
-        f1 = cv2.resize(_cloud_noise_cached(lh, fw, lh * 0.012, 41),
-                        (lw, lh), interpolation=cv2.INTER_CUBIC)
-        f2 = cv2.resize(_cloud_noise_cached(lh, fw, lh * 0.03, 43),
-                        (lw, lh), interpolation=cv2.INTER_CUBIC)
-        fine = fl * f1 + (1 - fl) * f2
-        fine = (fine - fine.mean()) / max(1e-3, fine.std())
+        fine = _grain(lh, lw, 41)
         sh = contrast * (0.12 * (tn - 0.5) + 0.2 * crest
                          + 0.08 * np.clip(fine, -2.5, 2.5))
         swell = cv2.resize(sh, (w, h), interpolation=cv2.INTER_CUBIC)
@@ -2534,15 +2537,18 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
             x += 4
     # Fondu + bord bousculé par du bruit : des rondeurs de brume, pas
     # des disques dessinés.
-    tx = _cloud_noise_cached(h, w, max(4.0, r0 * 0.8), 17)
-    nz = 0.45 * (0.3 + 0.7 * edge)
-    balls = balls * (1 - nz + nz * tx)
+    # ponytail: bruit rond, pas le bruit à filaments (traînées façon
+    # aurore boréale avec de petites volutes).
+    tx = _grain(h, w, 17, max(1.0, r0 * 0.25))
+    nz = 0.2 * (0.3 + 0.7 * edge)
+    balls = balls * np.clip(1 + nz * tx, 0, None)
     balls = cv2.GaussianBlur(balls, (0, 0),
                              max(0.6, r0 * (0.03 + 0.87 * edge)))
     # Détail intérieur : petites bosses dans chaque volute (comme 214).
-    fine = _cloud_noise_cached(h, w, max(3.0, r0 * 0.3), 23)
-    d = 0.6 * contrast
-    balls = balls * (1 - d + d * fine)
+    # ponytail: grain fin (bruit blanc flouté ~1 px à 800 px), pas un
+    # bruit de volutes : celui-ci créait des formes étrangères.
+    d = 0.25 * contrast
+    balls = balls * np.clip(1 + d * _grain(h, w, 23), 0, None)
     if far is not None:
         # Les boules restent derrière ce qui est plus proche que la
         # nappe (arbres du premier plan) : profondeur au pied de la ligne.
@@ -2635,7 +2641,8 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         col = shade + (color * 1.08 - shade) * (lo + (1.15 - lo) * rim)[
             ..., None]
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
-                     * (1 - 0.5 * spread * t), 0, cap)
+                     * (1 - 0.5 * spread * t)
+                     * (0.35 + 0.65 * min(1.0, t / 0.3)), 0, cap)
         al = up(al.astype(np.float32))
         k = np.clip(al * 4.0 * distort, 0, 1)[..., None]
         out = out + (blur - out) * k
