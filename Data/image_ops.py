@@ -2585,12 +2585,17 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
     # les efface.
     qs = 0.04 + 0.1 * _GRAIN
     sub = cv2.GaussianBlur(sub, (0, 0),
-                           max(0.6, r0 * qs * (0.15 + 0.6 * edge)))
+                           max(0.6, r0 * qs * (0.15 + 0.6 * edge
+                                             + 1.5 * _GRAIN)))
     # Relief des sous-volutes même posées dans une grosse : leur bord
     # ressort (sub moins sa version floue), pas juste leur contour.
     rel = np.clip(sub - cv2.GaussianBlur(sub, (0, 0),
                                          max(1.0, r0 * qs * 0.8)), 0, 1)
-    balls = np.maximum(balls, sub) + 0.6 * rel
+    # Volutes au minimum : nappe lisse, sans sous-volutes ; Détail au
+    # minimum : sous-volutes adoucies, peu de relief.
+    sw = float(contrast)
+    balls = (np.maximum(balls, sub * sw)
+             + 0.6 * sw * (1 - 0.75 * _GRAIN) * rel)
     # Détail intérieur : petites bosses dans chaque volute (comme 214).
     # ponytail: grain fin (bruit blanc flouté ~1 px à 800 px), pas un
     # bruit de volutes : celui-ci créait des formes étrangères.
