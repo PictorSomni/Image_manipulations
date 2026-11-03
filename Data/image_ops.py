@@ -1950,12 +1950,13 @@ def add_bloom(
 
 
 # ── Effets « Luminar » : Structure, Vignette, Mystique, Brume, Rayons ────
-def _blur_pct(arr, radius_pct):
+def _blur_pct(arr, radius_pct, min_sigma=20.0):
     """Flou gaussien d'un rayon en % de la petite dimension, calculé en
-    basse résolution au-delà de ~20 px de sigma (comme add_bloom)."""
+    basse résolution au-delà de ~min_sigma px de sigma (comme add_bloom)."""
     h, w = arr.shape[:2]
     sigma = max(0.5, radius_pct / 100.0 * min(h, w))
-    scale = min(1.0, 20.0 / sigma)
+    scale = min(1.0, min_sigma / sigma)
+    arr = arr.astype(np.float32, copy=False)
     if scale >= 1.0:
         return cv2.GaussianBlur(arr, (0, 0), sigma)
     sh, sw = max(1, int(h * scale)), max(1, int(w * scale))
@@ -2333,7 +2334,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     # Diffusion : la lumière diffusée floute et adoucit le lointain,
     # pas seulement un voile laiteux posé dessus.
     sig = max(h, w) / 90.0
-    blur = _blur_pct(img, 100 * sig / min(h, w))
+    blur = _blur_pct(img, 100 * sig / min(h, w), 5.0)
     img = img + (blur - img) * np.clip(a * 3.6 * distort, 0, 1)
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + color * a * (1 - 0.6 * clouds)
@@ -2370,13 +2371,24 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
     thick règle la netteté des bords et la présence des bancs.
     ponytail: hauteur des bancs déduite de la ligne où la profondeur
     vaut t ; pas de vraie simulation volumique."""
-    h, w = far.shape
+    H, W = far.shape
+    # Masques calculés en basse résolution (bords déjà doux), puis
+    # agrandis ; seul le mélange final se fait en pleine résolution.
+    s = min(1.0, 640.0 / max(H, W))
+    h, w = max(1, int(H * s)), max(1, int(W * s))
+    if s < 1:
+        far = cv2.resize(far, (w, h), interpolation=cv2.INTER_AREA)
+        if np.ndim(hw):
+            hw = cv2.resize(hw, (w, h), interpolation=cv2.INTER_AREA)
+    up = (lambda a: a) if s >= 1 else (lambda a: cv2.resize(
+        a, (W, H), interpolation=cv2.INTER_LINEAR))
     rng = np.random.default_rng(7)
     yy = np.arange(h, dtype=np.float32)[:, None]
     rows = np.broadcast_to(yy, (h, w))
     soft = h * (0.05 * (1 - thick) + 0.015)
     # Ce qui est derrière une volute épaisse se floute, même au proche.
-    blur = _blur_pct(out, 100 * max(h, w) / 70.0 / min(h, w))
+    blur = _blur_pct(out, 100 * max(H, W) / 70.0 / min(H, W),
+                     5.0)
     for i in reversed(range(n)):
         t = 0.25 + 0.7 * (i + 0.5) / n
         band = np.abs(far - t) < 0.06
@@ -2405,10 +2417,11 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         vis = np.clip((far - t) * 20 / (1 + 5 * spread) + 0.5, 0, 1)
         vis = vis * vis * (3 - 2 * vis)
         rim = np.exp(-(dy / (sf * 1.5 + 2)) ** 2) * (dy > -sf)
-        rim = rim * (1 - spread * t)
+        rim = up((rim * (1 - spread * t)).astype(np.float32))
         col = shade + (color * 1.08 - shade) * (0.7 + 0.3 * rim)[..., None]
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
                      * (1 - 0.5 * spread * t), 0, 0.92)
+        al = up(al.astype(np.float32))
         k = np.clip(al * 4.0 * distort, 0, 1)[..., None]
         out = out + (blur - out) * k
         out = out * (1 - al[..., None]) + col * al[..., None]
