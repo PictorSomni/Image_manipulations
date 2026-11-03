@@ -2380,7 +2380,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         # halo ni liseré autour des silhouettes, transition douce.
         ray = _snap(img, ray)
         ray = _bumpy_top(ray, bumps, edge, far,
-                         amp=1 - 0.75 * ground_height,
+                         amp=(1 - 0.75 * ground_height) * min(1.0, 2 * contrast),
                          contrast=contrast)
         hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
@@ -2390,19 +2390,35 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     d = min(1.0, depth)
     h, w = img.shape[:2]
     a = np.clip(amount * m, 0, 0.95)[..., None]
+    swell = None
     if contrast > 0:
-        # Nappes dans la brume elle-même : forme lisible même sur une
-        # photo claire (épais plus opaque, creux qui laissent voir).
+        # Houle : 0 = nappe d'eau plate, 1 = mer de nuages. Bandes
+        # étirées en largeur, serrées au loin, larges devant ; le dessus
+        # de chaque vague est éclairé, le creux derrière plus sombre.
+        # L'opacité reste pleine : du relief, pas de trous.
         sc = min(1.0, 640.0 / max(h, w))
         lh, lw = max(1, int(h * sc)), max(1, int(w * sc))
-        tz = _cloud_noise_cached(lh, lw, 12 + 50 * bumps, 7)
-        q0, q1 = np.percentile(tz, (15, 85))
-        tn = np.clip((tz - q0) / max(1e-3, q1 - q0), 0, 1)
-        am = cv2.resize(a[..., 0], (lw, lh), interpolation=cv2.INTER_AREA)
-        mu = float((tn * am).sum() / max(1e-6, am.sum()))
-        mod = cv2.resize(1 + contrast * 1.8 * (tn - mu), (w, h),
+        sw = max(8, lw // 3)
+        big = cv2.resize(_cloud_noise_cached(lh, sw, lh * 0.12, 31), (lw, lh),
                          interpolation=cv2.INTER_CUBIC)
-        a = np.clip(a * mod[..., None], 0, 0.97)
+        small = cv2.resize(_cloud_noise_cached(lh, sw, lh * 0.04, 37), (lw, lh),
+                           interpolation=cv2.INTER_CUBIC)
+        fl = cv2.resize(far.astype(np.float32), (lw, lh),
+                        interpolation=cv2.INTER_AREA)
+        tz = fl * small + (1 - fl) * big
+        q0, q1 = np.percentile(tz, (5, 95))
+        tn = np.clip((tz - q0) / max(1e-3, q1 - q0), 0, 1)
+        dd = max(1, lh // 40)
+        crest = np.clip((tn - np.roll(tn, dd, axis=0)) * 3, -1, 1)
+        crest[:dd] = 0
+        crest = cv2.GaussianBlur(crest, (0, 0), dd)
+        sh = contrast * (0.35 * (tn - 0.5) + 0.45 * crest)
+        swell = cv2.resize(sh, (w, h), interpolation=cv2.INTER_CUBIC)
+        if ground > 0:
+            swell = swell * np.clip(hw, 0, 1)
+        op = cv2.resize(1 + 0.25 * contrast * (tn - 0.5), (w, h),
+                        interpolation=cv2.INTER_CUBIC)
+        a = np.clip(a * op[..., None], 0, 0.97)
     # Diffusion : la lumière diffusée floute et adoucit le lointain,
     # pas seulement un voile laiteux posé dessus.
     sig = max(h, w) / 90.0
@@ -2418,6 +2434,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         kk = ground * (1 - 0.6 * ground_height)
         f = 1 - 0.18 * kk + 0.3 * kk * cv2.GaussianBlur(tl, (0, 0), dd)
         fc = color * f[..., None]
+    if swell is not None:
+        fc = fc * np.clip(1 + swell, 0.55, 1.3)[..., None]
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + fc * a * (1 - 0.6 * clouds)
     shade = np.array([0.84, 0.87, 0.93], np.float32) * color
@@ -2552,7 +2570,9 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                           interpolation=cv2.INTER_CUBIC)
         rip = cv2.resize(rng.random((1, k * 4)).astype(np.float32),
                          (w, 1), interpolation=cv2.INTER_CUBIC)
-        amp = h * 0.06 * (1.1 - t) * (0.3 + 1.4 * curl)
+        # Calme plat (contraste 0) : bord presque droit, sans boules.
+        cv = min(1.0, 2 * contrast)
+        amp = h * 0.06 * (1.1 - t) * (0.3 + 1.4 * curl) * (0.1 + 0.9 * cv)
         # Bord bousculé par la texture : pas une ligne trop propre.
         tx = _cloud_noise_cached(h, w, max(4.0, 25 * (1.05 - t)), 91 + i)
         edge = y0 - amp * (0.3 + wave + 0.5 * curl * rip) \
@@ -2570,7 +2590,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                 bump = np.maximum(bump, np.sqrt(np.maximum(
                     r * r - (xs - c) ** 2, 0)))
                 c += r * rng.uniform(1.0, 1.6)
-            edge = edge - bump[None, :]
+            edge = edge - cv * bump[None, :]
         dy = yy - edge
         # Au loin, bords fondus et bancs plus légers (spread).
         sf = soft * (1 + 1.5 * spread + 3 * spread * t ** 2)
@@ -2583,7 +2603,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         vis = np.clip((far - t) * 20 / (1 + 5 * spread) + 0.5, 0, 1)
         vis = vis * vis * (3 - 2 * vis)
         rim = np.exp(-(dy / (sf * 1.5 + 2)) ** 2) * (dy > -sf)
-        rim = up((rim * (1 - spread * t)).astype(np.float32))
+        rim = up((rim * (1 - spread * t) * cv).astype(np.float32))
         # Contraste : dessus éclairé, corps plus sombre, pour lire la
         # forme des bancs même sur une photo claire.
         lo = 0.7 - 0.45 * contrast
