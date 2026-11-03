@@ -2356,7 +2356,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
              bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1, seed=0,
-             visible=0.03, grain=1.0):
+             visible=0.0, grain=1.0):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -2455,11 +2455,11 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     if ground > 0:
         # Dessus des volutes éclairé, corps plus sombre ; plus marqué
         # quand la brume est basse.
-        dd = max(1, int(h * 0.02))
-        tl = np.clip((hw - np.roll(hw, dd, axis=0)) * 4, 0, 1)
+        dd = max(1, int(h * 0.008))
+        tl = np.clip((hw - np.roll(hw, dd, axis=0)) * 8, 0, 1)
         tl[:dd] = 0
         kk = ground * (1 - 0.6 * ground_height)
-        f = 1 - 0.18 * kk + 0.3 * kk * cv2.GaussianBlur(tl, (0, 0), dd)
+        f = 1 - 0.18 * kk + 0.45 * kk * cv2.GaussianBlur(tl, (0, 0), dd)
         fc = color * f[..., None]
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + fc * a * (1 - 0.6 * clouds)
@@ -2496,8 +2496,8 @@ def _sub_balls(img, cx, cy, r, v, rng, depth):
     if depth <= 0 or r < 3:
         return
     # Taille du grain : 0 = beaucoup de petites, 1 = peu de grosses.
-    q = 0.1 + 0.3 * _GRAIN
-    nb = max(2, int(round(1.5 / q)))
+    q = 0.05 + 0.3 * _GRAIN
+    nb = min(30, max(2, int(round(1.5 / q))))
     for _ in range(nb):
         t = rng.uniform(np.pi * 1.1, np.pi * 1.9)
         rr = r * q * rng.uniform(0.8, 1.2)
@@ -2519,6 +2519,7 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
                     interpolation=cv2.INTER_AREA)
     rng = np.random.default_rng(seed + 1000 * _SEED)
     balls = np.zeros((h, w), np.float32)
+    sub = np.zeros((h, w), np.float32)
     thr = 0.5 * float(np.percentile(ms, 99.5))
     # ponytail: curseur remappé sur l'ancienne plage 0,5-1 (en dessous,
     # boules trop espacées, retour user).
@@ -2555,7 +2556,7 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
                        float(lvl[i]), -1, cv2.LINE_AA)
             # Fractal : sur chaque volute, des volutes plus petites
             # posées sur son arrondi, et encore plus petites dessus.
-            _sub_balls(balls, i, cy, r, float(lvl[i]), rng, 2)
+            _sub_balls(sub, i, cy, r, float(lvl[i]), rng, 2)
             x += r * rng.uniform(0.9, 1.5)
         else:
             x += 4
@@ -2568,6 +2569,12 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
     balls = balls * np.clip(1 + nz * tx, 0, None)
     balls = cv2.GaussianBlur(balls, (0, 0),
                              max(0.6, r0 * (0.03 + 0.87 * edge)))
+    # Sous-volutes floutées à leur échelle : sinon le flou des grosses
+    # les efface.
+    qs = 0.05 + 0.3 * _GRAIN
+    sub = cv2.GaussianBlur(sub, (0, 0),
+                           max(0.6, r0 * qs * (0.15 + 0.6 * edge)))
+    balls = np.maximum(balls, sub)
     # Détail intérieur : petites bosses dans chaque volute (comme 214).
     # ponytail: grain fin (bruit blanc flouté ~1 px à 800 px), pas un
     # bruit de volutes : celui-ci créait des formes étrangères.

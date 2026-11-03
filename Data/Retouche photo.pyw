@@ -185,7 +185,7 @@ def default_params():
                       "edge": C.BRUME_EDGE,
                       "bumps": C.BRUME_BUMPS,
                       "contrast": C.BRUME_CONTRAST,
-                      "seed": 0, "visible": 0.03, "grain": 1.0,
+                      "seed": 0, "visible": 0.0, "grain": 1.0,
                       "fond": C.BRUME_FOND,
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
