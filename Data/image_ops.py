@@ -2467,7 +2467,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         hwf = np.asarray(hw, np.float32)
         ao = sum(np.clip(cv2.GaussianBlur(hwf, (0, 0), h * sc) - hwf, 0, 1)
                  for sc in (0.01, 0.04))
-        f = f * (1 - np.clip(ao * 2.5 * contrast, 0, 0.35))
+        f = f * (1 - np.clip(ao * 4.0 * contrast, 0, 0.5))
         fc = color * f[..., None]
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + fc * a * (1 - 0.6 * clouds)
@@ -2670,14 +2670,28 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         # plus petits au loin ; dessous plat.
         r0 = h * 0.06 * (1.1 - t) * (0.3 + 2.2 * bumps)
         if r0 >= 1.5:
-            xs = np.arange(w, dtype=np.float32)
-            bump = np.zeros(w, np.float32)
+            # Profil dessiné en 2D pour y poser les sous-volutes
+            # (fractal, comme la brume au sol), puis lu colonne par
+            # colonne : hauteur du dessus.
+            hc = int(r0 * 4) + 4
+            pad = int(r0 * 3)
+            can = np.zeros((hc, w + 2 * pad), np.uint8)
             c = -r0
             while c < w + r0:
                 r = r0 * rng.uniform(0.6, 1.4)
-                bump = np.maximum(bump, np.sqrt(np.maximum(
-                    r * r - (xs - c) ** 2, 0)))
+                cx = int(c) + pad
+                cv2.circle(can, (cx, hc - 1), max(1, int(r)), 255, -1,
+                           cv2.LINE_AA)
+                if cv > 0:
+                    _sub_balls(can, cx, hc - 1, r, 255, rng, 3)
                 c += r * rng.uniform(1.0, 1.6)
+            can = can[:, pad:pad + w] > 127
+            bump = np.where(can.any(axis=0),
+                            hc - 1 - can.argmax(axis=0), 0)
+            # Détail au minimum : sous-volutes adoucies.
+            bump = cv2.GaussianBlur(
+                bump.astype(np.float32)[None, :], (0, 0),
+                max(0.6, r0 * (0.03 + 0.25 * _GRAIN)))[0]
             edge = edge - cv * bump[None, :]
         dy = yy - edge
         # Au loin, bords fondus et bancs plus légers (spread).
@@ -2698,6 +2712,11 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         lo = 0.7 - 0.45 * contrast
         col = shade + (color * 1.08 - shade) * (lo + (1.15 - lo) * rim)[
             ..., None]
+        # Occlusion : le corps s'assombrit en descendant sous le bord,
+        # là où le banc de devant le cache ; couches bien lisibles.
+        occ = 1 - np.exp(-np.maximum(dy, 0) / (h * 0.06 * (1.1 - t)))
+        col = col * up((1 - 0.3 * contrast * occ).astype(
+            np.float32))[..., None]
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
                      * (1 - 0.5 * spread * t)
                      * (0.35 + 0.65 * min(1.0, t / 0.3)), 0, cap)
