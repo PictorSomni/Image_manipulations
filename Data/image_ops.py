@@ -2159,6 +2159,10 @@ def _depth_precise(img, quality=False):
     return np.clip(far, 0, 1)
 
 
+# Appelé (sans argument) avant un calcul de carte : voile de l'interface.
+on_depth = None
+
+
 def depth_map(img, precise=0):
     """Carte d'éloignement 0 (proche) .. 1 (loin) d'une image float RGB,
     mise en cache par image (calculée une fois, pas à chaque curseur).
@@ -2177,6 +2181,8 @@ def depth_map(img, precise=0):
     key = (img.shape, precise, (thumb * 255).astype(np.uint8).tobytes())
     cache = _depth_state["cache"]
     if key not in cache:
+        if on_depth:
+            on_depth()
         far = None
         if precise:
             try:

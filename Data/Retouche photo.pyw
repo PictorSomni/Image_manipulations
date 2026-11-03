@@ -831,6 +831,20 @@ def main(page: ft.Page):
     # sur l'original pendant le calcul des réglages d'une photo.
     load_veil = ui_helpers.busy_veil("Application des réglages…", BLUE)
     veil_text = load_veil.content.controls[1]
+
+    def _depth_veil():
+        if state.get("batch"):
+            return
+
+        async def _show():
+            veil_text.value = "Création de la carte de profondeur…"
+            ui_helpers.set_busy_veil(load_veil, True)
+            load_veil.update()
+        try:
+            page.run_task(_show)
+        except RuntimeError:
+            pass
+    image_ops.on_depth = _depth_veil
     preview_container = ft.Container(
         content=ft.Stack([preview_viewer, load_veil]),
         width=state["preview_w"] + 16, height=state["preview_h"] + 16,
@@ -1040,6 +1054,7 @@ def main(page: ft.Page):
 
         async def _show():
             if state.get("rendered_req", 0) < req:
+                veil_text.value = "Application des réglages…"
                 ui_helpers.set_busy_veil(load_veil, True)
                 load_veil.update()
         try:
