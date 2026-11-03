@@ -1844,7 +1844,7 @@ def main(page: ft.Page):
             ("edge", "Fondu des bords", 0, 1, 0.01),
             ("contrast", "Contraste", 0, 1, 0.01),
             ("cap", "Fond visible", 0.3, 0.97, 0.01),
-            ("grain", "Taille du grain", 0, 1, 0.01),
+            ("grain", "Détail", 0, 1, 0.01),
             ("seed", "Variante", 0, 20, 1),
             ("fond", "Début du fond", 0.05, 1, 0.01),
             ("ground", "Brume au sol", 0, 1, 0.01),

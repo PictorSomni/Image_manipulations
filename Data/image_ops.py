@@ -2493,9 +2493,12 @@ def _sub_balls(img, cx, cy, r, v, rng, depth):
     """Petites boules sur le haut d'une boule (récursif, depth niveaux)."""
     if depth <= 0 or r < 3:
         return
-    for _ in range(rng.integers(3, 6)):
+    # Taille du grain : 0 = beaucoup de petites, 1 = peu de grosses.
+    q = 0.15 + 0.35 * _GRAIN
+    nb = max(2, int(round(1.2 / q)))
+    for _ in range(nb):
         t = rng.uniform(np.pi * 1.1, np.pi * 1.9)
-        rr = r * rng.uniform(0.3, 0.45)
+        rr = r * q * rng.uniform(0.8, 1.2)
         x = int(cx + r * 0.85 * np.cos(t))
         y = int(cy + r * 0.85 * np.sin(t))
         cv2.circle(img, (x, y), max(1, int(rr)), v, -1, cv2.LINE_AA)
