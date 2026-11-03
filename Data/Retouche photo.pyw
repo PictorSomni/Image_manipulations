@@ -1843,7 +1843,7 @@ def main(page: ft.Page):
             ("distort", "Densité", 0, 1, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
             "Fond",
-            ("depth", "Profondeur", 0, 3, 0.01),
+            ("depth", "Éloignement", 0, 3, 0.01),
             ("fond", "Début du fond", 0.05, 1, 0.01),
             ("visible", "Fond visible", 0, 1, 0.01),
             "Sol",

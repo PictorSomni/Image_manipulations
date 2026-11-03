@@ -2437,7 +2437,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         # plus fines au loin.
         fine = _grain(lh, lw, 41)
         sh = contrast * (0.12 * (tn - 0.5) + 0.2 * crest
-                         + 0.08 * np.clip(fine, -2.5, 2.5))
+                         + 0.03 * np.clip(fine, -2.5, 2.5))
         swell = cv2.resize(sh, (w, h), interpolation=cv2.INTER_CUBIC)
         if ground > 0:
             # ponytail: nappe haute = boules de cumulus, la houle
@@ -2574,11 +2574,15 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
     qs = 0.05 + 0.3 * _GRAIN
     sub = cv2.GaussianBlur(sub, (0, 0),
                            max(0.6, r0 * qs * (0.15 + 0.6 * edge)))
-    balls = np.maximum(balls, sub)
+    # Relief des sous-volutes même posées dans une grosse : leur bord
+    # ressort (sub moins sa version floue), pas juste leur contour.
+    rel = np.clip(sub - cv2.GaussianBlur(sub, (0, 0),
+                                         max(1.0, r0 * qs * 0.8)), 0, 1)
+    balls = np.maximum(balls, sub) + 0.6 * rel
     # Détail intérieur : petites bosses dans chaque volute (comme 214).
     # ponytail: grain fin (bruit blanc flouté ~1 px à 800 px), pas un
     # bruit de volutes : celui-ci créait des formes étrangères.
-    d = 0.25 * contrast
+    d = 0.08 * contrast
     balls = balls * np.clip(1 + d * _grain(h, w, 23), 0, None)
     if far is not None:
         # Les boules restent derrière ce qui est plus proche que la
