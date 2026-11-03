@@ -182,10 +182,9 @@ def default_params():
                       "precise": C.BRUME_PRECISE,
                       "clouds": C.BRUME_CLOUDS,
                       "cloud_size": C.BRUME_CLOUD_SIZE,
-                      "thick": C.BRUME_THICK,
+                      "bumps": C.BRUME_BUMPS,
+                      "contrast": C.BRUME_CONTRAST,
                       "fond": C.BRUME_FOND,
-                      "spread": C.BRUME_SPREAD,
-                      "curl": C.BRUME_CURL,
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
                       "ground_height": C.BRUME_GROUND_HEIGHT,
@@ -493,8 +492,8 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
           ("brume", image_ops.add_haze,
            ("amount", "depth", "warmth", "precise", "clouds",
             "cloud_size", "show_depth", "ground",
-            "ground_height", "thick", "fond", "spread",
-            "curl", "distort")),
+            "ground_height", "bumps", "fond", "contrast",
+            "distort")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
             "sun_size", "influence", "depth", "precise", "rays",
@@ -509,7 +508,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
     for name, func, keys in fx:
         a = g.get(name)
         if a and a.get("enabled"):
-            result = func(result, *(a[k] for k in keys))
+            result = func(result, **{k: a[k] for k in keys if k in a})
     if g["grain1"]["enabled"]:
         a = g["grain1"]
         result = image_ops.add_film_grain(
@@ -1837,10 +1836,9 @@ def main(page: ft.Page):
             ("amount", "Intensité", 0, 1, 0.01),
             ("depth", "Profondeur", 0, 3, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
-            ("curl", "Volutes", 0, 1, 0.01),
             ("distort", "Distorsion", 0, 1, 0.01),
-            ("thick", "Épaisseur", 0, 1, 0.01),
-            ("spread", "Fondu", 0, 1, 0.01),
+            ("bumps", "Taille des boules", 0, 1, 0.01),
+            ("contrast", "Contraste", 0, 1, 0.01),
             ("fond", "Début du fond", 0.05, 1, 0.01),
             ("ground", "Brume au sol", 0, 1, 0.01),
             ("ground_height", "Hauteur", 0, 1, 0.005)])

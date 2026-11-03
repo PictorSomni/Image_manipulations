@@ -2337,7 +2337,7 @@ def _cloud_noise_cached(h, w, size, seed):
 def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
-             thick=0.0, fond=1.0, spread=0.5, curl=0.5, distort=0.5):
+             bumps=0.5, fond=1.0, contrast=0.5, distort=0.5):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -2378,6 +2378,17 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     d = min(1.0, depth)
     h, w = img.shape[:2]
     a = np.clip(amount * m, 0, 0.95)[..., None]
+    if contrast > 0:
+        # Nappes dans la brume elle-même : forme lisible même sur une
+        # photo claire (épais plus opaque, creux qui laissent voir).
+        sc = min(1.0, 640.0 / max(h, w))
+        lh, lw = max(1, int(h * sc)), max(1, int(w * sc))
+        tz = _cloud_noise_cached(lh, lw, 12 + 50 * bumps, 7)
+        q0, q1 = np.percentile(tz, (15, 85))
+        tn = np.clip((tz - q0) / max(1e-3, q1 - q0), 0, 1)
+        mod = cv2.resize(1 + contrast * 1.8 * (tn - 0.5), (w, h),
+                         interpolation=cv2.INTER_CUBIC)
+        a = np.clip(a * mod[..., None], 0, 0.97)
     # Diffusion : la lumière diffusée floute et adoucit le lointain,
     # pas seulement un voile laiteux posé dessus.
     sig = max(h, w) / 90.0
@@ -2404,14 +2415,14 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             al = np.clip(amount * clouds * 0.32 * n * vis * hw, 0, 0.9)
             al = al[..., None]
             out = out * (1 - al) + col * al
-    if thick > 0:
-        out = _fog_banks(out, far, hw, amount, thick, color, shade,
-                         spread, curl, distort)
+    # ponytail: épaisseur, fondu et volutes figés au max (retour user).
+    out = _fog_banks(out, far, hw, amount, 1.0, color, shade, 1.0, 1.0,
+                     distort, bumps=bumps, contrast=contrast)
     return _to_pil(out)
 
 
 def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
-               curl=0.5, distort=0.5, n=7):
+               curl=0.5, distort=0.5, n=7, bumps=0.5, contrast=0.5):
     """Bancs de brume en couches, du fond vers l'avant, comme des vagues :
     chaque banc a un bord supérieur ondulé, éclairé, qui se détache du
     banc de derrière ; il ne recouvre que ce qui est plus loin que lui.
@@ -2456,7 +2467,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
             + rng.uniform(-0.03, 0.03) * h
         # Dessus en boules (cumulus) : demi-cercles posés sur le bord,
         # plus petits au loin ; dessous plat.
-        r0 = h * 0.06 * (1.1 - t) * (0.4 + curl)
+        r0 = h * 0.06 * (1.1 - t) * (0.3 + 2.2 * bumps)
         if r0 >= 1.5:
             xs = np.arange(w, dtype=np.float32)
             bump = np.zeros(w, np.float32)
@@ -2474,13 +2485,17 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         cov = cov * np.exp(-np.maximum(dy, 0) / (h * (0.25 + 0.3 * t)))
         tex = _cloud_noise_cached(h, w, max(4.0, 40 * (1.05 - t)), 71 + i)
         # Densité : volute épaisse opaque, creux fin qui laisse voir.
-        dens = np.clip(0.55 + (tex - 0.5) * (1 + 4 * curl), 0.08, 1)
-        cov = cov * dens * 1.25
+        dens = np.clip(0.55 + (tex - 0.5) * (1 + 8 * contrast), 0.0, 1)
+        cov = cov * dens * (1 + 0.5 * contrast)
         vis = np.clip((far - t) * 20 / (1 + 5 * spread) + 0.5, 0, 1)
         vis = vis * vis * (3 - 2 * vis)
         rim = np.exp(-(dy / (sf * 1.5 + 2)) ** 2) * (dy > -sf)
         rim = up((rim * (1 - spread * t)).astype(np.float32))
-        col = shade + (color * 1.08 - shade) * (0.7 + 0.3 * rim)[..., None]
+        # Contraste : dessus éclairé, corps plus sombre, pour lire la
+        # forme des bancs même sur une photo claire.
+        lo = 0.7 - 0.45 * contrast
+        col = shade + (color * 1.08 - shade) * (lo + (1.15 - lo) * rim)[
+            ..., None]
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
                      * (1 - 0.5 * spread * t), 0, 0.97)
         al = up(al.astype(np.float32))

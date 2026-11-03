@@ -1054,11 +1054,10 @@ BRUME_DEPTH = 0.0  # 0 uniforme · 1 fond · 2 fond seul
 BRUME_WARMTH = 0.0
 BRUME_CLOUDS = 0.5  # 0 voile uni · 1 nappes marquées
 BRUME_CLOUD_SIZE = 30
-BRUME_CURL = 1.0  # forme des volutes
+BRUME_BUMPS = 0.5  # taille des boules sur le dessus des bancs
+BRUME_CONTRAST = 0.5  # parties épaisses plus opaques, creux plus vides
 BRUME_DISTORT = 0.5  # flou derrière la brume
-BRUME_SPREAD = 1.0  # fondu des bancs, plus fort au loin
 BRUME_FOND = 1.0  # plus bas = le fond commence plus près
-BRUME_THICK = 1.0  # 0 voile égal · 1 bancs épais et trouées
 BRUME_GROUND = 1.0  # 0 partout · 1 seulement au ras du sol / de l'eau
 BRUME_GROUND_HEIGHT = 0.55  # hauteur où elle s'efface (au carré)
 BRUME_PRECISE = 0  # 0 rapide · 1 équilibré · 2 qualité  # carte de profondeur IA
