@@ -2380,7 +2380,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         # halo ni liseré autour des silhouettes, transition douce.
         ray = _snap(img, ray)
         ray = _bumpy_top(ray, bumps, edge, far,
-                         amp=(1 - 0.75 * ground_height) * min(1.0, 2 * contrast),
+                         amp=1 - 0.75 * ground_height,
                          contrast=contrast)
         hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
@@ -2504,7 +2504,10 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
         if wgt[i] > 0.3:
             y = top[i]
             r = r0 * (0.4 + 0.6 * y / h) * rng.uniform(0.6, 1.4)
-            cv2.circle(balls, (i, int(y + r * 0.35)), max(1, int(r)),
+            # Les boules émergent de la nappe avec le contraste :
+            # enfoncées (bord plat) à 0, sorties à 1 ; forme, pas opacité.
+            cy = int(y + r * (1.0 - 0.65 * contrast))
+            cv2.circle(balls, (i, cy), max(1, int(r)),
                        float(lvl[i]), -1, cv2.LINE_AA)
             x += r * rng.uniform(0.9, 1.5)
         else:
@@ -2571,7 +2574,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         rip = cv2.resize(rng.random((1, k * 4)).astype(np.float32),
                          (w, 1), interpolation=cv2.INTER_CUBIC)
         # Calme plat (contraste 0) : bord presque droit, sans boules.
-        cv = min(1.0, 2 * contrast)
+        cv = contrast
         amp = h * 0.06 * (1.1 - t) * (0.3 + 1.4 * curl) * (0.1 + 0.9 * cv)
         # Bord bousculé par la texture : pas une ligne trop propre.
         tx = _cloud_noise_cached(h, w, max(4.0, 25 * (1.05 - t)), 91 + i)
