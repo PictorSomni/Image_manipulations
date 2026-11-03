@@ -2344,7 +2344,8 @@ def _cloud_noise_cached(h, w, size, seed):
 def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
-             bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1, seed=0):
+             bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1, seed=0,
+             cap=0.95):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -2392,7 +2393,10 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     expo = 1.3 + max(0.0, depth - 1.0) * 3.0
     d = min(1.0, depth)
     h, w = img.shape[:2]
-    a = np.clip(amount * m, 0, 0.95)[..., None]
+    # Saturation douce sous un plafond : monter l'intensité épaissit le
+    # premier plan sans noyer le fond, qui reste lisible sous cap.
+    cap = float(np.clip(cap, 0.05, 0.97))
+    a = (cap * (1 - np.exp(-amount * m / cap)))[..., None]
     swell = None
     if contrast > 0:
         # Houle : 0 = nappe d'eau plate, 1 = mer de nuages. Bandes
@@ -2433,7 +2437,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             swell = swell * np.clip(hw, 0, 1) * (1 - ground_height) ** 2
         op = cv2.resize(1 + 0.25 * contrast * (tn - 0.5), (w, h),
                         interpolation=cv2.INTER_CUBIC)
-        a = np.clip(a * op[..., None], 0, 0.97)
+        a = np.clip(a * op[..., None], 0, cap)
     # Diffusion : la lumière diffusée floute et adoucit le lointain,
     # pas seulement un voile laiteux posé dessus.
     sig = max(h, w) / 90.0
@@ -2472,7 +2476,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             out = out * (1 - al) + col * al
     # ponytail: épaisseur, fondu et volutes figés au max (retour user).
     out = _fog_banks(out, far, hw, amount, 1.0, color, shade, 1.0, 1.0,
-                     distort, bumps=bumps, contrast=contrast)
+                     distort, bumps=bumps, contrast=contrast, cap=cap)
     if swell is not None:
         # Houle posée en dernier : elle marque aussi les bancs.
         out = out * np.clip(1 + swell * a[..., 0], 0.82, 1.15)[..., None]
@@ -2552,7 +2556,8 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
 
 
 def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
-               curl=0.5, distort=0.5, n=7, bumps=0.5, contrast=0.5):
+               curl=0.5, distort=0.5, n=7, bumps=0.5, contrast=0.5,
+               cap=0.97):
     """Bancs de brume en couches, du fond vers l'avant, comme des vagues :
     chaque banc a un bord supérieur ondulé, éclairé, qui se détache du
     banc de derrière ; il ne recouvre que ce qui est plus loin que lui.
@@ -2578,7 +2583,8 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
     blur = _blur_pct(out, 100 * max(H, W) / 70.0 / min(H, W),
                      5.0)
     for i in reversed(range(n)):
-        t = 0.25 + 0.7 * (i + 0.5) / n
+        # Du premier plan (0.05) au fond.
+        t = 0.05 + 0.9 * (i + 0.5) / n
         band = np.abs(far - t) < 0.06
         if band.sum() < w:
             continue
@@ -2629,7 +2635,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         col = shade + (color * 1.08 - shade) * (lo + (1.15 - lo) * rim)[
             ..., None]
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
-                     * (1 - 0.5 * spread * t), 0, 0.97)
+                     * (1 - 0.5 * spread * t), 0, cap)
         al = up(al.astype(np.float32))
         k = np.clip(al * 4.0 * distort, 0, 1)[..., None]
         out = out + (blur - out) * k
