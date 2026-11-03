@@ -1838,7 +1838,7 @@ def main(page: ft.Page):
             ("depth", "Profondeur", 0, 3, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
             ("distort", "Distorsion", 0, 1, 0.01),
-            ("bumps", "Taille des boules", 0, 1, 0.01),
+            ("bumps", "Taille des volutes", 0, 1, 0.01),
             ("edge", "Fondu des bords", 0, 1, 0.01),
             ("contrast", "Contraste", 0, 1, 0.01),
             ("fond", "Début du fond", 0.05, 1, 0.01),

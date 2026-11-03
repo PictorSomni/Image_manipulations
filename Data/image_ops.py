@@ -2460,7 +2460,9 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, seed=5):
     top = np.where(has, hit.argmax(axis=0), h).astype(np.float32)
     lvl = np.array([ms[int(y):, i].mean() if y < h else 0.0
                     for i, y in enumerate(top)], np.float32)
-    k = max(1.0, r0 * 1.5)
+    # Ligne large quelle que soit la taille : petites volutes = pas de
+    # contour qui épouse chaque toit.
+    k = max(1.0, r0 * 1.5, w * 0.06)
     wgt = cv2.GaussianBlur(has.astype(np.float32)[None, :], (0, 0), k)[0]
     top = cv2.GaussianBlur((top * has)[None, :], (0, 0), k)[0] \
         / np.maximum(wgt, 1e-3)
