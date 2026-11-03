@@ -2612,7 +2612,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         cov = cov * np.exp(-np.maximum(dy, 0) / (h * (0.25 + 0.3 * t)))
         tex = _cloud_noise_cached(h, w, max(4.0, 40 * (1.05 - t)), 71 + i)
         # Densité : volute épaisse opaque, creux fin qui laisse voir.
-        dens = np.clip(0.55 + (tex - 0.5) * (1 + 8 * contrast), 0.0, 1)
+        dens = np.clip(0.55 + (tex - 0.5) * 9 * contrast, 0.0, 1)
         cov = cov * dens * (1 + 0.5 * contrast)
         vis = np.clip((far - t) * 20 / (1 + 5 * spread) + 0.5, 0, 1)
         vis = vis * vis * (3 - 2 * vis)
