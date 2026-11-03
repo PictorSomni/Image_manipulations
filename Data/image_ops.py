@@ -2111,6 +2111,11 @@ def _depth_precise(img, quality=False):
             * float(g.std()) + float(g.mean())
         sig = max(fine.shape) / 60.0
         d = g + (fine - cv2.GaussianBlur(fine, (0, 0), sig))
+        # Le détail ne doit pas dépasser les valeurs voisines de la passe
+        # globale : sinon auréole claire au-dessus des cimes (blob de
+        # brume au bord du premier plan).
+        ker = np.ones((int(sig) | 1,) * 2, np.uint8)
+        d = np.clip(d, cv2.erode(g, ker), cv2.dilate(g, ker))
     # Étagement calé sur les valeurs courantes, pas sur un point isolé ;
     # le ciel (disparité minimale) part au plus loin.
     lo, hi = np.percentile(d, (2, 99))
