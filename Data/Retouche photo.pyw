@@ -185,7 +185,7 @@ def default_params():
                       "edge": C.BRUME_EDGE,
                       "bumps": C.BRUME_BUMPS,
                       "contrast": C.BRUME_CONTRAST,
-                      "seed": 0, "cap": 0.95, "grain": 0.0,
+                      "seed": 0, "visible": 0.03, "grain": 0.0,
                       "fond": C.BRUME_FOND,
                       "distort": C.BRUME_DISTORT,
                       "ground": C.BRUME_GROUND,
@@ -495,7 +495,7 @@ def _pipeline_rest(result, params, *, date_label, filename_stem, ref_size,
            ("amount", "depth", "warmth", "precise", "clouds",
             "cloud_size", "show_depth", "ground",
             "ground_height", "fond", "distort", "edge", "contrast",
-            "seed", "cap", "grain",
+            "seed", "visible", "grain",
             "bumps")),
           ("rayons", image_ops.add_sunrays,
            ("x", "y", "length", "intensity", "warmth", "threshold",
@@ -1777,9 +1777,12 @@ def main(page: ft.Page):
                        head=()):
         # Curseurs plutôt que champs texte (retour user) ; double-tap
         # ramène au défaut d'origine du paramètre.
-        rows = [_slider_row(flabel, sub, key, lo, hi, step=st,
-                            reset=sub[key])
-                for key, flabel, lo, hi, st in field_specs]
+        # Une chaîne dans field_specs = séparateur titré.
+        rows = [ft.Text(f, size=12, weight=ft.FontWeight.BOLD,
+                        color=color) if isinstance(f, str)
+                else _slider_row(f[1], sub, f[0], f[2], f[3], step=f[4],
+                                 reset=sub[f[0]])
+                for f in field_specs]
         for key, slabel in (("parallel", "Parallèles"),
                             ("show_depth", "Voir la profondeur")):
             if key not in sub:
@@ -1837,18 +1840,21 @@ def main(page: ft.Page):
     section_brume = _grain_section(
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
             ("amount", "Intensité", 0, 3, 0.01),
-            ("depth", "Profondeur", 0, 3, 0.01),
+            ("distort", "Densité", 0, 1, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
-            ("distort", "Distorsion", 0, 1, 0.01),
-            ("bumps", "Taille des volutes", 0, 1, 0.01),
-            ("edge", "Fondu des bords", 0, 1, 0.01),
-            ("contrast", "Contraste", 0, 1, 0.01),
-            ("cap", "Fond visible", 0.3, 0.97, 0.01),
-            ("grain", "Détail", 0, 1, 0.01),
-            ("seed", "Variante", 0, 20, 1),
+            "Fond",
+            ("depth", "Profondeur", 0, 3, 0.01),
             ("fond", "Début du fond", 0.05, 1, 0.01),
+            ("visible", "Fond visible", 0, 1, 0.01),
+            "Sol",
             ("ground", "Brume au sol", 0, 1, 0.01),
-            ("ground_height", "Hauteur", 0, 1, 0.005)])
+            ("ground_height", "Hauteur", 0, 1, 0.005),
+            "Volutes",
+            ("contrast", "Volutes", 0, 1, 0.01),
+            ("bumps", "Taille des volutes", 0, 1, 0.01),
+            ("grain", "Détail", 0, 1, 0.01),
+            ("edge", "Fondu des bords", 0, 1, 0.01),
+            ("seed", "Variante", 0, 20, 1)])
     sun_btn = ft.OutlinedButton(
         "Placer le soleil", icon=ft.Icons.WB_SUNNY_OUTLINED,
         on_click=lambda e: _toggle_sun(), expand=True,
@@ -1856,15 +1862,18 @@ def main(page: ft.Page):
     state["sun_btn"] = sun_btn
     section_rayons = _grain_section(
         "Rayons de soleil", PINK, ft.Icons.WB_TWILIGHT, ga["rayons"], [
+            ("intensity", "Intensité", 0, 1, 0.01),
+            ("warmth", "Chaleur", 0, 1, 0.01),
+            "Soleil",
             ("x", "Position X", -50, 150, 1),
             ("y", "Position Y", -50, 150, 1),
+            ("sun_size", "Taille du soleil", 0, 20, 0.5),
+            "Rayons",
             ("rays", "Faisceaux", 0, 1, 0.01),
             ("count", "Nombre de rayons", 3, 120, 1),
             ("ray_width", "Largeur des rayons", 0.2, 3, 0.05),
             ("length", "Longueur", 0, 100, 1),
-            ("intensity", "Intensité", 0, 1, 0.01),
-            ("warmth", "Chaleur", 0, 1, 0.01),
-            ("sun_size", "Taille du soleil", 0, 20, 0.5),
+            "Photo",
             ("influence", "Influence de la photo", 0, 1, 0.01),
             ("threshold", "Seuil", 0, 1, 0.01),
             ("depth", "Profondeur", 0, 3, 0.01),

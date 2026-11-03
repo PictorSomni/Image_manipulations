@@ -2356,7 +2356,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
              bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1, seed=0,
-             cap=0.95, grain=0.0):
+             visible=0.03, grain=0.0):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -2407,7 +2407,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     h, w = img.shape[:2]
     # Saturation douce sous un plafond : monter l'intensité épaissit le
     # premier plan sans noyer le fond, qui reste lisible sous cap.
-    cap = float(np.clip(cap, 0.05, 0.97))
+    # Fond visible : 0 = brume jusqu'à 0.97, 1 = plafond 0.3.
+    cap = float(np.clip(0.97 - 0.67 * visible, 0.05, 0.97))
     a = (cap * (1 - np.exp(-amount * m / cap)))[..., None]
     swell = None
     if contrast > 0:
