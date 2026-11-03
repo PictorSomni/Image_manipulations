@@ -1058,7 +1058,7 @@ BRUME_CURL = 1.0  # forme des volutes
 BRUME_DISTORT = 0.5  # flou derrière la brume
 BRUME_SPREAD = 1.0  # fondu des bancs, plus fort au loin
 BRUME_FOND = 1.0  # plus bas = le fond commence plus près
-BRUME_THICK = 0.0  # 0 voile égal · 1 bancs épais et trouées
+BRUME_THICK = 1.0  # 0 voile égal · 1 bancs épais et trouées
 BRUME_GROUND = 1.0  # 0 partout · 1 seulement au ras du sol / de l'eau
 BRUME_GROUND_HEIGHT = 0.55  # hauteur où elle s'efface (au carré)
 BRUME_PRECISE = 0  # 0 rapide · 1 équilibré · 2 qualité  # carte de profondeur IA
