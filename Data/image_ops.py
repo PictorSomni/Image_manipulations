@@ -2198,7 +2198,7 @@ def height_map(far, fov=60.0):
     ponytail: fov fixe et plan unique, un relief très vallonné a des
     collines « hautes » ; lire la focale EXIF si ça gêne."""
     h, w = far.shape
-    k = min(1.0, 256.0 / max(h, w))
+    k = min(1.0, 512.0 / max(h, w))
     sh, sw = max(8, int(h * k)), max(8, int(w * k))
     f = cv2.resize(far, (sw, sh), interpolation=cv2.INTER_AREA)
     z = np.exp(f * math.log(80.0))  # distance relative 1..80
@@ -2226,11 +2226,9 @@ def height_map(far, fov=60.0):
     hs = ((y_hz - yy) / foc * 8.0 - coef[2] - lo) / max(1e-6, hi - lo)
     hs = np.maximum(hs, 0).astype(np.float32)
     ht[~sky] = hs[~sky]
-    # Trous de ciel entre les feuilles : pas plus haut que le feuillage
-    # autour, sinon des trous nets dans la brume.
-    ker = np.ones((max(3, sh // 16) | 1,) * 2, np.uint8)
-    ht[~sky] = np.minimum(ht[~sky], cv2.erode(ht, ker)[~sky])
-    ht = cv2.erode(ht, np.ones((5, 5), np.uint8))
+    # Bords flous de la carte (profondeur intermédiaire) : pas plus haut
+    # que le ciel du même pixel, sinon liseré sans brume.
+    ht = np.minimum(ht, hs)
     ht = cv2.GaussianBlur(ht, (0, 0), 1.0)
     cam = float(np.clip((-coef[2] - lo) / max(1e-6, hi - lo), 0, 1))
     return cv2.resize(ht, (w, h), interpolation=cv2.INTER_LINEAR), cam
@@ -2348,6 +2346,16 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         safe = np.where(np.abs(d) < 1e-3, 1e-3, d)
         ray = np.where(np.abs(d) < 1e-3, np.exp(-np.maximum(ht, 0) / sc),
                        sc * (np.exp(-cam / sc) - np.exp(-ht / sc)) / safe)
+        ray = np.clip(ray, 0, 1).astype(np.float32)
+        # Bords recalés sur la photo (filtre guidé, en ~800 px) : ni
+        # halo ni liseré autour des silhouettes, transition douce.
+        g = _luma(img)
+        s = min(1.0, 800.0 / max(g.shape))
+        gs = cv2.resize(g, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
+        rs = cv2.resize(ray, gs.shape[::-1], interpolation=cv2.INTER_AREA)
+        rs = _guided(gs, rs, max(3, int(max(gs.shape) / 100)) | 1, 2e-3)
+        ray = cv2.resize(np.clip(rs, 0, 1), ray.shape[::-1],
+                         interpolation=cv2.INTER_CUBIC)
         hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
         return _depth_view(far if ground <= 0 else 1 - hw)
