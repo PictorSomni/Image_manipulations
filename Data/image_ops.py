@@ -2456,7 +2456,9 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, seed=5):
     rng = np.random.default_rng(seed + 1000 * _SEED)
     balls = np.zeros((h, w), np.float32)
     thr = 0.5 * float(np.percentile(ms, 99.5))
-    r0 = h * (0.01 + 0.11 * bumps)
+    # ponytail: curseur remappé sur l'ancienne plage 0,5-1 (en dessous,
+    # boules trop espacées, retour user).
+    r0 = h * (0.065 + 0.055 * bumps)
     if thr <= 0.02:
         return m
     # Ligne du dessus lissée sur la largeur : les boules suivent la
@@ -2494,6 +2496,9 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, seed=5):
     balls = balls * (1 - nz + nz * tx)
     balls = cv2.GaussianBlur(balls, (0, 0),
                              max(0.6, r0 * (0.03 + 0.87 * edge)))
+    # Détail intérieur : petites bosses dans chaque volute (comme 214).
+    fine = _cloud_noise_cached(h, w, max(3.0, r0 * 0.3), 23)
+    balls = balls * (0.7 + 0.3 * fine)
     if far is not None:
         # Les boules restent derrière ce qui est plus proche que la
         # nappe (arbres du premier plan) : profondeur au pied de la ligne.
