@@ -2311,8 +2311,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
                       0.86 - 0.08 * warmth], np.float32)
     # La brume prend la lumière de la scène : teinte locale très floue
     # (couchant magenta, ombres bleues du matin…), luminosité gardée.
-    big = max(img.shape[:2]) / 8.0
-    amb = cv2.GaussianBlur(img, (0, 0), big)
+    amb = _blur_pct(img, 12.5 * max(img.shape[:2]) / min(img.shape[:2]))
     amb = amb / (amb.mean(axis=2, keepdims=True) + 1e-3)
     color = color * (0.4 + 0.6 * np.clip(amb, 0.3, 2.0))
     far = depth_map(img, precise)
@@ -2334,7 +2333,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     # Diffusion : la lumière diffusée floute et adoucit le lointain,
     # pas seulement un voile laiteux posé dessus.
     sig = max(h, w) / 90.0
-    blur = cv2.GaussianBlur(img, (0, 0), sig)
+    blur = _blur_pct(img, 100 * sig / min(h, w))
     img = img + (blur - img) * np.clip(a * 3.6 * distort, 0, 1)
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + color * a * (1 - 0.6 * clouds)
@@ -2377,7 +2376,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
     rows = np.broadcast_to(yy, (h, w))
     soft = h * (0.05 * (1 - thick) + 0.015)
     # Ce qui est derrière une volute épaisse se floute, même au proche.
-    blur = cv2.GaussianBlur(out, (0, 0), max(h, w) / 70.0)
+    blur = _blur_pct(out, 100 * max(h, w) / 70.0 / min(h, w))
     for i in reversed(range(n)):
         t = 0.25 + 0.7 * (i + 0.5) / n
         band = np.abs(far - t) < 0.06

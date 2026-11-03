@@ -1548,6 +1548,8 @@ def main(page: ft.Page):
             # Relâché : dernier rendu, voilé s'il tarde.
             state["dragging"] = False
             live_preview_tick()
+            threading.Timer(0.3, _veil_if_slow,
+                            (state["live_req"],)).start()
 
         def _open_editor(e):
             def _apply(v):
