@@ -2352,6 +2352,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     perspective (plus fines au loin)."""
     global _SEED
     _SEED = int(seed)
+    # ponytail: nappes sans curseur, liées au contraste (0 = uniforme).
+    clouds = clouds * contrast
     img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
     color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
                       0.86 - 0.08 * warmth], np.float32)
