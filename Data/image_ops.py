@@ -2356,7 +2356,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
              bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1, seed=0,
-             visible=0.03, grain=0.0):
+             visible=0.03, grain=1.0):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -2364,7 +2364,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     perspective (plus fines au loin)."""
     global _SEED, _GRAIN
     _SEED = int(seed)
-    _GRAIN = float(grain)
+    # Détail : 1 = petites sous-volutes nombreuses, 0 = grosses.
+    _GRAIN = 1.0 - float(grain)
     # ponytail: nappes coupées (taches sombres qui cachent les
     # volutes) ; la houle et les bancs font le relief.
     clouds = 0.0
