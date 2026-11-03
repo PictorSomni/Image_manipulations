@@ -1057,7 +1057,7 @@ BRUME_CLOUD_SIZE = 30
 BRUME_BUMPS = 1.0  # taille des boules de la brume au sol
 BRUME_CONTRAST = 0.5  # écarts de densité des nappes
 BRUME_EDGE = 0.10  # fondu des boules : bas = net (près), haut = doux
-BRUME_DISTORT = 0.2  # flou derrière la brume
+BRUME_DISTORT = 0.5  # flou derrière la brume
 BRUME_FOND = 1.0  # plus bas = le fond commence plus près
 BRUME_GROUND = 1.0  # 0 partout · 1 seulement au ras du sol / de l'eau
 BRUME_GROUND_HEIGHT = 0.15  # hauteur où elle s'efface (au carré)
