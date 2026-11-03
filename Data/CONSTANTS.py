@@ -1054,6 +1054,8 @@ BRUME_DEPTH = 0.0  # 0 uniforme · 1 fond · 2 fond seul
 BRUME_WARMTH = 0.2
 BRUME_CLOUDS = 0.5  # 0 voile uni · 1 nappes marquées
 BRUME_CLOUD_SIZE = 30
+BRUME_CURL = 0.5  # forme des volutes
+BRUME_DISTORT = 0.5  # flou derrière la brume
 BRUME_SPREAD = 0.7  # fondu des bancs, plus fort au loin
 BRUME_FOND = 1.0  # plus bas = le fond commence plus près
 BRUME_THICK = 0.0  # 0 voile égal · 1 bancs épais et trouées

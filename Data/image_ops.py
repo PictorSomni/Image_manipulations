@@ -2300,7 +2300,7 @@ def _cloud_noise_cached(h, w, size, seed):
 def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
-             thick=0.0, fond=1.0, spread=0.5):
+             thick=0.0, fond=1.0, spread=0.5, curl=0.5, distort=0.5):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -2335,7 +2335,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     # pas seulement un voile laiteux posé dessus.
     sig = max(h, w) / 90.0
     blur = cv2.GaussianBlur(img, (0, 0), sig)
-    img = img + (blur - img) * np.clip(a * 1.8, 0, 1)
+    img = img + (blur - img) * np.clip(a * 3.6 * distort, 0, 1)
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + color * a * (1 - 0.6 * clouds)
     shade = np.array([0.84, 0.87, 0.93], np.float32) * color
@@ -2359,12 +2359,12 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             out = out * (1 - al) + col * al
     if thick > 0:
         out = _fog_banks(out, far, hw, amount, thick, color, shade,
-                         spread)
+                         spread, curl, distort)
     return _to_pil(out)
 
 
 def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
-               n=7):
+               curl=0.5, distort=0.5, n=7):
     """Bancs de brume en couches, du fond vers l'avant, comme des vagues :
     chaque banc a un bord supérieur ondulé, éclairé, qui se détache du
     banc de derrière ; il ne recouvre que ce qui est plus loin que lui.
@@ -2376,6 +2376,8 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
     yy = np.arange(h, dtype=np.float32)[:, None]
     rows = np.broadcast_to(yy, (h, w))
     soft = h * (0.05 * (1 - thick) + 0.015)
+    # Ce qui est derrière une volute épaisse se floute, même au proche.
+    blur = cv2.GaussianBlur(out, (0, 0), max(h, w) / 70.0)
     for i in reversed(range(n)):
         t = 0.25 + 0.7 * (i + 0.5) / n
         band = np.abs(far - t) < 0.06
@@ -2388,10 +2390,11 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                           interpolation=cv2.INTER_CUBIC)
         rip = cv2.resize(rng.random((1, k * 4)).astype(np.float32),
                          (w, 1), interpolation=cv2.INTER_CUBIC)
-        amp = h * 0.06 * (1.1 - t)
+        amp = h * 0.06 * (1.1 - t) * (0.3 + 1.4 * curl)
         # Bord bousculé par la texture : pas une ligne trop propre.
         tx = _cloud_noise_cached(h, w, max(4.0, 25 * (1.05 - t)), 91 + i)
-        edge = y0 - amp * (0.3 + wave + 0.25 * rip) - amp * 0.6 * tx \
+        edge = y0 - amp * (0.3 + wave + 0.5 * curl * rip) \
+            - amp * (0.2 + 0.8 * curl) * tx \
             + rng.uniform(-0.03, 0.03) * h
         dy = yy - edge
         # Au loin, bords fondus et bancs plus légers (spread).
@@ -2407,6 +2410,8 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         col = shade + (color * 1.08 - shade) * (0.7 + 0.3 * rim)[..., None]
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
                      * (1 - 0.5 * spread * t), 0, 0.92)
+        k = np.clip(al * 4.0 * distort, 0, 1)[..., None]
+        out = out + (blur - out) * k
         out = out * (1 - al[..., None]) + col * al[..., None]
     return out
 
