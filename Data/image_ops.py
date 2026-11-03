@@ -2218,9 +2218,22 @@ def height_map(far, fov=60.0):
     ht = Y - (coef[0] * X + coef[1] * z + coef[2])
     lo, hi = np.percentile(ht[sky], (3, 97))
     ht = np.clip((ht - lo) / max(1e-6, hi - lo), 0, 1)
-    ht[~sky] = 1.0
+    # Ciel : hauteur du rayon assez proche (z = 8 : la
+    # couche traversée), mesurée depuis l'horizon
+    # du plan du sol — juste au-dessus de l'horizon, le rayon est encore
+    # bas et traverse la brume.
+    y_hz = sh / 2 - coef[1] * foc
+    hs = ((y_hz - yy) / foc * 8.0 - coef[2] - lo) / max(1e-6, hi - lo)
+    hs = np.maximum(hs, 0).astype(np.float32)
+    ht[~sky] = hs[~sky]
+    # Trous de ciel entre les feuilles : pas plus haut que le feuillage
+    # autour, sinon des trous nets dans la brume.
+    ker = np.ones((max(3, sh // 16) | 1,) * 2, np.uint8)
+    ht[~sky] = np.minimum(ht[~sky], cv2.erode(ht, ker)[~sky])
+    ht = cv2.erode(ht, np.ones((5, 5), np.uint8))
     ht = cv2.GaussianBlur(ht, (0, 0), 1.0)
-    return cv2.resize(ht, (w, h), interpolation=cv2.INTER_LINEAR)
+    cam = float(np.clip((-coef[2] - lo) / max(1e-6, hi - lo), 0, 1))
+    return cv2.resize(ht, (w, h), interpolation=cv2.INTER_LINEAR), cam
 
 
 def pin_depth(pil_img):
@@ -2326,9 +2339,16 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     # Brume au sol : dense près de l'eau / des fonds, s'efface en montant.
     hw = 1.0
     if ground > 0:
-        ht = height_map(far)
-        hw = (1 - ground) + ground * np.exp(
-            -ht / max(1e-4, ground_height ** 2))
+        ht, cam = height_map(far)
+        # Moyenne de la densité le long du rayon, de l'œil (cam) au
+        # point : la brume où l'on se tient couvre aussi le haut des
+        # arbres et le bas du ciel, pas seulement le pied des troncs.
+        sc = max(1e-4, ground_height ** 2)
+        d = ht - cam
+        safe = np.where(np.abs(d) < 1e-3, 1e-3, d)
+        ray = np.where(np.abs(d) < 1e-3, np.exp(-np.maximum(ht, 0) / sc),
+                       sc * (np.exp(-cam / sc) - np.exp(-ht / sc)) / safe)
+        hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
         return _depth_view(far if ground <= 0 else 1 - hw)
     m = _depth_weight(far, depth) * hw
