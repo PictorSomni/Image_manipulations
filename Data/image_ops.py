@@ -2340,6 +2340,7 @@ _noise_cache = {}
 # parallèle).
 _SEED = 0
 _GRAIN = 0.0  # taille du sous-bruit 0..1, posée par add_haze
+_RES = 640.0  # résolution des volutes (grand côté), posée par add_haze
 
 
 def _cloud_noise_cached(h, w, size, seed):
@@ -2362,7 +2363,11 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
     clouds 0-1 : nappes irrégulières plutôt qu'un voile uni, en
     perspective (plus fines au loin)."""
-    global _SEED, _GRAIN
+    global _SEED, _GRAIN, _RES
+    # Résolution des volutes suivant la qualité : rapide 640 px,
+    # équilibré 1600 px, qualité 3000 px (pleine résolution : mémoire
+    # saturée sur le Pi).
+    _RES = (640.0, 1600.0, 3000.0)[int(np.clip(precise, 0, 2))]
     _SEED = int(seed)
     # Détail : 1 = petites sous-volutes nombreuses, 0 = grosses.
     _GRAIN = 1.0 - float(grain)
@@ -2419,7 +2424,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         # étirées en largeur, serrées au loin, larges devant ; le dessus
         # de chaque vague est éclairé, le creux derrière plus sombre.
         # L'opacité reste pleine : du relief, pas de trous.
-        sc = min(1.0, 640.0 / max(h, w))
+        sc = min(1.0, _RES / max(h, w))
         lh, lw = max(1, int(h * sc)), max(1, int(w * sc))
         sw = max(8, lw // 3)
         big = cv2.resize(_cloud_noise_cached(lh, sw, lh * 0.12, 31), (lw, lh),
@@ -2525,7 +2530,7 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
     posés le long du bord supérieur de la nappe (là où m passe 0.5),
     plus petits vers le haut du cadre (plus loin) ; dessous plat."""
     H, W = m.shape
-    s = min(1.0, 640.0 / max(H, W))
+    s = min(1.0, _RES / max(H, W))
     h, w = max(1, int(H * s)), max(1, int(W * s))
     ms = cv2.resize(m.astype(np.float32), (w, h),
                     interpolation=cv2.INTER_AREA)
@@ -2628,7 +2633,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
     H, W = far.shape
     # Masques calculés en basse résolution (bords déjà doux), puis
     # agrandis ; seul le mélange final se fait en pleine résolution.
-    s = min(1.0, 640.0 / max(H, W))
+    s = min(1.0, _RES / max(H, W))
     h, w = max(1, int(H * s)), max(1, int(W * s))
     if s < 1:
         far = cv2.resize(far, (w, h), interpolation=cv2.INTER_AREA)
