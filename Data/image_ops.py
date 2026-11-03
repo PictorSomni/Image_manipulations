@@ -2492,7 +2492,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
             out = out * (1 - al) + col * al
     # ponytail: épaisseur, fondu et volutes figés au max (retour user).
     out = _fog_banks(out, far, hw, amount, 1.0, color, shade, 1.0, 1.0,
-                     distort, bumps=bumps, contrast=contrast, cap=cap)
+                     distort, n=14, bumps=bumps, contrast=contrast,
+                     cap=cap)
     if swell is not None:
         # Houle posée en dernier : elle marque aussi les bancs.
         out = out * np.clip(1 + swell * a[..., 0], 0.82, 1.15)[..., None]
@@ -2512,8 +2513,8 @@ def _sub_balls(img, cx, cy, r, v, rng, depth, top=True):
     for _ in range(nb):
         t = rng.uniform(np.pi * 1.1, np.pi * 1.9)
         rr = r * q * rng.uniform(0.8, 1.2)
-        x = int(cx + r * 0.85 * np.cos(t))
-        y = int(cy + r * 0.85 * np.sin(t))
+        x = int(cx + r * 0.7 * np.cos(t))
+        y = int(cy + r * 0.7 * np.sin(t))
         cv2.circle(img, (x, y), max(1, int(rr)), v, -1, cv2.LINE_AA)
         _sub_balls(img, x, y, rr, v, rng, depth - 1, False)
 
@@ -2668,7 +2669,9 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
             + rng.uniform(-0.03, 0.03) * h
         # Dessus en boules (cumulus) : demi-cercles posés sur le bord,
         # plus petits au loin ; dessous plat.
-        r0 = h * 0.06 * (1.1 - t) * (0.3 + 2.2 * bumps)
+        # Écart fond/avant adouci (x2,6 au lieu de x5,5) et plancher plus
+        # haut : la dernière couche ne fait plus une bande de miettes.
+        r0 = h * 0.06 * (0.35 + 0.75 * (1 - t)) * (0.6 + 1.9 * bumps)
         if r0 >= 1.5:
             # Profil dessiné en 2D pour y poser les sous-volutes
             # (fractal, comme la brume au sol), puis lu colonne par
@@ -2685,7 +2688,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                 if cv > 0:
                     # Premier plan : deux niveaux de plus.
                     _sub_balls(can, cx, hc - 1, r, 255, rng,
-                               5 if t < 0.35 else 3)
+                               4 if t < 0.35 else 3)
                 c += r * rng.uniform(1.0, 1.6)
             can = can[:, pad:pad + w] > 127
             bump = np.where(can.any(axis=0),
@@ -2694,6 +2697,8 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
             bump = cv2.GaussianBlur(
                 bump.astype(np.float32)[None, :], (0, 0),
                 max(0.6, r0 * (0.03 + 0.25 * _GRAIN)))[0]
+            # Hauteur bornée en douceur : pas de tours en zigzag.
+            bump = 1.6 * r0 * np.tanh(bump / (1.6 * r0))
             edge = edge - cv * bump[None, :]
         dy = yy - edge
         # Au loin, bords fondus et bancs plus légers (spread).
@@ -2720,8 +2725,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         col = col * up((1 - 0.5 * contrast * occ).astype(
             np.float32))[..., None]
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
-                     * (1 - 0.5 * spread * t)
-                     * (0.35 + 0.65 * min(1.0, t / 0.3)), 0, cap)
+                     * (1 - 0.5 * spread * t), 0, cap)
         al = up(al.astype(np.float32))
         k = np.clip(al * 4.0 * distort, 0, 1)[..., None]
         out = out + (blur - out) * k
