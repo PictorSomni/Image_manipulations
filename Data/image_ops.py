@@ -2325,7 +2325,14 @@ def _depth_weight(far, depth):
 _noise_cache = {}
 
 
+# ponytail: variante globale du bruit, posée par add_haze (pas
+# thread-safe ; passer seed partout si deux brumes tournent en
+# parallèle).
+_SEED = 0
+
+
 def _cloud_noise_cached(h, w, size, seed):
+    seed += 1000 * _SEED
     key = (h, w, round(size, 1), seed)
     if key not in _noise_cache:
         if len(_noise_cache) > 24:
@@ -2337,12 +2344,14 @@ def _cloud_noise_cached(h, w, size, seed):
 def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
-             bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1):
+             bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1, seed=0):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
     clouds 0-1 : nappes irrégulières plutôt qu'un voile uni, en
     perspective (plus fines au loin)."""
+    global _SEED
+    _SEED = int(seed)
     img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
     color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
                       0.86 - 0.08 * warmth], np.float32)
@@ -2444,7 +2453,7 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, seed=5):
     h, w = max(1, int(H * s)), max(1, int(W * s))
     ms = cv2.resize(m.astype(np.float32), (w, h),
                     interpolation=cv2.INTER_AREA)
-    rng = np.random.default_rng(seed)
+    rng = np.random.default_rng(seed + 1000 * _SEED)
     balls = np.zeros((h, w), np.float32)
     thr = 0.5 * float(np.percentile(ms, 99.5))
     r0 = h * (0.01 + 0.11 * bumps)
@@ -2516,7 +2525,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
             hw = cv2.resize(hw, (w, h), interpolation=cv2.INTER_AREA)
     up = (lambda a: a) if s >= 1 else (lambda a: cv2.resize(
         a, (W, H), interpolation=cv2.INTER_LINEAR))
-    rng = np.random.default_rng(7)
+    rng = np.random.default_rng(7 + 1000 * _SEED)
     yy = np.arange(h, dtype=np.float32)[:, None]
     rows = np.broadcast_to(yy, (h, w))
     soft = h * (0.05 * (1 - thick) + 0.015)
