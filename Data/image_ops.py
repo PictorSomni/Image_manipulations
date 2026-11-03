@@ -2460,6 +2460,12 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         tl[:dd] = 0
         kk = ground * (1 - 0.6 * ground_height)
         f = 1 - 0.18 * kk + 0.45 * kk * cv2.GaussianBlur(tl, (0, 0), dd)
+        # Occlusion ambiante : creux entre volutes (densité plus basse
+        # que le voisinage) plus sombres, à deux échelles.
+        hwf = np.asarray(hw, np.float32)
+        ao = sum(np.clip(cv2.GaussianBlur(hwf, (0, 0), h * sc) - hwf, 0, 1)
+                 for sc in (0.01, 0.04))
+        f = f * (1 - np.clip(ao * 2.5 * contrast, 0, 0.35))
         fc = color * f[..., None]
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + fc * a * (1 - 0.6 * clouds)
@@ -2551,7 +2557,10 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
         i = int(x)
         if wgt[i] > 0.3:
             y = top[i]
-            r = r0 * (0.4 + 0.6 * y / h) * rng.uniform(0.6, 1.4)
+            # Tailles très variées (log-normale) : grosses et petites
+            # volutes mêlées, pas une rangée régulière.
+            r = r0 * (0.4 + 0.6 * y / h) * float(np.clip(
+                rng.lognormal(0.0, 0.5), 0.35, 2.6))
             # Les boules émergent de la nappe avec le contraste :
             # enfoncées (bord plat) à 0, sorties à 1 ; forme, pas opacité.
             cy = int(y + r * (1.0 - 0.65 * contrast))
