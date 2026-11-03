@@ -2289,7 +2289,8 @@ def _fbm(h, w, base, rng, octaves=6, stretch=3.0):
 def _grain(h, w, seed, sig=None):
     """Bruit rond centré (écart-type ~1) ; sig px, ~1 px à 800 px."""
     rng = np.random.default_rng(seed + 1000 * _SEED)
-    sig = max(0.6, max(h, w) / 700.0) if sig is None else sig
+    if sig is None:
+        sig = max(0.6, max(h, w) / 700.0 * (1 + 20 * _GRAIN))
     g = cv2.GaussianBlur(rng.standard_normal((h, w)).astype(np.float32),
                          (0, 0), sig)
     return g / max(1e-3, float(g.std()))
@@ -2338,6 +2339,7 @@ _noise_cache = {}
 # thread-safe ; passer seed partout si deux brumes tournent en
 # parallèle).
 _SEED = 0
+_GRAIN = 0.0  # taille du sous-bruit 0..1, posée par add_haze
 
 
 def _cloud_noise_cached(h, w, size, seed):
@@ -2354,14 +2356,15 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
              bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1, seed=0,
-             cap=0.95):
+             cap=0.95, grain=0.0):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
     clouds 0-1 : nappes irrégulières plutôt qu'un voile uni, en
     perspective (plus fines au loin)."""
-    global _SEED
+    global _SEED, _GRAIN
     _SEED = int(seed)
+    _GRAIN = float(grain)
     # ponytail: nappes coupées (taches sombres qui cachent les
     # volutes) ; la houle et les bancs font le relief.
     clouds = 0.0
