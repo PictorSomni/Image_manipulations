@@ -2489,6 +2489,19 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     return _to_pil(out)
 
 
+def _sub_balls(img, cx, cy, r, v, rng, depth):
+    """Petites boules sur le haut d'une boule (récursif, depth niveaux)."""
+    if depth <= 0 or r < 3:
+        return
+    for _ in range(rng.integers(3, 6)):
+        t = rng.uniform(np.pi * 1.1, np.pi * 1.9)
+        rr = r * rng.uniform(0.3, 0.45)
+        x = int(cx + r * 0.85 * np.cos(t))
+        y = int(cy + r * 0.85 * np.sin(t))
+        cv2.circle(img, (x, y), max(1, int(rr)), v, -1, cv2.LINE_AA)
+        _sub_balls(img, x, y, rr, v, rng, depth - 1)
+
+
 def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
                seed=5):
     """Dessus de la brume au sol en boules (cumulus) : disques flous
@@ -2535,6 +2548,9 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
             cy = int(y + r * (1.0 - 0.65 * contrast))
             cv2.circle(balls, (i, cy), max(1, int(r)),
                        float(lvl[i]), -1, cv2.LINE_AA)
+            # Fractal : sur chaque volute, des volutes plus petites
+            # posées sur son arrondi, et encore plus petites dessus.
+            _sub_balls(balls, i, cy, r, float(lvl[i]), rng, 2)
             x += r * rng.uniform(0.9, 1.5)
         else:
             x += 4
