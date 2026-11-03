@@ -2412,7 +2412,17 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         crest = np.clip((tn - np.roll(tn, dd, axis=0)) * 3, -1, 1)
         crest[:dd] = 0
         crest = cv2.GaussianBlur(crest, (0, 0), dd)
-        sh = contrast * (0.35 * (tn - 0.5) + 0.45 * crest)
+        # Sous-bruit : petites bosses de nuage dans la houle (2397),
+        # plus fines au loin.
+        fw = max(8, lw // 2)
+        f1 = cv2.resize(_cloud_noise_cached(lh, fw, lh * 0.012, 41),
+                        (lw, lh), interpolation=cv2.INTER_CUBIC)
+        f2 = cv2.resize(_cloud_noise_cached(lh, fw, lh * 0.03, 43),
+                        (lw, lh), interpolation=cv2.INTER_CUBIC)
+        fine = fl * f1 + (1 - fl) * f2
+        fine = (fine - fine.mean()) / max(1e-3, fine.std())
+        sh = contrast * (0.35 * (tn - 0.5) + 0.45 * crest
+                         + 0.16 * np.clip(fine, -2.5, 2.5))
         swell = cv2.resize(sh, (w, h), interpolation=cv2.INTER_CUBIC)
         if ground > 0:
             swell = swell * np.clip(hw, 0, 1)
@@ -2434,8 +2444,6 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         kk = ground * (1 - 0.6 * ground_height)
         f = 1 - 0.18 * kk + 0.3 * kk * cv2.GaussianBlur(tl, (0, 0), dd)
         fc = color * f[..., None]
-    if swell is not None:
-        fc = fc * np.clip(1 + swell, 0.55, 1.3)[..., None]
     out = img * (1 - a * (1 - 0.6 * clouds)) \
         + fc * a * (1 - 0.6 * clouds)
     shade = np.array([0.84, 0.87, 0.93], np.float32) * color
@@ -2460,6 +2468,9 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     # ponytail: épaisseur, fondu et volutes figés au max (retour user).
     out = _fog_banks(out, far, hw, amount, 1.0, color, shade, 1.0, 1.0,
                      distort, bumps=bumps, contrast=contrast)
+    if swell is not None:
+        # Houle posée en dernier : elle marque aussi les bancs.
+        out = out * np.clip(1 + swell * a[..., 0], 0.55, 1.3)[..., None]
     return _to_pil(out)
 
 
