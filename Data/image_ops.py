@@ -2337,7 +2337,7 @@ def _cloud_noise_cached(h, w, size, seed):
 def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
-             bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.25):
+             bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.1):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -2370,7 +2370,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         # Bords recalés sur la photo (filtre guidé, en ~800 px) : ni
         # halo ni liseré autour des silhouettes, transition douce.
         ray = _snap(img, ray)
-        ray = _bumpy_top(ray, bumps, edge)
+        ray = _bumpy_top(ray, bumps, edge, far,
+                         amp=1 - 0.75 * ground_height)
         hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
         return _depth_view(far if ground <= 0 else 1 - hw)
@@ -2397,8 +2398,18 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     sig = max(h, w) / 90.0
     blur = _blur_pct(img, 100 * sig / min(h, w), 5.0)
     img = img + (blur - img) * np.clip(a * 3.6 * distort, 0, 1)
+    fc = color
+    if ground > 0:
+        # Dessus des volutes éclairé, corps plus sombre ; plus marqué
+        # quand la brume est basse.
+        dd = max(1, int(h * 0.02))
+        tl = np.clip((hw - np.roll(hw, dd, axis=0)) * 4, 0, 1)
+        tl[:dd] = 0
+        kk = ground * (1 - 0.6 * ground_height)
+        f = 1 - 0.18 * kk + 0.3 * kk * cv2.GaussianBlur(tl, (0, 0), dd)
+        fc = color * f[..., None]
     out = img * (1 - a * (1 - 0.6 * clouds)) \
-        + color * a * (1 - 0.6 * clouds)
+        + fc * a * (1 - 0.6 * clouds)
     shade = np.array([0.84, 0.87, 0.93], np.float32) * color
     if clouds > 0:
         # Couches successives de nappes translucides, du fond vers
@@ -2424,7 +2435,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     return _to_pil(out)
 
 
-def _bumpy_top(m, bumps, edge, seed=5):
+def _bumpy_top(m, bumps, edge, far=None, amp=1.0, seed=5):
     """Dessus de la brume au sol en boules (cumulus) : disques flous
     posés le long du bord supérieur de la nappe (là où m passe 0.5),
     plus petits vers le haut du cadre (plus loin) ; dessous plat."""
@@ -2436,29 +2447,51 @@ def _bumpy_top(m, bumps, edge, seed=5):
     rng = np.random.default_rng(seed)
     balls = np.zeros((h, w), np.float32)
     thr = 0.5 * float(np.percentile(ms, 99.5))
+    r0 = h * (0.01 + 0.11 * bumps)
+    if thr <= 0.02:
+        return m
+    # Ligne du dessus lissée sur la largeur : les boules suivent la
+    # nappe au lieu de sauter d'une colonne à l'autre (brume haute,
+    # bord progressif).
+    hit = ms >= thr
+    has = hit.any(axis=0)
+    if not has.any():
+        return m
+    top = np.where(has, hit.argmax(axis=0), h).astype(np.float32)
+    lvl = np.array([ms[int(y):, i].mean() if y < h else 0.0
+                    for i, y in enumerate(top)], np.float32)
+    k = max(1.0, r0 * 1.5)
+    wgt = cv2.GaussianBlur(has.astype(np.float32)[None, :], (0, 0), k)[0]
+    top = cv2.GaussianBlur((top * has)[None, :], (0, 0), k)[0] \
+        / np.maximum(wgt, 1e-3)
+    lvl = cv2.GaussianBlur(lvl[None, :], (0, 0), k)[0]
     x = 0.0
     while x < w:
-        col = ms[:, int(x)]
-        above = np.nonzero(col >= thr)[0]
-        if thr > 0.02 and len(above):
-            y = above[0]
-            lvl = float(np.mean(col[y:]))
-            r = h * (0.02 + 0.1 * bumps) * (0.4 + 0.6 * y / h) \
-                * rng.uniform(0.6, 1.4)
-            cv2.circle(balls, (int(x), int(y + r * 0.35)), max(1, int(r)),
-                       lvl, -1, cv2.LINE_AA)
+        i = int(x)
+        if wgt[i] > 0.3:
+            y = top[i]
+            r = r0 * (0.4 + 0.6 * y / h) * rng.uniform(0.6, 1.4)
+            cv2.circle(balls, (i, int(y + r * 0.35)), max(1, int(r)),
+                       float(lvl[i]), -1, cv2.LINE_AA)
             x += r * rng.uniform(0.9, 1.5)
         else:
             x += 4
-    # Fondu large (≈ moitié du rayon) + bord bousculé par du bruit :
-    # des rondeurs de brume, pas des disques dessinés.
-    r0 = h * (0.02 + 0.1 * bumps)
+    # Fondu + bord bousculé par du bruit : des rondeurs de brume, pas
+    # des disques dessinés.
     tx = _cloud_noise_cached(h, w, max(4.0, r0 * 0.8), 17)
     nz = 0.45 * (0.3 + 0.7 * edge)
     balls = balls * (1 - nz + nz * tx)
     balls = cv2.GaussianBlur(balls, (0, 0),
                              max(0.6, r0 * (0.03 + 0.87 * edge)))
-    out = ms + (1 - ms) * balls * (1 - 0.1 * edge)
+    if far is not None:
+        # Les boules restent derrière ce qui est plus proche que la
+        # nappe (arbres du premier plan) : profondeur au pied de la ligne.
+        fs = cv2.resize(far.astype(np.float32), (w, h),
+                        interpolation=cv2.INTER_AREA)
+        yi = np.clip(top.astype(int) + 2, 0, h - 1)
+        ft = cv2.GaussianBlur(fs[yi, np.arange(w)][None, :], (0, 0), k)[0]
+        balls = balls * np.clip((fs - ft[None, :] + 0.06) / 0.06, 0, 1)
+    out = ms + (1 - ms) * balls * amp * (1 - 0.1 * edge)
     return cv2.resize(out, (W, H), interpolation=cv2.INTER_LINEAR)
 
 
