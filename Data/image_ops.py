@@ -2380,7 +2380,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         # halo ni liseré autour des silhouettes, transition douce.
         ray = _snap(img, ray)
         ray = _bumpy_top(ray, bumps, edge, far,
-                         amp=1 - 0.75 * ground_height)
+                         amp=1 - 0.75 * ground_height,
+                         contrast=contrast)
         hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
         return _depth_view(far if ground <= 0 else 1 - hw)
@@ -2444,7 +2445,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     return _to_pil(out)
 
 
-def _bumpy_top(m, bumps, edge, far=None, amp=1.0, seed=5):
+def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
+               seed=5):
     """Dessus de la brume au sol en boules (cumulus) : disques flous
     posés le long du bord supérieur de la nappe (là où m passe 0.5),
     plus petits vers le haut du cadre (plus loin) ; dessous plat."""
@@ -2498,7 +2500,8 @@ def _bumpy_top(m, bumps, edge, far=None, amp=1.0, seed=5):
                              max(0.6, r0 * (0.03 + 0.87 * edge)))
     # Détail intérieur : petites bosses dans chaque volute (comme 214).
     fine = _cloud_noise_cached(h, w, max(3.0, r0 * 0.3), 23)
-    balls = balls * (0.7 + 0.3 * fine)
+    d = 0.6 * contrast
+    balls = balls * (1 - d + d * fine)
     if far is not None:
         # Les boules restent derrière ce qui est plus proche que la
         # nappe (arbres du premier plan) : profondeur au pied de la ligne.
