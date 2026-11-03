@@ -1049,18 +1049,18 @@ MYSTIQUE_AMOUNT = 0.5
 MYSTIQUE_SOFTNESS = 8
 MYSTIQUE_SHADOWS = 0.3
 BRUME_ENABLED = False
-BRUME_AMOUNT = 1.0
+BRUME_AMOUNT = 1.5
 BRUME_DEPTH = 0.0  # 0 uniforme · 1 fond · 2 fond seul
 BRUME_WARMTH = 0.0
 BRUME_CLOUDS = 0.5  # 0 voile uni · 1 nappes marquées
 BRUME_CLOUD_SIZE = 30
 BRUME_BUMPS = 1.0  # taille des boules de la brume au sol
-BRUME_CONTRAST = 1.0  # écarts de densité des nappes
+BRUME_CONTRAST = 0.5  # écarts de densité des nappes
 BRUME_EDGE = 0.10  # fondu des boules : bas = net (près), haut = doux
-BRUME_DISTORT = 0.5  # flou derrière la brume
+BRUME_DISTORT = 0.25  # flou derrière la brume
 BRUME_FOND = 1.0  # plus bas = le fond commence plus près
 BRUME_GROUND = 1.0  # 0 partout · 1 seulement au ras du sol / de l'eau
-BRUME_GROUND_HEIGHT = 0.4  # hauteur où elle s'efface (au carré)
+BRUME_GROUND_HEIGHT = 0.15  # hauteur où elle s'efface (au carré)
 BRUME_PRECISE = 0  # 0 rapide · 1 équilibré · 2 qualité  # carte de profondeur IA
 RAYONS_ENABLED = False
 RAYONS_X = 75
