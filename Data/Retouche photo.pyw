@@ -1836,7 +1836,7 @@ def main(page: ft.Page):
             ("shadows", "Ombres", 0, 1, 0.01)])
     section_brume = _grain_section(
         "Brume", BLUE_LIGHT, ft.Icons.FOGGY, ga["brume"], [
-            ("amount", "Intensité", 0, 1, 0.01),
+            ("amount", "Intensité", 0, 3, 0.01),
             ("depth", "Profondeur", 0, 3, 0.01),
             ("warmth", "Chaleur", -1, 1, 0.01),
             ("distort", "Distorsion", 0, 1, 0.01),
