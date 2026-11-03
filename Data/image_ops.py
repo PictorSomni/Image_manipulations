@@ -2370,6 +2370,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         # Bords recalés sur la photo (filtre guidé, en ~800 px) : ni
         # halo ni liseré autour des silhouettes, transition douce.
         ray = _snap(img, ray)
+        ray = _bumpy_top(ray, bumps, contrast)
         hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
         return _depth_view(far if ground <= 0 else 1 - hw)
@@ -2386,7 +2387,9 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         tz = _cloud_noise_cached(lh, lw, 12 + 50 * bumps, 7)
         q0, q1 = np.percentile(tz, (15, 85))
         tn = np.clip((tz - q0) / max(1e-3, q1 - q0), 0, 1)
-        mod = cv2.resize(1 + contrast * 1.8 * (tn - 0.5), (w, h),
+        am = cv2.resize(a[..., 0], (lw, lh), interpolation=cv2.INTER_AREA)
+        mu = float((tn * am).sum() / max(1e-6, am.sum()))
+        mod = cv2.resize(1 + contrast * 1.8 * (tn - mu), (w, h),
                          interpolation=cv2.INTER_CUBIC)
         a = np.clip(a * mod[..., None], 0, 0.97)
     # Diffusion : la lumière diffusée floute et adoucit le lointain,
@@ -2419,6 +2422,38 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     out = _fog_banks(out, far, hw, amount, 1.0, color, shade, 1.0, 1.0,
                      distort, bumps=bumps, contrast=contrast)
     return _to_pil(out)
+
+
+def _bumpy_top(m, bumps, contrast, seed=5):
+    """Dessus de la brume au sol en boules (cumulus) : disques flous
+    posés le long du bord supérieur de la nappe (là où m passe 0.5),
+    plus petits vers le haut du cadre (plus loin) ; dessous plat."""
+    H, W = m.shape
+    s = min(1.0, 640.0 / max(H, W))
+    h, w = max(1, int(H * s)), max(1, int(W * s))
+    ms = cv2.resize(m.astype(np.float32), (w, h),
+                    interpolation=cv2.INTER_AREA)
+    rng = np.random.default_rng(seed)
+    balls = np.zeros((h, w), np.float32)
+    thr = 0.5 * float(np.percentile(ms, 99.5))
+    x = 0.0
+    while x < w:
+        col = ms[:, int(x)]
+        above = np.nonzero(col >= thr)[0]
+        if thr > 0.02 and len(above):
+            y = above[0]
+            lvl = float(np.mean(col[y:]))
+            r = h * (0.02 + 0.1 * bumps) * (0.4 + 0.6 * y / h) \
+                * rng.uniform(0.6, 1.4)
+            cv2.circle(balls, (int(x), int(y + r * 0.35)), max(1, int(r)),
+                       lvl, -1, cv2.LINE_AA)
+            x += r * rng.uniform(0.9, 1.5)
+        else:
+            x += 4
+    k = max(1, int(h * 0.006 * (1.5 - contrast)))
+    balls = cv2.GaussianBlur(balls, (0, 0), k)
+    out = np.maximum(ms, balls)
+    return cv2.resize(out, (W, H), interpolation=cv2.INTER_LINEAR)
 
 
 def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
