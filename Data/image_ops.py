@@ -2337,7 +2337,7 @@ def _cloud_noise_cached(h, w, size, seed):
 def add_haze(pil_img, amount, depth, warmth, precise=False,
              clouds=0.0, cloud_size=30.0, show_depth=False,
              ground=0.0, ground_height=0.3,
-             bumps=0.5, fond=1.0, contrast=0.5, distort=0.5):
+             bumps=1.0, fond=1.0, contrast=1.0, distort=0.5, edge=0.25):
     """Brume / voile atmosphérique : mélange vers une couleur laiteuse,
     dense au loin selon la carte de profondeur. depth : 0 uniforme,
     1 = seulement l'arrière-plan. warmth -1 froid .. 1 chaud.
@@ -2370,7 +2370,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         # Bords recalés sur la photo (filtre guidé, en ~800 px) : ni
         # halo ni liseré autour des silhouettes, transition douce.
         ray = _snap(img, ray)
-        ray = _bumpy_top(ray, bumps, contrast)
+        ray = _bumpy_top(ray, bumps, edge)
         hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
         return _depth_view(far if ground <= 0 else 1 - hw)
@@ -2424,7 +2424,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     return _to_pil(out)
 
 
-def _bumpy_top(m, bumps, contrast, seed=5):
+def _bumpy_top(m, bumps, edge, seed=5):
     """Dessus de la brume au sol en boules (cumulus) : disques flous
     posés le long du bord supérieur de la nappe (là où m passe 0.5),
     plus petits vers le haut du cadre (plus loin) ; dessous plat."""
@@ -2450,9 +2450,14 @@ def _bumpy_top(m, bumps, contrast, seed=5):
             x += r * rng.uniform(0.9, 1.5)
         else:
             x += 4
-    k = max(1, int(h * 0.006 * (1.5 - contrast)))
-    balls = cv2.GaussianBlur(balls, (0, 0), k)
-    out = np.maximum(ms, balls)
+    # Fondu large (≈ moitié du rayon) + bord bousculé par du bruit :
+    # des rondeurs de brume, pas des disques dessinés.
+    r0 = h * (0.02 + 0.1 * bumps)
+    tx = _cloud_noise_cached(h, w, max(4.0, r0 * 0.8), 17)
+    balls = balls * (0.55 + 0.45 * tx)
+    balls = cv2.GaussianBlur(balls, (0, 0),
+                             max(1.0, r0 * (0.1 + 0.8 * edge)))
+    out = ms + (1 - ms) * balls * 0.9
     return cv2.resize(out, (W, H), interpolation=cv2.INTER_LINEAR)
 
 
