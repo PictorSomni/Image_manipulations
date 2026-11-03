@@ -2499,7 +2499,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     return _to_pil(out)
 
 
-def _sub_balls(img, cx, cy, r, v, rng, depth):
+def _sub_balls(img, cx, cy, r, v, rng, depth, top=True):
     """Petites boules sur le haut d'une boule (récursif, depth niveaux)."""
     if depth <= 0 or r < 1.2:
         return
@@ -2507,7 +2507,7 @@ def _sub_balls(img, cx, cy, r, v, rng, depth):
     # suivants au tiers, peu nombreux (sinon nb**3 cercles).
     q = 0.12 + 0.3 * _GRAIN
     nb = min(14, max(2, int(round(1.5 / q))))
-    if depth < 3:
+    if not top:
         q, nb = 0.35, 5
     for _ in range(nb):
         t = rng.uniform(np.pi * 1.1, np.pi * 1.9)
@@ -2515,7 +2515,7 @@ def _sub_balls(img, cx, cy, r, v, rng, depth):
         x = int(cx + r * 0.85 * np.cos(t))
         y = int(cy + r * 0.85 * np.sin(t))
         cv2.circle(img, (x, y), max(1, int(rr)), v, -1, cv2.LINE_AA)
-        _sub_balls(img, x, y, rr, v, rng, depth - 1)
+        _sub_balls(img, x, y, rr, v, rng, depth - 1, False)
 
 
 def _bumpy_top(m, bumps, edge, far=None, amp=1.0, contrast=0.5,
@@ -2683,7 +2683,9 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
                 cv2.circle(can, (cx, hc - 1), max(1, int(r)), 255, -1,
                            cv2.LINE_AA)
                 if cv > 0:
-                    _sub_balls(can, cx, hc - 1, r, 255, rng, 3)
+                    # Premier plan : deux niveaux de plus.
+                    _sub_balls(can, cx, hc - 1, r, 255, rng,
+                               5 if t < 0.35 else 3)
                 c += r * rng.uniform(1.0, 1.6)
             can = can[:, pad:pad + w] > 127
             bump = np.where(can.any(axis=0),
@@ -2715,7 +2717,7 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         # Occlusion : le corps s'assombrit en descendant sous le bord,
         # là où le banc de devant le cache ; couches bien lisibles.
         occ = 1 - np.exp(-np.maximum(dy, 0) / (h * 0.06 * (1.1 - t)))
-        col = col * up((1 - 0.3 * contrast * occ).astype(
+        col = col * up((1 - 0.5 * contrast * occ).astype(
             np.float32))[..., None]
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
                      * (1 - 0.5 * spread * t)
