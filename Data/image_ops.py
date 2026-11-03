@@ -2290,7 +2290,7 @@ def _grain(h, w, seed, sig=None):
     """Bruit rond centré (écart-type ~1) ; sig px, ~1 px à 800 px."""
     rng = np.random.default_rng(seed + 1000 * _SEED)
     if sig is None:
-        sig = max(0.6, max(h, w) / 700.0 * (1 + 20 * _GRAIN))
+        sig = max(0.6, max(h, w) / 700.0 * (5 + 16 * _GRAIN))
     g = cv2.GaussianBlur(rng.standard_normal((h, w)).astype(np.float32),
                          (0, 0), sig)
     return g / max(1e-3, float(g.std()))
@@ -2494,8 +2494,8 @@ def _sub_balls(img, cx, cy, r, v, rng, depth):
     if depth <= 0 or r < 3:
         return
     # Taille du grain : 0 = beaucoup de petites, 1 = peu de grosses.
-    q = 0.15 + 0.35 * _GRAIN
-    nb = max(2, int(round(1.2 / q)))
+    q = 0.1 + 0.3 * _GRAIN
+    nb = max(2, int(round(1.5 / q)))
     for _ in range(nb):
         t = rng.uniform(np.pi * 1.1, np.pi * 1.9)
         rr = r * q * rng.uniform(0.8, 1.2)
