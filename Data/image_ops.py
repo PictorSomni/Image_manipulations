@@ -2366,6 +2366,8 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     _SEED = int(seed)
     # Détail : 1 = petites sous-volutes nombreuses, 0 = grosses.
     _GRAIN = 1.0 - float(grain)
+    # Densité : curseur 0-1 remappé sur l'ancienne plage 0,15-0,64.
+    distort = 0.15 + 0.49 * float(distort)
     # ponytail: nappes coupées (taches sombres qui cachent les
     # volutes) ; la houle et les bancs font le relief.
     clouds = 0.0
