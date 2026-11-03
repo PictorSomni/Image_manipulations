@@ -1055,6 +1055,7 @@ BRUME_WARMTH = 0.0
 BRUME_CLOUDS = 0.5  # 0 voile uni · 1 nappes marquées
 BRUME_CLOUD_SIZE = 30
 BRUME_BUMPS = 1.0  # taille des boules de la brume au sol
+BRUME_CONTRAST = 0.5  # écarts de densité des nappes
 BRUME_EDGE = 0.10  # fondu des boules : bas = net (près), haut = doux
 BRUME_DISTORT = 0.5  # flou derrière la brume
 BRUME_FOND = 1.0  # plus bas = le fond commence plus près
