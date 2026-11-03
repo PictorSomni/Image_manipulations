@@ -2462,12 +2462,23 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         tex = _cloud_noise_cached(h, w, max(4.0, 40 * (1.05 - t)), 71 + i)
         # Densité : volute épaisse opaque, creux fin qui laisse voir.
         dens = np.clip(0.55 + (tex - 0.5) * (1 + 4 * curl), 0.08, 1)
+        # Sprites : boules de nuage nettes, haut éclairé, plus petites
+        # et plus marquées au loin (aspect particules des jeux).
+        pz = _cloud_noise_cached(h, w, max(3.0, 22 * (1.05 - t)), 131 + i)
+        q0, q1 = np.percentile(pz, (40, 60))
+        pf = np.clip((pz - q0) / max(1e-3, q1 - q0), 0, 1)
+        pf = pf * pf * (3 - 2 * pf)
+        sh = max(1, int(h * 0.008 * (1.1 - t)))
+        top = np.clip((pf - np.roll(pf, sh, axis=0)) * 2, -1, 1)
+        pk = curl * (0.4 + 0.6 * t)
+        dens = dens * (1 - 0.6 * pk) + pf * pk
         cov = cov * dens * 1.25
         vis = np.clip((far - t) * 20 / (1 + 5 * spread) + 0.5, 0, 1)
         vis = vis * vis * (3 - 2 * vis)
         rim = np.exp(-(dy / (sf * 1.5 + 2)) ** 2) * (dy > -sf)
         rim = up((rim * (1 - spread * t)).astype(np.float32))
-        col = shade + (color * 1.08 - shade) * (0.7 + 0.3 * rim)[..., None]
+        lit = np.clip(0.7 + 0.3 * rim + 0.6 * up(top * pk), 0.3, 1.3)
+        col = shade + (color * 1.08 - shade) * lit[..., None]
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
                      * (1 - 0.5 * spread * t), 0, 0.97)
         al = up(al.astype(np.float32))
