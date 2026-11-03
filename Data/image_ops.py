@@ -2460,14 +2460,16 @@ def _fog_banks(out, far, hw, amount, thick, color, shade, spread=0.5,
         cov = np.clip(dy / sf, 0, 1)
         cov = cov * np.exp(-np.maximum(dy, 0) / (h * (0.25 + 0.3 * t)))
         tex = _cloud_noise_cached(h, w, max(4.0, 40 * (1.05 - t)), 71 + i)
-        cov = cov * (0.7 + 0.3 * tex)
+        # Densité : volute épaisse opaque, creux fin qui laisse voir.
+        dens = np.clip(0.55 + (tex - 0.5) * (1 + 4 * curl), 0.08, 1)
+        cov = cov * dens * 1.25
         vis = np.clip((far - t) * 20 / (1 + 5 * spread) + 0.5, 0, 1)
         vis = vis * vis * (3 - 2 * vis)
         rim = np.exp(-(dy / (sf * 1.5 + 2)) ** 2) * (dy > -sf)
         rim = up((rim * (1 - spread * t)).astype(np.float32))
         col = shade + (color * 1.08 - shade) * (0.7 + 0.3 * rim)[..., None]
         al = np.clip(amount * thick * 0.85 * cov * vis * hw
-                     * (1 - 0.5 * spread * t), 0, 0.92)
+                     * (1 - 0.5 * spread * t), 0, 0.97)
         al = up(al.astype(np.float32))
         k = np.clip(al * 4.0 * distort, 0, 1)[..., None]
         out = out + (blur - out) * k
