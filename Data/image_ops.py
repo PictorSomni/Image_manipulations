@@ -2352,8 +2352,9 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     perspective (plus fines au loin)."""
     global _SEED
     _SEED = int(seed)
-    # ponytail: nappes sans curseur, liées au contraste (0 = uniforme).
-    clouds = clouds * contrast
+    # ponytail: nappes coupées (taches sombres qui cachent les
+    # volutes) ; la houle et les bancs font le relief.
+    clouds = 0.0
     img = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
     color = np.array([0.86 + 0.08 * warmth, 0.86 + 0.02 * warmth,
                       0.86 - 0.08 * warmth], np.float32)
@@ -2423,11 +2424,13 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
                         (lw, lh), interpolation=cv2.INTER_CUBIC)
         fine = fl * f1 + (1 - fl) * f2
         fine = (fine - fine.mean()) / max(1e-3, fine.std())
-        sh = contrast * (0.35 * (tn - 0.5) + 0.45 * crest
-                         + 0.16 * np.clip(fine, -2.5, 2.5))
+        sh = contrast * (0.12 * (tn - 0.5) + 0.2 * crest
+                         + 0.08 * np.clip(fine, -2.5, 2.5))
         swell = cv2.resize(sh, (w, h), interpolation=cv2.INTER_CUBIC)
         if ground > 0:
-            swell = swell * np.clip(hw, 0, 1)
+            # ponytail: nappe haute = boules de cumulus, la houle
+            # les écrase ; on l'efface quand la nappe monte.
+            swell = swell * np.clip(hw, 0, 1) * (1 - ground_height) ** 2
         op = cv2.resize(1 + 0.25 * contrast * (tn - 0.5), (w, h),
                         interpolation=cv2.INTER_CUBIC)
         a = np.clip(a * op[..., None], 0, 0.97)
@@ -2472,7 +2475,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
                      distort, bumps=bumps, contrast=contrast)
     if swell is not None:
         # Houle posée en dernier : elle marque aussi les bancs.
-        out = out * np.clip(1 + swell * a[..., 0], 0.55, 1.3)[..., None]
+        out = out * np.clip(1 + swell * a[..., 0], 0.82, 1.15)[..., None]
     return _to_pil(out)
 
 
