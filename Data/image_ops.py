@@ -2241,7 +2241,20 @@ def pin_depth(pil_img):
     _depth_state["pin"] = None
     if pil_img is not None:
         src = np.asarray(pil_img.convert("RGB"), np.float32) / 255.0
-        _depth_state["pin"] = depth_map(src)
+        _depth_state["pin"] = _snap(src, depth_map(src))
+
+
+def _snap(img, m):
+    """Bords de m recalés sur la photo (filtre guidé, en ~800 px) : ni
+    halo ni liseré autour des silhouettes."""
+    g = _luma(img)
+    s = min(1.0, 800.0 / max(g.shape))
+    gs = cv2.resize(g, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
+    ms = cv2.resize(m.astype(np.float32), gs.shape[::-1],
+                    interpolation=cv2.INTER_AREA)
+    ms = _guided(gs, ms, max(3, int(max(gs.shape) / 100)) | 1, 2e-3)
+    return cv2.resize(np.clip(ms, 0, 1), m.shape[::-1],
+                      interpolation=cv2.INTER_CUBIC)
 
 
 def _depth_view(far):
@@ -2349,13 +2362,7 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
         ray = np.clip(ray, 0, 1).astype(np.float32)
         # Bords recalés sur la photo (filtre guidé, en ~800 px) : ni
         # halo ni liseré autour des silhouettes, transition douce.
-        g = _luma(img)
-        s = min(1.0, 800.0 / max(g.shape))
-        gs = cv2.resize(g, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
-        rs = cv2.resize(ray, gs.shape[::-1], interpolation=cv2.INTER_AREA)
-        rs = _guided(gs, rs, max(3, int(max(gs.shape) / 100)) | 1, 2e-3)
-        ray = cv2.resize(np.clip(rs, 0, 1), ray.shape[::-1],
-                         interpolation=cv2.INTER_CUBIC)
+        ray = _snap(img, ray)
         hw = (1 - ground) + ground * np.clip(ray, 0, 1)
     if show_depth:
         return _depth_view(far if ground <= 0 else 1 - hw)
