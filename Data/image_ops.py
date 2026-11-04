@@ -2496,6 +2496,16 @@ def add_haze(pil_img, amount, depth, warmth, precise=False,
     far = depth_map(img, precise)
     # Fond : tout ce qui est plus loin que ce seuil compte comme le fond.
     far = np.clip(far / max(0.05, fond), 0, 1)
+    if ground > 0 and _VOLUME == 2 and not show_depth:
+        # Volume : vraie mer de nuages en perspective autour du sujet.
+        import cloud_sea
+        sea = cloud_sea.render(
+            img, far, layer=ground_height, size=0.6 * bumps,
+            billow=contrast, detail=grain, soft=edge, density=ground,
+            warmth=warmth, sun=sun, res=_RES * 0.5, seed=seed)
+        if sea is not None:
+            img = np.clip(sea, 0, 1).astype(np.float32)
+            ground = 0.0
     # Brume au sol : dense près de l'eau / des fonds, s'efface en montant.
     hw = 1.0
     if ground > 0:
