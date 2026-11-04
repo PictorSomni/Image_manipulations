@@ -9043,6 +9043,11 @@ def main(page: ft.Page):
 
                 git_pull_result = run_git_command(
                     "pull", "--rebase", "origin")
+                if git_pull_result.returncode != 0:
+                    # GitHub en panne : on passe par le Pi.
+                    run_git_command("rebase", "--abort")
+                    git_pull_result = run_git_command(
+                        "pull", "--rebase", auto_update.PI_REMOTE, "main")
                 git_command_output = (
                     git_pull_result.stdout + git_pull_result.stderr).strip()
 

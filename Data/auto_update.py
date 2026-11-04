@@ -10,6 +10,8 @@ import subprocess
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ENV = {**os.environ, "GIT_TERMINAL_PROMPT": "0",
         "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o ConnectTimeout=10"}
+# Secours si GitHub plante : la copie de travail du Pi, via Tailscale.
+PI_REMOTE = "pictorsomni@pictorsomni:Documents/GitHub/Image_manipulations"
 
 
 def _version():
@@ -27,11 +29,15 @@ def pull():
         return None
     before = _version()
     try:
-        r = subprocess.run(["git", "-C", REPO, "pull", "--ff-only", "-q"],
-                           capture_output=True, text=True, timeout=60,
-                           env=_ENV,
-                           creationflags=getattr(
-                               subprocess, "CREATE_NO_WINDOW", 0))
+        for src in ([], [PI_REMOTE, "main"]):
+            r = subprocess.run(["git", "-C", REPO, "pull", "--ff-only", "-q",
+                                *src],
+                               capture_output=True, text=True, timeout=60,
+                               env=_ENV,
+                               creationflags=getattr(
+                                   subprocess, "CREATE_NO_WINDOW", 0))
+            if r.returncode == 0:
+                break
     except (OSError, subprocess.TimeoutExpired):
         return None
     after = _version()
